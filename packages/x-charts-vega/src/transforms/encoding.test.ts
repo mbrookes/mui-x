@@ -25,6 +25,31 @@ describe('applyEncodingTransforms / inline aggregate (baseline, still green)', (
     ]);
     expect(result.encoding.y).to.deep.include({ field: '__sum_v', type: 'quantitative' });
   });
+
+  it('keeps an unaggregated x2 field alongside its group (histogram_log-shaped: x/x2 bin edges + y count)', () => {
+    const gaps = createGapCollector();
+    const rows = [
+      { x1: 1, x2: 10 },
+      { x1: 1, x2: 10 },
+      { x1: 10, x2: 100 },
+    ];
+    const result = applyEncodingTransforms(
+      rows,
+      {
+        x: { field: 'x1', type: 'quantitative' },
+        x2: { field: 'x2' },
+        y: { aggregate: 'count' },
+      },
+      gaps,
+      '$',
+    );
+    // Without x2 in the groupby set, the twin field would be dropped from
+    // every grouped-output row (only x1 and the count would survive).
+    expect(result.rows).to.deep.equal([
+      { x1: 1, x2: 10, __count_records: 2 },
+      { x1: 10, x2: 100, __count_records: 1 },
+    ]);
+  });
 });
 
 describe('applyEncodingTransforms / inline argmin-argmax', () => {

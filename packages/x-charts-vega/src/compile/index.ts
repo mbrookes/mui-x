@@ -207,6 +207,7 @@ function overlayAxisValues(overlay: CompiledOverlay, axis: 'x' | 'y'): number[] 
         : numbers(overlay.points.map((point) => point.x));
     }
     case 'segments':
+    case 'rects':
       return numbers(
         overlay.items.flatMap((item) => (axis === 'x' ? [item.x1, item.x2] : [item.y1, item.y2])),
       );

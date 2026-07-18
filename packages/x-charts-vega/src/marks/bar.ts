@@ -3,7 +3,13 @@ import type { BarSeriesType, StackOffsetType } from '@mui/x-charts/models';
 // without a license key, exactly like the rest of this wrapper's Premium
 // marks — see `packages/x-charts-premium/src/models/seriesType/rangeBar.ts`).
 import type { RangeBarSeriesType } from '@mui/x-charts-premium/models';
-import type { AxisResolution, CompiledUnit, UnitContext } from '../compile/context';
+import type {
+  AxisResolution,
+  CompiledUnit,
+  OverlayRectItem,
+  UnitContext,
+} from '../compile/context';
+import type { GapCollector } from '../gaps';
 import { resolveColor } from '../compile/color';
 import { toDate, toNumber } from '../compile/fieldTypes';
 import type { DatasetRow, VegaChannelDef } from '../types';
@@ -206,6 +212,56 @@ export function groupRowsByField(
   return ordered;
 }
 
+/**
+ * A `bar` mark whose positional channels are BOTH continuous (neither
+ * resolved to a categorical/band axis) — e.g. `histogram_log`'s log-scaled
+ * `x`/`x2` bin edges paired with a plain quantitative `y` count. This is
+ * Vega-Lite's genuine "ranged bar on a continuous domain" pattern; x-charts'
+ * `bar`/`rangeBar` series always need one categorical dimension to draw
+ * from, so it can never become a native series here. Drawn instead as plain
+ * `<rect>`s (`overlays/Rects.tsx`), positioned by the real (possibly log)
+ * scales at render time — `rangeField`/`rangeTwinField` give the ranged
+ * axis's two edges per row, `valueField` is the other axis's single
+ * continuous value with an implied zero baseline (matching a normal bar's
+ * default zero-baseline behavior).
+ */
+function compileContinuousRects(
+  rows: readonly DatasetRow[],
+  rangeField: string,
+  rangeTwinField: string,
+  valueField: string,
+  rangeAxis: 'x' | 'y',
+  staticColor: string | undefined,
+  gaps: GapCollector,
+  path: string,
+): CompiledUnit {
+  const items: OverlayRectItem[] = [];
+  for (const row of rows) {
+    const start = toNumber(row[rangeField]);
+    const end = toNumber(row[rangeTwinField]);
+    const value = toNumber(row[valueField]);
+    if (start === null || end === null || value === null) {
+      continue;
+    }
+    items.push(
+      rangeAxis === 'x'
+        ? { x1: start, x2: end, y1: 0, y2: value, fill: staticColor }
+        : { x1: 0, x2: value, y1: start, y2: end, fill: staticColor },
+    );
+  }
+  gaps.add({
+    code: 'mark:bar-continuous-range-custom-overlay',
+    message:
+      'Both positional channels resolved to continuous (non-categorical) axes — a genuine ' +
+      'Vega-Lite "ranged bar on a continuous domain" (e.g. a log-scaled histogram with explicit ' +
+      "bin edges). x-charts' bar/rangeBar series always need one categorical dimension, so this " +
+      'renders through a custom `rect` overlay instead.',
+    severity: 'ignored',
+    path,
+  });
+  return { series: [], plots: [], overlays: [{ kind: 'rects', items }] };
+}
+
 export function compileBarMark(ctx: UnitContext): CompiledUnit {
   const { unit, encoding, gaps, rows } = ctx;
   const mark = unit.mark;
@@ -267,6 +323,9 @@ export function compileBarMark(ctx: UnitContext): CompiledUnit {
     });
   }
 
+  const color = resolveColor(encoding, rows, gaps, unit.path);
+  const staticColor = color.staticColor ?? mark.color ?? mark.fill;
+
   const orientation = resolveOrientation(ctx);
   const horizontal = orientation === 'horizontal';
   const categoryAxis = horizontal ? ctx.y : ctx.x;
@@ -281,6 +340,55 @@ export function compileBarMark(ctx: UnitContext): CompiledUnit {
     valueAxis?.fieldType === 'quantitative' || valueAxis?.fieldType === 'temporal';
 
   if (!categoryAxis?.categories || !valueField || !valueAxisIsContinuous) {
+    // Neither axis is categorical, but a genuine continuous-domain ranged bar
+    // (a `2`-twinned axis plus a single continuous value on the other axis —
+    // see `compileContinuousRects`) still has real geometry to draw; only a
+    // color split is unsupported there (no dedicated legend/grouping for it).
+    const xContinuous = ctx.x?.fieldType === 'quantitative' || ctx.x?.fieldType === 'temporal';
+    const yContinuous = ctx.y?.fieldType === 'quantitative' || ctx.y?.fieldType === 'temporal';
+    const xField = ctx.x?.field;
+    const yField = ctx.y?.field;
+    const xTwinField = fieldOf(encoding.x2);
+    const yTwinField = fieldOf(encoding.y2);
+    if (
+      !ctx.x?.categories &&
+      !ctx.y?.categories &&
+      xContinuous &&
+      yContinuous &&
+      xField &&
+      yField &&
+      !color.splitField
+    ) {
+      // A single uncolored mark defaults to the palette's first swatch (Vega-
+      // Lite's own default), matching the auto-palette pass every other mark
+      // compiler's `series` goes through — this overlay has no `series`
+      // entry for that pass to reach, so it defaults explicitly instead.
+      const fillColor = staticColor ?? ctx.palette[0];
+      if (xTwinField && !yTwinField) {
+        return compileContinuousRects(
+          rows,
+          xField,
+          xTwinField,
+          yField,
+          'x',
+          fillColor,
+          gaps,
+          unit.path,
+        );
+      }
+      if (yTwinField && !xTwinField) {
+        return compileContinuousRects(
+          rows,
+          yField,
+          yTwinField,
+          xField,
+          'y',
+          fillColor,
+          gaps,
+          unit.path,
+        );
+      }
+    }
     gaps.add({
       code: 'mark:bar-missing-axes',
       message:
@@ -351,9 +459,6 @@ export function compileBarMark(ctx: UnitContext): CompiledUnit {
       path: `${unit.path}.encoding.${secondaryTwinChannel}`,
     });
   }
-
-  const color = resolveColor(encoding, rows, gaps, unit.path);
-  const staticColor = color.staticColor ?? mark.color ?? mark.fill;
 
   const series: Array<BarSeriesType | RangeBarSeriesType> = [];
 
@@ -439,7 +544,13 @@ export function compileBarMark(ctx: UnitContext): CompiledUnit {
     // Explicit-domain stack: order the series descending by color value so the
     // stack matches Vega-Lite (see the stackReversed note above). The legend
     // follows this order; colors stay tied to the domain (indexed below).
-    if (stackId && !stackReversed && color.domain && color.domainDerived !== true && groups.length > 1) {
+    if (
+      stackId &&
+      !stackReversed &&
+      color.domain &&
+      color.domainDerived !== true &&
+      groups.length > 1
+    ) {
       groups.sort((a, b) => compareStackValuesDesc(a.value, b.value));
     }
     groups.forEach((group, groupIndex) => {
@@ -451,7 +562,9 @@ export function compileBarMark(ctx: UnitContext): CompiledUnit {
       // that group's shared color, not the first range entry.
       const domainIndex =
         color.domain && color.domain.length > 0
-          ? color.domain.findIndex((value) => ctx.categoryKey(value) === ctx.categoryKey(group.value))
+          ? color.domain.findIndex(
+              (value) => ctx.categoryKey(value) === ctx.categoryKey(group.value),
+            )
           : -1;
       const colorIndex = domainIndex >= 0 ? domainIndex : groupIndex;
       const groupColor =

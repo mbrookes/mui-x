@@ -31,6 +31,8 @@ const AGGREGATABLE_CHANNELS = ['x', 'y', 'theta', 'radius', 'size', 'color'] as 
 const GROUPING_CHANNELS = [
   'x',
   'y',
+  'x2',
+  'y2',
   'color',
   'fill',
   'stroke',

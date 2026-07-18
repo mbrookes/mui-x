@@ -309,6 +309,98 @@ describe('compileBarMark', () => {
     expect(compiled.series).to.have.length(0);
   });
 
+  it('draws a fully continuous ranged bar (both axes continuous) as a custom rects overlay', () => {
+    // `histogram_log`'s shape: a log-scaled x with explicit x/x2 bin edges,
+    // paired with a plain quantitative y count — neither axis is categorical,
+    // so x-charts' bar/rangeBar series can't draw this at all.
+    const spec: VegaLiteSpec = {
+      data: {
+        values: [
+          { x1: 1, x2: 10, count: 3 },
+          { x1: 10, x2: 100, count: 5 },
+        ],
+      },
+      mark: 'bar',
+      encoding: {
+        x: { field: 'x1', type: 'quantitative', scale: { type: 'log' } },
+        x2: { field: 'x2' },
+        y: { field: 'count', type: 'quantitative' },
+      },
+    };
+    const compiled = compileSpec(spec);
+    expect(compiled.series).to.have.length(0);
+    expect(compiled.overlays).to.deep.equal([
+      {
+        kind: 'rects',
+        items: [
+          { x1: 1, x2: 10, y1: 0, y2: 3, fill: '#4c78a8' },
+          { x1: 10, x2: 100, y1: 0, y2: 5, fill: '#4c78a8' },
+        ],
+      },
+    ]);
+    const gap = compiled.gaps.find(
+      (entry) => entry.code === 'mark:bar-continuous-range-custom-overlay',
+    );
+    expect(gap?.severity).to.equal('ignored');
+    expect(compiled.gaps.map((entry) => entry.code)).not.to.include('mark:bar-missing-axes');
+  });
+
+  it('draws a fully continuous ranged bar with the range on y instead of x', () => {
+    const spec: VegaLiteSpec = {
+      data: { values: [{ y1: 1, y2: 10, count: 3 }] },
+      mark: 'bar',
+      encoding: {
+        y: { field: 'y1', type: 'quantitative', scale: { type: 'log' } },
+        y2: { field: 'y2' },
+        x: { field: 'count', type: 'quantitative' },
+      },
+    };
+    const compiled = compileSpec(spec);
+    expect(compiled.overlays).to.deep.equal([
+      { kind: 'rects', items: [{ x1: 0, x2: 3, y1: 1, y2: 10, fill: '#4c78a8' }] },
+    ]);
+  });
+
+  it('respects an explicit mark color for a fully continuous ranged bar', () => {
+    const spec: VegaLiteSpec = {
+      data: { values: [{ x1: 1, x2: 10, count: 3 }] },
+      mark: { type: 'bar', color: 'green' },
+      encoding: {
+        x: { field: 'x1', type: 'quantitative', scale: { type: 'log' } },
+        x2: { field: 'x2' },
+        y: { field: 'count', type: 'quantitative' },
+      },
+    };
+    const compiled = compileSpec(spec);
+    const overlay = compiled.overlays[0] as { items: Array<{ fill?: string }> };
+    expect(overlay.items[0].fill).to.equal('green');
+  });
+
+  it('falls back to mark:bar-missing-axes for a fully continuous ranged bar with a color split', () => {
+    // A color split has no dedicated legend/grouping story for this overlay
+    // shape, so it's left unsupported rather than silently dropping colors.
+    const spec: VegaLiteSpec = {
+      data: {
+        values: [
+          { x1: 1, x2: 10, count: 3, cat: 'A' },
+          { x1: 10, x2: 100, count: 5, cat: 'B' },
+        ],
+      },
+      mark: 'bar',
+      encoding: {
+        x: { field: 'x1', type: 'quantitative', scale: { type: 'log' } },
+        x2: { field: 'x2' },
+        y: { field: 'count', type: 'quantitative' },
+        color: { field: 'cat', type: 'nominal' },
+      },
+    };
+    const compiled = compileSpec(spec);
+    const gap = compiled.gaps.find((entry) => entry.code === 'mark:bar-missing-axes');
+    expect(gap?.severity).to.equal('unsupported');
+    expect(compiled.series).to.have.length(0);
+    expect(compiled.overlays).to.have.length(0);
+  });
+
   it('renders a quantitative category axis as a discrete band when the value is aggregated', () => {
     // Trellis-style spec: `age` is numeric (quantitative) but is the category
     // axis; the value channel carries the aggregate. x-charts draws bars over a

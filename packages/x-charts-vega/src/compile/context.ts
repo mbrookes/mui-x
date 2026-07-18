@@ -39,6 +39,18 @@ export interface OverlaySegment {
   style?: React.CSSProperties;
 }
 
+/** Two opposite corners of a rectangle, in data space. */
+export interface OverlayRectItem {
+  x1: OverlayPosition;
+  y1: OverlayPosition;
+  x2: OverlayPosition;
+  y2: OverlayPosition;
+  fill?: string;
+  fillOpacity?: number;
+  stroke?: string;
+  strokeWidth?: number;
+}
+
 export interface OverlayBoxItem {
   /** The category-axis value the box is centered on. */
   category: OverlayPosition;
@@ -109,6 +121,17 @@ export interface OverlayImageItem {
  */
 export type CompiledOverlay =
   | { kind: 'segments'; items: OverlaySegment[] }
+  | {
+      /**
+       * A `bar` mark whose positional channels are *both* continuous (e.g. a
+       * log-scaled x with explicit `x`/`x2` bin edges) — x-charts'
+       * `bar`/`rangeBar` series always need one categorical dimension, so
+       * this can never become a native series (`marks/bar.ts`). Drawn as
+       * plain `<rect>`s instead, positioned by `useXScale`/`useYScale`.
+       */
+      kind: 'rects';
+      items: OverlayRectItem[];
+    }
   | {
       /**
        * A single closed, filled polygon (a `line`/`trail` mark with

@@ -34,8 +34,8 @@ import { toDate } from '../compile/fieldTypes';
  * `datum` is the only recognized bare identifier; `datum.field` /
  * `datum['field']` reads a row property (including chained/nested access).
  * A short allow-list of pure functions is supported: abs, round, floor,
- * ceil, sqrt, min, max, length, upper, lower, toNumber, toString, year,
- * month, date, timeFormat, utcFormat. An array literal (`[a, b, ...]`,
+ * ceil, sqrt, log, pow, min, max, length, upper, lower, toNumber, toString,
+ * year, month, date, timeFormat, utcFormat. An array literal (`[a, b, ...]`,
  * used by an axis `labelExpr` to build a multi-line label) is also
  * supported. Anything outside this subset — other identifiers, unknown
  * functions, or a syntax error — throws `UnsupportedExpressionError`, which
@@ -437,6 +437,8 @@ const FUNCTIONS: Record<string, (args: unknown[]) => unknown> = {
   floor: (args) => Math.floor(asNumber(args[0])),
   ceil: (args) => Math.ceil(asNumber(args[0])),
   sqrt: (args) => Math.sqrt(asNumber(args[0])),
+  log: (args) => Math.log(asNumber(args[0])),
+  pow: (args) => Math.pow(asNumber(args[0]), asNumber(args[1])),
   min: (args) => Math.min(...args.map(asNumber)),
   max: (args) => Math.max(...args.map(asNumber)),
   length: (args) => {

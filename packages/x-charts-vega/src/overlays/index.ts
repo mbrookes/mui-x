@@ -5,3 +5,4 @@ export * from './BoxPlot';
 export * from './ErrorBars';
 export * from './TextMarks';
 export * from './ArcLabels';
+export * from './Rects';

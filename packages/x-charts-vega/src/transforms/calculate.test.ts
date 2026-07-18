@@ -68,6 +68,12 @@ describe('calculate.ts / compileExpression', () => {
     expect(compileExpression('toString(datum.n)')({ n: 42 })).to.equal('42');
   });
 
+  it("supports log/pow (a log-scaled histogram's log(x)/log(10) + pow(10, bin) pipeline)", () => {
+    expect(compileExpression('log(datum.x)/log(10)')({ x: 100 })).to.be.closeTo(2, 1e-9);
+    expect(compileExpression('pow(10, datum.n)')({ n: 3 })).to.equal(1000);
+    expect(compileExpression('pow(datum.base, datum.exp)')({ base: 2, exp: 10 })).to.equal(1024);
+  });
+
   it('supports year/month/date over a Date datum', () => {
     const date = new Date(2024, 5, 15); // June 15, 2024
     expect(compileExpression('year(datum.d)')({ d: date })).to.equal(2024);

@@ -520,4 +520,32 @@ describe('compileLineAreaMark', () => {
     const gap = compiled.gaps.find((entry) => entry.code === 'mark:line-continuous-x');
     expect(gap?.severity).to.equal('unsupported');
   });
+
+  it('labels a line from a constant color: {datum} encoding, as a `repeat` layer produces', () => {
+    const compiled = compileSpec({
+      data: { values: [{ day: 'A', temp: 1 }] },
+      mark: 'line',
+      encoding: {
+        x: { field: 'day', type: 'nominal' },
+        y: { field: 'temp', type: 'quantitative' },
+        color: { datum: 'AAPL', type: 'nominal' },
+      },
+    });
+    expect(compiled.series).to.have.length(1);
+    expect((compiled.series[0] as { label?: string }).label).to.equal('AAPL');
+  });
+
+  it('labels a line from a constant stroke: {datum} encoding just as color: {datum} does', () => {
+    const compiled = compileSpec({
+      data: { values: [{ day: 'A', temp: 1 }] },
+      mark: 'line',
+      encoding: {
+        x: { field: 'day', type: 'nominal' },
+        y: { field: 'temp', type: 'quantitative' },
+        stroke: { datum: 'AAPL', type: 'nominal' },
+      },
+    });
+    expect(compiled.series).to.have.length(1);
+    expect((compiled.series[0] as { label?: string }).label).to.equal('AAPL');
+  });
 });

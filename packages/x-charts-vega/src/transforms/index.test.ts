@@ -52,9 +52,24 @@ describe('applyTransforms / dispatcher', () => {
     ]);
   });
 
+  it('dispatches a pivot transform', () => {
+    const gaps = createGapCollector();
+    const rows = [
+      { date: 'd1', k: 'A', v: 1 },
+      { date: 'd1', k: 'B', v: 2 },
+    ];
+    const result = applyTransforms(
+      rows,
+      [{ pivot: 'k', value: 'v', groupby: ['date'] } as unknown as VegaTransform],
+      gaps,
+      '$',
+    );
+    expect(result).to.deep.equal([{ date: 'd1', A: 1, B: 2 }]);
+    expect(gaps.list()).to.have.length(0);
+  });
+
   it('reports a kind-specific gap for each recognized-but-unsupported transform kind', () => {
     const kinds: Array<[string, VegaTransform]> = [
-      ['pivot', { pivot: 'k', value: 'v' } as unknown as VegaTransform],
       ['sample', { sample: 100 } as unknown as VegaTransform],
       ['stack', { stack: 'x', as: 'y' } as unknown as VegaTransform],
       ['impute', { impute: 'v', key: 'k' } as unknown as VegaTransform],

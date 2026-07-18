@@ -291,6 +291,18 @@ export interface VegaFoldTransform {
   fold: string[];
   as?: [string, string];
 }
+export interface VegaPivotTransform {
+  /** Field whose distinct values become new output columns. */
+  pivot: string;
+  /** Field providing the value for each new pivoted column. */
+  value: string;
+  /** Fields identifying one output row per unique combination; defaults to every other field. */
+  groupby?: string[];
+  /** Aggregation applied when multiple rows share a (groupby, pivot-value) cell. Defaults to `'sum'`. */
+  op?: VegaAggregateOp;
+  /** Caps the number of pivot columns generated (0/omitted = unlimited), keeping the first `limit` sorted values. */
+  limit?: number;
+}
 /** The secondary dataset referenced by a `lookup` transform's `from.data`. */
 export interface VegaLookupData {
   values?: DatasetRow[];
@@ -367,6 +379,7 @@ export type VegaTransform =
   | VegaFilterTransform
   | VegaTimeUnitTransform
   | VegaFoldTransform
+  | VegaPivotTransform
   | VegaLookupTransform
   | VegaWindowTransform
   | VegaJoinAggregateTransform

@@ -449,7 +449,9 @@ function injectSharedScales(
   const colorDef = encoding.color;
   if (isFieldDef(colorDef) && colorDef.field && colorDef.sort === undefined) {
     const scale =
-      colorDef.scale && typeof colorDef.scale === 'object' ? (colorDef.scale as VegaScale) : undefined;
+      colorDef.scale && typeof colorDef.scale === 'object'
+        ? (colorDef.scale as VegaScale)
+        : undefined;
     if (!Array.isArray(scale?.domain)) {
       const values = [...distinctValues(rows, colorDef.field)].sort(compareFacetValues);
       if (values.length > 0) {
@@ -862,8 +864,18 @@ function planFacetChannels(spec: VegaLiteSpec, options: FacetOptions): FacetPlan
   const { rows: rootRows, gaps: transformGaps } = transformedRootRows(spec, options);
   const encoding = spec.encoding ?? {};
   const rowRes = resolveFacetTimeUnit(encoding.row, rootRows, transformGaps, 'encoding.row');
-  const colRes = resolveFacetTimeUnit(encoding.column, rowRes.rows, transformGaps, 'encoding.column');
-  const wrapRes = resolveFacetTimeUnit(encoding.facet, colRes.rows, transformGaps, 'encoding.facet');
+  const colRes = resolveFacetTimeUnit(
+    encoding.column,
+    rowRes.rows,
+    transformGaps,
+    'encoding.column',
+  );
+  const wrapRes = resolveFacetTimeUnit(
+    encoding.facet,
+    colRes.rows,
+    transformGaps,
+    'encoding.facet',
+  );
   const rows = wrapRes.rows;
   const rowField = rowRes.field;
   const colField = colRes.field;
@@ -1133,7 +1145,14 @@ function planRepeat(spec: VegaLiteSpec, options: FacetOptions): FacetPlan {
     );
   }
   const gaps: TranslationGap[] = [];
-  const rootRows = resolveRootRows(spec, options);
+  // A `repeat` spec's own top-level `transform` (a sibling of `repeat`/`spec`)
+  // is a preprocessing step shared by every repeated cell — e.g. a `pivot`
+  // reshaping long-format data into the per-symbol columns a `repeat.layer`
+  // template's `{field: {repeat: 'layer'}}` refs expect (`line_color_halo`).
+  // Applying it here (once, before repeating) rather than leaving it for each
+  // cell to re-run matches `transformedRootRows`'s use elsewhere for facets.
+  const { rows: rootRows, gaps: rootTransformGaps } = transformedRootRows(spec, options);
+  gaps.push(...rootTransformGaps);
   const templateHasData = template.data != null;
   // Repeat never partitions: a cell without its own template data plots every row.
   const cellData = templateHasData ? (template.data as unknown) : { values: rootRows };

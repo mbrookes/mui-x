@@ -13,6 +13,7 @@ import { applyRegressionTransform } from './regression';
 import { applyLoessTransform } from './loess';
 import { applyQuantileTransform } from './quantile';
 import { applyDensityTransform } from './density';
+import { applyPivotTransform } from './pivot';
 
 export { applyEncodingTransforms };
 export type { EncodingTransformResult } from './encoding';
@@ -24,7 +25,6 @@ export type { EncodingTransformResult } from './encoding';
  * message below).
  */
 const KNOWN_UNSUPPORTED_TRANSFORMS: Record<string, string> = {
-  pivot: 'Pivot transforms (long-to-wide reshaping) are not supported.',
   sample: 'Sample transforms (random row sampling) are not supported.',
   stack: 'Explicit `stack` transforms are not supported; use a stacked mark/encoding instead.',
   impute: 'Impute transforms (synthesizing missing data points) are not supported.',
@@ -69,6 +69,8 @@ export function applyTransforms(
       current = applyQuantileTransform(current, transform as never, gaps, transformPath);
     } else if ('density' in transform) {
       current = applyDensityTransform(current, transform as never, gaps, transformPath);
+    } else if ('pivot' in transform) {
+      current = applyPivotTransform(current, transform as never, gaps, transformPath);
     } else if ('fold' in transform) {
       const fold = transform as { fold: string[]; as?: [string, string] };
       const [keyAs, valueAs] = fold.as ?? ['key', 'value'];

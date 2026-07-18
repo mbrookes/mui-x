@@ -149,11 +149,15 @@ function formatGroupLabel(value: unknown): string {
 }
 
 /**
- * The legend label for a constant `color: {datum: value}` encoding (as `repeat`
- * layers produce, one datum per layer). Each such line is its own layer with a
- * single constant color, so Vega-Lite shows one legend entry per datum; giving
- * the series that label makes the shell draw the legend (and x-charts assigns
- * each layer's line the next palette color, matching the datum domain order).
+ * The legend label for a constant `color`/`fill`/`stroke: {datum: value}`
+ * encoding (as `repeat` layers produce, one datum per layer — a `stroke`
+ * datum is just as common as `color` here, e.g. `line_color_halo`'s per-symbol
+ * halo layers). Each such line is its own layer with a single constant color,
+ * so Vega-Lite shows one legend entry per datum; giving the series that label
+ * makes the shell draw the legend (and x-charts assigns each layer's line the
+ * next palette color, matching the datum domain order). Mirrors the same
+ * `color ?? fill ?? stroke` precedence `compile/color.ts`'s `resolveColor`
+ * uses for the color itself.
  */
 function colorDatumLabel(colorDef: unknown): string | undefined {
   if (colorDef && typeof colorDef === 'object' && !Array.isArray(colorDef)) {
@@ -854,9 +858,10 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
     } else {
       groups.push({
         key: SINGLE_GROUP_KEY,
-        // A constant `color: {datum: …}` (per-layer color, as `repeat` layers use)
-        // labels this line so the shell surfaces a legend entry for it.
-        label: colorDatumLabel(encoding.color),
+        // A constant `color`/`fill`/`stroke: {datum: …}` (per-layer color, as
+        // `repeat` layers use) labels this line so the shell surfaces a
+        // legend entry for it.
+        label: colorDatumLabel(encoding.color ?? encoding.fill ?? encoding.stroke),
         color: staticColor,
       });
     }

@@ -517,13 +517,23 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
   // Assign palette colors to series that didn't get an explicit color. Pie
   // slices color themselves per-datum; heatmap cells are colored by the
   // zAxis colorMap and have no series-level color at all.
+  //
+  // The palette slot is picked from a counter over only the series actually
+  // needing one — NOT the raw array index — so an explicitly-colored series
+  // interleaved among them (e.g. a `repeat.layer` halo line with a static
+  // `mark.stroke: 'white'` alongside each symbol's auto-colored line) doesn't
+  // consume/skip a slot. Using the raw index there would land every other
+  // auto-colored series on the wrong (odd, skipped) palette entry instead of
+  // the sequential one Vega-Lite's own default assignment would pick.
+  let nextPaletteIndex = 0;
   series.forEach((entry, index) => {
     if (entry.type === 'pie' || entry.type === 'heatmap') {
       return;
     }
     const colorable = entry as { color?: string };
     if (colorable.color === undefined) {
-      colorable.color = palette[index % palette.length];
+      colorable.color = palette[nextPaletteIndex % palette.length];
+      nextPaletteIndex += 1;
     }
     // Bake a static mark opacity into the (now-resolved) color — x-charts has
     // no per-series opacity prop, so alpha on the color is the equivalent.

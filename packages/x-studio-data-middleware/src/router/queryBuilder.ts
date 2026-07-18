@@ -25,6 +25,7 @@ import type {
 import {
   applyPredicates,
   applySecurityPredicates,
+  applySecurityPredicatesOrNull,
   applySecurityPredicatesToJoinOn,
 } from '../shared/predicates';
 import {
@@ -150,7 +151,32 @@ export function buildSecureQuery(
   // join makes it the nullable side (then its predicate moved to that join's ON
   // above). Joined tables are scoped in WHERE for inner/right joins; a LEFT join's
   // joined-table predicate already went into its ON clause above.
-  const hasRightJoin = queryPlan.joins.some((join) => join.type === 'right');
+  //
+  // MULTI-RIGHT-JOIN CORRECTNESS (iter22 finding) — a plain WHERE predicate on a
+  // joined table is only safe when that table is guaranteed non-null in the
+  // FINAL result. That holds for the LAST right join in the list (nothing joins
+  // afterward to null it back out) but NOT for an EARLIER one: chained joins
+  // associate left-to-right, so `(A RIGHT JOIN B) RIGHT JOIN C` null-extends the
+  // ENTIRE accumulated `(A, B)` side — including B, even though B is the
+  // guaranteed/preserved side of ITS OWN join — for a `C` row with no match. A
+  // plain `WHERE b.<security column> = ...` then silently drops that preserved
+  // `C` row. `lastRightJoinIndex` identifies the one join position that's safe
+  // to treat as unconditionally non-null; every join at an EARLIER index is at
+  // risk of being null-extended by that later right join (regardless of its OWN
+  // type — an inner-joined table sitting between two right joins is equally at
+  // risk) and gets the `OR <join-key> IS NULL` relaxation from
+  // `applySecurityPredicatesOrNull` instead of a bare WHERE. See that function's
+  // doc comment for why this does NOT just move the predicate to the join's own
+  // ON clause (that would reopen the cross-tenant fan-out finding 2.3 closes).
+  const rightJoinIndices = queryPlan.joins.reduce<number[]>((acc, join, index) => {
+    if (join.type === 'right') {
+      acc.push(index);
+    }
+    return acc;
+  }, []);
+  const lastRightJoinIndex =
+    rightJoinIndices.length > 0 ? rightJoinIndices[rightJoinIndices.length - 1] : -1;
+  const hasRightJoin = lastRightJoinIndex !== -1;
   if (!hasRightJoin) {
     applySecurityPredicates(
       query,
@@ -161,11 +187,23 @@ export function buildSecureQuery(
     );
   }
 
-  for (const join of queryPlan.joins) {
-    if (join.type !== 'left') {
-      applySecurityPredicates(query, join.table, claims, policy.forJoinedTable(join.table), 'read');
+  queryPlan.joins.forEach((join, index) => {
+    if (join.type === 'left') {
+      return;
     }
-  }
+    const security = policy.forJoinedTable(join.table);
+    if (index < lastRightJoinIndex) {
+      const nullIndicatorColumn = joinNullIndicatorColumn(join);
+      if (nullIndicatorColumn) {
+        applySecurityPredicatesOrNull(query, join.table, claims, security, nullIndicatorColumn);
+        return;
+      }
+      // No `on` pair to key a null-check off of (degenerate/empty `on`, not
+      // reachable via a validated descriptor) — fall through to the strict
+      // WHERE below rather than skip enforcement entirely.
+    }
+    applySecurityPredicates(query, join.table, claims, security, 'read');
+  });
 
   // ── Phase 2: User-supplied filter predicates ────────────────────────────
   // The filter columns are already alias-resolved on the plan (`plan.filters`
@@ -200,6 +238,32 @@ export function buildSecureQuery(
   }
 
   return query;
+}
+
+/**
+ * A join-key column belonging to `join.table`, suitable as the `IS NULL`
+ * null-extension indicator for `applySecurityPredicatesOrNull` (iter22 finding).
+ *
+ * Uses the RIGHT side of the join's first `on` pair — per `JoinDescriptor.on`'s
+ * documented convention ("left column is from the primary table; right column
+ * is from the joined table"), that's a column of `join.table` itself. Qualified
+ * with `join.table` when the resolved column isn't already dotted, mirroring the
+ * qualification the ON-clause loop above applies to the same pairs.
+ *
+ * Returns `undefined` only for a join with no `on` pairs at all — not reachable
+ * via a validated descriptor (every join requires at least one `on` pair), kept
+ * as a defensive fallback rather than a crash.
+ */
+function joinNullIndicatorColumn(join: {
+  table: string;
+  on: [string, string][];
+}): string | undefined {
+  const firstPair = join.on[0];
+  if (!firstPair) {
+    return undefined;
+  }
+  const [, right] = firstPair;
+  return right.includes('.') ? right : `${join.table}.${right}`;
 }
 
 /** SQL aggregate function name per plan aggregation func — same five as `execute.ts`. */

@@ -100,6 +100,43 @@ function isScalarComparisonValue(value: unknown): boolean {
 }
 
 /**
+ * Is `value` a legitimate ELEMENT of an `in` list / `between` bounds pair?
+ *
+ * Same primitive allowlist as `isScalarComparisonValue`, minus `null` — an `in`
+ * element or a `between` bound has no "IS NULL" special case the way a bare `eq`/
+ * `neq` scalar does (those cases translate a literal `null` to `whereNull`;
+ * `whereIn`/`whereBetween` have no per-element null form), so a `null` element is
+ * rejected fail-closed here rather than silently reaching the driver as a bare
+ * list member / bound.
+ *
+ * SECURITY: this is not a security guard — the element still stays parameterized
+ * either way (never string-concatenated). It only turns an opaque downstream
+ * driver error (e.g. Knex/pg choking on an object binding) into a clear,
+ * actionable validation error, consistent with every other operand-shape guard
+ * in this file (the `in` array-shape, `between` 2-tuple-shape, and scalar-value
+ * guards above).
+ */
+function isPrimitivePredicateElement(value: unknown): boolean {
+  return (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    value instanceof Date
+  );
+}
+
+/** Describe a rejected element's shape for an error message. */
+function describeElementShape(value: unknown): string {
+  if (value === null) {
+    return 'null';
+  }
+  if (Array.isArray(value)) {
+    return 'an array';
+  }
+  return typeof value;
+}
+
+/**
  * Look up a table's per-table security-column override, own-property-gated.
  *
  * SECURITY (finding 2.2) — `table` is client JSON (`descriptor.table` /
@@ -310,6 +347,110 @@ export function applySecurityPredicatesToJoinOn(
   );
 }
 
+/**
+ * Apply the row-level security predicates for one JOINED table to the WHERE
+ * clause, relaxed with an `OR <nullIndicatorColumn> IS NULL` escape hatch.
+ *
+ * MULTI-RIGHT-JOIN CORRECTNESS (iter22 finding) — `buildSecureQuery` puts a
+ * joined table's security predicate in WHERE (via `applySecurityPredicates`)
+ * whenever that table is guaranteed non-null in the final result — true for an
+ * inner join, and for a SINGLE right join (a right join guarantees its own
+ * table's rows are present). That guarantee breaks down once a SECOND right
+ * join follows: chained joins associate left-to-right, so
+ * `(A RIGHT JOIN B) RIGHT JOIN C` computes `A RIGHT JOIN B` first and THEN
+ * right-joins the WHOLE thing to C. A `C` row with no match against the
+ * accumulated `(A, B)` side NULL-extends B too, not just the primary table A.
+ * A plain `WHERE b.tenant_id = :tenant` then evaluates false for that
+ * null-extended `B`, silently dropping the very `C` row the second right join
+ * was supposed to preserve — fail-closed (rows are dropped, never leaked), but
+ * a correctness bug for a multi-right-join shape the Studio client doesn't
+ * normally generate.
+ *
+ * The fix keeps `table`'s security predicate STRICT when `table` is genuinely
+ * present — a wrong-tenant row must still be excluded, so this deliberately
+ * does NOT just move the predicate into `table`'s own ON clause the way a LEFT
+ * join's nullable side does (finding 2.3 above): a right join's ON clause never
+ * filters its OWN guaranteed side, so that would let a mismatched-tenant `B`
+ * row survive and reopen the cross-tenant fan-out those ON-clause predicates
+ * exist to close. Instead this ADDS an `OR <nullIndicatorColumn> IS NULL`
+ * escape hatch that fires ONLY when `table` itself was null-extended by that
+ * LATER join. `nullIndicatorColumn` is one of `table`'s own join-key columns:
+ * `table`'s own join guarantees that column is non-null whenever `table`
+ * actually participated in the row, so it can only read as SQL NULL because of
+ * a SUBSEQUENT join nulling the whole accumulated side out — never because
+ * `table`'s own match failed.
+ *
+ * No predicate is emitted (and no `OR ... IS NULL` is added either) when
+ * `securityColumns` resolves to nothing for this table/claims combination —
+ * mirrors `applySecurityPredicates`'s no-op behavior instead of accidentally
+ * adding a bare `WHERE <col> IS NULL` with nothing to OR it against.
+ *
+ * IMPLEMENTATION NOTES:
+ *
+ * 1. This can NOT decide whether to add the `OR ... IS NULL` escape hatch by
+ *    setting a flag from INSIDE the `.where(callback)` grouping and reading it
+ *    right after: Knex defers invoking a `.where(fn)` callback until SQL COMPILE
+ *    time (`toSQL()`/`toString()`), not synchronously when `.where()` is called,
+ *    so such a flag would still read `false` immediately afterward.
+ *    `willEmitSecurityPredicates` mirrors `emitSecurityPredicates`'s own
+ *    emission conditions to decide UP FRONT, synchronously, whether there is
+ *    anything to emit at all.
+ * 2. The predicate group and the `orWhereNull` MUST be nested inside one shared
+ *    OUTER `.where(callback)` (not two independent top-level statements the
+ *    caller happens to chain). SQL's `AND` binds tighter than `OR`: two
+ *    top-level statements `WHERE (tenant predicate) OR <col> IS NULL` followed
+ *    by another table's `AND other.col = ...` renders as
+ *    `tenant-predicate OR (<col> IS NULL AND other.col = ...)` — the wrong
+ *    grouping, which can spuriously ADMIT rows the other table's predicate was
+ *    meant to exclude. Wrapping both inside one outer group renders
+ *    `(tenant-predicate OR <col> IS NULL) AND other.col = ...`, which is what's
+ *    intended.
+ */
+export function applySecurityPredicatesOrNull(
+  query: any,
+  table: string,
+  claims: JwtSecurityClaims,
+  securityColumns: SecurityColumns | undefined,
+  nullIndicatorColumn: string,
+): void {
+  if (!securityColumns || !willEmitSecurityPredicates(claims, securityColumns)) {
+    return;
+  }
+  query.where(function outerGroup(this: any) {
+    this.where(function applySecurityPredicatesGroup(this: any) {
+      emitSecurityPredicates(
+        table,
+        claims,
+        securityColumns,
+        'read',
+        (column, value) => this.andWhere(column, '=', value),
+        (column, values) => this.whereIn(column, values),
+      );
+    }).orWhereNull(nullIndicatorColumn);
+  });
+}
+
+/**
+ * Would `emitSecurityPredicates` emit ANY predicate for this table/claims
+ * combination, in READ mode? Mirrors `emitSecurityPredicates`'s own per-
+ * dimension gates (tenant column configured; region column configured with a
+ * DEFINED `regionIds` claim; department column configured with a DEFINED
+ * `department` claim) so the two can never drift on what counts as "nothing to
+ * emit". See `applySecurityPredicatesOrNull`'s implementation note for why this
+ * pre-check exists instead of a flag set from inside the (lazily-invoked)
+ * `.where(callback)` grouping.
+ */
+function willEmitSecurityPredicates(
+  claims: JwtSecurityClaims,
+  securityColumns: SecurityColumns,
+): boolean {
+  return Boolean(
+    securityColumns.tenant ||
+    (securityColumns.region && claims.regionIds !== undefined) ||
+    (securityColumns.department && claims.department !== undefined),
+  );
+}
+
 // Single source of truth for WHICH row-level security predicates a table gets and
 // on which columns/values — shared by the WHERE-clause (`applySecurityPredicates`)
 // and ON-clause (`applySecurityPredicatesToJoinOn`) emitters so the two can never
@@ -463,6 +604,26 @@ function applyPredicate(query: any, predicate: FilterPredicate, mode: 'read' | '
         // Read path: empty IN means "match nothing" — drop it (autoRemove).
         break;
       }
+      // Runtime-guard EACH element's shape, not just the array's. The check
+      // above only confirms "this is an array" — a client can still supply an
+      // array whose elements are themselves objects/arrays/`null`
+      // (`{ operator: "in", value: [{ nested: true }] }`), which reaches
+      // `whereIn` as a binding Knex/the driver cannot render as a scalar SQL
+      // literal, producing a confusing downstream driver error instead of a
+      // clean validation one. Values still stay parameterized either way — this
+      // is not a security guard (see `isPrimitivePredicateElement`).
+      {
+        const badIndex = value.findIndex((element) => !isPrimitivePredicateElement(element));
+        if (badIndex !== -1) {
+          throw new Error(
+            `MUI X Studio Server: "in" predicate on column "${column}" requires every element to be a primitive ` +
+              `(string, number, boolean, or date), but element at index ${badIndex} is ${describeElementShape(value[badIndex])}. ` +
+              `An "in" filter matches each list value against the column individually, so a non-primitive element cannot be ` +
+              `translated to a valid SQL "IN (...)" member. ` +
+              `Provide only primitive values (e.g. { operator: "in", value: [1, 2, 3] }).`,
+          );
+        }
+      }
       query.whereIn(column, value);
       break;
     case 'lt':
@@ -508,6 +669,24 @@ function applyPredicate(query: any, predicate: FilterPredicate, mode: 'read' | '
         );
       }
       const [lo, hi] = value;
+      // Runtime-guard EACH bound's shape, not just the pair's length. The check
+      // above only confirms "exactly two elements" — a client can still supply
+      // `[{ nested: true }, 20]` or `[null, 20]`, which reaches `whereBetween` as
+      // a bound Knex/the driver cannot render as a scalar SQL literal, producing
+      // a confusing downstream driver error instead of a clean validation one.
+      // Bounds still stay parameterized either way — this is not a security
+      // guard (see `isPrimitivePredicateElement`).
+      if (!isPrimitivePredicateElement(lo) || !isPrimitivePredicateElement(hi)) {
+        const badBound = !isPrimitivePredicateElement(lo) ? 'low' : 'high';
+        const badValue = !isPrimitivePredicateElement(lo) ? lo : hi;
+        throw new Error(
+          `MUI X Studio Server: "between" predicate on column "${column}" requires both bounds to be a primitive ` +
+            `(string, number, boolean, or date), but the ${badBound} bound is ${describeElementShape(badValue)}. ` +
+            `A "between" filter compares against a scalar lower and upper bound, so a non-primitive bound cannot be ` +
+            `translated to a valid SQL comparison. ` +
+            `Provide two primitive bounds (e.g. { operator: "between", value: [10, 20] }).`,
+        );
+      }
       query.whereBetween(column, [lo, hi]);
       break;
     }

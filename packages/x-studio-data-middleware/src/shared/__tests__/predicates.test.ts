@@ -228,6 +228,116 @@ describe('applyPredicates — value-shape guards (finding 3.1)', () => {
   });
 });
 
+// ── Element-shape guards for "in" / "between" (iter22 finding) ──────────────
+//
+// The array-SHAPE guards ("is an array", "has exactly 2 elements") already
+// existed; this closes the gap where an individual ELEMENT of a legitimately
+// array-shaped value could still be a non-primitive (object/array/null),
+// reaching `whereIn`/`whereBetween` as a binding the driver rejects with a
+// confusing error instead of a clean validation one. Not a security guard —
+// values still stay parameterized either way.
+describe('applyPredicates — element-shape guards for "in" / "between" (iter22 finding)', () => {
+  function recordingQuery() {
+    const calls: Array<{ method: string; args: unknown[] }> = [];
+    const q: any = {};
+    for (const method of ['where', 'whereIn', 'whereBetween']) {
+      q[method] = (...args: unknown[]) => {
+        calls.push({ method, args });
+        return q;
+      };
+    }
+    return { q, calls };
+  }
+
+  it('throws for an "in" list containing an object element', () => {
+    const { q, calls } = recordingQuery();
+    const predicate = {
+      column: 'customer_id',
+      operator: 'in',
+      value: [1, { nested: true }, 3],
+    } as unknown as FilterPredicate;
+    expect(() => applyPredicates(q, [predicate], 'read')).toThrow(
+      /"in" predicate on column "customer_id" requires every element to be a primitive .* element at index 1 is object/,
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  it('throws for an "in" list containing a nested array element', () => {
+    const { q } = recordingQuery();
+    const predicate = {
+      column: 'customer_id',
+      operator: 'in',
+      value: [[1, 2]],
+    } as unknown as FilterPredicate;
+    expect(() => applyPredicates(q, [predicate], 'read')).toThrow(/element at index 0 is an array/);
+  });
+
+  it('throws for an "in" list containing a null element', () => {
+    const { q } = recordingQuery();
+    const predicate = {
+      column: 'customer_id',
+      operator: 'in',
+      value: [1, null],
+    } as unknown as FilterPredicate;
+    expect(() => applyPredicates(q, [predicate], 'read')).toThrow(/element at index 1 is null/);
+  });
+
+  it('accepts an "in" list of legitimate primitives (string/number/boolean/Date)', () => {
+    const { q, calls } = recordingQuery();
+    const predicate = {
+      column: 'customer_id',
+      operator: 'in',
+      value: [1, 'abc', true, new Date('2024-01-01')],
+    } as unknown as FilterPredicate;
+    expect(() => applyPredicates(q, [predicate], 'read')).not.toThrow();
+    expect(calls).toContainEqual({ method: 'whereIn', args: ['customer_id', predicate.value] });
+  });
+
+  it('throws for a "between" pair with a non-primitive low bound', () => {
+    const { q, calls } = recordingQuery();
+    const predicate = {
+      column: 'amount',
+      operator: 'between',
+      value: [{ nested: true }, 20],
+    } as unknown as FilterPredicate;
+    expect(() => applyPredicates(q, [predicate], 'read')).toThrow(
+      /"between" predicate on column "amount" requires both bounds to be a primitive .* the low bound is object/,
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  it('throws for a "between" pair with a non-primitive high bound (array)', () => {
+    const { q } = recordingQuery();
+    const predicate = {
+      column: 'amount',
+      operator: 'between',
+      value: [10, [20]],
+    } as unknown as FilterPredicate;
+    expect(() => applyPredicates(q, [predicate], 'read')).toThrow(/the high bound is an array/);
+  });
+
+  it('throws for a "between" pair with a null bound', () => {
+    const { q } = recordingQuery();
+    const predicate = {
+      column: 'amount',
+      operator: 'between',
+      value: [null, 20],
+    } as unknown as FilterPredicate;
+    expect(() => applyPredicates(q, [predicate], 'read')).toThrow(/the low bound is null/);
+  });
+
+  it('accepts a "between" pair of legitimate primitives', () => {
+    const { q, calls } = recordingQuery();
+    const predicate = {
+      column: 'amount',
+      operator: 'between',
+      value: [10, 20],
+    } as unknown as FilterPredicate;
+    expect(() => applyPredicates(q, [predicate], 'read')).not.toThrow();
+    expect(calls).toContainEqual({ method: 'whereBetween', args: ['amount', [10, 20]] });
+  });
+});
+
 // These tests would FAIL if the own-property gate were reverted: a polluted
 // `Object.prototype[table]` entry is exactly what an inherited-member read would
 // pick up, flipping scoping for that table on EVERY request. The gate reads own

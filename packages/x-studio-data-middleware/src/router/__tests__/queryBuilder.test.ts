@@ -29,6 +29,7 @@ function createRecordingDb() {
     'whereIn',
     'whereLike',
     'whereBetween',
+    'orWhereNull',
     'count',
     'select',
     'orderBy',
@@ -42,6 +43,49 @@ function createRecordingDb() {
       return builder;
     };
   }
+  // `.where(callback)` (the grouped form `applySecurityPredicatesOrNull` uses,
+  // NESTED one level deep, to build `(A AND B) OR <col> IS NULL`, iter22
+  // finding) is Knex's callback form too — run the callback against a context
+  // whose `.andWhere()`/`.whereIn()`/`.orWhereNull()`/nested `.where()` all
+  // record into the SAME `calls` array (mirroring the `join` callback handling
+  // just below) and, like real Knex, always return the SAME context object
+  // (`this`) rather than a fresh one — `.where(fn).orWhereNull(...)` chains the
+  // `orWhereNull` onto the OUTER context, not the inner group, exactly as it
+  // must for the grouping this fix depends on.
+  function makeConditionCtx(): Record<string, (...args: unknown[]) => unknown> {
+    const ctx: Record<string, (...args: unknown[]) => unknown> = {};
+    ctx.andWhere = (...args: unknown[]) => {
+      calls.push({ method: 'andWhere', args });
+      return ctx;
+    };
+    ctx.whereIn = (...args: unknown[]) => {
+      calls.push({ method: 'whereIn', args });
+      return ctx;
+    };
+    ctx.orWhereNull = (...args: unknown[]) => {
+      calls.push({ method: 'orWhereNull', args });
+      return ctx;
+    };
+    ctx.where = (...args: unknown[]) => {
+      if (typeof args[0] === 'function') {
+        calls.push({ method: 'where(group)', args: [] });
+        (args[0] as (this: typeof ctx) => void).call(makeConditionCtx());
+      } else {
+        calls.push({ method: 'where', args });
+      }
+      return ctx;
+    };
+    return ctx;
+  }
+  builder.where = (...args: unknown[]) => {
+    if (typeof args[0] === 'function') {
+      calls.push({ method: 'where(group)', args: [] });
+      (args[0] as (this: ReturnType<typeof makeConditionCtx>) => void).call(makeConditionCtx());
+      return builder;
+    }
+    calls.push({ method: 'where', args });
+    return builder;
+  };
   // Join methods use Knex's callback form: `join(table, function () { this.on(...) })`.
   // Record the join once (with only the table), then run the callback against a
   // context whose `.on()` records each condition — so a composite-key join is a
@@ -687,6 +731,84 @@ describe('buildSecureQuery', () => {
       expect(
         calls.some((c) => c.method === 'whereIn' && String(c.args[0]).startsWith('customers.')),
       ).toBe(false);
+    });
+  });
+
+  describe('multiple right joins (iter22 finding)', () => {
+    // Chained joins right-associate: `(A RIGHT JOIN B) RIGHT JOIN C` computes
+    // `A RIGHT JOIN B` first, then RIGHT JOINs the WHOLE result to C. A `C` row
+    // with no match against the accumulated `(A, B)` side null-extends B too —
+    // not just the primary table A — even though B is the guaranteed/preserved
+    // side of ITS OWN join. A bare `WHERE customers.tenant_id = ...` (the pre-fix
+    // behavior) would then silently drop that legitimately-preserved `orders`
+    // row. This section pins that an EARLIER right join (customers) gets an
+    // `OR <join-key> IS NULL` relaxed WHERE group instead of a bare WHERE, while
+    // the LAST right join (orders) keeps the strict, unconditional WHERE
+    // predicate it has always had — nothing joins after it to null it back out.
+    function twoRightJoinsDescriptor() {
+      return descriptor({
+        joins: [
+          { table: 'customers', type: 'right', on: [['sales.customer_id', 'customers.id']] },
+          { table: 'orders', type: 'right', on: [['customers.id', 'orders.customer_id']] },
+        ],
+      });
+    }
+
+    it('the EARLIER right join (customers) gets an OR <join-key> IS NULL relaxed WHERE group, not a bare WHERE', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(db, BASE_CLAIMS, twoRightJoinsDescriptor(), { tenancy: MULTI_TENANT });
+      // Never a bare `.where('customers.tenant_id', ...)` — that is exactly the
+      // pre-fix shape that drops legitimately-preserved `orders` rows.
+      expect(calls.some((c) => c.method === 'where' && c.args[0] === 'customers.tenant_id')).toBe(
+        false,
+      );
+      // Instead, the predicate is inside a grouped `.where(fn)`...
+      expect(calls).toContainEqual({
+        method: 'andWhere',
+        args: ['customers.tenant_id', '=', 'acme'],
+      });
+      // ...followed by an `orWhereNull` escape hatch keyed on customers' own join key,
+      // so a customers row that is legitimately null-extended by the SECOND right
+      // join (orders) is not wrongly excluded.
+      expect(calls).toContainEqual({ method: 'orWhereNull', args: ['customers.id'] });
+    });
+
+    it('the LAST right join (orders) keeps the strict, unconditional WHERE predicate', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(db, BASE_CLAIMS, twoRightJoinsDescriptor(), { tenancy: MULTI_TENANT });
+      expect(calls).toContainEqual({ method: 'where', args: ['orders.tenant_id', '=', 'acme'] });
+      // The last right join's table never gets the OR-null relaxation — nothing
+      // joins after it that could null-extend it back out.
+      expect(calls.some((c) => c.method === 'orWhereNull' && c.args[0] === 'orders.id')).toBe(
+        false,
+      );
+    });
+
+    it('the PRIMARY table still gets its predicate in EACH right join ON clause, never WHERE', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(db, BASE_CLAIMS, twoRightJoinsDescriptor(), { tenancy: MULTI_TENANT });
+      expect(calls.some((c) => c.method === 'where' && c.args[0] === 'sales.tenant_id')).toBe(
+        false,
+      );
+      expect(
+        calls.filter((c) => c.method === 'andOnVal' && c.args[0] === 'sales.tenant_id'),
+      ).toHaveLength(2);
+    });
+
+    describe('real Knex SQL rendering', () => {
+      const realDb = Knex({ client: 'pg' });
+
+      it('renders the OR-null-relaxed WHERE group for the earlier right join, preserving orders rows null-extended on customers', () => {
+        const query = buildSecureQuery(realDb, BASE_CLAIMS, twoRightJoinsDescriptor(), {
+          tenancy: MULTI_TENANT,
+        });
+        expect(query.toString()).toBe(
+          'select * from "sales" ' +
+            'right join "customers" on "sales"."customer_id" = "customers"."id" and "sales"."tenant_id" = \'acme\' ' +
+            'right join "orders" on "customers"."id" = "orders"."customer_id" and "sales"."tenant_id" = \'acme\' ' +
+            'where (("customers"."tenant_id" = \'acme\') or "customers"."id" is null) and "orders"."tenant_id" = \'acme\'',
+        );
+      });
     });
   });
 

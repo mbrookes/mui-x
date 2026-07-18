@@ -7,6 +7,7 @@ import type { AxisResolution } from './context';
 import { categoryKey } from './context';
 import { resolveFieldType, toDate } from './fieldTypes';
 import { createValueFormatter } from '../format';
+import { compileExpression, UnsupportedExpressionError } from '../transforms/calculate';
 
 /*
  * Positional-scale resolution: turns the x/y channel definitions of all
@@ -28,10 +29,13 @@ import { createValueFormatter } from '../format';
  *     `scale.zero: true` additionally records a `scale:zero-approximation`
  *     `partial` gap (the opposite end is still `domainLimit`-rounded);
  *   - axis-config enrichment (`title`, `labelAngle`, `tickCount`, `values`,
- *     `grid`, `labels`, `format`, `orient`, `ticks`→`disableTicks`,
+ *     `grid`, `labels`, `format`, `labelExpr`, `orient`, `ticks`→`disableTicks`,
  *     `domain`→`disableLine`) from the field def's `axis`, with
  *     the `format` d3 pattern compiled to a `valueFormatter` (see ../format)
- *     when it can be translated, and reported as a gap otherwise;
+ *     when it can be translated, and reported as a gap otherwise; `labelExpr`
+ *     (a per-tick Vega expression, evaluated via ../transforms/calculate's
+ *     safe evaluator) takes priority over `format` and is compiled the same
+ *     way, joining an array result with `'\n'` for a multi-line label;
  *   - temporal channels rendered as a *continuous* time/utc scale over the
  *     ordered Dates by default (native x-charts time-tick formatting), and as
  *     a discrete band/point scale over those Dates only when a per-category
@@ -146,6 +150,89 @@ function mapOrient(channel: 'x' | 'y', orient: string): AxisExtras['position'] |
   return orient === 'left' || orient === 'right' ? orient : undefined;
 }
 
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * Compiles an axis `labelExpr` (a Vega expression evaluated per tick, with
+ * `datum.value` bound to the tick's raw value) into a `valueFormatter`. An
+ * array result — Vega's convention for a multi-line label, e.g. `line_
+ * conditional_axis`'s `[timeFormat(datum.value, '%b'), ...]` — is joined into
+ * a single line with a space (blank elements dropped), rather than stacked
+ * as separate lines: x-charts' `ChartsText` multi-line rendering measures
+ * each line's height to compute its `<tspan dy>` offset, and that
+ * measurement resolves to 0 for an axis tick label in practice, collapsing
+ * every line onto the same baseline instead of stacking them
+ * (`axis:labelExpr-multiline`, `ignored`/x-charts). Returns `null` (after
+ * recording a gap) when the expression can't be parsed, or a given tick
+ * can't be evaluated (unsupported syntax reached only from some tick
+ * values), in which case the caller falls back to `axis.format`/the default
+ * label.
+ */
+function createLabelExprFormatter(
+  source: string,
+  gaps: GapCollector,
+  path: string,
+): ((value: unknown) => string) | null {
+  let evaluator: (datum: DatasetRow) => unknown;
+  try {
+    evaluator = compileExpression(source);
+  } catch (err) {
+    if (!(err instanceof UnsupportedExpressionError)) {
+      throw err;
+    }
+    gaps.add({
+      code: 'scale:axis-labelExpr',
+      message: `Axis \`labelExpr\` "${source}" could not be parsed (${errorMessage(err)}); x-charts applies its default label formatting instead.`,
+      severity: 'partial',
+      path,
+    });
+    return null;
+  }
+  // A one-time probe (rather than checking on every real tick evaluation)
+  // so the gap shows up in the compiled gap list even though the actual
+  // per-tick formatter only runs later, during rendering.
+  try {
+    const probe = evaluator({ value: new Date() } as DatasetRow);
+    if (Array.isArray(probe) && probe.length > 1) {
+      gaps.add({
+        code: 'axis:labelExpr-multiline',
+        message:
+          `Axis \`labelExpr\` "${source}" returns a multi-line label (an array); x-charts' tick-label ` +
+          'multi-line height measurement resolves to 0 in practice, so the lines are joined onto one ' +
+          'line with a space instead of stacked.',
+        severity: 'ignored',
+        path,
+      });
+    }
+  } catch {
+    // The real per-tick evaluation below reports its own gap if a tick's
+    // value hits unsupported syntax; a probe failure alone isn't reportable.
+  }
+  return (value: unknown) => {
+    try {
+      const result = evaluator({ value } as DatasetRow);
+      const parts = Array.isArray(result) ? result : [result];
+      return parts
+        .map((part) => (part == null ? '' : String(part)))
+        .filter((part) => part !== '')
+        .join(' ');
+    } catch (err) {
+      if (!(err instanceof UnsupportedExpressionError)) {
+        throw err;
+      }
+      gaps.add({
+        code: 'scale:axis-labelExpr',
+        message: `Axis \`labelExpr\` "${source}" uses unsupported syntax (${errorMessage(err)}) for some ticks; x-charts applies its default label formatting there instead.`,
+        severity: 'partial',
+        path,
+      });
+      return String(value ?? '');
+    }
+  };
+}
+
 /**
  * Translates the field def's `axis` config into x-charts axis props. `title`
  * is handled separately by `axisTitle`; everything else is mapped here. A
@@ -205,7 +292,24 @@ function buildAxisExtras(
   if (axis.domain === false) {
     extras.disableLine = true;
   }
-  if (typeof axis.format === 'string') {
+  let labelExprHandled = false;
+  if (typeof axis.labelExpr === 'string') {
+    // `labelExpr` fully overrides the default label (Vega-Lite's own
+    // precedence — it wins over `format` too), so it's checked first. An
+    // unparseable `labelExpr` still falls through to `format` below (rather
+    // than leaving the axis with no custom formatter at all) when one is
+    // also given.
+    const formatter = createLabelExprFormatter(
+      axis.labelExpr,
+      gaps,
+      `${path}.encoding.${channel}.axis.labelExpr`,
+    );
+    if (formatter) {
+      extras.valueFormatter = formatter;
+      labelExprHandled = true;
+    }
+  }
+  if (!labelExprHandled && typeof axis.format === 'string') {
     const formatter = createValueFormatter(
       axis.format,
       fieldType,

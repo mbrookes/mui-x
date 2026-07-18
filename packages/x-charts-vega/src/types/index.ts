@@ -107,6 +107,8 @@ export interface VegaAxis {
   values?: unknown[];
   labelAngle?: number;
   domain?: boolean;
+  /** A Vega expression evaluated per tick (`datum.value`/`datum.label`) to build its label; an array result renders as a multi-line label. */
+  labelExpr?: string;
   [key: string]: unknown;
 }
 

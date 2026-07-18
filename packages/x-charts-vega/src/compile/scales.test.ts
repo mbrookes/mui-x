@@ -917,6 +917,72 @@ describe('scales & axes', () => {
     });
   });
 
+  describe('axis labelExpr', () => {
+    it('compiles a labelExpr returning an array into a newline-joined valueFormatter (no gap)', () => {
+      const compiled = compileSpec({
+        data: { values: [{ d: new Date(2024, 0, 1), v: 1 }] },
+        mark: 'line',
+        encoding: {
+          x: {
+            field: 'd',
+            type: 'temporal',
+            axis: {
+              labelExpr:
+                "[timeFormat(datum.value, '%b'), timeFormat(datum.value, '%m') == '01' ? timeFormat(datum.value, '%Y') : '']",
+            },
+          },
+          y: { field: 'v', type: 'quantitative' },
+        },
+      });
+      const fmt = (compiled.xAxis?.config as { valueFormatter?: (v: unknown) => string })
+        .valueFormatter;
+      expect(fmt).to.be.a('function');
+      expect(fmt!(new Date(2024, 0, 1))).to.equal('Jan 2024');
+      expect(fmt!(new Date(2024, 3, 1))).to.equal('Apr');
+      expect(compiled.gaps.some((g) => g.code === 'scale:axis-labelExpr')).to.equal(false);
+      const multilineGap = compiled.gaps.find((g) => g.code === 'axis:labelExpr-multiline');
+      expect(multilineGap?.severity).to.equal('ignored');
+    });
+
+    it('takes priority over axis.format when both are given', () => {
+      const compiled = compileSpec({
+        data: { values: [{ d: new Date(2024, 0, 1), v: 1 }] },
+        mark: 'line',
+        encoding: {
+          x: {
+            field: 'd',
+            type: 'temporal',
+            axis: { format: '%Y-%m', labelExpr: "timeFormat(datum.value, '%b')" },
+          },
+          y: { field: 'v', type: 'quantitative' },
+        },
+      });
+      const fmt = (compiled.xAxis?.config as { valueFormatter?: (v: unknown) => string })
+        .valueFormatter;
+      expect(fmt!(new Date(2024, 0, 1))).to.equal('Jan');
+    });
+
+    it('reports a partial gap and falls back to axis.format for an unparseable labelExpr', () => {
+      const compiled = compileSpec({
+        data: { values: [{ d: new Date(2024, 0, 1), v: 1 }] },
+        mark: 'line',
+        encoding: {
+          x: {
+            field: 'd',
+            type: 'temporal',
+            axis: { format: '%Y-%m', labelExpr: 'datum.value +' },
+          },
+          y: { field: 'v', type: 'quantitative' },
+        },
+      });
+      const gap = compiled.gaps.find((g) => g.code === 'scale:axis-labelExpr');
+      expect(gap?.severity).to.equal('partial');
+      const fmt = (compiled.xAxis?.config as { valueFormatter?: (v: unknown) => string })
+        .valueFormatter;
+      expect(fmt!(new Date(2024, 0, 1))).to.equal('2024-01');
+    });
+  });
+
   describe('resolve.scale independence and range channels', () => {
     it('records an unsupported gap for resolve.scale.y: independent', () => {
       const gaps = createGapCollector();

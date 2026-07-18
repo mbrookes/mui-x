@@ -75,6 +75,23 @@ describe('calculate.ts / compileExpression', () => {
     expect(compileExpression('date(datum.d)')({ d: date })).to.equal(15);
   });
 
+  it('supports timeFormat/utcFormat over a Date datum', () => {
+    const date = new Date(2024, 0, 15); // January 15, 2024 (local)
+    expect(compileExpression("timeFormat(datum.d, '%b')")({ d: date })).to.equal('Jan');
+    expect(compileExpression("timeFormat(datum.d, '%m')")({ d: date })).to.equal('01');
+    expect(compileExpression("timeFormat(datum.d, '%Y')")({ d: date })).to.equal('2024');
+    const utcDate = new Date(Date.UTC(2024, 5, 1));
+    expect(compileExpression("utcFormat(datum.d, '%b')")({ d: utcDate })).to.equal('Jun');
+  });
+
+  it('supports array literals, e.g. for a multi-line axis labelExpr', () => {
+    const evaluator = compileExpression(
+      "[timeFormat(datum.value, '%b'), timeFormat(datum.value, '%m') == '01' ? timeFormat(datum.value, '%Y') : '']",
+    );
+    expect(evaluator({ value: new Date(2024, 0, 1) })).to.deep.equal(['Jan', '2024']);
+    expect(evaluator({ value: new Date(2024, 3, 1) })).to.deep.equal(['Apr', '']);
+  });
+
   it('throws UnsupportedExpressionError for unknown identifiers', () => {
     expect(() => compileExpression('foo + 1')({})).to.throw(UnsupportedExpressionError);
   });

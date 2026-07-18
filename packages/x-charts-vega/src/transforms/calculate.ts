@@ -1,3 +1,7 @@
+import {
+  timeFormat as d3TimeFormat,
+  utcFormat as d3UtcFormat,
+} from '@mui/x-charts-vendor/d3-time-format';
 import type { DatasetRow, VegaCalculateTransform } from '../types';
 import type { GapCollector } from '../gaps';
 import { toDate } from '../compile/fieldTypes';
@@ -25,12 +29,15 @@ import { toDate } from '../compile/fieldTypes';
  *   primary     := number | string | 'true' | 'false' | 'null'
  *                | ident ('(' args ')')?
  *                | '(' ternary ')'
+ *                | '[' (ternary (',' ternary)*)? ']'
  *
  * `datum` is the only recognized bare identifier; `datum.field` /
  * `datum['field']` reads a row property (including chained/nested access).
  * A short allow-list of pure functions is supported: abs, round, floor,
  * ceil, sqrt, min, max, length, upper, lower, toNumber, toString, year,
- * month, date. Anything outside this subset — other identifiers, unknown
+ * month, date, timeFormat, utcFormat. An array literal (`[a, b, ...]`,
+ * used by an axis `labelExpr` to build a multi-line label) is also
+ * supported. Anything outside this subset — other identifiers, unknown
  * functions, or a syntax error — throws `UnsupportedExpressionError`, which
  * callers turn into a `TranslationGap` instead of failing the whole chart.
  */
@@ -149,7 +156,8 @@ type Node =
   | { kind: 'unary'; op: string; arg: Node }
   | { kind: 'binary'; op: string; left: Node; right: Node }
   | { kind: 'logical'; op: '&&' | '||'; left: Node; right: Node }
-  | { kind: 'conditional'; test: Node; consequent: Node; alternate: Node };
+  | { kind: 'conditional'; test: Node; consequent: Node; alternate: Node }
+  | { kind: 'array'; elements: Node[] };
 
 const RELATIONAL_OPS = ['<', '<=', '>', '>='];
 const EQUALITY_OPS = ['==', '===', '!=', '!=='];
@@ -303,6 +311,19 @@ class Parser {
       this.expectPunct(')');
       return node;
     }
+    if (token.type === 'punct' && token.value === '[') {
+      this.advance();
+      const elements: Node[] = [];
+      if (this.peekPunct() !== ']') {
+        elements.push(this.parseTernary());
+        while (this.peekPunct() === ',') {
+          this.advance();
+          elements.push(this.parseTernary());
+        }
+      }
+      this.expectPunct(']');
+      return { kind: 'array', elements };
+    }
     if (token.type === 'ident') {
       this.advance();
       if (token.value === 'true') {
@@ -437,6 +458,28 @@ const FUNCTIONS: Record<string, (args: unknown[]) => unknown> = {
   year: (args) => toDate(args[0])?.getFullYear() ?? null,
   month: (args) => toDate(args[0])?.getMonth() ?? null,
   date: (args) => toDate(args[0])?.getDate() ?? null,
+  timeFormat: (args) => {
+    const d = toDate(args[0]);
+    if (d == null || typeof args[1] !== 'string') {
+      return '';
+    }
+    try {
+      return d3TimeFormat(args[1])(d);
+    } catch {
+      return '';
+    }
+  },
+  utcFormat: (args) => {
+    const d = toDate(args[0]);
+    if (d == null || typeof args[1] !== 'string') {
+      return '';
+    }
+    try {
+      return d3UtcFormat(args[1])(d);
+    } catch {
+      return '';
+    }
+  },
 };
 
 function evaluateNode(
@@ -500,6 +543,8 @@ function evaluateNode(
         ? evaluateNode(node.consequent, datum, signals)
         : evaluateNode(node.alternate, datum, signals);
     }
+    case 'array':
+      return node.elements.map((element) => evaluateNode(element, datum, signals));
     case 'binary': {
       const left = evaluateNode(node.left, datum, signals);
       const right = evaluateNode(node.right, datum, signals);

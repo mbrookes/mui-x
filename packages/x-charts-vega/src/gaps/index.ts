@@ -48,6 +48,9 @@ const X_CHARTS_LIMITATION_CODES = new Set<string>([
   'mark:trail-width',
   // x-charts' native legend swatch has no per-entry dash pattern.
   'mark:strokedash-legend-swatch',
+  // x-charts' tick-label multi-line height measurement resolves to 0 for an
+  // axis label, collapsing stacked lines onto the same baseline.
+  'axis:labelExpr-multiline',
   // Opacity: an x-charts series/marker has a single color, no separate alphas.
   'encoding:opacity',
   'encoding:opacity-field-unsupported',

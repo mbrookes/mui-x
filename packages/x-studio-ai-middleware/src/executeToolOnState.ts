@@ -89,23 +89,88 @@ function capTitle(title: string): string {
 }
 
 /**
+ * Max recursion depth `capFilterValue` will descend into a nested array/object
+ * filter value. Bounds the work done on a pathologically deep model-supplied
+ * structure; values beyond this depth are left as-is (a nested array at that depth
+ * is still bounded by the enclosing array-length cap applied on the way down).
+ */
+const MAX_FILTER_VALUE_DEPTH = 5;
+
+/**
  * Cap a model-supplied filter `value` before persisting it — same token-bomb class
  * `capTitle` guards against (finding T3-3). String values are truncated to
  * {@link MAX_FILTER_STRING_LENGTH}; array values (e.g. an `in` list) are truncated
- * to {@link MAX_FILTER_VALUE_ARRAY_LENGTH} entries. Other JSON-serializable shapes
- * (number/boolean/null/small object) are left as-is — they can't realistically carry
- * an unbounded payload the way a string or array can.
+ * to {@link MAX_FILTER_VALUE_ARRAY_LENGTH} entries. Recurses into array elements and
+ * plain-object properties so a huge string or object NESTED inside an array-typed
+ * value is also capped, not just the array's own length (Tier 2, iteration 22) —
+ * `buildAISystemPrompt.ts` echoes the whole value via `JSON.stringify(f.value)` on
+ * every future request, so an uncapped element anywhere inside the structure is just
+ * as much a persistent token bomb as an uncapped top-level string. Other
+ * JSON-serializable scalar shapes (number/boolean/null) are left as-is.
  */
-function capFilterValue(value: unknown): unknown {
+function capFilterValue(value: unknown, depth = 0): unknown {
   if (typeof value === 'string') {
     return capString(value, MAX_FILTER_STRING_LENGTH);
   }
+  if (depth >= MAX_FILTER_VALUE_DEPTH) {
+    return value;
+  }
   if (Array.isArray(value)) {
-    return value.length > MAX_FILTER_VALUE_ARRAY_LENGTH
-      ? value.slice(0, MAX_FILTER_VALUE_ARRAY_LENGTH)
-      : value;
+    const bounded =
+      value.length > MAX_FILTER_VALUE_ARRAY_LENGTH
+        ? value.slice(0, MAX_FILTER_VALUE_ARRAY_LENGTH)
+        : value;
+    return bounded.map((entry) => capFilterValue(entry, depth + 1));
+  }
+  if (value !== null && typeof value === 'object') {
+    const capped: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      capped[key] = capFilterValue(entry, depth + 1);
+    }
+    return capped;
   }
   return value;
+}
+
+/**
+ * Cap a model-supplied `sourceId` string before persisting it onto a widget — same
+ * token-bomb class as {@link MAX_TITLE_LENGTH}/{@link MAX_FILTER_STRING_LENGTH}:
+ * `buildAISystemPrompt.ts`'s `describeWidget` echoes a widget's resolved source into
+ * `<dashboard_state>` on every future request. Reuses `MAX_FILTER_STRING_LENGTH` —
+ * the same bound already applied to a filter's `field`/`sourceId` — rather than
+ * inventing a new constant for what is the same class of short identifier string.
+ */
+function capSourceId(sourceId: string): string {
+  return capString(sourceId, MAX_FILTER_STRING_LENGTH);
+}
+
+/**
+ * Cap every STRING-typed value in a model-supplied widget `config` object before
+ * persisting it (Tier 2, iteration 22). Chart-config string fields such as
+ * `xField`/`yField`/`seriesField` (and their per-chart-type siblings —
+ * `ganttLabelField`, `sankeyTargetField`, `scatterColorField`, `heatYField`, …) are
+ * free-form model-supplied field-id strings with no existing length bound, and
+ * `buildAISystemPrompt.ts`'s `describeWidget` echoes every one of them into
+ * `<dashboard_state>` on EVERY future request — the same persistent token-bomb class
+ * `capTitle`/`capFilterValue` already guard against. Reuses `MAX_FILTER_STRING_LENGTH`
+ * (the bound already applied to filter `field`/`sourceId`) rather than inventing a new
+ * constant. Non-string values (numbers, booleans, arrays like `ySeries`/`annotations`,
+ * nested objects like `forecast`) are left untouched — they are either already
+ * value-checked elsewhere (`invalidConfigValueError`) or out of scope for this
+ * shallow string cap. Accepts `unknown` (not just a record) so it can be applied
+ * directly to an untrusted `args.config` at the write source; any non-plain-object
+ * input (including `null`/arrays) is returned unchanged for the caller's own
+ * shape validation to reject.
+ */
+function capConfigStringValues(config: unknown): unknown {
+  if (config === null || typeof config !== 'object' || Array.isArray(config)) {
+    return config;
+  }
+  const capped: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(config as Record<string, unknown>)) {
+    capped[key] = typeof value === 'string' ? capString(value, MAX_FILTER_STRING_LENGTH) : value;
+  }
+  return capped;
 }
 
 /**
@@ -506,8 +571,11 @@ export function buildWidgetFromArgs(
 ): { widget: StudioWidget } | { error: string } {
   const kind = String(args.kind ?? 'chart') as StudioWidget['kind'];
   const title = capTitle(String(args.title ?? ''));
-  const sourceId = args.sourceId ? String(args.sourceId) : undefined;
-  const aiConfig = (args.config ?? {}) as StudioWidget['config'];
+  const sourceId = args.sourceId ? capSourceId(String(args.sourceId)) : undefined;
+  // Cap every model-supplied string-typed config value (e.g. `xField`/`yField`/
+  // `seriesField`) BEFORE it is validated/merged, so an oversized value never
+  // lands in state (Tier 2, iteration 22 — see `capConfigStringValues`).
+  const aiConfig = capConfigStringValues(args.config ?? {}) as StudioWidget['config'];
   // Validate `kind` against the CLOSED, locally-knowable set (built-in kinds ∪
   // host-registered `customWidgets[].kind`) BEFORE building anything (finding T2-4).
   // An unknown kind — even a capitalization slip like `"Chart"` — both mints a widget
@@ -711,7 +779,9 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // an opaque, unactionable error. Every sibling path already tolerates a nullish
       // config (`buildWidgetFromArgs` uses `?? {}`; the bulk loop gates on truthiness; the
       // reducer treats a non-record config as absent), so normalize to `undefined` here.
-      const configArg = args.config == null ? undefined : args.config;
+      // Cap every model-supplied string-typed config value BEFORE validation, so an
+      // oversized `xField`/`yField`/… never lands in state (Tier 2, iteration 22).
+      const configArg = args.config == null ? undefined : capConfigStringValues(args.config);
       if (configArg !== undefined) {
         const error = invalidConfigKeyError(widget.kind, configArg as Record<string, unknown>);
         if (error) {
@@ -744,7 +814,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         changes.title = capTitle(String(args.title));
       }
       if (args.sourceId !== undefined) {
-        changes.sourceId = String(args.sourceId);
+        changes.sourceId = capSourceId(String(args.sourceId));
       }
 
       // Local MERGE of the incoming patch onto the widget's CURRENT config. Used ONLY
@@ -1453,17 +1523,22 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
           skipped.push(`update ${wid}: not found`);
           continue;
         }
-        if (update.config) {
+        // Cap every model-supplied string-typed config value BEFORE validation, so an
+        // oversized `xField`/`yField`/… never lands in state (Tier 2, iteration 22).
+        const configArg = update.config
+          ? (capConfigStringValues(update.config) as Record<string, unknown>)
+          : undefined;
+        if (configArg) {
           // Resolve the target's kind from either the CURRENT state or a widget
           // added earlier in this same batch (not yet in `state.doc.widgets`).
           const existingWidget = getWidget(state, wid);
           const kind = existingWidget?.kind ?? addedWidgetKinds[wid];
-          const error = invalidConfigKeyError(kind, update.config as Record<string, unknown>);
+          const error = invalidConfigKeyError(kind, configArg);
           if (error) {
             skipped.push(`update ${wid}: ${error}`);
             continue;
           }
-          const valueError = invalidConfigValueError(update.config as Record<string, unknown>);
+          const valueError = invalidConfigValueError(configArg);
           if (valueError) {
             skipped.push(`update ${wid}: ${valueError}`);
             continue;
@@ -1474,29 +1549,25 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
             // chartType change) — never a pre-batch snapshot — so a chartType changed
             // earlier in this same batch is honored here.
             const existingChartType = resolveChartTypeForUpdate(wid, existingWidget);
-            const chartError = invalidChartConfigKeyError(
-              update.config as Record<string, unknown>,
-              existingChartType,
-            );
+            const chartError = invalidChartConfigKeyError(configArg, existingChartType);
             if (chartError) {
               skipped.push(`update ${wid}: ${chartError}`);
               continue;
             }
             // Accepted: if this update sets a new chartType, record it so later
             // same-batch updates targeting this widget validate against it.
-            if (Object.hasOwn(update.config as Record<string, unknown>, 'chartType')) {
-              currentChartTypes.set(
-                wid,
-                (update.config as Record<string, unknown>).chartType as string | undefined,
-              );
+            if (Object.hasOwn(configArg, 'chartType')) {
+              currentChartTypes.set(wid, configArg.chartType as string | undefined);
             }
           }
         }
         updatedWidgets.push({
           widgetId: wid,
           ...(update.title !== undefined ? { title: capTitle(String(update.title)) } : {}),
-          ...(update.sourceId !== undefined ? { sourceId: String(update.sourceId) } : {}),
-          ...(update.config ? { config: update.config as StudioWidget['config'] } : {}),
+          ...(update.sourceId !== undefined
+            ? { sourceId: capSourceId(String(update.sourceId)) }
+            : {}),
+          ...(configArg ? { config: configArg as StudioWidget['config'] } : {}),
         });
         applied.updated += 1;
       }

@@ -378,7 +378,23 @@ export const Policy = {
 export type ExecuteToolWithPolicyResult =
   | { kind: 'allowed'; result: ToolExecutionResult }
   | { kind: 'denied'; reason: string }
-  | { kind: 'needs-approval'; result: ToolExecutionResult; effects: ToolEffectSummary };
+  | {
+      kind: 'needs-approval';
+      result: ToolExecutionResult;
+      effects: ToolEffectSummary;
+      /**
+       * The POLICY's own stated reason for requiring approval (from
+       * `ToolPolicyDecision`'s `{ action: 'require-approval', reason }` — e.g. "this
+       * exceeds today's mutation budget"), when the policy supplied one. Tier 3,
+       * iteration 22: this used to be silently dropped here — the policy computed it,
+       * but no caller ever read `decision.reason` on the require-approval branch — so
+       * neither the human-facing approval prompt nor (on an auto-denied fallback, e.g.
+       * no `approvalPending` channel configured) the message relayed back to the LLM
+       * could ever explain WHY approval was needed. Threaded through so
+       * `agenticLoop/toolDispatch.ts`'s `runApprovalFlow` can surface it on both paths.
+       */
+      reason?: string;
+    };
 
 /**
  * The single execute-then-gate chokepoint for built-in tools. Calls
@@ -458,6 +474,9 @@ export async function executeToolWithPolicy(
         updatedWidgetIds: [],
         layoutChangedPageIds: [],
       },
+      // Thread the policy's own require-approval reason through (Tier 3, iteration
+      // 22) — see this field's doc comment on `ExecuteToolWithPolicyResult`.
+      reason: decision.reason,
     };
   }
   return { kind: 'allowed', result };
@@ -469,7 +488,15 @@ export async function executeToolWithPolicy(
 export type ConsultToolPolicyArgsOnlyResult =
   | { kind: 'allowed' }
   | { kind: 'denied'; reason: string }
-  | { kind: 'needs-approval' };
+  | {
+      kind: 'needs-approval';
+      /**
+       * The POLICY's own stated reason for requiring approval, when supplied — see
+       * the identically-purposed field on `ExecuteToolWithPolicyResult` (Tier 3,
+       * iteration 22).
+       */
+      reason?: string;
+    };
 
 /**
  * The single ARGS-ONLY authorization consult, shared by both transports for
@@ -513,7 +540,7 @@ export async function consultToolPolicyArgsOnly(
     return { kind: 'denied', reason: decision.reason };
   }
   if (decision.action === 'require-approval') {
-    return { kind: 'needs-approval' };
+    return { kind: 'needs-approval', reason: decision.reason };
   }
   return { kind: 'allowed' };
 }

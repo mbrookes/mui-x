@@ -143,6 +143,13 @@ export type StudioAISSEEvent =
    * the `effects` the MCP transport already forwards to its `approvalHandler`. Additive:
    * existing clients ignore the unknown key; it is present only for layout-affecting /
    * removing tools that actually carry structural effects.
+   *
+   * `reason` (Tier 3, iteration 22) is the POLICY's own stated justification for why
+   * this call needs approval (e.g. "this exceeds today's mutation budget of 50"),
+   * when the configured `ToolPolicy` supplied one via `{ action: 'require-approval',
+   * reason }`. Previously computed but silently dropped before reaching this event —
+   * a human approving/denying the call had no way to see WHY it was flagged. Additive
+   * and optional, like `effects`.
    */
   | {
       type: 'tool-approval-request';
@@ -150,4 +157,5 @@ export type StudioAISSEEvent =
       toolName: string;
       input: unknown;
       effects?: ApprovalEffectsSummary;
+      reason?: string;
     };

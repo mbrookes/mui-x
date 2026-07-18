@@ -23,6 +23,7 @@ import { buildPageLayoutContext } from '../buildPageLayoutContext';
 import { projectStateForAI } from '../executeToolOnState';
 import type { StudioCustomWidgetDef } from '../models/studioTypes';
 import type { StudioAIEnrichedContext } from '../models/aiTypes';
+import { withTimeout } from './helpers';
 import type { StudioMcpData, StudioMcpLogger, StudioMcpOptions, StudioStateBox } from './types';
 
 /** Dependencies required to serve the MCP resource handlers. */
@@ -330,12 +331,20 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
           .filter((s) => !s.hidden && s.tableName)
           .map(async (s) => {
             try {
-              const result = await data.queryDataSource({
-                sourceId: s.id,
-                tableName: s.tableName as string,
-                aggregations: [{ column: '*', func: 'count', alias: 'count' }],
-                limit: 1,
-              });
+              // Bounded with the same `withTimeout` pattern `mcp/summarisePage.ts` applies to
+              // its own `data.queryDataSource` calls (Tier 3, iteration 22): without it, one
+              // slow/hung source in this per-source `Promise.all` would keep the whole
+              // `data-health` resource read hanging indefinitely.
+              const result = await withTimeout(
+                data.queryDataSource({
+                  sourceId: s.id,
+                  tableName: s.tableName as string,
+                  aggregations: [{ column: '*', func: 'count', alias: 'count' }],
+                  limit: 1,
+                }),
+                15_000,
+                `data-health count query for ${s.tableName}`,
+              );
               const row = result.rows[0];
               counts[s.id] = Number(row?.count ?? result.rowCount ?? 0);
             } catch (err) {
@@ -449,11 +458,18 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
           `Unknown data source: "${sourceId}". Check studio://dashboard/state for available source IDs.`,
         );
       }
-      const result = await data.queryDataSource({
-        sourceId,
-        tableName: source.tableName as string,
-        limit: 20,
-      });
+      // Bounded with the same `withTimeout` pattern `mcp/summarisePage.ts` applies to its
+      // own `data.queryDataSource` calls (Tier 3, iteration 22) — otherwise a hung host
+      // query implementation would leave this resource read pending indefinitely.
+      const result = await withTimeout(
+        data.queryDataSource({
+          sourceId,
+          tableName: source.tableName as string,
+          limit: 20,
+        }),
+        15_000,
+        `row preview query for ${source.tableName}`,
+      );
       return {
         contents: [
           {

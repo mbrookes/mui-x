@@ -10,7 +10,7 @@
  */
 
 import { renderChartSvg } from '../chartRenderer';
-import { errorResult, jsonResult, type ToolHandler } from './helpers';
+import { errorResult, jsonResult, withTimeout, type ToolHandler } from './helpers';
 import type {
   StudioDataFilter,
   StudioDataAggregation,
@@ -28,6 +28,17 @@ export interface QueryToolDeps {
   /** Hard upper bound applied to the `query_data_source` `limit`. */
   maxQueryRows: number;
 }
+
+/**
+ * Hard upper bound on the number of `fields` a single `compute_field_stats` call
+ * may request (Tier 3, iteration 22). Each field fans out into FIVE aggregations
+ * (min/max/avg/sum/count — see the `aggregations` build below), so an unbounded
+ * `fields` array turns one tool call into an unbounded amount of DB aggregation
+ * work in a single query. Rejected with a clear, actionable error rather than
+ * silently truncated, so the model learns to split the request instead of
+ * silently getting stats for a subset of the fields it asked for.
+ */
+const MAX_COMPUTE_FIELD_STATS_FIELDS = 50;
 
 /** The shape of a resolved, queryable data source: guaranteed to have a `tableName`. */
 type ResolvedSource = StudioStateBox['current']['runtime']['dataSources'][string] & {
@@ -152,17 +163,25 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
       const { tableName } = resolved;
 
       try {
-        const result = await data.queryDataSource({
-          sourceId,
-          tableName,
-          columns,
-          filters,
-          aggregations,
-          ...(having && having.length > 0 && { having }),
-          orderBy,
-          limit: clampedLimit,
-          ...(offset !== undefined && { offset: clampedOffset }),
-        });
+        // Bounded with the same `withTimeout` pattern `mcp/summarisePage.ts` applies to its
+        // own `data.queryDataSource` calls (Tier 3, iteration 22) — without it, a hung host
+        // query implementation leaves this tool call (and the agentic loop turn awaiting it)
+        // pending indefinitely.
+        const result = await withTimeout(
+          data.queryDataSource({
+            sourceId,
+            tableName,
+            columns,
+            filters,
+            aggregations,
+            ...(having && having.length > 0 && { having }),
+            orderBy,
+            limit: clampedLimit,
+            ...(offset !== undefined && { offset: clampedOffset }),
+          }),
+          15_000,
+          `query for ${tableName}`,
+        );
 
         return jsonResult({ sourceId, ...result });
       } catch (err) {
@@ -188,12 +207,22 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
         const visibleFields = (source.fields ?? []).filter((f) => !f.hidden);
         const numericFields = visibleFields.filter((f) => f.type === 'number');
 
-        // Run sample rows and row count in parallel with per-field numeric stats.
+        // Run sample rows and row count in parallel with per-field numeric stats. Each
+        // query is bounded with the same `withTimeout` pattern `mcp/summarisePage.ts`
+        // applies to its own `data.queryDataSource` calls (Tier 3, iteration 22) — a hung
+        // per-field stats query would otherwise stall this tool call indefinitely (the
+        // sample query) or silently never resolve into `statsResults` (the per-field
+        // queries, each already `.catch(() => null)`-guarded against a query error but not
+        // against one that never settles at all).
         const [sampleResult, ...statsResults] = await Promise.all([
-          data.queryDataSource({ sourceId, tableName, limit: 10 }),
+          withTimeout(
+            data.queryDataSource({ sourceId, tableName, limit: 10 }),
+            15_000,
+            `sample query for ${tableName}`,
+          ),
           ...numericFields.map((f) =>
-            data
-              .queryDataSource({
+            withTimeout(
+              data.queryDataSource({
                 sourceId,
                 tableName,
                 aggregations: [
@@ -203,8 +232,10 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
                   { column: f.id, func: 'sum', alias: 'sum' },
                 ],
                 limit: 1,
-              })
-              .catch(() => null),
+              }),
+              15_000,
+              `stats query for ${tableName}.${f.id}`,
+            ).catch(() => null),
           ),
         ]);
 
@@ -283,14 +314,20 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
         // (50) on a falsy/`NaN` truncated value.
         const truncatedFieldLimit = Math.trunc(Number(fieldLimit));
         const clampedFieldLimit = Math.min(Math.max(1, truncatedFieldLimit || 50), 200);
-        const result = await data.queryDataSource({
-          sourceId,
-          tableName,
-          columns: [fieldId],
-          aggregations: [{ column: fieldId, func: 'count', alias: 'count' }],
-          orderBy: [{ column: 'count', direction: 'desc' }],
-          limit: clampedFieldLimit,
-        });
+        // Bounded with the same `withTimeout` pattern `mcp/summarisePage.ts` applies to its
+        // own `data.queryDataSource` calls (Tier 3, iteration 22).
+        const result = await withTimeout(
+          data.queryDataSource({
+            sourceId,
+            tableName,
+            columns: [fieldId],
+            aggregations: [{ column: fieldId, func: 'count', alias: 'count' }],
+            orderBy: [{ column: 'count', direction: 'desc' }],
+            limit: clampedFieldLimit,
+          }),
+          15_000,
+          `field-values query for ${tableName}.${fieldId}`,
+        );
         type GfvContentItem =
           | { type: 'text'; text: string }
           | { type: 'image'; data: string; mimeType: string };
@@ -351,6 +388,16 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
       if (!sourceId || !statFields || statFields.length === 0) {
         return errorResult('sourceId and fields (non-empty array) are required');
       }
+      // Reject (not silently truncate) an oversized `fields` array (Tier 3, iteration
+      // 22): each field fans out into 5 aggregations in a single query, so an unbounded
+      // request performs unbounded aggregation work. See `MAX_COMPUTE_FIELD_STATS_FIELDS`.
+      if (statFields.length > MAX_COMPUTE_FIELD_STATS_FIELDS) {
+        return errorResult(
+          `compute_field_stats received ${statFields.length} fields, which exceeds the limit of ` +
+            `${MAX_COMPUTE_FIELD_STATS_FIELDS}. Split the request into multiple calls of at most ` +
+            `${MAX_COMPUTE_FIELD_STATS_FIELDS} fields each.`,
+        );
+      }
       const resolved = resolveSource(stateBox, sourceId, data.allowedTables);
       if (!resolved.ok) {
         return resolved.error;
@@ -364,12 +411,18 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
           { column: f, func: 'sum' as const, alias: `${f}__sum` },
           { column: f, func: 'count' as const, alias: `${f}__count` },
         ]);
-        const result = await data.queryDataSource({
-          sourceId,
-          tableName,
-          aggregations,
-          limit: 1,
-        });
+        // Bounded with the same `withTimeout` pattern `mcp/summarisePage.ts` applies to its
+        // own `data.queryDataSource` calls (Tier 3, iteration 22).
+        const result = await withTimeout(
+          data.queryDataSource({
+            sourceId,
+            tableName,
+            aggregations,
+            limit: 1,
+          }),
+          15_000,
+          `field-stats query for ${tableName}`,
+        );
         const row = result.rows[0] ?? {};
         const statsOut: Record<
           string,

@@ -122,6 +122,26 @@ describe('createDataToolHandlers', () => {
       });
     });
 
+    // Tier 3, iteration 22: the MCP transport has no outer timeout of its own around
+    // a tool-handler call (unlike the chat transport's `agenticLoop/toolDispatch.ts`,
+    // which already wraps its `query_data_source` call), so a hung
+    // `data.queryDataSource` implementation would block an MCP `tools/call` request
+    // indefinitely. `query_data_source` must now bound the call itself.
+    it('times out a hanging data.queryDataSource instead of waiting forever', async () => {
+      vi.useFakeTimers();
+      try {
+        const queryDataSource = vi.fn(() => new Promise<never>(() => {}));
+        const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+        const resultPromise = handlers.query_data_source({ sourceId: 'source-orders' });
+        await vi.advanceTimersByTimeAsync(15_000);
+        const result: any = await resultPromise;
+        expect(result.isError).toBe(true);
+        expect(JSON.parse(await readText(result)).error).toMatch(/timed out after 15000ms/);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     // Regression for T2-6: `limit` was clamped on the upper bound only
     // (`Math.min(limit ?? maxQueryRows, maxQueryRows)`), so a negative or NaN
     // `limit` — and any `offset` at all — passed straight through to the host.
@@ -464,6 +484,38 @@ describe('createDataToolHandlers', () => {
       });
       const parsed = JSON.parse(await readText(result));
       expect(parsed.stats.total).toEqual({ min: 10, max: 1000, avg: 55.56, sum: 5000, count: 90 });
+    });
+
+    // Tier 3, iteration 22: each requested field fans out into 5 aggregations in a
+    // SINGLE query, so an unbounded `fields` array performs unbounded aggregation
+    // work. Must be rejected (not silently truncated) with an actionable error.
+    it('rejects a fields array exceeding the configured limit, without querying', async () => {
+      const queryDataSource = vi.fn();
+      const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+      const tooManyFields = Array.from({ length: 51 }, (_, i) => `field${i}`);
+      const result: any = await handlers.compute_field_stats({
+        sourceId: 'source-orders',
+        fields: tooManyFields,
+      });
+      expect(result.isError).toBe(true);
+      const parsed = JSON.parse(await readText(result));
+      expect(parsed.error).toMatch(/51 fields/);
+      expect(parsed.error).toMatch(/exceeds the limit of 50/);
+      expect(queryDataSource).not.toHaveBeenCalled();
+    });
+
+    it('accepts a fields array exactly at the configured limit', async () => {
+      const queryDataSource = vi.fn(
+        async (): Promise<StudioDataQueryResult> => ({ rows: [{}], rowCount: 1 }),
+      );
+      const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+      const exactlyAtLimit = Array.from({ length: 50 }, (_, i) => `field${i}`);
+      const result: any = await handlers.compute_field_stats({
+        sourceId: 'source-orders',
+        fields: exactlyAtLimit,
+      });
+      expect(result.isError).toBeUndefined();
+      expect(queryDataSource).toHaveBeenCalledOnce();
     });
   });
 

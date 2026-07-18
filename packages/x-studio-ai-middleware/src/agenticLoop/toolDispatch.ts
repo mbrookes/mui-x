@@ -304,6 +304,14 @@ type ApprovalFlowResult =
  * where destructive tools executed unapproved whenever no `approvalPending` map was
  * supplied; `'allow'` preserves that historical behavior but fires `onToolError` as a
  * loud warning that a require-approval decision was auto-approved.
+ *
+ * `policyReason` (Tier 3, iteration 22) is the POLICY's own stated reason for
+ * requiring approval (`ToolPolicyDecision`'s `{ action: 'require-approval', reason
+ * }`), when the configured policy supplied one — previously computed by
+ * `toolPolicy.ts` but dropped before ever reaching this function, so it could not
+ * be surfaced to a human approver NOR relayed back to the LLM on the no-channel
+ * auto-deny fallback below. Threaded into the `tool-approval-request` event for the
+ * former, and appended to the fallback denial message for the latter.
  */
 async function* runApprovalFlow(
   toolCallId: string,
@@ -311,6 +319,7 @@ async function* runApprovalFlow(
   displayInput: unknown,
   effectsSummary: ApprovalEffectsSummary | undefined,
   ctx: ToolDispatchContext,
+  policyReason?: string,
 ): AsyncGenerator<StudioAISSEEvent, ApprovalFlowResult> {
   if (!ctx.approvalPending) {
     if (ctx.approvalFallback === 'allow') {
@@ -329,7 +338,9 @@ async function* runApprovalFlow(
       output: JSON.stringify({
         denied: true,
         reason:
-          `"${toolName}" requires approval but no approvalPending map is configured. ` +
+          `"${toolName}" requires approval` +
+          (policyReason ? ` (${policyReason})` : '') +
+          ' but no approvalPending map is configured. ' +
           `Wire an approval channel (pass approvalPending) or set approvalFallback: 'allow'.`,
       }),
     };
@@ -340,6 +351,7 @@ async function* runApprovalFlow(
     toolName,
     input: displayInput,
     ...(effectsSummary ? { effects: effectsSummary } : {}),
+    ...(policyReason ? { reason: policyReason } : {}),
   };
   const outcome = await waitForApproval(
     toolCallId,
@@ -433,7 +445,14 @@ export async function* dispatchToolCall(
       const displayInput = buildApprovalDisplayInput(name, toolInput, currentState);
       // No structural effects to summarize here: a server-tool skill is gated args-only
       // (no pure dry-run), so no `ToolEffectSummary` is available before it runs.
-      const approval = yield* runApprovalFlow(tc.id, name, displayInput, undefined, ctx);
+      const approval = yield* runApprovalFlow(
+        tc.id,
+        name,
+        displayInput,
+        undefined,
+        ctx,
+        gate.reason,
+      );
       if (approval.kind === 'aborted') {
         return { kind: 'aborted' };
       }
@@ -491,7 +510,14 @@ export async function* dispatchToolCall(
       const displayInput = buildApprovalDisplayInput(name, toolInput, currentState);
       // `query_data_source` never mutates dashboard state, so there are no structural
       // effects to summarize.
-      const approval = yield* runApprovalFlow(tc.id, name, displayInput, undefined, ctx);
+      const approval = yield* runApprovalFlow(
+        tc.id,
+        name,
+        displayInput,
+        undefined,
+        ctx,
+        gate.reason,
+      );
       if (approval.kind === 'aborted') {
         return { kind: 'aborted' };
       }
@@ -583,7 +609,14 @@ export async function* dispatchToolCall(
     // get removed, which widgets get orphaned) so the human isn't approving a layout op
     // blind. `outcome.effects` is always present on the built-in needs-approval path.
     const effectsSummary = buildApprovalEffectsSummary(outcome.effects, currentState);
-    const approval = yield* runApprovalFlow(tc.id, name, displayInput, effectsSummary, ctx);
+    const approval = yield* runApprovalFlow(
+      tc.id,
+      name,
+      displayInput,
+      effectsSummary,
+      ctx,
+      outcome.reason,
+    );
     if (approval.kind === 'aborted') {
       return { kind: 'aborted' };
     }

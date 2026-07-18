@@ -410,6 +410,52 @@ describe('executeToolWithPolicy', () => {
       layoutChangedPageIds: [],
     });
   });
+
+  // Tier 3, iteration 22: a policy's `{ action: 'require-approval', reason }` used
+  // to be silently dropped here — the caller had no way to learn WHY approval was
+  // needed, so a human approval UI (and, on the no-channel auto-deny fallback, the
+  // LLM) never saw the policy's own stated justification.
+  it('threads a require-approval decision reason through to the needs-approval outcome', async () => {
+    const state = makeTwoWidgetState();
+    const outcome = await executeToolWithPolicy('remove_widget', { widgetId: 'w1' }, state, {
+      policy: () => ({ action: 'require-approval', reason: 'exceeds daily mutation budget' }),
+      transport: 'chat',
+      usage: EMPTY_USAGE(),
+    });
+    expect(outcome.kind).toBe('needs-approval');
+    expect(outcome.kind === 'needs-approval' ? outcome.reason : undefined).toBe(
+      'exceeds daily mutation budget',
+    );
+  });
+
+  it('leaves reason undefined when the policy requires approval without one', async () => {
+    const state = makeTwoWidgetState();
+    const outcome = await executeToolWithPolicy('remove_widget', { widgetId: 'w1' }, state, {
+      policy: () => ({ action: 'require-approval' }),
+      transport: 'chat',
+      usage: EMPTY_USAGE(),
+    });
+    expect(outcome.kind).toBe('needs-approval');
+    expect(outcome.kind === 'needs-approval' ? outcome.reason : 'not-reached').toBeUndefined();
+  });
+});
+
+describe('consultToolPolicyArgsOnly: require-approval reason threading', () => {
+  // Same Tier 3, iteration 22 fix as `executeToolWithPolicy` above, for the
+  // args-only chokepoint used by server-tool skills and `query_data_source`.
+  it('threads a require-approval decision reason through', async () => {
+    const outcome = await consultToolPolicyArgsOnly(
+      'query_data_source',
+      {},
+      createDefaultStudioState(),
+      {
+        policy: () => ({ action: 'require-approval', reason: 'live query needs confirmation' }),
+        transport: 'chat',
+        usage: EMPTY_USAGE(),
+      },
+    );
+    expect(outcome).toEqual({ kind: 'needs-approval', reason: 'live query needs confirmation' });
+  });
 });
 
 // ── Policy.all / Policy.mutationBudget ───────────────────────────────────────

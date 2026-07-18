@@ -328,7 +328,14 @@ describe('dispatchToolCall', () => {
       await vi.advanceTimersByTimeAsync(15_000);
       const { outcome } = await dispatchPromise;
       const parsed = JSON.parse((outcome as { output: string }).output) as { error: string };
-      expect(parsed.error).toMatch(/query_data_source timed out after 15000ms/);
+      // Two independent timeouts now race the same underlying `data.queryDataSource`
+      // call: this call site's own `QUERY_DATA_SOURCE_TIMEOUT_MS` wrapper, AND (since
+      // Tier 3, iteration 22) `mcp/queryTools.ts`'s own `withTimeout` around the same
+      // call — added to close the same gap on the MCP transport, which has no
+      // equivalent outer wrapper of its own. Both are bounded at 15s, so either
+      // message is an acceptable, equally-valid proof that the call does not hang
+      // forever; don't couple this assertion to which one wins the race.
+      expect(parsed.error).toMatch(/timed out after 15000ms/);
     } finally {
       vi.useRealTimers();
     }
@@ -566,6 +573,102 @@ describe('dispatchToolCall', () => {
       await Promise.resolve();
       approvalPending.get('call_1')!.resolve(true);
       await pendingStep;
+    });
+
+    // Tier 3, iteration 22: the policy's own `reason` for a `require-approval`
+    // decision (e.g. "exceeds daily mutation budget") used to be silently dropped
+    // between `toolPolicy.ts` and here — a human approving the call never saw WHY
+    // it was flagged. It must now be threaded into the `tool-approval-request` event.
+    it('attaches the policy-supplied reason to the approval event for a built-in tool', async () => {
+      const stateWithWidget = createDefaultStudioState({
+        doc: {
+          dashboard: { id: 'd', title: 'D', activePageId: 'p1' },
+          pages: { p1: { id: 'p1', title: 'P1', widgetRows: [['w1']] } },
+          widgets: {
+            w1: { id: 'w1', kind: 'chart', title: 'My Widget', config: { chartType: 'bar' } },
+          },
+        },
+      });
+      const approvalPending = new Map<string, PendingApproval>();
+      const policyWithReason: ToolPolicy = () => ({
+        action: 'require-approval',
+        reason: 'exceeds daily mutation budget',
+      });
+      const ctx = makeCtx({
+        advertisedToolNames: new Set(['remove_widget']),
+        toolPolicy: policyWithReason,
+        approvalPending,
+      });
+
+      const gen = dispatchToolCall(
+        tc('remove_widget', JSON.stringify({ widgetId: 'w1' })),
+        { widgetId: 'w1' },
+        false,
+        stateWithWidget,
+        ctx,
+      );
+      const first = await gen.next();
+      const ev = first.value as { type: string; reason?: string };
+      expect(ev.type).toBe('tool-approval-request');
+      expect(ev.reason).toBe('exceeds daily mutation budget');
+
+      const pendingStep = gen.next();
+      await Promise.resolve();
+      approvalPending.get('call_1')!.resolve(true);
+      await pendingStep;
+    });
+
+    // Same fix, for a server-tool skill's args-only require-approval path.
+    it('attaches the policy-supplied reason to the approval event for a server-tool skill', async () => {
+      const execute = vi.fn(async () => ({ output: 'ran', nextState: INITIAL_STATE }));
+      const approvalPending = new Map<string, PendingApproval>();
+      const policyWithReason: ToolPolicy = () => ({
+        action: 'require-approval',
+        reason: 'live query needs confirmation',
+      });
+      const ctx = makeCtx({
+        advertisedToolNames: new Set(['approve_skill']),
+        skillHandlers: [makeApprovalSkill(execute)],
+        toolPolicy: policyWithReason,
+        approvalPending,
+      });
+      const gen = dispatchToolCall(tc('approve_skill'), {}, false, INITIAL_STATE, ctx);
+      const first = await gen.next();
+      const ev = first.value as { type: string; reason?: string };
+      expect(ev.type).toBe('tool-approval-request');
+      expect(ev.reason).toBe('live query needs confirmation');
+
+      const pendingStep = gen.next();
+      await Promise.resolve();
+      approvalPending.get('call_1')!.resolve(true);
+      await pendingStep;
+    });
+
+    // The no-approvalPending-channel fallback denial must also surface the
+    // policy's reason (Tier 3, iteration 22) — otherwise the LLM, which only sees
+    // this JSON output, has no idea why the call was flagged in the first place.
+    it('includes the policy reason in the fallback denial message when no approvalPending channel is configured', async () => {
+      const execute = vi.fn(async () => ({ output: 'ran', nextState: INITIAL_STATE }));
+      const policyWithReason: ToolPolicy = () => ({
+        action: 'require-approval',
+        reason: 'exceeds daily mutation budget',
+      });
+      const ctx = makeCtx({
+        advertisedToolNames: new Set(['approve_skill']),
+        skillHandlers: [makeApprovalSkill(execute)],
+        toolPolicy: policyWithReason,
+        approvalPending: undefined,
+        approvalFallback: 'deny',
+      });
+      const { outcome } = await runDispatch(
+        dispatchToolCall(tc('approve_skill'), {}, false, INITIAL_STATE, ctx),
+      );
+      const parsed = JSON.parse((outcome as { output: string }).output) as {
+        denied: boolean;
+        reason: string;
+      };
+      expect(parsed.denied).toBe(true);
+      expect(parsed.reason).toMatch(/exceeds daily mutation budget/);
     });
 
     it('ends with an aborted outcome when the approval is aborted mid-wait', async () => {

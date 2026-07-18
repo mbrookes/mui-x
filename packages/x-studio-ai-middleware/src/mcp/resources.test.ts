@@ -301,6 +301,49 @@ describe('resources/read data-access authorization (finding 2.1)', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Tier 3, iteration 22 — data-query resource reads must not hang forever
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('resources/read query timeouts (Tier 3, iteration 22)', () => {
+  it('bounds studio://data/{id} instead of waiting forever for a hung queryDataSource', async () => {
+    vi.useFakeTimers();
+    try {
+      const data: StudioMcpData = { queryDataSource: vi.fn(() => new Promise<never>(() => {})) };
+      const server = buildStudioMcpServer(makeStateBox(), { data });
+      // Attach the rejection handler SYNCHRONOUSLY (before advancing fake timers) so
+      // there is never a tick where the promise is unobserved — under fake timers,
+      // `expect(promise).rejects` attached only after `advanceTimersByTimeAsync` can
+      // otherwise race Node's unhandled-rejection detection.
+      let caught: unknown;
+      const resultPromise = readResource(server, 'studio://data/source-orders').catch((err) => {
+        caught = err;
+      });
+      await vi.advanceTimersByTimeAsync(15_000);
+      await resultPromise;
+      expect(caught).toBeInstanceOf(Error);
+      expect((caught as Error).message).toMatch(/timed out after 15000ms/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reports data-health per-source errors (including a timeout) rather than hanging the whole resource', async () => {
+    vi.useFakeTimers();
+    try {
+      const data: StudioMcpData = { queryDataSource: vi.fn(() => new Promise<never>(() => {})) };
+      const server = buildStudioMcpServer(makeStateBox(), { data });
+      const resultPromise = readResource(server, 'studio://dashboard/data-health');
+      await vi.advanceTimersByTimeAsync(15_000);
+      const result = await resultPromise;
+      const payload = JSON.parse(result.contents[0].text);
+      expect(payload.errors['source-orders']).toMatch(/timed out after 15000ms/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // finding 2.2 — studio://dashboard/state must never serve raw rows / adapter
 // ─────────────────────────────────────────────────────────────────────────────
 

@@ -541,6 +541,68 @@ describe('executeToolOnState: add_widget', () => {
     expect(result.mutation).toBeUndefined();
     expect(result.nextState).toBe(state);
   });
+
+  // Tier 2, iteration 22: chart-config string keys (xField/yField/seriesField and
+  // similar) were persisted with no length cap, then re-interpolated into
+  // `<dashboard_state>` (`buildAISystemPrompt.ts`'s `describeWidget`) on EVERY
+  // future request — the same token-bomb class `capTitle` already guards against
+  // for titles. Caps at 200 chars, mirroring `MAX_FILTER_STRING_LENGTH`.
+  it('caps an oversized string chart-config value (e.g. xField) at 200 chars', () => {
+    const state = makeState();
+    const hugeXField = 'x'.repeat(1000);
+    const hugeSeriesField = 's'.repeat(1000);
+    const result = executeToolOnState(
+      'add_widget',
+      {
+        kind: 'chart',
+        title: 'Sales',
+        config: { chartType: 'bar', xField: hugeXField, seriesField: hugeSeriesField },
+      },
+      state,
+    );
+    const mut = result.mutation as {
+      type: string;
+      args: { widget: { config: { xField: string; seriesField: string } } };
+    };
+    expect(mut.args.widget.config.xField.length).toBe(200);
+    expect(mut.args.widget.config.xField).toBe(hugeXField.slice(0, 200));
+    expect(mut.args.widget.config.seriesField.length).toBe(200);
+  });
+
+  // Tier 2, iteration 22: widget `sourceId` was persisted uncapped and echoed into
+  // the widget's resolved "source" in `<dashboard_state>` on every future request.
+  it('caps an oversized widget sourceId at 200 chars', () => {
+    const state = makeState();
+    const hugeSourceId = 'z'.repeat(1000);
+    const result = executeToolOnState(
+      'add_widget',
+      { kind: 'chart', title: 'Sales', sourceId: hugeSourceId },
+      state,
+    );
+    const mut = result.mutation as { type: string; args: { widget: { sourceId: string } } };
+    expect(mut.args.widget.sourceId.length).toBe(200);
+    expect(mut.args.widget.sourceId).toBe(hugeSourceId.slice(0, 200));
+  });
+
+  it('leaves small chart-config string values and sourceId untouched', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'add_widget',
+      {
+        kind: 'chart',
+        title: 'Sales',
+        sourceId: 'src1',
+        config: { chartType: 'bar', xField: 'region' },
+      },
+      state,
+    );
+    const mut = result.mutation as {
+      type: string;
+      args: { widget: { sourceId: string; config: { xField: string } } };
+    };
+    expect(mut.args.widget.sourceId).toBe('src1');
+    expect(mut.args.widget.config.xField).toBe('region');
+  });
 });
 
 describe('executeToolOnState: update_widget', () => {
@@ -712,6 +774,35 @@ describe('executeToolOnState: update_widget', () => {
     expect(Object.hasOwn(args, 'config')).toBe(false);
     expect(result.nextState.doc.widgets['widget-1'].title).toBe('Renamed');
     expect(result.nextState.doc.widgets['widget-1'].config).toEqual({ chartType: 'bar' });
+  });
+
+  // Tier 2, iteration 22: a model-supplied `config` patch's string values (e.g.
+  // `xField`) were persisted with no length cap, re-interpolated into
+  // `<dashboard_state>` on every future request.
+  it('caps an oversized string config value in an update_widget patch at 200 chars', () => {
+    const state = makeState();
+    const hugeXField = 'x'.repeat(1000);
+    const result = executeToolOnState(
+      'update_widget',
+      { widgetId: 'widget-1', config: { xField: hugeXField } },
+      state,
+    );
+    const args = (result.mutation as { args: { config?: Record<string, unknown> } }).args;
+    expect((args.config?.xField as string).length).toBe(200);
+    expect(args.config?.xField).toBe(hugeXField.slice(0, 200));
+  });
+
+  // Tier 2, iteration 22: `update_widget`'s `sourceId` was persisted uncapped.
+  it('caps an oversized sourceId in update_widget at 200 chars', () => {
+    const state = makeState();
+    const hugeSourceId = 'z'.repeat(1000);
+    const result = executeToolOnState(
+      'update_widget',
+      { widgetId: 'widget-1', sourceId: hugeSourceId },
+      state,
+    );
+    expect(result.nextState.doc.widgets['widget-1'].sourceId?.length).toBe(200);
+    expect(result.nextState.doc.widgets['widget-1'].sourceId).toBe(hugeSourceId.slice(0, 200));
   });
 });
 
@@ -1149,6 +1240,66 @@ describe('executeToolOnState: add_page_filter', () => {
     const mut = result.mutation as { type: string; args: { filter: { value: unknown } } };
     expect(mut.args.filter.value).toBe(42);
   });
+
+  // Tier 2, iteration 22: `capFilterValue` used to only truncate the ARRAY's
+  // length — a huge string element INSIDE the array (or inside a nested object)
+  // passed through uncapped, and `buildAISystemPrompt.ts` echoes the whole value
+  // via `JSON.stringify(f.value)` on every future request. Must now recurse.
+  it('caps an oversized string element nested inside an array filter value', () => {
+    const state = makeState();
+    const hugeElement = 'e'.repeat(1000);
+    const result = executeToolOnState(
+      'add_page_filter',
+      { field: 'revenue', sourceId: 'src1', operator: 'in', value: ['ok', hugeElement] },
+      state,
+    );
+    const mut = result.mutation as { type: string; args: { filter: { value: unknown[] } } };
+    expect(mut.args.filter.value[0]).toBe('ok');
+    expect((mut.args.filter.value[1] as string).length).toBe(200);
+    expect(mut.args.filter.value[1]).toBe(hugeElement.slice(0, 200));
+  });
+
+  it('caps an oversized string property nested inside an object filter value', () => {
+    const state = makeState();
+    const hugeLabel = 'l'.repeat(1000);
+    const result = executeToolOnState(
+      'add_page_filter',
+      {
+        field: 'revenue',
+        sourceId: 'src1',
+        operator: 'equals',
+        value: { id: 1, label: hugeLabel },
+      },
+      state,
+    );
+    const mut = result.mutation as {
+      type: string;
+      args: { filter: { value: { id: number; label: string } } };
+    };
+    expect(mut.args.filter.value.id).toBe(1);
+    expect(mut.args.filter.value.label.length).toBe(200);
+    expect(mut.args.filter.value.label).toBe(hugeLabel.slice(0, 200));
+  });
+
+  it('caps an oversized string nested inside an object nested inside an array filter value', () => {
+    const state = makeState();
+    const hugeLabel = 'n'.repeat(1000);
+    const result = executeToolOnState(
+      'add_page_filter',
+      {
+        field: 'revenue',
+        sourceId: 'src1',
+        operator: 'in',
+        value: [{ id: 1, label: hugeLabel }],
+      },
+      state,
+    );
+    const mut = result.mutation as {
+      type: string;
+      args: { filter: { value: Array<{ id: number; label: string }> } };
+    };
+    expect(mut.args.filter.value[0].label.length).toBe(200);
+  });
 });
 
 describe('executeToolOnState: add_widget_filter', () => {
@@ -1398,6 +1549,53 @@ describe('executeToolOnState: apply_bulk_update', () => {
       state,
     );
     expect(result.nextState.doc.widgets['widget-1'].title).toBe('Short Title');
+  });
+
+  // Tier 2, iteration 22: `widgetUpdates[].config` string values (e.g. `xField`) and
+  // `widgetUpdates[].sourceId` were persisted with no length cap — same token-bomb
+  // class as `widgetUpdates[].title` above.
+  it('caps an oversized string config value in widgetUpdates[].config at 200 chars', () => {
+    const state = makeState();
+    const hugeXField = 'x'.repeat(500);
+    const result = executeToolOnState(
+      'apply_bulk_update',
+      { widgetUpdates: [{ widgetId: 'widget-1', config: { xField: hugeXField } }] },
+      state,
+    );
+    const config = result.nextState.doc.widgets['widget-1'].config as Record<string, unknown>;
+    expect((config.xField as string).length).toBe(200);
+    expect(config.xField).toBe(hugeXField.slice(0, 200));
+  });
+
+  it('caps an oversized widgetUpdates[].sourceId at 200 chars', () => {
+    const state = makeState();
+    const hugeSourceId = 'z'.repeat(500);
+    const result = executeToolOnState(
+      'apply_bulk_update',
+      { widgetUpdates: [{ widgetId: 'widget-1', sourceId: hugeSourceId }] },
+      state,
+    );
+    expect(result.nextState.doc.widgets['widget-1'].sourceId?.length).toBe(200);
+    expect(result.nextState.doc.widgets['widget-1'].sourceId).toBe(hugeSourceId.slice(0, 200));
+  });
+
+  it('caps an oversized string config value in widgetAdditions[].config at 200 chars', () => {
+    const state = makeState();
+    const hugeXField = 'x'.repeat(500);
+    const result = executeToolOnState(
+      'apply_bulk_update',
+      {
+        widgetAdditions: [
+          { kind: 'chart', title: 'New', config: { chartType: 'bar', xField: hugeXField } },
+        ],
+      },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect(out.error).toBeUndefined();
+    const addedWidget = Object.values(result.nextState.doc.widgets).find((w) => w.title === 'New')!;
+    const config = addedWidget.config as Record<string, unknown>;
+    expect((config.xField as string).length).toBe(200);
   });
 
   it('still attaches widgetRows/widgetColSpans when the batch contains a removal', () => {

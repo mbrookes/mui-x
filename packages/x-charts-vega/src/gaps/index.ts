@@ -46,6 +46,8 @@ const X_CHARTS_LIMITATION_CODES = new Set<string>([
   'mark:point-styling',
   'mark:point-transparent',
   'mark:trail-width',
+  // x-charts' native legend swatch has no per-entry dash pattern.
+  'mark:strokedash-legend-swatch',
   // Opacity: an x-charts series/marker has a single color, no separate alphas.
   'encoding:opacity',
   'encoding:opacity-field-unsupported',

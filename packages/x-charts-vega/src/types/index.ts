@@ -187,6 +187,7 @@ export interface VegaEncoding {
   color?: VegaChannelDef;
   fill?: VegaChannelDef;
   stroke?: VegaChannelDef;
+  strokeDash?: VegaChannelDef;
   opacity?: VegaChannelDef;
   size?: VegaChannelDef;
   shape?: VegaChannelDef;

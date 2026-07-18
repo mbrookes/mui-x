@@ -334,7 +334,7 @@ describe('compileLineAreaMark', () => {
     expect(first.stack).to.equal(undefined);
   });
 
-  it('wires mark.strokeWidth and mark.strokeDash onto the series sx and emits no gap', () => {
+  it('wires mark.strokeWidth and mark.strokeDash into compiled.lineStyle and emits no gap', () => {
     const compiled = compileSpec({
       data: { values: [{ day: 'A', temp: 1 }] },
       mark: { type: 'line', strokeDash: [4, 2], strokeWidth: 5 },
@@ -346,12 +346,14 @@ describe('compileLineAreaMark', () => {
     const codes = compiled.gaps.map((gap) => gap.code);
     expect(codes).not.to.include('mark:strokeDash');
     expect(codes).not.to.include('mark:strokeWidth');
-    const series = compiled.series[0] as unknown as { id: string; sx: Record<string, unknown> };
-    const selector = `.MuiLineElement-root[data-series-id="${series.id}"]`;
-    expect(series.sx[selector]).to.deep.equal({ strokeWidth: 5, strokeDasharray: '4 2' });
+    const series = compiled.series[0] as unknown as { id: string };
+    expect(compiled.lineStyle?.[series.id]).to.deep.equal({
+      strokeWidth: 5,
+      strokeDasharray: '4 2',
+    });
   });
 
-  it('does not set an sx or report an opacity gap when no stroke styling is present', () => {
+  it('does not set lineStyle or report an opacity gap when no stroke styling is present', () => {
     const compiled = compileSpec({
       data: { values: [{ day: 'A', temp: 1 }] },
       mark: { type: 'line', opacity: 0.5 },
@@ -363,7 +365,7 @@ describe('compileLineAreaMark', () => {
     const codes = compiled.gaps.map((gap) => gap.code);
     expect(codes).not.to.include('mark:opacity');
     expect(codes).not.to.include('encoding:opacity');
-    expect((compiled.series[0] as { sx?: unknown }).sx).to.equal(undefined);
+    expect(compiled.lineStyle).to.equal(undefined);
   });
 
   it('still reports strokeOpacity as an ignored gap (no separate stroke alpha)', () => {

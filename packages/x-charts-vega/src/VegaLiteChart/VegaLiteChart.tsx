@@ -857,6 +857,21 @@ function SingleViewChart(props: VegaLiteChartProps) {
     };
   }, [compiled.hollowSeriesIds, compiled.markerStroke]);
 
+  // Per-series line-path styling (`mark.strokeWidth`/`strokeDash`, constant or
+  // per-group from a field-based `strokeDash` split): x-charts' line series
+  // has no such prop, so it's forwarded through `LinePlot`'s `slotProps.line`,
+  // which resolves as a function of `ownerState` (including `seriesId`) and
+  // passes the result straight through to the underlying `<path>`.
+  const lineSlotProps = React.useMemo(() => {
+    const lineStyle = compiled.lineStyle;
+    if (!lineStyle) {
+      return undefined;
+    }
+    return {
+      line: (ownerState: { seriesId: string | number }) => lineStyle[String(ownerState.seriesId)],
+    };
+  }, [compiled.lineStyle]);
+
   const clipId = useId();
 
   const reportedRef = React.useRef<string | null>(null);
@@ -1085,7 +1100,7 @@ function SingleViewChart(props: VegaLiteChartProps) {
         <RangeBarPlot borderRadius={compiled.barBorderRadius} />
       )}
       {compiled.plots.includes('area') && <AreaPlot />}
-      {compiled.plots.includes('line') && <LinePlot />}
+      {compiled.plots.includes('line') && <LinePlot slotProps={lineSlotProps} />}
       {compiled.plots.includes('scatter') && <ScatterPlot slots={scatterSlots} />}
       {compiled.plots.includes('marks') && <MarkPlot />}
       {compiled.plots.includes('lineHighlight') && <LineHighlightPlot />}

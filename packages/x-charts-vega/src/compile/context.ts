@@ -289,6 +289,15 @@ export interface CompiledUnit {
    */
   markerStroke?: Record<string, { color: string; width?: number }>;
   /**
+   * Per-series line-path styling (`strokeWidth`/`strokeDasharray`), keyed by
+   * series id — from a `mark.strokeWidth`/`strokeDash` (constant), or a
+   * field-based `strokeDash` split (one dash pattern per group). x-charts'
+   * line series has no such prop; the shell instead passes these through
+   * `<LinePlot slotProps={{line: ...}}>`, which forwards arbitrary SVG props
+   * to the underlying `<path>` per series.
+   */
+  lineStyle?: Record<string, { strokeWidth?: number; strokeDasharray?: string; stroke?: string }>;
+  /**
    * SVG linear-gradient fills contributed by this layer (a Vega-Lite gradient
    * `mark.color`/`fill`). x-charts fills are a single color, so the shell emits
    * one `<linearGradient>` def per entry and the series references it via

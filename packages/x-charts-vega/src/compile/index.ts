@@ -103,6 +103,13 @@ export interface CompiledChart {
    * marker slot as `hollowSeriesIds`.
    */
   markerStroke?: Record<string, { color: string; width?: number }>;
+  /**
+   * Per-series line-path styling (`strokeWidth`/`strokeDasharray`/`stroke`),
+   * keyed by series id — x-charts' line series has no such prop, so the shell
+   * feeds these through `<LinePlot slotProps={{line: ...}}>`, which forwards
+   * arbitrary SVG props to the underlying `<path>` per series.
+   */
+  lineStyle?: Record<string, { strokeWidth?: number; strokeDasharray?: string; stroke?: string }>;
   /** SVG linear-gradient fills (from gradient area marks); rendered as `<defs>`. */
   gradients?: CompiledGradient[];
   /** Title drawn above a heatmap's continuous color legend. */
@@ -386,6 +393,10 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
   const zAxis: CompiledZAxis[] = [];
   const hollowSeriesIds: string[] = [];
   const markerStroke: Record<string, { color: string; width?: number }> = {};
+  const lineStyle: Record<
+    string,
+    { strokeWidth?: number; strokeDasharray?: string; stroke?: string }
+  > = {};
   const gradients: CompiledGradient[] = [];
   let colorLegendTitle: string | undefined;
   let colorLegendDirection: 'horizontal' | 'vertical' | undefined;
@@ -455,6 +466,7 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     zAxis.push(...(compiled.zAxis ?? []));
     hollowSeriesIds.push(...(compiled.hollowSeriesIds ?? []));
     Object.assign(markerStroke, compiled.markerStroke);
+    Object.assign(lineStyle, compiled.lineStyle);
     gradients.push(...(compiled.gradients ?? []));
     if (compiled.colorLegendTitle && colorLegendTitle === undefined) {
       colorLegendTitle = compiled.colorLegendTitle;
@@ -621,6 +633,7 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     colors: palette,
     hollowSeriesIds: hollowSeriesIds.length > 0 ? hollowSeriesIds : undefined,
     markerStroke: Object.keys(markerStroke).length > 0 ? markerStroke : undefined,
+    lineStyle: Object.keys(lineStyle).length > 0 ? lineStyle : undefined,
     gradients: gradients.length > 0 ? gradients : undefined,
     colorLegendTitle,
     colorLegendDirection,

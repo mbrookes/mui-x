@@ -173,8 +173,13 @@ const SEQUENTIAL_SCHEME_RANGES: Record<string, readonly [string, string]> = {
  */
 const HONORED_LEGEND_KEYS = new Set(['orient', 'legendX', 'legendY']);
 
-/** Ascending comparison for a default color domain: numeric, then locale-aware. */
-function compareColorValues(a: unknown, b: unknown): number {
+/**
+ * Ascending comparison for a default categorical domain: numeric, then
+ * locale-aware. Shared with any channel that derives a default ascending
+ * domain from data (color here; `marks/lineArea.ts` reuses it for a
+ * `strokeDash` detail split with no color encoding).
+ */
+export function compareColorValues(a: unknown, b: unknown): number {
   const numA = Number(a);
   const numB = Number(b);
   if (Number.isFinite(numA) && Number.isFinite(numB) && a !== '' && b !== '') {

@@ -9,10 +9,10 @@ import type {
   UnitContext,
 } from '../compile/context';
 import { color as d3Color } from '@mui/x-charts-vendor/d3-color';
-import { resolveColor } from '../compile/color';
+import { resolveColor, compareColorValues } from '../compile/color';
 import { applyAlpha } from '../compile/colorUtils';
 import { toDate, toNumber } from '../compile/fieldTypes';
-import type { DatasetRow, VegaFieldDef } from '../types';
+import type { DatasetRow, VegaEncoding, VegaFieldDef } from '../types';
 import { isFieldDef } from '../types';
 
 /*
@@ -38,12 +38,16 @@ import { isFieldDef } from '../types';
  *   objects are `ignored`.
  * - stacking on the y field def's `stack`; area + color split defaults to
  *   `'zero'` per Vega-Lite; lines default to unstacked.
- * - `mark.strokeWidth`/`strokeDash` are wired onto the produced line series via
- *   an `sx` that targets the series' `.MuiLineElement-root[data-series-id=…]`
- *   (x-charts stamps `data-series-id` on each line path). Static opacity
+ * - `mark.strokeWidth`/`strokeDash` (constant, or per-group when `strokeDash`
+ *   is a field) are returned as a `lineStyle` map keyed by series id; the
+ *   shell forwards them per series through `<LinePlot slotProps={{line}}>`
+ *   (x-charts' line series has no such prop of its own). Static opacity
  *   (`mark.opacity`/`fillOpacity`/value-def `opacity`) is handled centrally in
  *   `compile/index.ts` — it's baked into the resolved series color — so this
  *   compiler no longer reports an opacity gap.
+ * - a field-based `strokeDash` (no color/fill/stroke field) still splits the
+ *   layer into one line per distinct value — every line shares the same
+ *   default color, cycling a default dash-pattern range per group instead.
  * - `connectNulls` is always `false` (Vega-Lite's default invalid-value
  *   behavior breaks the line at gaps); `impute` is reported `unsupported`.
  */
@@ -159,6 +163,58 @@ function colorDatumLabel(colorDef: unknown): string | undefined {
     }
   }
   return undefined;
+}
+
+/**
+ * Vega-Lite's default categorical `strokeDash` range (SVG `stroke-dasharray`
+ * values, cycled by domain index once there are more groups than entries).
+ * Confirmed empirically against vega-embed's actual rendering of
+ * `line_strokedash` (5 stock symbols, ascending domain order): a solid line
+ * first, then increasingly dashed/dotted patterns.
+ */
+const DEFAULT_STROKE_DASH_RANGE = ['none', '4 2', '2 1', '1 1', '1 2 4 2'];
+
+/**
+ * Resolves a `strokeDash` FIELD encoding (as opposed to `mark.strokeDash`, a
+ * constant array) to a detail split: one line per distinct value, in the same
+ * default-ascending-unless-sorted order `compile/color.ts`'s color domain
+ * uses. Only reached when there's no `color`/`fill`/`stroke` field — Vega-Lite
+ * still groups by `strokeDash` alone in that case (`line_strokedash`,
+ * `line_dashed_part`), it just has no color variation to go with the dash.
+ */
+function resolveStrokeDashSplit(
+  encoding: VegaEncoding,
+  rows: readonly DatasetRow[],
+): { field: string; domain: unknown[]; hasLegend: boolean } | undefined {
+  const def = encoding.strokeDash;
+  if (!def || Array.isArray(def) || !isFieldDef(def) || !def.field) {
+    return undefined;
+  }
+  const { field } = def;
+  const seen = new Set<string>();
+  const distinct: unknown[] = [];
+  for (const row of rows) {
+    const value = row[field];
+    if (value == null) {
+      continue;
+    }
+    const key = String(value);
+    if (!seen.has(key)) {
+      seen.add(key);
+      distinct.push(value);
+    }
+  }
+  const sortSpec = def.sort;
+  if (Array.isArray(sortSpec)) {
+    return { field, domain: sortSpec, hasLegend: def.legend !== null };
+  }
+  if (sortSpec !== null) {
+    distinct.sort(compareColorValues);
+    if (sortSpec === 'descending') {
+      distinct.reverse();
+    }
+  }
+  return { field, domain: distinct, hasLegend: def.legend !== null };
 }
 
 interface ContinuousPoint {
@@ -681,6 +737,13 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
 
   const colorRes = resolveColor(encoding, rows, gaps, path);
   const splitField = colorRes.splitField;
+  // A field-based `strokeDash` (with no color/fill/stroke field) still splits
+  // the layer into one line per distinct value — Vega-Lite groups a line mark
+  // on any "detail"-like channel, not just color (`line_strokedash`,
+  // `line_dashed_part`). Only reached when there's no color split: the two
+  // never combine into a cross-product here (an uncommon spec shape none of
+  // the gallery examples exercise).
+  const dashSplit = !splitField ? resolveStrokeDashSplit(encoding, rows) : undefined;
   const stackId = `${path}:stack`;
   const stackSetting = computeStackSetting(yDef, markType, Boolean(splitField));
   // Mirror resolveStack: only these settings actually stack (a line's default
@@ -714,7 +777,7 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
   // any values outside the domain.
   const SINGLE_GROUP_KEY = '__single__';
   const gradients: CompiledGradient[] = [];
-  const groups: Array<{ key: string; label?: string; color?: string }> = [];
+  const groups: Array<{ key: string; label?: string; color?: string; dash?: string }> = [];
   if (splitField) {
     const seenGroups = new Set<string>();
     const addGroup = (value: unknown, color?: string) => {
@@ -761,20 +824,50 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
           gaps,
           path,
         ));
-    groups.push({
-      key: SINGLE_GROUP_KEY,
-      // A constant `color: {datum: …}` (per-layer color, as `repeat` layers use)
-      // labels this line so the shell surfaces a legend entry for it.
-      label: colorDatumLabel(encoding.color),
-      color: staticColor,
-    });
+    if (dashSplit && dashSplit.domain.length > 0) {
+      // Every line shares this same (uncolored) static color; only the dash
+      // pattern differs per group, cycling the default range once there are
+      // more distinct values than entries. An explicit color is required here
+      // (falling back to the palette's first/default swatch) because the
+      // per-series auto-color assignment in compile/index.ts only kicks in
+      // for a chart with a single uncolored series — left `undefined`, each
+      // of these several series would instead get its own distinct
+      // auto-assigned palette color.
+      const sharedColor = staticColor ?? ctx.palette[0];
+      dashSplit.domain.forEach((value, index) => {
+        groups.push({
+          key: ctx.categoryKey(value),
+          label: dashSplit.hasLegend ? formatGroupLabel(value) : undefined,
+          color: sharedColor,
+          dash: DEFAULT_STROKE_DASH_RANGE[index % DEFAULT_STROKE_DASH_RANGE.length],
+        });
+      });
+      if (dashSplit.hasLegend) {
+        gaps.add({
+          code: 'mark:strokedash-legend-swatch',
+          message:
+            "Each line's `strokeDash` value renders with its own dash pattern, but the legend swatch is a plain solid line — x-charts legend swatches have no per-entry dash pattern.",
+          severity: 'ignored',
+          path: `${path}.encoding.strokeDash`,
+        });
+      }
+    } else {
+      groups.push({
+        key: SINGLE_GROUP_KEY,
+        // A constant `color: {datum: …}` (per-layer color, as `repeat` layers use)
+        // labels this line so the shell surfaces a legend entry for it.
+        label: colorDatumLabel(encoding.color),
+        color: staticColor,
+      });
+    }
   }
 
   // Bucket rows by group in a single pass over `rows` (rather than rescanning
   // all rows once per group), then build each series from its own bucket.
+  const groupField = splitField ?? dashSplit?.field;
   const rowsByGroup = new Map<string, DatasetRow[]>();
   for (const row of rows) {
-    const key = splitField ? ctx.categoryKey(row[splitField]) : SINGLE_GROUP_KEY;
+    const key = groupField ? ctx.categoryKey(row[groupField]) : SINGLE_GROUP_KEY;
     const bucket = rowsByGroup.get(key);
     if (bucket) {
       bucket.push(row);
@@ -782,6 +875,18 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
       rowsByGroup.set(key, [row]);
     }
   }
+
+  // Stroke width/dash/color-override have no dedicated x-charts line-series
+  // prop; the shell instead forwards these per series id through
+  // `<LinePlot slotProps={{line: ...}}>` (see VegaLiteChart.tsx), which passes
+  // arbitrary SVG props straight to the underlying `<path>`. A group's own
+  // `dash` (from a `strokeDash` field split) is merged on top of the mark-wide
+  // `strokeStyle` (its constant `strokeDasharray`, if any, is irrelevant here
+  // — the field split is what's driving the dash).
+  const lineStyle: Record<
+    string,
+    { strokeWidth?: number; strokeDasharray?: string; stroke?: string }
+  > = {};
 
   const series: CompiledSeries[] = groups.map((group) => {
     const data: Array<number | null> = new Array(categories.length).fill(null);
@@ -798,6 +903,12 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
       data[idx] = toNumber(row[yField]);
     }
     const id = `${path}:${group.key}`;
+    if (hasStrokeStyle || group.dash) {
+      lineStyle[id] = {
+        ...strokeStyle,
+        ...(group.dash ? { strokeDasharray: group.dash } : {}),
+      };
+    }
     return {
       type: 'line',
       id,
@@ -816,12 +927,6 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
       // stroke swatch, so area series need this override to match.
       ...(markType === 'area' ? { labelMarkType: 'circle' } : {}),
       ...stackMode,
-      // Stroke width/dash have no dedicated x-charts line-series prop, so style
-      // the series' own line path by id. x-charts stamps `data-series-id` on
-      // each `.MuiLineElement-root`, letting one series' `sx` scope to it.
-      ...(hasStrokeStyle
-        ? { sx: { [`.MuiLineElement-root[data-series-id="${id}"]`]: strokeStyle } }
-        : {}),
     } as CompiledSeries;
   });
 
@@ -829,5 +934,6 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
     series,
     plots: Array.from(plots),
     ...(gradients.length > 0 ? { gradients } : {}),
+    ...(Object.keys(lineStyle).length > 0 ? { lineStyle } : {}),
   };
 }

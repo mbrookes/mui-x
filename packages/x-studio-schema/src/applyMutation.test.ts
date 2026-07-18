@@ -574,6 +574,33 @@ describe('applyMutation', () => {
     expect(next.filters).toHaveLength(1);
   });
 
+  // Iteration-22 finding (T3 #4): `addFilter` read `scope.kind` right after checking that
+  // `args.filter` itself is a record, but never verified `args.filter.scope` was ALSO a
+  // record — a parser-bypassing server-built mutation with `filter.scope` absent/non-record
+  // would throw `Cannot read properties of undefined (reading 'kind')` instead of the
+  // graceful no-op every sibling malformed-shape guard in this handler provides.
+  it('no-ops for a filter whose scope is absent (parser-bypass guard) instead of throwing', () => {
+    const state = twoPageState('page-1');
+    const filter = { id: 'f', field: 'x', operator: 'equals' as const, value: 1 } as any;
+    expect(() => applyDocMutation(state, { type: 'addFilter', args: { filter } })).not.toThrow();
+    const next = applyDocMutation(state, { type: 'addFilter', args: { filter } });
+    expect(next).toBe(state);
+  });
+
+  it('no-ops for a filter whose scope is a non-record (parser-bypass guard) instead of throwing', () => {
+    const state = twoPageState('page-1');
+    const filter = {
+      id: 'f',
+      field: 'x',
+      operator: 'equals' as const,
+      value: 1,
+      scope: 'page' as any,
+    };
+    expect(() => applyDocMutation(state, { type: 'addFilter', args: { filter } })).not.toThrow();
+    const next = applyDocMutation(state, { type: 'addFilter', args: { filter } });
+    expect(next).toBe(state);
+  });
+
   it('addFilter drops an orphan cross-filter whose sourceWidgetId names no existing widget (2.1)', () => {
     const state = makeDoc({
       dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
@@ -1757,6 +1784,19 @@ describe('applyMutation', () => {
       expect(next.pages['page-1'].title).toBe('P1');
       expect(next.dashboard.activePageId).toBe('page-1');
     });
+
+    // Iteration-22 finding (T3 #4): the wire boundary (`parseStateMutation`'s
+    // `isString(args.title)` gate) already rejects a non-string `addPage.args.title`, but
+    // the reducer had no defense-in-depth copy for a parser-bypassing server-built mutation.
+    it('no-ops for a non-string title (parser-bypass guard, parity with the wire boundary)', () => {
+      const state = twoPageState('page-1');
+      const next = applyDocMutation(state, {
+        type: 'addPage',
+        args: { id: 'page-3', title: 42 as unknown as string },
+      });
+      expect(next).toBe(state);
+      expect(next.pages['page-3']).toBeUndefined();
+    });
   });
 
   describe('setWidgetLayout', () => {
@@ -1794,6 +1834,30 @@ describe('applyMutation', () => {
       });
       expect(next.pages['page-1'].widgetRows).toEqual([['a']]);
       expect(next.pages['page-2'].widgetRows).toEqual([]);
+    });
+
+    // Iteration-22 finding (T3 #7): `Object.hasOwn(state.widgets, id)` coerces a non-string
+    // `id` to a string when checking property existence, so a parser-bypassing row entry
+    // carrying an actual NUMBER (not the string form of it) could silently pass the filter
+    // whenever a widget happens to be keyed by that number's string form — but the NUMBER,
+    // not the string, would land in `widgetRows`, violating the `string[][]` invariant every
+    // other row-processing site assumes. An explicit `typeof id === 'string'` guard closes it.
+    it('drops a numeric row id even when a widget is keyed by its string form (parser-bypass guard)', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+        // Deliberately keyed by the STRING "42" — a plausible real widget id.
+        widgets: { '42': chartWidget('42') },
+      });
+      const next = applyDocMutation(state, {
+        type: 'setWidgetLayout',
+        // The wire boundary types `rows` as `string[][]`, but a parser-bypassing payload can
+        // carry an actual number here.
+        args: { rows: [[42 as unknown as string]] },
+      });
+      // The numeric id is dropped, not silently coerced/kept — the row becomes empty and is
+      // dropped entirely.
+      expect(next.pages['page-1'].widgetRows).toEqual([]);
     });
 
     // Col-span invariant enforcement (the cleanup the drag-and-drop path and
@@ -2021,6 +2085,18 @@ describe('applyMutation', () => {
         args: { pageId: 'page-1', title: 'P1' },
       });
       expect(next).toBe(state);
+    });
+
+    // Iteration-22 finding (T3 #4): parser-bypass parity with the wire boundary's
+    // `isString(args.title)` gate, mirroring the `addPage` fix above.
+    it('no-ops for a non-string title (parser-bypass guard, parity with the wire boundary)', () => {
+      const state = twoPageState();
+      const next = applyDocMutation(state, {
+        type: 'renamePage',
+        args: { pageId: 'page-1', title: 42 as unknown as string },
+      });
+      expect(next).toBe(state);
+      expect(next.pages['page-1'].title).toBe('P1');
     });
   });
 
@@ -2926,6 +3002,48 @@ describe('applyMutation', () => {
       expect(next.widgets.w2).toEqual(chartWidget('w2'));
     });
 
+    // Iteration-22 finding (Tier 2 #1): `validRowIds` (used to sanitize the producer-supplied
+    // `widgetRows`) did not exclude ids this SAME payload also names in `removedWidgetIds`, so
+    // a bulk carrying BOTH `removedWidgetIds: ['w1']` AND a `widgetRows` row still containing
+    // `'w1'` kept that row entry alive — defeating the explicit removal in the same mutation.
+    // The real producer already strips removed ids out of `widgetRows` before calling this, but
+    // the reducer must not depend on that caller discipline: it is the source of truth for
+    // mutation validity, so an adversarial/buggy producer that forgets must still see the
+    // removal honored.
+    it('drops a removed widget from the SAME payload widgetRows even when the payload forgot to strip it', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': {
+            id: 'page-1',
+            title: 'P1',
+            widgetRows: [['w1'], ['w2']],
+            widgetColSpans: { w1: 12 },
+          },
+        },
+        widgets: { w1: chartWidget('w1'), w2: chartWidget('w2') },
+      });
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: ['w1'],
+          addedWidgets: [],
+          updatedWidgets: [],
+          // Adversarial/buggy producer: still names the removed id in the layout it ships.
+          widgetRows: [['w1'], ['w2']],
+          widgetColSpans: { w1: 12 },
+          activePageId: 'page-1',
+        },
+      } as StateMutation);
+      // w1 is genuinely gone from the widgets record...
+      expect(next.widgets.w1).toBeUndefined();
+      // ...and its row entry does not survive the layout replacement either — the explicit
+      // removal wins over the stale row the same payload also carried.
+      expect(next.pages['page-1'].widgetRows).toEqual([['w2']]);
+      expect(next.pages['page-1'].widgetColSpans).toBeUndefined();
+      expect(next.widgets.w2).toEqual(chartWidget('w2'));
+    });
+
     it('still respects a genuine cross-page reference when widgetRows is omitted (does not remove a widget another page shows)', () => {
       const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
@@ -3667,5 +3785,24 @@ describe('mutationLabel', () => {
       expect(() => mutationLabel(bogus), `mutationLabel type=${type}`).not.toThrow();
       expect(mutationLabel(bogus), `mutationLabel type=${type}`).toBe(type);
     }
+  });
+
+  // Iteration-22 finding (T3 #3): `mutationLabel` is only guaranteed a record TOP-LEVEL
+  // `args` (its own `isPlainRecord(mutation.args)` guard) — a server-built mutation
+  // bypassing `parseStateMutation` could still supply a record `args` whose nested
+  // `widget`/`filter` field is absent/non-record, and the OLD `addWidget`/`addFilter` label
+  // builders threw reading `.kind`/`.id`/`.field` straight off of it, contradicting the "never
+  // throws" contract this function's callers (the undo/redo history label, `get_recent_changes`)
+  // rely on.
+  it('does not throw building an addWidget label when args.widget is absent, falling back to "unknown"', () => {
+    const bogus = { type: 'addWidget', args: {} } as unknown as StateMutation;
+    expect(() => mutationLabel(bogus)).not.toThrow();
+    expect(mutationLabel(bogus)).toBe('addWidget:unknown:unknown');
+  });
+
+  it('does not throw building an addFilter label when args.filter is absent, falling back to "unknown"', () => {
+    const bogus = { type: 'addFilter', args: {} } as unknown as StateMutation;
+    expect(() => mutationLabel(bogus)).not.toThrow();
+    expect(mutationLabel(bogus)).toBe('addFilter:unknown');
   });
 });

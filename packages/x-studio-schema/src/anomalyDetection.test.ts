@@ -75,6 +75,35 @@ describe('detectAnomaliesIQR', () => {
     expect(result.size).toBe(0);
   });
 
+  // Iteration-22 finding (T3 #5): the degenerate-spread fallback used to trigger only on
+  // an EXACT `iqr === 0`, not a merely near-zero IQR. A near-constant series can produce a
+  // tiny NONZERO IQR (floating-point rounding from an upstream sum/average), which used to
+  // fall through to the standard Tukey fence formula — multiplying that tiny IQR by 1.5
+  // produces an equally tiny fence, so ordinary floating-point jitter (well within the
+  // epsilon tolerance the degenerate branch already applies) got flagged as a false-positive
+  // anomaly. Comparing `iqr` against `epsilon` (not `0`) catches this case too.
+  it('does NOT flag floating-point jitter when IQR is near-zero but not exactly zero (T3 finding)', () => {
+    // Q1 = avg(idx1, idx2) = 1000; Q3 = avg(idx6, idx7) = 1000.0000003 -> iqr = 3e-7,
+    // nonzero but well under epsilon (~1e-6 for a baseline of 1000). idx8 = 1000.0000009 is
+    // ordinary jitter (9e-7 from baseline), inside the epsilon tolerance.
+    //
+    // Under the OLD exact-zero-only check, this iqr (3e-7) would flow into the standard
+    // fence (lower ≈ 999.99999955, upper ≈ 1000.00000075), and idx8's value (1000.0000009)
+    // sits just OUTSIDE that tiny fence — a false-positive anomaly on pure jitter.
+    const values = [1000, 1000, 1000, 1000, 1000, 1000, 1000.0000003, 1000.0000003, 1000.0000009];
+    const result = detectAnomaliesIQR(values);
+    expect(result.size).toBe(0);
+  });
+
+  it('still flags a genuine spike when IQR is near-zero but not exactly zero (T3 finding)', () => {
+    // Same near-zero-IQR shape as above, but idx8 is a genuine large spike (10x baseline),
+    // far past any epsilon tolerance.
+    const values = [1000, 1000, 1000, 1000, 1000, 1000, 1000.0000003, 1000.0000003, 10000];
+    const result = detectAnomaliesIQR(values);
+    expect(result.has(8)).toBe(true);
+    expect(result.size).toBe(1);
+  });
+
   it('detects a clear negative (low) outlier', () => {
     const values = [100, 102, 98, 101, 99, 100, 1];
     const result = detectAnomaliesIQR(values);

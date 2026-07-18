@@ -82,8 +82,12 @@ function isSafeId(value: unknown): value is string {
 }
 
 /** A real `string[]` — `Array.isArray` first, so the string `"abc"` (which is
- *  iterable char-by-char) can never masquerade as `['a','b','c']`. */
-function isStringArray(value: unknown): value is string[] {
+ *  iterable char-by-char) can never masquerade as `['a','b','c']`. Exported so
+ *  `statePersistence.ts`'s load-boundary screen can apply the SAME array-shape check
+ *  to persisted `filters[].dependsOn` that this file already applies to a live
+ *  `addFilter` mutation (T2 finding) — the wire boundary and the load boundary must
+ *  agree on what counts as a well-formed `dependsOn`. */
+export function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === 'string');
 }
 

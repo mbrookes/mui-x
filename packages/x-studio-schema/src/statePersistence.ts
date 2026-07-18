@@ -1,10 +1,16 @@
 import { createDefaultStudioState, normalizeGridColumn, normalizeChartSeries } from './factories';
-import { normalizePersistedPages } from './applyMutation';
+import { normalizePersistedPages, hasConflictingRankFilter } from './applyMutation';
 import { isSafeKey } from './unsafeKeys';
-import { isValidFilterScope, hasUnsafeOwnKeys } from './parseStateMutation';
+import { isValidFilterScope, hasUnsafeOwnKeys, isStringArray } from './parseStateMutation';
 import { isStudioChartType, isStudioFilterOperator } from './widgetTypeGuards';
 import { CURRENT_SCHEMA_VERSION } from './stateTypes';
-import type { StudioState, StudioDoc, StudioSession, StudioRuntime } from './stateTypes';
+import type {
+  StudioState,
+  StudioDoc,
+  StudioSession,
+  StudioRuntime,
+  StudioFilterState,
+} from './stateTypes';
 import type { StudioExpressionField } from './expressionTypes';
 import type { StudioWidget, StudioWidgetConfig } from './widgetTypes';
 import type { StudioAIState } from './aiTypes';
@@ -216,6 +222,33 @@ const stripUnsafeOwnKeys = <T extends object>(record: T): T => {
 };
 
 /**
+ * Repair (not drop) a persisted/preset filter's `dependsOn` field when it fails the
+ * array-shape screen `parseStateMutation.ts`'s `validateFilter` already applies to a LIVE
+ * `addFilter` mutation (T2 finding): the wire boundary rejects a malformed `dependsOn`
+ * (`dependsOn: 'w1'`, `dependsOn: [1, 2]`) outright, but neither `deserializeState`'s
+ * `doc.filters` load screen nor {@link isPresetFilterSafe} applied the same check — so a
+ * persisted or preset doc with a malformed `dependsOn` loaded successfully and then crashed
+ * `StudioFiltersDrawer`'s `dependsOn.map(...)` the first time the filter rendered.
+ * `dependsOn` is optional cascade metadata, not identity data, so — mirroring how a bad
+ * widget `titleMode`/`subtitleMode` key is stripped rather than dropping the whole widget —
+ * the malformed KEY is dropped from the filter rather than sinking the whole filter entry.
+ * Non-record input is returned as-is; the caller's own record screen handles it. Reference-
+ * stable when `dependsOn` is absent or already a valid `string[]`.
+ */
+const repairFilterDependsOn = <T>(entry: T): T => {
+  if (!isRecord(entry)) {
+    return entry;
+  }
+  const dependsOn = (entry as { dependsOn?: unknown }).dependsOn;
+  if (dependsOn === undefined || isStringArray(dependsOn)) {
+    return entry;
+  }
+  const rest = { ...(entry as Record<string, unknown>) };
+  delete rest.dependsOn;
+  return rest as T;
+};
+
+/**
  * Screen one preset-embedded filter with the SAME semantic checks the `doc.filters` load
  * pass applies to the fields that travel VERBATIM into live `doc.filters` when a preset is
  * applied (T2-3). `@mui/x-studio`'s `docTransforms.applyFilterPreset` rematerializes each
@@ -272,8 +305,15 @@ const screenFilterPresets = (value: unknown): StudioDoc['filterPresets'] => {
       continue;
     }
     const innerFilters = preset.filters;
-    const safeInner = innerFilters.filter((entry) => isPresetFilterSafe(entry));
-    if (safeInner.length === innerFilters.length) {
+    // Repair a malformed `dependsOn` (T2 finding) BEFORE the `isPresetFilterSafe` gate —
+    // `dependsOn` is not one of that predicate's checks, and dropping the KEY rather than
+    // rejecting the whole entry keeps a preset filter that is otherwise well-formed.
+    const repairedInner = innerFilters.map((entry) => repairFilterDependsOn(entry));
+    const safeInner = repairedInner.filter((entry) => isPresetFilterSafe(entry));
+    const innerUnchanged =
+      safeInner.length === innerFilters.length &&
+      safeInner.every((entry, i) => entry === innerFilters[i]);
+    if (innerUnchanged) {
       safe.push(preset);
     } else {
       changed = true;
@@ -291,10 +331,23 @@ const screenFilterPresets = (value: unknown): StudioDoc['filterPresets'] => {
  *
  * The check is not only top-level: `migrateState`'s documented contract is that a corrupt
  * doc is rejected here with a NAMED field rather than crashing in `deserializeState`, so a
- * shallow per-entry shape check is applied too — each `pages[*]` must be a record with an
- * array `widgetRows`, and each `widgets[*]` must be a record with a record `config`. A
- * junk shape one level down (`pages.p1.widgetRows: "junk"`, `widgets.w1: null`) previously
+ * shallow per-entry shape check is applied to `pages[*]` — each must be a record with an
+ * array `widgetRows`. A junk shape one level down (`pages.p1.widgetRows: "junk"`) previously
  * passed migration and then threw an uncaught `TypeError` inside the load-boundary sweep.
+ *
+ * `widgets[*]` gets NO equivalent per-entry hard-fail here (T3 finding — this used to hard-
+ * fail the WHOLE doc on `!isRecord(widget)` or `!isRecord(widget.config)`, sinking every
+ * page/widget in the dashboard over ONE bad entry). Checked against `deserializeState`'s
+ * actual widget pipeline (not assumed): it ALREADY handles both shapes gracefully and
+ * per-entry — a non-record widget is dropped (the `isSafeKey(id) && widget !== null &&
+ * typeof widget === 'object' && …` screen), and a record widget with a non-record `config`
+ * is coerced to `config: {}` (the `configIsRecord` check in the widget `.map`). Hard-failing
+ * here for a case the load boundary already repairs one level down is strictly worse than
+ * letting it load with the one bad widget dropped/repaired and the rest of the dashboard
+ * intact — the SAME graceful-repair-over-hard-fail choice this file makes for
+ * `relationships`/`expressionFields`/`filterPresets`/`ai.threads` per-entry junk. (`pages[*]`
+ * above is NOT touched by this fix — it is a separate call site, out of this finding's
+ * scope, even though `normalizePersistedPages` happens to repair it just as gracefully.)
  */
 function findMissingRequiredField(state: Record<string, unknown>): string | null {
   if (!isRecord(state.dashboard)) {
@@ -315,14 +368,6 @@ function findMissingRequiredField(state: Record<string, unknown>): string | null
     }
     if (!Array.isArray(page.widgetRows)) {
       return `pages["${pageId}"].widgetRows`;
-    }
-  }
-  for (const [widgetId, widget] of Object.entries(state.widgets)) {
-    if (!isRecord(widget)) {
-      return `widgets["${widgetId}"]`;
-    }
-    if (!isRecord(widget.config)) {
-      return `widgets["${widgetId}"].config`;
     }
   }
   // Per-entry shape check for `filters`, the same one-level-down validation applied to
@@ -846,6 +891,147 @@ export function deserializeState(
     normalizedAi = safeThreads.length === ai.threads.length ? ai : { ...ai, threads: safeThreads };
   }
 
+  // Repair a malformed `dependsOn` (T2 finding) BEFORE the structural filter screen below:
+  // `dependsOn` is optional cascade metadata, not identity data, so a malformed value
+  // (`dependsOn: 'w1'`, `dependsOn: [1, 2]`) is stripped from the filter object rather than
+  // sinking the whole entry — mirroring how a bad widget `titleMode`/`subtitleMode` key is
+  // stripped rather than dropping the whole widget. Left unrepaired, the malformed field
+  // would load successfully and later crash `StudioFiltersDrawer`'s `dependsOn.map(...)` the
+  // first time the filter rendered. Non-record entries pass through untouched — the
+  // structural screen below drops them for other reasons.
+  const dependsOnRepairedFilters = serialized.filters.map((f) => repairFilterDependsOn(f));
+  // Symmetric with `serializeDoc`'s strip: cross-filter- and interactive-scoped
+  // filters are session-flavoured and never written to disk, so a hand-edited or
+  // foreign doc carrying them must not install them into live `doc.filters` on load.
+  // An orphaned cross-filter (whose `scope.sourceWidgetId` names a widget the doc
+  // doesn't contain) would otherwise permanently filter its page: the reducer's
+  // cleanup for such filters only fires when the source widget is REMOVED, and it was
+  // never present, so the page would load pre-filtered with no affordance to clear it.
+  //
+  // Also DROP any entry with an invalid `scope`: `migrateState` rejects such junk up
+  // front, but `deserializeState` is a public API callable on a `SerializedStudioState`
+  // directly (its documented surface is total over nested corruption of an otherwise
+  // top-level-well-formed `SerializedStudioState` — it assumes the four top-level
+  // containers are present, a shape `migrateState` guarantees upstream), so a
+  // `filters: [null]` / `scope: null` entry must be defensively removed here too —
+  // otherwise it installs into live `doc.filters` and then throws in `serializeDoc` and
+  // the reducer on the next commit.
+  const screenedFilters = dependsOnRepairedFilters.filter((f) => {
+    if (!isRecord(f)) {
+      return false;
+    }
+    // Screen the persisted filter object's OWN keys against the prototype-hazard
+    // denylist (Finding T2-2), symmetric with the wire boundary's `hasUnsafeOwnKeys`
+    // gate now added to `validateFilter` in `parseStateMutation.ts`. The reducer's
+    // `addFilter` appends a filter verbatim (`[...state.filters, args.filter]`), and a
+    // persisted `filters` array is an untrusted boundary (`JSON.parse` on a shared/
+    // hand-edited doc materializes an own `"__proto__"`/`"constructor"`/`"prototype"`
+    // key as a real own DATA property). Drop the entry here so the byte-identical wire
+    // payload and the load payload agree. Reuses the SAME `hasUnsafeOwnKeys` predicate.
+    if (hasUnsafeOwnKeys(f)) {
+      return false;
+    }
+    // Drop a persisted filter whose `id` is not a string (Finding 3.2), symmetric with
+    // the wire boundary's `isSafeId(filter.id)` gate in `validateFilter`. A non-string
+    // `id` (a hand-edited `id: 42`) can NEVER be matched by wire `removeFilter` (whose
+    // `f.id !== filterId` compares against a string `filterId`), so it would install a
+    // permanently-unremovable filter — exactly the state the wire boundary rejects for
+    // the byte-identical payload.
+    if (typeof (f as { id?: unknown }).id !== 'string') {
+      return false;
+    }
+    const scope = (f as { scope?: unknown }).scope;
+    // Full scope validity — record-ness, kind membership AND every required id field
+    // present — via the ONE shared predicate the wire boundary uses (Finding T3-1),
+    // replacing the prior record + kind-only check. An unknown kind like `'pages'`
+    // would otherwise load as a permanent inert entry that escapes `removePage`/
+    // `dropWidgetScopedFilters` cleanup (both key off the known kinds); a scope missing
+    // a required id (e.g. a `dashboard-date-range` without `sourceId`, which would
+    // mis-apply a date window) is now dropped here exactly as the wire boundary rejects
+    // the byte-identical payload.
+    if (!isValidFilterScope(scope)) {
+      return false;
+    }
+    // Symmetric with `serializeDoc`'s strip: cross-filter/interactive entries are
+    // session-flavoured and never persisted, so an orphaned one hand-carried into a
+    // foreign doc must not install (it would permanently filter its page with no
+    // affordance to clear it — the reducer's cleanup only fires on widget REMOVAL).
+    if (scope.kind === 'cross-filter' || scope.kind === 'interactive') {
+      return false;
+    }
+    // Drop a filter anchored to a `pageId` that no longer exists in `normalizedPages` —
+    // the PAGE-anchor mirror of the widget-anchor orphan check just below. A `page`-scoped
+    // filter with an explicit `pageId`, or a `dashboard-date-range` filter (whose `pageId`
+    // is required), naming a page the doc doesn't contain would otherwise be permanent
+    // dead weight with no clearing affordance: the reducer's page-anchor cleanup
+    // (`removePage`'s `filtersAfterPageDrop` in `applyMutation.ts`) only runs for a LIVE
+    // `removePage` mutation, never for a doc that already lacks the page on load (a
+    // hand-edited/foreign doc, or a page dropped by the sweep above for carrying an
+    // unsafe key). A `page`-scoped filter with NO `pageId` (the legacy "applies on every
+    // page" shape) is left alone. `Object.hasOwn` so an untrusted `pageId` can't match a
+    // prototype member.
+    if (
+      (scope.kind === 'page' || scope.kind === 'dashboard-date-range') &&
+      scope.pageId !== undefined &&
+      !Object.hasOwn(normalizedPages, scope.pageId)
+    ) {
+      return false;
+    }
+    // Drop an ORPHAN `widget`-scoped filter whose `widgetId` names no loaded widget (T3-2),
+    // symmetric with the reducer's `addFilter` guard. Its only cleanup path
+    // (`dropWidgetScopedFilters`) fires on widget REMOVAL, which never happens for a widget
+    // that was never present, so it would otherwise be permanent invisible dead weight that
+    // filters its page forever. `Object.hasOwn` so an untrusted `widgetId` can't match a
+    // prototype member.
+    if (scope.kind === 'widget' && !Object.hasOwn(normalizedWidgets, scope.widgetId)) {
+      return false;
+    }
+    // Field-is-a-string check (T2-3), symmetric with the wire boundary at
+    // `parseStateMutation.ts` ("a junk value like `field: 42` … would install an
+    // active-but-unevaluable filter that silently renders every widget in scope
+    // empty"). A hand-edited `field: 42` in persisted `filters` would otherwise load
+    // and produce that exact state, while the identical wire payload is rejected —
+    // drop the entry here so the two boundaries agree.
+    const record = f as { field?: unknown; operator?: unknown; operator2?: unknown };
+    if (typeof record.field !== 'string') {
+      return false;
+    }
+    // Membership-check the closed `operator` union (Finding 2), symmetric with the
+    // wire boundary's `isStudioFilterOperator` gate: a hand-edited `operator: 'equal'`
+    // (a plausible typo for `'equals'`) would otherwise install a chip that renders as
+    // ACTIVE while filtering nothing — a silent fail-open. A present `operator2` is
+    // held to the same membership check (absent stays legal).
+    if (!isStudioFilterOperator(record.operator)) {
+      return false;
+    }
+    if (record.operator2 !== undefined && !isStudioFilterOperator(record.operator2)) {
+      return false;
+    }
+    return true;
+  });
+
+  // Re-check rank-filter per-page uniqueness at the load boundary (finding 9): the
+  // reducer's `addFilter` enforces "at most one rank filter per page context" on every
+  // LIVE add (`hasConflictingRankFilter`), but that check was never re-run on load, so a
+  // hand-edited/foreign doc could load with two conflicting rank filters on the same page
+  // (or the legacy pageId-less "applies on every page" shape). Keep the FIRST rank filter
+  // for each page context in array order and drop any later one that conflicts with it,
+  // reusing the exact predicate `addFilter` uses so load-time and live-mutation-time
+  // enforcement agree. Reference-stable: returns the SAME array when nothing conflicts.
+  let rankFiltersChanged = false;
+  const dedupedFilters: StudioFilterState[] = [];
+  for (const filter of screenedFilters) {
+    if (
+      filter.filterMode === 'rank' &&
+      hasConflictingRankFilter(filter.id, filter, dedupedFilters, normalizedPages)
+    ) {
+      rankFiltersChanged = true;
+      continue;
+    }
+    dedupedFilters.push(filter);
+  }
+  const finalFilters = rankFiltersChanged ? dedupedFilters : screenedFilters;
+
   return {
     doc: {
       // `deserializeState` only ever runs on migrated state (a guarantee `migrateState`
@@ -863,115 +1049,7 @@ export function deserializeState(
       // migration (the doc shape is unchanged). Reference-stable for a well-formed doc.
       pages: normalizedPages,
       widgets: normalizedWidgets,
-      // Symmetric with `serializeDoc`'s strip: cross-filter- and interactive-scoped
-      // filters are session-flavoured and never written to disk, so a hand-edited or
-      // foreign doc carrying them must not install them into live `doc.filters` on load.
-      // An orphaned cross-filter (whose `scope.sourceWidgetId` names a widget the doc
-      // doesn't contain) would otherwise permanently filter its page: the reducer's
-      // cleanup for such filters only fires when the source widget is REMOVED, and it was
-      // never present, so the page would load pre-filtered with no affordance to clear it.
-      //
-      // Also DROP any entry with an invalid `scope`: `migrateState` rejects such junk up
-      // front, but `deserializeState` is a public API callable on a `SerializedStudioState`
-      // directly (its documented surface is total over nested corruption of an otherwise
-      // top-level-well-formed `SerializedStudioState` — it assumes the four top-level
-      // containers are present, a shape `migrateState` guarantees upstream), so a
-      // `filters: [null]` / `scope: null` entry must be defensively removed here too —
-      // otherwise it installs into live `doc.filters` and then throws in `serializeDoc` and
-      // the reducer on the next commit.
-      filters: serialized.filters.filter((f) => {
-        if (!isRecord(f)) {
-          return false;
-        }
-        // Screen the persisted filter object's OWN keys against the prototype-hazard
-        // denylist (Finding T2-2), symmetric with the wire boundary's `hasUnsafeOwnKeys`
-        // gate now added to `validateFilter` in `parseStateMutation.ts`. The reducer's
-        // `addFilter` appends a filter verbatim (`[...state.filters, args.filter]`), and a
-        // persisted `filters` array is an untrusted boundary (`JSON.parse` on a shared/
-        // hand-edited doc materializes an own `"__proto__"`/`"constructor"`/`"prototype"`
-        // key as a real own DATA property). Drop the entry here so the byte-identical wire
-        // payload and the load payload agree. Reuses the SAME `hasUnsafeOwnKeys` predicate.
-        if (hasUnsafeOwnKeys(f)) {
-          return false;
-        }
-        // Drop a persisted filter whose `id` is not a string (Finding 3.2), symmetric with
-        // the wire boundary's `isSafeId(filter.id)` gate in `validateFilter`. A non-string
-        // `id` (a hand-edited `id: 42`) can NEVER be matched by wire `removeFilter` (whose
-        // `f.id !== filterId` compares against a string `filterId`), so it would install a
-        // permanently-unremovable filter — exactly the state the wire boundary rejects for
-        // the byte-identical payload.
-        if (typeof (f as { id?: unknown }).id !== 'string') {
-          return false;
-        }
-        const scope = (f as { scope?: unknown }).scope;
-        // Full scope validity — record-ness, kind membership AND every required id field
-        // present — via the ONE shared predicate the wire boundary uses (Finding T3-1),
-        // replacing the prior record + kind-only check. An unknown kind like `'pages'`
-        // would otherwise load as a permanent inert entry that escapes `removePage`/
-        // `dropWidgetScopedFilters` cleanup (both key off the known kinds); a scope missing
-        // a required id (e.g. a `dashboard-date-range` without `sourceId`, which would
-        // mis-apply a date window) is now dropped here exactly as the wire boundary rejects
-        // the byte-identical payload.
-        if (!isValidFilterScope(scope)) {
-          return false;
-        }
-        // Symmetric with `serializeDoc`'s strip: cross-filter/interactive entries are
-        // session-flavoured and never persisted, so an orphaned one hand-carried into a
-        // foreign doc must not install (it would permanently filter its page with no
-        // affordance to clear it — the reducer's cleanup only fires on widget REMOVAL).
-        if (scope.kind === 'cross-filter' || scope.kind === 'interactive') {
-          return false;
-        }
-        // Drop a filter anchored to a `pageId` that no longer exists in `normalizedPages` —
-        // the PAGE-anchor mirror of the widget-anchor orphan check just below. A `page`-scoped
-        // filter with an explicit `pageId`, or a `dashboard-date-range` filter (whose `pageId`
-        // is required), naming a page the doc doesn't contain would otherwise be permanent
-        // dead weight with no clearing affordance: the reducer's page-anchor cleanup
-        // (`removePage`'s `filtersAfterPageDrop` in `applyMutation.ts`) only runs for a LIVE
-        // `removePage` mutation, never for a doc that already lacks the page on load (a
-        // hand-edited/foreign doc, or a page dropped by the sweep above for carrying an
-        // unsafe key). A `page`-scoped filter with NO `pageId` (the legacy "applies on every
-        // page" shape) is left alone. `Object.hasOwn` so an untrusted `pageId` can't match a
-        // prototype member.
-        if (
-          (scope.kind === 'page' || scope.kind === 'dashboard-date-range') &&
-          scope.pageId !== undefined &&
-          !Object.hasOwn(normalizedPages, scope.pageId)
-        ) {
-          return false;
-        }
-        // Drop an ORPHAN `widget`-scoped filter whose `widgetId` names no loaded widget (T3-2),
-        // symmetric with the reducer's `addFilter` guard. Its only cleanup path
-        // (`dropWidgetScopedFilters`) fires on widget REMOVAL, which never happens for a widget
-        // that was never present, so it would otherwise be permanent invisible dead weight that
-        // filters its page forever. `Object.hasOwn` so an untrusted `widgetId` can't match a
-        // prototype member.
-        if (scope.kind === 'widget' && !Object.hasOwn(normalizedWidgets, scope.widgetId)) {
-          return false;
-        }
-        // Field-is-a-string check (T2-3), symmetric with the wire boundary at
-        // `parseStateMutation.ts` ("a junk value like `field: 42` … would install an
-        // active-but-unevaluable filter that silently renders every widget in scope
-        // empty"). A hand-edited `field: 42` in persisted `filters` would otherwise load
-        // and produce that exact state, while the identical wire payload is rejected —
-        // drop the entry here so the two boundaries agree.
-        const record = f as { field?: unknown; operator?: unknown; operator2?: unknown };
-        if (typeof record.field !== 'string') {
-          return false;
-        }
-        // Membership-check the closed `operator` union (Finding 2), symmetric with the
-        // wire boundary's `isStudioFilterOperator` gate: a hand-edited `operator: 'equal'`
-        // (a plausible typo for `'equals'`) would otherwise install a chip that renders as
-        // ACTIVE while filtering nothing — a silent fail-open. A present `operator2` is
-        // held to the same membership check (absent stays legal).
-        if (!isStudioFilterOperator(record.operator)) {
-          return false;
-        }
-        if (record.operator2 !== undefined && !isStudioFilterOperator(record.operator2)) {
-          return false;
-        }
-        return true;
-      }),
+      filters: finalFilters,
       // Defensive PER-ENTRY screening, symmetric with the pages/widgets/filters/ai.threads
       // screens (Finding 1): the prior code coerced only the CONTAINER (`Array.isArray ?
       // value : []`), so a hand-edited `relationships: [null]` / `expressionFields: [null]`

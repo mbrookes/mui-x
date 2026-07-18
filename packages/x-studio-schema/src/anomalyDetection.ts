@@ -41,26 +41,33 @@ export function detectAnomaliesIQR(values: number[]): Set<number> {
   const q1 = median(sorted.slice(0, Math.floor(sorted.length / 2)));
   const q3 = median(sorted.slice(Math.ceil(sorted.length / 2)));
   const iqr = q3 - q1;
-  if (iqr === 0) {
-    // Degenerate spread (Q1 === Q3 — a near-constant/sparse series where the middle
-    // half of the sorted values is one repeated number): the fence formula collapses
-    // to a single point (`lower === upper === q1`), which is still meaningful, so
-    // fall through to the SAME comparison below rather than bailing out. Returning
-    // an empty Set here would report "no anomalies" even for a series like
-    // `[5, 5, 5, 5, 5, 5, 5, 1000]`, where `1000` is an obvious extreme spike against
-    // an otherwise-constant baseline — a false negative strictly worse than flagging
-    // every value that differs from the constant.
+  // `epsilon` is a small tolerance RELATIVE to `q1`'s own magnitude (falling back to an
+  // absolute `1e-9` floor for `q1` at or near zero, where a relative tolerance would
+  // itself collapse to 0 and stop tolerating anything) — scaling with `q1` means the
+  // tolerance stays meaningful whether the series sits around `1e-6` or `1e6`, without
+  // being so large it would mask a genuine near-baseline outlier. Computed unconditionally
+  // (not only inside the degenerate branch) so it can ALSO gate the branch selection below.
+  const epsilon = Math.max(Math.abs(q1) * 1e-9, 1e-9);
+  if (iqr <= epsilon) {
+    // Degenerate spread — Q1 === Q3 exactly, OR merely NEAR-equal within floating-point
+    // noise (a near-constant series can produce a tiny nonzero `iqr`, e.g. `1e-13`, from
+    // upstream sum/average rounding). Treating only an EXACT `iqr === 0` as degenerate
+    // understated the problem: a tiny-but-nonzero `iqr` still flows into the standard
+    // Tukey fence formula below, which multiplies it by 1.5 and produces an equally tiny
+    // fence width — so the "normal" branch would flag nearly every value that isn't
+    // bit-for-bit identical to Q1/Q3 as an outlier on a series that is, for all practical
+    // purposes, constant. Comparing against `epsilon` instead of `0` catches that case too
+    // and falls through to the SAME wider, magnitude-relative comparison below rather than
+    // bailing out or over-flagging. Returning an empty Set here would report "no anomalies"
+    // even for a series like `[5, 5, 5, 5, 5, 5, 5, 1000]`, where `1000` is an obvious
+    // extreme spike against an otherwise-constant baseline — a false negative strictly
+    // worse than flagging every value that differs from the constant.
     //
     // A bare `value !== q1` is too strict, though: for a series like
     // `[100, 100, 100, 100, 100.0000001]` it flags the last value purely on
     // floating-point jitter (e.g. from an upstream sum/average computation), even
-    // though the series is effectively constant. `epsilon` is a small tolerance
-    // RELATIVE to `q1`'s own magnitude (falling back to an absolute `1e-9` floor for
-    // `q1` at or near zero, where a relative tolerance would itself collapse to 0 and
-    // stop tolerating anything) — scaling with `q1` means the tolerance stays
-    // meaningful whether the series sits around `1e-6` or `1e6`, without being so
-    // large it would mask a genuine near-baseline outlier.
-    const epsilon = Math.max(Math.abs(q1) * 1e-9, 1e-9);
+    // though the series is effectively constant. The SAME `epsilon` tolerance is reused
+    // here for the per-value comparison.
     const result = new Set<number>();
     for (const { value, index } of finite) {
       if (Math.abs(value - q1) > epsilon) {

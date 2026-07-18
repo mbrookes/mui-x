@@ -359,8 +359,15 @@ function stripWidgetIdsFromPages(
  * mutation-semantics source of truth, so it needs its own copy of the invariant
  * rather than trusting every caller (`StudioController`'s five call sites) to
  * enforce it first.
+ *
+ * Exported (not duplicated a second time) so `statePersistence.ts`'s load boundary can
+ * reuse the SAME resolution logic to re-check rank-filter uniqueness on a persisted doc
+ * (finding: the invariant was enforced only on the live `addFilter` mutation path, never
+ * re-checked on load, so a hand-edited/foreign doc could load with two conflicting rank
+ * filters on the same page). Both live in this package, so there is no cross-package
+ * import-direction concern the `x-studio` duplication comment above is guarding against.
  */
-function resolveRankFilterPageId(
+export function resolveRankFilterPageId(
   filter: StudioFilterState,
   pages: StudioDoc['pages'],
 ): string | null {
@@ -385,8 +392,11 @@ function resolveRankFilterPageId(
  * because page filters gate on `pageId === activePageId` and widget rank filters
  * are per-widget. A `null` resolved page (a pageId-less page filter, applied
  * everywhere) conflicts with — and is conflicted by — any other rank filter.
+ *
+ * Exported for reuse by `statePersistence.ts`'s load-boundary rank-filter dedup sweep
+ * (see {@link resolveRankFilterPageId}'s export comment).
  */
-function hasConflictingRankFilter(
+export function hasConflictingRankFilter(
   filterId: string,
   target: StudioFilterState,
   filters: StudioFilterState[],
@@ -751,6 +761,17 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       if (typeof id !== 'string') {
         return state;
       }
+      // Require a STRING title (T3 finding, parser-bypass parity with the wire boundary's
+      // `isString(args.title)` gate in `parseStateMutation.ts`). Without this, a server-built
+      // `addPage` bypassing the parser with a non-string `title` (e.g. `undefined`, `42`) would
+      // install a page whose `title` violates `StudioDoc['pages'][string].title: string` — no
+      // immediate throw, but a value the canvas's page-tab renderer and `serializeDoc`'s
+      // round-trip both assume is a string, corrupting the doc until the next load boundary
+      // (which has no per-page title screen to catch it). No-op instead, mirroring the
+      // sibling `renamePage` fix and `addWidget`'s `typeof widget.id !== 'string'` guard.
+      if (typeof title !== 'string') {
+        return state;
+      }
       // Screen the id against the shared prototype-hazard denylist before the literal
       // insert below (matching `applyBulkUpdate.addedWidgets` and the load boundary). The
       // literal `{ ...pages, [id]: … }` uses define-semantics, so there is no prototype
@@ -870,7 +891,22 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         },
       };
     },
-    label: (args) => `addWidget:${args.widget.kind}:${args.widget.id}`,
+    // T3 finding: `mutationLabel` is only guarded against a non-record TOP-LEVEL `args`
+    // (`isPlainRecord(mutation.args)` in `mutationLabel`) — it never guaranteed `args.widget`
+    // itself is a record, so a server-built mutation bypassing `parseStateMutation` with
+    // `args: { widget: undefined }` (a record `args`, but no usable `widget`) would throw
+    // `Cannot read properties of undefined (reading 'kind')` reading `args.widget.kind` below
+    // — an uncaught exception, not a graceful fallback label, breaking the "mutationLabel
+    // never throws" contract `mutationLabel`'s own doc-comment relies on for the AI
+    // recent-mutation log. Fall back to `'unknown'` for a missing/non-string `kind`/`id`
+    // exactly as `apply` falls back to a no-op for the same malformed shape.
+    label: (args) => {
+      const widget = args.widget;
+      const kind =
+        isPlainRecord(widget) && typeof widget.kind === 'string' ? widget.kind : 'unknown';
+      const id = isPlainRecord(widget) && typeof widget.id === 'string' ? widget.id : 'unknown';
+      return `addWidget:${kind}:${id}`;
+    },
   },
 
   updateWidget: {
@@ -1170,10 +1206,21 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // mutation can still supply a non-array ROW ENTRY (e.g. `rows: ['w1']` or `rows:
       // [null]`), and `row.filter(...)` on a non-array row throws a `TypeError` instead
       // of the graceful no-op every sibling row-sanitizing site provides.
+      // `typeof id === 'string'` BEFORE `Object.hasOwn` (T3 finding): `Object.hasOwn(obj,
+      // key)` coerces a non-string `key` to a string when checking property existence, so a
+      // parser-bypassing row entry carrying a NUMBER (e.g. `42`) would silently pass this
+      // filter whenever `state.widgets` happens to have a widget keyed `"42"` — but the
+      // NUMBER `42`, not the string `"42"`, is what lands in `sanitizedRows`, violating the
+      // `string[][]` invariant every other row-processing site in this file assumes (a
+      // `===` id comparison, a `Set<string>` membership check, or `JSON.stringify` round-trip
+      // elsewhere would then silently miss it). Mirrors the same guard `normalizePersistedPages`
+      // already applies to persisted rows.
       const sanitizedRows = dedupeLayoutRows(
         args.rows
           .filter((row): row is string[] => Array.isArray(row))
-          .map((row) => row.filter((id) => Object.hasOwn(state.widgets, id))),
+          .map((row) =>
+            row.filter((id) => typeof id === 'string' && Object.hasOwn(state.widgets, id)),
+          ),
       );
       // Replacing a page's rows verbatim can leave the col-spans invalid: a row
       // collapsed to a sole occupant keeps its stale multi-widget span, and a row
@@ -1334,6 +1381,15 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       if (!Object.hasOwn(state.pages, pageId)) {
         return state;
       }
+      // Require a STRING title (T3 finding, parser-bypass parity with the wire boundary's
+      // `isString(args.title)` gate in `parseStateMutation.ts`, mirroring the `addPage` fix
+      // above). Without this, a server-built `renamePage` bypassing the parser with a
+      // non-string `title` would install it verbatim — no immediate throw, but a value that
+      // violates `StudioDoc['pages'][string].title: string`, corrupting the page's title
+      // until something downstream trips over the non-string value.
+      if (typeof title !== 'string') {
+        return state;
+      }
       const page = state.pages[pageId];
       // Reference-equality no-op: writing the identical title returns the SAME doc so
       // `commitDocPatch`'s no-op guard skips a spurious undo entry.
@@ -1434,6 +1490,18 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       if (!isPlainRecord(args.filter)) {
         return state;
       }
+      // Require a record `scope` carrying a STRING `kind` (T3 finding, parser-bypass parity
+      // with the wire boundary's `isValidFilterScope`/`validateFilterScope` gate in
+      // `parseStateMutation.ts`). Without this, a server-built `addFilter` bypassing the
+      // parser with `filter.scope` absent/non-record would throw reading `scope.kind` below
+      // (`Cannot read properties of undefined (reading 'kind')`) instead of the graceful
+      // no-op every sibling malformed-shape guard in this handler provides. This is a
+      // crash-prevention shape check only (mirroring `migrateState`'s deliberately-weaker
+      // scope gate) — full scope semantic validity (kind membership, required id fields) is
+      // the wire boundary's job; the reducer only needs "safe to read `.kind` off of".
+      if (!isPlainRecord(args.filter.scope) || typeof args.filter.scope.kind !== 'string') {
+        return state;
+      }
       // Idempotent: re-delivery of the same addFilter SSE event must not append a
       // duplicate (unlike a fresh filter, the id already exists).
       if (state.filters.some((f) => f.id === args.filter.id)) {
@@ -1502,7 +1570,17 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         filters: [...state.filters, args.filter],
       };
     },
-    label: (args) => `addFilter:${args.filter.field}`,
+    // T3 finding (mirrors `addWidget`'s label fix above): `args.filter` is only guaranteed
+    // to be a record by THIS handler's own `apply` guard, not by `mutationLabel`'s top-level
+    // `isPlainRecord(mutation.args)` check — a server-built mutation bypassing
+    // `parseStateMutation` with `args: { filter: undefined }` would otherwise throw reading
+    // `args.filter.field`. Fall back to `'unknown'` for a missing/non-string `field`.
+    label: (args) => {
+      const { filter } = args;
+      const field =
+        isPlainRecord(filter) && typeof filter.field === 'string' ? filter.field : 'unknown';
+      return `addFilter:${field}`;
+    },
   },
 
   removeFilter: {
@@ -1595,6 +1673,17 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
           if (isSafePatchKey(widget.id)) {
             validRowIds.add(widget.id);
           }
+        }
+        // Exclude ids THIS SAME payload is removing (T2 finding): a bulk update naming
+        // both `removedWidgetIds: ['w1']` and a `widgetRows` row still containing `'w1'`
+        // must not keep that row entry alive — an explicit removal in the same mutation
+        // takes precedence over a stale row the payload also happens to carry. The
+        // current producer strips removed ids out of `widgetRows` before calling this,
+        // but the reducer is the single source of truth for mutation validity and must
+        // not depend on that caller discipline: a future/adversarial producer that
+        // forgets to strip them must still see the removal honored.
+        for (const id of removedWidgetIds) {
+          validRowIds.delete(id);
         }
         // Drop phantom ids (not an existing widget nor a safe added-widget id) AND
         // deduplicate ids that appear more than once — the same id twice would render the

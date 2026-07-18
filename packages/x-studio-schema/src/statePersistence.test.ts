@@ -160,26 +160,33 @@ describe('migrateState', () => {
     expect(result.errors.join(' ')).toMatch(/pages\["p1"\]/);
   });
 
-  it('fails a doc with a null widget value, naming the field (finding 1.1)', () => {
+  // T3 finding (iteration 22): a null widget value / non-record widget config used to
+  // hard-fail the WHOLE doc here, even though `deserializeState`'s own widget pipeline
+  // already repairs both shapes gracefully per-entry (drops a non-record widget; coerces a
+  // non-record `config` to `{}`) — sinking every other page/widget in the dashboard over
+  // ONE bad widget entry was strictly worse than the graceful repair `deserializeState`
+  // already provides. `migrateState` now succeeds for both shapes (leaving the per-entry
+  // repair to `deserializeState`, verified in the sibling `deserializeState` describe block
+  // below), matching the graceful-repair convention this file already applies to
+  // `relationships`/`expressionFields`/`filterPresets`/`ai.threads` per-entry junk.
+  it('succeeds a doc with a null widget value, leaving the per-entry repair to deserializeState (finding 1.1 / T3)', () => {
     const result = migrateState(
       completeSerialized({
         schemaVersion: CURRENT_SCHEMA_VERSION,
         widgets: { w1: null },
       }),
     );
-    expect(result.success).toBe(false);
-    expect(result.errors.join(' ')).toMatch(/widgets\["w1"\]/);
+    expect(result.success).toBe(true);
   });
 
-  it('fails a doc whose widget has a non-record config, naming the field (finding 1.1)', () => {
+  it('succeeds a doc whose widget has a non-record config, leaving the per-entry repair to deserializeState (finding 1.1 / T3)', () => {
     const result = migrateState(
       completeSerialized({
         schemaVersion: CURRENT_SCHEMA_VERSION,
         widgets: { w1: { id: 'w1', kind: 'chart', title: 'C', config: 'junk' } },
       }),
     );
-    expect(result.success).toBe(false);
-    expect(result.errors.join(' ')).toMatch(/widgets\["w1"\]\.config/);
+    expect(result.success).toBe(true);
   });
 
   it('a doc with well-formed nested pages/widgets still succeeds (finding 1.1)', () => {
@@ -1601,6 +1608,143 @@ describe('deserializeState', () => {
     } as unknown as typeof minimalSerialized;
     const state = deserializeState(serialized, {});
     expect(state.doc.filters.map((f) => f.id)).toEqual(['ok']);
+  });
+
+  // Iteration-22 finding (Tier 2 #2): `parseStateMutation.ts`'s `validateFilter` rejects a
+  // live `addFilter` whose `dependsOn` is not a `string[]`, but neither this load screen nor
+  // `isPresetFilterSafe` applied the same check — so a persisted doc with a malformed
+  // `dependsOn` (e.g. a bare string) loaded successfully and later crashed
+  // `StudioFiltersDrawer`'s `dependsOn.map(...)` the first time the filter rendered. The KEY
+  // is repaired (dropped) rather than the whole filter, mirroring how a bad widget
+  // `titleMode`/`subtitleMode` is stripped rather than dropping the widget.
+  it('repairs (drops) a malformed dependsOn on a persisted filter instead of dropping the whole filter or crashing (T2 finding)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      filters: [
+        {
+          id: 'f1',
+          field: 'x',
+          operator: 'equals',
+          value: '',
+          scope: { kind: 'page' },
+          dependsOn: 'not-an-array',
+        },
+        {
+          id: 'f2',
+          field: 'y',
+          operator: 'equals',
+          value: '',
+          scope: { kind: 'page' },
+          dependsOn: ['f1', 42],
+        },
+        {
+          id: 'f3',
+          field: 'z',
+          operator: 'equals',
+          value: '',
+          scope: { kind: 'page' },
+          dependsOn: ['f1'],
+        },
+      ],
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    // All three filters survive — a malformed `dependsOn` is repaired, not treated as
+    // grounds to drop the whole filter.
+    expect(state.doc.filters.map((f) => f.id)).toEqual(['f1', 'f2', 'f3']);
+    const [f1, f2, f3] = state.doc.filters;
+    expect(f1.dependsOn).toBeUndefined();
+    expect(f2.dependsOn).toBeUndefined();
+    // A well-formed dependsOn is left untouched.
+    expect(f3.dependsOn).toEqual(['f1']);
+  });
+
+  it('repairs (drops) a malformed dependsOn on a preset inner filter (T2 finding)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      filterPresets: [
+        {
+          id: 'p1',
+          name: 'Preset 1',
+          filters: [
+            {
+              id: 'pf1',
+              field: 'x',
+              operator: 'equals',
+              value: 'EU',
+              scope: { kind: 'page' },
+              dependsOn: 'not-an-array',
+            },
+          ],
+        },
+      ],
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.filterPresets).toHaveLength(1);
+    // The preset filter survives, but the malformed dependsOn is gone.
+    expect(state.doc.filterPresets![0].filters.map((f) => f.id)).toEqual(['pf1']);
+    expect((state.doc.filterPresets![0].filters[0] as { dependsOn?: unknown }).dependsOn).toBe(
+      undefined,
+    );
+  });
+
+  // Iteration-22 finding (T3 #9): `addFilter` enforces "at most one rank filter per page
+  // context" on every LIVE add (`hasConflictingRankFilter`), but that invariant was never
+  // re-checked at the load boundary — a hand-edited/foreign doc could load with two
+  // conflicting rank filters on the same page.
+  it('drops a second conflicting rank filter on the same page at load, keeping the first (T3 finding)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      filters: [
+        {
+          id: 'rank-1',
+          field: 'x',
+          operator: 'equals',
+          value: '',
+          filterMode: 'rank',
+          scope: { kind: 'page', pageId: 'page-1' },
+        },
+        {
+          id: 'rank-2',
+          field: 'y',
+          operator: 'equals',
+          value: '',
+          filterMode: 'rank',
+          scope: { kind: 'page', pageId: 'page-1' },
+        },
+      ],
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.filters.map((f) => f.id)).toEqual(['rank-1']);
+  });
+
+  it('keeps two rank filters on DIFFERENT pages at load (not a global uniqueness constraint)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      pages: {
+        ...minimalSerialized.pages,
+        'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [] },
+      },
+      filters: [
+        {
+          id: 'rank-1',
+          field: 'x',
+          operator: 'equals',
+          value: '',
+          filterMode: 'rank',
+          scope: { kind: 'page', pageId: 'page-1' },
+        },
+        {
+          id: 'rank-2',
+          field: 'y',
+          operator: 'equals',
+          value: '',
+          filterMode: 'rank',
+          scope: { kind: 'page', pageId: 'page-2' },
+        },
+      ],
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.filters.map((f) => f.id)).toEqual(['rank-1', 'rank-2']);
   });
 
   // ── load↔wire filter-scope symmetry (T3-1) ───────────────────────────────────

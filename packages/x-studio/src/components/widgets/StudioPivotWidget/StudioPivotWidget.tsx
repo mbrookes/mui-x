@@ -96,6 +96,18 @@ export function StudioPivotWidget({
     if (exportRef) {
       exportRef.current = matrix ? handleExport : null;
     }
+    // Clear the export ref on every re-run (dep change) and on unmount. Without
+    // this, an export scheduled/in-flight when the widget unmounts (or is
+    // reconfigured away from pivot) leaves a stale closure on `exportRef` —
+    // `StudioWidgetCard`'s export button reads `imperativeExportRef.current`
+    // lazily on click, so a stale entry would still fire `handleExport` (closing
+    // over this now-unmounted instance's `matrix`/`widget`) even though this
+    // component is gone.
+    return () => {
+      if (exportRef) {
+        exportRef.current = null;
+      }
+    };
   }, [exportRef, matrix, handleExport]);
 
   if (isLoading) {

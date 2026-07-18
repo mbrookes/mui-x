@@ -73,6 +73,37 @@ describe('StudioPivotWidget', () => {
     expect(screen.getByText(/Use the Setup tab to configure/)).not.toBe(null);
   });
 
+  // Architecture review (finding: export ref not cleared on unmount): the
+  // exportRef is populated with a closure over this instance's `matrix`/`widget`
+  // for `StudioWidgetCard`'s export button to call imperatively. Without
+  // clearing it on unmount, an export triggered while the widget is
+  // unmounting/scheduled — or a stale ref left behind after this widget kind is
+  // swapped out — would still invoke a closure over a gone component instead of
+  // being a no-op.
+  it('clears the export ref on unmount', () => {
+    const exportRef: React.MutableRefObject<(() => void) | null> = { current: null };
+    const { wrapper } = createStudioHarness();
+    const { unmount } = render(
+      <StudioPivotWidget
+        widget={pivotWidget({
+          pivotRowField: 'region',
+          pivotColField: 'product',
+          pivotValueField: 'amount',
+        })}
+        dataSource={source()}
+        pageId="page-1"
+        exportRef={exportRef}
+      />,
+      { wrapper },
+    );
+
+    expect(exportRef.current).not.toBe(null);
+
+    unmount();
+
+    expect(exportRef.current).toBe(null);
+  });
+
   it('renders the pivot table with row labels when configured with data', () => {
     renderWidget({ pivotRowField: 'region', pivotColField: 'product', pivotValueField: 'amount' });
     expect(screen.getByText('EMEA')).not.toBe(null);

@@ -1,6 +1,6 @@
 'use client';
 import * as React from 'react';
-import { Box, Typography } from '@mui/material';
+import { Box, Button, Typography } from '@mui/material';
 import { Unstable_ChartsGeoDataProviderPremium as ChartsGeoDataProviderPremium } from '@mui/x-charts-premium/ChartsGeoDataProviderPremium';
 import { GeoDataPlot } from '@mui/x-charts-premium/Map';
 import { ChartsSurface } from '@mui/x-charts/ChartsSurface';
@@ -31,6 +31,7 @@ import { StudioMapTooltip, StudioMapTooltipContext } from './StudioMapTooltip';
 import { StudioMapShapePlot } from './StudioMapShapePlot';
 import { formatNumber } from '../../../internals/numberFormat';
 import { aggregateNumbers, coerceAggregateValue } from '../../../internals/aggregate';
+import { inferExpressionType } from '../../../utils/expressionEvaluator';
 import { crossFilterValueEquals } from '../StudioChartWidget/chartWidgetHelpers';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -227,10 +228,34 @@ export function StudioMapWidget({
 
   const formatMapValueCompact = React.useCallback(
     (v: number): string => {
-      const field = fieldDef?.type === 'number' ? fieldDef : undefined;
+      let field = fieldDef?.type === 'number' ? fieldDef : undefined;
+      // A calculated (expression) field with no explicit `type` override falls through the
+      // check above even when it's numeric at runtime: `StudioExpressionField.type` is
+      // "inferred from the expression tree if omitted" (expressionTypes.ts), so a typeless
+      // arithmetic field (e.g. `revenue - cost`, produced by an `add`/`subtract`/… operator)
+      // silently lost its format/currency/precision here instead of formatting as a number.
+      // `'expression' in fieldDef` distinguishes an expression field from a physical
+      // `StudioDataField`, whose `type` is required and therefore never hits this branch.
+      // Reuse `inferExpressionType` — the same inference the expression field editor
+      // (`StudioExpressionFieldDialog`) already relies on for this exact gap — instead of
+      // re-deriving the rules here.
+      if (!field && fieldDef && fieldDef.type === undefined && 'expression' in fieldDef) {
+        const sourceFieldsForInference =
+          valueSourceId && valueSourceId !== widget.sourceId
+            ? (dataSources[valueSourceId]?.fields ?? [])
+            : dataSource.fields;
+        const inferred = inferExpressionType(
+          fieldDef.expression,
+          sourceFieldsForInference,
+          allExpressionFields,
+        );
+        if (inferred === 'number') {
+          field = fieldDef;
+        }
+      }
       return formatNumber(v, field?.format, field?.currencyCode, true, field?.precision);
     },
-    [fieldDef],
+    [fieldDef, valueSourceId, widget.sourceId, dataSources, dataSource.fields, allExpressionFields],
   );
 
   // Derive a human-readable label for the value field to display in the tooltip.
@@ -518,6 +543,19 @@ export function StudioMapWidget({
   // still the latest one issued — a superseded request's resolution is silently discarded
   // instead of clobbering a newer (possibly different-geography) response.
   const geoRequestIdRef = React.useRef(0);
+  // Genuine retry trigger (tier-3 finding): the effect below only re-runs when `mapGeography`
+  // or `geographyDef` change referentially. The rejection handler resets `loadedGeoRef` so the
+  // NEXT run of this effect will re-enter the loader — but without a dependency that actually
+  // changes, no next run is ever scheduled. Previously the only way to make one happen was to
+  // switch to a different map type and back, which "looked" retryable in tests (that toggle
+  // does change `mapGeography` twice) but gave a stuck user — e.g. one with only a single
+  // geography configured — no real way to recover from a transient load failure. Bumping this
+  // nonce from the retry button below forces the effect to run again without requiring any
+  // other prop to change.
+  const [geoRetryNonce, setGeoRetryNonce] = React.useState(0);
+  const handleRetryGeography = React.useCallback(() => {
+    setGeoRetryNonce((n) => n + 1);
+  }, []);
   // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- intentional: clear stale geography when map type changes
   React.useEffect(() => {
     if (loadedGeoRef.current === mapGeography) {
@@ -555,7 +593,7 @@ export function StudioMapWidget({
         setGeographyError(true);
       },
     );
-  }, [mapGeography, geographyDef]);
+  }, [mapGeography, geographyDef, geoRetryNonce]);
 
   const isConfigured = !!countryField;
 
@@ -621,10 +659,29 @@ export function StudioMapWidget({
   }
 
   // Finding 2.20: surface a visible, non-silent state when the geography topology failed to
-  // load — `loadedGeoRef` was reset above so this is also retryable (e.g. re-selecting the same
-  // map type in the setup panel re-triggers the loader) rather than a permanent blank widget.
+  // load, rather than a permanent blank widget. `loadedGeoRef` was reset above so the load is
+  // retryable, but nothing user-facing forced the effect to run again — the button below drives
+  // `handleRetryGeography`, which bumps `geoRetryNonce` (a dependency of the load effect) so
+  // retrying genuinely re-attempts the load instead of requiring an unrelated workaround like
+  // switching to a different map type and back (tier-3 finding).
   if (geographyError) {
-    return <StudioWidgetErrorOverlay message={localeText.mapGeographyLoadError} />;
+    return (
+      <Box
+        sx={{
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 1,
+        }}
+      >
+        <StudioWidgetErrorOverlay message={localeText.mapGeographyLoadError} sx={{ py: 0 }} />
+        <Button size="small" onClick={handleRetryGeography}>
+          {localeText.chatMessageRetryTooltip}
+        </Button>
+      </Box>
+    );
   }
 
   if (!isConfigured) {

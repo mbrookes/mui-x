@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { createRenderer, act } from '@mui/internal-test-utils';
+import { createRenderer, act, fireEvent } from '@mui/internal-test-utils';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -644,6 +644,50 @@ describe('<StudioMapWidget /> value-field lookup — expression + cross-source f
 
     expect(latestLegendAriaLabel()).toMatch(/\$/);
   });
+
+  it('formats a TYPELESS calculated (expression) field as a number by inferring its type from the expression (tier-3 finding)', async () => {
+    // `useWidgetRows` is mocked at the top of this file to return `rows` verbatim (it doesn't
+    // run the real L2 expression-enrichment pipeline), so — mirroring the sibling
+    // "own-source expression field" test above — `profit` is provided directly on each row
+    // rather than derived from `revenue`/`cost`. Only the expression FIELD DEF (below) needs
+    // its expression tree, since that's all `inferExpressionType` inspects.
+    rows = [
+      { country: 'United States', profit: 1000 },
+      { country: 'France', profit: 400 },
+    ];
+    const widget: StudioWidget = {
+      ...baseWidget,
+      config: { ...baseWidget.config, mapValueField: 'profit' },
+    } as StudioWidget;
+    mockState = createState({
+      widgets: { 'map-1': widget },
+      dataSources: { sales: dataSource },
+      expressionFields: [
+        {
+          id: 'profit',
+          label: 'Profit',
+          sourceId: 'sales',
+          isMeasure: false,
+          // Arithmetic expression ('subtract' infers 'number') with NO explicit `type`
+          // override — exercises the exact gap described in expressionTypes.ts:
+          // "Output type override. Inferred from the expression tree if omitted."
+          expression: {
+            operator: 'subtract',
+            inputs: [{ id: 'revenue' }, { id: 'cost' }],
+          },
+          format: 'currency',
+        },
+      ] as unknown as StudioState['doc']['expressionFields'],
+    });
+    configureStudioContextMock({ getState: () => mockState, controller });
+
+    await renderMap(widget);
+
+    // Before the fix, `fieldDef?.type === 'number'` was false for a typeless expression
+    // field, so `formatMapValueCompact` dropped its currency format entirely even though
+    // the field is numeric ('subtract' always produces a number).
+    expect(latestLegendAriaLabel()).toMatch(/\$/);
+  });
 });
 
 // Regression coverage for finding 1.4: the map used to hand-roll
@@ -1212,5 +1256,61 @@ describe('<StudioMapWidget /> geography loader staleness & error recovery', () =
 
     expect(loadCount).toBe(2);
     expect(latestGeoDataProps()?.geoData).toBe(retryGeo);
+  });
+
+  // Tier-3 finding: the previous test's "retry" only worked because switching to a
+  // different map type and back changes `mapGeography`, which happens to be a dependency
+  // of the load effect. A widget with only ONE geography configured (the common case) has
+  // no such workaround available, so a rejected load left it permanently blank with no way
+  // to recover — the retry-looking `loadedGeoRef` reset never actually got a chance to run
+  // again. This test exercises the genuine fix: a "Retry" button that re-triggers the load
+  // without requiring `mapGeography`/`geographyDef` to change at all.
+  it('genuinely retries the load via the Retry button, with no other geography to switch to', async () => {
+    const failingDeferred = Promise.withResolvers<unknown>();
+    const retryGeo = { type: 'FeatureCollection', features: [] };
+    let loadCount = 0;
+    mockGeographies = {
+      world: {
+        label: 'World',
+        fieldLabel: 'Country field',
+        fieldHint: '',
+        loader: () => {
+          loadCount += 1;
+          return loadCount === 1 ? failingDeferred.promise : Promise.resolve(retryGeo);
+        },
+      },
+    };
+
+    const view = render(
+      <ThemeProvider theme={createTheme()}>
+        <StudioMapWidget
+          widget={baseWidget as StudioWidgetOf<'map'>}
+          dataSource={dataSource}
+          pageId="page-1"
+        />
+      </ThemeProvider>,
+    );
+
+    await act(async () => {
+      failingDeferred.reject(new Error('network error'));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // eslint-disable-next-line testing-library/prefer-screen-queries -- `view` is needed for the button lookup below
+    expect(view.getByRole('alert')).toBeTruthy();
+    expect(loadCount).toBe(1);
+
+    // eslint-disable-next-line testing-library/prefer-screen-queries -- consistent with the alert lookup above
+    const retryButton = view.getByRole('button');
+    await act(async () => {
+      fireEvent.click(retryButton);
+      await Promise.resolve();
+    });
+
+    expect(loadCount).toBe(2);
+    expect(latestGeoDataProps()?.geoData).toBe(retryGeo);
+    // eslint-disable-next-line testing-library/prefer-screen-queries -- consistent with the lookups above
+    expect(view.queryByRole('alert')).toBeNull();
   });
 });

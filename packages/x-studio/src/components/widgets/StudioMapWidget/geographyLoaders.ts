@@ -95,7 +95,23 @@ async function loadWorldGeography(): Promise<ExtendedFeatureCollection> {
       if (numericId === 10) {
         return [];
       }
-      const alpha2 = NUMERIC_TO_ALPHA2[numericId];
+      // The shipped `world-atlas` 110m topology gives exactly 3 features a `null`/`undefined`
+      // `id` instead of an ISO 3166-1 numeric code — they're identifiable only by
+      // `properties.name`: Kosovo, Northern Cyprus ("N. Cyprus"), and Somaliland. None have an
+      // official ISO 3166-1 alpha-2 assignment (they're disputed territories / non-UN-members),
+      // but Kosovo already has a de facto standard this codebase treats as canonical: "XK" is the
+      // widely-used user-assigned code (ISO reserves the "X*" range for local/user assignment)
+      // adopted by the EU, IMF, World Bank, and SWIFT — see `NAME_TO_ALPHA2.kosovo`,
+      // `ALPHA3_TO_ALPHA2.XKX`, and `EUROPEAN_ALPHA2_CODES` in `countryUtils.ts`. Reuse that same
+      // code here so the Kosovo feature survives instead of being silently dropped by the
+      // `!alpha2` check below.
+      // Northern Cyprus and Somaliland have no comparably established de facto alpha-2 code (and
+      // no corresponding `NAME_TO_ALPHA2` entry), so inventing one here would let a shape render
+      // on the map that no real data source could ever address — a data field couldn't normalize
+      // to a code nobody outside this file knows about. They remain excluded until such a code is
+      // adopted (which would also require extending `normalizeToAlpha2`).
+      const name = typeof f.properties?.name === 'string' ? f.properties.name : undefined;
+      const alpha2 = NUMERIC_TO_ALPHA2[numericId] ?? (name === 'Kosovo' ? 'XK' : undefined);
       if (!alpha2) {
         return [];
       }

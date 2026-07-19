@@ -445,7 +445,7 @@ function buildContinuousLineOverlay(
     }
   });
 
-  return items.length > 0 ? { kind: 'segments', items } : null;
+  return items.length > 0 ? { kind: 'segments', items, lineMarkZeroBaseline: true } : null;
 }
 
 /**

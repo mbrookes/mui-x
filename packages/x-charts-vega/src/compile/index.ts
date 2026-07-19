@@ -294,14 +294,21 @@ function applyOverlayDomains(
     // bare boxplot fits the data extent, matching Vega. `line` covers `area`
     // too (an area is a `type: 'line'` series with `area: true`). Detect one
     // whose value axis is this axis.
-    const hasBaselineSeries = series.some((entry) => {
-      const type = (entry as { type?: string }).type;
-      if (type !== 'bar' && type !== 'line') {
-        return false;
-      }
-      const valueAxis = (entry as { layout?: string }).layout === 'horizontal' ? 'x' : 'y';
-      return valueAxis === name;
-    });
+    const hasBaselineSeries =
+      series.some((entry) => {
+        const type = (entry as { type?: string }).type;
+        if (type !== 'bar' && type !== 'line') {
+          return false;
+        }
+        const valueAxis = (entry as { layout?: string }).layout === 'horizontal' ? 'x' : 'y';
+        return valueAxis === name;
+      }) ||
+      // A continuous-x `line`/`trail` mark carries the same zero:true default
+      // but renders through a `segments` overlay (no index-aligned category
+      // domain for a native x-charts line series) — its value axis is always
+      // y (see `buildContinuousLineOverlay`).
+      (name === 'y' &&
+        overlays.some((overlay) => overlay.kind === 'segments' && overlay.lineMarkZeroBaseline));
     if (hasBaselineSeries) {
       domainMin = Math.min(domainMin, 0);
       domainMax = Math.max(domainMax, 0);

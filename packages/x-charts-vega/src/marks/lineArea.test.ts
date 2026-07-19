@@ -445,6 +445,31 @@ describe('compileLineAreaMark', () => {
     expect(overlayGap?.origin).to.equal('x-charts');
   });
 
+  it('pins the y domain to include 0 for a continuous-x line, matching a native line series default', () => {
+    // Vega-Lite's `zero: true` default applies to line/area marks regardless
+    // of how x-charts ends up rendering them; a continuous-x line renders
+    // through a `segments` overlay (no native `line` series for
+    // `applyOverlayDomains`'s existing check to see), so it needs its own
+    // `lineMarkZeroBaseline` flag to still get the zero pin (`layer_point_
+    // line_regression`'s y-axis previously started at the data min, ~2,
+    // instead of 0 like the reference).
+    const compiled = compileSpec({
+      data: {
+        values: [
+          { a: 10, b: 5 },
+          { a: 20, b: 6 },
+          { a: 30, b: 8 },
+        ],
+      },
+      mark: 'line',
+      encoding: {
+        x: { field: 'a', type: 'quantitative' },
+        y: { field: 'b', type: 'quantitative' },
+      },
+    });
+    expect(compiled.yAxis?.config.min).to.equal(0);
+  });
+
   it('renders an area mark over a continuous quantitative x axis as a band overlay', () => {
     const compiled = compileSpec({
       data: {

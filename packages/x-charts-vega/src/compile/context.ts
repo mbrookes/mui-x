@@ -120,7 +120,22 @@ export interface OverlayImageItem {
  * custom-component docs demos.
  */
 export type CompiledOverlay =
-  | { kind: 'segments'; items: OverlaySegment[] }
+  | {
+      kind: 'segments';
+      items: OverlaySegment[];
+      /**
+       * Set when these segments are a genuine `line`/`trail` mark drawn over
+       * a continuous x (`marks/lineArea.ts` `buildContinuousLineOverlay`) —
+       * Vega-Lite's `zero: true` default for line/area marks still applies
+       * here, but since this overlay (not a native x-charts `line` series)
+       * is what carries the geometry, `compile/index.ts`'s `applyOverlayDomains`
+       * needs this flag to pin the y domain to include 0 the same way it
+       * already does for a native `line`/`bar` series. Not set for the same
+       * `kind` used by tick marks or `rule` spans, neither of which carries
+       * Vega-Lite's zero-baseline default.
+       */
+      lineMarkZeroBaseline?: boolean;
+    }
   | {
       /**
        * A `bar` mark whose positional channels are *both* continuous (e.g. a

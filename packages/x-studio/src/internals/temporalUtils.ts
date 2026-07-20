@@ -1,5 +1,6 @@
 import { truncateToPeriod } from '@mui/x-studio-schema';
 import type { StudioDataSource } from '../models';
+import { DEFAULT_STUDIO_LOCALE_TEXT, type StudioLocaleText } from './localeText';
 
 export type XGroupBy = 'day' | 'week' | 'month' | 'quarter' | 'year';
 
@@ -276,32 +277,37 @@ export function truncateToGranularity(value: unknown, granularity: XGroupBy): st
   return truncateToPeriod(value, granularity);
 }
 
-const MONTH_NAMES = [
-  'Jan',
-  'Feb',
-  'Mar',
-  'Apr',
-  'May',
-  'Jun',
-  'Jul',
-  'Aug',
-  'Sep',
-  'Oct',
-  'Nov',
-  'Dec',
-];
+/**
+ * Locale-aware short month name (e.g. 'Jan', 'janv.', 'Ene') via `Intl.DateTimeFormat`,
+ * mirroring the `toLocaleDateString(undefined, …)` pattern already used by
+ * `formatTemporalAxisLabel`'s non-grouped branch below — `undefined` resolves to the
+ * runtime's active locale instead of hardcoding English month abbreviations.
+ */
+function getShortMonthName(monthIndex: number): string {
+  return new Intl.DateTimeFormat(undefined, { month: 'short', timeZone: 'UTC' }).format(
+    new Date(Date.UTC(2000, monthIndex, 1)),
+  );
+}
 
 /**
  * Convert a sort-stable period key into a human-readable axis label.
  *
- * Examples:
+ * Month names are localized via `Intl.DateTimeFormat` (finding: hardcoded English month
+ * names). The week label's "Week" word comes from `localeText.timeGranWeek` — the same
+ * token already translated for the time-granularity picker — so a non-English `localeText`
+ * (e.g. `frLocaleText`) produces a translated axis label instead of a hardcoded English one.
+ *
+ * Examples (default English `localeText`):
  *   '2024-01-15' → 'Jan 15, 2024'
- *   '2024-W03'   → 'W03 2024'
+ *   '2024-W03'   → 'Week 3 2024'
  *   '2024-01'    → 'Jan 2024'
  *   '2024-Q1'    → 'Q1 2024'
  *   '2024'       → '2024'
  */
-export function formatPeriodLabel(key: string): string {
+export function formatPeriodLabel(
+  key: string,
+  localeText: StudioLocaleText = DEFAULT_STUDIO_LOCALE_TEXT,
+): string {
   // Year only: '2024'
   if (/^\d{4}$/.test(key)) {
     return key;
@@ -314,19 +320,19 @@ export function formatPeriodLabel(key: string): string {
   // Week: '2024-W03'
   const wMatch = key.match(/^(\d{4})-W(\d{2})$/);
   if (wMatch) {
-    return `Week ${parseInt(wMatch[2], 10)} ${wMatch[1]}`;
+    return `${localeText.timeGranWeek} ${parseInt(wMatch[2], 10)} ${wMatch[1]}`;
   }
   // Month: '2024-01'
   const mMatch = key.match(/^(\d{4})-(\d{2})$/);
   if (mMatch) {
     const monthIndex = parseInt(mMatch[2], 10) - 1;
-    return `${MONTH_NAMES[monthIndex] ?? mMatch[2]} ${mMatch[1]}`;
+    return `${getShortMonthName(monthIndex)} ${mMatch[1]}`;
   }
   // Day: '2024-01-15'
   const dMatch = key.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (dMatch) {
     const monthIndex = parseInt(dMatch[2], 10) - 1;
-    return `${MONTH_NAMES[monthIndex] ?? dMatch[2]} ${parseInt(dMatch[3], 10)}, ${dMatch[1]}`;
+    return `${getShortMonthName(monthIndex)} ${parseInt(dMatch[3], 10)}, ${dMatch[1]}`;
   }
   return key;
 }
@@ -469,12 +475,16 @@ export function getTemporalAxisData(labels: (string | number)[]): Date[] | null 
   return axisData.every((value) => value != null) ? (axisData as Date[]) : null;
 }
 
-export function formatTemporalAxisLabel(value: Date | number, xGroupBy?: XGroupBy): string {
+export function formatTemporalAxisLabel(
+  value: Date | number,
+  xGroupBy?: XGroupBy,
+  localeText: StudioLocaleText = DEFAULT_STUDIO_LOCALE_TEXT,
+): string {
   const dateValue = value instanceof Date ? value : new Date(value);
 
   if (xGroupBy) {
     const grouped = truncateToGranularity(dateValue, xGroupBy);
-    return grouped ? formatPeriodLabel(grouped) : dateValue.toISOString();
+    return grouped ? formatPeriodLabel(grouped, localeText) : dateValue.toISOString();
   }
 
   return dateValue.toLocaleDateString(undefined, {

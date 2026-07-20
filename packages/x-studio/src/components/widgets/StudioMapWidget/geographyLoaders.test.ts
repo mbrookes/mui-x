@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { BUILT_IN_GEOGRAPHY_DEFINITIONS } from './geographyLoaders';
 
 // Regression coverage for the tier-2 finding: the shipped `world-atlas` 110m topology gives
@@ -43,5 +43,40 @@ describe('loadEuropeGeography', () => {
   it('includes Kosovo in the Europe subset', async () => {
     const fc = await BUILT_IN_GEOGRAPHY_DEFINITIONS.europe.loader();
     expect(fc.features.some((f) => f.id === 'XK')).toBe(true);
+  });
+});
+
+// The built-in geography `label` (shown as the "Map type" selector option in the Setup
+// panel) is pure UI chrome, not a data-derived proper noun — it should track the active
+// locale rather than hardcode the English region name. `getRegionDisplayName` resolves it
+// via `Intl.DisplayNames(undefined, { type: 'region' })`, mirroring the
+// `Intl.DateTimeFormat(undefined, …)` pattern used for month names in `temporalUtils.ts`.
+describe('BUILT_IN_GEOGRAPHY_DEFINITIONS labels', () => {
+  it('matches the expected English region names under the default (English) test locale', () => {
+    expect(BUILT_IN_GEOGRAPHY_DEFINITIONS.world.label).toBe('World');
+    expect(BUILT_IN_GEOGRAPHY_DEFINITIONS.usa.label).toBe('United States');
+    expect(BUILT_IN_GEOGRAPHY_DEFINITIONS.europe.label).toBe('Europe');
+  });
+
+  it('resolves labels through Intl.DisplayNames (locale-aware) rather than a hardcoded English literal', async () => {
+    const OriginalDisplayNames = Intl.DisplayNames;
+    const spy = vi.spyOn(Intl, 'DisplayNames').mockImplementation(
+      // A regular `function` (not an arrow) so it can be invoked with `new` — the
+      // production code calls `new Intl.DisplayNames(...)`, and a mock implementation
+      // that isn't itself `new`-able throws "is not a constructor".
+      function MockDisplayNames(_locales?: any, options?: any) {
+        return new OriginalDisplayNames(['fr'], options);
+      } as unknown as typeof Intl.DisplayNames,
+    );
+    try {
+      vi.resetModules();
+      const { BUILT_IN_GEOGRAPHY_DEFINITIONS: frDefs } = await import('./geographyLoaders');
+      expect(frDefs.world.label).toBe('Monde');
+      expect(frDefs.usa.label).toBe('États-Unis');
+      expect(frDefs.europe.label).toBe('Europe');
+    } finally {
+      spy.mockRestore();
+      vi.resetModules();
+    }
   });
 });

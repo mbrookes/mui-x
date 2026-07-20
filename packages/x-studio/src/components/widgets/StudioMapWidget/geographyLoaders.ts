@@ -159,25 +159,62 @@ async function loadEuropeGeography(): Promise<ExtendedFeatureCollection> {
   };
 }
 
-/** The built-in geography definitions keyed by map type name. */
+/**
+ * Localizes a built-in geography's selector label via `Intl.DisplayNames` (region display
+ * names) instead of hardcoding the English name — this is pure UI chrome (a dropdown
+ * option in the Map Setup panel's "Map type" picker), not a data-derived proper noun, so
+ * it should track the active locale the same way `internals/temporalUtils.ts` uses
+ * `Intl.DateTimeFormat(undefined, …)` for month names rather than a hardcoded English table.
+ *
+ * `regionCode` is a UN M49 / ISO 3166-1 region code understood by `Intl.DisplayNames`'s
+ * `'region'` type: `'001'` ("World"), `'150'` ("Europe"), or an ISO 3166-1 alpha-2 country
+ * code (e.g. `'US'`). Falls back to `fallback` if `Intl.DisplayNames` is unavailable in the
+ * runtime or doesn't recognise the code (defensive only — all codes used below are valid).
+ */
+function getRegionDisplayName(regionCode: string, fallback: string): string {
+  try {
+    const name = new Intl.DisplayNames(undefined, { type: 'region' }).of(regionCode);
+    if (!name) {
+      return fallback;
+    }
+    // CLDR's English name for UN M49 '001' is the lowercase running-text form "world"
+    // (by design, matching prose like "countries around the world") — capitalize it for use
+    // as a standalone selector option label. Other locales' region names are already
+    // capitalized appropriately, so this is a no-op for them.
+    return name.charAt(0).toUpperCase() + name.slice(1);
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * The built-in geography definitions keyed by map type name.
+ *
+ * `fieldLabel`/`fieldHint` remain English-only here: fully localizing them needs new
+ * `StudioLocaleText` tokens (e.g. a per-geography field label/hint) added in
+ * `internals/localeText.ts`, which is outside this file's ownership boundary. They already
+ * fall back to the localized generic `mapSetupRegionFieldLabel`/`mapSetupRegionFieldHelperText`
+ * tokens for any CONSUMER geography that omits them (see `MapSetupPanel.tsx`); only the
+ * built-in geographies' own copy is not yet routed through that mechanism.
+ */
 export const BUILT_IN_GEOGRAPHY_DEFINITIONS: Record<string, StudioMapGeographyDefinition> = {
   world: {
     loader: loadWorldGeography,
-    label: 'World',
+    label: getRegionDisplayName('001', 'World'),
     fieldLabel: 'Country field',
     fieldHint: 'A field containing ISO alpha-2 codes, alpha-3 codes, or full country names.',
     normalizer: normalizeToAlpha2,
   },
   usa: {
     loader: loadUsaGeography,
-    label: 'United States',
+    label: getRegionDisplayName('US', 'United States'),
     fieldLabel: 'State field',
     fieldHint: 'A field containing US state names or 2-letter postal abbreviations.',
     normalizer: normalizeToStateAbbr,
   },
   europe: {
     loader: loadEuropeGeography,
-    label: 'Europe',
+    label: getRegionDisplayName('150', 'Europe'),
     fieldLabel: 'Country field',
     fieldHint: 'A field containing ISO alpha-2 codes, alpha-3 codes, or full country names.',
     normalizer: normalizeToAlpha2,

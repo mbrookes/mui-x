@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   fillTemporalLabelGaps,
   formatPeriodLabel,
@@ -9,6 +9,7 @@ import {
   sortLabels,
   truncateToGranularity,
 } from './temporalUtils';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from './localeText';
 import type { StudioDataSource } from '../models';
 
 // ─── normalizeToDate ──────────────────────────────────────────────────────────
@@ -106,6 +107,36 @@ describe('formatPeriodLabel', () => {
 
   it('returns unknown keys as-is', () => {
     expect(formatPeriodLabel('foo')).toBe('foo');
+  });
+
+  it('localizes the "Week" word via localeText.timeGranWeek instead of a hardcoded English string', () => {
+    const frLocaleText = { ...DEFAULT_STUDIO_LOCALE_TEXT, timeGranWeek: 'Semaine' };
+    expect(formatPeriodLabel('2024-W03', frLocaleText)).toBe('Semaine 3 2024');
+    // Default (no localeText passed) still falls back to the English default.
+    expect(formatPeriodLabel('2024-W03')).toBe('Week 3 2024');
+  });
+
+  it('localizes month names via Intl.DateTimeFormat instead of a hardcoded English table', () => {
+    // formatPeriodLabel resolves month names through `new Intl.DateTimeFormat(undefined, …)`
+    // (mirroring formatTemporalAxisLabel's existing `toLocaleDateString(undefined, …)`
+    // pattern), so it defers to whatever locale the Intl constructor resolves. Force that
+    // resolution to French here to prove the month name is NOT baked in as an English
+    // literal table — a real locale change (e.g. a French-configured host) changes the
+    // rendered axis label.
+    const OriginalDateTimeFormat = Intl.DateTimeFormat;
+    const spy = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(
+      // A regular `function` (not an arrow) so it can be invoked with `new` — the
+      // production code calls `new Intl.DateTimeFormat(...)`, and a mock implementation
+      // that isn't itself `new`-able throws "is not a constructor".
+      function MockDateTimeFormat(_locale?: any, options?: any) {
+        return new OriginalDateTimeFormat('fr-FR', options);
+      } as unknown as typeof Intl.DateTimeFormat,
+    );
+    try {
+      expect(formatPeriodLabel('2024-01')).toBe('janv. 2024');
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

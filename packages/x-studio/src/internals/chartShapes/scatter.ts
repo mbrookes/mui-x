@@ -1,3 +1,6 @@
+import { emptyBucketLabel } from '../chartValues';
+import type { StudioLocaleText } from '../localeText';
+
 type Row = Record<string, unknown>;
 
 export interface ScatterDataPoint {
@@ -43,12 +46,19 @@ export function prepareScatterDataGrouped(
   colorField: string,
   stableCategories: string[],
   sizeField?: string,
+  /**
+   * Locale text bundle used to resolve the translated empty-category bucket label
+   * (`chartEmptyCategoryLabel`) for a null/blank `colorField` value — mirrors how the
+   * x-axis empty bucket is resolved elsewhere (`toXValue`/`isEmptyXValue`) instead of
+   * hardcoding the English `'(blank)'` literal (finding 4).
+   */
+  localeText?: Partial<StudioLocaleText>,
 ): ScatterSeriesData[] {
   // Build a map from category → points for the current (filtered) rows
   const grouped = new Map<string, ScatterDataPoint[]>(stableCategories.map((cat) => [cat, []]));
   rows.forEach((row, index) => {
     const raw = row[colorField];
-    const cat = raw == null || raw === '' ? '(blank)' : String(raw);
+    const cat = raw == null || raw === '' ? emptyBucketLabel(localeText) : String(raw);
     if (!grouped.has(cat)) {
       grouped.set(cat, []);
     }

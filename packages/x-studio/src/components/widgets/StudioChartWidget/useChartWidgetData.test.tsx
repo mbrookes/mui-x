@@ -653,6 +653,55 @@ describe('useChartWidgetData — cross-filter ghost baseline memos', () => {
     expect(all.values[all.labels.indexOf('Office')]).toBe(10);
   });
 
+  // Regression for finding 3: `chartData` (filtered) and `allChartData` (baseline) used to each
+  // independently pre-detect sum-vs-count for the same measure field. When the cross-filter
+  // narrowed the rows down to a subset that was entirely non-numeric for that field (here: only
+  // the 'N/A' sentinel row survives the cross-filter), `chartData` downgraded to a row COUNT
+  // while `allChartData` (which sees the full, partly-numeric baseline) stayed a SUM — so the
+  // ghost tooltip ended up comparing a count against a sum. Both must now agree on 'sum'.
+  it('chartData and allChartData agree on sum vs. count even when the filtered subset is entirely non-numeric', () => {
+    const mixedSource: StudioDataSource = {
+      id: 'mixed',
+      label: 'Mixed',
+      fields: [
+        { id: 'category', label: 'Category', type: 'string' },
+        { id: 'region', label: 'Region', type: 'string' },
+        { id: 'total', label: 'Total', type: 'number' },
+      ],
+      rows: [
+        // Only row surviving a region === 'EU' cross-filter — its measure is non-numeric.
+        { id: 'm1', category: 'Electronics', region: 'EU', total: 'N/A' },
+        // Only visible in the baseline (region === 'US') — real numeric value.
+        { id: 'm2', category: 'Electronics', region: 'US', total: 100 },
+      ],
+    };
+    const widget: StudioWidgetOf<'chart'> = {
+      id: 'chart-single-mixed',
+      kind: 'chart',
+      title: 'Revenue by Category',
+      sourceId: 'mixed',
+      config: { chartType: 'bar', xField: 'category', yField: 'total', yAggregation: 'sum' },
+    };
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { mixed: mixedSource },
+      filters: [crossFilterOnRegion('EU')],
+    });
+    const { result } = renderHook(() => useChartWidgetData(widget, mixedSource, 'page-1'));
+
+    expect(result.current.shouldShowGhost).toBe(true);
+
+    const filtered = result.current.chartData!;
+    const all = result.current.allChartData!;
+
+    // The baseline sees a real numeric value (100) somewhere for this field, so BOTH
+    // computations must be 'sum' quantities — not one 'count' (1 row) and one 'sum' (100).
+    expect(all.values[all.labels.indexOf('Electronics')]).toBe(100);
+    // The filtered subset's only row is non-numeric, so its forced-to-sum contribution is 0
+    // (skipped, not counted as "1 row").
+    expect(filtered.values[filtered.labels.indexOf('Electronics')]).toBe(0);
+  });
+
   it('allMultiYData is the full unfiltered multi-series aggregation while multiYData reflects the active cross-filter', () => {
     const widget = multiYWidget();
     mockState = createState({
@@ -1101,6 +1150,43 @@ describe('useChartWidgetData — scatter series computation', () => {
     // Ghost (ALL rows, ignoring the cross-filter) still includes both categories.
     expect(result.current.shouldShowGhost).toBe(true);
     expect(result.current.allScatterSeries!.map((s) => s.id).sort()).toEqual(['A', 'B']);
+  });
+
+  // Regression for finding 4: the scatter color-by-field empty/null bucket used to hardcode
+  // the English '(blank)' literal, bypassing the configurable `chartEmptyCategoryLabel` every
+  // other chart type's empty-category bucket already honours.
+  it('routes the scatter color-by empty bucket through the configurable chartEmptyCategoryLabel, not a hardcoded "(blank)"', () => {
+    const scatterSourceWithNullRegion: StudioDataSource = {
+      ...scatterSource,
+      rows: [...scatterSource.rows!, { id: 'm4', x: 7, y: 8, size: 1, region: null }],
+    };
+    const widget = scatterWidget({ scatterColorField: 'region' });
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { metrics: scatterSourceWithNullRegion },
+      filters: [],
+    });
+    function wrapper({ children }: { children?: React.ReactNode }) {
+      return (
+        <StudioUIConfigContext.Provider
+          value={{
+            tableSourceMode: 'explicit',
+            featureFlags: {},
+            localeText: { ...DEFAULT_STUDIO_LOCALE_TEXT, chartEmptyCategoryLabel: '(vide)' },
+          }}
+        >
+          {children}
+        </StudioUIConfigContext.Provider>
+      );
+    }
+    const { result } = renderHook(
+      () => useChartWidgetData(widget, scatterSourceWithNullRegion, 'page-1'),
+      { wrapper },
+    );
+
+    const seriesIds = result.current.scatterSeries!.map((s) => s.id);
+    expect(seriesIds).toContain('(vide)');
+    expect(seriesIds).not.toContain('(blank)');
   });
 
   it('ghost scatter data (allScatterData/allScatterSeries) is null without an active cross-filter', () => {

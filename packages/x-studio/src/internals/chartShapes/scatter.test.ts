@@ -4,6 +4,7 @@ import {
   prepareScatterData,
   prepareScatterDataGrouped,
 } from './scatter';
+import { frLocaleText } from '../../locales/fr';
 
 describe('prepareScatterData', () => {
   it('maps rows to x/y points with a stable index id', () => {
@@ -26,6 +27,37 @@ describe('prepareScatterDataGrouped', () => {
     ];
     const result = prepareScatterDataGrouped(rows, 'x', 'y', 'cat', ['a', 'b']);
     expect(result.map((s) => s.id)).toEqual(['a']);
+  });
+
+  // Regression for finding 4: the null/blank colorField bucket used to hardcode the English
+  // '(blank)' literal, bypassing the configurable `chartEmptyCategoryLabel` every other chart
+  // type's empty-category bucket already honours (see `chartValues.ts`'s `emptyBucketLabel`,
+  // threaded through `toXValue`/`isEmptyXValue`).
+  it('defaults the empty/null colorField bucket to the English "(empty)" label, not "(blank)"', () => {
+    const rows = [
+      { x: 1, y: 2, cat: null },
+      { x: 3, y: 4, cat: '' },
+    ];
+    const result = prepareScatterDataGrouped(rows, 'x', 'y', 'cat', ['(empty)']);
+    expect(result.map((s) => s.id)).toEqual(['(empty)']);
+    expect(result[0].data).toHaveLength(2);
+  });
+
+  it('routes the empty colorField bucket through localeText when supplied (finding 4)', () => {
+    const emptyLabel = frLocaleText.chartEmptyCategoryLabel!;
+    const rows = [{ x: 1, y: 2, cat: null }];
+    const result = prepareScatterDataGrouped(
+      rows,
+      'x',
+      'y',
+      'cat',
+      [emptyLabel],
+      undefined,
+      frLocaleText,
+    );
+    expect(result.map((s) => s.id)).toEqual([emptyLabel]);
+    // Never falls back to the old hardcoded English literal when a locale is supplied.
+    expect(result.map((s) => s.id)).not.toContain('(blank)');
   });
 });
 

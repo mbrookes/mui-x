@@ -284,6 +284,46 @@ function accumulateCell<K>(map: Map<K, CellAcc>, key: K, value: number): void {
  */
 const finalizeCell = finalizeAccumulator;
 
+/**
+ * Pre-detect whether `yField` on `rows` should be aggregated as configured
+ * (`yAggregation`) or downgraded to `'count'` because the field is entirely
+ * non-numeric (e.g. a string ID) on this row set. Treats the field as numeric if
+ * ANY non-null value coerces to a number — not just the first (a leading
+ * "N/A"/"—" sentinel ahead of real numbers must not downgrade a configured
+ * sum/avg to a row count). Reuses `coerceAggregateValue` so this agrees with the
+ * accumulation loop in `aggregateByField`.
+ *
+ * Exported so callers that pair a FILTERED aggregation with a BASELINE (ghost)
+ * aggregation of the same field/rows-minus-filter can detect the aggregation
+ * type ONCE — typically from the baseline, which has the fuller picture — and
+ * pass the SAME type to both `aggregateByField` calls via its `forcedAggregation`
+ * parameter. Detecting independently per-subset let the ghost tooltip compare a
+ * `'count'` (filtered subset that happened to be empty/all-non-numeric) against a
+ * `'sum'` (baseline with real numeric values) (finding 3).
+ */
+export function detectAggregationType(
+  rows: Row[],
+  yField: string,
+  yAggregation: 'sum' | 'count' | 'avg' | 'min' | 'max' = 'sum',
+): 'sum' | 'count' | 'avg' | 'min' | 'max' {
+  if (yAggregation === 'count') {
+    return 'count';
+  }
+  let sawNonNull = false;
+  let sawNumeric = false;
+  for (const row of rows) {
+    const v = row[yField];
+    if (v !== null && v !== undefined) {
+      sawNonNull = true;
+      if (coerceAggregateValue(v) !== null) {
+        sawNumeric = true;
+        break;
+      }
+    }
+  }
+  return sawNonNull && !sawNumeric ? 'count' : yAggregation;
+}
+
 export function aggregateByField(
   rows: Row[],
   xField: string,
@@ -299,37 +339,22 @@ export function aggregateByField(
    * non-English locale doesn't fall back to the English `'(empty)'` literal (T3.2).
    */
   localeText?: Partial<StudioLocaleText>,
+  /**
+   * When supplied, used verbatim as the effective aggregation instead of
+   * re-running `detectAggregationType` against `rows`. Pass this — computed once
+   * from the baseline row set — from a caller that also aggregates a FILTERED
+   * subset of the same rows/field, so a ghost (baseline-vs-filtered) comparison
+   * never mismatches sum vs. count between the two (finding 3).
+   */
+  forcedAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max',
 ): AggregatedData {
   // Row counts per x-value (drive the 'count' aggregation and define the label set).
   const counts = new Map<string | number, number>();
   // Per-x-value streaming accumulators for sum/avg/min/max (shared null-skip policy).
   const accumulators = new Map<string | number, CellAcc>();
 
-  // Pre-detect: if the yField is non-numeric (e.g. a string ID), fall back to
-  // count so callers that omit yAggregation don't get NaN in the chart. Treat the
-  // field as numeric if ANY non-null value coerces to a number — not just the first
-  // (a leading "N/A"/"—" sentinel ahead of real numbers must not downgrade a
-  // configured sum/avg to a row count). Reuse the row loop's `coerceAggregateValue`
-  // so the pre-detect and accumulation agree; only fall back to count when the field
-  // has non-null values but none of them are numeric.
-  let effectiveAggregation = yAggregation;
-  if (effectiveAggregation !== 'count') {
-    let sawNonNull = false;
-    let sawNumeric = false;
-    for (const row of rows) {
-      const v = row[yField];
-      if (v !== null && v !== undefined) {
-        sawNonNull = true;
-        if (coerceAggregateValue(v) !== null) {
-          sawNumeric = true;
-          break;
-        }
-      }
-    }
-    if (sawNonNull && !sawNumeric) {
-      effectiveAggregation = 'count';
-    }
-  }
+  const effectiveAggregation =
+    forcedAggregation ?? detectAggregationType(rows, yField, yAggregation);
 
   for (const row of rows) {
     if (isEmptyXValue(row[xField], localeText)) {

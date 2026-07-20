@@ -454,7 +454,13 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
         // Regular click: single-select toggle
         let isSingleActive: boolean;
         if (activeCrossFilter?.operator === 'in') {
+          // Field equality must be checked here too (mirroring the 'equals' branch
+          // below) — otherwise a single-value 'in' cross-filter scoped to a
+          // different field but coincidentally holding the same value would be
+          // treated as "active" for this axis and get toggled/merged incorrectly
+          // (finding 1).
           isSingleActive =
+            activeCrossFilter.field === config.xField &&
             (activeCrossFilter.value as unknown[]).length === 1 &&
             crossFilterValueEquals((activeCrossFilter.value as unknown[])[0], filterValue);
         } else {

@@ -467,6 +467,46 @@ describe('StudioBarChart', () => {
       expect(lastBarProps().slots?.bar).toBeUndefined();
     });
 
+    // Regression for finding 2: a cross-filter that empties EVERY row for every split-by
+    // category makes `seriesFieldData` empty (seriesNames: []) while `allSeriesFieldData` (the
+    // baseline) stays fully populated. Gating branch entry on `seriesFieldData` alone used to
+    // fall through to the single-series prelude below, collapsing the per-series structure
+    // (colors, legend, individual series identity) into one unsplit "ghost" bar — instead the
+    // chart must keep rendering every baseline series, each fully filtered-out/dimmed.
+    it('preserves the split-by structure (all baseline series, fully dimmed) when the cross-filter empties every series', () => {
+      const seriesFieldData = { labels: [], seriesNames: [], seriesData: {} };
+      const allSeriesFieldData = {
+        labels: ['Q1', 'Q2'],
+        seriesNames: ['North', 'South'],
+        seriesData: { North: [1, 2], South: [3, 4] },
+      };
+      const colorByName: Record<string, string> = { North: '#aaaaaa', South: '#bbbbbb' };
+      renderChart(
+        baseProps({
+          chartType: 'bar',
+          chartData: null,
+          seriesFieldData,
+          allSeriesFieldData,
+          shouldShowGhost: true,
+          preserveSplitByBaseline: true,
+          getSeriesColor: (name) => colorByName[String(name)],
+        }),
+      );
+      const props = lastBarProps();
+      // Both baseline series still render (not collapsed to a single unsplit series).
+      expect(props.series.map((s) => s.id)).toEqual(['North', 'South']);
+      expect(props.series[0].color).toBe('#aaaaaa');
+      expect(props.series[1].color).toBe('#bbbbbb');
+      expect(props.xAxis[0].data).toEqual(['Q1', 'Q2']);
+      expect(props.slots?.bar).toBe(CrossFilterGhostBar);
+      // Every category, for every series, is "filtered out" (null) — no foreground bar renders,
+      // only the dimmed baseline ghost — while the baseline values are preserved per series.
+      expect(capturedBarCtx!.filteredValuesBySeriesId.North).toEqual([null, null]);
+      expect(capturedBarCtx!.filteredValuesBySeriesId.South).toEqual([null, null]);
+      expect(capturedBarCtx!.allValuesBySeriesId.North).toEqual([1, 2]);
+      expect(capturedBarCtx!.allValuesBySeriesId.South).toEqual([3, 4]);
+    });
+
     it('suppresses the hover highlight under active / incoming cross-filters', () => {
       const seriesFieldData = {
         labels: ['Q1', 'Q2'],

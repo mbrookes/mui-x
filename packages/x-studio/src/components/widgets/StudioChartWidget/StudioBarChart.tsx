@@ -460,15 +460,24 @@ export function StudioBarChart({
   }
 
   // ── seriesField stacked/grouped bar chart: one series per unique category value ──
-  if (barSeriesFieldData && barSeriesFieldData.seriesNames.length > 0) {
-    // When ghost-rendering, use all-data as basis so ghost bars show full extent.
-    // Exception: if the incoming cross-filter constrains the same foreign source that
-    // owns the split-by field, the baseline series set is misleading and should collapse
-    // to the filtered series only.
-    const effectiveSFData =
-      shouldShowGhost && allBarSeriesFieldData && preserveSplitByBaseline
-        ? allBarSeriesFieldData
-        : barSeriesFieldData;
+  // When ghost-rendering, use all-data as basis so ghost bars show full extent.
+  // Exception: if the incoming cross-filter constrains the same foreign source that
+  // owns the split-by field, the baseline series set is misleading and should collapse
+  // to the filtered series only.
+  //
+  // Computed BEFORE the entry guard (rather than only once already inside it) so the guard
+  // itself can key off `effectiveSFData` instead of `barSeriesFieldData` alone. A cross-filter
+  // that empties every row for this widget makes `barSeriesFieldData.seriesNames` empty even
+  // though the split-by field still has categories in the baseline — gating entry on
+  // `barSeriesFieldData` alone used to fall through to the single-series prelude below,
+  // silently collapsing the chart's per-series structure (colors, legend, individual series
+  // identity) into one unsplit "ghost" bar instead of rendering every baseline series fully
+  // filtered-out/dimmed (finding 2).
+  const effectiveSFData =
+    shouldShowGhost && allBarSeriesFieldData && preserveSplitByBaseline
+      ? allBarSeriesFieldData
+      : barSeriesFieldData;
+  if (effectiveSFData && effectiveSFData.seriesNames.length > 0) {
     const xAxisData = effectiveSFData.labels;
     const yFieldDef = resolveFieldDef(activeYFields[0], dataSource, expressionFields);
     const isStacked = isBarStacked(chartType, barLayout);
@@ -481,16 +490,19 @@ export function StudioBarChart({
         )
       : null;
 
-    // Build per-series filtered values for ghost context
+    // Build per-series filtered values for ghost context. `barSeriesFieldData` can be null here
+    // (the cross-filter emptied every row), in which case every series is entirely filtered out —
+    // `buildGhostBarContext` already renders that as an all-null filtered column per series when
+    // given `filteredValues: null`.
     const sfBarContext =
       shouldShowGhost && allBarSeriesFieldData && preserveSplitByBaseline
         ? buildGhostBarContext(
             allBarSeriesFieldData.labels,
-            barSeriesFieldData.labels,
+            barSeriesFieldData?.labels ?? [],
             allBarSeriesFieldData.seriesNames.map((name) => ({
               seriesId: String(name),
               allValues: allBarSeriesFieldData.seriesData[name] ?? [],
-              filteredValues: barSeriesFieldData.seriesData[name] ?? null,
+              filteredValues: barSeriesFieldData?.seriesData[name] ?? null,
             })),
           )
         : null;

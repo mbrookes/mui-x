@@ -26,8 +26,12 @@ export function applyXGroupBy(
  * The bucket label used for a null/undefined x-axis value. Falls back to the
  * English default when `localeText` (or the key) isn't supplied, so existing
  * callers that don't thread a locale through keep their current behavior.
+ *
+ * Exported so other chart-type-specific prep (e.g. `chartShapes/scatter.ts`'s
+ * color-by-field empty bucket) can reuse the same configurable label instead of
+ * hardcoding an English literal (finding 4).
  */
-function emptyBucketLabel(localeText?: Partial<StudioLocaleText>): string {
+export function emptyBucketLabel(localeText?: Partial<StudioLocaleText>): string {
   return localeText?.chartEmptyCategoryLabel ?? DEFAULT_STUDIO_LOCALE_TEXT.chartEmptyCategoryLabel;
 }
 

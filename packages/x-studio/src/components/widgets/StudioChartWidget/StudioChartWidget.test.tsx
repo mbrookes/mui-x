@@ -1059,6 +1059,75 @@ describe('<StudioChartWidget />', () => {
     expect(controller.applyCrossFilter).not.toHaveBeenCalled();
   });
 
+  // Regression for finding 1: the single-click toggle branch for an 'in'-operator active
+  // cross-filter used to skip the field-equality check the sibling 'equals' branch already had,
+  // so a single-value 'in' filter scoped to a DIFFERENT field (but coincidentally holding the
+  // SAME value as the clicked bar) was wrongly treated as "already active for this axis" and
+  // cleared instead of a new cross-filter being applied for the clicked field.
+  it("applies a new cross-filter (does not clear) when clicking a bar whose value matches an unrelated field's active in-filter", () => {
+    const dataSource: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'company', label: 'Company', type: 'string' },
+        { id: 'segment', label: 'Segment', type: 'string' },
+        { id: 'total', label: 'Total', type: 'number' },
+      ],
+      rows: [
+        { id: '1', company: 'Tech Systems', segment: 'Enterprise', total: 10 },
+        { id: '2', company: 'Retail Co', segment: 'SMB', total: 20 },
+      ],
+    };
+
+    const widget: StudioWidgetOf<'chart'> = {
+      id: 'chart-bar-in-mismatch',
+      kind: 'chart',
+      title: 'Revenue by Company',
+      sourceId: 'orders',
+      config: {
+        chartType: 'bar',
+        xField: 'company',
+        yField: 'total',
+      },
+    };
+
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: { orders: dataSource },
+      // This widget's own active cross-filter is a single-value 'in' filter on a DIFFERENT
+      // field ('segment'), whose value happens to equal the 'company' bar being clicked below.
+      filters: [
+        {
+          id: 'cf-bar-in-other-field',
+          field: 'segment',
+          operator: 'in',
+          value: ['Tech Systems'],
+          scope: { kind: 'cross-filter', sourceWidgetId: widget.id, pageId: 'page-1' },
+        },
+      ],
+    });
+
+    renderChart(widget, dataSource);
+
+    const props = barChartSpy.mock.calls.at(-1)?.[0] as {
+      onAxisClick?: (event: unknown, params: { axisValue?: string | number | Date }) => void;
+    };
+
+    act(() => {
+      props.onAxisClick?.(null, { axisValue: 'Tech Systems' });
+    });
+
+    // Must apply a fresh cross-filter on 'company' — not clear the unrelated 'segment' filter as
+    // if it were already active for this click.
+    expect(controller.applyCrossFilter).toHaveBeenCalledWith(
+      widget.id,
+      'company',
+      'Tech Systems',
+      'orders',
+    );
+    expect(controller.clearCrossFilter).not.toHaveBeenCalled();
+  });
+
   it('highlights the selected point when a single-series line chart has an active cross-filter', () => {
     const dataSource: StudioDataSource = {
       id: 'orders',

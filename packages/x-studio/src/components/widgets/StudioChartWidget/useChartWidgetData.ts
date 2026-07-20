@@ -15,6 +15,7 @@ import {
   aggregateByTwoFields,
   aggregateMultipleSeries,
   analyzeChartSupport,
+  detectAggregationType,
   prepareScatterData,
   prepareScatterDataGrouped,
   type BlendedSeriesInput,
@@ -31,6 +32,7 @@ import {
   selectGlobalCrossFilterMode,
 } from '../../../context';
 import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
+import { emptyBucketLabel } from '../../../internals/chartValues';
 import { usePageChartColors } from '../../../internals/usePageChartColors';
 import { cachedCompute } from '../../../internals/computedCache';
 import { useWidgetRows } from '../../../internals/useWidgetRows';
@@ -358,6 +360,22 @@ export function useChartWidgetData(
   const isFieldlessCount = activeYFields.length === 0 && singleSeriesYAggregation === 'count';
   const categoryYField = activeYFields[0] ?? '';
 
+  // When a ghost (baseline-vs-filtered) comparison is active, `chartData` (filtered,
+  // below) and `allChartData` (baseline) must agree on whether `categoryYField` is
+  // summed/averaged or counted. Each `aggregateByField` call used to pre-detect this
+  // independently from its OWN row set, so a filtered subset that happened to be
+  // empty or entirely non-numeric silently downgraded to 'count' while the baseline
+  // (with real numeric values) stayed 'sum' (or vice-versa) — the ghost tooltip then
+  // compared incompatible quantities (finding 3). Detect it ONCE here, from the
+  // baseline (`allEnrichedRows`, which has the fuller picture), and force both calls
+  // below to use this same value.
+  const singleSeriesEffectiveAggregation = React.useMemo(() => {
+    if (!shouldShowGhost || !categoryYField) {
+      return undefined;
+    }
+    return detectAggregationType(allEnrichedRows, categoryYField, singleSeriesYAggregation);
+  }, [shouldShowGhost, allEnrichedRows, categoryYField, singleSeriesYAggregation]);
+
   // Blended multi-Y data: each series aggregated in its own source, aligned on xField.
   const blendedMultiYData = React.useMemo(() => {
     const xField = config.xField;
@@ -584,7 +602,7 @@ export function useChartWidgetData(
     const rkKey = JSON.stringify(filteredRankFilter);
     return cachedCompute(
       enrichedRows,
-      `cd:${xField}:${categoryYField}:${xGroupBy ?? ''}:${singleSeriesYAggregation ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}:${localeText.chartEmptyCategoryLabel}`,
+      `cd:${xField}:${categoryYField}:${xGroupBy ?? ''}:${singleSeriesYAggregation ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}:${localeText.chartEmptyCategoryLabel}:${singleSeriesEffectiveAggregation ?? ''}`,
       () => {
         const raw = aggregateByField(
           enrichedRows,
@@ -596,6 +614,7 @@ export function useChartWidgetData(
           chartSortDirection,
           xFieldOrderedValues,
           localeText,
+          singleSeriesEffectiveAggregation,
         );
         return applyRankToAggregated(raw, filteredRankFilter, rankByFieldData);
       },
@@ -615,6 +634,7 @@ export function useChartWidgetData(
     chartSortDirection,
     xFieldOrderedValues,
     localeText,
+    singleSeriesEffectiveAggregation,
   ]);
 
   // Multi-Y-field data (multiple explicit series)
@@ -680,7 +700,7 @@ export function useChartWidgetData(
     const rkKey = JSON.stringify(widgetRankFilter);
     return cachedCompute(
       allEnrichedRows,
-      `acd:${xField}:${categoryYField}:${xGroupBy ?? ''}:${singleSeriesYAggregation ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}:${localeText.chartEmptyCategoryLabel}`,
+      `acd:${xField}:${categoryYField}:${xGroupBy ?? ''}:${singleSeriesYAggregation ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}:${localeText.chartEmptyCategoryLabel}:${singleSeriesEffectiveAggregation ?? ''}`,
       () => {
         const raw = aggregateByField(
           allEnrichedRows,
@@ -692,6 +712,7 @@ export function useChartWidgetData(
           chartSortDirection,
           xFieldOrderedValues,
           localeText,
+          singleSeriesEffectiveAggregation,
         );
         return applyRankToAggregated(raw, widgetRankFilter, allRankByFieldData);
       },
@@ -707,6 +728,7 @@ export function useChartWidgetData(
     widgetRankFilter,
     allRankByFieldData,
     xGroupBy,
+    singleSeriesEffectiveAggregation,
     singleSeriesYAggregation,
     chartSortBy,
     chartSortDirection,
@@ -831,7 +853,10 @@ export function useChartWidgetData(
     );
   }, [enrichedRows, config.xField, scatterYField, config.scatterSizeField]);
 
-  // Stable category order for scatter color-by field (from unfiltered rows)
+  // Stable category order for scatter color-by field (from unfiltered rows).
+  // Empty/null values bucket under the configurable `chartEmptyCategoryLabel` (via
+  // `emptyBucketLabel`) rather than a hardcoded English `'(blank)'` literal, matching
+  // every other chart type's empty-category handling (finding 4).
   const scatterColorCategories = React.useMemo(() => {
     const colorField = config.scatterColorField;
     if (!colorField) {
@@ -841,14 +866,14 @@ export function useChartWidgetData(
     const cats: string[] = [];
     for (const row of allEnrichedRows) {
       const raw = row[colorField];
-      const cat = raw == null || raw === '' ? '(blank)' : String(raw);
+      const cat = raw == null || raw === '' ? emptyBucketLabel(localeText) : String(raw);
       if (!seen.has(cat)) {
         seen.add(cat);
         cats.push(cat);
       }
     }
     return cats.sort();
-  }, [allEnrichedRows, config.scatterColorField]);
+  }, [allEnrichedRows, config.scatterColorField, localeText]);
 
   // Multiple scatter series, one per color category
   const scatterSeries: ScatterSeriesData[] | null = React.useMemo(() => {
@@ -863,7 +888,7 @@ export function useChartWidgetData(
 
     return cachedCompute(
       enrichedRows,
-      `scatc:${xField}:${yField}:${colorField}:${scatterColorCategories.join(',')}:${sizeField ?? ''}`,
+      `scatc:${xField}:${yField}:${colorField}:${scatterColorCategories.join(',')}:${sizeField ?? ''}:${localeText.chartEmptyCategoryLabel}`,
       () =>
         prepareScatterDataGrouped(
           enrichedRows,
@@ -872,6 +897,7 @@ export function useChartWidgetData(
           colorField,
           scatterColorCategories,
           sizeField,
+          localeText,
         ),
     );
   }, [
@@ -881,6 +907,7 @@ export function useChartWidgetData(
     config.scatterColorField,
     config.scatterSizeField,
     scatterColorCategories,
+    localeText,
   ]);
 
   // Ghost scatter data (all rows, pre-cross-filter) for cross-highlight mode
@@ -911,7 +938,7 @@ export function useChartWidgetData(
     }
     return cachedCompute(
       allEnrichedRows,
-      `scatc-all:${xField}:${yField}:${config.scatterColorField}:${scatterColorCategories.join(',')}:${sizeField ?? ''}`,
+      `scatc-all:${xField}:${yField}:${config.scatterColorField}:${scatterColorCategories.join(',')}:${sizeField ?? ''}:${localeText.chartEmptyCategoryLabel}`,
       () =>
         prepareScatterDataGrouped(
           allEnrichedRows,
@@ -920,6 +947,7 @@ export function useChartWidgetData(
           config.scatterColorField!,
           scatterColorCategories,
           sizeField,
+          localeText,
         ),
     );
   }, [
@@ -930,6 +958,7 @@ export function useChartWidgetData(
     config.scatterColorField,
     config.scatterSizeField,
     scatterColorCategories,
+    localeText,
   ]);
 
   return {

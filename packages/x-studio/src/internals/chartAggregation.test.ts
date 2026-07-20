@@ -14,6 +14,7 @@ import {
   applyRankToAggregated,
   applyRankToMultiSeries,
   applyRankToSeriesFieldData,
+  detectAggregationType,
   getChartSupportMessage,
   prepareScatterData,
   resolveChartRowsForAggregation,
@@ -451,6 +452,92 @@ describe('aggregateByField numeric-string measures (finding 1.6)', () => {
     const result = aggregateByField(sentinelRows, 'cat', 'amount', undefined, 'sum');
     // sum(10, 20) = 30 — NOT a row count of 3.
     expect(result.values[idx(result, 'A')]).toBe(30);
+  });
+});
+
+describe('detectAggregationType / aggregateByField forcedAggregation (finding 3)', () => {
+  // Regression for finding 3: the ghost (baseline-vs-filtered) tooltip used to let
+  // `aggregateByField` independently pre-detect sum-vs-count per row set. A filtered subset
+  // that happened to be empty or entirely non-numeric downgraded to 'count' while the baseline
+  // (with real numeric values) stayed 'sum', so the two were no longer comparable quantities.
+  // The fix: `detectAggregationType` lets a caller detect the type ONCE (from the baseline) and
+  // `aggregateByField`'s `forcedAggregation` param applies that same type to both computations.
+
+  it('detects count when the field is entirely non-numeric', () => {
+    const rows = [{ cat: 'A', amount: 'foo' }];
+    expect(detectAggregationType(rows, 'amount', 'sum')).toBe('count');
+  });
+
+  it('detects sum (the configured aggregation) when the field has any numeric value', () => {
+    const rows = [{ cat: 'A', amount: 10 }];
+    expect(detectAggregationType(rows, 'amount', 'sum')).toBe('sum');
+  });
+
+  it('detects sum for an EMPTY row set (nothing non-numeric was observed)', () => {
+    expect(detectAggregationType([], 'amount', 'sum')).toBe('sum');
+  });
+
+  it('always returns count when the configured aggregation is count', () => {
+    const rows = [{ cat: 'A', amount: 10 }];
+    expect(detectAggregationType(rows, 'amount', 'count')).toBe('count');
+  });
+
+  it('aggregateByField uses its own row set to detect the type when forcedAggregation is omitted', () => {
+    // Filtered subset is empty → self-detects as 'sum' (no non-numeric values observed), so an
+    // empty filtered subset renders as a 0 sum, not a 0 count — matches detectAggregationType's
+    // "empty row set" behavior above.
+    const filteredRows: { cat: string; amount: unknown }[] = [];
+    const filtered = aggregateByField(filteredRows, 'cat', 'amount', undefined, 'sum');
+    expect(filtered).toEqual({ labels: [], values: [] });
+  });
+
+  it('forcedAggregation makes a filtered (empty/non-numeric) subset agree with the baseline instead of independently downgrading to count', () => {
+    const baselineRows = [
+      { cat: 'A', amount: 10 },
+      { cat: 'B', amount: 20 },
+    ];
+    // The filtered subset for this same field happens to be entirely non-numeric (a leftover
+    // sentinel with no real numeric values) — in isolation this would self-detect as 'count'.
+    const filteredRows = [{ cat: 'A', amount: 'N/A' }];
+
+    const baselineType = detectAggregationType(baselineRows, 'amount', 'sum');
+    expect(baselineType).toBe('sum');
+
+    // Without forcing, the filtered subset disagrees with the baseline (finding 3's bug).
+    const filteredSelfDetected = aggregateByField(filteredRows, 'cat', 'amount', undefined, 'sum');
+    expect(filteredSelfDetected.values[filteredSelfDetected.labels.indexOf('A')]).toBe(1); // counted
+
+    // Forcing the baseline-detected type onto the filtered computation keeps both comparable:
+    // the filtered 'A' sums its (zero) numeric contribution instead of counting rows.
+    const filteredForced = aggregateByField(
+      filteredRows,
+      'cat',
+      'amount',
+      undefined,
+      'sum',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      baselineType,
+    );
+    expect(filteredForced.values[filteredForced.labels.indexOf('A')]).toBe(0); // summed (0, no numeric values)
+
+    const baseline = aggregateByField(
+      baselineRows,
+      'cat',
+      'amount',
+      undefined,
+      'sum',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      baselineType,
+    );
+    expect(baseline.values[baseline.labels.indexOf('A')]).toBe(10);
+    // Both are now 'sum' quantities — directly comparable (10 filtered-out of a baseline 10),
+    // instead of one being a row count and the other a sum.
   });
 });
 

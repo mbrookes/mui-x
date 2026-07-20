@@ -26,7 +26,12 @@ function applyParentFilters(
 ): Row[] {
   let result = rows;
   for (const f of parentFilters) {
-    if (!f.field || !ds.fields.some((sf) => sf.id === f.field)) {
+    // `f.disabled`: a disabled parent (toggled off in the drawer, not deleted) must be a no-op
+    // everywhere, including as a cascading dependency — defense-in-depth alongside
+    // `PageFilterRow`'s `isFilterEffective` pre-filter of `parentFilters`, since a disabled
+    // filter still has a "meaningful" stored value and would otherwise keep narrowing a
+    // cascading child's option list as if it were active.
+    if (f.disabled || !f.field || !ds.fields.some((sf) => sf.id === f.field)) {
       continue;
     }
     const mode = f.filterMode ?? 'condition';

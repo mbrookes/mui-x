@@ -70,4 +70,14 @@ describe('useFieldValues — cascading option narrowing (finding 2.8)', () => {
     const { result } = setup([makeParentFilter({ field: 'region', value: ['EMEA'] })]);
     expect(result.current).toEqual(['Consumer', 'Corporate', 'Home Office']);
   });
+
+  // Regression for architecture-review finding: a DISABLED parent filter (toggled off in the
+  // drawer, not deleted) still carried a "meaningful" stored value, so it kept narrowing the
+  // cascading child's option list as if it were still active. Disabling a filter must make it a
+  // no-op everywhere, including as a cascading dependency — the child's options should reflect
+  // the full unfiltered set of possible values, matching the "without any parent filters" case.
+  it('a disabled parent filter does not narrow the cascading child options (disabled cascade)', () => {
+    const { result } = setup([makeParentFilter({ value: ['US'], disabled: true })]);
+    expect(result.current).toEqual(['Consumer', 'Corporate', 'Home Office']);
+  });
 });

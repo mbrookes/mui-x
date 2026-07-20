@@ -5,6 +5,7 @@ import {
   buildModeReset,
   defaultValueForMode,
   getOperators,
+  isFilterEffective,
   isRelativeDateValue,
   relativeToAbsolute,
   summarizeFilter,
@@ -62,6 +63,45 @@ describe('getOperators', () => {
   it('falls back to string operators for unknown type', () => {
     const ops = getOperators('unknown' as any);
     expect(ops.some((o) => o.value === 'contains')).toBe(true);
+  });
+});
+
+// ─── isFilterEffective ────────────────────────────────────────────────────────
+// Regression coverage for architecture-review finding: a `disabled: true` filter still had a
+// "meaningful" stored value, so `isFilterEffective` returned `true` for it — a cascading CHILD
+// filter's option list (`PageFilterRow`'s `parentFilters`) kept being narrowed by a DISABLED
+// parent's value as if it were still active. Disabling a filter must make it a no-op everywhere,
+// including as a cascading dependency.
+
+describe('isFilterEffective', () => {
+  it('a condition filter with a value is effective', () => {
+    expect(isFilterEffective(makeFilter({ operator: 'equals', value: 'foo' }))).toBe(true);
+  });
+
+  it('a selection filter with selected values is effective', () => {
+    expect(isFilterEffective(makeFilter({ filterMode: 'selection', value: ['A'] }))).toBe(true);
+  });
+
+  it('a rank filter with a positive value is effective', () => {
+    expect(isFilterEffective(makeFilter({ filterMode: 'rank', value: 10 }))).toBe(true);
+  });
+
+  it('a disabled condition filter with a value is NOT effective', () => {
+    expect(
+      isFilterEffective(makeFilter({ operator: 'equals', value: 'foo', disabled: true })),
+    ).toBe(false);
+  });
+
+  it('a disabled selection filter with selected values is NOT effective', () => {
+    expect(
+      isFilterEffective(makeFilter({ filterMode: 'selection', value: ['A', 'B'], disabled: true })),
+    ).toBe(false);
+  });
+
+  it('a disabled rank filter with a positive value is NOT effective', () => {
+    expect(isFilterEffective(makeFilter({ filterMode: 'rank', value: 10, disabled: true }))).toBe(
+      false,
+    );
   });
 });
 

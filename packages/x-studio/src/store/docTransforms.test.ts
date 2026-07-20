@@ -391,6 +391,43 @@ describe('docTransforms preset family', () => {
     expect(applied!.scope).toEqual({ kind: 'page', pageId: 'page-1' });
   });
 
+  // Regression for architecture-review finding: a legacy pageId-less page filter
+  // (`scope: { kind: 'page' }`, no `pageId` — predates the per-page scope model and applies to
+  // EVERY page, per `selectFiltersForWidget`'s `!sv2.pageId` branch) used to be silently
+  // DELETED from the doc entirely whenever a preset was applied to ANY page, because it
+  // satisfied neither "not a page filter" nor "page filter for a specific OTHER page". Applying
+  // a preset to one page must never wipe an all-pages filter's effect on the rest of the
+  // dashboard.
+  it('applyFilterPreset preserves a legacy pageId-less "all pages" filter\'s effect on OTHER pages', () => {
+    const preset: StudioFilterPreset = {
+      id: 'preset-1',
+      name: 'p',
+      filters: [pageFilter('preset-1-a')],
+    };
+    const legacyAllPagesFilter = pageFilter('legacy-all-pages'); // no pageId -> applies everywhere
+    const doc = makeDoc({
+      filters: [legacyAllPagesFilter, pageFilter('other', 'page-2')],
+      filterPresets: [preset],
+    });
+    // `makeDoc`'s default `dashboard.activePageId` is 'page-1'.
+    const next = docTransforms.applyFilterPreset(doc, 'preset-1');
+
+    // The legacy all-pages filter survives untouched — its effect on page-2 (and every other
+    // page) must not be wiped out just because the preset was applied on page-1.
+    const survivingLegacy = next.filters.find((f) => f.id === 'legacy-all-pages');
+    expect(survivingLegacy).toBeTruthy();
+    expect(survivingLegacy!.scope).toEqual({ kind: 'page' });
+
+    // page-2's own filter is untouched too.
+    expect(next.filters.find((f) => f.id === 'other')).toBeTruthy();
+
+    // The active page (page-1) has the preset's filter applied as usual.
+    const applied = next.filters.find(
+      (f) => f.scope.kind === 'page' && f.scope.pageId === 'page-1',
+    );
+    expect(applied).toBeTruthy();
+  });
+
   it('applyFilterPreset mints distinct ids per page so the two copies stay independent (1.7)', () => {
     // Repro for finding 1.7: applying the same preset to two different pages must NOT
     // produce two `doc.filters` entries sharing an id — otherwise the controller's

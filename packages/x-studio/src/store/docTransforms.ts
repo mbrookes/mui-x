@@ -369,14 +369,23 @@ export function applyFilterPreset(doc: StudioDoc, presetId: string): StudioDoc {
   for (const f of preset.filters) {
     idMap.set(f.id, createFilterId());
   }
-  // Filters that survive the apply: all non-page filters, and page filters for OTHER pages. This
-  // RETAINS the active page's widget-scoped filters (they carry no `pageId`, so they aren't
-  // page-scoped), which is exactly why the rank guard below is needed — a widget-scoped rank
-  // filter on the active page stays in the doc and must be weighed against the preset's own rank
-  // filter for conflicts.
+  // Filters that survive the apply: all non-page filters, page filters for OTHER pages, and
+  // legacy pageId-less page filters (`scope: { kind: 'page' }` with no `pageId`, predating the
+  // per-page scope model — `selectFiltersForWidget`'s `!sv2.pageId` branch treats these as
+  // applying to EVERY page). This RETAINS the active page's widget-scoped filters (they carry
+  // no `pageId`, so they aren't page-scoped), which is exactly why the rank guard below is
+  // needed — a widget-scoped rank filter on the active page stays in the doc and must be
+  // weighed against the preset's own rank filter for conflicts.
+  //
+  // Regression note: this used to only retain page filters whose `pageId` was BOTH set and
+  // different from `activePageId` — a legacy all-pages filter (`pageId` unset) satisfied
+  // neither disjunct and was silently deleted from the doc entirely, wiping its effect from
+  // every OTHER page too, not just the one the preset was applied to. Applying a preset to one
+  // page must never touch an all-pages filter's effect on the rest of the dashboard, so a
+  // pageId-less filter is now always retained regardless of which page is active.
   const retained = doc.filters.filter(
     (f: StudioFilterState) =>
-      f.scope.kind !== 'page' || (f.scope.pageId != null && f.scope.pageId !== activePageId),
+      f.scope.kind !== 'page' || f.scope.pageId == null || f.scope.pageId !== activePageId,
   );
   // Apply preset filters scoped to the current page, each with a fresh unique id and `dependsOn`
   // rewritten through the same id map (dangling refs dropped).

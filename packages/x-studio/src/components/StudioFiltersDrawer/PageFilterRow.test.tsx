@@ -245,4 +245,90 @@ describe('PageFilterRow', () => {
     expect(within(listbox).getByText('Amount')).not.toBeNull();
     expect(within(listbox).queryByText('Country')).toBeNull();
   });
+
+  // Regression for architecture-review finding: a DISABLED parent filter (toggled off in the
+  // drawer, not deleted) still had a "meaningful" stored value, so `parentFilters` (computed
+  // from `allPageFilters` via `isFilterEffective`) kept including it — the cascading CHILD's
+  // option list was narrowed by the disabled parent's value as if it were still active. Since
+  // the parent is disabled it must have no effect on anything, including cascading children —
+  // the child's rendered option list should reflect every distinct value, not the subset
+  // matching the disabled parent's stale selection.
+  it('a disabled parent filter does not narrow a cascading child selection filter (disabled cascade)', () => {
+    const dataSources = {
+      orders: {
+        id: 'orders',
+        label: 'Orders',
+        fields: [
+          { id: 'country', label: 'Country', type: 'string' as const },
+          { id: 'segment', label: 'Segment', type: 'string' as const },
+        ],
+        rows: [
+          { id: 'o1', country: 'US', segment: 'Consumer' },
+          { id: 'o2', country: 'US', segment: 'Corporate' },
+          { id: 'o3', country: 'DE', segment: 'Consumer' },
+          { id: 'o4', country: 'FR', segment: 'Home Office' },
+        ],
+      },
+    };
+    const cascadeFields: SimpleField[] = [
+      { id: 'country', label: 'Country', fieldType: 'string' },
+      { id: 'segment', label: 'Segment', fieldType: 'string' },
+    ];
+    const cascadeFieldOptions: FieldOption[] = [
+      {
+        id: 'country',
+        label: 'Country',
+        fieldType: 'string',
+        sourceId: 'orders',
+        sourceLabel: 'Orders',
+      },
+      {
+        id: 'segment',
+        label: 'Segment',
+        fieldType: 'string',
+        sourceId: 'orders',
+        sourceLabel: 'Orders',
+      },
+    ];
+    const parent = makeFilter({
+      id: 'parent',
+      field: 'country',
+      fieldType: 'string',
+      filterSourceId: 'orders',
+      filterMode: 'selection',
+      value: ['US'],
+      disabled: true,
+    });
+    const child = makeFilter({
+      id: 'child',
+      field: 'segment',
+      fieldType: 'string',
+      filterSourceId: 'orders',
+      filterMode: 'selection',
+      value: [],
+      dependsOn: ['parent'],
+    });
+    const { wrapper } = createStudioHarness({
+      initialState: {
+        doc: { filters: [parent, child] },
+        runtime: { dataSources },
+      },
+    });
+    render(
+      <PageFilterRow
+        filter={child}
+        fields={cascadeFields}
+        fieldOptions={cascadeFieldOptions}
+        onRemove={() => {}}
+        allPageFilters={[parent, child]}
+      />,
+      { wrapper },
+    );
+
+    // Full unfiltered segment set from every row — NOT narrowed to just the US rows' segments
+    // (which would have excluded "Home Office", the segment only present on the DE/FR rows).
+    expect(screen.getByText('Consumer')).not.toBeNull();
+    expect(screen.getByText('Corporate')).not.toBeNull();
+    expect(screen.getByText('Home Office')).not.toBeNull();
+  });
 });

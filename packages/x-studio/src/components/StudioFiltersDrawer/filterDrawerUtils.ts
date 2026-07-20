@@ -110,11 +110,22 @@ export function relativeToAbsolute(rel: RelativeDateValue): string {
 // ─── Filter effectiveness check ───────────────────────────────────────────────
 
 /**
- * Returns true when a filter has a meaningful value configured.
+ * Returns true when a filter has a meaningful value configured AND is actually applied.
  * Used to decide whether a FilterCard should start expanded (freshly added,
- * no value yet) or collapsed (pre-configured, loaded from preset or state).
+ * no value yet) or collapsed (pre-configured, loaded from preset or state), and to gate
+ * which filters can act as cascading parents for another filter's option narrowing
+ * (`PageFilterRow`'s `parentFilters`/`useFieldValues`'s `applyParentFilters`).
+ *
+ * A `disabled: true` filter (toggled off in the drawer, not deleted) is never effective,
+ * regardless of its stored value — mirrors every other data path's `!f.disabled` guard
+ * (`selectFiltersForWidget`, `useWidgetRows`, `selectors.ts`, etc.).
+ * Without this, a disabled parent filter still narrowed a cascading child's option list as
+ * if it were active, since it still had a "meaningful" stored value.
  */
 export function isFilterEffective(filter: StudioFilterState): boolean {
+  if (filter.disabled) {
+    return false;
+  }
   const mode = filter.filterMode ?? 'condition';
   if (mode === 'selection') {
     return Array.isArray(filter.value) && (filter.value as unknown[]).length > 0;

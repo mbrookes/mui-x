@@ -1403,6 +1403,127 @@ describe('createBatchingAdapter — day-granular date translation (finding T1.3)
       { column: 'createdAt', operator: 'lte', value: '2026-07-10T23:59:59.999Z' },
     ]);
   });
+
+  // Regression: `toWirePredicateValue` only resolved a TOP-LEVEL `RelativeDateValue`, so a
+  // relative bound nested inside a `between { from, to }` (a shape the drawer's
+  // `FilterValueInput` lets a user author for either bound) shipped to the server raw/unresolved
+  // instead of being converted to a concrete date first.
+  describe('relative dates nested inside a "between" bound', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('resolves a relative "from" bound nested inside a between filter', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-07-19T12:00:00.000Z'));
+      const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+      const adapter = createBatchingAdapter(uid(), {
+        fetchFn: fetchFn as unknown as typeof fetch,
+        batchDelayMs: 0,
+      });
+
+      await adapter.getRows(
+        makeDescriptor({
+          widgetId: 'w1',
+          select: ['createdAt'],
+          filter: {
+            type: 'leaf',
+            field: 'createdAt',
+            op: 'between',
+            value: {
+              from: { relative: true, amount: 7, unit: 'day', direction: 'past' },
+              to: '2026-07-19',
+            },
+            fieldType: 'datetime',
+          },
+        }),
+      );
+
+      const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+        widgets: Array<{ filters?: Array<{ column: string; operator: string; value: unknown }> }>;
+      };
+      // `from` resolves to a concrete bare date (7 days before the frozen "now"); the day-granular
+      // `to` bound still translates to "< next day" so the whole last day is included.
+      expect(body.widgets[0].filters).toEqual([
+        { column: 'createdAt', operator: 'gte', value: '2026-07-12' },
+        { column: 'createdAt', operator: 'lt', value: '2026-07-20' },
+      ]);
+    });
+
+    it('resolves a relative "to" bound nested inside a between filter', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-07-19T12:00:00.000Z'));
+      const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+      const adapter = createBatchingAdapter(uid(), {
+        fetchFn: fetchFn as unknown as typeof fetch,
+        batchDelayMs: 0,
+      });
+
+      await adapter.getRows(
+        makeDescriptor({
+          widgetId: 'w1',
+          select: ['createdAt'],
+          filter: {
+            type: 'leaf',
+            field: 'createdAt',
+            op: 'between',
+            value: {
+              from: '2026-07-01',
+              to: { relative: true, amount: 1, unit: 'day', direction: 'next' },
+            },
+            fieldType: 'datetime',
+          },
+        }),
+      );
+
+      const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+        widgets: Array<{ filters?: Array<{ column: string; operator: string; value: unknown }> }>;
+      };
+      expect(body.widgets[0].filters).toEqual([
+        { column: 'createdAt', operator: 'gte', value: '2026-07-01' },
+        // `to` resolves to a concrete bare date (1 day after the frozen "now") and, being
+        // day-granular, still translates to "< next day".
+        { column: 'createdAt', operator: 'lt', value: '2026-07-21' },
+      ]);
+    });
+
+    it('resolves relative bounds on BOTH sides of a between filter, including sub-day units', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-07-19T12:00:00.000Z'));
+      const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+      const adapter = createBatchingAdapter(uid(), {
+        fetchFn: fetchFn as unknown as typeof fetch,
+        batchDelayMs: 0,
+      });
+
+      await adapter.getRows(
+        makeDescriptor({
+          widgetId: 'w1',
+          select: ['createdAt'],
+          filter: {
+            type: 'leaf',
+            field: 'createdAt',
+            op: 'between',
+            value: {
+              from: { relative: true, amount: 2, unit: 'hour', direction: 'past' },
+              to: { relative: true, amount: 30, unit: 'minute', direction: 'next' },
+            },
+            fieldType: 'datetime',
+          },
+        }),
+      );
+
+      const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+        widgets: Array<{ filters?: Array<{ column: string; operator: string; value: unknown }> }>;
+      };
+      // Both bounds carry an explicit time-of-day once resolved, so neither is translated to a
+      // "next day" bound — they ship as plain `gte`/`lte` at full instant precision.
+      expect(body.widgets[0].filters).toEqual([
+        { column: 'createdAt', operator: 'gte', value: '2026-07-19T10:00:00.000Z' },
+        { column: 'createdAt', operator: 'lte', value: '2026-07-19T12:30:00.000Z' },
+      ]);
+    });
+  });
 });
 
 describe('createBatchingAdapter — empty-selection semantics (finding T2.3)', () => {

@@ -32,24 +32,47 @@ import type {
 import { isRelativeDateValue, resolveRelativeDate } from '../internals/filterUtils';
 
 /**
- * Resolve every `RelativeDateValue` (e.g. "7 days ago") in a filter tree to a concrete
- * `YYYY-MM-DD` string, returning a new tree (never mutating the input). A relative value is a
- * client-side concept a remote host cannot resolve, so — like `createBatchingAdapter` — the
- * simple adapter resolves them before sending. Unlike the batching adapter it does NOT translate
- * to the middleware's `FilterPredicate` wire shape: it POSTs the native `StudioQueryDescriptor`,
- * so the host is expected to understand that shape directly (finding 2.19).
+ * Resolves a single filter value to its wire form, recursively handling a `RelativeDateValue`
+ * nested inside a `between { from, to }` bound object — not just a top-level relative value.
+ *
+ * The drawer lets a user pick a relative date for EITHER bound of a `between` filter
+ * (`FilterValueInput.tsx`'s two `DateValueInput`s), so `{ from: <RelativeDateValue>, to: '2024-…' }`
+ * is a real shape reaching this function. Only resolving a top-level `RelativeDateValue` (the
+ * previous behavior) left such a nested bound raw/unresolved on the wire — a client-side-only
+ * concept ({ relative: true, amount, unit, direction }) the remote host cannot interpret.
+ */
+function resolveWireFilterValue(value: unknown): unknown {
+  if (isRelativeDateValue(value)) {
+    return resolveRelativeDate(value);
+  }
+  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+    const range = value as { from?: unknown; to?: unknown };
+    if (isRelativeDateValue(range.from) || isRelativeDateValue(range.to)) {
+      return {
+        ...range,
+        from: isRelativeDateValue(range.from) ? resolveRelativeDate(range.from) : range.from,
+        to: isRelativeDateValue(range.to) ? resolveRelativeDate(range.to) : range.to,
+      };
+    }
+  }
+  return value;
+}
+
+/**
+ * Resolve every `RelativeDateValue` (e.g. "7 days ago") in a filter tree to a concrete date/instant
+ * string, returning a new tree (never mutating the input). A relative value is a client-side
+ * concept a remote host cannot resolve, so — like `createBatchingAdapter` — the simple adapter
+ * resolves them before sending. Unlike the batching adapter it does NOT translate to the
+ * middleware's `FilterPredicate` wire shape: it POSTs the native `StudioQueryDescriptor`, so the
+ * host is expected to understand that shape directly (finding 2.19).
  */
 function resolveFilterNodeRelativeDates(node: StudioFilterNode): StudioFilterNode {
   if (node.type === 'group') {
     return { ...node, children: node.children.map(resolveFilterNodeRelativeDates) };
   }
   const resolved: StudioFilterNode = { ...node };
-  if (isRelativeDateValue(resolved.value)) {
-    resolved.value = resolveRelativeDate(resolved.value);
-  }
-  if (isRelativeDateValue(resolved.value2)) {
-    resolved.value2 = resolveRelativeDate(resolved.value2);
-  }
+  resolved.value = resolveWireFilterValue(resolved.value);
+  resolved.value2 = resolveWireFilterValue(resolved.value2);
   return resolved;
 }
 

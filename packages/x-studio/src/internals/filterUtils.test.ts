@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import dayjs from 'dayjs';
-import { applyFilters, resolveDateRangePresets } from './filterUtils';
+import { applyFilters, resolveDateRangePresets, resolveRelativeDate } from './filterUtils';
 import { computeDateRangePreset } from './dateRangeUtils';
 import type { StudioFilterState } from '../models';
 
@@ -1177,5 +1177,191 @@ describe('computeDateRangePreset — edge cases', () => {
     // June 15 — last day of June is 30
     expect(from).toBe('2024-06-01');
     expect(to).toBe('2024-06-30');
+  });
+});
+
+// ── resolveRelativeDate — sub-day units ───────────────────────────────────────
+//
+// Regression coverage: `resolveRelativeDate` used to ALWAYS truncate to `YYYY-MM-DD`
+// (`.format('YYYY-MM-DD')`) regardless of `unit`, so a filter authored as "after 1 hour ago"
+// resolved to "after start of today" — silently widening the window to include the whole
+// current day instead of the real hour-level cutoff.
+
+describe('resolveRelativeDate — sub-day units', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('resolves an hour-unit value to a full ISO instant, not a truncated day', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-06-15T10:30:00.000Z'));
+    const resolved = resolveRelativeDate({
+      relative: true,
+      amount: 1,
+      unit: 'hour',
+      direction: 'past',
+    });
+    expect(resolved).toBe('2024-06-15T09:30:00.000Z');
+  });
+
+  it('resolves a minute-unit value to a full ISO instant', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-06-15T10:30:00.000Z'));
+    const resolved = resolveRelativeDate({
+      relative: true,
+      amount: 45,
+      unit: 'minute',
+      direction: 'past',
+    });
+    expect(resolved).toBe('2024-06-15T09:45:00.000Z');
+  });
+
+  it('resolves a second-unit value to a full ISO instant', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-06-15T10:30:30.000Z'));
+    const resolved = resolveRelativeDate({
+      relative: true,
+      amount: 30,
+      unit: 'second',
+      direction: 'past',
+    });
+    expect(resolved).toBe('2024-06-15T10:30:00.000Z');
+  });
+
+  it('resolves a sub-day "next" direction forward from now', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-06-15T10:30:00.000Z'));
+    const resolved = resolveRelativeDate({
+      relative: true,
+      amount: 2,
+      unit: 'hour',
+      direction: 'next',
+    });
+    expect(resolved).toBe('2024-06-15T12:30:00.000Z');
+  });
+
+  it('still resolves day/week/month/year units to a bare YYYY-MM-DD (no regression)', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-06-15T10:30:00.000Z'));
+    expect(resolveRelativeDate({ relative: true, amount: 1, unit: 'day', direction: 'past' })).toBe(
+      '2024-06-14',
+    );
+    expect(
+      resolveRelativeDate({ relative: true, amount: 1, unit: 'week', direction: 'past' }),
+    ).toBe('2024-06-08');
+    expect(
+      resolveRelativeDate({ relative: true, amount: 1, unit: 'month', direction: 'past' }),
+    ).toBe('2024-05-15');
+    expect(
+      resolveRelativeDate({ relative: true, amount: 1, unit: 'year', direction: 'past' }),
+    ).toBe('2023-06-15');
+  });
+});
+
+// ── applyFilters — sub-day relative date filters (client-side in-memory eval) ────
+
+describe('applyFilters — sub-day relative date filters', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('an "after 1 hour ago" filter excludes rows older than an hour instead of including the whole day', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-06-15T12:00:00.000Z'));
+    const rows = [
+      // Two hours old — earlier today, but older than the 1-hour cutoff: must be EXCLUDED.
+      // The pre-fix behavior truncated the bound to "start of today", which would have
+      // wrongly INCLUDED this row.
+      { id: 'twoHoursAgo', ts: '2024-06-15T10:00:00.000Z' },
+      { id: 'thirtyMinAgo', ts: '2024-06-15T11:30:00.000Z' },
+      { id: 'now', ts: '2024-06-15T12:00:00.000Z' },
+    ];
+    const result = applyFilters(rows, [
+      makeFilter({
+        field: 'ts',
+        operator: 'greater_than',
+        value: { relative: true, amount: 1, unit: 'hour', direction: 'past' },
+        fieldType: 'datetime',
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual(['thirtyMinAgo', 'now']);
+  });
+
+  it('a "greater_than_or_equal" minute-granularity filter matches at minute precision', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-06-15T12:00:00.000Z'));
+    const rows = [
+      { id: 'outsideWindow', ts: '2024-06-15T11:29:00.000Z' },
+      { id: 'atBoundary', ts: '2024-06-15T11:30:00.000Z' },
+      { id: 'insideWindow', ts: '2024-06-15T11:45:00.000Z' },
+    ];
+    const result = applyFilters(rows, [
+      makeFilter({
+        field: 'ts',
+        operator: 'greater_than_or_equal',
+        value: { relative: true, amount: 30, unit: 'minute', direction: 'past' },
+        fieldType: 'datetime',
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual(['atBoundary', 'insideWindow']);
+  });
+
+  it('a between filter with a relative "from" bound at minute granularity only includes rows in the sub-day window', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-06-15T12:00:00.000Z'));
+    const rows = [
+      { id: 'tooOld', ts: '2024-06-15T11:00:00.000Z' },
+      { id: 'inWindow', ts: '2024-06-15T11:50:00.000Z' },
+    ];
+    const result = applyFilters(rows, [
+      makeFilter({
+        field: 'ts',
+        operator: 'between',
+        value: { from: { relative: true, amount: 30, unit: 'minute', direction: 'past' } },
+        fieldType: 'datetime',
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual(['inWindow']);
+  });
+
+  it('a between filter with relative bounds on BOTH sides at different granularities resolves each independently', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-06-15T12:00:00.000Z'));
+    const rows = [
+      { id: 'tooOld', ts: '2024-06-15T09:00:00.000Z' }, // before the 2-hour-ago lower bound
+      { id: 'inWindow', ts: '2024-06-15T11:00:00.000Z' },
+      { id: 'tooNew', ts: '2024-06-15T12:30:00.000Z' }, // after the 15-min-from-now upper bound
+    ];
+    const result = applyFilters(rows, [
+      makeFilter({
+        field: 'ts',
+        operator: 'between',
+        value: {
+          from: { relative: true, amount: 2, unit: 'hour', direction: 'past' },
+          to: { relative: true, amount: 15, unit: 'minute', direction: 'next' },
+        },
+        fieldType: 'datetime',
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual(['inWindow']);
+  });
+
+  it('day-granularity relative filters are unaffected (no regression) — "3 days ago" still compares by whole day', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-06-15T12:00:00.000Z'));
+    const rows = [
+      { id: 'fourDaysAgo', date: '2024-06-11' },
+      { id: 'threeDaysAgo', date: '2024-06-12' },
+      { id: 'twoDaysAgo', date: '2024-06-13' },
+    ];
+    const result = applyFilters(rows, [
+      makeFilter({
+        field: 'date',
+        operator: 'greater_than_or_equal',
+        value: { relative: true, amount: 3, unit: 'day', direction: 'past' },
+        fieldType: 'date',
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual(['threeDaysAgo', 'twoDaysAgo']);
   });
 });

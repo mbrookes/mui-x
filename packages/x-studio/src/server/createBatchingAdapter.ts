@@ -1394,9 +1394,14 @@ function warnServerLeafDivergence(
   }
 }
 
+/** Resolves `rawValue` to its wire form if it's a top-level `RelativeDateValue`, else passes it through unchanged. */
+function resolveWireScalar(rawValue: unknown): unknown {
+  return isRelativeDateValue(rawValue) ? resolveRelativeDate(rawValue) : rawValue;
+}
+
 /**
  * Resolve a filter value to its wire form for one (operator, value) pair:
- *  - relative-date values (e.g. "7 days ago") are resolved to a concrete `YYYY-MM-DD` string;
+ *  - relative-date values (e.g. "7 days ago") are resolved to a concrete date/instant string;
  *  - a `between` value authored as a `{ from, to }` object (how `setDashboardDateRange` /
  *    `setWidgetDateRange` / the drawer's `SecondCondition` store it) is converted to the
  *    `[lo, hi]` tuple the server's queryBuilder expects.
@@ -1406,9 +1411,16 @@ function warnServerLeafDivergence(
  * `between` (e.g. "amount > 0 AND amount between 10–20") shipped its raw `{ from, to }` object,
  * which the middleware rejects for a non-array `between` value → the whole batch entry errors
  * (finding 1.5).
+ *
+ * Each `between` bound is ALSO resolved individually (not just the top-level value): the drawer
+ * lets a user pick a relative date for either bound of a `between` filter
+ * (`FilterValueInput.tsx`'s two `DateValueInput`s), so `{ from: <RelativeDateValue>, to: '2024-…' }`
+ * is a real shape reaching this function. `isRelativeDateValue(rawValue)` alone only catches a
+ * relative value stored as the WHOLE filter value, not one nested inside `from`/`to` — such a
+ * nested bound used to ship to the server raw/unresolved, which the middleware cannot interpret.
  */
 function toWirePredicateValue(operator: FilterPredicate['operator'], rawValue: unknown): unknown {
-  const value = isRelativeDateValue(rawValue) ? resolveRelativeDate(rawValue) : rawValue;
+  const value = resolveWireScalar(rawValue);
   if (
     operator === 'between' &&
     value !== null &&
@@ -1416,7 +1428,7 @@ function toWirePredicateValue(operator: FilterPredicate['operator'], rawValue: u
     !Array.isArray(value)
   ) {
     const range = value as { from?: unknown; to?: unknown };
-    return [range.from, range.to] as unknown;
+    return [resolveWireScalar(range.from), resolveWireScalar(range.to)] as unknown;
   }
   return value;
 }

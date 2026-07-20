@@ -1,5 +1,5 @@
 import dayjs from 'dayjs';
-import type { RelativeDateValue } from './filterTypes';
+import type { RelativeDateUnit, RelativeDateValue } from './filterTypes';
 import type { StudioFilterState } from '../models';
 import { normalizeToDate, normalizeToDateOnlyString } from './temporalUtils';
 import { computeDateRangePreset } from './dateRangeUtils';
@@ -72,11 +72,38 @@ export function isRelativeDateValue(value: unknown): value is RelativeDateValue 
   );
 }
 
+/** Units finer than a calendar day — their resolved boundary must keep a time-of-day component. */
+const SUB_DAY_RELATIVE_UNITS: ReadonlySet<RelativeDateUnit> = new Set(['hour', 'minute', 'second']);
+
+/** True when `unit` is sub-day (second/minute/hour), i.e. NOT safe to truncate to `YYYY-MM-DD`. */
+export function isSubDayRelativeUnit(unit: RelativeDateUnit): boolean {
+  return SUB_DAY_RELATIVE_UNITS.has(unit);
+}
+
+/**
+ * Resolves a `RelativeDateValue` to a concrete wire/comparison value using the current instant.
+ *
+ * `day`/`week`/`month`/`year` units resolve to a bare `YYYY-MM-DD` string — these follow the L1
+ * canonical whole-day convention (`normalizeToDateOnlyString`) because "N days/weeks/months/years
+ * ago" is inherently a calendar-day-granular concept.
+ *
+ * `second`/`minute`/`hour` units resolve to a full ISO-8601 UTC instant
+ * (`YYYY-MM-DDTHH:mm:ss.sssZ`) instead. Previously EVERY unit was truncated to `YYYY-MM-DD` via
+ * `.format('YYYY-MM-DD')`, so a filter authored as "after 1 hour ago" resolved to "after start of
+ * today" — silently widening the window to include the whole day regardless of the actual hour.
+ * Returning the real sub-day instant here lets callers (`isDateOnlyFilterValue`/`compileDateBound`
+ * in this file, and the wire-serialization paths in `createBatchingAdapter.ts`/
+ * `createSimpleAdapter.ts`) compare at full timestamp precision instead of day granularity.
+ *
+ * dayjs's `toISOString()` always renders in UTC regardless of the runtime's local timezone, so the
+ * resolved instant is unambiguous — unlike the bare `YYYY-MM-DD` form (parsed as UTC midnight by
+ * convention elsewhere in this file), a sub-day value carries its own explicit `Z` offset.
+ */
 export function resolveRelativeDate(rel: RelativeDateValue): string {
   const now = dayjs();
   const result =
     rel.direction === 'past' ? now.subtract(rel.amount, rel.unit) : now.add(rel.amount, rel.unit);
-  return result.format('YYYY-MM-DD');
+  return isSubDayRelativeUnit(rel.unit) ? result.toISOString() : result.format('YYYY-MM-DD');
 }
 
 function toComparable(
@@ -141,18 +168,23 @@ export function hasBetweenBound(v: unknown): boolean {
 
 /**
  * True when a date/datetime filter-side value carries NO time-of-day — a bare `YYYY-MM-DD`
- * string, or a `RelativeDateValue` (which resolves to a bare `YYYY-MM-DD` via
- * `resolveRelativeDate`).
+ * string, or a `RelativeDateValue` whose unit is day-or-coarser (which resolves to a bare
+ * `YYYY-MM-DD` via `resolveRelativeDate`).
  *
- * Such a bound must be compared at DAY granularity against a `datetime` column so it covers
- * the whole calendar day rather than only the exact-midnight instant its full-ISO form
+ * A `RelativeDateValue` with a SUB-DAY unit (second/minute/hour) resolves to a full ISO instant
+ * instead, so it must NOT be treated as date-only here — doing so used to compare it at day
+ * granularity regardless of unit, which made an "after 1 hour ago" filter behave like "after the
+ * start of today" (silently including the whole current day).
+ *
+ * Such a day-only bound must be compared at DAY granularity against a `datetime` column so it
+ * covers the whole calendar day rather than only the exact-midnight instant its full-ISO form
  * (`…T00:00:00.000Z`) would (finding 1.3): `>=`/`<=`/`between` bounds become inclusive of the
  * entire day and `>`/`<` exclusive of it. A value carrying an explicit time (e.g. a preset's
- * resolved end-of-day instant) keeps full-timestamp precision.
+ * resolved end-of-day instant, or a sub-day `RelativeDateValue`) keeps full-timestamp precision.
  */
 function isDateOnlyFilterValue(val: unknown): boolean {
   if (isRelativeDateValue(val)) {
-    return true;
+    return !isSubDayRelativeUnit(val.unit);
   }
   return typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val);
 }

@@ -1566,6 +1566,49 @@ describe('StudioController.moveWidget', () => {
     expect(controller.getRecentMutations().map((m) => m.label)).toEqual(['moveWidget:w1']);
   });
 
+  // Finding 2: `moveWidget` (the canvas drag-and-drop entry point) used to trust the
+  // drag-start `sourcePageId` verbatim. If a CONCURRENT operation (a different code
+  // path, or a second fast action) relocated the SAME widget to a third page while the
+  // drag was still in flight, the eventual drop acted on the stale captured page —
+  // clearing a page the widget no longer lived on while still appending it to the
+  // drop target, duplicating the widget across two pages' `widgetRows`. This mirrors the
+  // guard `moveWidgetToPage` already applies via `resolveWidgetPageId`.
+  it('re-resolves the widget actual current page at drop time instead of trusting a stale captured sourcePageId', () => {
+    // The dev-only staleness warning is the EXPECTED signal this test is exercising
+    // (a concurrent move made the drag's captured sourcePageId stale) — silence it
+    // here rather than let `vitest-fail-on-console`'s default "no console output"
+    // assertion fail the test.
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1')); // lives on page-1
+    const page1Id = controller.getState().doc.dashboard.activePageId;
+    const page2Id = controller.addPage('Page 2');
+    const page3Id = controller.addPage('Page 3');
+
+    // Concurrent operation relocates w1 from page-1 to page-3 WHILE a drag that
+    // started on page-1 is still in flight (its captured `sourcePageId` is now stale).
+    controller.moveWidgetToPage('w1', page3Id);
+    expect(controller.getState().doc.pages[page1Id].widgetRows.flat()).not.toContain('w1');
+    expect(controller.getState().doc.pages[page3Id].widgetRows.flat()).toContain('w1');
+
+    // The drag's drop handler still believes the widget started on page-1 and drops it
+    // onto page-2 — using the STALE captured `sourcePageId` ('page-1').
+    controller.moveWidget('w1', page1Id, page2Id, [['w1']]);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    warnSpy.mockRestore();
+
+    const state = controller.getState();
+    const totalPlacements = Object.values(state.doc.pages).filter((p) =>
+      p.widgetRows.flat().includes('w1'),
+    ).length;
+    // The widget must land on exactly one page (the drop target) — its ACTUAL prior
+    // page (page-3) must be cleared, not the stale captured page-1 (which no longer
+    // contained it), which would otherwise leave it duplicated on page-2 AND page-3.
+    expect(totalPlacements).toBe(1);
+    expect(state.doc.pages[page2Id].widgetRows.flat()).toContain('w1');
+    expect(state.doc.pages[page3Id].widgetRows.flat()).not.toContain('w1');
+  });
+
   it('drag-drop (moveWidget) and context-menu (moveWidgetToPage) reach the same state bar selection', () => {
     const build = () =>
       new StudioController({
@@ -1800,6 +1843,43 @@ describe('StudioController.commitWidgetMove — emitted-scope cleanup (T1.1)', (
     // (now empty) set, so undo must NOT bring back a filter the move deliberately cleared.
     expect(state.doc.pages['page-1'].widgetRows.flat()).toContain('w1');
     expect(state.doc.filters.find((f) => f.id === 'i1')).toBeUndefined();
+  });
+
+  // Finding 1: a carried interactive filter's `scope.pageId` must be RE-DERIVED against
+  // the emitting widget's actual page in the doc being swapped in, not blindly kept at
+  // whatever page it was scoped to just before the undo/redo. Sequence: move a filter
+  // widget to page-2, make a selection there (stamping `scope.pageId: 'page-2'` via
+  // `resolveWidgetPageId`), then undo the move — the widget goes back to page-1, and the
+  // carried filter must follow it there instead of keeping the stale `pageId: 'page-2'`.
+  it('re-derives a carried interactive filter scope.pageId against the widget ACTUAL page after undoing a move', () => {
+    const controller = twoPageWithFilters([]);
+
+    // Move the filter widget from page-1 to page-2 — an undoable step.
+    controller.moveWidget('w1', 'page-1', 'page-2', [['w1']]);
+    expect(controller.getState().doc.pages['page-2'].widgetRows.flat()).toContain('w1');
+
+    // Make a selection on the widget's NEW page. This commits NON-undoably (transient
+    // interactive state), stamped with the widget's current page (page-2).
+    controller.applyInteractiveFilter('w1', 'category', 'in', ['Books']);
+    const beforeUndo = controller
+      .getState()
+      .doc.filters.find((f) => f.scope.kind === 'interactive' && f.scope.sourceWidgetId === 'w1');
+    expect(beforeUndo?.scope).toMatchObject({ pageId: 'page-2' });
+
+    // Undo the move: the widget goes back to page-1. The interactive selection has no
+    // undo entry of its own (it is transient-carried forward by `carryTransientDocState`),
+    // so it survives the undo — but its `scope.pageId` must now reflect page-1, the
+    // widget's page in the RESTORED doc, not the stale page-2 it carried before.
+    controller.undo();
+
+    const state = controller.getState();
+    expect(state.doc.pages['page-1'].widgetRows.flat()).toContain('w1');
+    expect(state.doc.pages['page-2'].widgetRows.flat()).not.toContain('w1');
+
+    const afterUndo = state.doc.filters.find(
+      (f) => f.scope.kind === 'interactive' && f.scope.sourceWidgetId === 'w1',
+    );
+    expect(afterUndo?.scope).toMatchObject({ pageId: 'page-1' });
   });
 });
 
@@ -2583,6 +2663,54 @@ describe('StudioController.getRecentMutations', () => {
     expect(controller.getRecentMutations().map((m) => m.label)).toEqual([
       'addFilter:revenue',
       'addFilter:region',
+    ]);
+  });
+
+  // Finding 3: `redo()` used to blindly re-append the restored entry at the TAIL of
+  // `mutationLog`, breaking the oldest-first ordering `getRecentMutations()` promises. A
+  // non-undoable but LABELED commit (e.g. `applyExternalMutation`'s `setActivePage`) can
+  // land strictly between an undo and its later redo WITHOUT clearing the redo stack
+  // (only an UNDOABLE commit does that) — so by the time the older entry is restored, a
+  // genuinely more recent entry may already sit at the tail. Every log entry carries the
+  // `at` timestamp it was stamped with at ORIGINAL commit time (never touched by
+  // undo/redo), so the fix re-inserts in ascending-`at` order instead of assuming
+  // "just redone == newest".
+  it('redo re-inserts the restored entry at its correct chronological position, not always at the tail', () => {
+    const controller = new StudioController({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] },
+          'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [] },
+        },
+      },
+    });
+    controller.addFilter(makeFilter({ id: 'a', field: 'revenue' }));
+    controller.addFilter(makeFilter({ id: 'b', field: 'region' }));
+
+    controller.undo(); // undoes addFilter:region; it now sits in the redo stack
+    expect(controller.getRecentMutations().map((m) => m.label)).toEqual(['addFilter:revenue']);
+
+    // A non-undoable but LABELED mutation lands strictly AFTER the undo (real time) — it
+    // does not clear the redo stack (a transient-only doc diff), so `addFilter:region`
+    // remains redoable, yet `setActivePage` is now genuinely the MOST RECENT log entry.
+    controller.applyExternalMutation({ type: 'setActivePage', args: { pageId: 'page-2' } });
+    expect(controller.canRedo()).toBe(true);
+    expect(controller.getRecentMutations().map((m) => m.label)).toEqual([
+      'addFilter:revenue',
+      'setActivePage:page-2',
+    ]);
+
+    controller.redo(); // restores addFilter:region
+
+    // `addFilter:region`'s own timestamp predates `setActivePage`'s (it was committed,
+    // undone, and only THEN did setActivePage happen) — appending it at the tail would
+    // make the redone (older) entry look newer than `setActivePage`. It must sort BEFORE
+    // `setActivePage`, restoring correct oldest-first order.
+    expect(controller.getRecentMutations().map((m) => m.label)).toEqual([
+      'addFilter:revenue',
+      'addFilter:region',
+      'setActivePage:page-2',
     ]);
   });
 
@@ -3535,6 +3663,73 @@ describe('StudioController.setDashboardDateRangeAll — undoable option (1.7)', 
           (f) => f.scope.kind === 'dashboard-date-range' && f.scope.pageId === pageId,
         ),
     ).toBe(true);
+  });
+});
+
+// Finding 4: `{ undoable: false }` on `updateFilter`/`updateWidgetConfig` is ALSO the
+// self-repair signal (an internal consistency fixup, not a user-driven edit — e.g.
+// `PageFilterRow`/`WidgetFilterRow` silently correcting a stored operator invalid for
+// the field type, or `KpiSetupPanel` repairing an invalid stored aggregation). Both
+// methods used to still write a recent-mutation-log line for this case (via their
+// default reducer label), because `commitState` logs whenever the doc changed
+// regardless of `undoable` — so a self-repair could evict a genuine user-initiated
+// entry from the capped (`MAX_MUTATION_LOG`) log. The label must be suppressed for the
+// self-repair case specifically, while a genuine (undoable) call keeps logging.
+describe('StudioController — self-repair commits do not pollute the recent-mutation log (finding 4)', () => {
+  it('updateFilter self-repair ({ undoable: false }) logs nothing; a genuine call still logs', () => {
+    const controller = new StudioController();
+    controller.addFilter(makeFilter({ id: 'f1', field: 'amount', operator: 'greater_than' }));
+    expect(controller.getRecentMutations().map((m) => m.label)).toEqual(['addFilter:amount']);
+
+    // Self-repair: e.g. a filters-drawer row silently correcting a stored operator that
+    // is invalid for the field type. Must NOT add a log line.
+    controller.updateFilter('f1', { operator: 'less_than' }, { undoable: false });
+    expect(controller.getState().doc.filters.find((f) => f.id === 'f1')?.operator).toBe(
+      'less_than',
+    );
+    expect(controller.getRecentMutations().map((m) => m.label)).toEqual(['addFilter:amount']);
+    // It also must not be reachable via undo as its own step: the self-repair never
+    // pushed an undo entry, so the next undo() reverts the PRECEDING undoable commit
+    // (`addFilter`) instead — removing the filter entirely, not merely reverting the
+    // repaired operator.
+    controller.undo();
+    expect(controller.getState().doc.filters.find((f) => f.id === 'f1')).toBeUndefined();
+    controller.redo();
+
+    // A genuine (default-undoable) call to the SAME method still logs normally.
+    controller.updateFilter('f1', { value: 20 });
+    expect(controller.getRecentMutations().map((m) => m.label)).toEqual([
+      'addFilter:amount',
+      'updateFilter:f1',
+    ]);
+  });
+
+  it('updateWidgetConfig self-repair ({ undoable: false }) logs nothing; a genuine call still logs', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('kpi1', { kind: 'kpi', config: { kpiAggregation: 'sum' } }));
+    expect(controller.getRecentMutations().map((m) => m.label)).toEqual(['addWidget:kpi:kpi1']);
+
+    // Self-repair: e.g. `KpiSetupPanel`'s render-time repair of an invalid stored
+    // aggregation. Must NOT add a log line.
+    controller.updateWidgetConfig('kpi1', { kpiAggregation: 'avg' }, { undoable: false });
+    expect(controller.getState().doc.widgets.kpi1.config).toMatchObject({
+      kpiAggregation: 'avg',
+    });
+    expect(controller.getRecentMutations().map((m) => m.label)).toEqual(['addWidget:kpi:kpi1']);
+    // It also must not be reachable via undo as its own step: the self-repair never
+    // pushed an undo entry, so the next undo() reverts the PRECEDING undoable commit
+    // (`addWidget`) instead — removing the widget entirely, not merely reverting the
+    // repaired config.
+    controller.undo();
+    expect(controller.getState().doc.widgets.kpi1).toBeUndefined();
+    controller.redo();
+
+    // A genuine (default-undoable) call to the SAME method still logs normally.
+    controller.updateWidgetConfig('kpi1', { kpiAggregation: 'count' });
+    expect(controller.getRecentMutations().map((m) => m.label)).toEqual([
+      'addWidget:kpi:kpi1',
+      'updateWidget:kpi1',
+    ]);
   });
 });
 

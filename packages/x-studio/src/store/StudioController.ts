@@ -107,6 +107,16 @@ export class StudioController {
   // `undoStack`/`redoStack` (`MAX_UNDO_HISTORY`) and may have already evicted it.
   private undoMutationLog: (StudioAIRecentMutation | null)[] = [];
   private redoMutationLog: (StudioAIRecentMutation | null)[] = [];
+  // Monotonic commit counter, keyed per log entry via `mutationSeq` (finding 3's redo
+  // reinsertion needs a total order over log entries). `StudioAIRecentMutation.at` is a
+  // public, AI-facing ISO timestamp with only millisecond resolution — two commits inside
+  // the same synchronous call chain (routine in tests, and reachable in real fast-path
+  // usage, e.g. two AI-tool-driven mutations in one turn) can share an identical `at`,
+  // which would make a strict `>` comparison on `at` fail to order them and silently fall
+  // back to appending at the tail. A private WeakMap side-table gives every entry an
+  // exact, collision-free order without changing the public log-entry shape.
+  private mutationSeqCounter = 0;
+  private readonly mutationSeq = new WeakMap<StudioAIRecentMutation, number>();
 
   constructor(initialState?: CreateDefaultStudioStateOverrides) {
     const state = createDefaultStudioState(initialState);
@@ -181,6 +191,9 @@ export class StudioController {
       const logEntry: StudioAIRecentMutation | null = label
         ? { label, at: new Date().toISOString() }
         : null;
+      if (logEntry) {
+        this.mutationSeq.set(logEntry, this.mutationSeqCounter++);
+      }
 
       if (undoable) {
         // The undo entry is the OLD doc, pushed only when the doc actually changed by
@@ -304,7 +317,12 @@ export class StudioController {
    *    still exists in the incoming doc — mirroring the reducer's dangling-reference
    *    pruning (an interactive filter from a widget the swap removed has no home). This
    *    is replacement, not a merge: a redo that re-applies the same interactive filter
-   *    must not stack a duplicate.
+   *    must not stack a duplicate. Each carried entry's `scope.pageId` is additionally
+   *    RE-DERIVED against the emitting widget's actual page in the INCOMING doc (finding
+   *    1), not carried verbatim from the current doc — a filter widget moved to another
+   *    page, then selected on it (stamping `scope.pageId` with that new page), must have
+   *    its carried filter follow the widget back to its original page when that move is
+   *    undone, instead of keeping the stale (new-page) `scope.pageId`.
    *  - `dashboard`: overlay `globalCrossFilterMode` / `crossFilterAllPages` /
    *    `activePageId`.
    *
@@ -317,11 +335,33 @@ export class StudioController {
    * a byte-for-byte deep-equal doc.
    */
   private carryTransientDocState = (currentDoc: StudioDoc, incomingDoc: StudioDoc): StudioDoc => {
-    const carriedInteractive = currentDoc.filters.filter(
-      (f: StudioFilterState) =>
-        f.scope.kind === 'interactive' &&
-        Object.hasOwn(incomingDoc.widgets, f.scope.sourceWidgetId),
-    );
+    const carriedInteractive = currentDoc.filters
+      .filter(
+        (f: StudioFilterState) =>
+          f.scope.kind === 'interactive' &&
+          Object.hasOwn(incomingDoc.widgets, f.scope.sourceWidgetId),
+      )
+      .map((f: StudioFilterState) => {
+        if (f.scope.kind !== 'interactive') {
+          return f;
+        }
+        // Re-derive `scope.pageId` against the emitting widget's ACTUAL page in the
+        // swapped-in (`incomingDoc`) doc, rather than blindly carrying forward
+        // whatever page the filter happened to be scoped to in the CURRENT doc
+        // (finding 1). A filter widget can be moved to a different page and then
+        // have a selection made there (stamping `scope.pageId` with that NEW page);
+        // undoing the move puts the widget back on its original page, so the
+        // carried filter must follow it there too — otherwise it keeps pointing at
+        // a page the widget is no longer on. `resolveWidgetPageIdInDoc` mirrors
+        // `resolveWidgetPageId`'s own widgetRows scan, scoped to an arbitrary doc.
+        const actualPageId = StudioController.resolveWidgetPageIdInDoc(
+          incomingDoc,
+          f.scope.sourceWidgetId,
+        );
+        return actualPageId === f.scope.pageId
+          ? f
+          : { ...f, scope: { ...f.scope, pageId: actualPageId } };
+      });
     const incomingHasInteractive = incomingDoc.filters.some(
       (f: StudioFilterState) => f.scope.kind === 'interactive',
     );
@@ -1551,12 +1591,23 @@ export class StudioController {
     // `StudioDateRangeBar`'s coverage-expansion effect already do (finding 2.4) —
     // otherwise merely rendering the panel could push an unauthored undo entry and,
     // if re-triggered after an undo, clear the redo stack.
+    //
+    // `{ undoable: false }` is ALSO the self-repair signal (finding 4): every call site
+    // that passes it is a system-initiated fixup (e.g. `KpiSetupPanel`'s render-time
+    // repair of an invalid stored `kpiAggregation`), not a user-driven edit. `commitState`
+    // writes a recent-mutation-log line whenever the doc changed, REGARDLESS of
+    // `undoable` — so without suppressing the label here, a self-repair commit still
+    // wrote a synthetic log line, and since `mutationLog` is capped at
+    // `MAX_MUTATION_LOG`, it could evict a genuine user-initiated entry. Suppress the
+    // label ONLY for the self-repair (`undoable === false`) case; a genuine user-initiated
+    // call (default/explicit `undoable: true`) keeps its normal reducer-default label.
     this.commitMutation(
       {
         type: 'updateWidget',
         args: { widgetId, config: effectiveConfig as StudioWidget['config'] },
       },
       {
+        label: options?.undoable === false ? null : undefined,
         undoable: options?.undoable,
         transform: (next) => {
           // Guard on the widget's actual presence (1.3) — see `updateWidget`. The
@@ -1850,7 +1901,19 @@ export class StudioController {
           return { ...filter, ...changes };
         }),
       },
-      { label: `updateFilter:${filterId}`, undoable: options?.undoable },
+      {
+        // `{ undoable: false }` is ALSO the self-repair signal (finding 4): both
+        // `PageFilterRow`/`WidgetFilterRow` pass it only from their render-time
+        // "repair a stored operator invalid for the field type" effect, never from a
+        // user-driven edit. `commitState` logs whenever the doc changed regardless of
+        // `undoable`, so an unlabeled self-repair commit would otherwise still write a
+        // synthetic recent-mutation-log line — and since the log is capped
+        // (`MAX_MUTATION_LOG`), that line could evict a genuine user-initiated one.
+        // Omit the label ONLY for the self-repair case; a genuine call (the default,
+        // `undoable !== false`) keeps its normal label.
+        label: options?.undoable === false ? undefined : `updateFilter:${filterId}`,
+        undoable: options?.undoable,
+      },
     );
   };
 
@@ -1980,8 +2043,16 @@ export class StudioController {
    * to `activePageId` when the widget is not found in any layout (e.g. a source
    * widget that was just removed), preserving the prior behaviour for that edge.
    */
-  private resolveWidgetPageId = (widgetId: string): string => {
-    const { doc } = this.store.state;
+  private resolveWidgetPageId = (widgetId: string): string =>
+    StudioController.resolveWidgetPageIdInDoc(this.store.state.doc, widgetId);
+
+  /**
+   * Pure sibling of {@link resolveWidgetPageId}, scoped to an arbitrary `doc`
+   * rather than `this.store.state.doc` — used by `carryTransientDocState` to
+   * resolve a widget's page within the doc being swapped IN during undo/redo,
+   * before that doc has been committed to the store.
+   */
+  private static resolveWidgetPageIdInDoc = (doc: StudioDoc, widgetId: string): string => {
     for (const [pageId, page] of Object.entries(doc.pages)) {
       for (const row of page.widgetRows ?? []) {
         if (row.includes(widgetId)) {
@@ -2438,6 +2509,17 @@ export class StudioController {
    * Canvas drag-and-drop entry point for moving a widget within or across pages.
    * `targetRows` is the target page's complete desired final layout (the canvas
    * drop handler computes it). Selects the moved widget after committing.
+   *
+   * `sourcePageId` is the page the drag STARTED from, captured by the caller when
+   * the drag began — it can go stale by drop time if a concurrent operation (a
+   * different code path, or a second fast drag/AI mutation) already moved this
+   * SAME widget to a third page while this drag was in flight. Trusting it blindly
+   * would make `commitWidgetMove` strip the widget from a page it no longer lives
+   * on while still appending it to `targetRows`, duplicating the widget across two
+   * pages' `widgetRows` (finding 2). Re-resolve the widget's ACTUAL current page via
+   * `resolveWidgetPageId` right before committing — mirroring the same guard
+   * `moveWidgetToPage` already applies for its own (non-drag) entry point — so the
+   * source-page rewrite always targets wherever the widget truly is now.
    */
   moveWidget = (
     widgetId: string,
@@ -2445,7 +2527,20 @@ export class StudioController {
     targetPageId: string,
     targetRows: string[][],
   ) => {
-    this.commitWidgetMove(widgetId, sourcePageId, targetPageId, targetRows, {
+    const actualSourcePageId = this.resolveWidgetPageId(widgetId);
+    if (
+      process.env.NODE_ENV !== 'production' &&
+      actualSourcePageId !== sourcePageId &&
+      Object.hasOwn(this.store.state.doc.pages, sourcePageId)
+    ) {
+      console.warn(
+        `MUI X Studio: moveWidget's captured drag-start page ('${sourcePageId}') no longer ` +
+          `matches widget '${widgetId}'s actual current page ('${actualSourcePageId}'). ` +
+          'A concurrent move relocated it while this drag was in flight; resolving against ' +
+          'its actual page to avoid duplicating it across two pages.',
+      );
+    }
+    this.commitWidgetMove(widgetId, actualSourcePageId, targetPageId, targetRows, {
       // Guard on the widget's continued existence, mirroring `addWidget`/
       // `insertWidgetAt`: if the fold no-op'd, transform must not unconditionally
       // manufacture a new session object.
@@ -2559,9 +2654,32 @@ export class StudioController {
     // Reconcile the mutation log (finding 6) — mirrors `undo()` above: restore the entry
     // `undo()` pulled out (if any), in lockstep with the doc, so re-applying the mutation
     // makes it visible to `getRecentMutations()` again.
+    //
+    // Unlike `undo()`'s removal (which never disturbs the relative order of what
+    // remains), blindly RE-INSERTING at the tail here would break `getRecentMutations()`'s
+    // oldest-first ordering (finding 3): a non-undoable but LABELED commit (e.g.
+    // `applyExternalMutation`'s `setActivePage`/`renameAIThread`) can land between this
+    // entry's undo and its redo without clearing the redo stack (only an UNDOABLE commit
+    // does that), so by the time this entry is restored, a genuinely more recent entry may
+    // already sit at the tail. Appending past it would make the redone (older) entry look
+    // newer than it is. Ordering by `at` (a public, millisecond-resolution ISO timestamp)
+    // is not safe here — two commits inside the same synchronous call chain can share an
+    // identical `at`, which a strict `>` comparison treats as "not newer" and falls through
+    // to the tail. `mutationSeq` is a private, collision-free monotonic counter stamped
+    // once per entry at original commit time (see its declaration), so re-inserting before
+    // the first existing entry with a strictly greater sequence number restores correct
+    // chronological order instead of assuming "restored == newest".
     this.undoMutationLog.push(pairedLogEntry);
     if (pairedLogEntry) {
-      this.mutationLog.push(pairedLogEntry);
+      const pairedSeq = this.mutationSeq.get(pairedLogEntry) ?? -1;
+      const insertAt = this.mutationLog.findIndex(
+        (entry) => (this.mutationSeq.get(entry) ?? -1) > pairedSeq,
+      );
+      if (insertAt === -1) {
+        this.mutationLog.push(pairedLogEntry);
+      } else {
+        this.mutationLog.splice(insertAt, 0, pairedLogEntry);
+      }
       if (this.mutationLog.length > MAX_MUTATION_LOG) {
         this.mutationLog.shift();
       }

@@ -82,9 +82,10 @@ export function computeFixedPeriodRange(
  * ingested `datetime` string (`'YYYY-MM-DDTHH:MM:SSZ'`), a `Date`, or a ms timestamp — is a
  * true instant and is reduced to its LOCAL calendar day. This keeps the row side in the SAME
  * calendar space as the window bounds (`filterRowsByDateRange` reduces them via `toLocalYmd`,
- * also LOCAL) and as the sparkline buckets (`getBucketKey`, LOCAL). The previous
- * leading-10-chars fast path returned a datetime's UTC day, mismatching the LOCAL bounds and
- * misclassifying near-UTC-midnight datetime rows for off-UTC viewers (T2-1).
+ * also LOCAL). The previous leading-10-chars fast path returned a datetime's UTC day,
+ * mismatching the LOCAL bounds and misclassifying near-UTC-midnight datetime rows for
+ * off-UTC viewers (T2-1). NOTE: the sparkline buckets (`getBucketKey`) deliberately do NOT
+ * follow this LOCAL convention — see that function's own docstring (T2-3).
  */
 function toDayKey(raw: unknown): string | null {
   if (typeof raw === 'string') {
@@ -105,11 +106,10 @@ function toDayKey(raw: unknown): string | null {
  * window bounds (`toLocalYmd`) are reduced to `YYYY-MM-DD` strings and compared lexically,
  * rather than as instants. Note this is deliberately LOCAL, NOT the UTC day-truncation L3
  * (`filterUtils`' `toDayComparable`) uses: the KPI's window bounds are built in local time
- * (`computeFixedPeriodRange` via `setHours`) and the sparkline buckets in local time
- * (`getBucketKey`), so unifying the row side on LOCAL keeps both sides of the comparison
- * provably in one calendar space. Comparing a UTC-parsed row date against a locally-built
- * bound (as the old `d >= start && d <= end` did) misclassified boundary-day rows for
- * non-UTC viewers (finding F3 / T2-1).
+ * (`computeFixedPeriodRange` via `setHours`), so unifying the row side on LOCAL keeps both
+ * sides of the comparison provably in one calendar space. Comparing a UTC-parsed row date
+ * against a locally-built bound (as the old `d >= start && d <= end` did) misclassified
+ * boundary-day rows for non-UTC viewers (finding F3 / T2-1).
  */
 export function filterRowsByDateRange(
   rows: Record<string, unknown>[],
@@ -246,7 +246,39 @@ export function extractDateRange(filter: StudioFilterState): { start: Date; end:
 // ─── Date filter lookup ────────────────────────────────────────────────────────
 
 /**
- * Find the first date/datetime filter that applies to this widget (page or widget scope).
+ * Whether `filter` targets a date/datetime field.
+ *
+ * Prefers the stored `filter.fieldType` (reliable even for cross-source filters).
+ * Falls back to looking up the field type in `dataSource.fields` for legacy filters
+ * that were stored without a `fieldType`. Shared by `findDateFilter` below and by
+ * the fixed-period trend's "strip the active date filter(s)" logic in
+ * `StudioKpiWidget.tsx` (T2-2), so both agree on what counts as a date filter.
+ */
+export function isDateFieldFilter(
+  filter: StudioFilterState,
+  dataSource: StudioDataSource,
+): boolean {
+  if (filter.fieldType === 'date' || filter.fieldType === 'datetime') {
+    return true;
+  }
+  const fieldDef = dataSource.fields.find((fd) => fd.id === filter.field);
+  return fieldDef?.type === 'date' || fieldDef?.type === 'datetime';
+}
+
+/**
+ * Scope specificity, most → least specific, for breaking ties when more than one
+ * in-scope date filter exists simultaneously (e.g. a page-level AND a widget-level date
+ * filter both active at once). Lower number wins.
+ */
+const DATE_FILTER_SCOPE_PRIORITY: Partial<Record<StudioFilterState['scope']['kind'], number>> = {
+  widget: 0,
+  page: 1,
+  'dashboard-date-range': 2,
+};
+
+/**
+ * Find the date/datetime filter that applies to this widget (page, widget, or
+ * dashboard-date-range scope).
  *
  * CONTRACT: `filters` MUST be pre-scoped to this widget by the caller (via
  * `selectFiltersForWidget`) before being passed in. This function does NOT verify a
@@ -256,9 +288,17 @@ export function extractDateRange(filter: StudioFilterState): { start: Date; end:
  * list here could latch onto a date filter that does not actually apply to the widget. All
  * current callers pre-scope; keep it that way.
  *
- * Uses `filter.fieldType` when available (preferred — works across all data sources).
- * Falls back to looking up the field type in `dataSource.fields` for legacy filters
- * that were stored without a `fieldType`.
+ * When MULTIPLE in-scope date filters exist at once (e.g. a page-level date filter and a
+ * widget-level one both active), the MOST SPECIFIC scope wins — widget > page >
+ * dashboard-date-range — rather than whichever happened to appear first in `filters` (an
+ * arbitrary array-order tiebreak that could latch onto either one depending on authoring
+ * order, occasionally yielding a bogus ∞/"New" trend badge when the ignored filter would
+ * have produced a sane one) (T3-1). L3's own row-filtering (`selectFiltersForWidget` /
+ * `applyFilters`) has no analogous single-choice precedence to mirror here — every
+ * in-scope filter is AND-combined against the rows rather than one arbitrating the
+ * other — so this picks the narrowest scope as the most deliberate, specific choice: a
+ * filter authored directly on this widget more clearly reflects intent for THIS widget's
+ * trend than a page-wide or dashboard-wide default.
  */
 export function findDateFilter(
   filters: StudioFilterState[],
@@ -271,15 +311,13 @@ export function findDateFilter(
       f.scope.kind === 'dashboard-date-range' ||
       (f.scope.kind === 'widget' && f.scope.widgetId === widgetId),
   );
-  return relevant.find((f) => {
-    // Prefer the stored fieldType — reliable even for cross-source filters
-    if (f.fieldType === 'date' || f.fieldType === 'datetime') {
-      return true;
-    }
-    // Fallback: look up in the widget's primary data source fields
-    const fieldDef = dataSource.fields.find((fd) => fd.id === f.field);
-    return fieldDef?.type === 'date' || fieldDef?.type === 'datetime';
-  });
+  // `.sort` is stable, so filters sharing a scope kind keep their original relative order.
+  const bySpecificity = [...relevant].sort(
+    (a, b) =>
+      (DATE_FILTER_SCOPE_PRIORITY[a.scope.kind] ?? 3) -
+      (DATE_FILTER_SCOPE_PRIORITY[b.scope.kind] ?? 3),
+  );
+  return bySpecificity.find((f) => isDateFieldFilter(f, dataSource));
 }
 
 // ─── Previous period range ─────────────────────────────────────────────────────
@@ -442,10 +480,23 @@ export function computeAggregate(
 
 // ─── Sparkline bucketing ──────────────────────────────────────────────────────
 
+/**
+ * Reduce a `Date` to a sort-stable bucket key for the given granularity.
+ *
+ * Reads UTC calendar components, NOT local ones. `computeSparklineData`'s only caller
+ * feeds this a `Date` produced by `normalizeToDate`, which parses a bare canonical
+ * `'YYYY-MM-DD'` row value (the common case for a KPI's time field) to UTC midnight of
+ * that calendar day. Reading LOCAL components off that UTC-midnight instant rolls it
+ * back to the PREVIOUS calendar day for any viewer west of UTC (negative offset),
+ * misclassifying the row into the wrong sparkline bucket (T2-3). `toDayKey` above
+ * already sidesteps this same trap for its own bare-date case by returning the literal
+ * string; reading UTC components here achieves the equivalent — the day the canonical
+ * string names — without needing a separate raw-string special case.
+ */
 export function getBucketKey(date: Date, granularity: Granularity): string {
-  const y = date.getFullYear();
-  const m = date.getMonth();
-  const d = date.getDate();
+  const y = date.getUTCFullYear();
+  const m = date.getUTCMonth();
+  const d = date.getUTCDate();
   switch (granularity) {
     case 'day':
       return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;

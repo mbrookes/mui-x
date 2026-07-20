@@ -45,6 +45,7 @@ import {
   autoGranularity,
   extractDateRange,
   findDateFilter,
+  isDateFieldFilter,
   computeFixedPeriodRange,
   computePreviousPeriodRange,
   filterRowsByDateRange,
@@ -929,8 +930,63 @@ function useKpiTrend(params: {
     let kpiTrend: KpiTrendResult | null = null;
     if (config.kpiTrend && (config.kpiValueField || hasFixedPeriodTrend)) {
       if (hasFixedPeriodTrend) {
-        // The headline (value / currentRows) is the all-time total — unfiltered. Only
-        // the trend delta rows are windowed by the date field.
+        // Fixed-period mode derives its own rolling N-day window from `today` — it must
+        // NOT also be narrowed by whatever date-range filter (page/widget/dashboard) is
+        // currently active. `currentRows` already has any active date filter applied via
+        // L3 (it is NOT "the all-time total — unfiltered", despite what this comment used
+        // to claim); windowing it AGAIN with the fixed 30/90/365-day range double-restricts
+        // the data — the previous window frequently falls entirely outside the (narrower)
+        // active filter's range, collapsing to 0 rows and pinning the badge at a bogus
+        // ∞/"New" delta any time a date filter and a fixed-period trend are both configured
+        // (T2-2). Re-derive the widget's own rows from the raw, upstream-of-L3
+        // `dataSource.rows` baseline instead, re-applying every OTHER currently active
+        // filter (so dimensional filters like category/rank keep narrowing the trend
+        // exactly like the headline does) but excluding any date/datetime-typed filter —
+        // mirroring the "pre-enrich + resolveRows" pattern `computeFilterBasedTrend` above
+        // already uses for its own previous-period baseline. For an adapter-backed source
+        // there is no reliable unfiltered baseline available client-side (the same
+        // limitation `computeFilterBasedTrend` documents above), so fall back to
+        // `currentRows` there.
+        const nonDateScopedFilters = scopedFiltersForBadge.filter(
+          (f) => !isDateFieldFilter(f, dataSource),
+        );
+        const rawSourceRows = dataSource.rows;
+        const allTimeRows =
+          dataSource.adapter || !rawSourceRows
+            ? currentRows
+            : (() => {
+                const allTimeUsedFieldIds = new Set(collectSelectFields(widget));
+                for (const f of nonDateScopedFilters) {
+                  if (f.field) {
+                    allTimeUsedFieldIds.add(f.field);
+                  }
+                  if (f.rankByField) {
+                    allTimeUsedFieldIds.add(f.rankByField);
+                  }
+                }
+                const preEnrichedAllTimeRows = getCachedEnrichedRows(
+                  rawSourceRows,
+                  widget.sourceId,
+                  expressionFields,
+                  dataSources,
+                  relationships,
+                  allTimeUsedFieldIds,
+                );
+                return resolveRows(
+                  preEnrichedAllTimeRows,
+                  widget.sourceId,
+                  nonDateScopedFilters,
+                  dataSources,
+                  relationships,
+                  expressionFields,
+                  { skipEnrichment: true },
+                );
+              })();
+        const fixedPeriodValueParams: ComputePeriodValueParams = {
+          ...periodValueParams,
+          widgetFilters: nonDateScopedFilters,
+        };
+
         const fixedDateField =
           config.kpiSparklineField ??
           dataSource.fields.find((f) => f.type === 'date' || f.type === 'datetime')?.id ??
@@ -940,7 +996,7 @@ function useKpiTrend(params: {
           // `kpiSparklineSourceId` points at a parent source, so `kpiSparklineField` is
           // NOT a column on the widget's own rows — resolve the date field against that
           // source's rows first, mirroring how the sparkline path resolves a cross-source
-          // time field. Reading it straight off `currentRows` yields `undefined` for every
+          // time field. Reading it straight off `allTimeRows` yields `undefined` for every
           // row, so `filterRowsByDateRange` matches nothing and the trend silently
           // degenerates to null (finding 2.8). `resolveChartRowsForAggregation` re-anchors
           // to the related source's grain and brings the value field along, so the returned
@@ -954,7 +1010,7 @@ function useKpiTrend(params: {
             !!fixedDateSourceId && fixedDateSourceId !== widget.sourceId && !measureExprField;
           if (isCrossSourceDate) {
             const fixedPeriodRows = resolveChartRowsForAggregation(
-              currentRows,
+              allTimeRows,
               widget.sourceId,
               fixedDateField,
               config.kpiValueField ? [config.kpiValueField] : [],
@@ -963,25 +1019,26 @@ function useKpiTrend(params: {
               relationships,
               expressionFields,
               undefined,
-              // `scopedFiltersForBadge` matches the scope `currentRows` was produced at, so an
-              // anchor-source-scoped filter L3 enforced as a semi-join isn't silently
-              // re-widened during this re-anchoring join (finding 1.2).
-              scopedFiltersForBadge,
+              // `nonDateScopedFilters` matches the (date-filter-free) scope `allTimeRows` was
+              // produced at, so an anchor-source-scoped filter L3 enforced as a semi-join isn't
+              // silently re-widened during this re-anchoring join, and the active date filter
+              // isn't silently reintroduced through this side channel either (finding 1.2, T2-2).
+              nonDateScopedFilters,
             );
             kpiTrend = computeFixedPeriodTrend(
               fixedPeriodRows,
               fixedDateField,
               config.kpiTrendFixedPeriod!,
               config.kpiTrendComparison ?? 'previous-period',
-              { ...periodValueParams, isGrainAnchored: false },
+              { ...fixedPeriodValueParams, isGrainAnchored: false },
             );
           } else {
             kpiTrend = computeFixedPeriodTrend(
-              currentRows,
+              allTimeRows,
               fixedDateField,
               config.kpiTrendFixedPeriod!,
               config.kpiTrendComparison ?? 'previous-period',
-              periodValueParams,
+              fixedPeriodValueParams,
             );
           }
         }

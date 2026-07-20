@@ -212,6 +212,65 @@ describe('findDateFilter', () => {
     const source = makeSource([DATE_FIELD]);
     expect(findDateFilter([], 'w1', source)).toBeUndefined();
   });
+
+  // ─── T3-1: multiple in-scope date filters — most-specific scope wins ──────────
+  describe('precedence when multiple in-scope date filters exist (T3-1)', () => {
+    const source = makeSource([DATE_FIELD]);
+
+    it('prefers a widget-scoped date filter over a page-scoped one, regardless of array order', () => {
+      const pageFilter = makeFilter({
+        id: 'page-date',
+        field: 'date',
+        fieldType: 'date',
+        scope: { kind: 'page' },
+      });
+      const widgetFilter = makeFilter({
+        id: 'widget-date',
+        field: 'date',
+        fieldType: 'date',
+        scope: { kind: 'widget', widgetId: 'my-widget' },
+      });
+      // Page filter listed FIRST — the old "first match" behavior would have picked it.
+      expect(findDateFilter([pageFilter, widgetFilter], 'my-widget', source)).toBe(widgetFilter);
+      // Order-independent: same result with the widget filter listed first.
+      expect(findDateFilter([widgetFilter, pageFilter], 'my-widget', source)).toBe(widgetFilter);
+    });
+
+    it('prefers a page-scoped date filter over a dashboard-date-range one', () => {
+      const dashboardFilter = makeFilter({
+        id: 'dash-date',
+        field: 'date',
+        fieldType: 'date',
+        scope: { kind: 'dashboard-date-range', sourceId: 'src', pageId: 'page-1' },
+      });
+      const pageFilter = makeFilter({
+        id: 'page-date',
+        field: 'date',
+        fieldType: 'date',
+        scope: { kind: 'page' },
+      });
+      expect(findDateFilter([dashboardFilter, pageFilter], 'my-widget', source)).toBe(pageFilter);
+      expect(findDateFilter([pageFilter, dashboardFilter], 'my-widget', source)).toBe(pageFilter);
+    });
+
+    it('falls back to array order among filters sharing the same scope kind', () => {
+      const firstPageFilter = makeFilter({
+        id: 'page-date-1',
+        field: 'date',
+        fieldType: 'date',
+        scope: { kind: 'page' },
+      });
+      const secondPageFilter = makeFilter({
+        id: 'page-date-2',
+        field: 'date',
+        fieldType: 'date',
+        scope: { kind: 'page' },
+      });
+      expect(findDateFilter([firstPageFilter, secondPageFilter], 'w1', source)).toBe(
+        firstPageFilter,
+      );
+    });
+  });
 });
 
 // ─── computePreviousPeriodRange ────────────────────────────────────────────────
@@ -739,6 +798,58 @@ describe('getBucketKey', () => {
     expect(janKey).toBe('2026-W05');
     expect(febKey).toBe('2026-W06');
     expect([febKey, janKey].sort()).toEqual([janKey, febKey]);
+  });
+});
+
+// ─── Sparkline bucketing is timezone-safe for canonical bare dates (T2-3) ──────
+
+describe('getBucketKey / computeSparklineData are timezone-safe for canonical dates (T2-3)', () => {
+  const originalTz = process.env.TZ;
+
+  beforeEach(() => {
+    // West-of-UTC viewer: a bare 'YYYY-MM-DD' row value is parsed (via `normalizeToDate`)
+    // to UTC midnight of that calendar day. Reading LOCAL date components off that instant
+    // rolls it back to the PREVIOUS calendar day for a negative-offset viewer — the exact
+    // trap `toDayKey` already avoids for its own bare-date case. Mirrors the TZ-mocking
+    // pattern used elsewhere in this file (e.g. the F1/F2/T2-1 describe blocks above).
+    process.env.TZ = 'America/New_York';
+  });
+
+  afterEach(() => {
+    process.env.TZ = originalTz;
+  });
+
+  it('buckets a bare canonical date onto its own calendar day, not the previous one', () => {
+    // UTC midnight of 2026-03-05 is 2026-03-04 19:00 in New York. The pre-fix LOCAL-getter
+    // implementation would have produced '2026-03-04'.
+    const date = new Date('2026-03-05');
+    expect(getBucketKey(date, 'day')).toBe('2026-03-05');
+    expect(getBucketKey(date, 'month')).toBe('2026-03');
+    expect(getBucketKey(date, 'quarter')).toBe('2026-Q1');
+    expect(getBucketKey(date, 'year')).toBe('2026');
+  });
+
+  it('groups a bare canonical row date into the correct day bucket via computeSparklineData', () => {
+    const rows = [
+      { t: '2026-01-15', v: 10 },
+      { t: '2026-01-20', v: 5 },
+    ];
+    // Pre-fix, both rows would have rolled back one calendar day under America/New_York —
+    // still distinct buckets here, but on the wrong days. Assert the bucket keys directly
+    // via a single-row-per-bucket case so a day-shift would change which values line up.
+    expect(computeSparklineData(rows, 't', 'v', 'sum', 'day', false)).toEqual([10, 5]);
+  });
+
+  it('does not merge two rows on adjacent days into one bucket (would happen if both shifted the same direction)', () => {
+    const rows = [
+      { t: '2026-03-05', v: 1 },
+      { t: '2026-03-06', v: 2 },
+    ];
+    // Each day must remain its own bucket — a day-shift bug that rolled both dates back by
+    // one day would still keep them distinct, so additionally pin down the exact keys.
+    expect(getBucketKey(new Date('2026-03-05'), 'day')).toBe('2026-03-05');
+    expect(getBucketKey(new Date('2026-03-06'), 'day')).toBe('2026-03-06');
+    expect(computeSparklineData(rows, 't', 'v', 'sum', 'day', false)).toEqual([1, 2]);
   });
 });
 

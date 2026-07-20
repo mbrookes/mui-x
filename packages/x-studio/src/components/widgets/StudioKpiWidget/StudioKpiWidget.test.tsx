@@ -294,14 +294,18 @@ describe('<StudioKpiWidget /> fixed-period trend correctness', () => {
       },
       'order_items',
     );
+    // The fixed-period trend re-derives its own "all rows" baseline from the raw
+    // `dataSource.rows` (T2-2), so — like the mocked `useWidgetRows`'s `rowsHolder.current`
+    // above — the own-source dataSource must carry the full (unfiltered) row set here too.
+    const orderItemsWithRows = { ...orderItemsSource, rows: allOrderItems } as StudioDataSource;
     mockState = createState({
       widgets: { 'kpi-1': widget },
-      dataSources: { order_items: orderItemsSource, orders: ordersSource },
+      dataSources: { order_items: orderItemsWithRows, orders: ordersSource },
       relationships: [crossSourceRelationship],
     });
     configureStudioContextMock({ getState: () => mockState });
 
-    renderKpi(widget, orderItemsSource);
+    renderKpi(widget, orderItemsWithRows);
 
     const trend = lastTrend();
     expect(trend).not.toBeNull();
@@ -323,14 +327,17 @@ describe('<StudioKpiWidget /> fixed-period trend correctness', () => {
       },
       'sales',
     );
+    // See T2-2 comment above: the fixed-period trend's "all rows" baseline now comes from
+    // `dataSource.rows`, so it must carry the full row set, matching `rowsHolder.current`.
+    const salesWithRows = { ...salesSource, rows: salesRows } as StudioDataSource;
     mockState = createState({
       widgets: { 'kpi-1': widget },
-      dataSources: { sales: salesSource },
+      dataSources: { sales: salesWithRows },
       expressionFields: [revenueMeasure],
     });
     configureStudioContextMock({ getState: () => mockState });
 
-    renderKpi(widget, salesSource);
+    renderKpi(widget, salesWithRows);
 
     const trend = lastTrend();
     expect(trend).not.toBeNull();
@@ -351,13 +358,16 @@ describe('<StudioKpiWidget /> fixed-period trend correctness', () => {
       },
       'sales',
     );
+    // See T2-2 comment above: the fixed-period trend's "all rows" baseline now comes from
+    // `dataSource.rows`, so it must carry the full row set, matching `rowsHolder.current`.
+    const salesWithRows = { ...salesSource, rows: salesRows } as StudioDataSource;
     mockState = createState({
       widgets: { 'kpi-1': widget },
-      dataSources: { sales: salesSource },
+      dataSources: { sales: salesWithRows },
     });
     configureStudioContextMock({ getState: () => mockState });
 
-    renderKpi(widget, salesSource);
+    renderKpi(widget, salesWithRows);
 
     const trend = lastTrend();
     expect(trend).not.toBeNull();
@@ -376,19 +386,73 @@ describe('<StudioKpiWidget /> fixed-period trend correctness', () => {
       },
       'sales',
     );
+    // See T2-2 comment above: the fixed-period trend's "all rows" baseline now comes from
+    // `dataSource.rows`, so it must carry the full row set, matching `rowsHolder.current`.
+    const salesWithRows = { ...salesSource, rows: salesRows } as StudioDataSource;
     mockState = createState({
       widgets: { 'kpi-1': widget },
-      dataSources: { sales: salesSource },
+      dataSources: { sales: salesWithRows },
     });
     configureStudioContextMock({ getState: () => mockState });
 
-    renderKpi(widget, salesSource);
+    renderKpi(widget, salesWithRows);
 
     const trend = lastTrend();
     expect(trend).not.toBeNull();
     // 2 rows in the current window vs 2 in the previous → 0% change.
     expect(trend!.delta).toBe(0);
     expect(trend!.previousValue).toBe(2);
+  });
+
+  it('produces a real percentage trend, not ∞/"New", when an active date filter also narrows currentRows (T2-2)', () => {
+    // In production the active page date filter below would make `useWidgetRows` return
+    // ONLY the current-window rows as `filteredRowsNoCross` — mimicked here (since
+    // `useWidgetRows` is mocked in this file) by setting `rowsHolder.current` to just those
+    // two rows. Pre-fix, the fixed-period branch fed this ALREADY date-narrowed set into
+    // `computeFixedPeriodTrend`, so windowing it again by the fixed 30-day range left NOTHING
+    // in the previous-period window (both rows already fall in the CURRENT window) —
+    // `previousValue` collapsed to 0 and the badge pinned at a bogus ∞ delta despite the
+    // underlying (unfiltered) data trending normally. The fix re-derives the trend's "all
+    // rows" baseline from `dataSource.rows` with the date filter stripped out, so both
+    // windows see their real rows again.
+    rowsHolder.current = [
+      { id: 's1', amount: 100, saleDate: '2026-07-01' },
+      { id: 's2', amount: 200, saleDate: '2026-07-02' },
+    ];
+    const activeDateFilter: StudioFilterState = {
+      id: 'f-date',
+      field: 'saleDate',
+      fieldType: 'date',
+      scope: { kind: 'page', pageId: 'page-1' },
+      operator: 'between',
+      value: { from: '2026-07-01', to: '2026-07-02' },
+    } as unknown as StudioFilterState;
+    const widget = makeWidget(
+      {
+        kpiValueField: 'amount',
+        kpiAggregation: 'sum',
+        kpiTrend: true,
+        kpiTrendFixedPeriod: 'month',
+        kpiSparklineField: 'saleDate',
+      },
+      'sales',
+    );
+    const salesWithRows = { ...salesSource, rows: salesRows } as StudioDataSource;
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { sales: salesWithRows },
+      filters: [activeDateFilter],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, salesWithRows);
+
+    const trend = lastTrend();
+    expect(trend).not.toBeNull();
+    expect(Number.isFinite(trend!.delta)).toBe(true);
+    // Current window (s1 + s2 = 300) vs previous window (s3 + s4 = 200): +50%, not ∞.
+    expect(trend!.delta).toBeCloseTo(0.5);
+    expect(trend!.previousValue).toBe(200);
   });
 
   it('computes a fixed-period trend when the date field lives on a related (cross-source) source (finding 2.8)', () => {
@@ -1354,6 +1418,10 @@ describe('<StudioKpiWidget /> KPI L4 anchor-filter re-application (finding 1.2)'
     } as unknown as StudioFilterState;
 
     rowsHolder.current = allOrderItems;
+    // See T2-2: the fixed-period trend's "all rows" baseline now comes from
+    // `dataSource.rows`, so the own-source (order_items) dataSource must carry the full
+    // row set, matching `rowsHolder.current`.
+    const orderItemsWithRows = { ...orderItemsSource, rows: allOrderItems } as StudioDataSource;
     const widget = makeWidget(
       {
         kpiValueField: 'revenue',
@@ -1366,13 +1434,13 @@ describe('<StudioKpiWidget /> KPI L4 anchor-filter re-application (finding 1.2)'
     );
     mockState = createState({
       widgets: { 'kpi-1': widget },
-      dataSources: { order_items: orderItemsSource, orders: ordersWithStatus },
+      dataSources: { order_items: orderItemsWithRows, orders: ordersWithStatus },
       relationships: [crossSourceRelationship],
       filters: [paidStatusFilter],
     });
     configureStudioContextMock({ getState: () => mockState });
 
-    renderKpi(widget, orderItemsSource);
+    renderKpi(widget, orderItemsWithRows);
 
     const trend = lastTrend();
     expect(trend).not.toBeNull();
@@ -1705,6 +1773,10 @@ describe('<StudioKpiWidget /> expression-field & cross-page filter scoping (find
     } as unknown as StudioFilterState;
 
     rowsHolder.current = allOrderItems;
+    // See T2-2: the fixed-period trend's "all rows" baseline now comes from
+    // `dataSource.rows`, so the own-source (order_items) dataSource must carry the full
+    // row set, matching `rowsHolder.current`.
+    const orderItemsWithRows = { ...orderItemsSource, rows: allOrderItems } as StudioDataSource;
     const widget = makeWidget(
       {
         kpiValueField: 'revenue',
@@ -1717,14 +1789,14 @@ describe('<StudioKpiWidget /> expression-field & cross-page filter scoping (find
     );
     mockState = createState({
       widgets: { 'kpi-1': widget },
-      dataSources: { order_items: orderItemsSource, orders: ordersWithRevenue },
+      dataSources: { order_items: orderItemsWithRows, orders: ordersWithRevenue },
       relationships: [crossSourceRelationship],
       expressionFields: [bigRevenueExpr],
       filters: [bigRevenueFilter],
     });
     configureStudioContextMock({ getState: () => mockState });
 
-    renderKpi(widget, orderItemsSource);
+    renderKpi(widget, orderItemsWithRows);
 
     const trend = lastTrend();
     expect(trend).not.toBeNull();

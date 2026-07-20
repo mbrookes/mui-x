@@ -197,7 +197,8 @@ describe('buildApprovalEffectsSummary', () => {
 
 describe('dispatchToolCall', () => {
   it('reports invalid JSON arguments back to the model', async () => {
-    const ctx = makeCtx({ advertisedToolNames: new Set(['list_pages']) });
+    const usage = { committedMutations: 0, toolCalls: 0 };
+    const ctx = makeCtx({ advertisedToolNames: new Set(['list_pages']), usage });
     const { events, outcome } = await runDispatch(
       dispatchToolCall(tc('list_pages', '{not json'), {}, true, INITIAL_STATE, ctx),
     );
@@ -206,10 +207,16 @@ describe('dispatchToolCall', () => {
       kind: 'result',
       output: JSON.stringify({ error: 'invalid tool arguments: {not json' }),
     });
+    // Regression: this early return happens before `executeToolWithPolicy`/
+    // `consultToolPolicyArgsOnly` ever run, so it must bump `usage.toolCalls` itself —
+    // otherwise a malformed tool call would consume a turn for free against the
+    // tool-call budget.
+    expect(usage.toolCalls).toBe(1);
   });
 
   it('rejects a call to a tool that was not advertised this request', async () => {
-    const ctx = makeCtx({ advertisedToolNames: new Set(['list_pages']) });
+    const usage = { committedMutations: 0, toolCalls: 0 };
+    const ctx = makeCtx({ advertisedToolNames: new Set(['list_pages']), usage });
     const { outcome } = await runDispatch(
       dispatchToolCall(tc('remove_page'), {}, false, INITIAL_STATE, ctx),
     );
@@ -217,6 +224,9 @@ describe('dispatchToolCall', () => {
       kind: 'result',
       output: JSON.stringify({ error: 'Unknown tool: remove_page' }),
     });
+    // Regression: same accounting gap as the parse-failure case above — an
+    // unadvertised/hallucinated tool name must still count against the tool-call budget.
+    expect(usage.toolCalls).toBe(1);
   });
 
   it('runs a registered server-tool skill and forwards its output', async () => {
@@ -335,6 +345,37 @@ describe('dispatchToolCall', () => {
       // equivalent outer wrapper of its own. Both are bounded at 15s, so either
       // message is an acceptable, equally-valid proof that the call does not hang
       // forever; don't couple this assertion to which one wins the race.
+      expect(parsed.error).toMatch(/timed out after 15000ms/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Finding: a server-tool skill's `execute()` had no timeout wrap, unlike the sibling
+  // `query_data_source` path above — a hanging skill (e.g. one awaiting a stuck
+  // external API call) would block the whole agentic-loop turn indefinitely.
+  it('times out a hanging server-tool skill instead of waiting forever', async () => {
+    vi.useFakeTimers();
+    try {
+      const execute = vi.fn(() => new Promise<never>(() => {}));
+      const skill: StudioAISkill = {
+        name: 'hanging_skill',
+        mode: 'server-tool',
+        promptFragment: '',
+        tool: { name: 'hanging_skill', description: 'd', parameters: {}, execute },
+      };
+      const ctx = makeCtx({
+        advertisedToolNames: new Set(['hanging_skill']),
+        skillHandlers: [skill],
+      });
+
+      const dispatchPromise = runDispatch(
+        dispatchToolCall(tc('hanging_skill'), {}, false, INITIAL_STATE, ctx),
+      );
+
+      await vi.advanceTimersByTimeAsync(15_000);
+      const { outcome } = await dispatchPromise;
+      const parsed = JSON.parse((outcome as { output: string }).output) as { error: string };
       expect(parsed.error).toMatch(/timed out after 15000ms/);
     } finally {
       vi.useRealTimers();

@@ -353,6 +353,66 @@ function encodeSSE(event: StudioAISSEEvent): string {
   return `data: ${JSON.stringify(event)}\n\n`;
 }
 
+/** True for a non-null value whose `typeof` is `'object'` (arrays included). */
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+/**
+ * Validates the minimal shape `handleAIChat` actually dereferences downstream —
+ * `body.messages` (iterated by `toOpenAIMessages`) and `body.dashboardState.doc`'s
+ * `dashboard`/`pages`/`widgets` records (read by `buildAISystemPrompt` and, for
+ * `snapshotPageId`, `runAgenticLoop` itself via `initialState.doc.dashboard.activePageId`).
+ *
+ * Without this check, a malformed body (e.g. a `dashboardState` missing `doc`, or one
+ * whose `doc` is missing `pages`/`widgets`/`dashboard`) only surfaces once the agentic
+ * loop dereferences the missing field, as an opaque native `TypeError` ("Cannot read
+ * properties of undefined (reading 'activePageId')") — violating this project's
+ * error-message convention (say what happened, why it matters, how to fix it) and
+ * giving an integrator no clue which request field was wrong. Returns an actionable
+ * `MUI X Studio:`-prefixed message describing the problem, or `undefined` when the body
+ * is well-formed enough to proceed.
+ *
+ * Deliberately shallow: this only guards against the shapes that would otherwise crash
+ * with a raw `TypeError`, not full schema validation of every optional field.
+ */
+function validateStudioAIRequestBody(body: unknown): string | undefined {
+  if (!isObject(body)) {
+    return (
+      'MUI X Studio: handleAIChat was called with a missing or non-object request body. ' +
+      'This prevents the agentic loop from reading the conversation history and dashboard ' +
+      'state it needs to run. Pass the parsed JSON request body — an object shaped like ' +
+      '`{ messages, dashboardState, ... }` (see `StudioAIRequest`) — as the first argument.'
+    );
+  }
+  if (!Array.isArray(body.messages)) {
+    return (
+      'MUI X Studio: The request body is missing a `messages` array (`StudioAIRequest.messages`). ' +
+      'Without it there is no conversation history to send to the LLM. Ensure the client sends ' +
+      '`{ messages: ChatMessage[], ... }` and that the host route forwards the parsed body as-is.'
+    );
+  }
+  const { dashboardState } = body as { dashboardState?: unknown };
+  if (!isObject(dashboardState) || !isObject(dashboardState.doc)) {
+    return (
+      'MUI X Studio: The request body is missing `dashboardState.doc` (`StudioAIRequest.dashboardState`). ' +
+      'This prevents the agentic loop from resolving the active page and building the system ' +
+      "prompt's dashboard-state context. Ensure the client sends the full `StudioState` snapshot " +
+      '(as returned by `serializeState`/`createDefaultStudioState`) under `dashboardState`.'
+    );
+  }
+  const { doc } = dashboardState;
+  if (!isObject(doc.dashboard) || !isObject(doc.pages) || !isObject(doc.widgets)) {
+    return (
+      'MUI X Studio: `dashboardState.doc` is missing one or more required `dashboard`/`pages`/`widgets` ' +
+      'fields (`StudioDoc`). This prevents the agentic loop from resolving the active page and dashboard ' +
+      'layout. Ensure `dashboardState` is a complete, unmodified `StudioState` snapshot rather than a ' +
+      'partial or hand-built object.'
+    );
+  }
+  return undefined;
+}
+
 /**
  * Handle an AI chat request from a Studio dashboard.
  *
@@ -374,7 +434,7 @@ export function handleAIChat(
     privateMode: bodyPrivateMode,
     pageSnapshot,
     richContext,
-  } = body;
+  } = body ?? ({} as StudioAIRequest);
 
   // Server-side allowlist / private-mode enforcement (invariant 10: the client
   // asserts these in the body; a host that needs a hard guarantee overrides them
@@ -436,6 +496,19 @@ export function handleAIChat(
   return new ReadableStream<string>({
     async start(controller) {
       try {
+        // Validate the request body shape BEFORE any downstream use (finding: a
+        // malformed `dashboardState` previously only surfaced once the agentic loop
+        // dereferenced a missing field, as an opaque native `TypeError`). Checked here,
+        // inside the existing error-surfacing path, rather than thrown synchronously out
+        // of `handleAIChat` itself, so this keeps the same "always returns a stream, never
+        // throws" contract as every other failure mode below (transport errors, rate
+        // limits, aborts) and the host gets one uniform `{ type: 'error' }` frame to handle.
+        const validationError = validateStudioAIRequestBody(body);
+        if (validationError) {
+          controller.enqueue(encodeSSE({ type: 'error', message: validationError }));
+          return;
+        }
+
         // Best-effort server-side context enrichment. Failures never abort the chat.
         let enrichedContext: StudioAIEnrichedContext | undefined;
         if (options.contextEnricher && !effectivePrivateMode) {

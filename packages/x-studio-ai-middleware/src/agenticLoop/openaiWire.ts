@@ -200,6 +200,17 @@ export function accumulateToolCallDeltas(deltas: ToolCallDelta[], acc: ToolCallA
       // append it again. A genuinely incremental fragment (the common case)
       // never equals the name accumulated so far, so this never drops a real
       // fragment.
+      //
+      // KNOWN LIMITATION (accepted best-effort heuristic): this rule is imprecise in
+      // the pathological case where a genuinely incremental fragment happens to be
+      // textually IDENTICAL to the prefix accumulated so far (e.g. name "aaaa" streamed
+      // as "aa" + "aa" — the second "aa" fragment would be wrongly dropped as a
+      // "resend"). No real registered tool name (`STUDIO_AI_TOOLS`) has this
+      // self-repeating structure at any plausible chunk boundary, so this never
+      // misfires in practice; there is no cheaper/more precise signal available here
+      // (no resend flag or expected-total-length hint on the wire) to distinguish the
+      // two cases in general, so this stays a deliberate best-effort tradeoff rather
+      // than a bug fix.
       if (existingName !== tc.function.name) {
         acc.reqToolCalls[idx].name += tc.function.name;
       }

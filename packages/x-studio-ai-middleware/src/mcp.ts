@@ -229,6 +229,15 @@ export function buildStudioMcpServer(
   // a `proposed` mutation) is denied without consulting the host policy.
   // `onLimitReached` fires once per breach.
   const maxSessionMutations = rateLimit?.maxMutationsPerSession;
+  // Total tool-call budget (mutating OR read-only), same layering as the mutation
+  // budget above and mirroring the chat agentic loop's `Policy.toolCallBudget`
+  // (`agenticLoop.ts`): it runs BEFORE the host policy via `Policy.all`, so once the
+  // per-session call count reaches the cap, EVERY further tool call is denied
+  // outright — not just mutating ones. Without this, `maxMutationsPerSession` alone
+  // does not bound a session that dispatches an unbounded number of read-only calls
+  // (e.g. hundreds of `query_data_source` live DB queries). `onLimitReached('toolCalls', …)`
+  // fires once per breach.
+  const maxSessionToolCalls = rateLimit?.maxToolCallsPerSession;
   const sessionToolPolicy: ToolPolicy = Policy.all(
     Policy.mutationBudget({
       max: maxSessionMutations,
@@ -238,6 +247,15 @@ export function buildStudioMcpServer(
         'MUI X Studio: Mutation budget exceeded — this MCP session may commit at most ' +
         `${max} state mutation${max === 1 ? '' : 's'} ` +
         `(already committed ${committed}). This change was not applied.`,
+    }),
+    Policy.toolCallBudget({
+      max: maxSessionToolCalls,
+      getCalls: () => sessionUsage.toolCalls,
+      onExceeded: () => rateLimit?.onLimitReached?.('toolCalls', sessionUsage.toolCalls),
+      reason: (calls, max) =>
+        'MUI X Studio: Tool-call budget exceeded — this MCP session may dispatch at most ' +
+        `${max} tool call${max === 1 ? '' : 's'} (already dispatched ${calls}). ` +
+        'This call was not executed.',
     }),
     hostToolPolicy,
   );

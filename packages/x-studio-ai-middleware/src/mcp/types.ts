@@ -189,14 +189,25 @@ export interface StudioMcpOptions {
    */
   approvalHandler?: (ctx: ToolPolicyContext) => Promise<boolean>;
   /**
-   * Per-session mutation budget. Once `maxMutationsPerSession` committed mutations
-   * are reached, any further mutating `tools/call` is denied with a clear reason and
-   * `onLimitReached('mutations', count)` fires once per breach. Read-only calls never
-   * count against it. Omit for no cap (current behavior).
+   * Per-session mutation and tool-call budgets. Both are layered BEFORE the host
+   * `toolPolicy` (via `Policy.all`), mirroring `AgenticLoopOptions.rateLimit` on the
+   * chat transport.
+   *
+   * - `maxMutationsPerSession`: once this many committed mutations are reached, any
+   *   further mutating `tools/call` is denied with a clear reason. Read-only calls
+   *   never count against it.
+   * - `maxToolCallsPerSession`: once this many total `tools/call` invocations (mutating
+   *   OR read-only) are reached, EVERY further call is denied — this is what actually
+   *   bounds a session that dispatches an unbounded number of read-only calls (e.g.
+   *   hundreds of `query_data_source` live DB queries), which `maxMutationsPerSession`
+   *   alone does not cap. Omit for no cap (current behavior).
+   *
+   * `onLimitReached(reason, count)` fires once per breach, per budget.
    */
   rateLimit?: {
     maxMutationsPerSession?: number;
-    onLimitReached?: (reason: 'mutations', count: number) => void;
+    maxToolCallsPerSession?: number;
+    onLimitReached?: (reason: 'mutations' | 'toolCalls', count: number) => void;
   };
 }
 

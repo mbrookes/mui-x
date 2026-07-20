@@ -31,6 +31,16 @@ const DEFAULT_MAX_QUERY_ROWS = 1000;
  */
 const QUERY_DATA_SOURCE_TIMEOUT_MS = 15_000;
 
+/**
+ * Timeout (ms) for a host-registered server-tool skill's `execute()` call. Without
+ * this, a hanging skill (e.g. one that awaits a stuck external API call) would block
+ * the whole agentic-loop turn — and therefore the SSE stream — indefinitely, exactly
+ * like the unbounded `query_data_source` call this mirrors. Same value as
+ * `QUERY_DATA_SOURCE_TIMEOUT_MS`: both are server-side calls into host-supplied code
+ * with no more specific latency contract to size a bespoke timeout against.
+ */
+const SERVER_TOOL_TIMEOUT_MS = 15_000;
+
 // ── Tool approval ─────────────────────────────────────────────────────────────
 
 type ApprovalOutcome =
@@ -398,6 +408,14 @@ export async function* dispatchToolCall(
   // non-validating destructive tools, report a no-op as success. Surface the parse
   // failure to the model so it can retry with valid JSON.
   if (argsParseFailed) {
+    // Every other dispatch path counts against `usage.toolCalls` via
+    // `executeToolWithPolicy`/`consultToolPolicyArgsOnly` — this early return happens
+    // before either runs, so it must bump the counter itself. A malformed tool call
+    // still consumed a turn (and, from the model's perspective, an attempted call), so
+    // it must count against the tool-call budget just like a dispatched one; otherwise a
+    // model stuck emitting invalid JSON could retry unboundedly without ever tripping
+    // `maxToolCallsPerRequest`.
+    ctx.usage.toolCalls += 1;
     const rawArgs = tc.argsBuffer ?? '';
     const snippet = rawArgs.length > 200 ? `${rawArgs.slice(0, 200)}…` : rawArgs;
     return {
@@ -414,6 +432,10 @@ export async function* dispatchToolCall(
   // Unknown or unadvertised names get the same error the default path produces —
   // never run.
   if (!ctx.advertisedToolNames.has(name)) {
+    // Same accounting rationale as the parse-failure return above: this happens before
+    // any policy consult increments `usage.toolCalls`, so a hallucinated/injected call to
+    // an unadvertised tool would otherwise dispatch for free against the budget.
+    ctx.usage.toolCalls += 1;
     return { kind: 'result', output: JSON.stringify({ error: `Unknown tool: ${name}` }) };
   }
 
@@ -457,8 +479,12 @@ export async function* dispatchToolCall(
       }
     }
     try {
-      const result = await Promise.resolve(
-        matchedSkill.tool.execute(toolInput as Record<string, unknown>, currentState),
+      const result = await withTimeout(
+        Promise.resolve(
+          matchedSkill.tool.execute(toolInput as Record<string, unknown>, currentState),
+        ),
+        SERVER_TOOL_TIMEOUT_MS,
+        `server-tool skill "${name}"`,
       );
       if (result.mutation) {
         ctx.usage.committedMutations += 1;

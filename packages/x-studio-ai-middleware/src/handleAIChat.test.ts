@@ -199,6 +199,76 @@ describe('handleAIChat', () => {
     expect(events.map((event) => event.type)).not.toContain('finish');
   });
 
+  // Finding: a malformed request body (e.g. a `dashboardState` missing `doc`, or a body
+  // that isn't an object at all) previously fell straight through to the agentic loop,
+  // which dereferenced the missing field and threw a raw, opaque `TypeError` — caught
+  // only by the generic `catch` in `start()`. `handleAIChat` never calls `fetch` for
+  // any of these (the loop never even starts), which is itself part of the regression
+  // guard: a bad request must fail fast with an actionable message, not partially run.
+  describe('request body validation', () => {
+    it('rejects a missing/non-object body', async () => {
+      const events = parseEvents(
+        await readAll(handleAIChat(undefined as unknown as StudioAIRequest, OPTIONS)),
+      );
+      const errorEvent = events.find(
+        (event): event is { type: 'error'; message: string } => event.type === 'error',
+      );
+      expect(errorEvent?.message).toMatch(/^MUI X Studio:/);
+      expect(errorEvent?.message).toMatch(/missing or non-object request body/);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('rejects a body missing `messages`', async () => {
+      const body = makeBody();
+      delete (body as { messages?: unknown }).messages;
+
+      const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+      const errorEvent = events.find(
+        (event): event is { type: 'error'; message: string } => event.type === 'error',
+      );
+      expect(errorEvent?.message).toMatch(/^MUI X Studio:/);
+      expect(errorEvent?.message).toMatch(/missing a `messages` array/);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('rejects a dashboardState missing `doc`', async () => {
+      const body = makeBody({ dashboardState: {} as unknown as StudioAIRequest['dashboardState'] });
+
+      const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+      const errorEvent = events.find(
+        (event): event is { type: 'error'; message: string } => event.type === 'error',
+      );
+      expect(errorEvent?.message).toMatch(/^MUI X Studio:/);
+      expect(errorEvent?.message).toMatch(/missing `dashboardState\.doc`/);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('rejects a dashboardState.doc missing required pages/widgets/dashboard fields', async () => {
+      const state = createDefaultStudioState();
+      const body = makeBody({
+        dashboardState: {
+          ...state,
+          doc: { ...state.doc, pages: undefined as never },
+        },
+      });
+
+      const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+      const errorEvent = events.find(
+        (event): event is { type: 'error'; message: string } => event.type === 'error',
+      );
+      expect(errorEvent?.message).toMatch(/^MUI X Studio:/);
+      expect(errorEvent?.message).toMatch(/dashboard`\/`pages`\/`widgets`/);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('accepts a well-formed body and proceeds to call the LLM', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(textResponse('ok'));
+      const events = parseEvents(await readAll(handleAIChat(makeBody(), OPTIONS)));
+      expect(events.map((event) => event.type)).not.toContain('error');
+      expect(fetch).toHaveBeenCalledOnce();
+    });
+  });
+
   it('runs contextEnricher and injects its output into the system prompt', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(textResponse('ok'));
     const contextEnricher = vi.fn().mockResolvedValue({ notes: 'Enriched by the server.' });

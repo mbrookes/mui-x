@@ -1118,6 +1118,40 @@ describe('buildStudioMcpServer — tools/call toolPolicy chokepoint', () => {
     ).toBe(false);
   });
 
+  // Finding: `mcp.ts`'s session policy previously composed only `Policy.mutationBudget`,
+  // with no `Policy.toolCallBudget` counterpart — unlike the chat agentic loop, an MCP
+  // session had no cap on total tool calls, so a purely read-only flood (e.g. unbounded
+  // `get_dashboard_state`/`list_pages` calls, which never commit a mutation) was
+  // unbounded even with `maxMutationsPerSession` set.
+  it('maxToolCallsPerSession denies further calls (mutating or read-only) once exceeded', async () => {
+    const stateBox = { current: makeStableState() };
+    const onLimitReached = vi.fn();
+    const server = buildStudioMcpServer(stateBox, {
+      rateLimit: { maxToolCallsPerSession: 1, onLimitReached },
+    });
+    const call = getHandler(server, CALL_TOOL);
+
+    const first = (await call({
+      params: { name: 'list_pages', arguments: {} },
+      method: CALL_TOOL,
+    })) as any;
+    expect(first.isError).toBeFalsy();
+
+    // A second call — even a read-only, non-mutating one — must also be denied: the
+    // budget covers every tool call, not just committed mutations.
+    const second = (await call({
+      params: { name: 'list_pages', arguments: {} },
+      method: CALL_TOOL,
+    })) as any;
+    expect(second.isError).toBe(true);
+    expect(second.content[0].text).toMatch(/tool-call budget exceeded/i);
+    // `usage.toolCalls` is bumped BEFORE the policy is consulted (see
+    // `executeToolWithPolicy`/`consultToolPolicyArgsOnly`), so by the time
+    // `Policy.toolCallBudget` runs for this second call, the counter already reflects
+    // it: 2, not 1 — mirroring `Policy.toolCallBudget`'s own `>` (not `>=`) comparison.
+    expect(onLimitReached).toHaveBeenCalledWith('toolCalls', 2);
+  });
+
   it('omitted toolPolicy preserves current execute-everything behavior (remove_page runs)', async () => {
     // Critical regression guard: the MCP default is allow-all, NOT createDefaultToolPolicy().
     // A destructive tool must still execute with no approval pause when no policy is set.

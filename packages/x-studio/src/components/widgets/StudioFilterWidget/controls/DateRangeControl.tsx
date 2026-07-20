@@ -136,6 +136,12 @@ export function DateRangeControl(props: StudioFilterDateRangeControlProps) {
               },
               onBlur: () => {
                 fromFocusedRef.current = false;
+                // Re-sync to the current external value on blur. If an external change
+                // (e.g. another part of the UI clearing this filter, or an undo/redo)
+                // arrived while this field was focused, the sync effect above suppressed
+                // it. Without this, the stale displayed date would persist indefinitely
+                // even after the user tabs/clicks away.
+                setFrom(currentValue?.from ? dayjs(currentValue.from) : null);
               },
             },
           }}
@@ -154,6 +160,8 @@ export function DateRangeControl(props: StudioFilterDateRangeControlProps) {
               },
               onBlur: () => {
                 toFocusedRef.current = false;
+                // See comment on the "From" field's onBlur above.
+                setTo(currentValue?.to ? dayjs(currentValue.to) : null);
               },
             },
           }}

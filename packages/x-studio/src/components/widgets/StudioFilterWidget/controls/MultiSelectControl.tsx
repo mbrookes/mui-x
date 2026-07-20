@@ -69,6 +69,14 @@ export function MultiSelectControl(props: StudioFilterMultiSelectControlProps) {
     }
   };
 
+  // "Select all" should ADD the currently-visible (search-filtered) options to the
+  // existing selection rather than replacing it outright. Otherwise, when a search
+  // query narrows the visible option list, clicking "Select all" would silently drop
+  // any previously-selected values that don't match the current search text.
+  const handleSelectAllVisible = () => {
+    handleSelectionChange(Array.from(new Set([...selected, ...filtered])));
+  };
+
   return (
     <Stack spacing={0.5} role="group" aria-label={label}>
       {isActive && (
@@ -145,7 +153,7 @@ export function MultiSelectControl(props: StudioFilterMultiSelectControlProps) {
                 aria-label={localeText.filterWidgetSelectAllLabel}
                 onClick={(evt) => {
                   evt.stopPropagation();
-                  handleSelectionChange(filtered);
+                  handleSelectAllVisible();
                 }}
                 sx={{ ...inlineButtonSx, color: 'primary.main' }}
               >

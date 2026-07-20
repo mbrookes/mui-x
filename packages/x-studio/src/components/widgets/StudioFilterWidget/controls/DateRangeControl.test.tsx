@@ -117,6 +117,32 @@ describe('DateRangeControl', () => {
     expect(within(toField).getByRole('spinbutton', { name: 'Year' }).textContent).toBe('2024');
   });
 
+  // Regression coverage: an external clear (e.g. another part of the UI clearing this
+  // filter, or an undo/redo) that lands while the "from" field is focused must not strand
+  // the stale displayed date forever. The focus guard legitimately suppresses the resync
+  // while focused, but losing focus must flush it.
+  it('re-syncs the displayed "from" value on blur after an external change while focused', async () => {
+    const { user, setProps } = setup({ currentValue: { from: '2024-01-15', to: '2024-01-20' } });
+
+    const fromField = getDateField(localeText.filterWidgetDateFromLabel);
+    const monthSection = within(fromField).getByRole('spinbutton', { name: 'Month' });
+    await user.click(monthSection);
+    expect(monthSection.textContent).toBe('01');
+
+    // External clear while the field is still focused.
+    setProps({ currentValue: null });
+
+    // The focus guard suppresses the resync while focused, so the stale date is still shown.
+    expect(monthSection.textContent).toBe('01');
+
+    // Losing focus must flush the resync so the stale value doesn't persist past a blur.
+    await user.click(document.body);
+
+    expect(monthSection.textContent).toBe('MM');
+    expect(within(fromField).getByRole('spinbutton', { name: 'Day' }).textContent).toBe('DD');
+    expect(within(fromField).getByRole('spinbutton', { name: 'Year' }).textContent).toBe('YYYY');
+  });
+
   describe('applying a new "from" date (debounced)', () => {
     // The control debounces `onApply` by 300ms so that typing into the date field doesn't
     // trigger a pipeline re-render per keystroke. Real timers (with an awaited delay) are used

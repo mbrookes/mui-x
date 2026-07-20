@@ -90,6 +90,24 @@ describe('MultiSelectControl', () => {
     expect(onApply).toHaveBeenCalledWith(['DE']);
   });
 
+  // Regression coverage: "Select all" must ADD the currently-visible (search-filtered)
+  // options to the existing selection, not replace it — otherwise a previously-selected
+  // value that doesn't match the current search text is silently dropped.
+  it('preserves previously-selected values outside the search when "Select all" is clicked', async () => {
+    const { user, onApply } = setup({ values: ['US', 'DE', 'FR'], selected: ['FR'] });
+    await openSelect(user);
+
+    const search = screen.getByRole('textbox', { name: localeText.filterSearchValues });
+    await user.type(search, 'de');
+
+    await user.click(screen.getByRole('button', { name: localeText.filterWidgetSelectAllLabel }));
+
+    expect(onApply).toHaveBeenCalledOnce();
+    const applied = onApply.mock.calls[0][0] as string[];
+    expect(applied).toEqual(expect.arrayContaining(['FR', 'DE']));
+    expect(applied).toHaveLength(2);
+  });
+
   it('clears the selection when "Clear all" is clicked', async () => {
     const { user, onClear } = setup({ selected: ['US', 'DE'] });
     await openSelect(user);

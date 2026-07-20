@@ -539,6 +539,42 @@ describe('enrichRowsWithRelatedFields', () => {
     expect(result[2].country).toBe('Germany'); // ORD-3 → CUS-1
   });
 
+  it('one-hop related-source date dimension is L1-normalized to a canonical string (finding 4)', () => {
+    // `signupDate` lives on the related source (`customers`), pulled in as a display/dimension
+    // column via a one-hop join. The related source's rows here carry a RAW `Date` object —
+    // exactly what an un-normalized foreign-source read still has, unlike the widget's own
+    // `useWidgetRows`-normalized rows. Before the fix, `enrichRowsWithRelatedFields` read
+    // `relatedSource.rows` directly rather than through `getCachedNormalizedDataSource`, so this
+    // stayed a raw `Date` object here — bucketing differently than an L1-normalized date on the
+    // widget's own source for a non-UTC viewer (the filter engine's local-calendar-day policy vs.
+    // the chart-grouping engine's UTC-component policy).
+    const dateDataSources: Record<string, StudioDataSource> = {
+      orders: dataSources.orders,
+      customers: {
+        id: 'customers',
+        label: 'Customers',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'signupDate', label: 'Signup Date', type: 'date' },
+        ],
+        rows: [
+          { id: 'CUS-1', signupDate: new Date(2024, 0, 15) },
+          { id: 'CUS-2', signupDate: new Date(2024, 2, 3) },
+        ],
+      },
+    };
+    const result = enrichRowsWithRelatedFields(
+      orders,
+      'orders',
+      ['signupDate'],
+      dateDataSources,
+      relationships,
+    );
+    expect(typeof result[0].signupDate).toBe('string');
+    expect(result[0].signupDate).toBe('2024-01-15'); // ORD-1 → CUS-1
+    expect(result[1].signupDate).toBe('2024-03-03'); // ORD-2 → CUS-2
+  });
+
   it('enriches across a numeric-vs-string FK/PK type mismatch (shared normalizeJoinKey policy)', () => {
     const numericFkOrders = [
       { id: 'ORD-1', customerId: 1 },
@@ -1042,6 +1078,62 @@ describe('many-to-many relationships', () => {
     });
   });
 
+  describe('resolveRows — filter targeting the JUNCTION source directly (finding 3)', () => {
+    // Before the fix, `findJoinPath` had no case for a `filterSourceId` naming the junction
+    // source directly (a junction is never a relationship's own `sourceId`/`targetId`, only its
+    // `junctionSourceId`), so this filter fell through to `null` and was silently DROPPED at L3
+    // for every widget — even though a junction-anchored chart separately re-applies the
+    // equivalent filter at L4 (`grainResolution.ts`'s `anchorScopedFilters`). That let two widgets
+    // on the same page disagree about which rows satisfy the identical nominal filter.
+    it('filters products to those with a matching order_items row (junction-scoped filter)', () => {
+      const filter: StudioFilterState = {
+        id: 'f1',
+        scope: { kind: 'page' as const },
+        field: 'qty',
+        fieldType: 'number',
+        operator: 'greater_than_or_equal',
+        value: 2,
+        filterSourceId: 'order_items',
+      };
+
+      const result = resolveRows(products.rows!, 'products', [filter], dataSources, relationships);
+      // Only product 1 (Widget) has an order_items row with qty >= 2 (qty:2 and qty:3).
+      expect(result.map((r) => r.id).sort()).toEqual([1]);
+    });
+
+    it('filters in reverse direction: orders filtered by a matching order_items row', () => {
+      const filter: StudioFilterState = {
+        id: 'f1',
+        scope: { kind: 'page' as const },
+        field: 'qty',
+        fieldType: 'number',
+        operator: 'greater_than_or_equal',
+        value: 2,
+        filterSourceId: 'order_items',
+      };
+
+      const result = resolveRows(orders.rows!, 'orders', [filter], dataSources, relationships);
+      // Orders 10 (qty:2) and 11 (qty:3) each have a matching order_items row; order 12 (qty:1)
+      // does not.
+      expect(result.map((r) => r.id).sort()).toEqual([10, 11]);
+    });
+
+    it('returns empty when no junction rows match', () => {
+      const filter: StudioFilterState = {
+        id: 'f1',
+        scope: { kind: 'page' as const },
+        field: 'qty',
+        fieldType: 'number',
+        operator: 'greater_than',
+        value: 100,
+        filterSourceId: 'order_items',
+      };
+
+      const result = resolveRows(products.rows!, 'products', [filter], dataSources, relationships);
+      expect(result).toEqual([]);
+    });
+  });
+
   describe('enrichRowsWithRelatedFields — M:N two-hop', () => {
     it('enriches product rows with the customer field via junction (first match)', () => {
       const enriched = enrichRowsWithRelatedFields(
@@ -1070,6 +1162,49 @@ describe('many-to-many relationships', () => {
       );
       expect(enriched[0].customer).toBe('Existing');
     });
+
+    it('M:N remote-endpoint date dimension is L1-normalized to a canonical string (finding 4)', () => {
+      // `orderedOn` lives on the M:N remote endpoint (`orders`), pulled in via the two-hop
+      // junction lookup. Before the fix, the target rows were read raw (`targetSource.rows`)
+      // rather than through `getCachedNormalizedDataSource`.
+      const dateDataSources: Record<string, StudioDataSource> = {
+        ...dataSources,
+        orders: {
+          ...orders,
+          fields: [...orders.fields, { id: 'orderedOn', label: 'Ordered On', type: 'date' }],
+          rows: [
+            { id: 10, customer: 'Alice', orderedOn: new Date(2024, 0, 15) },
+            { id: 11, customer: 'Bob', orderedOn: new Date(2024, 2, 3) },
+            { id: 12, customer: 'Carol', orderedOn: new Date(2024, 4, 20) },
+          ],
+        },
+      };
+      const enriched = enrichRowsWithRelatedFields(
+        products.rows!,
+        'products',
+        ['orderedOn'],
+        dateDataSources,
+        relationships,
+      );
+      expect(typeof enriched[0].orderedOn).toBe('string');
+      expect(enriched[0].orderedOn).toBe('2024-01-15'); // Widget → first order (10, Alice)
+      expect(enriched[2].orderedOn).toBe('2024-05-20'); // Doohickey → order 12 (Carol)
+    });
+
+    // Note (finding 4 verification): the junction rows read at the `const junctionRows =
+    // dataSources[need.junctionSourceId]?.rows` site are used ONLY to traverse
+    // `junctionWidgetField`/`junctionTargetField` (join-key lookups into `targetLookup`) — this
+    // function has no branch that resolves a field owned by the junction source itself (the
+    // M:N-two-hop loop above only matches `targetSource.fields`, never the junction's), so a
+    // junction-owned column's value is never actually read through `junctionRows` here. Routing
+    // that read through `getCachedNormalizedDataSource` is still applied for defense-in-depth
+    // consistency with the other two sites, but — unlike the direct-relationship and M:N-remote-
+    // endpoint sites above, which fix an observable UTC-vs-local bucketing bug for a real
+    // dimension value — this site currently has no reachable date-typed field whose DISPLAYED
+    // value it affects (the join-key fields it does read are compared via `normalizeJoinKey`,
+    // which already canonicalizes a `Date` to an ISO string for key-equality purposes
+    // independently of L1). No dedicated regression test is added for this specific site, since
+    // there is no current code path where it changes observable behavior.
   });
 
   describe('analyzeChartSupport — M:N anchor', () => {

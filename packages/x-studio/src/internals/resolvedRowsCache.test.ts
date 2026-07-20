@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { resolveRowsCached } from './resolvedRowsCache';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { resolveRowsCached, filterFingerprint } from './resolvedRowsCache';
 import type {
   StudioDataSource,
   StudioFilterState,
@@ -1066,5 +1066,110 @@ describe('resolveRowsCached', () => {
     );
     // Without the fix, this would still return ['o1'] (stale) instead of ['o2'].
     expect(result2.map((r) => r.id)).toEqual(['o2']);
+  });
+});
+
+// ─── filterFingerprint — relative date detection (finding 5) ──────────────────
+//
+// The cache key computed by `filterFingerprint` previously only detected a relative date value
+// sitting at the TOP level of `f.value`/`f.value2` (`isRelativeDateValue(f.value)`). A `between`
+// filter's `f.value` is itself a stable `{ from, to }` object — never a `RelativeDateValue` — so
+// a relative bound NESTED inside it (`{ from: <relative>, to: <relative> }`) went completely
+// undetected: the fingerprint stayed identical across a midnight crossing even though the
+// resolved date window shifted, serving a STALE window from `resolveRowsCached`'s cache for the
+// remainder of a long-lived session.
+describe('filterFingerprint — relative date detection (finding 5)', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function betweenRelativeFilter(): StudioFilterState {
+    return {
+      id: 'f1',
+      field: 'orderDate',
+      fieldType: 'date',
+      operator: 'between',
+      value: {
+        from: { relative: true, amount: 30, unit: 'day', direction: 'past' },
+        to: { relative: true, amount: 0, unit: 'day', direction: 'past' },
+      },
+      scope: { kind: 'page' as const },
+    } as StudioFilterState;
+  }
+
+  it('changes when a relative bound NESTED in a `between` filter crosses a day boundary', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-06-15T12:00:00Z'));
+    const fingerprintDay1 = filterFingerprint(betweenRelativeFilter());
+
+    vi.setSystemTime(new Date('2024-06-16T12:00:00Z'));
+    const fingerprintDay2 = filterFingerprint(betweenRelativeFilter());
+
+    // Before the fix these were IDENTICAL (the raw `{from,to}` object never changes), so
+    // `resolveRowsCached` kept serving yesterday's resolved window forever.
+    expect(fingerprintDay1).not.toBe(fingerprintDay2);
+  });
+
+  it('a `between` filter with only ONE relative bound (the other absolute) still changes across a day boundary', () => {
+    const filter: StudioFilterState = {
+      id: 'f1',
+      field: 'orderDate',
+      fieldType: 'date',
+      operator: 'between',
+      value: {
+        from: { relative: true, amount: 7, unit: 'day', direction: 'past' },
+        to: '2024-12-31',
+      },
+      scope: { kind: 'page' as const },
+    } as StudioFilterState;
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-06-15T12:00:00Z'));
+    const fingerprintDay1 = filterFingerprint(filter);
+
+    vi.setSystemTime(new Date('2024-06-16T12:00:00Z'));
+    const fingerprintDay2 = filterFingerprint(filter);
+
+    expect(fingerprintDay1).not.toBe(fingerprintDay2);
+  });
+
+  it('a top-level relative value (not nested in `between`) still changes across a day boundary (regression guard)', () => {
+    const filter: StudioFilterState = {
+      id: 'f1',
+      field: 'orderDate',
+      fieldType: 'date',
+      operator: 'greater_than_or_equal',
+      value: { relative: true, amount: 7, unit: 'day', direction: 'past' },
+      scope: { kind: 'page' as const },
+    } as StudioFilterState;
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-06-15T12:00:00Z'));
+    const fingerprintDay1 = filterFingerprint(filter);
+
+    vi.setSystemTime(new Date('2024-06-16T12:00:00Z'));
+    const fingerprintDay2 = filterFingerprint(filter);
+
+    expect(fingerprintDay1).not.toBe(fingerprintDay2);
+  });
+
+  it('a `between` filter with only absolute bounds is unaffected by the day (no spurious cache misses)', () => {
+    const filter: StudioFilterState = {
+      id: 'f1',
+      field: 'orderDate',
+      fieldType: 'date',
+      operator: 'between',
+      value: { from: '2024-01-01', to: '2024-01-31' },
+      scope: { kind: 'page' as const },
+    } as StudioFilterState;
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-06-15T12:00:00Z'));
+    const fingerprintDay1 = filterFingerprint(filter);
+
+    vi.setSystemTime(new Date('2024-06-16T12:00:00Z'));
+    const fingerprintDay2 = filterFingerprint(filter);
+
+    expect(fingerprintDay1).toBe(fingerprintDay2);
   });
 });

@@ -67,6 +67,35 @@ const rowCache = new WeakMap<Row[], Map<string, ResolvedCacheEntry>>();
 const MAX_ENTRIES_PER_ROWS = 20;
 
 /**
+ * Resolves the day-boundary component of a value that carries a relative date, so the cache key
+ * changes when the resolved window would change — whether the relative value sits at the TOP
+ * level of a filter condition (e.g. `field >= "7 days ago"`) or NESTED inside a `between`
+ * bound's `{ from, to }` object (e.g. `field between { from: "30 days ago", to: today }`).
+ *
+ * A `between` filter's `f.value` is itself a plain `{ from, to }` object — never a
+ * `RelativeDateValue` — so `isRelativeDateValue(f.value)` alone never detects a relative bound
+ * nested inside it. That left the cache key computed from the raw (stable) `{from,to}` object
+ * unchanged across a midnight crossing even though the resolved window shifted, serving a STALE
+ * date window for the remainder of a long-lived session (finding 5).
+ *
+ * Returns `null` when `value` carries no relative date anywhere.
+ */
+function relativeDayComponent(value: unknown): string | null {
+  if (isRelativeDateValue(value)) {
+    return resolveRelativeDate(value);
+  }
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const range = value as { from?: unknown; to?: unknown };
+    const fromDay = isRelativeDateValue(range.from) ? resolveRelativeDate(range.from) : null;
+    const toDay = isRelativeDateValue(range.to) ? resolveRelativeDate(range.to) : null;
+    if (fromDay !== null || toDay !== null) {
+      return `${fromDay ?? ''}..${toDay ?? ''}`;
+    }
+  }
+  return null;
+}
+
+/**
  * Fingerprints every field that affects how a filter selects rows. `compileRowTest`
  * (filterUtils) reads operator/field/fieldType/conjunction/operator2/value2/
  * filterMode/rank*, so all of them must be part of the cache key — omitting them
@@ -88,13 +117,15 @@ export function filterFingerprint(f: StudioFilterState): string {
     // changes across a midnight crossing — the entry would serve a stale window forever while
     // preset filters self-heal (their resolved `{from,to}` changes daily). Fold the resolved
     // day into the fingerprint so a relative-valued filter re-computes when the day rolls over
-    // (finding 2.21). Preset (`dateRangePreset`) filters are already resolved to concrete bounds
-    // in `f.value` before reaching here, so they need no equivalent treatment.
-    isRelativeDateValue(f.value) ? resolveRelativeDate(f.value) : null,
+    // (finding 2.21) — including a relative bound nested inside a `between` filter's `{from,to}`
+    // value, not just a top-level relative value (finding 5). Preset (`dateRangePreset`) filters
+    // are already resolved to concrete bounds in `f.value` before reaching here, so they need no
+    // equivalent treatment.
+    relativeDayComponent(f.value),
     f.conjunction ?? null,
     f.operator2 ?? null,
     f.value2 ?? null,
-    isRelativeDateValue(f.value2) ? resolveRelativeDate(f.value2) : null,
+    relativeDayComponent(f.value2),
     f.rankDirection ?? null,
     f.rankByField ?? null,
     f.rankMultiSeriesBy ?? null,

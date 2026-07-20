@@ -117,6 +117,41 @@ describe('enrichWithCrossSourceColumns', () => {
     expect(result[1]).toMatchObject({ company: 'Globex', segment: 'SMB' });
   });
 
+  it('L1-normalizes a related-source date column to a canonical string (finding 4)', () => {
+    // `joinedDate` lives on the related source (`customers`) and carries a RAW `Date` object —
+    // exactly what an un-normalized foreign-source read still has, unlike the widget's own
+    // `useWidgetRows`-normalized rows. Before the fix, `enrichWithCrossSourceFields` read
+    // `dataSources[ref.sourceId]?.rows` directly, so this cross-source display column (a grid
+    // column or map field referencing a related source) stayed a raw `Date` object here —
+    // bucketing differently than an L1-normalized date on the primary source for a non-UTC
+    // viewer.
+    const dateDataSources: Record<string, StudioDataSource> = {
+      customers: {
+        id: 'customers',
+        label: 'Customers',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'joinedDate', label: 'Joined Date', type: 'date' },
+        ],
+        rows: [
+          { id: 'c1', joinedDate: new Date(2024, 0, 15) },
+          { id: 'c2', joinedDate: new Date(2024, 2, 3) },
+        ],
+      },
+    };
+    const columns = [{ fieldId: 'id' }, { fieldId: 'joinedDate', sourceId: 'customers' }];
+    const result = enrichWithCrossSourceColumns(
+      orderRows,
+      'orders',
+      columns,
+      dateDataSources,
+      relationships,
+    );
+    expect(typeof result[0].joinedDate).toBe('string');
+    expect(result[0].joinedDate).toBe('2024-01-15'); // o1 → c1
+    expect(result[1].joinedDate).toBe('2024-03-03'); // o2 → c2
+  });
+
   it('skips cross-source columns with no declared relationship', () => {
     const columns = [
       { fieldId: 'productName', sourceId: 'products' }, // no relationship declared

@@ -7,6 +7,7 @@ import type {
 import { getCachedEnrichedRows } from './enrichedRowsCache';
 import { applyFilters } from './filterUtils';
 import { collectKeySet, normalizeJoinKey } from './joinKeys';
+import { getCachedNormalizedDataSource } from './normalizedRowsCache';
 
 type Row = Record<string, unknown>;
 
@@ -84,8 +85,10 @@ export function getReachableSourceIds(
 
 /**
  * Describes how to join widgetSource to filterSource:
- * - hops:1 — direct relationship (many-to-one or one-to-one)
- * - hops:2 — many-to-many via a junction source
+ * - hops:1 — direct relationship (many-to-one or one-to-one), OR filterSource IS the junction
+ *   source of an M:N relationship touching widgetSource (a genuine one-hop semi-join against the
+ *   junction's own rows/fields — see the dedicated junction-source loop below, finding 3)
+ * - hops:2 — many-to-many via a junction source, filtering on the REMOTE endpoint
  */
 type JoinPath =
   | { hops: 1; widgetJoinField: string; filterJoinField: string }
@@ -152,6 +155,40 @@ function findJoinPath(
         junctionWidgetField: rel.junctionTargetField,
         junctionFilterField: rel.junctionSourceField,
         filterJoinField: rel.sourceField,
+      };
+    }
+  }
+
+  // filterSource IS the JUNCTION source of an M:N relationship touching widgetSource (finding 3).
+  // A junction table is never a relationship's own `sourceId`/`targetId` (only its
+  // `junctionSourceId`), so neither loop above ever matches it, and a filter whose
+  // `filterSourceId` names the junction directly used to fall through to `findJoinPath` returning
+  // `null` — silently DROPPING the filter at L3 for every widget except a junction-anchored chart
+  // (which separately re-applies the equivalent filter at L4, `grainResolution.ts`'s
+  // `anchorScopedFilters`). That let two widgets on the same page disagree about which rows
+  // satisfy the identical nominal filter. This is a genuine one-hop semi-join against the
+  // junction's OWN rows/fields — filter the junction rows directly (native fields, handled by the
+  // caller same as any other foreign source), then keep widget rows whose join field appears
+  // among the matching junction rows' widget-referencing field.
+  for (const rel of relationships) {
+    if (rel.type !== 'many-to-many' || rel.junctionSourceId !== filterSourceId) {
+      continue;
+    }
+    if (!rel.junctionSourceField || !rel.junctionTargetField) {
+      continue; // incomplete M:N config — skip (matches the two-hop completeness check above)
+    }
+    if (rel.sourceId === widgetSourceId) {
+      return {
+        hops: 1,
+        widgetJoinField: rel.sourceField,
+        filterJoinField: rel.junctionSourceField,
+      };
+    }
+    if (rel.targetId === widgetSourceId) {
+      return {
+        hops: 1,
+        widgetJoinField: rel.targetField,
+        filterJoinField: rel.junctionTargetField,
       };
     }
   }
@@ -454,7 +491,13 @@ export function enrichRowsWithRelatedFields(
         fieldId,
         widgetJoinField,
         relatedJoinField,
-        relatedRows: relatedSource.rows ?? [],
+        // Route through the same L1 date normalization the widget's own source rows get
+        // (`getCachedNormalizedDataSource`) rather than reading raw rows — otherwise a date/
+        // datetime dimension pulled in from a one-hop related source stays a raw `Date`/non-
+        // canonical string here, and the filter engine's local-calendar-day policy and the chart-
+        // grouping engine's UTC-component policy can bucket the identical value into different
+        // days for a non-UTC viewer (finding 4).
+        relatedRows: getCachedNormalizedDataSource(relatedSource).rows ?? [],
       });
       resolved = true;
       break;
@@ -510,7 +553,8 @@ export function enrichRowsWithRelatedFields(
         junctionWidgetField,
         junctionTargetField,
         targetJoinField,
-        targetRows: targetSource.rows ?? [],
+        // Same L1 date normalization as the direct one-hop case above (finding 4).
+        targetRows: getCachedNormalizedDataSource(targetSource).rows ?? [],
       });
       break;
     }
@@ -540,8 +584,13 @@ export function enrichRowsWithRelatedFields(
       }
       lookups.push({ fieldId: need.fieldId, widgetJoinField: need.widgetJoinField, map });
     } else {
-      // Build: widgetJoinValue → first matching target field value via junction
-      const junctionRows = dataSources[need.junctionSourceId]?.rows ?? [];
+      // Build: widgetJoinValue → first matching target field value via junction. Same L1 date
+      // normalization as the target/related rows above — a junction-owned date/datetime column
+      // read as a display field must canonicalize identically (finding 4).
+      const junctionDataSource = dataSources[need.junctionSourceId];
+      const junctionRows = junctionDataSource
+        ? (getCachedNormalizedDataSource(junctionDataSource).rows ?? [])
+        : [];
       // targetJoinValue → fieldValue
       const targetLookup = new Map<string, unknown>();
       for (const row of need.targetRows) {

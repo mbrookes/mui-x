@@ -298,6 +298,108 @@ describe('resolveRowsAtGrain', () => {
     expect(agg.values[agg.labels.indexOf('Bob')]).toBe(20);
   });
 
+  it('many-to-one anchor enriches a THIRD-source CALCULATED (expression-field) dimension owned by a source reachable many-to-one from the widget source (finding 1)', () => {
+    // widget = customers; anchor = orders (many-to-one "many" side, owns the measure `amount`).
+    // x = `regionLabel`, a CALCULATED COLUMN (non-measure expression field) owned by `regions`, a
+    // THIRD source reachable many-to-one from `customers` (the widget source) — distinct from the
+    // anchor `orders`. `enrichRowsWithRelatedFields` (used for the third-source enrichment in the
+    // many-to-one branch) only ever resolves PHYSICAL columns, so before the fix `regionLabel`
+    // resolved to `undefined` on every row despite `analyzeChartSupport` reporting the
+    // configuration as supported (verified by actually executing this exact scenario prior to the
+    // fix — `x` came back `undefined` for every row).
+    const customers: Row[] = [
+      { id: 1, regionId: 'r1' },
+      { id: 2, regionId: 'r2' },
+    ];
+    const regions: Row[] = [
+      { id: 'r1', code: 'eu' },
+      { id: 'r2', code: 'us' },
+    ];
+    const orders: Row[] = [
+      { customerId: '1', amount: 100 },
+      { customerId: '1', amount: 50 },
+      { customerId: '2', amount: 20 },
+    ];
+    const ordersRel: StudioRelationship = {
+      id: 'r-orders',
+      type: 'many-to-one',
+      sourceId: 'orders',
+      sourceField: 'customerId',
+      targetId: 'customers',
+      targetField: 'id',
+    };
+    const regionsRel: StudioRelationship = {
+      id: 'r-regions',
+      type: 'many-to-one',
+      sourceId: 'customers',
+      sourceField: 'regionId',
+      targetId: 'regions',
+      targetField: 'id',
+    };
+    const dataSources: Record<string, StudioDataSource> = {
+      customers: {
+        id: 'customers',
+        label: 'Customers',
+        fields: [
+          { id: 'id', label: 'ID', type: 'number' },
+          { id: 'regionId', label: 'Region', type: 'string' },
+        ],
+        rows: customers,
+      },
+      regions: {
+        id: 'regions',
+        label: 'Regions',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'code', label: 'Code', type: 'string' },
+        ],
+        rows: regions,
+      },
+      orders: {
+        id: 'orders',
+        label: 'Orders',
+        fields: [
+          { id: 'customerId', label: 'Customer', type: 'string' },
+          { id: 'amount', label: 'Amount', type: 'number' },
+        ],
+        rows: orders,
+      },
+    };
+    // `regionLabel = if(code == 'eu', 'EU', 'OTHER')` — a calculated column on `regions`.
+    const regionLabelExpr: StudioExpressionField = {
+      id: 'regionLabel',
+      label: 'Region Label',
+      sourceId: 'regions',
+      isMeasure: false,
+      type: 'string',
+      expression: {
+        operator: 'if',
+        inputs: [
+          { operator: 'equals', inputs: [{ id: 'code' }, { type: 'string', value: 'eu' }] },
+          { type: 'string', value: 'EU' },
+          { type: 'string', value: 'OTHER' },
+        ],
+      },
+    } as unknown as StudioExpressionField;
+
+    const resolved = resolveChartRowsForAggregation(
+      customers,
+      'customers',
+      'regionLabel',
+      ['amount'],
+      undefined,
+      dataSources,
+      [ordersRel, regionsRel],
+      [regionLabelExpr],
+    );
+
+    expect(resolved).toHaveLength(3); // three orders
+    expect(resolved.every((r) => r.regionLabel !== undefined)).toBe(true);
+    const agg = aggregateByField(resolved, 'regionLabel', 'amount');
+    expect(agg.values[agg.labels.indexOf('EU')]).toBe(150);
+    expect(agg.values[agg.labels.indexOf('OTHER')]).toBe(20);
+  });
+
   it('many-to-many junction anchor joins numeric/string keys and does not double-count (regression + fan-out safety)', () => {
     const products: Row[] = [
       { id: 1, name: 'Widget' },
@@ -462,6 +564,121 @@ describe('resolveRowsAtGrain', () => {
     const agg = aggregateByField(resolved, 'segment', 'quantity');
     expect(agg.values[agg.labels.indexOf('Enterprise')]).toBe(5);
     expect(agg.values[agg.labels.indexOf('SMB')]).toBe(3);
+  });
+
+  it('many-to-many anchor enriches a THIRD-source CALCULATED (expression-field) dimension owned by a source reachable many-to-one from the widget source (finding 1)', () => {
+    // Same topology as the previous test, but the third-source dimension (`regionLabel`) is a
+    // CALCULATED COLUMN (non-measure expression field) owned by `customers`, not a physical field.
+    // `enrichRowsWithRelatedFields` (used for the third-source enrichment in the M:N branch) only
+    // ever resolves PHYSICAL columns — it filters candidates against `relatedSource.fields` — so
+    // before the fix `regionLabel` resolved to `undefined` on every row despite
+    // `analyzeChartSupport` reporting the configuration as supported (verified by actually
+    // executing this exact scenario prior to the fix).
+    const orders: Row[] = [
+      { id: 'o1', customerId: 'c1' },
+      { id: 'o2', customerId: 'c2' },
+    ];
+    const customers: Row[] = [
+      { id: 'c1', region: 'eu' },
+      { id: 'c2', region: 'us' },
+    ];
+    const products: Row[] = [{ id: 'p1', name: 'Widget' }];
+    const orderProducts: Row[] = [
+      { orderId: 'o1', productId: 'p1', quantity: 5 },
+      { orderId: 'o2', productId: 'p1', quantity: 3 },
+    ];
+    const m2mRel: StudioRelationship = {
+      id: 'r-m2m',
+      type: 'many-to-many',
+      sourceId: 'orders',
+      sourceField: 'id',
+      targetId: 'products',
+      targetField: 'id',
+      junctionSourceId: 'order_products',
+      junctionSourceField: 'orderId',
+      junctionTargetField: 'productId',
+    } as unknown as StudioRelationship;
+    const customersRel: StudioRelationship = {
+      id: 'r-customers',
+      type: 'many-to-one',
+      sourceId: 'orders',
+      sourceField: 'customerId',
+      targetId: 'customers',
+      targetField: 'id',
+    };
+    const dataSources: Record<string, StudioDataSource> = {
+      orders: {
+        id: 'orders',
+        label: 'Orders',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'customerId', label: 'Customer', type: 'string' },
+        ],
+        rows: orders,
+      },
+      customers: {
+        id: 'customers',
+        label: 'Customers',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'region', label: 'Region', type: 'string' },
+        ],
+        rows: customers,
+      },
+      products: {
+        id: 'products',
+        label: 'Products',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'name', label: 'Name', type: 'string' },
+        ],
+        rows: products,
+      },
+      order_products: {
+        id: 'order_products',
+        label: 'Order Products',
+        fields: [
+          { id: 'orderId', label: 'Order', type: 'string' },
+          { id: 'productId', label: 'Product', type: 'string' },
+          { id: 'quantity', label: 'Quantity', type: 'number' },
+        ],
+        rows: orderProducts,
+      },
+    };
+    // `regionLabel = if(region == 'eu', 'EU', 'OTHER')` — a calculated column on `customers`.
+    const regionLabelExpr: StudioExpressionField = {
+      id: 'regionLabel',
+      label: 'Region Label',
+      sourceId: 'customers',
+      isMeasure: false,
+      type: 'string',
+      expression: {
+        operator: 'if',
+        inputs: [
+          { operator: 'equals', inputs: [{ id: 'region' }, { type: 'string', value: 'eu' }] },
+          { type: 'string', value: 'EU' },
+          { type: 'string', value: 'OTHER' },
+        ],
+      },
+    } as unknown as StudioExpressionField;
+
+    const resolved = resolveChartRowsForAggregation(
+      orders,
+      'orders',
+      'regionLabel',
+      ['quantity'],
+      undefined,
+      dataSources,
+      [m2mRel, customersRel],
+      [regionLabelExpr],
+    );
+
+    expect(resolved).toHaveLength(2);
+    // Every row must carry its customer's region label — not undefined.
+    expect(resolved.every((r) => r.regionLabel !== undefined)).toBe(true);
+    const agg = aggregateByField(resolved, 'regionLabel', 'quantity');
+    expect(agg.values[agg.labels.indexOf('EU')]).toBe(5);
+    expect(agg.values[agg.labels.indexOf('OTHER')]).toBe(3);
   });
 
   // ─── Finding 1.4 ────────────────────────────────────────────────────────────
@@ -1136,6 +1353,102 @@ describe('resolveRowsAtGrain — own-field ownership guards at the merge sites (
     // Must be the customer's own label, NOT the anchor row's coincidental same-named column.
     expect(resolved[0].label).toBe('Acme Corp');
     expect(resolved[0].total).toBe(100);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Finding 4 — a one-hop related source's EXPRESSION field is evaluated from L1-normalized rows
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// `enrichForeignExpressionFields` (used by BOTH the no-re-anchor branch and, per finding 1 above,
+// the many-to-one/M:N re-anchor branches) previously read `dataSources[ownerSourceId]?.rows`
+// directly from the raw store before evaluating the owner's expression fields against them. A
+// formula referencing a raw `Date` object (rather than an L1-normalized `YYYY-MM-DD` string) can
+// silently produce a WRONG result, not just a differently-bucketed one: the expression
+// evaluator's ordering comparator (`compareOrdered` in `utils/expressionEvaluator.ts`) falls back
+// to a lexicographic string comparison for non-numeric-like operands, and `String(rawDateObject)`
+// (`Date.prototype.toString()`, e.g. `"Mon Jan 15 2024 00:00:00 GMT+0000 ..."`) always sorts
+// AFTER any `YYYY-MM-DD` literal (a letter always outranks a digit lexicographically) —
+// regardless of the actual date — so a `>=` comparison against a date literal always evaluates
+// `true` for a raw `Date` row value, no matter which side of the threshold the real date falls
+// on.
+describe('resolveRowsAtGrain — related-source expression fields read L1-normalized rows (finding 4)', () => {
+  it('a one-hop related-source expression referencing a raw Date field evaluates the SAME as it would for an L1-normalized string', () => {
+    const orders: Row[] = [
+      { id: 'o1', customerId: 'c1' },
+      { id: 'o2', customerId: 'c2' },
+    ];
+    // Raw `Date` objects — exactly what an un-normalized foreign-source read still has, unlike
+    // the widget's own `useWidgetRows`-normalized rows.
+    const customers: Row[] = [
+      { id: 'c1', signupDate: new Date(2024, 0, 15) }, // Jan 15 — BEFORE the threshold
+      { id: 'c2', signupDate: new Date(2024, 7, 1) }, // Aug 1 — AFTER the threshold
+    ];
+    const rel: StudioRelationship = {
+      id: 'r',
+      type: 'many-to-one',
+      sourceId: 'orders',
+      sourceField: 'customerId',
+      targetId: 'customers',
+      targetField: 'id',
+    };
+    const dataSources: Record<string, StudioDataSource> = {
+      orders: {
+        id: 'orders',
+        label: 'Orders',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'customerId', label: 'Customer', type: 'string' },
+        ],
+        rows: orders,
+      },
+      customers: {
+        id: 'customers',
+        label: 'Customers',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'signupDate', label: 'Signup Date', type: 'date' },
+        ],
+        rows: customers,
+      },
+    };
+    // `segment = if(signupDate >= '2024-06-01', 'NEW', 'OLD')` — a calculated column on
+    // `customers` referencing its own raw date field.
+    const segmentExpr: StudioExpressionField = {
+      id: 'segment',
+      label: 'Segment',
+      sourceId: 'customers',
+      isMeasure: false,
+      type: 'string',
+      expression: {
+        operator: 'if',
+        inputs: [
+          {
+            operator: 'greaterThanOrEqual',
+            inputs: [{ id: 'signupDate' }, { type: 'string', value: '2024-06-01' }],
+          },
+          { type: 'string', value: 'NEW' },
+          { type: 'string', value: 'OLD' },
+        ],
+      },
+    } as unknown as StudioExpressionField;
+
+    const result = resolveRowsAtGrain(
+      orders,
+      'orders',
+      'orders', // no re-anchor — still routes through `enrichForeignExpressionFields`
+      ['segment'],
+      new Map([['segment', 'customers']]),
+      dataSources,
+      [rel],
+      [segmentExpr],
+    );
+
+    expect(result).toHaveLength(2);
+    // Without L1 normalization, `String(rawDate)` always lexicographically outranks the
+    // `'2024-06-01'` literal, so BOTH rows would incorrectly evaluate to 'NEW'.
+    expect(result[0].segment).toBe('OLD'); // c1 signed up in January — before the threshold
+    expect(result[1].segment).toBe('NEW'); // c2 signed up in August — after the threshold
   });
 });
 

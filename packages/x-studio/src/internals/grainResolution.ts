@@ -125,8 +125,13 @@ function enrichForeignExpressionFields(
         : relationship.sourceField;
 
     collectReadSourceIds?.add(ownerSourceId);
+    // Route through the same L1 date normalization applied to every other foreign source this
+    // module reads (anchor/junction/remote rows) rather than the raw store — an expression
+    // referencing a raw date/datetime field on the owner source would otherwise bucket
+    // differently than the widget's own L1-normalized dates for a non-UTC viewer (finding 4).
+    const ownerDataSource = dataSources[ownerSourceId];
     const enrichedOwnerRows = enrichSourceRowsWithExpressions(
-      dataSources[ownerSourceId]?.rows ?? [],
+      ownerDataSource ? (getCachedNormalizedDataSource(ownerDataSource).rows ?? []) : [],
       ownerSourceId,
       dataSources,
       relationships,
@@ -312,22 +317,39 @@ export function resolveRowsAtGrain(
     // validates and reports this configuration as supported, so it must actually be enriched onto
     // the widget rows here (mirroring the many-to-one branch's own third-source enrichment)
     // instead of silently resolving to `undefined` on every output row (finding 1.3).
+    const thirdSourceFieldIds = requestedFields.filter(
+      (fieldId) =>
+        fieldOwners.get(fieldId) !== anchorSourceId && fieldOwners.get(fieldId) !== remoteSourceId,
+    );
     const widgetRowsEnriched = enrichRowsWithRelatedFields(
       widgetRows,
       widgetSourceId,
-      requestedFields.filter(
-        (fieldId) =>
-          fieldOwners.get(fieldId) !== anchorSourceId &&
-          fieldOwners.get(fieldId) !== remoteSourceId,
-      ),
+      thirdSourceFieldIds,
       dataSources,
       relationships,
+      collectReadSourceIds,
+    );
+    // `enrichRowsWithRelatedFields` only resolves PHYSICAL columns on the related source (it
+    // filters candidates against `relatedSource.fields`) — a third-source CALCULATED (non-measure
+    // expression) dimension has no counterpart there and would silently resolve to `undefined` on
+    // every output row despite `analyzeChartSupport` reporting the configuration as supported. Run
+    // the same `enrichForeignExpressionFields` pass the no-re-anchor branch already applies, so a
+    // third-source expression-field dimension resolves consistently whether or not the chart
+    // re-anchors (finding 1).
+    const widgetRowsEnrichedWithExpr = enrichForeignExpressionFields(
+      widgetRowsEnriched,
+      widgetSourceId,
+      thirdSourceFieldIds,
+      fieldOwners,
+      dataSources,
+      relationships,
+      expressionFields,
       collectReadSourceIds,
     );
 
     // Build lookup maps for widget and remote source (normalized join keys).
     const allowedWidgetKeys = collectKeySet(widgetRows, widgetJoinField);
-    const widgetRowLookup = indexRowsByKey(widgetRowsEnriched, widgetJoinField);
+    const widgetRowLookup = indexRowsByKey(widgetRowsEnrichedWithExpr, widgetJoinField);
 
     // Re-apply the filter subset scoped to the M:N REMOTE endpoint (finding 2.3). L3 enforced a
     // remote-endpoint filter (e.g. `tags.category = 'priority'`) only as a semi-join on the widget
@@ -402,9 +424,14 @@ export function resolveRowsAtGrain(
       : junctionRowsRaw;
 
     // Apply the anchor(junction)-source-scoped filter subset directly to the junction rows
-    // BEFORE the expansion join, so a filter on the junction's own fields (already enforced at
-    // L3 as a semi-join keeping widget rows with >=1 matching junction row) doesn't get silently
-    // re-widened back to every junction row for each surviving widget row (finding 1.4).
+    // BEFORE the expansion join, so a filter on the junction's own fields — now ALSO enforced at
+    // L3 as a one-hop semi-join against the junction's own rows (`dataSourceGraph.findJoinPath`'s
+    // dedicated junction-source case, finding 3) keeping widget rows with >=1 matching junction
+    // row — doesn't get silently re-widened back to every junction row for each surviving widget
+    // row (finding 1.4). (This comment previously claimed L3 already did this semi-join, but
+    // `findJoinPath` had no case for a `filterSourceId` naming the junction directly, so the
+    // filter was actually being silently DROPPED at L3 for every non-junction-anchored widget —
+    // finding 3 closes that gap so every widget on a page now agrees on the filtered row set.)
     const junctionRows = applyFilters(junctionRowsEnriched, anchorScopedFilters);
 
     return junctionRows.flatMap((jRow) => {
@@ -446,12 +473,31 @@ export function resolveRowsAtGrain(
     anchorRelationship.sourceId !== anchorSourceId ||
     anchorRelationship.targetId !== widgetSourceId
   ) {
-    return enrichRowsWithRelatedFields(
+    // Reached for a one-to-one anchor declared in the REVERSE direction (`sourceId ===
+    // widgetSourceId`, `targetId === anchorSourceId`) — direction-independence for a 1:1 anchor
+    // is now supported by `analyzeChartSupport` (finding 6), and each widget row still maps to at
+    // most one related row (no fan-out either way for a genuine 1:1), so a plain FK-based
+    // enrichment of the widget rows is the correct result here, same as the many-to-one anchor
+    // switch below produces for the forward direction. `enrichRowsWithRelatedFields` only
+    // resolves PHYSICAL columns, so a requested field that is a CALCULATED column owned by the
+    // anchor (or another directly-related) source must also go through `enrichForeignExpressionFields`
+    // or it silently resolves to `undefined` (finding 1).
+    const related = enrichRowsWithRelatedFields(
       widgetRows,
       widgetSourceId,
       requestedFields,
       dataSources,
       relationships,
+      collectReadSourceIds,
+    );
+    return enrichForeignExpressionFields(
+      related,
+      widgetSourceId,
+      requestedFields,
+      fieldOwners,
+      dataSources,
+      relationships,
+      expressionFields,
       collectReadSourceIds,
     );
   }
@@ -502,16 +548,36 @@ export function resolveRowsAtGrain(
     return key !== null && allowedWidgetKeys.has(key);
   });
 
+  const thirdSourceFieldIds = requestedFields.filter(
+    (fieldId) => fieldOwners.get(fieldId) !== anchorSourceId,
+  );
   const widgetRowsForLookup = enrichRowsWithRelatedFields(
     widgetRows,
     widgetSourceId,
-    requestedFields.filter((fieldId) => fieldOwners.get(fieldId) !== anchorSourceId),
+    thirdSourceFieldIds,
     dataSources,
     relationships,
     collectReadSourceIds,
   );
+  // `enrichRowsWithRelatedFields` only resolves PHYSICAL columns on the related source — a
+  // third-source CALCULATED (non-measure expression) field used as a dimension has no
+  // counterpart there and would silently resolve to `undefined` on every output row despite
+  // `analyzeChartSupport` reporting the configuration as supported. Run the same
+  // `enrichForeignExpressionFields` pass the no-re-anchor branch already applies, so a
+  // third-source expression-field dimension resolves consistently whether or not the chart
+  // re-anchors (finding 1).
+  const widgetRowsForLookupWithExpr = enrichForeignExpressionFields(
+    widgetRowsForLookup,
+    widgetSourceId,
+    thirdSourceFieldIds,
+    fieldOwners,
+    dataSources,
+    relationships,
+    expressionFields,
+    collectReadSourceIds,
+  );
 
-  const widgetRowLookup = indexRowsByKey(widgetRowsForLookup, widgetJoinField);
+  const widgetRowLookup = indexRowsByKey(widgetRowsForLookupWithExpr, widgetJoinField);
 
   return enrichedAnchorRows.map((anchorRow) => {
     const key = normalizeJoinKey(anchorRow[anchorJoinField]);

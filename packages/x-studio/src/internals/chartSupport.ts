@@ -284,16 +284,49 @@ export function analyzeChartSupport(
   // widget has no single grain combining it with the many-side measure, so it must fail closed
   // rather than be silently mis-attributed by the first-match-only M:N display lookup (finding 1.1).
   let anchorIsPlainManyToOne = false;
+  // Set only when the anchor is the JUNCTION source of an M:N relationship because the measure
+  // (y) is a field owned by the junction table itself (`viaJunctionRel` below) — as opposed to
+  // `junctionAnchorForWidgetMeasure`, where the measure lives on the widget source. In that
+  // topology a grouping dimension owned by a DIFFERENT M:N relationship's remote endpoint (or
+  // junction) has no single grain combining it with this junction-owned measure: it would
+  // silently be resolved via `enrichRowsWithRelatedFields`'s first-match-only two-hop lookup
+  // instead of actually fanning out, mis-attributing links (finding 2). A dimension owned by
+  // THIS SAME relationship's own remote endpoint is fine — `resolveRowsAtGrain`'s M:N branch
+  // already joins that endpoint in as part of the merge — so only a DIFFERENT M:N relationship's
+  // reach is disallowed (tracked via `anchorJunctionRemoteSourceId` below).
+  let anchorIsJunctionOwnedMeasure = false;
+  let anchorJunctionRemoteSourceId: string | undefined;
   if (ySourceIds.length === 1 && ySourceIds[0] !== widgetSourceId) {
     const ySourceId = ySourceIds[0];
     const anchorRelationship = findDirectRelationship(widgetSourceId, ySourceId, relationships);
     if (anchorRelationship) {
+      // A one-to-one relationship has no fan-out in EITHER direction (each side has at most one
+      // matching row), so which side was declared `sourceId` vs `targetId` is irrelevant to
+      // safety — anchoring on `ySourceId` is fine regardless of direction, matching the
+      // direction-independent check `isSafeWidgetBridgeOwner` already applies to a 1:1 owner. The
+      // anchor-selection check here used to require the SAME direction a many-to-one relationship
+      // uses (`sourceId === ySourceId && targetId === widgetSourceId`) for a 1:1 too, so a 1:1
+      // declared the other way around fell through to no anchor switch and failed closed even
+      // though the identical relationship declared in reverse was accepted — a schema-author-facing
+      // inconsistency, not a correctness bug, since the reverse-declared case failed closed rather
+      // than mis-aggregating (finding 6). `anchorIsPlainManyToOne` (which gates the M:N-reachable-
+      // dimension fail-closed guard below) still applies to a 1:1 anchor in either direction, same
+      // as it always did for the forward direction: a 1:1 anchor has no fan-out risk of its OWN,
+      // but combining it with a first-match-only M:N-reachable dimension has the identical
+      // silent-mis-attribution risk a plain many-to-one anchor does (finding 1.1), so the guard's
+      // applicability is unchanged — only the anchor-selection direction check is widened.
+      const widgetIsOneSide =
+        anchorRelationship.sourceId === ySourceId && anchorRelationship.targetId === widgetSourceId;
+      const oneToOneReverseDirection =
+        anchorRelationship.type === 'one-to-one' &&
+        anchorRelationship.sourceId === widgetSourceId &&
+        anchorRelationship.targetId === ySourceId;
       if (
         anchorRelationship.type !== 'many-to-many' &&
-        anchorRelationship.sourceId === ySourceId &&
-        anchorRelationship.targetId === widgetSourceId
+        (widgetIsOneSide || oneToOneReverseDirection)
       ) {
-        // many-to-one: widget is the "one" side → anchor on the "many" (ySource)
+        // many-to-one: widget is the "one" side → anchor on the "many" (ySource). One-to-one:
+        // either declaration direction anchors safely on ySourceId.
         anchorSourceId = ySourceId;
         anchorIsPlainManyToOne = true;
       } else if (
@@ -322,6 +355,11 @@ export function analyzeChartSupport(
       if (viaJunctionRel) {
         // y-field lives directly in the junction table; anchor on the junction itself
         anchorSourceId = ySourceId;
+        anchorIsJunctionOwnedMeasure = true;
+        anchorJunctionRemoteSourceId =
+          viaJunctionRel.sourceId === widgetSourceId
+            ? viaJunctionRel.targetId
+            : viaJunctionRel.sourceId;
       }
     }
   } else if (ySourceIds.every((sourceId) => sourceId === widgetSourceId)) {
@@ -404,6 +442,26 @@ export function analyzeChartSupport(
     // "two distinct M:N remote dimensions" behaviour.
     if (
       anchorIsPlainManyToOne &&
+      isManyToManyReachableOwner(widgetSourceId, owner, relationships)
+    ) {
+      return { supported: false, reason: 'mixed_cross_source_fields' };
+    }
+
+    // Finding 2: under a JUNCTION-OWNED-MEASURE anchor (the measure is a field on the junction
+    // table itself), a grouping dimension reachable via a DIFFERENT M:N relationship's remote
+    // endpoint or junction has no single grain combining it with this anchor either — the same
+    // risk as the plain-many-to-one case above, just one hop further out. `anchorIsPlainManyToOne`
+    // never fires for this shape (the anchor here isn't a plain many-to-one relationship), so
+    // without this check `isSafeWidgetBridgeOwner` waves the dimension through (it only checks
+    // whether SOME M:N relationship reaches `owner` from the widget, not whether it's the SAME
+    // relationship the anchor is grained on) and `resolveRowsAtGrain`'s M:N branch resolves the
+    // dimension via `enrichRowsWithRelatedFields`'s first-match-only two-hop lookup — silently
+    // mis-attributing links instead of failing closed. A dimension owned by THIS anchor
+    // relationship's own remote endpoint (`anchorJunctionRemoteSourceId`) is unaffected — that
+    // endpoint is already correctly joined in by the M:N branch's own merge.
+    if (
+      anchorIsJunctionOwnedMeasure &&
+      owner !== anchorJunctionRemoteSourceId &&
       isManyToManyReachableOwner(widgetSourceId, owner, relationships)
     ) {
       return { supported: false, reason: 'mixed_cross_source_fields' };

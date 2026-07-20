@@ -1575,6 +1575,155 @@ describe('analyzeChartSupport', () => {
     });
   });
 
+  // ─── Finding 2 ───────────────────────────────────────────────────────────────
+  // A junction-owned measure (`order_tags.weightClass`) combined with a grouping dimension owned
+  // by a DIFFERENT M:N relationship's remote endpoint (`categories.name`, via a separate
+  // `order_categories` junction) has no single grain: the chart anchors on `order_tags` (fanning
+  // one row per orders↔tags link), but `categories.name` would be resolved via
+  // `enrichRowsWithRelatedFields`'s first-match-only two-hop lookup through `order_categories` —
+  // silently attributing every order to only ONE of its (possibly several) categories instead of
+  // failing closed. `anchorIsPlainManyToOne` never fires for this shape (the anchor isn't a plain
+  // many-to-one relationship), so without the dedicated guard `isSafeWidgetBridgeOwner` waves
+  // `categories` through (it only asks whether SOME M:N relationship reaches it from `orders`, not
+  // whether it's the SAME relationship the anchor is grained on).
+  describe('finding 2 — junction-owned measure + cross-relationship grouping fails closed', () => {
+    const twoJunctionDataSources: Record<string, StudioDataSource> = {
+      orders: {
+        id: 'orders',
+        label: 'Orders',
+        fields: [{ id: 'id', label: 'Order ID', type: 'string' }],
+        rows: [{ id: 'o1' }, { id: 'o2' }],
+      },
+      tags: {
+        id: 'tags',
+        label: 'Tags',
+        fields: [{ id: 'id', label: 'Tag ID', type: 'string' }],
+        rows: [{ id: 't1' }, { id: 't2' }],
+      },
+      order_tags: {
+        id: 'order_tags',
+        label: 'Order Tags',
+        fields: [
+          { id: 'orderId', label: 'Order ID', type: 'string' },
+          { id: 'tagId', label: 'Tag ID', type: 'string' },
+          { id: 'weightClass', label: 'Weight Class', type: 'string' },
+        ],
+        rows: [
+          { orderId: 'o1', tagId: 't1', weightClass: 'heavy' },
+          { orderId: 'o2', tagId: 't2', weightClass: 'light' },
+        ],
+      },
+      categories: {
+        id: 'categories',
+        label: 'Categories',
+        fields: [
+          { id: 'id', label: 'Category ID', type: 'string' },
+          { id: 'name', label: 'Name', type: 'string' },
+        ],
+        rows: [
+          { id: 'cat1', name: 'Electronics' },
+          { id: 'cat2', name: 'Furniture' },
+        ],
+      },
+      order_categories: {
+        id: 'order_categories',
+        label: 'Order Categories',
+        fields: [
+          { id: 'orderId', label: 'Order ID', type: 'string' },
+          { id: 'categoryId', label: 'Category ID', type: 'string' },
+        ],
+        // order o1 has TWO categories — the fan-out a first-match-only lookup would collapse.
+        rows: [
+          { orderId: 'o1', categoryId: 'cat1' },
+          { orderId: 'o1', categoryId: 'cat2' },
+          { orderId: 'o2', categoryId: 'cat1' },
+        ],
+      },
+    };
+    const relTags: StudioRelationship = {
+      id: 'rel-orders-tags',
+      type: 'many-to-many',
+      sourceId: 'orders',
+      sourceField: 'id',
+      targetId: 'tags',
+      targetField: 'id',
+      junctionSourceId: 'order_tags',
+      junctionSourceField: 'orderId',
+      junctionTargetField: 'tagId',
+    } as unknown as StudioRelationship;
+    const relCategories: StudioRelationship = {
+      id: 'rel-orders-categories',
+      type: 'many-to-many',
+      sourceId: 'orders',
+      sourceField: 'id',
+      targetId: 'categories',
+      targetField: 'id',
+      junctionSourceId: 'order_categories',
+      junctionSourceField: 'orderId',
+      junctionTargetField: 'categoryId',
+    } as unknown as StudioRelationship;
+
+    it("fails closed for a dimension owned by a DIFFERENT M:N relationship's remote endpoint", () => {
+      const support = analyzeChartSupport(
+        'orders',
+        'name', // x owned by `categories`, reached via the order_categories junction
+        ['weightClass'], // y owned by the `order_tags` JUNCTION itself
+        undefined,
+        'bar',
+        twoJunctionDataSources,
+        [relTags, relCategories],
+        [],
+      );
+      expect(support).toEqual({ supported: false, reason: 'mixed_cross_source_fields' });
+
+      // ...and the row resolver short-circuits to [] rather than silently mis-attributing order
+      // o1's weightClass to only one of its two categories.
+      const resolved = resolveChartRowsForAggregation(
+        [{ id: 'o1' }, { id: 'o2' }],
+        'orders',
+        'name',
+        ['weightClass'],
+        undefined,
+        twoJunctionDataSources,
+        [relTags, relCategories],
+        [],
+      );
+      expect(resolved).toEqual([]);
+    });
+
+    it("still SUPPORTS a dimension owned by the SAME relationship's own remote endpoint (regression guard)", () => {
+      // Add a physical field on `tags` (the relTags relationship's own remote endpoint) and
+      // group by it instead — this is the topology `resolveRowsAtGrain`'s M:N branch already
+      // joins in correctly as part of its merge, so it must remain supported.
+      const dataSourcesWithTagLabel: Record<string, StudioDataSource> = {
+        ...twoJunctionDataSources,
+        tags: {
+          ...twoJunctionDataSources.tags,
+          fields: [
+            ...twoJunctionDataSources.tags.fields,
+            { id: 'label', label: 'Label', type: 'string' },
+          ],
+          rows: [
+            { id: 't1', label: 'Priority' },
+            { id: 't2', label: 'Normal' },
+          ],
+        },
+      };
+      const support = analyzeChartSupport(
+        'orders',
+        'label', // x owned by `tags` — the SAME relationship the junction-owned measure anchors on
+        ['weightClass'],
+        undefined,
+        'bar',
+        dataSourcesWithTagLabel,
+        [relTags, relCategories],
+        [],
+      );
+      expect(support.supported).toBe(true);
+      expect(support.anchorSourceId).toBe('order_tags');
+    });
+  });
+
   // ─── Finding 2.12 ────────────────────────────────────────────────────────────
   // `mnDataSources`/`mnRelationships` (defined above) model a many-to-many `orders` ↔
   // `tags` relationship bridged through the `order_tags` junction. When the junction is
@@ -1725,6 +1874,106 @@ describe('analyzeChartSupport', () => {
       );
       expect(support.supported).toBe(true);
       expect(support.anchorSourceId).toBe('order_tags');
+    });
+  });
+
+  // ─── Finding 6 ─────────────────────────────────────────────────────────────
+  // A one-to-one relationship has no fan-out in EITHER direction (each side has at most one
+  // matching row), so which side a schema author declared as `sourceId` vs `targetId` must not
+  // change whether the configuration is supported — matching the direction-independent check
+  // `isSafeWidgetBridgeOwner` already applies to a 1:1 owner. Before the fix, the anchor-selection
+  // check required the SAME direction a many-to-one relationship uses (`sourceId === ySourceId &&
+  // targetId === widgetSourceId`), so the identical 1:1 relationship declared the other way
+  // around fell through to no anchor switch and was rejected.
+  describe('finding 6 — 1:1 relationship support is direction-independent', () => {
+    const widgetRows = [
+      { id: 'w1', shippingId: 's1' },
+      { id: 'w2', shippingId: 's2' },
+    ];
+    const oneToOneDataSources: Record<string, StudioDataSource> = {
+      widget_source: {
+        id: 'widget_source',
+        label: 'Widget Source',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'shippingId', label: 'Shipping ID', type: 'string' },
+        ],
+        rows: widgetRows,
+      },
+      shipping: {
+        id: 'shipping',
+        label: 'Shipping',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'cost', label: 'Cost', type: 'number' },
+        ],
+        rows: [
+          { id: 's1', cost: 10 },
+          { id: 's2', cost: 20 },
+        ],
+      },
+    };
+
+    it('supports a 1:1 measure declared with the widget as `targetId` (forward direction)', () => {
+      const forwardRel: StudioRelationship = {
+        id: 'rel-forward',
+        type: 'one-to-one',
+        sourceId: 'shipping',
+        sourceField: 'id',
+        targetId: 'widget_source',
+        targetField: 'shippingId',
+      };
+      const support = analyzeChartSupport(
+        'widget_source',
+        undefined,
+        ['cost'],
+        undefined,
+        'bar',
+        oneToOneDataSources,
+        [forwardRel],
+        [],
+      );
+      expect(support.supported).toBe(true);
+      expect(support.anchorSourceId).toBe('shipping');
+    });
+
+    it('ALSO supports the identical 1:1 measure declared with the widget as `sourceId` (reverse direction, finding 6)', () => {
+      const reverseRel: StudioRelationship = {
+        id: 'rel-reverse',
+        type: 'one-to-one',
+        sourceId: 'widget_source',
+        sourceField: 'shippingId',
+        targetId: 'shipping',
+        targetField: 'id',
+      };
+      const support = analyzeChartSupport(
+        'widget_source',
+        undefined,
+        ['cost'],
+        undefined,
+        'bar',
+        oneToOneDataSources,
+        [reverseRel],
+        [],
+      );
+      // Before the fix this reported `supported: false` even though the forward-declared
+      // equivalent above is accepted — a direction-dependent inconsistency.
+      expect(support.supported).toBe(true);
+      expect(support.anchorSourceId).toBe('shipping');
+
+      // The row resolver must actually produce the joined value too, not just report supported.
+      const resolved = resolveChartRowsForAggregation(
+        widgetRows,
+        'widget_source',
+        undefined,
+        ['cost'],
+        undefined,
+        oneToOneDataSources,
+        [reverseRel],
+        [],
+      );
+      expect(resolved).toHaveLength(2);
+      expect(resolved.map((r) => r.cost).sort()).toEqual([10, 20]);
     });
   });
 });

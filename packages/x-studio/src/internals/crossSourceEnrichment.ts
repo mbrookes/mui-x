@@ -7,6 +7,7 @@ import type {
 import { buildManyToOneRelationshipIndex } from './dataSourceGraph';
 import { getCachedEnrichedRows } from './enrichedRowsCache';
 import { indexRowsByKey, normalizeJoinKey } from './joinKeys';
+import { getCachedNormalizedDataSource } from './normalizedRowsCache';
 import { ensureRowIdentity } from './rowIdentity';
 
 type Row = Record<string, unknown>;
@@ -102,10 +103,16 @@ export function enrichWithCrossSourceFields(
     if (!rel) {
       continue;
     }
-    const rawRelatedRows = dataSources[ref.sourceId]?.rows as Row[] | undefined;
-    if (!rawRelatedRows) {
+    const relatedDataSource = dataSources[ref.sourceId];
+    if (!relatedDataSource?.rows) {
       continue;
     }
+    // Route through the same L1 date normalization the widget's own source rows get
+    // (`getCachedNormalizedDataSource`) rather than the raw store — otherwise a date/datetime
+    // cross-source display column (a grid column or map field referencing a related source) stays
+    // a raw `Date`/non-canonical string here, bucketing differently than an L1-normalized date on
+    // the primary source for a non-UTC viewer (finding 4).
+    const rawRelatedRows = getCachedNormalizedDataSource(relatedDataSource).rows as Row[];
     // If a calculated column owned by this related source is requested, L2-enrich the
     // related source's rows (scoped to only the requested calculated-column ids) so the
     // value exists before indexing. Cached and dependency-tracked, so repeated refs to the

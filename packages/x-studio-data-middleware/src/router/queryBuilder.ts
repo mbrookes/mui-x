@@ -100,7 +100,28 @@ export function buildSecureQuery(
   // predicate. Placing it in ON scopes which rows JOIN (matched joined rows are
   // still tenant-checked — no cross-tenant fan-out) while preserving unmatched
   // outer rows. See `applySecurityPredicatesToJoinOn`.
-  for (const join of queryPlan.joins) {
+  //
+  // MULTI-RIGHT-JOIN ON-CLAUSE CORRECTNESS (data-corruption fix): the PRIMARY
+  // table's security predicate belongs ONLY in the FIRST right join's ON clause,
+  // never in a later one. Chained joins associate left-to-right, so
+  // `(A RIGHT JOIN B) RIGHT JOIN C` computes `A RIGHT JOIN B` FIRST — by the time
+  // that intermediate result reaches the SECOND right join, the primary table `A`
+  // is already fully resolved (either a tenant-matching row, or legitimately NULL
+  // because it had no match in the first join, or failed that join's own security
+  // check). Re-adding `A`'s predicate to the SECOND join's ON clause tests a column
+  // that is now legitimately NULL for rows where the first join's `B` genuinely
+  // matched — `NULL = :tenant` reads as unknown/false, so the second join treats
+  // that as "no match" and NULL-extends the WHOLE accumulated left side, wiping out
+  // `B`'s already-resolved, legitimate columns too (not just `A`'s, which were
+  // correctly NULL already). That silently corrupts the result: a row that should
+  // show `B`'s data (with `A` correctly NULL) instead shows `B` wrongly NULLed out
+  // as well. `firstRightJoinIndex` is the one join where the primary table is
+  // actually a direct participant and could first become null-extended — injecting
+  // the predicate there, and NOWHERE else, applies it exactly once, at the only
+  // point it is semantically correct (mirroring how a LEFT join's joined-table
+  // predicate is scoped to that join's OWN `on` clause and never re-applied later).
+  const firstRightJoinIndex = queryPlan.joins.findIndex((j) => j.type === 'right');
+  queryPlan.joins.forEach((join, index) => {
     let joinMethod: string;
     if (join.type === 'left') {
       joinMethod = 'leftJoin';
@@ -133,13 +154,16 @@ export function buildSecureQuery(
         // The joined (right) side is nullable — scope it in ON so genuinely
         // unmatched rows stay NULL-extended instead of being dropped by WHERE.
         applySecurityPredicatesToJoinOn(this, join.table, claims, joinedSecurity, 'read');
-      } else if (join.type === 'right') {
+      } else if (join.type === 'right' && index === firstRightJoinIndex) {
         // The primary (left) side is nullable — scope the PRIMARY table in ON so
-        // the preserved joined-side rows with no primary match survive.
+        // the preserved joined-side rows with no primary match survive. ONLY at the
+        // first right join (see the block comment above) — re-applying this at a
+        // later right join re-tests an already-resolved (possibly legitimately
+        // NULL) primary table and corrupts the result.
         applySecurityPredicatesToJoinOn(this, queryPlan.table, claims, primarySecurity, 'read');
       }
     });
-  }
+  });
 
   // ── Phase 1: Security predicates (applied unconditionally) ────────────────
   // Applied to the primary table and, by default, to every joined table — a
@@ -250,6 +274,24 @@ export function buildSecureQuery(
  * with `join.table` when the resolved column isn't already dotted, mirroring the
  * qualification the ON-clause loop above applies to the same pairs.
  *
+ * CONVENTION VERIFICATION (untrusted-convention finding): nothing upstream
+ * actually PROVES the right side names `join.table` — `validateDescriptorColumns`
+ * (only run when a `columnAllowlist` is configured) checks an UNQUALIFIED right
+ * side against `join.table`'s allowlist entry, but a client-QUALIFIED reference
+ * (`otherTable.col`) is instead checked against `otherTable`'s OWN allowlist
+ * entry, which happily passes for a column belonging to a WHOLLY DIFFERENT table
+ * (e.g. the primary table, if the client inverts or malforms the `on` pair). If
+ * this function blindly trusted such a reference, it would hand
+ * `applySecurityPredicatesOrNull` a null-indicator column that does not actually
+ * belong to `join.table` — in a multi-right-join shape, an `IS NULL` check on the
+ * WRONG column can admit rows the security-predicate relaxation was never meant
+ * to let through. When the resolved right-side reference is explicitly
+ * table-qualified, this now verifies the qualifying table IS `join.table` and
+ * throws (fail-closed) otherwise, instead of silently using a column from a
+ * different table. An unqualified reference is qualified with `join.table` here
+ * (as before) — that's the same qualification the ON-clause loop above applies to
+ * the identical pair, so there is no room for it to name a different table.
+ *
  * Returns `undefined` only for a join with no `on` pairs at all — not reachable
  * via a validated descriptor (every join requires at least one `on` pair), kept
  * as a defensive fallback rather than a crash.
@@ -263,7 +305,22 @@ function joinNullIndicatorColumn(join: {
     return undefined;
   }
   const [, right] = firstPair;
-  return right.includes('.') ? right : `${join.table}.${right}`;
+  const dotIndex = right.indexOf('.');
+  if (dotIndex === -1) {
+    return `${join.table}.${right}`;
+  }
+  const qualifiedTable = right.slice(0, dotIndex);
+  if (qualifiedTable !== join.table) {
+    throw new Error(
+      `MUI X Studio Server: JOIN "on" pair for table "${join.table}" has a right-hand column ` +
+        `"${right}" qualified with table "${qualifiedTable}" instead of "${join.table}". ` +
+        `The right side of a join's "on" pair must reference the joined table itself — this column is used ` +
+        `to detect when "${join.table}" was null-extended by a later right join, and trusting a column from ` +
+        `a different table there could admit rows a security predicate was meant to exclude. ` +
+        `Qualify the right-hand "on" column with "${join.table}" (or leave it unqualified).`,
+    );
+  }
+  return right;
 }
 
 /** SQL aggregate function name per plan aggregation func — same five as `execute.ts`. */

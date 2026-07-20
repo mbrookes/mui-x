@@ -752,6 +752,77 @@ describe('handleBatchQuery — schema allowlist enforcement', () => {
     expect(good.rows.length).toBeGreaterThan(0);
   });
 
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
+  it('rejects a qualified FILTER column naming a table outside the schema allowlist, even with no columnAllowlist configured', async () => {
+    // No `columnAllowlist` here: before the fix, `validateDescriptorColumns` — the
+    // only place that checked a qualified reference's table — is gated on
+    // `columnAllowlist` being configured (`validateQueryPlan`'s
+    // `if (columnAllowlist) {...}`), so this reference never got an
+    // application-layer check and fell through to whatever the DB driver did with
+    // an unregistered table. `assertQualifiedColumnsAllowed` now catches it here
+    // regardless of `columnAllowlist`.
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          filters: [{ column: 'payroll.salary', operator: 'eq', value: 1 }],
+        },
+      ],
+    };
+
+    await expectWidgetError(
+      handleBatchQuery(body, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
+      }),
+      'names table "payroll", which is not in the schema allowlist',
+    );
+  });
+
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
+  it('rejects a qualified PROJECTION column naming a table outside the schema allowlist, even with no columnAllowlist configured', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [{ id: 'w1', table: 'sales', columns: ['payroll.salary'] }],
+    };
+
+    await expectWidgetError(
+      handleBatchQuery(body, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
+      }),
+      'names table "payroll", which is not in the schema allowlist',
+    );
+  });
+
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
+  it('rejects a qualified columnAliases physical target naming a table outside the schema allowlist', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['expr-secret'],
+          columnAliases: { 'expr-secret': 'payroll.salary' },
+        },
+      ],
+    };
+
+    await expectWidgetError(
+      handleBatchQuery(body, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
+      }),
+      'names table "payroll", which is not in the schema allowlist',
+    );
+  });
+
   it('isolates a bad column-plan widget (unsafe ORDER BY) from a well-formed sibling', async () => {
     // Same isolation, but for the query-PLAN validation stage rather than the
     // table stage — an unsafe ORDER BY direction on one widget must not fail a

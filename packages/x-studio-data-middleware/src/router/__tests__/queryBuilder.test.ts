@@ -784,16 +784,45 @@ describe('buildSecureQuery', () => {
       );
     });
 
-    it('the PRIMARY table still gets its predicate in EACH right join ON clause, never WHERE', () => {
-      const { db, calls } = createRecordingDb();
-      buildSecureQuery(db, BASE_CLAIMS, twoRightJoinsDescriptor(), { tenancy: MULTI_TENANT });
-      expect(calls.some((c) => c.method === 'where' && c.args[0] === 'sales.tenant_id')).toBe(
-        false,
-      );
-      expect(
-        calls.filter((c) => c.method === 'andOnVal' && c.args[0] === 'sales.tenant_id'),
-      ).toHaveLength(2);
-    });
+    // BUG FIX (data-corruption finding): this test used to assert that the
+    // primary table's ("sales") security predicate was injected into EVERY
+    // right join's ON clause (`toHaveLength(2)`) — that was the BUGGY behavior,
+    // pinned here by mistake as if it were intended. It is only correct for the
+    // FIRST right join: by the time the query reaches the SECOND right join
+    // (orders), "sales" is already fully resolved by the first join (either a
+    // tenant-matching row, or legitimately NULL). Re-testing "sales.tenant_id"
+    // again in the second join's ON clause evaluates to unknown/false whenever
+    // "sales" is legitimately NULL, which makes THAT join treat an otherwise
+    // genuine "customers"-"orders" match as "no match" and NULL-extends the
+    // whole accumulated left side — wiping out "customers"'s already-resolved,
+    // legitimate columns too, not just "sales"'s. That silently corrupts the
+    // result. The corrected behavior below applies the primary table's
+    // predicate exactly ONCE, to the FIRST right join only.
+    it(
+      'applies the PRIMARY table predicate ONLY to the FIRST right join ON clause, ' +
+        'never repeated on a later right join, never WHERE',
+      () => {
+        const { db, calls } = createRecordingDb();
+        buildSecureQuery(db, BASE_CLAIMS, twoRightJoinsDescriptor(), { tenancy: MULTI_TENANT });
+        expect(calls.some((c) => c.method === 'where' && c.args[0] === 'sales.tenant_id')).toBe(
+          false,
+        );
+        // Exactly once — NOT once per right join (the old, buggy assertion).
+        expect(
+          calls.filter((c) => c.method === 'andOnVal' && c.args[0] === 'sales.tenant_id'),
+        ).toHaveLength(1);
+        // ...and it's attached to the FIRST right join (customers): the call must
+        // occur before the SECOND right join (orders) even starts.
+        const ordersJoinIndex = calls.findIndex(
+          (c) => c.method === 'rightJoin' && c.args[0] === 'orders',
+        );
+        const salesPredicateIndex = calls.findIndex(
+          (c) => c.method === 'andOnVal' && c.args[0] === 'sales.tenant_id',
+        );
+        expect(salesPredicateIndex).toBeGreaterThanOrEqual(0);
+        expect(salesPredicateIndex).toBeLessThan(ordersJoinIndex);
+      },
+    );
 
     describe('real Knex SQL rendering', () => {
       const realDb = Knex({ client: 'pg' });
@@ -802,11 +831,41 @@ describe('buildSecureQuery', () => {
         const query = buildSecureQuery(realDb, BASE_CLAIMS, twoRightJoinsDescriptor(), {
           tenancy: MULTI_TENANT,
         });
+        // The second right join's ON clause no longer repeats "sales.tenant_id"
+        // (bug fix) — this string would have included
+        // `and "sales"."tenant_id" = 'acme'` a second time, after
+        // `"customers"."id" = "orders"."customer_id"`, under the pre-fix behavior.
         expect(query.toString()).toBe(
           'select * from "sales" ' +
             'right join "customers" on "sales"."customer_id" = "customers"."id" and "sales"."tenant_id" = \'acme\' ' +
-            'right join "orders" on "customers"."id" = "orders"."customer_id" and "sales"."tenant_id" = \'acme\' ' +
+            'right join "orders" on "customers"."id" = "orders"."customer_id" ' +
             'where (("customers"."tenant_id" = \'acme\') or "customers"."id" is null) and "orders"."tenant_id" = \'acme\'',
+        );
+      });
+    });
+
+    describe('joinNullIndicatorColumn convention verification (untrusted-convention finding)', () => {
+      it('throws when an earlier right join\'s "on" pair right-hand column is qualified with a table other than its own', () => {
+        // Malformed descriptor: the "customers" join's `on` pair right-hand side
+        // is qualified with "sales" (the PRIMARY table) instead of "customers"
+        // (its own table) — violating the documented `JoinDescriptor.on`
+        // convention. "customers" sits BEFORE the last right join (index 0 <
+        // lastRightJoinIndex 1), so `buildSecureQuery` must pick a null-indicator
+        // column for it. Trusting the malformed pair without verification would
+        // hand `applySecurityPredicatesOrNull` a column that does not belong to
+        // "customers" at all, letting the `OR ... IS NULL` escape hatch key off
+        // the wrong table's nullability — this now fails closed instead.
+        const { db } = createRecordingDb();
+        const malformed = descriptor({
+          joins: [
+            { table: 'customers', type: 'right', on: [['sales.customer_id', 'sales.tenant_id']] },
+            { table: 'orders', type: 'right', on: [['customers.id', 'orders.customer_id']] },
+          ],
+        });
+        expect(() =>
+          buildSecureQuery(db, BASE_CLAIMS, malformed, { tenancy: MULTI_TENANT }),
+        ).toThrow(
+          /right-hand column "sales\.tenant_id" qualified with table "sales" instead of "customers"/,
         );
       });
     });

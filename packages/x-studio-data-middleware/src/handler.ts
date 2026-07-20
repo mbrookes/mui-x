@@ -50,7 +50,7 @@ import {
   DEFAULT_THRESHOLDS,
   TIER_CACHE_KEY_PREFIX,
 } from './router/tierDecision';
-import { assertTablesAllowed } from './shared/assertTablesAllowed';
+import { assertQualifiedColumnsAllowed, assertTablesAllowed } from './shared/assertTablesAllowed';
 import { sanitizeBoundaryError } from './shared/sanitizeError';
 import type { CacheEntry, CacheProvider, TierCacheProvider } from './cache/types';
 
@@ -210,8 +210,12 @@ async function processWidget(
     // column-reference plan, and both BEFORE cache/preflight/execute.
     //
     // `assertTablesAllowed` enforces the Zero-Knowledge Rule (a table not in the
-    // allowlist is rejected before any query is built). `validateQueryPlan` runs
-    // the unconditional HAVING/aggregation-alias/output-alias/ORDER-BY-direction
+    // allowlist is rejected before any query is built). `assertQualifiedColumnsAllowed`
+    // closes the same rule's gap for a table named ONLY via a qualified column
+    // reference (`columns` / `filters` / `orderBy` / `columnAliases`) — it runs
+    // UNCONDITIONALLY, unlike `validateDescriptorColumns` below, which only checks
+    // this when a `columnAllowlist` happens to be configured. `validateQueryPlan`
+    // runs the unconditional HAVING/aggregation-alias/output-alias/ORDER-BY-direction
     // validators and, when a `columnAllowlist` is configured, the fail-closed
     // column-allowlist check — then resolves every column reference into a
     // `ValidatedQueryPlan` whose fields are already-resolved `ColumnRef`s, threaded
@@ -221,6 +225,7 @@ async function processWidget(
       [descriptor.table, ...(descriptor.joins?.map((j) => j.table) ?? [])],
       schemaAllowlist,
     );
+    assertQualifiedColumnsAllowed(descriptor, schemaAllowlist);
     const plan = validateQueryPlan(descriptor, columnAllowlist);
 
     // Fold the compiled policy's digest into the cache key so a policy change (e.g.

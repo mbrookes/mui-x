@@ -843,7 +843,7 @@ describe('deserializeState', () => {
   });
 
   it('coerces a missing persisted page title to the "Untitled Page" fallback (finding 1)', () => {
-    const { title: _omit, ...pageWithoutTitle } = { id: 'page-1', title: 'x', widgetRows: [] };
+    const pageWithoutTitle = { id: 'page-1', widgetRows: [] };
     const serialized = {
       ...minimalSerialized,
       pages: { 'page-1': pageWithoutTitle },

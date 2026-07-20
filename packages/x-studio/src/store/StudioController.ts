@@ -192,7 +192,8 @@ export class StudioController {
         ? { label, at: new Date().toISOString() }
         : null;
       if (logEntry) {
-        this.mutationSeq.set(logEntry, this.mutationSeqCounter++);
+        this.mutationSeq.set(logEntry, this.mutationSeqCounter);
+        this.mutationSeqCounter += 1;
       }
 
       if (undoable) {

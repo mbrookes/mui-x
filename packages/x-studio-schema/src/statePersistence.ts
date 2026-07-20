@@ -773,6 +773,26 @@ export function deserializeState(
             base = nextBase as StudioWidget;
           }
         }
+        // Screen the widget-level `subtitle`/`sourceId` at the load boundary (finding 3),
+        // symmetric with the wire boundary's `isOptionalString(widget.subtitle)`/
+        // `isOptionalString(widget.sourceId)` gates in `validateWidget` (`parseStateMutation.ts`).
+        // Both are OPTIONAL fields the record-widget `.filter` above never checked, so a
+        // hand-edited/shared `subtitle: 42` or `sourceId: 42` previously loaded VERBATIM: a
+        // junk `subtitle` crashes `StudioWidgetEditDialog`, which renders it directly as
+        // text with no fallback, and a junk `sourceId` silently breaks the widget-to-data-
+        // source lookup with no self-heal — while the byte-identical wire payload is
+        // rejected. Drop the offending KEY (the same "strip, don't sink the whole widget"
+        // convention the `titleMode`/`subtitleMode` loop above uses) so the widget loads
+        // without it and the "no subtitle"/"no explicit source" fallback applies.
+        // Reference-stable when both fields are already valid or absent.
+        for (const stringKey of ['subtitle', 'sourceId'] as const) {
+          const stringValue = (base as unknown as Record<string, unknown>)[stringKey];
+          if (stringValue !== undefined && typeof stringValue !== 'string') {
+            const nextBase = { ...base };
+            delete (nextBase as unknown as Record<string, unknown>)[stringKey];
+            base = nextBase as StudioWidget;
+          }
+        }
         // Normalize legacy leaf shapes at the load boundary: grid `columns` (legacy
         // string field ids) and chart `ySeries` (legacy `seriesType` alias). Rebuild
         // `config` only when one is present; otherwise return the widget untouched
@@ -863,9 +883,27 @@ export function deserializeState(
   // and round-trip forever, later poisoning an `Object.assign`/spread of the dashboard. Drop the
   // offending keys (the widgets/filters own-key convention) rather than the whole dashboard.
   const dashboard = stripUnsafeOwnKeys(serialized.dashboard);
-  const reconciledDashboard = Object.hasOwn(normalizedPages, dashboard.activePageId)
-    ? dashboard
-    : { ...dashboard, activePageId: Object.keys(normalizedPages)[0] ?? '' };
+  // Coerce a missing/non-string `dashboard.title` to the same `'Untitled Dashboard'`
+  // fallback the factory uses (the dashboard-title sibling of `normalizePersistedPages`'s
+  // page-title coercion): `addDashboard`-adjacent mutations (`setDashboardTitle` et al.)
+  // already require a string `title` at the wire/reducer boundary, so a non-string value
+  // can only reach here via a hand-edited/foreign persisted doc — one `migrateState`'s
+  // `findMissingRequiredField` does not check (it only validates `pages[*].widgetRows`).
+  // Left uncoerced, the junk value would install verbatim and crash the first component
+  // that renders `dashboard.title` as text.
+  const safeDashboardTitle =
+    typeof dashboard.title === 'string' ? dashboard.title : 'Untitled Dashboard';
+  const activePageIdValid = Object.hasOwn(normalizedPages, dashboard.activePageId);
+  const reconciledDashboard =
+    activePageIdValid && safeDashboardTitle === dashboard.title
+      ? dashboard
+      : {
+          ...dashboard,
+          title: safeDashboardTitle,
+          activePageId: activePageIdValid
+            ? dashboard.activePageId
+            : (Object.keys(normalizedPages)[0] ?? ''),
+        };
 
   // Validate `doc.ai` at the load boundary: keep it only when it is a record whose
   // `threads` is an array, AND screen each thread ENTRY (T2-3) — not just the container.

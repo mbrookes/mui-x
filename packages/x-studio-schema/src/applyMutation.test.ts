@@ -715,6 +715,47 @@ describe('applyMutation', () => {
     expect(next.filters).toHaveLength(0);
   });
 
+  // Finding 2: `dashboard-date-range` scope carries a REQUIRED `pageId` (unlike `page`
+  // scope's optional one), so it can become orphaned via `addFilter` exactly like a
+  // `page`-scoped filter — but the orphan check above only covered `page` scope. Before
+  // this fix, an `addFilter` naming a nonexistent page for a `dashboard-date-range`
+  // filter installed and stayed forever live, while `deserializeState`'s load-boundary
+  // screen (`statePersistence.ts`) already drops the identical shape on the next load —
+  // a live/persisted disagreement this test pins closed.
+  it('addFilter drops an orphan dashboard-date-range filter whose pageId names no existing page', () => {
+    const state = makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+    });
+    const orphan = {
+      id: 'f-orphan',
+      field: 'x',
+      operator: 'equals' as const,
+      value: 1,
+      scope: { kind: 'dashboard-date-range' as const, sourceId: 'src-1', pageId: 'ghost-page' },
+    };
+    const next = applyDocMutation(state, { type: 'addFilter', args: { filter: orphan } });
+    expect(next).toBe(state);
+    expect(next.filters).toHaveLength(0);
+  });
+
+  it('addFilter installs a dashboard-date-range filter whose pageId names an existing page', () => {
+    const state = makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+    });
+    const valid = {
+      id: 'f-valid',
+      field: 'x',
+      operator: 'equals' as const,
+      value: 1,
+      scope: { kind: 'dashboard-date-range' as const, sourceId: 'src-1', pageId: 'page-1' },
+    };
+    const next = applyDocMutation(state, { type: 'addFilter', args: { filter: valid } });
+    expect(next.filters).toHaveLength(1);
+    expect(next.filters[0].id).toBe('f-valid');
+  });
+
   it('addFilter installs a page-scoped filter whose pageId names an existing page', () => {
     const state = makeDoc({
       dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
@@ -3044,6 +3085,37 @@ describe('applyMutation', () => {
       expect(next.widgets.w2).toEqual(chartWidget('w2'));
     });
 
+    // Finding 4: `validRowIds` unconditionally deleted every `removedWidgetIds` entry
+    // before filtering the producer-supplied `widgetRows`, even when that SAME payload's
+    // `addedWidgets` re-inserts the identical id (a reorder/replace within one bulk). The
+    // row entry was stripped as a "phantom" BEFORE the re-add took effect, so the widget
+    // lost its position and fell back to the bottom-row default placement. It must instead
+    // keep the row placement the payload itself supplies for the re-added id.
+    it('keeps row placement for a widget id that is both removed and re-added in the same bulk (finding 4)', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1'], ['w2']] },
+        },
+        widgets: { w1: chartWidget('w1'), w2: chartWidget('w2') },
+      });
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: ['w1'],
+          addedWidgets: [chartWidget('w1')],
+          updatedWidgets: [],
+          // The producer's own reorder: w1 moves to share a row with w2 instead of
+          // occupying its own row — it must NOT be dropped as a phantom nor re-appended
+          // to a default bottom row.
+          widgetRows: [['w2', 'w1']],
+          activePageId: 'page-1',
+        },
+      } as StateMutation);
+      expect(next.widgets.w1).toBeDefined();
+      expect(next.pages['page-1'].widgetRows).toEqual([['w2', 'w1']]);
+    });
+
     it('still respects a genuine cross-page reference when widgetRows is omitted (does not remove a widget another page shows)', () => {
       const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
@@ -3663,6 +3735,45 @@ describe('applyMutation', () => {
         },
       });
       expect(next.widgets.w1.title).toBe(state.widgets.w1.title);
+    });
+
+    // Finding 3: `subtitle`/`sourceId` are guarded as STRINGS at the wire boundary
+    // (`parseStateMutation.ts`'s `isOptionalString` gates), but the `updateWidget.changes`
+    // parser-bypass merge path only guarded `title`/`kind` — a non-string `subtitle`
+    // crashes `StudioWidgetEditDialog` (rendered directly as text) and a non-string
+    // `sourceId` silently breaks the widget-to-data-source lookup with no self-heal.
+    it('updateWidget rejects a non-string changes.subtitle/changes.sourceId instead of merging it', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        widgets: { w1: chartWidget('w1') },
+      });
+      const next = applyDocMutation(state, {
+        type: 'updateWidget',
+        args: { widgetId: 'w1', changes: { subtitle: 42, sourceId: 42 } as any },
+      });
+      expect(next.widgets.w1.subtitle).toBe(state.widgets.w1.subtitle);
+      expect(next.widgets.w1.sourceId).toBe(state.widgets.w1.sourceId);
+      expect(next).toBe(state);
+    });
+
+    // Finding 3 (`applyBulkUpdate.updatedWidgets` sibling of the above): guarded `title`
+    // but not `sourceId` — a parser-bypassing bulk carrying a non-string `sourceId` would
+    // install verbatim and silently break the data-source lookup.
+    it('applyBulkUpdate rejects a non-string updatedWidgets[].sourceId instead of merging it', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        widgets: { w1: chartWidget('w1') },
+      });
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: [],
+          addedWidgets: [],
+          updatedWidgets: [{ widgetId: 'w1', sourceId: 42 as any }],
+          activePageId: 'page-1',
+        },
+      });
+      expect(next.widgets.w1.sourceId).toBe(state.widgets.w1.sourceId);
     });
 
     it('addFilter with a missing filter is a no-op, not a throw', () => {

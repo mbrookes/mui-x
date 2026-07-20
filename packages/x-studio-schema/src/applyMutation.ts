@@ -616,8 +616,20 @@ export function normalizePersistedPages(
     // silently missed. The key is the source of truth; re-stamp `id: pid` (preserving the
     // page rather than dropping it) and force a rebuild so the corrected id lands.
     const idDesynced = page.id !== pid;
+    // Coerce a missing/non-string `title` to the same `'Untitled Page'` fallback the
+    // factory uses (finding: a persisted doc with junk `page.title` — `null`, `42`, an
+    // object — previously passed `migrateState`'s validation, which only checks
+    // `widgetRows`, and installed verbatim. Every consumer of `page.title` (e.g.
+    // `StudioWidgetCardActionsOverlay`) renders it directly as text with no fallback of
+    // its own, so a non-string title crashed React on first render of the page picker.
+    // `addPage`/`renamePage` already require a string `title` at the wire/reducer
+    // boundary — parseStateMutation.ts's `isString(args.title)` gate — so this closes
+    // the ONE remaining gap: a persisted doc loaded directly, bypassing those mutations.
+    const titleIsString = typeof page.title === 'string';
+    const safeTitle = titleIsString ? page.title : 'Untitled Page';
     if (
       idDesynced ||
+      !titleIsString ||
       !rowsWereArray ||
       !spansWereRecord ||
       !rowsEqual(currentRows, sanitizedRows) ||
@@ -625,7 +637,13 @@ export function normalizePersistedPages(
     ) {
       nextEntries.push([
         pid,
-        { ...page, id: pid, widgetRows: sanitizedRows, widgetColSpans: nextSpans },
+        {
+          ...page,
+          id: pid,
+          title: safeTitle,
+          widgetRows: sanitizedRows,
+          widgetColSpans: nextSpans,
+        },
       ]);
       pagesChanged = true;
     } else {
@@ -1023,17 +1041,25 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
             }
             continue;
           }
-          // `title`/`kind` must be a STRING (defense-in-depth, mirroring the wire
-          // boundary's `isString(widget.kind)`/`isString(widget.title)` gate in
-          // `validateWidget`): both are load-bearing with no fallback (the widget
+          // `title`/`kind`/`subtitle`/`sourceId` must be a STRING (defense-in-depth,
+          // mirroring the wire boundary's `isString(widget.kind)`/`isString(widget.title)`/
+          // `isOptionalString(widget.subtitle)`/`isOptionalString(widget.sourceId)` gates in
+          // `validateWidget`): `title`/`kind` are load-bearing with no fallback (the widget
           // factory/renderer key off `kind`, the canvas card renders `title`), and
           // `deserializeState` drops the ENTIRE widget on the NEXT load if either is
-          // non-string. Without this guard, a parser-bypassing `changes: { title: 42 }`
-          // or `{ kind: 42 }` would merge verbatim below and install fine now, only to
-          // silently vanish — deferred whole-widget data loss — the moment the doc is
-          // next persisted and reloaded. Reject (skip) the field rather than let bad
-          // data linger until the load boundary catches it.
-          if ((key === 'title' || key === 'kind') && typeof value !== 'string') {
+          // non-string. `subtitle` is rendered directly as text by
+          // `StudioWidgetEditDialog` with no fallback, and `sourceId` drives the
+          // widget-to-data-source lookup — a non-string value silently breaks that lookup
+          // with no self-heal. Without this guard, a parser-bypassing `changes: { title: 42
+          // }`/`{ subtitle: 42 }`/`{ sourceId: 42 }` would merge verbatim below and install
+          // fine now, only to crash on render (`subtitle`) or silently misbehave
+          // (`sourceId`) — or, for `title`/`kind`, vanish entirely the moment the doc is
+          // next persisted and reloaded. Reject (skip) the field rather than let bad data
+          // linger until (or past) the load boundary catches it.
+          if (
+            (key === 'title' || key === 'kind' || key === 'subtitle' || key === 'sourceId') &&
+            typeof value !== 'string'
+          ) {
             continue;
           }
           // Scalar field (`title`/`subtitle`/`sourceId`/`kind`/`titleMode`/
@@ -1528,19 +1554,27 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       if (orphanAnchorId !== undefined && !Object.hasOwn(state.widgets, orphanAnchorId)) {
         return state;
       }
-      // Reject an ORPHAN `page`-scoped filter naming a `pageId` the doc doesn't contain —
-      // the PAGE-anchor mirror of the widget-anchor orphan check just above. A `page`-scoped
-      // filter with an explicit `pageId` (the legacy "applies on every page" shape has NO
-      // `pageId` and is left alone) would otherwise filter a page that doesn't exist forever,
-      // with no clearing affordance — `removePage`'s cleanup only fires for a LIVE removal,
-      // never for a filter that named a nonexistent page from the start. The load boundary
-      // (`deserializeState`'s `scope.kind === 'page' … !Object.hasOwn(normalizedPages,
-      // scope.pageId)` screen) already drops this on the NEXT load, so accepting it here would
-      // just be dead weight until reload — screen it here so the wire/reducer boundary and the
-      // load boundary agree. `Object.hasOwn` so an untrusted `pageId` can't match a prototype
+      // Reject an ORPHAN `page`-scoped (or `dashboard-date-range`-scoped) filter naming a
+      // `pageId` the doc doesn't contain — the PAGE-anchor mirror of the widget-anchor
+      // orphan check just above. A `page`-scoped filter with an explicit `pageId` (the
+      // legacy "applies on every page" shape has NO `pageId` and is left alone) would
+      // otherwise filter a page that doesn't exist forever, with no clearing affordance.
+      // `dashboard-date-range` scope (finding 2) carries a REQUIRED `pageId` — unlike
+      // `page` scope's optional one, it always names one — so it is included in this same
+      // check rather than a separate `scope.pageId !== undefined` gate. `removePage`'s
+      // cleanup (`filtersAfterPageDrop`'s generic `'pageId' in f.scope` check) already
+      // drops both scope kinds when their page is removed LIVE, but neither scope kind's
+      // orphan-at-ADD-TIME case was screened here before this fix — a filter naming a
+      // nonexistent page from the start would install and stay forever, never removed
+      // (`removePage`'s cleanup only fires for a page that WAS present and got removed).
+      // The load boundary (`deserializeState`'s `(scope.kind === 'page' || scope.kind ===
+      // 'dashboard-date-range') … !Object.hasOwn(normalizedPages, scope.pageId)` screen)
+      // already drops this on the NEXT load, so accepting it here would just be dead
+      // weight until reload — screen it here so the wire/reducer boundary and the load
+      // boundary agree. `Object.hasOwn` so an untrusted `pageId` can't match a prototype
       // member.
       if (
-        scope.kind === 'page' &&
+        (scope.kind === 'page' || scope.kind === 'dashboard-date-range') &&
         scope.pageId !== undefined &&
         !Object.hasOwn(state.pages, scope.pageId)
       ) {
@@ -1669,9 +1703,18 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         // against. Removed ids resolve afterwards via `removeWidgetIds` and need no
         // special-casing. A `Set` lookup keeps an untrusted id off the prototype chain.
         const validRowIds = new Set<string>(Object.keys(state.widgets));
+        // Track which ids THIS SAME payload's `addedWidgets` re-insert, so the
+        // removedWidgetIds sweep just below can tell "genuinely gone" apart from
+        // "removed-then-re-added in the same payload" (finding 4). Post-mutation,
+        // `nextWidgets` WILL contain this id (the `addedWidgets` loop further down
+        // inserts it once it finds the id no longer present after pruning) — so
+        // `validRowIds` must reflect that eventual post-mutation membership, not
+        // just the pre-mutation `removedWidgetIds` subtraction.
+        const reAddedWidgetIds = new Set<string>();
         for (const widget of addedWidgets ?? []) {
           if (isSafePatchKey(widget.id)) {
             validRowIds.add(widget.id);
+            reAddedWidgetIds.add(widget.id);
           }
         }
         // Exclude ids THIS SAME payload is removing (T2 finding): a bulk update naming
@@ -1682,8 +1725,17 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         // but the reducer is the single source of truth for mutation validity and must
         // not depend on that caller discipline: a future/adversarial producer that
         // forgets to strip them must still see the removal honored.
+        //
+        // EXCEPT an id that is ALSO named in `addedWidgets` (finding 4): a bulk that
+        // removes and re-adds the SAME widget id in one payload (a reorder/replace) is
+        // not "genuinely gone" — the widget survives this mutation under the same id, so
+        // its row placement must survive too. Deleting it here unconditionally stripped
+        // the row entry as a "phantom" BEFORE the re-add took effect, losing the widget's
+        // placement to the bottom-row default-placement fallback further below.
         for (const id of removedWidgetIds) {
-          validRowIds.delete(id);
+          if (!reAddedWidgetIds.has(id)) {
+            validRowIds.delete(id);
+          }
         }
         // Drop phantom ids (not an existing widget nor a safe added-widget id) AND
         // deduplicate ids that appear more than once — the same id twice would render the
@@ -1922,7 +1974,19 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         ) {
           patchedWidget = { ...patchedWidget, title: update.title };
         }
-        if (update.sourceId !== undefined && update.sourceId !== existing.sourceId) {
+        // `typeof update.sourceId === 'string'` (finding 3, the `sourceId` sibling of the
+        // `title` guard just above): `sourceId` is typed as `string | undefined` on the
+        // wire mutation, but a parser-bypassing server-built bulk can still carry a
+        // non-string value. Unlike `title`, a junk `sourceId` is NOT caught by any load-
+        // boundary screen (`deserializeState` drops the key gracefully rather than the
+        // whole widget), so without this guard it would install verbatim and silently
+        // break the widget-to-data-source lookup with no self-heal. Skip a non-string
+        // value instead of merging it.
+        if (
+          update.sourceId !== undefined &&
+          typeof update.sourceId === 'string' &&
+          update.sourceId !== existing.sourceId
+        ) {
           patchedWidget = { ...patchedWidget, sourceId: update.sourceId };
         }
         // `config` is a shallow-merge patch onto the LIVE widget's config, so a

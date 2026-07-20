@@ -827,6 +827,40 @@ describe('deserializeState', () => {
     expect(state.doc.pages['page-1'].widgetColSpans).toEqual({ w1: 12 });
   });
 
+  // Finding 1: a persisted `page.title`/`dashboard.title` that is missing or non-string
+  // previously passed `migrateState`'s validation unchanged (`findMissingRequiredField`
+  // only checks `pages[*].widgetRows`) and installed verbatim, later crashing React
+  // render (e.g. `StudioWidgetCardActionsOverlay` renders `page.title` as text). Contrast
+  // with `addPage`/`renamePage`, which already require a string `title` at the wire/
+  // reducer boundary — this closed the persisted-load gap those mutations don't cover.
+  it('coerces a non-string persisted page title to the "Untitled Page" fallback (finding 1)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      pages: { 'page-1': { id: 'page-1', title: 42, widgetRows: [] } },
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.pages['page-1'].title).toBe('Untitled Page');
+  });
+
+  it('coerces a missing persisted page title to the "Untitled Page" fallback (finding 1)', () => {
+    const { title: _omit, ...pageWithoutTitle } = { id: 'page-1', title: 'x', widgetRows: [] };
+    const serialized = {
+      ...minimalSerialized,
+      pages: { 'page-1': pageWithoutTitle },
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.pages['page-1'].title).toBe('Untitled Page');
+  });
+
+  it('coerces a non-string persisted dashboard title to the "Untitled Dashboard" fallback (finding 1)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      dashboard: { ...minimalSerialized.dashboard, title: null },
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.dashboard.title).toBe('Untitled Dashboard');
+  });
+
   it('leaves a well-formed persisted pages map reference-stable (no churn) (review 3.2)', () => {
     const serialized = {
       ...minimalSerialized,
@@ -1857,6 +1891,58 @@ describe('deserializeState', () => {
     expect(w1.title).toBe('C');
     expect((w1.config as { chartType?: string }).chartType).toBe('bar');
     expect(() => serializeState(state)).not.toThrow();
+  });
+
+  // Finding 3: the load boundary screens the widget-level `subtitle`/`sourceId`, symmetric
+  // with the wire boundary's `isOptionalString` gates in `validateWidget`
+  // (`parseStateMutation.ts`). A persisted `subtitle: 42`/`sourceId: 42` loads with the
+  // offending key DROPPED (mirroring the `titleMode`/`subtitleMode` key-drop above), the
+  // rest of the widget intact — a junk `subtitle` previously crashed
+  // `StudioWidgetEditDialog` (rendered directly as text), and a junk `sourceId` silently
+  // broke the widget-to-data-source lookup with no self-heal.
+  it('drops a non-string subtitle/sourceId on a persisted widget, keeping the rest (finding 3)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      widgets: {
+        w1: {
+          id: 'w1',
+          kind: 'chart',
+          title: 'C',
+          subtitle: 42,
+          sourceId: 42,
+          config: { chartType: 'bar' },
+        },
+      },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    const w1 = state.doc.widgets.w1 as StudioWidget;
+    expect(w1).toBeDefined();
+    expect(Object.hasOwn(w1, 'subtitle')).toBe(false);
+    expect(Object.hasOwn(w1, 'sourceId')).toBe(false);
+    expect(w1.title).toBe('C');
+    expect(() => serializeState(state)).not.toThrow();
+  });
+
+  it('keeps a valid string subtitle/sourceId on a persisted widget (finding 3)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      widgets: {
+        w1: {
+          id: 'w1',
+          kind: 'chart',
+          title: 'C',
+          subtitle: 'Sub',
+          sourceId: 'src-1',
+          config: { chartType: 'bar' },
+        },
+      },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    const w1 = state.doc.widgets.w1 as StudioWidget;
+    expect(w1.subtitle).toBe('Sub');
+    expect(w1.sourceId).toBe('src-1');
   });
 
   // Finding 3.2: the load boundary screens a persisted widget's OWN `config` keys for the

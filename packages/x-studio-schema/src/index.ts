@@ -46,6 +46,8 @@ export {
   GRID_COLS,
   MIN_SPAN,
   MUTATION_TYPES,
+  resolveRankFilterPageId,
+  hasConflictingRankFilter,
 } from './applyMutation';
 export { parseStateMutation, PARSEABLE_MUTATION_TYPES } from './parseStateMutation';
 export type { ParseStateMutationResult } from './parseStateMutation';

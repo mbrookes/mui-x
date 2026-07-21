@@ -57,40 +57,58 @@ graph TD
 
 ## 2. State Model
 
-All mutable state lives in a single `StudioState` object managed by `StudioController`.
+All mutable state lives in a single `StudioState` object managed by `StudioController`. The state is partitioned into three top-level fields by **lifetime**, not grouped flatly — this is what lets the undo/redo stack snapshot only the user-authored document while leaving UI state and host-injected data alone.
 
 ### 2.1 Top-level shape
 
 ```ts
 interface StudioState {
-  schemaVersion: 1;
-  mode: 'edit' | 'view';
+  doc: StudioDoc;         // the ONLY partition that is persisted / undoable / reducer-mutated
+  session: StudioSession; // ephemeral UI state — never persisted, never undoable
+  runtime: StudioRuntime; // host-injected state — never persisted, never undoable
+}
+
+interface StudioDoc {
+  schemaVersion: 1; // CURRENT_SCHEMA_VERSION, defined in @mui/x-studio-schema
   dashboard: StudioDashboardState;   // id, title, activePageId
   pages: Record<string, StudioPage>; // keyed by page id
   widgets: Record<string, StudioWidget>; // keyed by widget id
-  dataSources: Record<string, StudioDataSource>; // keyed by source id
   relationships: StudioRelationship[];
   filters: StudioFilterState[];      // page + widget + cross + interactive filters
   expressionFields: StudioExpressionField[]; // user-authored calculated columns/measures
   filterPresets?: StudioFilterPreset[];
-  shell: StudioShellState;           // UI-only: open drawers, selection, drilldown
+  ai?: StudioAIState;                // AI chat thread state
+}
+
+interface StudioSession {
+  mode: 'edit' | 'view'; // deliberately NOT in `doc` — switching modes isn't a dashboard edit
+  shell: StudioShellState; // UI-only: open drawers, selection
+}
+
+interface StudioRuntime {
+  dataSources: Record<string, StudioDataSource>; // keyed by source id; row data never persisted/undone
 }
 ```text
 
+`StudioState` is defined in the shared, zero-dependency `@mui/x-studio-schema` package (`packages/x-studio-schema/src/stateTypes.ts`); `x-studio/src/models/stateTypes.ts` is a thin re-export shim for existing deep imports.
+
 ### 2.2 Persisted vs runtime slices
 
-| Slice              | Persisted? | Notes                                                                   |
-| ------------------ | ---------- | ----------------------------------------------------------------------- |
-| `dashboard`        | Yes        | title, activePageId                                                     |
-| `pages`            | Yes        | layout, themes                                                          |
-| `widgets`          | Yes        | config, title                                                           |
-| `filters`          | Yes        | page-scope filters only; interactive/cross-filter filters are transient |
-| `relationships`    | Yes        |                                                                         |
-| `expressionFields` | Yes        |                                                                         |
-| `dataSources`      | No         | provided by host at runtime; schemas/rows are never persisted           |
-| `shell`            | No         | UI state; not persisted                                                 |
+| Slice (partition.field)  | Persisted? | Notes                                                                   |
+| ------------------------- | ---------- | ----------------------------------------------------------------------- |
+| `doc.dashboard`           | Yes        | title, activePageId                                                     |
+| `doc.pages`               | Yes        | layout, themes                                                          |
+| `doc.widgets`             | Yes        | config, title                                                           |
+| `doc.filters`             | Yes        | page/widget-scope filters; cross-filter/interactive entries are stripped at the persistence boundary only (they're deliberately undoable in-memory) |
+| `doc.relationships`       | Yes        |                                                                         |
+| `doc.expressionFields`    | Yes        |                                                                         |
+| `doc.filterPresets`       | Yes        | omitted from the serialized shape when empty                            |
+| `doc.ai`                  | Yes        | AI chat thread state; omitted from the serialized shape when there are no threads |
+| `runtime.dataSources`     | No         | provided by host at runtime; schemas/rows are never persisted           |
+| `session.mode`            | No         | view/edit; not persisted, not undoable                                  |
+| `session.shell`           | No         | UI state (open drawers, selection); not persisted, not undoable         |
 
-`dataSources` is intentionally excluded from serialization — data comes from the host and is injected via `controller.upsertDataSource()` or `<Studio dataSources={...}>`. This keeps the serialized state small and schema-agnostic.
+`runtime.dataSources` is intentionally excluded from serialization — data comes from the host and is injected via `controller.upsertDataSource()` or `<Studio dataSources={...}>`. This keeps the serialized state small and schema-agnostic.
 
 ### 2.3 StudioPage layout
 
@@ -111,11 +129,11 @@ Widgets are arranged in a grid of rows. Each row is an array of widget IDs. Colu
 
 `StudioController` wraps a `Store<StudioState>` (MUI internal pub-sub store) and exposes a typed mutation API. All mutations go through `commitState()` which:
 
-1. Pushes the current state to the undo stack (up to `MAX_UNDO_HISTORY = 100`).
+1. Pushes the current `doc` (not the whole `StudioState`) onto the undo stack (up to `MAX_UNDO_HISTORY = 100`) — only when `nextState.doc` actually differs by reference from the current `doc`.
 2. Clears the redo stack on any new undoable action.
 3. Calls `store.setState(nextState)` to notify all subscribers.
 
-Shell mutations (drawer open/close, selection changes, drilldown) are committed with `{ undoable: false }` so they don't pollute the undo stack.
+A commit that only touches `session`/`runtime` (drawer open/close, selection changes, data refresh) never pushes an undo entry, regardless of the `undoable` option — there is no authored-document change to revert. Session mutations (e.g. `setMode`) additionally pass `{ undoable: false }` as belt-and-braces on top of that structural guarantee.
 
 ```mermaid
 sequenceDiagram
@@ -253,6 +271,8 @@ interface StudioQueryDescriptor {
 2. If no cache hit, it checks `studioRequestCache.getInflight(cacheKey)` — if another widget is already fetching the same query, the same `Promise` is reused.
 3. When the source is updated via `controller.upsertDataSource()`, `invalidateSource(sourceId)` clears all cache entries for that source via a secondary `sourceId → cacheKeys` index.
 
+`useAdapterRows` (the hook encapsulating this state machine) also resets `isLoading`/`isError`/`errorMessage` whenever its early-return branch fires — i.e. the descriptor or adapter becomes unavailable mid-flight (the adapter was removed via `setDataSourceAdapter(id, undefined)`, the source was removed, or it dropped out of the `dataAdapters` prop). Any in-flight promise from a previous descriptor is neutralized by its own cleanup, so without this reset nothing else would ever clear a stale loading spinner or error overlay after falling back to in-memory rows.
+
 ### Adapter implementation contract
 
 ```ts
@@ -287,6 +307,8 @@ When `options.dataSources`, `options.relationships`, and `options.expressionFiel
 | Physical field on related source | `orders.status` in an `order_items` widget | Single LEFT JOIN added; column qualified as `orders.status` |
 
 **Filter and ORDER BY physical column resolution.** After `resolve(fieldId)` populates `columnAliases`, filter predicates and ORDER BY clauses look up `columnAliases[logicalId] ?? logicalId` to get the physical column name. SQL `WHERE` and `ORDER BY` clauses must reference the physical column (`customers.country`), not the logical alias which is only valid inside `SELECT … AS`.
+
+**Shared-endpoint config in simple mode.** When `options.dataSources` is omitted ("simple mode"), `createBatchingAdapter` looks up a per-endpoint `LoaderRegistryEntry` in a module-level registry so multiple adapter instances pointing at the same URL share one batch loader. `fetchFn` and `batchDelayMs` on that shared entry are last-write-wins (a later instance's values simply replace the earlier ones — appropriate for a rotated auth token). `expressionFields`, however, is **merged** (unioned by field id, newer entry wins on an id collision) rather than overwritten: distinct `StudioDataSource`s can legitimately share one endpoint, each contributing its own calculated columns, and a later instance registering with none of its own (or a different source's list) must not wipe out an earlier instance's entries.
 
 
 
@@ -465,15 +487,15 @@ Two distinct sub-types of cross-filters are tracked:
 
 `useWidgetRows` returns separate row variants for each combination, allowing chart and grid widgets to correctly compute both the ghost baseline and the highlighted subset in a single pass.
 
-### 7.4 Drilldown
+For pie/donut charts, `PieCrossHighlight`'s `CrossHighlightPieArc` clamps the per-slice cross-highlight ratio to `[0, 1]` before computing the overlay arc's end angle. `min`/`avg` aggregations can legitimately produce a filtered/baseline ratio above 1 (e.g. the highlighted category sits above the overall average); without the clamp, the overlay would be pushed past the slice's own `endAngle` and paint over the start of the next slice's dimmed ghost arc.
 
-Clicking a row (grid) or chart item can open a drilldown panel when `config.drilldownWidgetId` is set. The drilldown panel renders the target widget filtered to the clicked context via `activeDrilldown` in `StudioShellState`.
+> **Drilldown is not currently implemented.** There is no `StudioDrilldownDrawer` component, no `activeDrilldown`/drilldown state anywhere in `StudioShellState`, and no `drilldownWidgetId` widget config field in the current codebase — clicking a row or chart item never opens a detail panel. (A drill-down/detail-panel feature was implemented at one point per the project backlog, but no trace of it remains in `src/`; treat any reference to it elsewhere as aspirational/planned, not current behavior.)
 
 ---
 
 ## 8. Expression Fields
 
-Expression fields extend a data source with user-authored computed columns. They are stored in `StudioState.expressionFields` and evaluated at query time.
+Expression fields extend a data source with user-authored computed columns. They are stored in `StudioState.doc.expressionFields` and evaluated at query time.
 
 ### 8.1 Calculated columns vs measures
 
@@ -496,6 +518,8 @@ type StudioExpression =
 
 **Supported operators:** arithmetic (`add`, `subtract`, `multiply`, `divide`, `modulo`), comparison (`equals`, `notEqual`, `lessThan`, etc.), logical (`and`, `or`, `not`), unary (`negate`, `isTrue`, `isFalse`, `isNull`, `isNotNull`), conditional (`if`), date arithmetic (`datediff`), membership (`in`).
 
+Logical operators (`and`, `or`, `not`, and the `if` condition) coerce their operands to boolean via a shared `toBoolean` helper that explicitly maps the strings `"true"`/`"false"` to their boolean values before falling back to JS truthiness — matching `filterUtils.ts`'s boolean-as-string handling for the `equals` operator. Without this, a CSV/API-sourced boolean column serialized as the string `"false"` would evaluate truthy (`Boolean("false") === true` in JS), silently taking the wrong branch of `if(on_time, 1, 0)`-style expressions.
+
 ### 8.3 Transitive dependency expansion
 
 `getCachedEnrichedRows` automatically resolves transitive dependencies. If expression `margin_pct` references expression `gross_profit`, and a widget uses `margin_pct`, both expressions are included in the enrichment pass — even if the widget config only lists `margin_pct`.
@@ -511,11 +535,13 @@ A `StudioJoinFieldExpression` reads a field from a **related source** at row eva
 
 This is distinct from a `StudioRelationship` — it is an expression-level join, evaluated per-row during enrichment using FK lookup from the relationship graph.
 
+Join-field reads go through `getCachedNormalizedDataSource` (the L1 normalization cache, §5.1) rather than a related source's raw `.rows`, so a raw `Date`/non-canonical date string on the joined row can't bucket differently downstream than the widget's own L1-normalized dates. `enrichRowsWithExpressions` pre-builds an O(1) lookup index per `joinSourceId` before the row loop; the index is seeded by walking the **full** expression tree (`collectJoinSourceIds`), not just the root node, so a join nested inside a function call (e.g. `if(join(customers.country) == 'US', 1, 0)`) is indexed too instead of silently falling back to an unindexed per-row linear scan.
+
 ---
 
 ## 9. Relationships
 
-Relationships allow widgets to span multiple data sources. They are declared in `StudioState.relationships` and are resolved at pipeline time, not at data-ingestion time.
+Relationships allow widgets to span multiple data sources. They are declared in `StudioState.doc.relationships` and are resolved at pipeline time, not at data-ingestion time.
 
 ### 9.1 Relationship types
 
@@ -529,6 +555,8 @@ type RelationshipType = 'many-to-one' | 'one-to-one' | 'many-to-many';
 
 **many-to-many**: requires a junction (bridge) source (e.g. `order_items` bridging `products` ↔ `orders`). Three additional fields are required: `junctionSourceId`, `junctionSourceField` (FK → sourceId), `junctionTargetField` (FK → targetId).
 
+All three re-anchor branches in `grainResolution.ts` (`resolveRowsAtGrain`) — many-to-one, one-to-one, and many-to-many — merge the widget/remote/junction rows the same way: a foreign column is only allowed to override an already-present value on the merged row when `fieldOwners` (from `analyzeChartSupport`) actually attributes that field id to the foreign source. A same-named column that merely happens to collide (e.g. a junction `amount` allocation weight vs. the widget's own `orders.amount`) never silently wins over the correctly-owned value.
+
 ### 9.2 Cross-source grid columns
 
 Grid widgets can display columns from a related source via `StudioGridColumn.sourceId`. At render time, `enrichWithCrossSourceColumns` performs an FK lookup to join the related field values onto the primary rows:
@@ -541,7 +569,7 @@ Columns whose related source has no in-memory rows (async-only sources) are sile
 
 ### 9.3 Chart re-anchoring (L4)
 
-When a chart widget's `xField` or `yField` belongs to a related source, the filtered rows (at the primary source's grain) may be at the wrong aggregation level. `resolveChartRowsForAggregation` (L4) re-joins and re-aggregates rows at the correct grain for the chart's x-axis grouping.
+When a chart widget's `xField` or `yField` belongs to a related source, the filtered rows (at the primary source's grain) may be at the wrong aggregation level. `resolveChartRowsForAggregation` (L4) re-joins and re-aggregates rows at the correct grain for the chart's x-axis grouping. See §9.1's closing note for the ownership-guarded merge policy this re-anchoring uses when combining widget/related/junction rows.
 
 ---
 
@@ -551,7 +579,7 @@ When a chart widget's `xField` or `yField` belongs to a related source, the filt
 
 | Kind     | Component            | Primary hook                           | Key config fields                                                                                      |
 | -------- | -------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `grid`   | `StudioGridWidget`   | `useWidgetRows`                        | `columns`, `gridGroupByField`, `gridSummaryFields`, `gridConditionalFormats`, `drilldownWidgetId`      |
+| `grid`   | `StudioGridWidget`   | `useWidgetRows`                        | `columns`, `gridGroupByField`, `gridSummaryFields`, `gridConditionalFormats`      |
 | `chart`  | `StudioChartWidget`  | `useWidgetRows` + `useChartWidgetData` | `chartType`, `xField`, `yField`/`ySeries`, `seriesField`, `xGroupBy`, `crossFilterMode`, `annotations` |
 | `kpi`    | `StudioKpiWidget`    | `useWidgetRows`                        | `kpiValueField`, `kpiAggregation`, `kpiSparkline`, `kpiSparklinePlotType`, `kpiSparklineGaugeMax`, `kpiTrend` |
 | `text`   | `StudioTextWidget`   | —                                      | `textBody`, `textSubtitle`, font/colour/alignment fields                                               |
@@ -568,6 +596,10 @@ Renders a `DataGrid` (MUI X) with:
 - `gridConditionalFormats` — cell-level style rules evaluated per row at render time.
 - Cross-source columns (join via FK lookup, see §9.2).
 - Cross-filter emission: clicking a row emits a `cross-filter` scoped to `pageId`.
+
+Cross-source field resolution (`resolveCrossSourceFkFields`, `summaryFieldDefs`, `fieldTypeById`) applies an own-field-wins guard: a cross-source column that happens to share a bare field id with one of the widget's own (primary-source or own-expression-field) fields can never silently steal that field's aggregation/type resolution — mirroring the same primary-wins pattern `buildGridColumnDefs` already uses for column definitions.
+
+Boolean `gridConditionalFormats` rules using the `equals`/`not_equals` operator coerce both the cell value and the rule value to string before comparing, since the rule value is authored as the string `"true"`/`"false"` while a boolean cell holds a real JS boolean — loose equality (`true == "true"`) is `false` under JS coercion, so without the coercion an `equals` rule on a boolean column never matched (and `not_equals` matched every row).
 
 ### 10.3 Chart
 
@@ -587,6 +619,10 @@ Chart annotations (`config.annotations`) render horizontal or vertical reference
 
 Cross-filter emission: clicking a data point emits a `cross-filter` for `xField` value.
 
+**Ghost/baseline gating for split-by and multi-series charts.** `StudioBarChart`'s `effectiveSFData`, `StudioLineAreaChart`'s split-by branch, and `StudioPieChart`'s `twoRingData` all gate entry into their split-by/grouped-series rendering on the **unfiltered baseline** data (the same data used for the cross-highlight ghost), not on the filtered-to-current data alone. An unrelated cross-filter that happens to empty a widget's own filtered rows would otherwise collapse a multi-series chart down to a single unsplit aggregate line/ring, even though the split-by field still has categories in the baseline.
+
+Gantt chart items get a stable per-row `id` via `ensureRowIdentity` (`internals/rowIdentity.ts`), used as the React key when rendering bars, rather than a `label`+`startMs` composite key — two tasks with the same label starting on the same day are a legitimate case that a label/start key would collide on, causing the reconciler to pair the wrong row's bar/tooltip state to the wrong DOM node across a cross-filter-driven list change.
+
 ### 10.4 KPI
 
 Shows a headline aggregate value (sum/avg/count/min/max of `kpiValueField`) plus optional:
@@ -594,6 +630,8 @@ Shows a headline aggregate value (sum/avg/count/min/max of `kpiValueField`) plus
 - **Sparkline** — a small line/bar chart showing the metric over time (`kpiSparklineField`).
 - **Trend badge** — percentage change vs previous period, previous calendar period, or year-over-year.
 - **Target line** — a reference line on the sparkline from a `StudioMetricRef`.
+
+Every `selectFiltersForWidget` call in `StudioKpiWidget.tsx` — the fixed-period trend, the filter-based trend, the sparkline's time-field/granularity resolution, and the filter-summary tooltip — passes `includeWidgetRank: true`, matching the headline's own row baseline (`useWidgetRows`). `selectFiltersForWidget` excludes a widget-scoped `filterMode: 'rank'` filter by default (it assumes the chart's post-aggregation re-rank path), so a KPI — which has no such path — must opt back in everywhere it derives filters, or a Top-N/Bottom-N rank filter would scope the headline correctly while the trend/sparkline/tooltip silently computed against the full, unranked row set.
 
 ### 10.5 Filter Widget
 
@@ -628,17 +666,19 @@ interface SerializedStudioState {
   dashboard: StudioDashboardState;
   pages: Record<string, StudioPage>;
   widgets: Record<string, StudioWidget>;
-  filters: StudioFilterState[];        // page-scope filters only
+  filters: StudioFilterState[];        // page/widget-scope filters only
   relationships?: StudioRelationship[];
   expressionFields?: StudioExpressionField[];
-  ai?: StudioAIState;                  // conversation threads (added in schema v2)
+  filterPresets?: StudioFilterPreset[];
+  ai?: StudioAIState;                  // conversation threads; omitted when there are none
 }
 ```text
 
-**Excluded from serialisation:** `dataSources` (runtime, host-provided), `shell` (UI state).
+This is exactly `StudioDoc` (§2.1) minus its ephemeral cross-filter/interactive filter entries — `serializeDoc` spreads every `doc` field so a newly-added field is carried automatically, then strips those two filter scopes and omits `relationships`/`expressionFields`/`filterPresets`/`ai` from the payload when empty.
 
-**Current schema version: 2** — bumped when `ai?` was added as an additive field.
-The v1→v2 migration is a no-op (old states restore with `ai: undefined`).
+**Excluded from serialisation:** `runtime.dataSources` (host-provided), `session` (`mode` + `shell`, both UI-only).
+
+**Current schema version: 1** (`CURRENT_SCHEMA_VERSION` in `packages/x-studio-schema/src/stateTypes.ts`). The only registered migration is the identity `0 → 1` bump (no structural change) — see §11.3 for the registry's shape and how to add the next one.
 
 ### 11.2 Loading state
 
@@ -658,9 +698,9 @@ Migration is applied incrementally: version N state is passed to the `N → N+1`
 
 ### 11.3 Adding a migration
 
-1. Increment `CURRENT_SCHEMA_VERSION` in `src/store/statePersistence.ts`.
-2. Add an entry to the `migrations` registry keyed by the **old** version number.
-3. The migration function receives a `Record<string, unknown>` (spread copy of the persisted state) and must return a new object with `schemaVersion` incremented.
+1. Increment `CURRENT_SCHEMA_VERSION` in `packages/x-studio-schema/src/stateTypes.ts` (the single source of truth; `packages/x-studio-schema/src/statePersistence.ts` re-exports it).
+2. Add an entry to the `migrations` registry (in `statePersistence.ts`) keyed by the **old** version number. Every version in `0 … CURRENT_SCHEMA_VERSION − 1` needs an explicit entry — a gap fails migration hard rather than silently stamping the new version.
+3. The migration function receives a `Record<string, unknown>` (a deep copy of the persisted state) and must return a new object with `schemaVersion` incremented.
 4. Write a test in `statePersistence.test.ts` with a v(N) fixture, asserting the v(N+1) shape.
 
 ---
@@ -688,7 +728,6 @@ graph TD
     DateBar["&lt;StudioDateRangeBar&gt;"]
     QuickFilterBar["&lt;StudioQuickFilterBar&gt;"]
     PageRows["Widget rows\n(StudioWidgetCard ×N)"]
-    DrilldownPanel["&lt;StudioDrilldownDrawer&gt;\n(right-side overlay)"]
 
     Studio --> Provider
     Provider --> Shell
@@ -706,8 +745,9 @@ graph TD
     Canvas --> DateBar
     Canvas --> QuickFilterBar
     Canvas --> PageRows
-    Canvas --> DrilldownPanel
 ```text
+
+> No drilldown/detail panel exists in the current shell — see the note at the end of §7.3.
 
 ### 12.2 Sidebar tabs
 
@@ -745,41 +785,44 @@ Each widget in the canvas is wrapped in `StudioWidgetCard`, which provides:
 - **Built-in insight panel** — when `aiConfig?.endpoint` is set, an `AutoAwesome` dropdown appears in the action overlay (both edit and view modes) with options: Summary, Analysis, Forecast. Selecting one calls `generateWidgetInsight()`, which sends up to 100 aggregated rows to the LLM and renders the result in `StudioInsightPanel` — an absolutely-positioned overlay inside the card (`bottom: 8, left: 8, right: 8, maxHeight: 60%`).
 - **Anomaly detection** — a `TroubleshootIcon` toggle button (chart widgets only, both modes) enables statistical anomaly detection. Detected anomalies show a count badge. When anomalies are present, an "Explain Anomaly" button appears; clicking it dynamically imports `generateAnomalyExplanation` (code-split) and displays the result in the same `StudioInsightPanel`.
 
-### 12.4.1 Drag-and-Drop (react-dnd)
+### 12.4.1 Drag-and-Drop (`@atlaskit/pragmatic-drag-and-drop`)
 
-Canvas widget reposition and compose-panel-to-canvas drop use **react-dnd** (v16) with the HTML5 backend.
+Canvas widget reposition and compose-panel-to-canvas drop use **`@atlaskit/pragmatic-drag-and-drop`** (element adapter), not native HTML5 DnD or react-dnd.
 
-**Why react-dnd instead of native HTML5 DnD:**
-Chrome locks the OS pointer cursor before `dragstart` fires (~3 px movement threshold). Native DnD `cursor` CSS set in `dragstart` is ignored. `react-dnd` with `getEmptyImage({ captureDraggingState: true })` sets `isDragging = true` on `mousedown` — before the threshold — letting CSS `cursor: grabbing` take effect at the correct moment.
+**Why not native HTML5 DnD:**
+Chrome locks the OS pointer cursor before `dragstart` fires (~3 px movement threshold), so native DnD `cursor` CSS set in `dragstart` is ignored — the only reliable fix is suppressing native DnD's own drag image/cursor handling entirely and driving the cursor via a CSS class toggled from JS instead (see "Cursor rules" below). An earlier iteration used react-dnd for this; the DnD layer was later migrated to `@atlaskit/pragmatic-drag-and-drop`, which the codebase now uses exclusively (no `react-dnd` dependency remains).
 
 **Architecture:**
 
 | Component | Role |
 |---|---|
-| `Studio.tsx` | Wraps tree in `<DndProvider backend={HTML5Backend}>` + renders `<StudioDragLayer />` |
-| `StudioDragLayer.tsx` | `useDragLayer` hook; `GlobalStyles` sets `cursor: grabbing !important` on `html.x-studio-dnd-active` and `cursor: copy` on `[data-studio-drop-active]` |
-| `studioWidgetDndTypes.ts` | Shared constants (`DRAG_TYPE_CANVAS_WIDGET`, `DRAG_TYPE_COMPOSE_WIDGET`) and typed item interfaces |
-| `StudioWidgetCard` | `useDrag` source; suppresses native ghost with `getEmptyImage`; sets `x-studio-dnd-active` on `<html>` while dragging; dims card opacity |
-| `AddWidgetView.WidgetTypeCard` | `useDrag` source for compose-panel widget type cards |
-| `InsertionPoint` (StudioCanvas) | `useDrop` target for horizontal row insertion |
-| `WidgetGap` (StudioCanvas) | `useDrop` target for vertical in-row insertion; also houses `RowResizeHandle` |
+| `useStudioDraggable` (StudioCanvas) | Wraps `draggable()` from `@atlaskit/pragmatic-drag-and-drop/element/adapter`. Suppresses the native drag preview via `disableNativeDragPreview`, or mounts a custom preview via `setCustomNativeDragPreview` + a caller-supplied `renderPreview`. Guarantees the drop handler fires even if the element unmounts or `canDrag` flips off mid-drag. |
+| `useStudioDropTarget` (StudioCanvas) | Wraps `dropTargetForElements()`; returns `isOver` (over AND droppable), mirroring react-dnd's `monitor.isOver() && monitor.canDrop()` semantics. |
+| `studioWidgetDndTypes.ts` | Shared constants (`DRAG_TYPE_CANVAS_WIDGET`, `DRAG_TYPE_COMPOSE_WIDGET`), typed item interfaces, and the `isStudioDragItem` type guard used by drop targets to ignore unrelated drags |
+| `StudioDragLayer.tsx` | A single `monitorForElements()` monitor toggles the `x-studio-dnd-active` class on `<html>` on drag start/drop; `GlobalStyles` sets `cursor: move !important` while that class is present and `cursor: copy !important` over `[data-studio-drop-active]` |
+| `useStudioWidgetCardDrag` (StudioWidgetCard) | Calls `useStudioDraggable`; sets `document.body.dataset.studioDraggingWidgetId` and dims the source card's opacity to `0.1` for the ghost preview (via `createClonePreview`, which clones the card DOM node into the preview container) |
+| `AddWidgetView.WidgetTypeCard` | Drag source (via `useStudioDraggable`) for compose-panel widget type cards |
+| `InsertionPoint` (StudioCanvas) | Drop target (via `useStudioDropTarget`) for horizontal row insertion |
+| `WidgetGap` (StudioCanvas) | Drop target for vertical in-row insertion; also houses `RowResizeHandle` |
+| `StudioCanvas.tsx` | Registers `autoScrollForElements` (from `@atlaskit/pragmatic-drag-and-drop-auto-scroll/element`) on the canvas's scroll parent so dragging near the viewport edge auto-scrolls |
 
 **Cursor rules:**
 - Default arrow cursor (`default`) everywhere — no `cursor: pointer` on canvas elements
-- `cursor: grabbing` while any drag is in progress (set via `html.x-studio-dnd-active` class)
+- `cursor: move` while any drag is in progress (set via the `html.x-studio-dnd-active` class)
 - `cursor: copy` when hovering an active drop zone (`[data-studio-drop-active]` attribute)
 - `cursor: col-resize` on `RowResizeHandle` — intentional, not overridden
 
 **Adjacent gap exclusion (BL-112):**
-`useDrag`'s `isDragging` effect sets `document.body.dataset.studioDraggingWidgetId`; `useDrop`'s `canDrop` callback calls `isAdjacentToDraggingWidget()` to disable the two gaps immediately flanking the dragged widget.
+`useStudioWidgetCardDrag`'s drag-start handler sets `document.body.dataset.studioDraggingWidgetId`; `InsertionPoint`/`WidgetGap`'s `canDrop` callback calls `isAdjacentToDraggingWidget()` to disable the two gaps immediately flanking the dragged widget.
 
 ### 12.5 Keyboard shortcuts
 
-`useStudioKeyboardShortcuts` binds:
+`useStudioKeyboardShortcuts` binds only:
 
 - `Ctrl/Cmd + Z` → `controller.undo()`
 - `Ctrl/Cmd + Shift + Z` / `Ctrl/Cmd + Y` → `controller.redo()`
-- `Escape` → deselect / close drilldown
+
+There is no `Escape` binding (no deselect, no drilldown to close). The listener is scoped to a single `<Studio>`/`<StudioDashboard>` instance via a root-ref focus check (falling back to whichever instance's root was most recently focused when nothing is currently focused), and it ignores keystrokes while an editable element (input/textarea/select/`contenteditable`) has focus.
 
 ### 12.6 Responsive stacking
 
@@ -975,7 +1018,9 @@ Set on `<Studio aiConfig={...}>` or `<StudioProvider aiConfig={...}>`. Pass `nul
 3. **Tool execution** — Handled server-side by `executeToolOnState`. Mutations are streamed back as SSE `state-mutation` events and applied client-side via `applyStateMutation`.
 4. **Agentic follow-up** — After all tool results are appended to message history, the loop recurses until the model returns a response with no tool calls.
 
-**Conversation state:** Thread messages are stored in `controller.state.ai.threads[activeThreadId].messages` and serialized in `StudioState` (schema v2). A thread selector UI in the `StudioChatPanel` header allows switching threads; the `rename_thread` tool auto-names threads after the first message.
+**Conversation state:** Thread messages are stored in `controller.state.doc.ai.threads[activeThreadId].messages` and persisted as part of `doc` (see §2.1). A thread selector UI in the `StudioChatPanel` header allows switching threads; the `rename_thread` tool auto-names threads after the first message.
+
+**Auto-submit dedup.** `StudioChatPanel` queues auto-submit-eligible events (an `initialPrompt` mount-submit, a widget-insight click, etc.) in a `pendingAutoSubmit` React state array rather than a local ref, and prunes an entry only after `AutoSubmitTrigger` actually consumes it (via `onConsumed`). This matters because in overlay mode (`overlay={true}`) `<Grow mountOnEnter unmountOnExit>` unmounts `StudioChatPanel` whenever the overlay closes — a ref-based dedup set would reset to empty on that unmount, so reopening the overlay could re-find and re-submit an event it had already handled. Every id/sequence number generated for this queue (and for thread/message ids) comes from a monotonic counter in `chatIds.ts` (`createThreadId`, `createMessageId`, `nextAutoSubmitSeq`) rather than `Date.now()`, since two auto-submit-eligible events landing in the same millisecond would otherwise share a value and the queue's dedup would silently drop the second one.
 
 **20 built-in tools** (see `studioAITools.ts`): page management, widget CRUD, filter management, layout, `summarise_page`, `apply_bulk_update`, `rename_thread`, `query_data_source`, `set_widget_forecast`.
 
@@ -992,6 +1037,8 @@ Five functions in `generateInsight.ts` make **single non-streaming** LLM calls a
 | `generateFieldDescriptions` *(server-side)* | Developer-triggered at source registration | Field metadata + sample values | Returns `{ id, aiDescription }[]` for developer use |
 
 `StudioInsightPanel` (`src/StudioInsightPanel/`) renders absolutely inside the widget card with type-switcher chips, Refresh, Copy, and Close buttons.
+
+`generateInsight.ts`'s y-axis label resolution routes calculated (expression) fields through the same `sourceFieldsWithExpressions` helper its sibling label-resolution call sites already use, rather than looking the field up against the source's raw physical fields alone — otherwise a y-field that is a calculated column would resolve to no label at every one of these call sites except the ones that already special-cased it.
 
 All client-side functions are re-exported from `src/index.ts`. `generateFieldDescriptions` is exported from `@mui/x-studio-ai-middleware`.
 

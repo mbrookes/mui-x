@@ -20,7 +20,6 @@ import type {
 import type { StudioLocaleText } from '../../internals/StudioUIConfigContext';
 import type { StudioMapGeographyDefinition } from '../widgets/StudioMapWidget/geographyLoaders';
 import { StudioController } from '../../store';
-// StudioDrilldownDrawer is kept as an exported composable component but no longer mounted by default.
 import type { StudioChatPanelProps } from '../StudioChatPanel/StudioChatPanel';
 import type { StudioAIConfig } from '../StudioChatPanel/studioBackendAdapter';
 import type { StudioCanvasProps } from '../StudioCanvas/StudioCanvas';

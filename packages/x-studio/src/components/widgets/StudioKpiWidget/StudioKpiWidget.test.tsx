@@ -1627,6 +1627,217 @@ describe('<StudioKpiWidget /> KPI L4 anchor-filter re-application (finding 1.2)'
   });
 });
 
+// ─── finding 3: a widget's own Top-N rank filter must scope the fixed-period trend,
+// the sparkline join, and the "filters applied" tooltip the same way it scopes the headline ──
+//
+// `selectFiltersForWidget` excludes a widget-scoped `filterMode: 'rank'` filter unless
+// `includeWidgetRank: true` is passed (it otherwise assumes the chart post-aggregation
+// re-rank path). The headline (via `useWidgetRows`) and the filter-based trend branch
+// (see the "finding 1" describe block above) already pass the flag. The fixed-period
+// trend, the sparkline's cross-source join, and the hover tooltip previously did not —
+// so a KPI configured with a Top-N rank filter showed a headline scoped to the winning
+// group but a fixed-period delta / sparkline / tooltip scoped to the WHOLE, unranked
+// dataset.
+describe('<StudioKpiWidget /> Top-N rank filter scoping for fixed-period trend, sparkline join, and tooltip (finding 3)', () => {
+  beforeEach(() => {
+    trendSpy.mockClear();
+    valueSpy.mockClear();
+    sparklineSpy.mockClear();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-07-07T12:00:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  it('scopes the fixed-period trend delta and the "filters applied" tooltip by the widget-scoped rank filter (matching the headline)', async () => {
+    // Same cross-source-date fixture as "call site 4" above (order_items → orders), plus a
+    // `region` field on `orders` and a Top-1-by-revenue rank filter instead of the status
+    // condition filter. Only the top-1 region ('east', via O1's revenue of 300 > O2's 100)
+    // should survive.
+    const ordersWithRegion = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'orderDate', label: 'Order date', type: 'date' },
+        { id: 'revenue', label: 'Revenue', type: 'number' },
+        { id: 'region', label: 'Region', type: 'string' },
+      ],
+      rows: [
+        { id: 'O1', orderDate: '2026-07-01', revenue: 300, region: 'east' }, // current window
+        { id: 'O2', orderDate: '2026-05-20', revenue: 100, region: 'west' }, // previous window
+      ],
+    } as unknown as StudioDataSource;
+    // `order_items` (the widget's own source) references BOTH orders — mirroring "call site
+    // 4", this deliberately does NOT pre-narrow to the winning region so the assertions below
+    // isolate the join/trend's OWN re-application of the rank filter, rather than piggy-backing
+    // on rows already excluded elsewhere.
+    const items = [
+      { id: 'oi1', orderId: 'O1' },
+      { id: 'oi2', orderId: 'O1' },
+      { id: 'oi3', orderId: 'O2' },
+      { id: 'oi4', orderId: 'O2' },
+    ];
+    const itemsSource = {
+      id: 'order_items',
+      label: 'Order items',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'orderId', label: 'Order', type: 'string' },
+      ],
+      rows: items,
+    } as unknown as StudioDataSource;
+    const rankFilter: StudioFilterState = {
+      id: 'f-rank',
+      field: 'region',
+      filterSourceId: 'orders',
+      fieldType: 'string',
+      scope: { kind: 'widget', widgetId: 'kpi-1' },
+      filterMode: 'rank',
+      rankDirection: 'top',
+      rankByField: 'revenue',
+      value: 1,
+    } as unknown as StudioFilterState;
+
+    rowsHolder.current = items;
+    const widget = makeWidget(
+      {
+        kpiValueField: 'revenue',
+        kpiAggregation: 'sum',
+        kpiTrend: true,
+        kpiTrendFixedPeriod: 'month',
+        kpiSparklineField: 'orderDate',
+        kpiSparklineSourceId: 'orders',
+      },
+      'order_items',
+    );
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { order_items: itemsSource, orders: ordersWithRegion },
+      relationships: [crossSourceRelationship],
+      filters: [rankFilter],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    const { container, user } = renderKpi(widget, itemsSource);
+
+    // Fixed-period trend (~899): the previous window's only order (O2, 'west') is excluded
+    // by the rank filter before date-windowing even runs, so the previous period has NO
+    // matching rows at all — 0, not 200 (what O2's own revenue would windowed to if the
+    // rank filter were dropped, as it was pre-fix, matching "call site 4"'s own pattern).
+    const trend = lastTrend();
+    expect(trend).not.toBeNull();
+    expect(trend!.previousValue).toBe(0);
+    expect(trend!.delta).toBe(Infinity);
+
+    // Filter tooltip (~1286): the rank filter must be listed as an applied filter, exactly
+    // like the headline it's actually scoping.
+    // eslint-disable-next-line testing-library/no-container -- no accessible role/text on the empty ValueSpy-wrapped span
+    const wrapperSpan = container.querySelector('span')!;
+    await user.hover(wrapperSpan);
+    const tooltip = await screen.findByRole('tooltip');
+    expect(tooltip.textContent).toContain('Region');
+    expect(tooltip.textContent).toContain('Top 1');
+  });
+
+  it('scopes the cross-source sparkline join by the widget-scoped rank filter (matching the headline)', () => {
+    // Same M:N fixture as "call site 3" above (orders → tags via order_tags), plus a
+    // `priority` field on `tags` and a Top-1-by-priority rank filter instead of the
+    // `category = 'electronics'` condition filter. The widget's own yField (`amount`) is
+    // native, so `isGrainAnchored` stays false and the sparkline routes through the
+    // cross-source join this fix threads `includeWidgetRank` into (~725), not through
+    // `useKpiGrainAnchoredRows`.
+    const ordersSourceNative: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'amount', label: 'Amount', type: 'number' },
+      ],
+      rows: [{ id: 'o1', amount: 50 }],
+    } as unknown as StudioDataSource;
+    const tagsSource: StudioDataSource = {
+      id: 'tags',
+      label: 'Tags',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'category', label: 'Category', type: 'string' },
+        { id: 'createdDate', label: 'Created', type: 'date' },
+        { id: 'priority', label: 'Priority', type: 'number' },
+      ],
+      rows: [
+        { id: 't1', category: 'electronics', createdDate: '2026-07-01', priority: 5 },
+        { id: 't2', category: 'books', createdDate: '2026-07-05', priority: 1 },
+      ],
+    } as unknown as StudioDataSource;
+    const orderTagsSource: StudioDataSource = {
+      id: 'order_tags',
+      label: 'Order Tags',
+      fields: [
+        { id: 'orderId', label: 'Order', type: 'string' },
+        { id: 'tagId', label: 'Tag', type: 'string' },
+      ],
+      rows: [
+        { orderId: 'o1', tagId: 't1' },
+        { orderId: 'o1', tagId: 't2' },
+      ],
+    } as unknown as StudioDataSource;
+    const orderTagsRelationship: StudioRelationship = {
+      id: 'rel-order-tags',
+      type: 'many-to-many',
+      sourceId: 'orders',
+      sourceField: 'id',
+      targetId: 'tags',
+      junctionSourceId: 'order_tags',
+      junctionSourceField: 'orderId',
+      junctionTargetField: 'tagId',
+      targetField: 'id',
+    } as unknown as StudioRelationship;
+    const rankFilter: StudioFilterState = {
+      id: 'f-rank',
+      field: 'priority',
+      filterSourceId: 'tags',
+      fieldType: 'number',
+      scope: { kind: 'widget', widgetId: 'kpi-1' },
+      filterMode: 'rank',
+      rankDirection: 'top',
+      value: 1,
+    } as unknown as StudioFilterState;
+
+    rowsHolder.current = [{ id: 'o1', amount: 50 }];
+    const widget = makeWidget(
+      {
+        kpiValueField: 'amount',
+        kpiAggregation: 'sum',
+        kpiSparkline: true,
+        kpiSparklineField: 'createdDate',
+        kpiSparklineSourceId: 'tags',
+        kpiSparklineGranularity: 'month',
+      },
+      'orders',
+    );
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { orders: ordersSourceNative, tags: tagsSource, order_tags: orderTagsSource },
+      relationships: [orderTagsRelationship],
+      filters: [rankFilter],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, ordersSourceNative);
+
+    const sparkline = lastSparkline();
+    // Pre-fix: both tag links ('electronics' priority 5 + 'books' priority 1) survive the
+    // join, double-counting the single order's amount into the same July bucket (50 + 50 =
+    // 100). Post-fix: the rank filter keeps only the top-1-priority tag link ('electronics'),
+    // matching the headline's own Top-N scope — the bucket reflects the order's amount once.
+    expect(sparkline?.data).toEqual([50]);
+  });
+});
+
 // ─── findings 1.3 / 2.1 / 2.2: KPI expression-field & cross-page filter scoping ───────
 //
 // The KPI previously subscribed to its OWN source's expression fields only

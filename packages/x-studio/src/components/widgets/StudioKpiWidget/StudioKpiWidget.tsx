@@ -722,12 +722,18 @@ function useKpiSparkline(params: {
     // silently drive the sparkline's time field and auto-granularity on a multi-page
     // dashboard (finding 2.5 — the same bug already fixed for the trend path in
     // finding 2.17). `include` mirrors the row-scope `currentRows` actually uses.
+    // `includeWidgetRank: true` is REQUIRED here for the same reason `currentRows` (via
+    // `useWidgetRows`) and the filter-based trend path above pass it: `selectFiltersForWidget`
+    // excludes a widget-scoped `filterMode: 'rank'` filter by default, so omitting the flag
+    // here would join the sparkline against an unranked row set (e.g. all regions) while the
+    // headline stays correctly Top-N/Bottom-N filtered (finding 3).
     const scopedFilters = selectFiltersForWidget(filters, {
       widgetId: widget.id,
       widgetSourceId: widget.sourceId,
       activePageId: pageId,
       include: crossFilterMode === 'none' ? 'no-cross' : 'all',
       crossFilterAllPages,
+      includeWidgetRank: true,
     });
     const dateFilter = findDateFilter(scopedFilters, widget.id, dataSource);
     // Only use the date filter's field as the time axis when the filter applies to the
@@ -896,12 +902,19 @@ function useKpiTrend(params: {
     // current period (shown as a warning badge when missing). Scope the lookup through
     // the same authority the trend computation uses so the "needs a date filter" hint
     // stays consistent with whether a date filter is actually in scope (finding 2.17).
+    // `includeWidgetRank: true` is REQUIRED here for the same reason the filter-based trend
+    // path above passes it: `scopedFiltersForBadge` also feeds `periodValueParams.widgetFilters`
+    // and (below) `nonDateScopedFilters`, so omitting the flag would silently drop the widget's
+    // own Top-N/Bottom-N rank filter from both the fixed-period trend and the "needs a date
+    // filter" check, leaving the headline correctly rank-filtered while the trend/badge are
+    // computed against the full, unranked row set (finding 3).
     const scopedFiltersForBadge = selectFiltersForWidget(filters, {
       widgetId: widget.id,
       widgetSourceId: widget.sourceId,
       activePageId: pageId,
       include: crossFilterMode === 'none' ? 'no-cross' : 'all',
       crossFilterAllPages,
+      includeWidgetRank: true,
     });
     const needsDateFilter =
       !hasFixedPeriodTrend &&
@@ -1283,12 +1296,18 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     // this file (:265-271, :614-620, :787-793, :1009-1015) — otherwise, with the
     // dashboard-level all-pages toggle on, the headline is narrowed by a cross-page
     // cross-filter (via `useWidgetRows`) while this hover summary silently omits it.
+    // `includeWidgetRank: true` is REQUIRED here too, for the same reason every sibling
+    // `selectFiltersForWidget` call in this file passes it: `selectFiltersForWidget` excludes
+    // a widget-scoped `filterMode: 'rank'` filter by default, so omitting the flag would leave
+    // this "filters applied" summary silently omitting the widget's own Top-N/Bottom-N rank
+    // filter even though it's actually scoping the headline (finding 3).
     const relevant = selectFiltersForWidget(filters, {
       widgetId: widget.id,
       widgetSourceId: widget.sourceId,
       activePageId: pageId,
       include: crossFilterMode === 'none' ? 'no-cross' : 'all',
       crossFilterAllPages,
+      includeWidgetRank: true,
     });
     if (relevant.length === 0) {
       return '';

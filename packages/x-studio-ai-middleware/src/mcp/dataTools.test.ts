@@ -310,6 +310,84 @@ describe('createDataToolHandlers', () => {
       expect(totalField.stats).toBeUndefined();
       expect(quantityField.stats).toBeDefined();
     });
+
+    // Tier 3, iteration 24, finding 5: unlike `compute_field_stats` (whose model-supplied
+    // `fields` array is capped at MAX_COMPUTE_FIELD_STATS_FIELDS), `describe_data_source`
+    // previously fanned out one aggregation query per numeric field on the resolved
+    // source with NO cap at all — an unbounded `Promise.all` for a source with many
+    // numeric fields.
+    describe('numeric-field fan-out cap (Tier 3, iteration 24, finding 5)', () => {
+      function makeManyNumericFieldsSource(count: number) {
+        return makeSource({
+          fields: [
+            { id: 'id', label: 'Order ID', type: 'string' },
+            ...Array.from({ length: count }, (_, i) => ({
+              id: `n${i}`,
+              label: `Numeric ${i}`,
+              type: 'number' as const,
+            })),
+          ],
+        });
+      }
+
+      it('truncates the fan-out and notes it in the response when the source has more numeric fields than the cap', async () => {
+        const state = makeState({
+          dataSources: { 'source-orders': makeManyNumericFieldsSource(51) },
+        });
+        const queryDataSource = vi.fn(async (params: StudioDataQueryParams) => {
+          if (params.aggregations?.length) {
+            return { rows: [{ min: 0, max: 1, avg: 0.5, sum: 1 }], rowCount: 1 };
+          }
+          return { rows: [], rowCount: 0 };
+        });
+        const handlers = createDataToolHandlers({
+          stateBox: { current: state },
+          maxQueryRows: 1000,
+          recentChanges: [],
+          data: { queryDataSource },
+        });
+        const result: any = await handlers.describe_data_source({ sourceId: 'source-orders' });
+        expect(result.isError).toBeFalsy();
+        const parsed = JSON.parse(await readText(result));
+        expect(parsed.statsTruncated).toBe(true);
+        expect(parsed.statsTruncatedNote).toMatch(/50/);
+        expect(parsed.statsTruncatedNote).toMatch(/51/);
+        expect(parsed.statsTruncatedNote).toMatch(/compute_field_stats/);
+        // Exactly 50 per-field aggregation calls + 1 sample-row call, never 51 + 1.
+        expect(queryDataSource).toHaveBeenCalledTimes(51);
+        // Fields past the cap simply have no `stats`, but are still listed.
+        const untruncatedField = parsed.fields.find((f: any) => f.id === 'n50');
+        expect(untruncatedField).toBeDefined();
+        expect(untruncatedField.stats).toBeUndefined();
+        const withinCapField = parsed.fields.find((f: any) => f.id === 'n0');
+        expect(withinCapField.stats).toBeDefined();
+      });
+
+      it('does not truncate and omits the note when the source has exactly the cap of numeric fields', async () => {
+        const state = makeState({
+          dataSources: { 'source-orders': makeManyNumericFieldsSource(50) },
+        });
+        const queryDataSource = vi.fn(async (params: StudioDataQueryParams) => {
+          if (params.aggregations?.length) {
+            return { rows: [{ min: 0, max: 1, avg: 0.5, sum: 1 }], rowCount: 1 };
+          }
+          return { rows: [], rowCount: 0 };
+        });
+        const handlers = createDataToolHandlers({
+          stateBox: { current: state },
+          maxQueryRows: 1000,
+          recentChanges: [],
+          data: { queryDataSource },
+        });
+        const result: any = await handlers.describe_data_source({ sourceId: 'source-orders' });
+        const parsed = JSON.parse(await readText(result));
+        expect(parsed.statsTruncated).toBeUndefined();
+        expect(parsed.statsTruncatedNote).toBeUndefined();
+        expect(queryDataSource).toHaveBeenCalledTimes(51);
+        const lastField = parsed.fields.find((f: any) => f.id === 'n49');
+        expect(lastField.stats).toBeDefined();
+      });
+    });
   });
 
   describe('get_field_values', () => {
@@ -792,5 +870,60 @@ describe('createSummarisePageHandler', () => {
     const result: any = await handler({});
     const text = result.content[0].text as string;
     expect(text).toContain('Anomalies detected at: 2024-05');
+  });
+
+  // Tier 3, iteration 24, finding 4: `summarise_page` resolves `source.tableName`
+  // directly from `runtime.dataSources` (not through `resolveSource`), so it must
+  // apply the same `allowedTables` check `query_data_source` applies before any
+  // widget's `data.queryDataSource` call.
+  describe('allowedTables enforcement (Tier 3, iteration 24, finding 4)', () => {
+    function makeSingleWidgetState() {
+      const state = makeState();
+      state.doc.widgets['w-1'] = {
+        id: 'w-1',
+        kind: 'grid',
+        title: 'Orders Grid',
+        sourceId: 'source-orders',
+        config: {},
+      } as any;
+      state.doc.pages[PAGE_ID] = { ...state.doc.pages[PAGE_ID], widgetRows: [['w-1']] };
+      return state;
+    }
+
+    it('skips a widget whose source resolves to a table outside allowedTables, without querying it', async () => {
+      const state = makeSingleWidgetState();
+      const queryDataSource = vi.fn(
+        async (): Promise<StudioDataQueryResult> => ({
+          rows: [{ id: 'o1', total: 100 }],
+          rowCount: 1,
+        }),
+      );
+      const handler = createSummarisePageHandler({
+        stateBox: { current: state },
+        data: { queryDataSource, allowedTables: ['other_table'] },
+      });
+      const result: any = await handler({});
+      const text = result.content[0].text as string;
+      expect(text).toMatch(/No queryable widgets found/);
+      expect(queryDataSource).not.toHaveBeenCalled();
+    });
+
+    it('queries a widget whose source resolves to a table IN allowedTables', async () => {
+      const state = makeSingleWidgetState();
+      const queryDataSource = vi.fn(
+        async (): Promise<StudioDataQueryResult> => ({
+          rows: [{ id: 'o1', total: 100 }],
+          rowCount: 1,
+        }),
+      );
+      const handler = createSummarisePageHandler({
+        stateBox: { current: state },
+        data: { queryDataSource, allowedTables: ['orders'] },
+      });
+      const result: any = await handler({});
+      const text = result.content[0].text as string;
+      expect(text).toContain('Orders Grid');
+      expect(queryDataSource).toHaveBeenCalled();
+    });
   });
 });

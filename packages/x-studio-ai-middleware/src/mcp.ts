@@ -209,6 +209,7 @@ export function buildStudioMcpServer(
     logger,
     contextEnricher,
     approvalHandler,
+    approvalTimeoutMs = 120_000,
     rateLimit,
   } = options;
 
@@ -474,9 +475,23 @@ export function buildStudioMcpServer(
   /**
    * Bridge a `require-approval` decision to the host's `approvalHandler` (MCP has no
    * built-in pause channel). Returns `{ approved, reason }` — a clean deny (never a
-   * throw) when no handler is configured or the handler declines. Shared by the
-   * read-only dispatch-table path (args-only, `proposed: undefined`) and the mutation
-   * path (which passes the proposed mutation/effects).
+   * throw on timeout) when no handler is configured, the handler declines, or the
+   * handler never resolves in time. Shared by the read-only dispatch-table path
+   * (args-only, `proposed: undefined`) and the mutation path (which passes the
+   * proposed mutation/effects).
+   *
+   * Bounded wait (Tier 2, iteration 24, finding 1): mirrors
+   * `agenticLoop/toolDispatch.ts`'s `waitForApproval`, which races the chat
+   * transport's approval pause against BOTH `approvalTimeoutMs` and an
+   * `AbortSignal` so an abandoned approval can never hang the stream forever. MCP
+   * has no per-call `AbortSignal` to race, so only the timeout half of that pattern
+   * applies here — but it is just as necessary: this call runs INSIDE the
+   * serialized `mutationChain` critical section (see below), so an
+   * `approvalHandler` promise that never settles (a closed approval-UI tab, a
+   * dropped connection) previously hung not just this call but every subsequent
+   * mutating tool call queued behind it for the rest of the MCP session. The
+   * timer is always cleared once the race settles, so a fast-resolving handler
+   * never leaves a dangling timer behind.
    */
   async function bridgeApproval(
     toolName: string,
@@ -500,7 +515,8 @@ export function buildStudioMcpServer(
     // confirmation UI. Display-only — execution still keys off the raw id. For any
     // non-destructive tool the helper returns the input unchanged.
     const displayInput = buildApprovalDisplayInput(toolName, args ?? {}, stateBox.current);
-    const approved = await approvalHandler({
+
+    const approvalPromise = approvalHandler({
       transport: 'mcp',
       toolName,
       input: displayInput,
@@ -508,7 +524,43 @@ export function buildStudioMcpServer(
       proposed,
       usage: sessionUsage,
     });
-    return approved
+    // If the timeout below wins the race, `approvalPromise` is left running with no
+    // other observer. Should it later reject (e.g. the host's approval UI throws
+    // after the user has already been told the call was denied), Node would report
+    // an unhandled rejection since `Promise.race` only forwards the WINNING
+    // promise's rejection to its own callers. This second, independent
+    // subscription — a Promise.race "loser" is otherwise unobserved — swallows
+    // that eventuality without affecting what `Promise.race` itself resolves/
+    // rejects with below.
+    approvalPromise.catch(() => {});
+
+    const TIMED_OUT = Symbol('mcp-approval-timeout');
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let outcome: boolean | typeof TIMED_OUT;
+    try {
+      outcome = await Promise.race([
+        approvalPromise,
+        new Promise<typeof TIMED_OUT>((resolve) => {
+          timeoutId = setTimeout(() => resolve(TIMED_OUT), approvalTimeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timeoutId !== undefined) {
+        clearTimeout(timeoutId);
+      }
+    }
+
+    if (outcome === TIMED_OUT) {
+      return {
+        approved: false,
+        reason:
+          `MUI X Studio: Approval for "${toolName}" did not resolve within ${approvalTimeoutMs}ms ` +
+          'and was treated as denied. This bounds the wait so a stalled approval UI (e.g. a ' +
+          "closed tab) cannot hang this MCP session's mutation queue indefinitely. Increase " +
+          'StudioMcpOptions.approvalTimeoutMs if legitimate approvals need longer.',
+      };
+    }
+    return outcome
       ? { approved: true, reason: '' }
       : {
           approved: false,

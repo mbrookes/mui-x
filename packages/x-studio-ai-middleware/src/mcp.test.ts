@@ -1489,6 +1489,131 @@ describe('buildStudioMcpServer — tools/call toolPolicy chokepoint', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Tier 2, iteration 24, finding 1 — `bridgeApproval` must not hang forever on a
+// stalled `approvalHandler` (mirrors `agenticLoop/toolDispatch.ts`'s
+// `waitForApproval`, bounded by `approvalTimeoutMs`).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('buildStudioMcpServer — approval timeout (Tier 2, iteration 24, finding 1)', () => {
+  it('denies cleanly (no throw, isError) when approvalHandler never resolves within approvalTimeoutMs', async () => {
+    const stateBox = { current: makeStableState() };
+    const before = stateBox.current;
+    // Never resolves — simulates a human approval UI whose tab was closed.
+    const approvalHandler = vi.fn(() => new Promise<boolean>(() => {}));
+    const server = buildStudioMcpServer(stateBox, {
+      toolPolicy: () => ({ action: 'require-approval' }),
+      approvalHandler,
+      approvalTimeoutMs: 5,
+    });
+
+    const result = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'add_page', arguments: { title: 'Stuck' } },
+      method: CALL_TOOL,
+    })) as any;
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/did not resolve within 5ms/);
+    expect(stateBox.current).toBe(before);
+  });
+
+  it('releases the mutationChain mutex on timeout so a concurrent mutating call is not stuck behind it', async () => {
+    const stateBox = { current: makeStableState() };
+    // The first call's approval never resolves; without the timeout fix this would
+    // hang `mutationChain` forever and every later mutating call queued behind it
+    // (via `.then(runMutation, runMutation)`) would hang too, since the mutex is
+    // per-session, not per-call.
+    const approvalHandler = vi.fn(() => new Promise<boolean>(() => {}));
+    const server = buildStudioMcpServer(stateBox, {
+      toolPolicy: (ctx) =>
+        ctx.toolName === 'add_page' && (ctx.input as any)?.title === 'Stuck'
+          ? { action: 'require-approval' }
+          : { action: 'allow' },
+      approvalHandler,
+      approvalTimeoutMs: 5,
+    });
+    const call = getHandler(server, CALL_TOOL);
+
+    // Fire both concurrently, exactly like the pre-existing "1.2 — serializes
+    // concurrent mutating calls" test above: the second call is queued onto
+    // `mutationChain` behind the first while it is still awaiting approval.
+    const [stuckResult, secondResult] = (await Promise.all([
+      call({ params: { name: 'add_page', arguments: { title: 'Stuck' } }, method: CALL_TOOL }),
+      call({ params: { name: 'add_page', arguments: { title: 'Unblocked' } }, method: CALL_TOOL }),
+    ])) as any[];
+
+    expect(stuckResult.isError).toBe(true);
+    expect(stuckResult.content[0].text).toMatch(/did not resolve within 5ms/);
+    // The second call completed instead of hanging behind the timed-out (but
+    // never-settling) approvalHandler promise for 'Stuck'.
+    expect(secondResult.isError).toBeFalsy();
+    expect(
+      Object.values(stateBox.current.doc.pages as Record<string, { title: string }>).some(
+        (p) => p.title === 'Unblocked',
+      ),
+    ).toBe(true);
+  });
+
+  it('defaults approvalTimeoutMs to 120000ms when omitted', async () => {
+    vi.useFakeTimers();
+    try {
+      const stateBox = { current: makeStableState() };
+      const approvalHandler = vi.fn(() => new Promise<boolean>(() => {}));
+      const server = buildStudioMcpServer(stateBox, {
+        toolPolicy: () => ({ action: 'require-approval' }),
+        approvalHandler,
+      });
+      let caught: any;
+      const resultPromise = getHandler(
+        server,
+        CALL_TOOL,
+      )({
+        params: { name: 'add_page', arguments: { title: 'Default timeout' } },
+        method: CALL_TOOL,
+      }).then((r) => {
+        caught = r;
+      });
+      // Not yet resolved just before the default 120s window elapses.
+      await vi.advanceTimersByTimeAsync(119_999);
+      expect(caught).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(1);
+      await resultPromise;
+      expect(caught.isError).toBe(true);
+      expect(caught.content[0].text).toMatch(/did not resolve within 120000ms/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('still commits normally when approvalHandler resolves well within approvalTimeoutMs', async () => {
+    const stateBox = { current: makeStableState() };
+    const approvalHandler = vi.fn(async () => true);
+    const server = buildStudioMcpServer(stateBox, {
+      toolPolicy: () => ({ action: 'require-approval' }),
+      approvalHandler,
+      approvalTimeoutMs: 60_000,
+    });
+
+    const result = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'add_page', arguments: { title: 'Fine' } },
+      method: CALL_TOOL,
+    })) as any;
+
+    expect(result.isError).toBeFalsy();
+    expect(
+      Object.values(stateBox.current.doc.pages as Record<string, { title: string }>).some(
+        (p) => p.title === 'Fine',
+      ),
+    ).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // MCP transport parity with the chat transport (round 14)
 // ─────────────────────────────────────────────────────────────────────────────
 

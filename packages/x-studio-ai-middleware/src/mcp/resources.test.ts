@@ -301,6 +301,58 @@ describe('resources/read data-access authorization (finding 2.1)', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Tier 3, iteration 24, finding 4 — `studio://data/{id}` and
+// `studio://dashboard/data-health` resolve `source.tableName` directly from
+// `runtime.dataSources` rather than through `resolveSource`, so they must apply
+// the same `data.allowedTables` allowlist check `query_data_source` /
+// `describe_data_source` / `get_field_values` / `compute_field_stats` apply
+// before reaching the database.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('resources/read allowedTables enforcement (Tier 3, iteration 24, finding 4)', () => {
+  it('rejects studio://data/{id} when the resolved table is outside allowedTables, without querying', async () => {
+    const data = makeData();
+    const server = buildStudioMcpServer(makeStateBox(), {
+      data: { ...data, allowedTables: ['other_table'] },
+    });
+    await expect(readResource(server, 'studio://data/source-orders')).rejects.toThrow(
+      /not in the.*allowedTables/,
+    );
+    expect(data.queryDataSource).not.toHaveBeenCalled();
+  });
+
+  it('serves studio://data/{id} when the resolved table IS in allowedTables', async () => {
+    const data = makeData();
+    const server = buildStudioMcpServer(makeStateBox(), {
+      data: { ...data, allowedTables: ['orders'] },
+    });
+    const preview = await readResource(server, 'studio://data/source-orders');
+    expect(JSON.parse(preview.contents[0].text).rows).toEqual([{ id: 'o1', total: 100 }]);
+  });
+
+  it('reports a per-source allowedTables error on studio://dashboard/data-health rather than querying the disallowed table', async () => {
+    const data = makeData();
+    const server = buildStudioMcpServer(makeStateBox(), {
+      data: { ...data, allowedTables: ['other_table'] },
+    });
+    const health = await readResource(server, 'studio://dashboard/data-health');
+    const payload = JSON.parse(health.contents[0].text);
+    expect(payload.counts['source-orders']).toBeUndefined();
+    expect(payload.errors['source-orders']).toMatch(/not in the.*allowedTables/);
+    expect(data.queryDataSource).not.toHaveBeenCalled();
+  });
+
+  it('serves studio://dashboard/data-health counts when the resolved table IS in allowedTables', async () => {
+    const data = makeData();
+    const server = buildStudioMcpServer(makeStateBox(), {
+      data: { ...data, allowedTables: ['orders'] },
+    });
+    const health = await readResource(server, 'studio://dashboard/data-health');
+    expect(JSON.parse(health.contents[0].text).counts['source-orders']).toBe(42);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Tier 3, iteration 22 — data-query resource reads must not hang forever
 // ─────────────────────────────────────────────────────────────────────────────
 

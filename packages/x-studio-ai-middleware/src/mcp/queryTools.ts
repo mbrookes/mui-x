@@ -10,7 +10,13 @@
  */
 
 import { renderChartSvg } from '../chartRenderer';
-import { errorResult, jsonResult, withTimeout, type ToolHandler } from './helpers';
+import {
+  checkAllowedTable,
+  errorResult,
+  jsonResult,
+  withTimeout,
+  type ToolHandler,
+} from './helpers';
 import type {
   StudioDataFilter,
   StudioDataAggregation,
@@ -39,6 +45,24 @@ export interface QueryToolDeps {
  * silently getting stats for a subset of the fields it asked for.
  */
 const MAX_COMPUTE_FIELD_STATS_FIELDS = 50;
+
+/**
+ * Cap on the number of numeric fields `describe_data_source` fans out into
+ * per-field aggregation queries (Tier 3, iteration 24, finding 5), mirroring
+ * `MAX_COMPUTE_FIELD_STATS_FIELDS` above — both bound "how many per-field
+ * aggregation queries can one tool call issue in a single `Promise.all`".
+ *
+ * Unlike `compute_field_stats`, the field set here is NOT model-supplied — it's
+ * every `type: 'number'` field on the resolved source — so there is no smaller
+ * request for the model to retry with, and rejecting the call outright would
+ * just dead-end it. Instead of rejecting, the fan-out is truncated to the first
+ * N numeric fields (in schema order) and the response notes the truncation so
+ * the model knows some numeric fields have no `stats` (it can still recover the
+ * rest via `compute_field_stats` with an explicit `fields` list). Reuses the
+ * same limit as `MAX_COMPUTE_FIELD_STATS_FIELDS` since there's no tool-specific
+ * reason for a different number.
+ */
+const MAX_DESCRIBE_DATA_SOURCE_NUMERIC_FIELDS = MAX_COMPUTE_FIELD_STATS_FIELDS;
 
 /** The shape of a resolved, queryable data source: guaranteed to have a `tableName`. */
 type ResolvedSource = StudioStateBox['current']['runtime']['dataSources'][string] & {
@@ -93,14 +117,9 @@ export function resolveSource(
       ),
     };
   }
-  if (allowedTables && !allowedTables.includes(source.tableName)) {
-    return {
-      ok: false,
-      error: errorResult(
-        `Data source "${sourceId}" resolves to table "${source.tableName}", which is not in the ` +
-          'server-configured allowedTables list. This request was blocked before reaching the database.',
-      ),
-    };
+  const tableCheckError = checkAllowedTable(sourceId, source.tableName, allowedTables);
+  if (tableCheckError) {
+    return { ok: false, error: errorResult(tableCheckError) };
   }
   return { ok: true, source: source as ResolvedSource, tableName: source.tableName };
 }
@@ -205,7 +224,14 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
       const { source, tableName } = resolved;
       try {
         const visibleFields = (source.fields ?? []).filter((f) => !f.hidden);
-        const numericFields = visibleFields.filter((f) => f.type === 'number');
+        const allNumericFields = visibleFields.filter((f) => f.type === 'number');
+        // Truncate (not reject) an oversized numeric-field fan-out — see
+        // `MAX_DESCRIBE_DATA_SOURCE_NUMERIC_FIELDS`'s doc comment for why this tool
+        // truncates instead of rejecting like `compute_field_stats` does.
+        const statsTruncated = allNumericFields.length > MAX_DESCRIBE_DATA_SOURCE_NUMERIC_FIELDS;
+        const numericFields = statsTruncated
+          ? allNumericFields.slice(0, MAX_DESCRIBE_DATA_SOURCE_NUMERIC_FIELDS)
+          : allNumericFields;
 
         // Run sample rows and row count in parallel with per-field numeric stats. Each
         // query is bounded with the same `withTimeout` pattern `mcp/summarisePage.ts`
@@ -273,6 +299,13 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
               }),
             })),
             sampleRows: sampleResult.rows,
+            ...(statsTruncated && {
+              statsTruncated: true,
+              statsTruncatedNote:
+                `Numeric-field stats were computed for only the first ${MAX_DESCRIBE_DATA_SOURCE_NUMERIC_FIELDS} ` +
+                `of ${allNumericFields.length} numeric fields on this source. Call compute_field_stats with ` +
+                'the remaining field ids to get stats for the rest.',
+            }),
           },
           true,
         );

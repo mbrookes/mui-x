@@ -23,7 +23,7 @@ import { buildPageLayoutContext } from '../buildPageLayoutContext';
 import { projectStateForAI } from '../executeToolOnState';
 import type { StudioCustomWidgetDef } from '../models/studioTypes';
 import type { StudioAIEnrichedContext } from '../models/aiTypes';
-import { withTimeout } from './helpers';
+import { checkAllowedTable, withTimeout } from './helpers';
 import type { StudioMcpData, StudioMcpLogger, StudioMcpOptions, StudioStateBox } from './types';
 
 /** Dependencies required to serve the MCP resource handlers. */
@@ -331,6 +331,22 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
           .filter((s) => !s.hidden && s.tableName)
           .map(async (s) => {
             try {
+              // Same `allowedTables` allowlist check `resolveSource` (`queryTools.ts`)
+              // applies before `query_data_source` et al. reach the database (Tier 3,
+              // iteration 24, finding 4): this resource resolves `s.tableName` directly
+              // from `runtime.dataSources` rather than through `resolveSource`, so
+              // without this check it could query a table outside the host's
+              // configured allowlist. Reported per-source via `errors`, exactly like a
+              // query failure below, rather than failing the whole resource read.
+              const tableCheckError = checkAllowedTable(
+                s.id,
+                s.tableName as string,
+                data.allowedTables,
+              );
+              if (tableCheckError) {
+                errors[s.id] = tableCheckError;
+                return;
+              }
               // Bounded with the same `withTimeout` pattern `mcp/summarisePage.ts` applies to
               // its own `data.queryDataSource` calls (Tier 3, iteration 22): without it, one
               // slow/hung source in this per-source `Promise.all` would keep the whole
@@ -457,6 +473,15 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
         throw new Error(
           `Unknown data source: "${sourceId}". Check studio://dashboard/state for available source IDs.`,
         );
+      }
+      // Same `allowedTables` allowlist check `resolveSource` (`queryTools.ts`) applies
+      // before `query_data_source` et al. reach the database (Tier 3, iteration 24,
+      // finding 4): this resource resolves `source.tableName` directly from
+      // `runtime.dataSources` rather than through `resolveSource`, so without this
+      // check it could query a table outside the host's configured allowlist.
+      const tableCheckError = checkAllowedTable(sourceId, source.tableName, data.allowedTables);
+      if (tableCheckError) {
+        throw new Error(tableCheckError);
       }
       // Bounded with the same `withTimeout` pattern `mcp/summarisePage.ts` applies to its
       // own `data.queryDataSource` calls (Tier 3, iteration 22) — otherwise a hung host

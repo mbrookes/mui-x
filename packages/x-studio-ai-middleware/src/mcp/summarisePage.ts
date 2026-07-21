@@ -13,7 +13,7 @@ import {
   isWidgetOfKind,
   type StudioChartConfig,
 } from '@mui/x-studio-schema';
-import { withTimeout, type ToolHandler } from './helpers';
+import { checkAllowedTable, withTimeout, type ToolHandler } from './helpers';
 import type { StudioMcpData, StudioMcpLogger, StudioStateBox } from './types';
 
 // The period-truncation (`truncateToPeriod`) and IQR anomaly-detection
@@ -105,6 +105,20 @@ export function createSummarisePageHandler(deps: {
           ? state.runtime.dataSources[sourceId]
           : undefined;
         if (!source?.tableName) {
+          return;
+        }
+        // Same `allowedTables` allowlist check `resolveSource` (`queryTools.ts`)
+        // applies before `query_data_source` et al. reach the database (Tier 3,
+        // iteration 24, finding 4): `summarise_page` resolves `source.tableName`
+        // directly from `runtime.dataSources` rather than through `resolveSource`,
+        // so without this it could query a table outside the host's configured
+        // allowlist. Skip the widget (like the missing-`tableName` case above)
+        // rather than failing the whole page summary.
+        const tableCheckError = checkAllowedTable(sourceId, source.tableName, data.allowedTables);
+        if (tableCheckError) {
+          logger?.error(
+            `[mcp] summarise_page skipped widget "${widget.title || sourceId}": ${tableCheckError}`,
+          );
           return;
         }
 

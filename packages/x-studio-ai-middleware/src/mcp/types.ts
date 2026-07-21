@@ -189,6 +189,20 @@ export interface StudioMcpOptions {
    */
   approvalHandler?: (ctx: ToolPolicyContext) => Promise<boolean>;
   /**
+   * Bound (in ms) on how long a single `require-approval` call waits on
+   * `approvalHandler` before being treated as denied. MCP has no per-call
+   * `AbortSignal` to race (unlike the chat transport's `waitForApproval` in
+   * `agenticLoop/toolDispatch.ts`, which races the handler against BOTH a timeout
+   * and an abort signal), so this only bounds the timeout side of that pattern —
+   * but it closes the same hole: without it, a human approval UI that never
+   * resolves (a closed tab, a dropped connection) hangs the awaited promise
+   * forever, and because the mutating `tools/call` branch runs this INSIDE the
+   * per-session `mutationChain` critical section, every subsequent mutating call
+   * in the session queues behind it and hangs too.
+   * @default 120000
+   */
+  approvalTimeoutMs?: number;
+  /**
    * Per-session mutation and tool-call budgets. Both are layered BEFORE the host
    * `toolPolicy` (via `Policy.all`), mirroring `AgenticLoopOptions.rateLimit` on the
    * chat transport.

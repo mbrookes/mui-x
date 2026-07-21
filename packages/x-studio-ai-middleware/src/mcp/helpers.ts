@@ -48,6 +48,40 @@ export function jsonResult(data: unknown, pretty = false): CallToolResult {
   };
 }
 
+/**
+ * Validate a resolved `tableName` against an optional server-configured
+ * `allowedTables` list (`StudioAIDataConfig.allowedTables`), mirroring the check
+ * `resolveSource` (`mcp/queryTools.ts`) applies before `query_data_source` /
+ * `describe_data_source` / `get_field_values` / `compute_field_stats` reach the
+ * database.
+ *
+ * Extracted so every raw-row read path that resolves a `tableName` from
+ * `runtime.dataSources` and then calls `data.queryDataSource` directly —
+ * `summarise_page`'s per-widget queries, and the `studio://dashboard/data-health`
+ * / `studio://data/{id}` resources — can apply the SAME allowlist check
+ * `resolveSource` applies, instead of querying an out-of-allowlist table because
+ * they resolve the source through their own lookup rather than through
+ * `resolveSource` (Tier 3, iteration 24, finding 4).
+ *
+ * Returns `null` when the table is permitted (or no allowlist is configured), or
+ * a ready-to-surface deny-reason string otherwise — the exact same message shape
+ * `resolveSource` returns, so a denial reads identically regardless of which
+ * surface produced it.
+ */
+export function checkAllowedTable(
+  sourceId: string,
+  tableName: string,
+  allowedTables: string[] | undefined,
+): string | null {
+  if (allowedTables && !allowedTables.includes(tableName)) {
+    return (
+      `Data source "${sourceId}" resolves to table "${tableName}", which is not in the ` +
+      'server-configured allowedTables list. This request was blocked before reaching the database.'
+    );
+  }
+  return null;
+}
+
 /** Race a promise against a timeout. Rejects with a descriptive error if the timeout fires first. */
 export function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   // Track the timer so it can be cleared once the race settles. Without this, a

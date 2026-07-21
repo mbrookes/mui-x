@@ -20,7 +20,7 @@ import type { StudioChartSeries, StudioWidget } from './widgetTypes';
 import type { StateMutation } from './aiTypes';
 import { normalizeChartSeries } from './factories';
 import { isSafeKey } from './unsafeKeys';
-import { hasUnsafeOwnKeys } from './parseStateMutation';
+import { hasUnsafeOwnKeys, isStringArray } from './parseStateMutation';
 import { getAllowedConfigKeys } from './configKeyValidation';
 
 /**
@@ -242,6 +242,52 @@ function stripUnsafeConfigKeys(config: Record<string, unknown>): Record<string, 
     }
   }
   return safe;
+}
+
+/**
+ * Strip prototype-polluting own keys (`__proto__`/`constructor`/`prototype`) from a
+ * filter object about to be appended to `state.filters` VERBATIM (F5 finding,
+ * `addFilter`). The wire boundary (`parseStateMutation`'s `validateFilter`) already
+ * rejects such a filter outright via its own `hasUnsafeOwnKeys(filter)` check, but
+ * `addFilter` is also reachable from a server-built mutation that bypasses the parser
+ * (the `executeToolOnState` path every other ADD channel in this file — `addWidget`,
+ * `applyBulkUpdate.addedWidgets` — already defends against via `coerceWidgetConfig`/
+ * `stripUnsafeConfigKeys`). Without this, such a filter would install with an own
+ * `"__proto__"` key that round-trips through `serializeDoc` and poisons the next
+ * `{ ...filter }` spread (e.g. `removeFilter`'s producer, or a future edit). Reuses
+ * the exact `stripUnsafeConfigKeys` implementation — the check is identical regardless
+ * of whether the record is a widget config or a filter. Reference-stable when the
+ * filter carries no unsafe own key.
+ */
+function stripUnsafeFilterKeys(filter: StudioFilterState): StudioFilterState {
+  const safe = stripUnsafeConfigKeys(filter as unknown as Record<string, unknown>);
+  return safe === (filter as unknown as Record<string, unknown>)
+    ? filter
+    : (safe as unknown as StudioFilterState);
+}
+
+/**
+ * Repair a filter's `dependsOn` field before it is appended to `state.filters`
+ * VERBATIM (F5 finding, `addFilter`). `dependsOn` is optional cascade metadata, not
+ * identity data — mirroring `statePersistence.ts`'s `repairFilterDependsOn`, which
+ * applies the IDENTICAL repair at the load boundary for a persisted/preset filter —
+ * so a malformed value (`dependsOn: 'w1'`, `dependsOn: [1, 2]`) is stripped from the
+ * filter object rather than sinking the whole `addFilter` mutation. The wire boundary
+ * already rejects a malformed `dependsOn` outright (`validateFilter`'s
+ * `isStringArray(filter.dependsOn)` gate), but `addFilter` is also reachable from a
+ * server-built mutation that bypasses the parser, and an unrepaired malformed
+ * `dependsOn` would later crash `StudioFiltersDrawer`'s `dependsOn.map(...)` the first
+ * time the filter renders. Reference-stable when `dependsOn` is absent or already a
+ * valid `string[]`.
+ */
+function repairFilterDependsOn(filter: StudioFilterState): StudioFilterState {
+  const dependsOn = (filter as { dependsOn?: unknown }).dependsOn;
+  if (dependsOn === undefined || isStringArray(dependsOn)) {
+    return filter;
+  }
+  const rest = { ...(filter as unknown as Record<string, unknown>) };
+  delete rest.dependsOn;
+  return rest as unknown as StudioFilterState;
 }
 
 // Coerce a widget whose `config` is not a record (e.g. `config: null` from a
@@ -995,7 +1041,15 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // field (e.g. `changes: { title: undefined }`) via the shallow merge — the
       // sanctioned way to void a field is `unsetFields`/`unsetConfigKeys` below,
       // which survive JSON (an `undefined` value never does).
-      if (changes) {
+      //
+      // `isPlainRecord` (not bare truthiness — F2 finding): the sibling config channels
+      // (`config`-patch above, `changes.config`/`applyBulkUpdate.updatedWidgets[].config`
+      // below) all gate on `isPlainRecord`, but this bag was gated on `if (changes)` alone.
+      // A truthy non-record `changes` (a string or array from a parser-bypassing
+      // server-built mutation) is iterable via `Object.entries`, which produces
+      // index-keyed junk properties (`"0"`, `"1"`, …) that would merge onto the widget
+      // below. Treat a non-record `changes` as ABSENT, matching every other channel.
+      if (isPlainRecord(changes)) {
         const definedChanges: Record<string, unknown> = {};
         const updatedRecord = updated as unknown as Record<string, unknown>;
         for (const [key, value] of Object.entries(changes)) {
@@ -1099,7 +1153,17 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // `unsetConfigKeys` — delete the named keys from the (post-merge) config.
       // The wire-safe equivalent of a `config`-patch `undefined` value: a key
       // NAME survives `JSON.stringify` where an `undefined` value is dropped.
-      if (unsetConfigKeys && unsetConfigKeys.length > 0) {
+      //
+      // `isStringArray` (not bare truthiness — F3 finding): a truthy non-array STRING
+      // (e.g. a parser-bypassing `unsetConfigKeys: 'title'`) is also truthy and has a
+      // `.length`, so the old `unsetConfigKeys && unsetConfigKeys.length > 0` gate let it
+      // through and `for (const key of unsetConfigKeys)` iterated it char-by-char,
+      // deleting single-character config keys instead of the intended key name. An
+      // array-like RECORD (`{ 0: 'a', length: 1 }`) is also truthy-with-`.length` but is
+      // not iterable, so it threw `TypeError: … is not iterable`. `isStringArray`
+      // rejects both, matching the wire boundary's own `isStringArray(args.unsetConfigKeys)`
+      // check in `parseStateMutation.ts`.
+      if (isStringArray(unsetConfigKeys) && unsetConfigKeys.length > 0) {
         const nextConfig = { ...updated.config } as Record<string, unknown>;
         let changedConfig = false;
         for (const key of unsetConfigKeys) {
@@ -1119,12 +1183,23 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // and `config` is deliberately clearable via `unsetConfigKeys` only (an unset of
       // the whole bag would leave a widget with no config). Only optional fields
       // (matching the `OptionalWidgetField` type on `unsetFields`) are unsettable.
-      if (unsetFields && unsetFields.length > 0) {
+      //
+      // `isStringArray` (not bare truthiness — F3 finding, same class as
+      // `unsetConfigKeys` above): a truthy non-array string is iterable char-by-char and
+      // an array-like record is not iterable at all; both would misbehave under the old
+      // `unsetFields && unsetFields.length > 0` truthiness gate. `isStringArray` rejects
+      // both.
+      if (isStringArray(unsetFields) && unsetFields.length > 0) {
         const nextWidget = { ...updated } as Record<string, unknown>;
         let changedWidget = false;
-        // Iterate as `string[]`: the compile-time type excludes required fields, but a
-        // value arriving over the wire is not type-checked, so the runtime denylist
-        // below is load-bearing for an untrusted payload.
+        // Iterate as `string[]` (explicit cast): `isStringArray`'s `value is string[]`
+        // predicate narrows `unsetFields` to `OptionalWidgetField[]` here (TS intersects
+        // the guard's type with the pre-existing declared type, which excludes the
+        // required `id`/`config`/`kind`/`title` members by construction), so the runtime
+        // denylist comparisons below would otherwise be flagged as a compile-time-
+        // impossible comparison. The comparisons ARE necessary at runtime: a value
+        // arriving over the wire is not type-checked, so the denylist is load-bearing
+        // for an untrusted payload that names one of those fields despite the type.
         for (const key of unsetFields as string[]) {
           if (
             key !== 'id' &&
@@ -1596,12 +1671,17 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       ) {
         return state;
       }
-      // Applied verbatim — the filter already carries its target scope/page
-      // (chosen server-side), so it is NOT re-stamped with the applying side's
-      // active page (that would reintroduce a page-targeting divergence).
+      // Strip unsafe own keys and repair a malformed `dependsOn` (F5 finding) BEFORE
+      // the append — the filter otherwise carries its target scope/page verbatim
+      // (chosen server-side), so it is NOT re-stamped with the applying side's active
+      // page (that would reintroduce a page-targeting divergence). Both helpers are
+      // reference-stable when the filter is already clean, so a well-formed filter
+      // (the common case, and the only shape the wire boundary itself ever lets
+      // through) still appends the SAME object.
+      const safeFilter = repairFilterDependsOn(stripUnsafeFilterKeys(args.filter));
       return {
         ...state,
-        filters: [...state.filters, args.filter],
+        filters: [...state.filters, safeFilter],
       };
     },
     // T3 finding (mirrors `addWidget`'s label fix above): `args.filter` is only guaranteed
@@ -1641,6 +1721,41 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // value outright — treated the same as an absent/empty list — rather than iterating it.
       const removedWidgetIds = Array.isArray(rawRemovedWidgetIds) ? rawRemovedWidgetIds : [];
 
+      // Require real ARRAYS for `addedWidgets`/`updatedWidgets` too (F3 finding, same
+      // class as `removedWidgetIds` just above): both are typed as REQUIRED arrays on
+      // the wire mutation, but every use below previously defaulted only with `?? []`
+      // — which guards `null`/`undefined` but lets a TRUTHY non-array (e.g. a
+      // parser-bypassing `addedWidgets: {}` or `updatedWidgets: 'junk'`) straight
+      // through to a `for...of`, throwing `TypeError: … is not iterable` instead of the
+      // graceful no-op every sibling malformed-shape guard in this handler provides.
+      // Coerce once here so every downstream `for (const widget of addedWidgets ?? [])`
+      // site below can read from the guaranteed-array `safeAddedWidgets`/
+      // `safeUpdatedWidgets` instead.
+      const safeAddedWidgets = Array.isArray(addedWidgets) ? addedWidgets : [];
+      const safeUpdatedWidgets = Array.isArray(updatedWidgets) ? updatedWidgets : [];
+
+      // Ids named in BOTH `removedWidgetIds` and `addedWidgets` in this SAME payload —
+      // a remove+re-add of the same widget id, i.e. a "replace" (F4 finding), not a
+      // genuine removal followed by an unrelated fresh insert. Computed ONCE, up front,
+      // so every downstream step that used to treat this case inconsistently — the
+      // active-page row pre-strip, the layout block's own row-placement exclusion, and
+      // the `addedWidgets` insert loop's idempotent-add guard — agrees on the SAME
+      // semantics regardless of whether this bulk also supplied `widgetRows`: the
+      // widget's placement, cross-filters, and spans are preserved (by never actually
+      // stripping its row / letting `removeWidgetIds`'s "stillReferenced" check see it
+      // survive), and its definition (title/config) is updated to the new value.
+      const removedWidgetIdSet = new Set(removedWidgetIds);
+      const reAddedWidgetIds = new Set<string>();
+      for (const widget of safeAddedWidgets) {
+        if (
+          isPlainRecord(widget) &&
+          isSafePatchKey(widget.id) &&
+          removedWidgetIdSet.has(widget.id)
+        ) {
+          reAddedWidgetIds.add(widget.id);
+        }
+      }
+
       // `widgetRows`/`widgetColSpans` are typed as REQUIRED on the wire mutation, but the
       // reducer must stay TOTAL over a parser-bypassing partial payload a future middleware
       // tool builds by hand (the established `executeToolOnState` pattern, which never runs
@@ -1678,11 +1793,24 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // own "stillReferenced" check, exercised by the "does NOT remove a widget … that
       // still lives on another page" test) and must NOT be stripped here — only the page
       // this bulk actually targets gets its rows edited.
+      //
+      // EXCEPT an id also named in `reAddedWidgetIds` (F4 finding): stripping it here
+      // UNCONDITIONALLY — regardless of `widgetRows` presence — is exactly the divergence
+      // F4 closes. The `hasLayoutUpdate` block below already carried this same exception
+      // for its OWN row-placement resolution (`validRowIds`), but this pre-strip (which
+      // runs for EVERY bulk, including one that never enters that block) did not, so a
+      // remove+re-add bulk WITHOUT `widgetRows` stripped the row here unconditionally,
+      // making `removeWidgetIds` below see the widget as genuinely gone — deleting its
+      // widget entry, filters, and spans — while the WITH-`widgetRows` branch preserved
+      // them but then silently discarded the new definition (fixed separately in the
+      // `addedWidgets` insert loop's idempotent-add guard). Leaving the row intact here
+      // for a re-added id keeps both branches agreeing: placement/filters/spans survive.
       let layoutPages: StudioDoc['pages'] = state.pages;
-      if (pageExists && removedWidgetIds.length > 0) {
+      const idsToPreStrip = removedWidgetIds.filter((id) => !reAddedWidgetIds.has(id));
+      if (pageExists && idsToPreStrip.length > 0) {
         const strippedActivePage = stripWidgetIdsFromPages(
           { [activePageId]: state.pages[activePageId] },
-          new Set(removedWidgetIds),
+          new Set(idsToPreStrip),
         )[activePageId];
         if (strippedActivePage !== state.pages[activePageId]) {
           layoutPages = { ...state.pages, [activePageId]: strippedActivePage };
@@ -1703,18 +1831,16 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         // against. Removed ids resolve afterwards via `removeWidgetIds` and need no
         // special-casing. A `Set` lookup keeps an untrusted id off the prototype chain.
         const validRowIds = new Set<string>(Object.keys(state.widgets));
-        // Track which ids THIS SAME payload's `addedWidgets` re-insert, so the
-        // removedWidgetIds sweep just below can tell "genuinely gone" apart from
-        // "removed-then-re-added in the same payload" (finding 4). Post-mutation,
-        // `nextWidgets` WILL contain this id (the `addedWidgets` loop further down
-        // inserts it once it finds the id no longer present after pruning) — so
-        // `validRowIds` must reflect that eventual post-mutation membership, not
-        // just the pre-mutation `removedWidgetIds` subtraction.
-        const reAddedWidgetIds = new Set<string>();
-        for (const widget of addedWidgets ?? []) {
-          if (isSafePatchKey(widget.id)) {
+        // Also allow this bulk's own `addedWidgets` ids: they are inserted below in the
+        // same handler, so a producer-supplied row may legitimately reference a
+        // not-yet-inserted added widget.
+        for (const widget of safeAddedWidgets) {
+          // Per-entry `isPlainRecord` skip (F3 finding): a `null`/primitive entry in
+          // `addedWidgets` (e.g. from a parser-bypassing payload) would otherwise throw
+          // reading `.id` below instead of being gracefully skipped, like every other
+          // malformed-entry guard in this handler.
+          if (isPlainRecord(widget) && isSafePatchKey(widget.id)) {
             validRowIds.add(widget.id);
-            reAddedWidgetIds.add(widget.id);
           }
         }
         // Exclude ids THIS SAME payload is removing (T2 finding): a bulk update naming
@@ -1726,12 +1852,16 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         // not depend on that caller discipline: a future/adversarial producer that
         // forgets to strip them must still see the removal honored.
         //
-        // EXCEPT an id that is ALSO named in `addedWidgets` (finding 4): a bulk that
+        // EXCEPT an id that is ALSO named in `addedWidgets` (finding 4, F4): a bulk that
         // removes and re-adds the SAME widget id in one payload (a reorder/replace) is
         // not "genuinely gone" — the widget survives this mutation under the same id, so
         // its row placement must survive too. Deleting it here unconditionally stripped
         // the row entry as a "phantom" BEFORE the re-add took effect, losing the widget's
-        // placement to the bottom-row default-placement fallback further below.
+        // placement to the bottom-row default-placement fallback further below. Reuses
+        // the SHARED `reAddedWidgetIds` computed once at the top of this handler (F4
+        // finding) — the pre-strip step above and the `addedWidgets` insert loop below
+        // now agree on the exact same set, instead of each computing (or omitting) their
+        // own notion of "re-added".
         for (const id of removedWidgetIds) {
           if (!reAddedWidgetIds.has(id)) {
             validRowIds.delete(id);
@@ -1868,7 +1998,14 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // itself so a duplicate/idempotent entry is never re-placed onto a page (it may
       // have since been legitimately moved or removed by the user).
       const newlyInsertedWidgetIds: string[] = [];
-      for (const widget of addedWidgets ?? []) {
+      for (const widget of safeAddedWidgets) {
+        // Require a plain-record entry (F3 finding): a `null`/primitive entry in
+        // `addedWidgets` (e.g. from a parser-bypassing payload) would otherwise throw
+        // reading `.id` below instead of being gracefully skipped, matching the
+        // per-entry `isPlainRecord` guard `updatedWidgets` gets further down.
+        if (!isPlainRecord(widget)) {
+          continue;
+        }
         // Require a STRING id (mirrors `addPage`/`addWidget`'s `typeof id !== 'string'`
         // guard): `isSafePatchKey` alone accepts any non-string (it only denies the
         // three string denylist members), so a hand-built `widget.id: 42` would install
@@ -1891,7 +2028,23 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         // guard. Overwriting would revert a concurrent user edit to a widget this bulk
         // originally added. `Object.hasOwn` (not truthy access) so an untrusted id can't
         // match a prototype member.
-        if (Object.hasOwn(nextWidgets, widget.id)) {
+        //
+        // EXCEPT when this SAME payload also named `widget.id` in `removedWidgetIds`
+        // (F4 finding, `isReplace`): that is a remove+re-add of the same id — a
+        // "replace" — not a genuine idempotent re-delivery. The pre-strip/layout steps
+        // above deliberately left this id's row (and hence its `removeWidgetIds`
+        // "stillReferenced" status, filters, and spans) untouched precisely so the
+        // widget's PLACEMENT survives; the widget's already-present entry in
+        // `nextWidgets` is therefore still the OLD definition and must be overwritten
+        // with the new one below, not skipped. Without this exception, a "replace" bulk
+        // silently discarded the new title/config and became a placement-only no-op —
+        // the exact divergence from the widgetRows-absent branch (which genuinely
+        // deleted-then-reinserted, losing placement/filters/spans instead) that F4
+        // closes by making both branches preserve placement/filters/spans AND apply the
+        // new definition.
+        const alreadyPresent = Object.hasOwn(nextWidgets, widget.id);
+        const isReplace = reAddedWidgetIds.has(widget.id);
+        if (alreadyPresent && !isReplace) {
           continue;
         }
         // Coerce a non-record `config` to `{}` BEFORE installing (T2-2), mirroring
@@ -1906,7 +2059,14 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
             ? safeWidget
             : ({ ...safeWidget, config: normalizedConfig } as StudioWidget);
         widgetsChanged = true;
-        newlyInsertedWidgetIds.push(widget.id);
+        // Only a genuinely NEW entry (never present before this loop iteration) is a
+        // candidate for the default row-placement step below — a "replace" already has
+        // a preserved placement (F4), so pushing it here would be redundant (the
+        // `referenced` filter in that step would exclude it anyway, but tracking it
+        // accurately here keeps `newlyInsertedWidgetIds`'s name honest).
+        if (!alreadyPresent) {
+          newlyInsertedWidgetIds.push(widget.id);
+        }
       }
       // Default row-placement for a newly-inserted widget the layout portion above
       // didn't already place (finding: when the bulk omits `widgetRows` — an
@@ -1945,7 +2105,13 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
           };
         }
       }
-      for (const update of updatedWidgets ?? []) {
+      for (const update of safeUpdatedWidgets) {
+        // Require a plain-record entry (F3 finding): a `null`/primitive entry in
+        // `updatedWidgets` (e.g. from a parser-bypassing payload) would otherwise throw
+        // reading `.widgetId` below instead of being gracefully skipped.
+        if (!isPlainRecord(update)) {
+          continue;
+        }
         // `Object.hasOwn` existence check (not truthy `nextWidgets[update.widgetId]`)
         // so an untrusted `widgetId` like `'constructor'` resolves to "no such widget"
         // instead of the `Object` prototype member (a truthy phantom "existing widget").

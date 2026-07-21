@@ -560,6 +560,54 @@ describe('applyMutation', () => {
     expect(next.filters[0].scope).toEqual({ kind: 'page', pageId: 'page-2' });
   });
 
+  // F5: unlike the widget ADD channels (`coerceWidgetConfig`/`stripUnsafeConfigKeys`),
+  // `addFilter` appended `args.filter` verbatim with no unsafe-own-key strip. A filter
+  // carrying a prototype-hazard own key (from a server-built mutation bypassing the
+  // parser) would otherwise install it, round-trip through `serializeDoc`, and poison
+  // a later `{ ...filter }` spread.
+  it('addFilter strips a prototype-hazard own key before appending (F5)', () => {
+    const state = twoPageState('page-1');
+    const filter = JSON.parse(
+      '{"id":"f","field":"x","operator":"equals","value":1,"scope":{"kind":"page","pageId":"page-1"},"__proto__":{"polluted":true}}',
+    );
+    const next = applyDocMutation(state, { type: 'addFilter', args: { filter } });
+    expect(next.filters).toHaveLength(1);
+    expect(Object.hasOwn(next.filters[0], '__proto__')).toBe(false);
+  });
+
+  // F5: `dependsOn` got no shape backstop at all — a malformed value (e.g. a string
+  // instead of `string[]`) would install verbatim and later crash
+  // `StudioFiltersDrawer`'s `dependsOn.map(...)`. Repair (strip the key) rather than
+  // reject the whole `addFilter`.
+  it('addFilter repairs a malformed dependsOn before appending (F5)', () => {
+    const state = twoPageState('page-1');
+    const filter = {
+      id: 'f',
+      field: 'x',
+      operator: 'equals' as const,
+      value: 1,
+      scope: { kind: 'page' as const, pageId: 'page-1' },
+      dependsOn: 'not-an-array',
+    } as any;
+    const next = applyDocMutation(state, { type: 'addFilter', args: { filter } });
+    expect(next.filters).toHaveLength(1);
+    expect((next.filters[0] as { dependsOn?: unknown }).dependsOn).toBeUndefined();
+  });
+
+  it('addFilter leaves an already-clean filter reference-stable (F5)', () => {
+    const state = twoPageState('page-1');
+    const filter = {
+      id: 'f',
+      field: 'x',
+      operator: 'equals' as const,
+      value: 1,
+      scope: { kind: 'page' as const, pageId: 'page-1' },
+      dependsOn: ['w1'],
+    };
+    const next = applyDocMutation(state, { type: 'addFilter', args: { filter } });
+    expect(next.filters[0]).toBe(filter);
+  });
+
   it('addFilter is idempotent: re-delivering the same filter id does not duplicate it', () => {
     const filter = {
       id: 'f',
@@ -1179,6 +1227,45 @@ describe('applyMutation', () => {
       expect(next).toBe(state);
     });
 
+    // F2: `changes` was gated on bare truthiness (`if (changes)`), not `isPlainRecord`
+    // like the sibling config channels. A truthy non-record `changes` (a string or an
+    // array from a parser-bypassing server-built mutation) is iterable via
+    // `Object.entries`, which would merge index-keyed junk properties (`"0"`, `"1"`, …)
+    // onto the widget. It must instead be treated as ABSENT — a clean no-op.
+    it('a non-record `changes` (a string) is a no-op, not a merge of index-keyed junk (F2)', () => {
+      const state = makeDoc({
+        widgets: {
+          w1: { id: 'w1', kind: 'chart', title: 'W', config: { chartType: 'bar' } },
+        },
+      });
+      let next!: StudioDoc;
+      expect(() => {
+        next = applyDocMutation(state, {
+          type: 'updateWidget',
+          args: { widgetId: 'w1', changes: 'junk' as never },
+        });
+      }).not.toThrow();
+      expect(next).toBe(state);
+      expect(Object.hasOwn(next.widgets.w1, '0')).toBe(false);
+    });
+
+    it('a non-record `changes` (an array) is a no-op, not a merge of index-keyed junk (F2)', () => {
+      const state = makeDoc({
+        widgets: {
+          w1: { id: 'w1', kind: 'chart', title: 'W', config: { chartType: 'bar' } },
+        },
+      });
+      let next!: StudioDoc;
+      expect(() => {
+        next = applyDocMutation(state, {
+          type: 'updateWidget',
+          args: { widgetId: 'w1', changes: ['rogue', 'array'] as never },
+        });
+      }).not.toThrow();
+      expect(next).toBe(state);
+      expect(Object.hasOwn(next.widgets.w1, '0')).toBe(false);
+    });
+
     it('a value-identical `changes` scalar returns the SAME state reference (no undo step) (1.1)', () => {
       const state = makeDoc({
         widgets: {
@@ -1341,6 +1428,85 @@ describe('applyMutation', () => {
         args: { widgetId: 'w1', unsetConfigKeys: ['xField', 'yField'] },
       });
       expect(next.widgets.w1.config).toEqual({ chartType: 'bar' });
+    });
+
+    // F3: `unsetConfigKeys`/`unsetFields` were gated on bare truthiness
+    // (`x && x.length > 0`), not `isStringArray`. A truthy non-array STRING is also
+    // truthy-with-`.length`, so it was iterated char-by-char, deleting single-character
+    // config keys instead of a no-op.
+    it('a non-array (string) unsetConfigKeys is a no-op, not char-by-char deletion (F3)', () => {
+      const state = makeDoc({
+        widgets: {
+          w1: {
+            id: 'w1',
+            kind: 'chart',
+            title: 'W',
+            config: { chartType: 'bar', x: 1 },
+          } as unknown as StudioWidgetOf<'chart'>,
+        },
+      });
+      let next!: StudioDoc;
+      expect(() => {
+        next = applyDocMutation(state, {
+          type: 'updateWidget',
+          args: { widgetId: 'w1', unsetConfigKeys: 'x' as never },
+        });
+      }).not.toThrow();
+      expect(next).toBe(state);
+      expect(next.widgets.w1.config).toEqual({ chartType: 'bar', x: 1 });
+    });
+
+    // F3: an array-LIKE record (`{ 0: 'a', length: 1 }`) is also truthy-with-`.length`
+    // but is not iterable — the old gate let it reach `for (const key of …)`, throwing.
+    it('an array-like record unsetConfigKeys is a no-op, not a throw (F3)', () => {
+      const state = makeDoc({
+        widgets: {
+          w1: { id: 'w1', kind: 'chart', title: 'W', config: { chartType: 'bar' } },
+        },
+      });
+      let next!: StudioDoc;
+      expect(() => {
+        next = applyDocMutation(state, {
+          type: 'updateWidget',
+          args: { widgetId: 'w1', unsetConfigKeys: { 0: 'chartType', length: 1 } as never },
+        });
+      }).not.toThrow();
+      expect(next).toBe(state);
+      expect(next.widgets.w1.config).toEqual({ chartType: 'bar' });
+    });
+
+    it('a non-array (string) unsetFields is a no-op, not char-by-char deletion (F3)', () => {
+      const state = makeDoc({
+        widgets: {
+          w1: { id: 'w1', kind: 'chart', title: 'W', sourceId: 's', config: {} },
+        },
+      });
+      let next!: StudioDoc;
+      expect(() => {
+        next = applyDocMutation(state, {
+          type: 'updateWidget',
+          args: { widgetId: 'w1', unsetFields: 'sourceId' as never },
+        });
+      }).not.toThrow();
+      expect(next).toBe(state);
+      expect(next.widgets.w1.sourceId).toBe('s');
+    });
+
+    it('an array-like record unsetFields is a no-op, not a throw (F3)', () => {
+      const state = makeDoc({
+        widgets: {
+          w1: { id: 'w1', kind: 'chart', title: 'W', sourceId: 's', config: {} },
+        },
+      });
+      let next!: StudioDoc;
+      expect(() => {
+        next = applyDocMutation(state, {
+          type: 'updateWidget',
+          args: { widgetId: 'w1', unsetFields: { 0: 'sourceId', length: 1 } as never },
+        });
+      }).not.toThrow();
+      expect(next).toBe(state);
+      expect(next.widgets.w1.sourceId).toBe('s');
     });
 
     it('an unset always wins over a same-mutation set of the same key (unsets run last)', () => {
@@ -2196,6 +2362,94 @@ describe('applyMutation', () => {
       // page-2, not the active page, is untouched.
       expect(next.pages['page-2'].widgetRows).toEqual([['old2']]);
       expect(next.pages['page-2'].widgetColSpans).toEqual({ old2: 6 });
+    });
+
+    // F3: `addedWidgets`/`updatedWidgets` only defaulted with `?? []`, which guards
+    // `null`/`undefined` but lets a TRUTHY non-array (a parser-bypassing server-built
+    // mutation) straight through to `for...of`, throwing instead of no-opping.
+    it('a non-array addedWidgets is a no-op, not a throw (F3)', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+      });
+      let next!: StudioDoc;
+      expect(() => {
+        next = applyDocMutation(state, {
+          type: 'applyBulkUpdate',
+          args: {
+            removedWidgetIds: [],
+            addedWidgets: { notAnArray: true } as never,
+            updatedWidgets: [],
+            activePageId: 'page-1',
+          },
+        });
+      }).not.toThrow();
+      expect(next).toBe(state);
+    });
+
+    it('a non-array updatedWidgets is a no-op, not a throw (F3)', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+        widgets: { w1: chartWidget('w1') },
+      });
+      let next!: StudioDoc;
+      expect(() => {
+        next = applyDocMutation(state, {
+          type: 'applyBulkUpdate',
+          args: {
+            removedWidgetIds: [],
+            addedWidgets: [],
+            updatedWidgets: 'junk' as never,
+            activePageId: 'page-1',
+          },
+        });
+      }).not.toThrow();
+      expect(next).toBe(state);
+    });
+
+    // F3: a `null`/primitive entry INSIDE an otherwise-well-formed `addedWidgets`/
+    // `updatedWidgets` array previously threw reading `.id`/`.widgetId` instead of
+    // being skipped, like every other malformed-entry guard in this handler.
+    it('a null entry in addedWidgets is skipped, other entries still apply (F3)', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+      });
+      let next!: StudioDoc;
+      expect(() => {
+        next = applyDocMutation(state, {
+          type: 'applyBulkUpdate',
+          args: {
+            removedWidgetIds: [],
+            addedWidgets: [null, chartWidget('ok')] as never,
+            updatedWidgets: [],
+            activePageId: 'page-1',
+          },
+        });
+      }).not.toThrow();
+      expect(next.widgets.ok).toEqual(chartWidget('ok'));
+    });
+
+    it('a null entry in updatedWidgets is skipped, other entries still apply (F3)', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+        widgets: { w1: chartWidget('w1', 'Old title') },
+      });
+      let next!: StudioDoc;
+      expect(() => {
+        next = applyDocMutation(state, {
+          type: 'applyBulkUpdate',
+          args: {
+            removedWidgetIds: [],
+            addedWidgets: [],
+            updatedWidgets: [null, { widgetId: 'w1', title: 'New title' }] as never,
+            activePageId: 'page-1',
+          },
+        });
+      }).not.toThrow();
+      expect(next.widgets.w1.title).toBe('New title');
     });
 
     // 1.8: producer-supplied active-page spans are normalized (clamped + invariant-
@@ -3114,6 +3368,78 @@ describe('applyMutation', () => {
       } as StateMutation);
       expect(next.widgets.w1).toBeDefined();
       expect(next.pages['page-1'].widgetRows).toEqual([['w2', 'w1']]);
+    });
+
+    // F4: with `widgetRows` present, the OLD row-survival + idempotent-add guard
+    // combination silently discarded the NEW widget definition — a "replace" bulk
+    // became a placement-only no-op. The re-added widget's title/config must now
+    // actually update.
+    it('a remove+re-add of the same id WITH widgetRows updates the widget definition (F4)', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1'], ['w2']] } },
+        widgets: { w1: chartWidget('w1', 'Old title'), w2: chartWidget('w2') },
+      });
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: ['w1'],
+          addedWidgets: [chartWidget('w1', 'New title')],
+          updatedWidgets: [],
+          widgetRows: [['w1'], ['w2']],
+          activePageId: 'page-1',
+        },
+      } as StateMutation);
+      // Placement survives (unchanged)…
+      expect(next.pages['page-1'].widgetRows).toEqual([['w1'], ['w2']]);
+      // …AND the definition updates to the new value (not silently discarded).
+      expect(next.widgets.w1.title).toBe('New title');
+    });
+
+    // F4: WITHOUT `widgetRows`, the OLD unconditional pre-strip genuinely deleted the
+    // widget (losing its placement, cross-filters, and spans) and re-inserted it at the
+    // bottom with default placement. Both branches must now agree: placement/filters/
+    // spans survive AND the definition updates.
+    it('a remove+re-add of the same id WITHOUT widgetRows preserves placement/filters/spans and updates the definition (F4)', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': {
+            id: 'page-1',
+            title: 'P1',
+            widgetRows: [['w1'], ['w2']],
+            widgetColSpans: { w1: 12 },
+          },
+        },
+        widgets: { w1: chartWidget('w1', 'Old title'), w2: chartWidget('w2') },
+        filters: [
+          {
+            id: 'f1',
+            field: 'x',
+            operator: 'equals',
+            value: 1,
+            scope: { kind: 'widget', widgetId: 'w1' },
+          },
+        ],
+      });
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: ['w1'],
+          addedWidgets: [chartWidget('w1', 'New title')],
+          updatedWidgets: [],
+          // No widgetRows/widgetColSpans supplied at all — an updates/replace-only bulk.
+          activePageId: 'page-1',
+        },
+      } as StateMutation);
+      // Placement is preserved in its ORIGINAL position — not moved to the bottom.
+      expect(next.pages['page-1'].widgetRows).toEqual([['w1'], ['w2']]);
+      // Spans survive.
+      expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 12 });
+      // The widget-scoped filter survives (was not dropped as if genuinely removed).
+      expect(next.filters.map((f) => f.id)).toEqual(['f1']);
+      // The definition updates to the new value.
+      expect(next.widgets.w1.title).toBe('New title');
     });
 
     it('still respects a genuine cross-page reference when widgetRows is omitted (does not remove a widget another page shows)', () => {

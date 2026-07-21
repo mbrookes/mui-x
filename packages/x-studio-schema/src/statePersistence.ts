@@ -249,6 +249,36 @@ const repairFilterDependsOn = <T>(entry: T): T => {
 };
 
 /**
+ * Repair a thread's `messages`/`name` leaf shapes at the load boundary (F1 finding):
+ * the container/entry screen around this helper's call site validated "is a record"
+ * and "carries no unsafe own key" but never the LEAF shapes — a thread with `messages`
+ * as a non-array (e.g. a string) or `name` as a non-string previously passed through
+ * verbatim. `useChatThreads.ts`'s `activeThread?.messages ?? []` only guards nullish,
+ * not wrong-type, so a string `messages` reached `<ChatBox messages={...}>` and crashed
+ * on `.map`; a non-string `name` crashes as an invalid React child the first time the
+ * thread selector renders it. Repair-in-place (coerce) rather than drop the whole
+ * thread — mirroring `page.title`/`dashboard.title`'s fallback-over-drop treatment —
+ * since neither field is identity data (`id` still is, and is left untouched). Non-
+ * record input is returned as-is; the caller's own record screen handles it.
+ * Reference-stable when both fields already have the correct shape.
+ */
+const repairThreadLeafShapes = <T>(thread: T): T => {
+  if (!isRecord(thread)) {
+    return thread;
+  }
+  const messagesOk = Array.isArray((thread as { messages?: unknown }).messages);
+  const nameOk = typeof (thread as { name?: unknown }).name === 'string';
+  if (messagesOk && nameOk) {
+    return thread;
+  }
+  return {
+    ...thread,
+    ...(messagesOk ? {} : { messages: [] }),
+    ...(nameOk ? {} : { name: 'Untitled Thread' }),
+  } as T;
+};
+
+/**
  * Screen one preset-embedded filter with the SAME semantic checks the `doc.filters` load
  * pass applies to the fields that travel VERBATIM into live `doc.filters` when a preset is
  * applied (T2-3). `@mui/x-studio`'s `docTransforms.applyFilterPreset` rematerializes each
@@ -284,14 +314,31 @@ const isPresetFilterSafe = (entry: unknown): boolean => {
 };
 
 /**
+ * Coerce a preset's `name` to a string, symmetric with `page.title`'s
+ * `'Untitled Page'` / `dashboard.title`'s `'Untitled Dashboard'` fallback pattern
+ * (F1 finding): `screenFilterPresets` validated the preset container (a record with
+ * an array `filters`) but never `preset.name`, which `StudioFiltersDrawer` renders
+ * VERBATIM as a Chip `label` — a non-string `name` (`null`, `42`, an object) crashes
+ * that render as an invalid React child, the same class of load-boundary gap
+ * `page.title`/`dashboard.title` were already closed for. Repair-in-place (coerce)
+ * rather than drop the whole preset — the name is display metadata, not identity
+ * data, matching the fallback-over-drop treatment `page.title` gets. Reference-
+ * stable when `name` is already a string.
+ */
+const safePresetName = (name: unknown): string =>
+  typeof name === 'string' ? name : 'Untitled Filter Preset';
+
+/**
  * Screen persisted `filterPresets` (Finding 1, nested sibling site): drop any entry that
- * is not a record with an array `filters`, AND screen each preset's own `filters` array with
- * {@link isPresetFilterSafe} — record-ness (a `null` inner filter entry crashes
- * `applyFilterPreset`'s id-remap loop `idMap.set(f.id, …)` the same way a top-level junk
- * entry does) PLUS the `field`/`operator`/`operator2` semantic checks (T2-3), because those
- * fields travel verbatim into live `doc.filters` via `applyFilterPreset`, one indirection past
- * the `doc.filters` load screen. Reference-stable at both levels: returns the SAME outer array
- * (and the SAME inner `filters` array on each surviving preset) when nothing is dropped.
+ * is not a record with an array `filters`, coerce a non-string `preset.name` to a
+ * fallback (F1 finding, see {@link safePresetName}), AND screen each preset's own
+ * `filters` array with {@link isPresetFilterSafe} — record-ness (a `null` inner filter
+ * entry crashes `applyFilterPreset`'s id-remap loop `idMap.set(f.id, …)` the same way a
+ * top-level junk entry does) PLUS the `field`/`operator`/`operator2` semantic checks
+ * (T2-3), because those fields travel verbatim into live `doc.filters` via
+ * `applyFilterPreset`, one indirection past the `doc.filters` load screen. Reference-
+ * stable at both levels: returns the SAME outer array (and the SAME inner `filters`
+ * array on each surviving preset) when nothing is dropped or repaired.
  */
 const screenFilterPresets = (value: unknown): StudioDoc['filterPresets'] => {
   if (!Array.isArray(value)) {
@@ -313,11 +360,16 @@ const screenFilterPresets = (value: unknown): StudioDoc['filterPresets'] => {
     const innerUnchanged =
       safeInner.length === innerFilters.length &&
       safeInner.every((entry, i) => entry === innerFilters[i]);
-    if (innerUnchanged) {
+    const nameIsString = typeof preset.name === 'string';
+    if (innerUnchanged && nameIsString) {
       safe.push(preset);
     } else {
       changed = true;
-      safe.push({ ...preset, filters: safeInner });
+      safe.push({
+        ...preset,
+        name: safePresetName(preset.name),
+        filters: safeInner,
+      });
     }
   }
   return (changed ? safe : value) as StudioDoc['filterPresets'];
@@ -923,10 +975,27 @@ export function deserializeState(
   let normalizedAi: StudioAIState | undefined;
   if (isRecord(serialized.ai) && Array.isArray((serialized.ai as StudioAIState).threads)) {
     const ai = stripUnsafeOwnKeys(serialized.ai as StudioAIState);
-    const safeThreads = ai.threads.filter(
-      (thread) => isRecord(thread) && !hasUnsafeOwnKeys(thread),
-    );
-    normalizedAi = safeThreads.length === ai.threads.length ? ai : { ...ai, threads: safeThreads };
+    // Drop non-record / unsafe-own-key entries first (existing screen), THEN repair
+    // each SURVIVING thread's `messages`/`name` leaf shapes (F1 finding) — the
+    // container/record-ness screen alone let a `messages: 'junk'` or `name: 42` thread
+    // through verbatim. `changed` tracks BOTH the drop and the repair so a well-formed
+    // `ai.threads` (the common case) keeps its reference identity.
+    let threadsChanged = false;
+    const recordThreads = ai.threads.filter((thread) => {
+      if (!isRecord(thread) || hasUnsafeOwnKeys(thread)) {
+        threadsChanged = true;
+        return false;
+      }
+      return true;
+    });
+    const safeThreads = recordThreads.map((thread) => {
+      const repaired = repairThreadLeafShapes(thread);
+      if (repaired !== thread) {
+        threadsChanged = true;
+      }
+      return repaired;
+    });
+    normalizedAi = threadsChanged ? { ...ai, threads: safeThreads } : ai;
   }
 
   // Repair a malformed `dependsOn` (T2 finding) BEFORE the structural filter screen below:

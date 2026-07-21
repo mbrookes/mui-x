@@ -649,6 +649,54 @@ describe('deserializeState', () => {
     expect(renamed.ai!.threads[0].name).toBe('Renamed');
   });
 
+  // F1: the T2-3 screen above validated "is a record" but never the LEAF shapes of a
+  // surviving thread — a `messages` that is a non-array (e.g. a string) or a `name`
+  // that is a non-string passed through verbatim, later crashing `<ChatBox messages=…>`
+  // (`.map` on a string) or React's child renderer (a non-string `name`). Repair-in-
+  // place: coerce `messages` to `[]` and `name` to a fallback string, rather than
+  // dropping the whole thread.
+  it('repairs a thread with a non-array messages and a non-string name on load (F1)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      ai: {
+        threads: [
+          {
+            id: 'thread-1',
+            name: 42,
+            createdAt: '2026-01-01T00:00:00.000Z',
+            messages: 'not-an-array',
+          },
+        ],
+        activeThreadId: 'thread-1',
+      },
+    } as unknown as typeof minimalSerialized;
+    const restored = deserializeState(serialized, {});
+    expect(restored.doc.ai!.threads).toHaveLength(1);
+    const thread = restored.doc.ai!.threads[0];
+    expect(thread.id).toBe('thread-1');
+    expect(Array.isArray(thread.messages)).toBe(true);
+    expect(thread.messages).toEqual([]);
+    expect(typeof thread.name).toBe('string');
+  });
+
+  // F1: a well-formed `ai.threads` (every thread already carrying an array `messages`
+  // and a string `name`) must not be repaired/re-wrapped — reference stability for the
+  // common case.
+  it('keeps a well-formed ai.threads reference-stable on load (F1)', () => {
+    const thread = {
+      id: 'thread-1',
+      name: 'Kept',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      messages: [],
+    };
+    const serialized = {
+      ...minimalSerialized,
+      ai: { threads: [thread], activeThreadId: 'thread-1' },
+    } as unknown as typeof minimalSerialized;
+    const restored = deserializeState(serialized, {});
+    expect(restored.doc.ai!.threads[0]).toBe(thread);
+  });
+
   // 2.4: the restored doc is stamped at CURRENT_SCHEMA_VERSION (deserialize only runs
   // on migrated state), even if the serialized object carried no schemaVersion.
   it('stamps doc.schemaVersion as CURRENT_SCHEMA_VERSION', () => {
@@ -1506,6 +1554,21 @@ describe('deserializeState', () => {
     // The `null` inner filter entry is screened out; only the record survives.
     expect(state.doc.filterPresets![0].filters).toHaveLength(1);
     expect(state.doc.filterPresets![0].filters[0].id).toBe('pf');
+  });
+
+  // F1: `screenFilterPresets` validated the preset container (record + array `filters`)
+  // but never `preset.name`, which `StudioFiltersDrawer` renders VERBATIM as a Chip
+  // `label` — a non-string `name` crashes that render as an invalid React child.
+  // Repair-in-place (coerce to a fallback string) rather than drop the whole preset.
+  it('coerces a non-string filterPreset name to a fallback on load (F1)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      filterPresets: [{ id: 'p1', name: 42, filters: [] }],
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.filterPresets).toHaveLength(1);
+    expect(state.doc.filterPresets![0].id).toBe('p1');
+    expect(typeof state.doc.filterPresets![0].name).toBe('string');
   });
 
   it('leaves well-formed relationships / filterPresets reference-stable (Finding 1)', () => {

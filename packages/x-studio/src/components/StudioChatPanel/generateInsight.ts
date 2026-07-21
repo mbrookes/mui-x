@@ -520,7 +520,12 @@ function buildChartWidgetSummary(
     widgetFilters,
   );
 
-  const yFieldLabel = (id: string) => source.fields.find((f) => f.id === id)?.label ?? id;
+  // Look up through the own-source + own-source-expression-fields merge (not just
+  // `source.fields`) so a calculated-field (expression field) y-axis measure shows its
+  // configured display label instead of its raw field id (finding 14) — mirrors the same
+  // `sourceFieldsWithExpressions` lookup used by the KPI/map/raw-row label paths above.
+  const yFieldSourceFields = sourceFieldsWithExpressions(source, state.doc.expressionFields);
+  const yFieldLabel = (id: string) => yFieldSourceFields.find((f) => f.id === id)?.label ?? id;
 
   const lines: string[] = [];
 

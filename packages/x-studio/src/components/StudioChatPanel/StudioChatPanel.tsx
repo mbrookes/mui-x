@@ -32,6 +32,7 @@ import { generateSuggestions } from './chatSuggestions';
 import { useChatVoiceInput } from './useChatVoiceInput';
 import { StudioComposerToolbar, VoiceMicContext } from './StudioComposerToolbar';
 import { useChatThreads, StreamThreadPin } from './useChatThreads';
+import { nextAutoSubmitSeq } from './chatIds';
 
 /** A single queued auto-submission (see `AutoSubmitTrigger` below). */
 interface PendingAutoSubmit {
@@ -55,8 +56,8 @@ function enqueuePendingAutoSubmit(
 }
 
 // Invisible component rendered inside ChatBox (inside ChatRoot context).
-// Processes `pending` as a FIFO queue: each new, not-yet-consumed entry sets the
-// composer value and submits it, one at a time.
+// Processes `pending` as a FIFO queue: the oldest entry sets the composer value and
+// submits it, one at a time.
 //
 // `submit()` (`useChatComposer`) is a silent no-op while a response is already
 // streaming. Gating on `isSubmitting` (mapped from `store.state.isStreaming`)
@@ -74,23 +75,51 @@ function enqueuePendingAutoSubmit(
 // `submit()` call by a macrotask (rather than just a microtask) gives that
 // trailing bookkeeping a beat to finish first when this entry's turn comes up
 // hot on the heels of a just-completed prior submission.
-function AutoSubmitTrigger({ pending }: { pending: PendingAutoSubmit[] }) {
+//
+// Dedup lives in `pending` itself (via `onConsumed`, which removes the entry from
+// the parent's `pendingAutoSubmit` state) rather than in a ref local to this
+// component. In overlay mode `<Grow mountOnEnter unmountOnExit>` unmounts this
+// component whenever the overlay closes, which would reset a local ref's
+// consumed-set to empty — a fresh mount on reopen would then re-find and
+// re-submit any entry still sitting in `pending`, causing a duplicate LLM call on
+// every reopen (finding 5). Pruning the entry from the state queue itself means a
+// remount has nothing stale left to reprocess.
+//
+// `onConsumed` is called from INSIDE the deferred `setTimeout` callback, right
+// after `submit()` — not synchronously up front. Pruning synchronously (before
+// `submit()` fires) would change `pending`'s identity immediately, which is this
+// same effect's own dependency: React would re-render and run this effect's
+// cleanup — `clearTimeout(timeoutId)` — before the 0ms timeout ever gets a chance
+// to fire, cancelling the very `submit()` call the entry was just marked
+// "consumed" for and silently dropping the message. Deferring `onConsumed`
+// alongside `submit()` means an entry is only pruned once it has actually been
+// submitted; if the timeout is cancelled first (e.g. the overlay unmounts before
+// it fires), the entry is left in `pending` for a future mount to retry instead
+// of being lost.
+function AutoSubmitTrigger({
+  pending,
+  onConsumed,
+}: {
+  pending: PendingAutoSubmit[];
+  onConsumed: (seq: number) => void;
+}) {
   const { setValue, submit, isSubmitting } = useChatComposer();
-  const consumedSeqsRef = React.useRef<Set<number>>(new Set());
 
   React.useEffect(() => {
     if (isSubmitting) {
       return undefined;
     }
-    const next = pending.find((item) => !consumedSeqsRef.current.has(item.seq));
+    const next = pending[0];
     if (!next) {
       return undefined;
     }
-    consumedSeqsRef.current.add(next.seq);
     setValue(next.text);
-    const timeoutId = setTimeout(() => submit(), 0);
+    const timeoutId = setTimeout(() => {
+      submit();
+      onConsumed(next.seq);
+    }, 0);
     return () => clearTimeout(timeoutId);
-  }, [pending, isSubmitting, setValue, submit]);
+  }, [pending, isSubmitting, setValue, submit, onConsumed]);
 
   return null;
 }
@@ -251,6 +280,13 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
   const [pendingAutoSubmit, setPendingAutoSubmit] = React.useState<PendingAutoSubmit[]>([]);
   const pendingMessageIdRef = React.useRef<number | undefined>(undefined);
 
+  // Prunes an entry out of the queue once `AutoSubmitTrigger` has consumed it — see the
+  // doc comment on `AutoSubmitTrigger` (finding 5) for why this must live in state
+  // rather than a ref local to that component.
+  const handleAutoSubmitConsumed = React.useCallback((seq: number) => {
+    setPendingAutoSubmit((prev) => prev.filter((item) => item.seq !== seq));
+  }, []);
+
   React.useEffect(() => {
     if (!pendingMessage || pendingMessage.id === pendingMessageIdRef.current) {
       return;
@@ -291,10 +327,13 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
     const text = initialPrompt?.trim();
     if (text && threadMessages.length === 0) {
       initialPromptSubmittedRef.current = true;
-      // A distinct seq space from `pendingMessage.id` (small monotonic ints) so the
-      // two auto-submit paths can't accidentally dedupe against each other inside
-      // `AutoSubmitTrigger`.
-      setPendingAutoSubmit((prev) => enqueuePendingAutoSubmit(prev, { text, seq: Date.now() }));
+      // Drawn from the same module-level monotonic counter as `pendingMessage.id`
+      // (see `StudioContent`'s `pendingInsight.id`) so two auto-submit-eligible
+      // events landing in the same millisecond never collide on `seq` — a plain
+      // `Date.now()` here previously could (finding 13).
+      setPendingAutoSubmit((prev) =>
+        enqueuePendingAutoSubmit(prev, { text, seq: nextAutoSubmitSeq() }),
+      );
     }
   }, [initialPrompt, threadMessages.length, activeThreadId]);
 
@@ -587,7 +626,7 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
             }}
             sx={{ height: '100%' }}
           >
-            <AutoSubmitTrigger pending={pendingAutoSubmit} />
+            <AutoSubmitTrigger pending={pendingAutoSubmit} onConsumed={handleAutoSubmitConsumed} />
             <StreamThreadPin {...streamThreadPinProps} />
           </ChatBox>
         </Box>

@@ -21,7 +21,7 @@ import { mockUseStudioSelector, configureStudioContextMock } from '../../../test
 // MUST come after the `studioContextMock` import above, otherwise `mockUseStudioSelector`
 // is referenced (inside the hoisted `vi.mock` factory) before its binding is initialized.
 import { useChatThreads } from './useChatThreads';
-import { createThreadId, createMessageId } from './chatIds';
+import { createThreadId, createMessageId, nextAutoSubmitSeq } from './chatIds';
 
 vi.mock('../../context', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../context')>()),
@@ -231,5 +231,28 @@ describe('chatIds: collision resistance', () => {
   it('never returns the same message id twice, even created back to back', () => {
     const ids = Array.from({ length: 50 }, () => createMessageId());
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  // `nextAutoSubmitSeq` backs the auto-submit queue's `seq`/`id` values (StudioChatPanel's
+  // `initialPrompt` auto-submit and StudioContent's `pendingInsight.id`, forwarded as
+  // `pendingMessage.id`) — replacing a former `Date.now()` at both sites, whose millisecond
+  // resolution let two same-millisecond auto-submit-eligible events collide on `seq` and have
+  // one silently dropped by the queue's dedup (finding 13). A monotonic counter guarantees
+  // distinctness regardless of timing, even when `Date.now()` itself is frozen.
+  it('never returns the same auto-submit seq twice, even when Date.now() is frozen (finding 13)', () => {
+    const originalNow = Date.now;
+    Date.now = () => 1700000000000;
+    try {
+      const seqs = Array.from({ length: 50 }, () => nextAutoSubmitSeq());
+      expect(new Set(seqs).size).toBe(seqs.length);
+    } finally {
+      Date.now = originalNow;
+    }
+  });
+
+  it('returns strictly increasing auto-submit seqs', () => {
+    const first = nextAutoSubmitSeq();
+    const second = nextAutoSubmitSeq();
+    expect(second).toBeGreaterThan(first);
   });
 });

@@ -332,6 +332,50 @@ describe('buildWidgetDataSummary', () => {
     });
   });
 
+  // ─── Chart widgets — expression-field y-axis label (finding 14) ────────────
+  //
+  // `yFieldLabel` previously looked up only `source.fields`, which never contains
+  // calculated/expression fields — an expression-field y-axis measure showed its raw
+  // internal id (e.g. `ef_margin`) instead of its configured display label ("Margin").
+  describe('chart widgets — expression field y-axis label (finding 14)', () => {
+    it('labels a calculated-field y-axis measure with its display label, not its raw id', () => {
+      const fields = [
+        { id: 'region', label: 'Region', type: 'string' as const },
+        { id: 'amount', label: 'Amount', type: 'number' as const },
+      ];
+      const rows = [
+        { region: 'EU', amount: 100 },
+        { region: 'US', amount: 200 },
+      ];
+      const marginField: StudioExpressionField = {
+        id: 'ef_margin',
+        label: 'Margin',
+        type: 'number',
+        isMeasure: false,
+        sourceId: 'orders',
+        expression: {
+          operator: 'multiply',
+          inputs: [{ id: 'amount' }, { type: 'number', value: 0.2 }],
+        },
+      };
+      const source = makeSource({ fields, rows });
+      const state = createDefaultStudioState({
+        doc: { expressionFields: [marginField] },
+        runtime: { dataSources: { orders: source } },
+      });
+      const widget = makeWidget({
+        kind: 'chart',
+        config: { chartType: 'bar', xField: 'region', yField: 'ef_margin', yAggregation: 'sum' },
+      });
+
+      const result = buildWidgetDataSummary(widget, state);
+
+      // Pre-fix: the summary read "sum of ef_margin" (the raw expression-field id).
+      expect(result).toContain('sum of Margin');
+      expect(result).not.toContain('ef_margin');
+    });
+  });
+
   // ─── Chart widgets — L4 parity regressions (finding 2.1) ───────────────────
   //
   // `buildChartWidgetSummary` re-runs L4 (`resolveChartRowsForAggregation`) itself to

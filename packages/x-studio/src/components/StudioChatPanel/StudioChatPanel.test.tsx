@@ -431,4 +431,69 @@ describe('StudioChatPanel: auto-submit queue', () => {
     ) as { messages: { parts: { text: string }[] }[] };
     expect(secondCallBody.messages.at(-1)?.parts[0]?.text).toBe('Second');
   });
+
+  // ── Overlay close/reopen must not resubmit a stale entry (finding 5) ────────
+  //
+  // A widget-insight click auto-submits a prompt into the overlay via `pendingMessage`.
+  // The overlay is a `<Grow in={open} mountOnEnter unmountOnExit>` — closing it
+  // unmounts `AutoSubmitTrigger` (nested inside `ChatBox`), and reopening it mounts a
+  // fresh instance. Before the fix, dedup lived in a `useRef` local to
+  // `AutoSubmitTrigger`, which reset to empty on every remount: a fresh mount would
+  // find the still-present, already-submitted queue entry and resubmit it — a
+  // duplicate (paid) LLM call on every reopen. The fix prunes an entry out of the
+  // `pendingAutoSubmit` state queue itself once actually submitted, so a remount has
+  // nothing stale left to reprocess.
+  it('does not resubmit a stale pendingMessage entry when the overlay is closed and reopened (regression: finding 5)', async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(makeFinishSseResponse()));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const onClose = vi.fn();
+    const pendingMessage = { text: 'Explain this widget', id: 1 };
+
+    const { rerender } = render(
+      <StudioChatPanel
+        aiConfig={aiConfig}
+        overlay
+        open
+        onClose={onClose}
+        pendingMessage={pendingMessage}
+      />,
+    );
+    await flushAsync();
+    // The insight prompt was auto-submitted exactly once.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // Close the overlay — `<Grow unmountOnExit>` tears down the chat box (and thus
+    // `AutoSubmitTrigger`) once the exit transition completes.
+    rerender(
+      <StudioChatPanel
+        aiConfig={aiConfig}
+        overlay
+        open={false}
+        onClose={onClose}
+        pendingMessage={pendingMessage}
+      />,
+    );
+    await flushAsync();
+    // Confirms the overlay (and `AutoSubmitTrigger` inside it) actually left the DOM —
+    // otherwise this test wouldn't be exercising the remount this regression is about.
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    // Reopen — same `pendingMessage` prop (same `id`, since no NEW insight request
+    // fired), mounting a brand-new `AutoSubmitTrigger` with no memory of the past.
+    rerender(
+      <StudioChatPanel
+        aiConfig={aiConfig}
+        overlay
+        open
+        onClose={onClose}
+        pendingMessage={pendingMessage}
+      />,
+    );
+    await flushAsync();
+
+    // The already-submitted entry must not be resubmitted just because its consumer
+    // remounted — still exactly one request, not two.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });

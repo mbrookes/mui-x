@@ -31,6 +31,7 @@ import { StudioCrossFilterBar } from '../StudioCanvas/StudioCrossFilterBar';
 import { StudioQuickFilterBar } from '../StudioCanvas/StudioQuickFilterBar';
 import type { StudioChatPanelProps } from '../StudioChatPanel/StudioChatPanel';
 import type { StudioAIConfig } from '../StudioChatPanel/studioBackendAdapter';
+import { nextAutoSubmitSeq } from '../StudioChatPanel/chatIds';
 import type { StudioCanvasProps } from '../StudioCanvas/StudioCanvas';
 
 // Lazy-load the chat panel so @base-ui/react/menu (and the full @mui/x-chat
@@ -141,7 +142,11 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
   const handleWidgetInsightRequest = React.useCallback((widgetId: string, prompt: string) => {
     setChatOpen(true);
     setInsightFocusedWidgetId(widgetId);
-    setPendingInsight({ text: prompt, id: Date.now() });
+    // Drawn from the same module-level monotonic counter `StudioChatPanel` uses for its
+    // `initialPrompt` auto-submit `seq` — a plain `Date.now()` here previously could
+    // collide (same millisecond) with that other auto-submit path's seq, causing the
+    // auto-submit queue's dedup to silently drop one of the two entries (finding 13).
+    setPendingInsight({ text: prompt, id: nextAutoSubmitSeq() });
   }, []);
 
   const showCompose = features.compose;

@@ -192,6 +192,17 @@ export function buildSecureQuery(
   // `applySecurityPredicatesOrNull` instead of a bare WHERE. See that function's
   // doc comment for why this does NOT just move the predicate to the join's own
   // ON clause (that would reopen the cross-tenant fan-out finding 2.3 closes).
+  //
+  // TENANT-LEAK FIX (Tier1, iter24 finding) — the relaxation itself is only safe
+  // when its `OR <join-key> IS NULL` indicator column can ONLY read NULL because
+  // of that later null-extension. `joinNullIndicatorColumn` now refuses to supply
+  // one for a join whose OWN type is `right` — that table is itself the
+  // PRESERVED side of ITS OWN join, so its own join-key column can be genuinely
+  // NULL in a legitimately-participating row (no later null-extension involved),
+  // and trusting it as the indicator let a cross-tenant row with a NULL join key
+  // bypass its security predicate entirely. Such a join falls through to the
+  // strict, unconditional `applySecurityPredicates` below instead (fail-closed —
+  // may under-preserve a row in the multi-right-join edge case, never leaks one).
   const rightJoinIndices = queryPlan.joins.reduce<number[]>((acc, join, index) => {
     if (join.type === 'right') {
       acc.push(index);
@@ -222,9 +233,12 @@ export function buildSecureQuery(
         applySecurityPredicatesOrNull(query, join.table, claims, security, nullIndicatorColumn);
         return;
       }
-      // No `on` pair to key a null-check off of (degenerate/empty `on`, not
-      // reachable via a validated descriptor) — fall through to the strict
-      // WHERE below rather than skip enforcement entirely.
+      // `joinNullIndicatorColumn` returns `undefined` for a `right`-typed join
+      // (Tier1 fix — no column derived from ITS OWN `on` pair is a safe
+      // null-extension indicator, see that function's doc comment) or a
+      // degenerate/empty `on` (not reachable via a validated descriptor) — in
+      // either case fall through to the strict WHERE below rather than skip
+      // enforcement entirely.
     }
     applySecurityPredicates(query, join.table, claims, security, 'read');
   });
@@ -274,6 +288,30 @@ export function buildSecureQuery(
  * with `join.table` when the resolved column isn't already dotted, mirroring the
  * qualification the ON-clause loop above applies to the same pairs.
  *
+ * TENANT-LEAK FIX (Tier1, iter24 finding) — this indicator is only safe when
+ * `join.table`'s OWN join REQUIRES a match for `join.table` to appear at all
+ * (an inner join: `NULL` never equals anything, so a matched row's join-key
+ * column is guaranteed non-null; the ONLY way it later reads NULL is a
+ * SUBSEQUENT join null-extending the whole accumulated side, which is exactly
+ * the condition this indicator is meant to detect). That guarantee does NOT
+ * hold when `join.table` is itself the PRESERVED (right) side of ITS OWN join
+ * (`join.type === 'right'`) — a right join keeps every row of `join.table`
+ * regardless of whether the `on` match succeeded, so `join.table`'s own
+ * join-key column can be genuinely NULL in the raw, legitimately-participating
+ * row (e.g. an untouched nullable FK), with no later null-extension involved at
+ * all. Trusting that column as the indicator then lets a cross-tenant row with
+ * a coincidentally-NULL join key satisfy the `OR <col> IS NULL` escape hatch and
+ * bypass its tenant/region/department predicate entirely — a real leak once >= 2
+ * right joins are chained (`(A RIGHT JOIN B) RIGHT JOIN C`, tenant predicate
+ * relaxed on B). This package has no NOT-NULL schema metadata that would let it
+ * pick a genuinely-safe substitute column for a right-joined table, so it fails
+ * CLOSED instead: returning `undefined` here for a `right`-typed join routes the
+ * caller to the existing "no safe indicator" fallback, which keeps the STRICT,
+ * unconditional WHERE predicate for that table. That can, for a multi-right-join
+ * shape, drop a row a LATER right join legitimately preserved (the routing/perf
+ * cost the iter22 relaxation existed to avoid) — a correctness/perf regression,
+ * never a security leak, and the explicitly preferred tradeoff here.
+ *
  * CONVENTION VERIFICATION (untrusted-convention finding): nothing upstream
  * actually PROVES the right side names `join.table` — `validateDescriptorColumns`
  * (only run when a `columnAllowlist` is configured) checks an UNQUALIFIED right
@@ -290,16 +328,24 @@ export function buildSecureQuery(
  * throws (fail-closed) otherwise, instead of silently using a column from a
  * different table. An unqualified reference is qualified with `join.table` here
  * (as before) — that's the same qualification the ON-clause loop above applies to
- * the identical pair, so there is no room for it to name a different table.
+ * the identical pair, so there is no room for it to name a different table. This
+ * verification only runs for a NON-`right` join now — a `right`-typed join
+ * returns `undefined` above before reaching it, since the resulting column would
+ * be discarded either way.
  *
- * Returns `undefined` only for a join with no `on` pairs at all — not reachable
- * via a validated descriptor (every join requires at least one `on` pair), kept
- * as a defensive fallback rather than a crash.
+ * Returns `undefined` for a `right`-typed join (see above) or a join with no
+ * `on` pairs at all (not reachable via a validated descriptor — every join
+ * requires at least one `on` pair — kept as a defensive fallback rather than a
+ * crash).
  */
 function joinNullIndicatorColumn(join: {
   table: string;
+  type?: 'inner' | 'left' | 'right';
   on: [string, string][];
 }): string | undefined {
+  if (join.type === 'right') {
+    return undefined;
+  }
   const firstPair = join.on[0];
   if (!firstPair) {
     return undefined;

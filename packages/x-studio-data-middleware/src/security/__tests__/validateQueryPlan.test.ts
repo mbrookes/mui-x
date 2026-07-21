@@ -276,6 +276,44 @@ describe('validateQueryPlan — validation parity (reuses the shared validators)
     expect(() => validateQueryPlan(descriptor)).not.toThrow();
   });
 
+  it('rejects two directly-projected columns from different tables whose result key collides (Tier3, iter24 finding)', () => {
+    // `orders.category` and `customers.category` both key as `category` on the
+    // result row — one silently overwrites the other. Unlike the agg-vs-
+    // projection collisions above, this is a projection-vs-projection collision
+    // with no aggregation involved at all.
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'orders',
+      columns: ['orders.category', 'customers.category'],
+      joins: [{ table: 'customers', on: [['orders.customer_id', 'customers.id']] }],
+    };
+    expect(() => validateQueryPlan(descriptor)).toThrow(
+      /Two projected columns collide on the result-row key "category"/,
+    );
+  });
+
+  it('rejects two renamed (output-alias) projected columns sharing the same logical id (Tier3, iter24 finding)', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      columnAliases: { total: 'gross_amount' },
+      columns: ['total', 'total'],
+    };
+    expect(() => validateQueryPlan(descriptor)).toThrow(
+      /Two projected columns collide on the result-row key "total"/,
+    );
+  });
+
+  it('does NOT flag two distinct projected columns with different result keys (Tier3, iter24 finding)', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'orders',
+      columns: ['orders.category', 'customers.name'],
+      joins: [{ table: 'customers', on: [['orders.customer_id', 'customers.id']] }],
+    };
+    expect(() => validateQueryPlan(descriptor)).not.toThrow();
+  });
+
   it('recognises a table-qualified pure measure and keeps it out of GROUP BY (finding 2.2)', () => {
     // `SUM(orders.amount) AS amount` is a pure measure even though `agg.column` is
     // qualified — the old raw-string `alias === column` test could never match a

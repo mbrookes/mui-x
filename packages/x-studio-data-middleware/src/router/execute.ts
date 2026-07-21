@@ -88,6 +88,16 @@ export async function executeForTier(
   // on `col.physical` here too before it goes into the `??` binding. Only the
   // SOURCE reference is qualified; the output row KEY (`col.outputAlias`) is
   // unaffected, so client row shapes are unchanged (finding 2.2).
+  //
+  // NO RESULT-KEY COLLISION GUARD HERE (Tier3, iter24 finding) — deliberately.
+  // Two projected columns whose result key collides (e.g. `orders.category` and
+  // `customers.category`, both keying as `category`) would silently overwrite
+  // one another on the row object built from this function's output, with no
+  // way for THIS function to detect it (it only ever sees one column at a
+  // time). The guard instead runs once, up front, over the whole projection
+  // list: `validateProjectionKeyCollisions` (`shared/columnValidation.ts`),
+  // wired into `validateQueryPlan` — every request-path descriptor is rejected
+  // fail-closed before it ever reaches this function.
   const projectColumn = (col: PlanProjectionColumn): unknown =>
     col.outputAlias !== undefined
       ? db.raw(`?? as ??`, [qualify(col.physical), col.outputAlias])

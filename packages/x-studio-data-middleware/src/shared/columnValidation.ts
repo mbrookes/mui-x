@@ -274,6 +274,42 @@ export function validateHavingAliases(descriptor: BatchWidgetDescriptor): void {
 export const SAFE_ALIAS_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 /**
+ * Validate that no two PROJECTED columns land on the same result-row key.
+ *
+ * SECURITY/CORRECTNESS INVARIANT (Tier3, iter24 finding) — runs UNCONDITIONALLY
+ * for every widget (independent of whether a `columnAllowlist` is configured),
+ * mirroring `validateAggregationAliases`'s existing agg-vs-projection and
+ * agg-vs-agg collision guards. Two directly-projected columns from different
+ * tables whose RESULT KEY collides (e.g. `orders.category` and
+ * `customers.category` both key as `category` — the last dot-segment Knex
+ * assigns a bare `SELECT <table>.<column>` on the row object) previously had no
+ * guard at all: `execute.ts`'s `projectColumn` SELECTs both under the same key,
+ * so one column's value silently overwrites the other in every result row —
+ * the same "one field silently dropped" hazard `validateAggregationAliases`
+ * already closes for an agg-vs-projection or agg-vs-agg collision, just for the
+ * one remaining pairing (projection-vs-projection) it didn't cover.
+ *
+ * `projectionKeys` is the SAME per-column result-key list `validateQueryPlan`
+ * already computes and threads into `validateAggregationAliases` — one
+ * source of truth for "what key will this projected column land under",
+ * shared by both collision checks so they can never disagree.
+ */
+export function validateProjectionKeyCollisions(projectionKeys: Iterable<string>): void {
+  const seen = new Set<string>();
+  for (const key of projectionKeys) {
+    if (seen.has(key)) {
+      throw new Error(
+        `MUI X Studio Server: Two projected columns collide on the result-row key "${key}". ` +
+          `Both columns are SELECT-ed under the same key, so one column's value silently overwrites ` +
+          `the other in every result row. ` +
+          `Qualify or alias the columns (e.g. via "columnAliases") so each lands on a distinct key.`,
+      );
+    }
+    seen.add(key);
+  }
+}
+
+/**
  * Validate every aggregation alias in a read descriptor against a safe-identifier
  * charset.
  *

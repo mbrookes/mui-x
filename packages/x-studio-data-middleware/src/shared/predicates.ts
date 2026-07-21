@@ -380,6 +380,20 @@ export function applySecurityPredicatesToJoinOn(
  * a SUBSEQUENT join nulling the whole accumulated side out — never because
  * `table`'s own match failed.
  *
+ * CALLER CONTRACT (Tier1 fix, iter24 finding) — the "guaranteed non-null when
+ * `table` participated" premise above is FALSE for a column drawn from a join
+ * where `table` is itself the PRESERVED (right) side: a right join keeps every
+ * row of `table` regardless of whether the `on` match succeeded, so `table`'s
+ * own join-key column can be genuinely NULL in a legitimately-present row, with
+ * no null-extension involved at all. Trusting such a column here would let a
+ * wrong-tenant row with a coincidentally-NULL join key satisfy the `OR ... IS
+ * NULL` arm and bypass the predicate entirely. This function does not itself
+ * know which join produced `nullIndicatorColumn` — the invariant is enforced by
+ * the CALLER: `queryBuilder.ts`'s `joinNullIndicatorColumn` refuses to hand back
+ * an indicator for a `right`-typed join (returns `undefined`, routing that table
+ * to the strict `applySecurityPredicates` instead). Do not call this function
+ * with a `nullIndicatorColumn` sourced from a right-joined table's own `on` pair.
+ *
  * No predicate is emitted (and no `OR ... IS NULL` is added either) when
  * `securityColumns` resolves to nothing for this table/claims combination —
  * mirrors `applySecurityPredicates`'s no-op behavior instead of accidentally

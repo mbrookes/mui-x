@@ -18,6 +18,7 @@ import {
   checkColumnAgainstAllowlist,
   validateAggregationAliases,
   validateHavingAliases,
+  validateProjectionKeyCollisions,
 } from '../columnValidation';
 import type { BatchWidgetDescriptor } from '../../security/types';
 
@@ -162,6 +163,31 @@ describe('validateAggregationAliases — duplicate/collision rejection (finding 
     };
     // Aggregation-only callers (e.g. direct unit tests) omit the output-alias set.
     expect(() => validateAggregationAliases(descriptor)).not.toThrow();
+  });
+});
+
+describe('validateProjectionKeyCollisions — projection-vs-projection collision (Tier3, iter24 finding)', () => {
+  it('rejects two direct columns from different tables whose result key collides', () => {
+    // `orders.category` and `customers.category` both key as `category` — one
+    // silently overwrites the other on the result row.
+    expect(() => validateProjectionKeyCollisions(['category', 'category'])).toThrow(
+      /Two projected columns collide on the result-row key "category"/,
+    );
+  });
+
+  it('rejects two renamed (output-alias) columns sharing the same alias', () => {
+    expect(() => validateProjectionKeyCollisions(['expr-total', 'expr-total'])).toThrow(
+      /collide on the result-row key "expr-total"/,
+    );
+  });
+
+  it('accepts distinct keys', () => {
+    expect(() => validateProjectionKeyCollisions(['category', 'region', 'amount'])).not.toThrow();
+  });
+
+  it('accepts an empty or single-element list', () => {
+    expect(() => validateProjectionKeyCollisions([])).not.toThrow();
+    expect(() => validateProjectionKeyCollisions(['category'])).not.toThrow();
   });
 });
 

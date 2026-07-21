@@ -734,17 +734,32 @@ describe('buildSecureQuery', () => {
     });
   });
 
-  describe('multiple right joins (iter22 finding)', () => {
+  describe('multiple right joins (iter22 finding, corrected by the iter24 Tier1 tenant-leak fix)', () => {
     // Chained joins right-associate: `(A RIGHT JOIN B) RIGHT JOIN C` computes
     // `A RIGHT JOIN B` first, then RIGHT JOINs the WHOLE result to C. A `C` row
     // with no match against the accumulated `(A, B)` side null-extends B too —
     // not just the primary table A — even though B is the guaranteed/preserved
-    // side of ITS OWN join. A bare `WHERE customers.tenant_id = ...` (the pre-fix
-    // behavior) would then silently drop that legitimately-preserved `orders`
-    // row. This section pins that an EARLIER right join (customers) gets an
-    // `OR <join-key> IS NULL` relaxed WHERE group instead of a bare WHERE, while
-    // the LAST right join (orders) keeps the strict, unconditional WHERE
-    // predicate it has always had — nothing joins after it to null it back out.
+    // side of ITS OWN join. A bare `WHERE customers.tenant_id = ...` would then
+    // silently DROP that legitimately-preserved `orders` row (fail-closed —
+    // under-inclusive, never a leak).
+    //
+    // iter22 "fixed" this by relaxing the earlier right join's predicate to
+    // `OR <join-key> IS NULL`, on the assumption that `customers`'s own join-key
+    // column can only read NULL because of null-extension by the LATER (orders)
+    // join. That assumption is FALSE here: `customers` is itself the PRESERVED
+    // (right) side of ITS OWN join (`sales RIGHT JOIN customers`), so a right
+    // join keeps every `customers` row regardless of whether the `on` match
+    // succeeded — `customers.id` can be genuinely NULL on a real,
+    // legitimately-participating, WRONG-TENANT row, with no null-extension
+    // involved at all. That row then satisfies `(tenant_id = 'acme' OR id IS
+    // NULL)` via the `IS NULL` arm and LEAKS PAST THE TENANT CHECK — a real
+    // cross-tenant leak once >= 2 right joins are chained (Tier1, iter24
+    // finding). This section now pins the FIXED behavior: an earlier join whose
+    // OWN type is `right` gets the STRICT, unconditional WHERE predicate (no
+    // relaxation, fail-closed) — the relaxation remains available only for a
+    // non-`right` (inner) earlier join, where the "own match required" guarantee
+    // genuinely holds. The LAST right join (nothing joins after it) has always
+    // kept the strict predicate and still does.
     function twoRightJoinsDescriptor() {
       return descriptor({
         joins: [
@@ -754,23 +769,19 @@ describe('buildSecureQuery', () => {
       });
     }
 
-    it('the EARLIER right join (customers) gets an OR <join-key> IS NULL relaxed WHERE group, not a bare WHERE', () => {
+    it('SECURITY REGRESSION (Tier1): the EARLIER right join (customers) - itself the preserved side of its OWN join - gets the STRICT WHERE predicate, never the OR-IS-NULL relaxation', () => {
       const { db, calls } = createRecordingDb();
       buildSecureQuery(db, BASE_CLAIMS, twoRightJoinsDescriptor(), { tenancy: MULTI_TENANT });
-      // Never a bare `.where('customers.tenant_id', ...)` — that is exactly the
-      // pre-fix shape that drops legitimately-preserved `orders` rows.
-      expect(calls.some((c) => c.method === 'where' && c.args[0] === 'customers.tenant_id')).toBe(
+      // The strict, unconditional predicate — never relaxed.
+      expect(calls).toContainEqual({ method: 'where', args: ['customers.tenant_id', '=', 'acme'] });
+      // Never the vulnerable grouped/relaxed shape: no `andWhere` grouping and no
+      // `orWhereNull` keyed on customers' own join key. Reintroducing either of
+      // these for a `right`-typed join is exactly the cross-tenant leak this
+      // fix closes.
+      expect(calls.some((c) => c.method === 'where(group)')).toBe(false);
+      expect(calls.some((c) => c.method === 'orWhereNull' && c.args[0] === 'customers.id')).toBe(
         false,
       );
-      // Instead, the predicate is inside a grouped `.where(fn)`...
-      expect(calls).toContainEqual({
-        method: 'andWhere',
-        args: ['customers.tenant_id', '=', 'acme'],
-      });
-      // ...followed by an `orWhereNull` escape hatch keyed on customers' own join key,
-      // so a customers row that is legitimately null-extended by the SECOND right
-      // join (orders) is not wrongly excluded.
-      expect(calls).toContainEqual({ method: 'orWhereNull', args: ['customers.id'] });
     });
 
     it('the LAST right join (orders) keeps the strict, unconditional WHERE predicate', () => {
@@ -782,6 +793,32 @@ describe('buildSecureQuery', () => {
       expect(calls.some((c) => c.method === 'orWhereNull' && c.args[0] === 'orders.id')).toBe(
         false,
       );
+    });
+
+    it('an EARLIER join that is NOT itself a right join (inner) still gets the OR <join-key> IS NULL relaxation', () => {
+      // Contrast case: when the earlier join's OWN type is `inner` (a match is
+      // REQUIRED for it to appear at all — NULL never equals, so a matched row's
+      // join-key column is guaranteed non-null), the "own join guarantees
+      // non-null unless null-extended later" premise genuinely holds, and the
+      // relaxation remains correct and necessary (dropping the iter22 fix's own
+      // correctness benefit for this case would be an unwarranted regression).
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(
+        db,
+        BASE_CLAIMS,
+        descriptor({
+          joins: [
+            { table: 'customers', on: [['sales.customer_id', 'customers.id']] }, // default type: inner
+            { table: 'orders', type: 'right', on: [['customers.id', 'orders.customer_id']] },
+          ],
+        }),
+        { tenancy: MULTI_TENANT },
+      );
+      expect(calls).toContainEqual({
+        method: 'andWhere',
+        args: ['customers.tenant_id', '=', 'acme'],
+      });
+      expect(calls).toContainEqual({ method: 'orWhereNull', args: ['customers.id'] });
     });
 
     // BUG FIX (data-corruption finding): this test used to assert that the
@@ -827,38 +864,94 @@ describe('buildSecureQuery', () => {
     describe('real Knex SQL rendering', () => {
       const realDb = Knex({ client: 'pg' });
 
-      it('renders the OR-null-relaxed WHERE group for the earlier right join, preserving orders rows null-extended on customers', () => {
+      it('renders a STRICT (non-relaxed) WHERE for the earlier right join — no OR/IS NULL escape hatch', () => {
         const query = buildSecureQuery(realDb, BASE_CLAIMS, twoRightJoinsDescriptor(), {
           tenancy: MULTI_TENANT,
         });
-        // The second right join's ON clause no longer repeats "sales.tenant_id"
-        // (bug fix) — this string would have included
-        // `and "sales"."tenant_id" = 'acme'` a second time, after
-        // `"customers"."id" = "orders"."customer_id"`, under the pre-fix behavior.
+        // The second right join's ON clause does not repeat "sales.tenant_id",
+        // and the WHERE clause ANDs both tables' tenant predicates unconditionally
+        // — no "or ... is null" anywhere. This is the fixed, leak-free shape.
         expect(query.toString()).toBe(
           'select * from "sales" ' +
             'right join "customers" on "sales"."customer_id" = "customers"."id" and "sales"."tenant_id" = \'acme\' ' +
             'right join "orders" on "customers"."id" = "orders"."customer_id" ' +
-            'where (("customers"."tenant_id" = \'acme\') or "customers"."id" is null) and "orders"."tenant_id" = \'acme\'',
+            'where "customers"."tenant_id" = \'acme\' and "orders"."tenant_id" = \'acme\'',
         );
+        expect(query.toString()).not.toMatch(/or\s+"customers"\."id"\s+is null/i);
+      });
+
+      // SECURITY REGRESSION (Tier1, iter24 finding) — this is the exact scenario
+      // from the architecture review: a cross-tenant `customers` row with a
+      // legitimately-present-but-NULL join-key column must NOT satisfy the
+      // tenant predicate. The vulnerable (pre-fix) shape rendered
+      // `where (("customers"."tenant_id" = 'acme') or "customers"."id" is null)
+      // and "orders"."tenant_id" = 'acme'` — under that WHERE clause, a
+      // "customers" row `{ tenant_id: 'evil-corp', id: NULL }` (a real row: it
+      // is the preserved side of "sales RIGHT JOIN customers", so its presence
+      // never required a match, and its own `id` column can be NULL in the raw
+      // data independent of any later join) satisfies the predicate via the
+      // `... OR "customers"."id" is null` arm and would have been returned to
+      // the "acme" caller despite belonging to a different tenant. The fixed
+      // predicate rendered above (`where "customers"."tenant_id" = 'acme' and
+      // ...`, no OR arm at all) evaluates to `'evil-corp' = 'acme'` → false for
+      // that exact row, excluding it. This test evaluates both shapes'
+      // row-admission semantics directly (mirroring the boolean logic Postgres
+      // would apply) against that row to make the leak-vs-no-leak difference an
+      // executable assertion, not just a comment.
+      it('a cross-tenant row with a legitimately-NULL join key is excluded (was admitted by the pre-fix OR-IS-NULL relaxation)', () => {
+        const query = buildSecureQuery(realDb, BASE_CLAIMS, twoRightJoinsDescriptor(), {
+          tenancy: MULTI_TENANT,
+        });
+        const fixedSql = query.toString();
+        expect(fixedSql).toContain('"customers"."tenant_id" = \'acme\'');
+        expect(fixedSql).not.toContain('is null');
+
+        // A real, legitimately-present "customers" row from a different tenant,
+        // whose own join-key column happens to be NULL in the raw data (nothing
+        // to do with null-extension — this row was never null-extended, it is a
+        // genuine row of "customers").
+        const crossTenantRowWithNullJoinKey = { tenant_id: 'evil-corp', id: null as string | null };
+
+        // The historical, VULNERABLE predicate shape this package used to emit
+        // for an earlier right-joined table (`(tenant = ? OR joinKey IS NULL)`),
+        // reproduced here ONLY to demonstrate what it would have admitted — this
+        // is not live code in the package (the fix removes this shape entirely).
+        const vulnerablePredicate = (row: { tenant_id: string; id: string | null }): boolean =>
+          row.tenant_id === 'acme' || row.id === null;
+        // The fixed predicate this package now actually emits for such a table
+        // (a bare, unconditional tenant equality check).
+        const fixedPredicate = (row: { tenant_id: string; id: string | null }): boolean =>
+          row.tenant_id === 'acme';
+
+        expect(vulnerablePredicate(crossTenantRowWithNullJoinKey)).toBe(true); // pre-fix: LEAKED
+        expect(fixedPredicate(crossTenantRowWithNullJoinKey)).toBe(false); // post-fix: excluded
+
+        // A legitimate same-tenant row is admitted either way (no regression for
+        // the caller's own data).
+        const sameTenantRow = { tenant_id: 'acme', id: null as string | null };
+        expect(fixedPredicate(sameTenantRow)).toBe(true);
       });
     });
 
     describe('joinNullIndicatorColumn convention verification (untrusted-convention finding)', () => {
-      it('throws when an earlier right join\'s "on" pair right-hand column is qualified with a table other than its own', () => {
+      it('throws when an earlier NON-right (inner) join\'s "on" pair right-hand column is qualified with a table other than its own', () => {
         // Malformed descriptor: the "customers" join's `on` pair right-hand side
         // is qualified with "sales" (the PRIMARY table) instead of "customers"
         // (its own table) — violating the documented `JoinDescriptor.on`
-        // convention. "customers" sits BEFORE the last right join (index 0 <
-        // lastRightJoinIndex 1), so `buildSecureQuery` must pick a null-indicator
-        // column for it. Trusting the malformed pair without verification would
-        // hand `applySecurityPredicatesOrNull` a column that does not belong to
+        // convention. "customers" here is an INNER join (default type) sitting
+        // BEFORE the last right join (index 0 < lastRightJoinIndex 1), so
+        // `buildSecureQuery` must pick a null-indicator column for it — unlike a
+        // `right`-typed earlier join (Tier1 fix above), which now fails closed
+        // WITHOUT ever reaching this qualification check (its own join key is
+        // never trusted as an indicator at all, regardless of qualification).
+        // Trusting the malformed pair without verification would hand
+        // `applySecurityPredicatesOrNull` a column that does not belong to
         // "customers" at all, letting the `OR ... IS NULL` escape hatch key off
         // the wrong table's nullability — this now fails closed instead.
         const { db } = createRecordingDb();
         const malformed = descriptor({
           joins: [
-            { table: 'customers', type: 'right', on: [['sales.customer_id', 'sales.tenant_id']] },
+            { table: 'customers', on: [['sales.customer_id', 'sales.tenant_id']] }, // default type: inner
             { table: 'orders', type: 'right', on: [['customers.id', 'orders.customer_id']] },
           ],
         });
@@ -867,6 +960,30 @@ describe('buildSecureQuery', () => {
         ).toThrow(
           /right-hand column "sales\.tenant_id" qualified with table "sales" instead of "customers"/,
         );
+      });
+
+      it('a malformed earlier RIGHT join\'s "on" pair no longer reaches the qualification check at all — it fails closed to the strict predicate regardless', () => {
+        // Same malformed "on" pair as above, but on a `right`-typed earlier join.
+        // Before the Tier1 fix this would have thrown the qualification error (or,
+        // pre-that-hardening, silently trusted the wrong-table column). Now
+        // `joinNullIndicatorColumn` returns `undefined` for ANY `right`-typed join
+        // before it even looks at the "on" pair — the malformed pair is simply
+        // irrelevant, and the table gets the strict WHERE predicate like any other
+        // right-typed earlier join.
+        const { db, calls } = createRecordingDb();
+        const malformed = descriptor({
+          joins: [
+            { table: 'customers', type: 'right', on: [['sales.customer_id', 'sales.tenant_id']] },
+            { table: 'orders', type: 'right', on: [['customers.id', 'orders.customer_id']] },
+          ],
+        });
+        expect(() =>
+          buildSecureQuery(db, BASE_CLAIMS, malformed, { tenancy: MULTI_TENANT }),
+        ).not.toThrow();
+        expect(calls).toContainEqual({
+          method: 'where',
+          args: ['customers.tenant_id', '=', 'acme'],
+        });
       });
     });
   });

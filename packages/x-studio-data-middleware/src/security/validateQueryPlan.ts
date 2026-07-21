@@ -45,6 +45,7 @@ import {
   validateAggregationAliases,
   validateDescriptorColumns,
   validateHavingAliases,
+  validateProjectionKeyCollisions,
 } from '../shared/columnValidation';
 
 /**
@@ -452,8 +453,14 @@ function buildPlan(descriptor: BatchWidgetDescriptor): ValidatedQueryPlan {
  * thread the returned plan down in place of re-deriving validation/resolution
  * downstream. Runs, in order (matching the pre-refactor handler's intra-widget
  * order):
- *   1. `validateHavingAliases`       — UNCONDITIONAL (throws on an invalid HAVING).
- *   2. `validateAggregationAliases`  — UNCONDITIONAL (throws on an unsafe alias).
+ *   1. `validateHavingAliases`             — UNCONDITIONAL (throws on an invalid HAVING).
+ *   1a. `validateProjectionKeyCollisions`  — UNCONDITIONAL (throws when two
+ *      projected columns share a result-row key, e.g. `orders.category` and
+ *      `customers.category` both keying as `category` — one would silently
+ *      overwrite the other, Tier3 iter24 finding). Runs immediately before
+ *      `validateAggregationAliases` since both consume the same `projectionKeys`.
+ *   2. `validateAggregationAliases`  — UNCONDITIONAL (throws on an unsafe alias,
+ *      a duplicate alias, or an alias colliding with a projected column's key).
  *   3. `validateOutputAliases`       — UNCONDITIONAL (throws on an unsafe
  *      expression-field output alias — the token is interpolated into the SQL
  *      projection via `?? as ??`, finding 3.4).
@@ -509,6 +516,13 @@ export function validateQueryPlan(
     }
     return [physical !== column ? column : resultKeyOf(physical)];
   });
+  // Projection-vs-projection collision (Tier3, iter24 finding) — two directly
+  // projected columns from different tables whose result key collides (e.g.
+  // `orders.category` / `customers.category` both keying as `category`) had no
+  // guard before this, unlike the agg-vs-projection/agg-vs-agg guards below.
+  // Runs BEFORE `validateAggregationAliases` so the more fundamental
+  // projection-vs-projection collision is reported first when both are present.
+  validateProjectionKeyCollisions(projectionKeys);
   validateAggregationAliases(descriptor, projectionKeys);
   validateOutputAliases(descriptor);
   validateOrderByDirections(descriptor);

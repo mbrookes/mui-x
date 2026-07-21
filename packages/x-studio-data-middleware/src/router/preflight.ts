@@ -50,6 +50,33 @@ export async function runPreflight(
   options: CompiledSecurityPolicy | SecurityPolicyOptions,
   plan?: ValidatedQueryPlan,
 ): Promise<PreflightResult> {
+  // JOIN ROW-MULTIPLICATION (Tier3, iter24 finding, evaluated/not fixed) — for a
+  // descriptor with a 1:many `join` (e.g. one `sales` row matching several
+  // `orders` rows), `COUNT(*)` here counts the JOINED, possibly row-multiplied
+  // result, not distinct primary-table rows. That can mis-route the tier
+  // decision (`tierFromRowCount` in `tierDecision.ts`) — e.g. tripping the
+  // `serverMemoryTier` threshold on join fan-out alone, when the actual primary
+  // rows in play are far fewer.
+  //
+  // This is ROUTING/PERF ONLY, never a correctness bug: whichever tier gets
+  // picked, `execute.ts` still applies the same security predicates, user
+  // filters and `effectiveLimit` cap — the returned rows are always correct and
+  // bounded, just possibly served by a heavier tier than the "true" primary-row
+  // count would have picked (and a heavier tier is the safe direction to be
+  // wrong in — it never risks an under-provisioned client/server tier choking
+  // on more rows than it expected).
+  //
+  // A distinct-row correction was considered and rejected as not low-risk
+  // enough to apply here: `BatchWidgetDescriptor` declares no primary-key
+  // column, so there is no cheap, generic `COUNT(DISTINCT <pk>)` to fall back
+  // to; the only column-agnostic alternative — wrapping the whole query in
+  // `SELECT COUNT(*) FROM (SELECT DISTINCT <primary_table>.* ...) sub` — adds a
+  // DISTINCT-over-every-column subquery to EXACTLY the join-heavy queries where
+  // this preflight's cost matters most, undermining the "5-20x faster than the
+  // full query" fast-path this file's own docblock promises. Left as-is;
+  // revisit if a descriptor-level primary-key declaration is ever added for
+  // other reasons, which would make an exact `COUNT(DISTINCT ??)` cheap.
+  //
   // Build the query without column selection — only security + user filters
   const query = buildSecureQuery(db, claims, descriptor, options, plan).count('* as row_count');
 

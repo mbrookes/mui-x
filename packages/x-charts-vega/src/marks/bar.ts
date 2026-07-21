@@ -10,6 +10,7 @@ import type {
   UnitContext,
 } from '../compile/context';
 import type { GapCollector } from '../gaps';
+import type { ColorResolution } from '../compile/color';
 import { resolveColor } from '../compile/color';
 import { toDate, toNumber } from '../compile/fieldTypes';
 import type { DatasetRow, VegaChannelDef } from '../types';
@@ -212,6 +213,76 @@ export function groupRowsByField(
   return ordered;
 }
 
+/** Shared by `compileContinuousRects`/`compileFullyRangedRects`: records the one `ignored` gap this custom overlay always carries, and wraps `items` into the `CompiledUnit`. */
+function finishContinuousRects(
+  items: OverlayRectItem[],
+  gaps: GapCollector,
+  path: string,
+): CompiledUnit {
+  gaps.add({
+    code: 'mark:bar-continuous-range-custom-overlay',
+    message:
+      'Both positional channels resolved to continuous (non-categorical) axes — a genuine ' +
+      'Vega-Lite "ranged bar on a continuous domain" (e.g. a log-scaled histogram with explicit ' +
+      "bin edges, or a per-row rectangle with both x/x2 and y/y2 explicit spans). x-charts' " +
+      'bar/rangeBar series always need one categorical dimension, so this renders through a ' +
+      'custom `rect` overlay instead.',
+    severity: 'ignored',
+    path,
+  });
+  return { series: [], plots: [], overlays: [{ kind: 'rects', items }] };
+}
+
+/** Resolves a fill color for one row of a continuous-rects overlay. */
+type RectRowColor = (row: DatasetRow) => string | undefined;
+
+/**
+ * A per-row fill for the continuous-rects overlay. Unlike a native
+ * `bar`/`rangeBar` series (one color per whole series), each `OverlayRectItem`
+ * already carries its own `fill`, so an ordinal/nominal color field can be
+ * resolved genuinely per row instead of being unsupported — `bar_heatlane`'s
+ * per-cell intensity needs exactly this. Falls back to `fallback` (the
+ * static/palette default) whenever the row's value doesn't resolve (missing,
+ * or outside the domain the color scale collected). A resolved color-split
+ * legend has no equivalent for this overlay (no series/swatch to hang one
+ * off), reported once via `mark:bar-continuous-range-color-legend`.
+ */
+function resolveRectRowColor(
+  ctx: UnitContext,
+  color: ColorResolution,
+  fallback: string | undefined,
+  gaps: GapCollector,
+  path: string,
+): RectRowColor {
+  if (!color.splitField) {
+    return () => fallback;
+  }
+  gaps.add({
+    code: 'mark:bar-continuous-range-color-legend',
+    message:
+      'Each rectangle is colored individually from its own row value, but this custom overlay ' +
+      'has no legend to show the color scale (unlike a native x-charts series/swatch legend).',
+    severity: 'ignored',
+    path,
+  });
+  const { splitField, domain, range, identity } = color;
+  // No explicit scheme/range: cycle the chart's default palette, matching
+  // every other auto-colored series/group in this wrapper.
+  const effectiveRange = range && range.length > 0 ? range : ctx.palette;
+  return (row) => {
+    const raw = row[splitField];
+    if (raw == null) {
+      return fallback;
+    }
+    if (identity) {
+      return String(raw);
+    }
+    const key = ctx.categoryKey(raw);
+    const index = domain ? domain.findIndex((value) => ctx.categoryKey(value) === key) : -1;
+    return effectiveRange[(index >= 0 ? index : 0) % effectiveRange.length];
+  };
+}
+
 /**
  * A `bar` mark whose positional channels are BOTH continuous (neither
  * resolved to a categorical/band axis) — e.g. `histogram_log`'s log-scaled
@@ -231,7 +302,7 @@ function compileContinuousRects(
   rangeTwinField: string,
   valueField: string,
   rangeAxis: 'x' | 'y',
-  staticColor: string | undefined,
+  rowColor: RectRowColor,
   gaps: GapCollector,
   path: string,
 ): CompiledUnit {
@@ -243,23 +314,45 @@ function compileContinuousRects(
     if (start === null || end === null || value === null) {
       continue;
     }
+    const fill = rowColor(row);
     items.push(
       rangeAxis === 'x'
-        ? { x1: start, x2: end, y1: 0, y2: value, fill: staticColor }
-        : { x1: 0, x2: value, y1: start, y2: end, fill: staticColor },
+        ? { x1: start, x2: end, y1: 0, y2: value, fill }
+        : { x1: 0, x2: value, y1: start, y2: end, fill },
     );
   }
-  gaps.add({
-    code: 'mark:bar-continuous-range-custom-overlay',
-    message:
-      'Both positional channels resolved to continuous (non-categorical) axes — a genuine ' +
-      'Vega-Lite "ranged bar on a continuous domain" (e.g. a log-scaled histogram with explicit ' +
-      "bin edges). x-charts' bar/rangeBar series always need one categorical dimension, so this " +
-      'renders through a custom `rect` overlay instead.',
-    severity: 'ignored',
-    path,
-  });
-  return { series: [], plots: [], overlays: [{ kind: 'rects', items }] };
+  return finishContinuousRects(items, gaps, path);
+}
+
+/**
+ * A `bar` mark with BOTH `x`/`x2` AND `y`/`y2` explicit spans — a genuine
+ * per-row rectangle on two fully continuous axes (`bar_heatlane`'s "heat
+ * lane" cells, each spanning a horsepower bin on x and a signed count band
+ * on y). Unlike `compileContinuousRects`, there is no implied zero baseline
+ * on either side — both edges come straight from the row's own fields.
+ */
+function compileFullyRangedRects(
+  rows: readonly DatasetRow[],
+  xField: string,
+  xTwinField: string,
+  yField: string,
+  yTwinField: string,
+  rowColor: RectRowColor,
+  gaps: GapCollector,
+  path: string,
+): CompiledUnit {
+  const items: OverlayRectItem[] = [];
+  for (const row of rows) {
+    const x1 = toNumber(row[xField]);
+    const x2 = toNumber(row[xTwinField]);
+    const y1 = toNumber(row[yField]);
+    const y2 = toNumber(row[yTwinField]);
+    if (x1 === null || x2 === null || y1 === null || y2 === null) {
+      continue;
+    }
+    items.push({ x1, x2, y1, y2, fill: rowColor(row) });
+  }
+  return finishContinuousRects(items, gaps, path);
 }
 
 export function compileBarMark(ctx: UnitContext): CompiledUnit {
@@ -341,9 +434,9 @@ export function compileBarMark(ctx: UnitContext): CompiledUnit {
 
   if (!categoryAxis?.categories || !valueField || !valueAxisIsContinuous) {
     // Neither axis is categorical, but a genuine continuous-domain ranged bar
-    // (a `2`-twinned axis plus a single continuous value on the other axis —
-    // see `compileContinuousRects`) still has real geometry to draw; only a
-    // color split is unsupported there (no dedicated legend/grouping for it).
+    // (a `2`-twinned axis plus a single continuous value on the other axis,
+    // or both axes twinned — see `compileContinuousRects`/
+    // `compileFullyRangedRects`) still has real geometry to draw.
     const xContinuous = ctx.x?.fieldType === 'quantitative' || ctx.x?.fieldType === 'temporal';
     const yContinuous = ctx.y?.fieldType === 'quantitative' || ctx.y?.fieldType === 'temporal';
     const xField = ctx.x?.field;
@@ -356,14 +449,14 @@ export function compileBarMark(ctx: UnitContext): CompiledUnit {
       xContinuous &&
       yContinuous &&
       xField &&
-      yField &&
-      !color.splitField
+      yField
     ) {
       // A single uncolored mark defaults to the palette's first swatch (Vega-
       // Lite's own default), matching the auto-palette pass every other mark
       // compiler's `series` goes through — this overlay has no `series`
       // entry for that pass to reach, so it defaults explicitly instead.
-      const fillColor = staticColor ?? ctx.palette[0];
+      const fallbackColor = staticColor ?? ctx.palette[0];
+      const rowColor = resolveRectRowColor(ctx, color, fallbackColor, gaps, unit.path);
       if (xTwinField && !yTwinField) {
         return compileContinuousRects(
           rows,
@@ -371,7 +464,7 @@ export function compileBarMark(ctx: UnitContext): CompiledUnit {
           xTwinField,
           yField,
           'x',
-          fillColor,
+          rowColor,
           gaps,
           unit.path,
         );
@@ -383,7 +476,19 @@ export function compileBarMark(ctx: UnitContext): CompiledUnit {
           yTwinField,
           xField,
           'y',
-          fillColor,
+          rowColor,
+          gaps,
+          unit.path,
+        );
+      }
+      if (xTwinField && yTwinField) {
+        return compileFullyRangedRects(
+          rows,
+          xField,
+          xTwinField,
+          yField,
+          yTwinField,
+          rowColor,
           gaps,
           unit.path,
         );

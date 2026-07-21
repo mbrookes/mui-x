@@ -376,9 +376,11 @@ describe('compileBarMark', () => {
     expect(overlay.items[0].fill).to.equal('green');
   });
 
-  it('falls back to mark:bar-missing-axes for a fully continuous ranged bar with a color split', () => {
-    // A color split has no dedicated legend/grouping story for this overlay
-    // shape, so it's left unsupported rather than silently dropping colors.
+  it('colors each rect individually for a fully continuous ranged bar with a color split', () => {
+    // Unlike a native bar/rangeBar series (one color per whole series), each
+    // rect already carries its own fill, so a color split resolves per row
+    // instead of falling back to unsupported — an `ignored` gap notes the
+    // missing legend instead.
     const spec: VegaLiteSpec = {
       data: {
         values: [
@@ -395,10 +397,44 @@ describe('compileBarMark', () => {
       },
     };
     const compiled = compileSpec(spec);
-    const gap = compiled.gaps.find((entry) => entry.code === 'mark:bar-missing-axes');
-    expect(gap?.severity).to.equal('unsupported');
+    expect(compiled.gaps.map((entry) => entry.code)).not.to.include('mark:bar-missing-axes');
     expect(compiled.series).to.have.length(0);
-    expect(compiled.overlays).to.have.length(0);
+    const overlay = compiled.overlays[0] as { items: Array<{ fill?: string }> };
+    expect(overlay.items).to.have.length(2);
+    expect(overlay.items[0].fill).not.to.equal(overlay.items[1].fill);
+    const legendGap = compiled.gaps.find(
+      (entry) => entry.code === 'mark:bar-continuous-range-color-legend',
+    );
+    expect(legendGap?.severity).to.equal('ignored');
+  });
+
+  it('draws a genuine per-row rect when both x/x2 and y/y2 are explicit spans (heat lane)', () => {
+    // bar_heatlane's shape: every row is its own rectangle with no implied
+    // zero baseline on either axis, unlike the single-twinned cases above.
+    const spec: VegaLiteSpec = {
+      data: {
+        values: [
+          { x1: 0, x2: 1, y1: 0, y2: 10 },
+          { x1: 1, x2: 2, y1: 5, y2: 15 },
+        ],
+      },
+      mark: 'bar',
+      encoding: {
+        x: { field: 'x1', type: 'quantitative' },
+        x2: { field: 'x2' },
+        y: { field: 'y1', type: 'quantitative' },
+        y2: { field: 'y2' },
+      },
+    };
+    const compiled = compileSpec(spec);
+    expect(compiled.gaps.map((entry) => entry.code)).not.to.include('mark:bar-missing-axes');
+    expect(compiled.series).to.have.length(0);
+    const overlay = compiled.overlays[0] as {
+      items: Array<{ x1: number; x2: number; y1: number; y2: number }>;
+    };
+    expect(overlay.items).to.have.length(2);
+    expect(overlay.items[0]).to.include({ x1: 0, x2: 1, y1: 0, y2: 10 });
+    expect(overlay.items[1]).to.include({ x1: 1, x2: 2, y1: 5, y2: 15 });
   });
 
   it('renders a quantitative category axis as a discrete band when the value is aggregated', () => {

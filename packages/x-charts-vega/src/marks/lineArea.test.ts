@@ -445,6 +445,38 @@ describe('compileLineAreaMark', () => {
     expect(overlayGap?.origin).to.equal('x-charts');
   });
 
+  it('renders a line over continuous x with a categorical y as a segments overlay (bump chart)', () => {
+    // line_bump's shape: continuous x (build number), nominal y (PASSED/
+    // FAILED/SKIPPED) — the mirror image of the usual index-aligned-x case.
+    const compiled = compileSpec({
+      data: {
+        values: [
+          { build: 1, result: 'PASSED' },
+          { build: 2, result: 'FAILED' },
+          { build: 3, result: 'PASSED' },
+        ],
+      },
+      mark: { type: 'line', point: true },
+      encoding: {
+        x: { field: 'build', type: 'quantitative' },
+        y: { field: 'result', type: 'nominal' },
+      },
+    });
+    expect(compiled.series).to.have.length(0);
+    expect(compiled.gaps.find((entry) => entry.code === 'mark:line-continuous-x')).to.equal(
+      undefined,
+    );
+    const segments = compiled.overlays.find((overlay) => overlay.kind === 'segments');
+    if (!segments || segments.kind !== 'segments') {
+      throw new Error('expected a segments overlay');
+    }
+    expect(segments.items).to.have.length(2);
+    // y keeps the raw category value — resolved to a pixel position by the
+    // band scale at render time (scalePosition already centers within it).
+    expect(segments.items[0]).to.include({ x1: 1, y1: 'PASSED', x2: 2, y2: 'FAILED' });
+    expect(segments.items[1]).to.include({ x1: 2, y1: 'FAILED', x2: 3, y2: 'PASSED' });
+  });
+
   it('pins the y domain to include 0 for a continuous-x line, matching a native line series default', () => {
     // Vega-Lite's `zero: true` default applies to line/area marks regardless
     // of how x-charts ends up rendering them; a continuous-x line renders
@@ -467,7 +499,7 @@ describe('compileLineAreaMark', () => {
         y: { field: 'b', type: 'quantitative' },
       },
     });
-    expect(compiled.yAxis?.config.min).to.equal(0);
+    expect((compiled.yAxis?.config as { min?: number }).min).to.equal(0);
   });
 
   it('renders an area mark over a continuous quantitative x axis as a band overlay', () => {

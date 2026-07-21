@@ -34,12 +34,13 @@ import { toDate } from '../compile/fieldTypes';
  * `datum` is the only recognized bare identifier; `datum.field` /
  * `datum['field']` reads a row property (including chained/nested access).
  * A short allow-list of pure functions is supported: abs, round, floor,
- * ceil, sqrt, log, pow, min, max, length, upper, lower, toNumber, toString,
- * year, month, date, timeFormat, utcFormat. An array literal (`[a, b, ...]`,
- * used by an axis `labelExpr` to build a multi-line label) is also
- * supported. Anything outside this subset — other identifiers, unknown
- * functions, or a syntax error — throws `UnsupportedExpressionError`, which
- * callers turn into a `TranslationGap` instead of failing the whole chart.
+ * ceil, sqrt, log, pow, sin, cos, min, max, length, upper, lower, toNumber,
+ * toString, year, month, date, timeFormat, utcFormat. An array literal
+ * (`[a, b, ...]`, used by an axis `labelExpr` to build a multi-line label)
+ * is also supported. Anything outside this subset — other identifiers,
+ * unknown functions, or a syntax error — throws `UnsupportedExpressionError`,
+ * which callers turn into a `TranslationGap` instead of failing the whole
+ * chart.
  */
 
 export class UnsupportedExpressionError extends Error {}
@@ -439,6 +440,8 @@ const FUNCTIONS: Record<string, (args: unknown[]) => unknown> = {
   sqrt: (args) => Math.sqrt(asNumber(args[0])),
   log: (args) => Math.log(asNumber(args[0])),
   pow: (args) => Math.pow(asNumber(args[0]), asNumber(args[1])),
+  sin: (args) => Math.sin(asNumber(args[0])),
+  cos: (args) => Math.cos(asNumber(args[0])),
   min: (args) => Math.min(...args.map(asNumber)),
   max: (args) => Math.max(...args.map(asNumber)),
   length: (args) => {

@@ -54,6 +54,7 @@ const X_CHARTS_LIMITATION_CODES = new Set<string>([
   // x-charts' bar/rangeBar series always need one categorical dimension; a
   // fully continuous ranged bar draws through a custom rect overlay instead.
   'mark:bar-continuous-range-custom-overlay',
+  'mark:bar-continuous-range-color-legend',
   // Opacity: an x-charts series/marker has a single color, no separate alphas.
   'encoding:opacity',
   'encoding:opacity-field-unsupported',

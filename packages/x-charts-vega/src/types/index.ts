@@ -400,6 +400,8 @@ export interface VegaData {
   name?: string;
   url?: string;
   format?: { type?: string; feature?: string; mesh?: string; [key: string]: unknown };
+  /** A generated numeric sequence (`start` inclusive, `stop` exclusive, `step` default 1, `as` default `'data'`). */
+  sequence?: { start: number; stop: number; step?: number; as?: string };
   [key: string]: unknown;
 }
 

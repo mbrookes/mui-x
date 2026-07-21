@@ -223,7 +223,17 @@ function resolveStrokeDashSplit(
 
 interface ContinuousPoint {
   x: number;
-  y: number;
+  /**
+   * Numeric for the common case (an `area`/`line` value axis); a raw
+   * category value (string/Date) when `y` resolves to a categorical axis —
+   * a `line`/`trail` mark can have continuous `x` with categorical `y` (a
+   * "bump chart"), which has no index-aligned category domain on `x` for a
+   * native x-charts line series, so it renders through this same
+   * continuous-x overlay path with its y position resolved by the band
+   * scale at render time (`scalePosition` in `overlays/scaleUtils.ts`
+   * already centers within a band, given the raw category value).
+   */
+  y: number | string | Date;
 }
 
 interface ContinuousGroups {
@@ -231,14 +241,25 @@ interface ContinuousGroups {
   colorField: string | undefined;
   /** First-appearance order of the group keys. */
   order: string[];
-  /** Numeric (x, y) points bucketed by color-group key. */
+  /** (x, y) points bucketed by color-group key. */
   groups: Map<string, ContinuousPoint[]>;
 }
 
 /**
- * Buckets rows into per-color-group numeric (x, y) points, dropping any row
- * whose x or y isn't a finite number. Shared by the continuous-x line and area
- * overlay builders (both need the same grouping, only the drawn shape differs).
+ * Temporal axis categories are Date objects (see scales.ts), so a raw
+ * category-axis row value (often an ISO string) must be coerced before use —
+ * same pattern as bar.ts/boxplot.ts/errorBar.ts.
+ */
+function toCategoryValue(fieldType: string | undefined, raw: unknown): unknown {
+  return fieldType === 'temporal' ? toDate(raw) : raw;
+}
+
+/**
+ * Buckets rows into per-color-group (x, y) points, dropping any row whose x
+ * isn't a finite number, or whose y is neither a finite number nor (when `y`
+ * is a categorical axis) a resolvable category value. Shared by the
+ * continuous-x line and area overlay builders (both need the same grouping,
+ * only the drawn shape differs).
  */
 /**
  * Colors the continuous-x line/area groups by the color scale's resolved range
@@ -273,13 +294,29 @@ function groupContinuousPoints(ctx: UnitContext, xField: string, yField: string)
     isFieldDef(def),
   ) as VegaFieldDef | undefined;
   const colorField = colorDef?.field;
+  // A categorical y (a "bump chart": continuous x, nominal/ordinal y) keeps
+  // the raw category value instead of requiring a number — see
+  // `ContinuousPoint.y`'s doc comment.
+  const yIsCategorical = ctx.y?.categories !== undefined;
 
   const groups = new Map<string, ContinuousPoint[]>();
   const order: string[] = [];
   rows.forEach((row) => {
     const xv = toNumber(row[xField]);
-    const yv = toNumber(row[yField]);
-    if (xv == null || yv == null || Number.isNaN(xv) || Number.isNaN(yv)) {
+    if (xv == null || Number.isNaN(xv)) {
+      return;
+    }
+    let yv: number | string | Date | null;
+    if (yIsCategorical) {
+      const raw = toCategoryValue(ctx.y?.fieldType, row[yField]);
+      yv = raw == null ? null : (raw as string | Date);
+    } else {
+      yv = toNumber(row[yField]);
+      if (yv != null && Number.isNaN(yv)) {
+        yv = null;
+      }
+    }
+    if (yv == null) {
       return;
     }
     const key = colorField ? String(row[colorField]) : '';
@@ -484,8 +521,14 @@ function buildContinuousAreaOverlay(
 
   const overlays: CompiledOverlay[] = [];
   order.forEach((key, groupIndex) => {
+    // An area's fill needs a numeric upper edge to draw from zero — unlike
+    // `buildContinuousLineOverlay`, a categorical y (`groupContinuousPoints`
+    // keeps it as a raw category value there) has no sensible area geometry,
+    // so those points are dropped here rather than reaching the overlay with
+    // a non-numeric `upper`.
     const points = groups
       .get(key)!
+      .filter((point): point is { x: number; y: number } => typeof point.y === 'number')
       .slice()
       .sort((a, b) => a.x - b.x);
     if (points.length < 2) {

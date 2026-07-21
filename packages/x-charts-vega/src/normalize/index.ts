@@ -154,6 +154,60 @@ function dedupeFeaturesById(features: GeoFeatureLike[]): GeoFeatureLike[] {
   return out;
 }
 
+/** Safety cap on `data.sequence` row count — guards against a malformed/tiny `step` hanging the compile. */
+const MAX_SEQUENCE_ROWS = 100_000;
+
+/**
+ * Vega-Lite's `data.sequence` generator: `start` (inclusive) to `stop`
+ * (exclusive) in steps of `step` (default 1, may be negative to count down),
+ * written to a field named `as` (default `'data'`) — matching d3/Vega's own
+ * `range()` semantics. Returns `null` (after recording a gap) for a
+ * malformed sequence (non-numeric bounds, or a `step` that can never reach
+ * `stop`) rather than looping forever or silently returning nothing.
+ */
+function resolveSequenceRows(
+  sequence: NonNullable<VegaData['sequence']>,
+  gaps: GapCollector,
+  path: string,
+): DatasetRow[] | null {
+  const { start, stop, step = 1, as = 'data' } = sequence;
+  if (
+    typeof start !== 'number' ||
+    typeof stop !== 'number' ||
+    typeof step !== 'number' ||
+    step === 0 ||
+    (step > 0 && start >= stop) ||
+    (step < 0 && start <= stop)
+  ) {
+    gaps.add({
+      code: 'data:sequence-invalid',
+      message: `\`data.sequence\` (start ${JSON.stringify(start)}, stop ${JSON.stringify(stop)}, step ${JSON.stringify(step)}) can never produce a row; no data was generated.`,
+      severity: 'unsupported',
+      path: `${path}.data.sequence`,
+    });
+    return null;
+  }
+  const rows: DatasetRow[] = [];
+  if (step > 0) {
+    for (let value = start; value < stop && rows.length < MAX_SEQUENCE_ROWS; value += step) {
+      rows.push({ [as]: value });
+    }
+  } else {
+    for (let value = start; value > stop && rows.length < MAX_SEQUENCE_ROWS; value += step) {
+      rows.push({ [as]: value });
+    }
+  }
+  if (rows.length >= MAX_SEQUENCE_ROWS) {
+    gaps.add({
+      code: 'data:sequence-truncated',
+      message: `\`data.sequence\` was capped at ${MAX_SEQUENCE_ROWS} rows (start ${start}, stop ${stop}, step ${step}); the generated sequence is incomplete.`,
+      severity: 'partial',
+      path: `${path}.data.sequence`,
+    });
+  }
+  return rows;
+}
+
 function resolveRows(
   data: VegaData | null | undefined,
   inherited: readonly DatasetRow[],
@@ -163,6 +217,9 @@ function resolveRows(
 ): readonly DatasetRow[] {
   if (data == null) {
     return inherited;
+  }
+  if (data.sequence !== undefined) {
+    return resolveSequenceRows(data.sequence, gaps, path) ?? inherited;
   }
   if (data.format?.type === 'topojson' && data.values !== undefined) {
     return resolveTopojsonRows(data, gaps, path) ?? inherited;

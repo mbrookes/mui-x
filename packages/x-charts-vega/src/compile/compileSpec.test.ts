@@ -218,4 +218,45 @@ describe('compileSpec (foundation pipeline)', () => {
     expect(compiled.xAxis?.categories).to.deep.equal(['A']);
     expect(compiled.gaps.filter((gap) => gap.code.startsWith('transform:'))).to.have.length(0);
   });
+
+  it('generates rows from a data.sequence (start inclusive, stop exclusive)', () => {
+    const compiled = compileSpec({
+      data: { sequence: { start: 0, stop: 3, as: 'x' } },
+      mark: 'bar',
+      encoding: {
+        x: { field: 'x', type: 'ordinal' },
+        y: { aggregate: 'count' },
+      },
+    });
+    expect(compiled.xAxis?.categories).to.deep.equal([0, 1, 2]);
+    expect(compiled.gaps).to.have.length(0);
+  });
+
+  it('honors a data.sequence step, including counting down with a negative step', () => {
+    const forward = compileSpec({
+      data: { sequence: { start: 0, stop: 1, step: 0.25, as: 'x' } },
+      mark: 'bar',
+      encoding: { x: { field: 'x', type: 'ordinal' }, y: { aggregate: 'count' } },
+    });
+    expect(forward.xAxis?.categories).to.deep.equal([0, 0.25, 0.5, 0.75]);
+
+    const backward = compileSpec({
+      data: { sequence: { start: 3, stop: 0, step: -1, as: 'x' } },
+      mark: 'bar',
+      encoding: { x: { field: 'x', type: 'ordinal' }, y: { aggregate: 'count' } },
+    });
+    // Rows generate in descending order (3, 2, 1) — stop (0) is excluded —
+    // but the x-axis categories still default to ascending, per Vega-Lite.
+    expect(backward.xAxis?.categories).to.deep.equal([1, 2, 3]);
+  });
+
+  it('reports an unsupported gap for a data.sequence that can never produce a row', () => {
+    const compiled = compileSpec({
+      data: { sequence: { start: 0, stop: 10, step: -1, as: 'x' } },
+      mark: 'bar',
+      encoding: { x: { field: 'x', type: 'ordinal' }, y: { aggregate: 'count' } },
+    });
+    const gap = compiled.gaps.find((entry) => entry.code === 'data:sequence-invalid');
+    expect(gap?.severity).to.equal('unsupported');
+  });
 });

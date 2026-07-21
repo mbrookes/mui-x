@@ -95,11 +95,22 @@ export function resolveAggregationFieldKeys<T>(
  * so grouping+aggregating a fanned-out column (e.g. summing `orders.total` on an
  * `order_items` grid grouped by category) counts each linked one-side record once,
  * not once per many-side row (architecture review finding 2.7).
+ *
+ * `ownFieldIds` is the widget's own (primary-source + own expression-field) field id
+ * set. A cross-source configured column can share a bare `fieldId` with one of the
+ * widget's own fields (e.g. an `order_items` grid's own `total` column plus a related
+ * `customers.total` column) — without this guard the FK-dedupe entry keyed by that bare
+ * id would apply to the OWN column too, deduping it down to one row per related record
+ * and silently dropping the true per-row total (finding 7). Mirrors the own-field-wins
+ * guard `buildGridColumnDefs`'s `!field && !expressionField` check, `computeOrderedFieldIds`'s
+ * first-occurrence dedupe, and `crossSourceEnrichment.ts`'s `fieldId in row` check already
+ * apply at their respective sites.
  */
 export function resolveCrossSourceFkFields(
   configColumns: StudioWidgetConfig['columns'],
   widgetSourceId: string | undefined,
   relationships: StudioRelationship[],
+  ownFieldIds: ReadonlySet<string> = new Set(),
 ): Map<string, string> {
   const map = new Map<string, string>();
   if (!widgetSourceId) {
@@ -108,6 +119,10 @@ export function resolveCrossSourceFkFields(
   const relIndex = buildManyToOneRelationshipIndex(widgetSourceId, relationships);
   for (const c of configColumns ?? []) {
     if (!c.sourceId || c.sourceId === widgetSourceId) {
+      continue;
+    }
+    // Own/primary field wins on a same-named collision — see the doc comment above.
+    if (ownFieldIds.has(c.fieldId)) {
       continue;
     }
     const rel = relIndex.get(c.sourceId);
@@ -360,11 +375,22 @@ export function evalConditionalFormat(rule: StudioConditionalFormat, cellValue: 
   }
   switch (operator) {
     case 'equals':
-      // eslint-disable-next-line eqeqeq
-      return cellValue == value;
-    case 'not_equals':
-      // eslint-disable-next-line eqeqeq
-      return cellValue != value;
+    case 'not_equals': {
+      // A boolean column's rule value is committed as the STRING "true"/"false"
+      // (`GridConditionalFormatSection` routes non-number fields through a plain string
+      // text input), while `cellValue` for a boolean column is a raw JS boolean. Loose
+      // equality (`true == "true"`) is `false` under JS coercion rules, so an
+      // equals/not_equals rule on a boolean column never matched (and not_equals matched
+      // every row). Mirrors `filterUtils.ts`'s boolean-as-string branch
+      // (`compileSingleCondition`'s `fieldType === 'boolean'` case): coerce a boolean
+      // cellValue to its string form before comparing against the string-committed value.
+      const isMatch =
+        typeof cellValue === 'boolean'
+          ? String(cellValue) === String(value)
+          : // eslint-disable-next-line eqeqeq
+            cellValue == value;
+      return operator === 'equals' ? isMatch : !isMatch;
+    }
     case 'greater_than':
     case 'less_than':
     case 'greater_than_or_equal':
@@ -484,6 +510,13 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   // emitted from a date/datetime cell with `fieldType` (finding 1.1) so the downstream
   // `compileSingleCondition` day-normalizes both sides — otherwise an `equals` on an
   // L1-normalized date cell (`'2024-01-15'`) never matches a full-ISO/Date value.
+  //
+  // Own-source fields/expression columns are seeded FIRST, and the cross-source pass below
+  // only fills in an id that isn't already present — a cross-source column can share a bare
+  // `fieldId` with a primary column (e.g. a primary `total` plus a related `customers.total`),
+  // and letting the cross-source def win on that collision would report the OWN column's type
+  // as the related column's type (finding 7). Mirrors `buildGridColumnDefs`'s
+  // `!field && !expressionField` own-field-wins guard.
   const fieldTypeById = React.useMemo(() => {
     const map = new Map<string, StudioDataField['type']>();
     for (const f of dataSource?.fields ?? []) {
@@ -495,17 +528,40 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       }
     }
     for (const [id, def] of crossSourceFieldDefs) {
-      map.set(id, def.type);
+      if (!map.has(id)) {
+        map.set(id, def.type);
+      }
     }
     return map;
   }, [dataSource?.fields, expressionFields, crossSourceFieldDefs]);
 
+  // The widget's own (primary-source + own expression-field) field ids — the "primary wins"
+  // set used to guard `resolveCrossSourceFkFields` below against a cross-source column that
+  // shares a bare fieldId with one of the widget's own fields (finding 7).
+  const ownFieldIds = React.useMemo(() => {
+    const ids = new Set<string>();
+    for (const f of dataSource?.fields ?? []) {
+      ids.add(f.id);
+    }
+    for (const ef of expressionFields) {
+      ids.add(ef.id);
+    }
+    return ids;
+  }, [dataSource?.fields, expressionFields]);
+
   // fieldId → FK field, for every configured cross-source column that is fanned out
   // by row enrichment — used to dedupe fan-out double-counting in the native
   // grouping aggregation below (finding 2.7) and the footer summary (finding 1.2).
+  // `ownFieldIds` guards against a same-named own-field collision (finding 7).
   const crossSourceFkFields = React.useMemo(
-    () => resolveCrossSourceFkFields(widget.config.columns, widget.sourceId, relationships),
-    [widget.config.columns, widget.sourceId, relationships],
+    () =>
+      resolveCrossSourceFkFields(
+        widget.config.columns,
+        widget.sourceId,
+        relationships,
+        ownFieldIds,
+      ),
+    [widget.config.columns, widget.sourceId, relationships, ownFieldIds],
   );
 
   // Related-source EXPRESSION columns (finding 1.1): the shared `useWidgetRows` cross-source
@@ -919,6 +975,14 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   // its own calculated columns, AND resolvable cross-source columns (finding 1.2). Without
   // the last two a configured `sum`/`avg`/`min`/`max` on a cross-source or expression-field
   // column found no def, resolved as non-numeric, and silently degraded to a `count`.
+  //
+  // `computeGridSummary` indexes this array by `id` via `new Map(fields.map((f) => [f.id, f]))`,
+  // which is last-write-wins — so a cross-source def pushed after an own field/expression def
+  // sharing its bare id would silently shadow the primary def there, routing the footer
+  // aggregation for the widget's OWN column through the cross-source FK-dedupe and dropping all
+  // but one row per related record (finding 7). Skip a cross-source def whose id collides with
+  // an own field/expression column so the own def always wins, mirroring `buildGridColumnDefs`'s
+  // `!field && !expressionField` own-field-wins guard.
   const summaryFieldDefs = React.useMemo<StudioDataField[]>(() => {
     const defs: StudioDataField[] = [...(dataSource?.fields ?? [])];
     for (const ef of expressionFields) {
@@ -931,11 +995,13 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         currencyCode: ef.currencyCode,
       });
     }
-    for (const def of crossSourceFieldDefs.values()) {
-      defs.push(def);
+    for (const [id, def] of crossSourceFieldDefs) {
+      if (!ownFieldIds.has(id)) {
+        defs.push(def);
+      }
     }
     return defs;
-  }, [dataSource?.fields, expressionFields, crossSourceFieldDefs]);
+  }, [dataSource?.fields, expressionFields, crossSourceFieldDefs, ownFieldIds]);
 
   const summaryValues = React.useMemo(() => {
     if (!summaryConfig || Object.keys(summaryConfig).length === 0 || !dataSource) {

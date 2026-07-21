@@ -193,6 +193,41 @@ describe('resolveCrossSourceFkFields', () => {
     );
     expect(map.size).toBe(0);
   });
+
+  // Own/primary field must win on a same-named collision (finding 7): a grid on
+  // `order_items` (which has its own `total` column) can also be configured with a
+  // cross-source related field sharing the bare id `total` (e.g. `orders.total`).
+  // Without the `ownFieldIds` guard, the FK-dedupe entry keyed by `total` would apply
+  // to the widget's OWN `total` column too, deduping it down to one row per related
+  // order and silently dropping all but one row's worth of the true per-row total.
+  it('excludes a cross-source column whose fieldId collides with an own field id, when ownFieldIds is provided', () => {
+    const map = resolveCrossSourceFkFields(
+      [{ fieldId: 'total', sourceId: 'orders' }],
+      'order_items',
+      [relationship],
+      new Set(['total']),
+    );
+    expect(map.has('total')).toBe(false);
+  });
+
+  it('still maps a non-colliding cross-source column when ownFieldIds is provided', () => {
+    const map = resolveCrossSourceFkFields(
+      [{ fieldId: 'total', sourceId: 'orders' }, { fieldId: 'category' }],
+      'order_items',
+      [relationship],
+      new Set(['category', 'qty']),
+    );
+    expect(map.get('total')).toBe('orderId');
+  });
+
+  it('defaults ownFieldIds to empty, preserving the old (no-guard) behavior when omitted', () => {
+    const map = resolveCrossSourceFkFields(
+      [{ fieldId: 'total', sourceId: 'orders' }],
+      'order_items',
+      [relationship],
+    );
+    expect(map.get('total')).toBe('orderId');
+  });
 });
 
 describe('makeFanoutSafeAggregationFunction', () => {

@@ -211,6 +211,45 @@ describe('evalConditionalFormat — numeric rules exclude empty cells', () => {
   });
 });
 
+// ─── Conditional-format equals/not_equals must coerce a boolean cell against a
+// string-committed rule value (finding 8) ────────────────────────────────────────
+// `GridConditionalFormatSection` routes every non-number field (including boolean)
+// through a plain string text input, so `rule.value` for a boolean column is
+// committed as the STRING "true"/"false" — while `cellValue` for that column is a
+// raw JS boolean. `true == "true"` is `false` under JS loose-equality coercion, so
+// an equals rule never matched and a not_equals rule matched every row.
+
+describe('evalConditionalFormat — boolean columns compared against a string-committed value', () => {
+  function rule(
+    operator: StudioConditionalFormat['operator'],
+    value: unknown,
+  ): StudioConditionalFormat {
+    return { fieldId: 'active', operator, value, style: {} };
+  }
+
+  it('equals matches a true cell against the string "true"', () => {
+    expect(evalConditionalFormat(rule('equals', 'true'), true)).toBe(true);
+  });
+
+  it('equals does not match a false cell against the string "true"', () => {
+    expect(evalConditionalFormat(rule('equals', 'true'), false)).toBe(false);
+  });
+
+  it('equals matches a false cell against the string "false"', () => {
+    expect(evalConditionalFormat(rule('equals', 'false'), false)).toBe(true);
+  });
+
+  it('not_equals does not match when the boolean cell agrees with the string value', () => {
+    expect(evalConditionalFormat(rule('not_equals', 'false'), false)).toBe(false);
+    expect(evalConditionalFormat(rule('not_equals', 'true'), true)).toBe(false);
+  });
+
+  it('not_equals matches when the boolean cell disagrees with the string value', () => {
+    expect(evalConditionalFormat(rule('not_equals', 'true'), false)).toBe(true);
+    expect(evalConditionalFormat(rule('not_equals', 'false'), true)).toBe(true);
+  });
+});
+
 // ─── Custom min/max fan-out-safe aggregation is number-only (finding T3.6) ──────
 // The custom override routes every value through the shared reducer, which coerces
 // dates to `null`. Claiming `date`/`dateTime` column types made this override the

@@ -49,8 +49,8 @@ describe('StudioGanttChart geometry (finding 1.10)', () => {
     expect(tickPct).toBe(50);
 
     const items: GanttItem[] = [
-      { label: 'Full range', startMs: minMs, endMs: maxMs },
-      { label: 'Midpoint start', startMs: coincidingTick, endMs: maxMs },
+      { id: 1, label: 'Full range', startMs: minMs, endMs: maxMs },
+      { id: 2, label: 'Midpoint start', startMs: coincidingTick, endMs: maxMs },
     ];
 
     const barLeftPct = msToPct(items[1].startMs, minMs, rangeMs);
@@ -78,8 +78,8 @@ describe('StudioGanttChart geometry (finding 1.10)', () => {
 
   it('a bar starting at maxMs lands at 100% (not past the right edge)', () => {
     const items: GanttItem[] = [
-      { label: 'Early', startMs: 0, endMs: 50 },
-      { label: 'Late', startMs: 100, endMs: 100 },
+      { id: 1, label: 'Early', startMs: 0, endMs: 50 },
+      { id: 2, label: 'Late', startMs: 100, endMs: 100 },
     ];
     const { wrapper } = createStudioHarness();
     const { container } = render(<StudioGanttChart items={items} height={200} />, { wrapper });

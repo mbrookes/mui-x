@@ -197,9 +197,20 @@ export function StudioLineAreaChart({
     );
 
   // ── seriesField line/area chart: one line (or area) per unique series-field value ──
+  // Computed BEFORE the entry guard (mirrors `StudioBarChart`'s `effectiveSFData`) so the guard
+  // itself can key off the baseline data instead of `seriesFieldData` alone. A cross-filter that
+  // empties every row for this widget makes `seriesFieldData` null even though the split-by
+  // field still has categories in the baseline — gating entry on `seriesFieldData` alone used to
+  // fall through to the multi-Y/single-series path below, collapsing the chart's per-series
+  // structure into one unsplit aggregate-total line instead of rendering every baseline series
+  // fully filtered-out/dimmed (finding 6).
+  const effectiveSFData =
+    shouldShowGhost && allSeriesFieldData && preserveSplitByBaseline
+      ? allSeriesFieldData
+      : seriesFieldData;
   if (
-    seriesFieldData &&
-    seriesFieldData.seriesNames.length > 0 &&
+    effectiveSFData &&
+    effectiveSFData.seriesNames.length > 0 &&
     (chartType === 'line' ||
       chartType === 'area' ||
       chartType === 'area-stacked' ||
@@ -216,15 +227,24 @@ export function StudioLineAreaChart({
       !isStacked && shouldShowGhost && allSeriesFieldData && preserveSplitByBaseline
         ? allSeriesFieldData
         : null;
-    const effectiveSFLineData = sfLineAllData ?? seriesFieldData;
+    // The rendered data source of record. Falls back beyond `sfLineAllData ?? seriesFieldData`
+    // to `allSeriesFieldData` for the stacked case (finding 6): `seriesFieldData` can be null
+    // here (this widget's rows entirely filtered out) even though the entry guard above passed,
+    // because that guard accepts `allSeriesFieldData` as a stand-in via `effectiveSFData`. The
+    // non-null assertion is safe: the entry guard guarantees at least one of `seriesFieldData` /
+    // `allSeriesFieldData` is non-null with series (whichever `effectiveSFData` resolved to).
+    const effectiveSFLineData = sfLineAllData ?? seriesFieldData ?? allSeriesFieldData!;
     const xAxis = createLineXAxis(effectiveSFLineData.labels, CROSS_FILTER_AXIS_ID);
     const selectedDataIndices = getSelectedDataIndices(effectiveSFLineData.labels);
 
-    // Pre-normalize to 0-100% per x-position (avoids floating-point issues with stackOffset:'expand')
+    // Pre-normalize to 0-100% per x-position (avoids floating-point issues with stackOffset:'expand').
+    // area-100 implies isStacked, so `sfLineAllData` is always null here — use
+    // `effectiveSFLineData` rather than `seriesFieldData` directly since the latter can be null
+    // when this widget's rows are entirely filtered out (finding 6).
     const totals100 = is100
       ? computeStackTotals(
-          seriesFieldData.seriesNames.map((name) => seriesFieldData.seriesData[name]),
-          seriesFieldData.labels.length,
+          effectiveSFLineData.seriesNames.map((name) => effectiveSFLineData.seriesData[name]),
+          effectiveSFLineData.labels.length,
         )
       : null;
 
@@ -243,14 +263,23 @@ export function StudioLineAreaChart({
       : [];
 
     const series = effectiveSFLineData.seriesNames.map((name) => {
-      // Align filtered data to the all-data x-positions when ghost series are present.
-      const rawData = sfLineAllData
-        ? alignFilteredToAllLabels(
-            sfLineAllData.labels,
-            seriesFieldData.labels,
-            seriesFieldData.seriesData[name] ?? sfLineAllData.labels.map(() => null),
-          )
-        : seriesFieldData.seriesData[name];
+      // Align filtered data to the all-data x-positions when ghost series are present. When
+      // ghosting AND every row for this widget has been filtered out, `seriesFieldData` is
+      // null — render an all-null foreground series (nothing draws, thanks to `connectNulls`/
+      // no marks) rather than dereferencing it, mirroring the single-series ghost path below
+      // (finding 6).
+      let rawData: (number | null)[];
+      if (!sfLineAllData) {
+        rawData = effectiveSFLineData.seriesData[name];
+      } else if (seriesFieldData) {
+        rawData = alignFilteredToAllLabels(
+          sfLineAllData.labels,
+          seriesFieldData.labels,
+          seriesFieldData.seriesData[name] ?? sfLineAllData.labels.map(() => null),
+        );
+      } else {
+        rawData = sfLineAllData.labels.map(() => null);
+      }
       // Stacked area: null breaks the stacking algorithm → use 0
       const stackedLineOrRaw = isStacked ? rawData.map((v) => v ?? 0) : rawData;
       const data: (number | null)[] = totals100

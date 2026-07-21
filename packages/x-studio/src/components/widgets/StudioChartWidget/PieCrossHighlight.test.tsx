@@ -81,4 +81,24 @@ describe('CrossHighlightPieArc', () => {
     const overlay = pieArcCalls[pieArcCalls.length - 1];
     expect(overlay.endAngle).toBeCloseTo(Math.PI, 5);
   });
+
+  // Regression for finding 4: `min`/`avg` aggregations can legitimately produce a
+  // filtered/baseline ratio > 1 (e.g. the filtered subset's `min` is >= the baseline `min` by
+  // construction). An unclamped ratio pushed `overlayEndAngle` past this slice's own
+  // `endAngle`, painting the full-opacity overlay over the start of the NEXT slice's dimmed
+  // ghost arc. The overlay must never sweep past the slice's own angle.
+  it("clamps the overlay to the slice's own end angle when the ratio exceeds 1", () => {
+    renderArc('#b45309', 1.6);
+    expect(screen.getAllByTestId('pie-arc')).toHaveLength(2);
+    const overlay = pieArcCalls[pieArcCalls.length - 1];
+    expect(overlay.startAngle).toBe(0);
+    expect(overlay.endAngle).toBeCloseTo(Math.PI, 5);
+    expect(overlay.endAngle).toBeLessThanOrEqual(Math.PI + 1e-9);
+  });
+
+  it('clamps a negative ratio to 0 (no overlay rendered)', () => {
+    renderArc('#b45309', -0.5);
+    // ratio clamps to 0, which is below the `ratio > 0.001` threshold for rendering an overlay.
+    expect(screen.getAllByTestId('pie-arc')).toHaveLength(1);
+  });
 });

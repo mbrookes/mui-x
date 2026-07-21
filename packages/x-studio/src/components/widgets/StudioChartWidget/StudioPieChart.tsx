@@ -190,7 +190,17 @@ export function StudioPieChart({
   // Pre-compute grouped-ring pie data: one ring per xField category, each ring
   // divided into slices by seriesField — like grouped bars but as concentric rings.
   const twoRingData = React.useMemo(() => {
-    if (!seriesField || !xField || enrichedRows.length === 0) {
+    // Whether the unfiltered baseline is usable as a stand-in when this widget's own filtered
+    // rows are empty — computed up front (rather than only where `baseRows` is chosen below) so
+    // the entry guard can gate on it too. A sibling widget's cross-filter can empty
+    // `enrichedRows` entirely while `allEnrichedRows` still has rows for every category; gating
+    // entry on `enrichedRows.length === 0` alone (finding 6) used to bail out of the ring branch
+    // in that case, collapsing an N-series ring chart into the single-ring aggregate-total path
+    // below instead of rendering every baseline ring dimmed. Mirrors `StudioBarChart`'s
+    // `effectiveSFData` pattern.
+    const canUseGhostBaseline =
+      shouldShowGhost && allEnrichedRows.length > 0 && preserveXFieldBaseline;
+    if (!seriesField || !xField || (enrichedRows.length === 0 && !canUseGhostBaseline)) {
       return null;
     }
     const sliceField = seriesField;
@@ -217,9 +227,9 @@ export function StudioPieChart({
     // mode, so hard filters (which every other widget applies) now filter the rings too.
     // Also gated on `preserveXFieldBaseline`, mirroring the single-ring path's
     // `isPieHighlightActive` (~line 368) — otherwise the grouped-ring ghost baseline would show
-    // regardless of the flag (finding 4).
-    const useGhostBaseline =
-      shouldShowGhost && allEnrichedRows.length > 0 && preserveXFieldBaseline;
+    // regardless of the flag (finding 4). Same condition as `canUseGhostBaseline` above (reused,
+    // not recomputed, to keep the entry guard and the baseline choice below in lockstep).
+    const useGhostBaseline = canUseGhostBaseline;
     const baseRows = useGhostBaseline ? allEnrichedRows : enrichedRows;
 
     // Get unique category values (period-grouped xField), sorted like the single-ring path

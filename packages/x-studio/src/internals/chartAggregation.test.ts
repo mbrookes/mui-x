@@ -3191,12 +3191,26 @@ describe('buildGanttItems', () => {
     const result = buildGanttItems(rows, 'task', 'start', 'end', undefined);
     expect(result.items).toEqual([
       {
+        id: expect.any(Number),
         label: 'Design',
         startMs: new Date('2024-01-01').getTime(),
         endMs: new Date('2024-01-10').getTime(),
         colorCategory: undefined,
       },
     ]);
+  });
+
+  it('assigns a unique id per item, even for rows with identical label and start time', () => {
+    // finding 15: two rows sharing the same label and start (but different end) must not
+    // collide on id — the id must be assigned per underlying row, not derived from the
+    // label/startMs the way the old `${label}-${startMs}` React key was.
+    const rows = [
+      { task: 'Deploy', start: '2024-01-01', end: '2024-01-02' },
+      { task: 'Deploy', start: '2024-01-01', end: '2024-01-05' },
+    ];
+    const result = buildGanttItems(rows, 'task', 'start', 'end', undefined);
+    expect(result.items).toHaveLength(2);
+    expect(result.items[0].id).not.toEqual(result.items[1].id);
   });
 
   it('skips rows missing a label, start, or end value', () => {

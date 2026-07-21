@@ -477,6 +477,68 @@ describe('StudioLineAreaChart', () => {
     expect(lastLineProps().series.find((s) => s.id.endsWith('-ghost'))).toBeUndefined();
   });
 
+  // Regression for finding 6: a sibling widget's cross-filter can empty THIS widget's rows
+  // entirely, making `seriesFieldData` null even though `allSeriesFieldData` still has series.
+  // The branch used to gate its entry guard on `seriesFieldData` alone, which fell through to
+  // the single-series prelude and collapsed an N-series split-by chart into one aggregate line.
+  it('preserves per-series structure (ghost baseline) when seriesFieldData is null but a ghost baseline exists', () => {
+    const allSeriesFieldData = {
+      labels: ['Q1', 'Q2', 'Q3'],
+      seriesNames: ['North', 'South'],
+      seriesData: { North: [1, 2, 5], South: [3, 4, 6] },
+    };
+    const colorByName: Record<string, string> = { North: '#aaaaaa', South: '#bbbbbb' };
+    renderChart(
+      baseProps({
+        chartType: 'line',
+        chartData: null,
+        seriesFieldData: null,
+        allSeriesFieldData,
+        shouldShowGhost: true,
+        preserveSplitByBaseline: true,
+        getSeriesColor: (name) => colorByName[String(name)],
+      }),
+    );
+    const props = lastLineProps();
+    // Ghost series still render for every baseline category — the chart didn't collapse to a
+    // single aggregate-total line.
+    const ghostIds = props.series.filter((s) => s.id.endsWith('-ghost')).map((s) => s.id);
+    expect(ghostIds).toEqual(['North-ghost', 'South-ghost']);
+    // Foreground (active) series are still emitted per baseline category, entirely null (fully
+    // filtered out) since no filtered data survived.
+    const activeSeries = props.series.filter((s) => !s.id.endsWith('-ghost'));
+    expect(activeSeries.map((s) => s.id)).toEqual(['North', 'South']);
+    for (const s of activeSeries) {
+      expect(s.data.every((v) => v === null)).toBe(true);
+    }
+  });
+
+  // Regression for finding 6, stacked variant: ghosting is deliberately unsupported for
+  // stacked/100% area, so when every row is filtered out the branch must still fall back to
+  // rendering the (un-dimmed) baseline series rather than crashing or collapsing to one line.
+  it('falls back to the un-dimmed baseline for stacked areas when seriesFieldData is null', () => {
+    const allSeriesFieldData = {
+      labels: ['Q1', 'Q2'],
+      seriesNames: ['North', 'South'],
+      seriesData: { North: [1, 2], South: [3, 4] },
+    };
+    renderChart(
+      baseProps({
+        chartType: 'area-stacked',
+        chartData: null,
+        seriesFieldData: null,
+        allSeriesFieldData,
+        shouldShowGhost: true,
+        preserveSplitByBaseline: true,
+      }),
+    );
+    const props = lastLineProps();
+    expect(props.series.find((s) => s.id.endsWith('-ghost'))).toBeUndefined();
+    expect(props.series.map((s) => s.id)).toEqual(['North', 'South']);
+    expect(props.series.find((s) => s.id === 'North')!.data).toEqual([1, 2]);
+    expect(props.series.find((s) => s.id === 'South')!.data).toEqual([3, 4]);
+  });
+
   it('uses independent left/right axes for an unstacked multi-Y chart with >1 series', () => {
     const multiYData = {
       labels: ['A', 'B'],

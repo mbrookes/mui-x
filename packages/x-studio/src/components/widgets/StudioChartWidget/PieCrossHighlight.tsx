@@ -7,7 +7,16 @@ export function CrossHighlightPieArc(props: PieArcProps) {
   const { startAngle, endAngle, color, innerRadius, outerRadius, isFaded, ...rest } = props;
   const { ratioByIndex, isActive, skipAnimation } = React.use(PieHighlightContext);
 
-  const ratio = ratioByIndex.get(rest.dataIndex) ?? 1;
+  // Clamp to [0, 1]: for `min`/`max`/`avg` aggregations the filtered subset's ratio can
+  // legitimately exceed 1 (e.g. `avg` when the highlighted category sits above the overall
+  // average, or `min` where the baseline is necessarily <= any of its subsets) — that's a
+  // normal outcome of the aggregation, not an anomaly to special-case. Unlike the bar chart's
+  // ghost overlay (`CrossFilterGhostBar`), which can safely grow past its ghost's extent by
+  // widening past 100% height, an unclamped ratio here would push `overlayEndAngle` past this
+  // slice's own `endAngle` and paint the full-opacity overlay over the START of the next
+  // slice's dimmed ghost arc. Clamping keeps the overlay geometry within the slice's own arc
+  // regardless of the underlying aggregation ratio.
+  const ratio = Math.min(1, Math.max(0, ratioByIndex.get(rest.dataIndex) ?? 1));
   const overlayEndAngle = startAngle + ratio * (endAngle - startAngle);
 
   return (

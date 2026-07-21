@@ -470,6 +470,41 @@ describe('StudioPieChart', () => {
       expect(props.series[0].data).toHaveLength(1);
       expect(props.series[0].data[0].value).toBe(5);
     });
+
+    // Regression for finding 6: a sibling widget's cross-filter can empty THIS widget's
+    // `enrichedRows` entirely (0 rows matched) while `allEnrichedRows` still has rows for
+    // every ring/category. The ring branch used to gate its entry guard on
+    // `enrichedRows.length === 0` alone, which fell through to the single-ring aggregate-total
+    // path below and collapsed an N-ring chart into one slice. It must instead keep rendering
+    // every baseline ring, fully dimmed.
+    it('keeps rendering every baseline ring (fully dimmed) when enrichedRows is empty but a ghost baseline exists', () => {
+      const baseline = [
+        { region: 'North', segment: 'SMB', total: 5 },
+        { region: 'North', segment: 'Enterprise', total: 7 },
+        { region: 'South', segment: 'SMB', total: 3 },
+      ];
+      renderPie(
+        baseProps({
+          seriesField: 'segment',
+          xField: 'region',
+          yField: 'total',
+          enrichedRows: [],
+          allEnrichedRows: baseline,
+          shouldShowGhost: true,
+          preserveXFieldBaseline: true,
+          resolvedChartColors: ['#111', '#222', '#333', '#444'],
+          chartData: { labels: [], values: [] },
+        }),
+      );
+      const props = lastPieProps();
+      // Both region rings still render from the baseline, not collapsed to a single ring.
+      expect(props.series).toHaveLength(2);
+      const north = props.series.find((s) => s.data.length === 2);
+      expect(north).toBeDefined();
+      expect(north!.data.map((d) => d.value).sort()).toEqual([5, 7]);
+      // The dim map is populated (every slice dimmed, since nothing matched the filter).
+      expect(props.slots?.pieArc).toBeDefined();
+    });
   });
 
   // ── Stable category colours + union legend (finding 1.3) ───────────────────

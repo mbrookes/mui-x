@@ -266,7 +266,11 @@ export function StudioGanttChart({
 
           return (
             <Box
-              key={`${item.label}-${item.startMs}`}
+              // `item.id` is a stable per-row identity token (see `rowIdentity.ts`), unique even
+              // for two rows sharing the same label/start time — `${item.label}-${item.startMs}`
+              // collided in that case, letting the reconciler pair the wrong row's bar/tooltip
+              // state to the wrong DOM node on a cross-filter-driven list change (finding 15).
+              key={item.id}
               sx={{ position: 'absolute', top, left: 0, right: 0, height: ROW_H }}
             >
               {/* Row label */}

@@ -1,7 +1,19 @@
+import { ensureRowIdentity } from '../rowIdentity';
+
 type Row = Record<string, unknown>;
 
 /** One bar in a Gantt / timeline chart. */
 export interface GanttItem {
+  /**
+   * Stable per-row identity token (see `rowIdentity.ts`), used as the React key when
+   * rendering bars. Two rows with the same label and start time are a legitimate case (e.g.
+   * two tasks named identically starting the same day) — keying on `label`/`startMs` alone
+   * collided in that case, and on a cross-filter-driven list change the reconciler could pair
+   * the wrong row's bar/tooltip state to the wrong DOM node (finding 15). `ensureRowIdentity`
+   * survives the row-cloning the pipeline does (object spread), so the id stays stable across
+   * re-renders of the same logical row even though the row object reference is fresh.
+   */
+  id: number;
   label: string;
   startMs: number;
   endMs: number;
@@ -55,7 +67,7 @@ export function buildGanttItems(
     if (colorCategory) {
       categorySet.add(colorCategory);
     }
-    items.push({ label, startMs, endMs, colorCategory });
+    items.push({ id: ensureRowIdentity(row), label, startMs, endMs, colorCategory });
   }
 
   return { items, categories: [...categorySet] };

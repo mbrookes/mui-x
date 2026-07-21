@@ -137,6 +137,69 @@ describe('createBatchingAdapter — batching mechanics', () => {
   });
 });
 
+// ── Shared per-endpoint config isolation (finding 9) ─────────────────────────
+//
+// Simple-mode adapters for DIFFERENT sources can share one endpoint (see the
+// "same-endpoint SQL JOIN generation" tests below). Registering a second instance at
+// the same endpoint must not silently wipe out an earlier instance's `expressionFields`.
+
+describe('createBatchingAdapter — shared endpoint config isolation', () => {
+  it("does not let a later same-endpoint adapter wipe out an earlier instance's expressionFields", async () => {
+    const endpoint = uid();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    // Source A registers first, with its own calculated field.
+    const adapterA = createBatchingAdapter(endpoint, {
+      fetchFn: makeOkFetch([]) as unknown as typeof fetch,
+      batchDelayMs: 0,
+      expressionFields: [
+        {
+          id: 'expr-margin',
+          label: 'Margin',
+          sourceId: 'source-orders',
+          isMeasure: false,
+          expression: { operator: 'subtract', inputs: [{ id: 'price' }, { id: 'cost' }] },
+        },
+      ],
+    });
+
+    // Source B registers afterwards at the SAME endpoint with no expressionFields of its
+    // own. Its fetchFn becomes the shared loader's live fetch (last-write-wins is intentional,
+    // finding 3.14) — so assertions below read from fetchFnB, not adapterA's original fetchFn.
+    const fetchFnB = makeOkFetch([{ id: 'w1', rows: [] }]);
+    createBatchingAdapter(endpoint, {
+      fetchFn: fetchFnB as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    // A filter on source A's calculated field must still be recognised as an own-source
+    // expression field and dropped from the server query (with a warning) — NOT sent as a
+    // real predicate, which would fail server-side with "no such column".
+    await adapterA.getRows(
+      makeDescriptor({
+        sourceId: 'source-orders',
+        widgetId: 'w1',
+        select: ['id', 'price', 'cost'],
+        filter: {
+          type: 'leaf',
+          field: 'expr-margin',
+          op: 'greater_than',
+          value: 100,
+          fieldType: 'number',
+        },
+      }),
+    );
+
+    expect(fetchFnB).toHaveBeenCalledTimes(1);
+    const body = JSON.parse((fetchFnB.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ filters?: unknown }>;
+    };
+    expect(body.widgets[0].filters).toBeUndefined();
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+});
+
 // ── Fetch failure ─────────────────────────────────────────────────────────────
 
 describe('createBatchingAdapter — fetch failure', () => {

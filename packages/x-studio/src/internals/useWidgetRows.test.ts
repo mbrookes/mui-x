@@ -713,6 +713,42 @@ describe('async adapter path', () => {
     expect(result.current.filteredRows).toHaveLength(1);
     expect(result.current.filteredRows[0]).toMatchObject({ id: 'cached-B' });
   });
+
+  it('resets isLoading/isError instead of freezing them when the adapter is removed mid-flight (finding 2)', async () => {
+    // Regression: StudioDashboard.tsx clears adapters dropped from the `dataAdapters` prop,
+    // removeDataSource, and the public StudioHandle.setDataSourceAdapter(id, undefined) API all
+    // can swap a widget's dataSource from an adapter-backed one to a plain in-memory one WHILE a
+    // fetch is in flight. The in-flight promise's own cleanup marks it cancelled, so its resolve/
+    // reject handlers never run — nothing else ever clears isLoading/isError, and the widget would
+    // be stuck showing a permanent loading spinner (or a stale error overlay) over valid fallback
+    // rows until remount.
+    mockState = createState();
+    const widget = makeWidget({ id: 'w1', sourceId: 'src1' });
+
+    const neverResolves = new Promise<StudioQueryResult>(() => {});
+    const adapter: StudioDataSourceAdapter = {
+      getRows: vi.fn().mockReturnValue(neverResolves),
+    };
+    const adapterDataSource = makeDataSource([], { adapter });
+
+    const { result, rerender } = renderHook(
+      ({ dataSource }) => useWidgetRows(widget, dataSource, 'page-1'),
+      { initialProps: { dataSource: adapterDataSource } },
+    );
+
+    // The fetch missed the cache and is now in-flight, never resolving.
+    expect(result.current.isLoading).toBe(true);
+    expect(result.current.isError).toBe(false);
+
+    // The adapter is removed (e.g. setDataSourceAdapter(id, undefined)) — the widget falls back
+    // to the in-memory rows on the new plain dataSource.
+    const plainDataSource = makeDataSource([{ id: 1, region: 'EU', amount: 100 }]);
+    rerender({ dataSource: plainDataSource });
+
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.isError).toBe(false);
+    expect(result.current.filteredRows).toHaveLength(1);
+  });
 });
 
 // ── Parity: sync vs async produce the same filtered result ─────────────────

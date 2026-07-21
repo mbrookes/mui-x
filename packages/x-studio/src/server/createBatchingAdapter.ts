@@ -121,6 +121,12 @@ function createLoader<K, V>(
  * closure forever. A stale `expressionFields` list would leave the `groupByIsExpressionField`
  * guard evaluating against the old set, re-emitting the `ORDER BY <expression-id>` that guard
  * exists to prevent.
+ *
+ * IMPORTANT: `expressionFields` is merged (unioned by field id), never overwritten — see
+ * `mergeExpressionFields` (finding 9). Multiple DISTINCT sources can legitimately share one
+ * endpoint (same-endpoint SQL JOIN generation, above), each contributing its own expression
+ * fields. `fetchFn` / `batchDelayMs` remain last-write-wins: they are single scalar values with
+ * no per-source meaning, and finding 3.14 depends on the newest instance's `fetchFn` winning.
  */
 interface LoaderRegistryEntry {
   loader: BatchLoader<StudioQueryDescriptor, StudioQueryResult>;
@@ -129,6 +135,39 @@ interface LoaderRegistryEntry {
     batchDelayMs: number;
     expressionFields: StudioExpressionField[] | undefined;
   };
+}
+
+/**
+ * Merge a newly-registered adapter instance's `expressionFields` into the shared endpoint
+ * config's list, keyed by field id (finding 9).
+ *
+ * Simple-mode adapters for DIFFERENT `StudioDataSource`s can share one endpoint (see
+ * "same-endpoint SQL JOIN generation" tests). Before this merge, registering a second instance
+ * — even one with no `expressionFields` of its own — REPLACED the shared list wholesale, wiping
+ * out the first instance's entries. `buildBatchWidgetDescriptor` only ever looks up an expression
+ * field by `id` (scoped to the descriptor's own `sourceId`), so a superset list is always safe:
+ * an entry irrelevant to the current descriptor has zero effect. On an id collision the incoming
+ * (newer) definition wins, so edits to an existing calculated field still refresh correctly
+ * (finding 3.6).
+ */
+function mergeExpressionFields(
+  existing: StudioExpressionField[] | undefined,
+  incoming: StudioExpressionField[] | undefined,
+): StudioExpressionField[] | undefined {
+  if (!incoming || incoming.length === 0) {
+    return existing;
+  }
+  if (!existing || existing.length === 0) {
+    return incoming;
+  }
+  const merged = new Map<string, StudioExpressionField>();
+  for (const field of existing) {
+    merged.set(field.id, field);
+  }
+  for (const field of incoming) {
+    merged.set(field.id, field);
+  }
+  return Array.from(merged.values());
 }
 
 /** Registry of simple-mode loaders — one per endpoint URL, with a refreshable config. */
@@ -457,7 +496,13 @@ export function createBatchingAdapter(
       // Refresh the shared loader's config instead of pinning the first instance's closure.
       entry.config.fetchFn = fetchFn;
       entry.config.batchDelayMs = batchDelayMs;
-      entry.config.expressionFields = expressionFields;
+      // Union by field id rather than overwrite (finding 9): distinct sources sharing this
+      // endpoint each register their own expression fields, and a later instance with none of
+      // its own (or a different source's list) must not wipe out an earlier instance's entries.
+      entry.config.expressionFields = mergeExpressionFields(
+        entry.config.expressionFields,
+        expressionFields,
+      );
     }
     loader = entry.loader;
   }

@@ -98,6 +98,16 @@ export function useAdapterRows(
   // react-doctor-disable-next-line react-doctor/no-cascading-set-state -- multiple setState calls are intentional: they atomically update related async fetch state
   React.useEffect(() => {
     if (!descriptor || !dataSource?.adapter) {
+      // The descriptor/adapter became unavailable (e.g. the adapter was removed
+      // mid-flight via setDataSourceAdapter(id, undefined), removeDataSource, or the
+      // dataAdapters prop dropping this source). Any in-flight promise from a previous
+      // descriptor is neutralized by its own cleanup (`cancelled = true`), so nothing
+      // else will ever clear isLoading/isError — reset them here so the widget doesn't
+      // get stuck showing a permanent loading spinner or stale error overlay after
+      // falling back to in-memory rows.
+      setIsLoading(false);
+      setIsError(false);
+      setErrorMessage('');
       return;
     }
 

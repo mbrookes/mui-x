@@ -292,6 +292,41 @@ describe('if operator', () => {
   });
 });
 
+// A string-boolean column (e.g. CSV-sourced `"true"`/`"false"` strings) must evaluate the same
+// way it does in `filterUtils.ts`'s explicit string-boolean `equals` branch, not via JS's
+// `Boolean("false") === true` truthy coercion (finding 12).
+describe('if operator — string-boolean condition values (finding 12)', () => {
+  it('treats the string "false" as falsy, not truthy', () => {
+    expect(
+      evaluateExpression(
+        fn('if', field('on_time'), numVal(1), numVal(0)),
+        ctx({ on_time: 'false' }),
+      ),
+    ).toBe(0);
+  });
+
+  it('treats the string "true" as truthy', () => {
+    expect(
+      evaluateExpression(
+        fn('if', field('on_time'), numVal(1), numVal(0)),
+        ctx({ on_time: 'true' }),
+      ),
+    ).toBe(1);
+  });
+
+  it('still treats an actual boolean false as falsy', () => {
+    expect(
+      evaluateExpression(fn('if', field('on_time'), numVal(1), numVal(0)), ctx({ on_time: false })),
+    ).toBe(0);
+  });
+
+  it('still treats a non-empty, non-"false" string as truthy (unchanged behavior)', () => {
+    expect(
+      evaluateExpression(fn('if', field('status'), numVal(1), numVal(0)), ctx({ status: 'yes' })),
+    ).toBe(1);
+  });
+});
+
 describe('in operator', () => {
   it('returns true when value is in list', () => {
     expect(
@@ -690,6 +725,117 @@ describe('StudioJoinFieldExpression', () => {
       joinIndexes,
     };
     expect(evaluateExpression(joinExpr, contextWithIndex)).toBeNull();
+  });
+
+  // The related source's rows must be read through `getCachedNormalizedDataSource` (L1
+  // normalization), same as every other cross-source reader in this codebase
+  // (`grainResolution.ts`/`crossSourceEnrichment.ts`/`dataSourceGraph.ts`), not raw off
+  // `dataSources[id].rows`. Otherwise a join-field expression copies a raw `Date` object, which
+  // the UTC-based chart grouping engine and the local-calendar filter engine can bucket
+  // differently, and an equality cross-filter on the column never matches a raw `Date` (finding 10).
+  describe('related-source rows are L1-normalized (finding 10)', () => {
+    const customersWithRawDate = {
+      id: 'source-customers',
+      label: 'Customers',
+      fields: [
+        { id: 'id', label: 'Customer ID', type: 'string' as const },
+        { id: 'signupDate', label: 'Signup Date', type: 'date' as const },
+      ],
+      rows: [{ id: 'CUS-001', signupDate: new Date(2024, 0, 15) }],
+    };
+    const dataSourcesWithRawDate = { 'source-customers': customersWithRawDate };
+    const signupJoinExpr: StudioJoinFieldExpression = {
+      joinSourceId: 'source-customers',
+      fieldId: 'signupDate',
+    };
+
+    it('slow path: normalizes a raw Date on the related source to a canonical YYYY-MM-DD string', () => {
+      const context: EvaluationContext = {
+        expressionFields: [],
+        row: { id: 'ORD-001', customerId: 'CUS-001' },
+        allRows: [],
+        sourceId: 'source-orders',
+        dataSources: dataSourcesWithRawDate,
+        relationships,
+      };
+      expect(evaluateExpression(signupJoinExpr, context)).toBe('2024-01-15');
+    });
+
+    it('index build: normalizes a raw Date on the related source before indexing', () => {
+      const joinField: StudioExpressionField = {
+        id: 'expr-signup-date',
+        label: 'Signup date',
+        sourceId: 'source-orders',
+        isMeasure: false,
+        expression: signupJoinExpr,
+      };
+      const result = enrichRowsWithExpressions(
+        [{ id: 'ORD-001', customerId: 'CUS-001' }],
+        [joinField],
+        'source-orders',
+        dataSourcesWithRawDate,
+        relationships,
+      );
+      expect(result[0]['expr-signup-date']).toBe('2024-01-15');
+    });
+  });
+
+  // A join nested inside a function call (e.g. `if(join(customers.country) == 'US', 1, 0)`) must
+  // still trigger the join-index prebuild — checking only the expression's ROOT node (the previous
+  // behavior) missed it, silently falling back to the correct-but-slow per-row
+  // `relationships.find()` + `rows.find()` scan for every row (finding 11).
+  it('nested join field expression is resolved via the pre-built index, not the per-row slow-path scan (finding 11)', () => {
+    const relationshipsArr = [
+      {
+        id: 'rel-orders-customers',
+        sourceId: 'source-orders',
+        targetId: 'source-customers',
+        sourceField: 'customerId',
+        targetField: 'id',
+        type: 'many-to-one' as const,
+      },
+    ];
+    let relationshipsFindCalls = 0;
+    const originalFind = relationshipsArr.find.bind(relationshipsArr);
+    (relationshipsArr as any).find = (...args: unknown[]) => {
+      relationshipsFindCalls += 1;
+      return (originalFind as any)(...args);
+    };
+
+    const nestedJoinExpr: StudioFunctionExpression = fn(
+      'if',
+      fn('equals', joinExpr, strVal('Germany')),
+      numVal(1),
+      numVal(0),
+    );
+    const exprField: StudioExpressionField = {
+      id: 'expr-is-german',
+      label: 'Is German',
+      sourceId: 'source-orders',
+      isMeasure: false,
+      expression: nestedJoinExpr,
+    };
+    const orderRows = [
+      { id: 'ORD-001', customerId: 'CUS-001', total: 100 },
+      { id: 'ORD-002', customerId: 'CUS-002', total: 200 },
+      { id: 'ORD-003', customerId: 'CUS-001', total: 50 },
+    ];
+
+    const result = enrichRowsWithExpressions(
+      orderRows,
+      [exprField],
+      'source-orders',
+      dataSources,
+      relationshipsArr,
+    );
+
+    expect(result[0]['expr-is-german']).toBe(1);
+    expect(result[1]['expr-is-german']).toBe(0);
+    expect(result[2]['expr-is-german']).toBe(1);
+    // The join index must have been seeded for the nested join, so per-row evaluation resolves
+    // through the O(1) index fast path and never falls back to the per-row `relationships.find()`
+    // slow-path scan.
+    expect(relationshipsFindCalls).toBe(0);
   });
 });
 

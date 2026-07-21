@@ -15,6 +15,8 @@ import type {
 } from '../models';
 import { aggregateNumbers, coerceAggregateValue, countDistinct } from '../internals/aggregate';
 import { normalizeJoinKey } from '../internals/joinKeys';
+import { collectJoinSourceIds } from '../internals/expressionRefs';
+import { getCachedNormalizedDataSource } from '../internals/normalizedRowsCache';
 
 // ─── Type guards ──────────────────────────────────────────────────────────────
 
@@ -86,6 +88,21 @@ function toBoolean(v: unknown): boolean {
   }
   if (typeof v === 'boolean') {
     return v;
+  }
+  // A CSV/API-sourced boolean column often serializes as the strings "true"/"false" rather than
+  // an actual JS boolean. `Boolean("false") === true` in JS, so without this explicit check every
+  // such row evaluated truthy here (e.g. `if(on_time, 1, 0)` always took the truthy branch) —
+  // diverging from `filterUtils.ts`'s explicit string-boolean `equals` branch (~267-269), which
+  // string-compares rather than relying on JS truthy coercion and handles the identical data
+  // correctly. Matching that policy here keeps expression evaluation and filtering in agreement
+  // (finding 12).
+  if (typeof v === 'string') {
+    if (v === 'false') {
+      return false;
+    }
+    if (v === 'true') {
+      return true;
+    }
   }
   return Boolean(v);
 }
@@ -195,9 +212,16 @@ export function evaluateExpression(
       return null;
     }
     const relatedSource = dataSources[joinSourceId];
-    const relatedRow = relatedSource?.rows?.find(
-      (r) => normalizeJoinKey(r[rel.targetField]) === fkKey,
-    );
+    // Route through `getCachedNormalizedDataSource` for L1 normalization (canonical date
+    // strings, etc.) — same as `grainResolution.ts`/`crossSourceEnrichment.ts`/
+    // `dataSourceGraph.ts` — instead of reading `.rows` raw. A raw `Date`/non-ISO string
+    // copied from a foreign row here can bucket differently downstream in UTC-based chart
+    // grouping vs. the local-calendar filter engine, and never matches an equality
+    // cross-filter on that column (finding 10).
+    const relatedRows = relatedSource
+      ? getCachedNormalizedDataSource(relatedSource).rows
+      : undefined;
+    const relatedRow = relatedRows?.find((r) => normalizeJoinKey(r[rel.targetField]) === fkKey);
     return (relatedRow?.[fieldId] ?? null) as ScalarValue;
   }
 
@@ -384,8 +408,12 @@ export function enrichRowsWithExpressions(
       }
     }
     for (const ef of sorted) {
-      if (isJoinFieldExpression(ef.expression)) {
-        const { joinSourceId } = ef.expression;
+      // Walk the FULL expression tree (`collectJoinSourceIds`) rather than checking only the
+      // root node (the previous `isJoinFieldExpression(ef.expression)` check) — a join nested
+      // inside a function call (e.g. `if(join(customers.country) == 'US', 1, 0)`) has a
+      // FunctionExpression root, so the root-only check skipped the prebuild for it entirely
+      // and fell back to the O(n×m) per-row linear scan in the slow path above (finding 11).
+      for (const joinSourceId of collectJoinSourceIds(ef.expression)) {
         if (!joinIndexes.has(joinSourceId)) {
           const rel = relByTargetId.get(joinSourceId);
           if (rel) {
@@ -393,7 +421,15 @@ export function enrichRowsWithExpressions(
             // policy so a numeric FK matches a string PK, same as
             // `gridGrouping.symmetricAggregate`'s cross-source join.
             const index = new Map<string, Record<string, unknown>>();
-            for (const r of dataSources[joinSourceId]?.rows ?? []) {
+            // Route through `getCachedNormalizedDataSource` for L1 normalization, same as
+            // the slow-path fallback above and every other reader in this codebase
+            // (`grainResolution.ts`/`crossSourceEnrichment.ts`/`dataSourceGraph.ts`) —
+            // instead of reading `.rows` raw (finding 10).
+            const joinDataSource = dataSources[joinSourceId];
+            const normalizedJoinRows = joinDataSource
+              ? (getCachedNormalizedDataSource(joinDataSource).rows ?? [])
+              : [];
+            for (const r of normalizedJoinRows) {
               const key = normalizeJoinKey(r[rel.targetField]);
               // First-write-wins: preserves uniqueness for PK fields. Rows whose
               // key normalizes to null (missing/object) are skipped so they never

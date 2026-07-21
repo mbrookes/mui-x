@@ -449,6 +449,21 @@ export function resolveRowsAtGrain(
       if (remoteScopedFilters.length > 0 && remoteRow === undefined) {
         return [];
       }
+      // Merge widget → remote → junction, but a remote/junction column may only override an
+      // already-present widget/remote value when the target field is ACTUALLY owned by that
+      // source (remoteSourceId / anchorSourceId) per `fieldOwners` — mirrors the own-field-
+      // ownership guard in `crossSourceEnrichment.ts`/`dataSourceGraph.ts`'s
+      // `enrichRowsWithRelatedFields`. Spreading `remoteRow` unconditionally over `widgetRow` let a
+      // remote column that coincidentally shares a field id with a widget-owned field (e.g. a
+      // remote `amount` vs. the widget's own `orders.amount`) silently win, since it was applied
+      // after `widgetRow` with no ownership check (finding 1).
+      const merged: Row = { ...widgetRow };
+      for (const [key, value] of Object.entries(remoteRow ?? {})) {
+        if (key in merged && fieldOwners.get(key) !== remoteSourceId) {
+          continue;
+        }
+        merged[key] = value;
+      }
       // Merge widget → remote → junction, but a junction column may only override an
       // already-present widget/remote value when the target field is ACTUALLY owned by the
       // junction (anchorSourceId) per `fieldOwners` — mirrors the own-field-ownership guard in
@@ -456,7 +471,6 @@ export function resolveRowsAtGrain(
       // `jRow` last unconditionally let a junction column that coincidentally shares a field id
       // with a widget- or remote-owned field (e.g. a junction `amount` allocation weight vs. the
       // widget's own `orders.amount`) silently win, since it was applied last (finding 3).
-      const merged: Row = { ...widgetRow, ...(remoteRow ?? {}) };
       for (const [key, value] of Object.entries(jRow)) {
         if (key in merged && fieldOwners.get(key) !== anchorSourceId) {
           continue;

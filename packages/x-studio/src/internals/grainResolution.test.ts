@@ -1231,6 +1231,81 @@ describe('resolveRowsAtGrain — own-field ownership guards at the merge sites (
     expect(resolved[0].name).toBe('Priority');
   });
 
+  it('M:N branch: a REMOTE-source column sharing a field id with a widget-owned field does not clobber it (finding 1)', () => {
+    // orders (widget) has `amount`; the remote endpoint `coupons` ALSO happens to have an
+    // `amount` column (the coupon's face value, unrelated to orders.amount). A chart with
+    // x = coupons.code, y = orders.amount must sum orders.amount, not the remote row's
+    // same-named value. Before the fix, `{ ...widgetRow, ...(remoteRow ?? {}) }` spread the
+    // remote row unconditionally over the widget row with no `fieldOwners` guard, so
+    // `remoteRow.amount` silently won over `widgetRow.amount`.
+    const orders: Row[] = [{ id: 'o1', amount: 100 }];
+    const coupons: Row[] = [{ id: 'cp1', code: 'SAVE10', amount: 50 }];
+    const orderCoupons: Row[] = [{ orderId: 'o1', couponId: 'cp1' }];
+    const m2mRel = {
+      id: 'r',
+      type: 'many-to-many',
+      sourceId: 'orders',
+      sourceField: 'id',
+      targetId: 'coupons',
+      targetField: 'id',
+      junctionSourceId: 'order_coupons',
+      junctionSourceField: 'orderId',
+      junctionTargetField: 'couponId',
+    } as unknown as StudioRelationship;
+    const dataSources: Record<string, StudioDataSource> = {
+      orders: {
+        id: 'orders',
+        label: 'Orders',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'amount', label: 'Amount', type: 'number' },
+        ],
+        rows: orders,
+      },
+      coupons: {
+        id: 'coupons',
+        label: 'Coupons',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'code', label: 'Code', type: 'string' },
+          // Same field id as `orders.amount`, but a DIFFERENT column (coupon face value).
+          { id: 'amount', label: 'Face value', type: 'number' },
+        ],
+        rows: coupons,
+      },
+      order_coupons: {
+        id: 'order_coupons',
+        label: 'Order Coupons',
+        fields: [
+          { id: 'orderId', label: 'Order', type: 'string' },
+          { id: 'couponId', label: 'Coupon', type: 'string' },
+        ],
+        rows: orderCoupons,
+      },
+    };
+    // `amount` is owned by the WIDGET source (orders), not by the remote source (coupons).
+    const fieldOwners = new Map([
+      ['code', 'coupons'],
+      ['amount', 'orders'],
+    ]);
+
+    const resolved = resolveRowsAtGrain(
+      orders,
+      'orders',
+      'order_coupons',
+      ['code', 'amount'],
+      fieldOwners,
+      dataSources,
+      [m2mRel],
+      [],
+    );
+
+    expect(resolved).toHaveLength(1);
+    // Must be the order's own amount (100), NOT the remote row's same-named face value (50).
+    expect(resolved[0].amount).toBe(100);
+    expect(resolved[0].code).toBe('SAVE10');
+  });
+
   it('M:N branch: a genuinely junction-owned field (no collision) still comes through', () => {
     const products: Row[] = [{ id: 'p1', name: 'Widget' }];
     const tags: Row[] = [{ id: 't1' }];

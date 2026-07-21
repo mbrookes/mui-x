@@ -12,6 +12,20 @@ import { withTimeout } from './mcp/helpers';
  */
 const DEFAULT_IDLE_TIMEOUT_MS = 60_000;
 
+/**
+ * Default ceiling (chars, ~bytes for the UTF-8 SSE text a provider streams) on the
+ * undecoded line-assembly `buffer` below (finding 6, iteration 24). Under normal
+ * operation `buffer` only ever holds a partial line — it's flushed down to the
+ * remainder after every newline-delimited split — so it stays tiny. But a
+ * misbehaving gateway that streams data WITHOUT ever emitting a line terminator (or
+ * the `[DONE]` sentinel) defeats that flush entirely: every `reader.read()` just
+ * keeps appending to the same never-split `buffer`, growing this process's memory
+ * without bound for the lifetime of the request. Sized generously — legitimate
+ * OpenAI-compatible chat-completion delta lines are well under 10KB — so this only
+ * ever trips for a genuinely runaway/malicious stream.
+ */
+const DEFAULT_MAX_BUFFER_CHARS = 10_000_000;
+
 export interface ParseSSEOptions {
   /**
    * Max time (ms) to wait for the next `reader.read()` to resolve before
@@ -19,6 +33,12 @@ export interface ParseSSEOptions {
    * received. @default 60_000
    */
   idleTimeoutMs?: number;
+  /**
+   * Max size (chars) the undecoded line-assembly buffer may grow to before a
+   * gateway that never emits a line terminator is treated as misbehaving and the
+   * stream is aborted with a clear error. @default 10_000_000
+   */
+  maxBufferChars?: number;
 }
 
 /**
@@ -38,7 +58,8 @@ export async function* parseSSE(
   response: Response,
   options: ParseSSEOptions = {},
 ): AsyncGenerator<Record<string, unknown>> {
-  const { idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_MS } = options;
+  const { idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_MS, maxBufferChars = DEFAULT_MAX_BUFFER_CHARS } =
+    options;
   const reader = response.body?.getReader();
   if (!reader) {
     return;
@@ -97,6 +118,19 @@ export async function* parseSSE(
       }
 
       buffer += decoder.decode(value, { stream: true });
+      // Finding 6 — a gateway that never emits a line terminator would otherwise let
+      // `buffer` grow without bound (see `DEFAULT_MAX_BUFFER_CHARS`'s doc comment).
+      // Checked BEFORE the split below so this trips even though the split itself
+      // would otherwise (harmlessly) still run every iteration.
+      if (buffer.length > maxBufferChars) {
+        throw new Error(
+          `MUI X Studio: LLM response stream exceeded the maximum buffered size ` +
+            `(${maxBufferChars} chars) without a complete line. This can happen when a ` +
+            'misbehaving gateway streams data without ever line-delimiting it, which would ' +
+            "otherwise let a single request grow this process's memory without bound. " +
+            'Aborting this request.',
+        );
+      }
       // Split on LF or CRLF explicitly so a `\r` terminator is stripped by the split
       // rather than relying on the incidental `.trim()` of the payload below.
       const lines = buffer.split(/\r?\n/);

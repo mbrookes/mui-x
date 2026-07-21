@@ -267,6 +267,94 @@ describe('handleAIChat', () => {
       expect(events.map((event) => event.type)).not.toContain('error');
       expect(fetch).toHaveBeenCalledOnce();
     });
+
+    // Regression for finding 3a (Tier 3, iteration 24): a missing `doc.filters`
+    // previously passed this validator and only crashed once an active page resolved,
+    // inside `buildAISystemPrompt.ts`'s `filters.filter(...)` — an opaque `TypeError`
+    // ("Cannot read properties of undefined (reading 'filter')").
+    it('rejects a dashboardState.doc missing `filters`', async () => {
+      const state = createDefaultStudioState();
+      const body = makeBody({
+        dashboardState: {
+          ...state,
+          doc: { ...state.doc, filters: undefined as never },
+        },
+      });
+
+      const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+      const errorEvent = events.find(
+        (event): event is { type: 'error'; message: string } => event.type === 'error',
+      );
+      expect(errorEvent?.message).toMatch(/^MUI X Studio:/);
+      expect(errorEvent?.message).toMatch(/dashboard`\/`pages`\/`widgets`\/`filters`/);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    // Regression for finding 3, `isObject` tightening (Tier 3, iteration 24): the
+    // previous `isObject` accepted arrays too, so a crafted `doc.pages: []` would pass
+    // this guard as an "object" and only crash downstream (a `Record<string, StudioPage>`
+    // lookup on an array) with an opaque `TypeError`, instead of being caught here.
+    it('rejects an array-shaped `doc.pages` (isObject must exclude arrays)', async () => {
+      const state = createDefaultStudioState();
+      const body = makeBody({
+        dashboardState: {
+          ...state,
+          doc: { ...state.doc, pages: [] as never },
+        },
+      });
+
+      const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+      const errorEvent = events.find(
+        (event): event is { type: 'error'; message: string } => event.type === 'error',
+      );
+      expect(errorEvent?.message).toMatch(/^MUI X Studio:/);
+      expect(errorEvent?.message).toMatch(/dashboard`\/`pages`\/`widgets`\/`filters`/);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    // Regression for finding 3b (Tier 3, iteration 24): a `messages` entry shaped like
+    // an OpenAI `{ role, content }` chat-completion message (no `parts`) previously
+    // passed this validator and only crashed inside `agenticLoop/openaiWire.ts`'s
+    // `msg.parts.flatMap` — an opaque `TypeError` ("Cannot read properties of undefined
+    // (reading 'flatMap')").
+    it('rejects a messages entry missing `parts` (OpenAI-shaped message)', async () => {
+      const body = makeBody({
+        messages: [
+          {
+            id: 'm1',
+            role: 'user',
+            content: 'Hi there',
+          } as unknown as StudioAIRequest['messages'][number],
+        ],
+      });
+
+      const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+      const errorEvent = events.find(
+        (event): event is { type: 'error'; message: string } => event.type === 'error',
+      );
+      expect(errorEvent?.message).toMatch(/^MUI X Studio:/);
+      expect(errorEvent?.message).toMatch(/`messages\[0\]` is missing a `parts` array/);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('rejects a messages entry whose `parts` is not an array', async () => {
+      const body = makeBody({
+        messages: [
+          {
+            id: 'm1',
+            role: 'user',
+            parts: 'not an array',
+          } as unknown as StudioAIRequest['messages'][number],
+        ],
+      });
+
+      const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+      const errorEvent = events.find(
+        (event): event is { type: 'error'; message: string } => event.type === 'error',
+      );
+      expect(errorEvent?.message).toMatch(/`messages\[0\]` is missing a `parts` array/);
+      expect(fetch).not.toHaveBeenCalled();
+    });
   });
 
   it('runs contextEnricher and injects its output into the system prompt', async () => {

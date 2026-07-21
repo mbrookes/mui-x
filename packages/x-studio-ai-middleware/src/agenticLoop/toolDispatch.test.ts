@@ -12,6 +12,7 @@ import {
   waitForApproval,
   dispatchToolCall,
   buildApprovalEffectsSummary,
+  extractToolErrorMessage,
   type ToolDispatchContext,
   type PendingApproval,
 } from './toolDispatch';
@@ -193,6 +194,41 @@ describe('buildApprovalEffectsSummary', () => {
   });
 });
 
+// ── extractToolErrorMessage (finding 7) ─────────────────────────────────────────
+
+// Regression for finding 7 (Tier 3, latent, iteration 24): a `JSON.parse` of an
+// `isError` tool result's text used to be inline and unguarded — a future/misbehaving
+// tool handler returning plain non-JSON error text would make it throw, and (since it
+// used to live inside `dispatchToolCall`'s broader try block) that throw would be
+// caught by the OUTER `catch (queryErr)`, replacing the real tool error with a
+// generic "Unexpected token ... in JSON" parse-error message. Tested directly (rather
+// than by forcing a real `query_data_source` dispatch to return non-JSON error text,
+// which would require mocking `createDataToolHandlers` — unsafe in this suite, which
+// runs vitest with `isolate: false`; see `vitest.shared.mts`).
+describe('extractToolErrorMessage', () => {
+  it('unwraps the `error` field from valid JSON text', () => {
+    expect(extractToolErrorMessage(JSON.stringify({ error: 'sourceId is required' }))).toBe(
+      'sourceId is required',
+    );
+  });
+
+  it('falls back to the raw text when it is not JSON at all', () => {
+    expect(extractToolErrorMessage('plain-text failure, not JSON')).toBe(
+      'plain-text failure, not JSON',
+    );
+  });
+
+  it('falls back to the raw text when it is valid JSON but has no `error` field', () => {
+    const raw = JSON.stringify({ message: 'no error key here' });
+    expect(extractToolErrorMessage(raw)).toBe(raw);
+  });
+
+  it('does not throw on malformed JSON that looks JSON-ish', () => {
+    expect(() => extractToolErrorMessage('{not valid json')).not.toThrow();
+    expect(extractToolErrorMessage('{not valid json')).toBe('{not valid json');
+  });
+});
+
 // ── dispatchToolCall ─────────────────────────────────────────────────────────────
 
 describe('dispatchToolCall', () => {
@@ -303,6 +339,46 @@ describe('dispatchToolCall', () => {
     );
     const parsed = JSON.parse((outcome as { output: string }).output) as { error: string };
     expect(parsed.error).toMatch(/no data access was configured/);
+  });
+
+  // Regression for finding 7 (Tier 3, latent, iteration 24): a real `data.queryDataSource`
+  // failure still goes through `errorResult` (`mcp/helpers.ts`), i.e. valid JSON, and
+  // the fix must not have broken that ordinary path — `onToolError` should still
+  // receive the UNWRAPPED `error` string, not the raw `{"error":"..."}` JSON text.
+  it('unwraps the JSON error field from a real query_data_source failure', async () => {
+    const onToolError = vi.fn();
+    const state = createDefaultStudioState({
+      runtime: {
+        dataSources: { src1: { id: 'src1', label: 'Source 1', tableName: 't', fields: [] } },
+      },
+    });
+    const ctx = makeCtx({
+      advertisedToolNames: new Set(['query_data_source']),
+      data: {
+        queryDataSource: vi.fn(async () => {
+          throw new Error('db unreachable');
+        }),
+      },
+      onToolError,
+    });
+    const { outcome } = await runDispatch(
+      dispatchToolCall(
+        tc('query_data_source', JSON.stringify({ sourceId: 'src1' })),
+        { sourceId: 'src1' },
+        false,
+        state,
+        ctx,
+      ),
+    );
+    expect(JSON.parse((outcome as { output: string }).output)).toEqual({
+      error: expect.stringContaining('db unreachable'),
+    });
+    expect(onToolError).toHaveBeenCalledOnce();
+    const [toolName, error] = onToolError.mock.calls[0] as [string, Error];
+    expect(toolName).toBe('query_data_source');
+    // Unwrapped from the `{"error": "..."}` JSON, not the raw JSON text itself.
+    expect(error.message).toContain('db unreachable');
+    expect(error.message).not.toMatch(/^\{/);
   });
 
   // Finding: the chat-transport `query_data_source` call had no timeout at all — a

@@ -181,6 +181,31 @@ describe('handleGenerateTitle', () => {
         new RegExp(`Title generation request timed out after ${LLM_FETCH_TIMEOUT_MS}ms`),
       );
     });
+
+    // Regression for finding 2 (Tier 2, iteration 24): `LLM_FETCH_TIMEOUT_MS` only
+    // bounded the wait for HEADERS to arrive — a gateway that returns 200 headers then
+    // stalls the BODY read (`response.json()`) previously hung this call forever.
+    it('times out and rejects when the response body read stalls after headers arrive', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: () => new Promise(() => {}),
+          text: async () => '',
+        })),
+      );
+
+      const resultPromise = handleGenerateTitle('hi', OPTIONS);
+      resultPromise.catch(() => {});
+
+      await vi.advanceTimersByTimeAsync(LLM_FETCH_TIMEOUT_MS);
+
+      await expect(resultPromise).rejects.toThrow(
+        new RegExp(`Title generation response body timed out after ${LLM_FETCH_TIMEOUT_MS}ms`),
+      );
+    });
   });
 });
 
@@ -431,6 +456,31 @@ describe('handleCreateWidget', () => {
 
       await expect(resultPromise).rejects.toThrow(
         new RegExp(`Widget creation request timed out after ${LLM_FETCH_TIMEOUT_MS}ms`),
+      );
+    });
+
+    // Regression for finding 2 (Tier 2, iteration 24): `LLM_FETCH_TIMEOUT_MS` only
+    // bounded the wait for HEADERS to arrive — a gateway that returns 200 headers then
+    // stalls the BODY read (`response.json()`) previously hung this call forever.
+    it('times out and rejects when the response body read stalls after headers arrive', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: () => new Promise(() => {}),
+          text: async () => '',
+        })),
+      );
+
+      const resultPromise = handleCreateWidget(request, OPTIONS);
+      resultPromise.catch(() => {});
+
+      await vi.advanceTimersByTimeAsync(LLM_FETCH_TIMEOUT_MS);
+
+      await expect(resultPromise).rejects.toThrow(
+        new RegExp(`Widget creation response body timed out after ${LLM_FETCH_TIMEOUT_MS}ms`),
       );
     });
   });

@@ -152,6 +152,20 @@ export const SYNTHETIC_INDEX_BASE = 1_000_000;
  */
 export const POSITIONAL_INDEX_BASE = 2_000_000;
 
+/**
+ * Hard ceiling (chars, ~bytes for the JSON text a provider streams) on a single tool
+ * call's accumulated `argsBuffer` (finding 6, iteration 24). Nothing else in the
+ * agentic loop bounds this: unlike the per-request token/turn/mutation budgets in
+ * `agenticLoop.ts`, a tool call's arguments stream until the provider itself signals
+ * the call is complete, so a misbehaving/malicious gateway that keeps emitting
+ * `function.arguments` deltas for the SAME tool call without ever finishing it could
+ * grow this buffer (and this process's memory) without bound within one request.
+ * Sized generously — 1,000,000 chars is far beyond the largest legitimate built-in
+ * tool call's arguments (e.g. `apply_bulk_update` with hundreds of widget removals) —
+ * so this only ever trips for a genuinely runaway stream.
+ */
+export const MAX_TOOL_CALL_ARGS_BUFFER_CHARS = 1_000_000;
+
 export function createToolCallAccumulator(): ToolCallAccumulator {
   return { reqToolCalls: {}, idToIdx: {}, nextAutoIdx: SYNTHETIC_INDEX_BASE };
 }
@@ -216,7 +230,20 @@ export function accumulateToolCallDeltas(deltas: ToolCallDelta[], acc: ToolCallA
       }
     }
     if (tc.function?.arguments) {
-      acc.reqToolCalls[idx].argsBuffer += tc.function.arguments;
+      const nextArgsBuffer = acc.reqToolCalls[idx].argsBuffer + tc.function.arguments;
+      // Finding 6 — bound `argsBuffer` growth per tool call. Thrown here (rather than
+      // silently truncated) so the caller's enclosing try/catch turns this into a
+      // clean `{ type: 'error' }` SSE event, exactly like the idle-timeout and
+      // turn-text-buffer caps this mirrors, instead of a slow, unbounded memory leak.
+      if (nextArgsBuffer.length > MAX_TOOL_CALL_ARGS_BUFFER_CHARS) {
+        throw new Error(
+          `MUI X Studio: A streamed tool call's arguments exceeded the maximum buffered size ` +
+            `(${MAX_TOOL_CALL_ARGS_BUFFER_CHARS} chars). This can happen when a misbehaving gateway ` +
+            "streams a tool call's argument deltas without ever completing the call, which would " +
+            "otherwise let a single request grow this process's memory without bound. Aborting this request.",
+        );
+      }
+      acc.reqToolCalls[idx].argsBuffer = nextArgsBuffer;
     }
   }
 }

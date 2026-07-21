@@ -79,6 +79,28 @@ const LLM_STREAM_IDLE_TIMEOUT_MS = 60_000;
  */
 const DEFAULT_MAX_TOOL_CALLS_PER_REQUEST = 50;
 
+/**
+ * Hard ceiling (chars, ~bytes for the ASCII/UTF-8 text a chat model streams) on
+ * `turnTextBuffer` — the accumulated `delta.content` text for a SINGLE turn (finding
+ * 6, iteration 24). `rateLimit.maxTokensPerRequest` is the intended backstop against
+ * a runaway response, but it is OPTIONAL and, per the "KNOWN LIMITATION" note below,
+ * silently never trips at all when a gateway omits usage chunks. Without an
+ * independent cap here, a misbehaving/malicious gateway that keeps emitting
+ * `delta.content` chunks without ever sending `[DONE]` or a usage chunk could grow
+ * this buffer (and therefore this process's memory) without bound for the lifetime
+ * of a single request. Sized generously — 2,000,000 chars is roughly 500K tokens at
+ * ~4 chars/token, far beyond any legitimate single-turn assistant response — so this
+ * only ever trips for a genuinely runaway stream, mirroring how
+ * `DEFAULT_MAX_TOOL_CALLS_PER_REQUEST` above is a generous-but-bounded default of the
+ * same kind. Exceeding it throws, which the enclosing try/catch (below) turns into a
+ * clean `{ type: 'error' }` SSE event — the same "must not propagate as an uncaught
+ * rejection" contract that governs every other failure in this loop.
+ *
+ * Exported (mirroring `LLM_FETCH_TIMEOUT_MS` above) so tests can assert against the
+ * exact cap rather than a hardcoded duplicate of this constant.
+ */
+export const MAX_TURN_TEXT_BUFFER_CHARS = 2_000_000;
+
 // ── Loop options ──────────────────────────────────────────────────────────────
 
 export interface AgenticLoopOptions {
@@ -480,8 +502,18 @@ export async function* runAgenticLoop(
     }
 
     if (!response.ok) {
+      // Bounded by `LLM_FETCH_TIMEOUT_MS` (finding 2, iteration 24) — the fetch-level
+      // timeout above only bounds the wait for HEADERS to arrive; a gateway that
+      // returns a non-2xx status then stalls the body would otherwise hang this read
+      // forever. Reuses the same `withTimeout` mechanism as the fetch call itself; the
+      // trailing `.catch` still covers both a genuine read error AND this timeout,
+      // falling back to `statusText` either way.
       // eslint-disable-next-line no-await-in-loop -- single error-path read; cannot be parallelized
-      const errText = await response.text().catch(() => response.statusText);
+      const errText = await withTimeout(
+        response.text(),
+        LLM_FETCH_TIMEOUT_MS,
+        'LLM provider error response body',
+      ).catch(() => response.statusText);
       yield { type: 'error', message: `HTTP ${response.status}: ${errText}` };
       return;
     }
@@ -570,6 +602,19 @@ export async function* runAgenticLoop(
         if (delta.content) {
           yield { type: 'text-delta', delta: delta.content };
           turnTextBuffer += delta.content;
+          // Finding 6 — bound `turnTextBuffer` growth independently of the (optional,
+          // and sometimes silently-inert — see the KNOWN LIMITATION note below) token
+          // budget. Thrown here, inside the try/catch around this read loop, so it
+          // surfaces as a clean `{ type: 'error' }` event rather than an uncaught
+          // rejection.
+          if (turnTextBuffer.length > MAX_TURN_TEXT_BUFFER_CHARS) {
+            throw new Error(
+              `MUI X Studio: LLM response exceeded the maximum buffered text size for a single turn ` +
+                `(${MAX_TURN_TEXT_BUFFER_CHARS} chars). This can happen when a misbehaving gateway ` +
+                'streams text indefinitely without ever completing the response, which would otherwise ' +
+                "let a single request grow this process's memory without bound. Aborting this request.",
+            );
+          }
         }
 
         if (delta.tool_calls) {

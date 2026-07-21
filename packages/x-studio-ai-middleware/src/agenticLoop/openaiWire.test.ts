@@ -12,6 +12,7 @@ import {
   accumulateToolCallDeltas,
   SYNTHETIC_INDEX_BASE,
   POSITIONAL_INDEX_BASE,
+  MAX_TOOL_CALL_ARGS_BUFFER_CHARS,
   type ToolCallDelta,
 } from './openaiWire';
 
@@ -257,5 +258,43 @@ describe('accumulateToolCallDeltas', () => {
     const delta: ToolCallDelta = { index: 0, id: 't', extra_content: { reasoning: 'r' } };
     accumulateToolCallDeltas([delta], acc);
     expect(acc.reqToolCalls[0].extra_content).toEqual({ reasoning: 'r' });
+  });
+
+  // Regression for finding 6 (Tier 3, iteration 24): nothing else bounds how large a
+  // single tool call's streamed `arguments` may grow — a misbehaving gateway that
+  // keeps emitting argument deltas for the same call without ever finishing it would
+  // otherwise grow `argsBuffer` (and process memory) without bound.
+  describe('argsBuffer size cap (finding 6)', () => {
+    it("throws once a single tool call's accumulated arguments exceed the cap", () => {
+      const acc = createToolCallAccumulator();
+      accumulateToolCallDeltas(
+        [
+          {
+            index: 0,
+            id: 'tc_1',
+            function: { name: 't', arguments: 'a'.repeat(MAX_TOOL_CALL_ARGS_BUFFER_CHARS) },
+          },
+        ],
+        acc,
+      );
+      expect(() =>
+        accumulateToolCallDeltas([{ index: 0, function: { arguments: 'a' } }], acc),
+      ).toThrow(
+        new RegExp(
+          `exceeded the maximum buffered size \\(${MAX_TOOL_CALL_ARGS_BUFFER_CHARS} chars\\)`,
+        ),
+      );
+    });
+
+    it('does not throw when arguments stay within the cap', () => {
+      const acc = createToolCallAccumulator();
+      expect(() =>
+        accumulateToolCallDeltas(
+          [{ index: 0, id: 'tc_1', function: { name: 't', arguments: 'a'.repeat(1000) } }],
+          acc,
+        ),
+      ).not.toThrow();
+      expect(acc.reqToolCalls[0].argsBuffer).toHaveLength(1000);
+    });
   });
 });

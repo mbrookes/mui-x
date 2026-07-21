@@ -160,11 +160,26 @@ export async function generateFieldDescriptions(
   );
 
   if (!response.ok) {
-    const errText = await response.text().catch(() => response.statusText);
+    // Bounded by `LLM_FETCH_TIMEOUT_MS` (finding 2, iteration 24) — the fetch-level
+    // timeout above only bounds the wait for HEADERS to arrive; a gateway that returns
+    // a non-2xx status then stalls the body would otherwise hang this read forever.
+    const errText = await withTimeout(
+      response.text(),
+      LLM_FETCH_TIMEOUT_MS,
+      'Field description generation error response body',
+    ).catch(() => response.statusText);
     throw new Error(`Field description generation failed: ${response.status} ${errText}`);
   }
 
-  const data = (await response.json()) as {
+  // Bounded by `LLM_FETCH_TIMEOUT_MS` for the same reason as the error-body read
+  // above: a gateway that returns 2xx headers then stalls the success body would
+  // otherwise hang this call forever, even though the fetch-level timeout already
+  // resolved once headers arrived.
+  const data = (await withTimeout(
+    response.json(),
+    LLM_FETCH_TIMEOUT_MS,
+    'Field description generation response body',
+  )) as {
     choices: Array<{ message: { content: string } }>;
   };
 

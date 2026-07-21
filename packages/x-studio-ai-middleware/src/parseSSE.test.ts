@@ -269,3 +269,31 @@ describe('parseSSE — reader cleanup on all exit paths', () => {
     await expect(collect(fakeResponse(['data: {"a":1}\n']))).resolves.toEqual([{ a: 1 }]);
   });
 });
+
+// Regression for Tier 3 finding 6 (iteration 24): under normal operation the
+// undecoded line-assembly `buffer` only ever holds a partial line — it's flushed on
+// every newline-delimited split — but a gateway that never emits a line terminator
+// defeats that flush entirely, letting `buffer` grow without bound for the lifetime
+// of the request.
+describe('parseSSE — buffer size cap on a stream with no line terminator', () => {
+  it('throws a clear error and cancels the reader once the buffered, still-unterminated line exceeds maxBufferChars', async () => {
+    const { response, cancel } = fakeResponseWithCancelSpy(['a'.repeat(60), 'a'.repeat(60)]);
+
+    await expect(collect(response, { maxBufferChars: 100 })).rejects.toThrow(
+      /exceeded the maximum buffered size \(100 chars\) without a complete line/,
+    );
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not throw when the buffer stays within maxBufferChars', async () => {
+    const result = await collect(fakeResponse(['data: {"a":1}\n']), { maxBufferChars: 100 });
+    expect(result).toEqual([{ a: 1 }]);
+  });
+
+  it('does not trip the default cap on a normal, newline-delimited stream', async () => {
+    const result = await collect(
+      fakeResponse(['data: {"a":1}\n', 'data: {"b":2}\n', 'data: {"c":3}\n']),
+    );
+    expect(result).toEqual([{ a: 1 }, { b: 2 }, { c: 3 }]);
+  });
+});

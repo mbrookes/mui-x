@@ -116,7 +116,14 @@ export async function handleGenerateTitle(
     throw new Error(`Title generation failed: ${response.status}`);
   }
 
-  const data = (await response.json()) as {
+  // Bounded by `LLM_FETCH_TIMEOUT_MS` (finding 2, iteration 24) — the fetch-level
+  // timeout above only bounds the wait for HEADERS to arrive; a gateway that returns
+  // 2xx headers then stalls the body would otherwise hang this call forever.
+  const data = (await withTimeout(
+    response.json(),
+    LLM_FETCH_TIMEOUT_MS,
+    'MUI X Studio: Title generation response body',
+  )) as {
     choices: Array<{ message: { content: string } }>;
   };
 
@@ -290,7 +297,14 @@ export async function handleCreateWidget(
     throw new Error(`Widget creation failed: ${response.status}`);
   }
 
-  const data = (await response.json()) as {
+  // Bounded by `LLM_FETCH_TIMEOUT_MS` (finding 2, iteration 24) — the fetch-level
+  // timeout above only bounds the wait for HEADERS to arrive; a gateway that returns
+  // 2xx headers then stalls the body would otherwise hang this call forever.
+  const data = (await withTimeout(
+    response.json(),
+    LLM_FETCH_TIMEOUT_MS,
+    'MUI X Studio: Widget creation response body',
+  )) as {
     choices: Array<{ message: { content: string } }>;
   };
 

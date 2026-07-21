@@ -181,6 +181,36 @@ function toError(err: unknown): Error {
 }
 
 /**
+ * Extracts a human-readable error message from an `isError` tool result's text
+ * (finding 7, Tier 3, latent, iteration 24).
+ *
+ * `output` here is whatever text a tool handler returned alongside `isError: true` —
+ * today, for the `query_data_source` handler this is always JSON (`errorResult` in
+ * `mcp/helpers.ts` always calls `JSON.stringify({ error })`), but a future or
+ * misbehaving handler could return plain non-JSON error text instead. Parsing that
+ * text is deliberately isolated in its OWN try/catch, separate from the caller's
+ * OUTER `catch (queryErr)` (which wraps the whole `query_data_source` dispatch): if
+ * `JSON.parse` were left unguarded inline there, a non-JSON `output` would make it
+ * throw, and the outer catch would then report a generic "Unexpected token ... in
+ * JSON" parse error via `onToolError` INSTEAD of the tool's real failure — silently
+ * corrupting the actual error. Falling back to the raw `output` text here preserves
+ * the real error either way.
+ *
+ * Exported for direct unit testing — this repo runs vitest with `isolate: false`
+ * (see `vitest.shared.mts`), which makes per-file module mocks (e.g. of
+ * `createDataToolHandlers`, the only way to make a REAL dispatch call reach this
+ * branch with non-JSON text) unsafe to use in this suite; testing the extraction
+ * logic directly avoids that entirely.
+ */
+export function extractToolErrorMessage(output: string): string {
+  try {
+    return (JSON.parse(output) as { error?: string }).error ?? output;
+  } catch {
+    return output;
+  }
+}
+
+/**
  * Builds the `input` payload shown in a `tool-approval-request` event for a
  * destructive tool, deriving any human-readable entity label from the ACTUAL
  * current state rather than trusting the model-supplied label argument.
@@ -572,8 +602,7 @@ export async function* dispatchToolCall(
         );
         output = textItem?.text ?? JSON.stringify(result);
         if (result.isError) {
-          const parsed = JSON.parse(output) as { error?: string };
-          ctx.onToolError?.(name, new Error(parsed.error ?? output));
+          ctx.onToolError?.(name, new Error(extractToolErrorMessage(output)));
         }
       }
     } catch (queryErr) {

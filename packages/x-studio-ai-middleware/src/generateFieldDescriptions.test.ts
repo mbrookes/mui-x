@@ -262,5 +262,56 @@ describe('generateFieldDescriptions', () => {
         ),
       );
     });
+
+    // Regression for finding 2 (Tier 2, iteration 24): `LLM_FETCH_TIMEOUT_MS` only
+    // bounded the wait for HEADERS to arrive — a gateway that returns a 200 response
+    // then stalls the BODY read (`response.json()`) previously hung this call forever.
+    it('times out and rejects when the success response body read stalls after headers arrive', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: () => new Promise(() => {}),
+          text: async () => '',
+        })),
+      );
+
+      const resultPromise = generateFieldDescriptions('Orders', FIELDS, OPTIONS);
+      resultPromise.catch(() => {});
+
+      await vi.advanceTimersByTimeAsync(LLM_FETCH_TIMEOUT_MS);
+
+      await expect(resultPromise).rejects.toThrow(
+        new RegExp(
+          `Field description generation response body timed out after ${LLM_FETCH_TIMEOUT_MS}ms`,
+        ),
+      );
+    });
+
+    // Same gap on the `!response.ok` error-body-read path (`response.text()`), which
+    // previously fell straight through `withTimeout` unwrapped and could hang forever.
+    // A stalled read there falls back to `response.statusText`, exactly like a genuine
+    // read error already did.
+    it('falls back to statusText when the error response body read stalls', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({
+          ok: false,
+          status: 500,
+          statusText: 'Internal Server Error',
+          json: async () => ({}),
+          text: () => new Promise(() => {}),
+        })),
+      );
+
+      const resultPromise = generateFieldDescriptions('Orders', FIELDS, OPTIONS);
+      resultPromise.catch(() => {});
+
+      await vi.advanceTimersByTimeAsync(LLM_FETCH_TIMEOUT_MS);
+
+      await expect(resultPromise).rejects.toThrow(/500 Internal Server Error/);
+    });
   });
 });

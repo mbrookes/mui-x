@@ -4,7 +4,7 @@
  * Mocks `fetch` to return pre-built SSE streams so no real LLM calls are made.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { runAgenticLoop } from './agenticLoop';
+import { runAgenticLoop, MAX_TURN_TEXT_BUFFER_CHARS } from './agenticLoop';
 import type { PendingApproval } from './agenticLoop/toolDispatch';
 import { createEffectsAwareToolPolicy, type ToolPolicy } from './toolPolicy';
 import { createDefaultStudioState } from './models/studioTypes';
@@ -608,6 +608,100 @@ describe('runAgenticLoop — provider fetch timeout', () => {
       | undefined;
     expect(errorEvent).toBeDefined();
     expect(errorEvent!.message).toMatch(/LLM provider request timed out after 120000ms/);
+  });
+});
+
+// Regression for finding 2 (Tier 2, iteration 24): `LLM_FETCH_TIMEOUT_MS` above only
+// bounds the wait for HEADERS to arrive. A gateway that returns a non-2xx status then
+// stalls the error-body read (`response.text()`) previously hung this turn forever.
+describe('runAgenticLoop — non-OK response body-read timeout', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('falls back to statusText and surfaces a clear error when the error body read stalls', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+      statusText: 'Service Unavailable',
+      text: () => new Promise<string>(() => {}),
+    } as unknown as Response);
+
+    const eventsPromise = collectEvents(
+      runAgenticLoop(
+        [userMsg('hi')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        BASE_OPTIONS,
+      ),
+    );
+
+    await vi.advanceTimersByTimeAsync(120_000);
+    const events = await eventsPromise;
+
+    const errorEvent = events.find((ev) => (ev as { type: string }).type === 'error') as
+      | { message?: string }
+      | undefined;
+    expect(errorEvent).toBeDefined();
+    expect(errorEvent!.message).toBe('HTTP 503: Service Unavailable');
+  });
+});
+
+// Regression for finding 6 (Tier 3, iteration 24): `turnTextBuffer` accumulates
+// `delta.content` across a single turn with no independent cap — a misbehaving
+// gateway that keeps streaming text without ever finishing the response could
+// otherwise grow this process's memory without bound.
+describe('runAgenticLoop — turn text buffer cap', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("aborts the request with a clear error once a single turn's text exceeds the buffer cap", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      makeSseResponse([
+        {
+          choices: [
+            { delta: { content: 'a'.repeat(MAX_TURN_TEXT_BUFFER_CHARS + 1) }, finish_reason: null },
+          ],
+        },
+      ]),
+    );
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('hi')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        BASE_OPTIONS,
+      ),
+    );
+
+    const errorEvent = events.find((ev) => (ev as { type: string }).type === 'error') as
+      | { message?: string }
+      | undefined;
+    expect(errorEvent).toBeDefined();
+    expect(errorEvent!.message).toMatch(
+      /exceeded the maximum buffered text size for a single turn/,
+    );
+    // The text-delta must still have reached the caller before the abort — a
+    // budget breach must not retroactively erase progress already streamed.
+    expect(events.some((ev) => (ev as { type: string }).type === 'text-delta')).toBe(true);
   });
 });
 

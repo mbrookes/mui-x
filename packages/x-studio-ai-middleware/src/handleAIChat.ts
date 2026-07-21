@@ -353,21 +353,38 @@ function encodeSSE(event: StudioAISSEEvent): string {
   return `data: ${JSON.stringify(event)}\n\n`;
 }
 
-/** True for a non-null value whose `typeof` is `'object'` (arrays included). */
+/**
+ * True for a non-null, non-array value whose `typeof` is `'object'`.
+ *
+ * Every call site below gates a field this validator expects to be a plain
+ * object/record (the request body, `dashboardState`, `doc`, and `doc`'s
+ * `dashboard`/`pages`/`widgets` records) — none of them are legitimately
+ * array-shaped. The previous version accepted arrays too (finding 3, iteration 24),
+ * which weakened e.g. the `doc.pages` guard: a crafted `dashboardState.doc.pages: []`
+ * would pass this check as an "object" and only crash downstream, with an opaque
+ * `TypeError`, once code that expects a `Record<string, StudioPage>` tries to look up
+ * a page by id on the array. Excluding arrays here closes that gap without affecting
+ * any of the (genuinely array-shaped) fields validated separately via `Array.isArray`
+ * below, such as `messages` and `doc.filters`.
+ */
 function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**
  * Validates the minimal shape `handleAIChat` actually dereferences downstream —
- * `body.messages` (iterated by `toOpenAIMessages`) and `body.dashboardState.doc`'s
- * `dashboard`/`pages`/`widgets` records (read by `buildAISystemPrompt` and, for
- * `snapshotPageId`, `runAgenticLoop` itself via `initialState.doc.dashboard.activePageId`).
+ * `body.messages` and each message's `parts` array (iterated by `toOpenAIMessages`
+ * and, per tool-call message, `agenticLoop/openaiWire.ts`'s `msg.parts.flatMap`), and
+ * `body.dashboardState.doc`'s `dashboard`/`pages`/`widgets`/`filters` fields (read by
+ * `buildAISystemPrompt` — `filters.filter(...)` once an active page resolves — and,
+ * for `snapshotPageId`, `runAgenticLoop` itself via `initialState.doc.dashboard.activePageId`).
  *
- * Without this check, a malformed body (e.g. a `dashboardState` missing `doc`, or one
- * whose `doc` is missing `pages`/`widgets`/`dashboard`) only surfaces once the agentic
- * loop dereferences the missing field, as an opaque native `TypeError` ("Cannot read
- * properties of undefined (reading 'activePageId')") — violating this project's
+ * Without this check, a malformed body (e.g. a `dashboardState` missing `doc`, one
+ * whose `doc` is missing `pages`/`widgets`/`dashboard`/`filters`, or a `messages` entry
+ * shaped like an OpenAI `{ role, content }` message instead of a `ChatMessage` with
+ * `parts`) only surfaces once the agentic loop dereferences the missing field, as an
+ * opaque native `TypeError` ("Cannot read properties of undefined (reading
+ * 'activePageId')" / "msg.parts.flatMap is not a function") — violating this project's
  * error-message convention (say what happened, why it matters, how to fix it) and
  * giving an integrator no clue which request field was wrong. Returns an actionable
  * `MUI X Studio:`-prefixed message describing the problem, or `undefined` when the body
@@ -392,6 +409,22 @@ function validateStudioAIRequestBody(body: unknown): string | undefined {
       '`{ messages: ChatMessage[], ... }` and that the host route forwards the parsed body as-is.'
     );
   }
+  // Each message must carry a `parts` array (finding 3b, iteration 24) — the shape
+  // `toOpenAIMessages`/`agenticLoop/openaiWire.ts` actually iterate. An OpenAI-shaped
+  // `{ role, content }` message (no `parts`) passes the `messages` array check above
+  // but crashes `msg.parts.flatMap` the first time the loop serialises it.
+  for (let i = 0; i < body.messages.length; i += 1) {
+    const message: unknown = body.messages[i];
+    if (!isObject(message) || !Array.isArray(message.parts)) {
+      return (
+        `MUI X Studio: \`messages[${i}]\` is missing a \`parts\` array (\`ChatMessage.parts\`). ` +
+        "This prevents the agentic loop from reading the message's content when building the " +
+        'LLM conversation. Ensure every entry in `messages` is a `ChatMessage` — e.g. ' +
+        `\`{ id, role, parts: [{ type: 'text', text: '...' }] }\` — not a raw OpenAI ` +
+        '`{ role, content }` chat-completion message.'
+      );
+    }
+  }
   const { dashboardState } = body as { dashboardState?: unknown };
   if (!isObject(dashboardState) || !isObject(dashboardState.doc)) {
     return (
@@ -402,12 +435,18 @@ function validateStudioAIRequestBody(body: unknown): string | undefined {
     );
   }
   const { doc } = dashboardState;
-  if (!isObject(doc.dashboard) || !isObject(doc.pages) || !isObject(doc.widgets)) {
+  if (
+    !isObject(doc.dashboard) ||
+    !isObject(doc.pages) ||
+    !isObject(doc.widgets) ||
+    !Array.isArray(doc.filters)
+  ) {
     return (
-      'MUI X Studio: `dashboardState.doc` is missing one or more required `dashboard`/`pages`/`widgets` ' +
-      'fields (`StudioDoc`). This prevents the agentic loop from resolving the active page and dashboard ' +
-      'layout. Ensure `dashboardState` is a complete, unmodified `StudioState` snapshot rather than a ' +
-      'partial or hand-built object.'
+      'MUI X Studio: `dashboardState.doc` is missing one or more required `dashboard`/`pages`/`widgets`/`filters` ' +
+      'fields (`StudioDoc`). This prevents the agentic loop from resolving the active page, dashboard ' +
+      'layout, and active filters (`buildAISystemPrompt.ts` calls `.filter(...)` on `doc.filters` once an ' +
+      'active page resolves). Ensure `dashboardState` is a complete, unmodified `StudioState` snapshot ' +
+      'rather than a partial or hand-built object.'
     );
   }
   return undefined;

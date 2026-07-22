@@ -92,6 +92,8 @@ interface StudioRuntime {
 
 `StudioState` is defined in the shared, zero-dependency `@mui/x-studio-schema` package (`packages/x-studio-schema/src/stateTypes.ts`); `x-studio/src/models/stateTypes.ts` is a thin re-export shim for existing deep imports.
 
+That package also exports the id-generation factories used to mint every entity id in `doc` — dedicated ones (`createPageId`, `createWidgetId`, `createFilterId`, `createPresetId`, …) plus a generic `createIdFactory(prefix)` escape hatch for ad-hoc entities that don't warrant their own dedicated factory (e.g. chart annotations, manually-created relationships). All are thin wrappers over an internal `makeIdFactory`, so every id is collision-resistant (timestamp + monotonic counter + random suffix) rather than a bare `Math.random()` or `Date.now() + Math.random()` string.
+
 ### 2.2 Persisted vs runtime slices
 
 | Slice (partition.field)  | Persisted? | Notes                                                                   |
@@ -409,6 +411,8 @@ A single `StudioFilterState` can encode two conditions joined by `conjunction: '
 
 The `StudioDateRangeBar` above the canvas emits **page-scope** filters for any field marked as `type: 'date'` or `type: 'datetime'`. The bar shows preset buttons (`this_month`, `last_3_months`, `last_12_months`, `ytd`) and a custom date picker. It stores as a `StudioFilterState` with `scope: 'page'`.
 
+Below it, `StudioQuickFilterBar` renders one chip per active filter (page, widget, and cross/interactive). Each chip has two hover affordances — hovering the chip body shows a toggle (enable/disable) tooltip, hovering the trailing close icon shows a remove tooltip — and both also open on keyboard focus/close on blur, not just mouse hover, so a keyboard user tabbing to a chip sees the same affordance a mouse user gets.
+
 ### 6.5 Metric refs
 
 A filter's `value` can be replaced with a dynamic reference to a business metric:
@@ -488,6 +492,8 @@ Two distinct sub-types of cross-filters are tracked:
 `useWidgetRows` returns separate row variants for each combination, allowing chart and grid widgets to correctly compute both the ghost baseline and the highlighted subset in a single pass.
 
 For pie/donut charts, `PieCrossHighlight`'s `CrossHighlightPieArc` clamps the per-slice cross-highlight ratio to `[0, 1]` before computing the overlay arc's end angle. `min`/`avg` aggregations can legitimately produce a filtered/baseline ratio above 1 (e.g. the highlighted category sits above the overall average); without the clamp, the overlay would be pushed past the slice's own `endAngle` and paint over the start of the next slice's dimmed ghost arc.
+
+For scatter charts, `StudioScatterChart` dims ghost-series points with a CSS selector rather than per-point props: `& g[data-series$="-ghost"] circle` — matching `@mui/x-charts`' actual DOM shape (`<g data-series={series.id} className="MuiScatterChart-series">` per series, one group per series, not per-marker) and this file's own `-ghost` id-suffix convention for ghost series. `StudioScatterChart` also merges (rather than overwrites) any consumer-supplied `slotProps`: it spreads `...slotProps?.slotProps` before applying its own `legend` override, and merges `legend.sx` at the sub-key level, so a consumer-supplied `tooltip` slot prop or other `legend.sx` entries survive alongside the component's own auto-scroll/wrap legend styling.
 
 > **Drilldown is not currently implemented.** There is no `StudioDrilldownDrawer` component, no `activeDrilldown`/drilldown state anywhere in `StudioShellState`, and no `drilldownWidgetId` widget config field in the current codebase — clicking a row or chart item never opens a detail panel. (A drill-down/detail-panel feature was implemented at one point per the project backlog, but no trace of it remains in `src/`; treat any reference to it elsewhere as aspirational/planned, not current behavior.)
 
@@ -615,13 +621,17 @@ Supports 16 chart types: `bar`, `bar-stacked`, `bar-100`, `line`, `area`, `area-
 
 **Category ordering** — when `xField`'s `StudioDataField` definition carries an `orderedValues` array, `useChartWidgetData` passes it as `categoryOrder` to all aggregation functions. `applyCategoryOrder()` sorts labels by their position in the array; labels absent from the list are appended alphabetically. This takes effect only when `chartSortBy` is not `'value'`; `sortDirection: 'desc'` reverses the sequence.
 
-Chart annotations (`config.annotations`) render horizontal or vertical reference lines on the chart (not supported for pie/donut/gauge).
+Chart annotations (`config.annotations`) render horizontal or vertical reference lines on the chart (not supported for pie/donut/gauge). New annotations are assigned ids via `createIdFactory('ann')` (`@mui/x-studio-schema`, §2.1).
 
 Cross-filter emission: clicking a data point emits a `cross-filter` for `xField` value.
 
 **Ghost/baseline gating for split-by and multi-series charts.** `StudioBarChart`'s `effectiveSFData`, `StudioLineAreaChart`'s split-by branch, and `StudioPieChart`'s `twoRingData` all gate entry into their split-by/grouped-series rendering on the **unfiltered baseline** data (the same data used for the cross-highlight ghost), not on the filtered-to-current data alone. An unrelated cross-filter that happens to empty a widget's own filtered rows would otherwise collapse a multi-series chart down to a single unsplit aggregate line/ring, even though the split-by field still has categories in the baseline.
 
 Gantt chart items get a stable per-row `id` via `ensureRowIdentity` (`internals/rowIdentity.ts`), used as the React key when rendering bars, rather than a `label`+`startMs` composite key — two tasks with the same label starting on the same day are a legitimate case that a label/start key would collide on, causing the reconciler to pair the wrong row's bar/tooltip state to the wrong DOM node across a cross-filter-driven list change.
+
+**Gantt/Sankey `aria-label` capping.** Both `StudioGanttChart` and `StudioSankeyChart` describe only a bounded number of entries in their text-alternative `aria-label` — Gantt caps to the first `ARIA_LABEL_MAX_ITEMS = 15` of `visibleItems` (the height-capped rows actually rendered, not every filtered row), Sankey caps to the first `ARIA_LABEL_MAX_LINKS = 15` links — and append a `localeText.filterSummaryAndMore(n)` summary for the remainder. Enumerating every row/link of a large filtered dataset would rebuild a multi-hundred-KB string every render and hand screen readers an unusable wall of text.
+
+**Heatmap color ramp and no-data cells.** `StudioHeatmapChart`'s continuous `colorMap` anchors its low end to `theme.palette.background.paper` (tracks light/dark mode) rather than a hardcoded white, so low-value cells blend with the canvas instead of glowing in dark mode. Separately, `aggregateHeatmap` (`internals/chartShapes/heatmap.ts`) only records a `cells` map entry for an `(xLabel, yLabel)` combo that had at least one contributing row; `StudioHeatmapChart` propagates that distinction by omitting a cell's `(xIndex, yIndex)` entry from the series `data` array entirely when `cells.has(key)` is false, rather than defaulting it to `0`. `HeatmapValueType` (`@mui/x-charts-pro`) has no null slot, so "no data" is signaled structurally by the index pair's absence — `HeatmapData.getValue` then resolves it to `null`, which renders with no fill and keeps a genuinely-empty cell visually distinct from a real computed `0`.
 
 ### 10.4 KPI
 
@@ -760,7 +770,7 @@ graph TD
 
 ### 12.3 Drawers
 
-**StudioDataDrawer** — manages data sources, fields, expression fields, and relationships. Shows field types, cardinality, and a lineage graph.
+**StudioDataDrawer** — manages data sources, fields, expression fields, and relationships. Shows field types, cardinality, and a lineage graph. Relationships created from `RelationshipPanel` get ids via `createIdFactory('rel')` (§2.1).
 
 **StudioComposeDrawer** — the widget authoring panel. Contains:
 
@@ -768,7 +778,7 @@ graph TD
 - Setup panels (`ChartSetupPanel`, `GridSetupPanel`, `KpiSetupPanel`, `MapSetupPanel`, `PivotSetupPanel`, `FilterSetupPanel`, `TextSetupPanel`) — shown when a widget is selected.
 - `PageConfigPanel` — page-level theme settings.
 
-**StudioFiltersDrawer** — filter management. Grouped into page-scope and per-widget sections. Supports filter presets (Saved Views), filter search, and filter cards with inline editing.
+**StudioFiltersDrawer** — filter management. Grouped into page-scope and per-widget sections. Supports filter presets (Saved Views), filter search, and filter cards with inline editing. New page/widget filters created from the drawer are assigned ids via the shared `createFilterId` factory (§2.1) rather than a drawer-local generator.
 
 **StudioChatPanel** — AI chat assistant. Lazy-loaded on first open (single `React.lazy` in the package). Uses `@mui/x-chat` for the message thread. The client `studioBackendAdapter.ts` streams the conversation from a backend AI endpoint via SSE; the agentic tool loop (build system prompt → call the LLM → execute tool calls → recurse until a text response) runs server-side in `@mui/x-studio-ai-middleware` (`agenticLoop.ts`, with tool execution in `executeToolOnState.ts`). Supports 20 built-in tools: `get_dashboard_state`, `add_page`, `rename_page`, `remove_page`, `set_active_page`, `set_dashboard_title`, `add_widget`, `update_widget`, `remove_widget`, `set_widget_layout`, `set_widget_width`, `add_page_filter`, `remove_page_filter`, `add_widget_filter`, `remove_widget_filter`, `summarise_page`, `apply_bulk_update`, `rename_thread`, `query_data_source`, `set_widget_forecast`. Destructive operations (`remove_widget`, `remove_page`) are gated by a `Promise<boolean>` confirmation rendered as a `ChatConfirmation` component inline in the chat thread. Can be used as a FAB overlay (`overlay={true}`, default in `<Studio>`) or as a persistent sidebar panel (`overlay={false}`, composable usage).
 
@@ -936,7 +946,7 @@ All flags default to `true` (opt-out model). Setting any flag to `false` hides t
 
 ### 13.7 Locale / i18n
 
-All user-visible strings are defined in `StudioLocaleText` (≈ 300 tokens) and passed via `localeText` prop on `<Studio>`. Tokens not provided fall back to the English defaults.
+All user-visible strings are defined in `StudioLocaleText` (≈ 300 tokens) and passed via `localeText` prop on `<Studio>`. Tokens not provided fall back to the English defaults. This includes strings written to exported files, not just on-screen UI: `runWidgetExport`'s CSV placeholder for a not-yet-loaded adapter-backed grid (`widgetExportNoDataMessage`) is a `StudioLocaleText` token, translated in all five built-in bundles, rather than a hardcoded English sentence.
 
 #### Built-in locale bundles
 
@@ -1018,7 +1028,7 @@ Set on `<Studio aiConfig={...}>` or `<StudioProvider aiConfig={...}>`. Pass `nul
 3. **Tool execution** — Handled server-side by `executeToolOnState`. Mutations are streamed back as SSE `state-mutation` events and applied client-side via `applyStateMutation`.
 4. **Agentic follow-up** — After all tool results are appended to message history, the loop recurses until the model returns a response with no tool calls.
 
-**Conversation state:** Thread messages are stored in `controller.state.doc.ai.threads[activeThreadId].messages` and persisted as part of `doc` (see §2.1). A thread selector UI in the `StudioChatPanel` header allows switching threads; the `rename_thread` tool auto-names threads after the first message.
+**Conversation state:** Thread messages are stored in `controller.state.doc.ai.threads[activeThreadId].messages` and persisted as part of `doc` (see §2.1). A thread selector UI in the `StudioChatPanel` header allows switching threads; the `rename_thread` tool auto-names threads after the first message. `useChatThreads`'s "New conversation" action (`handleNewThread`) is a no-op when the currently active thread has never had a message sent (absent from `doc.ai.threads`, or present with an empty `messages` array) — it reuses that already-empty thread instead of appending another one, so repeated "New conversation" clicks with nothing typed in between don't accumulate empty threads in the persisted doc.
 
 **Auto-submit dedup.** `StudioChatPanel` queues auto-submit-eligible events (an `initialPrompt` mount-submit, a widget-insight click, etc.) in a `pendingAutoSubmit` React state array rather than a local ref, and prunes an entry only after `AutoSubmitTrigger` actually consumes it (via `onConsumed`). This matters because in overlay mode (`overlay={true}`) `<Grow mountOnEnter unmountOnExit>` unmounts `StudioChatPanel` whenever the overlay closes — a ref-based dedup set would reset to empty on that unmount, so reopening the overlay could re-find and re-submit an event it had already handled. Every id/sequence number generated for this queue (and for thread/message ids) comes from a monotonic counter in `chatIds.ts` (`createThreadId`, `createMessageId`, `nextAutoSubmitSeq`) rather than `Date.now()`, since two auto-submit-eligible events landing in the same millisecond would otherwise share a value and the queue's dedup would silently drop the second one.
 
@@ -1039,6 +1049,8 @@ Five functions in `generateInsight.ts` make **single non-streaming** LLM calls a
 `StudioInsightPanel` (`src/StudioInsightPanel/`) renders absolutely inside the widget card with type-switcher chips, Refresh, Copy, and Close buttons.
 
 `generateInsight.ts`'s y-axis label resolution routes calculated (expression) fields through the same `sourceFieldsWithExpressions` helper its sibling label-resolution call sites already use, rather than looking the field up against the source's raw physical fields alone — otherwise a y-field that is a calculated column would resolve to no label at every one of these call sites except the ones that already special-cased it.
+
+`generateInsight.ts`'s internal `formatDate` calls `d.toLocaleDateString(undefined, {...})` — locale-aware, matching every sibling date-formatting call site in the codebase — rather than hardcoding `'en-US'`.
 
 All client-side functions are re-exported from `src/index.ts`. `generateFieldDescriptions` is exported from `@mui/x-studio-ai-middleware`.
 

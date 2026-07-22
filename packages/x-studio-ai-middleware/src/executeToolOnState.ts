@@ -107,8 +107,15 @@ const MAX_FILTER_VALUE_DEPTH = 5;
  * every future request, so an uncapped element anywhere inside the structure is just
  * as much a persistent token bomb as an uncapped top-level string. Other
  * JSON-serializable scalar shapes (number/boolean/null) are left as-is.
+ *
+ * Exported (Tier 3, iteration 25, finding T2-3) so `mcp/queryTools.ts` can apply the
+ * SAME cap to `query_data_source`'s `filters[].value` — that path forwards
+ * model-supplied filters straight to the host's `queryDataSource` callback rather
+ * than persisting them onto dashboard state, but a megabyte-sized string/array
+ * `value` is exactly the same unbounded-work/token-bomb class this function
+ * already guards `add_page_filter`/`add_widget_filter` against.
  */
-function capFilterValue(value: unknown, depth = 0): unknown {
+export function capFilterValue(value: unknown, depth = 0): unknown {
   if (typeof value === 'string') {
     return capString(value, MAX_FILTER_STRING_LENGTH);
   }

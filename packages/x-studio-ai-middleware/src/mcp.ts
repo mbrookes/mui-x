@@ -56,6 +56,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { mutationLabel, STUDIO_AI_TOOL_REGISTRY } from '@mui/x-studio-schema';
+import type { StudioAIToolFacts } from '@mui/x-studio-schema';
 import { STUDIO_AI_TOOLS } from './studioAITools';
 import type { ToolExecutionResult } from './executeToolOnState';
 import {
@@ -158,8 +159,27 @@ const MULTI_SOURCE_RAW_ROW_TOOLS = new Set(['summarise_page']);
  * paused for minutes on a human approval), contradicting the documented
  * concurrency contract that read-only tools stay concurrent. Dispatched via
  * `runReadOnlyTool` instead, which never touches `mutationChain`.
+ *
+ * Derived from `STUDIO_AI_TOOL_REGISTRY`'s `readOnly` fact (`@mui/x-studio-schema`),
+ * mirroring `MCP_UNSUPPORTED_TOOLS` above, rather than hand-listed — a hand-listed
+ * set previously covered only `get_dashboard_state`/`list_pages` and missed
+ * `summarise_page`'s no-data path (Tier 3, iteration 25, finding T3-2):
+ * `summarise_page` IS registered here (readOnly: true) but is normally reached
+ * through the dispatch-table `handler` branch above (`createSummarisePageHandler`,
+ * only wired up when `data` is configured) BEFORE this set is ever consulted —
+ * except when `data` is absent, in which case it has no dispatch handler and
+ * falls through to this set, so it must be a member for its "client-side
+ * limitation" error to bypass the mutex like its siblings. `query_data_source`
+ * is also `readOnly: true` here but always has a dispatch-table handler
+ * (`createDataToolHandlers` registers it unconditionally, reporting its own "no
+ * data access configured" error), so it never reaches this set in practice —
+ * harmless to include.
  */
-const READ_ONLY_NO_MUTEX_TOOLS = new Set(['get_dashboard_state', 'list_pages']);
+const READ_ONLY_NO_MUTEX_TOOLS = new Set(
+  (Object.entries(STUDIO_AI_TOOL_REGISTRY) as [string, StudioAIToolFacts][])
+    .filter(([, facts]) => facts.readOnly)
+    .map(([name]) => name),
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Core factory

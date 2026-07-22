@@ -161,6 +161,27 @@ describe('generateFieldDescriptions', () => {
         /did not return a JSON array/,
       );
     });
+
+    // Regression for T3-1 (Tier 3, iteration 25): `data.choices[0]` was missing the
+    // optional chain on `choices` itself, so a provider/rate-limit stub returning `{}`
+    // (no `choices` key at all, still a 200 status) threw an opaque TypeError
+    // ("Cannot read properties of undefined (reading '0')") instead of this file's
+    // normal descriptive "unparseable JSON" error — matching the safe-navigation
+    // pattern `handleGenerateInsight.ts`'s `handleGenerateTitle`/`handleCreateWidget`
+    // already use for the identical shape of provider stub.
+    it('does not throw an opaque TypeError when the response body has no "choices" key', async () => {
+      const fn = vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => ({}),
+        text: async () => '',
+      }));
+      vi.stubGlobal('fetch', fn);
+      await expect(generateFieldDescriptions('Orders', FIELDS, OPTIONS)).rejects.toThrow(
+        /unparseable JSON/,
+      );
+    });
   });
 
   // Regression for T2-1 (the highest-priority security fix in this unit): a poisoned

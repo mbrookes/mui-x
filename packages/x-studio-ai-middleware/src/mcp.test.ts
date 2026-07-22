@@ -1461,6 +1461,57 @@ describe('buildStudioMcpServer — tools/call toolPolicy chokepoint', () => {
     expect(order).toEqual(['list_pages-done', 'add_page-approved', 'add_page-done']);
   });
 
+  // Tier 3, iteration 25, finding T3-2: `summarise_page` is registered `readOnly: true`
+  // in `STUDIO_AI_TOOL_REGISTRY`, same as `get_dashboard_state`/`list_pages` above, but
+  // when `data` is not configured it has no dispatch-table handler (`createSummarisePageHandler`
+  // is only wired up when `data` is truthy), so it used to fall through to the
+  // mutating branch and queue behind `mutationChain` just to return its static
+  // "client-side limitation" error — contradicting the documented read-only
+  // concurrency contract `READ_ONLY_NO_MUTEX_TOOLS` exists to implement.
+  it('summarise_page (no data configured) stays concurrent with a slow in-flight mutation (does not wait on the mutex)', async () => {
+    const stateBox = { current: makeStableState() };
+    const order: string[] = [];
+    const server = buildStudioMcpServer(stateBox, {
+      // `data` intentionally omitted — exercises summarise_page's no-dispatch-handler path.
+      toolPolicy: (ctx) =>
+        ctx.toolName === 'add_page' ? { action: 'require-approval' } : { action: 'allow' },
+      approvalHandler: async () => {
+        await new Promise((resolve) => {
+          setTimeout(resolve, 30);
+        });
+        order.push('add_page-approved');
+        return true;
+      },
+    });
+    const call = getHandler(server, CALL_TOOL);
+
+    const mutationPromise = call({
+      params: { name: 'add_page', arguments: { title: 'Slow Page' } },
+      method: CALL_TOOL,
+    }).then((r) => {
+      order.push('add_page-done');
+      return r;
+    });
+
+    // Give the mutating call a tick to enter its (slow) approval wait before firing
+    // the read — this is the exact window a per-session mutex would otherwise block.
+    await new Promise((resolve) => {
+      setTimeout(resolve, 5);
+    });
+
+    const readResult = (await call({
+      params: { name: 'summarise_page', arguments: {} },
+      method: CALL_TOOL,
+    })) as any;
+    order.push('summarise_page-done');
+
+    expect(readResult.isError).toBeFalsy();
+    await mutationPromise;
+    // The read completed BEFORE the slow mutation resolved — proof it never queued
+    // behind `mutationChain`.
+    expect(order).toEqual(['summarise_page-done', 'add_page-approved', 'add_page-done']);
+  });
+
   it('get_dashboard_state / list_pages still commit no mutation and never bump committedMutations', async () => {
     const stateBox = { current: makeStableState() };
     const call = getHandler(

@@ -13,6 +13,7 @@ import {
   isWidgetOfKind,
   type StudioChartConfig,
 } from '@mui/x-studio-schema';
+import { sanitizeForPrompt } from '../buildAISystemPrompt';
 import { checkAllowedTable, withTimeout, type ToolHandler } from './helpers';
 import type { StudioMcpData, StudioMcpLogger, StudioStateBox } from './types';
 
@@ -159,21 +160,33 @@ export function createSummarisePageHandler(deps: {
               const min = Math.min(...values);
               const max = Math.max(...values);
               const avg = sum / values.length;
-              return `${f.label}: sum=${sum.toLocaleString()}, avg=${avg.toFixed(2)}, min=${min}, max=${max}`;
+              // `f.label` is a state-derived (model/host-settable) data-source field
+              // label interpolated into this LLM-consumed summary text — route it
+              // through `sanitizeForPrompt`, the package's single choke point for this
+              // class of value (finding T3-3), same as `buildAISystemPrompt.ts`.
+              return `${sanitizeForPrompt(f.label)}: sum=${sum.toLocaleString()}, avg=${avg.toFixed(2)}, min=${min}, max=${max}`;
             })
             .filter(Boolean);
 
-          // CSV excerpt — header + first 5 rows.
-          const headers = visibleFields.map((f) => f.label);
+          // CSV excerpt — header + first 5 rows. Both the header labels (state-derived
+          // field labels) and the row cell values (live, attacker-influenceable DB data)
+          // are LLM-consumed text once this summary is returned to the agentic loop, so
+          // both route through `sanitizeForPrompt` before interpolation (finding T3-3) —
+          // the same choke point `buildAISystemPrompt.ts` and its siblings use for every
+          // other state/row-derived string in this package.
+          const headers = visibleFields.map((f) => sanitizeForPrompt(f.label));
           const csvRows = rows.slice(0, 5).map((r) =>
             visibleFields.map((f) => {
               const v = r[f.id];
-              return v == null ? '' : String(v);
+              return v == null ? '' : sanitizeForPrompt(v);
             }),
           );
           const csv = [headers, ...csvRows].map((row) => row.join('\t')).join('\n');
 
-          const label = widget.title || source.label;
+          // `widget.title`/`source.label` are model/host-settable strings echoed into a
+          // markdown heading of this LLM-consumed summary — same token class
+          // `buildAISystemPrompt.ts` sanitizes titles/labels for (finding T3-3).
+          const label = sanitizeForPrompt(widget.title || source.label);
           const lines = [
             `### ${label} (${rowCount.toLocaleString()} rows)`,
             ...(stats.length > 0
@@ -251,7 +264,12 @@ export function createSummarisePageHandler(deps: {
     );
 
     const sections = results.filter((r): r is SectionItem => r != null);
-    const pageLabel = activePage.title || resolvedPageId || 'active page';
+    // `activePage.title` is a model-settable stored title echoed into this
+    // LLM-consumed summary's heading — same token class `buildAISystemPrompt.ts`
+    // sanitizes page titles for (finding T3-3). `resolvedPageId` is an internal id,
+    // not model-free-text, but is included here for parity with the rest of the
+    // package's sanitize-before-interpolate convention.
+    const pageLabel = sanitizeForPrompt(activePage.title || resolvedPageId || 'active page');
 
     if (sections.length === 0) {
       return {

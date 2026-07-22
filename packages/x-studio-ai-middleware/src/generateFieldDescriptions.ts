@@ -183,7 +183,14 @@ export async function generateFieldDescriptions(
     choices: Array<{ message: { content: string } }>;
   };
 
-  const raw = data.choices[0]?.message?.content?.trim() ?? '';
+  // `data.choices?.[0]` guards against a provider/rate-limit stub that returns `{}`
+  // (no `choices` key at all) with a 200 status — without the optional chaining on
+  // `choices` itself, `data.choices[0]` throws an opaque TypeError instead of falling
+  // through to the empty-string default below, which then produces this file's
+  // normal descriptive "unparseable JSON" error (T3-1) — matching the sibling
+  // pattern `handleGenerateInsight.ts` (`handleGenerateTitle`/`handleCreateWidget`)
+  // already uses for the identical shape of provider stub.
+  const raw = data.choices?.[0]?.message?.content?.trim() ?? '';
 
   let parsed: unknown;
   try {

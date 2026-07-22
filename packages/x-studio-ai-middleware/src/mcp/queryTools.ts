@@ -10,6 +10,7 @@
  */
 
 import { renderChartSvg } from '../chartRenderer';
+import { capFilterValue } from '../executeToolOnState';
 import {
   checkAllowedTable,
   errorResult,
@@ -45,6 +46,66 @@ export interface QueryToolDeps {
  * silently getting stats for a subset of the fields it asked for.
  */
 const MAX_COMPUTE_FIELD_STATS_FIELDS = 50;
+
+/**
+ * Hard upper bound on the number of entries accepted in each of `query_data_source`'s
+ * `columns` / `filters` / `aggregations` / `having` / `orderBy` arrays (Tier 3,
+ * iteration 25, finding T2-3). Before this cap, all five arrays were cast and
+ * forwarded to `data.queryDataSource` verbatim — only `limit`/`offset` were
+ * clamped — even though `compute_field_stats` (above) already rejects an
+ * oversized `fields` array with the exact same rationale ("each field/entry fans
+ * out into DB aggregation work, so an unbounded array turns one tool call into
+ * unbounded work") and `query_data_source` is reachable in exactly one hop with
+ * the identical class of unbounded arrays (e.g. 50,000 `aggregations` entries, or
+ * a megabyte-sized `filters[].value`). Reuses `MAX_COMPUTE_FIELD_STATS_FIELDS`'s
+ * 50-entry convention for all five arrays rather than inventing five separate
+ * constants — there is no tool-specific reason `filters` should be allowed a
+ * different bound than `aggregations`, say.
+ */
+const MAX_QUERY_ARRAY_LENGTH = MAX_COMPUTE_FIELD_STATS_FIELDS;
+
+/**
+ * Validate an optional model-supplied array argument to `query_data_source`
+ * (`columns` / `filters` / `aggregations` / `having` / `orderBy`).
+ *
+ * Rejects (never silently truncates or coerces) a non-array value outright —
+ * mirroring `compute_field_stats`'s own reject-don't-truncate stance — since a
+ * malformed shape would otherwise reach `data.queryDataSource` cast but
+ * unvalidated, producing a raw driver error (or worse, unpredictable behavior)
+ * that depends entirely on the host's implementation. Also rejects an oversized
+ * array with the same actionable "split the request" guidance
+ * `compute_field_stats` gives for its own `fields` cap (see
+ * `MAX_QUERY_ARRAY_LENGTH`). Returns the validated array unchanged (or
+ * `undefined` when the arg was omitted) so the caller can forward it as-is.
+ */
+function validateQueryArrayArg<T>(
+  argName: string,
+  value: unknown,
+): { ok: true; value: T[] | undefined } | { ok: false; error: ReturnType<typeof errorResult> } {
+  if (value === undefined) {
+    return { ok: true, value: undefined };
+  }
+  if (!Array.isArray(value)) {
+    return {
+      ok: false,
+      error: errorResult(
+        `query_data_source: "${argName}" must be an array, received ${typeof value}. ` +
+          `Pass an array of ${argName} entries, or omit "${argName}" entirely.`,
+      ),
+    };
+  }
+  if (value.length > MAX_QUERY_ARRAY_LENGTH) {
+    return {
+      ok: false,
+      error: errorResult(
+        `query_data_source received ${value.length} "${argName}" entries, which exceeds the limit of ` +
+          `${MAX_QUERY_ARRAY_LENGTH}. Split the request into multiple calls of at most ` +
+          `${MAX_QUERY_ARRAY_LENGTH} ${argName} entries each.`,
+      ),
+    };
+  }
+  return { ok: true, value: value as T[] };
+}
 
 /**
  * Cap on the number of numeric fields `describe_data_source` fans out into
@@ -153,6 +214,47 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
         offset?: number;
       };
 
+      // Reject (not silently truncate/forward) a malformed or oversized `columns` /
+      // `filters` / `aggregations` / `having` / `orderBy` array before any of them
+      // reach `data.queryDataSource` (T2-3) — see `validateQueryArrayArg`'s doc
+      // comment.
+      const columnsResult = validateQueryArrayArg<string>('columns', columns);
+      if (!columnsResult.ok) {
+        return columnsResult.error;
+      }
+      const filtersResult = validateQueryArrayArg<StudioDataFilter>('filters', filters);
+      if (!filtersResult.ok) {
+        return filtersResult.error;
+      }
+      const aggregationsResult = validateQueryArrayArg<StudioDataAggregation>(
+        'aggregations',
+        aggregations,
+      );
+      if (!aggregationsResult.ok) {
+        return aggregationsResult.error;
+      }
+      const havingResult = validateQueryArrayArg<StudioDataHavingPredicate>('having', having);
+      if (!havingResult.ok) {
+        return havingResult.error;
+      }
+      const orderByResult = validateQueryArrayArg<StudioDataOrderBy>('orderBy', orderBy);
+      if (!orderByResult.ok) {
+        return orderByResult.error;
+      }
+
+      // Cap each filter's `value`/`value2` the same way `add_page_filter` /
+      // `add_widget_filter` cap a PERSISTED filter's value (T2-3): these `filters`
+      // are forwarded to the host's `queryDataSource` rather than persisted onto
+      // dashboard state, but a megabyte-sized string/array `value` is the identical
+      // unbounded-work/token-bomb class `capFilterValue` already guards against —
+      // `checkAllowedTable`'s allowlist stops an out-of-scope TABLE, not an
+      // oversized filter VALUE bound for an otherwise-permitted query.
+      const cappedFilters = filtersResult.value?.map((f) => ({
+        ...f,
+        value: capFilterValue(f.value),
+        ...(f.value2 !== undefined && { value2: capFilterValue(f.value2) }),
+      }));
+
       // Clamp `limit` to a sane, positive integer within [1, maxQueryRows].
       // A model-supplied `limit` is untrusted: a negative value, `NaN` (e.g.
       // from a non-numeric `"all"`), zero, or a fractional value must not
@@ -190,11 +292,12 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
           data.queryDataSource({
             sourceId,
             tableName,
-            columns,
-            filters,
-            aggregations,
-            ...(having && having.length > 0 && { having }),
-            orderBy,
+            columns: columnsResult.value,
+            filters: cappedFilters,
+            aggregations: aggregationsResult.value,
+            ...(havingResult.value &&
+              havingResult.value.length > 0 && { having: havingResult.value }),
+            orderBy: orderByResult.value,
             limit: clampedLimit,
             ...(offset !== undefined && { offset: clampedOffset }),
           }),

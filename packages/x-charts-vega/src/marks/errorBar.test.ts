@@ -242,6 +242,52 @@ describe('compileErrorBarMark', () => {
     expect(gap?.severity).to.equal('unsupported');
   });
 
+  it('errorband: a "global"/1D band (no category channel at all) spans the full continuous domain of the sibling layer\'s axis', () => {
+    // layer_scatter_errorband_1D_stdev_global_mean's shape: a point layer
+    // defines the continuous x (hp); the errorband layer only encodes y
+    // (temp) — no x anywhere, not even a shared root encoding — so Vega-Lite
+    // computes ONE interval over every row and draws it spanning the whole
+    // plot width instead of grouping by a category.
+    const globalRows = [
+      { hp: 5, temp: 10 },
+      { hp: 15, temp: 12 },
+      { hp: 25, temp: 14 },
+      { hp: 35, temp: 20 },
+      { hp: 45, temp: 22 },
+      { hp: 55, temp: 24 },
+    ];
+    const compiled = compileSpec({
+      data: { values: globalRows },
+      layer: [
+        {
+          mark: 'point',
+          encoding: {
+            x: { field: 'hp', type: 'quantitative' },
+            y: { field: 'temp', type: 'quantitative' },
+          },
+        },
+        {
+          mark: { type: 'errorband', extent: 'stdev' },
+          encoding: { y: { field: 'temp', type: 'quantitative' } },
+        },
+      ],
+    });
+    expect(compiled.gaps.map((gap) => gap.code)).not.to.include('mark:errorbar-missing-axes');
+    const overlay = compiled.overlays.find((entry) => entry.kind === 'band');
+    if (!overlay || overlay.kind !== 'band') {
+      throw new Error('expected a band overlay');
+    }
+    expect(overlay.points).to.have.length(2);
+    // mean 17, sample stdev sqrt(166/5) over all 6 temp values combined.
+    const stdev = Math.sqrt(166 / 5);
+    expect(overlay.points[0]).to.include({ x: 5, lower: 17 - stdev, upper: 17 + stdev });
+    expect(overlay.points[1]).to.include({ x: 55, lower: 17 - stdev, upper: 17 + stdev });
+    const overlayGap = compiled.gaps.find(
+      (entry) => entry.code === 'mark:errorband-custom-overlay',
+    );
+    expect(overlayGap?.severity).to.equal('ignored');
+  });
+
   it('errorband: produces a band overlay with points sorted by the x category order', () => {
     const compiled = compileSpec({
       data: { values: rows },

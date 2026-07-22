@@ -60,14 +60,37 @@ function fieldOf(def: VegaChannelDef | undefined): string | undefined {
   return def && isFieldDef(def) ? def.field : undefined;
 }
 
-/** Whether this unit is drawn with the category on the y axis: explicit `mark.orient`, else inferred from which channel resolved to a discrete axis (mirrors bar.ts's resolveOrientation). */
-function resolveOrientation(ctx: UnitContext): 'horizontal' | 'vertical' {
+/**
+ * Whether this unit is drawn with the category on the y axis: explicit
+ * `mark.orient`, else inferred from which channel resolved to a discrete axis
+ * (mirrors bar.ts's resolveOrientation). When NEITHER axis is categorical —
+ * a "global"/1D errorband spanning the whole continuous domain of the axis it
+ * doesn't itself encode (`layer_scatter_errorband_1D_stdev_global_mean`'s
+ * `encoding: {y: {...}}` with no `x` at all) — falls back to whichever
+ * channel THIS layer's own (possibly root-inherited) encoding actually
+ * defines: that's the value channel, and the other, undefined one is what
+ * gets spanned rather than grouped.
+ */
+function resolveOrientation(
+  ctx: UnitContext,
+  encoding: UnitContext['encoding'],
+): 'horizontal' | 'vertical' {
   const orient = ctx.unit.mark.orient;
   if (orient === 'horizontal' || orient === 'vertical') {
     return orient;
   }
   if (!ctx.x?.categories && ctx.y?.categories) {
     return 'horizontal';
+  }
+  if (!ctx.x?.categories && !ctx.y?.categories) {
+    const hasOwnX = fieldOf(encoding.x) !== undefined;
+    const hasOwnY = fieldOf(encoding.y) !== undefined;
+    if (hasOwnY && !hasOwnX) {
+      return 'vertical';
+    }
+    if (hasOwnX && !hasOwnY) {
+      return 'horizontal';
+    }
   }
   return 'vertical';
 }
@@ -165,25 +188,80 @@ function groupValuesByCategory(
   return groups;
 }
 
+/**
+ * The numeric/temporal extent (min, max) of `field` across `rows` — spans a
+ * "global"/1D errorband across the full continuous domain of the axis it
+ * doesn't itself encode (see `compileErrorBarMark`'s `isGlobalBand`). `null`
+ * when no row has a valid value.
+ */
+function fieldExtent(
+  rows: readonly DatasetRow[],
+  field: string,
+  fieldType: string | undefined,
+): [number, number] | [Date, Date] | null {
+  let min = Infinity;
+  let max = -Infinity;
+  for (const row of rows) {
+    const raw = row[field];
+    const value = fieldType === 'temporal' ? toDate(raw)?.getTime() : toNumber(raw);
+    if (value == null || Number.isNaN(value)) {
+      continue;
+    }
+    if (value < min) {
+      min = value;
+    }
+    if (value > max) {
+      max = value;
+    }
+  }
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
+    return null;
+  }
+  return fieldType === 'temporal' ? [new Date(min), new Date(max)] : [min, max];
+}
+
 export function compileErrorBarMark(ctx: UnitContext): CompiledUnit {
   const { unit, encoding, gaps, rows } = ctx;
   const mark = unit.mark;
   const path = unit.path;
   const markType = mark.type as 'errorbar' | 'errorband';
 
-  const orientation = resolveOrientation(ctx);
+  const orientation = resolveOrientation(ctx, encoding);
   const horizontal = orientation === 'horizontal';
   const categoryAxis = horizontal ? ctx.y : ctx.x;
   const valueAxis = horizontal ? ctx.x : ctx.y;
   const valueChannelDef = horizontal ? encoding.x : encoding.y;
+  const categoryChannelDef = horizontal ? encoding.y : encoding.x;
   const valueField = fieldOf(valueChannelDef);
   const categoryField = categoryAxis?.field;
 
+  // A "global"/1D errorband: this layer's own encoding defines only the value
+  // channel, with no category/grouping channel at all (not even inherited
+  // from a shared root encoding) — Vega-Lite computes ONE interval over every
+  // row and draws it spanning the full continuous domain of the other axis,
+  // rather than grouping by it. Only implemented for `errorband`: Vega-Lite
+  // positions a global `errorbar` at the plot's pixel center, not a data
+  // value this wrapper can derive, so that shape still falls through to the
+  // ordinary missing-axes gap below.
+  const isGlobalBand =
+    markType === 'errorband' &&
+    categoryChannelDef === undefined &&
+    valueField !== undefined &&
+    valueAxis?.fieldType === 'quantitative' &&
+    !categoryAxis?.categories &&
+    categoryAxis?.field !== undefined &&
+    (categoryAxis.fieldType === 'quantitative' || categoryAxis.fieldType === 'temporal');
+  const spanExtent = isGlobalBand
+    ? fieldExtent(rows, categoryAxis!.field!, categoryAxis!.fieldType)
+    : null;
+  const globalBandActive = isGlobalBand && spanExtent !== null;
+
   if (
-    !categoryAxis?.categories ||
-    !categoryField ||
-    !valueField ||
-    valueAxis?.fieldType !== 'quantitative'
+    !globalBandActive &&
+    (!categoryAxis?.categories ||
+      !categoryField ||
+      !valueField ||
+      valueAxis?.fieldType !== 'quantitative')
   ) {
     gaps.add({
       code: 'mark:errorbar-missing-axes',
@@ -230,8 +308,8 @@ export function compileErrorBarMark(ctx: UnitContext): CompiledUnit {
 
   /** Computes the per-category intervals for one set of rows, index-aligned to `categoryAxis.categories`. */
   const intervalsForRows = (groupRows: readonly DatasetRow[]): (Interval | null)[] =>
-    groupValuesByCategory(ctx, groupRows, categoryAxis, categoryField, valueField).map((values) =>
-      computeInterval(values, extent),
+    groupValuesByCategory(ctx, groupRows, categoryAxis!, categoryField!, valueField!).map(
+      (values) => computeInterval(values, extent),
     );
 
   // The color of a dodged group: deliberately does NOT fall back to
@@ -283,7 +361,7 @@ export function compileErrorBarMark(ctx: UnitContext): CompiledUnit {
       });
     } else {
       const intervals = intervalsForRows(rows);
-      categoryAxis.categories.forEach((category, index) => {
+      categoryAxis!.categories!.forEach((category, index) => {
         const interval = intervals[index];
         if (!interval) {
           return;
@@ -323,8 +401,27 @@ export function compileErrorBarMark(ctx: UnitContext): CompiledUnit {
   // path order. `point.x` carries the category value regardless of
   // orientation; the `horizontal` flag on the overlay tells the renderer to
   // transpose (draw the category on the y axis, lower/upper on x).
-  /** Builds the band points for one set of rows (empty when no category had enough data). */
+  /**
+   * Builds the band points for one set of rows: the ordinary per-category
+   * case (empty when no category had enough data), or — in "global"/1D mode
+   * — a single flat 2-point span across the whole continuous domain at one
+   * combined interval computed from every row in `groupRows`.
+   */
   const pointsForRows = (groupRows: readonly DatasetRow[]): OverlayBandPoint[] => {
+    if (globalBandActive) {
+      const values = groupRows
+        .map((row) => toNumber(row[valueField!]))
+        .filter((value): value is number => value !== null);
+      const interval = computeInterval(values, extent);
+      if (!interval) {
+        return [];
+      }
+      const [start, end] = spanExtent!;
+      return [
+        { x: start, lower: interval.lower, upper: interval.upper },
+        { x: end, lower: interval.lower, upper: interval.upper },
+      ];
+    }
     const intervals = intervalsForRows(groupRows);
     const points: OverlayBandPoint[] = [];
     categoryAxis.categories!.forEach((category, index) => {

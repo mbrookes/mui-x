@@ -34,6 +34,7 @@ import {
   STUDIO_FILTER_OPERATORS,
 } from './widgetTypeGuards';
 import { UNSAFE_KEYS, isSafeKey } from './unsafeKeys';
+import { isPlainRecord as isRecord } from './internalGuards';
 
 export type ParseStateMutationResult =
   | { ok: true; mutation: StateMutation }
@@ -41,11 +42,10 @@ export type ParseStateMutationResult =
 
 // ── Shared leaf predicates ──────────────────────────────────────────────────────
 
-/** A plain object (not `null`, not an array). Everything the wire carries as an
- *  `args` bag, a widget, a filter, or a scope must satisfy this. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
+// `isRecord` (a plain object — not `null`, not an array — that everything the wire
+// carries as an `args` bag, a widget, a filter, or a scope must satisfy) is the shared
+// `isPlainRecord` from `internalGuards.ts` (finding 3.2), aliased to this file's
+// established local name so every existing call site below is unchanged.
 
 function isString(value: unknown): value is string {
   return typeof value === 'string';

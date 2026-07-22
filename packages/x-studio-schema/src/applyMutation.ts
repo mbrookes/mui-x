@@ -22,6 +22,23 @@ import { normalizeChartSeries } from './factories';
 import { isSafeKey } from './unsafeKeys';
 import { hasUnsafeOwnKeys, isStringArray } from './parseStateMutation';
 import { getAllowedConfigKeys } from './configKeyValidation';
+// `isPlainRecord` (the single shared "is this a usable record" predicate: a non-record
+// `config`/`widget`/`filter` — `null`, an array, or a truthy primitive like a string —
+// is treated as ABSENT, never as a record to merge or install), `stripUnsafeConfigKeys`
+// (the config-record own-key screen: strips `__proto__`/`constructor`/`prototype` before
+// a record is installed WHOLESALE onto a widget, so it never round-trips as an own DATA
+// property that later poisons a spread or gets the whole widget dropped on the next
+// load), and `repairFilterDependsOn` (strips a malformed `dependsOn` from a filter about
+// to be installed verbatim, rather than sinking the whole filter) were each independently
+// duplicated across this file, `parseStateMutation.ts`, and `statePersistence.ts`
+// (finding 3.2). Consolidated in `internalGuards.ts` so the three trust boundaries can no
+// longer drift; imported here under this file's established local names (`isPlainRecord`,
+// `stripUnsafeConfigKeys`) so every existing call site below is unchanged.
+import {
+  isPlainRecord,
+  stripUnsafeOwnKeys as stripUnsafeConfigKeys,
+  repairFilterDependsOn,
+} from './internalGuards';
 
 /**
  * Widget column-span unit system, and the single source of truth for it.
@@ -204,47 +221,6 @@ function normalizeConfigChartSeries<C extends object>(config: C): C {
 }
 
 /**
- * A plain object (not `null`, not an array, not a primitive). The single shared
- * "is this a usable widget `config`" predicate for this reducer, mirroring the
- * sibling `isRecord` in `parseStateMutation.ts` and the load-boundary coercion in
- * `statePersistence.ts` — every config-accepting channel in this file uses this
- * exact shape rather than an ad-hoc `typeof`/truthiness check (T2-2): a non-record
- * `config` (`null`, an array, or a truthy primitive like a string) is treated as
- * ABSENT, never as a record to merge or install.
- */
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-/**
- * Strip the prototype-polluting own keys (`__proto__`/`constructor`/`prototype`) from a
- * config record that is about to be installed WHOLESALE onto a widget (T2-3). The
- * `config`-PATCH loop in `updateWidget` already screens each key via `isSafePatchKey`
- * before a bare bracket-assign, but the two spread/merge channels —
- * `updateWidget`'s `changes.config` wholesale replace and `applyBulkUpdate`'s
- * `updatedWidgets[].config` shallow-merge — install a spread result directly. Object
- * spread uses DEFINE semantics (so it never pollutes a live prototype), but it RETAINS
- * an unsafe key as an own DATA property; on the NEXT load `deserializeState`'s
- * `hasUnsafeOwnKeys(cfg)` screen would then drop the ENTIRE widget → silent data loss.
- * This is reachable via the AI bulk tool for CUSTOM widget kinds (whose per-kind config
- * validation imposes no key restriction). Routing both channels through this step keeps
- * all THREE config channels honoring the same defense-in-depth key screen. Reference-
- * stable: returns the SAME object when it carries no unsafe own key.
- */
-function stripUnsafeConfigKeys(config: Record<string, unknown>): Record<string, unknown> {
-  if (!hasUnsafeOwnKeys(config)) {
-    return config;
-  }
-  const safe: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(config)) {
-    if (isSafePatchKey(key)) {
-      safe[key] = value;
-    }
-  }
-  return safe;
-}
-
-/**
  * Strip prototype-polluting own keys (`__proto__`/`constructor`/`prototype`) from a
  * filter object about to be appended to `state.filters` VERBATIM (F5 finding,
  * `addFilter`). The wire boundary (`parseStateMutation`'s `validateFilter`) already
@@ -264,30 +240,6 @@ function stripUnsafeFilterKeys(filter: StudioFilterState): StudioFilterState {
   return safe === (filter as unknown as Record<string, unknown>)
     ? filter
     : (safe as unknown as StudioFilterState);
-}
-
-/**
- * Repair a filter's `dependsOn` field before it is appended to `state.filters`
- * VERBATIM (F5 finding, `addFilter`). `dependsOn` is optional cascade metadata, not
- * identity data — mirroring `statePersistence.ts`'s `repairFilterDependsOn`, which
- * applies the IDENTICAL repair at the load boundary for a persisted/preset filter —
- * so a malformed value (`dependsOn: 'w1'`, `dependsOn: [1, 2]`) is stripped from the
- * filter object rather than sinking the whole `addFilter` mutation. The wire boundary
- * already rejects a malformed `dependsOn` outright (`validateFilter`'s
- * `isStringArray(filter.dependsOn)` gate), but `addFilter` is also reachable from a
- * server-built mutation that bypasses the parser, and an unrepaired malformed
- * `dependsOn` would later crash `StudioFiltersDrawer`'s `dependsOn.map(...)` the first
- * time the filter renders. Reference-stable when `dependsOn` is absent or already a
- * valid `string[]`.
- */
-function repairFilterDependsOn(filter: StudioFilterState): StudioFilterState {
-  const dependsOn = (filter as { dependsOn?: unknown }).dependsOn;
-  if (dependsOn === undefined || isStringArray(dependsOn)) {
-    return filter;
-  }
-  const rest = { ...(filter as unknown as Record<string, unknown>) };
-  delete rest.dependsOn;
-  return rest as unknown as StudioFilterState;
 }
 
 // Coerce a widget whose `config` is not a record (e.g. `config: null` from a
@@ -868,6 +820,17 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
 
   setDashboardTitle: {
     apply: (state, args) => {
+      // Require a STRING title (finding 2.2, parser-bypass parity with `addPage`/
+      // `renamePage`'s `typeof title !== 'string'` guards and the wire boundary's
+      // `isString(args.title)` gate in `parseStateMutation.ts`). Without this, a
+      // server-built `setDashboardTitle` bypassing the parser with a non-string
+      // `title` (e.g. `undefined`, `42`) would install it verbatim — no immediate
+      // throw, but a value that violates `StudioDoc['dashboard'].title: string`,
+      // corrupting the dashboard title until something downstream (the page-header
+      // renderer, `serializeDoc`'s round-trip) trips over the non-string value.
+      if (typeof args.title !== 'string') {
+        return state;
+      }
       // Reference-equality no-op: re-writing the identical title returns the SAME doc
       // so `commitDocPatch`'s no-op guard skips a spurious undo entry.
       if (state.dashboard.title === args.title) {
@@ -1355,6 +1318,21 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
   setWidgetColSpan: {
     apply: (state, args) => {
       const { widgetId, columns } = args;
+      // Require a STRING `widgetId` (finding 2.1, parser-bypass parity with `addPage`/
+      // `addWidget`'s `typeof id !== 'string'` guards): every downstream check below —
+      // `Object.hasOwn(state.widgets, widgetId)`, `row.includes(widgetId)` against the
+      // page's `string[][]` rows — either coerces its key to a STRING (`Object.hasOwn`)
+      // or compares by strict `===` (`row.includes`, never coerces). A numeric
+      // `widgetId` (e.g. `42`) would therefore fail EVERY `row.includes(42)` row-
+      // membership check (since rows only ever hold strings) while still passing
+      // `Object.hasOwn(state.widgets, 42)` whenever a widget `"42"` exists — exactly the
+      // condition the "on another page" orphan-span guard below relies on `currentRow`
+      // correctly reflecting, bypassing it and persisting a dead `widgetColSpans[42]`
+      // entry (a `number`-keyed record property, coerced to `"42"` on write) on the
+      // WRONG page. No-op instead.
+      if (typeof widgetId !== 'string') {
+        return state;
+      }
       // Explicit, server-chosen target page — falls back to the active page for
       // legacy payloads, mirroring `addWidget.pageId`.
       const targetPageId = args.pageId ?? state.dashboard.activePageId;
@@ -1716,10 +1694,25 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // boundary's `isStringArray(args.removedWidgetIds)` check in `parseStateMutation.ts`):
       // `new Set(str)` iterates a STRING char-by-char, so a parser-bypassing server-built
       // mutation with `removedWidgetIds: 'w1'` would silently delete widgets literally named
-      // `'w'` and `'1'` below instead of the intended widget `'w1'`. `Array.isArray` (not
-      // `isStringArray`, which is file-private to `parseStateMutation.ts`) rejects a non-array
-      // value outright — treated the same as an absent/empty list — rather than iterating it.
-      const removedWidgetIds = Array.isArray(rawRemovedWidgetIds) ? rawRemovedWidgetIds : [];
+      // `'w'` and `'1'` below instead of the intended widget `'w1'`. `Array.isArray` rejects a
+      // non-array value outright — treated the same as an absent/empty list — rather than
+      // iterating it.
+      //
+      // Also drop (not reject wholesale) any non-string ENTRY (finding 2.1): every downstream
+      // consumer of this array — `removeWidgetIds`'s `stillReferenced` `Set<string>` membership
+      // check, `stripWidgetIdsFromPages`'s per-row `Set<string>.has`, and the `Object.hasOwn`
+      // lookups on `widgets`/`widgetColSpans` — either compares by strict `===` (never coerces)
+      // or coerces its key to a STRING (`Object.hasOwn`). A numeric candidate like `42` would
+      // therefore never match a `Set<string>` built from string row ids, yet WOULD match a
+      // widget/span keyed `"42"` via `Object.hasOwn`'s coercion — the "genuinely gone" cross-page
+      // guard silently bypassed, deleting a widget/span/filter still referenced (as a string) on
+      // another page's rows. Filtering to `typeof id === 'string'` here (rather than rejecting the
+      // whole array the way `isStringArray` would) keeps every well-formed id in a partially-junk
+      // payload usable, matching this handler's own "no-op the bad, keep the good" convention for
+      // `addedWidgets`/`updatedWidgets` entries elsewhere in this same handler.
+      const removedWidgetIds = (
+        Array.isArray(rawRemovedWidgetIds) ? rawRemovedWidgetIds : []
+      ).filter((id): id is string => typeof id === 'string');
 
       // Require real ARRAYS for `addedWidgets`/`updatedWidgets` too (F3 finding, same
       // class as `removedWidgetIds` just above): both are typed as REQUIRED arrays on
@@ -1812,8 +1805,23 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
           { [activePageId]: state.pages[activePageId] },
           new Set(idsToPreStrip),
         )[activePageId];
-        if (strippedActivePage !== state.pages[activePageId]) {
-          layoutPages = { ...state.pages, [activePageId]: strippedActivePage };
+        // Finding 3.3: also prune each pre-stripped id's OWN `widgetColSpans` entry on
+        // the active page. `stripWidgetIdsFromPages` only clears a SURVIVING row-mate's
+        // now-stale span (the "orphaned sole occupant" case) — pruning the removed id's
+        // OWN span entry is normally left to `removeWidgetIds`'s cross-page "genuinely
+        // gone" check further below. But an id still referenced on ANOTHER page is NOT
+        // genuinely gone, so that check never fires for it — leaving the id's own span
+        // entry orphaned on THIS page, which it has already left (its row entry was
+        // just stripped above), regardless of whether it survives doc-wide. Reuses
+        // `removeSpanEntries` (reference-stable when nothing matched), so a bulk that
+        // never actually touched this page's spans still returns the SAME page object.
+        const spansPruned = removeSpanEntries(strippedActivePage.widgetColSpans, idsToPreStrip);
+        const finalActivePage =
+          spansPruned === strippedActivePage.widgetColSpans
+            ? strippedActivePage
+            : { ...strippedActivePage, widgetColSpans: spansPruned };
+        if (finalActivePage !== state.pages[activePageId]) {
+          layoutPages = { ...state.pages, [activePageId]: finalActivePage };
         }
       }
       if (pageExists && hasLayoutUpdate) {
@@ -2215,6 +2223,17 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
   renameAIThread: {
     apply: (state, args) => {
       if (!state.ai) {
+        return state;
+      }
+      // Require STRING `name`/`updatedAt` (finding 2.2, parser-bypass parity with the
+      // wire boundary's `isString(args.name)`/`isString(args.updatedAt)` gates in
+      // `parseStateMutation.ts`). Without this, a server-built `renameAIThread`
+      // bypassing the parser with a non-string `name`/`updatedAt` would install it
+      // verbatim onto the thread — no immediate throw, but a value that violates the
+      // thread's `name: string`/`updatedAt: string` shape, corrupting the thread entry
+      // (the chat panel's thread selector renders `name` directly as text with no
+      // fallback) until something downstream trips over the non-string value.
+      if (typeof args.name !== 'string' || typeof args.updatedAt !== 'string') {
         return state;
       }
       // Explicit, server-stamped target thread — falls back to the applying side's

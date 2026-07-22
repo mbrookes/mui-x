@@ -72,6 +72,23 @@ describe('applyMutation', () => {
     expect(next).toBe(state);
   });
 
+  // Finding 2.2: parser-bypass parity with `addPage`/`renamePage`'s `typeof title !==
+  // 'string'` guards. A server-built `setDashboardTitle` bypassing `parseStateMutation`
+  // with a non-string `title` must leave the dashboard title untouched rather than
+  // installing a value that violates `StudioDoc['dashboard'].title: string`.
+  it('setDashboardTitle with a non-string title is a no-op (Finding 2.2)', () => {
+    const state = makeDoc({ dashboard: { id: 'd1', title: 'Original', activePageId: 'page-1' } });
+    let next!: StudioDoc;
+    expect(() => {
+      next = applyDocMutation(state, {
+        type: 'setDashboardTitle',
+        args: { title: 42 },
+      } as unknown as StateMutation);
+    }).not.toThrow();
+    expect(next).toBe(state);
+    expect(next.dashboard.title).toBe('Original');
+  });
+
   it('addWidget targets the explicit pageId, not the active page', () => {
     // Active page is page-2, but the mutation targets page-1.
     const state = twoPageState('page-2');
@@ -1964,6 +1981,34 @@ describe('applyMutation', () => {
       }).not.toThrow();
       expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 12 });
     });
+
+    // Finding 2.1: a NUMERIC `widgetId` must never resolve to the STRING-keyed widget of
+    // the same digits via `Object.hasOwn`'s key coercion. `row.includes(widgetId)` compares
+    // by strict `===` (never coerces), so a numeric `42` never matches a row entry `"42"` —
+    // but `Object.hasOwn(state.widgets, 42)` DOES coerce and match widget `"42"`. Before the
+    // fix this bypassed the "on another page" orphan-span guard (which relies on
+    // `currentRow`/the cross-page scan correctly reflecting membership) and persisted a
+    // dead span on the wrong page. The fix requires a STRING `widgetId` up front.
+    it('a numeric widgetId is a no-op, not coerced into the STRING widget of the same digits (Finding 2.1)', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'P1', widgetRows: [] },
+          'page-2': { id: 'page-2', title: 'P2', widgetRows: [['42']] },
+        },
+        widgets: { '42': chartWidget('42') },
+      });
+      let next!: StudioDoc;
+      expect(() => {
+        next = applyDocMutation(state, {
+          type: 'setWidgetColSpan',
+          args: { widgetId: 42, columns: 12, rowWidgetIds: ['42'], pageId: 'page-1' },
+        } as unknown as StateMutation);
+      }).not.toThrow();
+      expect(next).toBe(state);
+      expect(next.pages['page-1'].widgetColSpans).toBeUndefined();
+      expect(next.pages['page-2'].widgetColSpans).toBeUndefined();
+    });
   });
 
   describe('addPage', () => {
@@ -3297,6 +3342,47 @@ describe('applyMutation', () => {
       expect(next.widgets.w2).toEqual(chartWidget('w2'));
     });
 
+    // Finding 3.3: a removed widget still referenced on ANOTHER page is not "genuinely
+    // gone" (it survives in `state.widgets`, its filters, and its span on the OTHER page),
+    // so `removeWidgetIds`'s cross-page prune never fires for it — but it HAS already left
+    // the ACTIVE page's own rows (the pre-strip above removed it there), so its own span
+    // entry on the ACTIVE page is now dead weight. This must not linger as an orphan.
+    it("prunes a removed widget's own span on the active page even though it survives (cross-page) elsewhere (Finding 3.3)", () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': {
+            id: 'page-1',
+            title: 'P1',
+            widgetRows: [['w1'], ['w2']],
+            widgetColSpans: { w1: 12 },
+          },
+          'page-2': {
+            id: 'page-2',
+            title: 'P2',
+            widgetRows: [['w1']],
+          },
+        },
+        widgets: { w1: chartWidget('w1'), w2: chartWidget('w2') },
+      });
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: ['w1'],
+          addedWidgets: [],
+          updatedWidgets: [],
+          activePageId: 'page-1',
+        },
+      } as StateMutation);
+      // w1 survives doc-wide (still referenced on page-2) — not genuinely removed.
+      expect(next.widgets.w1).toEqual(chartWidget('w1'));
+      expect(next.pages['page-2'].widgetRows).toEqual([['w1']]);
+      // …but it left page-1's rows, so page-1's OWN span entry for it is pruned rather
+      // than left as an orphan.
+      expect(next.pages['page-1'].widgetRows).toEqual([['w2']]);
+      expect(next.pages['page-1'].widgetColSpans).toBeUndefined();
+    });
+
     // Iteration-22 finding (Tier 2 #1): `validRowIds` (used to sanitize the producer-supplied
     // `widgetRows`) did not exclude ids this SAME payload also names in `removedWidgetIds`, so
     // a bulk carrying BOTH `removedWidgetIds: ['w1']` AND a `widgetRows` row still containing
@@ -3698,6 +3784,58 @@ describe('applyMutation', () => {
       }).not.toThrow();
       expect((next.widgets.wb.config as { chartType?: string }).chartType).toBe('line');
     });
+
+    // Finding 2.1: a NUMERIC `removedWidgetIds` entry must never delete a STRING-keyed
+    // widget/span/filter via `Object.hasOwn`'s key coercion. `stillReferenced` (built from
+    // the page rows, all real strings) is a `Set<string>`, so the number `42` never matches
+    // row entry `"42"` — but `Object.hasOwn(widgets, 42)` DOES coerce and match widget
+    // `"42"`, so before the fix the widget/its span/its filter were deleted even though a
+    // page's row still (as a STRING) references it — an orphaned dangling row reference.
+    // The fix filters `removedWidgetIds` to `typeof id === 'string'` before use, so the
+    // numeric `42` is dropped and this bulk becomes a genuine no-op.
+    it('a numeric removedWidgetIds entry is dropped, not treated as the STRING widget of the same digits (Finding 2.1)', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': {
+            id: 'page-1',
+            title: 'P1',
+            widgetRows: [['42']],
+            widgetColSpans: { '42': 12 },
+          },
+        },
+        widgets: { '42': chartWidget('42') },
+        filters: [
+          {
+            id: 'f1',
+            field: 'x',
+            operator: 'equals',
+            value: 1,
+            scope: { kind: 'widget', widgetId: '42' },
+          },
+        ],
+      });
+      let next!: StudioDoc;
+      expect(() => {
+        next = applyDocMutation(state, {
+          type: 'applyBulkUpdate',
+          args: {
+            removedWidgetIds: [42],
+            addedWidgets: [],
+            updatedWidgets: [],
+            activePageId: 'page-1',
+          },
+        } as unknown as StateMutation);
+      }).not.toThrow();
+      // Nothing was genuinely named for removal (the numeric candidate is dropped before
+      // use), so the whole bulk is a no-op: the widget, its row placement, its span, and
+      // its filter all survive untouched.
+      expect(next).toBe(state);
+      expect(next.widgets['42']).toEqual(chartWidget('42'));
+      expect(next.pages['page-1'].widgetRows).toEqual([['42']]);
+      expect(next.pages['page-1'].widgetColSpans).toEqual({ '42': 12 });
+      expect(next.filters.map((f) => f.id)).toEqual(['f1']);
+    });
   });
 
   describe('renameAIThread', () => {
@@ -3803,6 +3941,52 @@ describe('applyMutation', () => {
         args: { name: 'Same', updatedAt: '2024-06-01T00:00:00.000Z', threadId: 't1' },
       });
       expect(next).toBe(state);
+    });
+
+    // Finding 2.2: parser-bypass parity with the wire boundary's `isString(args.name)`/
+    // `isString(args.updatedAt)` gates. A server-built `renameAIThread` bypassing
+    // `parseStateMutation` with a non-string `name` or `updatedAt` must leave the thread
+    // untouched rather than installing a value that violates its `name: string`/
+    // `updatedAt: string` shape.
+    it('a non-string name is a no-op (Finding 2.2)', () => {
+      const state = makeDoc({
+        ai: {
+          activeThreadId: 't1',
+          threads: [
+            { id: 't1', name: 'Old1', createdAt: '2024-01-01T00:00:00.000Z', messages: [] },
+          ],
+        },
+      });
+      let next!: StudioDoc;
+      expect(() => {
+        next = applyDocMutation(state, {
+          type: 'renameAIThread',
+          args: { name: 42, updatedAt: '2024-06-01T00:00:00.000Z' },
+        } as unknown as StateMutation);
+      }).not.toThrow();
+      expect(next).toBe(state);
+      expect(next.ai?.threads[0].name).toBe('Old1');
+    });
+
+    it('a non-string updatedAt is a no-op (Finding 2.2)', () => {
+      const state = makeDoc({
+        ai: {
+          activeThreadId: 't1',
+          threads: [
+            { id: 't1', name: 'Old1', createdAt: '2024-01-01T00:00:00.000Z', messages: [] },
+          ],
+        },
+      });
+      let next!: StudioDoc;
+      expect(() => {
+        next = applyDocMutation(state, {
+          type: 'renameAIThread',
+          args: { name: 'New1', updatedAt: 42 },
+        } as unknown as StateMutation);
+      }).not.toThrow();
+      expect(next).toBe(state);
+      expect(next.ai?.threads[0].name).toBe('Old1');
+      expect(next.ai?.threads[0].updatedAt).toBeUndefined();
     });
   });
 

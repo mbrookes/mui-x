@@ -1,7 +1,12 @@
 import { createDefaultStudioState, normalizeGridColumn, normalizeChartSeries } from './factories';
 import { normalizePersistedPages, hasConflictingRankFilter } from './applyMutation';
 import { isSafeKey } from './unsafeKeys';
-import { isValidFilterScope, hasUnsafeOwnKeys, isStringArray } from './parseStateMutation';
+import { isValidFilterScope, hasUnsafeOwnKeys } from './parseStateMutation';
+import {
+  isPlainRecord as isRecord,
+  stripUnsafeOwnKeys,
+  repairFilterDependsOn,
+} from './internalGuards';
 import { isStudioChartType, isStudioFilterOperator } from './widgetTypeGuards';
 import { CURRENT_SCHEMA_VERSION } from './stateTypes';
 import type {
@@ -175,8 +180,10 @@ function validateStateStructure(state: unknown): state is Record<string, unknown
   return true;
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> =>
-  typeof v === 'object' && v !== null && !Array.isArray(v);
+// `isRecord`/`stripUnsafeOwnKeys`/`repairFilterDependsOn` are the shared `internalGuards.ts`
+// helpers (finding 3.2 — these were independently duplicated, byte-for-byte identical, across
+// this file, `applyMutation.ts`, and `parseStateMutation.ts`), imported under this file's
+// established local names so every existing call site below is unchanged.
 
 /**
  * Screen each ENTRY of a persisted array with `isRecord`, dropping non-record junk
@@ -198,54 +205,6 @@ const screenRecordArray = <T>(value: unknown): T[] => {
   // the whole entry, matching the widgets/filters own-key screen. Reuses the SAME predicate.
   const safe = value.filter((entry) => isRecord(entry) && !hasUnsafeOwnKeys(entry));
   return (safe.length === value.length ? value : safe) as T[];
-};
-
-/**
- * Return `record` with any prototype-hazard OWN key ({@link UNSAFE_KEYS}) removed, reference-
- * stable when it carries none (T2-4). Used for the persisted `dashboard`, which `deserializeState`
- * spreads/uses verbatim: a shared/hand-edited doc can carry an own `"__proto__"`/`"constructor"`/
- * `"prototype"` DATA key that would round-trip forever and later poison an `Object.assign`/spread
- * of the dashboard. Drops the offending keys (the widget/filter own-key convention) while keeping
- * the rest of the user's data.
- */
-const stripUnsafeOwnKeys = <T extends object>(record: T): T => {
-  if (!hasUnsafeOwnKeys(record)) {
-    return record;
-  }
-  const safe: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(record)) {
-    if (isSafeKey(key)) {
-      safe[key] = value;
-    }
-  }
-  return safe as T;
-};
-
-/**
- * Repair (not drop) a persisted/preset filter's `dependsOn` field when it fails the
- * array-shape screen `parseStateMutation.ts`'s `validateFilter` already applies to a LIVE
- * `addFilter` mutation (T2 finding): the wire boundary rejects a malformed `dependsOn`
- * (`dependsOn: 'w1'`, `dependsOn: [1, 2]`) outright, but neither `deserializeState`'s
- * `doc.filters` load screen nor {@link isPresetFilterSafe} applied the same check — so a
- * persisted or preset doc with a malformed `dependsOn` loaded successfully and then crashed
- * `StudioFiltersDrawer`'s `dependsOn.map(...)` the first time the filter rendered.
- * `dependsOn` is optional cascade metadata, not identity data, so — mirroring how a bad
- * widget `titleMode`/`subtitleMode` key is stripped rather than dropping the whole widget —
- * the malformed KEY is dropped from the filter rather than sinking the whole filter entry.
- * Non-record input is returned as-is; the caller's own record screen handles it. Reference-
- * stable when `dependsOn` is absent or already a valid `string[]`.
- */
-const repairFilterDependsOn = <T>(entry: T): T => {
-  if (!isRecord(entry)) {
-    return entry;
-  }
-  const dependsOn = (entry as { dependsOn?: unknown }).dependsOn;
-  if (dependsOn === undefined || isStringArray(dependsOn)) {
-    return entry;
-  }
-  const rest = { ...(entry as Record<string, unknown>) };
-  delete rest.dependsOn;
-  return rest as T;
 };
 
 /**

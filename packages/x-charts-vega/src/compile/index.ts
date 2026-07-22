@@ -286,6 +286,7 @@ function applyOverlayDomains(
     }
     let domainMin = min;
     let domainMax = max;
+    const scaleType = (axis.config as { scaleType?: string }).scaleType;
     // A bar/area/line series on this axis carries Vega-Lite's `zero: true`
     // default (bars/areas also overflow below the axis without it), so the
     // domain must include 0. Point/boxplot/errorbar marks default `zero: false`
@@ -293,9 +294,14 @@ function applyOverlayDomains(
     // line+errorband zeros its y (the line wins), while a point+errorbar or a
     // bare boxplot fits the data extent, matching Vega. `line` covers `area`
     // too (an area is a `type: 'line'` series with `area: true`). Detect one
-    // whose value axis is this axis.
+    // whose value axis is this axis. A log scale can never include 0 (log(0)
+    // is undefined) — Vega-Lite itself requires `zero: false` there, so the
+    // zero default never applies regardless of mark type (`layer_line_window`'s
+    // log-scaled fps axis: pinning it to 0 fed `d3.scaleLog` an invalid
+    // [0, max] domain, degenerating to a totally blank chart).
     const hasBaselineSeries =
-      series.some((entry) => {
+      scaleType !== 'log' &&
+      (series.some((entry) => {
         const type = (entry as { type?: string }).type;
         if (type !== 'bar' && type !== 'line') {
           return false;
@@ -303,17 +309,16 @@ function applyOverlayDomains(
         const valueAxis = (entry as { layout?: string }).layout === 'horizontal' ? 'x' : 'y';
         return valueAxis === name;
       }) ||
-      // A continuous-x `line`/`trail` mark carries the same zero:true default
-      // but renders through a `segments` overlay (no index-aligned category
-      // domain for a native x-charts line series) — its value axis is always
-      // y (see `buildContinuousLineOverlay`).
-      (name === 'y' &&
-        overlays.some((overlay) => overlay.kind === 'segments' && overlay.lineMarkZeroBaseline));
+        // A continuous-x `line`/`trail` mark carries the same zero:true default
+        // but renders through a `segments` overlay (no index-aligned category
+        // domain for a native x-charts line series) — its value axis is always
+        // y (see `buildContinuousLineOverlay`).
+        (name === 'y' &&
+          overlays.some((overlay) => overlay.kind === 'segments' && overlay.lineMarkZeroBaseline)));
     if (hasBaselineSeries) {
       domainMin = Math.min(domainMin, 0);
       domainMax = Math.max(domainMax, 0);
     }
-    const scaleType = (axis.config as { scaleType?: string }).scaleType;
     [domainMin, domainMax] = niceContinuousDomain(scaleType, domainMin, domainMax);
     config.min = domainMin;
     config.max = domainMax;

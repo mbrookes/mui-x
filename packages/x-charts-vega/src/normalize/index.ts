@@ -208,6 +208,24 @@ function resolveSequenceRows(
   return rows;
 }
 
+/**
+ * Vega-Lite wraps a bare array of primitives (`[12, 23, 47]`, as opposed to an
+ * array of row objects) into one-field records keyed `data` — e.g. `{data:
+ * 12}` — so `encoding.field: "data"` resolves against them. Mirrors that
+ * instead of handing mark compilers primitive "rows" with no properties to
+ * read a field from — applies equally to inline `data.values` and a named
+ * dataset (`data.name` + `datasets`/`spec.datasets`), since either can be a
+ * bare primitive array (`layer_line_window`'s `datasets.falcon`/`.square`).
+ */
+function wrapPrimitiveRows(values: readonly unknown[]): readonly DatasetRow[] {
+  const isPrimitiveArray =
+    values.length > 0 && values.every((value) => value === null || typeof value !== 'object');
+  if (isPrimitiveArray) {
+    return values.map((value) => ({ data: value }));
+  }
+  return values as readonly DatasetRow[];
+}
+
 function resolveRows(
   data: VegaData | null | undefined,
   inherited: readonly DatasetRow[],
@@ -225,18 +243,7 @@ function resolveRows(
     return resolveTopojsonRows(data, gaps, path) ?? inherited;
   }
   if (Array.isArray(data.values)) {
-    // Vega-Lite wraps a bare array of primitives (`[12, 23, 47]`, as opposed
-    // to an array of row objects) into one-field records keyed `data` — e.g.
-    // `{data: 12}` — so `encoding.field: "data"` resolves against them. Mirror
-    // that instead of handing mark compilers primitive "rows" with no
-    // properties to read a field from.
-    const values = data.values as unknown[];
-    const isPrimitiveArray =
-      values.length > 0 && values.every((value) => value === null || typeof value !== 'object');
-    if (isPrimitiveArray) {
-      return values.map((value) => ({ data: value }));
-    }
-    return data.values as readonly DatasetRow[];
+    return wrapPrimitiveRows(data.values as unknown[]);
   }
   if (typeof data.values === 'string') {
     gaps.add({
@@ -255,7 +262,7 @@ function resolveRows(
   if (data.name !== undefined) {
     const named = datasets[data.name];
     if (named) {
-      return named;
+      return wrapPrimitiveRows(named as unknown[]);
     }
     gaps.add({
       code: 'data:named-missing',

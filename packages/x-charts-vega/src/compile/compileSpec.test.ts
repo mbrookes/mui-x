@@ -259,4 +259,35 @@ describe('compileSpec (foundation pipeline)', () => {
     const gap = compiled.gaps.find((entry) => entry.code === 'data:sequence-invalid');
     expect(gap?.severity).to.equal('unsupported');
   });
+
+  it('wraps a bare primitive array in data.values into one-field "data" records', () => {
+    const compiled = compileSpec({
+      data: { values: [12, 23, 47] },
+      mark: 'bar',
+      encoding: {
+        x: { field: 'data', type: 'ordinal' },
+        y: { aggregate: 'count' },
+      },
+    } as unknown as VegaLiteSpec);
+    expect(compiled.xAxis?.categories).to.deep.equal([12, 23, 47]);
+  });
+
+  it('wraps a bare primitive array in a named dataset the same way as inline data.values', () => {
+    // layer_line_window's shape: `datasets.falcon`/`.square` are bare arrays
+    // of numbers, referenced via `data: {name: ...}` rather than inline
+    // `data.values` — the same "data" field wrapping must apply either way,
+    // or a downstream `calculate`/`window` transform reading `datum.data`
+    // (or a direct `encoding.field: "data"`) silently sees `undefined` for
+    // every row.
+    const compiled = compileSpec({
+      data: { name: 'falcon' },
+      datasets: { falcon: [12, 23, 47] },
+      mark: 'bar',
+      encoding: {
+        x: { field: 'data', type: 'ordinal' },
+        y: { aggregate: 'count' },
+      },
+    } as unknown as VegaLiteSpec);
+    expect(compiled.xAxis?.categories).to.deep.equal([12, 23, 47]);
+  });
 });

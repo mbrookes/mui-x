@@ -502,6 +502,31 @@ describe('compileLineAreaMark', () => {
     expect((compiled.yAxis?.config as { min?: number }).min).to.equal(0);
   });
 
+  it('does not pin a log-scaled y domain to 0 (log(0) is undefined)', () => {
+    // layer_line_window's shape: a continuous-x line over a log-scaled y.
+    // Vega-Lite requires `zero: false` for a log scale (it can never include
+    // 0), so the zero-baseline default from the test above must not apply
+    // here — pinning `min` to 0 fed an invalid [0, max] domain straight into
+    // d3's log scale, degenerating to a totally blank chart.
+    const compiled = compileSpec({
+      data: {
+        values: [
+          { a: 1, b: 50 },
+          { a: 2, b: 20 },
+          { a: 3, b: 80 },
+        ],
+      },
+      mark: 'line',
+      encoding: {
+        x: { field: 'a', type: 'quantitative' },
+        y: { field: 'b', type: 'quantitative', scale: { type: 'log' } },
+      },
+    });
+    const config = compiled.yAxis?.config as { min?: number; scaleType?: string };
+    expect(config.scaleType).to.equal('log');
+    expect(config.min).to.be.greaterThan(0);
+  });
+
   it('renders an area mark over a continuous quantitative x axis as a band overlay', () => {
     const compiled = compileSpec({
       data: {

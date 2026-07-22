@@ -241,6 +241,37 @@ function validateJoinTypes(descriptor: BatchWidgetDescriptor): void {
 }
 
 /**
+ * Validate every JOIN `on` against a fail-closed non-empty-array guard (finding 2.1).
+ *
+ * SECURITY INVARIANT — runs UNCONDITIONALLY for every widget (independent of
+ * whether a `columnAllowlist` is configured), mirroring `validateJoinTypes` /
+ * `validateOrderByDirections`. `join.on` is client JSON that `queryBuilder.ts`'s
+ * `buildSecureQuery` iterates with a plain `for (const [left, right] of join.on)`
+ * loop to emit `.on(left, '=', right)` conditions inside the Knex join callback —
+ * nothing upstream previously required that loop to run at least once. A
+ * descriptor with `on: []` (or a missing/non-array `on`) passed every existing
+ * validator, then reached the query builder with ZERO `.on()` calls: Postgres
+ * renders the resulting join with no condition as a syntax error (an opaque,
+ * sanitized per-widget failure), but MySQL renders it as a VALID CROSS JOIN — a
+ * tenant-bounded cartesian product that returns silently wrong, row-multiplied
+ * results instead of failing at all. Reject fail-closed here instead, before the
+ * descriptor ever reaches query construction.
+ */
+function validateJoinOnPairs(descriptor: BatchWidgetDescriptor): void {
+  for (const join of descriptor.joins ?? []) {
+    if (!Array.isArray(join.on) || join.on.length === 0) {
+      throw new Error(
+        `MUI X Studio Server: JOIN on table "${join.table}" has no "on" conditions. ` +
+          `A join with an empty (or missing) "on" list emits no ON conditions at all, which some database ` +
+          `engines (e.g. MySQL) silently execute as a CROSS JOIN — a tenant-bounded cartesian product that returns ` +
+          `wrong, row-multiplied results instead of failing. ` +
+          `Provide at least one [leftColumn, rightColumn] pair in "on" for every join.`,
+      );
+    }
+  }
+}
+
+/**
  * Validate the row LIMIT against a fail-closed non-negative-integer guard.
  *
  * SECURITY INVARIANT — runs UNCONDITIONALLY for every widget (finding 3.1),
@@ -469,6 +500,9 @@ function buildPlan(descriptor: BatchWidgetDescriptor): ValidatedQueryPlan {
  *   5. `validateJoinTypes`           — UNCONDITIONAL (throws on a non-inner/left/
  *      right join type, normalizing case — an unrecognized value silently degrades
  *      the join to INNER and misplaces the joined table's security predicate).
+ *   5a. `validateJoinOnPairs`       — UNCONDITIONAL (throws on a missing/empty
+ *      `on` list — some database engines silently execute the resulting
+ *      condition-less join as a CROSS JOIN, finding 2.1).
  *   6. `validateLimit`               — UNCONDITIONAL (throws on a non-integer /
  *      negative `limit` — a malformed value can be silently coerced by the DB
  *      driver into returning every tenant-scoped row, finding 3.1).
@@ -527,6 +561,7 @@ export function validateQueryPlan(
   validateOutputAliases(descriptor);
   validateOrderByDirections(descriptor);
   validateJoinTypes(descriptor);
+  validateJoinOnPairs(descriptor);
   validateLimit(descriptor);
   if (columnAllowlist) {
     validateDescriptorColumns(descriptor, columnAllowlist);

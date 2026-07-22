@@ -26,6 +26,7 @@ export type {
   AggregationSpec,
   JoinDescriptor,
   SecurityColumns,
+  SecurityColumnOverride,
   SecurityColumnsConfig,
   TenancyConfig,
   HandleBatchQueryOptions,

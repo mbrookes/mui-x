@@ -236,7 +236,9 @@ export function buildSecureQuery(
       // `joinNullIndicatorColumn` returns `undefined` for a `right`-typed join
       // (Tier1 fix — no column derived from ITS OWN `on` pair is a safe
       // null-extension indicator, see that function's doc comment) or a
-      // degenerate/empty `on` (not reachable via a validated descriptor) — in
+      // degenerate/empty `on` (rejected fail-closed by `validateJoinOnPairs` in
+      // `validateQueryPlan.ts` for the request path — kept as a defensive
+      // fallback for a direct/test caller that bypasses that validator) — in
       // either case fall through to the strict WHERE below rather than skip
       // enforcement entirely.
     }
@@ -334,9 +336,11 @@ export function buildSecureQuery(
  * be discarded either way.
  *
  * Returns `undefined` for a `right`-typed join (see above) or a join with no
- * `on` pairs at all (not reachable via a validated descriptor — every join
- * requires at least one `on` pair — kept as a defensive fallback rather than a
- * crash).
+ * `on` pairs at all (rejected fail-closed by `validateJoinOnPairs` in
+ * `validateQueryPlan.ts` for every request-path descriptor — every join
+ * reaching this function via the request path is guaranteed at least one `on`
+ * pair; the empty-array branch here is a defensive fallback for a direct/test
+ * caller that bypasses that validator, rather than a crash).
  */
 function joinNullIndicatorColumn(join: {
   table: string;

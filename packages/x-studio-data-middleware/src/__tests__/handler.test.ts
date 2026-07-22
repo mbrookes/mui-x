@@ -5,7 +5,7 @@
  * → tier selection → handler output. Uses a lightweight in-memory mock Knex
  * builder (no native module dependencies).
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createHmac } from 'node:crypto';
 import { handleBatchQuery, MAX_WIDGETS_PER_BATCH } from '../handler';
 import { generateCacheKey } from '../security/cacheKey';
@@ -817,6 +817,75 @@ describe('handleBatchQuery — schema allowlist enforcement', () => {
       handleBatchQuery(body, ACME_CLAIMS, {
         db: makeDb(),
         schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
+      }),
+      'names table "payroll", which is not in the schema allowlist',
+    );
+  });
+
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
+  it('rejects a qualified AGGREGATIONS column naming a table outside the schema allowlist, even with no columnAllowlist configured (finding 2.2)', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          aggregations: [{ column: 'payroll.salary', func: 'sum', alias: 's' }],
+        },
+      ],
+    };
+
+    await expectWidgetError(
+      handleBatchQuery(body, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
+      }),
+      'names table "payroll", which is not in the schema allowlist',
+    );
+  });
+
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
+  it('rejects a qualified JOIN "on" left-side column naming a table outside the schema allowlist (finding 2.2)', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          joins: [{ table: 'customers', on: [['payroll.salary', 'customers.id']] }],
+        },
+      ],
+    };
+
+    await expectWidgetError(
+      handleBatchQuery(body, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales', 'customers'],
+        tenancy: SINGLE_TENANT,
+      }),
+      'names table "payroll", which is not in the schema allowlist',
+    );
+  });
+
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
+  it('rejects a qualified JOIN "on" right-side column naming a table outside the schema allowlist (finding 2.2)', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          joins: [{ table: 'customers', on: [['sales.customer_id', 'payroll.salary']] }],
+        },
+      ],
+    };
+
+    await expectWidgetError(
+      handleBatchQuery(body, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales', 'customers'],
         tenancy: SINGLE_TENANT,
       }),
       'names table "payroll", which is not in the schema allowlist',
@@ -2502,6 +2571,64 @@ describe('handleBatchQuery — JOIN with ambiguous column names', () => {
     expect(rows).toHaveLength(3);
     const west = rows.find((r) => r.region === 'west');
     expect(west?.total).toBe(250);
+  });
+});
+
+// ─── handleBatchQuery — JOIN with an empty `on` (finding 2.1) ────────────────
+
+describe('handleBatchQuery — JOIN with an empty `on` is rejected before query construction (finding 2.1)', () => {
+  it('rejects a widget whose join has an empty `on` array, and never invokes the db', async () => {
+    // A `db` spy wrapping the real mock: if `buildSecureQuery` (or anything else)
+    // ever reached query construction for this widget, `db('sales')` would be
+    // called. Asserting it never was proves the empty-`on` join was rejected at
+    // validation, before `handler.ts` calls into the query builder at all — not
+    // merely that the eventually-constructed query happened to error out.
+    const realDb = makeDb();
+    const dbSpy = vi.fn((table: string) => realDb(table));
+
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          joins: [{ table: 'customers', on: [] }],
+        },
+      ],
+    };
+
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: dbSpy,
+      schemaAllowlist: ['sales', 'customers'],
+      tenancy: SINGLE_TENANT,
+    });
+
+    expect(result.results[0].rows).toEqual([]);
+    expect(result.results[0].error).toMatch(/no "on" conditions/i);
+    expect(dbSpy).not.toHaveBeenCalled();
+  });
+
+  it('isolates an empty-`on`-join widget from a well-formed sibling', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        { id: 'bad', table: 'sales', joins: [{ table: 'customers', on: [] }] },
+        { id: 'good', table: 'sales' },
+      ],
+    };
+
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales', 'customers'],
+      tenancy: SINGLE_TENANT,
+    });
+
+    const bad = result.results.find((r) => r.id === 'bad')!;
+    const good = result.results.find((r) => r.id === 'good')!;
+    expect(bad.rows).toEqual([]);
+    expect(bad.error).toMatch(/no "on" conditions/i);
+    expect(good.error).toBeUndefined();
+    expect(good.rows.length).toBeGreaterThan(0);
   });
 });
 

@@ -35,14 +35,16 @@ function makeJwt(
 }
 
 describe('extractSecurityClaims — payload-shape edge cases', () => {
-  it('passes a non-string truthy tenantId through verbatim (no coercion)', () => {
-    // A numeric tenantId is truthy, so it passes the presence check and flows
-    // straight through into the returned claims (and thus cache keys / WHERE
-    // bindings). Documenting the current, un-coerced behavior.
+  it('rejects a non-string truthy tenantId (finding 3.3)', () => {
+    // A numeric tenantId is truthy, so it passes the old bare `!payload.tenantId`
+    // presence check — `normalizeTenantId` now enforces the runtime shape
+    // (mirroring `normalizeRegionIds`) instead of letting it flow straight
+    // through into cache keys / WHERE bindings typed as a string without ever
+    // having been one.
     const token = makeJwt({ sub: 'u1', tenantId: 12345 }, SECRET);
-    const claims = extractSecurityClaims(`Bearer ${token}`, SECRET);
-    expect(claims.tenantId).toBe(12345);
-    expect(typeof claims.tenantId).toBe('number');
+    expect(() => extractSecurityClaims(`Bearer ${token}`, SECRET)).toThrow(
+      /"tenantId".*must be a non-empty string/i,
+    );
   });
 
   it('ignores a `nbf` (not-before) claim — a future nbf is still accepted', () => {

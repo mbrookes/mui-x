@@ -10,6 +10,7 @@
  * functions `validateQueryPlan` reuses, so error text can never drift.
  */
 import { describe, it, expect } from 'vitest';
+import Knex from 'knex';
 import {
   validateQueryPlan,
   isValidatedQueryPlan,
@@ -668,6 +669,76 @@ describe('validateQueryPlan — JOIN type allowlist (finding 2.3)', () => {
     expect(() => toValidatedQueryPlan(joinDescriptor('full'))).not.toThrow();
     // A case-varying-but-valid type still normalizes on the coercion path.
     expect(toValidatedQueryPlan(joinDescriptor('LEFT')).joins[0].type).toBe('left');
+  });
+});
+
+describe('validateQueryPlan — JOIN "on" must be non-empty (finding 2.1)', () => {
+  it('accepts a join with at least one "on" pair', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      joins: [{ table: 'customers', on: [['sales.customer_id', 'customers.id']] }],
+    };
+    expect(() => validateQueryPlan(descriptor)).not.toThrow();
+  });
+
+  it('throws for a join with an empty "on" array', () => {
+    // An empty `on` emits NO `.on()` conditions in `buildSecureQuery`'s join
+    // callback — Postgres rejects the resulting condition-less join as a syntax
+    // error, but MySQL silently accepts it as a valid CROSS JOIN, returning a
+    // tenant-bounded cartesian product instead of failing.
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      joins: [{ table: 'customers', on: [] }],
+    };
+    expect(() => validateQueryPlan(descriptor)).toThrow(/no "on" conditions/i);
+  });
+
+  it('throws for a join with a missing "on" (not a runtime guarantee)', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      joins: [{ table: 'customers' } as any],
+    };
+    expect(() => validateQueryPlan(descriptor)).toThrow(/no "on" conditions/i);
+  });
+
+  it('throws for a join whose "on" is not an array', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      joins: [{ table: 'customers', on: 'not-an-array' as any }],
+    };
+    expect(() => validateQueryPlan(descriptor)).toThrow(/no "on" conditions/i);
+  });
+
+  it('rejects the empty-on join even when other joins on the same widget are well-formed', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'sales',
+      joins: [
+        { table: 'customers', on: [['sales.customer_id', 'customers.id']] },
+        { table: 'regions', on: [] },
+      ],
+    };
+    expect(() => validateQueryPlan(descriptor)).toThrow(/no "on" conditions/i);
+  });
+
+  it('a real-Knex render of the pre-fix shape (bypassing validation) demonstrates the CROSS JOIN risk this closes', () => {
+    // Documents WHY the guard exists: rendering the query builder's join
+    // callback directly (as `buildSecureQuery` would, absent this validator)
+    // with zero `.on()` calls produces a condition-less join. This test never
+    // calls `buildSecureQuery`/reaches query construction for a real widget —
+    // `validateQueryPlan` above proves that path is unreachable — it only pins
+    // what the raw Knex shape looks like when no `.on()` is ever added.
+    const realDb = Knex({ client: 'pg' });
+    const query = realDb('sales').join('customers', function joinOn(this: any) {
+      // Deliberately no `this.on(...)` calls — the shape an empty `on: []`
+      // would have produced pre-fix.
+      void this;
+    });
+    expect(query.toString()).toBe('select * from "sales" inner join "customers"');
   });
 });
 

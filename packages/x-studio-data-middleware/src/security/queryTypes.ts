@@ -74,7 +74,10 @@ export interface BatchWidgetDescriptor {
    * Aggregation specs for DB push-down queries.
    *
    * Non-aggregated `columns` entries become GROUP BY clauses.
-   * When not set, the db tier returns grouped rows without aggregation.
+   * When not set, the db tier returns a plain raw-row slice (the same select/
+   * orderBy/limit shape the client/server tiers return for the same descriptor) —
+   * NOT grouped rows without aggregation. See `router/execute.ts`'s
+   * no-aggregations fallback branch.
    */
   aggregations?: AggregationSpec[];
   /** Client-supplied filter predicates (structured, never raw SQL) */

@@ -14,15 +14,102 @@ import type { JwtSecurityClaims } from './types';
 /** JWT payload shape expected by x-studio-data-middleware */
 interface JwtPayload {
   sub: string;
-  tenantId: string;
-  roleIds?: string[];
+  // `unknown` (not `string`) — the payload is parsed JSON from a
+  // client-controlled bearer token, so the TS shape is not a runtime
+  // guarantee. `normalizeTenantId` below is the runtime boundary that
+  // actually enforces `string` (finding 3.3), mirroring `normalizeRegionIds`.
+  tenantId: unknown;
+  // `unknown` (not `string[]`) — see `normalizeRoleIds` (finding 3.3).
+  roleIds?: unknown;
   // `unknown` (not `number[]`) — the payload is parsed JSON from a
   // client-controlled bearer token, so the TS shape is not a runtime
   // guarantee. `normalizeRegionIds` below is the runtime boundary that
   // actually enforces `number[]` (finding 3.1).
   regionIds?: unknown;
-  department?: string;
+  // `unknown` (not `string`) — see `normalizeDepartment` (finding 3.3).
+  department?: unknown;
   exp?: number;
+}
+
+/**
+ * Validate + coerce the JWT's `tenantId` claim to a non-empty `string` (finding 3.3).
+ *
+ * `tenantId` is typed `string` on `JwtSecurityClaims`, but the payload is
+ * client-supplied JSON — nothing guarantees the token issuer actually emitted a
+ * string. The pre-existing `!payload.tenantId` presence check only catches
+ * FALSY values (`undefined`, `''`, `0`, `false`) — a non-string TRUTHY value (a
+ * number, an object, an array) passed the check and flowed straight through
+ * into the returned claims — and from there into cache-key hashing and
+ * parameterized WHERE bindings — typed as `string` without ever having been
+ * one. This is the same field-shape asymmetry `normalizeRegionIds` already
+ * closes for `regionIds`; mirror it here. Not currently exploitable (the value
+ * stays parameterized), but an unenforced runtime shape at an already-acknowledged
+ * trust boundary.
+ */
+function normalizeTenantId(tenantId: unknown): string {
+  if (typeof tenantId !== 'string' || tenantId === '') {
+    throw new Error(
+      `MUI X Studio Server: JWT "tenantId" claim must be a non-empty string, ` +
+        `but received ${JSON.stringify(tenantId)}. ` +
+        'A non-string tenantId cannot be safely used to scope row-level tenant access. ' +
+        'Ensure the token issuer emits "tenantId" as a string.',
+    );
+  }
+  return tenantId;
+}
+
+/**
+ * Validate the JWT's optional `department` claim is a `string` when present (finding 3.3).
+ *
+ * Mirrors `normalizeTenantId` / `normalizeRegionIds`: `department` is typed
+ * `string | undefined` on `JwtSecurityClaims`, but nothing previously enforced
+ * that at runtime — a non-string, non-undefined value (a number, an array, an
+ * object) flowed straight through typed as a `string`.
+ */
+function normalizeDepartment(department: unknown): string | undefined {
+  if (department === undefined) {
+    return undefined;
+  }
+  if (typeof department !== 'string') {
+    throw new Error(
+      `MUI X Studio Server: JWT "department" claim must be a string, but received ${typeof department}. ` +
+        'A non-string department cannot be safely used to scope row-level department access. ' +
+        'Ensure the token issuer emits "department" as a string, or omits the claim entirely.',
+    );
+  }
+  return department;
+}
+
+/**
+ * Validate + coerce the JWT's optional `roleIds` claim to `string[]` (finding 3.3).
+ *
+ * Mirrors `normalizeRegionIds`: `roleIds` is typed `string[]` on
+ * `JwtSecurityClaims`, but nothing previously enforced that at runtime — a
+ * non-array value (or an array containing non-string entries) flowed straight
+ * through typed as `string[]`.
+ */
+function normalizeRoleIds(roleIds: unknown): string[] {
+  if (roleIds === undefined) {
+    return [];
+  }
+  if (!Array.isArray(roleIds)) {
+    throw new Error(
+      `MUI X Studio Server: JWT "roleIds" claim must be an array of strings, ` +
+        `but received ${typeof roleIds}. ` +
+        'A non-array roleIds cannot be safely used for role-based access checks. ' +
+        'Ensure the token issuer emits "roleIds" as a string array (e.g. ["admin", "viewer"]), or omits the claim entirely.',
+    );
+  }
+  return roleIds.map((id, index) => {
+    if (typeof id !== 'string') {
+      throw new Error(
+        `MUI X Studio Server: JWT "roleIds[${index}]" must be a string, but received ${JSON.stringify(id)}. ` +
+          'A non-string role id cannot be safely used for role-based access checks. ' +
+          'Ensure the token issuer emits "roleIds" as a string array (e.g. ["admin", "viewer"]).',
+      );
+    }
+    return id;
+  });
 }
 
 /**
@@ -161,10 +248,10 @@ export function extractSecurityClaims(
   }
 
   return {
-    tenantId: payload.tenantId,
+    tenantId: normalizeTenantId(payload.tenantId),
     userId: payload.sub,
-    roleIds: payload.roleIds ?? [],
+    roleIds: normalizeRoleIds(payload.roleIds),
     regionIds: normalizeRegionIds(payload.regionIds),
-    department: payload.department,
+    department: normalizeDepartment(payload.department),
   };
 }

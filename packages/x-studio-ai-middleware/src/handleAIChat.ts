@@ -57,6 +57,7 @@
 import { runAgenticLoop } from './agenticLoop';
 import type { PendingApproval } from './agenticLoop/toolDispatch';
 import type { ToolPolicy } from './toolPolicy';
+import { withTimeout } from './mcp/helpers';
 import type { StudioAIRequest, StudioAISSEEvent } from './models/protocol';
 import type {
   StudioAISkill,
@@ -287,8 +288,13 @@ export interface StudioAIHandlerOptions {
    * The returned `StudioAIEnrichedContext` is rendered into a `<server_context>`
    * block in the system prompt (omitted in `privateMode`).
    *
-   * Enrichment is best-effort: if the callback throws, the error is reported via
-   * `onToolError('contextEnricher', err)` and the chat proceeds without it.
+   * Enrichment is best-effort: if the callback throws, OR does not settle within
+   * `CONTEXT_ENRICHER_TIMEOUT_MS` (finding T2-2, iteration 25 — a hung DB query
+   * previously blocked the entire chat stream before the first LLM call, since
+   * nothing bounded this `await`), the error/timeout is reported via
+   * `onToolError('contextEnricher', err)` and the chat proceeds without it — the
+   * same graceful degradation `mcp/resources.ts`'s `studio://dashboard/system-prompt`
+   * resource applies to its own call to this same callback.
    * Keep the returned payload small — it counts against the LLM token budget;
    * bound large maps/notes yourself before returning.
    *
@@ -318,15 +324,29 @@ export interface StudioAIHandlerOptions {
   /**
    * Server-enforced skill allow-list, by skill `name`. The client asserts `body.skills`
    * (name, mode, `promptFragment`, tool schema), and each skill's `promptFragment` is
-   * interpolated into the higher-trust **system** prompt region — unlike `allowedTools`
-   * and `privateMode`, there was previously no server lever to filter it, so a client
-   * could inject arbitrary system-prompt content (finding 2.1). When set, only skills
-   * whose `name` is in this list contribute prompt text (and server-tool advertisements);
-   * every other body-supplied skill is dropped. Omit to preserve the current behavior
-   * (the client-asserted `body.skills` is trusted as-is).
+   * interpolated into the higher-trust **system** prompt region.
+   *
+   * IMPORTANT (finding T1-1, iteration 25): naming a skill here does **not**, by
+   * itself, admit any client-supplied CONTENT — it only admits a client-supplied
+   * SELECTION. The original finding-2.1 fix filtered `body.skills` by `name` alone,
+   * but that still let a request assert `{ name: 'an-allowlisted-name', promptFragment:
+   * '<attacker-authored instructions>' }`: the name passed the allow-list, while the
+   * attacker's own fragment (and, for `server-tool` mode, their own tool
+   * `description`/`parameters`) rode along unchanged into the system prompt — a full
+   * bypass of the allow-list's intent. So for every body-supplied skill whose `name`
+   * is in this list, the entry is now SUBSTITUTED with the matching, host-authored
+   * definition registered in `options.skillHandlers` (matched by `name`) — the same
+   * registry already used to look up `execute` for `server-tool` skills — rather than
+   * trusting any field of the body's object. A body skill's `name` is therefore only
+   * ever a *selector* into `skillHandlers`; its own `promptFragment`/`tool` are never
+   * used. A name in this list with no matching `skillHandlers` entry is dropped —
+   * there is nothing server-vetted to substitute, so the body's content is never
+   * used as a fallback. Omit `allowedSkills` to preserve the current behavior
+   * (`body.skills` trusted as-is, including its content).
    *
    * Use this on a multi-tenant/public endpoint to guarantee an integration can never
-   * inject skill prompt fragments the host did not vet.
+   * inject skill prompt fragments (or tool schemas) the host did not author — pair
+   * it with a `skillHandlers` entry for every allowlisted name.
    */
   allowedSkills?: string[];
   /**
@@ -345,6 +365,24 @@ export interface StudioAIHandlerOptions {
    */
   toolPolicy?: ToolPolicy;
 }
+
+/**
+ * Timeout (ms) for the host-supplied `contextEnricher` callback (finding T2-2,
+ * iteration 25). Every other host-supplied callback in this package is already
+ * bounded by `withTimeout` — server-tool skills and `queryDataSource` at 15s,
+ * `approvalHandler` at up to 120s, LLM fetches at 120s — but `contextEnricher`
+ * was awaited unbounded on both transports (here, and in
+ * `mcp/resources.ts`'s `studio://dashboard/system-prompt` resource read), so a
+ * hung DB query stalled the entire response before the first LLM call. Sized
+ * the same as `queryDataSource`/server-tool skills since it is the same shape
+ * of call — a single server-side data-access hook — and enrichment is
+ * documented as best-effort, so a shorter bound is appropriate (this is not a
+ * user-facing tool call the model is waiting on turn budget for).
+ *
+ * Exported so `mcp/resources.ts` shares the exact same value, and so tests can
+ * assert against it directly.
+ */
+export const CONTEXT_ENRICHER_TIMEOUT_MS = 15_000;
 
 /**
  * Encodes a `StudioAISSEEvent` as an SSE-formatted string.
@@ -495,13 +533,24 @@ export function handleAIChat(
   }
   const effectivePrivateMode = Boolean(options.privateMode || bodyPrivateMode);
 
-  // Server-side skill allow-list enforcement (finding 2.1). A client-asserted
-  // `body.skills` fragment lands in the higher-trust system region; when the host
-  // supplies `allowedSkills`, drop every body skill whose name is not vetted, so a
-  // public/multi-tenant endpoint can guarantee no un-vetted skill prompt text is
-  // injected. Omitting the option preserves the current behavior (skills trusted).
+  // Server-side skill allow-list enforcement (finding 2.1, hardened for T1-1). A
+  // client-asserted `body.skills` entry's `promptFragment` (and, for `server-tool`
+  // mode, its tool `description`/`parameters`) lands in the higher-trust system
+  // region. Filtering by `name` alone is NOT sufficient — a body can assert an
+  // allowlisted `name` paired with its own hostile `promptFragment`, and the name
+  // check alone would let that fragment through unchanged. So when the host supplies
+  // `allowedSkills`, a body skill's `name` is used only to SELECT a definition —
+  // never to admit the body's own content: each allowlisted name is looked up in
+  // `options.skillHandlers` (the same host-registered registry the agentic loop uses
+  // to execute `server-tool` skills) and that server-authored definition is what's
+  // actually used. A name with no matching `skillHandlers` entry is dropped rather
+  // than falling back to the body's (unvetted) object. Omitting `allowedSkills`
+  // preserves the current behavior (`body.skills` trusted as-is, content included).
   const effectiveSkills = options.allowedSkills
-    ? (skills ?? []).filter((s) => options.allowedSkills!.includes(s.name))
+    ? (skills ?? [])
+        .filter((s) => options.allowedSkills!.includes(s.name))
+        .map((s) => options.skillHandlers?.find((h) => h.name === s.name))
+        .filter((s): s is StudioAISkill => Boolean(s))
     : skills;
 
   // Internal abort controller so consumer-side stream cancellation (`reader.cancel()`)
@@ -549,14 +598,25 @@ export function handleAIChat(
         }
 
         // Best-effort server-side context enrichment. Failures never abort the chat.
+        // Bounded by `CONTEXT_ENRICHER_TIMEOUT_MS` (finding T2-2) — without this, a
+        // hung `contextEnricher` (e.g. a stalled DB query) would block this `await`
+        // indefinitely, stalling the entire SSE stream before the first LLM call is
+        // even made. A timeout degrades the same way a thrown error already does:
+        // logged via `onToolError` and the chat proceeds without enrichment.
         let enrichedContext: StudioAIEnrichedContext | undefined;
         if (options.contextEnricher && !effectivePrivateMode) {
           try {
-            enrichedContext = await options.contextEnricher({
-              dashboardState,
-              richContext,
-              signal: abortController.signal,
-            });
+            enrichedContext = await withTimeout(
+              Promise.resolve(
+                options.contextEnricher({
+                  dashboardState,
+                  richContext,
+                  signal: abortController.signal,
+                }),
+              ),
+              CONTEXT_ENRICHER_TIMEOUT_MS,
+              'contextEnricher',
+            );
           } catch (err) {
             options.onToolError?.(
               'contextEnricher',

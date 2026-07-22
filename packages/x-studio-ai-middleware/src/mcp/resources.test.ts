@@ -24,6 +24,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { registerResourceHandlers } from './resources';
 import { buildStudioMcpServer } from '../mcp';
 import { createDefaultStudioState } from '../models/studioTypes';
+import { CONTEXT_ENRICHER_TIMEOUT_MS } from '../handleAIChat';
 import type { StudioDataSource } from '../models/studioTypes';
 import type { StudioMcpData, StudioStateBox } from './types';
 
@@ -634,6 +635,35 @@ describe('resources/read system-prompt contextEnricher authorization (T2-2)', ()
     const result = await readResource(server, 'studio://dashboard/system-prompt');
     expect(result.contents[0].text.length).toBeGreaterThan(0);
     expect(contextEnricher).toHaveBeenCalledTimes(1);
+  });
+
+  // Regression for finding T2-2 (Tier 2, iteration 25): this resource read awaited
+  // `contextEnricher` with no timeout, so a hung enricher would hang the whole
+  // `studio://dashboard/system-prompt` resource read indefinitely. It is now bounded
+  // by the same `CONTEXT_ENRICHER_TIMEOUT_MS` `handleAIChat.ts` uses, and degrades
+  // gracefully: the resource is still served, just without the enrichment.
+  it('does not hang past CONTEXT_ENRICHER_TIMEOUT_MS when contextEnricher never resolves', async () => {
+    vi.useFakeTimers();
+    try {
+      const data = makeData();
+      // Never resolves or rejects — simulates a hung DB query.
+      const contextEnricher = vi.fn(() => new Promise<never>(() => {}));
+      const server = buildStudioMcpServer(makeStateBox(), {
+        data,
+        contextEnricher,
+        allowedTools: ['get_dashboard_state', 'query_data_source'],
+      });
+
+      const resultPromise = readResource(server, 'studio://dashboard/system-prompt');
+      await vi.advanceTimersByTimeAsync(CONTEXT_ENRICHER_TIMEOUT_MS);
+
+      const result = await resultPromise;
+      // Best-effort degradation: the resource is still served without enrichment,
+      // not left hanging or thrown as a hard error.
+      expect(result.contents[0].text.length).toBeGreaterThan(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

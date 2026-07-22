@@ -23,6 +23,7 @@ import { buildPageLayoutContext } from '../buildPageLayoutContext';
 import { projectStateForAI } from '../executeToolOnState';
 import type { StudioCustomWidgetDef } from '../models/studioTypes';
 import type { StudioAIEnrichedContext } from '../models/aiTypes';
+import { CONTEXT_ENRICHER_TIMEOUT_MS } from '../handleAIChat';
 import { checkAllowedTable, withTimeout } from './helpers';
 import type { StudioMcpData, StudioMcpLogger, StudioMcpOptions, StudioStateBox } from './types';
 
@@ -284,10 +285,21 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
           );
         } else {
           try {
-            enrichedContext = await contextEnricher({
-              dashboardState: stateBox.current,
-              richContext,
-            });
+            // Bounded by `CONTEXT_ENRICHER_TIMEOUT_MS` (finding T2-2, iteration 25) —
+            // this `await` previously had no timeout, so a hung enrichment DB query
+            // would block this resource read indefinitely. Enrichment is best-effort,
+            // so a timeout degrades the same way a thrown error already does: logged
+            // and the resource is still served without it.
+            enrichedContext = await withTimeout(
+              Promise.resolve(
+                contextEnricher({
+                  dashboardState: stateBox.current,
+                  richContext,
+                }),
+              ),
+              CONTEXT_ENRICHER_TIMEOUT_MS,
+              'contextEnricher',
+            );
           } catch (err) {
             logger?.error(
               `[mcp] contextEnricher failed: ${err instanceof Error ? err.message : String(err)}`,

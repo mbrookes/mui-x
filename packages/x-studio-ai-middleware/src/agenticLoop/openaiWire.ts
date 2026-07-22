@@ -166,6 +166,23 @@ export const POSITIONAL_INDEX_BASE = 2_000_000;
  */
 export const MAX_TOOL_CALL_ARGS_BUFFER_CHARS = 1_000_000;
 
+/**
+ * Hard ceiling on the number of DISTINCT tool-call slots (`reqToolCalls` entries)
+ * a single turn's accumulator may hold (finding T2-1, iteration 25). Nothing else
+ * bounds this: `accumulateToolCallDeltas` mints a new `reqToolCalls[idx]` entry for
+ * every distinct `index` (or synthetic id-based / positional index) a delta
+ * carries, so a misbehaving/malicious gateway that streams deltas for indices
+ * `0..10^7` — never repeating one — grows this accumulator (and this process's
+ * memory) without bound within a single turn, the same threat model that motivated
+ * `MAX_TOOL_CALL_ARGS_BUFFER_CHARS` above and `MAX_TURN_TEXT_BUFFER_CHARS` in
+ * `agenticLoop.ts`, just bounding the NUMBER of tool calls rather than the size of
+ * one. It also caps the real per-entry work the dispatch loop performs afterward
+ * (two SSE `tool-activity` events plus a tool-result message per entry). Sized
+ * generously — 1,000 distinct tool calls in a single LLM turn is far beyond any
+ * legitimate response — so this only ever trips for a genuinely runaway stream.
+ */
+export const MAX_TOOL_CALLS_PER_TURN = 1_000;
+
 export function createToolCallAccumulator(): ToolCallAccumulator {
   return { reqToolCalls: {}, idToIdx: {}, nextAutoIdx: SYNTHETIC_INDEX_BASE };
 }
@@ -196,6 +213,22 @@ export function accumulateToolCallDeltas(deltas: ToolCallDelta[], acc: ToolCallA
       idx = POSITIONAL_INDEX_BASE + i;
     }
     if (!acc.reqToolCalls[idx]) {
+      // Finding T2-1 — bound the NUMBER of distinct tool-call slots this turn's
+      // accumulator may hold. Checked before minting a NEW slot (an update to an
+      // existing slot never grows the count), and thrown here — rather than
+      // silently dropped or truncated — so the caller's enclosing try/catch turns
+      // this into a clean `{ type: 'error' }` SSE event, exactly like the
+      // `argsBuffer`/turn-text-buffer caps this mirrors, instead of a slow,
+      // unbounded memory leak plus unbounded per-entry dispatch-loop work.
+      if (Object.keys(acc.reqToolCalls).length >= MAX_TOOL_CALLS_PER_TURN) {
+        throw new Error(
+          `MUI X Studio: A single turn's streamed tool calls exceeded the maximum count ` +
+            `(${MAX_TOOL_CALLS_PER_TURN}). This can happen when a misbehaving gateway streams ` +
+            'tool-call deltas for an unbounded number of distinct indices, which would otherwise ' +
+            "let a single request grow this process's memory (and per-call dispatch work) without " +
+            'bound. Aborting this request.',
+        );
+      }
       acc.reqToolCalls[idx] = { id: tc.id ?? '', name: '', argsBuffer: '' };
     }
     if (tc.id) {

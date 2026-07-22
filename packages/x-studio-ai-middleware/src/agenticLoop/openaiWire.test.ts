@@ -13,6 +13,7 @@ import {
   SYNTHETIC_INDEX_BASE,
   POSITIONAL_INDEX_BASE,
   MAX_TOOL_CALL_ARGS_BUFFER_CHARS,
+  MAX_TOOL_CALLS_PER_TURN,
   type ToolCallDelta,
 } from './openaiWire';
 
@@ -295,6 +296,66 @@ describe('accumulateToolCallDeltas', () => {
         ),
       ).not.toThrow();
       expect(acc.reqToolCalls[0].argsBuffer).toHaveLength(1000);
+    });
+  });
+
+  // Regression for finding T2-1 (Tier 2, iteration 25): nothing else bounds the
+  // NUMBER of distinct tool-call slots a single turn's accumulator may hold — a
+  // misbehaving/malicious gateway that streams deltas for an unbounded number of
+  // distinct indices would otherwise grow `reqToolCalls` (and process memory, plus
+  // the dispatch loop's per-entry work) without bound.
+  describe('tool-call count cap (finding T2-1)', () => {
+    it('throws once distinct streamed tool-call indices exceed the cap, rather than growing unboundedly', () => {
+      const acc = createToolCallAccumulator();
+      const deltas: ToolCallDelta[] = Array.from({ length: MAX_TOOL_CALLS_PER_TURN }, (_, idx) => ({
+        index: idx,
+        id: `tc_${idx}`,
+        function: { name: 't', arguments: '{}' },
+      }));
+      expect(() => accumulateToolCallDeltas(deltas, acc)).not.toThrow();
+      expect(Object.keys(acc.reqToolCalls)).toHaveLength(MAX_TOOL_CALLS_PER_TURN);
+
+      expect(() =>
+        accumulateToolCallDeltas(
+          [{ index: MAX_TOOL_CALLS_PER_TURN, id: 'one_too_many', function: { name: 't' } }],
+          acc,
+        ),
+      ).toThrow(new RegExp(`exceeded the maximum count \\(${MAX_TOOL_CALLS_PER_TURN}\\)`));
+
+      // The accumulator was not silently grown past the cap by the rejected delta.
+      expect(Object.keys(acc.reqToolCalls)).toHaveLength(MAX_TOOL_CALLS_PER_TURN);
+    });
+
+    it('does not count a delta that updates an EXISTING slot toward the cap', () => {
+      const acc = createToolCallAccumulator();
+      const deltas: ToolCallDelta[] = Array.from({ length: MAX_TOOL_CALLS_PER_TURN }, (_, idx) => ({
+        index: idx,
+        id: `tc_${idx}`,
+        function: { name: 't', arguments: '{}' },
+      }));
+      accumulateToolCallDeltas(deltas, acc);
+
+      // A further fragment for an ALREADY-accumulated index (index 0) merely updates
+      // that slot in place — it must not be treated as a new slot and must not throw.
+      expect(() =>
+        accumulateToolCallDeltas([{ index: 0, function: { arguments: 'x' } }], acc),
+      ).not.toThrow();
+      expect(Object.keys(acc.reqToolCalls)).toHaveLength(MAX_TOOL_CALLS_PER_TURN);
+      expect(acc.reqToolCalls[0].argsBuffer).toBe('{}x');
+    });
+
+    it('does not throw when distinct tool calls stay within the cap', () => {
+      const acc = createToolCallAccumulator();
+      const deltas: ToolCallDelta[] = Array.from(
+        { length: MAX_TOOL_CALLS_PER_TURN - 1 },
+        (_, idx) => ({
+          index: idx,
+          id: `tc_${idx}`,
+          function: { name: 't', arguments: '{}' },
+        }),
+      );
+      expect(() => accumulateToolCallDeltas(deltas, acc)).not.toThrow();
+      expect(Object.keys(acc.reqToolCalls)).toHaveLength(MAX_TOOL_CALLS_PER_TURN - 1);
     });
   });
 });

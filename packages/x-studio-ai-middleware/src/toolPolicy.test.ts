@@ -18,6 +18,7 @@ import {
 } from './toolPolicy';
 import type { ToolPolicy, ToolPolicyContext } from './toolPolicy';
 import { executeToolOnState } from './executeToolOnState';
+import * as executeToolOnStateModule from './executeToolOnState';
 import { STUDIO_AI_TOOL_NAMES, DESTRUCTIVE_TOOLS } from './studioAITools';
 import { createDefaultStudioState } from './models/studioTypes';
 import type { StudioState } from './models/studioTypes';
@@ -437,6 +438,70 @@ describe('executeToolWithPolicy', () => {
     });
     expect(outcome.kind).toBe('needs-approval');
     expect(outcome.kind === 'needs-approval' ? outcome.reason : 'not-reached').toBeUndefined();
+  });
+
+  // Finding T2-1 (Tier 2, iteration 25): the pure dry-run (`executeToolOnState`,
+  // e.g. `projectStateForAI` + `JSON.stringify` of the whole state for
+  // `get_dashboard_state`) used to run BEFORE the cheap, args-only
+  // `Policy.toolCallBudget` check, so a call the budget was always going to reject
+  // still paid the full dry-run cost. `executeToolWithPolicy` must now consult a
+  // budget-style policy — one that can decide without `ctx.proposed` — BEFORE
+  // calling `executeToolOnState` at all.
+  describe('cheap budget pre-check short-circuits the dry run (finding T2-1)', () => {
+    it('does not call the dry run when the tool-call budget already denies', async () => {
+      const spy = vi.spyOn(executeToolOnStateModule, 'executeToolOnState');
+      const state = makeTwoWidgetState();
+      // Already over budget before this call is even counted.
+      const usage = { committedMutations: 0, toolCalls: 10 };
+      const policy = Policy.toolCallBudget({
+        max: 3,
+        getCalls: (ctx) => ctx.usage.toolCalls,
+        reason: (calls, max) => `budget exceeded: ${calls} > ${max}`,
+      });
+
+      const outcome = await executeToolWithPolicy('get_dashboard_state', {}, state, {
+        policy,
+        transport: 'chat',
+        usage,
+      });
+
+      expect(outcome).toEqual({ kind: 'denied', reason: 'budget exceeded: 11 > 3' });
+      expect(spy).not.toHaveBeenCalled();
+      // The call is still counted even though it was rejected before the dry run.
+      expect(usage.toolCalls).toBe(11);
+
+      spy.mockRestore();
+    });
+
+    it('still calls the dry run and allows the call when the budget has headroom', async () => {
+      const spy = vi.spyOn(executeToolOnStateModule, 'executeToolOnState');
+      const state = makeTwoWidgetState();
+      const usage = { committedMutations: 0, toolCalls: 0 };
+      const policy = Policy.toolCallBudget({
+        max: 10,
+        getCalls: (ctx) => ctx.usage.toolCalls,
+        reason: (calls, max) => `budget exceeded: ${calls} > ${max}`,
+      });
+
+      const outcome = await executeToolWithPolicy('get_dashboard_state', {}, state, {
+        policy,
+        transport: 'chat',
+        usage,
+      });
+
+      expect(outcome.kind).toBe('allowed');
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy).toHaveBeenCalledWith(
+        'get_dashboard_state',
+        {},
+        state,
+        undefined,
+        undefined,
+        undefined,
+      );
+
+      spy.mockRestore();
+    });
   });
 });
 

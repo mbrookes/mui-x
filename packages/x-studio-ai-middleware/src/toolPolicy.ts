@@ -423,6 +423,35 @@ export async function executeToolWithPolicy(
 ): Promise<ExecuteToolWithPolicyResult> {
   opts.usage.toolCalls += 1;
 
+  // Finding T2-1 (Tier 2, iteration 25) — cheap pre-check BEFORE the pure dry-run
+  // below. `executeToolOnState` can be arbitrarily expensive for built-in read
+  // tools that project/stringify the whole state (e.g. `get_dashboard_state`), yet
+  // a call the rate-limit budgets are going to reject anyway gets none of that
+  // value back — today the dry-run (and `computeToolEffects`) always ran first,
+  // so a rejected call still paid its full cost. `Policy.toolCallBudget` (and
+  // `Policy.mutationBudget` for a call that isn't itself mutating/`mayMutate`) can
+  // be decided without knowing whether THIS call proposes a mutation, so consult
+  // `opts.policy` once here with `proposed: undefined` — a `deny` from that consult
+  // can only have come from a budget-style check that doesn't need `proposed` (the
+  // effects-aware/name-based host policies never deny — see the PURITY INVARIANT /
+  // `createDefaultToolPolicy` above), so short-circuiting on it costs nothing and
+  // changes no allowed-call behavior. `allow`/`require-approval` from this pre-check
+  // are NOT acted on here: only the real dry-run can supply the `result`/`effects`
+  // those outcomes must carry, so execution falls through to the unchanged path
+  // below, which re-consults the policy with the real `proposed` value exactly as
+  // before.
+  const preDecision = await opts.policy({
+    transport: opts.transport,
+    toolName,
+    input,
+    state,
+    proposed: undefined,
+    usage: opts.usage,
+  });
+  if (preDecision.action === 'deny') {
+    return { kind: 'denied', reason: preDecision.reason };
+  }
+
   const result = executeToolOnState(
     toolName,
     input,

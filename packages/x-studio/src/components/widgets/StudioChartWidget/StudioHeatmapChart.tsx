@@ -37,14 +37,31 @@ export function StudioHeatmapChart({
   const theme = useTheme();
   const { xLabels, yLabels, cells, minValue, maxValue } = heatData;
 
+  // `@mui/x-charts-pro`'s `HeatmapValueType` tuple has no null slot — a cell with
+  // genuinely zero contributing rows is represented by OMITTING its (xIndex, yIndex)
+  // entry entirely, not by pushing a `0`. `HeatmapData.getValue` (x-charts-pro) then
+  // returns `null` for any index pair absent from `data`, which flows into
+  // `valueFormatter` as `null` (already handled below) and renders with no fill via
+  // `getColor` — distinct from a real computed 0, which gets a genuine color (finding
+  // 5). `aggregateHeatmap` only records a cell in `cells` when at least one row landed
+  // in it, so `cells.has(...)` is exactly the "did any row contribute" check.
   const seriesData: [number, number, number][] = [];
   for (let xi = 0; xi < xLabels.length; xi += 1) {
     for (let yi = 0; yi < yLabels.length; yi += 1) {
-      seriesData.push([xi, yi, cells.get(`${xLabels[xi]}\x00${yLabels[yi]}`) ?? 0]);
+      const key = `${xLabels[xi]}\x00${yLabels[yi]}`;
+      if (cells.has(key)) {
+        seriesData.push([xi, yi, cells.get(key) as number]);
+      }
     }
   }
 
   const paletteColor = theme.palette[colorScheme].main;
+  // Low end of the continuous color ramp: anchoring to a hardcoded `'#ffffff'` made
+  // low-value cells render bright white on a dark canvas in dark mode, inverting
+  // perceived intensity (finding 4). `background.paper` already tracks the theme mode
+  // (light: white-ish, dark: a dark elevation surface), so the ramp always starts from
+  // "blends with the canvas" rather than a fixed light color.
+  const colorRampBase = theme.palette.background.paper;
   // Size y-axis width to the longest label so owner names aren't truncated.
   // 7px/char is a reasonable estimate for the default axis font; cap at 240px.
   const longestYLabel = yLabels.reduce((max, l) => Math.max(max, String(l).length), 0);
@@ -93,7 +110,7 @@ export function StudioHeatmapChart({
         {
           colorMap: {
             type: 'continuous',
-            color: ['#ffffff', paletteColor],
+            color: [colorRampBase, paletteColor],
             min: minValue,
             max: maxValue,
           },

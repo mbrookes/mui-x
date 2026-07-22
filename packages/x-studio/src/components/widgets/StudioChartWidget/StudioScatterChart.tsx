@@ -199,8 +199,11 @@ export function StudioScatterChart({
         xAxis={[{ label: xAxisLabel }]}
         yAxis={[{ label: yAxisLabel }]}
         slotProps={{
+          ...slotProps?.slotProps,
           legend: {
+            ...slotProps?.slotProps?.legend,
             sx: {
+              ...slotProps?.slotProps?.legend?.sx,
               overflowY: 'auto',
               flexWrap: 'nowrap',
               maxHeight: '100%',
@@ -210,10 +213,15 @@ export function StudioScatterChart({
         sx={{
           cursor: 'default',
           ...(ghostIds.size > 0 && {
-            // Dim ghost series dots using CSS targeting — each ghost series
-            // gets a lower-opacity fill. Ghost series are interleaved before
-            // the highlighted series so they render behind them.
-            [`& .MuiScatter-root:nth-of-type(-n+${ghostIds.size}) circle`]: {
+            // Dim ghost series dots using CSS targeting. Each ghost series' `<g>`
+            // wrapper renders with `data-series` ending in `GHOST_SERIES_SUFFIX`
+            // (`Scatter.tsx` in `@mui/x-charts` renders
+            // `<g data-series={series.id} className="MuiScatterChart-series">` — one
+            // group per series, not per-marker — and the utility class prefix is
+            // `MuiScatterChart-*`, not `MuiScatter-*`; `root` there is a single `<g>`
+            // wrapping every series, so `:nth-of-type` could never isolate the ghost
+            // series by count regardless of prefix).
+            [`& g[data-series$="${GHOST_SERIES_SUFFIX}"] circle`]: {
               opacity: 0.2,
             },
           }),

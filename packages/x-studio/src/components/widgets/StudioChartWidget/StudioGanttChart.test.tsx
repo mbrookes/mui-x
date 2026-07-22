@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { createRenderer } from '@mui/internal-test-utils';
+import { createRenderer, screen } from '@mui/internal-test-utils';
 import { describe, expect, it } from 'vitest';
 import { createStudioHarness } from '../../../internals/test-utils';
 import type { GanttItem } from '../../../internals/chartShapes/gantt';
@@ -88,5 +88,55 @@ describe('StudioGanttChart geometry (finding 1.10)', () => {
     const bar = container.querySelector('[data-gantt-bar="Late"]');
     expect(bar).not.toBeNull();
     expect(getComputedStyle(bar as Element).left).toBe('100%');
+  });
+});
+
+/**
+ * Regression tests for finding 3: the `aria-label` enumerated every row in `items`
+ * (not the height-capped `visibleItems` actually rendered), building a multi-hundred-KB
+ * string every render for a large filtered dataset and handing screen readers an
+ * unusable wall of text.
+ */
+describe('StudioGanttChart aria-label (finding 3)', () => {
+  const { render } = createRenderer();
+
+  function manyItems(count: number): GanttItem[] {
+    return Array.from({ length: count }, (_, i) => ({
+      id: i,
+      label: `Row ${i}`,
+      startMs: i * 1000,
+      endMs: i * 1000 + 500,
+    }));
+  }
+
+  it('does not grow unboundedly and mentions a total count for a large dataset', () => {
+    const items = manyItems(4213);
+    const { wrapper } = createStudioHarness();
+    render(<StudioGanttChart items={items} height={200} />, { wrapper });
+
+    const ariaLabel = screen.getByRole('img').getAttribute('aria-label')!;
+
+    // A wall of text for every one of 4213 rows would run to hundreds of KB; the
+    // capped description must stay in the low kilobytes.
+    expect(ariaLabel.length).toBeLessThan(5000);
+    // The total item count is still reported...
+    expect(ariaLabel).toContain('4213');
+    // ...and the label communicates that not every row was individually described.
+    expect(ariaLabel).toMatch(/\d+ more/);
+    // Only the first few rows are actually spelled out, not e.g. "Row 4212".
+    expect(ariaLabel).toContain('Row 0');
+    expect(ariaLabel).not.toContain('Row 4212');
+  });
+
+  it('describes every row directly when the dataset is small, with no "and N more" suffix', () => {
+    const items = manyItems(3);
+    const { wrapper } = createStudioHarness();
+    render(<StudioGanttChart items={items} height={200} />, { wrapper });
+
+    const ariaLabel = screen.getByRole('img').getAttribute('aria-label')!;
+    expect(ariaLabel).toContain('Row 0');
+    expect(ariaLabel).toContain('Row 1');
+    expect(ariaLabel).toContain('Row 2');
+    expect(ariaLabel).not.toMatch(/\d+ more/);
   });
 });

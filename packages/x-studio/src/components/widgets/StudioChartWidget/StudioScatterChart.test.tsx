@@ -29,6 +29,10 @@ type ScatterCallProps = {
   }>;
   zAxis?: unknown[];
   margin: { right: number };
+  slotProps?: {
+    tooltip?: unknown;
+    legend?: { toggleVisibilityOnClick?: boolean; sx?: Record<string, unknown> };
+  };
 };
 
 function lastScatterProps(): ScatterCallProps {
@@ -317,6 +321,60 @@ describe('StudioScatterChart', () => {
         />,
       );
       expect(scatterSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── Consumer-supplied slotProps must survive (finding 11) ────────────────────
+  describe('merges rather than overwrites consumer-supplied slotProps', () => {
+    it('preserves a consumer slotProps key this component does not itself override', () => {
+      renderScatter(
+        <StudioScatterChart
+          height={200}
+          scatterData={pointsA}
+          scatterSeries={null}
+          allScatterData={null}
+          allScatterSeries={null}
+          shouldShowGhost={false}
+          skipAnimation={false}
+          slotProps={{
+            slotProps: {
+              tooltip: { trigger: 'none' },
+            },
+          }}
+        />,
+      );
+      const props = lastScatterProps();
+      // The consumer's `tooltip` sub-key must survive — the component only ever
+      // overrides `legend`, so any other key must pass through untouched.
+      expect(props.slotProps?.tooltip).toEqual({ trigger: 'none' });
+    });
+
+    it("merges consumer-supplied legend overrides with this component's own legend sx, instead of dropping the consumer's legend key", () => {
+      renderScatter(
+        <StudioScatterChart
+          height={200}
+          scatterData={pointsA}
+          scatterSeries={null}
+          allScatterData={null}
+          allScatterSeries={null}
+          shouldShowGhost={false}
+          skipAnimation={false}
+          slotProps={{
+            slotProps: {
+              legend: { toggleVisibilityOnClick: true, sx: { color: 'red' } },
+            },
+          }}
+        />,
+      );
+      const props = lastScatterProps();
+      // The consumer's own `legend.toggleVisibilityOnClick` key must survive...
+      expect(props.slotProps?.legend?.toggleVisibilityOnClick).toBe(true);
+      // ...and its `sx.color` must be preserved alongside this component's own
+      // required sx overrides (overflow/maxHeight for the scrollable legend), rather
+      // than the whole `sx` object (or the whole `legend` object) being clobbered.
+      expect(props.slotProps?.legend?.sx?.color).toBe('red');
+      expect(props.slotProps?.legend?.sx?.overflowY).toBe('auto');
+      expect(props.slotProps?.legend?.sx?.maxHeight).toBe('100%');
     });
   });
 });

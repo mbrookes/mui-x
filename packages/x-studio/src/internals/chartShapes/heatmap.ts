@@ -15,7 +15,13 @@ export interface HeatmapData {
   xLabels: string[];
   /** Unique values for the row (Y) axis, ordered. */
   yLabels: string[];
-  /** Aggregated value for each (xLabel, yLabel) cell. Missing cells default to 0. */
+  /**
+   * Aggregated value for each (xLabel, yLabel) cell that had at least one contributing
+   * row. A combo with NO contributing rows is absent from this map entirely — callers
+   * must treat a missing key as "no data" (render as null), not as 0, so a genuine
+   * computed 0 (e.g. avg/min/max over rows that summed to zero) stays visually
+   * distinct from a cell no row ever touched (finding 5).
+   */
   cells: Map<string, number>;
   minValue: number;
   maxValue: number;

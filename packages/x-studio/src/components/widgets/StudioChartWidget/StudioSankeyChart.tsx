@@ -6,6 +6,9 @@ import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
 import type { StudioNumberFormat } from '../../../models';
 import type { SankeyAggregateData } from '../../../internals/chartAggregation';
 
+// Cap on how many links get spelled out in the `aria-label` text alternative (finding 3).
+const ARIA_LABEL_MAX_LINKS = 15;
+
 interface StudioSankeyChartProps {
   /** Node ids and weighted links, as produced by `aggregateSankey`. */
   data: SankeyAggregateData;
@@ -34,11 +37,20 @@ export function StudioSankeyChart({
 }: StudioSankeyChartProps) {
   const localeText = useStudioLocaleText();
   const formatter = (value: number) => formatNumber(value, valueFormat ?? 'decimal', currencyCode);
-  // Text alternative summarizing the flow diagram for assistive technology.
+  // Text alternative summarizing the flow diagram for assistive technology. Cap the
+  // enumerated links to `ARIA_LABEL_MAX_LINKS` and append a total count for the
+  // remainder — joining every link (potentially thousands for a large diagram) rebuilds
+  // a multi-hundred-KB string every render and is not a usable screen-reader
+  // announcement anyway (finding 3).
+  const describedLinks = data.links.slice(0, ARIA_LABEL_MAX_LINKS);
+  const describedCount = data.links.length - describedLinks.length;
+  const ariaLabelDetails =
+    describedLinks.map((l) => `${l.source} to ${l.target}: ${formatter(l.value)}`).join('; ') +
+    (describedCount > 0 ? `; ${localeText.filterSummaryAndMore(describedCount)}` : '');
   const ariaLabel = localeText.sankeyChartAriaLabel(
     data.nodes.length,
     data.links.length,
-    data.links.map((l) => `${l.source} to ${l.target}: ${formatter(l.value)}`).join('; '),
+    ariaLabelDetails,
   );
 
   return (

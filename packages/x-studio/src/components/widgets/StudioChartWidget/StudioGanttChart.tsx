@@ -20,6 +20,12 @@ const ROW_GAP = 6;
 const LABEL_W = 140;
 const AXIS_H = 24;
 const MIN_BAR_W = 4;
+// Cap on how many rows get spelled out in the `aria-label` text alternative.
+// A gantt over thousands of filtered rows must not build a multi-hundred-KB
+// string every render, and a screen reader announcing thousands of entries is
+// not usable either — describe the first few visible rows plus a total count
+// instead (finding 3).
+const ARIA_LABEL_MAX_ITEMS = 15;
 
 /**
  * Reinterprets a UTC-midnight-anchored timestamp as a LOCAL calendar date, so
@@ -158,19 +164,29 @@ export function StudioGanttChart({
 
   const ticks = buildTicks(minMs, maxMs, 5);
 
-  // Text alternative summarizing the timeline for assistive technology.
-  const ariaLabel = localeText.ganttChartAriaLabel(
-    items.length,
-    formatDate(minMs),
-    formatDate(maxMs),
-    items
+  // Text alternative summarizing the timeline for assistive technology. Describe only
+  // the rendered rows (`visibleItems`, height-capped by `maxRows`) — not every filtered
+  // row — and cap even that to `ARIA_LABEL_MAX_ITEMS`, appending a total count for the
+  // remainder. Enumerating every one of possibly thousands of rows here would rebuild a
+  // multi-hundred-KB string on every render and hand screen readers an unusable wall of
+  // text (finding 3).
+  const describedItems = visibleItems.slice(0, ARIA_LABEL_MAX_ITEMS);
+  const describedCount = items.length - describedItems.length;
+  const ariaLabelDetails =
+    describedItems
       .map(
         (it) =>
           `${it.label}: ${formatDate(it.startMs)} to ${formatDate(it.endMs)} (${formatDuration(
             it.endMs - it.startMs,
           )})`,
       )
-      .join('; '),
+      .join('; ') +
+    (describedCount > 0 ? `; ${localeText.filterSummaryAndMore(describedCount)}` : '');
+  const ariaLabel = localeText.ganttChartAriaLabel(
+    items.length,
+    formatDate(minMs),
+    formatDate(maxMs),
+    ariaLabelDetails,
   );
 
   return (

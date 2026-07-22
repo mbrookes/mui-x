@@ -87,6 +87,11 @@ export interface StudioLocaleText {
   widgetEditTooltip: string;
   widgetExportCsvTooltip: string;
   widgetExportPngTooltip: string;
+  /**
+   * Message written into the downloaded CSV in place of data when a grid widget backed by
+   * an adapter data source hasn't fetched (or had its cache invalidated) at export time.
+   */
+  widgetExportNoDataMessage: string;
   widgetExpandTooltip: string;
   widgetMoveToPageLabel: string;
   widgetDuplicateTooltip: string;
@@ -1330,6 +1335,8 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   widgetEditTooltip: 'Edit widget',
   widgetExportCsvTooltip: 'Download as CSV',
   widgetExportPngTooltip: 'Download as PNG',
+  widgetExportNoDataMessage:
+    'No data available to export yet. Open the grid so it can load data from the server, then try exporting again.',
   widgetExpandTooltip: 'Expand widget',
   widgetMoveToPageLabel: 'Move to page',
   widgetDuplicateTooltip: 'Duplicate widget',

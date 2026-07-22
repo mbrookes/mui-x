@@ -28,8 +28,6 @@ export function SliderControl(props: StudioFilterSliderControlProps) {
     setLocalValue([currentValue?.from ?? min, currentValue?.to ?? max]);
   }, [currentValue?.from, currentValue?.to, min, max]);
 
-  const isActive = localValue[0] !== min || localValue[1] !== max;
-
   const handleSliderChange = (_event: Event, newValue: number | number[]) => {
     setLocalValue(newValue as [number, number]);
   };
@@ -61,9 +59,6 @@ export function SliderControl(props: StudioFilterSliderControlProps) {
           day: 'numeric',
         })
       : v.toLocaleString();
-
-  // isActive is computed but only used to conditionally attach data-no-drag; keep it
-  void isActive;
 
   return (
     /* Prevent drag-and-drop of the widget card when interacting with the slider */

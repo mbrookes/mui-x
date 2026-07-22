@@ -61,6 +61,19 @@ export const createPresetId = makeIdFactory('preset');
 export const createFilterId = makeIdFactory('filter');
 
 /**
+ * Public generic escape hatch onto {@link makeIdFactory} for ad-hoc client-side entities
+ * that don't warrant their own dedicated named factory above (e.g. a chart annotation, a
+ * manually-created relationship) — mint one factory per entity type and reuse it at module
+ * scope, exactly like each factory above does with its own fixed prefix. Prefer adding a
+ * dedicated `create<Entity>Id` above instead when an entity becomes a `Record` map key (the
+ * collision consequence — a silently overwritten entry — is the same either way; only the
+ * naming differs).
+ */
+export function createIdFactory(prefix: string): () => string {
+  return makeIdFactory(prefix);
+}
+
+/**
  * Wraps a `StateMutation` in its wire-transport {@link MutationEnvelope}: a
  * fresh `id` (via {@link createMutationId}) and the current time as `at`. The
  * ONE place a `state-mutation` SSE event's envelope is constructed, so every

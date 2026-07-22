@@ -31,12 +31,6 @@ export function getOperators(
   }));
 }
 
-// ─── ID generation ───────────────────────────────────────────────────────────
-
-export function generateId() {
-  return `filter-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-}
-
 // ─── Field options ────────────────────────────────────────────────────────────
 
 /**

@@ -7,6 +7,7 @@ import { buildWidgetQueryDescriptor } from '../../internals/queryDescriptor';
 import { getCachedNormalizedDataSource } from '../../internals/normalizedRowsCache';
 import { studioRequestCache } from '../../internals/StudioRequestCache';
 import type { StudioDataSource, StudioWidget, StudioWidgetConfig } from '../../models';
+import type { StudioLocaleText } from '../../internals/StudioUIConfigContext';
 
 export interface RunWidgetExportParams {
   /** The widget being exported. */
@@ -25,6 +26,8 @@ export interface RunWidgetExportParams {
   imperativeExport: (() => void) | null;
   /** Background colour applied behind an exported chart PNG. */
   chartBackgroundColor?: string;
+  /** Resolved locale text, used for the "no data yet" CSV placeholder message. */
+  localeText: StudioLocaleText;
 }
 
 /**
@@ -46,6 +49,7 @@ export function runWidgetExport({
   chartContainer,
   imperativeExport,
   chartBackgroundColor,
+  localeText,
 }: RunWidgetExportParams): void {
   if (widget.kind === 'grid' && widget.sourceId) {
     // Compute filtered rows lazily at export time — no need for a reactive subscription.
@@ -96,10 +100,7 @@ export function runWidgetExport({
     // handling for the same constraint) so this is the only user-visible channel
     // available from here.
     if (hasAdapter && cacheMiss) {
-      downloadCsv(
-        'No data available to export yet. Open the grid so it can load data from the server, then try exporting again.',
-        `${widget.title}_export.csv`,
-      );
+      downloadCsv(localeText.widgetExportNoDataMessage, `${widget.title}_export.csv`);
       return;
     }
 

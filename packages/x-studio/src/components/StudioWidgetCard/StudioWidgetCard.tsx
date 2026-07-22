@@ -373,9 +373,18 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         chartContainer: chartContainerRef.current,
         imperativeExport: imperativeExportRef.current,
         chartBackgroundColor: theme.palette.background.default,
+        localeText,
       });
     },
-    [widget, source, controller, pageId, theme.palette.background.default, isCustomKind],
+    [
+      widget,
+      source,
+      controller,
+      pageId,
+      theme.palette.background.default,
+      isCustomKind,
+      localeText,
+    ],
   );
 
   if (!widget) {

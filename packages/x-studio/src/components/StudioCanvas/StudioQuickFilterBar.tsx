@@ -45,6 +45,9 @@ interface QuickFilterChipProps {
 function QuickFilterChip(props: QuickFilterChipProps) {
   const { toggleTitle, removeTitle, label, disabled, maxWidth, labelMaxWidth, onToggle, onRemove } =
     props;
+  // Tracks hover OR keyboard focus on the chip body — the chip is already focusable (it's
+  // clickable), so without the focus/blur handlers a keyboard user tabbing to it never sees
+  // the tooltip describing the toggle/remove affordance (a11y gap).
   const [chipHovered, setChipHovered] = React.useState(false);
   const [closeHovered, setCloseHovered] = React.useState(false);
 
@@ -56,6 +59,11 @@ function QuickFilterChip(props: QuickFilterChipProps) {
         variant={disabled ? 'outlined' : 'filled'}
         onMouseEnter={() => setChipHovered(true)}
         onMouseLeave={() => {
+          setChipHovered(false);
+          setCloseHovered(false);
+        }}
+        onFocus={() => setChipHovered(true)}
+        onBlur={() => {
           setChipHovered(false);
           setCloseHovered(false);
         }}

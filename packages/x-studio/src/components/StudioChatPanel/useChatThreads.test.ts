@@ -111,6 +111,47 @@ describe('useChatThreads: thread create/switch/persistence', () => {
     expect(mockState.doc.ai?.threads.find((t) => t.id === threadBId)?.messages).toEqual([]);
   });
 
+  // Regression coverage for architecture-review finding #10: every "New conversation"
+  // click used to append a fresh thread with no pruning, so repeated clicks bloated
+  // `doc.ai.threads` (and every subsequent `serializeState()` payload) indefinitely.
+  it('does not grow doc.ai.threads when creating a new thread while no message has ever been sent', () => {
+    const controller = makeController();
+    const { result } = renderHook(() => useChatThreads(controller));
+
+    act(() => {
+      result.current.handleNewThread();
+    });
+
+    // No thread has ever been materialized (no message sent yet) — the click is a no-op.
+    expect(mockState.doc.ai?.threads ?? []).toHaveLength(0);
+  });
+
+  it('does not grow doc.ai.threads when the currently active thread is already empty', () => {
+    const controller = makeController();
+    const { result, rerender } = renderHook(() => useChatThreads(controller));
+
+    // Thread A gets a message, then the user opens a fresh (empty) thread B.
+    act(() => {
+      result.current.handleMessagesChange([makeMessage('in thread A')]);
+    });
+    act(() => {
+      result.current.handleNewThread();
+    });
+    rerender();
+    expect(mockState.doc.ai?.threads).toHaveLength(2);
+    const threadBId = mockState.doc.ai!.activeThreadId!;
+
+    // Clicking "New conversation" again while B is still empty must reuse B in place,
+    // not mint a third thread.
+    act(() => {
+      result.current.handleNewThread();
+    });
+    rerender();
+
+    expect(mockState.doc.ai?.threads).toHaveLength(2);
+    expect(mockState.doc.ai?.activeThreadId).toBe(threadBId);
+  });
+
   it('persists messages onto the correct thread across multiple writes', () => {
     const controller = makeController();
     const { result } = renderHook(() => useChatThreads(controller));

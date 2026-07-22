@@ -12,6 +12,7 @@ import { exportGridToCsv, exportChartToPng, downloadCsv } from '../../internals/
 import { buildQueryDescriptor, buildWidgetQueryDescriptor } from '../../internals/queryDescriptor';
 import { studioRequestCache } from '../../internals/StudioRequestCache';
 import { runWidgetExport } from './widgetExport';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/localeText';
 
 vi.mock('../../internals/widgetUtils', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../internals/widgetUtils')>();
@@ -58,6 +59,7 @@ describe('runWidgetExport', () => {
       isCustomKind: false,
       chartContainer: null,
       imperativeExport: null,
+      localeText: DEFAULT_STUDIO_LOCALE_TEXT,
     });
 
     expect(exportGridToCsv).toHaveBeenCalledTimes(1);
@@ -88,6 +90,7 @@ describe('runWidgetExport', () => {
       chartContainer: container,
       imperativeExport: null,
       chartBackgroundColor: '#fff',
+      localeText: DEFAULT_STUDIO_LOCALE_TEXT,
     });
 
     expect(exportChartToPng).toHaveBeenCalledTimes(1);
@@ -166,6 +169,7 @@ describe('runWidgetExport', () => {
       isCustomKind: false,
       chartContainer: null,
       imperativeExport: null,
+      localeText: DEFAULT_STUDIO_LOCALE_TEXT,
     });
 
     expect(exportGridToCsv).toHaveBeenCalledTimes(1);
@@ -214,6 +218,7 @@ describe('runWidgetExport', () => {
       isCustomKind: false,
       chartContainer: null,
       imperativeExport: null,
+      localeText: DEFAULT_STUDIO_LOCALE_TEXT,
     });
 
     expect(downloadCsv).not.toHaveBeenCalled();
@@ -246,6 +251,7 @@ describe('runWidgetExport', () => {
       isCustomKind: false,
       chartContainer: null,
       imperativeExport: null,
+      localeText: DEFAULT_STUDIO_LOCALE_TEXT,
     });
 
     // No cached rows yet (cold cache) — must not silently export an empty CSV.
@@ -283,6 +289,7 @@ describe('runWidgetExport', () => {
       isCustomKind: false,
       chartContainer: null,
       imperativeExport: null,
+      localeText: DEFAULT_STUDIO_LOCALE_TEXT,
     });
 
     expect(downloadCsv).not.toHaveBeenCalled();
@@ -332,6 +339,7 @@ describe('runWidgetExport', () => {
       isCustomKind: false,
       chartContainer: null,
       imperativeExport: null,
+      localeText: DEFAULT_STUDIO_LOCALE_TEXT,
     });
 
     expect(exportGridToCsv).toHaveBeenCalledTimes(1);
@@ -398,6 +406,7 @@ describe('runWidgetExport', () => {
       isCustomKind: false,
       chartContainer: null,
       imperativeExport: null,
+      localeText: DEFAULT_STUDIO_LOCALE_TEXT,
     });
 
     expect(exportGridToCsv).toHaveBeenCalledTimes(1);
@@ -482,6 +491,7 @@ describe('runWidgetExport', () => {
       isCustomKind: false,
       chartContainer: null,
       imperativeExport: null,
+      localeText: DEFAULT_STUDIO_LOCALE_TEXT,
     });
 
     expect(exportGridToCsv).toHaveBeenCalledTimes(1);
@@ -586,6 +596,7 @@ describe('runWidgetExport', () => {
       isCustomKind: false,
       chartContainer: null,
       imperativeExport: null,
+      localeText: DEFAULT_STUDIO_LOCALE_TEXT,
     });
 
     // Cache HIT: the export must not fall back to the "no data" placeholder.
@@ -610,6 +621,7 @@ describe('runWidgetExport', () => {
       isCustomKind: false,
       chartContainer: null,
       imperativeExport,
+      localeText: DEFAULT_STUDIO_LOCALE_TEXT,
     });
     expect(imperativeExport).toHaveBeenCalledTimes(1);
     expect(exportGridToCsv).not.toHaveBeenCalled();

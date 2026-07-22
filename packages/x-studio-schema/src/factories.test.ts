@@ -7,6 +7,7 @@ import {
   createPageId,
   createPresetId,
   createFilterId,
+  createIdFactory,
   createMutationEnvelope,
   normalizeChartSeries,
 } from './factories';
@@ -163,6 +164,26 @@ describe('createFilterId', () => {
 
   it('produces ids with the `filter-` prefix', () => {
     expect(createFilterId()).toMatch(/^filter-/);
+  });
+});
+
+describe('createIdFactory', () => {
+  it('is collision-resistant across a tight loop', () => {
+    const createAnnotationId = createIdFactory('ann');
+    const ids = Array.from({ length: 1000 }, () => createAnnotationId());
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('produces ids carrying the given prefix', () => {
+    const createRelationshipId = createIdFactory('rel');
+    expect(createRelationshipId()).toMatch(/^rel-/);
+  });
+
+  it('gives independent factories for different prefixes their own counters', () => {
+    const createA = createIdFactory('a');
+    const createB = createIdFactory('b');
+    const ids = [createA(), createB(), createA(), createB()];
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });
 

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { createRenderer, screen, fireEvent, waitFor } from '@mui/internal-test-utils';
+import { createRenderer, screen, fireEvent, waitFor, act } from '@mui/internal-test-utils';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { createDefaultStudioState } from '../../models/stateTypes';
 import type { StudioState } from '../../models';
@@ -349,6 +349,39 @@ describe('StudioQuickFilterBar', () => {
     expect(screen.getByText(/Country: France, Germany/)).toBeDefined();
   });
 
+  // Regression coverage for architecture-review finding #7: the tooltip describing the
+  // toggle/remove affordance used to be driven only by mouseenter/mouseleave state, so a
+  // keyboard user tabbing onto the (already-focusable, clickable) chip never saw it.
+  it('shows the chip toggle tooltip on keyboard focus, not just mouse hover', async () => {
+    mockState = createDefaultStudioState({
+      doc: {
+        filters: [makePageFilter('f1', 'country')],
+        dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
+      },
+      runtime: {
+        dataSources: {
+          src1: {
+            id: 'src1',
+            label: 'Source',
+            fields: [{ id: 'country', label: 'Country', type: 'string' as const }],
+            rows: [],
+          },
+        },
+      },
+    });
+    render(<StudioQuickFilterBar />);
+
+    const closeButton = screen.getByRole('button', { name: 'Remove filter' });
+    const chip = closeButton.closest('.MuiChip-root') as HTMLElement;
+
+    expect(screen.queryByText('Disable filter')).toBeNull();
+    fireEvent.focus(chip);
+    expect(screen.getByText('Disable filter')).toBeDefined();
+
+    fireEvent.blur(chip);
+    await waitFor(() => expect(screen.queryByText('Disable filter')).toBeNull());
+  });
+
   // Regression coverage for the a11y fix: the remove affordance used to be a
   // `role="button"` span with no `tabIndex`/keyboard handler. It's now the Chip's
   // native `onDelete`, which MUI wires up to Backspace/Delete while the chip is focused.
@@ -374,7 +407,14 @@ describe('StudioQuickFilterBar', () => {
     const chip = screen
       .getByText(/Country: Equals: France/)
       .closest('.MuiChip-root') as HTMLElement;
-    chip.focus();
+    // `chip.focus()` must both move `document.activeElement` (`fireEvent.keyUp` below
+    // requires the target to actually be focused) AND run inside `act()` — the chip now
+    // also has an `onFocus` handler (finding #7), and a raw `.focus()` call dispatches
+    // outside testing-library's `act()` wrapping, so the resulting state update would
+    // otherwise warn "not wrapped in act(...)".
+    act(() => {
+      chip.focus();
+    });
     fireEvent.keyUp(chip, { key: 'Backspace' });
     expect(controller.removeFilter).toHaveBeenCalledWith('f1');
   });
@@ -399,7 +439,10 @@ describe('StudioQuickFilterBar', () => {
     render(<StudioQuickFilterBar />);
 
     const chip = screen.getByText(/Region: EMEA/).closest('.MuiChip-root') as HTMLElement;
-    chip.focus();
+    // See the analogous comment above.
+    act(() => {
+      chip.focus();
+    });
     fireEvent.keyUp(chip, { key: 'Backspace' });
     expect(controller.clearCrossFilter).toHaveBeenCalledWith('w9');
   });

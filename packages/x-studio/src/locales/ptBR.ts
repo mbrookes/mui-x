@@ -56,6 +56,8 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   widgetEditTooltip: 'Editar widget',
   widgetExportCsvTooltip: 'Baixar como CSV',
   widgetExportPngTooltip: 'Baixar como PNG',
+  widgetExportNoDataMessage:
+    'Ainda não há dados disponíveis para exportar. Abra a grade para que ela possa carregar dados do servidor e tente exportar novamente.',
   widgetExpandTooltip: 'Expandir widget',
   widgetMoveToPageLabel: 'Mover para página',
   widgetDuplicateTooltip: 'Duplicar widget',

@@ -4,13 +4,14 @@ import { Box, Button, Chip, IconButton, Stack, Tooltip, Typography } from '@mui/
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
+import { createIdFactory } from '@mui/x-studio-schema';
 import { useStudioController, useStudioLocaleText } from '../../context';
 import type { StudioDataSource, StudioRelationship } from '../../models';
 import { RelationshipDialog, type RelationshipFormState } from './RelationshipDialog';
 
-function generateRelId() {
-  return `rel-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-}
+// Collision-resistant (timestamp + monotonic counter + random suffix) instead of the
+// previous ad-hoc `Date.now() + Math.random()` — see `createIdFactory` in `@mui/x-studio-schema`.
+const generateRelId = createIdFactory('rel');
 
 export function RelationshipPanel(props: {
   relationships: StudioRelationship[];

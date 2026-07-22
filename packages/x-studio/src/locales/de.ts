@@ -60,6 +60,8 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   widgetEditTooltip: 'Widget bearbeiten',
   widgetExportCsvTooltip: 'Download als CSV',
   widgetExportPngTooltip: 'Download als PNG',
+  widgetExportNoDataMessage:
+    'Es sind noch keine Daten zum Exportieren verfügbar. Öffnen Sie das Raster, damit es Daten vom Server laden kann, und versuchen Sie den Export erneut.',
   widgetExpandTooltip: 'Widget erweitern',
   widgetMoveToPageLabel: 'Auf Seite verschieben',
   widgetDuplicateTooltip: 'Widget duplizieren',

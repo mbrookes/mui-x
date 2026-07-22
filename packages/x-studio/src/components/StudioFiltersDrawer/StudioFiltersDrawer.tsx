@@ -21,6 +21,7 @@ import BookmarkIcon from '@mui/icons-material/Bookmark';
 import HomeOutlinedIcon from '@mui/icons-material/HomeOutlined';
 import SearchIcon from '@mui/icons-material/Search';
 import type { SxProps, Theme } from '@mui/material/styles';
+import { createFilterId } from '@mui/x-studio-schema';
 import {
   useStudioController,
   useStudioSelector,
@@ -41,7 +42,7 @@ import { buildFieldCatalog, buildFieldLabelMap } from '../../internals/fieldCata
 import { isWidgetOfKind } from '../../models';
 import type { StudioChartConfig, StudioFilterState } from '../../models';
 import type { SimpleField } from './filterDrawerTypes';
-import { buildFieldOptions, generateId, summarizeFilter } from './filterDrawerUtils';
+import { buildFieldOptions, summarizeFilter } from './filterDrawerUtils';
 import { FilterSection, WidgetFilterSection } from './FilterSection';
 import { InteractiveFilterSection } from './InteractiveFilterSection';
 import { CrossFilterSection } from './CrossFilterSection';
@@ -277,7 +278,7 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
       return;
     }
     controller.addFilter({
-      id: generateId(),
+      id: createFilterId(),
       field: '',
       operator: 'equals',
       value: '',
@@ -290,7 +291,7 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
       return;
     }
     controller.addFilter({
-      id: generateId(),
+      id: createFilterId(),
       field: '',
       operator: 'equals',
       value: '',

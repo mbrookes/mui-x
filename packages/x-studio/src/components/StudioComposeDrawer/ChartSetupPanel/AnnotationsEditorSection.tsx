@@ -13,12 +13,13 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
+import { createIdFactory } from '@mui/x-studio-schema';
 import { useStudioController, useStudioLocaleText } from '../../../context';
 import type { StudioChartAnnotation } from '../../../models';
 
-function generateAnnotationId() {
-  return `ann-${Math.random().toString(36).slice(2, 9)}`;
-}
+// Collision-resistant (timestamp + monotonic counter + random suffix) instead of the
+// previous bare `Math.random()` — see `createIdFactory` in `@mui/x-studio-schema`.
+const generateAnnotationId = createIdFactory('ann');
 
 /**
  * Reference-line value input (architecture review finding 1.14): re-rendering the

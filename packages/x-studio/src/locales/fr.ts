@@ -59,6 +59,8 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   widgetEditTooltip: 'Modifier le widget',
   widgetExportCsvTooltip: 'Télécharger en CSV',
   widgetExportPngTooltip: 'Télécharger en PNG',
+  widgetExportNoDataMessage:
+    "Aucune donnée disponible à exporter pour l'instant. Ouvrez la grille pour qu'elle puisse charger les données du serveur, puis réessayez l'exportation.",
   widgetExpandTooltip: 'Agrandir le widget',
   widgetMoveToPageLabel: 'Déplacer vers la page',
   widgetDuplicateTooltip: 'Dupliquer le widget',

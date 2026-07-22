@@ -139,10 +139,22 @@ export function useChatThreads(controller: StudioController): UseChatThreadsResu
 
   const handleNewThread = React.useCallback(() => {
     abortInFlightStream();
-    const newId = createThreadId();
-    const now = new Date().toISOString();
     const state = controller.getState();
     const existingThreads = state.doc.ai?.threads ?? [];
+    const currentActiveId = state.doc.ai?.activeThreadId ?? defaultThreadId.current;
+    const currentActiveThread = existingThreads.find((t) => t.id === currentActiveId);
+    // Finding #10: every "New conversation" click used to append a fresh thread with
+    // no pruning, so repeated clicks (with nothing typed in between) bloated
+    // `doc.ai.threads` indefinitely — each dead entry adds weight to every subsequent
+    // `serializeState()` payload. If the CURRENTLY active thread has never had a
+    // message sent — either it hasn't been materialized into `doc.ai.threads` yet, or
+    // it exists with an empty `messages` array — it already IS a fresh, empty
+    // conversation, so reuse it in place instead of minting a new one.
+    if (!currentActiveThread || currentActiveThread.messages.length === 0) {
+      return;
+    }
+    const newId = createThreadId();
+    const now = new Date().toISOString();
     // Non-undoable: creating/switching chat threads is not an authored dashboard
     // edit and must not consume the user's undo history (see handleMessagesChange).
     controller.setState(

@@ -32,6 +32,7 @@ export {
   createPageId,
   createPresetId,
   createFilterId,
+  createIdFactory,
   createMutationEnvelope,
   normalizeGridColumn,
   normalizeChartSeries,

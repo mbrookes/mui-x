@@ -58,6 +58,8 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   widgetEditTooltip: 'Editar widget',
   widgetExportCsvTooltip: 'Descargar como CSV',
   widgetExportPngTooltip: 'Descargar como PNG',
+  widgetExportNoDataMessage:
+    'Aún no hay datos disponibles para exportar. Abra la cuadrícula para que pueda cargar datos del servidor y vuelva a intentar la exportación.',
   widgetExpandTooltip: 'Expandir widget',
   widgetMoveToPageLabel: 'Mover a la página',
   widgetDuplicateTooltip: 'Duplicar widget',

@@ -90,6 +90,14 @@ describe('calculate.ts / compileExpression', () => {
     expect(compileExpression("utcFormat(datum.d, '%b')")({ d: utcDate })).to.equal('Jun');
   });
 
+  it('supports format for d3-format number patterns', () => {
+    // histogram_nonlinear's labelExpr: an integer-rounded fps value derived
+    // from a division, formatted with the "d" (integer) specifier.
+    expect(compileExpression("format(1000/datum.value, 'd')")({ value: '8.33' })).to.equal('120');
+    expect(compileExpression("format(datum.v, '.1~%')")({ v: 0.256 })).to.equal('25.6%');
+    expect(compileExpression("format(datum.v, ',.2f')")({ v: 1234.5 })).to.equal('1,234.50');
+  });
+
   it('supports array literals, e.g. for a multi-line axis labelExpr', () => {
     const evaluator = compileExpression(
       "[timeFormat(datum.value, '%b'), timeFormat(datum.value, '%m') == '01' ? timeFormat(datum.value, '%Y') : '']",

@@ -293,4 +293,146 @@ describe('compileRectMark', () => {
     const series = compiled.series[0] as unknown as { data: readonly unknown[] };
     expect(series.data).to.have.length(1);
   });
+
+  it('draws a full-height background band when x2 is present with no y channel at all', () => {
+    // layer_falkensee's shape: a highlight-period rect spanning a date range,
+    // with no y/y2 at all — Vega-Lite fills the whole plot height.
+    const spec: VegaLiteSpec = {
+      data: {
+        values: [
+          { start: 1933, end: 1945, event: 'Nazi Rule' },
+          { start: 1948, end: 1989, event: 'GDR (East Germany)' },
+        ],
+      },
+      mark: 'rect',
+      encoding: {
+        x: { field: 'start', type: 'quantitative' },
+        x2: { field: 'end' },
+        color: { field: 'event', type: 'nominal' },
+      },
+    };
+    const compiled = compileSpec(spec);
+    expect(compiled.series).to.have.length(0);
+    // A standalone rect-only spec (no other series-producing layer) keeps its
+    // overlay in the ordinary `overlays` list rather than `backgroundOverlays`
+    // (see `compile/index.ts`'s layer-ordering comment).
+    const overlay = compiled.overlays.find((entry) => entry.kind === 'rects');
+    if (!overlay || overlay.kind !== 'rects') {
+      throw new Error('expected a rects overlay');
+    }
+    expect(overlay.items).to.have.length(2);
+    expect(overlay.items[0]).to.include({ x1: 1933, x2: 1945 });
+    // No y1/y2 at all — the renderer fills the drawing area's full height.
+    expect(overlay.items[0].y1).to.equal(undefined);
+    expect(overlay.items[0].y2).to.equal(undefined);
+    // Each row's own color, not a shared static one.
+    expect(overlay.items[0].fill).not.to.equal(overlay.items[1].fill);
+    const overlayGap = compiled.gaps.find(
+      (entry) => entry.code === 'mark:rect-ranged-custom-overlay',
+    );
+    expect(overlayGap?.severity).to.equal('ignored');
+    const legendGap = compiled.gaps.find((entry) => entry.code === 'mark:rect-ranged-color-legend');
+    expect(legendGap?.severity).to.equal('ignored');
+  });
+
+  it("folds a temporal rect's x2-only companion dates into the shared category domain (layer_falkensee)", () => {
+    // The shared x axis is a temporal band/point scale (forced discrete by
+    // the rect mark itself). A sibling line layer's own years don't include
+    // every highlight-band boundary date, so the band scale needs the rect's
+    // OWN x2 dates folded into the domain too, or `scalePosition` can't place
+    // that corner at all (a band/point scale has no domain value to match)
+    // and the whole rect silently drops.
+    const spec = {
+      layer: [
+        {
+          data: {
+            values: [
+              { start: '1933', end: '1945', event: 'Nazi Rule' },
+              { start: '1948', end: '1989', event: 'GDR' },
+            ],
+          },
+          mark: 'rect',
+          encoding: {
+            x: { field: 'start', timeUnit: 'year' },
+            x2: { field: 'end', timeUnit: 'year' },
+            color: { field: 'event', type: 'nominal' },
+          },
+        },
+        {
+          data: {
+            values: [
+              { year: '1875', population: 1309 },
+              { year: '1950', population: 29189 },
+            ],
+          },
+          mark: 'line',
+          encoding: {
+            x: { field: 'year', timeUnit: 'year' },
+            y: { field: 'population', type: 'quantitative' },
+          },
+        },
+      ],
+    } as unknown as VegaLiteSpec;
+    const compiled = compileSpec(spec);
+    const categoryTimes = (compiled.xAxis?.categories ?? []).map((value) =>
+      (value as Date).getTime(),
+    );
+    // "1945" and "1948" never appear as a line-layer `year` value, only as
+    // rect x2/x endpoints — both must still be in the domain.
+    expect(categoryTimes).to.include(new Date('1945').getTime());
+    expect(categoryTimes).to.include(new Date('1948').getTime());
+    const overlay = (compiled.backgroundOverlays ?? compiled.overlays).find(
+      (entry) => entry.kind === 'rects',
+    );
+    if (!overlay || overlay.kind !== 'rects') {
+      throw new Error('expected a rects overlay');
+    }
+    expect(overlay.items).to.have.length(2);
+  });
+
+  it('draws a genuine per-row rect when both x/x2 and y/y2 are explicit spans', () => {
+    // wheat_wages's monarchs-timeline shape: a real 4-cornered rect per row.
+    const spec: VegaLiteSpec = {
+      data: {
+        values: [
+          { start: 1600, end: 1650, y: 95, offset: 97 },
+          { start: 1650, end: 1700, y: 95, offset: 93 },
+        ],
+      },
+      mark: 'rect',
+      encoding: {
+        x: { field: 'start', type: 'quantitative' },
+        x2: { field: 'end' },
+        y: { field: 'y', type: 'quantitative' },
+        y2: { field: 'offset' },
+      },
+    };
+    const compiled = compileSpec(spec);
+    expect(compiled.series).to.have.length(0);
+    const overlay = compiled.overlays.find((entry) => entry.kind === 'rects');
+    if (!overlay || overlay.kind !== 'rects') {
+      throw new Error('expected a rects overlay');
+    }
+    expect(overlay.items).to.have.length(2);
+    expect(overlay.items[0]).to.include({ x1: 1600, x2: 1650, y1: 95, y2: 97 });
+    expect(overlay.items[1]).to.include({ x1: 1650, x2: 1700, y1: 95, y2: 93 });
+  });
+
+  it('reports an unsupported gap when x2 never resolves to a continuous/temporal value', () => {
+    const spec: VegaLiteSpec = {
+      data: { values: [{ x: 'A', x2: 'B', y: 'X', v: 1 }] },
+      mark: 'rect',
+      encoding: {
+        x: { field: 'x', type: 'nominal' },
+        x2: { field: 'x2' },
+        y: { field: 'y', type: 'nominal' },
+        color: { field: 'v', type: 'quantitative' },
+      },
+    };
+    const compiled = compileSpec(spec);
+    expect(compiled.series).to.have.length(0);
+    expect(compiled.overlays).to.have.length(0);
+    const gap = compiled.gaps.find((entry) => entry.code === 'mark:rect-ranged');
+    expect(gap?.severity).to.equal('unsupported');
+  });
 });

@@ -649,6 +649,49 @@ function resolveChannelAxis(
       }
     }
 
+    // A `bar`/`rect` mark's unmatched "2" companion field (x2 alongside a
+    // discrete x, with no real y2 to pair it into a genuine ranged bar/rect)
+    // shares this same discrete scale — each row's shape spans from its own
+    // category value to its own companion value (marks/bar.ts's category-
+    // ranged-rect path, `histogram_nonlinear`'s irregular bin widths; marks/
+    // rect.ts's `compileRangedRect`, `layer_falkensee`'s highlight bands). A
+    // companion-only value (`histogram_nonlinear`'s final "∞" endTime, which
+    // never appears as a startTime; `layer_falkensee`'s "1945"/"1948" end
+    // dates, which don't all coincide with the line layer's own year values)
+    // is appended after every primary-field value has already been
+    // collected, so it lands at the end of an unsorted (`sort: null`) domain —
+    // matching Vega-Lite's own append-on-first-appearance order. The
+    // companion field is never itself run through the inline-timeUnit
+    // rewrite (only x/y/color are, see transforms/encoding.ts's
+    // `INLINE_TRANSFORM_CHANNELS`), so a temporal axis's raw companion value
+    // needs the same `toDate` coercion as the primary field loop above.
+    const twinChannel = channel === 'x' ? 'x2' : 'y2';
+    const otherTwinChannel = channel === 'x' ? 'y2' : 'x2';
+    for (const occurrence of occurrences) {
+      if (occurrence.unit.mark.type !== 'bar' && occurrence.unit.mark.type !== 'rect') {
+        continue;
+      }
+      const twinDef = occurrence.unit.encoding[twinChannel];
+      const otherTwinDef = occurrence.unit.encoding[otherTwinChannel];
+      const twinField =
+        twinDef && !Array.isArray(twinDef) && isFieldDef(twinDef) ? twinDef.field : undefined;
+      if (!twinField || otherTwinDef !== undefined) {
+        continue;
+      }
+      for (const row of occurrence.rows) {
+        const raw = row[twinField];
+        const value = isTemporal ? toDate(raw) : (raw as string | number | Date | null);
+        if (value == null) {
+          continue;
+        }
+        const key = categoryKey(value);
+        if (!seen.has(key)) {
+          seen.add(key);
+          pairs.push({ value, key });
+        }
+      }
+    }
+
     const sort = isFieldDef(def) ? def.sort : undefined;
 
     // Vega-Lite's default temporal order is chronological, but only when no
@@ -1054,9 +1097,12 @@ export function resolveAxes(
       explicitYGrid = readExplicitGrid(unit.encoding.y) ?? explicitYGrid;
     }
     // Range channels (x2/y2) describe interval marks. Bar marks translate
-    // them to Premium rangeBar series and rule marks report their own
-    // segment gaps — only the remaining marks drop the second endpoint here.
-    const handlesRangeChannels = unit.mark.type === 'bar' || unit.mark.type === 'rule';
+    // them to Premium rangeBar series, rule marks report their own segment
+    // gaps, and rect marks draw a filled interval/span rect (`marks/rect.ts`
+    // `compileRangedRect`) — only the remaining marks drop the second
+    // endpoint here.
+    const handlesRangeChannels =
+      unit.mark.type === 'bar' || unit.mark.type === 'rule' || unit.mark.type === 'rect';
     if (unit.encoding.x2 && !handlesRangeChannels) {
       gaps.add({
         code: 'channel:x2',

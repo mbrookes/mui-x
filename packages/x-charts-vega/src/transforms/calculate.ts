@@ -2,6 +2,7 @@ import {
   timeFormat as d3TimeFormat,
   utcFormat as d3UtcFormat,
 } from '@mui/x-charts-vendor/d3-time-format';
+import { format as d3Format } from '@mui/x-charts-vendor/d3-format';
 import type { DatasetRow, VegaCalculateTransform } from '../types';
 import type { GapCollector } from '../gaps';
 import { toDate } from '../compile/fieldTypes';
@@ -35,7 +36,7 @@ import { toDate } from '../compile/fieldTypes';
  * `datum['field']` reads a row property (including chained/nested access).
  * A short allow-list of pure functions is supported: abs, round, floor,
  * ceil, sqrt, log, pow, sin, cos, min, max, length, upper, lower, toNumber,
- * toString, year, month, date, timeFormat, utcFormat. An array literal
+ * toString, year, month, date, timeFormat, utcFormat, format. An array literal
  * (`[a, b, ...]`, used by an axis `labelExpr` to build a multi-line label)
  * is also supported. Anything outside this subset — other identifiers,
  * unknown functions, or a syntax error — throws `UnsupportedExpressionError`,
@@ -483,6 +484,20 @@ const FUNCTIONS: Record<string, (args: unknown[]) => unknown> = {
       return d3UtcFormat(args[1])(d);
     } catch {
       return '';
+    }
+  },
+  // Vega's `format` is a d3-format number formatter (e.g. `format(1000/x, 'd')`
+  // for an integer, or `'.1~%'` for a percentage) — distinct from `toString`,
+  // which just stringifies without a numeric pattern.
+  format: (args) => {
+    if (typeof args[1] !== 'string') {
+      return '';
+    }
+    const n = asNumber(args[0]);
+    try {
+      return d3Format(args[1])(n);
+    } catch {
+      return String(n);
     }
   },
 };

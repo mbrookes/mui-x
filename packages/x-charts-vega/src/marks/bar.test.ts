@@ -437,6 +437,48 @@ describe('compileBarMark', () => {
     expect(overlay.items[1]).to.include({ x1: 1, x2: 2, y1: 5, y2: 15 });
   });
 
+  it('draws variable-width rects when the category axis is paired with its own x2 twin (irregular bin widths)', () => {
+    // histogram_nonlinear's shape: an ordinal x with sort:null (data order)
+    // paired with its own x2 (no y2 at all) — each row spans from its own
+    // category value to its own twin value on the SAME point/band scale,
+    // rather than a uniform-width bar per category.
+    const spec: VegaLiteSpec = {
+      data: {
+        values: [
+          { start: 'a', end: 'b', v: 10 },
+          { start: 'b', end: 'd', v: 20 },
+          { start: 'd', end: 'z', v: 5 },
+        ],
+      },
+      mark: 'bar',
+      encoding: {
+        x: { field: 'start', type: 'ordinal', sort: null },
+        x2: { field: 'end' },
+        y: { field: 'v', type: 'quantitative' },
+      },
+    };
+    const compiled = compileSpec(spec);
+    expect(compiled.gaps.map((entry) => entry.code)).not.to.include(
+      'mark:bar-ranged-mismatched-axis',
+    );
+    expect(compiled.series).to.have.length(0);
+    // The x2-only category ("z") is folded into the domain too, even though
+    // it never appears as a `start` value.
+    expect(compiled.xAxis?.categories).to.deep.equal(['a', 'b', 'd', 'z']);
+    const overlay = compiled.overlays.find((entry) => entry.kind === 'rects');
+    if (!overlay || overlay.kind !== 'rects') {
+      throw new Error('expected a rects overlay');
+    }
+    expect(overlay.items).to.have.length(3);
+    expect(overlay.items[0]).to.include({ x1: 'a', x2: 'b', y1: 0, y2: 10 });
+    expect(overlay.items[1]).to.include({ x1: 'b', x2: 'd', y1: 0, y2: 20 });
+    expect(overlay.items[2]).to.include({ x1: 'd', x2: 'z', y1: 0, y2: 5 });
+    const overlayGap = compiled.gaps.find(
+      (entry) => entry.code === 'mark:bar-category-ranged-custom-overlay',
+    );
+    expect(overlayGap?.severity).to.equal('ignored');
+  });
+
   it('renders a quantitative category axis as a discrete band when the value is aggregated', () => {
     // Trellis-style spec: `age` is numeric (quantitative) but is the category
     // axis; the value channel carries the aggregate. x-charts draws bars over a
@@ -464,6 +506,31 @@ describe('compileBarMark', () => {
     expect(compiled.xAxis?.categories).to.deep.equal([0, 5, 10]);
     const series = compiled.series[0] as { data?: Array<number | null> };
     expect(series.data).to.deep.equal([4, 3, 7]);
+  });
+
+  it('renders pre-binned data given via the object-form `bin: {binned: true, step}` (bar_binned_data)', () => {
+    const spec = {
+      data: {
+        values: [
+          { bin_start: 8, bin_end: 10, count: 7 },
+          { bin_start: 10, bin_end: 12, count: 29 },
+          { bin_start: 12, bin_end: 14, count: 71 },
+        ],
+      },
+      mark: 'bar',
+      encoding: {
+        x: { field: 'bin_start', bin: { binned: true, step: 2 } },
+        x2: { field: 'bin_end' },
+        y: { field: 'count', type: 'quantitative' },
+      },
+    } as unknown as VegaLiteSpec;
+    const compiled = compileSpec(spec);
+    expect(compiled.gaps.map((entry) => entry.code)).not.to.include(
+      'mark:bar-ranged-mismatched-axis',
+    );
+    expect(compiled.xAxis?.categories).to.deep.equal(['8–10', '10–12', '12–14']);
+    const series = compiled.series[0] as { data?: Array<number | null> };
+    expect(series.data).to.deep.equal([7, 29, 71]);
   });
 
   it('keeps a quantitative value axis continuous for horizontal bars', () => {

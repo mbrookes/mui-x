@@ -6,6 +6,7 @@ import type { RangeBarSeriesType } from '@mui/x-charts-premium/models';
 import type {
   AxisResolution,
   CompiledUnit,
+  OverlayPosition,
   OverlayRectItem,
   UnitContext,
 } from '../compile/context';
@@ -355,6 +356,56 @@ function compileFullyRangedRects(
   return finishContinuousRects(items, gaps, path);
 }
 
+/**
+ * A `bar` mark whose CATEGORY axis is paired with its own `2` twin (no real
+ * range on the value axis) — Vega-Lite's "irregular bin width" pattern
+ * (`histogram_nonlinear`): each row draws its own rectangle spanning from its
+ * category value to its own twin value, both positioned by the SAME
+ * band/point category scale at render time (`scalePosition` already resolves
+ * a raw string/Date category value through a band/point scale exactly like it
+ * resolves a plain number through a continuous one — no overlay-rendering
+ * change needed). x-charts' `bar`/`rangeBar` series assume one uniformly
+ * sized bar per category, so this can never become a native series.
+ */
+function compileCategoryRangedRects(
+  rows: readonly DatasetRow[],
+  categoryAxis: AxisResolution,
+  categoryField: string,
+  twinField: string,
+  valueField: string,
+  rangeAxis: 'x' | 'y',
+  rowColor: RectRowColor,
+  gaps: GapCollector,
+  path: string,
+): CompiledUnit {
+  const items: OverlayRectItem[] = [];
+  for (const row of rows) {
+    const category = toCategoryValue(categoryAxis, row[categoryField]) as OverlayPosition | null;
+    const twin = toCategoryValue(categoryAxis, row[twinField]) as OverlayPosition | null;
+    const value = toNumber(row[valueField]);
+    if (category == null || twin == null || value === null) {
+      continue;
+    }
+    const fill = rowColor(row);
+    items.push(
+      rangeAxis === 'x'
+        ? { x1: category, x2: twin, y1: 0, y2: value, fill }
+        : { x1: 0, x2: value, y1: category, y2: twin, fill },
+    );
+  }
+  gaps.add({
+    code: 'mark:bar-category-ranged-custom-overlay',
+    message:
+      "The category axis's own `2` twin (with no matching range on the value axis) draws each " +
+      'row as its own rectangle spanning from the category value to the twin value — a genuine ' +
+      "per-row, irregularly-sized bar x-charts' bar/rangeBar series can't draw (they assume one " +
+      'uniformly sized bar per category), so this renders through a custom `rect` overlay instead.',
+    severity: 'ignored',
+    path,
+  });
+  return { series: [], plots: [], overlays: [{ kind: 'rects', items }] };
+}
+
 export function compileBarMark(ctx: UnitContext): CompiledUnit {
   const { unit, encoding, gaps, rows } = ctx;
   const mark = unit.mark;
@@ -554,9 +605,28 @@ export function compileBarMark(ctx: UnitContext): CompiledUnit {
   } else if (secondaryTwinDef !== undefined) {
     // Only the "wrong" twin is present (e.g. a vertical bar — categorical x +
     // quantitative y — with a lone x2, instead of the y2 that would pair
-    // with y). There's no positional channel for it to range against, so it
-    // is dropped, same as an unsupported channel would have been before
-    // rangeBar existed.
+    // with y). When it's a genuine field, this is Vega-Lite's irregular-bin-
+    // width pattern: the category axis's own twin, each row spanning from its
+    // own category value to its own twin value (`histogram_nonlinear`) —
+    // drawn through a custom rect overlay instead. A value/datum def has no
+    // per-row field to read a twin position from, so it still has nothing to
+    // draw and is dropped, same as before rangeBar existed.
+    const secondaryField = isFieldDef(secondaryTwinDef) ? secondaryTwinDef.field : undefined;
+    if (secondaryField && categoryAxis?.field) {
+      const fallbackColor = staticColor ?? ctx.palette[0];
+      const rowColor = resolveRectRowColor(ctx, color, fallbackColor, gaps, unit.path);
+      return compileCategoryRangedRects(
+        rows,
+        categoryAxis,
+        categoryAxis.field,
+        secondaryField,
+        valueField,
+        horizontal ? 'y' : 'x',
+        rowColor,
+        gaps,
+        unit.path,
+      );
+    }
     gaps.add({
       code: 'mark:bar-ranged-mismatched-axis',
       message: `\`${secondaryTwinChannel}\` is present without a matching primary value channel on its axis (only \`${horizontal ? 'y' : 'x'}\`/\`${primaryTwinChannel}\` can form a rangeBar range for this bar's orientation); it has no x-charts equivalent and was dropped.`,

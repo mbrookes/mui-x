@@ -9,6 +9,17 @@ import { toNumber } from '../compile/fieldTypes';
  * (`applyInlineBin`, wired in from encoding.ts).
  */
 
+/**
+ * Whether a `bin` param means "this field is already pre-binned" — either the
+ * shorthand string `"binned"`, or the equivalent object form `{binned: true,
+ * ...}` that lets a spec pair the indicator with other bin params (e.g.
+ * `bar_binned_data`'s `{binned: true, step: 2}`, an axis-tick step alongside
+ * pre-binned data).
+ */
+export function isPreBinned(bin: boolean | VegaBinParams | 'binned' | undefined): boolean {
+  return bin === 'binned' || (typeof bin === 'object' && bin !== null && bin.binned === true);
+}
+
 export interface NiceBinning {
   start: number;
   step: number;
@@ -230,11 +241,14 @@ export function applyInlineBin(
   sortRows: boolean,
   endField?: string,
 ): { rows: DatasetRow[]; field: string } | null {
-  if (binParam === 'binned') {
+  if (isPreBinned(binParam)) {
     return applyPreBinned(rows, field, endField, gaps, path, sortRows);
   }
   const { perRow, values } = extractNumbers(rows, field);
-  const binning = computeNiceBinning(values, binParam);
+  // `isPreBinned` above already returned for the `'binned'` string form (and
+  // the `{binned: true}` object form); everything remaining is a genuine
+  // `boolean | VegaBinParams` for `computeNiceBinning` to derive bins from.
+  const binning = computeNiceBinning(values, binParam as boolean | VegaBinParams);
   if (!binning) {
     gaps.add({
       code: 'encoding:bin',

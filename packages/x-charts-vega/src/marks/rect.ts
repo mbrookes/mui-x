@@ -1,9 +1,16 @@
 import type { HeatmapSeriesType, HeatmapValueType } from '@mui/x-charts-pro/models';
-import type { AxisResolution, CompiledUnit, UnitContext } from '../compile/context';
+import type {
+  AxisResolution,
+  CompiledUnit,
+  OverlayPosition,
+  OverlayRectItem,
+  UnitContext,
+} from '../compile/context';
 import { resolveColor } from '../compile/color';
 import { resolveFieldType, toDate, toNumber } from '../compile/fieldTypes';
+import type { GapCollector } from '../gaps';
 import { isFieldDef } from '../types';
-import type { VegaEncoding } from '../types';
+import type { DatasetRow, VegaChannelDef, VegaEncoding } from '../types';
 
 /*
  * OWNERSHIP: the "rect/heatmap mark" work unit owns this file.
@@ -66,24 +73,170 @@ function colorChannelKey(encoding: VegaEncoding): 'color' | 'fill' | 'stroke' | 
   return undefined;
 }
 
+function fieldOf(def: VegaChannelDef | undefined): string | undefined {
+  return def && isFieldDef(def) ? def.field : undefined;
+}
+
+/** A row's raw value coerced for an `OverlayRectItem` corner: `Date` on a temporal axis, else numeric. `null` when it doesn't resolve. */
+function resolveRangePosition(fieldType: string | undefined, raw: unknown): OverlayPosition | null {
+  return fieldType === 'temporal' ? toDate(raw) : toNumber(raw);
+}
+
+/**
+ * A per-row fill for the ranged-rect overlay below. Unlike a native series
+ * (one color for the whole series), each `OverlayRectItem` already carries
+ * its own `fill`, so an ordinal/nominal color split resolves genuinely per
+ * row instead of being unsupported (mirrors `marks/bar.ts`'s
+ * `resolveRectRowColor` for the analogous continuous-range bar case).
+ */
+function resolveRowColor(
+  ctx: UnitContext,
+  color: ReturnType<typeof resolveColor>,
+  fallback: string | undefined,
+  gaps: GapCollector,
+  path: string,
+): (row: DatasetRow) => string | undefined {
+  if (!color.splitField) {
+    return () => fallback;
+  }
+  gaps.add({
+    code: 'mark:rect-ranged-color-legend',
+    message:
+      'Each rectangle is colored individually from its own row value, but this custom overlay ' +
+      'has no legend to show the color scale (unlike a native x-charts series/swatch legend).',
+    severity: 'ignored',
+    path,
+  });
+  const { splitField, domain, range, identity } = color;
+  const effectiveRange = range && range.length > 0 ? range : ctx.palette;
+  return (row) => {
+    const raw = row[splitField];
+    if (raw == null) {
+      return fallback;
+    }
+    if (identity) {
+      return String(raw);
+    }
+    const key = ctx.categoryKey(raw);
+    const index = domain ? domain.findIndex((value) => ctx.categoryKey(value) === key) : -1;
+    return effectiveRange[(index >= 0 ? index : 0) % effectiveRange.length];
+  };
+}
+
+/**
+ * A `rect` mark with an `x2`/`y2` secondary endpoint: a filled interval/span
+ * rect (e.g. a Gantt-style timeline bar or background highlight band), a
+ * different visualization from the 2D cell grid `compileRectMark` otherwise
+ * draws — no x-charts series primitive covers it, so it renders through the
+ * same custom `rects` overlay `marks/bar.ts` uses for a continuous-range bar.
+ * Two shapes:
+ * - one span pair (`x`/`x2` OR `y`/`y2`) with NO channel at all on the other
+ *   axis — a full-height/full-width background band (`layer_falkensee`'s
+ *   Nazi-rule/GDR highlight rects); the other axis's corners are left unset
+ *   so the renderer (`overlays/Rects.tsx`) fills the whole drawing-area span
+ *   instead of a data-space one;
+ * - both `x`/`x2` AND `y`/`y2` — a genuine per-row rectangle on two spans
+ *   (`wheat_wages`'s monarch-reign timeline rows).
+ * A lone `x2`/`y2` with NO primary channel on the SAME axis either (e.g. only
+ * `x2` and no `x` at all) has no start corner to pair it with and is dropped.
+ */
+function compileRangedRect(ctx: UnitContext): CompiledUnit {
+  const { unit, encoding, gaps, rows } = ctx;
+  const path = unit.path;
+  const mark = unit.mark;
+
+  const xField = fieldOf(encoding.x);
+  const xTwinField = fieldOf(encoding.x2);
+  const yField = fieldOf(encoding.y);
+  const yTwinField = fieldOf(encoding.y2);
+
+  if ((encoding.x2 !== undefined && !xField) || (encoding.y2 !== undefined && !yField)) {
+    gaps.add({
+      code: 'mark:rect-ranged',
+      message:
+        'An `x2`/`y2` secondary endpoint needs a primary `x`/`y` field on the same axis to pair with; this spec has none, so the layer was dropped.',
+      severity: 'unsupported',
+      path,
+    });
+    return { series: [], plots: [] };
+  }
+
+  const color = resolveColor(encoding, rows, gaps, path);
+  const staticColor =
+    color.staticColor ??
+    (typeof mark.fill === 'string' ? mark.fill : undefined) ??
+    (typeof mark.color === 'string' ? mark.color : undefined);
+  const fallbackColor = staticColor ?? ctx.palette[0];
+  const rowColor = resolveRowColor(ctx, color, fallbackColor, gaps, path);
+
+  const items: OverlayRectItem[] = [];
+  for (const row of rows) {
+    const x1 = xField ? resolveRangePosition(ctx.x?.fieldType, row[xField]) : undefined;
+    const x2 = xTwinField ? resolveRangePosition(ctx.x?.fieldType, row[xTwinField]) : undefined;
+    const y1 = yField ? resolveRangePosition(ctx.y?.fieldType, row[yField]) : undefined;
+    const y2 = yTwinField ? resolveRangePosition(ctx.y?.fieldType, row[yTwinField]) : undefined;
+    // A requested span (its field was present in the encoding) must actually
+    // resolve for both ends; a channel absent from the encoding altogether
+    // stays `undefined` on purpose (the full-height/full-width case above).
+    if (xField && x1 == null) {
+      continue;
+    }
+    if (xTwinField && x2 == null) {
+      continue;
+    }
+    if (yField && y1 == null) {
+      continue;
+    }
+    if (yTwinField && y2 == null) {
+      continue;
+    }
+    items.push({
+      ...(x1 != null ? { x1 } : {}),
+      ...(x2 != null ? { x2 } : {}),
+      ...(y1 != null ? { y1 } : {}),
+      ...(y2 != null ? { y2 } : {}),
+      fill: rowColor(row),
+    });
+  }
+
+  if (items.length === 0) {
+    // A discrete (nominal/ordinal) x2/y2 companion — this overlay only draws
+    // continuous/temporal spans — never resolves for any row; be honest that
+    // nothing was drawn instead of claiming an `ignored` custom-overlay
+    // rendering that produced zero rectangles.
+    gaps.add({
+      code: 'mark:rect-ranged',
+      message:
+        'An `x2`/`y2` secondary endpoint needs a continuous (quantitative) or temporal value to ' +
+        'draw a span from; no row resolved one, so nothing was rendered.',
+      severity: 'unsupported',
+      path,
+    });
+    return { series: [], plots: [] };
+  }
+
+  gaps.add({
+    code: 'mark:rect-ranged-custom-overlay',
+    message:
+      'A rect mark with an x2/y2 secondary endpoint draws a filled interval/span rectangle, not ' +
+      'a 2D cell grid; x-charts has no native primitive for this, so it renders through a custom ' +
+      '`rect` overlay instead.',
+    severity: 'ignored',
+    path,
+  });
+  return { series: [], plots: [], overlays: [{ kind: 'rects', items }] };
+}
+
 export function compileRectMark(ctx: UnitContext): CompiledUnit {
   const { unit, encoding, gaps, rows } = ctx;
   const path = unit.path;
   const mark = unit.mark;
 
   // x2/y2 describe a filled interval/span rect (e.g. Gantt-style bars), a
-  // different visualization from the 2D cell grid a heatmap draws — no
-  // x-charts primitive covers it, so the layer is dropped outright rather
-  // than approximated as a heatmap.
+  // different visualization from the 2D cell grid a heatmap draws — see
+  // `compileRangedRect`.
   if (encoding.x2 !== undefined || encoding.y2 !== undefined) {
-    gaps.add({
-      code: 'mark:rect-ranged',
-      message:
-        'rect marks with an `x2`/`y2` secondary endpoint describe a filled interval/span rect, not a 2D cell grid; x-charts has no primitive for ranged rects, so the layer was dropped.',
-      severity: 'unsupported',
-      path,
-    });
-    return { series: [], plots: [] };
+    return compileRangedRect(ctx);
   }
 
   if (!ctx.x?.categories || !ctx.y?.categories || !ctx.x.field || !ctx.y.field) {

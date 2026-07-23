@@ -190,6 +190,23 @@ describe('applyInlineBin', () => {
     expect(gaps.list()).to.have.length(0);
   });
 
+  it('`bin: {binned: true, ...}` (the object-form equivalent of "binned") is treated the same way', () => {
+    // bar_binned_data's shape: `{binned: true, step: 2}` pairs the pre-binned
+    // indicator with an axis-tick step — a strict `=== 'binned'` string check
+    // missed this, silently falling through to fresh auto-binning of the
+    // already-binned bin-start values instead.
+    const gaps = createGapCollector();
+    const rows = [
+      { v: 10, v_end: 20 },
+      { v: 0, v_end: 10 },
+    ];
+    const result = applyInlineBin(rows, 'v', { binned: true, step: 2 }, gaps, '$', true);
+    expect(result).to.not.equal(null);
+    expect(result!.field).to.equal('__bin_v');
+    expect(result!.rows.map((row) => row.__bin_v)).to.deep.equal(['0–10', '10–20']);
+    expect(gaps.list()).to.have.length(0);
+  });
+
   it('`bin: "binned"` nulls the label for rows with a non-numeric start or end', () => {
     const gaps = createGapCollector();
     const rows = [{ v: 0, v_end: 'x' }];

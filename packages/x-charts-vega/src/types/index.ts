@@ -63,6 +63,8 @@ export interface VegaBinParams {
   step?: number;
   extent?: [number, number];
   nice?: boolean;
+  /** The object-form equivalent of `bin: "binned"` — lets a spec pair the pre-binned indicator with e.g. an axis `step` (`bar_binned_data`'s `{binned: true, step: 2}`). */
+  binned?: boolean;
   [key: string]: unknown;
 }
 

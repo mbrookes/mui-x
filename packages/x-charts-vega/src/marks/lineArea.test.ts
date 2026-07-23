@@ -477,6 +477,45 @@ describe('compileLineAreaMark', () => {
     expect(segments.items[1]).to.include({ x1: 2, y1: 'FAILED', x2: 3, y2: 'PASSED' });
   });
 
+  it("reads its OWN field, not a sibling layer's, when the shared x axis was resolved from a different field name", () => {
+    // layer_falkensee's shape: a rect layer defines x from `start` (first,
+    // so it "wins" AxisResolution.field); a sibling line layer defines x from
+    // a DIFFERENT raw field, `year` — each gets its own distinctly-named
+    // synthetic `__timeUnit_...` column post-transform. The line mark must
+    // read ITS OWN column, not the rect's, or every row looks up an
+    // undefined key and the whole series silently goes all-null.
+    const compiled = compileSpec({
+      layer: [
+        {
+          data: { values: [{ start: '1933', end: '1945', event: 'X' }] },
+          mark: 'rect',
+          encoding: {
+            x: { field: 'start', timeUnit: 'year' },
+            x2: { field: 'end', timeUnit: 'year' },
+            color: { field: 'event', type: 'nominal' },
+          },
+        },
+        {
+          data: {
+            values: [
+              { year: '1875', population: 1309 },
+              { year: '1890', population: 1558 },
+            ],
+          },
+          mark: 'line',
+          encoding: {
+            x: { field: 'year', timeUnit: 'year' },
+            y: { field: 'population', type: 'quantitative' },
+          },
+        },
+      ],
+    });
+    const line = compiled.series.find((entry) => (entry as { type?: string }).type === 'line') as
+      { data?: Array<number | null> } | undefined;
+    expect(line?.data).to.not.include(undefined);
+    expect(line?.data?.filter((value) => value != null)).to.deep.equal([1309, 1558]);
+  });
+
   it('pins the y domain to include 0 for a continuous-x line, matching a native line series default', () => {
     // Vega-Lite's `zero: true` default applies to line/area marks regardless
     // of how x-charts ends up rendering them; a continuous-x line renders

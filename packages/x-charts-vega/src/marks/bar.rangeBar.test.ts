@@ -212,7 +212,12 @@ describe('compileBarMark — ranged bars (rangeBar)', () => {
     expect(gap?.path).to.equal('$.encoding.y2');
   });
 
-  it('reports an unsupported gap for a lone mismatched-axis twin (x2 on a vertical bar)', () => {
+  it('draws a category-ranged rect for a lone mismatched-axis twin (x2 on a vertical bar)', () => {
+    // A field-valued x2 alongside the category channel (not the value
+    // channel) is Vega-Lite's irregular-bin-width pattern (see bar.test.ts's
+    // histogram_nonlinear-shaped test): each row spans from its own category
+    // value to its own twin value on the shared band scale, drawn through a
+    // custom rect overlay rather than a plain uniform-width bar.
     const spec: VegaLiteSpec = {
       data: { values: [{ category: 'A', category2: 'B', low: 10 }] },
       mark: 'bar',
@@ -223,10 +228,20 @@ describe('compileBarMark — ranged bars (rangeBar)', () => {
       },
     };
     const compiled = compileSpec(spec);
-    expect(compiled.plots).to.include('bar');
+    expect(compiled.plots).not.to.include('bar');
     expect(compiled.plots).not.to.include('rangeBar');
-    const gap = compiled.gaps.find((entry) => entry.code === 'mark:bar-ranged-mismatched-axis');
-    expect(gap?.severity).to.equal('unsupported');
-    expect(gap?.path).to.equal('$.encoding.x2');
+    expect(compiled.gaps.map((entry) => entry.code)).not.to.include(
+      'mark:bar-ranged-mismatched-axis',
+    );
+    const overlay = compiled.overlays.find((entry) => entry.kind === 'rects');
+    if (!overlay || overlay.kind !== 'rects') {
+      throw new Error('expected a rects overlay');
+    }
+    expect(overlay.items).to.have.length(1);
+    expect(overlay.items[0]).to.include({ x1: 'A', x2: 'B', y1: 0, y2: 10 });
+    const gap = compiled.gaps.find(
+      (entry) => entry.code === 'mark:bar-category-ranged-custom-overlay',
+    );
+    expect(gap?.severity).to.equal('ignored');
   });
 });

@@ -39,12 +39,19 @@ export interface OverlaySegment {
   style?: React.CSSProperties;
 }
 
-/** Two opposite corners of a rectangle, in data space. */
+/**
+ * Two opposite corners of a rectangle, in data space. A corner pair
+ * (`x1`/`x2`, or `y1`/`y2`) is omitted entirely for a full-height/full-width
+ * background band (a rect mark with only the OTHER axis's span, e.g.
+ * `layer_falkensee`'s Nazi-rule/GDR highlight — see `marks/rect.ts`
+ * `compileRangedRect`); the renderer (`overlays/Rects.tsx`) then fills that
+ * axis's whole drawing-area span instead of a data-space one.
+ */
 export interface OverlayRectItem {
-  x1: OverlayPosition;
-  y1: OverlayPosition;
-  x2: OverlayPosition;
-  y2: OverlayPosition;
+  x1?: OverlayPosition;
+  y1?: OverlayPosition;
+  x2?: OverlayPosition;
+  y2?: OverlayPosition;
   fill?: string;
   fillOpacity?: number;
   stroke?: string;

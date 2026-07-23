@@ -604,7 +604,16 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
 
   const yDef = isFieldDef(encoding.y) ? (encoding.y as VegaFieldDef) : undefined;
   const yField = yDef?.field;
-  const xField = x?.field;
+  // This unit's OWN field, from its own (post-transform) encoding — NOT the
+  // shared chart-wide `x` axis's field, which only reflects whichever layer
+  // happened to define the channel FIRST (see `AxisResolution.field`'s doc).
+  // A sibling layer whose raw x field has a different name (`layer_falkensee`:
+  // the rect layer's `start` vs the line layer's own `year`, each rewritten to
+  // its own distinctly-named synthetic `__timeUnit_...` column) would
+  // otherwise read every row's x value under the WRONG key and silently
+  // produce an all-null series — `yField` above already got this right.
+  const xDef = isFieldDef(encoding.x) ? (encoding.x as VegaFieldDef) : undefined;
+  const xField = xDef?.field;
 
   if ((markType === 'line' || markType === 'trail') && mark.interpolate === 'linear-closed') {
     const overlay = xField && yField ? buildClosedPolygonOverlay(ctx, xField, yField) : null;
@@ -627,9 +636,8 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
     // `categories`/`categoryKeys`, see scales.ts). We render the layer as an
     // overlay instead of dropping it: `line`/`trail` as a polyline (segments),
     // `area` as one filled band per color group.
-    const contXField = x?.field;
-    if ((markType === 'line' || markType === 'trail') && contXField && yField) {
-      const overlay = buildContinuousLineOverlay(ctx, contXField, yField);
+    if ((markType === 'line' || markType === 'trail') && xField && yField) {
+      const overlay = buildContinuousLineOverlay(ctx, xField, yField);
       if (overlay) {
         gaps.add({
           code: 'mark:line-continuous-x-custom-overlay',
@@ -641,8 +649,8 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
         return { series: [], plots: [], overlays: [overlay] };
       }
     }
-    if (markType === 'area' && contXField && yField) {
-      const overlays = buildContinuousAreaOverlay(ctx, contXField, yField);
+    if (markType === 'area' && xField && yField) {
+      const overlays = buildContinuousAreaOverlay(ctx, xField, yField);
       if (overlays.length > 0) {
         gaps.add({
           code: 'mark:area-continuous-x-custom-overlay',

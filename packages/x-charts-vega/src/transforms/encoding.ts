@@ -2,7 +2,7 @@ import type { DatasetRow, VegaEncoding, VegaFieldDef } from '../types';
 import { isFieldDef } from '../types';
 import type { GapCollector } from '../gaps';
 import { evaluateAggregate } from './aggregateOps';
-import { applyInlineBin } from './bin';
+import { applyInlineBin, isPreBinned } from './bin';
 import { applyInlineTimeUnit } from './timeUnit';
 
 /*
@@ -154,8 +154,9 @@ export function applyEncodingTransforms(
       // For pre-binned data (`bin: "binned"`), the bin end comes from the
       // channel's `x2`/`y2` companion when present; otherwise applyInlineBin
       // falls back to the `"${field}_end"` convention.
-      const binnedEndChannel =
-        def.bin === 'binned' ? resolveBinnedEndChannel(workingEncoding, channel) : undefined;
+      const binnedEndChannel = isPreBinned(def.bin)
+        ? resolveBinnedEndChannel(workingEncoding, channel)
+        : undefined;
       const binResult = applyInlineBin(
         workingRows,
         def.field,

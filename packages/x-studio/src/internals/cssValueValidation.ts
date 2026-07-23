@@ -111,3 +111,55 @@ export function sanitizeFiniteNumber(value: unknown, min: number = 0): number | 
 export function sanitizeFontSize(value: unknown): number | undefined {
   return sanitizeFiniteNumber(value, 1);
 }
+
+/**
+ * Returns a finite numeric font weight clamped to the valid CSS range (`100`-`900`), or
+ * `undefined` if `value` isn't one. `StudioTextConfig['textTitleFontWeight']` is typed as
+ * `number`, but — like every other doc-authored style field in this module — that type
+ * isn't enforced at the `loadSerializedState`/AI-tool-call boundary, so an out-of-range or
+ * non-numeric value (including a CSS-injecting string) could otherwise reach `sx` directly.
+ */
+export function sanitizeFontWeight(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 100 && value <= 900
+    ? value
+    : undefined;
+}
+
+/**
+ * Allow-list for the three text-alignment keywords used across `StudioTextConfig`
+ * (`text*Align`) and shared wherever a doc-authored alignment value is interpolated into
+ * `sx.textAlign` — every other value falls back to the caller's default (typically `left`).
+ */
+const SAFE_TEXT_ALIGN_VALUES = new Set(['left', 'center', 'right']);
+
+export function isSafeTextAlign(value: unknown): value is 'left' | 'center' | 'right' {
+  return typeof value === 'string' && SAFE_TEXT_ALIGN_VALUES.has(value);
+}
+
+/**
+ * Allow-list for the `StudioConditionalFormatStyle['fontWeight']` literal union
+ * (`'bold' | 'normal'`). Same rationale as {@link isSafeTextAlign}: the type isn't enforced
+ * at the untrusted-input boundary, so a value like `'bold; } .x{...'` must be rejected
+ * before it's interpolated into a grid cell's `sx`.
+ */
+const SAFE_FONT_WEIGHT_KEYWORDS = new Set(['bold', 'normal']);
+
+export function isSafeFontWeightKeyword(value: unknown): value is 'bold' | 'normal' {
+  return typeof value === 'string' && SAFE_FONT_WEIGHT_KEYWORDS.has(value);
+}
+
+/**
+ * Strips every character outside `[A-Za-z0-9_-]` from `value`, for building a CSS class
+ * name / selector token out of a doc-authored id. Ids are normally minted by
+ * `createWidgetId` (collision-resistant, always identifier-safe), but the persisted-doc
+ * load boundary only screens ids for prototype-pollution-unsafe *keys* — not for
+ * CSS-selector-safety — so a hostile serialized dashboard could carry a widget record
+ * whose id contains selector metacharacters. Emotion emits `sx` selector KEYS into the
+ * stylesheet raw, so a value like `w{}html{display:none}.x` interpolated directly into
+ * `` `& .StudioGrid-cf-${id}-${i}` `` would inject arbitrary CSS the moment the grid has
+ * any conditional format. This only sanitizes the local token used to build that class
+ * name — it must never be used to rewrite the id itself anywhere it's used as a data key.
+ */
+export function sanitizeCssIdentifierToken(value: string): string {
+  return value.replace(/[^A-Za-z0-9_-]/g, '');
+}

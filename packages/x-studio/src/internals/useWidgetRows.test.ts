@@ -21,6 +21,7 @@ import type {
   StudioWidget,
 } from '../models';
 import { studioRequestCache } from './StudioRequestCache';
+import { StudioUIConfigContext, DEFAULT_STUDIO_LOCALE_TEXT } from './StudioUIConfigContext';
 import {
   mockUseStudioSelector,
   mockUseStudioController,
@@ -664,6 +665,50 @@ describe('async adapter path', () => {
     expect(result.current.isLoading).toBe(false);
     // Rows remain empty after failure
     expect(result.current.filteredRows).toHaveLength(0);
+  });
+
+  it('falls back to the localized widgetLoadError token (not a hardcoded English string) when the adapter rejects with a non-Error value (finding 6)', async () => {
+    mockState = createState();
+    const widget = makeWidget({ sourceId: 'src1' });
+
+    const adapter: StudioDataSourceAdapter = {
+      // Reject with a plain string, not an Error — exercises the `err instanceof Error`
+      // false branch, which used to fall back to a hardcoded English string.
+      getRows: vi.fn().mockRejectedValue('boom'),
+    };
+    const dataSource = makeDataSource([], { adapter });
+
+    // Custom locale overriding `widgetLoadError` to a distinctive, non-English string —
+    // proves the hook actually reads the locale token rather than a hardcoded fallback,
+    // which would render as the English string regardless of the active locale.
+    const customLocaleText = {
+      ...DEFAULT_STUDIO_LOCALE_TEXT,
+      widgetLoadError: '__LOCALIZED_LOAD_ERROR__',
+    };
+    function Wrapper({ children }: { children?: React.ReactNode }) {
+      return React.createElement(
+        StudioUIConfigContext.Provider,
+        {
+          value: {
+            tableSourceMode: 'explicit',
+            featureFlags: {},
+            localeText: customLocaleText,
+          },
+        },
+        children,
+      );
+    }
+
+    const { result } = renderHook(() => useWidgetRows(widget, dataSource, 'page-1'), {
+      wrapper: Wrapper,
+    });
+
+    // eslint-disable-next-line testing-library/no-unnecessary-act
+    await act(async () => {
+      await vi.waitFor(() => result.current.isError);
+    });
+
+    expect(result.current.errorMessage).toBe('__LOCALIZED_LOAD_ERROR__');
   });
 
   it('does not stay stuck loading when the descriptor changes to a cached one before the first fetch resolves', async () => {

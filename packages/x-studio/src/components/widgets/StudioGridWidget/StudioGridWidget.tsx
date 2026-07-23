@@ -35,7 +35,11 @@ import {
   makeSelectWidgetActiveCrossFilter,
 } from '../../../context';
 import { formatFieldValue } from '../../../internals/numberFormat';
-import { sanitizeCssColor } from '../../../internals/cssValueValidation';
+import {
+  sanitizeCssColor,
+  isSafeFontWeightKeyword,
+  sanitizeCssIdentifierToken,
+} from '../../../internals/cssValueValidation';
 
 import { computeGridSummary } from '../../../utils/gridSummary';
 import { aggregateValues } from '../../../utils/gridGrouping';
@@ -920,24 +924,32 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     () => widget.config.gridConditionalFormats ?? [],
     [widget.config.gridConditionalFormats],
   );
+  // `widget.id` is normally minted by `createWidgetId` and always identifier-safe, but the
+  // persisted-doc load boundary only screens ids for prototype-pollution-unsafe keys, not
+  // CSS-selector-safety — sanitize the local token used to build the conditional-format
+  // class name (finding 5) without touching `widget.id` itself anywhere else it's used.
+  const safeWidgetIdForCss = sanitizeCssIdentifierToken(widget.id);
   const conditionalFormatSx = React.useMemo(() => {
     const sx: Record<string, Record<string, unknown>> = {};
     conditionalFormats.forEach((rule, i) => {
-      const cls = `.StudioGrid-cf-${widget.id}-${i}`;
+      const cls = `.StudioGrid-cf-${safeWidgetIdForCss}-${i}`;
       // Sanitized before reaching `sx` (finding 1): `gridConditionalFormats` is
       // doc-authored config reachable via `loadSerializedState`/the AI `update_widget`
       // tool call, and Emotion does not escape interpolated `sx` property values.
       const safeBackgroundColor = sanitizeCssColor(rule.style.backgroundColor);
       const safeColor = sanitizeCssColor(rule.style.color);
+      const safeFontWeight = isSafeFontWeightKeyword(rule.style.fontWeight)
+        ? rule.style.fontWeight
+        : undefined;
       sx[`& ${cls}`] = {
         ...(safeBackgroundColor ? { bgcolor: safeBackgroundColor } : {}),
         ...(safeColor ? { color: safeColor } : {}),
-        ...(rule.style.fontWeight ? { fontWeight: rule.style.fontWeight } : {}),
+        ...(safeFontWeight ? { fontWeight: safeFontWeight } : {}),
       };
     });
     return sx;
-    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- widget.id is a stable primitive
-  }, [conditionalFormats, widget.id]);
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- safeWidgetIdForCss is a stable primitive
+  }, [conditionalFormats, safeWidgetIdForCss]);
 
   const getCellClassName = React.useCallback(
     (params: GridCellParams) => {
@@ -950,13 +962,13 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
           return;
         }
         if (evalConditionalFormat(rule, params.value)) {
-          classes.push(`StudioGrid-cf-${widget.id}-${i}`);
+          classes.push(`StudioGrid-cf-${safeWidgetIdForCss}-${i}`);
         }
       });
       return classes.join(' ');
     },
-    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- widget.id is a stable primitive
-    [conditionalFormats, widget.id],
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps -- safeWidgetIdForCss is a stable primitive
+    [conditionalFormats, safeWidgetIdForCss],
   );
 
   // Only shown when grouping is not active (DataGridPremium aggregation handles it otherwise).

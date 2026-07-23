@@ -6,7 +6,11 @@ import type { StudioWidgetOf } from '../../../models';
 import { useTextWidgetAI } from './useTextWidgetAI';
 import { renderMarkdown } from './renderMarkdown';
 import { resolveTextFontFamily } from '../../../internals/textFontFamily';
-import { sanitizeCssColor, sanitizeFontSize } from '../../../internals/cssValueValidation';
+import {
+  sanitizeCssColor,
+  sanitizeFontSize,
+  isSafeTextAlign,
+} from '../../../internals/cssValueValidation';
 
 export interface StudioTextWidgetProps {
   widget: StudioWidgetOf<'text'>;
@@ -127,7 +131,9 @@ export const StudioTextWidget = React.memo(function StudioTextWidget(props: Stud
             ...(sanitizeFontSize(config.textSubtitleFontSize) && {
               fontSize: sanitizeFontSize(config.textSubtitleFontSize),
             }),
-            ...(config.textSubtitleAlign && { textAlign: config.textSubtitleAlign }),
+            ...(isSafeTextAlign(config.textSubtitleAlign) && {
+              textAlign: config.textSubtitleAlign,
+            }),
           }}
         >
           {subtitle}
@@ -145,7 +151,9 @@ export const StudioTextWidget = React.memo(function StudioTextWidget(props: Stud
             ...(sanitizeFontSize(config.textBodyFontSize) && {
               fontSize: sanitizeFontSize(config.textBodyFontSize),
             }),
-            ...(config.textBodyAlign && { textAlign: config.textBodyAlign }),
+            ...(isSafeTextAlign(config.textBodyAlign) && {
+              textAlign: config.textBodyAlign,
+            }),
           }}
         >
           {body}

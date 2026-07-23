@@ -10,6 +10,7 @@ import type {
 } from '../models';
 import { buildWidgetQueryDescriptor } from './queryDescriptor';
 import { studioRequestCache } from './StudioRequestCache';
+import { useStudioLocaleText } from '../context';
 
 type Row = Record<string, unknown>;
 
@@ -47,6 +48,7 @@ export function useAdapterRows(
   relationships: StudioRelationship[] = [],
   crossFilterAllPages: boolean = false,
 ): UseAdapterRowsResult {
+  const localeText = useStudioLocaleText();
   const hasAdapter = Boolean(dataSource?.adapter);
 
   // Descriptor is rebuilt whenever any state that affects it changes.
@@ -161,7 +163,7 @@ export function useAdapterRows(
         if (!cancelled) {
           setIsLoading(false);
           setIsError(true);
-          setErrorMessage(err instanceof Error ? err.message : 'Failed to load data');
+          setErrorMessage(err instanceof Error ? err.message : localeText.widgetLoadError);
         }
       },
     );
@@ -170,7 +172,7 @@ export function useAdapterRows(
     return () => {
       cancelled = true;
     };
-  }, [descriptor, dataSource]);
+  }, [descriptor, dataSource, localeText.widgetLoadError]);
 
   return { adapterRows, isLoading, isError, errorMessage };
 }

@@ -142,3 +142,45 @@ describe('StudioTextWidget CSS value validation (finding 1)', () => {
     expect(screen.getByText('Body copy')).not.toBe(null);
   });
 });
+
+// Finding 3: `config.textSubtitleAlign` / `config.textBodyAlign` used to be interpolated
+// into `sx.textAlign` unvalidated, in the very file whose colors/sizes/fonts were fixed
+// in the prior iteration (finding 1, above).
+describe('StudioTextWidget align sanitization (finding 3)', () => {
+  it('applies a valid textBodyAlign / textSubtitleAlign value', () => {
+    render(
+      <StudioTextWidget
+        widget={makeWidget({
+          textSubtitle: 'Heading',
+          textSubtitleAlign: 'center',
+          textBody: 'Body copy',
+          textBodyAlign: 'right',
+        })}
+        pageId="page-1"
+      />,
+    );
+    expect(getComputedStyle(screen.getByText('Heading')).textAlign).toBe('center');
+    expect(getComputedStyle(screen.getByText('Body copy')).textAlign).toBe('right');
+  });
+
+  it('rejects an invalid textBodyAlign/textSubtitleAlign value instead of propagating it', () => {
+    const cssInjectionPayload = 'left; } .evil{background:url(https://evil/leak)';
+    render(
+      <StudioTextWidget
+        widget={
+          makeWidget({
+            textSubtitle: 'Heading',
+            textSubtitleAlign: cssInjectionPayload as unknown as 'left' | 'center' | 'right',
+            textBody: 'Body copy',
+            textBodyAlign: cssInjectionPayload as unknown as 'left' | 'center' | 'right',
+          }) as ReturnType<typeof makeWidget>
+        }
+        pageId="page-1"
+      />,
+    );
+    expect(screen.getByText('Heading')).not.toBe(null);
+    expect(screen.getByText('Body copy')).not.toBe(null);
+    expect(document.documentElement.outerHTML).not.toContain(cssInjectionPayload);
+    expect(document.documentElement.outerHTML).not.toContain('.evil{background:url');
+  });
+});

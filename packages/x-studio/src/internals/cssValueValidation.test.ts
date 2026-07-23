@@ -5,6 +5,10 @@ import {
   isSafeFontFamily,
   sanitizeFontSize,
   sanitizeFiniteNumber,
+  sanitizeFontWeight,
+  isSafeTextAlign,
+  isSafeFontWeightKeyword,
+  sanitizeCssIdentifierToken,
 } from './cssValueValidation';
 
 // Finding 1: these validators are the render-time boundary that stops a doc-authored CSS
@@ -76,6 +80,69 @@ describe('cssValueValidation (finding 1)', () => {
       expect(sanitizeFontSize(-4)).toBeUndefined();
       expect(sanitizeFiniteNumber(-1)).toBeUndefined();
       expect(sanitizeFiniteNumber(undefined)).toBeUndefined();
+    });
+  });
+
+  describe('sanitizeFontWeight (finding 2)', () => {
+    it('accepts numbers within the valid 100-900 CSS font-weight range', () => {
+      expect(sanitizeFontWeight(100)).toBe(100);
+      expect(sanitizeFontWeight(400)).toBe(400);
+      expect(sanitizeFontWeight(900)).toBe(900);
+    });
+
+    it('rejects out-of-range and non-numeric values, including a CSS-injecting string', () => {
+      expect(sanitizeFontWeight(0)).toBeUndefined();
+      expect(sanitizeFontWeight(99)).toBeUndefined();
+      expect(sanitizeFontWeight(901)).toBeUndefined();
+      expect(sanitizeFontWeight(Number.NaN)).toBeUndefined();
+      expect(sanitizeFontWeight(undefined)).toBeUndefined();
+      expect(sanitizeFontWeight('700;} .x{background:url(https://evil/leak)')).toBeUndefined();
+    });
+  });
+
+  describe('isSafeTextAlign (findings 2 & 3)', () => {
+    it('accepts the three valid alignment keywords', () => {
+      expect(isSafeTextAlign('left')).toBe(true);
+      expect(isSafeTextAlign('center')).toBe(true);
+      expect(isSafeTextAlign('right')).toBe(true);
+    });
+
+    it('rejects any other value, including a CSS-injecting string', () => {
+      expect(isSafeTextAlign('justify')).toBe(false);
+      expect(isSafeTextAlign(undefined)).toBe(false);
+      expect(isSafeTextAlign(42)).toBe(false);
+      expect(isSafeTextAlign('left;} .x{background:url(https://evil/leak)')).toBe(false);
+    });
+  });
+
+  describe('isSafeFontWeightKeyword (finding 4)', () => {
+    it('accepts "bold" and "normal"', () => {
+      expect(isSafeFontWeightKeyword('bold')).toBe(true);
+      expect(isSafeFontWeightKeyword('normal')).toBe(true);
+    });
+
+    it('rejects any other value, including a CSS-injecting string', () => {
+      expect(isSafeFontWeightKeyword('bolder')).toBe(false);
+      expect(isSafeFontWeightKeyword(700)).toBe(false);
+      expect(isSafeFontWeightKeyword(undefined)).toBe(false);
+      expect(isSafeFontWeightKeyword('bold;} .x{background:url(https://evil/leak)')).toBe(false);
+    });
+  });
+
+  describe('sanitizeCssIdentifierToken (finding 5)', () => {
+    it('leaves an already-safe identifier untouched', () => {
+      expect(sanitizeCssIdentifierToken('widget-1_ABC')).toBe('widget-1_ABC');
+    });
+
+    it('strips CSS/selector metacharacters out of a hostile widget id', () => {
+      const hostileId = 'w{}html{display:none}.x';
+      const sanitized = sanitizeCssIdentifierToken(hostileId);
+      expect(sanitized).toBe('whtmldisplaynonex');
+      expect(sanitized).not.toContain('{');
+      expect(sanitized).not.toContain('}');
+      expect(sanitized).not.toContain(':');
+      expect(sanitized).not.toContain('.');
+      expect(sanitized).not.toContain(' ');
     });
   });
 });

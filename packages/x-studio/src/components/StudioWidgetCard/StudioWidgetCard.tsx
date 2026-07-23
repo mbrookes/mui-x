@@ -40,6 +40,8 @@ import {
   sanitizeCssColor,
   sanitizeFontSize,
   sanitizeFiniteNumber,
+  sanitizeFontWeight,
+  isSafeTextAlign,
 } from '../../internals/cssValueValidation';
 import { useStudioAnnounce } from '../../internals/StudioLiveRegion';
 import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
@@ -460,6 +462,13 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const sanitizedTextTitleFontSize: number | undefined = isWidgetOfKind(widget, 'text')
     ? sanitizeFontSize(widget.config.textTitleFontSize)
     : undefined;
+  const sanitizedTextTitleFontWeight: number | undefined = isWidgetOfKind(widget, 'text')
+    ? sanitizeFontWeight(widget.config.textTitleFontWeight)
+    : undefined;
+  const sanitizedTextTitleAlign: 'left' | 'center' | 'right' | undefined =
+    isWidgetOfKind(widget, 'text') && isSafeTextAlign(widget.config.textTitleAlign)
+      ? widget.config.textTitleAlign
+      : undefined;
 
   return (
     <Box sx={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -616,11 +625,11 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                       ...(sanitizedTextTitleFontSize !== undefined && {
                         fontSize: sanitizedTextTitleFontSize,
                       }),
-                      ...(widget.config.textTitleFontWeight && {
-                        fontWeight: widget.config.textTitleFontWeight,
+                      ...(sanitizedTextTitleFontWeight !== undefined && {
+                        fontWeight: sanitizedTextTitleFontWeight,
                       }),
-                      ...(widget.config.textTitleAlign && {
-                        textAlign: widget.config.textTitleAlign,
+                      ...(sanitizedTextTitleAlign !== undefined && {
+                        textAlign: sanitizedTextTitleAlign,
                       }),
                     }),
                   }}

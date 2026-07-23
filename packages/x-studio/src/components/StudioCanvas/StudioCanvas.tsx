@@ -33,6 +33,7 @@ import { GRID_COLS, MIN_SPAN } from './canvasGridConstants';
 import { InsertionPoint } from './InsertionPoint';
 import { WidgetGap } from './WidgetGap';
 import { useStudioDropTarget } from './useStudioDropTarget';
+import { sanitizeCssColor } from '../../internals/cssValueValidation';
 
 /** Minimum column span for a KPI widget without a sparkline (narrower is fine without the chart). */
 const KPI_NO_SPARKLINE_MIN_SPAN = 4;
@@ -633,7 +634,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
           p: mode === 'edit' ? 0 : '8px',
           backgroundColor: isEmptyPage
             ? undefined
-            : (activePage?.theme?.pageBackground ?? undefined),
+            : sanitizeCssColor(activePage?.theme?.pageBackground),
           minHeight: '100%',
         },
         ...(Array.isArray(sx) ? sx : [sx]),

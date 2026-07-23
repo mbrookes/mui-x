@@ -1,3 +1,5 @@
+import { isSafeFontFamily } from './cssValueValidation';
+
 const NAMED_FONT_STACKS: Record<string, string> = {
   'sans-serif': 'Arial, Helvetica, sans-serif',
   serif: "Georgia, 'Times New Roman', Times, serif",
@@ -9,12 +11,25 @@ const NAMED_FONT_STACKS: Record<string, string> = {
  *
  * The three named keywords (`sans-serif` / `serif` / `monospace`) map to curated stacks;
  * any other value is treated as a literal CSS font-family, e.g.
- * `'Fraunces, "Inter Tight", serif'`. Returns `undefined` for an empty value so callers
- * fall back to the theme default.
+ * `'Fraunces, "Inter Tight", serif'`, and is validated via {@link isSafeFontFamily} before
+ * being returned. Returns `undefined` for an empty, non-string, or invalid value so callers
+ * fall back to the theme default rather than rendering (or throwing on) an unsafe literal.
+ *
+ * Security note (finding 1): this config value comes from `StudioDoc.widgets[id].config`,
+ * which is reachable via `loadSerializedState(data: unknown)` (an untrusted serialized
+ * dashboard) and the AI `update_widget` tool call — neither is otherwise value-validated
+ * before reaching Emotion's `sx` prop, which does not escape interpolated property values.
+ * Without the {@link isSafeFontFamily} allow-list, a value like
+ * `serif;} .MuiCard-root{background:url(https://evil/leak)` would inject arbitrary CSS
+ * rules into the page (UI-spoofing / limited-exfiltration risk).
  */
 export function resolveTextFontFamily(value: string | undefined): string | undefined {
-  if (!value) {
+  if (!value || typeof value !== 'string') {
     return undefined;
   }
-  return NAMED_FONT_STACKS[value] ?? value;
+  const namedStack = NAMED_FONT_STACKS[value];
+  if (namedStack) {
+    return namedStack;
+  }
+  return isSafeFontFamily(value) ? value : undefined;
 }

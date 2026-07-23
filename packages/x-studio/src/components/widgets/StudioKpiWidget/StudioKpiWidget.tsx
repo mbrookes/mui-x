@@ -1,6 +1,6 @@
 'use client';
 import * as React from 'react';
-import { Box, Tooltip } from '@mui/material';
+import { Box, Skeleton, Tooltip } from '@mui/material';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 
 import type {
@@ -1176,6 +1176,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   const {
     filteredRowsNoCross,
     effectiveRows,
+    isLoading,
     isError,
     errorMessage,
     // The widget's fully resolved/scoped filter sets, now EXPOSED by `useWidgetRows` and derived
@@ -1187,6 +1188,13 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     resolvedFiltersNoCross,
   } = useWidgetRows(widget, dataSource, pageId);
   const currentRows = crossFilterMode === 'none' ? filteredRowsNoCross : effectiveRows;
+  // True during a cold async-adapter fetch that hasn't produced any rows yet. Gates the
+  // headline/sparkline rendering below so a fetch-in-progress never shows a confident
+  // "0"/"$0" (`computeAggregate([], ...)` legitimately returns 0 for an empty row set,
+  // which is indistinguishable from a real zero total) before the first response lands
+  // (finding 4 — KPI had no loading affordance, unlike Grid/Pivot's Skeleton and Map's
+  // `isLoading` gating).
+  const isInitialLoading = isLoading && currentRows.length === 0;
 
   // The widget's fully resolved/scoped filter set, matching the scope `currentRows` was
   // produced at above ('no-cross' → filteredRowsNoCross, 'all' → effectiveRows). Threaded into
@@ -1332,7 +1340,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     localeText,
   ]);
 
-  const showSparkline = (config.kpiSparkline ?? false) && hasData;
+  const showSparkline = (config.kpiSparkline ?? false) && hasData && !isInitialLoading;
 
   // Show an indicator when crossFilterMode is 'none' and there are active interactive
   // filters from other widgets that this KPI is intentionally ignoring. Also verify
@@ -1374,15 +1382,19 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
           overflow: 'hidden',
         }}
       >
-        <Tooltip
-          title={filterSubtitle || ''}
-          disableHoverListener={!filterSubtitle}
-          placement="top"
-        >
-          <span>
-            <ValueComponent value={displayValue} hasData={hasData} {...slotProps?.value} />
-          </span>
-        </Tooltip>
+        {isInitialLoading ? (
+          <Skeleton variant="text" width={72} height={40} sx={{ flexShrink: 0 }} />
+        ) : (
+          <Tooltip
+            title={filterSubtitle || ''}
+            disableHoverListener={!filterSubtitle}
+            placement="top"
+          >
+            <span>
+              <ValueComponent value={displayValue} hasData={hasData} {...slotProps?.value} />
+            </span>
+          </Tooltip>
+        )}
         {showSparkline && (
           <SparklineComponent
             data={sparklineData}

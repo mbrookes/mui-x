@@ -36,6 +36,7 @@ import { StudioKpiWidget } from './StudioKpiWidget';
 const rowsHolder = vi.hoisted(() => ({
   current: [] as Record<string, unknown>[],
   effective: null as Record<string, unknown>[] | null,
+  isLoading: false,
 }));
 
 vi.mock('../../../internals/useWidgetRows', () => ({
@@ -62,7 +63,7 @@ vi.mock('../../../internals/useWidgetRows', () => ({
     return {
       filteredRowsNoCross: rowsHolder.current,
       effectiveRows: rowsHolder.effective ?? rowsHolder.current,
-      isLoading: false,
+      isLoading: rowsHolder.isLoading,
       isError: false,
       errorMessage: undefined,
       resolvedFiltersAll: selectFiltersForWidget(filters, { ...base, include: 'all' }),
@@ -2193,5 +2194,85 @@ describe('<StudioKpiWidget /> expression-field & cross-page filter scoping (find
     renderKpi(widget, customersSource);
 
     expect(lastValue()).toBe('500');
+  });
+});
+
+describe('<StudioKpiWidget /> loading affordance for a cold adapter fetch (finding 4)', () => {
+  beforeEach(() => {
+    trendSpy.mockClear();
+    valueSpy.mockClear();
+    sparklineSpy.mockClear();
+    rowsHolder.effective = null;
+    rowsHolder.isLoading = false;
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+    rowsHolder.effective = null;
+    rowsHolder.isLoading = false;
+  });
+
+  // An adapter-backed source that hasn't produced any rows yet — the exact shape
+  // `useAdapterRows` returns before its first fetch resolves.
+  const adapterSource = {
+    id: 'sales',
+    label: 'Sales',
+    fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+    adapter: { getRows: async () => ({ rows: [] }) },
+  } as unknown as StudioDataSource;
+
+  it('shows a loading placeholder instead of a confident "0" while isLoading and no rows have arrived', () => {
+    rowsHolder.current = [];
+    rowsHolder.isLoading = true;
+    const widget = makeWidget(
+      { kpiValueField: 'amount', kpiAggregation: 'sum', kpiSparkline: true },
+      'sales',
+    );
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { sales: adapterSource },
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, adapterSource);
+
+    // The value slot (KpiValue/ValueSpy) must NOT be rendered with a computed "0" —
+    // instead a Skeleton placeholder takes its place until real rows arrive.
+    expect(valueSpy).not.toHaveBeenCalled();
+    expect(document.querySelector('.MuiSkeleton-root')).not.toBeNull();
+    // The sparkline must not render off of an empty/loading row set either.
+    expect(sparklineSpy).not.toHaveBeenCalled();
+  });
+
+  it('renders the real computed value once rows have arrived (isLoading false)', () => {
+    rowsHolder.current = [{ id: 's1', amount: 300 }];
+    rowsHolder.isLoading = false;
+    const widget = makeWidget({ kpiValueField: 'amount', kpiAggregation: 'sum' }, 'sales');
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { sales: adapterSource },
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, adapterSource);
+
+    expect(lastValue()).toBe('300');
+    expect(document.querySelector('.MuiSkeleton-root')).toBeNull();
+  });
+
+  it('does not show the loading skeleton once isLoading is false even with zero matching rows (genuine "no data")', () => {
+    rowsHolder.current = [];
+    rowsHolder.isLoading = false;
+    const widget = makeWidget({ kpiValueField: 'amount', kpiAggregation: 'sum' }, 'sales');
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { sales: adapterSource },
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, adapterSource);
+
+    expect(document.querySelector('.MuiSkeleton-root')).toBeNull();
+    expect(lastValue()).toBe('0');
   });
 });

@@ -186,9 +186,15 @@ function aggregateRows(
         } else if (aggFn === 'sum') {
           row[id] = nums.reduce((a, b) => a + b, 0);
         } else if (aggFn === 'min') {
-          row[id] = Math.min(...nums);
+          // Reduce with a loop instead of `Math.min(...nums)`: spreading a large
+          // array as call arguments throws `RangeError: Maximum call stack size
+          // exceeded` once it exceeds ~65k–125k elements (finding 2.13). A bucket
+          // here can hold up to `ceil(totalRows / maxRows)` values, so a large
+          // source can still overflow a single bucket. Mirrors `numericStats`
+          // below and `aggregateNumbers` in `internals/aggregate.ts`.
+          row[id] = nums.reduce((acc, v) => (v < acc ? v : acc));
         } else if (aggFn === 'max') {
-          row[id] = Math.max(...nums);
+          row[id] = nums.reduce((acc, v) => (v > acc ? v : acc));
         } else {
           // avg (default for number fields)
           const avg = nums.reduce((a, b) => a + b, 0) / nums.length;

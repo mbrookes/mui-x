@@ -6,6 +6,7 @@ import type { StudioWidgetOf } from '../../../models';
 import { useTextWidgetAI } from './useTextWidgetAI';
 import { renderMarkdown } from './renderMarkdown';
 import { resolveTextFontFamily } from '../../../internals/textFontFamily';
+import { sanitizeCssColor, sanitizeFontSize } from '../../../internals/cssValueValidation';
 
 export interface StudioTextWidgetProps {
   widget: StudioWidgetOf<'text'>;
@@ -115,11 +116,17 @@ export const StudioTextWidget = React.memo(function StudioTextWidget(props: Stud
         <Typography
           variant="subtitle1"
           sx={{
-            color: config.textSubtitleColor ?? 'text.secondary',
+            // `sanitizeCssColor`/`sanitizeFontSize` validate doc-authored config values
+            // before they reach `sx` — Emotion does not escape interpolated property
+            // values, so an unvalidated string here would let a hostile serialized
+            // dashboard or AI `update_widget` call inject arbitrary CSS (finding 1).
+            color: sanitizeCssColor(config.textSubtitleColor, 'text.secondary'),
             ...(config.textSubtitleFontFamily && {
               fontFamily: resolveTextFontFamily(config.textSubtitleFontFamily),
             }),
-            ...(config.textSubtitleFontSize && { fontSize: config.textSubtitleFontSize }),
+            ...(sanitizeFontSize(config.textSubtitleFontSize) && {
+              fontSize: sanitizeFontSize(config.textSubtitleFontSize),
+            }),
             ...(config.textSubtitleAlign && { textAlign: config.textSubtitleAlign }),
           }}
         >
@@ -130,12 +137,14 @@ export const StudioTextWidget = React.memo(function StudioTextWidget(props: Stud
         <Typography
           variant="body2"
           sx={{
-            color: config.textBodyColor ?? 'text.primary',
+            color: sanitizeCssColor(config.textBodyColor, 'text.primary'),
             whiteSpace: 'pre-wrap',
             ...(config.textBodyFontFamily && {
               fontFamily: resolveTextFontFamily(config.textBodyFontFamily),
             }),
-            ...(config.textBodyFontSize && { fontSize: config.textBodyFontSize }),
+            ...(sanitizeFontSize(config.textBodyFontSize) && {
+              fontSize: sanitizeFontSize(config.textBodyFontSize),
+            }),
             ...(config.textBodyAlign && { textAlign: config.textBodyAlign }),
           }}
         >

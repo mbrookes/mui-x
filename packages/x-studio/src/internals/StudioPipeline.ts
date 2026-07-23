@@ -53,10 +53,12 @@ export interface StudioPipeline {
    *   (even `{}`), the dashboard's `crossFilterAllPages` is honoured and the effective
    *   cross-filter mode is resolved as
    *   `state.globalCrossFilterMode ?? options.widgetCrossFilterMode ?? 'cross-highlight'`; an
-   *   effective mode of `'none'` coerces `include` to `'no-cross'`. An explicit `options.include`
-   *   always wins. `options.includeWidgetRank` (default `false`) applies WIDGET-scoped rank
-   *   filters at L3; pass `true` for non-chart widget kinds so their authorable Top-N rank is
-   *   enforced (matching the React hook's `!isWidgetOfKind(widget, 'chart')`).
+   *   effective mode of `'none'` coerces `include` to `'no-chart-cross'` — chart-click
+   *   cross-filters are ignored, but interactive (filter-widget) hard-filters still apply.
+   *   An explicit `options.include` always wins. `options.includeWidgetRank` (default `false`)
+   *   applies WIDGET-scoped rank filters at L3; pass `true` for non-chart widget kinds so their
+   *   authorable Top-N rank is enforced (matching the React hook's
+   *   `!isWidgetOfKind(widget, 'chart')`).
    */
   resolveWidgetRows(
     widgetId: string,

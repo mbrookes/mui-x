@@ -35,6 +35,7 @@ import {
   makeSelectWidgetActiveCrossFilter,
 } from '../../../context';
 import { formatFieldValue } from '../../../internals/numberFormat';
+import { sanitizeCssColor } from '../../../internals/cssValueValidation';
 
 import { computeGridSummary } from '../../../utils/gridSummary';
 import { aggregateValues } from '../../../utils/gridGrouping';
@@ -923,9 +924,14 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     const sx: Record<string, Record<string, unknown>> = {};
     conditionalFormats.forEach((rule, i) => {
       const cls = `.StudioGrid-cf-${widget.id}-${i}`;
+      // Sanitized before reaching `sx` (finding 1): `gridConditionalFormats` is
+      // doc-authored config reachable via `loadSerializedState`/the AI `update_widget`
+      // tool call, and Emotion does not escape interpolated `sx` property values.
+      const safeBackgroundColor = sanitizeCssColor(rule.style.backgroundColor);
+      const safeColor = sanitizeCssColor(rule.style.color);
       sx[`& ${cls}`] = {
-        ...(rule.style.backgroundColor ? { bgcolor: rule.style.backgroundColor } : {}),
-        ...(rule.style.color ? { color: rule.style.color } : {}),
+        ...(safeBackgroundColor ? { bgcolor: safeBackgroundColor } : {}),
+        ...(safeColor ? { color: safeColor } : {}),
         ...(rule.style.fontWeight ? { fontWeight: rule.style.fontWeight } : {}),
       };
     });

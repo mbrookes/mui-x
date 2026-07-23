@@ -67,6 +67,16 @@ describe('numericStats', () => {
   it('computes min/max/mean/median for an odd-length array', () => {
     expect(numericStats([5, 1, 3])).toEqual({ min: 1, max: 5, mean: 3, median: 3 });
   });
+
+  it('does not throw on a very large array (finding 2.13 — no Math.min/max(...spread))', () => {
+    // Spreading a large array as call arguments to Math.min/Math.max throws
+    // `RangeError: Maximum call stack size exceeded` somewhere past ~65k–125k
+    // elements. Use a threshold comfortably above that to prove the reduce-loop
+    // idiom (not a spread) is what actually runs.
+    const large = Array.from({ length: 150_000 }, (_, i) => i);
+    expect(() => numericStats(large)).not.toThrow();
+    expect(numericStats(large)).toMatchObject({ min: 0, max: 149_999 });
+  });
 });
 
 // ─── buildWidgetDataSummary — early-exit branches ────────────────────────────
@@ -715,6 +725,39 @@ describe('buildWidgetDataSummary', () => {
       expect(result).toContain('cat6,6');
       expect(result).toContain('cat9,9');
       expect(result).not.toContain('cat1,1');
+    });
+
+    it('aggregates a huge single bucket with min/max aiAggregation fields without throwing (finding 2.13)', () => {
+      // `maxRows: 1` forces `aggregateRows` (generateInsight.ts ~line 164) into a single
+      // bucket containing EVERY row — exactly the shape that would previously spread
+      // 100k+ numbers into `Math.min(...nums)`/`Math.max(...nums)` and throw
+      // `RangeError: Maximum call stack size exceeded`.
+      const minMaxFields = [
+        { id: 'region', label: 'Region', type: 'string' as const },
+        { id: 'amount', label: 'Amount', type: 'number' as const, aiAggregation: 'min' as const },
+        { id: 'total', label: 'Total', type: 'number' as const, aiAggregation: 'max' as const },
+      ];
+      const bigRows = Array.from({ length: 100_000 }, (_, i) => ({
+        region: `cat${i}`,
+        amount: i,
+        total: i,
+      }));
+      const source = makeSource({ fields: minMaxFields, rows: bigRows });
+      const state = makeState({ dataSources: { orders: source } });
+      const widget = makeWidget({
+        kind: 'grid',
+        config: { columns: [{ fieldId: 'region' }, { fieldId: 'amount' }, { fieldId: 'total' }] },
+      });
+
+      expect(() =>
+        buildWidgetDataSummary(widget, state, { maxRows: 1, sampling: 'aggregate' }),
+      ).not.toThrow();
+
+      const result = buildWidgetDataSummary(widget, state, { maxRows: 1, sampling: 'aggregate' });
+      const lines = result.split('\n');
+      expect(lines[0]).toBe('Data sample (1 aggregated buckets of ~100000 rows (100000 total)):');
+      // amount uses 'min' -> 0; total uses 'max' -> 99999.
+      expect(result).toContain('cat0,0,99999');
     });
 
     it('aggregates rows into buckets when sampling is "aggregate"', () => {

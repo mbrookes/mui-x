@@ -36,6 +36,11 @@ import { StudioWidgetCardActionsOverlay } from './StudioWidgetCardActionsOverlay
 import { StudioWidgetExpandDialog } from './StudioWidgetExpandDialog';
 import { moveWidgetInLayout, type WidgetMoveDirection } from '../../internals/widgetLayoutMove';
 import { resolveTextFontFamily } from '../../internals/textFontFamily';
+import {
+  sanitizeCssColor,
+  sanitizeFontSize,
+  sanitizeFiniteNumber,
+} from '../../internals/cssValueValidation';
 import { useStudioAnnounce } from '../../internals/StudioLiveRegion';
 import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
 import { useWidgetDefMap, BUILTIN_WIDGET_DEFS } from '../../internals/builtinWidgetDefs';
@@ -428,6 +433,34 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
     slotProps as Record<string, Record<string, unknown> | undefined> | undefined
   )?.[widget.kind];
 
+  // `pageTheme` is doc-authored (`StudioPage.theme`), reachable via `loadSerializedState`/the
+  // AI tool loop, so its color/size values are sanitized before reaching `sx` (finding 1) —
+  // same treatment as the text widget's style fields in `internals/cssValueValidation.ts`.
+  // Hoisted into plain-typed locals (rather than calling the generic sanitizers inline inside
+  // the `sx={{ ... }}` object literal below) because a generic call sitting in a
+  // contextually-typed position lets TS infer its type parameter from the surrounding CSS
+  // property's (very wide, MUI `SystemStyleObject`) expected type instead of from the call's
+  // own argument, which broke the `sx` prop's overload resolution entirely.
+  const sanitizedCardBorderColor: string | undefined = sanitizeCssColor(
+    pageTheme?.cardBorderColor,
+    'divider',
+  );
+  const sanitizedCardBorderWidth: number = sanitizeFiniteNumber(pageTheme?.cardBorderWidth) ?? 1;
+  const sanitizedCardRadius = sanitizeFiniteNumber(pageTheme?.cardRadius);
+  const sanitizedCardBackground: string | undefined = sanitizeCssColor(pageTheme?.cardBackground);
+  const sanitizedCardPadding: number = sanitizeFiniteNumber(pageTheme?.cardPadding) ?? 2;
+
+  // Same hoisting rationale as the `pageTheme` sanitization above — computed here (rather
+  // than inline inside the title `Typography`'s `sx={{ ... }}`) to keep every value the
+  // `sx` object reads plainly typed as `string | undefined` / `number | undefined`.
+  const sanitizedTitleFontSize: number | undefined = sanitizeFontSize(widget.config?.titleFontSize);
+  const sanitizedTextTitleColor: string | undefined = isWidgetOfKind(widget, 'text')
+    ? sanitizeCssColor(widget.config.textTitleColor)
+    : undefined;
+  const sanitizedTextTitleFontSize: number | undefined = isWidgetOfKind(widget, 'text')
+    ? sanitizeFontSize(widget.config.textTitleFontSize)
+    : undefined;
+
   return (
     <Box sx={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column' }}>
       <Paper
@@ -481,14 +514,16 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           }
         }}
         sx={{
-          borderColor: pageTheme?.cardBorderColor ?? 'divider',
-          borderWidth: pageTheme?.cardBorderWidth ?? 1,
+          // `pageTheme` colors/sizes are doc-authored (`StudioPage.theme`) and reachable
+          // via `loadSerializedState`/the AI tool loop, so they're sanitized the same way
+          // as the text widget's style fields before reaching `sx` (finding 1).
+          borderColor: sanitizedCardBorderColor ?? 'divider',
+          borderWidth: sanitizedCardBorderWidth,
           border: pageTheme?.cardBorder === false && !isActive ? 'none' : undefined,
-          borderRadius:
-            pageTheme?.cardRadius !== undefined ? `${pageTheme.cardRadius}px` : undefined,
-          backgroundColor: pageTheme?.cardBackground ?? undefined,
+          borderRadius: sanitizedCardRadius !== undefined ? `${sanitizedCardRadius}px` : undefined,
+          backgroundColor: sanitizedCardBackground,
           cursor: isDragging ? 'move' : 'default',
-          p: isFullBleedCustom ? 0 : (pageTheme?.cardPadding ?? 2),
+          p: isFullBleedCustom ? 0 : sanitizedCardPadding,
           boxSizing: 'border-box',
           height: '100%',
           display: 'flex',
@@ -563,19 +598,23 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                   sx={{
                     minWidth: 0,
                     flexShrink: 1,
-                    ...(widget.config?.titleFontSize && {
-                      fontSize: widget.config.titleFontSize,
+                    ...(sanitizedTitleFontSize !== undefined && {
+                      fontSize: sanitizedTitleFontSize,
                     }),
                     ...(isWidgetOfKind(widget, 'text') && {
                       flexGrow: 1,
-                      ...(widget.config.textTitleColor && {
-                        color: widget.config.textTitleColor,
+                      // Sanitized before reaching `sx` — see `internals/cssValueValidation.ts`
+                      // (finding 1): these are doc-authored config values reachable via
+                      // `loadSerializedState`/the AI `update_widget` tool call, and Emotion
+                      // does not escape interpolated `sx` property values.
+                      ...(sanitizedTextTitleColor !== undefined && {
+                        color: sanitizedTextTitleColor,
                       }),
                       ...(widget.config.textTitleFontFamily && {
                         fontFamily: resolveTextFontFamily(widget.config.textTitleFontFamily),
                       }),
-                      ...(widget.config.textTitleFontSize && {
-                        fontSize: widget.config.textTitleFontSize,
+                      ...(sanitizedTextTitleFontSize !== undefined && {
+                        fontSize: sanitizedTextTitleFontSize,
                       }),
                       ...(widget.config.textTitleFontWeight && {
                         fontWeight: widget.config.textTitleFontWeight,

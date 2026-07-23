@@ -672,6 +672,65 @@ describe('parseStateMutation — malformed per-variant args', () => {
         },
       },
     },
+    // Finding 1 (iteration-27): the `page` scope kind's `pageId` is OPTIONAL, so
+    // `FILTER_SCOPE_REQUIRED_IDS` lists no required id fields for it and a numeric
+    // `pageId` was never type-checked anywhere (wire, reducer, or load) — the reducer's/
+    // load boundary's `Object.hasOwn(state.pages, scope.pageId)` orphan checks coerce a
+    // numeric `pageId` to match a string page key, letting it install/round-trip
+    // indefinitely. `validateFilterScope` now checks it with `isOptionalString` too.
+    {
+      label: 'addFilter scope.pageId is a non-string (number) for a page scope',
+      value: {
+        type: 'addFilter',
+        args: {
+          filter: {
+            id: 'f',
+            field: 'x',
+            operator: 'equals',
+            value: 1,
+            scope: { kind: 'page', pageId: 42 },
+          },
+        },
+      },
+    },
+    // Finding 2 (iteration-27): the widget ADD channels (`addWidget`/
+    // `applyBulkUpdate.addedWidgets`) already screen `kind`/`title` are strings via
+    // `validateWidget` — pinning that a numeric value is rejected here too (not just
+    // silently dropped a load later by `deserializeState`'s widget screen).
+    {
+      label: 'addWidget widget.kind is a non-string (number)',
+      value: {
+        type: 'addWidget',
+        args: { widget: { id: 'w', kind: 42, title: 'T', config: {} } },
+      },
+    },
+    {
+      label: 'addWidget widget.title is a non-string (number)',
+      value: {
+        type: 'addWidget',
+        args: { widget: { id: 'w', kind: 'chart', title: 42, config: {} } },
+      },
+    },
+    {
+      label: 'applyBulkUpdate addedWidgets entry has a non-string (number) kind',
+      value: {
+        type: 'applyBulkUpdate',
+        args: {
+          ...validBulkArgs(),
+          addedWidgets: [{ id: 'w', kind: 42, title: 'T', config: {} }],
+        },
+      },
+    },
+    {
+      label: 'applyBulkUpdate addedWidgets entry has a non-string (number) title',
+      value: {
+        type: 'applyBulkUpdate',
+        args: {
+          ...validBulkArgs(),
+          addedWidgets: [{ id: 'w', kind: 'chart', title: 42, config: {} }],
+        },
+      },
+    },
   ];
 
   it.each(cases)('rejects $label', ({ value }) => {

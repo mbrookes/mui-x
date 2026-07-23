@@ -1043,7 +1043,15 @@ export function deserializeState(
     // hand-edited/foreign doc, or a page dropped by the sweep above for carrying an
     // unsafe key). A `page`-scoped filter with NO `pageId` (the legacy "applies on every
     // page" shape) is left alone. `Object.hasOwn` so an untrusted `pageId` can't match a
-    // prototype member.
+    // prototype member — this is now safe from the numeric-`pageId`-coerces-to-a-matching-
+    // string-key class of bug (the same class Iteration 26 closed for mutation-level ids):
+    // `isValidFilterScope` above (`validateFilterScope` in `parseStateMutation.ts`) now
+    // type-checks the `page` kind's optional `pageId` with `isOptionalString` too — the one
+    // scope-anchor id that check previously skipped, since `page`'s `pageId` is its sole
+    // OPTIONAL required-id field — so a non-string `pageId` is rejected by the
+    // `isValidFilterScope` gate above and never reaches this `Object.hasOwn` lookup at all,
+    // for both `page` and `dashboard-date-range` (whose `pageId` was already a REQUIRED,
+    // and therefore already string-checked, id field).
     if (
       (scope.kind === 'page' || scope.kind === 'dashboard-date-range') &&
       scope.pageId !== undefined &&
@@ -1095,8 +1103,18 @@ export function deserializeState(
   let rankFiltersChanged = false;
   const dedupedFilters: StudioFilterState[] = [];
   for (const filter of screenedFilters) {
+    // Only `page`/`widget` scopes are rank-eligible (matching `hasConflictingRankFilter`'s
+    // doc comment and `addFilter`'s identical gate in `applyMutation.ts`): a hand-edited/
+    // foreign doc could carry a `filterMode: 'rank'` filter on a `dashboard-date-range`
+    // scope (the only other scope kind that reaches this point — `cross-filter`/
+    // `interactive` are already stripped above), which `resolveRankFilterPageId`'s
+    // catch-all resolves to a `null` page context. Without this gate, whether such a
+    // filter survives this dedup pass would depend on array order relative to any
+    // legitimate `page`/`widget` rank filter (a `null` page context conflicts with, and is
+    // conflicted by, every other rank filter) instead of being consistently left alone.
     if (
       filter.filterMode === 'rank' &&
+      (filter.scope.kind === 'page' || filter.scope.kind === 'widget') &&
       hasConflictingRankFilter(filter.id, filter, dedupedFilters, normalizedPages)
     ) {
       rankFiltersChanged = true;

@@ -281,9 +281,11 @@ function validateWidget(widget: unknown, path: string): string | null {
 
 /**
  * Required string id fields per `StudioFilterScope` kind (see `stateTypes.ts`). The
- * `page` kind's `pageId` is optional, so it lists none. An object literal, so its
- * own keys are exactly the five valid scope kinds — a `kind` of `'constructor'`
- * fails the `Object.hasOwn` check rather than resolving up the prototype chain.
+ * `page` kind's `pageId` is optional, so it lists none here — `validateFilterScope`
+ * separately type-checks it with `isOptionalString` when present, since an OPTIONAL id
+ * field still needs to be a string when it IS supplied. An object literal, so its own
+ * keys are exactly the five valid scope kinds — a `kind` of `'constructor'` fails the
+ * `Object.hasOwn` check rather than resolving up the prototype chain.
  */
 const FILTER_SCOPE_REQUIRED_IDS: Record<StudioFilterScope['kind'], readonly string[]> = {
   page: [],
@@ -307,6 +309,15 @@ function validateFilterScope(scope: unknown, path: string): string | null {
       return `${path}.${idField} must be a string for scope kind '${kind}'`;
     }
   }
+  // The `page` kind's `pageId` is OPTIONAL (a legacy pageId-less `page` scope applies
+  // to every page), so it is absent from `FILTER_SCOPE_REQUIRED_IDS` and would
+  // otherwise never be type-checked at all — the reducer's/load boundary's
+  // `Object.hasOwn(state.pages, scope.pageId)` orphan checks coerce a numeric
+  // `pageId` to match a string page key, so an unchecked numeric value would
+  // install/round-trip verbatim instead of being rejected here.
+  if (kind === 'page' && !isOptionalString(scope.pageId)) {
+    return `${path}.pageId must be a string for scope kind 'page'`;
+  }
   return null;
 }
 
@@ -315,7 +326,8 @@ function validateFilterScope(scope: unknown, path: string): string | null {
  * structurally-valid `StudioFilterScope` — a record whose `kind` is one of the five known
  * kinds AND which carries every id field that kind requires (`widget` → `widgetId`,
  * `cross-filter`/`interactive` → `sourceWidgetId`+`pageId`, `dashboard-date-range` →
- * `sourceId`+`pageId`; `page` requires none).
+ * `sourceId`+`pageId`; `page` requires none, but its OPTIONAL `pageId` must still be a
+ * string when present).
  *
  * Exported as the ONE shared scope-validity check so the persistence load boundary
  * (`statePersistence.ts`'s `deserializeState` filter screen and `findMissingRequiredField`)

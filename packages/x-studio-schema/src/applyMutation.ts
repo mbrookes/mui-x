@@ -391,6 +391,19 @@ export function resolveRankFilterPageId(
  * are per-widget. A `null` resolved page (a pageId-less page filter, applied
  * everywhere) conflicts with — and is conflicted by — any other rank filter.
  *
+ * Only `page`/`widget` scopes are rank-eligible (matching {@link resolveRankFilterPageId}'s
+ * doc comment: "other scope kinds are never rank filters and are excluded by the
+ * caller"). The existing-filter loop below therefore excludes every OTHER scope kind,
+ * not just `cross-filter` — previously only `cross-filter` was excluded here, so an
+ * `interactive`- or `dashboard-date-range`-scoped filter with `filterMode: 'rank'`
+ * (wire-valid: the wire boundary never restricts `filterMode` to a scope kind) resolved
+ * via `resolveRankFilterPageId`'s catch-all `return null`, and a `null` page context
+ * conflicts with — and is conflicted by — EVERY other rank filter, so a single such
+ * filter would silently reject every legitimate `page`/`widget` rank filter on every
+ * page thereafter. The caller (`addFilter`) mirrors this by skipping the conflict gate
+ * entirely for a non-`page`/`widget` scope, so this exclusion is defense-in-depth for
+ * any other caller (e.g. the load-boundary dedup in `statePersistence.ts`).
+ *
  * Exported for reuse by `statePersistence.ts`'s load-boundary rank-filter dedup sweep
  * (see {@link resolveRankFilterPageId}'s export comment).
  */
@@ -404,7 +417,7 @@ export function hasConflictingRankFilter(
   return filters.some((filter) => {
     if (
       filter.id === filterId ||
-      filter.scope.kind === 'cross-filter' ||
+      (filter.scope.kind !== 'page' && filter.scope.kind !== 'widget') ||
       filter.filterMode !== 'rank'
     ) {
       return false;
@@ -869,6 +882,17 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // load (the load-boundary key screen drops it) — transient data loss. Reject it up
       // front, uniform with the sibling handler.
       if (!isSafePatchKey(widget.id)) {
+        return state;
+      }
+      // Require STRING `kind`/`title` (Finding 2 — this is the ADD-channel sibling of
+      // `updateWidget`'s `changes.kind`/`changes.title` guard and `applyBulkUpdate`'s
+      // `updatedWidgets` `title` guard above, and mirrors the wire boundary's own
+      // `isString(widget.kind)`/`isString(widget.title)` checks in `validateWidget`).
+      // Without this, a parser-bypassing `addWidget` with e.g. `kind: 42` installed
+      // verbatim now, only for `deserializeState`'s widget screen to silently drop the
+      // ENTIRE widget on the very next load — deferred silent data loss rather than a
+      // rejection at write time.
+      if (typeof widget.kind !== 'string' || typeof widget.title !== 'string') {
         return state;
       }
       // Explicit, server-chosen target page — falls back to the active page for
@@ -1658,6 +1682,36 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // convention for an unresolvable-target mutation in this reducer (`updateWidget`/
       // `removePage`/`setActivePage` unknown-id cases).
       const { scope } = args.filter;
+      // Require the scope's own ANCHOR ids to be STRINGS before they are ever compared via
+      // a coercing `Object.hasOwn(state.widgets/pages, …)` lookup below — the same
+      // coercion-desync class Iteration 26 closed for `filter.id` above, one level down
+      // inside the scope payload. Without this, e.g. a numeric `scope.sourceWidgetId: 9`
+      // would pass `Object.hasOwn(state.widgets, 9)` (which coerces the key to `"9"`) and
+      // install verbatim, while every downstream consumer that compares by strict `===`/
+      // `Set` membership instead of `Object.hasOwn` (`dropWidgetScopedFilters`'s
+      // `isRemoved(scope.sourceWidgetId)`, `removeWidgetIds`'s `stillReferenced` set) can
+      // never match the numeric value — a half-applied orphan that survives every removal
+      // path, exactly the class Iteration 26 closed for the mutation-level id.
+      if (scope.kind === 'widget' && typeof scope.widgetId !== 'string') {
+        return state;
+      }
+      if (
+        (scope.kind === 'cross-filter' || scope.kind === 'interactive') &&
+        typeof scope.sourceWidgetId !== 'string'
+      ) {
+        return state;
+      }
+      // `page` scope's `pageId` is OPTIONAL (a legacy pageId-less filter applies on every
+      // page), so only screen it for string-ness when present; `dashboard-date-range`'s
+      // `pageId` is required but a parser-bypassing payload could still omit it, matching
+      // the identical `!== undefined` gate the orphan check below already uses.
+      if (
+        (scope.kind === 'page' || scope.kind === 'dashboard-date-range') &&
+        scope.pageId !== undefined &&
+        typeof scope.pageId !== 'string'
+      ) {
+        return state;
+      }
       let orphanAnchorId: string | undefined;
       if (scope.kind === 'cross-filter' || scope.kind === 'interactive') {
         orphanAnchorId = scope.sourceWidgetId;
@@ -1702,9 +1756,18 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // caller that never learns) the controller's check must still not be able to violate
       // the invariant. Mirrors `hasConflictingRankFilter`/`resolveRankFilterPageId` from
       // `@mui/x-studio`'s `internals/rankFilterScope.ts` (duplicated, not imported — see
-      // this file's own copies above the `dropWidgetScopedFilters` helper).
+      // this file's own copies above the `dropWidgetScopedFilters` helper). Only `page`/
+      // `widget` scopes are rank-eligible (`resolveRankFilterPageId`'s doc comment: "other
+      // scope kinds are never rank filters and are excluded by the caller") — the wire
+      // boundary never restricts `filterMode` to a scope kind, so a `rank`-mode filter on
+      // e.g. a `dashboard-date-range` scope is wire-valid and would otherwise resolve to a
+      // `null` page context via `resolveRankFilterPageId`'s catch-all `return null`, which
+      // conflicts with every other rank filter and would silently reject every legitimate
+      // `page`/`widget` rank filter on every page thereafter. Skip the gate entirely for
+      // any other scope kind, matching `hasConflictingRankFilter`'s own exclusion below.
       if (
         args.filter.filterMode === 'rank' &&
+        (scope.kind === 'page' || scope.kind === 'widget') &&
         hasConflictingRankFilter(args.filter.id, args.filter, state.filters, state.pages)
       ) {
         return state;
@@ -2088,6 +2151,15 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         // shielded by `parseStateMutation`'s `isSafeId` check on `addedWidgets[].id`;
         // this is the defense-in-depth copy for a server-built mutation bypassing it.
         if (!isSafePatchKey(widget.id)) {
+          continue;
+        }
+        // Require STRING `kind`/`title` (Finding 2 — the `addedWidgets` sibling of
+        // `addWidget`'s identical guard above and `updatedWidgets`' `title` guard below,
+        // mirroring the wire boundary's `isString(widget.kind)`/`isString(widget.title)`
+        // checks in `validateWidget`). Without this, a parser-bypassing entry with e.g.
+        // `kind: 42` installed verbatim now, only for `deserializeState`'s widget screen
+        // to silently drop the ENTIRE widget on the very next load.
+        if (typeof widget.kind !== 'string' || typeof widget.title !== 'string') {
           continue;
         }
         // Idempotent add: existence anywhere in `nextWidgets` means this widget was

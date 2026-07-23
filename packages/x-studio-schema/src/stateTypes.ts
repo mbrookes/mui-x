@@ -168,11 +168,12 @@ export interface StudioDoc {
   widgets: Record<string, StudioWidget>;
   relationships: StudioRelationship[];
   /**
-   * All filter entries, INCLUDING session-flavoured cross-filter entries.
-   * Cross-filter entries live here (not in `session`) because the shared reducer
-   * itself manipulates them (cleanup on `removeWidget`/`removePage`/`applyBulkUpdate`,
-   * and `applyCrossFilter` is deliberately undoable). They are stripped at the
-   * persistence boundary only (see `serializeState`'s `scope.kind !== 'cross-filter'`).
+   * All filter entries, INCLUDING session-flavoured cross-filter and interactive
+   * entries. Both live here (not in `session`) because the shared reducer itself
+   * manipulates them (cleanup on `removeWidget`/`removePage`/`applyBulkUpdate`, and
+   * `applyCrossFilter` is deliberately undoable). They are stripped at the persistence
+   * boundary only (see `serializeDoc`'s `scope.kind !== 'cross-filter' && scope.kind
+   * !== 'interactive'` filter in `statePersistence.ts`).
    */
   filters: StudioFilterState[];
   /** User-authored expression fields (calculated columns and measures). Persisted. */

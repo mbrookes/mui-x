@@ -4,6 +4,7 @@ import {
   REGISTERED_MIGRATION_VERSIONS,
   deserializeState,
   migrateState,
+  serializeDoc,
   serializeState,
 } from './statePersistence';
 import { createDefaultStudioState } from './factories';
@@ -1294,6 +1295,36 @@ describe('deserializeState', () => {
     expect(state.doc.filters).toEqual([]);
   });
 
+  // Finding 1 (iteration-27): a `page`-scoped filter's `pageId` is OPTIONAL, so it was
+  // never type-checked anywhere, and the load-boundary page-anchor screen's
+  // `Object.hasOwn(normalizedPages, scope.pageId)` COERCES a numeric `pageId` to match a
+  // string-keyed page — a numeric `pageId` matching an existing page key would otherwise
+  // round-trip through serialize/deserialize forever instead of being dropped/repaired.
+  // `isValidFilterScope` (shared with the wire boundary) now type-checks the `page` kind's
+  // optional `pageId` too, so a numeric value is rejected before this screen ever runs.
+  it('drops a persisted page-scoped filter whose pageId is a number, even when it numerically matches a page key', () => {
+    const serialized = {
+      ...minimalSerialized,
+      widgets: {},
+      pages: { '1': { id: '1', title: 'P1', widgetRows: [] } },
+      dashboard: { id: 'd', title: 'T', activePageId: '1' },
+      filters: [
+        {
+          id: 'numeric-page-id',
+          field: 'x',
+          operator: 'equals',
+          value: 1,
+          scope: { kind: 'page', pageId: 1 },
+        },
+      ],
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.filters).toEqual([]);
+    // Round-tripping again must not resurrect it either.
+    const reserialized = serializeDoc(state.doc);
+    expect(reserialized.filters).toEqual([]);
+  });
+
   // Iteration-20 finding: the wire boundary (`parseStateMutation.ts`'s `validateWidget`)
   // already rejects a widget with a missing/non-string `kind`/`title`, but the load
   // boundary accepted the same shape. The persisted widget is now dropped whole, matching
@@ -1861,6 +1892,38 @@ describe('deserializeState', () => {
     } as unknown as typeof minimalSerialized;
     const state = deserializeState(serialized, {});
     expect(state.doc.filters.map((f) => f.id)).toEqual(['rank-1', 'rank-2']);
+  });
+
+  // Finding 3 (iteration-27): the load-boundary rank dedup reused `hasConflictingRankFilter`,
+  // whose existing-filter loop previously excluded only `cross-filter` scopes (not
+  // `interactive`/`dashboard-date-range`). A hand-edited/foreign doc's `filterMode: 'rank'`
+  // filter on a `dashboard-date-range` scope resolves to a `null` page context, which
+  // conflicts with — and is conflicted by — every other rank filter, so it must not cause a
+  // legitimate `page`-scoped rank filter to be dropped on load.
+  it('a persisted rank-mode filter on a dashboard-date-range scope does not poison a legitimate page rank filter at load', () => {
+    const serialized = {
+      ...minimalSerialized,
+      filters: [
+        {
+          id: 'date-range-rank',
+          field: 'date',
+          operator: 'equals',
+          value: '',
+          filterMode: 'rank',
+          scope: { kind: 'dashboard-date-range', sourceId: 'orders', pageId: 'page-1' },
+        },
+        {
+          id: 'page-rank',
+          field: 'x',
+          operator: 'equals',
+          value: '',
+          filterMode: 'rank',
+          scope: { kind: 'page', pageId: 'page-1' },
+        },
+      ],
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.filters.map((f) => f.id).sort()).toEqual(['date-range-rank', 'page-rank']);
   });
 
   // ── load↔wire filter-scope symmetry (T3-1) ───────────────────────────────────

@@ -238,6 +238,62 @@ describe('applyMutation', () => {
     expect(next.widgets).toEqual(state.widgets);
   });
 
+  // Finding 2 (iteration-27): `addWidget`/`applyBulkUpdate.addedWidgets` guarded `id` and
+  // `config` but never checked `widget.kind`/`widget.title` are strings. A server-built
+  // payload with a numeric `kind`/`title` previously installed VERBATIM — it isn't
+  // rejected outright, and it isn't dropped until the very next `deserializeState` load
+  // (whose widget screen drops the entire widget) — deferred silent data loss. It must
+  // now be rejected at write time instead.
+  it('addWidget with a non-string kind is a no-op (Finding 2)', () => {
+    const state = twoPageState('page-1');
+    const next = applyDocMutation(state, {
+      type: 'addWidget',
+      args: { widget: { ...chartWidget('w1'), kind: 42 }, pageId: 'page-1' } as never,
+    });
+    expect(next).toBe(state);
+    expect(Object.hasOwn(next.widgets, 'w1')).toBe(false);
+  });
+
+  it('addWidget with a non-string title is a no-op (Finding 2)', () => {
+    const state = twoPageState('page-1');
+    const next = applyDocMutation(state, {
+      type: 'addWidget',
+      args: { widget: { ...chartWidget('w1'), title: 42 }, pageId: 'page-1' } as never,
+    });
+    expect(next).toBe(state);
+    expect(Object.hasOwn(next.widgets, 'w1')).toBe(false);
+  });
+
+  it('applyBulkUpdate.addedWidgets entry with a non-string kind is skipped (Finding 2)', () => {
+    const state = twoPageState('page-1');
+    const next = applyDocMutation(state, {
+      type: 'applyBulkUpdate',
+      args: {
+        removedWidgetIds: [],
+        addedWidgets: [{ ...chartWidget('w1'), kind: 42 }],
+        updatedWidgets: [],
+        activePageId: 'page-1',
+      } as never,
+    });
+    expect(Object.hasOwn(next.widgets, 'w1')).toBe(false);
+    expect(next.widgets).toEqual(state.widgets);
+  });
+
+  it('applyBulkUpdate.addedWidgets entry with a non-string title is skipped (Finding 2)', () => {
+    const state = twoPageState('page-1');
+    const next = applyDocMutation(state, {
+      type: 'applyBulkUpdate',
+      args: {
+        removedWidgetIds: [],
+        addedWidgets: [{ ...chartWidget('w1'), title: 42 }],
+        updatedWidgets: [],
+        activePageId: 'page-1',
+      } as never,
+    });
+    expect(Object.hasOwn(next.widgets, 'w1')).toBe(false);
+    expect(next.widgets).toEqual(state.widgets);
+  });
+
   it('addPage with a prototype-hazard id is a no-op (Tier 3)', () => {
     const state = twoPageState('page-1');
     const next = applyDocMutation(state, {
@@ -938,6 +994,96 @@ describe('applyMutation', () => {
     expect(next.filters[0].id).toBe('f-valid');
   });
 
+  // Finding 1 (iteration-27): the same coercion-desync class Iteration 26 closed for
+  // `filter.id` survives one level down, inside the scope payload's own anchor ids. A
+  // numeric `scope.pageId` (a page keyed `"page-1"` in `state.pages` matches
+  // `Object.hasOwn(state.pages, 42)` only if a page happens to be keyed `"42"` — here it
+  // does NOT, so the orphan check itself would already reject it; the real hazard is a
+  // numeric id that DOES collide with an existing string-keyed page/widget) must be
+  // rejected outright rather than being compared via a coercing `Object.hasOwn` lookup.
+  it('addFilter no-ops when scope.pageId is a number matching an existing page key (page scope)', () => {
+    const state = makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: '1' },
+      pages: { '1': { id: '1', title: 'P1', widgetRows: [] } },
+    });
+    const filter = {
+      id: 'f-numeric',
+      field: 'x',
+      operator: 'equals' as const,
+      value: 1,
+      scope: { kind: 'page' as const, pageId: 1 },
+    };
+    const next = applyDocMutation(state, {
+      type: 'addFilter',
+      args: { filter } as never,
+    });
+    // Must not half-apply: no orphaned/coerced filter is installed.
+    expect(next).toBe(state);
+    expect(next.filters).toHaveLength(0);
+  });
+
+  it('addFilter no-ops when scope.pageId is a number for a dashboard-date-range scope', () => {
+    const state = makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: '1' },
+      pages: { '1': { id: '1', title: 'P1', widgetRows: [] } },
+    });
+    const filter = {
+      id: 'f-numeric',
+      field: 'x',
+      operator: 'equals' as const,
+      value: 1,
+      scope: { kind: 'dashboard-date-range' as const, sourceId: 'src-1', pageId: 1 },
+    };
+    const next = applyDocMutation(state, {
+      type: 'addFilter',
+      args: { filter } as never,
+    });
+    expect(next).toBe(state);
+    expect(next.filters).toHaveLength(0);
+  });
+
+  it('addFilter no-ops when scope.widgetId is a number matching an existing widget key (widget scope)', () => {
+    const state = makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['9']] } },
+      widgets: { '9': chartWidget('9') },
+    });
+    const filter = {
+      id: 'f-numeric',
+      field: 'x',
+      operator: 'equals' as const,
+      value: 1,
+      scope: { kind: 'widget' as const, widgetId: 9 },
+    };
+    const next = applyDocMutation(state, {
+      type: 'addFilter',
+      args: { filter } as never,
+    });
+    expect(next).toBe(state);
+    expect(next.filters).toHaveLength(0);
+  });
+
+  it('addFilter no-ops when scope.sourceWidgetId is a number (cross-filter scope)', () => {
+    const state = makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['9']] } },
+      widgets: { '9': chartWidget('9') },
+    });
+    const filter = {
+      id: 'f-numeric',
+      field: 'x',
+      operator: 'equals' as const,
+      value: 1,
+      scope: { kind: 'cross-filter' as const, sourceWidgetId: 9, pageId: 'page-1' },
+    };
+    const next = applyDocMutation(state, {
+      type: 'addFilter',
+      args: { filter } as never,
+    });
+    expect(next).toBe(state);
+    expect(next.filters).toHaveLength(0);
+  });
+
   // Iteration-20 finding: the reducer never enforced "at most one rank-type filter per
   // page" — `StudioController` enforced it at five call sites before invoking the
   // reducer, but the reducer (the single source of truth for mutation semantics) let a
@@ -1037,6 +1183,74 @@ describe('applyMutation', () => {
         },
       });
       expect(next.filters.map((f) => f.id)).toEqual(['rank-1', 'cond-1']);
+    });
+
+    // Finding 3 (iteration-27): `resolveRankFilterPageId`'s doc comment says "other scope
+    // kinds are never rank filters and are excluded by the caller", but `addFilter` used to
+    // run the conflict check for ANY `filterMode: 'rank'` regardless of scope kind, and
+    // `hasConflictingRankFilter`'s existing-filter loop excluded only `cross-filter`, not
+    // `dashboard-date-range`/`interactive`. A wire-valid `addFilter` with `filterMode:
+    // 'rank'` on a `dashboard-date-range` scope resolved to a `null` page context, which
+    // conflicts with — and is conflicted by — every rank filter, poisoning every future
+    // legitimate `page`/`widget` rank filter. Both sides are now gated to `page`/`widget`
+    // scopes only.
+    it('a rank-mode filter on a dashboard-date-range scope installs without poisoning future page/widget rank filters', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+      });
+      const withDateRangeRank = applyDocMutation(state, {
+        type: 'addFilter',
+        args: {
+          filter: {
+            id: 'date-range-rank',
+            field: 'date',
+            operator: 'equals',
+            value: null,
+            filterMode: 'rank',
+            scope: { kind: 'dashboard-date-range', sourceId: 'src-1', pageId: 'page-1' },
+          },
+        },
+      });
+      // The dashboard-date-range rank filter itself installs (it is not rejected outright —
+      // only the per-page rank-uniqueness GATE is skipped for its scope kind).
+      expect(withDateRangeRank.filters.map((f) => f.id)).toEqual(['date-range-rank']);
+
+      // A subsequent legitimate page-scoped rank filter on the SAME page must still be
+      // accepted — before this fix, the dashboard-date-range entry's `null`-resolved page
+      // context would have made this look like a conflict and silently rejected it.
+      const withPageRank = applyDocMutation(withDateRangeRank, {
+        type: 'addFilter',
+        args: {
+          filter: {
+            id: 'page-rank',
+            field: 'category',
+            operator: 'equals',
+            value: null,
+            filterMode: 'rank',
+            scope: { kind: 'page', pageId: 'page-1' },
+          },
+        },
+      });
+      expect(withPageRank.filters.map((f) => f.id)).toEqual(['date-range-rank', 'page-rank']);
+
+      // And a THIRD rank filter on the same page must still be correctly rejected — the
+      // fix must not have disabled genuine page/widget rank-uniqueness enforcement.
+      const rejected = applyDocMutation(withPageRank, {
+        type: 'addFilter',
+        args: {
+          filter: {
+            id: 'page-rank-2',
+            field: 'region',
+            operator: 'equals',
+            value: null,
+            filterMode: 'rank',
+            scope: { kind: 'page', pageId: 'page-1' },
+          },
+        },
+      });
+      expect(rejected).toBe(withPageRank);
+      expect(rejected.filters.map((f) => f.id)).toEqual(['date-range-rank', 'page-rank']);
     });
   });
 

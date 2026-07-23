@@ -35,10 +35,14 @@ export interface StudioAIToolFacts {
    */
   destructive: boolean;
   /**
-   * MCP-only override: destructive on MCP even though it isn't
-   * chat-approval-gated (e.g. `remove_page_filter`/`remove_widget_filter` —
-   * MCP clients have no separate confirmation step and these tools
-   * permanently delete an entity).
+   * MCP-only override: destructive on MCP even though `destructive` is
+   * `false` for chat (e.g. `remove_page_filter`/`remove_widget_filter` — MCP
+   * clients have no separate confirmation step and these tools permanently
+   * delete an entity). This does NOT mean the op is unguarded on chat: the
+   * composed default chat policy (`createEffectsAwareToolPolicy`) also gates
+   * filter removals via its `removedFilterIds` check, so they ARE
+   * chat-approval-gated too — this override only controls the MCP
+   * `destructiveHint`, which has no chat-side equivalent to defer to.
    */
   mcpDestructiveOverride?: boolean;
   /** MCP `readOnlyHint` — the tool never modifies state. */

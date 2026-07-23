@@ -1445,6 +1445,25 @@ describe('deserializeState', () => {
     expect(state.doc.dashboard.activePageId).toBe('p2');
   });
 
+  // Finding 1b: `Object.hasOwn(normalizedPages, dashboard.activePageId)` COERCES a
+  // numeric `activePageId` to match a string-keyed page entry (`42` matching key
+  // `"42"`), so without a `typeof … === 'string'` guard this numeric value would be
+  // treated as "valid" and round-trip through this reconciliation forever, never
+  // healed to a real string page id — the bug survives a `setActivePage` reducer fix
+  // (Finding 1) that no longer PRODUCES this state, but a pre-existing/hand-edited
+  // persisted doc could still carry one.
+  it('reconciles a numeric activePageId matching a string page key to a valid string (Finding 1b)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      dashboard: { id: 'd', title: 'T', activePageId: 42 },
+      pages: { '42': { id: '42', title: 'P42', widgetRows: [] } },
+      widgets: {},
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.dashboard.activePageId).toBe('42');
+    expect(typeof state.doc.dashboard.activePageId).toBe('string');
+  });
+
   it('falls back activePageId to "" when the pages map is empty (Tier 2)', () => {
     const serialized = {
       ...minimalSerialized,

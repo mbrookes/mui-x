@@ -1079,6 +1079,22 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
           ) {
             continue;
           }
+          // `titleMode`/`subtitleMode` must be exactly `'auto'` or `'manual'`
+          // (defense-in-depth, mirroring the wire boundary's `isOptionalTitleMode` gate in
+          // `parseStateMutation.ts`, which only allows `'auto' | 'manual' | undefined`). The
+          // load boundary (`deserializeState`) strips a non-`'auto'|'manual'` value from
+          // these same two fields rather than let it load verbatim, since the client's
+          // auto-title logic branches directly on `widget.titleMode`/`subtitleMode`. Without
+          // this guard, a parser-bypassing `changes: { titleMode: 42 }` would merge verbatim
+          // below and steer that logic until the value is stripped on the next load. Reject
+          // (skip) the field rather than let bad data linger until the load boundary catches it.
+          if (
+            (key === 'titleMode' || key === 'subtitleMode') &&
+            value !== 'auto' &&
+            value !== 'manual'
+          ) {
+            continue;
+          }
           // Scalar field (`title`/`subtitle`/`sourceId`/`kind`/`titleMode`/
           // `subtitleMode`): only a value that differs from the current widget is a real
           // change. Re-setting a field to its current value must not rewrap the widget
@@ -1196,6 +1212,19 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
   removeWidget: {
     apply: (state, args) => {
       const { widgetId } = args;
+      // Require a STRING `widgetId` (parser-bypass parity with `addPage`/`addWidget`/
+      // `setWidgetColSpan`'s `typeof id !== 'string'` guards): `Object.hasOwn` below
+      // COERCES a numeric `widgetId` to match a string-keyed `state.widgets` entry, but
+      // every downstream comparison in `stripWidgetIdsFromPages`/`removeWidgetIds`
+      // (`Set.has`, `row.includes`) uses strict `===`/`Set` membership, which never
+      // coerces. A numeric `widgetId` (e.g. `42`) would therefore pass the existence
+      // check below (matching widget `"42"`) and get deleted from `state.widgets`, but
+      // `new Set([42])` would miss every page reference and scoped-filter/span cleanup
+      // keyed off the STRING id — a half-applied removal that orphans page references,
+      // filters, and spans. No-op instead.
+      if (typeof widgetId !== 'string') {
+        return state;
+      }
       // `Object.hasOwn` (not truthy `state.widgets[widgetId]`) so an untrusted
       // `widgetId` like `'constructor'`/`'__proto__'` is a clean no-op instead of
       // matching a prototype member and deleting/cleaning against a phantom widget.
@@ -1486,6 +1515,17 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
   removePage: {
     apply: (state, args) => {
       const { pageId } = args;
+      // Require a STRING `pageId` (parser-bypass parity with `removeWidget`/`addPage`'s
+      // `typeof id !== 'string'` guards): `Object.hasOwn` below COERCES a numeric
+      // `pageId` to match a string-keyed `state.pages` entry, but the cleanup below
+      // compares by strict `===` (`f.scope.pageId !== pageId`, `dashboard.activePageId
+      // === pageId`), which never coerces. A numeric `pageId` would pass the existence
+      // check (matching page `"42"`) and get the page deleted, but its page-scoped
+      // filters would survive (the strict compare misses) and a dangling
+      // `activePageId` would never be reassigned. No-op instead.
+      if (typeof pageId !== 'string') {
+        return state;
+      }
       // `Object.hasOwn` guard so an untrusted `pageId` can't match a prototype member.
       if (!Object.hasOwn(state.pages, pageId)) {
         return state;
@@ -1543,6 +1583,17 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
   setActivePage: {
     apply: (state, args) => {
       const { pageId } = args;
+      // Require a STRING `pageId` (parser-bypass parity with `removeWidget`/`removePage`'s
+      // `typeof id !== 'string'` guards): `Object.hasOwn` below COERCES a numeric `pageId`
+      // to match a string-keyed `state.pages` entry, so a numeric `pageId` (e.g. `42`)
+      // would pass the existence check and get installed verbatim as
+      // `dashboard.activePageId`, violating its `string` type. Unlike a numeric
+      // `widgetId`/removed-page `pageId`, this one does NOT self-heal on
+      // serialize/deserialize either (see `deserializeState`'s reconciliation) — no-op
+      // instead of letting a numeric value linger indefinitely.
+      if (typeof pageId !== 'string') {
+        return state;
+      }
       // `Object.hasOwn` guard so an untrusted `pageId` can't match a prototype member.
       if (!Object.hasOwn(state.pages, pageId)) {
         return state;
@@ -1579,6 +1630,15 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // scope gate) — full scope semantic validity (kind membership, required id fields) is
       // the wire boundary's job; the reducer only needs "safe to read `.kind` off of".
       if (!isPlainRecord(args.filter.scope) || typeof args.filter.scope.kind !== 'string') {
+        return state;
+      }
+      // Require a STRING `filter.id` (parser-bypass parity with `removeWidget`/
+      // `removePage`/`setActivePage`'s `typeof id !== 'string'` guards). Without this, a
+      // numeric `filter.id` installs, but `removeFilter`'s strict `f.id !== filterId`
+      // compare (never coerces) can never match it, making it unremovable in-session —
+      // until the load boundary's non-string-id filter screen (`statePersistence.ts`)
+      // silently drops the whole filter on the next load. No-op instead of installing.
+      if (typeof args.filter.id !== 'string') {
         return state;
       }
       // Idempotent: re-delivery of the same addFilter SSE event must not append a

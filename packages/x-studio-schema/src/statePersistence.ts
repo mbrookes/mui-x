@@ -904,7 +904,15 @@ export function deserializeState(
   // that renders `dashboard.title` as text.
   const safeDashboardTitle =
     typeof dashboard.title === 'string' ? dashboard.title : 'Untitled Dashboard';
-  const activePageIdValid = Object.hasOwn(normalizedPages, dashboard.activePageId);
+  // `typeof … === 'string'` guards `Object.hasOwn` against its own key-coercion: a
+  // numeric `activePageId` (e.g. reachable via `setActivePage`'s reducer-side bug, now
+  // fixed, or a hand-edited persisted doc) would otherwise COERCE to match a
+  // string-keyed `normalizedPages` entry (`42` matching key `"42"`) and be treated as
+  // "valid", round-tripping the type-violating numeric value through this reconciliation
+  // forever instead of ever being healed to a real string page id.
+  const activePageIdValid =
+    typeof dashboard.activePageId === 'string' &&
+    Object.hasOwn(normalizedPages, dashboard.activePageId);
   const reconciledDashboard =
     activePageIdValid && safeDashboardTitle === dashboard.title
       ? dashboard

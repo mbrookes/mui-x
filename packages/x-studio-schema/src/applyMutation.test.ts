@@ -411,6 +411,36 @@ describe('applyMutation', () => {
     expect(next.filters.map((f) => f.id)).toEqual(['f-shared']);
   });
 
+  // Finding 1: a NUMERIC `pageId` must never resolve to the STRING-keyed page of the
+  // same digits via `Object.hasOwn`'s key coercion. Before the fix, `Object.hasOwn(state.
+  // pages, 42)` matched page `"42"` and deleted it, but `f.scope.pageId !== pageId` (a
+  // strict `!==`) never matched, so the page-scoped filter survived as an orphan, and
+  // `state.dashboard.activePageId === pageId` never matched either, leaving
+  // `activePageId` dangling on the just-deleted page.
+  it('a numeric pageId is a no-op, not coerced into the STRING page of the same digits (Finding 1)', () => {
+    const state = makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: '42' },
+      pages: { '42': { id: '42', title: 'P42', widgetRows: [] } },
+      filters: [
+        {
+          id: 'fp',
+          field: 'x',
+          operator: 'equals',
+          value: 1,
+          scope: { kind: 'page', pageId: '42' },
+        },
+      ],
+    });
+    const next = applyDocMutation(state, {
+      type: 'removePage',
+      args: { pageId: 42 },
+    } as unknown as StateMutation);
+    expect(next).toBe(state);
+    expect(next.pages['42']).toBeDefined();
+    expect(next.filters).toHaveLength(1);
+    expect(next.dashboard.activePageId).toBe('42');
+  });
+
   it('removeWidget drops the widget from every page and its widget-scoped filters', () => {
     const state = makeDoc({
       dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
@@ -558,6 +588,37 @@ describe('applyMutation', () => {
     expect(next.pages['page-2'].widgetColSpans).toEqual({ w2: 6 });
   });
 
+  // Finding 1: a NUMERIC `widgetId` must never resolve to the STRING-keyed widget of the
+  // same digits via `Object.hasOwn`'s key coercion. Before the fix, `Object.hasOwn(state.
+  // widgets, 42)` matched widget `"42"` and deleted it from `state.widgets`, but
+  // `stripWidgetIdsFromPages`'s `new Set([42]).has("42")` and `removeWidgetIds`'s
+  // `stillReferenced.has(42)` never coerce, so the page row and any scoped filter
+  // survived — a half-applied mutation that orphans a page reference and a filter.
+  it('a numeric widgetId is a no-op, not coerced into the STRING widget of the same digits (Finding 1)', () => {
+    const state = makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['42']] } },
+      widgets: { '42': chartWidget('42') },
+      filters: [
+        {
+          id: 'fw',
+          field: 'x',
+          operator: 'equals',
+          value: 1,
+          scope: { kind: 'widget', widgetId: '42' },
+        },
+      ],
+    });
+    const next = applyDocMutation(state, {
+      type: 'removeWidget',
+      args: { widgetId: 42 },
+    } as unknown as StateMutation);
+    expect(next).toBe(state);
+    expect(next.widgets['42']).toBeDefined();
+    expect(next.pages['page-1'].widgetRows).toEqual([['42']]);
+    expect(next.filters).toHaveLength(1);
+  });
+
   it('addFilter appends the filter verbatim (scope not re-stamped)', () => {
     // `pageId: 'page-2'` (a REAL page, just not the applying side's active page
     // 'page-1') rather than an orphan id: the orphan-page-anchor guard (mirroring the
@@ -575,6 +636,28 @@ describe('applyMutation', () => {
     };
     const next = applyDocMutation(state, { type: 'addFilter', args: { filter } });
     expect(next.filters[0].scope).toEqual({ kind: 'page', pageId: 'page-2' });
+  });
+
+  // Finding 1: require a STRING `filter.id` before installing. Without this, a numeric
+  // id installs, but `removeFilter`'s strict `f.id !== filterId` compare never coerces,
+  // so it can never match the numeric id, making it unremovable in-session until the
+  // load boundary's non-string-id filter screen silently drops the whole filter on the
+  // next load.
+  it('addFilter with a non-string filter.id is a no-op (Finding 1)', () => {
+    const state = twoPageState('page-1');
+    const filter = {
+      id: 42,
+      field: 'x',
+      operator: 'equals' as const,
+      value: 1,
+      scope: { kind: 'page' as const, pageId: 'page-1' },
+    };
+    const next = applyDocMutation(state, {
+      type: 'addFilter',
+      args: { filter },
+    } as unknown as StateMutation);
+    expect(next).toBe(state);
+    expect(next.filters).toHaveLength(0);
   });
 
   // F5: unlike the widget ADD channels (`coerceWidgetConfig`/`stripUnsafeConfigKeys`),
@@ -2369,6 +2452,28 @@ describe('applyMutation', () => {
       const state = twoPageState('page-1');
       const next = applyDocMutation(state, { type: 'setActivePage', args: { pageId: 'page-1' } });
       expect(next).toBe(state);
+    });
+
+    // Finding 1: a NUMERIC `pageId` must never resolve to the STRING-keyed page of the
+    // same digits via `Object.hasOwn`'s key coercion. Before the fix, `Object.hasOwn(
+    // state.pages, 42)` matched page `"42"` and installed the numeric value verbatim as
+    // `dashboard.activePageId` — violating its `string` type, with no self-heal (unlike
+    // `removeWidget`/`removePage`, this handler's only invariant check IS the coercing
+    // one, so nothing downstream catches the type violation until `deserializeState`).
+    it('a numeric pageId is a no-op, not coerced into the STRING page of the same digits (Finding 1)', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'P1', widgetRows: [] },
+          '42': { id: '42', title: 'P42', widgetRows: [] },
+        },
+      });
+      const next = applyDocMutation(state, {
+        type: 'setActivePage',
+        args: { pageId: 42 },
+      } as unknown as StateMutation);
+      expect(next).toBe(state);
+      expect(next.dashboard.activePageId).toBe('page-1');
     });
   });
 
@@ -4284,6 +4389,42 @@ describe('applyMutation', () => {
         },
       });
       expect(next.widgets.w1.sourceId).toBe(state.widgets.w1.sourceId);
+    });
+
+    // Finding 2: `titleMode`/`subtitleMode` are guarded at the wire boundary
+    // (`parseStateMutation.ts`'s `isOptionalTitleMode`, only `'auto' | 'manual' |
+    // undefined`) and at the load boundary (`deserializeState` strips a bad value), but
+    // the `updateWidget.changes` parser-bypass merge path was missing the equivalent
+    // check — a numeric `titleMode`/`subtitleMode` would merge verbatim and steer the
+    // client's auto-title logic until the next load strips it. Reject (skip), matching
+    // the sibling `title`/`kind`/`subtitle`/`sourceId` scalar guards.
+    it('updateWidget rejects a non-auto/manual changes.titleMode/changes.subtitleMode instead of merging it', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        widgets: { w1: chartWidget('w1') },
+      });
+      const next = applyDocMutation(state, {
+        type: 'updateWidget',
+        args: { widgetId: 'w1', changes: { titleMode: 42, subtitleMode: 'bogus' } as any },
+      });
+      expect((next.widgets.w1 as any).titleMode).toBe((state.widgets.w1 as any).titleMode);
+      expect((next.widgets.w1 as any).subtitleMode).toBe((state.widgets.w1 as any).subtitleMode);
+      expect(next).toBe(state);
+    });
+
+    // The valid values must still merge normally — the new guard must not reject
+    // `'auto'`/`'manual'` themselves.
+    it('updateWidget accepts a valid changes.titleMode/changes.subtitleMode', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        widgets: { w1: chartWidget('w1') },
+      });
+      const next = applyDocMutation(state, {
+        type: 'updateWidget',
+        args: { widgetId: 'w1', changes: { titleMode: 'manual', subtitleMode: 'auto' } as any },
+      });
+      expect((next.widgets.w1 as any).titleMode).toBe('manual');
+      expect((next.widgets.w1 as any).subtitleMode).toBe('auto');
     });
 
     it('addFilter with a missing filter is a no-op, not a throw', () => {

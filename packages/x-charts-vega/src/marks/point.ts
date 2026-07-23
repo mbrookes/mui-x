@@ -278,15 +278,17 @@ const DEFAULT_GEO_POINT_RADIUS = Math.sqrt(30 / Math.PI);
  * leftover group the domain didn't list.
  * @param {UnitContext} ctx This layer's compile context (for `palette`/`categoryKey`).
  * @param {ColorResolution} colorRes The resolved color scale for this layer's color/fill/stroke channel.
+ * @param {string | undefined} staticFallback A static `mark.color`/`mark.fill` to use when there's no color/fill/stroke encoding at all (e.g. `geo_text`'s `{type: 'circle', color: 'orange'}` sub-mark) — `resolveColor` only reads encoding channels, not the mark's own static color.
  * @returns {(groupValue: unknown) => string} A function from a row's raw color-group value to its resolved color.
  */
 function resolveGeoPointColorByRow(
   ctx: UnitContext,
   colorRes: ColorResolution,
+  staticFallback: string | undefined,
 ): (groupValue: unknown) => string {
   const { palette, categoryKey } = ctx;
   if (!colorRes.splitField) {
-    return () => colorRes.staticColor ?? palette[0];
+    return () => colorRes.staticColor ?? staticFallback ?? palette[0];
   }
   const colorByKey = new Map<string, string>();
   if (colorRes.domain) {
@@ -365,7 +367,10 @@ function compileGeoPointMark(ctx: UnitContext): CompiledUnit {
   }
 
   const colorRes = resolveColor(encoding, rows, gaps, path);
-  const colorForRow = resolveGeoPointColorByRow(ctx, colorRes);
+  const staticMarkColor =
+    (typeof unit.mark.color === 'string' ? unit.mark.color : undefined) ??
+    (typeof unit.mark.fill === 'string' ? unit.mark.fill : undefined);
+  const colorForRow = resolveGeoPointColorByRow(ctx, colorRes, staticMarkColor);
 
   let staticRadius = DEFAULT_GEO_POINT_RADIUS;
   if (typeof unit.mark.size === 'number') {

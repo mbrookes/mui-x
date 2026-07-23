@@ -4,6 +4,7 @@ import type {
   CompiledOverlay,
   CompiledSeries,
   CompiledUnit,
+  OverlayGeoSegmentItem,
   OverlayLegendItem,
   OverlaySegment,
   PlotKind,
@@ -647,11 +648,92 @@ function buildClosedPolygonOverlay(
   };
 }
 
+/**
+ * Compiles a `line` mark whose position comes from `longitude`/`latitude`
+ * channels instead of `x`/`y` — ONE continuous path connecting every row
+ * (ordered by the `order` field, e.g. `geo_line`'s flight-itinerary path
+ * through several airports), positioned by the geo chart's own projection
+ * via a `{kind: 'geoSegments'}` overlay (`overlays/GeoSegments.tsx`, the same
+ * kind `compileGeoRuleMark` uses for a `rule` mark's independent per-row
+ * segments — here consecutive ordered points are connected instead).
+ */
+function compileGeoLineMark(ctx: UnitContext): CompiledUnit {
+  const { unit, rows, encoding, gaps } = ctx;
+  const path = unit.path;
+  const mark = unit.mark;
+  const lonField = isFieldDef(encoding.longitude) ? encoding.longitude.field : undefined;
+  const latField = isFieldDef(encoding.latitude) ? encoding.latitude.field : undefined;
+  if (!lonField || !latField) {
+    gaps.add({
+      code: 'mark:line-geo-missing-fields',
+      message:
+        'A geo-projected line mark needs field-based `longitude` and `latitude` encodings to place its path; a value/datum-only or missing channel means the layer was dropped.',
+      severity: 'unsupported',
+      path,
+    });
+    return { series: [], plots: [] };
+  }
+
+  const orderField = isFieldDef(encoding.order) ? encoding.order.field : undefined;
+  const points = rows
+    .map((row, index) => ({
+      lon: toNumber(row[lonField]),
+      lat: toNumber(row[latField]),
+      order: orderField ? (toNumber(row[orderField]) ?? index) : index,
+    }))
+    .filter(
+      (point): point is { lon: number; lat: number; order: number } =>
+        point.lon != null && point.lat != null,
+    )
+    .sort((a, b) => a.order - b.order);
+
+  if (points.length < 2) {
+    gaps.add({
+      code: 'mark:line-geo-missing-fields',
+      message:
+        'Fewer than two rows had numeric `longitude`/`latitude` values, so no path could be drawn; the layer was dropped.',
+      severity: 'unsupported',
+      path,
+    });
+    return { series: [], plots: [] };
+  }
+
+  const staticStroke = resolveMarkColor(mark.color ?? mark.stroke, gaps, path) ?? ctx.palette[0];
+  const items: OverlayGeoSegmentItem[] = [];
+  for (let i = 0; i < points.length - 1; i += 1) {
+    items.push({
+      lon1: points[i].lon,
+      lat1: points[i].lat,
+      lon2: points[i + 1].lon,
+      lat2: points[i + 1].lat,
+      style: { stroke: staticStroke, strokeWidth: 2 },
+    });
+  }
+
+  gaps.add({
+    code: 'mark:line-geo-projected-custom-overlay',
+    message:
+      "x-charts has no line-over-projection primitive; the path is drawn by a custom SVG overlay using the geo chart's own projection instead of an x-charts series.",
+    severity: 'ignored',
+    path,
+  });
+  return { series: [], plots: [], overlays: [{ kind: 'geoSegments', items }] };
+}
+
 export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
   const { unit, rows, encoding, x, gaps } = ctx;
   const path = unit.path;
   const mark = unit.mark;
   const markType = mark.type as 'line' | 'area' | 'trail';
+
+  // `longitude`/`latitude` (rather than `x`/`y`) means this is a geo-projected
+  // line — a single ordered path, positioned by the geo chart's projection,
+  // not a cartesian axis. Only `line` (not `area`/`trail`) has a meaningful
+  // geo-projected form in Vega-Lite. Checked before the x/y field resolution
+  // below, which would otherwise never match (there is no `x`/`y` encoding).
+  if (markType === 'line' && isFieldDef(encoding.longitude) && isFieldDef(encoding.latitude)) {
+    return compileGeoLineMark(ctx);
+  }
 
   const yDef = isFieldDef(encoding.y) ? (encoding.y as VegaFieldDef) : undefined;
   const yField = yDef?.field;

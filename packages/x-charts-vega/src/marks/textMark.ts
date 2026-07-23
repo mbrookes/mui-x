@@ -285,10 +285,149 @@ function compilePolarTextLabels(ctx: UnitContext): CompiledUnit | undefined {
   };
 }
 
+/**
+ * Compiles a `text` mark whose position comes from `longitude`/`latitude`
+ * channels instead of `x`/`y` — per-row labels positioned by the geo chart's
+ * own projection via a `{kind: 'geoText'}` overlay (`overlays/GeoText.tsx`)
+ * instead of `useXScale`/`useYScale` (e.g. `geo_text`'s city-name labels
+ * beside each state-capital marker). A simplified sibling of the cartesian
+ * path above: static or field `text` (with `format`), `mark.dx`/`dy`, and
+ * `mark.color`; conditional `text`/`color` encodings and a field-based color
+ * scale are not attempted here (rarer on a geo label layer) and fall back to
+ * the base text/color, matching the cartesian path's own `encoding:text-*`/
+ * `encoding:text-color-field` fallback behavior for those same shapes.
+ */
+function compileGeoTextMark(ctx: UnitContext): CompiledUnit {
+  const { unit, encoding, gaps, rows } = ctx;
+  const path = unit.path;
+  const mark = unit.mark as VegaMarkDef & TextMarkExtras;
+  const lonField = isFieldDef(encoding.longitude) ? encoding.longitude.field : undefined;
+  const latField = isFieldDef(encoding.latitude) ? encoding.latitude.field : undefined;
+  if (!lonField || !latField) {
+    gaps.add({
+      code: 'mark:text-geo-missing-fields',
+      message:
+        'A geo-projected text mark needs field-based `longitude` and `latitude` encodings to place its labels; a value/datum-only or missing channel means the layer was dropped.',
+      severity: 'unsupported',
+      path,
+    });
+    return { series: [], plots: [] };
+  }
+
+  const textDef = encoding.text;
+  let textField: string | undefined;
+  let staticText: string | undefined;
+  let fmt: ((value: unknown) => string) | null = null;
+  if (textDef && !Array.isArray(textDef)) {
+    if (isFieldDef(textDef)) {
+      const fieldDef = textDef as VegaFieldDef;
+      textField = fieldDef.field;
+      if (fieldDef.format) {
+        fmt = createValueFormatter(
+          fieldDef.format,
+          resolveFieldType(fieldDef, rows),
+          fieldDef.formatType as string | undefined,
+        );
+      }
+    } else if (isValueDef(textDef) && textDef.value != null) {
+      staticText = String(textDef.value);
+    } else if (isDatumDef(textDef)) {
+      staticText = String(textDef.datum);
+    }
+  }
+  if (textField === undefined && staticText === undefined) {
+    gaps.add({
+      code: 'mark:text-missing-channel',
+      message:
+        'A text mark needs a `text` encoding (field or constant value) to know what to render; the layer was dropped.',
+      severity: 'unsupported',
+      path: `${path}.encoding.text`,
+    });
+    return { series: [], plots: [] };
+  }
+
+  const colorDef = encoding.color;
+  const baseColor = typeof mark.color === 'string' ? mark.color : undefined;
+  const fieldColor =
+    isValueDef(colorDef) && colorDef.value != null ? String(colorDef.value) : undefined;
+  if (colorDef && !Array.isArray(colorDef) && isFieldDef(colorDef)) {
+    gaps.add({
+      code: 'encoding:text-color-field',
+      message:
+        'A field-based `color` encoding on a text mark (a continuous/categorical color scale) is not translated; the mark/base color is used for every label instead.',
+      severity: 'unsupported',
+      path: `${path}.encoding.color`,
+    });
+  }
+  const fill = fieldColor ?? baseColor;
+  const style = buildTextStyle(mark);
+  const itemStyle = fill !== undefined ? { ...style, fill } : style;
+  const dxResolver = resolveOffsetProperty(mark.dx, gaps, path, 'dx');
+  const dyResolver = resolveOffsetProperty(mark.dy, gaps, path, 'dy');
+
+  const items = rows
+    .map((row) => {
+      const lon = toNumber(row[lonField]);
+      const lat = toNumber(row[latField]);
+      if (lon == null || lat == null) {
+        return null;
+      }
+      const raw = textField !== undefined ? row[textField] : staticText;
+      if (raw == null) {
+        return null;
+      }
+      let text: string;
+      if (textField === undefined) {
+        text = raw as string;
+      } else {
+        text = fmt ? fmt(raw) : String(raw);
+      }
+      const dx = dxResolver?.(row);
+      const dy = dyResolver?.(row);
+      return {
+        lon,
+        lat,
+        text,
+        ...(dx !== undefined ? { dx } : {}),
+        ...(dy !== undefined ? { dy } : {}),
+        ...(itemStyle !== undefined ? { style: itemStyle } : {}),
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => item !== null);
+
+  if (items.length === 0) {
+    gaps.add({
+      code: 'mark:text-geo-missing-fields',
+      message:
+        'No row had numeric `longitude`/`latitude` values (and a resolvable `text` value) to place a label at; the layer was dropped.',
+      severity: 'unsupported',
+      path,
+    });
+    return { series: [], plots: [] };
+  }
+
+  gaps.add({
+    code: 'mark:text-geo-projected-custom-overlay',
+    message:
+      "x-charts has no text-over-projection primitive; labels are drawn by a custom SVG overlay using the geo chart's own projection instead of an x-charts series.",
+    severity: 'ignored',
+    path,
+  });
+  return { series: [], plots: [], overlays: [{ kind: 'geoText', items }] };
+}
+
 export function compileTextMark(ctx: UnitContext): CompiledUnit {
   const { unit, encoding, gaps, rows } = ctx;
   const path = unit.path;
   const mark = unit.mark as VegaMarkDef & TextMarkExtras;
+
+  // `longitude`/`latitude` (rather than `x`/`y`) means this is a geo-projected
+  // text mark — positioned by the geo chart's projection, not a cartesian
+  // axis. Checked before the x/y axis gate below, which would otherwise
+  // always fail for these (there is no `x`/`y` encoding to resolve at all).
+  if (isFieldDef(encoding.longitude) && isFieldDef(encoding.latitude)) {
+    return compileGeoTextMark(ctx);
+  }
 
   if (!ctx.x?.field || !ctx.y?.field) {
     const polar = compilePolarTextLabels(ctx);

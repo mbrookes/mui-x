@@ -346,4 +346,44 @@ describe('compileRuleMark', () => {
     expect(gap?.severity).to.equal('partial');
     expect(compiled.referenceLines).to.have.length(0);
   });
+
+  describe('geo-projected (longitude/latitude) rules', () => {
+    it('draws a geoSegments overlay for a longitude/latitude/longitude2/latitude2 rule (geo_rule-shaped)', () => {
+      const compiled = compileSpec({
+        projection: { type: 'albersUsa' },
+        data: {
+          values: [{ lon1: -122.3, lat1: 47.6, lon2: -73.9, lat2: 40.7 }],
+        },
+        mark: 'rule',
+        encoding: {
+          longitude: { field: 'lon1', type: 'quantitative' },
+          latitude: { field: 'lat1', type: 'quantitative' },
+          longitude2: { field: 'lon2' },
+          latitude2: { field: 'lat2' },
+        },
+      });
+      const overlay = compiled.overlays.find((entry) => entry.kind === 'geoSegments') as
+        Extract<(typeof compiled.overlays)[number], { kind: 'geoSegments' }> | undefined;
+      expect(overlay?.items).to.deep.equal([
+        { lon1: -122.3, lat1: 47.6, lon2: -73.9, lat2: 40.7, style: overlay?.items[0].style },
+      ]);
+      expect(compiled.gaps.map((gap) => gap.code)).to.include(
+        'mark:rule-geo-projected-custom-overlay',
+      );
+    });
+
+    it('reports mark:rule-geo-missing-fields and drops the layer when longitude2/latitude2 are absent', () => {
+      const compiled = compileSpec({
+        projection: { type: 'albersUsa' },
+        data: { values: [{ lon: -122.3, lat: 47.6 }] },
+        mark: 'rule',
+        encoding: {
+          longitude: { field: 'lon', type: 'quantitative' },
+          latitude: { field: 'lat', type: 'quantitative' },
+        },
+      });
+      expect(compiled.overlays).to.have.length(0);
+      expect(compiled.gaps.map((gap) => gap.code)).to.include('mark:rule-geo-missing-fields');
+    });
+  });
 });

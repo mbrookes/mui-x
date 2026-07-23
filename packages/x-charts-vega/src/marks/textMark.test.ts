@@ -329,4 +329,62 @@ describe('compileTextMark', () => {
     expect(gap?.severity).to.equal('ignored');
     expect(gap?.origin).to.equal('x-charts');
   });
+
+  describe('geo-projected (longitude/latitude) text', () => {
+    it('draws a geoText overlay for a longitude/latitude text mark (geo_text-shaped)', () => {
+      const compiled = compileSpec({
+        projection: { type: 'albersUsa' },
+        data: { values: [{ lon: -122.9, lat: 47.0, city: 'Olympia' }] },
+        mark: { type: 'text', dy: -10 },
+        encoding: {
+          longitude: { field: 'lon', type: 'quantitative' },
+          latitude: { field: 'lat', type: 'quantitative' },
+          text: { field: 'city', type: 'nominal' },
+        },
+      });
+      const overlay = compiled.overlays.find((entry) => entry.kind === 'geoText') as
+        Extract<(typeof compiled.overlays)[number], { kind: 'geoText' }> | undefined;
+      expect(overlay?.items).to.deep.equal([
+        { lon: -122.9, lat: 47.0, text: 'Olympia', dy: -10, style: overlay?.items[0].style },
+      ]);
+      expect(compiled.gaps.map((gap) => gap.code)).to.include(
+        'mark:text-geo-projected-custom-overlay',
+      );
+    });
+
+    it("honors a nested layer's static mark.color (geo_text's orange capital dots use this same fallback)", () => {
+      // This exercises `marks/point.ts`'s geo point compiler, not textMark.ts,
+      // but the fix (folding a static `mark.color` into the fallback chain
+      // resolveColor alone doesn't cover) was found via this exact spec shape.
+      const compiled = compileSpec({
+        projection: { type: 'albersUsa' },
+        data: { values: [{ lon: -122.9, lat: 47.0 }] },
+        encoding: {
+          longitude: { field: 'lon', type: 'quantitative' },
+          latitude: { field: 'lat', type: 'quantitative' },
+        },
+        layer: [{ mark: { type: 'circle', color: 'orange' } }],
+      });
+      const overlay = compiled.overlays.find((entry) => entry.kind === 'geoPoints') as
+        Extract<(typeof compiled.overlays)[number], { kind: 'geoPoints' }> | undefined;
+      expect(overlay?.items[0]?.color).to.equal('orange');
+    });
+
+    it('reports mark:text-geo-missing-fields when longitude/latitude have no field', () => {
+      const compiled = compileSpec({
+        projection: { type: 'albersUsa' },
+        data: { values: [{ city: 'Olympia' }] },
+        mark: 'text',
+        encoding: {
+          // `aggregate` with no `field` still satisfies `isFieldDef`, so this
+          // reaches `compileGeoTextMark` — which then has no field to read.
+          longitude: { aggregate: 'sum' } as never,
+          latitude: { aggregate: 'sum' } as never,
+          text: { field: 'city', type: 'nominal' },
+        },
+      });
+      expect(compiled.overlays).to.have.length(0);
+      expect(compiled.gaps.map((gap) => gap.code)).to.include('mark:text-geo-missing-fields');
+    });
+  });
 });

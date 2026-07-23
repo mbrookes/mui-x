@@ -10,6 +10,8 @@ import { RadialArcsOverlay } from './RadialArcs';
 import { RadialLabelsOverlay } from './RadialLabels';
 import { RectsOverlay } from './Rects';
 import { GeoPointsOverlay } from './GeoPoints';
+import { GeoSegmentsOverlay } from './GeoSegments';
+import { GeoTextOverlay } from './GeoText';
 
 /**
  * Dispatches compiled overlay instructions to their per-kind SVG renderers.
@@ -48,6 +50,10 @@ export function VegaOverlays(props: { overlays?: CompiledOverlay[] }) {
             return <RectsOverlay key={index} overlay={overlay} />;
           case 'geoPoints':
             return <GeoPointsOverlay key={index} overlay={overlay} />;
+          case 'geoSegments':
+            return <GeoSegmentsOverlay key={index} overlay={overlay} />;
+          case 'geoText':
+            return <GeoTextOverlay key={index} overlay={overlay} />;
           default:
             return null;
         }

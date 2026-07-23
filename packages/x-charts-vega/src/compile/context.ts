@@ -229,6 +229,29 @@ export type CompiledOverlay =
        */
       kind: 'geoPoints';
       items: OverlayGeoPointItem[];
+    }
+  | {
+      /**
+       * A `rule` mark's `longitude`/`latitude`/`longitude2`/`latitude2` span
+       * (one independent segment per row — `marks/rule.ts`
+       * `compileGeoRuleMark`), OR a `line` mark's `longitude`/`latitude` with
+       * `order` (one continuous path connecting every row in order —
+       * `marks/lineArea.ts` `compileGeoLineMark`, which emits N-1 consecutive
+       * segments the same way `buildContinuousLineOverlay` does for a
+       * cartesian continuous-x line). Each endpoint is projected to pixels at
+       * render time via `useGeoPath()`, like `geoPoints` above.
+       */
+      kind: 'geoSegments';
+      items: OverlayGeoSegmentItem[];
+    }
+  | {
+      /**
+       * A `text` mark using `longitude`/`latitude` channels (`marks/
+       * textMark.ts` `compileGeoTextMark`) — per-row labels positioned by the
+       * geo chart's projection instead of a cartesian scale.
+       */
+      kind: 'geoText';
+      items: OverlayGeoTextItem[];
     };
 
 /**
@@ -245,6 +268,25 @@ export interface OverlayGeoPointItem {
   radius: number;
   color: string;
   fillOpacity?: number;
+}
+
+/** One segment of a geo-projected `rule`/`line` layer — see the `geoSegments` overlay kind's doc comment. */
+export interface OverlayGeoSegmentItem {
+  lon1: number;
+  lat1: number;
+  lon2: number;
+  lat2: number;
+  style?: React.CSSProperties;
+}
+
+/** One label of a geo-projected `text` layer — see the `geoText` overlay kind's doc comment. */
+export interface OverlayGeoTextItem {
+  lon: number;
+  lat: number;
+  text: string;
+  dx?: number;
+  dy?: number;
+  style?: React.CSSProperties;
 }
 
 /**

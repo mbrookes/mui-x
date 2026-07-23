@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
-import { useGeoPath } from '@mui/x-charts-premium/hooks';
 import type { CompiledOverlay } from '../compile/context';
+import { useResolvedGeoProjection } from './geoProjection';
 
 /*
  * OWNERSHIP: the "point/scatter marks" work unit owns this file.
@@ -22,13 +22,7 @@ export function GeoPointsOverlay(props: {
   overlay: Extract<CompiledOverlay, { kind: 'geoPoints' }>;
 }) {
   const { overlay } = props;
-  const path = useGeoPath();
-  const rawProjection = path?.projection?.();
-  // `GeoPath.projection()` is typed to also allow a bare `GeoStreamWrapper`
-  // (a `{stream}`-only custom transform, no `(point) => [x, y]` call
-  // signature) — never what this wrapper registers, but the type needs
-  // narrowing before it can be called as a function.
-  const projection = typeof rawProjection === 'function' ? rawProjection : undefined;
+  const projection = useResolvedGeoProjection();
 
   if (overlay.items.length === 0 || !projection) {
     return null;

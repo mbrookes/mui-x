@@ -415,9 +415,81 @@ function buildDiagonalSegments(
   }
 }
 
+/**
+ * Compiles a `rule` mark whose position comes from `longitude`/`latitude`/
+ * `longitude2`/`latitude2` channels instead of `x`/`x2`/`y`/`y2` — a
+ * per-row line segment between two geographic points (e.g.
+ * `geo_rule`/`airport_connections`'s flight-path lines), positioned by the
+ * geo chart's own projection via a `{kind: 'geoSegments'}` overlay
+ * (`overlays/GeoSegments.tsx`) instead of `useXScale`/`useYScale` — there is
+ * no cartesian axis at all on a geo chart.
+ */
+function compileGeoRuleMark(ctx: UnitContext): CompiledUnit {
+  const { encoding, rows, gaps, unit } = ctx;
+  const { path, mark } = unit;
+  const lonField = isFieldDef(encoding.longitude) ? encoding.longitude.field : undefined;
+  const latField = isFieldDef(encoding.latitude) ? encoding.latitude.field : undefined;
+  const lon2Field = isFieldDef(encoding.longitude2) ? encoding.longitude2.field : undefined;
+  const lat2Field = isFieldDef(encoding.latitude2) ? encoding.latitude2.field : undefined;
+  if (!lonField || !latField || !lon2Field || !lat2Field) {
+    gaps.add({
+      code: 'mark:rule-geo-missing-fields',
+      message:
+        'A geo-projected rule mark needs field-based `longitude`/`latitude`/`longitude2`/`latitude2` encodings to place its endpoints; a value/datum-only or missing channel means the layer was dropped.',
+      severity: 'unsupported',
+      path,
+    });
+    return { series: [], plots: [] };
+  }
+
+  const lineStyle = buildLineStyle(mark);
+  const rowColor = buildRowColor(ctx);
+  const items = rows
+    .map((row) => {
+      const lon1 = toNumber(row[lonField]);
+      const lat1 = toNumber(row[latField]);
+      const lon2 = toNumber(row[lon2Field]);
+      const lat2 = toNumber(row[lat2Field]);
+      if (lon1 == null || lat1 == null || lon2 == null || lat2 == null) {
+        return null;
+      }
+      return { lon1, lat1, lon2, lat2, style: styleForRow(lineStyle, rowColor, row) };
+    })
+    .filter((item): item is NonNullable<typeof item> => item !== null);
+
+  if (items.length === 0) {
+    gaps.add({
+      code: 'mark:rule-geo-missing-fields',
+      message:
+        'No row had numeric `longitude`/`latitude`/`longitude2`/`latitude2` values to draw a segment from; the layer was dropped.',
+      severity: 'unsupported',
+      path,
+    });
+    return { series: [], plots: [] };
+  }
+
+  gaps.add({
+    code: 'mark:rule-geo-projected-custom-overlay',
+    message:
+      "x-charts has no line-over-projection primitive; the segments are drawn by a custom SVG overlay using the geo chart's own projection instead of an x-charts series.",
+    severity: 'ignored',
+    path,
+  });
+  return { series: [], plots: [], overlays: [{ kind: 'geoSegments', items }] };
+}
+
 export function compileRuleMark(ctx: UnitContext): CompiledUnit {
   const { encoding, rows, gaps, unit } = ctx;
   const { path, mark } = unit;
+
+  // `longitude`/`latitude` (rather than `x`/`y`) means this is a geo-projected
+  // rule — a per-row segment between two geographic points, positioned by the
+  // geo chart's projection, not a cartesian axis. Checked before the
+  // cartesian x2/y2 span detection below, which would otherwise never match
+  // (there is no `x`/`y` encoding to resolve at all).
+  if (isFieldDef(encoding.longitude) && isFieldDef(encoding.latitude)) {
+    return compileGeoRuleMark(ctx);
+  }
 
   if (!ctx.x && !ctx.y) {
     gaps.add({

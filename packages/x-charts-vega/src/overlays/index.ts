@@ -7,3 +7,5 @@ export * from './TextMarks';
 export * from './ArcLabels';
 export * from './Rects';
 export * from './GeoPoints';
+export * from './GeoSegments';
+export * from './GeoText';

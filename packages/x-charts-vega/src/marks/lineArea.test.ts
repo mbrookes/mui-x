@@ -713,4 +713,72 @@ describe('compileLineAreaMark', () => {
     expect(compiled.series).to.have.length(1);
     expect((compiled.series[0] as { label?: string }).label).to.equal('AAPL');
   });
+
+  describe('geo-projected (longitude/latitude) lines', () => {
+    it('draws a geoSegments overlay connecting rows in `order` (geo_line-shaped)', () => {
+      const compiled = compileSpec({
+        projection: { type: 'albersUsa' },
+        data: {
+          values: [
+            { airport: 'SEA', order: 1, lon: -122.3, lat: 47.4 },
+            { airport: 'SFO', order: 2, lon: -122.4, lat: 37.6 },
+            { airport: 'LAX', order: 3, lon: -118.4, lat: 33.9 },
+          ],
+        },
+        mark: 'line',
+        encoding: {
+          longitude: { field: 'lon', type: 'quantitative' },
+          latitude: { field: 'lat', type: 'quantitative' },
+          order: { field: 'order' },
+        },
+      });
+      const overlay = compiled.overlays.find((entry) => entry.kind === 'geoSegments') as
+        Extract<(typeof compiled.overlays)[number], { kind: 'geoSegments' }> | undefined;
+      // 3 ordered points -> 2 consecutive segments.
+      expect(overlay?.items).to.deep.equal([
+        { lon1: -122.3, lat1: 47.4, lon2: -122.4, lat2: 37.6, style: overlay?.items[0].style },
+        { lon1: -122.4, lat1: 37.6, lon2: -118.4, lat2: 33.9, style: overlay?.items[1].style },
+      ]);
+      expect(compiled.gaps.map((gap) => gap.code)).to.include(
+        'mark:line-geo-projected-custom-overlay',
+      );
+    });
+
+    it('connects rows out of their input order, following the `order` field', () => {
+      const compiled = compileSpec({
+        projection: { type: 'albersUsa' },
+        data: {
+          values: [
+            { order: 2, lon: 2, lat: 2 },
+            { order: 1, lon: 1, lat: 1 },
+          ],
+        },
+        mark: 'line',
+        encoding: {
+          longitude: { field: 'lon', type: 'quantitative' },
+          latitude: { field: 'lat', type: 'quantitative' },
+          order: { field: 'order' },
+        },
+      });
+      const overlay = compiled.overlays.find((entry) => entry.kind === 'geoSegments') as
+        Extract<(typeof compiled.overlays)[number], { kind: 'geoSegments' }> | undefined;
+      expect(overlay?.items).to.deep.equal([
+        { lon1: 1, lat1: 1, lon2: 2, lat2: 2, style: overlay?.items[0].style },
+      ]);
+    });
+
+    it('reports mark:line-geo-missing-fields and drops the layer when fewer than two rows resolve', () => {
+      const compiled = compileSpec({
+        projection: { type: 'albersUsa' },
+        data: { values: [{ lon: 1, lat: 1 }] },
+        mark: 'line',
+        encoding: {
+          longitude: { field: 'lon', type: 'quantitative' },
+          latitude: { field: 'lat', type: 'quantitative' },
+        },
+      });
+      expect(compiled.overlays).to.have.length(0);
+      expect(compiled.gaps.map((gap) => gap.code)).to.include('mark:line-geo-missing-fields');
+    });
+  });
 });

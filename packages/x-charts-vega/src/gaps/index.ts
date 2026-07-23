@@ -63,6 +63,9 @@ const X_CHARTS_LIMITATION_CODES = new Set<string>([
   // own projection, with no dedicated legend for a per-marker color split.
   'mark:point-geo-projected-custom-overlay',
   'mark:point-geo-color-legend',
+  'mark:rule-geo-projected-custom-overlay',
+  'mark:line-geo-projected-custom-overlay',
+  'mark:text-geo-projected-custom-overlay',
   // Opacity: an x-charts series/marker has a single color, no separate alphas.
   'encoding:opacity',
   'encoding:opacity-field-unsupported',

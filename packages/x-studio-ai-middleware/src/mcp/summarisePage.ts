@@ -46,6 +46,22 @@ const ANOMALY_SAFE_AGGREGATIONS = new Set(['sum', 'count']);
 const DEFAULT_MAX_QUERY_ROWS = 1000;
 
 /**
+ * Hard upper bound on the number of widgets `summarise_page` fans out per-widget
+ * `queryDataSource` calls for (finding F5, Tier 3). `Promise.all` below issues up
+ * to TWO live queries per widget (a sample-rows query, and — for time-series
+ * charts — a GROUP BY anomaly-aggregation query) concurrently, with no prior cap
+ * on widget count, unlike sibling fan-outs in `queryTools.ts`
+ * (`MAX_COMPUTE_FIELD_STATS_FIELDS`/`MAX_DESCRIBE_DATA_SOURCE_NUMERIC_FIELDS`,
+ * both capped at 50). Reuses that same 50-item convention rather than inventing a
+ * new constant — there is no tool-specific reason a page's widget fan-out should
+ * be allowed a different bound. Truncated (not rejected) — like
+ * `describe_data_source`'s numeric-field fan-out — since a page's widget count
+ * isn't something the caller can retry with a smaller value; the summary simply
+ * covers the first N widgets in layout order and notes the truncation.
+ */
+const MAX_SUMMARISE_PAGE_WIDGETS = 50;
+
+/**
  * Build the `summarise_page` handler. Registered only when `data` is configured;
  * without data the tool falls through to `executeToolOnState`, which returns a
  * descriptive client-side-limitation error.
@@ -85,7 +101,13 @@ export function createSummarisePageHandler(deps: {
           {
             type: 'text' as const,
             text: requestedPageId
-              ? `Page "${requestedPageId}" not found.`
+              ? // Finding F6 (Tier 3): `requestedPageId` is caller-supplied and echoed
+                // raw into this LLM-consumed tool output. Route it through
+                // `sanitizeForPrompt` — the same choke point every other
+                // state-derived string in this file already passes through (e.g.
+                // `resolvedPageId` below) — for parity with the rest of the
+                // package's sanitize-before-interpolate convention.
+                `Page "${sanitizeForPrompt(requestedPageId)}" not found.`
               : 'No active page found.',
           },
         ],
@@ -97,9 +119,13 @@ export function createSummarisePageHandler(deps: {
     // sourceId guards): a widget-row id that is an `Object.prototype` member
     // (`"constructor"`, `"toString"`, …) would otherwise resolve to an inherited
     // function via the prototype chain instead of being dropped as absent.
-    const widgets = widgetIds
+    const allWidgets = widgetIds
       .filter((id) => Object.hasOwn(state.doc.widgets, id))
       .map((id) => state.doc.widgets[id]);
+    // Finding F5 (Tier 3): truncate (not reject) an oversized widget fan-out —
+    // see `MAX_SUMMARISE_PAGE_WIDGETS`'s doc comment.
+    const widgetsTruncated = allWidgets.length > MAX_SUMMARISE_PAGE_WIDGETS;
+    const widgets = widgetsTruncated ? allWidgets.slice(0, MAX_SUMMARISE_PAGE_WIDGETS) : allWidgets;
     type SectionItem = { text: string };
     // Pre-sized, index-addressed array: each widget's query runs concurrently
     // (via Promise.all below), but writing to `results[i]` instead of pushing
@@ -309,7 +335,18 @@ export function createSummarisePageHandler(deps: {
     // completion order — see the `results` array above).
     // (Splitting into separate content items fragments the summary for MCP
     // clients that render only the first.)
-    const summaryText = [`## ${pageLabel}`, ...sections.map((s) => s.text)].join('\n\n');
+    // Finding F5 (Tier 3): note the widget-fan-out truncation in the summary
+    // itself, mirroring `describe_data_source`'s `statsTruncatedNote` pattern, so
+    // the model knows this summary doesn't cover every widget on the page.
+    const truncationNote = widgetsTruncated
+      ? [
+          `_Summary truncated: showing the first ${MAX_SUMMARISE_PAGE_WIDGETS} of ${allWidgets.length} ` +
+            'widgets on this page._',
+        ]
+      : [];
+    const summaryText = [`## ${pageLabel}`, ...truncationNote, ...sections.map((s) => s.text)].join(
+      '\n\n',
+    );
 
     return { content: [{ type: 'text' as const, text: summaryText }] };
   };

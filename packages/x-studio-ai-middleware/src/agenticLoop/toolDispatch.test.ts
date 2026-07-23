@@ -484,7 +484,8 @@ describe('dispatchToolCall', () => {
     }
   });
 
-  it('reports an unregistered server-tool skill (declared but no handler)', async () => {
+  it('reports an unregistered server-tool skill (declared but no handler) and counts it against the tool-call budget', async () => {
+    const usage = { committedMutations: 0, toolCalls: 0 };
     const ctx = makeCtx({
       advertisedToolNames: new Set(['declared_skill']),
       skills: [
@@ -495,6 +496,7 @@ describe('dispatchToolCall', () => {
           tool: { name: 'declared_skill', description: 'd', parameters: {} },
         },
       ],
+      usage,
     });
     const { outcome } = await runDispatch(
       dispatchToolCall(tc('declared_skill'), {}, false, INITIAL_STATE, ctx),
@@ -505,6 +507,12 @@ describe('dispatchToolCall', () => {
         error: "server-tool skill 'declared_skill' has no registered handler on the server.",
       }),
     });
+    // Regression for finding F3 (Tier 2): this is the one dispatch early-return
+    // that previously did NOT bump `usage.toolCalls`, unlike its sibling
+    // parse-failure/unadvertised-tool early returns — a model retrying an
+    // unregistered skill call could otherwise do so unboundedly without ever
+    // tripping `maxToolCallsPerRequest`.
+    expect(usage.toolCalls).toBe(1);
   });
 
   it('denies a policy-denied tool without executing it', async () => {

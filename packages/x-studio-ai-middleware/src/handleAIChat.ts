@@ -526,6 +526,83 @@ function validateStudioAIRequestBody(body: unknown): string | undefined {
       'rather than a partial or hand-built object.'
     );
   }
+  // Finding F2 (Tier 3): `doc` is not the only partition dereferenced downstream —
+  // `buildAISystemPrompt`'s `buildDashboardState` destructures `state.session.mode`
+  // and `state.runtime.dataSources`, and `executeToolOnState.ts`'s
+  // `projectStateForAI` does `Object.entries(state.runtime.dataSources)`. A body that
+  // supplies a valid `doc` but omits `session`/`runtime` previously passed this
+  // validator and only crashed once the first prompt was built, as an opaque native
+  // `TypeError`. `mode` itself is left unchecked (every read site tolerates it being
+  // absent/wrong), but `session` and `runtime.dataSources` must be objects for those
+  // destructures/`Object.entries` calls to succeed.
+  if (
+    !isObject(dashboardState.session) ||
+    !isObject(dashboardState.runtime) ||
+    !isObject(dashboardState.runtime.dataSources)
+  ) {
+    return (
+      'MUI X Studio: `dashboardState` is missing its `session` and/or `runtime.dataSources` fields ' +
+      '(`StudioState`). This prevents the agentic loop from building the dashboard-state context — ' +
+      '`buildAISystemPrompt.ts` reads `state.session.mode` and `state.runtime.dataSources`, and ' +
+      '`executeToolOnState.ts` iterates `state.runtime.dataSources`. Ensure `dashboardState` is a ' +
+      'complete, unmodified `StudioState` snapshot (all three of `doc`/`session`/`runtime`) rather ' +
+      'than a partial or hand-built object.'
+    );
+  }
+  // Finding F2 (Tier 3), related smaller gap: a non-array `allowedTools` reaches
+  // `agenticLoop.ts`'s `(allowedTools as string[]).includes(...)` — on a string body
+  // this silently degrades to SUBSTRING matching rather than array membership
+  // (client-asserted so no privilege is widened, but the behavior is silently wrong
+  // instead of erroring). Validate array-of-strings shape up front instead.
+  const { allowedTools } = body as { allowedTools?: unknown };
+  if (
+    allowedTools !== undefined &&
+    (!Array.isArray(allowedTools) || !allowedTools.every((t) => typeof t === 'string'))
+  ) {
+    return (
+      'MUI X Studio: `allowedTools` must be an array of tool-name strings ' +
+      '(`StudioAIRequest.allowedTools`) when provided. This prevents it from being misread as a ' +
+      'single string (downstream `.includes(...)` checks would silently treat that as a substring ' +
+      'match instead of an exact tool-name match). Omit `allowedTools` to allow all tools, or pass ' +
+      "e.g. `['add_widget', 'remove_widget']`."
+    );
+  }
+  // Finding F2 (Tier 3), related smaller gap: a non-array `customWidgets` throws
+  // inside `buildWidgetFromArgs` the first time a widget-creating tool call reads it.
+  const { customWidgets } = body as { customWidgets?: unknown };
+  if (customWidgets !== undefined && !Array.isArray(customWidgets)) {
+    return (
+      'MUI X Studio: `customWidgets` must be an array (`StudioAIRequest.customWidgets[]`) when ' +
+      'provided. This prevents a crash inside `buildWidgetFromArgs` the first time a widget-creating ' +
+      'tool call reads it. Omit `customWidgets` if there are none, or pass an array of ' +
+      '`StudioCustomWidgetDef` objects.'
+    );
+  }
+  // Finding F1 (Tier 2): `handleAIChat` previously computed `effectiveSkills` from
+  // `body.skills` BEFORE this validator ran, so a malformed `skills` (a truthy
+  // non-array, or an array containing a `null`/non-object/nameless entry) threw a
+  // synchronous `TypeError` out of `handleAIChat` itself — before the `ReadableStream`
+  // was even constructed — violating the "always returns a stream, never throws"
+  // contract documented in ARCHITECTURE.md. Without `options.allowedSkills`
+  // configured, the same malformed value instead reached `agenticLoop.ts`'s
+  // `(skills ?? []).filter` and surfaced as an opaque `TypeError` SSE error.
+  // Validating the shape here lets both cases surface as one clean, actionable SSE
+  // error frame instead.
+  const { skills } = body as { skills?: unknown };
+  if (
+    skills !== undefined &&
+    (!Array.isArray(skills) ||
+      !skills.every((s) => isObject(s) && typeof (s as { name?: unknown }).name === 'string'))
+  ) {
+    return (
+      'MUI X Studio: `skills` must be an array of skill objects, each with a string `name` ' +
+      '(`StudioAIRequest.skills` / `SerializableSkill[]`), when provided. This prevents a crash while ' +
+      'filtering skills against the server allow-list/built-in tool names (`handleAIChat.ts`/' +
+      '`agenticLoop.ts` both call array methods on this value assuming that shape). Omit `skills` if ' +
+      'there are none, or pass an array of `SerializableSkill` objects (each shaped like ' +
+      '`{ name, mode, promptFragment, tool? }`).'
+    );
+  }
   return undefined;
 }
 
@@ -572,26 +649,6 @@ export function handleAIChat(
   }
   const effectivePrivateMode = Boolean(options.privateMode || bodyPrivateMode);
 
-  // Server-side skill allow-list enforcement (finding 2.1, hardened for T1-1). A
-  // client-asserted `body.skills` entry's `promptFragment` (and, for `server-tool`
-  // mode, its tool `description`/`parameters`) lands in the higher-trust system
-  // region. Filtering by `name` alone is NOT sufficient — a body can assert an
-  // allowlisted `name` paired with its own hostile `promptFragment`, and the name
-  // check alone would let that fragment through unchanged. So when the host supplies
-  // `allowedSkills`, a body skill's `name` is used only to SELECT a definition —
-  // never to admit the body's own content: each allowlisted name is looked up in
-  // `options.skillHandlers` (the same host-registered registry the agentic loop uses
-  // to execute `server-tool` skills) and that server-authored definition is what's
-  // actually used. A name with no matching `skillHandlers` entry is dropped rather
-  // than falling back to the body's (unvetted) object. Omitting `allowedSkills`
-  // preserves the current behavior (`body.skills` trusted as-is, content included).
-  const effectiveSkills = options.allowedSkills
-    ? (skills ?? [])
-        .filter((s) => options.allowedSkills!.includes(s.name))
-        .map((s) => options.skillHandlers?.find((h) => h.name === s.name))
-        .filter((s): s is StudioAISkill => Boolean(s))
-    : skills;
-
   // Internal abort controller so consumer-side stream cancellation (`reader.cancel()`)
   // actually propagates into the agentic loop. It is also linked to any external
   // `options.signal` so a host-wired abort still stops the loop.
@@ -635,6 +692,38 @@ export function handleAIChat(
           controller.enqueue(encodeSSE({ type: 'error', message: validationError }));
           return;
         }
+
+        // Server-side skill allow-list enforcement (finding 2.1, hardened for T1-1).
+        // A client-asserted `body.skills` entry's `promptFragment` (and, for
+        // `server-tool` mode, its tool `description`/`parameters`) lands in the
+        // higher-trust system region. Filtering by `name` alone is NOT sufficient —
+        // a body can assert an allowlisted `name` paired with its own hostile
+        // `promptFragment`, and the name check alone would let that fragment through
+        // unchanged. So when the host supplies `allowedSkills`, a body skill's
+        // `name` is used only to SELECT a definition — never to admit the body's own
+        // content: each allowlisted name is looked up in `options.skillHandlers`
+        // (the same host-registered registry the agentic loop uses to execute
+        // `server-tool` skills) and that server-authored definition is what's
+        // actually used. A name with no matching `skillHandlers` entry is dropped
+        // rather than falling back to the body's (unvetted) object. Omitting
+        // `allowedSkills` preserves the current behavior (`body.skills` trusted
+        // as-is, content included).
+        //
+        // Finding F1 (Tier 2): computed HERE, after `validateStudioAIRequestBody`
+        // has already rejected a malformed `body.skills` (truthy non-array, or an
+        // array with a non-object/nameless entry) and INSIDE `start()` (i.e. after
+        // the `ReadableStream` is already under construction) — not at the top of
+        // `handleAIChat` as before. Previously this ran before validation and before
+        // the stream existed, so a malformed `skills` threw a synchronous `TypeError`
+        // straight out of `handleAIChat`, violating its "always returns a stream,
+        // never throws" contract. Now a malformed value is always caught by
+        // validation first and surfaces as a normal `{ type: 'error' }` SSE frame.
+        const effectiveSkills = options.allowedSkills
+          ? (skills ?? [])
+              .filter((s) => options.allowedSkills!.includes(s.name))
+              .map((s) => options.skillHandlers?.find((h) => h.name === s.name))
+              .filter((s): s is StudioAISkill => Boolean(s))
+          : skills;
 
         // Best-effort server-side context enrichment. Failures never abort the chat.
         // Bounded by `CONTEXT_ENRICHER_TIMEOUT_MS` (finding T2-2) — without this, a

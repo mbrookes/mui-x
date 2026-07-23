@@ -68,8 +68,14 @@ const MAX_TITLE_LENGTH = 200;
  * filter's `field`/`value` (via `JSON.stringify(f.value)`) into the "Active
  * Filters" block on EVERY subsequent request, so an unbounded value persists as
  * a token bomb across the whole conversation (finding T3-3).
+ *
+ * Exported (finding F4, Tier 2) so `mcp/queryTools.ts` can cap `query_data_source`'s
+ * `filters[].field`/`get_field_values.fieldId` strings with the SAME bound already
+ * applied to the conceptually identical `add_page_filter`/`add_widget_filter`
+ * `field` string, rather than inventing a second constant for the same class of
+ * short identifier string.
  */
-const MAX_FILTER_STRING_LENGTH = 200;
+export const MAX_FILTER_STRING_LENGTH = 200;
 
 /**
  * Max number of entries kept in an array-typed filter `value` (e.g. an `in`

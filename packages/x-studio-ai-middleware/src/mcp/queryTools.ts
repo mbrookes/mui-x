@@ -10,7 +10,7 @@
  */
 
 import { renderChartSvg } from '../chartRenderer';
-import { capFilterValue } from '../executeToolOnState';
+import { capFilterValue, MAX_FILTER_STRING_LENGTH } from '../executeToolOnState';
 import {
   checkAllowedTable,
   errorResult,
@@ -112,6 +112,107 @@ function validateQueryArrayArg<T>(
     };
   }
   return { ok: true, value: value as T[] };
+}
+
+/**
+ * Validate + cap the elements of a model-supplied STRING array argument
+ * (`query_data_source`'s `columns`) (finding F4, Tier 2). `validateQueryArrayArg`
+ * above only checks array-ness and overall length — nothing stopped an
+ * individual element from being an object/number (forwarded to
+ * `data.queryDataSource` as a nonsensical "column name") or a multi-megabyte
+ * string (an unbounded-work/token-bomb class identical to the one
+ * `capFilterValue` already guards `filters[].value` against). A non-string
+ * element is rejected outright (not recoverable by truncation — mirrors
+ * `compute_field_stats`'s existing non-string-`fields`-element rejection); an
+ * oversized-but-otherwise-valid string is truncated to
+ * {@link MAX_FILTER_STRING_LENGTH} rather than rejected, the same cap
+ * `add_page_filter`/`add_widget_filter` apply to a persisted filter's `field`.
+ */
+function validateAndCapStringArrayElements(
+  toolName: string,
+  argName: string,
+  entries: unknown[],
+): { ok: true; value: string[] } | { ok: false; error: ReturnType<typeof errorResult> } {
+  const capped: string[] = [];
+  for (let i = 0; i < entries.length; i += 1) {
+    const entry = entries[i];
+    if (typeof entry !== 'string') {
+      return {
+        ok: false,
+        error: errorResult(
+          `${toolName}: "${argName}[${i}]" must be a string, received ` +
+            `${Array.isArray(entry) ? 'array' : typeof entry}. Pass an array of column-name strings.`,
+        ),
+      };
+    }
+    capped.push(
+      entry.length > MAX_FILTER_STRING_LENGTH ? entry.slice(0, MAX_FILTER_STRING_LENGTH) : entry,
+    );
+  }
+  return { ok: true, value: capped };
+}
+
+/**
+ * Validate + cap the RECORD-shaped elements of `query_data_source`'s
+ * `aggregations` / `having` / `orderBy` / `filters` arrays (finding F4, Tier 2).
+ * `validateQueryArrayArg` above only checks array-ness and overall length —
+ * nothing stopped a `null`/non-object entry, or a string-valued field
+ * (`column`/`func`/`alias`/`operator`/`direction`/`field`) from being an
+ * arbitrary non-string value or an unbounded string, from reaching
+ * `data.queryDataSource` verbatim.
+ *
+ * Each entry must be a plain object (rejected otherwise). Any of `stringFields`
+ * present on it must, if present, be a string — rejected if not (an
+ * object/array/number masquerading as e.g. a column name is not recoverable by
+ * truncation) — and is truncated to {@link MAX_FILTER_STRING_LENGTH} if
+ * oversized rather than rejected outright, mirroring
+ * `validateAndCapStringArrayElements` above. Fields not listed in
+ * `stringFields` (e.g. `having`'s numeric `value`) are left untouched — full
+ * schema validation of every field is out of scope here, same as
+ * `validateQueryArrayArg`'s own shallow-but-effective stance.
+ */
+function validateAndCapRecordArrayElements<T extends object>(
+  toolName: string,
+  argName: string,
+  entries: T[],
+  stringFields: readonly string[],
+): { ok: true; value: T[] } | { ok: false; error: ReturnType<typeof errorResult> } {
+  const capped: T[] = [];
+  for (let i = 0; i < entries.length; i += 1) {
+    const entry: unknown = entries[i];
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+      return {
+        ok: false,
+        error: errorResult(
+          `${toolName}: "${argName}[${i}]" must be an object, received ` +
+            `${Array.isArray(entry) ? 'array' : typeof entry}.`,
+        ),
+      };
+    }
+    const record = entry as unknown as Record<string, unknown>;
+    const cappedRecord: Record<string, unknown> = { ...record };
+    for (const field of stringFields) {
+      const fieldValue = record[field];
+      if (fieldValue === undefined) {
+        continue;
+      }
+      if (typeof fieldValue !== 'string') {
+        return {
+          ok: false,
+          error: errorResult(
+            `${toolName}: "${argName}[${i}].${field}" must be a string, received ` +
+              `${Array.isArray(fieldValue) ? 'array' : typeof fieldValue}.`,
+          ),
+        };
+      }
+      cappedRecord[field] =
+        fieldValue.length > MAX_FILTER_STRING_LENGTH
+          ? fieldValue.slice(0, MAX_FILTER_STRING_LENGTH)
+          : fieldValue;
+    }
+    capped.push(cappedRecord as unknown as T);
+  }
+  return { ok: true, value: capped };
 }
 
 /**
@@ -262,6 +363,58 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
         return orderByResult.error;
       }
 
+      // Finding F4 (Tier 2): `validateQueryArrayArg` above only validates
+      // array-ness and overall length — it never inspected individual ELEMENTS,
+      // so an object/multi-megabyte string in `columns`, or a non-string
+      // `column`/`func`/`alias`/`operator`/`direction`/`field` (or an unbounded
+      // one) in `aggregations`/`having`/`orderBy`/`filters`, reached
+      // `data.queryDataSource` verbatim. Validate + cap each array's elements now
+      // that array-shape is already confirmed.
+      const columnsElementsResult = columnsResult.value
+        ? validateAndCapStringArrayElements('query_data_source', 'columns', columnsResult.value)
+        : undefined;
+      if (columnsElementsResult && !columnsElementsResult.ok) {
+        return columnsElementsResult.error;
+      }
+      const filtersElementsResult = filtersResult.value
+        ? validateAndCapRecordArrayElements('query_data_source', 'filters', filtersResult.value, [
+            'field',
+            'operator',
+          ])
+        : undefined;
+      if (filtersElementsResult && !filtersElementsResult.ok) {
+        return filtersElementsResult.error;
+      }
+      const aggregationsElementsResult = aggregationsResult.value
+        ? validateAndCapRecordArrayElements(
+            'query_data_source',
+            'aggregations',
+            aggregationsResult.value,
+            ['column', 'func', 'alias'],
+          )
+        : undefined;
+      if (aggregationsElementsResult && !aggregationsElementsResult.ok) {
+        return aggregationsElementsResult.error;
+      }
+      const havingElementsResult = havingResult.value
+        ? validateAndCapRecordArrayElements('query_data_source', 'having', havingResult.value, [
+            'alias',
+            'operator',
+          ])
+        : undefined;
+      if (havingElementsResult && !havingElementsResult.ok) {
+        return havingElementsResult.error;
+      }
+      const orderByElementsResult = orderByResult.value
+        ? validateAndCapRecordArrayElements('query_data_source', 'orderBy', orderByResult.value, [
+            'column',
+            'direction',
+          ])
+        : undefined;
+      if (orderByElementsResult && !orderByElementsResult.ok) {
+        return orderByElementsResult.error;
+      }
+
       // Cap each filter's `value`/`value2` the same way `add_page_filter` /
       // `add_widget_filter` cap a PERSISTED filter's value (T2-3): these `filters`
       // are forwarded to the host's `queryDataSource` rather than persisted onto
@@ -269,11 +422,13 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
       // unbounded-work/token-bomb class `capFilterValue` already guards against —
       // `checkAllowedTable`'s allowlist stops an out-of-scope TABLE, not an
       // oversized filter VALUE bound for an otherwise-permitted query.
-      const cappedFilters = filtersResult.value?.map((f) => ({
-        ...f,
-        value: capFilterValue(f.value),
-        ...(f.value2 !== undefined && { value2: capFilterValue(f.value2) }),
-      }));
+      const cappedFilters = filtersElementsResult?.ok
+        ? filtersElementsResult.value.map((f) => ({
+            ...f,
+            value: capFilterValue(f.value),
+            ...(f.value2 !== undefined && { value2: capFilterValue(f.value2) }),
+          }))
+        : undefined;
 
       // Clamp `limit` to a sane, positive integer within [1, maxQueryRows].
       // A model-supplied `limit` is untrusted: a negative value, `NaN` (e.g.
@@ -312,12 +467,14 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
           data.queryDataSource({
             sourceId,
             tableName,
-            columns: columnsResult.value,
+            columns: columnsElementsResult?.ok ? columnsElementsResult.value : undefined,
             filters: cappedFilters,
-            aggregations: aggregationsResult.value,
-            ...(havingResult.value &&
-              havingResult.value.length > 0 && { having: havingResult.value }),
-            orderBy: orderByResult.value,
+            aggregations: aggregationsElementsResult?.ok
+              ? aggregationsElementsResult.value
+              : undefined,
+            ...(havingElementsResult?.ok &&
+              havingElementsResult.value.length > 0 && { having: havingElementsResult.value }),
+            orderBy: orderByElementsResult?.ok ? orderByElementsResult.value : undefined,
             limit: clampedLimit,
             ...(offset !== undefined && { offset: clampedOffset }),
           }),
@@ -444,16 +601,31 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
       }
       const {
         sourceId,
-        fieldId,
+        fieldId: rawFieldId,
         limit: fieldLimit,
       } = (args ?? {}) as {
         sourceId: string;
-        fieldId: string;
+        fieldId: unknown;
         limit?: number;
       };
-      if (!sourceId || !fieldId) {
+      if (!sourceId || !rawFieldId) {
         return errorResult('sourceId and fieldId are required');
       }
+      // Finding F4 (Tier 2): `fieldId` was only truthiness-checked, so a
+      // non-string truthy value (e.g. an object or number) reached
+      // `data.queryDataSource` verbatim as a nonsensical "column name". Require a
+      // non-empty string and cap it at {@link MAX_FILTER_STRING_LENGTH} — the same
+      // bound `add_page_filter`/`add_widget_filter` apply to a persisted filter's
+      // `field` — rather than forwarding an unbounded one.
+      if (typeof rawFieldId !== 'string') {
+        return errorResult(
+          `get_field_values: "fieldId" must be a non-empty string, received ${typeof rawFieldId}.`,
+        );
+      }
+      const fieldId =
+        rawFieldId.length > MAX_FILTER_STRING_LENGTH
+          ? rawFieldId.slice(0, MAX_FILTER_STRING_LENGTH)
+          : rawFieldId;
       const resolved = resolveSource(stateBox, sourceId, data.allowedTables);
       if (!resolved.ok) {
         return resolved.error;

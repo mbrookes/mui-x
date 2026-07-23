@@ -656,6 +656,13 @@ export async function* dispatchToolCall(
     .some((s) => s.tool!.name === name);
 
   if (isUnregisteredSkillTool) {
+    // Finding F3 (Tier 2): same accounting rationale as the parse-failure and
+    // unadvertised-tool early returns above — this happens before any policy
+    // consult increments `usage.toolCalls`, so a skill declared in `body.skills`
+    // with no `skillHandlers` entry would otherwise dispatch for free against the
+    // budget; a model stuck retrying it could do so unboundedly without ever
+    // tripping `maxToolCallsPerRequest`.
+    ctx.usage.toolCalls += 1;
     return {
       kind: 'result',
       output: JSON.stringify({

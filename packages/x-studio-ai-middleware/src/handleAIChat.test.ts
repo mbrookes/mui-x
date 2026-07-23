@@ -453,6 +453,171 @@ describe('handleAIChat', () => {
       expect(fetch).not.toHaveBeenCalled();
     });
 
+    // Regression for finding F2 (Tier 3): `session`/`runtime` previously went
+    // unchecked, so a body with a valid `doc` but no `session`/`runtime` passed
+    // validation and only crashed once `buildAISystemPrompt.ts` destructured
+    // `state.session.mode`/`state.runtime.dataSources` — an opaque `TypeError`.
+    it('rejects a dashboardState missing `session`', async () => {
+      const state = createDefaultStudioState();
+      const body = makeBody({
+        dashboardState: { ...state, session: undefined as never },
+      });
+
+      const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+      const errorEvent = events.find(
+        (event): event is { type: 'error'; message: string } => event.type === 'error',
+      );
+      expect(errorEvent?.message).toMatch(/^MUI X Studio:/);
+      expect(errorEvent?.message).toMatch(/missing its `session` and\/or `runtime\.dataSources`/);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('rejects a dashboardState missing `runtime.dataSources`', async () => {
+      const state = createDefaultStudioState();
+      const body = makeBody({
+        dashboardState: {
+          ...state,
+          runtime: { ...state.runtime, dataSources: undefined as never },
+        },
+      });
+
+      const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+      const errorEvent = events.find(
+        (event): event is { type: 'error'; message: string } => event.type === 'error',
+      );
+      expect(errorEvent?.message).toMatch(/^MUI X Studio:/);
+      expect(errorEvent?.message).toMatch(/missing its `session` and\/or `runtime\.dataSources`/);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    // Regression for finding F2 (Tier 3): a non-array `allowedTools` previously
+    // reached `agenticLoop.ts`'s `(allowedTools as string[]).includes(...)`, which
+    // silently degrades to substring matching on a string instead of erroring.
+    it('rejects a non-array `allowedTools`', async () => {
+      const body = makeBody({ allowedTools: 'add_widget' as unknown as string[] });
+
+      const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+      const errorEvent = events.find(
+        (event): event is { type: 'error'; message: string } => event.type === 'error',
+      );
+      expect(errorEvent?.message).toMatch(/^MUI X Studio:/);
+      expect(errorEvent?.message).toMatch(/`allowedTools` must be an array of tool-name strings/);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('rejects an `allowedTools` array containing a non-string entry', async () => {
+      const body = makeBody({ allowedTools: [42] as unknown as string[] });
+
+      const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+      const errorEvent = events.find(
+        (event): event is { type: 'error'; message: string } => event.type === 'error',
+      );
+      expect(errorEvent?.message).toMatch(/`allowedTools` must be an array of tool-name strings/);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    // Regression for finding F2 (Tier 3): a non-array `customWidgets` previously
+    // crashed `buildWidgetFromArgs` the first time a widget-creating tool call read it.
+    it('rejects a non-array `customWidgets`', async () => {
+      const body = makeBody({
+        customWidgets: { kind: 'not-an-array' } as unknown as StudioAIRequest['customWidgets'],
+      });
+
+      const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+      const errorEvent = events.find(
+        (event): event is { type: 'error'; message: string } => event.type === 'error',
+      );
+      expect(errorEvent?.message).toMatch(/^MUI X Studio:/);
+      expect(errorEvent?.message).toMatch(/`customWidgets` must be an array/);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    // Regression for finding F1 (Tier 2): `effectiveSkills` was previously computed
+    // from `body.skills` BEFORE `validateStudioAIRequestBody` ran and BEFORE the
+    // `ReadableStream` was constructed, so a malformed `skills` (a truthy non-array,
+    // or an array containing a `null`/nameless entry) threw a synchronous `TypeError`
+    // straight out of `handleAIChat` — violating its documented "always returns a
+    // stream, never throws" contract. These assert BOTH that `handleAIChat` itself
+    // never throws AND that the malformed value surfaces as a clean SSE error frame,
+    // with and without `options.allowedSkills` configured (the two code paths that
+    // read `skills`: `handleAIChat.ts`'s allow-list filter, and — when omitted —
+    // `agenticLoop.ts`'s own `(skills ?? []).filter`).
+    describe('malformed `skills`', () => {
+      it.each([
+        ['a non-array truthy string', 'not-an-array'],
+        ['a non-array truthy object', { name: 'x' }],
+        ['a non-array truthy number', 42],
+      ])('rejects %s without allowedSkills configured', async (_desc, malformedSkills) => {
+        const body = makeBody({ skills: malformedSkills as unknown as StudioAIRequest['skills'] });
+
+        let stream: ReadableStream<string> | undefined;
+        expect(() => {
+          stream = handleAIChat(body, OPTIONS);
+        }).not.toThrow();
+
+        const events = parseEvents(await readAll(stream!));
+        const errorEvent = events.find(
+          (event): event is { type: 'error'; message: string } => event.type === 'error',
+        );
+        expect(errorEvent?.message).toMatch(/^MUI X Studio:/);
+        expect(errorEvent?.message).toMatch(/`skills` must be an array of skill objects/);
+        expect(fetch).not.toHaveBeenCalled();
+      });
+
+      it('rejects a non-array truthy `skills` with allowedSkills configured', async () => {
+        const body = makeBody({ skills: 'not-an-array' as unknown as StudioAIRequest['skills'] });
+
+        let stream: ReadableStream<string> | undefined;
+        expect(() => {
+          stream = handleAIChat(body, { ...OPTIONS, allowedSkills: ['some-skill'] });
+        }).not.toThrow();
+
+        const events = parseEvents(await readAll(stream!));
+        const errorEvent = events.find(
+          (event): event is { type: 'error'; message: string } => event.type === 'error',
+        );
+        expect(errorEvent?.message).toMatch(/`skills` must be an array of skill objects/);
+        expect(fetch).not.toHaveBeenCalled();
+      });
+
+      it('rejects a `skills` array containing a `null` entry', async () => {
+        const body = makeBody({ skills: [null] as unknown as StudioAIRequest['skills'] });
+
+        const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+        const errorEvent = events.find(
+          (event): event is { type: 'error'; message: string } => event.type === 'error',
+        );
+        expect(errorEvent?.message).toMatch(/`skills` must be an array of skill objects/);
+        expect(fetch).not.toHaveBeenCalled();
+      });
+
+      it('rejects a `skills` array containing an entry with no string `name`', async () => {
+        const body = makeBody({
+          skills: [
+            { mode: 'instruction-only', promptFragment: 'x' },
+          ] as unknown as StudioAIRequest['skills'],
+        });
+
+        const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+        const errorEvent = events.find(
+          (event): event is { type: 'error'; message: string } => event.type === 'error',
+        );
+        expect(errorEvent?.message).toMatch(/`skills` must be an array of skill objects/);
+        expect(fetch).not.toHaveBeenCalled();
+      });
+
+      it('accepts a well-formed `skills` array and proceeds to call the LLM', async () => {
+        vi.mocked(fetch).mockResolvedValueOnce(textResponse('ok'));
+        const body = makeBody({
+          skills: [{ name: 'a-skill', mode: 'instruction-only', promptFragment: 'do things' }],
+        });
+
+        const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+        expect(events.map((event) => event.type)).not.toContain('error');
+        expect(fetch).toHaveBeenCalledOnce();
+      });
+    });
+
     it('accepts a well-formed `dynamic-tool` part', async () => {
       vi.mocked(fetch).mockResolvedValueOnce(textResponse('ok'));
       const body = makeBody({

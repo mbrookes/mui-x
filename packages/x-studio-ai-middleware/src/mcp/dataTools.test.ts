@@ -209,6 +209,148 @@ describe('createDataToolHandlers', () => {
       });
     });
 
+    // Finding F4 (Tier 2): `validateQueryArrayArg` only checked array-ness and
+    // overall length — individual ELEMENTS of `columns`/`aggregations`/`having`/
+    // `orderBy`/`filters` were forwarded to `data.queryDataSource` unvalidated and
+    // uncapped (an object/multi-megabyte string in `columns`, a non-string
+    // `column`/`func`/`alias`/`operator`/`field`, or an unbounded one).
+    describe('per-element shape and length validation (F4)', () => {
+      it('rejects a non-string element in "columns" instead of forwarding it', async () => {
+        const queryDataSource = vi.fn();
+        const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+        const result: any = await handlers.query_data_source({
+          sourceId: 'source-orders',
+          columns: ['id', { evil: true }],
+        });
+        expect(result.isError).toBe(true);
+        const parsed = JSON.parse(await readText(result));
+        expect(parsed.error).toMatch(/"columns\[1\]" must be a string/);
+        expect(queryDataSource).not.toHaveBeenCalled();
+      });
+
+      it('truncates an oversized string element in "columns" instead of rejecting it', async () => {
+        let capturedParams: StudioDataQueryParams | undefined;
+        const queryDataSource = vi.fn(
+          async (params: StudioDataQueryParams): Promise<StudioDataQueryResult> => {
+            capturedParams = params;
+            return { rows: [], rowCount: 0 };
+          },
+        );
+        const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+        const hugeColumn = 'c'.repeat(10_000);
+        const result: any = await handlers.query_data_source({
+          sourceId: 'source-orders',
+          columns: [hugeColumn],
+        });
+        expect(result.isError).toBeFalsy();
+        const forwarded = capturedParams?.columns?.[0] as string;
+        expect(forwarded.length).toBe(200);
+      });
+
+      it('rejects a non-object element in "aggregations" instead of forwarding it', async () => {
+        const queryDataSource = vi.fn();
+        const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+        const result: any = await handlers.query_data_source({
+          sourceId: 'source-orders',
+          aggregations: ['not-an-object'],
+        });
+        expect(result.isError).toBe(true);
+        const parsed = JSON.parse(await readText(result));
+        expect(parsed.error).toMatch(/"aggregations\[0\]" must be an object/);
+        expect(queryDataSource).not.toHaveBeenCalled();
+      });
+
+      it('rejects a non-string "column"/"func"/"alias" field within an "aggregations" entry', async () => {
+        const queryDataSource = vi.fn();
+        const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+        const result: any = await handlers.query_data_source({
+          sourceId: 'source-orders',
+          aggregations: [{ column: 'total', func: 'sum', alias: { evil: true } }],
+        });
+        expect(result.isError).toBe(true);
+        const parsed = JSON.parse(await readText(result));
+        expect(parsed.error).toMatch(/"aggregations\[0\]\.alias" must be a string/);
+        expect(queryDataSource).not.toHaveBeenCalled();
+      });
+
+      it('truncates an oversized "alias" within an "aggregations" entry instead of rejecting it', async () => {
+        let capturedParams: StudioDataQueryParams | undefined;
+        const queryDataSource = vi.fn(
+          async (params: StudioDataQueryParams): Promise<StudioDataQueryResult> => {
+            capturedParams = params;
+            return { rows: [], rowCount: 0 };
+          },
+        );
+        const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+        const hugeAlias = 'a'.repeat(10_000);
+        const result: any = await handlers.query_data_source({
+          sourceId: 'source-orders',
+          aggregations: [{ column: 'total', func: 'sum', alias: hugeAlias }],
+        });
+        expect(result.isError).toBeFalsy();
+        const forwarded = (capturedParams?.aggregations?.[0] as { alias: string }).alias;
+        expect(forwarded.length).toBe(200);
+      });
+
+      it('rejects a non-object element in "having" instead of forwarding it', async () => {
+        const queryDataSource = vi.fn();
+        const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+        const result: any = await handlers.query_data_source({
+          sourceId: 'source-orders',
+          having: [null],
+        });
+        expect(result.isError).toBe(true);
+        const parsed = JSON.parse(await readText(result));
+        expect(parsed.error).toMatch(/"having\[0\]" must be an object/);
+        expect(queryDataSource).not.toHaveBeenCalled();
+      });
+
+      it('rejects a non-object element in "orderBy" instead of forwarding it', async () => {
+        const queryDataSource = vi.fn();
+        const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+        const result: any = await handlers.query_data_source({
+          sourceId: 'source-orders',
+          orderBy: [123],
+        });
+        expect(result.isError).toBe(true);
+        const parsed = JSON.parse(await readText(result));
+        expect(parsed.error).toMatch(/"orderBy\[0\]" must be an object/);
+        expect(queryDataSource).not.toHaveBeenCalled();
+      });
+
+      it("caps an oversized filters[].field the same way it caps a persisted filter's field", async () => {
+        let capturedParams: StudioDataQueryParams | undefined;
+        const queryDataSource = vi.fn(
+          async (params: StudioDataQueryParams): Promise<StudioDataQueryResult> => {
+            capturedParams = params;
+            return { rows: [], rowCount: 0 };
+          },
+        );
+        const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+        const hugeField = 'f'.repeat(10_000);
+        const result: any = await handlers.query_data_source({
+          sourceId: 'source-orders',
+          filters: [{ field: hugeField, operator: 'eq', value: 1 }],
+        });
+        expect(result.isError).toBeFalsy();
+        const forwarded = capturedParams?.filters?.[0].field as string;
+        expect(forwarded.length).toBe(200);
+      });
+
+      it('rejects a non-string filters[].field instead of forwarding it', async () => {
+        const queryDataSource = vi.fn();
+        const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+        const result: any = await handlers.query_data_source({
+          sourceId: 'source-orders',
+          filters: [{ field: { evil: true }, operator: 'eq', value: 1 }],
+        });
+        expect(result.isError).toBe(true);
+        const parsed = JSON.parse(await readText(result));
+        expect(parsed.error).toMatch(/"filters\[0\]\.field" must be a string/);
+        expect(queryDataSource).not.toHaveBeenCalled();
+      });
+    });
+
     // Tier 3, iteration 22: the MCP transport has no outer timeout of its own around
     // a tool-handler call (unlike the chat transport's `agenticLoop/toolDispatch.ts`,
     // which already wraps its `query_data_source` call), so a hung
@@ -482,6 +624,40 @@ describe('createDataToolHandlers', () => {
       const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource: vi.fn() } }));
       const result: any = await handlers.get_field_values({ sourceId: 'source-orders' });
       expect(result.isError).toBe(true);
+    });
+
+    // Finding F4 (Tier 2): `fieldId` was only truthiness-checked, so a non-string
+    // truthy value reached `data.queryDataSource` verbatim as a nonsensical
+    // "column name".
+    it('rejects a non-string fieldId instead of forwarding it', async () => {
+      const queryDataSource = vi.fn();
+      const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+      const result: any = await handlers.get_field_values({
+        sourceId: 'source-orders',
+        fieldId: { evil: true } as any,
+      });
+      expect(result.isError).toBe(true);
+      const parsed = JSON.parse(await readText(result));
+      expect(parsed.error).toMatch(/"fieldId" must be a non-empty string/);
+      expect(queryDataSource).not.toHaveBeenCalled();
+    });
+
+    it('caps an oversized fieldId the same way filters[].field is capped', async () => {
+      const queryDataSource = vi.fn(
+        async (params: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
+          rows: [{ [params.columns![0]]: 'v', count: 1 }],
+          rowCount: 1,
+        }),
+      );
+      const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+      const hugeFieldId = 'f'.repeat(10_000);
+      const result: any = await handlers.get_field_values({
+        sourceId: 'source-orders',
+        fieldId: hugeFieldId,
+      });
+      expect(result.isError).toBeFalsy();
+      const forwardedColumns = queryDataSource.mock.calls[0][0].columns as string[];
+      expect(forwardedColumns[0].length).toBe(200);
     });
 
     it('does not auto-render a chart when fewer than 2 datapoints are returned', async () => {
@@ -1196,5 +1372,58 @@ describe('createSummarisePageHandler', () => {
       expect(text).toContain('Orders Grid');
       expect(queryDataSource).toHaveBeenCalled();
     });
+  });
+
+  // Finding F5 (Tier 3): `Promise.all` fanned out up to two live queries per
+  // widget with no cap on widget count, unlike sibling fan-outs
+  // (`MAX_COMPUTE_FIELD_STATS_FIELDS`/`MAX_DESCRIBE_DATA_SOURCE_NUMERIC_FIELDS`,
+  // both capped at 50).
+  it('truncates the widget fan-out at 50 widgets and notes the truncation', async () => {
+    const state = makeState();
+    const ids = Array.from({ length: 60 }, (_, i) => `w-${i}`);
+    ids.forEach((id, i) => {
+      state.doc.widgets[id] = {
+        id,
+        kind: 'grid',
+        title: `Widget ${i}`,
+        sourceId: 'source-orders',
+        config: {},
+      } as any;
+    });
+    state.doc.pages[PAGE_ID] = { ...state.doc.pages[PAGE_ID], widgetRows: [ids] };
+
+    const queryDataSource = vi.fn(
+      async (): Promise<StudioDataQueryResult> => ({
+        rows: [{ id: 'o1', total: 100 }],
+        rowCount: 1,
+      }),
+    );
+    const handler = createSummarisePageHandler({
+      stateBox: { current: state },
+      data: { queryDataSource },
+    });
+    const result: any = await handler({});
+    const text = result.content[0].text as string;
+    expect(text).toContain('Widget 0');
+    expect(text).toContain('Widget 49');
+    expect(text).not.toContain('Widget 50');
+    expect(text).not.toContain('Widget 59');
+    expect(text).toMatch(/truncated: showing the first 50 of 60/);
+    expect(queryDataSource).toHaveBeenCalledTimes(50);
+  });
+
+  // Finding F6 (Tier 3): the not-found error previously echoed the caller-supplied
+  // `requestedPageId` raw, unlike `resolvedPageId`'s already-sanitized interpolation
+  // a few lines below it in the same file.
+  it('sanitizes the requested pageId in the not-found error message', async () => {
+    const state = makeState();
+    const handler = createSummarisePageHandler({
+      stateBox: { current: state },
+      data: { queryDataSource: vi.fn() },
+    });
+    const result: any = await handler({ pageId: '<script>alert(1)</script>' });
+    const text = result.content[0].text as string;
+    expect(text).not.toContain('<script>');
+    expect(text).toContain('&lt;script&gt;');
   });
 });

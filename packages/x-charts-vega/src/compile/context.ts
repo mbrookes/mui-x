@@ -434,6 +434,21 @@ export interface UnitContext {
    * @returns {string} A collision-safe string key.
    */
   categoryKey: (value: unknown) => string;
+  /**
+   * Rows unioned across every sibling layer whose (post-merge) `color`/`fill`/
+   * `stroke` field resolves to the SAME field name as this unit's — present
+   * only when more than one unit shares that name. A mark compiler that bakes
+   * a color directly from `resolveColor`'s auto-derived ascending domain
+   * (rather than deferring to `compile/index.ts`'s global series-palette pass,
+   * which already handles this correctly) should derive that domain from
+   * these rows instead of `rows` alone: a single layer's own rows only ever
+   * carry a subset of the shared field's values (e.g. `layer_line_window`'s
+   * two line layers, each `calculate`-ing its own constant `system` value),
+   * so a per-layer domain always resolves to a length-1 domain and collapses
+   * every sibling layer onto the same first palette color. `undefined` when
+   * this unit's field isn't shared, so the caller falls back to `rows`.
+   */
+  sharedColorDomainRows?: readonly DatasetRow[];
 }
 
 export function categoryKey(value: unknown): string {

@@ -1,6 +1,7 @@
 import type { XAxis, YAxis } from '@mui/x-charts/models';
 import { VEGA_TABLEAU10 } from './vegaDefaults';
 import type { DatasetRow, VegaEncoding, VegaLiteSpec, VegaMarkDef } from '../types';
+import { isFieldDef } from '../types';
 import { createGapCollector } from '../gaps';
 import type { TranslationGap } from '../gaps';
 import { normalizeSpec } from '../normalize';
@@ -378,6 +379,32 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     configAxisDisable,
   );
 
+  // Union rows across sibling units that resolve `color`/`fill`/`stroke` to the
+  // SAME field name (mirroring `resolveColor`'s own `color ?? fill ?? stroke`
+  // precedence), so a mark compiler that bakes a color from that field's
+  // auto-derived ascending domain can compute it from every layer's rows, not
+  // just its own — see `UnitContext.sharedColorDomainRows`'s doc comment. Only
+  // recorded when 2+ units actually share the name; a single unit's own
+  // `rows` already IS its domain, so leaving it `undefined` there keeps every
+  // existing single-layer color split (e.g. the CO2 chart's per-line scheme)
+  // byte-for-byte unchanged.
+  const rowsByColorField = new Map<string, DatasetRow[]>();
+  const unitColorFieldCounts = new Map<string, number>();
+  for (const { unit, rows } of prepared) {
+    const def = unit.encoding.color ?? unit.encoding.fill ?? unit.encoding.stroke;
+    const field = isFieldDef(def) ? def.field : undefined;
+    if (!field) {
+      continue;
+    }
+    unitColorFieldCounts.set(field, (unitColorFieldCounts.get(field) ?? 0) + 1);
+    const bucket = rowsByColorField.get(field);
+    if (bucket) {
+      bucket.push(...rows);
+    } else {
+      rowsByColorField.set(field, [...rows]);
+    }
+  }
+
   const series: CompiledSeries[] = [];
   const plots = new Set<PlotKind>();
   const referenceLines: CompiledReferenceLine[] = [];
@@ -434,6 +461,12 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
       });
       continue;
     }
+    const colorDef = unit.encoding.color ?? unit.encoding.fill ?? unit.encoding.stroke;
+    const colorField = isFieldDef(colorDef) ? colorDef.field : undefined;
+    const sharedColorDomainRows =
+      colorField && (unitColorFieldCounts.get(colorField) ?? 0) > 1
+        ? rowsByColorField.get(colorField)
+        : undefined;
     const ctx: UnitContext = {
       unit,
       rows,
@@ -445,6 +478,7 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
       signals,
       categoryIndex,
       categoryKey,
+      sharedColorDomainRows,
     };
     const before = series.length;
     const compiled = compiler(ctx);

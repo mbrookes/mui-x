@@ -516,6 +516,50 @@ describe('compileLineAreaMark', () => {
     expect(line?.data?.filter((value) => value != null)).to.deep.equal([1309, 1558]);
   });
 
+  it('gives sibling continuous-x line layers distinct colors and a legend when they share one color field', () => {
+    // layer_line_window's shape: two sibling `line` layers, each `calculate`-ing
+    // its OWN constant value for the color field ("system") from its own
+    // dataset — no single layer's rows ever carry more than one distinct
+    // value, so each layer's local color-domain resolution previously landed
+    // on index 0 and both lines rendered identically, with no legend at all.
+    const compiled = compileSpec({
+      encoding: {
+        x: { field: 'row', type: 'quantitative' },
+        y: { field: 'value', type: 'quantitative' },
+        color: { field: 'system', type: 'nominal' },
+      },
+      layer: [
+        {
+          data: { values: [{ value: 1 }, { value: 2 }] },
+          transform: [
+            { window: [{ op: 'row_number', as: 'row' }] },
+            { calculate: "'Falcon'", as: 'system' },
+          ],
+          mark: 'line',
+        },
+        {
+          data: { values: [{ value: 3 }, { value: 4 }] },
+          transform: [
+            { window: [{ op: 'row_number', as: 'row' }] },
+            { calculate: "'Square'", as: 'system' },
+          ],
+          mark: 'line',
+        },
+      ],
+    });
+    const segmentOverlays = compiled.overlays.filter(
+      (overlay): overlay is Extract<typeof overlay, { kind: 'segments' }> =>
+        overlay.kind === 'segments',
+    );
+    expect(segmentOverlays).to.have.length(2);
+    const colors = segmentOverlays.map((overlay) => overlay.items[0]?.style?.stroke);
+    expect(colors[0]).to.not.equal(colors[1]);
+    expect(compiled.overlayLegend).to.deep.equal([
+      { label: 'Falcon', color: colors[0] },
+      { label: 'Square', color: colors[1] },
+    ]);
+  });
+
   it('pins the y domain to include 0 for a continuous-x line, matching a native line series default', () => {
     // Vega-Lite's `zero: true` default applies to line/area marks regardless
     // of how x-charts ends up rendering them; a continuous-x line renders

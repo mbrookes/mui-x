@@ -4,6 +4,7 @@ import type {
   CompiledOverlay,
   CompiledSeries,
   CompiledUnit,
+  OverlayLegendItem,
   OverlaySegment,
   PlotKind,
   UnitContext,
@@ -266,6 +267,14 @@ function toCategoryValue(fieldType: string | undefined, raw: unknown): unknown {
  * (so a `scheme`/`range` — e.g. the CO2 chart's `magma` — wins over the default
  * palette), indexed by each group's position in the color domain. Falls back to
  * the chart palette when the scale gives no range.
+ *
+ * The domain (and, for a `partial`-gap-reporting call, any resolved range) is
+ * derived from `ctx.sharedColorDomainRows` when present — the union of every
+ * sibling layer's rows for this same color field (see its doc comment) —
+ * rather than `ctx.rows` alone, so `layer_line_window`-shaped specs (several
+ * single-value-per-layer lines sharing one color field) get consistent,
+ * distinct colors instead of every layer's length-1 local domain resolving to
+ * palette index 0.
  */
 function continuousGroupColor(
   ctx: UnitContext,
@@ -275,7 +284,12 @@ function continuousGroupColor(
   if (!colorField) {
     return (_key, groupIndex) => palette[groupIndex % palette.length];
   }
-  const colorRes = resolveColor(ctx.encoding, ctx.rows, ctx.gaps, ctx.unit.path);
+  const colorRes = resolveColor(
+    ctx.encoding,
+    ctx.sharedColorDomainRows ?? ctx.rows,
+    ctx.gaps,
+    ctx.unit.path,
+  );
   return (key, groupIndex) => {
     if (colorRes.range && colorRes.range.length > 0) {
       const domainIndex = colorRes.domain
@@ -284,8 +298,39 @@ function continuousGroupColor(
       const index = domainIndex >= 0 ? domainIndex : groupIndex;
       return colorRes.range[index % colorRes.range.length];
     }
+    if (colorRes.domain) {
+      const domainIndex = colorRes.domain.findIndex((value) => String(value) === key);
+      if (domainIndex >= 0) {
+        return palette[domainIndex % palette.length];
+      }
+    }
     return palette[groupIndex % palette.length];
   };
+}
+
+/**
+ * A swatch-legend entry per color group, for a continuous-x line/area layer
+ * whose color field is shared with sibling layers (`ctx.sharedColorDomainRows`
+ * set — see its doc comment). Single-layer continuous-x color splits (the CO2
+ * chart's per-decade `magma` lines) already read fine without a legend and are
+ * left as-is: this only fires for the cross-layer case, where each layer's own
+ * single-value group would otherwise be an unlabeled, unexplained line color
+ * (`layer_line_window`'s two named systems).
+ * @param {UnitContext} ctx This layer's compile context.
+ * @param {string | undefined} colorField The resolved color field name, if any.
+ * @param {readonly string[]} order This layer's color-group keys, in draw order.
+ * @returns {OverlayLegendItem[] | undefined} One entry per group, or `undefined` when this isn't the cross-layer case.
+ */
+function continuousGroupLegend(
+  ctx: UnitContext,
+  colorField: string | undefined,
+  order: readonly string[],
+): OverlayLegendItem[] | undefined {
+  if (!colorField || !ctx.sharedColorDomainRows) {
+    return undefined;
+  }
+  const groupColorAt = continuousGroupColor(ctx, colorField);
+  return order.map((key, groupIndex) => ({ label: key, color: groupColorAt(key, groupIndex) }));
 }
 
 function groupContinuousPoints(ctx: UnitContext, xField: string, yField: string): ContinuousGroups {
@@ -457,7 +502,7 @@ function buildContinuousLineOverlay(
   ctx: UnitContext,
   xField: string,
   yField: string,
-): CompiledOverlay | null {
+): { overlay: CompiledOverlay; legend?: OverlayLegendItem[] } | null {
   const { palette } = ctx;
   const mark = ctx.unit.mark;
   const { colorField, order, groups } = groupContinuousPoints(ctx, xField, yField);
@@ -482,7 +527,13 @@ function buildContinuousLineOverlay(
     }
   });
 
-  return items.length > 0 ? { kind: 'segments', items, lineMarkZeroBaseline: true } : null;
+  if (items.length === 0) {
+    return null;
+  }
+  return {
+    overlay: { kind: 'segments', items, lineMarkZeroBaseline: true },
+    legend: continuousGroupLegend(ctx, colorField, order),
+  };
 }
 
 /**
@@ -497,7 +548,7 @@ function buildContinuousAreaOverlay(
   ctx: UnitContext,
   xField: string,
   yField: string,
-): CompiledOverlay[] {
+): { overlays: CompiledOverlay[]; legend?: OverlayLegendItem[] } {
   const { palette } = ctx;
   const mark = ctx.unit.mark;
   const { colorField, order, groups } = groupContinuousPoints(ctx, xField, yField);
@@ -544,7 +595,7 @@ function buildContinuousAreaOverlay(
     });
   });
 
-  return overlays;
+  return { overlays, legend: continuousGroupLegend(ctx, colorField, order) };
 }
 
 /**
@@ -637,8 +688,8 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
     // overlay instead of dropping it: `line`/`trail` as a polyline (segments),
     // `area` as one filled band per color group.
     if ((markType === 'line' || markType === 'trail') && xField && yField) {
-      const overlay = buildContinuousLineOverlay(ctx, xField, yField);
-      if (overlay) {
+      const built = buildContinuousLineOverlay(ctx, xField, yField);
+      if (built) {
         gaps.add({
           code: 'mark:line-continuous-x-custom-overlay',
           message:
@@ -646,12 +697,17 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
           severity: 'ignored',
           path,
         });
-        return { series: [], plots: [], overlays: [overlay] };
+        return {
+          series: [],
+          plots: [],
+          overlays: [built.overlay],
+          overlayLegend: built.legend,
+        };
       }
     }
     if (markType === 'area' && xField && yField) {
-      const overlays = buildContinuousAreaOverlay(ctx, xField, yField);
-      if (overlays.length > 0) {
+      const built = buildContinuousAreaOverlay(ctx, xField, yField);
+      if (built.overlays.length > 0) {
         gaps.add({
           code: 'mark:area-continuous-x-custom-overlay',
           message:
@@ -659,7 +715,7 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
           severity: 'ignored',
           path,
         });
-        return { series: [], plots: [], overlays };
+        return { series: [], plots: [], overlays: built.overlays, overlayLegend: built.legend };
       }
     }
     gaps.add({

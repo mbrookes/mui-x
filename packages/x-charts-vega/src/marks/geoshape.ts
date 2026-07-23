@@ -208,11 +208,14 @@ function albersUsaWithRotateShim(): GeoProjection {
 /**
  * Resolve the Vega-Lite projection config to a d3 named projection (or, for
  * `albersUsa`, a shimmed instance), recording gaps for unknown projections and
- * unforwardable tuning params.
+ * unforwardable tuning params. Exported for `marks/point.ts`'s geo-projected
+ * point/circle compiler, which resolves the same spec-level `projection` when
+ * there's no sibling `geoshape` layer to supply it (see
+ * `UnitContext.hasGeoshapeLayer`).
  * @param {UnitContext} ctx The unit context.
  * @returns {string | GeoProjection} A d3 named projection (defaults to `mercator`).
  */
-function resolveProjection(ctx: UnitContext): string | GeoProjection {
+export function resolveGeoProjection(ctx: UnitContext): string | GeoProjection {
   const projection = ctx.unit.projection;
   if (!projection || typeof projection !== 'object') {
     return DEFAULT_PROJECTION;
@@ -254,10 +257,11 @@ function resolveProjection(ctx: UnitContext): string | GeoProjection {
  * with a relative zoom/pan model, so a projection's absolute `scale`/`translate`
  * (raw SVG pixels) have no equivalent and are reported as `partial` gaps rather
  * than forwarded.
+ * Exported for the same reason as `resolveGeoProjection` above.
  * @param {UnitContext} ctx The unit context.
  * @returns {Pick<NonNullable<CompiledUnit['geo']>, 'initialView'>} The forwardable view.
  */
-function resolveProjectionTuning(
+export function resolveGeoProjectionTuning(
   ctx: UnitContext,
 ): Pick<NonNullable<CompiledUnit['geo']>, 'initialView'> {
   const projection = ctx.unit.projection;
@@ -533,8 +537,8 @@ export function compileGeoshapeMark(ctx: UnitContext): CompiledUnit {
 
   const geo: CompiledUnit['geo'] = {
     geoData,
-    projection: resolveProjection(ctx),
-    ...resolveProjectionTuning(ctx),
+    projection: resolveGeoProjection(ctx),
+    ...resolveGeoProjectionTuning(ctx),
   };
 
   if (ctx.encoding.shape !== undefined) {
@@ -557,8 +561,20 @@ export function compileGeoshapeMark(ctx: UnitContext): CompiledUnit {
   }
 
   if (!color) {
-    // Outline map: no color encoding, just the base features.
-    return { series: [], plots: ['geoBase'], geo };
+    // Outline map: no color encoding, just the base features. `mark.fill`/
+    // `stroke`/`strokeWidth` (e.g. `layer_geo`'s `{fill: 'lightgray', stroke:
+    // 'white'}`) forward to `<GeoDataPlot>` instead of its `currentColor`/
+    // `none` defaults, which otherwise render the whole shape solid black on
+    // a light theme.
+    const { mark } = ctx.unit;
+    const outlineFill = typeof mark.fill === 'string' ? mark.fill : mark.color;
+    const geoWithOutlineStyle: CompiledUnit['geo'] = {
+      ...geo,
+      ...(outlineFill !== undefined ? { outlineFill } : {}),
+      ...(mark.stroke !== undefined ? { outlineStroke: mark.stroke } : {}),
+      ...(mark.strokeWidth !== undefined ? { outlineStrokeWidth: mark.strokeWidth } : {}),
+    };
+    return { series: [], plots: ['geoBase'], geo: geoWithOutlineStyle };
   }
 
   const { entries, colorMap } = buildChoroplethEntries(

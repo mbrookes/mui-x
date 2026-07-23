@@ -6,3 +6,4 @@ export * from './ErrorBars';
 export * from './TextMarks';
 export * from './ArcLabels';
 export * from './Rects';
+export * from './GeoPoints';

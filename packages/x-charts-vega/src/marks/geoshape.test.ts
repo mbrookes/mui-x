@@ -172,7 +172,8 @@ describe('compileGeoshapeMark', () => {
         ctx.gaps.list().find((entry) => entry.code === 'projection:scale-unsupported')?.severity,
       ).to.equal('partial');
       expect(
-        ctx.gaps.list().find((entry) => entry.code === 'projection:translate-unsupported')?.severity,
+        ctx.gaps.list().find((entry) => entry.code === 'projection:translate-unsupported')
+          ?.severity,
       ).to.equal('partial');
       expect(ctx.gaps.list().find((entry) => entry.code === 'projection:rotate-invalid')).to.equal(
         undefined,
@@ -205,6 +206,19 @@ describe('compileGeoshapeMark', () => {
       expect(
         ctx.gaps.list().find((entry) => entry.code === 'projection:rotate-invalid')?.severity,
       ).to.equal('ignored');
+    });
+
+    it('inherits a spec-level `projection` down through a `layer` array (normalize/index.ts)', () => {
+      // `projection` is declared ONCE alongside `layer`, not repeated per
+      // layer — normalize/index.ts's `walk()` must pass it down like it does
+      // `encoding`/`transform`, or every layer (including this geoshape one)
+      // silently falls back to the default `mercator` regardless of the
+      // spec's real projection.
+      const compiled = compileSpec({
+        projection: { type: 'naturalEarth1' },
+        layer: [{ data: { values: [featureA] }, mark: 'geoshape' }],
+      } as VegaLiteSpec);
+      expect(compiled.geo?.projection).to.equal('naturalEarth1');
     });
   });
 

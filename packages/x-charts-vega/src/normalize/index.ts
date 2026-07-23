@@ -420,6 +420,7 @@ export function normalizeSpec(
     inheritedEncoding: VegaEncoding,
     inheritedTransforms: VegaTransform[],
     inheritedRows: readonly DatasetRow[],
+    inheritedProjection: Record<string, unknown> | undefined,
     path: string,
   ) => {
     const rows =
@@ -428,6 +429,13 @@ export function normalizeSpec(
         : resolveRows((node as VegaUnitSpec).data, inheritedRows, datasets, gaps, path);
     const encoding = mergeEncoding(inheritedEncoding, node.encoding);
     const transform = [...inheritedTransforms, ...(node.transform ?? [])];
+    // `projection` is a spec-level property in Vega-Lite — declared once
+    // alongside a `layer` array, not repeated per layer — so a layer's own
+    // (usually absent) `projection` only OVERRIDES the inherited one, mirroring
+    // `mergeEncoding`'s parent/child precedence; every layer (the geoshape
+    // base map AND a sibling geo-projected point/rule/text layer) needs the
+    // SAME resolved projection to place its geometry consistently.
+    const projection = (node as VegaUnitSpec).projection ?? inheritedProjection;
 
     if ('layer' in node && Array.isArray(node.layer)) {
       node.layer.forEach((child, index) => {
@@ -436,6 +444,7 @@ export function normalizeSpec(
           encoding,
           transform,
           rows,
+          projection,
           path === '$' ? `layer[${index}]` : `${path}.layer[${index}]`,
         );
       });
@@ -451,11 +460,11 @@ export function normalizeSpec(
       transform,
       rows,
       path,
-      projection: (node as VegaUnitSpec).projection,
+      projection,
     });
   };
 
-  walk(spec, {}, [], rootRows, '$');
+  walk(spec, {}, [], rootRows, undefined, '$');
 
   return {
     units,

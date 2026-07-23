@@ -186,6 +186,11 @@ export interface VegaEncoding {
   y?: VegaChannelDef;
   x2?: VegaChannelDef;
   y2?: VegaChannelDef;
+  /** Geographic longitude/latitude channels (`point`/`circle`/`rule`/`text`/`line` marks projected via a shared `projection`, layered over — or standalone alongside — a `geoshape` base map). */
+  longitude?: VegaChannelDef;
+  latitude?: VegaChannelDef;
+  longitude2?: VegaChannelDef;
+  latitude2?: VegaChannelDef;
   xOffset?: VegaChannelDef;
   yOffset?: VegaChannelDef;
   color?: VegaChannelDef;

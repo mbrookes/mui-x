@@ -1,5 +1,5 @@
 import type { ScatterValueType } from '@mui/x-charts/models';
-import { isFieldDef } from '../types';
+import { isFieldDef, isValueDef } from '../types';
 import type { DatasetRow, VegaEncoding, VegaFieldDef } from '../types';
 import { resolveColor } from '../compile/color';
 import type { ColorResolution } from '../compile/color';
@@ -9,10 +9,12 @@ import type {
   CompiledSeries,
   CompiledUnit,
   CompiledZAxis,
+  OverlayGeoPointItem,
   OverlaySegment,
   SizeLegend,
   UnitContext,
 } from '../compile/context';
+import { resolveGeoProjection, resolveGeoProjectionTuning } from './geoshape';
 
 /*
  * OWNERSHIP: the "point/scatter marks" work unit (and, for `tick`/bubble
@@ -260,11 +262,219 @@ function buildTickItems(
   });
 }
 
+/**
+ * Default marker radius for a geo point with no static/field size, matching
+ * `compilePointMark`'s own default (`sqrt(30/π)`, Vega-Lite's implicit
+ * `size: 30` for `point`/`circle`).
+ */
+const DEFAULT_GEO_POINT_RADIUS = Math.sqrt(30 / Math.PI);
+
+/**
+ * Per-row color for a geo point, mirroring `buildTickItems`'s domain-indexed
+ * palette assignment (a custom overlay has no series/legend to defer color
+ * resolution to, so it must be baked in here): an explicit `scale.domain`/
+ * `range` (or the ascending-derived default) is indexed by each row's
+ * group key, falling back to the palette in first-seen order for any
+ * leftover group the domain didn't list.
+ * @param {UnitContext} ctx This layer's compile context (for `palette`/`categoryKey`).
+ * @param {ColorResolution} colorRes The resolved color scale for this layer's color/fill/stroke channel.
+ * @returns {(groupValue: unknown) => string} A function from a row's raw color-group value to its resolved color.
+ */
+function resolveGeoPointColorByRow(
+  ctx: UnitContext,
+  colorRes: ColorResolution,
+): (groupValue: unknown) => string {
+  const { palette, categoryKey } = ctx;
+  if (!colorRes.splitField) {
+    return () => colorRes.staticColor ?? palette[0];
+  }
+  const colorByKey = new Map<string, string>();
+  if (colorRes.domain) {
+    const seenDomainKeys = new Set<string>();
+    let domainIndex = 0;
+    colorRes.domain.forEach((domainValue) => {
+      const key = categoryKey(domainValue);
+      if (seenDomainKeys.has(key)) {
+        return;
+      }
+      seenDomainKeys.add(key);
+      const color =
+        colorRes.range?.[domainIndex % colorRes.range.length] ??
+        palette[domainIndex % palette.length];
+      colorByKey.set(key, color);
+      domainIndex += 1;
+    });
+  }
+  let nextPaletteIndex = colorByKey.size;
+  return (groupValue: unknown) => {
+    const key = categoryKey(groupValue);
+    let color = colorByKey.get(key);
+    if (color === undefined) {
+      color = palette[nextPaletteIndex % palette.length];
+      colorByKey.set(key, color);
+      nextPaletteIndex += 1;
+    }
+    return color;
+  };
+}
+
+/**
+ * Compiles a `point`/`circle` mark whose position comes from `longitude`/
+ * `latitude` channels instead of `x`/`y` — a marker cloud projected onto a geo
+ * chart (layered over a `geoshape` base map, e.g. `geo_layer`/
+ * `airport_connections`, or standalone with its own top-level `projection`,
+ * e.g. `geo_circle`). There is no cartesian axis to place these with, so they
+ * render through a `{kind: 'geoPoints'}` overlay (`overlays/GeoPoints.tsx`)
+ * that projects each `[lon, lat]` to pixels at render time via the geo
+ * chart's own `useGeoPath()` — the same projection `<GeoDataPlot />`/
+ * `<MapShapePlot />` use — rather than a cartesian scale.
+ */
+function compileGeoPointMark(ctx: UnitContext): CompiledUnit {
+  const { unit, gaps, encoding, rows } = ctx;
+  const path = unit.path;
+  const lonField = isFieldDef(encoding.longitude) ? encoding.longitude.field : undefined;
+  const latField = isFieldDef(encoding.latitude) ? encoding.latitude.field : undefined;
+  if (!lonField || !latField) {
+    gaps.add({
+      code: 'mark:point-geo-missing-fields',
+      message:
+        'A geo-projected point/circle mark needs field-based `longitude` and `latitude` encodings to place its markers; a value/datum-only or missing channel means the layer was dropped.',
+      severity: 'unsupported',
+      path,
+    });
+    return { series: [], plots: [] };
+  }
+
+  if (unit.mark.shape !== undefined && unit.mark.shape !== 'circle') {
+    gaps.add({
+      code: 'mark:point-square-shape',
+      message:
+        'A geo-projected point mark renders with the standard circular marker; other symbol shapes (e.g. "wedge") are ignored.',
+      severity: 'ignored',
+      path,
+    });
+  }
+  if (encoding.angle !== undefined) {
+    gaps.add({
+      code: 'encoding:angle',
+      message:
+        "The `angle` channel (marker rotation, e.g. a wind-vector wedge) has no equivalent on the geo-point overlay's circular marker and is ignored.",
+      severity: 'ignored',
+      path: `${path}.encoding.angle`,
+    });
+  }
+
+  const colorRes = resolveColor(encoding, rows, gaps, path);
+  const colorForRow = resolveGeoPointColorByRow(ctx, colorRes);
+
+  let staticRadius = DEFAULT_GEO_POINT_RADIUS;
+  if (typeof unit.mark.size === 'number') {
+    // Vega-Lite's `size` is a symbol AREA; x-charts-style radius = sqrt(area/π),
+    // matching `compilePointMark`'s own static-size conversion.
+    staticRadius = Math.sqrt(unit.mark.size / Math.PI);
+  }
+  // `encoding.size: {value: N}` (a constant set via the size *channel*, e.g.
+  // `geo_layer`'s `{value: 10}`) overrides `mark.size` the same way Vega-Lite's
+  // own encoding-over-mark precedence works.
+  const sizeValueDef = isValueDef(encoding.size) ? encoding.size.value : undefined;
+  if (typeof sizeValueDef === 'number') {
+    staticRadius = Math.sqrt(sizeValueDef / Math.PI);
+  }
+  const sizeField = isFieldDef(encoding.size) ? encoding.size.field : undefined;
+  if (sizeField) {
+    const sizeFieldType = resolveFieldType(encoding.size as VegaFieldDef, rows);
+    if (sizeFieldType !== 'quantitative') {
+      gaps.add({
+        code: 'encoding:size-field-non-quantitative',
+        message: `The "size" channel ("${sizeField}") is ${sizeFieldType}, not quantitative; every marker uses the static size instead.`,
+        severity: 'partial',
+        path: `${path}.encoding.size`,
+      });
+    }
+  }
+
+  const items: OverlayGeoPointItem[] = [];
+  rows.forEach((row) => {
+    const lon = toNumber(row[lonField]);
+    const lat = toNumber(row[latField]);
+    if (lon == null || lat == null) {
+      return;
+    }
+    let radius = staticRadius;
+    if (sizeField) {
+      const sizeValue = toNumber(row[sizeField]);
+      if (sizeValue != null && sizeValue > 0) {
+        radius = Math.sqrt(sizeValue / Math.PI);
+      }
+    }
+    const color = colorRes.splitField ? colorForRow(row[colorRes.splitField]) : colorForRow(null);
+    items.push({ lon, lat, radius, color });
+  });
+
+  if (items.length === 0) {
+    gaps.add({
+      code: 'mark:point-geo-missing-fields',
+      message: 'No row had numeric `longitude`/`latitude` values to plot; the layer was dropped.',
+      severity: 'unsupported',
+      path,
+    });
+    return { series: [], plots: [] };
+  }
+
+  gaps.add({
+    code: 'mark:point-geo-projected-custom-overlay',
+    message:
+      "x-charts has no scatter-over-projection primitive; the markers are drawn by a custom SVG overlay using the geo chart's own projection instead of an x-charts series.",
+    severity: 'ignored',
+    path,
+  });
+  if (colorRes.splitField) {
+    gaps.add({
+      code: 'mark:point-geo-color-legend',
+      message:
+        'A color-split geo-projected point layer has no dedicated legend for its per-marker color scale.',
+      severity: 'ignored',
+      path: `${path}.encoding.color`,
+    });
+  }
+
+  const result: CompiledUnit = { series: [], plots: [], overlays: [{ kind: 'geoPoints', items }] };
+  if (!ctx.hasGeoshapeLayer) {
+    // No sibling `geoshape` layer will supply `geo` (a standalone lon/lat
+    // spec, e.g. `geo_circle`) — resolve this layer's own projection, fitted
+    // to the plotted points themselves (a synthetic Point FeatureCollection),
+    // matching Vega-Lite auto-fitting the projection to whatever is drawn
+    // when there's no base map to fit to instead.
+    result.geo = {
+      geoData: {
+        type: 'FeatureCollection',
+        features: items.map((item) => ({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [item.lon, item.lat] },
+          properties: {},
+        })),
+      },
+      projection: resolveGeoProjection(ctx),
+      ...resolveGeoProjectionTuning(ctx),
+    };
+  }
+  return result;
+}
+
 export function compilePointMark(ctx: UnitContext): CompiledUnit {
   const { unit, gaps, encoding } = ctx;
   const path = unit.path;
   const markType = unit.mark.type;
   const isTick = markType === 'tick';
+
+  // `longitude`/`latitude` (rather than `x`/`y`) means this is a geo-projected
+  // point/circle — positioned by the geo chart's projection, not a cartesian
+  // axis — layered over (or standing in for) a `geoshape` base map. Checked
+  // before the x/y axis gate below, which would otherwise always fail for
+  // these (there is no `x`/`y` encoding to resolve at all).
+  if (isFieldDef(encoding.longitude) && isFieldDef(encoding.latitude)) {
+    return compileGeoPointMark(ctx);
+  }
 
   // A tick mark tolerates a single positional field — the missing side resolves
   // to a synthetic one-category band (scales.ts) the ticks span across, giving a

@@ -405,6 +405,12 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     }
   }
 
+  // Whether ANY unit is a `geoshape` mark — a geo-projected point/circle layer
+  // (longitude/latitude) uses this to decide whether it must resolve its own
+  // projection/geoData (a standalone lon/lat spec with no base map) or defer
+  // to a sibling geoshape's `geo` (see `UnitContext.hasGeoshapeLayer`'s doc).
+  const hasGeoshapeLayer = prepared.some(({ unit }) => unit.mark.type === 'geoshape');
+
   const series: CompiledSeries[] = [];
   const plots = new Set<PlotKind>();
   const referenceLines: CompiledReferenceLine[] = [];
@@ -479,6 +485,7 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
       categoryIndex,
       categoryKey,
       sharedColorDomainRows,
+      hasGeoshapeLayer,
     };
     const before = series.length;
     const compiled = compiler(ctx);

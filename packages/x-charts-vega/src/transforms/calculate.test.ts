@@ -98,6 +98,15 @@ describe('calculate.ts / compileExpression', () => {
     expect(compileExpression("format(datum.v, ',.2f')")({ v: 1234.5 })).to.equal('1,234.50');
   });
 
+  it('supports substring for string slicing (geo_circle-shaped)', () => {
+    // geo_circle's calculate: `substring(datum.zip_code, 0, 1)` picks the
+    // zip code's leading digit for the color field.
+    expect(compileExpression('substring(datum.zip_code, 0, 1)')({ zip_code: '10001' })).to.equal(
+      '1',
+    );
+    expect(compileExpression('substring(datum.s, 2)')({ s: 'hello' })).to.equal('llo');
+  });
+
   it('supports array literals, e.g. for a multi-line axis labelExpr', () => {
     const evaluator = compileExpression(
       "[timeFormat(datum.value, '%b'), timeFormat(datum.value, '%m') == '01' ? timeFormat(datum.value, '%Y') : '']",

@@ -1012,8 +1012,21 @@ function SingleViewChart(props: VegaLiteChartProps) {
         >
           {geoLegend}
           <ChartsSurface title={compiled.title}>
-            {compiled.plots.includes('geoBase') && <GeoDataPlot />}
+            {compiled.plots.includes('geoBase') && (
+              <GeoDataPlot
+                {...(compiled.geo?.outlineFill !== undefined
+                  ? { fill: compiled.geo.outlineFill }
+                  : {})}
+                {...(compiled.geo?.outlineStroke !== undefined
+                  ? { stroke: compiled.geo.outlineStroke }
+                  : {})}
+                {...(compiled.geo?.outlineStrokeWidth !== undefined
+                  ? { strokeWidth: compiled.geo.outlineStrokeWidth }
+                  : {})}
+              />
+            )}
             {compiled.plots.includes('mapShape') && <MapShapePlot />}
+            <VegaOverlays overlays={compiled.overlays} />
             {children}
           </ChartsSurface>
           <ChartsTooltip trigger="item" />

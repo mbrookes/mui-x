@@ -47,6 +47,19 @@ describe('<VegaLiteChart /> geoshape marks', () => {
     expect(paths.length).to.be.greaterThanOrEqual(3);
   });
 
+  it("forwards an outline map's mark.fill/stroke to GeoDataPlot instead of the currentColor/none defaults", () => {
+    const spec: VegaLiteSpec = {
+      data: { values: features },
+      mark: { type: 'geoshape', fill: 'lightgray', stroke: 'white' },
+    } as VegaLiteSpec;
+    const { container } = render(
+      <VegaLiteChart width={500} height={350} spec={spec} onGaps={() => {}} />,
+    );
+    const path = container.querySelector('svg path');
+    expect(path?.getAttribute('fill')).to.equal('lightgray');
+    expect(path?.getAttribute('stroke')).to.equal('white');
+  });
+
   it('renders choropleth shapes colored from a real color axis for a quantitative color field', () => {
     const spec: VegaLiteSpec = {
       data: { values: features },
@@ -92,5 +105,25 @@ describe('<VegaLiteChart /> geoshape marks', () => {
     );
     expect(container.querySelectorAll('.MuiContinuousColorLegend-root')).to.have.length(0);
     expect(container.querySelectorAll('.MuiPiecewiseColorLegend-root')).to.have.length(0);
+  });
+
+  it('renders a geo-projected circle mark layered over a geoshape base map as a geoPoints overlay', () => {
+    const spec: VegaLiteSpec = {
+      layer: [
+        { data: { values: features }, mark: { type: 'geoshape', fill: 'lightgray' } },
+        {
+          data: { values: [{ longitude: 5, latitude: 5 }] },
+          mark: 'circle',
+          encoding: {
+            longitude: { field: 'longitude', type: 'quantitative' },
+            latitude: { field: 'latitude', type: 'quantitative' },
+          },
+        },
+      ],
+    } as VegaLiteSpec;
+    const { container } = render(
+      <VegaLiteChart width={500} height={350} spec={spec} onGaps={() => {}} />,
+    );
+    expect(container.querySelectorAll('.MuiVegaOverlay-geoPoints circle')).to.have.length(1);
   });
 });

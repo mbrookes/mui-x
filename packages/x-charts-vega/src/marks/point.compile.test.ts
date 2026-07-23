@@ -457,4 +457,109 @@ describe('compilePointMark', () => {
     expect(ids).to.deep.equal([0, 1, 2]);
     expect(new Set(ids).size).to.equal(3);
   });
+
+  describe('geo-projected (longitude/latitude) points', () => {
+    it('draws a geoPoints overlay and resolves its own projection for a standalone lon/lat spec (geo_circle-shaped)', () => {
+      const spec: VegaLiteSpec = {
+        projection: { type: 'albersUsa' },
+        data: {
+          values: [
+            { longitude: -72.6, latitude: 40.9, digit: '1' },
+            { longitude: -73.9, latitude: 40.7, digit: '2' },
+          ],
+        },
+        mark: 'circle',
+        encoding: {
+          longitude: { field: 'longitude', type: 'quantitative' },
+          latitude: { field: 'latitude', type: 'quantitative' },
+        },
+      };
+      const compiled = compileSpec(spec);
+      expect(compiled.chartKind).to.equal('geo');
+      expect(compiled.series).to.have.length(0);
+      const overlay = compiled.overlays.find((entry) => entry.kind === 'geoPoints') as
+        Extract<(typeof compiled.overlays)[number], { kind: 'geoPoints' }> | undefined;
+      expect(overlay?.items).to.deep.equal([
+        { lon: -72.6, lat: 40.9, radius: overlay?.items[0].radius, color: overlay?.items[0].color },
+        { lon: -73.9, lat: 40.7, radius: overlay?.items[1].radius, color: overlay?.items[1].color },
+      ]);
+      // No sibling geoshape layer: this layer must resolve its own projection.
+      expect(typeof compiled.geo?.projection).to.equal('function');
+      expect(compiled.gaps.map((gap) => gap.code)).to.include(
+        'mark:point-geo-projected-custom-overlay',
+      );
+    });
+
+    it('honors encoding.size: {value: N} (a constant set via the size channel, not mark.size)', () => {
+      const spec: VegaLiteSpec = {
+        projection: { type: 'mercator' },
+        data: { values: [{ longitude: 0, latitude: 0 }] },
+        mark: 'circle',
+        encoding: {
+          longitude: { field: 'longitude', type: 'quantitative' },
+          latitude: { field: 'latitude', type: 'quantitative' },
+          size: { value: 10 } as never,
+        },
+      };
+      const compiled = compileSpec(spec);
+      const overlay = compiled.overlays.find((entry) => entry.kind === 'geoPoints') as
+        Extract<(typeof compiled.overlays)[number], { kind: 'geoPoints' }> | undefined;
+      expect(overlay?.items[0].radius).to.be.closeTo(Math.sqrt(10 / Math.PI), 1e-9);
+    });
+
+    it("defers to a sibling geoshape layer's projection/geoData instead of setting its own (geo_layer-shaped)", () => {
+      const spec: VegaLiteSpec = {
+        projection: { type: 'albersUsa' },
+        layer: [
+          {
+            data: {
+              values: [
+                {
+                  type: 'Feature',
+                  properties: {},
+                  geometry: { type: 'Polygon', coordinates: [[[0, 0]]] },
+                },
+              ],
+            },
+            mark: { type: 'geoshape', fill: 'lightgray' },
+          },
+          {
+            data: { values: [{ longitude: -89.2, latitude: 31.9 }] },
+            mark: 'circle',
+            encoding: {
+              longitude: { field: 'longitude', type: 'quantitative' },
+              latitude: { field: 'latitude', type: 'quantitative' },
+            },
+          },
+        ],
+      };
+      const compiled = compileSpec(spec);
+      expect(compiled.chartKind).to.equal('geo');
+      expect(compiled.plots).to.include('geoBase');
+      const overlay = compiled.overlays.find((entry) => entry.kind === 'geoPoints');
+      expect(overlay).to.not.equal(undefined);
+      // No `composition:multiple-geo-layers` gap: the point layer deferred to
+      // the geoshape's own geo instead of also trying to set one.
+      expect(compiled.gaps.map((gap) => gap.code)).to.not.include(
+        'composition:multiple-geo-layers',
+      );
+    });
+
+    it('reports mark:point-geo-missing-fields and drops the layer when longitude/latitude have no field', () => {
+      const spec: VegaLiteSpec = {
+        data: { values: [{ a: 1 }] },
+        mark: 'circle',
+        encoding: {
+          // `aggregate` with no `field` still satisfies `isFieldDef`, so this
+          // reaches `compileGeoPointMark` — which then has no field to read.
+          longitude: { aggregate: 'sum' } as never,
+          latitude: { aggregate: 'sum' } as never,
+        },
+      };
+      const compiled = compileSpec(spec);
+      expect(compiled.series).to.have.length(0);
+      expect(compiled.overlays).to.have.length(0);
+      expect(compiled.gaps.map((gap) => gap.code)).to.include('mark:point-geo-missing-fields');
+    });
+  });
 });

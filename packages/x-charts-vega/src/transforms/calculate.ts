@@ -35,8 +35,8 @@ import { toDate } from '../compile/fieldTypes';
  * `datum` is the only recognized bare identifier; `datum.field` /
  * `datum['field']` reads a row property (including chained/nested access).
  * A short allow-list of pure functions is supported: abs, round, floor,
- * ceil, sqrt, log, pow, sin, cos, min, max, length, upper, lower, toNumber,
- * toString, year, month, date, timeFormat, utcFormat, format. An array literal
+ * ceil, sqrt, log, pow, sin, cos, min, max, length, upper, lower, substring,
+ * toNumber, toString, year, month, date, timeFormat, utcFormat, format. An array literal
  * (`[a, b, ...]`, used by an axis `labelExpr` to build a multi-line label)
  * is also supported. Anything outside this subset — other identifiers,
  * unknown functions, or a syntax error — throws `UnsupportedExpressionError`,
@@ -454,6 +454,12 @@ const FUNCTIONS: Record<string, (args: unknown[]) => unknown> = {
   },
   upper: (args) => stringify(args[0]).toUpperCase(),
   lower: (args) => stringify(args[0]).toLowerCase(),
+  // Vega's `substring(string, start[, end])` mirrors JS `String.prototype.substring`.
+  substring: (args) => {
+    const str = stringify(args[0]);
+    const start = asNumber(args[1]);
+    return args.length > 2 ? str.substring(start, asNumber(args[2])) : str.substring(start);
+  },
   toNumber: (args) => {
     const value = Number(args[0]);
     return Number.isNaN(value) ? null : value;

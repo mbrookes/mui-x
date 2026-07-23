@@ -58,6 +58,11 @@ const X_CHARTS_LIMITATION_CODES = new Set<string>([
   'mark:bar-category-ranged-custom-overlay',
   'mark:rect-ranged-custom-overlay',
   'mark:rect-ranged-color-legend',
+  // x-charts has no scatter-over-projection primitive; a geo-projected
+  // point/circle mark draws through a custom overlay using the geo chart's
+  // own projection, with no dedicated legend for a per-marker color split.
+  'mark:point-geo-projected-custom-overlay',
+  'mark:point-geo-color-legend',
   // Opacity: an x-charts series/marker has a single color, no separate alphas.
   'encoding:opacity',
   'encoding:opacity-field-unsupported',

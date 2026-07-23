@@ -218,7 +218,34 @@ export type CompiledOverlay =
       radiusRangeMin: number;
       /** `mark.radiusOffset` — px beyond the item's own resolved radius. */
       radiusOffset: number;
+    }
+  | {
+      /**
+       * A `point`/`circle` mark using `longitude`/`latitude` channels instead
+       * of `x`/`y` — positioned by the geo chart's own projection (from
+       * `useGeoPath()`), not `useXScale`/`useYScale`, since there is no
+       * cartesian axis at all on a geo chart. `marks/point.ts`
+       * `compileGeoPointMark`.
+       */
+      kind: 'geoPoints';
+      items: OverlayGeoPointItem[];
     };
+
+/**
+ * One marker of a geo-projected `point`/`circle` layer (`marks/point.ts`
+ * `compileGeoPointMark`) — raw geographic coordinates, projected to pixels at
+ * render time by `overlays/GeoPoints.tsx` via the geo chart's own
+ * `useGeoPath()` projection (the same one `<GeoDataPlot />`/`<MapShapePlot />`
+ * use), not a cartesian scale.
+ */
+export interface OverlayGeoPointItem {
+  lon: number;
+  lat: number;
+  /** Marker radius in px (already resolved from a static or field-driven `size`). */
+  radius: number;
+  color: string;
+  fillOpacity?: number;
+}
 
 /**
  * One label of a `radius`-encoded text mark layered over a `radialArcs`
@@ -285,6 +312,17 @@ export interface CompiledGeo {
   // the continuous color legend, so the shell applies this via the legend's
   // `minLabel`/`maxLabel` props instead.
   colorLegendFormat?: (value: unknown) => string;
+  /**
+   * `mark.fill`/`mark.stroke`/`mark.strokeWidth` on an OUTLINE (uncolored)
+   * geoshape mark — forwarded to `<GeoDataPlot>`'s own `fill`/`stroke`/
+   * `strokeWidth` props (`GeoDataPlotProps`, which already default to
+   * `currentColor`/`none`/`1` when these are absent). A choropleth's
+   * per-feature colors come from its `mapShape` series data instead, so these
+   * only apply to the base/outline case.
+   */
+  outlineFill?: string;
+  outlineStroke?: string;
+  outlineStrokeWidth?: number;
 }
 
 /** What a mark compiler hands back for one normalized unit (layer). */
@@ -449,6 +487,17 @@ export interface UnitContext {
    * this unit's field isn't shared, so the caller falls back to `rows`.
    */
   sharedColorDomainRows?: readonly DatasetRow[];
+  /**
+   * True when some OTHER unit in this spec is a `geoshape` mark. A geo-
+   * projected `point`/`circle` layer (`marks/point.ts` `compileGeoPointMark`)
+   * uses this to decide whether it must resolve its own projection/geoData
+   * (a standalone `longitude`/`latitude` spec with no base map, e.g.
+   * `geo_circle`) or can rely on the sibling geoshape layer's `CompiledUnit.geo`
+   * (`compile/index.ts`'s "first `geo` wins" merge already handles that case;
+   * this only prevents the point layer from ALSO setting one and tripping the
+   * `composition:multiple-geo-layers` gap for what is really the same map).
+   */
+  hasGeoshapeLayer?: boolean;
 }
 
 export function categoryKey(value: unknown): string {

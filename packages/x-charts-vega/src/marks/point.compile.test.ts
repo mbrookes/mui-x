@@ -152,6 +152,99 @@ describe('compilePointMark', () => {
     expect(zAxis.sizeMap?.size).to.deep.equal([0, 11]);
   });
 
+  it('honors an explicit size scale.domain/.range instead of the data extent + default [0, 11] radius range', () => {
+    // Vega-Lite's scale.domain pins the size axis independent of this layer's
+    // own data extent (e.g. so bubble sizes stay comparable across multiple
+    // views), and scale.range is a [minArea, maxArea] symbol-area pair —
+    // converted to sizeMap's marker-radius range via r = sqrt(area/π), the
+    // same conversion mark.size uses. Previously both were silently ignored
+    // with no gap (interactive_seattle_weather/dynamic_color_legend).
+    const spec: VegaLiteSpec = {
+      data: {
+        values: [
+          { x: 1, y: 1, weight: 10 },
+          { x: 2, y: 2, weight: 500 },
+        ],
+      },
+      mark: 'circle',
+      encoding: {
+        x: { field: 'x', type: 'quantitative' },
+        y: { field: 'y', type: 'quantitative' },
+        size: {
+          field: 'weight',
+          type: 'quantitative',
+          scale: { domain: [0, 1000], range: [0, 200] },
+        },
+      },
+    };
+    const compiled = compileSpec(spec);
+    expect(compiled.gaps).to.have.length(0);
+    const zAxis = compiled.zAxis![0] as unknown as {
+      min?: number;
+      max?: number;
+      sizeMap?: { size: [number, number] };
+    };
+    expect(zAxis.min).to.equal(0);
+    expect(zAxis.max).to.equal(1000);
+    expect(zAxis.sizeMap?.size).to.deep.equal([0, Math.sqrt(200 / Math.PI)]);
+  });
+
+  it('reports an unsupported gap for a discretizing size scale (quantile/quantize/threshold)', () => {
+    const spec: VegaLiteSpec = {
+      data: {
+        values: [
+          { x: 1, y: 1, weight: 10 },
+          { x: 2, y: 2, weight: 20 },
+        ],
+      },
+      mark: 'circle',
+      encoding: {
+        x: { field: 'x', type: 'quantitative' },
+        y: { field: 'y', type: 'quantitative' },
+        size: {
+          field: 'weight',
+          type: 'quantitative',
+          scale: { type: 'quantile', range: [80, 160, 240] } as never,
+        },
+      },
+    };
+    const compiled = compileSpec(spec);
+    const gap = compiled.gaps.find((entry) => entry.code === 'encoding:size-scale-discretizing');
+    expect(gap?.severity).to.equal('unsupported');
+    // Falls back to the plain continuous default rather than misreading the
+    // per-band size list as a two-element continuous range.
+    const zAxis = compiled.zAxis![0] as unknown as { sizeMap?: { size: [number, number] } };
+    expect(zAxis.sizeMap?.size).to.deep.equal([0, 11]);
+  });
+
+  it('reports a partial gap for a size scale.range with a non-numeric endpoint (e.g. a signal expression)', () => {
+    const spec: VegaLiteSpec = {
+      data: {
+        values: [
+          { x: 1, y: 1, weight: 10 },
+          { x: 2, y: 2, weight: 20 },
+        ],
+      },
+      mark: 'circle',
+      encoding: {
+        x: { field: 'x', type: 'quantitative' },
+        y: { field: 'y', type: 'quantitative' },
+        size: {
+          field: 'weight',
+          type: 'quantitative',
+          scale: { domain: [0, 100], range: [0, { expr: 'earthquakeSize' }] as never },
+        },
+      },
+    };
+    const compiled = compileSpec(spec);
+    const gap = compiled.gaps.find(
+      (entry) => entry.code === 'encoding:size-scale-range-unsupported',
+    );
+    expect(gap?.severity).to.equal('partial');
+    const zAxis = compiled.zAxis![0] as unknown as { sizeMap?: { size: [number, number] } };
+    expect(zAxis.sizeMap?.size).to.deep.equal([0, 11]);
+  });
+
   it('reports a partial gap for a non-quantitative size field (no x-charts size-scale equivalent)', () => {
     const spec: VegaLiteSpec = {
       data: { values: [{ x: 1, y: 1, tier: 'gold' }] },

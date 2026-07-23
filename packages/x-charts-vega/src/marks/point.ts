@@ -650,7 +650,71 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
       const sizeScale = isFieldDef(encoding.size)
         ? (encoding.size as VegaFieldDef).scale
         : undefined;
-      const domainMin = sizeScale?.zero === false ? min : 0;
+      // A discretizing scale type (quantile/quantize/threshold — see
+      // `concat_bar_scales_discretize`) buckets the domain into bands with
+      // their own explicit sizes, an entirely different shape from the
+      // continuous domain/range pin below; there's no x-charts continuous
+      // `sizeMap` equivalent, so it's reported and the plain continuous
+      // defaults are used instead of silently misreading its `range` as a
+      // two-element continuous endpoint pair.
+      const isDiscretizing =
+        sizeScale?.type === 'quantile' ||
+        sizeScale?.type === 'quantize' ||
+        sizeScale?.type === 'threshold';
+      if (isDiscretizing) {
+        gaps.add({
+          code: 'encoding:size-scale-discretizing',
+          message: `A "${sizeScale?.type}" size scale buckets its domain into discrete bands with their own sizes; x-charts' continuous size map has no equivalent, so the default continuous sqrt scale is used instead.`,
+          severity: 'unsupported',
+          path: `${path}.encoding.size.scale`,
+        });
+      }
+      // An explicit `scale.domain` pins the size axis independent of this
+      // layer's own data extent (e.g. so bubble sizes stay comparable across
+      // multiple views/legend numbers) — mirrors how `compile/color.ts` reads
+      // a continuous color scale's own `scale.domain`.
+      const explicitDomain =
+        !isDiscretizing &&
+        Array.isArray(sizeScale?.domain) &&
+        sizeScale.domain.length === 2 &&
+        sizeScale.domain.every((value) => typeof value === 'number')
+          ? (sizeScale.domain as [number, number])
+          : undefined;
+      let domainMin: number | undefined;
+      if (explicitDomain) {
+        domainMin = explicitDomain[0];
+      } else {
+        domainMin = sizeScale?.zero === false ? min : 0;
+      }
+      const domainMax = explicitDomain ? explicitDomain[1] : max;
+      // `scale.range` is a `[minArea, maxArea]` symbol-area pair (Vega-Lite's
+      // `size` semantics) — converted to `sizeMap`'s marker-*radius* range the
+      // same way a static `mark.size` is (r = sqrt(area/π)) — replacing the
+      // `[0, 11]` (Vega-Lite's own default range, area [0, 361]) default.
+      // Anything else (a signal-expression endpoint — `interactive_geo_
+      // earthquakes`'s param-bound max — a wrong-length array, or a
+      // discretizing scale, whose `range` is a per-band size list, not two
+      // continuous endpoints) is reported and falls back to that default
+      // rather than being misread as two plain numbers.
+      let sizeRange: [number, number] = [0, 11];
+      if (!isDiscretizing && sizeScale?.range !== undefined) {
+        if (
+          Array.isArray(sizeScale.range) &&
+          sizeScale.range.length === 2 &&
+          sizeScale.range.every((value) => typeof value === 'number')
+        ) {
+          const [rangeMinArea, rangeMaxArea] = sizeScale.range as [number, number];
+          sizeRange = [Math.sqrt(rangeMinArea / Math.PI), Math.sqrt(rangeMaxArea / Math.PI)];
+        } else {
+          gaps.add({
+            code: 'encoding:size-scale-range-unsupported',
+            message:
+              'This size scale `range` is not a plain two-number `[minArea, maxArea]` pair (e.g. a signal-expression endpoint, or a per-band size list on a discretizing scale); the default continuous size range is used instead.',
+            severity: 'partial',
+            path: `${path}.encoding.size.scale.range`,
+          });
+        }
+      }
       // NOTE: heatmap cells (marks/rect.ts) also push a `zAxis` entry (for
       // `colorMap`) without an explicit `id`, so both fall back to the same
       // compiler-assigned `defaultized-z-axis-<index>` id scheme. A spec
@@ -661,16 +725,16 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
       zAxis = [
         {
           min: domainMin,
-          max,
+          max: domainMax,
           // `size` is the marker *radius* and the `sqrt` interpolator makes area
           // proportional to the value (Vega-Lite's `size` semantics). Match
           // Vega-Lite's default point size range of [0, 361] in *area*, i.e. a
           // radius up to sqrt(361/π) ≈ 10.7px, rather than the previous 20px
           // radius that rendered bubbles at roughly double Vega-Lite's size.
-          sizeMap: { type: 'continuous', size: [0, 11], interpolator: 'sqrt' },
+          sizeMap: { type: 'continuous', size: sizeRange, interpolator: 'sqrt' },
         },
       ];
-      sizeLegend = buildSizeLegend(domainMin, max, encoding.size);
+      sizeLegend = buildSizeLegend(domainMin, domainMax, encoding.size);
     }
   }
 

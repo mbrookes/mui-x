@@ -220,7 +220,9 @@ Only required when a chart widget's x-axis, y-axis, or series field belongs to a
 | `filteredRows`             | All active filters (page + widget + cross + interactive)                      |
 | `filteredRowsNoCross`      | Page + widget only (no cross-filter, no interactive)                          |
 | `filteredRowsNoChartCross` | Page + widget + interactive (no chart-click cross-filter)                     |
-| `effectiveRows`            | `filteredRowsNoCross` when `crossFilterMode='none'`; otherwise `filteredRows` |
+| `effectiveRows`            | `filteredRowsNoChartCross` when `crossFilterMode='none'`; otherwise `filteredRows` |
+
+`crossFilterMode='none'` only opts a widget out of **chart-click** cross-filters (`scope: 'cross-filter'`) — interactive (filter-widget) hard-filters still apply, which is why `effectiveRows` resolves to `filteredRowsNoChartCross` rather than `filteredRowsNoCross` in that mode. See §7.2 for the full mode semantics.
 
 `isRecomputing` is set via `React.useDeferredValue` on page/widget filter changes to show a loading overlay while React processes a heavy re-render without blocking the main thread.
 
@@ -480,7 +482,7 @@ Each widget has a `config.crossFilterMode` setting:
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `'cross-highlight'` (default) | Widget renders its **full dataset** as a faded "ghost" behind the filtered subset. Communicates proportion ("what share is Europe?"). The `CrossFilterGhostBar` component handles this for charts. |
 | `'cross-filter'`              | Widget hard-filters to show only the matching rows. Axes rescale.                                                                                                                                  |
-| `'none'`                      | Widget ignores all incoming cross-filters. Always shows the full unfiltered dataset.                                                                                                               |
+| `'none'`                      | Widget ignores incoming **chart-click** cross-filters only (`scope: 'cross-filter'`) — its own page/widget filters and any `interactive` (filter-widget) hard-filters from other widgets on the page still apply. Not "always shows the full unfiltered dataset."                              |
 
 ### 7.3 Interactive vs chart cross-filters
 
@@ -593,6 +595,8 @@ When a chart widget's `xField` or `yField` belongs to a related source, the filt
 | `pivot`  | `StudioPivotWidget`  | `useWidgetRows`                        | `pivotRowField`, `pivotColField`, `pivotValueField`, `pivotAggregation`, `pivotShowTotals`             |
 | `map`    | `StudioMapWidget`    | `useWidgetRows`                        | `mapCountryField`, `mapValueField`, `mapAggregation`, `mapColorScheme`                                 |
 
+> **Doc-authored style values are sanitized before reaching `sx`.** The `text` widget's font/colour fields (`textBodyColor`, `textSubtitleColor`, `text*FontFamily`, `text*FontSize`), the analogous title-text color/font-size fields on `StudioWidgetCard`, and `StudioPageTheme`'s card styling (border color, background, radius, padding, border width) are all reachable from an untrusted `loadSerializedState(data: unknown)` payload or an AI `update_widget` tool call. Because Emotion's `sx` prop does not escape interpolated property values, these fields are validated at the render-time call site — via the shared `internals/cssValueValidation.ts` helpers (`sanitizeCssColor`/`isSafeCssColor`, `isSafeFontFamily`, `sanitizeFiniteNumber`/`sanitizeFontSize`) and the `resolveTextFontFamily` helper in `textFontFamily.ts` that wraps `isSafeFontFamily` — before being interpolated. An invalid value (e.g. one crafted to break out of the CSS declaration and inject new rules) falls back to the default/unset style instead of propagating into rendered CSS. See §10.2 for the equivalent guard on grid conditional-format cell colors.
+
 ### 10.2 Grid
 
 Renders a `DataGrid` (MUI X) with:
@@ -606,6 +610,8 @@ Renders a `DataGrid` (MUI X) with:
 Cross-source field resolution (`resolveCrossSourceFkFields`, `summaryFieldDefs`, `fieldTypeById`) applies an own-field-wins guard: a cross-source column that happens to share a bare field id with one of the widget's own (primary-source or own-expression-field) fields can never silently steal that field's aggregation/type resolution — mirroring the same primary-wins pattern `buildGridColumnDefs` already uses for column definitions.
 
 Boolean `gridConditionalFormats` rules using the `equals`/`not_equals` operator coerce both the cell value and the rule value to string before comparing, since the rule value is authored as the string `"true"`/`"false"` while a boolean cell holds a real JS boolean — loose equality (`true == "true"`) is `false` under JS coercion, so without the coercion an `equals` rule on a boolean column never matched (and `not_equals` matched every row).
+
+A `gridConditionalFormats` rule's cell color is passed through `sanitizeCssColor` (§10.1) before being applied to the cell's `sx` — a rule whose color value is not a valid CSS color (whether corrupted on load or written by the AI's `update_widget` tool) falls back to no color override rather than being interpolated unchecked.
 
 ### 10.3 Chart
 
@@ -643,6 +649,8 @@ Shows a headline aggregate value (sum/avg/count/min/max of `kpiValueField`) plus
 
 Every `selectFiltersForWidget` call in `StudioKpiWidget.tsx` — the fixed-period trend, the filter-based trend, the sparkline's time-field/granularity resolution, and the filter-summary tooltip — passes `includeWidgetRank: true`, matching the headline's own row baseline (`useWidgetRows`). `selectFiltersForWidget` excludes a widget-scoped `filterMode: 'rank'` filter by default (it assumes the chart's post-aggregation re-rank path), so a KPI — which has no such path — must opt back in everywhere it derives filters, or a Top-N/Bottom-N rank filter would scope the headline correctly while the trend/sparkline/tooltip silently computed against the full, unranked row set.
 
+**Loading state.** `StudioKpiWidget` destructures `isLoading` from `useWidgetRows` and treats the widget as still-loading whenever `isLoading` is true and no rows have arrived yet (`currentRows.length === 0`). While that holds, the headline renders a `Skeleton` in place of the value and the sparkline is suppressed, rather than computing and showing a confident `"0"`/`"$0"` from an empty row set — `computeAggregate([], …)` legitimately returns `0` for an empty array, which is otherwise indistinguishable from a real zero total during a cold async-adapter fetch. This gives the KPI widget the same kind of loading affordance other widget kinds already get from `StudioWidgetCard`'s generic `isLoading`/`isError` overlays (§12.4), scoped to the headline/sparkline specifically rather than the whole card.
+
 ### 10.5 Filter Widget
 
 Interactive filter controls that emit `scope: 'interactive'` filter states. Four sub-types:
@@ -661,6 +669,8 @@ Client-side pivot: groups `effectiveRows` by `pivotRowField` (vertical) × `pivo
 ### 10.7 Map (Choropleth)
 
 Renders via the official `@mui/x-charts-premium` Map (`GeoDataPlot` + `MapShapePlot`, behind `Unstable_ChartsGeoDataProviderPremium`) — the custom SVG `ChoroplethChart` was removed in favour of the upstream component (BL-182). Geographies are pluggable through `useStudioGeographies` / `geographyLoaders.ts`: built-in `world` (Natural Earth 110m via `world-atlas`), US states, and a Europe subset, plus consumer-supplied custom TopoJSON definitions; the topology is loaded lazily via dynamic `import`. Region identifier normalisation (ISO alpha-2, alpha-3, or full English names) is handled by `countryUtils`. A continuous colour ramp (5 schemes: blues/reds/greens/oranges/purples) encodes the aggregate value and is rendered with `ContinuousColorLegend`; hover tooltip via `StudioMapTooltip`. Cross-filter-on-click is currently unwired — the unstable `MapShapePlot` does not forward a per-shape item click (tracked as BL-184).
+
+**Documented exception to "official premium components only."** `StudioMapShapePlot.tsx` imports `useSeriesOfType` and `ChartSeriesDefaultized` from `@mui/x-charts/internals`. This was investigated (not fixed) as part of the iteration-26 review pass: a same-shaped public wrapper (`useMapShapeSeries`) exists in `x-charts-premium/src/hooks/useMapShapeSeries.ts` but is not re-exported from that package's public hooks entry point, so there is currently no public equivalent to switch to without changing `x-charts-premium`'s public API — out of scope for an x-studio-only change. Until a public equivalent ships, this one file is a knowing exception to this section's "built only on official premium Map components" framing.
 
 ---
 
@@ -1051,6 +1061,8 @@ Five functions in `generateInsight.ts` make **single non-streaming** LLM calls a
 `generateInsight.ts`'s y-axis label resolution routes calculated (expression) fields through the same `sourceFieldsWithExpressions` helper its sibling label-resolution call sites already use, rather than looking the field up against the source's raw physical fields alone — otherwise a y-field that is a calculated column would resolve to no label at every one of these call sites except the ones that already special-cased it.
 
 `generateInsight.ts`'s internal `formatDate` calls `d.toLocaleDateString(undefined, {...})` — locale-aware, matching every sibling date-formatting call site in the codebase — rather than hardcoding `'en-US'`.
+
+`generateInsight.ts`'s `aggregateRows` computes each bucket's `min`/`max` with a `reduce` loop (`nums.reduce((acc, v) => (v < acc ? v : acc))` / the `>` counterpart) rather than `Math.min(...nums)`/`Math.max(...nums)`. Spreading an array as call arguments throws `RangeError: Maximum call stack size exceeded` once it exceeds roughly 65k–125k elements (engine-dependent), and a single aggregation bucket here can hold up to `ceil(totalRows / maxRows)` values — large enough to hit that ceiling for a big source. This mirrors the reduce-loop idiom `numericStats` already uses a few lines below (and `internals/aggregate.ts` / `utils/gridGrouping.ts` elsewhere in the package).
 
 All client-side functions are re-exported from `src/index.ts`. `generateFieldDescriptions` is exported from `@mui/x-studio-ai-middleware`.
 

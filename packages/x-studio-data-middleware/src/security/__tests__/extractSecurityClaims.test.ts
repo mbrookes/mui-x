@@ -81,6 +81,66 @@ describe('extractSecurityClaims — payload-shape edge cases', () => {
     expect(() => extractSecurityClaims(`Bearer ${token}`, SECRET)).toThrow(/"exp"/);
   });
 
+  // Tier3 iter26 finding 4: `exp` was presence-checked but not type-checked —
+  // `payload.exp < now` silently evaluates to `false` for a non-numeric value
+  // (any comparison involving a non-numeric operand is `false`), so a token
+  // with e.g. `exp: {}` or `exp: "banana"` never expired.
+  describe('exp type validation (Tier3 iter26 finding 4)', () => {
+    it('rejects a non-numeric object "exp" claim as invalid/expired rather than never-expiring', () => {
+      const token = makeJwt({ sub: 'u1', tenantId: 'acme', exp: {} }, SECRET);
+      expect(() => extractSecurityClaims(`Bearer ${token}`, SECRET)).toThrow(
+        /"exp".*must be a finite number/i,
+      );
+    });
+
+    it('rejects a non-numeric string "exp" claim ("banana")', () => {
+      const token = makeJwt({ sub: 'u1', tenantId: 'acme', exp: 'banana' }, SECRET);
+      expect(() => extractSecurityClaims(`Bearer ${token}`, SECRET)).toThrow(
+        /"exp".*must be a finite number/i,
+      );
+    });
+
+    it('rejects a NaN "exp" claim', () => {
+      const token = makeJwt({ sub: 'u1', tenantId: 'acme', exp: NaN }, SECRET);
+      expect(() => extractSecurityClaims(`Bearer ${token}`, SECRET)).toThrow(
+        /"exp".*must be a finite number/i,
+      );
+    });
+
+    it('still accepts a well-formed future numeric "exp"', () => {
+      const token = makeJwt(
+        { sub: 'u1', tenantId: 'acme', exp: Math.floor(Date.now() / 1000) + 3600 },
+        SECRET,
+      );
+      expect(() => extractSecurityClaims(`Bearer ${token}`, SECRET)).not.toThrow();
+    });
+  });
+
+  // Tier3 iter26 finding 4: `sub` was presence-checked (`!payload.sub`, catching
+  // only falsy values) but never type/shape-checked, unlike every sibling claim
+  // (`tenantId`, `roleIds`, `regionIds`, `department`).
+  describe('sub normalization (Tier3 iter26 finding 4)', () => {
+    it('rejects a non-string truthy sub (a number)', () => {
+      const token = makeJwt({ sub: 12345, tenantId: 'acme' }, SECRET);
+      expect(() => extractSecurityClaims(`Bearer ${token}`, SECRET)).toThrow(
+        /"sub".*must be a non-empty string/i,
+      );
+    });
+
+    it('rejects a non-string truthy sub (an object)', () => {
+      const token = makeJwt({ sub: { id: 'u1' }, tenantId: 'acme' }, SECRET);
+      expect(() => extractSecurityClaims(`Bearer ${token}`, SECRET)).toThrow(
+        /"sub".*must be a non-empty string/i,
+      );
+    });
+
+    it('still accepts a well-formed string sub', () => {
+      const token = makeJwt({ sub: 'u1', tenantId: 'acme' }, SECRET);
+      const claims = extractSecurityClaims(`Bearer ${token}`, SECRET);
+      expect(claims.userId).toBe('u1');
+    });
+  });
+
   it('rejects an "alg:none" token whose signature is not a valid HMAC', () => {
     const headerB64 = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString(
       'base64url',

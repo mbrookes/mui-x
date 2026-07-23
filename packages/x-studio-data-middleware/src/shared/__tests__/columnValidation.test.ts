@@ -86,6 +86,30 @@ describe('checkColumnAgainstAllowlist — own-property gate on allowlist[table] 
   });
 });
 
+describe('checkColumnAgainstAllowlist — multi-dot references rejected (Tier3 iter26 finding 6)', () => {
+  // Splitting a qualified reference at the FIRST dot reads "a.b.c" as table "a",
+  // column "b.c" — but Knex/SQL would read the same string as
+  // "schema.table.column". Reject the ambiguity outright rather than silently
+  // parsing it one way here and letting the driver parse it another way.
+  it('rejects a reference with two dots ("schema.table.column")', () => {
+    expect(() =>
+      checkColumnAgainstAllowlist('public.sales.amount', 'sales', { sales: ['amount'] }, 'columns'),
+    ).toThrow(/contains more than one "\."/);
+  });
+
+  it('rejects a reference with three or more dots', () => {
+    expect(() =>
+      checkColumnAgainstAllowlist('a.b.c.d', 'sales', { sales: ['id'] }, 'columns'),
+    ).toThrow(/contains more than one "\."/);
+  });
+
+  it('still accepts a normal single-dot "table.column" reference', () => {
+    expect(() =>
+      checkColumnAgainstAllowlist('sales.amount', 'sales', { sales: ['amount'] }, 'columns'),
+    ).not.toThrow();
+  });
+});
+
 describe('validateAggregationAliases — alias charset (finding 1.1)', () => {
   function descriptor(alias: string): BatchWidgetDescriptor {
     return {

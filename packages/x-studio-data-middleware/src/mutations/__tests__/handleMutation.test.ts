@@ -289,6 +289,33 @@ describe('handleMutation — successful operations', () => {
     expect(db.snapshot().orders).toHaveLength(1);
   });
 
+  // Tier3 iter26 finding 3: Knex `insert()` on PostgreSQL without `.returning()`
+  // resolves to `[]`, so a naive `rowsAffected = result.length` reported `0` for
+  // a successfully COMMITTED single-row insert. Simulate that driver behavior
+  // directly (the shared `createMutableMockDb` above always resolves
+  // `[rows.length]`, which never exercises the empty-array case).
+  it('reports rowsAffected=1 for a Postgres-style insert that resolves to an empty array', async () => {
+    const pgLikeDb: any = () => ({
+      insert: async (_values: Row) => [],
+    });
+    const body: BatchMutationRequest = {
+      mutations: [
+        {
+          id: 'm1',
+          operation: 'insert',
+          table: 'orders',
+          values: { status: 'pending' },
+        },
+      ],
+    };
+    const { results } = await handleMutation(body, CLAIMS, {
+      db: pgLikeDb,
+      schemaAllowlist: ALLOWLIST,
+      tenancy: SINGLE_TENANT,
+    });
+    expect(results[0]).toMatchObject({ id: 'm1', ok: true, rowsAffected: 1 });
+  });
+
   it('updates matching rows and returns rowsAffected count', async () => {
     const db = createMutableMockDb({
       orders: [
@@ -709,6 +736,50 @@ describe('handleMutation — qualified where-column schema allowlist', () => {
       columnAllowlist: { orders: ['id', 'status'] },
     });
     expect(results[0]).toMatchObject({ id: 'm1', ok: true, rowsAffected: 1 });
+  });
+});
+
+// ── Malformed "where" shapes (Tier3 iter26 finding 1) ─────────────────────────
+//
+// The upfront qualified-where-column loop in `handleMutation` (which runs
+// `assertQualifiedWhereColumnsAllowed(mutation.where, schemaAllowlist)` OUTSIDE
+// any per-mutation try/catch, before `processMutation` even exists) used to let
+// two malformed shapes escape as raw, unguarded TypeErrors instead of this
+// package's own `MUI X`-prefixed rejections:
+//   - `where: {}` (a non-array) — `for (const predicate of where ?? [])` threw
+//     `TypeError: where is not iterable`.
+//   - `where: [{ column: 5 }]` (a non-string column) — `qualifiedTableOf`'s
+//     `column.indexOf('.')` threw `TypeError: column.indexOf is not a function`.
+
+describe('handleMutation — malformed "where" shapes', () => {
+  it('rejects a non-array "where" with a clean MUI X error instead of a raw TypeError', async () => {
+    const db = createMutableMockDb({ orders: [{ id: 1, tenant_id: 'acme', status: 'pending' }] });
+    const body: BatchMutationRequest = {
+      mutations: [{ id: 'm1', operation: 'delete', table: 'orders', where: {} as any }],
+    };
+    await expect(
+      handleMutation(body, CLAIMS, { db, schemaAllowlist: ALLOWLIST, tenancy: SINGLE_TENANT }),
+    ).rejects.toThrow(/^MUI X Studio Server: Malformed mutation descriptor at mutations\[0\]/);
+    // Rejected before any query was built — the row must be untouched.
+    expect(db.snapshot().orders).toHaveLength(1);
+  });
+
+  it('rejects a non-string where[].column with a clean MUI X error instead of a raw TypeError', async () => {
+    const db = createMutableMockDb({ orders: [{ id: 1, tenant_id: 'acme', status: 'pending' }] });
+    const body: BatchMutationRequest = {
+      mutations: [
+        {
+          id: 'm1',
+          operation: 'delete',
+          table: 'orders',
+          where: [{ column: 5 as any, operator: 'eq', value: 1 }],
+        },
+      ],
+    };
+    await expect(
+      handleMutation(body, CLAIMS, { db, schemaAllowlist: ALLOWLIST, tenancy: SINGLE_TENANT }),
+    ).rejects.toThrow(/MUI X Studio Server: Column reference in where must be a string/);
+    expect(db.snapshot().orders).toHaveLength(1);
   });
 });
 

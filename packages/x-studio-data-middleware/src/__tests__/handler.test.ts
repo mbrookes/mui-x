@@ -892,6 +892,33 @@ describe('handleBatchQuery — schema allowlist enforcement', () => {
     );
   });
 
+  // Tier3 iter26 finding 6: `assertQualifiedColumnsAllowed`'s `checkQualifiedColumn`
+  // used to split a qualified reference at the FIRST dot only — "a.b.c" parsed as
+  // table "a", column "b.c" — diverging from how a SQL engine would read the same
+  // string as "schema.table.column". Reject the ambiguity outright instead.
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
+  it('rejects a filter column reference with more than one dot ("schema.table.column")', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          filters: [{ column: 'public.sales.amount', operator: 'gt', value: 0 }],
+        },
+      ],
+    };
+
+    await expectWidgetError(
+      handleBatchQuery(body, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales', 'customers'],
+        tenancy: SINGLE_TENANT,
+      }),
+      /contains more than one "\./,
+    );
+  });
+
   it('isolates a bad column-plan widget (unsafe ORDER BY) from a well-formed sibling', async () => {
     // Same isolation, but for the query-PLAN validation stage rather than the
     // table stage — an unsafe ORDER BY direction on one widget must not fail a

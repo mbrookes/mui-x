@@ -742,6 +742,94 @@ describe('validateQueryPlan — JOIN "on" must be non-empty (finding 2.1)', () =
   });
 });
 
+describe('validateQueryPlan — tautological/self-referential JOIN "on" pairs (Tier3 iter26 finding 2)', () => {
+  it('accepts a normal join whose "on" pair references the primary table and the joined table', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'orders',
+      joins: [{ table: 'customers', on: [['orders.customer_id', 'customers.id']] }],
+    };
+    expect(() => validateQueryPlan(descriptor)).not.toThrow();
+  });
+
+  it('rejects an "on" pair where BOTH sides are qualified with the SAME (joined) table', () => {
+    // The literal finding example: `customers.id = customers.id` passes the
+    // schema allowlist (both are real columns on a real, allowlisted table) and
+    // would pass a column allowlist too (both are legitimate columns), but is a
+    // tautological condition that some engines execute as an unconditional
+    // match — a cartesian product within the tenant-scoped rows.
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'orders',
+      joins: [{ table: 'customers', on: [['customers.id', 'customers.id']] }],
+    };
+    expect(() => validateQueryPlan(descriptor)).toThrow(/tautological/i);
+  });
+
+  it('rejects an "on" pair whose left side is qualified with the joined table (not the primary or an earlier join)', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'orders',
+      joins: [{ table: 'customers', on: [['customers.region_id', 'customers.id']] }],
+    };
+    expect(() => validateQueryPlan(descriptor)).toThrow(/neither the primary table/i);
+  });
+
+  it('rejects an "on" pair whose right side is qualified with a table other than the one being joined', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'orders',
+      joins: [{ table: 'customers', on: [['orders.customer_id', 'orders.id']] }],
+    };
+    expect(() => validateQueryPlan(descriptor)).toThrow(/right-hand column/i);
+  });
+
+  it('accepts a left side qualified with a table joined EARLIER in a multi-join descriptor', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'orders',
+      joins: [
+        { table: 'customers', on: [['orders.customer_id', 'customers.id']] },
+        { table: 'regions', on: [['customers.region_id', 'regions.id']] },
+      ],
+    };
+    expect(() => validateQueryPlan(descriptor)).not.toThrow();
+  });
+
+  it('rejects a left side qualified with a table joined LATER (not yet available) in a multi-join descriptor', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'orders',
+      joins: [
+        { table: 'customers', on: [['regions.id', 'customers.region_id']] },
+        { table: 'regions', on: [['customers.region_id', 'regions.id']] },
+      ],
+    };
+    expect(() => validateQueryPlan(descriptor)).toThrow(/neither the primary table/i);
+  });
+
+  it('resolves a logical/expression-field alias before checking the table-qualification convention', () => {
+    // A left side that is an unresolved logical id passing through `columnAliases`
+    // to a qualified physical column on `join.table` itself must still be caught.
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'orders',
+      columnAliases: { 'expr-self-ref': 'customers.id' },
+      joins: [{ table: 'customers', on: [['expr-self-ref', 'customers.id']] }],
+    };
+    expect(() => validateQueryPlan(descriptor)).toThrow(/neither the primary table/i);
+  });
+
+  it('leaves an unqualified "on" pair unconstrained (Knex auto-qualifies left/right at build time)', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'orders',
+      joins: [{ table: 'customers', on: [['customer_id', 'id']] }],
+    };
+    expect(() => validateQueryPlan(descriptor)).not.toThrow();
+  });
+});
+
 /** Run `fn`, returning the thrown Error's message (or a sentinel if it did not throw). */
 function captureThrow(fn: () => void): string {
   try {

@@ -133,6 +133,26 @@ function assertValidBatchMutationRequest(body: BatchMutationRequest): void {
           `Ensure every entry in "mutations" is a MutationDescriptor with at least an "id", "operation", and "table".`,
       );
     }
+    // A "where" field that is present but not an array (Tier3 iter26 finding 1)
+    // — e.g. `where: {}` — passes the checks above (which only look at "id"/
+    // "table") and previously reached the upfront
+    // `assertQualifiedWhereColumnsAllowed(mutation.where, schemaAllowlist)` loop
+    // below, which iterates `where ?? []` with `for...of`: a non-array,
+    // non-iterable "where" (a plain object) threw a raw, unguarded
+    // `TypeError: where is not iterable` instead of one of this package's own
+    // `MUI X`-prefixed errors, with no error boundary at all around this
+    // upfront (pre-try/catch) validation step. Reject it here, fail closed,
+    // before that loop ever runs.
+    const { where } = mutation as Partial<MutationDescriptor>;
+    if (where !== undefined && !Array.isArray(where)) {
+      throw new Error(
+        `MUI X Studio Server: Malformed mutation descriptor at mutations[${index}] — "where" must be an array of ` +
+          `predicates when present, but received ${JSON.stringify(where)}. ` +
+          `A non-array "where" cannot be iterated to build WHERE predicates, and would otherwise throw a confusing ` +
+          `internal error instead of a clean validation failure. ` +
+          `Set "where" to an array of { column, operator, value } predicates, or omit it entirely.`,
+      );
+    }
   });
 }
 
@@ -226,9 +246,18 @@ async function processMutation(
     switch (descriptor.operation) {
       case 'insert': {
         const result = await buildInsertMutation(db, claims, descriptor, policy);
-        // Knex INSERT returns [lastInsertId] for SQLite/MySQL, or a count for others.
+        // Knex INSERT's return shape is driver-dependent and does NOT reliably
+        // carry a row count (Tier3 iter26 finding 3, correcting the previous
+        // comment here): SQLite/MySQL resolve to `[lastInsertId]` (length 1,
+        // which happens to look like a row count only by coincidence), while
+        // PostgreSQL resolves to `[]` UNLESS `.returning(...)` is used — so
+        // `result.length` reported `0` for a successfully COMMITTED single-row
+        // insert on pg. A `MutationDescriptor` insert always writes exactly ONE
+        // row (one `values` object), so treat ANY array result — regardless of
+        // its length — as "one row inserted" rather than trusting `.length` as
+        // a row count.
         if (Array.isArray(result)) {
-          rowsAffected = result.length;
+          rowsAffected = 1;
         } else if (typeof result === 'number') {
           rowsAffected = result;
         } else {

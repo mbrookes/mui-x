@@ -179,6 +179,46 @@ describe('validateMutation', () => {
     );
   });
 
+  // Tier3 iter26 finding 5: `values: {}` has zero keys, so it passed every
+  // writable-column/scope check in this function (zero keys means zero
+  // checks) and previously reached Knex's `query.update({})` unfiltered, which
+  // Knex itself refuses with its own unsanitized "Empty .update() call
+  // detected" error instead of a clean `MUI X`-prefixed rejection.
+  it('throws when an update has an empty "values" object', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'update',
+      table: 'orders',
+      values: {},
+      where: [{ column: 'id', operator: 'eq', value: 42 }],
+    };
+    expect(() => validateMutation(descriptor, CLAIMS, { policy: ST_POLICY })).toThrow(
+      /"update".*requires at least one value to set/,
+    );
+  });
+
+  it('throws when an update omits "values" entirely', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'update',
+      table: 'orders',
+      where: [{ column: 'id', operator: 'eq', value: 42 }],
+    };
+    expect(() => validateMutation(descriptor, CLAIMS, { policy: ST_POLICY })).toThrow(
+      /"update".*requires at least one value to set/,
+    );
+  });
+
+  it('does not throw for an insert with an empty "values" object (the empty-values guard is update-only)', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: {},
+    };
+    expect(() => validateMutation(descriptor, CLAIMS, { policy: ST_POLICY })).not.toThrow();
+  });
+
   it('throws when a value key is not in the writable columns list', () => {
     const descriptor: MutationDescriptor = {
       id: 'm1',

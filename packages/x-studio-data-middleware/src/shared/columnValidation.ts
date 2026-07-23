@@ -88,6 +88,24 @@ export function checkColumnAgainstAllowlist(
   allowlist: Record<string, string[]>,
   context: string,
 ): void {
+  // Reject a reference with MORE than one dot (`a.b.c` or deeper) outright
+  // (Tier3 iter26 finding 6) rather than silently parsing it at the FIRST dot
+  // below. Splitting at the first dot reads `a.b.c` as table `a`, column
+  // `b.c` — but Knex/SQL would read the same string as `schema.table.column`.
+  // That parser divergence between this validator and how the driver would
+  // actually interpret the string is worth removing even though it is not
+  // exploitable today (an unregistered "table" from the wrong split still
+  // fails closed via the "has no entry" branch below). Mirrors the identical
+  // guard in `shared/assertTablesAllowed.ts`'s `checkQualifiedColumn`.
+  if (physical.split('.').length > 2) {
+    throw new Error(
+      `MUI X Studio Server: Column reference "${physical}" (in ${context}) contains more than one ".". ` +
+        `This package validates a qualified reference as "table.column", splitting at the FIRST dot — a deeper ` +
+        `reference such as "schema.table.column" would be parsed differently here than a SQL engine would parse ` +
+        `the same string, which is rejected outright rather than resolved ambiguously. ` +
+        `Reference the column as "table.column", not a deeper-qualified path.`,
+    );
+  }
   const dotIdx = physical.indexOf('.');
   const table = dotIdx !== -1 ? physical.slice(0, dotIdx) : defaultTable;
   const column = dotIdx !== -1 ? physical.slice(dotIdx + 1) : physical;

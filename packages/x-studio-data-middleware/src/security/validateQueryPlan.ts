@@ -240,8 +240,18 @@ function validateJoinTypes(descriptor: BatchWidgetDescriptor): void {
   }
 }
 
+/** The table name embedded in a `table.column` reference, or `undefined` when unqualified. */
+function qualifiedTableOf(column: string): string | undefined {
+  if (typeof column !== 'string') {
+    return undefined;
+  }
+  const dotIndex = column.indexOf('.');
+  return dotIndex === -1 ? undefined : column.slice(0, dotIndex);
+}
+
 /**
- * Validate every JOIN `on` against a fail-closed non-empty-array guard (finding 2.1).
+ * Validate every JOIN `on` against a fail-closed non-empty-array guard (finding
+ * 2.1) AND a fail-closed table-qualification convention (Tier3 iter26 finding 2).
  *
  * SECURITY INVARIANT — runs UNCONDITIONALLY for every widget (independent of
  * whether a `columnAllowlist` is configured), mirroring `validateJoinTypes` /
@@ -256,8 +266,43 @@ function validateJoinTypes(descriptor: BatchWidgetDescriptor): void {
  * tenant-bounded cartesian product that returns silently wrong, row-multiplied
  * results instead of failing at all. Reject fail-closed here instead, before the
  * descriptor ever reaches query construction.
+ *
+ * TAUTOLOGICAL / SELF-REFERENTIAL `on` PAIRS (Tier3 iter26 finding 2) — closing
+ * the empty-`on` CROSS JOIN case above does not stop a NON-empty pair that is
+ * degenerate in a different way: `on: [['customers.id', 'customers.id']]`, where
+ * BOTH sides are explicitly qualified with the SAME table, passes the schema
+ * allowlist (both are real columns on a real, allowlisted table) and the column
+ * allowlist (both are real, allowed columns) — but it emits a tautological
+ * `customers.id = customers.id` ON condition instead of a real join key, which
+ * SQL engines execute as an unconditional match: a cartesian product between
+ * `customers` and whatever is already accumulated, still fully within the
+ * tenant/region/department-scoped rows (no cross-tenant leak) but silently
+ * multiplying every row. `joinNullIndicatorColumn` (`router/queryBuilder.ts`)
+ * already fails closed on a related shape for its own narrow consumer (the
+ * right side of the FIRST `on` pair must qualify `join.table` itself); this
+ * validator generalizes that same left/right table convention to the join-
+ * building path as a whole, mirroring `validateDescriptorColumns`'s existing
+ * left-is-primary/right-is-joined convention:
+ *   - A qualified RIGHT side must name `join.table` — the joined table itself.
+ *   - A qualified LEFT side must name the primary table OR a table joined
+ *     EARLIER in this same descriptor (a table already available in the
+ *     accumulated FROM/JOIN chain at this point) — critically, NOT `join.table`
+ *     itself. This is what rejects the tautological example above: qualifying
+ *     the left side with `join.table` (the table THIS join is introducing) can
+ *     only ever produce `join.table.x = join.table.y`, a condition internal to
+ *     the joined table rather than a real join key linking it to the rest of
+ *     the query.
+ * Column references are resolved via `resolveAlias` first (matching
+ * `validateDescriptorColumns`'s convention) so a logical/expression-field id
+ * that maps to a qualified physical column is checked on the resolved name, not
+ * the raw client string. An unqualified side is left unconstrained here (Knex
+ * qualifies it automatically at build time — the left with the primary table,
+ * the right with `join.table` — so an unqualified pair can never land on the
+ * SAME table unless the primary table and `join.table` coincide, which is out
+ * of scope for this check).
  */
 function validateJoinOnPairs(descriptor: BatchWidgetDescriptor): void {
+  const knownTables: string[] = [descriptor.table];
   for (const join of descriptor.joins ?? []) {
     if (!Array.isArray(join.on) || join.on.length === 0) {
       throw new Error(
@@ -268,6 +313,36 @@ function validateJoinOnPairs(descriptor: BatchWidgetDescriptor): void {
           `Provide at least one [leftColumn, rightColumn] pair in "on" for every join.`,
       );
     }
+    for (const [left, right] of join.on) {
+      const resolvedLeft = resolveAlias(descriptor, left);
+      const resolvedRight = resolveAlias(descriptor, right);
+      const leftTable = qualifiedTableOf(resolvedLeft);
+      const rightTable = qualifiedTableOf(resolvedRight);
+
+      if (rightTable !== undefined && rightTable !== join.table) {
+        throw new Error(
+          `MUI X Studio Server: JOIN "on" pair for table "${join.table}" has a right-hand column "${right}" ` +
+            `qualified with table "${rightTable}" instead of "${join.table}". ` +
+            `The right side of a join's "on" pair must reference the joined table itself, so the ON condition ` +
+            `expresses a real join key rather than a reference to an unrelated (or wrongly-ordered) table. ` +
+            `Qualify the right-hand "on" column with "${join.table}", or leave it unqualified.`,
+        );
+      }
+      if (leftTable !== undefined && !knownTables.includes(leftTable)) {
+        throw new Error(
+          `MUI X Studio Server: JOIN "on" pair for table "${join.table}" has a left-hand column "${left}" ` +
+            `qualified with table "${leftTable}", which is neither the primary table "${descriptor.table}" nor a ` +
+            `table joined earlier in this query. ` +
+            `The left side of a join's "on" pair must reference a table already available at this point in the ` +
+            `query — qualifying it with "${join.table}" itself (the table THIS join introduces) produces a ` +
+            `tautological condition such as "${join.table}.x = ${join.table}.y" instead of a real join key, which ` +
+            `some database engines execute as an unconditional match — a cartesian product that silently ` +
+            `multiplies every row within the tenant-scoped result instead of failing. ` +
+            `Qualify the left-hand "on" column with "${descriptor.table}" or an already-joined table, or leave it unqualified.`,
+        );
+      }
+    }
+    knownTables.push(join.table);
   }
 }
 

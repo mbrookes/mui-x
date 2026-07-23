@@ -272,6 +272,29 @@ export function validateMutation(
   // Enforce row-level-security scope carried in `values` (tenant / region /
   // department) — independent of the writable-columns allowlist.
   const values = descriptor.values ?? {};
+
+  // Reject an "update" mutation whose `values` is empty (Tier3 iter26 finding
+  // 5). `values: {}` (or an omitted `values`) has zero keys, so it passes
+  // every check in this function (zero keys means zero writable-column
+  // checks) and previously reached Knex's `query.update({})` unfiltered — Knex
+  // itself throws its own "Empty .update() call detected" error there, an
+  // unsanitized, driver-adjacent message from a layer this package's own
+  // validation is supposed to guard. Checked from the CLIENT's perspective:
+  // this runs on `descriptor.values` before any internal tenant-column
+  // stripping (`buildUpdateMutation` only ever REMOVES the tenant key from
+  // update values, never adds one), so an empty object here means the client
+  // genuinely sent nothing to set. An update-by-definition sets at least one
+  // column, so fail closed here instead with a clear, actionable error.
+  if (descriptor.operation === 'update' && Object.keys(values).length === 0) {
+    throw new Error(
+      `MUI X Studio Server: "update" mutation on table "${descriptor.table}" requires at least one value to set, ` +
+        `but "values" is empty or missing. ` +
+        `An update with no values would reach the database driver with an empty SET clause instead of failing with ` +
+        `a clear validation error. ` +
+        `Include at least one column in "values" to update.`,
+    );
+  }
+
   // Qualified keys (`table.column`) are rejected before any scope check — they
   // are malformed input and would otherwise dodge the bare-name scope matching.
   rejectQualifiedValueKeys(values, descriptor.table);

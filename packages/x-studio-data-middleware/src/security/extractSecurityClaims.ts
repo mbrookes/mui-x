@@ -13,7 +13,10 @@ import type { JwtSecurityClaims } from './types';
 
 /** JWT payload shape expected by x-studio-data-middleware */
 interface JwtPayload {
-  sub: string;
+  // `unknown` (not `string`) — see `normalizeSub` (Tier3 iter26 finding 4).
+  // The payload is parsed JSON from a client-controlled bearer token, so the
+  // TS shape is not a runtime guarantee, mirroring every sibling claim below.
+  sub: unknown;
   // `unknown` (not `string`) — the payload is parsed JSON from a
   // client-controlled bearer token, so the TS shape is not a runtime
   // guarantee. `normalizeTenantId` below is the runtime boundary that
@@ -28,7 +31,12 @@ interface JwtPayload {
   regionIds?: unknown;
   // `unknown` (not `string`) — see `normalizeDepartment` (finding 3.3).
   department?: unknown;
-  exp?: number;
+  // `unknown` (not `number`) — the expiry check below (Tier3 iter26 finding 4)
+  // is the runtime boundary that enforces `number`: `exp: {}` or `exp: "banana"`
+  // used to pass a bare presence check (`payload.exp === undefined`) and then
+  // `payload.exp < now` evaluated to `false` for a non-numeric value (`NaN`
+  // comparisons are always `false`), so such a token never expired.
+  exp?: unknown;
 }
 
 /**
@@ -56,6 +64,30 @@ function normalizeTenantId(tenantId: unknown): string {
     );
   }
   return tenantId;
+}
+
+/**
+ * Validate + coerce the JWT's `sub` claim to a non-empty `string` (Tier3 iter26
+ * finding 4).
+ *
+ * `sub` is typed `string` on `JwtSecurityClaims.userId`, but — like every other
+ * claim in this file — nothing previously enforced that at runtime: the
+ * pre-existing `!payload.sub` presence check only catches FALSY values, so a
+ * non-string TRUTHY value (a number, an object, an array) flowed straight
+ * through into `userId: string` unvalidated, and from there into cache-key
+ * hashing and anywhere `userId` is used to scope/log the request. Mirrors
+ * `normalizeTenantId`'s exact pattern for the sibling claim it left unclosed.
+ */
+function normalizeSub(sub: unknown): string {
+  if (typeof sub !== 'string' || sub === '') {
+    throw new Error(
+      `MUI X Studio Server: JWT "sub" claim must be a non-empty string, ` +
+        `but received ${JSON.stringify(sub)}. ` +
+        'A non-string sub cannot be safely used as the request-scoped user identifier. ' +
+        'Ensure the token issuer emits "sub" as a string.',
+    );
+  }
+  return sub;
 }
 
 /**
@@ -239,6 +271,22 @@ export function extractSecurityClaims(
         'Ensure the token issuer sets "exp" to a Unix timestamp (in seconds) for every issued token.',
     );
   }
+  // `exp` must be a FINITE NUMBER, not merely present (Tier3 iter26 finding 4).
+  // `payload.exp` is client JSON — a signed token with `exp: {}` or
+  // `exp: "banana"` previously passed the presence check above, and the
+  // comparison below (`payload.exp < now`) silently evaluated to `false` for a
+  // non-numeric value (any comparison involving `NaN`, or a `<` between an
+  // object and a number, is `false`), so such a token NEVER expired. Treat a
+  // non-finite/non-numeric `exp` as already-expired/invalid — fail closed
+  // rather than granting a permanent token.
+  if (typeof payload.exp !== 'number' || !Number.isFinite(payload.exp)) {
+    throw new Error(
+      `MUI X Studio Server: JWT "exp" claim must be a finite number (a Unix timestamp in seconds), ` +
+        `but received ${JSON.stringify(payload.exp)}. ` +
+        'A non-numeric expiry cannot be safely compared against the current time and is treated as already expired. ' +
+        'Ensure the token issuer sets "exp" to a numeric Unix timestamp.',
+    );
+  }
   if (payload.exp < Math.floor(Date.now() / 1000)) {
     throw new Error('MUI X Studio Server: JWT has expired');
   }
@@ -249,7 +297,7 @@ export function extractSecurityClaims(
 
   return {
     tenantId: normalizeTenantId(payload.tenantId),
-    userId: payload.sub,
+    userId: normalizeSub(payload.sub),
     roleIds: normalizeRoleIds(payload.roleIds),
     regionIds: normalizeRegionIds(payload.regionIds),
     department: normalizeDepartment(payload.department),

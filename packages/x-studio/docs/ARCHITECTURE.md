@@ -277,6 +277,8 @@ interface StudioQueryDescriptor {
 
 `useAdapterRows` (the hook encapsulating this state machine) also resets `isLoading`/`isError`/`errorMessage` whenever its early-return branch fires — i.e. the descriptor or adapter becomes unavailable mid-flight (the adapter was removed via `setDataSourceAdapter(id, undefined)`, the source was removed, or it dropped out of the `dataAdapters` prop). Any in-flight promise from a previous descriptor is neutralized by its own cleanup, so without this reset nothing else would ever clear a stale loading spinner or error overlay after falling back to in-memory rows.
 
+When `adapter.getRows()` rejects with a non-`Error` value, `errorMessage` falls back to `localeText.widgetLoadError` (read via `useStudioLocaleText()`) rather than a hardcoded English string — consistent with this package's locale-completeness policy for strings that can reach the rendered UI (see §13.7's `widgetExportNoDataMessage` for the same pattern applied to an exported-file string).
+
 ### Adapter implementation contract
 
 ```ts
@@ -591,11 +593,11 @@ When a chart widget's `xField` or `yField` belongs to a related source, the filt
 | `chart`  | `StudioChartWidget`  | `useWidgetRows` + `useChartWidgetData` | `chartType`, `xField`, `yField`/`ySeries`, `seriesField`, `xGroupBy`, `crossFilterMode`, `annotations` |
 | `kpi`    | `StudioKpiWidget`    | `useWidgetRows`                        | `kpiValueField`, `kpiAggregation`, `kpiSparkline`, `kpiSparklinePlotType`, `kpiSparklineGaugeMax`, `kpiTrend` |
 | `text`   | `StudioTextWidget`   | —                                      | `textBody`, `textSubtitle`, font/colour/alignment fields                                               |
-| `filter` | `StudioFilterWidget` | `useWidgetRows` (for value list)       | `filterWidgetType`, `filterWidgetField`, `filterWidgetSourceId`                                        |
+| `filter` | `StudioFilterWidget` | `getCachedNormalizedDataSource` + `getCachedEnrichedRows` — **not** `useWidgetRows` (see §10.5) | `filterWidgetType`, `filterWidgetField`, `filterWidgetSourceId`                                        |
 | `pivot`  | `StudioPivotWidget`  | `useWidgetRows`                        | `pivotRowField`, `pivotColField`, `pivotValueField`, `pivotAggregation`, `pivotShowTotals`             |
 | `map`    | `StudioMapWidget`    | `useWidgetRows`                        | `mapCountryField`, `mapValueField`, `mapAggregation`, `mapColorScheme`                                 |
 
-> **Doc-authored style values are sanitized before reaching `sx`.** The `text` widget's font/colour fields (`textBodyColor`, `textSubtitleColor`, `text*FontFamily`, `text*FontSize`), the analogous title-text color/font-size fields on `StudioWidgetCard`, and `StudioPageTheme`'s card styling (border color, background, radius, padding, border width) are all reachable from an untrusted `loadSerializedState(data: unknown)` payload or an AI `update_widget` tool call. Because Emotion's `sx` prop does not escape interpolated property values, these fields are validated at the render-time call site — via the shared `internals/cssValueValidation.ts` helpers (`sanitizeCssColor`/`isSafeCssColor`, `isSafeFontFamily`, `sanitizeFiniteNumber`/`sanitizeFontSize`) and the `resolveTextFontFamily` helper in `textFontFamily.ts` that wraps `isSafeFontFamily` — before being interpolated. An invalid value (e.g. one crafted to break out of the CSS declaration and inject new rules) falls back to the default/unset style instead of propagating into rendered CSS. See §10.2 for the equivalent guard on grid conditional-format cell colors.
+> **Doc-authored style values are sanitized before reaching `sx`.** The `text` widget's font/colour/alignment fields (`textBodyColor`, `textSubtitleColor`, `text*FontFamily`, `text*FontSize`, `text*Align`), the analogous title-text color/font-size/font-weight/alignment fields on `StudioWidgetCard`, and `StudioPageTheme`'s full field set (`pageBackground`, plus card border color, background, radius, padding, border width) are all reachable from an untrusted `loadSerializedState(data: unknown)` payload or an AI `update_widget`/`apply_bulk_update` tool call. Because Emotion's `sx` prop does not escape interpolated property values, these fields are validated at the render-time call site — via the shared `internals/cssValueValidation.ts` helpers (`sanitizeCssColor`/`isSafeCssColor`, `isSafeFontFamily`, `sanitizeFiniteNumber`/`sanitizeFontSize`, `sanitizeFontWeight`, `isSafeTextAlign`, `isSafeFontWeightKeyword`) and the `resolveTextFontFamily` helper in `textFontFamily.ts` that wraps `isSafeFontFamily` — before being interpolated. An invalid value (e.g. one crafted to break out of the CSS declaration and inject new rules) falls back to the default/unset style instead of propagating into rendered CSS. `pageBackground` was, for a time, the one `StudioPageTheme` field missed by this pass — `StudioCanvas` now runs it through `sanitizeCssColor` before setting the canvas root's `sx.backgroundColor`, matching every sibling theme field. See §10.2 for the equivalent guard on grid conditional-format cell colors, font weight, and the format rule's CSS selector key (a distinct injection vector from the value-sanitization described here).
 
 ### 10.2 Grid
 
@@ -611,7 +613,9 @@ Cross-source field resolution (`resolveCrossSourceFkFields`, `summaryFieldDefs`,
 
 Boolean `gridConditionalFormats` rules using the `equals`/`not_equals` operator coerce both the cell value and the rule value to string before comparing, since the rule value is authored as the string `"true"`/`"false"` while a boolean cell holds a real JS boolean — loose equality (`true == "true"`) is `false` under JS coercion, so without the coercion an `equals` rule on a boolean column never matched (and `not_equals` matched every row).
 
-A `gridConditionalFormats` rule's cell color is passed through `sanitizeCssColor` (§10.1) before being applied to the cell's `sx` — a rule whose color value is not a valid CSS color (whether corrupted on load or written by the AI's `update_widget` tool) falls back to no color override rather than being interpolated unchecked.
+A `gridConditionalFormats` rule's cell color is passed through `sanitizeCssColor` (§10.1) before being applied to the cell's `sx` — a rule whose color value is not a valid CSS color (whether corrupted on load or written by the AI's `update_widget` tool) falls back to no color override rather than being interpolated unchecked. The rule's `fontWeight` gets the same treatment via the `isSafeFontWeightKeyword` allowlist (`'bold' | 'normal'`) — any other value falls back to unset rather than being written into `sx` as authored.
+
+The conditional-format `sx` selector's **key** is guarded separately from its values. Each rule's cell class name is built as `` `.StudioGrid-cf-${id}-${i}` ``, where `id` used to be the raw `widget.id` interpolated directly into the selector string. `widget.id` is normally minted by `createWidgetId` (§2.1) and always identifier-safe, but the persisted-doc load boundary only screens ids for prototype-pollution-unsafe *keys*, not CSS-selector-safety — so a hostile serialized widget id containing selector metacharacters (e.g. `` w{}html{display:none}.x ``) could inject arbitrary rules into the stylesheet the moment the grid has any conditional format at all. `id` is now `sanitizeCssIdentifierToken(widget.id)` (strips to `[A-Za-z0-9_-]`) — a local token used only for this class name; `widget.id` itself is left untouched everywhere else it's used as a data key. This closes a selector-key injection vector distinct from the value-injection class the rest of this section (and §10.1) guards against.
 
 ### 10.3 Chart
 
@@ -661,6 +665,8 @@ Interactive filter controls that emit `scope: 'interactive'` filter states. Four
 | `multi-select`     | Searchable checkbox list | `string[]` of selected values |
 | `toggle`           | Toggle button group      | single value                  |
 | `slider`           | Range slider             | `[min, max]` numbers          |
+
+**Data access — deliberately bypasses `useWidgetRows`.** Unlike every other widget kind, `StudioFilterWidget` does not call `useWidgetRows`. It reads `getCachedNormalizedDataSource` (§5.1) directly, normalizing lazily and scoped to just the one field being filtered on (`fieldId`), to get a pre-computed `fieldDistinctValues[fieldId]` entry for its option list; it only escalates to `getCachedEnrichedRows` (§5.2, likewise scoped to that single field) when the filtered field is itself a computed, non-measure expression field. This is intentional, not an oversight: `useWidgetRows` returns rows *after* page/widget/cross/interactive filters have already been applied (§3, Layer L3), so a filter widget sourcing its option list from that output would have its own value list shrink as filters were applied through it — e.g. selecting `region = 'Europe'` would filter out every non-Europe row, and the dropdown would then only offer the region values still present in that already-filtered subset on the next render, rather than the source's full set of options. Reading directly off the normalized (pre-filter) rows keeps the option list stable regardless of which filters are currently active.
 
 ### 10.6 Pivot Table
 
@@ -786,7 +792,8 @@ graph TD
 
 - `AddWidgetView` — widget type picker + optional "Describe a widget" NL creation field.
 - Setup panels (`ChartSetupPanel`, `GridSetupPanel`, `KpiSetupPanel`, `MapSetupPanel`, `PivotSetupPanel`, `FilterSetupPanel`, `TextSetupPanel`) — shown when a widget is selected.
-- `PageConfigPanel` — page-level theme settings.
+
+There is currently no in-package authoring UI for page-level theme settings — no `PageConfigPanel` (or equivalent) exists in the codebase, and nothing in-package writes `StudioPage.theme`. `StudioCanvas` and `StudioWidgetCard` only *read* `theme` (sanitizing every field they read — including `pageBackground`, see §10.1/§10.2 — before it reaches `sx`); `pageBackground` and the rest of `StudioPageTheme` are currently settable only via a `loadSerializedState` payload or the AI's `apply_bulk_update` tool call, never through in-package UI.
 
 **StudioFiltersDrawer** — filter management. Grouped into page-scope and per-widget sections. Supports filter presets (Saved Views), filter search, and filter cards with inline editing. New page/widget filters created from the drawer are assigned ids via the shared `createFilterId` factory (§2.1) rather than a drawer-local generator.
 

@@ -1019,6 +1019,100 @@ describe('buildAISystemPrompt: rich context', () => {
     expect(prompt).not.toContain('<dashboard_context>');
     expect(prompt).not.toContain('<server_context>');
   });
+
+  // Finding 2 (Tier 3): `richContext` is client-supplied and only nominally typed —
+  // a hand-crafted request body can shape any of these fields however it likes.
+  // Each malformed shape below must be skipped/omitted rather than throw a raw
+  // `TypeError` mid-prompt-build.
+  describe('degrades gracefully on a malformed richContext (finding 2)', () => {
+    it('does not throw and omits pageLayout when rows is missing', () => {
+      expect(() =>
+        buildAISystemPrompt(state, undefined, undefined, undefined, {
+          richContext: { pageLayout: { pageId: PAGE_ID } as never },
+        }),
+      ).not.toThrow();
+    });
+
+    it('does not throw and skips non-array row entries within pageLayout.rows', () => {
+      const prompt = buildAISystemPrompt(state, undefined, undefined, undefined, {
+        richContext: {
+          pageLayout: {
+            pageId: PAGE_ID,
+            rows: [null, [{ widgetId: 'w1', kind: 'chart', title: 'Revenue' }]] as never,
+            crossFilters: [],
+          },
+        },
+      });
+      expect(prompt).toContain('<dashboard_context>');
+      // The valid row (originally index 1) keeps its real row number.
+      expect(prompt).toContain('Row 2:');
+      expect(prompt).toContain('Revenue');
+    });
+
+    it('does not throw and skips a non-object widget entry within a row', () => {
+      expect(() =>
+        buildAISystemPrompt(state, undefined, undefined, undefined, {
+          richContext: {
+            pageLayout: {
+              pageId: PAGE_ID,
+              rows: [[null, 'not-a-widget']] as never,
+              crossFilters: [],
+            },
+          },
+        }),
+      ).not.toThrow();
+    });
+
+    it('does not throw and omits crossFilters when it is not an array', () => {
+      const prompt = buildAISystemPrompt(state, undefined, undefined, undefined, {
+        richContext: {
+          pageLayout: {
+            pageId: PAGE_ID,
+            rows: [[{ widgetId: 'w1', kind: 'chart', title: 'Revenue' }]],
+            crossFilters: 'not-an-array' as never,
+          },
+        },
+      });
+      expect(prompt).not.toContain('Cross-filter graph');
+    });
+
+    it('does not throw and skips non-object fieldStats entries', () => {
+      expect(() =>
+        buildAISystemPrompt(state, undefined, undefined, undefined, {
+          richContext: { fieldStats: { 'src1.revenue': 'not-an-object' } as never },
+        }),
+      ).not.toThrow();
+    });
+
+    it('does not throw and treats a bare-string fieldStats as absent', () => {
+      const prompt = buildAISystemPrompt(state, undefined, undefined, undefined, {
+        richContext: { fieldStats: 'abc' as never },
+      });
+      expect(prompt).not.toContain('Field statistics');
+    });
+
+    it('does not throw and skips non-object recentMutations entries', () => {
+      expect(() =>
+        buildAISystemPrompt(state, undefined, undefined, undefined, {
+          richContext: { recentMutations: [null, 'not-an-object'] as never },
+        }),
+      ).not.toThrow();
+    });
+
+    it('does not throw and omits recentMutations when it is not an array', () => {
+      const prompt = buildAISystemPrompt(state, undefined, undefined, undefined, {
+        richContext: { recentMutations: 'not-an-array' as never },
+      });
+      expect(prompt).not.toContain('Recent user changes');
+    });
+
+    it('does not throw and omits the "omitted" note when it is not an array', () => {
+      const prompt = buildAISystemPrompt(state, undefined, undefined, undefined, {
+        richContext: { omitted: 'not-an-array' as never },
+      });
+      expect(prompt).not.toContain('omitted to fit the token budget');
+    });
+  });
 });
 
 // ── Prompt-injection hardening (sanitizeForPrompt) ────────────────────────────

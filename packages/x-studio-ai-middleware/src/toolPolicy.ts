@@ -66,6 +66,26 @@ export interface ToolPolicyContext {
     effects: ToolEffectSummary;
   };
   /**
+   * Discriminates the two consult shapes that both present `proposed: undefined`,
+   * so a host policy that keys `deny` off `!ctx.proposed` (a plausible "deny all
+   * args-only/side-effectful calls" catch-all) can tell them apart instead of
+   * over-denying one of them:
+   *
+   *  - `'pre-check'` — the cheap, budget-only consult `executeToolWithPolicy` makes
+   *    BEFORE the expensive pure dry-run of a built-in tool (see the pre-check
+   *    comment further down this file). This is NOT a genuine args-only
+   *    authorization request — the real dry-run, and a second `'final'`-phase
+   *    consult with the real `proposed` value, always follow. A host policy should
+   *    treat `'pre-check'` as budget-only and avoid denying it for reasons that only
+   *    make sense once the real shape of the call is known.
+   *  - `'final'` — the consult whose decision is actually acted on: either the real
+   *    execute-then-gate consult (`proposed` set when the tool mutates) or a genuine
+   *    args-only consult via `consultToolPolicyArgsOnly` (`proposed: undefined`
+   *    because the tool is inherently side-effectful and must be authorized before
+   *    it runs, e.g. `query_data_source`, server-tool skills).
+   */
+  phase: 'pre-check' | 'final';
+  /**
    * Hint that this ARGS-ONLY call (`proposed: undefined`) is capable of committing a
    * mutation once it runs. `true` for server-tool skills — any skill's `execute` may
    * return a mutation, and the args alone can't tell us, so we conservatively treat
@@ -446,6 +466,7 @@ export async function executeToolWithPolicy(
     input,
     state,
     proposed: undefined,
+    phase: 'pre-check',
     usage: opts.usage,
   });
   if (preDecision.action === 'deny') {
@@ -474,6 +495,7 @@ export async function executeToolWithPolicy(
       result.mutation && effects
         ? { mutation: result.mutation, nextState: result.nextState, effects }
         : undefined,
+    phase: 'final',
     usage: opts.usage,
   };
 
@@ -559,6 +581,7 @@ export async function consultToolPolicyArgsOnly(
     input,
     state,
     proposed: undefined,
+    phase: 'final',
     mayMutate: opts.mayMutate,
     usage: opts.usage,
   };

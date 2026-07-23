@@ -218,11 +218,16 @@ export interface StudioAIHandlerOptions {
    * `crypto.randomUUID()` (not a predictable scheme), so an id alone is no longer
    * practically guessable either; the `threadId` check is defense in depth on top of
    * that, and requires your route to also thread a thread/session identifier through
-   * your approval UI — omit it and the check is simply skipped.
+   * your approval UI. IMPORTANT: when `entry.threadId` is set, your route MUST
+   * require the resolution request to present a MATCHING `threadId` — reject the
+   * request (missing OR mismatched) rather than skipping the check, or a resolver
+   * could bypass thread-binding entirely simply by omitting `threadId` from its
+   * request body. The check is only skipped (a no-op) when `entry.threadId` itself
+   * is absent — i.e. the approval wasn't bound to a thread in the first place.
    *
    * @example
    * ```ts
-   * import type { PendingApproval } from '@mui/x-studio-ai-middleware';
+   * import { isApprovalThreadIdAuthorized, type PendingApproval } from '@mui/x-studio-ai-middleware';
    *
    * // Shared state (module-level in your route file)
    * const pendingApprovals = new Map<string, PendingApproval>();
@@ -234,14 +239,17 @@ export interface StudioAIHandlerOptions {
    * });
    *
    * // Approval route — resolve the pending approval, requiring the caller's own
-   * // auth (mirroring the chat route's auth) AND, when both sides have one, a
-   * // matching thread id.
+   * // auth (mirroring the chat route's auth) AND, whenever the entry has a thread
+   * // id, a matching one from the resolution request. Use `isApprovalThreadIdAuthorized`
+   * // rather than hand-rolling this check — a naive
+   * // `entry.threadId !== undefined && threadId !== undefined && entry.threadId !== threadId`
+   * // is bypassable simply by omitting `threadId` from the request body.
    * app.post('/api/ai/approval', (req, res) => {
    *   const claims = resolveClaims(req); // same auth check as /chat
    *   const { id, approved, reason, threadId } = req.body;
    *   const entry = pendingApprovals.get(id);
    *   if (!entry) return res.status(404).json({ error: `No pending approval for id: ${id}` });
-   *   if (entry.threadId !== undefined && threadId !== undefined && entry.threadId !== threadId) {
+   *   if (!isApprovalThreadIdAuthorized(entry, threadId)) {
    *     return res.status(403).json({ error: 'This approval belongs to a different chat thread.' });
    *   }
    *   pendingApprovals.delete(id);
@@ -461,6 +469,37 @@ function validateStudioAIRequestBody(body: unknown): string | undefined {
         `\`{ id, role, parts: [{ type: 'text', text: '...' }] }\` — not a raw OpenAI ` +
         '`{ role, content }` chat-completion message.'
       );
+    }
+    // Finding 2 (Tier 3): validate each `parts` ELEMENT too, not just that `parts` is
+    // an array. A malformed element (`null`, or a `dynamic-tool` part missing
+    // `toolInvocation`) previously passed this shallow check and only crashed later,
+    // deep in `agenticLoop/openaiWire.ts`'s `toOpenAIMessages` — `p.type` on `null`
+    // (~line 52) or `p.toolInvocation.toolCallId` on `undefined` (~line 92) — as an
+    // opaque native `TypeError`, defeating this validator's whole purpose.
+    for (let j = 0; j < message.parts.length; j += 1) {
+      const part: unknown = message.parts[j];
+      if (!isObject(part) || typeof part.type !== 'string') {
+        return (
+          `MUI X Studio: \`messages[${i}].parts[${j}]\` is missing a string \`type\` field ` +
+          '(`ChatMessage.parts[number].type`). This prevents the agentic loop from reading the ' +
+          "part's content when serialising the conversation for the LLM. Ensure every part is an " +
+          `object shaped like \`{ type: 'text', text: '...' }\` or \`{ type: 'dynamic-tool', ` +
+          'toolInvocation: { toolCallId, toolName, input, output, state } }` — not `null` or a ' +
+          'bare value.'
+        );
+      }
+      if (part.type === 'dynamic-tool') {
+        const { toolInvocation } = part as { toolInvocation?: unknown };
+        if (!isObject(toolInvocation) || typeof toolInvocation.toolCallId !== 'string') {
+          return (
+            `MUI X Studio: \`messages[${i}].parts[${j}]\` is a \`dynamic-tool\` part missing a ` +
+            'valid `toolInvocation.toolCallId` (`ChatMessage.parts[number].toolInvocation`). This ' +
+            'prevents the agentic loop from matching the tool call to its result when replaying ' +
+            'the conversation history to the LLM. Ensure every `dynamic-tool` part carries a ' +
+            '`toolInvocation` object with at least `{ toolCallId: string, toolName, input, output, state }`.'
+          );
+        }
+      }
     }
   }
   const { dashboardState } = body as { dashboardState?: unknown };

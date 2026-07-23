@@ -654,6 +654,11 @@ describe('createDataToolHandlers', () => {
     // Tier 3, iteration 22: each requested field fans out into 5 aggregations in a
     // SINGLE query, so an unbounded `fields` array performs unbounded aggregation
     // work. Must be rejected (not silently truncated) with an actionable error.
+    //
+    // Finding 4 (Tier 3): `fields` is now routed through the SAME `validateQueryArrayArg`
+    // helper `query_data_source`'s array args use, so the wording matches theirs
+    // (`received N "fields" entries, which exceeds the limit of M`) rather than the
+    // bespoke wording this handler used to hand-roll.
     it('rejects a fields array exceeding the configured limit, without querying', async () => {
       const queryDataSource = vi.fn();
       const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
@@ -664,8 +669,39 @@ describe('createDataToolHandlers', () => {
       });
       expect(result.isError).toBe(true);
       const parsed = JSON.parse(await readText(result));
-      expect(parsed.error).toMatch(/51 fields/);
+      expect(parsed.error).toMatch(/received 51 "fields" entries/);
       expect(parsed.error).toMatch(/exceeds the limit of 50/);
+      expect(queryDataSource).not.toHaveBeenCalled();
+    });
+
+    // Finding 4 (Tier 3): `fields` was never validated as an ARRAY — a bare string
+    // (which also has `.length`) slipped past the emptiness/size checks and dead-ended
+    // at `statFields.flatMap` as an opaque `TypeError`.
+    it('rejects a non-array `fields` (e.g. a bare string) with an actionable error', async () => {
+      const queryDataSource = vi.fn();
+      const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+      const result: any = await handlers.compute_field_stats({
+        sourceId: 'source-orders',
+        fields: 'total' as unknown as string[],
+      });
+      expect(result.isError).toBe(true);
+      const parsed = JSON.parse(await readText(result));
+      expect(parsed.error).toMatch(/"fields" must be an array/);
+      expect(queryDataSource).not.toHaveBeenCalled();
+    });
+
+    // Finding 4 (Tier 3): a non-string element would otherwise be forwarded verbatim
+    // as an aggregation `column` to `data.queryDataSource`.
+    it('rejects a `fields` array containing a non-string element', async () => {
+      const queryDataSource = vi.fn();
+      const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+      const result: any = await handlers.compute_field_stats({
+        sourceId: 'source-orders',
+        fields: ['total', 42, 'count'] as unknown as string[],
+      });
+      expect(result.isError).toBe(true);
+      const parsed = JSON.parse(await readText(result));
+      expect(parsed.error).toMatch(/"fields\[1\]" must be a string field id/);
       expect(queryDataSource).not.toHaveBeenCalled();
     });
 
@@ -1019,6 +1055,92 @@ describe('createSummarisePageHandler', () => {
     const result: any = await handler({});
     const text = result.content[0].text as string;
     expect(text).toContain('Anomalies detected at: 2024-05');
+  });
+
+  // Finding 6 (Tier 3): the anomaly-aggregation query previously hardcoded
+  // `limit: 20000`, ignoring the host's configured `maxQueryRows` bound entirely —
+  // unlike every other `data.queryDataSource` call site in this package.
+  describe('anomaly aggregation query respects maxQueryRows (finding 6)', () => {
+    function makeTimeSeriesState() {
+      const state = makeState({
+        dataSources: {
+          'source-orders': makeSource({
+            fields: [
+              ...(makeSource().fields ?? []),
+              { id: 'order_date', label: 'Order Date', type: 'date' } as any,
+            ],
+          }),
+        },
+      });
+      state.doc.widgets['w-chart'] = {
+        id: 'w-chart',
+        kind: 'chart',
+        title: 'Monthly Revenue',
+        sourceId: 'source-orders',
+        config: {
+          chartType: 'bar',
+          xField: 'order_date',
+          yField: 'total',
+          xGroupBy: 'month',
+          yAggregation: 'sum',
+        },
+      } as any;
+      state.doc.pages[PAGE_ID] = { ...state.doc.pages[PAGE_ID], widgetRows: [['w-chart']] };
+      return state;
+    }
+
+    it('caps the aggregation query limit at a configured maxQueryRows below 20,000', async () => {
+      const state = makeTimeSeriesState();
+      const queryDataSource = vi.fn(async (params: StudioDataQueryParams) => {
+        if (params.aggregations?.length) {
+          return { rows: [{ order_date: '2024-01-01', y_agg: 100 }], rowCount: 1 };
+        }
+        return { rows: [{ id: 'o1', total: 100 }], rowCount: 1 };
+      });
+      const handler = createSummarisePageHandler({
+        stateBox: { current: state },
+        data: { queryDataSource },
+        maxQueryRows: 500,
+      });
+      await handler({});
+      const aggCall = queryDataSource.mock.calls.find(([p]) => p.aggregations?.length);
+      expect(aggCall?.[0].limit).toBe(500);
+    });
+
+    it('falls back to 20,000 when maxQueryRows is above (or omitted relative to) the default cap', async () => {
+      const state = makeTimeSeriesState();
+      const queryDataSource = vi.fn(async (params: StudioDataQueryParams) => {
+        if (params.aggregations?.length) {
+          return { rows: [{ order_date: '2024-01-01', y_agg: 100 }], rowCount: 1 };
+        }
+        return { rows: [{ id: 'o1', total: 100 }], rowCount: 1 };
+      });
+      const handler = createSummarisePageHandler({
+        stateBox: { current: state },
+        data: { queryDataSource },
+        maxQueryRows: 100_000,
+      });
+      await handler({});
+      const aggCall = queryDataSource.mock.calls.find(([p]) => p.aggregations?.length);
+      expect(aggCall?.[0].limit).toBe(20_000);
+    });
+
+    it('defaults to the standard maxQueryRows bound when the handler is constructed without one', async () => {
+      const state = makeTimeSeriesState();
+      const queryDataSource = vi.fn(async (params: StudioDataQueryParams) => {
+        if (params.aggregations?.length) {
+          return { rows: [{ order_date: '2024-01-01', y_agg: 100 }], rowCount: 1 };
+        }
+        return { rows: [{ id: 'o1', total: 100 }], rowCount: 1 };
+      });
+      const handler = createSummarisePageHandler({
+        stateBox: { current: state },
+        data: { queryDataSource },
+      });
+      await handler({});
+      const aggCall = queryDataSource.mock.calls.find(([p]) => p.aggregations?.length);
+      expect(aggCall?.[0].limit).toBe(1000);
+    });
   });
 
   // Tier 3, iteration 24, finding 4: `summarise_page` resolves `source.tableName`

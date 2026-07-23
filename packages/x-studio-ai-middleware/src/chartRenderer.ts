@@ -77,6 +77,22 @@ const MAX_DIMENSION = 10000;
 /** Strict hex-color pattern matching the `DEFAULT_COLORS` format (#rgb … #rrggbbaa). */
 const HEX_COLOR = /^#[0-9a-fA-F]{3,8}$/;
 
+/**
+ * Hard upper bound on the number of entries accepted in `render_chart`'s
+ * `data` / `xLabels` / `series` arrays, and in each per-series `values` array
+ * (Tier 3 finding 3). `renderChartSvg` already bounds dimensions and validates
+ * colors/values/text (see `sanitizeDimension`/`sanitizeColors`/`sanitizeValue`/
+ * `sanitizeText` above), but — unlike every other untrusted-array tool argument
+ * in this package (`MAX_QUERY_ARRAY_LENGTH` in `mcp/queryTools.ts`,
+ * `MAX_COMPUTE_FIELD_STATS_FIELDS`, the streaming buffer caps) — had no cap on
+ * the NUMBER of entries. An unbounded array turns one tool call into unbounded
+ * SVG-generation work (and an unbounded response payload) rather than the
+ * bounded chart a legitimate call needs. Truncated (not rejected) at this single
+ * `sanitizeInput` choke point so every renderer stays covered by one fix and a
+ * caller still gets a chart back, just capped.
+ */
+const MAX_CHART_ARRAY_LENGTH = 1000;
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
@@ -149,12 +165,30 @@ function sanitizeOptionalText(value: unknown): string | undefined {
   return value === undefined || value === null ? undefined : String(value);
 }
 
+/**
+ * Rejects (throws, mirroring `renderChartSvg`'s own unknown-chart-type throw —
+ * both are caught by every call site, e.g. `mcp/utilityTools.ts`'s `render_chart`
+ * handler) an array argument longer than `MAX_CHART_ARRAY_LENGTH`, with the same
+ * "split the request" guidance `MAX_QUERY_ARRAY_LENGTH` gives elsewhere in the
+ * package (see `mcp/queryTools.ts`'s `validateQueryArrayArg`).
+ */
+function checkChartArrayLength(argName: string, length: number): void {
+  if (length > MAX_CHART_ARRAY_LENGTH) {
+    throw new Error(
+      `MUI X Studio: render_chart received ${length} "${argName}" entries, which exceeds the ` +
+        `limit of ${MAX_CHART_ARRAY_LENGTH}. Split the request into multiple calls of at most ` +
+        `${MAX_CHART_ARRAY_LENGTH} ${argName} entries each.`,
+    );
+  }
+}
+
 function sanitizeData(data: ChartDataPoint[] | undefined): ChartDataPoint[] | undefined {
   // Non-array `data` (e.g. `{}`) would throw inside `.map`; coerce to absent so
   // renderers fall back to the "No data provided." placeholder.
   if (!Array.isArray(data)) {
     return undefined;
   }
+  checkChartArrayLength('data', data.length);
   return data.map((d) => ({
     ...d,
     label: sanitizeText(d?.label),
@@ -167,11 +201,16 @@ function sanitizeSeries(series: ChartSeries[] | undefined): ChartSeries[] | unde
   if (!Array.isArray(series)) {
     return undefined;
   }
-  return series.map((s) => ({
-    ...s,
-    name: sanitizeText(s?.name),
-    values: Array.isArray(s?.values) ? s.values.map(sanitizeValue) : [],
-  }));
+  checkChartArrayLength('series', series.length);
+  return series.map((s) => {
+    const values = Array.isArray(s?.values) ? s.values : [];
+    checkChartArrayLength('series[].values', values.length);
+    return {
+      ...s,
+      name: sanitizeText(s?.name),
+      values: values.map(sanitizeValue),
+    };
+  });
 }
 
 /**
@@ -184,6 +223,7 @@ function sanitizeXLabels(xLabels: string[] | undefined): string[] | undefined {
   if (!Array.isArray(xLabels)) {
     return undefined;
   }
+  checkChartArrayLength('xLabels', xLabels.length);
   return xLabels.map(sanitizeText);
 }
 

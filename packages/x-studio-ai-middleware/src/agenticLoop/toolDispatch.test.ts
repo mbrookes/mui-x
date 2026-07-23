@@ -13,6 +13,7 @@ import {
   dispatchToolCall,
   buildApprovalEffectsSummary,
   extractToolErrorMessage,
+  isApprovalThreadIdAuthorized,
   type ToolDispatchContext,
   type PendingApproval,
 } from './toolDispatch';
@@ -128,6 +129,31 @@ describe('waitForApproval', () => {
     expect(pending.get('id1')?.threadId).toBeUndefined();
     pending.get('id1')!.resolve(true);
     await promise;
+  });
+});
+
+// ── isApprovalThreadIdAuthorized (finding 5, Tier 3) ────────────────────────────
+
+describe('isApprovalThreadIdAuthorized', () => {
+  it('authorizes when the entry has no threadId, regardless of what the request asserts', () => {
+    expect(isApprovalThreadIdAuthorized({ threadId: undefined }, undefined)).toBe(true);
+    expect(isApprovalThreadIdAuthorized({ threadId: undefined }, 'thread-a')).toBe(true);
+  });
+
+  it('authorizes a matching threadId', () => {
+    expect(isApprovalThreadIdAuthorized({ threadId: 'thread-a' }, 'thread-a')).toBe(true);
+  });
+
+  it('denies a mismatched threadId', () => {
+    expect(isApprovalThreadIdAuthorized({ threadId: 'thread-a' }, 'thread-b')).toBe(false);
+  });
+
+  // The exact bypass finding 5 flags: a naive
+  // `entry.threadId !== undefined && threadId !== undefined && entry.threadId !== threadId`
+  // check degrades to a no-op (treated as authorized) the moment the resolving
+  // request OMITS `threadId` — this helper must deny that instead.
+  it('denies when the entry has a threadId but the request omits one', () => {
+    expect(isApprovalThreadIdAuthorized({ threadId: 'thread-a' }, undefined)).toBe(false);
   });
 });
 

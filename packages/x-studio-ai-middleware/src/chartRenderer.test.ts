@@ -689,3 +689,53 @@ describe('renderChartSvg — non-string text field coercion (T2-5)', () => {
     expect(svg).toContain('&lt;script&gt;');
   });
 });
+
+// ── Array-length cap (Tier 3, finding 3) ───────────────────────────────────────
+
+describe('renderChartSvg — array-length cap (finding 3)', () => {
+  it('renders fine at exactly the 1,000-entry cap', () => {
+    const data = Array.from({ length: 1000 }, (_, i) => ({ label: `L${i}`, value: i + 1 }));
+    expect(() => renderChartSvg({ type: 'bar', data })).not.toThrow();
+  });
+
+  it('rejects a `data` array of 5,000+ entries with an actionable error', () => {
+    const data = Array.from({ length: 5000 }, (_, i) => ({ label: `L${i}`, value: i + 1 }));
+    expect(() => renderChartSvg({ type: 'bar', data })).toThrow(
+      /received 5000 "data" entries, which exceeds the limit of 1000/,
+    );
+  });
+
+  it('rejects an oversized `xLabels` array', () => {
+    // `series` here stays small (well under the cap) so this exercises the
+    // `xLabels` check specifically, not the sibling `series[].values` check.
+    const xLabels = Array.from({ length: 5000 }, (_, i) => `x${i}`);
+    expect(() =>
+      renderChartSvg({
+        type: 'line',
+        xLabels,
+        series: [{ name: 's1', values: [1, 2] }],
+      }),
+    ).toThrow(/received 5000 "xLabels" entries, which exceeds the limit of 1000/);
+  });
+
+  it('rejects an oversized `series` array', () => {
+    const series = Array.from({ length: 5000 }, (_, i) => ({ name: `s${i}`, values: [1, 2] }));
+    expect(() => renderChartSvg({ type: 'line', xLabels: ['a', 'b'], series })).toThrow(
+      /received 5000 "series" entries, which exceeds the limit of 1000/,
+    );
+  });
+
+  it('rejects an oversized per-series `values` array', () => {
+    const values = Array.from({ length: 5000 }, (_, i) => i);
+    expect(() =>
+      renderChartSvg({ type: 'line', xLabels: ['a'], series: [{ name: 's1', values }] }),
+    ).toThrow(/received 5000 "series\[\]\.values" entries, which exceeds the limit of 1000/);
+  });
+
+  it('rejects an oversized `data` array for a pie chart too (shared choke point)', () => {
+    const data = Array.from({ length: 5000 }, (_, i) => ({ label: `L${i}`, value: i + 1 }));
+    expect(() => renderChartSvg({ type: 'pie', data })).toThrow(
+      /received 5000 "data" entries, which exceeds the limit of 1000/,
+    );
+  });
+});

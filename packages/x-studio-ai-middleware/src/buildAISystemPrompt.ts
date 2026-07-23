@@ -812,6 +812,11 @@ export interface BuildAISystemPromptOptions {
   enrichedContext?: StudioAIEnrichedContext;
 }
 
+/** Plain-object guard for defensively probing client-supplied `richContext` shapes below. */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 /**
  * Renders the optional `<dashboard_context>` and `<server_context>` blocks from
  * the richer client/server context. Returns an empty string when there is
@@ -825,27 +830,53 @@ function buildRichContextBlock(
 
   if (richContext) {
     const inner: string[] = [];
-    if (richContext.fieldStats && Object.keys(richContext.fieldStats).length > 0) {
+    // Finding 2 (Tier 3): `richContext` is client-supplied and only NOMINALLY typed
+    // `StudioAIRichContext` — a hand-crafted request body can shape any of these
+    // fields however it likes (a string instead of an array, `null` array entries,
+    // objects missing expected sub-fields, …). Cast to `unknown` here so every shape
+    // check below is a REAL runtime guard rather than TypeScript trusting the
+    // (unverifiable) static type; each section is guarded with an
+    // `Array.isArray`/plain-object check before it is dereferenced, and a malformed
+    // section is skipped/omitted (never included with garbage data) rather than
+    // left to throw a raw `TypeError` mid-prompt-build.
+    const rc = richContext as unknown as {
+      fieldStats?: unknown;
+      pageLayout?: unknown;
+      recentMutations?: unknown;
+      omitted?: unknown;
+    };
+    if (isPlainObject(rc.fieldStats) && Object.keys(rc.fieldStats).length > 0) {
       // The stat values are typed `number`, but `richContext` is client-supplied, so a
       // hand-crafted request body could smuggle a `</dashboard_context>…` string into a
       // `number`-typed field. Route every value through `sanitizeForPrompt(String(v))` —
       // the same choke point applied to every other state-derived string — so invariant
       // 13 stays literally true (defense-in-depth; `String(undefined)` still renders
       // `"undefined"`, matching the prior raw interpolation).
-      const stat = (value: number | undefined): string => sanitizeForPrompt(String(value));
-      const lines = Object.entries(richContext.fieldStats).map(([key, s]) =>
-        s.min !== undefined || s.max !== undefined
-          ? `  - ${sanitizeForPrompt(key)}: min=${stat(s.min)}, max=${stat(s.max)}, mean=${stat(s.mean)} (n=${stat(s.sampledRows)})`
-          : `  - ${sanitizeForPrompt(key)}: ${stat(s.distinctCount)} distinct (n=${stat(s.sampledRows)})`,
-      );
-      inner.push(`Field statistics (from the live filtered view):\n${lines.join('\n')}`);
+      const stat = (value: unknown): string => sanitizeForPrompt(String(value));
+      const lines = Object.entries(rc.fieldStats)
+        .filter((entry): entry is [string, Record<string, unknown>] => isPlainObject(entry[1]))
+        .map(([key, s]) =>
+          s.min !== undefined || s.max !== undefined
+            ? `  - ${sanitizeForPrompt(key)}: min=${stat(s.min)}, max=${stat(s.max)}, mean=${stat(s.mean)} (n=${stat(s.sampledRows)})`
+            : `  - ${sanitizeForPrompt(key)}: ${stat(s.distinctCount)} distinct (n=${stat(s.sampledRows)})`,
+        );
+      if (lines.length > 0) {
+        inner.push(`Field statistics (from the live filtered view):\n${lines.join('\n')}`);
+      }
     }
-    if (richContext.pageLayout) {
-      const { pageId, rows, crossFilters } = richContext.pageLayout;
+    if (isPlainObject(rc.pageLayout) && Array.isArray(rc.pageLayout.rows)) {
+      const { pageId, rows, crossFilters } = rc.pageLayout as {
+        pageId: unknown;
+        rows: unknown[];
+        crossFilters: unknown;
+      };
       const rowLines = rows
+        .map((row, i) => (Array.isArray(row) ? { i, row } : null))
+        .filter((entry): entry is { i: number; row: unknown[] } => entry !== null)
         .map(
-          (row, i) =>
+          ({ i, row }) =>
             `  Row ${i + 1}: ${row
+              .filter(isPlainObject)
               .map(
                 (w) =>
                   `${sanitizeForPrompt(w.title || w.widgetId)} [${sanitizeForPrompt(w.kind)}${
@@ -863,28 +894,30 @@ function buildRichContextBlock(
         )
         .join('\n');
       const layout = [`Active page \`${sanitizeForPrompt(pageId)}\` layout:\n${rowLines}`];
-      if (crossFilters.length > 0) {
-        layout.push(
-          `Cross-filter graph:\n${crossFilters
-            .map(
-              (c) =>
-                `  - ${sanitizeForPrompt(c.sourceWidgetId)} filters by \`${sanitizeForPrompt(c.field)}\` (${sanitizeForPrompt(c.scope)})`,
-            )
-            .join('\n')}`,
-        );
+      if (Array.isArray(crossFilters) && crossFilters.length > 0) {
+        const crossFilterLines = crossFilters
+          .filter(isPlainObject)
+          .map(
+            (c) =>
+              `  - ${sanitizeForPrompt(c.sourceWidgetId)} filters by \`${sanitizeForPrompt(c.field)}\` (${sanitizeForPrompt(c.scope)})`,
+          );
+        if (crossFilterLines.length > 0) {
+          layout.push(`Cross-filter graph:\n${crossFilterLines.join('\n')}`);
+        }
       }
       inner.push(layout.join('\n'));
     }
-    if (richContext.recentMutations && richContext.recentMutations.length > 0) {
-      inner.push(
-        `Recent user changes (oldest first):\n${richContext.recentMutations
-          .map((m) => `  - ${sanitizeForPrompt(m.label)}`)
-          .join('\n')}`,
-      );
+    if (Array.isArray(rc.recentMutations) && rc.recentMutations.length > 0) {
+      const mutationLines = rc.recentMutations
+        .filter(isPlainObject)
+        .map((m) => `  - ${sanitizeForPrompt(m.label)}`);
+      if (mutationLines.length > 0) {
+        inner.push(`Recent user changes (oldest first):\n${mutationLines.join('\n')}`);
+      }
     }
-    if (richContext.omitted && richContext.omitted.length > 0) {
+    if (Array.isArray(rc.omitted) && rc.omitted.length > 0) {
       inner.push(
-        `Note: context omitted to fit the token budget: ${richContext.omitted
+        `Note: context omitted to fit the token budget: ${rc.omitted
           .map(sanitizeForPrompt)
           .join(', ')}.`,
       );

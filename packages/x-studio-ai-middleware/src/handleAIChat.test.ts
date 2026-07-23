@@ -360,6 +360,126 @@ describe('handleAIChat', () => {
       expect(errorEvent?.message).toMatch(/`messages\[0\]` is missing a `parts` array/);
       expect(fetch).not.toHaveBeenCalled();
     });
+
+    // Finding 2 (Tier 3): the validator previously checked `parts` was an ARRAY but
+    // never validated its ELEMENTS — `parts: [null]` passed and only crashed deep in
+    // `agenticLoop/openaiWire.ts`'s `toOpenAIMessages` (`p.type` on `null`).
+    it('rejects a messages entry with a `null` parts element', async () => {
+      const body = makeBody({
+        messages: [
+          {
+            id: 'm1',
+            role: 'user',
+            parts: [null],
+          } as unknown as StudioAIRequest['messages'][number],
+        ],
+      });
+
+      const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+      const errorEvent = events.find(
+        (event): event is { type: 'error'; message: string } => event.type === 'error',
+      );
+      expect(errorEvent?.message).toMatch(/^MUI X Studio:/);
+      expect(errorEvent?.message).toMatch(/`messages\[0\]\.parts\[0\]` is missing a string `type`/);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('rejects a messages entry with a parts element missing a string `type`', async () => {
+      const body = makeBody({
+        messages: [
+          {
+            id: 'm1',
+            role: 'user',
+            parts: [{ text: 'no type field' }],
+          } as unknown as StudioAIRequest['messages'][number],
+        ],
+      });
+
+      const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+      const errorEvent = events.find(
+        (event): event is { type: 'error'; message: string } => event.type === 'error',
+      );
+      expect(errorEvent?.message).toMatch(/`messages\[0\]\.parts\[0\]` is missing a string `type`/);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    // Finding 2 (Tier 3): a `dynamic-tool` part missing `toolInvocation` previously
+    // passed validation and crashed `p.toolInvocation.toolCallId` in `openaiWire.ts`.
+    it('rejects a `dynamic-tool` part missing `toolInvocation`', async () => {
+      const body = makeBody({
+        messages: [
+          {
+            id: 'm1',
+            role: 'assistant',
+            parts: [{ type: 'dynamic-tool' }],
+          } as unknown as StudioAIRequest['messages'][number],
+        ],
+      });
+
+      const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+      const errorEvent = events.find(
+        (event): event is { type: 'error'; message: string } => event.type === 'error',
+      );
+      expect(errorEvent?.message).toMatch(/^MUI X Studio:/);
+      expect(errorEvent?.message).toMatch(
+        /`messages\[0\]\.parts\[0\]` is a `dynamic-tool` part missing a valid `toolInvocation\.toolCallId`/,
+      );
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('rejects a `dynamic-tool` part whose `toolInvocation.toolCallId` is not a string', async () => {
+      const body = makeBody({
+        messages: [
+          {
+            id: 'm1',
+            role: 'assistant',
+            parts: [
+              {
+                type: 'dynamic-tool',
+                toolInvocation: { toolCallId: 123, toolName: 'x', input: {}, output: {} },
+              },
+            ],
+          } as unknown as StudioAIRequest['messages'][number],
+        ],
+      });
+
+      const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+      const errorEvent = events.find(
+        (event): event is { type: 'error'; message: string } => event.type === 'error',
+      );
+      expect(errorEvent?.message).toMatch(
+        /`messages\[0\]\.parts\[0\]` is a `dynamic-tool` part missing a valid `toolInvocation\.toolCallId`/,
+      );
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('accepts a well-formed `dynamic-tool` part', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(textResponse('ok'));
+      const body = makeBody({
+        messages: [
+          {
+            id: 'm1',
+            role: 'assistant',
+            parts: [
+              {
+                type: 'dynamic-tool',
+                toolInvocation: {
+                  toolCallId: 'call-1',
+                  toolName: 'list_pages',
+                  input: {},
+                  output: { pages: [] },
+                  state: 'output-available',
+                },
+              },
+            ],
+          } as unknown as StudioAIRequest['messages'][number],
+        ],
+      });
+
+      const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+      expect(events.some((event) => event.type === 'error')).toBe(false);
+      expect(fetch).toHaveBeenCalled();
+    });
   });
 
   it('runs contextEnricher and injects its output into the system prompt', async () => {

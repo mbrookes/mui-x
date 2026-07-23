@@ -4,6 +4,7 @@ import {
   handleAIChat,
   handleGenerateTitle,
   handleCreateWidget,
+  isApprovalThreadIdAuthorized,
   type StudioAIContextEnricher,
   type PendingApproval,
 } from '@mui/x-studio-ai-middleware';
@@ -186,10 +187,13 @@ export function makeAIRouter(salesDb: Knex, crmDb: Knex, config: Config): Router
       res.status(404).json({ error: `No pending approval for id: ${id}` });
       return;
     }
-    // Ownership binding: when this approval was raised under a known AI chat thread
-    // and the caller also asserts one, they must match — a resolution meant for a
-    // different conversation is refused rather than trusted on id alone.
-    if (entry.threadId !== undefined && threadId !== undefined && entry.threadId !== threadId) {
+    // Ownership binding: when this approval was raised under a known AI chat thread,
+    // the resolving request MUST present a matching `threadId` — reject it whether
+    // `threadId` is missing OR mismatched. `isApprovalThreadIdAuthorized` is the
+    // package's own helper for this check; a hand-rolled
+    // `entry.threadId !== undefined && threadId !== undefined && entry.threadId !== threadId`
+    // degrades to a no-op the moment a resolver omits `threadId`.
+    if (!isApprovalThreadIdAuthorized(entry, threadId)) {
       res.status(403).json({ error: 'This approval belongs to a different chat thread.' });
       return;
     }

@@ -37,6 +37,15 @@ const ANOMALY_CHART_TYPES = new Set(['bar', 'bar-stacked', 'bar-100', 'line']);
 const ANOMALY_SAFE_AGGREGATIONS = new Set(['sum', 'count']);
 
 /**
+ * Default `maxQueryRows` fallback when a caller constructs this handler without
+ * threading one through (Tier 3 finding 6) — mirrors `mcp.ts`'s own
+ * `data?.maxQueryRows ?? 1000` default for `MAX_QUERY_ROWS`, so this handler's
+ * anomaly-aggregation query is bounded consistently with every other
+ * `data.queryDataSource` call site even if a caller omits `maxQueryRows`.
+ */
+const DEFAULT_MAX_QUERY_ROWS = 1000;
+
+/**
  * Build the `summarise_page` handler. Registered only when `data` is configured;
  * without data the tool falls through to `executeToolOnState`, which returns a
  * descriptive client-side-limitation error.
@@ -45,8 +54,17 @@ export function createSummarisePageHandler(deps: {
   stateBox: StudioStateBox;
   data: StudioMcpData;
   logger?: StudioMcpLogger;
+  /**
+   * Hard upper bound applied to the per-widget anomaly aggregation query's
+   * `limit` (Tier 3 finding 6), mirroring `QueryToolDeps.maxQueryRows` (the same
+   * host-configured bound `query_data_source` respects). Optional for backward
+   * compatibility with existing callers/tests that don't pass it — falls back to
+   * `DEFAULT_MAX_QUERY_ROWS` when omitted, same default `mcp.ts` uses for
+   * `MAX_QUERY_ROWS` when the host supplies none.
+   */
+  maxQueryRows?: number;
 }): ToolHandler {
-  const { stateBox, data, logger } = deps;
+  const { stateBox, data, logger, maxQueryRows = DEFAULT_MAX_QUERY_ROWS } = deps;
 
   return async (args) => {
     const state = stateBox.current;
@@ -227,7 +245,11 @@ export function createSummarisePageHandler(deps: {
                   tableName: source.tableName as string,
                   columns: [xField],
                   aggregations: [{ column: yField, func: yAgg, alias: 'y_agg' }],
-                  limit: 20000,
+                  // Finding 6 (Tier 3): this hardcoded 20,000 previously ignored the
+                  // host's configured `maxQueryRows` bound entirely. Cap at whichever
+                  // is smaller, matching `query_data_source`'s own
+                  // `Math.min(limit, maxQueryRows)` clamp.
+                  limit: Math.min(20_000, maxQueryRows),
                 }),
                 15_000,
                 `aggregation query for ${source.tableName}`,

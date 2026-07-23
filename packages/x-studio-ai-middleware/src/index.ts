@@ -85,6 +85,10 @@ export type { AgenticLoopOptions } from './agenticLoop';
 // The `approvalPending` map's value type — a resolver bound to the AI chat thread
 // (when known) it was raised under. See `StudioAIHandlerOptions.approvalPending`.
 export type { PendingApproval } from './agenticLoop/toolDispatch';
+// The thread-binding check a host's approval-resolution route should reuse rather
+// than hand-roll (finding 5, Tier 3) — see its doc comment for the bypassable
+// shape it replaces.
+export { isApprovalThreadIdAuthorized } from './agenticLoop/toolDispatch';
 export { executeToolOnState } from './executeToolOnState';
 export type { ToolExecutionResult } from './executeToolOnState';
 

@@ -65,8 +65,9 @@ const MAX_COMPUTE_FIELD_STATS_FIELDS = 50;
 const MAX_QUERY_ARRAY_LENGTH = MAX_COMPUTE_FIELD_STATS_FIELDS;
 
 /**
- * Validate an optional model-supplied array argument to `query_data_source`
- * (`columns` / `filters` / `aggregations` / `having` / `orderBy`).
+ * Validate an optional model-supplied array argument to a data-query tool
+ * (`query_data_source`'s `columns` / `filters` / `aggregations` / `having` /
+ * `orderBy`, and — finding 4, Tier 3 — `compute_field_stats`'s `fields`).
  *
  * Rejects (never silently truncates or coerces) a non-array value outright —
  * mirroring `compute_field_stats`'s own reject-don't-truncate stance — since a
@@ -77,8 +78,14 @@ const MAX_QUERY_ARRAY_LENGTH = MAX_COMPUTE_FIELD_STATS_FIELDS;
  * `compute_field_stats` gives for its own `fields` cap (see
  * `MAX_QUERY_ARRAY_LENGTH`). Returns the validated array unchanged (or
  * `undefined` when the arg was omitted) so the caller can forward it as-is.
+ *
+ * `toolName` is threaded through (rather than hardcoded) so the error message
+ * names whichever tool actually rejected the call — `compute_field_stats`'s
+ * `fields` and `query_data_source`'s five arrays share this one validator, and a
+ * `compute_field_stats` caller should not be told to fix `query_data_source`.
  */
 function validateQueryArrayArg<T>(
+  toolName: string,
   argName: string,
   value: unknown,
 ): { ok: true; value: T[] | undefined } | { ok: false; error: ReturnType<typeof errorResult> } {
@@ -89,7 +96,7 @@ function validateQueryArrayArg<T>(
     return {
       ok: false,
       error: errorResult(
-        `query_data_source: "${argName}" must be an array, received ${typeof value}. ` +
+        `${toolName}: "${argName}" must be an array, received ${typeof value}. ` +
           `Pass an array of ${argName} entries, or omit "${argName}" entirely.`,
       ),
     };
@@ -98,7 +105,7 @@ function validateQueryArrayArg<T>(
     return {
       ok: false,
       error: errorResult(
-        `query_data_source received ${value.length} "${argName}" entries, which exceeds the limit of ` +
+        `${toolName} received ${value.length} "${argName}" entries, which exceeds the limit of ` +
           `${MAX_QUERY_ARRAY_LENGTH}. Split the request into multiple calls of at most ` +
           `${MAX_QUERY_ARRAY_LENGTH} ${argName} entries each.`,
       ),
@@ -218,26 +225,39 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
       // `filters` / `aggregations` / `having` / `orderBy` array before any of them
       // reach `data.queryDataSource` (T2-3) — see `validateQueryArrayArg`'s doc
       // comment.
-      const columnsResult = validateQueryArrayArg<string>('columns', columns);
+      const columnsResult = validateQueryArrayArg<string>('query_data_source', 'columns', columns);
       if (!columnsResult.ok) {
         return columnsResult.error;
       }
-      const filtersResult = validateQueryArrayArg<StudioDataFilter>('filters', filters);
+      const filtersResult = validateQueryArrayArg<StudioDataFilter>(
+        'query_data_source',
+        'filters',
+        filters,
+      );
       if (!filtersResult.ok) {
         return filtersResult.error;
       }
       const aggregationsResult = validateQueryArrayArg<StudioDataAggregation>(
+        'query_data_source',
         'aggregations',
         aggregations,
       );
       if (!aggregationsResult.ok) {
         return aggregationsResult.error;
       }
-      const havingResult = validateQueryArrayArg<StudioDataHavingPredicate>('having', having);
+      const havingResult = validateQueryArrayArg<StudioDataHavingPredicate>(
+        'query_data_source',
+        'having',
+        having,
+      );
       if (!havingResult.ok) {
         return havingResult.error;
       }
-      const orderByResult = validateQueryArrayArg<StudioDataOrderBy>('orderBy', orderBy);
+      const orderByResult = validateQueryArrayArg<StudioDataOrderBy>(
+        'query_data_source',
+        'orderBy',
+        orderBy,
+      );
       if (!orderByResult.ok) {
         return orderByResult.error;
       }
@@ -517,23 +537,46 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
       if (!data) {
         return errorResult('Data access not configured.');
       }
-      const { sourceId, fields: statFields } = (args ?? {}) as {
+      const { sourceId, fields: rawFields } = (args ?? {}) as {
         sourceId: string;
-        fields: string[];
+        fields: unknown;
       };
-      if (!sourceId || !statFields || statFields.length === 0) {
+      if (!sourceId || rawFields === undefined) {
         return errorResult('sourceId and fields (non-empty array) are required');
       }
-      // Reject (not silently truncate) an oversized `fields` array (Tier 3, iteration
-      // 22): each field fans out into 5 aggregations in a single query, so an unbounded
-      // request performs unbounded aggregation work. See `MAX_COMPUTE_FIELD_STATS_FIELDS`.
-      if (statFields.length > MAX_COMPUTE_FIELD_STATS_FIELDS) {
+      // Finding 4 (Tier 3): validate `fields` IS an array (not e.g. a bare string,
+      // which also has `.length` and so previously slipped past the emptiness/size
+      // checks below) before touching it further — the same array-shape + size-cap
+      // validation `query_data_source`'s five array args already get from
+      // `validateQueryArrayArg`. Reuses `MAX_COMPUTE_FIELD_STATS_FIELDS` as the cap
+      // (each field fans out into 5 aggregations in a single query, so an unbounded
+      // request performs unbounded aggregation work).
+      const fieldsResult = validateQueryArrayArg<unknown>(
+        'compute_field_stats',
+        'fields',
+        rawFields,
+      );
+      if (!fieldsResult.ok) {
+        return fieldsResult.error;
+      }
+      const rawStatFields = fieldsResult.value ?? [];
+      if (rawStatFields.length === 0) {
+        return errorResult('sourceId and fields (non-empty array) are required');
+      }
+      // `validateQueryArrayArg`'s cast only guarantees array-ness, not that every
+      // entry is actually a `string` — a non-string element (e.g. a number or a
+      // nested object) would otherwise be forwarded verbatim as an aggregation
+      // `column` to `data.queryDataSource` below. Check + narrow before trusting
+      // `statFields` as `string[]` for the rest of this handler.
+      const nonStringIndex = rawStatFields.findIndex((f) => typeof f !== 'string');
+      if (nonStringIndex !== -1) {
         return errorResult(
-          `compute_field_stats received ${statFields.length} fields, which exceeds the limit of ` +
-            `${MAX_COMPUTE_FIELD_STATS_FIELDS}. Split the request into multiple calls of at most ` +
-            `${MAX_COMPUTE_FIELD_STATS_FIELDS} fields each.`,
+          `compute_field_stats: "fields[${nonStringIndex}]" must be a string field id, received ` +
+            `${typeof rawStatFields[nonStringIndex]}. Pass an array of field-id strings, e.g. ` +
+            '["revenue", "region"].',
         );
       }
+      const statFields = rawStatFields as string[];
       const resolved = resolveSource(stateBox, sourceId, data.allowedTables);
       if (!resolved.ok) {
         return resolved.error;

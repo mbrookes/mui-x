@@ -386,7 +386,12 @@ export function buildStudioMcpServer(
   // it, the tool falls through to executeToolOnState, which returns a descriptive
   // error explaining the client-side limitation.
   if (data) {
-    toolHandlers.summarise_page = createSummarisePageHandler({ stateBox, data, logger });
+    toolHandlers.summarise_page = createSummarisePageHandler({
+      stateBox,
+      data,
+      logger,
+      maxQueryRows: MAX_QUERY_ROWS,
+    });
   }
 
   /**
@@ -542,6 +547,7 @@ export function buildStudioMcpServer(
       input: displayInput,
       state: stateBox.current,
       proposed,
+      phase: 'final',
       usage: sessionUsage,
     });
     // If the timeout below wins the race, `approvalPromise` is left running with no

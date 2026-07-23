@@ -63,10 +63,47 @@ type ApprovalOutcome =
  * route). `threadId` is optional and a host that has not wired thread-id
  * passthrough into its approval UI can still resolve by id alone — this is a
  * defense-in-depth addition, not a hard requirement.
+ *
+ * IMPORTANT for hosts that DO wire this check: use `isApprovalThreadIdAuthorized`
+ * (below) rather than hand-rolling it. When `entry.threadId` is set, the
+ * resolving request MUST present a matching `threadId` — reject the resolution
+ * (403) if it is missing OR mismatched, not only when both sides happen to have
+ * one. A check of the shape `entry.threadId !== undefined && threadId !== undefined
+ * && entry.threadId !== threadId` is bypassable simply by omitting `threadId` from
+ * the request body, since it degrades to a no-op the moment `threadId` is absent.
  */
 export interface PendingApproval {
   resolve: (approved: boolean, reason?: string) => void;
   threadId?: string;
+}
+
+/**
+ * Whether a resolution request may resolve `entry`, given the entry's own
+ * `threadId` (absent when the approval was never bound to a thread) and the
+ * resolving request's asserted `threadId` (finding 5, Tier 3).
+ *
+ * When `entry.threadId` is set, the resolving request MUST present a matching
+ * `threadId` — this returns `false` when it is missing OR mismatched. A check
+ * of the shape `entry.threadId !== undefined && threadId !== undefined &&
+ * entry.threadId !== threadId` is bypassable simply by omitting `threadId`
+ * from the request body (it degrades to a no-op the moment `threadId` is
+ * absent on either side); this helper closes that gap. Only when
+ * `entry.threadId` itself is absent does this return `true` unconditionally —
+ * the approval was never bound to a thread, so there is nothing to check.
+ *
+ * Exported so a host's approval route (see the `@example` on
+ * `StudioAIHandlerOptions.approvalPending` in `handleAIChat.ts`, and
+ * `examples/x-studio-dev-server/src/routes/ai.ts`'s `/approval` route) can
+ * reuse this exact check instead of hand-rolling a bypassable version.
+ */
+export function isApprovalThreadIdAuthorized(
+  entry: Pick<PendingApproval, 'threadId'>,
+  threadId: string | undefined,
+): boolean {
+  if (entry.threadId === undefined) {
+    return true;
+  }
+  return entry.threadId === threadId;
 }
 
 /**

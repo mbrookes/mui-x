@@ -194,6 +194,7 @@ describe('createDefaultToolPolicy', () => {
       input: {},
       state,
       proposed: undefined,
+      phase: 'final',
       usage: EMPTY_USAGE(),
     });
     const expected = DESTRUCTIVE_TOOLS.has(name) ? 'require-approval' : 'allow';
@@ -209,6 +210,7 @@ describe('createDefaultToolPolicy', () => {
       input: {},
       state,
       proposed: undefined,
+      phase: 'final',
       usage: EMPTY_USAGE(),
     });
     expect(decision.action).toBe('require-approval');
@@ -236,6 +238,7 @@ describe('createDefaultToolPolicy', () => {
         nextState: orphan.nextState,
         effects: computeToolEffects(state, orphan.mutation!, orphan.nextState),
       },
+      phase: 'final',
       usage: EMPTY_USAGE(),
     });
     expect(decision.action).toBe('require-approval');
@@ -256,6 +259,7 @@ describe('createDefaultToolPolicy', () => {
         nextState: reorder.nextState,
         effects: computeToolEffects(state, reorder.mutation!, reorder.nextState),
       },
+      phase: 'final',
       usage: EMPTY_USAGE(),
     });
     expect(decision.action).toBe('allow');
@@ -280,6 +284,7 @@ describe('createEffectsAwareToolPolicy', () => {
         nextState: orphan.nextState,
         effects: computeToolEffects(state, orphan.mutation!, orphan.nextState),
       },
+      phase: 'final',
       usage: EMPTY_USAGE(),
     });
     expect(orphanDecision.action).toBe('require-approval');
@@ -295,6 +300,7 @@ describe('createEffectsAwareToolPolicy', () => {
         nextState: reorder.nextState,
         effects: computeToolEffects(state, reorder.mutation!, reorder.nextState),
       },
+      phase: 'final',
       usage: EMPTY_USAGE(),
     });
     expect(reorderDecision.action).toBe('allow');
@@ -308,6 +314,7 @@ describe('createEffectsAwareToolPolicy', () => {
       input: { sourceId: 'src1' },
       state: createDefaultStudioState(),
       proposed: undefined,
+      phase: 'final',
       usage: EMPTY_USAGE(),
     });
     expect(decision.action).toBe('allow');
@@ -327,6 +334,7 @@ describe('createEffectsAwareToolPolicy', () => {
         nextState: update.nextState,
         effects: computeToolEffects(state, update.mutation!, update.nextState),
       },
+      phase: 'final',
       usage: EMPTY_USAGE(),
     });
     expect(decision.action).toBe('require-approval');
@@ -503,6 +511,114 @@ describe('executeToolWithPolicy', () => {
       spy.mockRestore();
     });
   });
+
+  // Finding 1 (Tier 3): the pre-check consult and a genuine args-only consult both
+  // present `proposed: undefined`, so a host policy keying `deny` off `!ctx.proposed`
+  // alone can't distinguish them. `phase` is the discriminator: `'pre-check'` for the
+  // cheap consult above, `'final'` for every consult whose decision is actually acted
+  // on (the real execute-then-gate consult AND `consultToolPolicyArgsOnly`).
+  describe('phase discriminator (finding 1)', () => {
+    it('tags the pre-check consult "pre-check" and the real consult "final"', async () => {
+      const state = makeTwoWidgetState();
+      const seenPhases: Array<{ phase: string; proposed: boolean }> = [];
+      const policy: ToolPolicy = (ctx) => {
+        seenPhases.push({ phase: ctx.phase, proposed: ctx.proposed !== undefined });
+        return { action: 'allow' };
+      };
+
+      // A read-only tool: the pre-check consult (`proposed: undefined`, `phase:
+      // 'pre-check'`) runs first, then the real consult after the dry run — for a
+      // non-mutating tool that real consult ALSO has `proposed: undefined`, but is
+      // tagged `phase: 'final'`.
+      await executeToolWithPolicy('list_pages', {}, state, {
+        policy,
+        transport: 'chat',
+        usage: EMPTY_USAGE(),
+      });
+
+      expect(seenPhases).toEqual([
+        { phase: 'pre-check', proposed: false },
+        { phase: 'final', proposed: false },
+      ]);
+    });
+
+    it('tags the real consult "final" with proposed set for a mutating tool', async () => {
+      const state = makeTwoWidgetState();
+      const seenPhases: Array<{ phase: string; proposed: boolean }> = [];
+      const policy: ToolPolicy = (ctx) => {
+        seenPhases.push({ phase: ctx.phase, proposed: ctx.proposed !== undefined });
+        return { action: 'allow' };
+      };
+
+      await executeToolWithPolicy('remove_widget', { widgetId: 'w1' }, state, {
+        policy,
+        transport: 'chat',
+        usage: EMPTY_USAGE(),
+      });
+
+      expect(seenPhases).toEqual([
+        { phase: 'pre-check', proposed: false },
+        { phase: 'final', proposed: true },
+      ]);
+    });
+
+    it('lets a phase-aware "deny args-only" catch-all target genuine args-only calls without over-denying the pre-check', async () => {
+      // Simulates the exact hazard finding 1 describes: a host policy implementing
+      // "deny every args-only/side-effectful call" as `!ctx.proposed` alone can't
+      // tell the cheap pre-check consult (`proposed: undefined`, made for EVERY
+      // built-in tool call, including mutating ones) apart from a genuine args-only
+      // consult (`query_data_source`, server-tool skills). Without `phase`, this
+      // policy would over-deny every built-in tool call at the pre-check step,
+      // before the dry run ever gets to prove the call actually mutates. Gating on
+      // `phase === 'final'` too — the only phase whose decision is meant to be
+      // acted on for an args-only shape — fixes that.
+      const policy: ToolPolicy = (ctx) => {
+        if (ctx.phase === 'final' && !ctx.proposed) {
+          return { action: 'deny', reason: 'args-only calls are denied' };
+        }
+        return { action: 'allow' };
+      };
+
+      // A mutating built-in tool: its pre-check consult is `proposed: undefined` +
+      // `phase: 'pre-check'` — NOT caught by the policy above — so the call proceeds
+      // to the real dry run and is allowed (this tool isn't in DESTRUCTIVE_TOOLS).
+      const state = makeTwoWidgetState();
+      const mutatingOutcome = await executeToolWithPolicy(
+        'set_dashboard_title',
+        { title: 'X' },
+        state,
+        { policy, transport: 'chat', usage: EMPTY_USAGE() },
+      );
+      expect(mutatingOutcome.kind).toBe('allowed');
+
+      // A genuine args-only consult: `phase: 'final'` + `proposed: undefined` — this
+      // IS what the policy means to deny.
+      const argsOnlyOutcome = await consultToolPolicyArgsOnly(
+        'query_data_source',
+        {},
+        createDefaultStudioState(),
+        { policy, transport: 'chat', usage: EMPTY_USAGE() },
+      );
+      expect(argsOnlyOutcome).toEqual({ kind: 'denied', reason: 'args-only calls are denied' });
+    });
+
+    it('tags a genuine args-only consult (consultToolPolicyArgsOnly) "final", never "pre-check"', async () => {
+      let seen: ToolPolicyContext | undefined;
+      const policy: ToolPolicy = (ctx) => {
+        seen = ctx;
+        return { action: 'allow' };
+      };
+
+      await consultToolPolicyArgsOnly('query_data_source', {}, createDefaultStudioState(), {
+        policy,
+        transport: 'chat',
+        usage: EMPTY_USAGE(),
+      });
+
+      expect(seen?.phase).toBe('final');
+      expect(seen?.proposed).toBeUndefined();
+    });
+  });
 });
 
 describe('consultToolPolicyArgsOnly: require-approval reason threading', () => {
@@ -539,6 +655,7 @@ function makeProposedCtx(usage = EMPTY_USAGE()): ToolPolicyContext {
       nextState: result.nextState,
       effects: computeToolEffects(state, result.mutation!, result.nextState),
     },
+    phase: 'final',
     usage,
   };
 }
@@ -551,6 +668,7 @@ function makeArgsOnlyCtx(usage = EMPTY_USAGE()): ToolPolicyContext {
     input: {},
     state: createDefaultStudioState(),
     proposed: undefined,
+    phase: 'final',
     usage,
   };
 }

@@ -9,6 +9,10 @@
  *
  * Security invariants enforced here (before reaching the builder):
  * 1. All tables validated against schemaAllowlist (Zero-Knowledge Rule)
+ * 1b. Every table-QUALIFIED `where[].column` (e.g. "other_table.secret") is also
+ *     validated against schemaAllowlist, UNCONDITIONALLY — independent of whether
+ *     columnAllowlist is configured — via `assertQualifiedWhereColumnsAllowed`,
+ *     mirroring the read path's unconditional `assertQualifiedColumnsAllowed`.
  * 2. Column values validated against writableColumns per table
  * 3. WHERE-predicate columns validated against columnAllowlist per table
  * 4. UPDATE/DELETE require at least one WHERE predicate
@@ -18,10 +22,11 @@
  * failing widget as its own per-widget `{ error }` while its siblings still
  * succeed. The write path is only per-item isolated for errors surfaced by the
  * per-mutation builder (invariants 2-4, unknown operation); a table-allowlist
- * violation (invariant 1) is validated up front and throws, deliberately aborting
- * the WHOLE batch all-or-nothing (pinned by the "table allowlist rejection"
- * test) — a batch that references a disallowed table is treated as malformed
- * rather than partially applied.
+ * violation (invariant 1, including its qualified-where-column extension 1b) is
+ * validated up front and throws, deliberately aborting the WHOLE batch
+ * all-or-nothing (pinned by the "table allowlist rejection" test) — a batch that
+ * references a disallowed table is treated as malformed rather than partially
+ * applied.
  *
  * After each successful mutation:
  * - deleteByTag(table) is called automatically to evict stale query results for
@@ -51,7 +56,10 @@ import {
   buildUpdateMutation,
   buildDeleteMutation,
 } from './mutationBuilder';
-import { assertTablesAllowed } from '../shared/assertTablesAllowed';
+import {
+  assertTablesAllowed,
+  assertQualifiedWhereColumnsAllowed,
+} from '../shared/assertTablesAllowed';
 import { sanitizeBoundaryError } from '../shared/sanitizeError';
 import {
   compileSecurityPolicy,
@@ -156,6 +164,19 @@ export async function handleMutation(
     body.mutations.map((m) => m.table),
     schemaAllowlist,
   );
+
+  // ── Upfront qualified WHERE-column validation (Zero-Knowledge Rule, parity
+  // with the read path's `assertQualifiedColumnsAllowed`) ───────────────────
+  // A mutation never joins, so `assertTablesAllowed` above only ever sees
+  // `descriptor.table` — a qualified `where[].column` (e.g. `"other_table.secret"`)
+  // names a table that check can't see at all. This runs UNCONDITIONALLY,
+  // independent of whether `columnAllowlist` is configured, mirroring the read
+  // path's unconditional `assertQualifiedColumnsAllowed` call. Grouped with the
+  // table-allowlist check above (same upfront, whole-batch-aborting posture) since
+  // it is the identical Zero-Knowledge Rule applied to one more reference shape.
+  for (const mutation of body.mutations) {
+    assertQualifiedWhereColumnsAllowed(mutation.where, schemaAllowlist);
+  }
 
   // ── Per-mutation processing — SEQUENTIAL with error isolation ─────────────
   // Mutations run in array order (not concurrently) so a batch like

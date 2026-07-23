@@ -6,7 +6,7 @@
  * (`handleBatchQuery`) and the write handler (`handleMutation`) so the check —
  * and its error text — live in exactly one place.
  */
-import type { BatchWidgetDescriptor } from '../security/types';
+import type { BatchWidgetDescriptor, FilterPredicate } from '../security/types';
 
 /**
  * Throw when any of `tables` is not present in `schemaAllowlist`.
@@ -38,6 +38,35 @@ export function assertTablesAllowed(tables: string[], schemaAllowlist: string[])
 function qualifiedTableOf(column: string): string | undefined {
   const dotIndex = column.indexOf('.');
   return dotIndex === -1 ? undefined : column.slice(0, dotIndex);
+}
+
+/**
+ * Shared by `assertQualifiedColumnsAllowed` (read path) and
+ * `assertQualifiedWhereColumnsAllowed` (write path): throw when `column` is
+ * table-qualified and names a table absent from `schemaAllowlist`. An
+ * unqualified column, or one qualifying a table already on the allowlist, is a
+ * no-op.
+ */
+function checkQualifiedColumn(column: string, context: string, schemaAllowlist: string[]): void {
+  const table = qualifiedTableOf(column);
+  if (table === undefined || schemaAllowlist.includes(table)) {
+    return;
+  }
+  // Mirrors `assertTablesAllowed`'s information-disclosure posture (finding
+  // 3.3): the client-facing error names only the rejected table, never the
+  // full allowlist; the full list is logged server-side for operator debugging.
+  console.warn(
+    `MUI X Studio Server: Rejected qualified column reference "${column}" (in ${context}) — ` +
+      `table "${table}" is not in the schema allowlist. Allowed tables: ${schemaAllowlist.join(', ')}`,
+  );
+  throw new Error(
+    `MUI X: Qualified column reference "${column}" (in ${context}) names table "${table}", which is not in the ` +
+      `schema allowlist. Every table a query can touch — including one named only through a qualified column ` +
+      `reference, not just the primary table or an explicit join — must be explicitly allowlisted, or an ` +
+      `unregistered table could be probed through a filter/column/orderBy reference alone. ` +
+      `Add "${table}" to the schema allowlist if it should be queryable, or reference a column on an ` +
+      `already-allowlisted table.`,
+  );
 }
 
 /**
@@ -82,49 +111,64 @@ export function assertQualifiedColumnsAllowed(
   descriptor: BatchWidgetDescriptor,
   schemaAllowlist: string[],
 ): void {
-  const check = (column: string, context: string): void => {
-    const table = qualifiedTableOf(column);
-    if (table === undefined || schemaAllowlist.includes(table)) {
-      return;
-    }
-    // Mirrors `assertTablesAllowed`'s information-disclosure posture (finding
-    // 3.3): the client-facing error names only the rejected table, never the
-    // full allowlist; the full list is logged server-side for operator debugging.
-    console.warn(
-      `MUI X Studio Server: Rejected qualified column reference "${column}" (in ${context}) — ` +
-        `table "${table}" is not in the schema allowlist. Allowed tables: ${schemaAllowlist.join(', ')}`,
-    );
-    throw new Error(
-      `MUI X: Qualified column reference "${column}" (in ${context}) names table "${table}", which is not in the ` +
-        `schema allowlist. Every table a query can touch — including one named only through a qualified column ` +
-        `reference, not just the primary table or an explicit join — must be explicitly allowlisted, or an ` +
-        `unregistered table could be probed through a filter/column/orderBy reference alone. ` +
-        `Add "${table}" to the schema allowlist if it should be queryable, or reference a column on an ` +
-        `already-allowlisted table.`,
-    );
-  };
-
   for (const column of descriptor.columns ?? []) {
-    check(column, 'columns');
+    checkQualifiedColumn(column, 'columns', schemaAllowlist);
   }
   for (const filter of descriptor.filters ?? []) {
-    check(filter.column, 'filters');
+    checkQualifiedColumn(filter.column, 'filters', schemaAllowlist);
   }
   for (const orderBy of descriptor.orderBy ?? []) {
-    check(orderBy.column, 'orderBy');
+    checkQualifiedColumn(orderBy.column, 'orderBy', schemaAllowlist);
   }
   for (const physical of Object.values(descriptor.columnAliases ?? {})) {
     if (typeof physical === 'string') {
-      check(physical, 'columnAliases');
+      checkQualifiedColumn(physical, 'columnAliases', schemaAllowlist);
     }
   }
   for (const agg of descriptor.aggregations ?? []) {
-    check(agg.column, 'aggregations');
+    checkQualifiedColumn(agg.column, 'aggregations', schemaAllowlist);
   }
   for (const join of descriptor.joins ?? []) {
     for (const [left, right] of join.on ?? []) {
-      check(left, 'joins.on');
-      check(right, 'joins.on');
+      checkQualifiedColumn(left, 'joins.on', schemaAllowlist);
+      checkQualifiedColumn(right, 'joins.on', schemaAllowlist);
     }
+  }
+}
+
+/**
+ * Enforce the Zero-Knowledge Rule on every table-QUALIFIED `where[].column`
+ * reference in a WRITE (mutation) descriptor — the write-path analogue of
+ * `assertQualifiedColumnsAllowed` above. Runs unconditionally, independent of
+ * whether `HandleMutationOptions.columnAllowlist` is configured for this
+ * deployment, mirroring the read path's unconditional posture.
+ *
+ * GAP THIS CLOSES: on the read path, a qualified column reference naming a
+ * table absent from `schemaAllowlist` always gets a clean, actionable
+ * `MUI X`-prefixed rejection via `assertQualifiedColumnsAllowed` above — even
+ * when no `columnAllowlist` is configured. The write path had no equivalent:
+ * `handleMutation` only ran `assertTablesAllowed` (primary table only — a
+ * mutation never joins), so a qualified `where[].column` (the one
+ * client-controlled qualified reference `applyPredicate` emits verbatim into
+ * `query.where(where[].column, …)`) was only checked against a table
+ * allowlist when `options.columnAllowlist` happened to be configured (via
+ * `validateMutation` → `checkColumnAgainstAllowlist`). A
+ * `schemaAllowlist`-only deployment therefore had no application-layer
+ * rejection for this reference — the query still failed CLOSED (mutations are
+ * always single-table with the tenant predicate AND-ed in first, and
+ * `sanitizeBoundaryError` generalizes the resulting driver error to a generic
+ * message), but as an opaque downstream failure rather than this package's own
+ * clear error, the same inconsistency `assertQualifiedColumnsAllowed` closes
+ * for reads. Running this check unconditionally closes it for writes too.
+ *
+ * @param where - The mutation descriptor's `where` predicates, if any.
+ * @param schemaAllowlist - The allowlist of writable table names.
+ */
+export function assertQualifiedWhereColumnsAllowed(
+  where: FilterPredicate[] | undefined,
+  schemaAllowlist: string[],
+): void {
+  for (const predicate of where ?? []) {
+    checkQualifiedColumn(predicate.column, 'where', schemaAllowlist);
   }
 }

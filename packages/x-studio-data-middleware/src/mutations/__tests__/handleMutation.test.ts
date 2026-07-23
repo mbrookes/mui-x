@@ -562,6 +562,156 @@ describe('handleMutation — where-column allowlist', () => {
   });
 });
 
+// ── Qualified WHERE-column schema allowlist (Zero-Knowledge Rule parity) ──────
+//
+// The read path's `assertQualifiedColumnsAllowed` unconditionally rejects a
+// qualified column reference naming a table outside `schemaAllowlist`, regardless
+// of whether `columnAllowlist` is configured. The write path had no equivalent for
+// a qualified `where[].column` — `assertQualifiedWhereColumnsAllowed` closes that
+// gap. These tests pin the write-path parity.
+
+describe('handleMutation — qualified where-column schema allowlist', () => {
+  it('rejects a qualified where column naming a table outside the schema allowlist, even with no columnAllowlist configured', async () => {
+    const db = createMutableMockDb({
+      orders: [{ id: 1, tenant_id: 'acme', status: 'pending' }],
+    });
+    const body: BatchMutationRequest = {
+      mutations: [
+        {
+          id: 'm1',
+          operation: 'delete',
+          table: 'orders',
+          where: [{ column: 'other_table.secret', operator: 'eq', value: 1 }],
+        },
+      ],
+    };
+    // Rejected up front (like the table-allowlist check), not as a per-mutation
+    // `{ error }` — a clean, actionable MUI X error, not an opaque driver error.
+    await expect(
+      handleMutation(body, CLAIMS, { db, schemaAllowlist: ALLOWLIST, tenancy: SINGLE_TENANT }),
+    ).rejects.toThrow(/names table "other_table", which is not in the schema allowlist/);
+    // Rejected before any query was built — the row must be untouched.
+    expect(db.snapshot().orders).toHaveLength(1);
+  });
+
+  it('rejects a qualified where column naming an unregistered table across a batch of mutations (whole-batch, all-or-nothing)', async () => {
+    const db = createMutableMockDb({ orders: [], customers: [] });
+    const body: BatchMutationRequest = {
+      mutations: [
+        { id: 'm1', operation: 'insert', table: 'orders', values: { status: 'pending' } },
+        {
+          id: 'm2',
+          operation: 'delete',
+          table: 'customers',
+          where: [{ column: 'payroll.salary', operator: 'eq', value: 1 }],
+        },
+      ],
+    };
+    await expect(
+      handleMutation(body, CLAIMS, { db, schemaAllowlist: ALLOWLIST, tenancy: SINGLE_TENANT }),
+    ).rejects.toThrow(/names table "payroll", which is not in the schema allowlist/);
+    // Neither mutation should have run — the whole batch is rejected up front.
+    expect(db.snapshot().orders).toHaveLength(0);
+  });
+
+  it('allows a qualified where column naming an allowlisted table', async () => {
+    const db = createMutableMockDb({
+      orders: [{ id: 1, tenant_id: 'acme', status: 'pending' }],
+    });
+    const body: BatchMutationRequest = {
+      mutations: [
+        {
+          id: 'm1',
+          operation: 'update',
+          table: 'orders',
+          values: { status: 'shipped' },
+          where: [{ column: 'orders.status', operator: 'eq', value: 'pending' }],
+        },
+      ],
+    };
+    const { results } = await handleMutation(body, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      tenancy: SINGLE_TENANT,
+    });
+    expect(results[0]).toMatchObject({ id: 'm1', ok: true, rowsAffected: 1 });
+  });
+
+  it('allows an unqualified where column, unaffected by the new check', async () => {
+    const db = createMutableMockDb({
+      orders: [{ id: 1, tenant_id: 'acme', status: 'pending' }],
+    });
+    const body: BatchMutationRequest = {
+      mutations: [
+        {
+          id: 'm1',
+          operation: 'delete',
+          table: 'orders',
+          where: [{ column: 'status', operator: 'eq', value: 'pending' }],
+        },
+      ],
+    };
+    const { results } = await handleMutation(body, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      tenancy: SINGLE_TENANT,
+    });
+    expect(results[0]).toMatchObject({ id: 'm1', ok: true, rowsAffected: 1 });
+    expect(db.snapshot().orders).toHaveLength(0);
+  });
+
+  // The pre-existing `columnAllowlist`-configured path (`checkColumnAgainstAllowlist`
+  // via `validateMutation`) must keep working unaffected by the new unconditional
+  // schema check — the two checks are independent and additive.
+  it('still enforces columnAllowlist rejection for a non-allowlisted column, independent of the new schema check', async () => {
+    const db = createMutableMockDb({
+      orders: [{ id: 1, tenant_id: 'acme', status: 'pending', secret: 'x' }],
+    });
+    const body: BatchMutationRequest = {
+      mutations: [
+        {
+          id: 'm1',
+          operation: 'delete',
+          table: 'orders',
+          where: [{ column: 'orders.secret', operator: 'eq', value: 'x' }],
+        },
+      ],
+    };
+    const { results } = await handleMutation(body, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      tenancy: SINGLE_TENANT,
+      columnAllowlist: { orders: ['id', 'status'] },
+    });
+    expect(results[0].ok).toBe(false);
+    expect(results[0].error).toMatch(/not in the column allowlist/);
+    expect(db.snapshot().orders).toHaveLength(1);
+  });
+
+  it('still allows a qualified where column that is in the schema allowlist AND the column allowlist', async () => {
+    const db = createMutableMockDb({
+      orders: [{ id: 1, tenant_id: 'acme', status: 'pending' }],
+    });
+    const body: BatchMutationRequest = {
+      mutations: [
+        {
+          id: 'm1',
+          operation: 'delete',
+          table: 'orders',
+          where: [{ column: 'orders.status', operator: 'eq', value: 'pending' }],
+        },
+      ],
+    };
+    const { results } = await handleMutation(body, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      tenancy: SINGLE_TENANT,
+      columnAllowlist: { orders: ['id', 'status'] },
+    });
+    expect(results[0]).toMatchObject({ id: 'm1', ok: true, rowsAffected: 1 });
+  });
+});
+
 // ── Empty-IN write scoping (data-loss guard) ──────────────────────────────────
 
 describe('handleMutation — empty-IN write guard', () => {

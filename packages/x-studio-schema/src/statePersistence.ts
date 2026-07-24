@@ -342,23 +342,24 @@ const screenFilterPresets = (value: unknown): StudioDoc['filterPresets'] => {
  *
  * The check is not only top-level: `migrateState`'s documented contract is that a corrupt
  * doc is rejected here with a NAMED field rather than crashing in `deserializeState`, so a
- * shallow per-entry shape check is applied to `pages[*]` — each must be a record with an
- * array `widgetRows`. A junk shape one level down (`pages.p1.widgetRows: "junk"`) previously
- * passed migration and then threw an uncaught `TypeError` inside the load-boundary sweep.
+ * shallow per-entry shape check is applied for the shapes that would CRASH a
+ * no-optional-chaining read before the load boundary could repair them — a `pages[*]` that is
+ * not a record, a `filters[*]` that is not a record.
  *
- * `widgets[*]` gets NO equivalent per-entry hard-fail here (T3 finding — this used to hard-
- * fail the WHOLE doc on `!isRecord(widget)` or `!isRecord(widget.config)`, sinking every
- * page/widget in the dashboard over ONE bad entry). Checked against `deserializeState`'s
- * actual widget pipeline (not assumed): it ALREADY handles both shapes gracefully and
- * per-entry — a non-record widget is dropped (the `isSafeKey(id) && widget !== null &&
- * typeof widget === 'object' && …` screen), and a record widget with a non-record `config`
- * is coerced to `config: {}` (the `configIsRecord` check in the widget `.map`). Hard-failing
- * here for a case the load boundary already repairs one level down is strictly worse than
- * letting it load with the one bad widget dropped/repaired and the rest of the dashboard
- * intact — the SAME graceful-repair-over-hard-fail choice this file makes for
- * `relationships`/`expressionFields`/`filterPresets`/`ai.threads` per-entry junk. (`pages[*]`
- * above is NOT touched by this fix — it is a separate call site, out of this finding's
- * scope, even though `normalizePersistedPages` happens to repair it just as gracefully.)
+ * The line between "hard-fail the whole doc" and "degrade to a per-entry repair" is drawn by
+ * one rule: if a load-boundary handler ALREADY repairs the defect gracefully and per-entry
+ * (dropping/coercing just the bad entry) BEFORE any crash-prone read runs, hard-failing the
+ * WHOLE dashboard over that one entry is strictly worse, so it is NOT rejected here. Cases
+ * that fall on the graceful-degradation side and are therefore deliberately NOT checked:
+ *  - `widgets[*]` (T3 finding): a non-record widget is dropped and a non-record `config` is
+ *    coerced to `{}` by `deserializeState`'s widget pipeline.
+ *  - `pages[*].widgetRows` (this fix): a non-array `widgetRows` is coerced to `[]` per-page by
+ *    `normalizePersistedPages`.
+ *  - `filters[*].scope` (this fix): a non-record `scope` (or one whose `kind` is not a string)
+ *    is dropped per-entry by `deserializeState`'s `isValidFilterScope` screen, which runs
+ *    before `serializeDoc`/the reducer ever read `f.scope.kind`.
+ * All three mirror the SAME graceful-repair-over-hard-fail choice this file already makes for
+ * `relationships`/`expressionFields`/`filterPresets`/`ai.threads` per-entry junk.
  */
 function findMissingRequiredField(state: Record<string, unknown>): string | null {
   if (!isRecord(state.dashboard)) {
@@ -377,36 +378,43 @@ function findMissingRequiredField(state: Record<string, unknown>): string | null
     if (!isRecord(page)) {
       return `pages["${pageId}"]`;
     }
-    if (!Array.isArray(page.widgetRows)) {
-      return `pages["${pageId}"].widgetRows`;
-    }
+    // NOTE (iteration 22 precedent): a non-array `page.widgetRows` is deliberately NOT
+    // hard-failed here. `normalizePersistedPages` (the load boundary) already coerces a junk
+    // `widgetRows` to `[]` gracefully and per-entry (non-array → `[]`, non-array/orphan rows
+    // filtered) when it runs, so sinking the WHOLE dashboard to `{success:false,state:null}`
+    // over ONE page's junk `widgetRows` was strictly worse than letting it load with just
+    // that page's rows coerced and every other page/widget in the dashboard intact. This
+    // mirrors the SAME graceful-repair-over-hard-fail choice already made one level up for a
+    // null/non-record widget value (see the `widgets` note above) and for
+    // `relationships`/`expressionFields`/`filterPresets`/`ai.threads` per-entry junk.
   }
   // Per-entry shape check for `filters`, the same one-level-down validation applied to
   // `pages`/`widgets` above. `serializeDoc` (the autosave AND undo-snapshot path) and the
-  // reducer (`dropWidgetScopedFilters`, `addFilter`, `removePage`) all read `f.scope.kind`
-  // / `f.id` with NO optional chaining, so a `filters: [null]` (or a scope-less / `scope:
-  // null` entry) that slipped through migration would load fine and then throw an uncaught
-  // `TypeError` on every subsequent save, undo snapshot, and widget removal — deferred,
-  // repeated data loss, strictly worse than being rejected at load. Reject it here with a
-  // named field instead, matching the pages/widgets treatment.
+  // reducer (`dropWidgetScopedFilters`, `addFilter`, `removePage`) all read `f.id` (and
+  // `f.scope.kind`) with NO optional chaining, so a non-record `filters` entry (`filters:
+  // [null]` / a primitive) that slipped through migration would load fine and then throw an
+  // uncaught `TypeError` on every subsequent save, undo snapshot, and widget removal —
+  // deferred, repeated data loss, strictly worse than being rejected at load. Reject the
+  // non-record entry here with a named field, matching the pages/widgets treatment. (A
+  // malformed `scope` on an OTHERWISE-record entry is handled per-entry by `deserializeState`
+  // and deliberately not hard-failed — see the note inside the loop.)
   for (let i = 0; i < state.filters.length; i += 1) {
     const filter = state.filters[i];
     if (!isRecord(filter)) {
       return `filters[${i}]`;
     }
-    // CRASH-PREVENTION ONLY — deliberately WEAKER than `isValidFilterScope`. This gate runs
-    // inside `migrateState`, the MANDATORY FIRST gate in the load path, and fails HARD (a
-    // non-null return sinks the WHOLE dashboard to `{success:false,state:null}`). So it must
-    // reject only the shapes that would crash a no-optional-chaining `f.scope.kind` read in
-    // `serializeDoc`/the reducer: an entry whose `scope` is not a record, or whose
-    // `scope.kind` is not a string. A well-formed-but-incomplete scope (e.g.
-    // `scope:{kind:'widget'}` missing `widgetId`) does NOT crash those reads, so it must NOT
-    // sink the whole doc here — `deserializeState`'s per-entry `isValidFilterScope` screen
-    // (further down) gracefully DROPS just that one filter while loading everything else.
-    const scope = filter.scope;
-    if (!isRecord(scope) || typeof scope.kind !== 'string') {
-      return `filters[${i}].scope`;
-    }
+    // NOTE (same iteration-22 precedent as `pages[*].widgetRows` above): a malformed
+    // `filter.scope` (a non-record `scope`, or one whose `scope.kind` is not a string) is
+    // deliberately NOT hard-failed here. `deserializeState`'s per-entry filter screen already
+    // DROPS any entry failing `isValidFilterScope` while loading everything else, when it
+    // runs — and it runs BEFORE `serializeDoc`/the reducer ever read `f.scope.kind`, so the
+    // bad-scope entry never reaches the no-optional-chaining reads that motivated the old
+    // hard-fail. Sinking the WHOLE dashboard over ONE filter's bad scope was strictly worse
+    // than dropping just that filter, so degrade to per-entry drop here too — matching the
+    // graceful-repair choice made for the `widgets`/`pages[*].widgetRows` paths above and for
+    // `relationships`/`expressionFields`/`filterPresets`/`ai.threads` per-entry junk. (A
+    // non-record `filter` itself is still rejected above: `deserializeState`'s screen drops it
+    // too, but this finding scoped the relaxation to `scope` only.)
   }
   // Per-entry shape checks for the three optional collections (Finding 1), mirroring the
   // `filters` screen above so `migrateState` rejects a junk entry by NAME rather than
@@ -669,8 +677,27 @@ export function deserializeState(
 ): StudioState {
   const defaultState = createDefaultStudioState();
 
+  // Coerce each absent/malformed TOP-LEVEL container to its empty default up front, so this
+  // public, directly-callable API is TOTAL over a malformed `SerializedStudioState` — matching
+  // `migrateState`, which never throws. Callers that hand-build a `SerializedStudioState`, or
+  // pass `{}` / a doc missing one of the four containers, previously hit an uncaught
+  // `TypeError` (`Object.entries(undefined)` on `widgets`/`pages`, `.map` on a missing
+  // `filters`, `Object.keys(undefined)` on `dashboard` inside `stripUnsafeOwnKeys`). Record
+  // containers coerce to `{}` and array containers to `[]`, mirroring the `screenRecordArray`
+  // non-array→`[]` pattern used for the optional containers below. `serialized` is typed but
+  // untrusted at this boundary, so read the raw shape for the runtime guards. The three
+  // OPTIONAL containers (`relationships`/`expressionFields`/`filterPresets`/`ai`) are already
+  // absent-tolerant downstream (`screenRecordArray`/`screenFilterPresets`/`isRecord`).
+  const raw = serialized as unknown as Record<string, unknown>;
+  const serializedWidgets = (isRecord(raw.widgets) ? raw.widgets : {}) as StudioDoc['widgets'];
+  const serializedPages = (isRecord(raw.pages) ? raw.pages : {}) as StudioDoc['pages'];
+  const serializedFilters = (Array.isArray(raw.filters) ? raw.filters : []) as StudioDoc['filters'];
+  const serializedDashboard = (isRecord(raw.dashboard)
+    ? raw.dashboard
+    : {}) as unknown as StudioDoc['dashboard'];
+
   const normalizedWidgets = Object.fromEntries(
-    Object.entries(serialized.widgets)
+    Object.entries(serializedWidgets)
       // Screen the persisted widget-record KEYS against the shared prototype-hazard
       // denylist and drop non-record entries. `JSON.parse` happily produces an own
       // `"__proto__"` widget key (and a foreign/hand-edited doc can carry a `null`
@@ -879,7 +906,7 @@ export function deserializeState(
   // Sweep the persisted pages (drop prototype-hazard keys / non-record values, clamp
   // layout) BEFORE reconciling `activePageId`, so a page the sweep legitimately drops
   // (a `null` page, a `"__proto__"` key) is accounted for by the reconciliation below.
-  const normalizedPages = normalizePersistedPages(serialized.pages, normalizedWidgets);
+  const normalizedPages = normalizePersistedPages(serializedPages, normalizedWidgets);
 
   // Reconcile a dangling `dashboard.activePageId` at the load boundary, mirroring the
   // exact fallback the factory (`createDefaultStudioState`) and `removePage` already use:
@@ -893,7 +920,7 @@ export function deserializeState(
   // `"constructor"`/`"prototype"` DATA key that `deserializeState` would otherwise use verbatim
   // and round-trip forever, later poisoning an `Object.assign`/spread of the dashboard. Drop the
   // offending keys (the widgets/filters own-key convention) rather than the whole dashboard.
-  const dashboard = stripUnsafeOwnKeys(serialized.dashboard);
+  const dashboard = stripUnsafeOwnKeys(serializedDashboard);
   // Coerce a missing/non-string `dashboard.title` to the same `'Untitled Dashboard'`
   // fallback the factory uses (the dashboard-title sibling of `normalizePersistedPages`'s
   // page-title coercion): `addDashboard`-adjacent mutations (`setDashboardTitle` et al.)
@@ -973,7 +1000,7 @@ export function deserializeState(
   // would load successfully and later crash `StudioFiltersDrawer`'s `dependsOn.map(...)` the
   // first time the filter rendered. Non-record entries pass through untouched — the
   // structural screen below drops them for other reasons.
-  const dependsOnRepairedFilters = serialized.filters.map((f) => repairFilterDependsOn(f));
+  const dependsOnRepairedFilters = serializedFilters.map((f) => repairFilterDependsOn(f));
   // Symmetric with `serializeDoc`'s strip: cross-filter- and interactive-scoped
   // filters are session-flavoured and never written to disk, so a hand-edited or
   // foreign doc carrying them must not install them into live `doc.filters` on load.

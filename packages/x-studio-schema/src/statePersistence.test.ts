@@ -134,20 +134,25 @@ describe('migrateState', () => {
     expect(result.errors.join(' ')).toMatch(/clone/i);
   });
 
-  // ── fail-closed nested per-entry shape validation (finding 1.1) ──────────────
-  // `findMissingRequiredField` now checks one level deeper than the four top-level
-  // fields, so a nested-corrupt doc is rejected here with a NAMED field rather than
-  // passing migration and then throwing an uncaught TypeError inside `deserializeState`.
-  it('fails a doc whose page has a non-array widgetRows, naming the field (finding 1.1)', () => {
+  // ── nested per-entry shape validation (finding 1.1) ──────────────────────────
+  // `findMissingRequiredField` checks one level deeper than the four top-level fields for
+  // the shapes that would otherwise crash a no-optional-chaining read (a null/non-record
+  // page value, a null/non-record filter entry). For the shapes that a load-boundary
+  // handler ALREADY repairs gracefully and per-entry (a non-array `pages[*].widgetRows`, a
+  // malformed `filters[*].scope`), it now degrades to that per-entry repair instead of
+  // hard-failing the whole doc — matching the widgets-path precedent below.
+  it('succeeds a doc whose page has a non-array widgetRows, leaving the per-entry coercion to deserializeState (finding 1.1)', () => {
+    // `normalizePersistedPages` coerces a junk `widgetRows` to `[]` per-page (verified in the
+    // sibling `deserializeState` describe block), so hard-failing the WHOLE dashboard over
+    // ONE page's junk rows was strictly worse. `migrateState` now succeeds.
     const result = migrateState(
       completeSerialized({
         schemaVersion: CURRENT_SCHEMA_VERSION,
         pages: { p1: { id: 'p1', title: 'P', widgetRows: 'junk' } },
       }),
     );
-    expect(result.success).toBe(false);
-    expect(result.state).toBeNull();
-    expect(result.errors.join(' ')).toMatch(/pages\["p1"\]\.widgetRows/);
+    expect(result.success).toBe(true);
+    expect(result.state).not.toBeNull();
   });
 
   it('fails a doc with a null page value, naming the field (finding 1.1)', () => {
@@ -201,11 +206,15 @@ describe('migrateState', () => {
     expect(result.success).toBe(true);
   });
 
-  // ── fail-closed per-entry `filters` shape validation (Tier 1) ────────────────
-  // A `filters: [null]` (or scope-less / `scope: null`) entry used to pass migration
-  // (only `Array.isArray(filters)` was checked), load successfully, then throw an
-  // uncaught TypeError in `serializeDoc` (autosave AND undo-snapshot) and the reducer on
-  // the very next commit. It must now be rejected here with a NAMED field.
+  // ── per-entry `filters` shape validation (Tier 1) ────────────────────────────
+  // A non-record `filters` entry (`filters: [null]` / a primitive) stays a hard, named
+  // migration failure: it would crash a no-optional-chaining `f.id`/`f.scope` read before the
+  // load boundary could act. But a malformed `filters[*].scope` (a non-record `scope`, or one
+  // whose `kind` is not a string) now degrades to a per-entry DROP: `deserializeState`'s
+  // per-entry `isValidFilterScope` screen already drops such an entry while loading everything
+  // else (verified in the sibling `deserializeState` describe block), and it runs before
+  // `serializeDoc`/the reducer ever read `f.scope.kind`, so hard-failing the whole doc was
+  // strictly worse than dropping just that filter.
   it('fails a doc with a null filters entry, naming the field (Tier 1)', () => {
     const result = migrateState(
       completeSerialized({ schemaVersion: CURRENT_SCHEMA_VERSION, filters: [null] }),
@@ -215,22 +224,20 @@ describe('migrateState', () => {
     expect(result.errors.join(' ')).toMatch(/filters\[0\]/);
   });
 
-  it('fails a doc with a filters entry whose scope is null, naming the field (Tier 1)', () => {
+  it('succeeds a doc with a filters entry whose scope is null, leaving the per-entry drop to deserializeState (Tier 1)', () => {
     const result = migrateState(
       completeSerialized({
         schemaVersion: CURRENT_SCHEMA_VERSION,
         filters: [{ id: 'f1', field: 'x', operator: 'equals', value: '', scope: null }],
       }),
     );
-    expect(result.success).toBe(false);
-    expect(result.errors.join(' ')).toMatch(/filters\[0\]\.scope/);
+    expect(result.success).toBe(true);
+    expect(result.state).not.toBeNull();
   });
 
-  // T2-1 (revert of over-correction): `findMissingRequiredField` is CRASH-PREVENTION only,
-  // so a well-formed-but-INCOMPLETE scope (a record scope with a string `kind` but a missing
-  // required id) must NOT sink the whole doc — it does not crash a `f.scope.kind` read. It
-  // migrates successfully; `deserializeState` (below) drops just that one filter.
-  it('does NOT fail a doc whose scope is a record with a string kind but a missing required id (T2-1)', () => {
+  // A well-formed-but-INCOMPLETE scope (a record scope with a string `kind` but a missing
+  // required id) also migrates successfully; `deserializeState` (below) drops just that filter.
+  it('does NOT fail a doc whose scope is a record with a string kind but a missing required id', () => {
     const result = migrateState(
       completeSerialized({
         schemaVersion: CURRENT_SCHEMA_VERSION,
@@ -240,8 +247,8 @@ describe('migrateState', () => {
             field: 'date',
             operator: 'between',
             value: '',
-            // `kind` is a string and `scope` is a record — no crash hazard — but `widgetId`
-            // (required for a `widget` scope) is absent. Reverted gate lets this through.
+            // `kind` is a string and `scope` is a record, but `widgetId` (required for a
+            // `widget` scope) is absent. Migrates; `deserializeState` drops the entry.
             scope: { kind: 'widget' },
           },
         ],
@@ -251,17 +258,17 @@ describe('migrateState', () => {
     expect(result.state).not.toBeNull();
   });
 
-  // A scope that is NOT a record (or whose `kind` is not a string) DOES crash a bare
-  // `f.scope.kind` read, so it stays a hard, named migration failure.
-  it('fails a doc whose scope.kind is not a string, naming the field (T2-1)', () => {
+  // A scope whose `kind` is not a string no longer sinks the whole doc either — it degrades to
+  // the same per-entry drop in `deserializeState`, matching the `pages[*].widgetRows` relaxation.
+  it('succeeds a doc whose scope.kind is not a string, leaving the per-entry drop to deserializeState (Tier 1)', () => {
     const result = migrateState(
       completeSerialized({
         schemaVersion: CURRENT_SCHEMA_VERSION,
         filters: [{ id: 'f1', field: 'x', operator: 'equals', value: '', scope: { kind: 42 } }],
       }),
     );
-    expect(result.success).toBe(false);
-    expect(result.errors.join(' ')).toMatch(/filters\[0\]\.scope/);
+    expect(result.success).toBe(true);
+    expect(result.state).not.toBeNull();
   });
 
   it('fails a doc with a primitive filters entry, naming the field (Tier 1)', () => {
@@ -575,6 +582,49 @@ describe('deserializeState', () => {
     const { expressionFields: ignoredEf, ...withoutEf } = minimalSerialized;
     const state = deserializeState(withoutEf as typeof minimalSerialized, {});
     expect(state.doc.expressionFields).toEqual([]);
+  });
+
+  // ── total over a malformed top-level shape (finding 2) ───────────────────────
+  // `deserializeState` is a public, directly-callable export documented as total over a
+  // malformed `SerializedStudioState`. A caller passing `{}` (or a doc missing one of the
+  // four top-level containers `widgets`/`pages`/`filters`/`dashboard`) previously hit an
+  // uncaught `TypeError` (`Object.entries(undefined)`, `.map` on a missing `filters`,
+  // `Object.keys(undefined)` inside `stripUnsafeOwnKeys`). Each absent container now coerces
+  // to its empty default, matching `migrateState`'s never-throw contract.
+  it('does not throw on an empty object, coercing every top-level container to its default (finding 2)', () => {
+    let state!: ReturnType<typeof deserializeState>;
+    expect(() => {
+      state = deserializeState({} as typeof minimalSerialized, {});
+    }).not.toThrow();
+    expect(state.doc.widgets).toEqual({});
+    expect(state.doc.pages).toEqual({});
+    expect(state.doc.filters).toEqual([]);
+    // A missing `dashboard` heals to a usable shape: title falls back and activePageId to ''.
+    expect(state.doc.dashboard.title).toBe('Untitled Dashboard');
+    expect(state.doc.dashboard.activePageId).toBe('');
+  });
+
+  it('does not throw when an individual top-level container is missing (finding 2)', () => {
+    const { widgets: ignoredW, pages: ignoredP, filters: ignoredF, ...rest } = minimalSerialized;
+    let state!: ReturnType<typeof deserializeState>;
+    expect(() => {
+      state = deserializeState(rest as typeof minimalSerialized, {});
+    }).not.toThrow();
+    expect(state.doc.widgets).toEqual({});
+    expect(state.doc.pages).toEqual({});
+    expect(state.doc.filters).toEqual([]);
+  });
+
+  it('drops a filters entry whose scope is null while loading the rest (finding 1)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      filters: [
+        { id: 'bad', field: 'x', operator: 'equals', value: '', scope: null },
+        { id: 'ok', field: 'x', operator: 'equals', value: '', scope: { kind: 'page' } },
+      ],
+    };
+    const state = deserializeState(serialized as typeof minimalSerialized, {});
+    expect(state.doc.filters.map((f) => f.id)).toEqual(['ok']);
   });
 
   it('applies shellOverrides on top of default shell state', () => {

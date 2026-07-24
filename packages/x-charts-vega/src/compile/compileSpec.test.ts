@@ -290,4 +290,87 @@ describe('compileSpec (foundation pipeline)', () => {
     } as unknown as VegaLiteSpec);
     expect(compiled.xAxis?.categories).to.deep.equal([12, 23, 47]);
   });
+
+  it('parses an inline CSV string `data.values` payload, auto-typing numeric cells', () => {
+    const compiled = compileSpec({
+      data: {
+        values: 'category,amount\nA,28\nB,55\n',
+        format: { type: 'csv' },
+      },
+      mark: 'bar',
+      encoding: {
+        x: { field: 'category', type: 'nominal' },
+        y: { field: 'amount', type: 'quantitative' },
+      },
+    } as unknown as VegaLiteSpec);
+    expect(compiled.xAxis?.categories).to.deep.equal(['A', 'B']);
+    expect(compiled.gaps.filter((entry) => entry.code === 'data:string-values')).to.have.length(0);
+  });
+
+  it('parses a tab-delimited TSV string `data.values` payload', () => {
+    const compiled = compileSpec({
+      data: {
+        values: 'category\tamount\nA\t28\nB\t55\n',
+        format: { type: 'tsv' },
+      },
+      mark: 'bar',
+      encoding: {
+        x: { field: 'category', type: 'nominal' },
+        y: { field: 'amount', type: 'quantitative' },
+      },
+    } as unknown as VegaLiteSpec);
+    expect(compiled.xAxis?.categories).to.deep.equal(['A', 'B']);
+  });
+
+  it('parses a custom-delimiter DSV string `data.values` payload via `format.delimiter`', () => {
+    const compiled = compileSpec({
+      data: {
+        values: 'category|amount\nA|28\nB|55\n',
+        format: { type: 'dsv', delimiter: '|' },
+      },
+      mark: 'bar',
+      encoding: {
+        x: { field: 'category', type: 'nominal' },
+        y: { field: 'amount', type: 'quantitative' },
+      },
+    } as unknown as VegaLiteSpec);
+    expect(compiled.xAxis?.categories).to.deep.equal(['A', 'B']);
+  });
+
+  it('honors a quoted CSV field embedding the delimiter itself', () => {
+    const compiled = compileSpec({
+      data: {
+        values: 'category,amount\n"A, Inc.",28\nB,55\n',
+        format: { type: 'csv' },
+      },
+      mark: 'bar',
+      encoding: {
+        x: { field: 'category', type: 'nominal' },
+        y: { field: 'amount', type: 'quantitative' },
+      },
+    } as unknown as VegaLiteSpec);
+    expect(compiled.xAxis?.categories).to.deep.equal(['A, Inc.', 'B']);
+  });
+
+  it("parses a JSON string `data.values` payload (no `format.type`, matching Vega-Lite's default)", () => {
+    const compiled = compileSpec({
+      data: { values: '[{"category":"A","amount":28},{"category":"B","amount":55}]' },
+      mark: 'bar',
+      encoding: {
+        x: { field: 'category', type: 'nominal' },
+        y: { field: 'amount', type: 'quantitative' },
+      },
+    } as unknown as VegaLiteSpec);
+    expect(compiled.xAxis?.categories).to.deep.equal(['A', 'B']);
+  });
+
+  it('reports an unsupported gap for a string `data.values` payload that is neither delimited nor valid JSON', () => {
+    const compiled = compileSpec({
+      data: { values: 'not { valid json' },
+      mark: 'bar',
+      encoding: { x: { field: 'category', type: 'nominal' }, y: { aggregate: 'count' } },
+    } as unknown as VegaLiteSpec);
+    const gap = compiled.gaps.find((entry) => entry.code === 'data:string-values');
+    expect(gap?.severity).to.equal('unsupported');
+  });
 });

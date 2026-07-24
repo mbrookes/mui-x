@@ -234,6 +234,76 @@ function wrapPrimitiveRows(values: readonly unknown[]): readonly DatasetRow[] {
   return values as readonly DatasetRow[];
 }
 
+/**
+ * Splits one CSV/TSV/DSV line into fields, honoring RFC 4180 double-quote
+ * escaping (a `"..."` field may contain the delimiter itself, and `""`
+ * inside a quoted field is a literal `"`). A quoted field embedding a
+ * newline is not supported — every row is still exactly one physical line.
+ */
+function splitDelimitedLine(line: string, delimiter: string): string[] {
+  const fields: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+    if (inQuotes) {
+      if (char === '"') {
+        if (line[i + 1] === '"') {
+          current += '"';
+          i += 1;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        current += char;
+      }
+    } else if (char === '"') {
+      inQuotes = true;
+    } else if (char === delimiter) {
+      fields.push(current);
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  fields.push(current);
+  return fields;
+}
+
+/** Mirrors vega-loader's default auto-typing: numeric- and boolean-looking cells are coerced, an empty cell becomes `null`, everything else (including dates) stays a string. */
+function autoTypeDelimitedValue(raw: string): string | number | boolean | null {
+  if (raw === '') {
+    return null;
+  }
+  if (raw === 'true' || raw === 'false') {
+    return raw === 'true';
+  }
+  if (/^-?\d+(\.\d+)?([eE][-+]?\d+)?$/.test(raw)) {
+    const num = Number(raw);
+    if (Number.isFinite(num)) {
+      return num;
+    }
+  }
+  return raw;
+}
+
+/** Parses a raw CSV/TSV/DSV string payload (header row + data rows) into `DatasetRow`s. */
+function parseDelimitedValues(raw: string, delimiter: string): DatasetRow[] {
+  const lines = raw.split(/\r\n|\r|\n/).filter((line) => line.length > 0);
+  if (lines.length === 0) {
+    return [];
+  }
+  const headers = splitDelimitedLine(lines[0], delimiter);
+  return lines.slice(1).map((line) => {
+    const fields = splitDelimitedLine(line, delimiter);
+    const row: DatasetRow = {};
+    headers.forEach((header, index) => {
+      row[header] = autoTypeDelimitedValue(fields[index] ?? '');
+    });
+    return row;
+  });
+}
+
 function resolveRows(
   data: VegaData | null | undefined,
   inherited: readonly DatasetRow[],
@@ -254,10 +324,32 @@ function resolveRows(
     return wrapPrimitiveRows(data.values as unknown[]);
   }
   if (typeof data.values === 'string') {
+    const formatType = data.format?.type;
+    if (formatType === 'csv' || formatType === 'tsv' || formatType === 'dsv') {
+      let delimiter = ',';
+      if (formatType === 'tsv') {
+        delimiter = '\t';
+      } else if (typeof data.format?.delimiter === 'string') {
+        delimiter = data.format.delimiter;
+      }
+      return parseDelimitedValues(data.values, delimiter);
+    }
+    if (formatType === undefined || formatType === 'json') {
+      try {
+        const parsed: unknown = JSON.parse(data.values);
+        if (Array.isArray(parsed)) {
+          return wrapPrimitiveRows(parsed as unknown[]);
+        }
+        if (parsed !== null && typeof parsed === 'object') {
+          return [parsed as DatasetRow];
+        }
+      } catch {
+        // Falls through to the unsupported gap below.
+      }
+    }
     gaps.add({
       code: 'data:string-values',
-      message:
-        'String data values (CSV/TSV payloads) are not parsed. Provide `data.values` as an array of objects or pass rows via the `data` prop.',
+      message: `A string \`data.values\` payload with \`format.type: "${formatType ?? 'json'}"\` could not be parsed; only \`csv\`/\`tsv\`/\`dsv\` and valid JSON string payloads are supported. Provide \`data.values\` as an array of objects instead, or pass rows via the \`data\` prop.`,
       severity: 'unsupported',
       path: `${path}.data.values`,
     });

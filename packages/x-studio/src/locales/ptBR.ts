@@ -45,6 +45,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   widgetNoData: 'Sem dados',
   widgetLoadError: 'Falha ao carregar dados',
   mapGeographyLoadError: 'Falha ao carregar dados do mapa. Tente novamente.',
+  widgetLoadingLabel: 'Carregando',
 
   // Quick filter bar
   quickFilterBarOpenFilters: 'Abrir painel de filtros',

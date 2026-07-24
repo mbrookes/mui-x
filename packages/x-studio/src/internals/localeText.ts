@@ -67,6 +67,8 @@ export interface StudioLocaleText {
   widgetNoData: string;
   widgetLoadError: string;
   mapGeographyLoadError: string;
+  /** Accessible name for the loading spinner shown while widget content is (re)computing. */
+  widgetLoadingLabel: string;
 
   // ── Quick filter bar ───────────────────────────────────────────────────────
   quickFilterBarOpenFilters: string;
@@ -1315,6 +1317,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   widgetNoData: 'No data to display.',
   widgetLoadError: 'Failed to load data',
   mapGeographyLoadError: 'Failed to load map data. Please try again.',
+  widgetLoadingLabel: 'Loading',
 
   // Quick filter bar
   quickFilterBarOpenFilters: 'Open filters panel',

@@ -48,6 +48,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   widgetNoData: 'Aucune donnée',
   widgetLoadError: 'Échec du chargement des données',
   mapGeographyLoadError: 'Échec du chargement des données cartographiques. Veuillez réessayer.',
+  widgetLoadingLabel: 'Chargement',
 
   // Quick filter bar
   quickFilterBarOpenFilters: 'Ouvrir le panneau des filtres',

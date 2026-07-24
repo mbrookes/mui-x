@@ -49,6 +49,7 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   widgetNoData: 'Keine Daten',
   widgetLoadError: 'Daten konnten nicht geladen werden',
   mapGeographyLoadError: 'Kartendaten konnten nicht geladen werden. Bitte versuchen Sie es erneut.',
+  widgetLoadingLabel: 'Wird geladen',
 
   // Quick filter bar
   quickFilterBarOpenFilters: 'Filterbereich öffnen',

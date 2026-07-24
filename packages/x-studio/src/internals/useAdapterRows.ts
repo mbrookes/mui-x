@@ -137,13 +137,22 @@ export function useAdapterRows(
     // Check for an existing in-flight request to deduplicate.
     let promise = studioRequestCache.getInflight(cacheKey);
     if (!promise) {
+      // A well-behaved adapter returns a promise (rejecting on failure), but a host adapter
+      // can also throw synchronously from getRows(). Without this guard that throw escapes
+      // the effect uncaught and — with no error boundary above — takes down the render tree.
+      // Route a sync throw into the same isError/errorMessage state as the rejection path.
+      let getRowsResult;
+      try {
+        getRowsResult = dataSource.adapter.getRows(descriptor);
+      } catch (err: unknown) {
+        setIsLoading(false);
+        setIsError(true);
+        setErrorMessage(err instanceof Error ? err.message : localeText.widgetLoadError);
+        return;
+      }
       // Pass descriptor.sourceId explicitly so the generation guard / reverse index use
       // the true source even if it contains a ':' (rather than the cacheKey parse).
-      promise = studioRequestCache.addInflight(
-        cacheKey,
-        dataSource.adapter.getRows(descriptor),
-        descriptor.sourceId,
-      );
+      promise = studioRequestCache.addInflight(cacheKey, getRowsResult, descriptor.sourceId);
     }
 
     // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change -- setting loading state when descriptor changes triggers a new fetch

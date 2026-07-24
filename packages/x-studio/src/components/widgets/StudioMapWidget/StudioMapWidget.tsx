@@ -281,8 +281,15 @@ export function StudioMapWidget({
     [contextGeographies, geographiesProp],
   );
 
-  // Resolve the active geography definition
-  const geographyDef: StudioMapGeographyDefinition | undefined = allGeographies[mapGeography];
+  // Resolve the active geography definition. `mapGeography` is doc-authored, so guard the
+  // record index against inherited keys: a key like "constructor" would otherwise return
+  // `Object`'s constructor off the prototype chain instead of resolving to "not found".
+  const geographyDef: StudioMapGeographyDefinition | undefined = Object.hasOwn(
+    allGeographies,
+    mapGeography,
+  )
+    ? allGeographies[mapGeography]
+    : undefined;
 
   // Resolve a human-readable display name for a featureId based on the geography type
   const featureIdToLabel = React.useCallback(

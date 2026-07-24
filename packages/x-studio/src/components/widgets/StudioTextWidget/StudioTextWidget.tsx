@@ -3,6 +3,7 @@ import * as React from 'react';
 import { Box, CircularProgress, Typography } from '@mui/material';
 
 import type { StudioWidgetOf } from '../../../models';
+import { useStudioLocaleText } from '../../../context';
 import { useTextWidgetAI } from './useTextWidgetAI';
 import { renderMarkdown } from './renderMarkdown';
 import { resolveTextFontFamily } from '../../../internals/textFontFamily';
@@ -33,6 +34,7 @@ function TextWidgetAIContent({
   pageId: string;
   aiRefreshRef?: React.MutableRefObject<(() => void) | null>;
 }) {
+  const localeText = useStudioLocaleText();
   const { markdown, loading, error, refresh } = useTextWidgetAI(
     widget.id,
     pageId,
@@ -90,7 +92,7 @@ function TextWidgetAIContent({
             justifyContent: 'center',
           }}
         >
-          <CircularProgress size={24} />
+          <CircularProgress size={24} aria-label={localeText.widgetLoadingLabel} />
         </Box>
       )}
     </Box>

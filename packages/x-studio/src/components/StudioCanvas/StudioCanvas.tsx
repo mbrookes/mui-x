@@ -345,7 +345,12 @@ function StudioPageRows({
                 };
                 let flexValue: string | number;
                 if (mode === 'edit') {
-                  flexValue = `${span ?? defaultFlexGrow} 0 0`;
+                  // `span` derives from `page.widgetColSpans` (doc-authored). Guard locally at
+                  // the point of consumption rather than relying on the distant load-boundary
+                  // clamp: a non-finite span (NaN/Infinity from a hostile serialized doc) would
+                  // otherwise interpolate straight into the `flex` shorthand.
+                  const safeSpan = Number.isFinite(span) ? span : defaultFlexGrow;
+                  flexValue = `${safeSpan} 0 0`;
                 } else if (effectiveViewSpan != null) {
                   flexValue = `0 0 ${viewFlexBasis(effectiveViewSpan)}`;
                 } else {

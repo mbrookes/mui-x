@@ -44,6 +44,7 @@ import {
   isSafeTextAlign,
 } from '../../internals/cssValueValidation';
 import { useStudioAnnounce } from '../../internals/StudioLiveRegion';
+import { StudioWidgetErrorOverlay } from '../../internals/StudioWidgetErrorOverlay';
 import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
 import { useWidgetDefMap, BUILTIN_WIDGET_DEFS } from '../../internals/builtinWidgetDefs';
 import { StudioWidgetEditDialog } from '../StudioWidgetEditDialog';
@@ -127,6 +128,7 @@ export interface StudioWidgetCardProps {
 
 function DefaultLoadingOverlay() {
   const theme = useTheme();
+  const localeText = useStudioLocaleText();
   return (
     <Box
       sx={{
@@ -141,9 +143,38 @@ function DefaultLoadingOverlay() {
         backdropFilter: 'blur(2px)',
       }}
     >
-      <CircularProgress size={24} />
+      <CircularProgress size={24} aria-label={localeText.widgetLoadingLabel} />
     </Box>
   );
+}
+
+/**
+ * Per-widget error boundary. A render throw inside a single widget's component
+ * (built-in or custom) would otherwise unmount the entire Studio dashboard, since
+ * an uncaught render error propagates to the nearest boundary (of which there was
+ * none in this package). This confines the failure to the offending card and shows
+ * the shared `StudioWidgetErrorOverlay` in its place. Kept intentionally minimal:
+ * catch-and-display only, no retry logic.
+ */
+class StudioWidgetErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; message?: string }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error: unknown): { hasError: boolean; message?: string } {
+    return { hasError: true, message: error instanceof Error ? error.message : undefined };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return <StudioWidgetErrorOverlay message={this.state.message} />;
+    }
+    return this.props.children;
+  }
 }
 
 export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: StudioWidgetCardProps) {
@@ -592,7 +623,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           onEdit={handleEditClick}
           onDuplicate={() => controller.duplicateWidget(widgetId)}
           onDelete={() => controller.removeWidget(widgetId)}
-          onMoveToPage={(pageId) => controller.moveWidgetToPage(widgetId, pageId)}
+          onMoveToPage={(targetPageId) => controller.moveWidgetToPage(widgetId, targetPageId)}
           onMoveWidget={handleMoveWidget}
           moveWidgetDisabled={moveWidgetDisabled}
         />
@@ -693,17 +724,19 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           {def &&
             (showContent ? (
               <Box sx={{ position: 'relative', ...(def.capabilities.contentSx ?? {}) }}>
-                <def.component
-                  widget={widget}
-                  dataSource={isCustomKind ? enrichedCustomSource : source}
-                  pageId={pageId}
-                  anomalyEnabled={anomalyEnabled}
-                  onAnomalyDetected={setAnomalyAnnotations}
-                  chartContainerRef={chartContainerRef}
-                  aiRefreshRef={textAiRefreshRef}
-                  exportRef={imperativeExportRef}
-                  extraProps={extraProps}
-                />
+                <StudioWidgetErrorBoundary>
+                  <def.component
+                    widget={widget}
+                    dataSource={isCustomKind ? enrichedCustomSource : source}
+                    pageId={pageId}
+                    anomalyEnabled={anomalyEnabled}
+                    onAnomalyDetected={setAnomalyAnnotations}
+                    chartContainerRef={chartContainerRef}
+                    aiRefreshRef={textAiRefreshRef}
+                    exportRef={imperativeExportRef}
+                    extraProps={extraProps}
+                  />
+                </StudioWidgetErrorBoundary>
                 {isRecomputing && <LoadingOverlay />}
               </Box>
             ) : (

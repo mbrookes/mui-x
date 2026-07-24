@@ -317,9 +317,14 @@ describe('compileRuleMark', () => {
     expect(compiled.referenceLines).to.deep.equal([{ axis: 'y', value: 50, lineStyle: undefined }]);
   });
 
-  it('reports a partial gap when both x and y are set (point rule approximated as crossing lines)', () => {
+  it('draws a scatter-marker point (not crossing reference lines) when both x and y are set, with a partial gap', () => {
     const compiled = compileSpec({
-      data: { values: [{ x: 1, y: 2 }] },
+      data: {
+        values: [
+          { x: 1, y: 2 },
+          { x: 3, y: 4 },
+        ],
+      },
       mark: 'rule',
       encoding: {
         x: { field: 'x', type: 'quantitative' },
@@ -327,13 +332,49 @@ describe('compileRuleMark', () => {
       },
     });
     const gap = compiled.gaps.find(
-      (entry) => entry.code === 'mark:rule-point-approximated-as-crossing-lines',
+      (entry) => entry.code === 'mark:rule-point-scatter-approximated',
     );
     expect(gap?.severity).to.equal('partial');
-    expect(compiled.referenceLines).to.deep.equal([
-      { axis: 'y', value: 2, lineStyle: undefined },
-      { axis: 'x', value: 1, lineStyle: undefined },
+    expect(compiled.referenceLines).to.deep.equal([]);
+    expect(compiled.series).to.have.length(1);
+    const series = compiled.series[0] as unknown as {
+      type: string;
+      data: { x: number; y: number; id: number }[];
+    };
+    expect(series.type).to.equal('scatter');
+    expect(series.data).to.deep.equal([
+      { x: 1, y: 2, id: 0 },
+      { x: 3, y: 4, id: 1 },
     ]);
+  });
+
+  it('uses mark.color as the scatter marker color for an x/y point rule', () => {
+    const compiled = compileSpec({
+      data: { values: [{ x: 1, y: 2 }] },
+      mark: { type: 'rule', color: 'firebrick' },
+      encoding: {
+        x: { field: 'x', type: 'quantitative' },
+        y: { field: 'y', type: 'quantitative' },
+      },
+    } as unknown as VegaLiteSpec);
+    const series = compiled.series[0] as unknown as { color?: string };
+    expect(series.color).to.equal('firebrick');
+  });
+
+  it('drops the point marker entirely (no series, still the gap) when no row resolves to a plottable position', () => {
+    const compiled = compileSpec({
+      data: { values: [{ x: null, y: null }] },
+      mark: 'rule',
+      encoding: {
+        x: { field: 'x', type: 'quantitative' },
+        y: { field: 'y', type: 'quantitative' },
+      },
+    } as unknown as VegaLiteSpec);
+    expect(compiled.series).to.have.length(0);
+    const gap = compiled.gaps.find(
+      (entry) => entry.code === 'mark:rule-point-scatter-approximated',
+    );
+    expect(gap?.severity).to.equal('partial');
   });
 
   it('reports a partial gap when no axis is resolved anywhere in the spec', () => {

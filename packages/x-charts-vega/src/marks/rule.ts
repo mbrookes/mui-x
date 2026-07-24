@@ -1,5 +1,7 @@
+import type { ScatterValueType } from '@mui/x-charts/models';
 import type {
   CompiledReferenceLine,
+  CompiledSeries,
   CompiledUnit,
   OverlaySegment,
   UnitContext,
@@ -478,6 +480,44 @@ function compileGeoRuleMark(ctx: UnitContext): CompiledUnit {
   return { series: [], plots: [], overlays: [{ kind: 'geoSegments', items }] };
 }
 
+/**
+ * A rule mark with both `x` and `y` set (and no `x2`/`y2`) positions a single
+ * point per datum in Vega-Lite — closer to a scatter marker than to a line.
+ * `@mui/x-charts` has no point-reference primitive, so this renders via the
+ * same `type: 'scatter'` series `marks/point.ts` uses for `point`/`circle`
+ * marks (one marker per row), using `mark.color`/`stroke` as a shared marker
+ * color when set. Returns `undefined` when no row resolves to a plottable
+ * position (nothing to draw).
+ */
+function buildPointMarkerSeries(
+  ctx: UnitContext,
+  mark: UnitContext['unit']['mark'],
+  path: string,
+): CompiledSeries | undefined {
+  const { encoding, rows } = ctx;
+  const xFieldType = ctx.x?.fieldType;
+  const yFieldType = ctx.y?.fieldType;
+  const data: Array<{ x: number | string | Date; y: number | string | Date; id: number }> = [];
+  rows.forEach((row, index) => {
+    const x = resolveRowPosition(encoding.x, xFieldType, row);
+    const y = resolveRowPosition(encoding.y, yFieldType, row);
+    if (x == null || y == null) {
+      return;
+    }
+    data.push({ x, y, id: index });
+  });
+  if (data.length === 0) {
+    return undefined;
+  }
+  const color = typeof mark.color === 'string' ? mark.color : mark.stroke;
+  return {
+    type: 'scatter',
+    id: `${path}::rule-point`,
+    data: data as unknown as ScatterValueType[],
+    ...(color !== undefined ? { color } : {}),
+  };
+}
+
 export function compileRuleMark(ctx: UnitContext): CompiledUnit {
   const { encoding, rows, gaps, unit } = ctx;
   const { path, mark } = unit;
@@ -519,23 +559,25 @@ export function compileRuleMark(ctx: UnitContext): CompiledUnit {
     buildYSpanSegments(ctx, path, lineStyle, rowColor, segmentItems);
   }
 
-  if (!hasXSegment && !hasYSegment && encoding.x !== undefined && encoding.y !== undefined) {
-    // A rule with both `x` and `y` (and no `x2`/`y2`) positions a single
-    // point per datum in Vega-Lite. x-charts has no point-reference
-    // primitive, so this renders as two full crossing lines instead.
+  const isPointCase =
+    !hasXSegment && !hasYSegment && encoding.x !== undefined && encoding.y !== undefined;
+
+  let pointSeries: CompiledSeries | undefined;
+  if (isPointCase) {
+    pointSeries = buildPointMarkerSeries(ctx, mark, path);
     gaps.add({
-      code: 'mark:rule-point-approximated-as-crossing-lines',
+      code: 'mark:rule-point-scatter-approximated',
       message:
-        'A rule mark with both `x` and `y` set (and no `x2`/`y2`) positions a single point per datum in Vega-Lite. `@mui/x-charts` has no point-reference primitive, so this renders as two full-length crossing reference lines (one per axis) instead of a single point marker.',
+        "A rule mark with both `x` and `y` set (and no `x2`/`y2`) positions a single point per datum in Vega-Lite. `@mui/x-charts` has no point-reference primitive, so this renders as a `scatter` series marker (one point per row) instead — closer to Vega-Lite than a full-length reference line, but the marker shape/size do not necessarily match the rule mark's own appearance.",
       severity: 'partial',
       path,
     });
   }
 
-  // Once either axis pair forms a segment, both `x` and `y` are consumed as
-  // segment endpoints/anchors — neither should also produce a standalone
-  // reference line.
-  const hasAnySegment = hasXSegment || hasYSegment;
+  // Once either axis pair forms a segment (or the point case above consumes
+  // both axes as scatter positions), neither `x` nor `y` should also produce
+  // a standalone full-length reference line.
+  const hasAnySegment = hasXSegment || hasYSegment || isPointCase;
   if (!hasAnySegment && encoding.y !== undefined) {
     addReferenceLines('y', encoding.y, rows, gaps, path, lineStyle, referenceLines);
   }
@@ -554,8 +596,8 @@ export function compileRuleMark(ctx: UnitContext): CompiledUnit {
   }
 
   return {
-    series: [],
-    plots: [],
+    series: pointSeries ? [pointSeries] : [],
+    plots: pointSeries ? ['scatter'] : [],
     referenceLines,
     ...(segmentItems.length > 0 ? { overlays: [{ kind: 'segments', items: segmentItems }] } : {}),
   };

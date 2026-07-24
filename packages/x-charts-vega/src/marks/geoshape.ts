@@ -100,15 +100,37 @@ function isFeatureCollection(row: unknown): row is FeatureCollection {
 }
 
 type GeoDataResolution =
-  | { kind: 'ok'; geoData: FeatureCollection; features: GeoFeature[] }
+  | { kind: 'ok'; geoData: FeatureCollection; features: GeoFeature[]; shapeFieldConsumed?: boolean }
   | { kind: 'empty' | 'plain' | 'topology' | 'generator' };
+
+/**
+ * A feature's `properties.name` is the only join key the map plot indexes by
+ * (see `resolveFeatureName` below); a numeric-`id` feature with no name of
+ * its own (e.g. TopoJSON US states/counties) otherwise can never be matched.
+ * Bridges the id into `properties.name` when there's no name already —
+ * shared by `joinAndBridgeFeatures` (rows that already ARE features) and
+ * `resolveGeoData`'s per-row embedded-feature path below (rows that carry a
+ * feature under a `shape` field instead).
+ * @param {GeoFeature} feature The feature to (maybe) bridge.
+ * @returns {GeoFeature} The feature, with `properties.name` set from `id` when it was missing.
+ */
+function bridgeFeatureName(feature: GeoFeature): GeoFeature {
+  if (typeof feature.properties?.name === 'string' || feature.id == null) {
+    return feature;
+  }
+  return { ...feature, properties: { ...(feature.properties ?? {}), name: String(feature.id) } };
+}
 
 /**
  * Derive a GeoJSON FeatureCollection from the unit's rows.
  * @param {readonly Record<string, unknown>[]} rows The unit's resolved rows.
+ * @param {string | undefined} shapeField `encoding.shape`'s field, when it's a `type: 'geojson'` field def.
  * @returns {GeoDataResolution} The resolved feature collection or a failure reason.
  */
-function resolveGeoData(rows: readonly Record<string, unknown>[]): GeoDataResolution {
+function resolveGeoData(
+  rows: readonly Record<string, unknown>[],
+  shapeField: string | undefined,
+): GeoDataResolution {
   // (a) A single row that is already a FeatureCollection.
   if (rows.length === 1 && isFeatureCollection(rows[0])) {
     const collection = rows[0] as unknown as FeatureCollection;
@@ -137,7 +159,44 @@ function resolveGeoData(rows: readonly Record<string, unknown>[]): GeoDataResolu
   ) {
     return { kind: 'generator' };
   }
-  // (c) Plain tabular rows — a lookup-joined choropleth we can't build.
+  // (c) Plain tabular rows carrying the geometry under a per-row `shape`
+  // field (`encoding.shape: {field, type: 'geojson'}`) — the common
+  // "geoshape via a whole-row lookup" pattern (`geo_repeat`/`geo_trellis`/
+  // `interactive_geo_facet_species`: a primary tabular dataset keyed by
+  // some id, `lookup`-joined against a topojson secondary dataset with
+  // `as: '<shapeField>'`, storing the WHOLE matched Feature under that
+  // field on every row). Every other row field is folded into the
+  // resulting feature's `properties` (a bare field name resolves there —
+  // see `resolveFieldValue`), so the color field and any tooltip fields
+  // the row already carries resolve exactly like an ordinary choropleth.
+  if (shapeField) {
+    const merged: GeoFeature[] = [];
+    for (const row of rows) {
+      const embedded = (row as Record<string, unknown>)[shapeField];
+      if (!isFeature(embedded)) {
+        continue;
+      }
+      const rest = Object.fromEntries(
+        Object.entries(row as Record<string, unknown>).filter(([key]) => key !== shapeField),
+      );
+      merged.push(
+        bridgeFeatureName({
+          ...embedded,
+          properties: { ...(embedded.properties ?? {}), ...rest },
+        }),
+      );
+    }
+    if (merged.length > 0) {
+      return {
+        kind: 'ok',
+        geoData: { type: 'FeatureCollection', features: merged },
+        features: merged,
+        shapeFieldConsumed: true,
+      };
+    }
+  }
+  // (d) Plain tabular rows with no usable embedded-feature shape field
+  // either — a lookup-joined choropleth we can't build.
   return { kind: 'plain' };
 }
 
@@ -493,26 +552,27 @@ function joinAndBridgeFeatures(features: GeoFeature[], ctx: UnitContext): GeoFea
       ctx.unit.path,
     ) as unknown as GeoFeature[];
   }
-  return joined.map((feature) => {
-    if (typeof feature.properties?.name === 'string' || feature.id == null) {
-      return feature;
-    }
-    return {
-      ...feature,
-      properties: { ...(feature.properties ?? {}), name: String(feature.id) },
-    };
-  });
+  return joined.map(bridgeFeatureName);
+}
+
+/** `encoding.shape`'s field, when it's a `type: 'geojson'` field def (a per-row embedded Feature — see `resolveGeoData`). */
+function shapeFieldOf(shapeDef: VegaEncoding['shape'] | undefined): string | undefined {
+  if (shapeDef && !Array.isArray(shapeDef) && isFieldDef(shapeDef) && shapeDef.type === 'geojson') {
+    return shapeDef.field;
+  }
+  return undefined;
 }
 
 export function compileGeoshapeMark(ctx: UnitContext): CompiledUnit {
-  const resolution = resolveGeoData(ctx.rows);
+  const shapeField = shapeFieldOf(ctx.encoding.shape);
+  const resolution = resolveGeoData(ctx.rows, shapeField);
 
   if (resolution.kind !== 'ok') {
     const messages: Record<Exclude<GeoDataResolution['kind'], 'ok'>, string> = {
       empty:
         'The geoshape mark has no resolvable GeoJSON features. Inline `sphere`/`graticule` generators, URL data, and TopoJSON are not supported — pass a FeatureCollection (or an array of Features) via the `data` prop.',
       plain:
-        'The geoshape mark received plain tabular rows. Joining values onto features with a `lookup` transform is not supported yet; pre-join the values into `feature.properties` and pass the resulting Features.',
+        'The geoshape mark received plain tabular rows with no per-row Feature to draw (either no `encoding.shape` field, or that field never resolved to a GeoJSON Feature — e.g. a `lookup` keyed on a field this data does not actually have). Either pass Features directly, or join geometry onto each row via a whole-row `lookup` (`as: "<field>"`, no `fields`) and reference it with `encoding.shape: {field: "<field>", type: "geojson"}`.',
       topology:
         'The geoshape mark received a TopoJSON `Topology`. The wrapper does not convert TopoJSON — pass a GeoJSON FeatureCollection instead (e.g. via `topojson-client`).',
       generator:
@@ -531,8 +591,17 @@ export function compileGeoshapeMark(ctx: UnitContext): CompiledUnit {
   // A choropleth joins any `lookup` values onto each feature and bridges a
   // numeric feature `id` into `properties.name` so x-charts can color it; the
   // rebuilt geoData must carry those bridged names so its name index matches the
-  // series entries. Outline maps (no color) keep the features as-is.
-  const features = color ? joinAndBridgeFeatures(resolution.features, ctx) : resolution.features;
+  // series entries. Outline maps (no color) keep the features as-is. Skipped
+  // when `resolveGeoData` already consumed a per-row `shape` field: the
+  // lookup that produced each row's embedded feature already ran (as part of
+  // the ordinary transform pipeline, before this mark ever compiled), and
+  // every other row field is already folded into that feature's `properties`
+  // — re-running the SAME lookup transform against these already-built
+  // features would just nest a redundant, unused copy under `properties.geo`.
+  const features =
+    color && !resolution.shapeFieldConsumed
+      ? joinAndBridgeFeatures(resolution.features, ctx)
+      : resolution.features;
   const geoData = color ? { ...resolution.geoData, features } : resolution.geoData;
 
   const geo: CompiledUnit['geo'] = {
@@ -541,7 +610,7 @@ export function compileGeoshapeMark(ctx: UnitContext): CompiledUnit {
     ...resolveGeoProjectionTuning(ctx),
   };
 
-  if (ctx.encoding.shape !== undefined) {
+  if (ctx.encoding.shape !== undefined && !resolution.shapeFieldConsumed) {
     ctx.gaps.add({
       code: 'encoding:shape',
       message:

@@ -94,7 +94,7 @@ describe('compileGeoshapeMark', () => {
       expect(geoData.features).to.have.length(3);
     });
 
-    it('reports an unsupported gap for plain tabular rows (lookup join)', () => {
+    it('reports an unsupported gap for plain tabular rows (no shape field to resolve a Feature from)', () => {
       const compiled = compileSpec({
         data: { values: [{ state: 'A', rate: 1 }] },
         mark: 'geoshape',
@@ -104,6 +104,125 @@ describe('compileGeoshapeMark', () => {
       expect(compiled.chartKind).to.not.equal('geo');
       const gap = compiled.gaps.find((entry) => entry.code === 'mark:geoshape-lookup');
       expect(gap?.severity).to.equal('unsupported');
+    });
+
+    it('resolves a per-row `shape` field (a whole-row `lookup` join, geo_repeat/geo_trellis-shaped) into a real FeatureCollection', () => {
+      const geoFeatureOne = {
+        type: 'Feature',
+        id: 1,
+        properties: {},
+        geometry: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [0, 0],
+              [0, 1],
+              [1, 1],
+              [1, 0],
+              [0, 0],
+            ],
+          ],
+        },
+      };
+      const geoFeatureTwo = {
+        type: 'Feature',
+        id: 2,
+        properties: {},
+        geometry: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [2, 0],
+              [2, 1],
+              [3, 1],
+              [3, 0],
+              [2, 0],
+            ],
+          ],
+        },
+      };
+      const compiled = compileSpec({
+        data: {
+          values: [
+            { id: 1, population: 100 },
+            { id: 2, population: 200 },
+          ],
+        },
+        transform: [
+          {
+            lookup: 'id',
+            from: { data: { values: [geoFeatureOne, geoFeatureTwo] }, key: 'id' },
+            as: 'geo',
+          },
+        ],
+        mark: 'geoshape',
+        encoding: {
+          shape: { field: 'geo', type: 'geojson' },
+          color: { field: 'population', type: 'quantitative' },
+        },
+      } as VegaLiteSpec);
+
+      expect(compiled.chartKind).to.equal('geo');
+      expect(compiled.plots).to.include('mapShape');
+      const geoData = compiled.geo?.geoData as {
+        features: Array<{ properties?: Record<string, unknown> }>;
+      };
+      expect(geoData.features).to.have.length(2);
+      // Every other row field (population) is folded into the joined
+      // feature's own properties, so the color field resolves normally —
+      // and a numeric `id` with no feature-native name is bridged the same
+      // way an ordinary id-keyed choropleth already is.
+      expect(geoData.features.map((f) => f.properties?.population)).to.deep.equal([100, 200]);
+      expect(geoData.features.map((f) => f.properties?.name)).to.deep.equal(['1', '2']);
+      expect(compiled.gaps.map((g) => g.code)).to.not.include('mark:geoshape-lookup');
+      expect(compiled.gaps.map((g) => g.code)).to.not.include('encoding:shape');
+    });
+
+    it('drops rows whose `shape` field never resolved to a Feature (an unmatched lookup) instead of failing the whole map', () => {
+      const geoFeatureOne = {
+        type: 'Feature',
+        id: 1,
+        properties: {},
+        geometry: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [0, 0],
+              [0, 1],
+              [1, 1],
+              [1, 0],
+              [0, 0],
+            ],
+          ],
+        },
+      };
+      const compiled = compileSpec({
+        data: {
+          values: [
+            { id: 1, population: 100 },
+            { id: 999, population: 200 },
+          ],
+        },
+        transform: [
+          {
+            lookup: 'id',
+            from: { data: { values: [geoFeatureOne] }, key: 'id' },
+            as: 'geo',
+          },
+        ],
+        mark: 'geoshape',
+        encoding: {
+          shape: { field: 'geo', type: 'geojson' },
+          color: { field: 'population', type: 'quantitative' },
+        },
+      } as VegaLiteSpec);
+
+      expect(compiled.chartKind).to.equal('geo');
+      const geoData = compiled.geo?.geoData as {
+        features: Array<{ properties?: Record<string, unknown> }>;
+      };
+      expect(geoData.features).to.have.length(1);
+      expect(geoData.features[0].properties?.population).to.equal(100);
     });
 
     it('reports an unsupported gap for empty geo data', () => {

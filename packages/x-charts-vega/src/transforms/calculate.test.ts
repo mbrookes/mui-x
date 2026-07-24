@@ -81,6 +81,33 @@ describe('calculate.ts / compileExpression', () => {
     expect(compileExpression('date(datum.d)')({ d: date })).to.equal(15);
   });
 
+  it("supports if(test, then, else) as a ternary (bar_diverging_stack_transform's diverging-scale sum)", () => {
+    expect(compileExpression("if(datum.type === 'a', -2, 0)")({ type: 'a' })).to.equal(-2);
+    expect(compileExpression("if(datum.type === 'a', -2, 0)")({ type: 'b' })).to.equal(0);
+    // Chained additions, as the real spec does.
+    const expr =
+      "if(datum.t === 'a', -2, 0) + if(datum.t === 'b', -1, 0) + if(datum.t === 'c', 1, 0)";
+    expect(compileExpression(expr)({ t: 'a' })).to.equal(-2);
+    expect(compileExpression(expr)({ t: 'c' })).to.equal(1);
+    expect(compileExpression(expr)({ t: 'z' })).to.equal(0);
+  });
+
+  it('only evaluates the taken branch of if() (the untaken branch may reference an unsupported function)', () => {
+    expect(compileExpression('if(datum.ok, 1, unsupportedFn())')({ ok: true })).to.equal(1);
+    expect(compileExpression('if(datum.ok, unsupportedFn(), 2)')({ ok: false })).to.equal(2);
+  });
+
+  it("supports hours/minutes/seconds over a Date datum (interactive_bin_extent/interactive_crossfilter's time-of-day extraction)", () => {
+    const date = new Date(2024, 5, 15, 14, 37, 52);
+    expect(compileExpression('hours(datum.d)')({ d: date })).to.equal(14);
+    expect(compileExpression('minutes(datum.d)')({ d: date })).to.equal(37);
+    expect(compileExpression('seconds(datum.d)')({ d: date })).to.equal(52);
+    expect(compileExpression('hours(datum.d) + minutes(datum.d) / 60')({ d: date })).to.be.closeTo(
+      14 + 37 / 60,
+      1e-9,
+    );
+  });
+
   it('supports timeFormat/utcFormat over a Date datum', () => {
     const date = new Date(2024, 0, 15); // January 15, 2024 (local)
     expect(compileExpression("timeFormat(datum.d, '%b')")({ d: date })).to.equal('Jan');

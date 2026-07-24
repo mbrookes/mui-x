@@ -36,12 +36,14 @@ import { toDate } from '../compile/fieldTypes';
  * `datum['field']` reads a row property (including chained/nested access).
  * A short allow-list of pure functions is supported: abs, round, floor,
  * ceil, sqrt, log, pow, sin, cos, min, max, length, upper, lower, substring,
- * toNumber, toString, year, month, date, timeFormat, utcFormat, format. An array literal
- * (`[a, b, ...]`, used by an axis `labelExpr` to build a multi-line label)
- * is also supported. Anything outside this subset — other identifiers,
- * unknown functions, or a syntax error — throws `UnsupportedExpressionError`,
- * which callers turn into a `TranslationGap` instead of failing the whole
- * chart.
+ * toNumber, toString, year, month, date, hours, minutes, seconds, timeFormat,
+ * utcFormat, format. `if(test, then, else)` (Vega's ternary function) is a
+ * special form rather than a plain function — like the `?:` operator, only
+ * the taken branch is evaluated. An array literal (`[a, b, ...]`, used by an
+ * axis `labelExpr` to build a multi-line label) is also supported. Anything
+ * outside this subset — other identifiers, unknown functions, or a syntax
+ * error — throws `UnsupportedExpressionError`, which callers turn into a
+ * `TranslationGap` instead of failing the whole chart.
  */
 
 export class UnsupportedExpressionError extends Error {}
@@ -470,6 +472,9 @@ const FUNCTIONS: Record<string, (args: unknown[]) => unknown> = {
   year: (args) => toDate(args[0])?.getFullYear() ?? null,
   month: (args) => toDate(args[0])?.getMonth() ?? null,
   date: (args) => toDate(args[0])?.getDate() ?? null,
+  hours: (args) => toDate(args[0])?.getHours() ?? null,
+  minutes: (args) => toDate(args[0])?.getMinutes() ?? null,
+  seconds: (args) => toDate(args[0])?.getSeconds() ?? null,
   timeFormat: (args) => {
     const d = toDate(args[0]);
     if (d == null || typeof args[1] !== 'string') {
@@ -537,6 +542,22 @@ function evaluateNode(
       return (object as Record<string, unknown>)[String(property)];
     }
     case 'call': {
+      // `if(test, then, else)` is Vega's ternary function — evaluated as a
+      // special form (test first, only the taken branch evaluated) rather
+      // than a plain `FUNCTIONS` entry, so the untaken branch's expression
+      // (which may reference a field that doesn't apply to every row) is
+      // never evaluated for rows that don't take it.
+      if (node.callee === 'if') {
+        if (node.args.length !== 3) {
+          throw new UnsupportedExpressionError(
+            'if() requires exactly 3 arguments (test, then, else)',
+          );
+        }
+        const test = evaluateNode(node.args[0], datum, signals);
+        return isTruthy(test)
+          ? evaluateNode(node.args[1], datum, signals)
+          : evaluateNode(node.args[2], datum, signals);
+      }
       const fn = FUNCTIONS[node.callee];
       if (!fn) {
         throw new UnsupportedExpressionError(`Unsupported function "${node.callee}"`);

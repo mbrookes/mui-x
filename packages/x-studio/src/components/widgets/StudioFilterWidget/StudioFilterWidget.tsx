@@ -213,12 +213,34 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
     };
   }, [filterWidgetType, fieldId, rows, isDateField]);
 
-  const sliderMin = config.filterWidgetMin ?? autoMin;
-  const sliderMax = config.filterWidgetMax ?? autoMax;
+  // Sanitize the doc-authored slider config. `filterWidgetMin`/`filterWidgetMax`/`filterWidgetStep`
+  // are typed as `number` but that type is NOT enforced at the load/AI-tool boundary, and a bad
+  // pair reaches the MUI `Slider` (via `SliderControl`) directly: `min >= max` yields an inverted,
+  // unusable range, and `step <= 0`/`NaN` makes the slider's internal rounding produce NaN thumb
+  // positions and `aria-valuenow`. `finiteOr` allows negative bounds (unlike `sanitizeFiniteNumber`,
+  // which floors at 0), so it can't be reused here (finding).
+  const finiteOr = (v: unknown, fallback: number) =>
+    typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+  let sliderMin = finiteOr(config.filterWidgetMin, autoMin);
+  let sliderMax = finiteOr(config.filterWidgetMax, autoMax);
+  if (sliderMin > sliderMax) {
+    // Inverted range → swap so the slider stays usable.
+    [sliderMin, sliderMax] = [sliderMax, sliderMin];
+  }
+  if (sliderMin === sliderMax) {
+    // Zero-width range → fall back to a sane default range.
+    sliderMin = 0;
+    sliderMax = 100;
+  }
   const MS_PER_DAY = 86_400_000;
   const autoSliderStep =
     sliderMax - sliderMin > 100 ? Math.round((sliderMax - sliderMin) / 100) : 1;
-  const sliderStep = config.filterWidgetStep ?? (isDateField ? MS_PER_DAY : autoSliderStep);
+  // `step` must be a finite number > 0 (a `0`/`NaN`/negative step produces NaN thumb positions);
+  // fall back to the sensible auto default otherwise.
+  const rawStep = config.filterWidgetStep;
+  const fallbackStep = isDateField ? MS_PER_DAY : autoSliderStep;
+  const sliderStep =
+    typeof rawStep === 'number' && Number.isFinite(rawStep) && rawStep > 0 ? rawStep : fallbackStep;
 
   const handleClear = React.useCallback(() => {
     controller.clearInteractiveFilter(widget.id);

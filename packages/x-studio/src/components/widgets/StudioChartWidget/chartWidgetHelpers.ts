@@ -515,7 +515,11 @@ export function makeValueFormatter(
 
 export function normalizeCrossFilterValue(value: unknown): string | null {
   if (value instanceof Date) {
-    return value.toISOString();
+    // `new Date('garbage')` is an Invalid Date whose `.toISOString()` throws a `RangeError`.
+    // A single host-injected invalid Date cell reaches this per-row (e.g. from the grid's
+    // `getRowClassName`), so return `null` (a sentinel that never equals a real filter value)
+    // rather than throwing and crashing the whole card (finding).
+    return Number.isNaN(value.getTime()) ? null : value.toISOString();
   }
 
   if (value == null) {

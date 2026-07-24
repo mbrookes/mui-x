@@ -46,9 +46,36 @@ import { StudioPieChart } from './StudioPieChart';
 import { StudioLineAreaChart } from './StudioLineAreaChart';
 import { StudioBarChart } from './StudioBarChart';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
+import { sanitizeFiniteNumber } from '../../../internals/cssValueValidation';
 import { makeValueFormatter, resolveFieldDef } from './chartWidgetHelpers';
 
 type HoverHighlightItem = HighlightItemIdentifier<'bar' | 'line' | 'pie'>;
+
+// ── funnel presentation-enum allow-lists ───────────────────────────────────────
+// `funnelCurve` / `funnelVariant` / `funnelLabelPlacement` are typed as literal unions but
+// that type is NOT enforced at the load/AI-tool boundary. An unknown `curve`/`variant` string
+// resolves to an undefined curve/shape factory deep in `@mui/x-charts-pro`'s FunnelChart, and a
+// non-number `gap` produces NaN section geometry. Allow-list the enums (fall back to the chart's
+// own default via `undefined`) and run `gap` through `sanitizeFiniteNumber`, mirroring the
+// `SAFE_HEAT_SCHEMES` guard already used for the heatmap color scheme (finding).
+type FunnelCurve = NonNullable<StudioChartConfigOfType<'funnel'>['funnelCurve']>;
+type FunnelVariant = NonNullable<StudioChartConfigOfType<'funnel'>['funnelVariant']>;
+type FunnelLabelPlacement = NonNullable<StudioChartConfigOfType<'funnel'>['funnelLabelPlacement']>;
+
+const SAFE_FUNNEL_CURVES = new Set<FunnelCurve>(['linear', 'bump', 'step', 'pyramid']);
+const SAFE_FUNNEL_VARIANTS = new Set<FunnelVariant>(['filled', 'outlined']);
+const SAFE_FUNNEL_LABEL_PLACEMENTS = new Set<FunnelLabelPlacement>([
+  'inside',
+  'outside-start',
+  'outside-end',
+]);
+
+/** Returns `value` if it is a member of `allowed`, otherwise `undefined`. */
+function sanitizeEnum<T extends string>(value: unknown, allowed: ReadonlySet<T>): T | undefined {
+  return typeof value === 'string' && (allowed as ReadonlySet<string>).has(value)
+    ? (value as T)
+    : undefined;
+}
 
 /**
  * Slot props this dispatcher forwards to each chart-specific renderer. Structurally
@@ -570,6 +597,17 @@ function renderFunnel(ctx: ChartRenderContext<'funnel'>): React.ReactElement {
     ? (config.yAggregation ?? 'sum')
     : (config.ySeries?.[0]?.yAggregation ?? config.yAggregation ?? 'sum');
 
+  // Sanitize the doc-authored presentation enums/number before forwarding — an unknown
+  // curve/variant resolves an undefined factory in the underlying FunnelChart, and a non-number
+  // gap produces NaN geometry. `undefined` falls back to `StudioFunnelChart`'s own defaults.
+  const funnelGap = sanitizeFiniteNumber(config.funnelGap, 0);
+  const funnelCurve = sanitizeEnum(config.funnelCurve, SAFE_FUNNEL_CURVES);
+  const funnelVariant = sanitizeEnum(config.funnelVariant, SAFE_FUNNEL_VARIANTS);
+  const funnelLabelPlacementSafe = sanitizeEnum(
+    config.funnelLabelPlacement,
+    SAFE_FUNNEL_LABEL_PLACEMENTS,
+  );
+
   // Cumulative "reached stage" mode: count deals whose reached-depth is at or
   // beyond each stage → monotonically non-increasing by construction (never
   // > 100%). The terminal exit stage (e.g. Closed Lost) is excluded from the
@@ -598,10 +636,10 @@ function renderFunnel(ctx: ChartRenderContext<'funnel'>): React.ReactElement {
         height={chartHeight}
         valueFormat="integer"
         labelFormat={config.funnelLabelFormat}
-        labelPlacement={config.funnelLabelPlacement}
-        gap={config.funnelGap}
-        curve={config.funnelCurve}
-        variant={config.funnelVariant}
+        labelPlacement={funnelLabelPlacementSafe}
+        gap={funnelGap}
+        curve={funnelCurve}
+        variant={funnelVariant}
       />
     );
   }
@@ -633,7 +671,7 @@ function renderFunnel(ctx: ChartRenderContext<'funnel'>): React.ReactElement {
   // Auto-default label placement to outside-end when conversion format is chosen.
   const funnelLabelFormat = config.funnelLabelFormat ?? 'value';
   const funnelLabelPlacement =
-    config.funnelLabelPlacement ?? (funnelLabelFormat === 'conversion' ? 'outside-end' : 'inside');
+    funnelLabelPlacementSafe ?? (funnelLabelFormat === 'conversion' ? 'outside-end' : 'inside');
 
   return (
     <StudioFunnelChart
@@ -643,9 +681,9 @@ function renderFunnel(ctx: ChartRenderContext<'funnel'>): React.ReactElement {
       currencyCode={valueFieldDef?.currencyCode}
       labelFormat={funnelLabelFormat}
       labelPlacement={funnelLabelPlacement}
-      gap={config.funnelGap}
-      curve={config.funnelCurve}
-      variant={config.funnelVariant}
+      gap={funnelGap}
+      curve={funnelCurve}
+      variant={funnelVariant}
       sort={sort}
     />
   );

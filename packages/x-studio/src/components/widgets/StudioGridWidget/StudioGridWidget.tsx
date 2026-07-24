@@ -715,17 +715,31 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   const rows = React.useMemo(() => {
     // `baseRows` already carries related-source calculated columns — the shared `useWidgetRows`
     // enrichment now L2-enriches and joins them (finding 1.1), so no local pass is needed here.
-    return baseRows.map((row, index) => ({
-      ...row,
+    // Track the ids already handed out (as `getRowId` stringifies them) so two data rows sharing
+    // the same non-null `id` — plausible with real host data — don't produce duplicate `getRowId`
+    // results, which is undefined behavior for DataGridPremium (finding).
+    const seenIds = new Set<string>();
+    return baseRows.map((row, index) => {
       // Spread `row` FIRST, then set `id`, so the synthetic-id fallback always wins when the
       // row carries an `id` property that is null/undefined (a nullable database id column).
       // With the fallback placed before `...row`, `...row` overwrote the computed id back to
       // nullish and every such row collided on the same DataGrid id (finding 1.9).
-      id: row.id ?? `${widget.id}-${index}`,
-      // Stashed during this same pass (while `row` still has its original identity) so
-      // `getRowClassName` below never needs to re-derive matching from `row.id`.
-      __highlighted: highlightedRowKeys ? highlightedRowKeys.has(rowMatchKey(row)) : undefined,
-    }));
+      let id: unknown = row.id ?? `${widget.id}-${index}`;
+      // On a collision (a duplicate non-null id, or a synthetic id that happens to match a real
+      // one), fall back to a synthetic per-index unique id so every rendered row keeps a distinct
+      // getRowId value.
+      if (seenIds.has(String(id))) {
+        id = `${widget.id}-dup-${index}`;
+      }
+      seenIds.add(String(id));
+      return {
+        ...row,
+        id,
+        // Stashed during this same pass (while `row` still has its original identity) so
+        // `getRowClassName` below never needs to re-derive matching from `row.id`.
+        __highlighted: highlightedRowKeys ? highlightedRowKeys.has(rowMatchKey(row)) : undefined,
+      };
+    });
   }, [baseRows, widget.id, highlightedRowKeys, rowMatchKey]);
 
   // Native DataGridPremium row grouping

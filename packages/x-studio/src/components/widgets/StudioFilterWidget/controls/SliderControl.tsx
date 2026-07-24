@@ -15,8 +15,31 @@ export interface StudioFilterSliderControlProps {
 }
 
 export function SliderControl(props: StudioFilterSliderControlProps) {
-  const { label, min, max, step, isDate, currentValue, onApply, onClear } = props;
+  const {
+    label,
+    min: rawMin,
+    max: rawMax,
+    step: rawStep,
+    isDate,
+    currentValue,
+    onApply,
+    onClear,
+  } = props;
   const localeText = useStudioLocaleText();
+  // Defensive backstop for direct/custom-slot callers: `StudioFilterWidget` already sanitizes
+  // these, but this component is exported and could be rendered with raw config. `min >= max`
+  // gives an inverted, unusable range; `step <= 0`/`NaN` makes the MUI Slider's internal rounding
+  // produce NaN thumb positions and `aria-valuenow` (finding).
+  let min = Number.isFinite(rawMin) ? rawMin : 0;
+  let max = Number.isFinite(rawMax) ? rawMax : 100;
+  if (min > max) {
+    [min, max] = [max, min];
+  }
+  if (min === max) {
+    min = 0;
+    max = 100;
+  }
+  const step = Number.isFinite(rawStep) && rawStep > 0 ? rawStep : 1;
   const [localValue, setLocalValue] = React.useState<[number, number]>([
     currentValue?.from ?? min,
     currentValue?.to ?? max,

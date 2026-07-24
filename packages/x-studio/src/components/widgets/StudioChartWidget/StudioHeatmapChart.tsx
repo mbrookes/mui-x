@@ -14,6 +14,15 @@ import { formatFieldValue } from '../../../internals/numberFormat';
  */
 const SAFE_HEAT_SCHEMES = new Set<string>(['primary', 'success', 'warning', 'error']);
 
+/**
+ * Allow-list for the heatmap legend alignment union (`'start' | 'center' | 'end'`). Same
+ * rationale as {@link SAFE_HEAT_SCHEMES}: `legendAlign` is typed as this union but that type is
+ * not enforced at the load/AI-tool boundary, so an unknown value (e.g. `"middle"`) would index
+ * `vertAlignMap` as `undefined` (or pass raw into the legend position) and render a garbage
+ * legend placement. Fall back to `'center'`.
+ */
+const SAFE_HEAT_LEGEND_ALIGNS = new Set<string>(['start', 'center', 'end']);
+
 interface StudioHeatmapChartProps {
   height: number;
   heatData: HeatmapData;
@@ -87,15 +96,16 @@ export function StudioHeatmapChart({
   const heatLegendDirection: 'horizontal' | 'vertical' = isVerticalHeatLegend
     ? 'vertical'
     : 'horizontal';
+  const safeLegendAlign = SAFE_HEAT_LEGEND_ALIGNS.has(legendAlign) ? legendAlign : 'center';
   const vertAlignMap = { start: 'top', center: 'middle', end: 'bottom' } as const;
   const heatLegendPos = isVerticalHeatLegend
     ? {
         horizontal: (legendPosition === 'left' ? 'start' : 'end') as 'start' | 'end',
-        vertical: vertAlignMap[legendAlign],
+        vertical: vertAlignMap[safeLegendAlign],
       }
     : {
         vertical: (legendPosition === 'top' ? 'top' : 'bottom') as 'top' | 'bottom',
-        horizontal: legendAlign,
+        horizontal: safeLegendAlign,
       };
   const heatValueFormatter = (v: number) => formatFieldValue(v, valueFieldDef);
 

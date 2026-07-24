@@ -714,7 +714,15 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   // (see `CHART_TYPE_DEFS` in `./chartTypeDefs` for the exact per-type rationale).
   // Falls back to the `bar` entry for an unrecognized/legacy `chartType` string,
   // mirroring the old if-chain's implicit fall-through-to-bar behavior.
-  const chartTypeDef = CHART_TYPE_DEFS[chartType] ?? CHART_TYPE_DEFS.bar;
+  // `Object.hasOwn` (not `CHART_TYPE_DEFS[chartType] ?? …`) so a persisted-doc/AI-authored
+  // `chartType` matching an inherited Object.prototype key (`"constructor"`, `"toString"`,
+  // `"valueOf"`, …) does NOT resolve to an inherited truthy function whose downstream guard
+  // flags read `undefined` and whose `.render(renderContext)` then throws
+  // `TypeError: chartTypeDef.render is not a function`. Mirrors `StudioMapWidget`'s
+  // `Object.hasOwn(allGeographies, mapGeography)` guard for the same bug class.
+  const chartTypeDef = Object.hasOwn(CHART_TYPE_DEFS, chartType)
+    ? CHART_TYPE_DEFS[chartType]
+    : CHART_TYPE_DEFS.bar;
 
   // Guard: return placeholder if chart isn't configured yet (must be after all hooks)
   // Gauge and Gantt chart handle their own unconfigured state separately below.

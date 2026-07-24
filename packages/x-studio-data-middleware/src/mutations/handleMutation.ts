@@ -153,6 +153,33 @@ function assertValidBatchMutationRequest(body: BatchMutationRequest): void {
           `Set "where" to an array of { column, operator, value } predicates, or omit it entirely.`,
       );
     }
+    // A `null`/`undefined` (or otherwise non-object) ELEMENT inside the "where"
+    // array (e.g. `where: [null]`) passes the `Array.isArray(where)` check above
+    // but used to reach the upfront `assertQualifiedWhereColumnsAllowed` loop
+    // BELOW — which runs BEFORE any per-mutation try/catch — where
+    // `checkQualifiedColumn(predicate.column, …)` dereferences `.column` on the
+    // element itself: `null.column` throws a raw, unguarded `TypeError` with no
+    // error boundary at all around this pre-try validation step. (iter26 caught a
+    // non-array `where`; iter27 gave a non-string `where[].column` a clean throw
+    // — this closes the one level deeper: the array's individual ELEMENTS.) A
+    // well-formed non-null object element (even `{}` or `{ column: 5 }`) is left
+    // to `checkQualifiedColumn`'s own clean "column must be a string" throw; only
+    // the elements that would crash the `.column` dereference itself — a null,
+    // undefined, or primitive entry — are rejected here, fail closed, before that
+    // loop ever runs.
+    if (Array.isArray(where)) {
+      where.forEach((predicate, predicateIndex) => {
+        if (typeof predicate !== 'object' || predicate === null) {
+          throw new Error(
+            `MUI X Studio Server: Malformed mutation descriptor at mutations[${index}] — "where[${predicateIndex}]" must ` +
+              `be a predicate object with a "column" field, but received ${JSON.stringify(predicate)}. ` +
+              `A null or non-object where-predicate has no "column" to validate and would otherwise throw a confusing ` +
+              `internal error instead of a clean validation failure. ` +
+              `Ensure every entry in "where" is a { column, operator, value } predicate.`,
+          );
+        }
+      });
+    }
   });
 }
 

@@ -781,6 +781,47 @@ describe('handleMutation — malformed "where" shapes', () => {
     ).rejects.toThrow(/MUI X Studio Server: Column reference in where must be a string/);
     expect(db.snapshot().orders).toHaveLength(1);
   });
+
+  // One level deeper than the two cases above (iter26 non-array `where`, iter27
+  // non-string `where[].column`): a `null`/`undefined`/primitive ELEMENT of the
+  // `where` array. `checkQualifiedColumn(predicate.column, …)` dereferences
+  // `.column` on the element itself — `null.column` threw a raw, unguarded
+  // TypeError in the upfront `assertQualifiedWhereColumnsAllowed` loop, OUTSIDE
+  // any error boundary. The element-shape check in
+  // `assertValidBatchMutationRequest` now rejects it up front.
+  it('rejects a null "where" element with a clean MUI X error instead of a raw TypeError', async () => {
+    const db = createMutableMockDb({ orders: [{ id: 1, tenant_id: 'acme', status: 'pending' }] });
+    const body: BatchMutationRequest = {
+      mutations: [{ id: 'm1', operation: 'delete', table: 'orders', where: [null as any] }],
+    };
+    await expect(
+      handleMutation(body, CLAIMS, { db, schemaAllowlist: ALLOWLIST, tenancy: SINGLE_TENANT }),
+    ).rejects.toThrow(
+      /^MUI X Studio Server: Malformed mutation descriptor at mutations\[0\] — "where\[0\]"/,
+    );
+    // Rejected before any query was built — the row must be untouched.
+    expect(db.snapshot().orders).toHaveLength(1);
+  });
+
+  it('rejects an undefined/primitive "where" element with a clean MUI X error', async () => {
+    const db = createMutableMockDb({ orders: [{ id: 1, tenant_id: 'acme', status: 'pending' }] });
+    const body: BatchMutationRequest = {
+      mutations: [
+        {
+          id: 'm1',
+          operation: 'delete',
+          table: 'orders',
+          where: [{ column: 'id', operator: 'eq', value: 1 }, 5 as any],
+        },
+      ],
+    };
+    await expect(
+      handleMutation(body, CLAIMS, { db, schemaAllowlist: ALLOWLIST, tenancy: SINGLE_TENANT }),
+    ).rejects.toThrow(
+      /^MUI X Studio Server: Malformed mutation descriptor at mutations\[0\] — "where\[1\]"/,
+    );
+    expect(db.snapshot().orders).toHaveLength(1);
+  });
 });
 
 // ── Empty-IN write scoping (data-loss guard) ──────────────────────────────────

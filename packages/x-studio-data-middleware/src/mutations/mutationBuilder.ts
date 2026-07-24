@@ -150,11 +150,20 @@ function validateSecurityColumnValues(
   // value into `values` unchecked — fail OPEN. Gating on `undefined` instead
   // means a defined (even empty-string) department claim always enforces the
   // scope check below.
+  //
+  // Compare as strings on both sides, mirroring the region dimension above
+  // (`String(id) === String(region)`). `claims.department` is typed `string`,
+  // but a deployment whose department column is NUMBER-typed sends a numeric
+  // `values[cols.department]`; a strict `!==` comparison would then never match
+  // `5` against `"5"` and reject a legitimate in-department write with a
+  // confusing "outside the caller's department" error. Normalizing both sides
+  // keeps this direction fail-closed (an out-of-department value still throws)
+  // while tolerating a numeric/string type mismatch, symmetric with region.
   if (
     cols.department &&
     claims.department !== undefined &&
     Object.prototype.hasOwnProperty.call(values, cols.department) &&
-    values[cols.department] !== claims.department
+    String(values[cols.department]) !== String(claims.department)
   ) {
     throw new Error(
       `MUI X Studio Server: Column "${cols.department}" value "${String(values[cols.department])}" is outside the caller's department. ` +

@@ -919,6 +919,30 @@ describe('handleBatchQuery — schema allowlist enforcement', () => {
     );
   });
 
+  // Read-path analogue of the write path's `where: [null]` element-shape guard.
+  // A `null` (or non-object) ELEMENT inside `filters[]` used to reach
+  // `checkQualifiedColumn(filter.column, …)`, which dereferences `.column` on the
+  // element itself (`null.column`) and threw a raw TypeError — caught downstream
+  // by `sanitizeBoundaryError` and degraded to a generic message.
+  // `assertQualifiedColumnsAllowed`'s up-front element-shape check now yields this
+  // package's own precise error, still isolated to the offending widget.
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
+  it('rejects a null filters[] element with a clean MUI X error instead of a raw TypeError', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [{ id: 'w1', table: 'sales', filters: [null as any] }],
+    };
+
+    await expectWidgetError(
+      handleBatchQuery(body, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales', 'customers'],
+        tenancy: SINGLE_TENANT,
+      }),
+      /Malformed entry in "filters"/,
+    );
+  });
+
   it('isolates a bad column-plan widget (unsafe ORDER BY) from a well-formed sibling', async () => {
     // Same isolation, but for the query-PLAN validation stage rather than the
     // table stage — an unsafe ORDER BY direction on one widget must not fail a

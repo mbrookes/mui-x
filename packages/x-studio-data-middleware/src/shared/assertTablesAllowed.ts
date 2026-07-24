@@ -142,6 +142,29 @@ function checkQualifiedColumn(column: string, context: string, schemaAllowlist: 
  * @param descriptor - The widget descriptor being validated.
  * @param schemaAllowlist - The allowlist of queryable table names.
  */
+/**
+ * Guard a `{ column }`-shaped element of a read descriptor array
+ * (`filters[]`, `orderBy[]`) before its `.column` is dereferenced.
+ *
+ * These fields are typed as arrays of objects, but the wire value is client
+ * JSON, so a `null`/`undefined`/primitive ELEMENT (e.g. `filters: [null]`) is
+ * not a runtime impossibility. Dereferencing `.column` on it (`null.column`)
+ * would throw a raw `TypeError`; while that is currently caught downstream by
+ * `sanitizeBoundaryError` (inside `processWidget`'s try) and degraded to a
+ * generic message, rejecting it here — the write path's
+ * `assertValidBatchMutationRequest` does the equivalent up front — yields this
+ * package's own precise, `MUI X`-prefixed error instead.
+ */
+function assertPredicateElementShape(element: unknown, context: string): void {
+  if (typeof element !== 'object' || element === null) {
+    throw new Error(
+      `MUI X Studio Server: Malformed entry in "${context}" — expected a predicate object with a "column" field, ` +
+        `but received ${JSON.stringify(element)}. A null or non-object entry has no "column" to validate against ` +
+        `the schema allowlist. Ensure every entry in "${context}" is an object with a "column" field.`,
+    );
+  }
+}
+
 export function assertQualifiedColumnsAllowed(
   descriptor: BatchWidgetDescriptor,
   schemaAllowlist: string[],
@@ -150,9 +173,11 @@ export function assertQualifiedColumnsAllowed(
     checkQualifiedColumn(column, 'columns', schemaAllowlist);
   }
   for (const filter of descriptor.filters ?? []) {
+    assertPredicateElementShape(filter, 'filters');
     checkQualifiedColumn(filter.column, 'filters', schemaAllowlist);
   }
   for (const orderBy of descriptor.orderBy ?? []) {
+    assertPredicateElementShape(orderBy, 'orderBy');
     checkQualifiedColumn(orderBy.column, 'orderBy', schemaAllowlist);
   }
   for (const physical of Object.values(descriptor.columnAliases ?? {})) {
@@ -161,10 +186,20 @@ export function assertQualifiedColumnsAllowed(
     }
   }
   for (const agg of descriptor.aggregations ?? []) {
+    assertPredicateElementShape(agg, 'aggregations');
     checkQualifiedColumn(agg.column, 'aggregations', schemaAllowlist);
   }
   for (const join of descriptor.joins ?? []) {
-    for (const [left, right] of join.on ?? []) {
+    for (const pair of join.on ?? []) {
+      if (!Array.isArray(pair)) {
+        throw new Error(
+          `MUI X Studio Server: Malformed entry in "joins.on" — expected a [left, right] column pair, ` +
+            `but received ${JSON.stringify(pair)}. A non-array "on" entry cannot be destructured into a ` +
+            `column pair to validate against the schema allowlist. Ensure every "joins[].on" entry is a ` +
+            `[left, right] tuple of column references.`,
+        );
+      }
+      const [left, right] = pair;
       checkQualifiedColumn(left, 'joins.on', schemaAllowlist);
       checkQualifiedColumn(right, 'joins.on', schemaAllowlist);
     }

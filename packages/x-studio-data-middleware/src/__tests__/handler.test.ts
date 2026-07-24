@@ -8,6 +8,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createHmac } from 'node:crypto';
 import { handleBatchQuery, MAX_WIDGETS_PER_BATCH } from '../handler';
+import { MAX_ARRAY_ITEMS_PER_DESCRIPTOR } from '../shared/limits';
 import { generateCacheKey } from '../security/cacheKey';
 import { extractSecurityClaims } from '../security/extractSecurityClaims';
 import { LRUCacheProvider } from '../cache/LRUCacheProvider';
@@ -724,6 +725,30 @@ describe('handleBatchQuery — malformed request body guard', () => {
       /^MUI X Studio Server: Malformed widget descriptor at widgets\[0\] — "joins" must be an array/,
     );
   });
+
+  it('rejects a widget whose "columns" is not an array', async () => {
+    await expect(
+      handleBatchQuery(
+        { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', columns: {} }] } as any,
+        ACME_CLAIMS,
+        { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
+      ),
+    ).rejects.toThrow(
+      /^MUI X Studio Server: Malformed widget descriptor at widgets\[0\] — "columns" must be an array/,
+    );
+  });
+
+  it('rejects a widget whose "having" is not an array', async () => {
+    await expect(
+      handleBatchQuery(
+        { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', having: {} }] } as any,
+        ACME_CLAIMS,
+        { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
+      ),
+    ).rejects.toThrow(
+      /^MUI X Studio Server: Malformed widget descriptor at widgets\[0\] — "having" must be an array/,
+    );
+  });
 });
 
 // Regression (finding T3 — unbounded widget fan-out): a batch request used to
@@ -757,6 +782,65 @@ describe('handleBatchQuery — widget fan-out cap (finding T3)', () => {
       tenancy: SINGLE_TENANT,
     });
     expect(result.results).toHaveLength(MAX_WIDGETS_PER_BATCH);
+  });
+});
+
+// Regression (Tier3 — resource exhaustion): `MAX_WIDGETS_PER_BATCH` bounds the
+// NUMBER of widgets per request but not the size of any single widget's own
+// collection fields — a single well-formed-looking widget could still smuggle
+// in an arbitrarily large array, still unbounded work driven entirely by
+// client input.
+describe('handleBatchQuery — per-array size caps (finding Tier3 resource exhaustion)', () => {
+  it.each(['filters', 'orderBy', 'aggregations', 'joins', 'columns', 'having'] as const)(
+    'rejects a widget whose "%s" array exceeds MAX_ARRAY_ITEMS_PER_DESCRIPTOR',
+    async (field) => {
+      const oversized = Array.from({ length: MAX_ARRAY_ITEMS_PER_DESCRIPTOR + 1 }, () => ({}));
+      await expect(
+        handleBatchQuery(
+          { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', [field]: oversized }] } as any,
+          ACME_CLAIMS,
+          { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
+        ),
+      ).rejects.toThrow(
+        new RegExp(
+          `^MUI X Studio Server: Malformed widget descriptor at widgets\\[0\\] — "${field}" contains ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR + 1} entries, which exceeds the maximum of ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR}`,
+        ),
+      );
+    },
+  );
+
+  it('rejects a filters[].value "in"-list exceeding MAX_ARRAY_ITEMS_PER_DESCRIPTOR', async () => {
+    const inList = Array.from({ length: MAX_ARRAY_ITEMS_PER_DESCRIPTOR + 1 }, (_unused, i) => i);
+    await expect(
+      handleBatchQuery(
+        {
+          pageId: 'p1',
+          widgets: [
+            {
+              id: 'w1',
+              table: 'sales',
+              filters: [{ column: 'region', operator: 'in', value: inList }],
+            },
+          ],
+        } as any,
+        ACME_CLAIMS,
+        { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
+      ),
+    ).rejects.toThrow(/"filters\[0\]\.value" contains .* which exceeds the maximum/);
+  });
+
+  it('still accepts a widget whose "filters" array is exactly at MAX_ARRAY_ITEMS_PER_DESCRIPTOR', async () => {
+    const filters = Array.from({ length: MAX_ARRAY_ITEMS_PER_DESCRIPTOR }, () => ({
+      column: 'region',
+      operator: 'eq' as const,
+      value: 'west',
+    }));
+    const result = await handleBatchQuery(
+      { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', filters }] },
+      ACME_CLAIMS,
+      { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
+    );
+    expect(result.results[0].error).toBeUndefined();
   });
 });
 
@@ -1911,6 +1995,49 @@ describe('handleBatchQuery — missing HMAC secret degrades to a per-widget erro
         expect(widgetResult.error).toMatch(/No cache HMAC secret is configured/);
       }
     }));
+});
+
+// ─── handleBatchQuery — pathologically nested filter value degrades to a
+//     per-widget error (Tier3 — cache-key-before-validation ordering) ─────────
+//
+// `generateCacheKey` (called inside `processWidget`'s try block, ~handler.ts:269)
+// hashes the RAW widget descriptor — including `filters[].value` — BEFORE the
+// shape guards on filter values ever run. `sortedStringify`'s depth guard
+// (canonicalize.ts) now rejects a pathologically deep value there instead of
+// recursing unbounded. Because the throw happens inside `processWidget`'s try,
+// it must still degrade to that widget's own `{ error }` result — not reject
+// the whole batch — exactly like the other per-widget validation failures above.
+describe('handleBatchQuery — pathologically nested filter value (defense-in-depth depth guard)', () => {
+  it('resolves with a per-widget error instead of rejecting the whole batch', async () => {
+    let deeplyNested: unknown = 'leaf';
+    for (let i = 0; i < 1000; i += 1) {
+      deeplyNested = { nested: deeplyNested };
+    }
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          filters: [{ column: 'region', operator: 'eq', value: deeplyNested as any }],
+        },
+        { id: 'w2', table: 'sales', columns: ['region'] },
+      ],
+    };
+
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenancy: SINGLE_TENANT,
+    });
+
+    expect(result.results).toHaveLength(2);
+    const bad = result.results.find((r) => r.id === 'w1')!;
+    const good = result.results.find((r) => r.id === 'w2')!;
+    expect(bad.error).toMatch(/nested more than \d+ levels deep/);
+    expect(good.error).toBeUndefined();
+    expect(good.rows.length).toBeGreaterThan(0);
+  });
 });
 
 // ─── handleBatchQuery — tier-cache failures degrade gracefully (finding 2.1) ───

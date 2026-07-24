@@ -52,6 +52,28 @@ describe('sortedStringify', () => {
     expect(nestedA).not.toBe(nestedB);
   });
 
+  // Regression (Tier3 — ordering bug): `generateCacheKey` → `computeQueryHash` runs
+  // `sortedStringify` on the RAW widget descriptor — including `filters[].value` —
+  // BEFORE the shape guards on filter values ever run. With no depth guard, a
+  // pathologically nested client-supplied value could recurse unbounded here,
+  // burning CPU (and risking a stack overflow) before any validation gets a
+  // chance to reject it. This is a defense-in-depth cap: no legitimate query
+  // descriptor nests anywhere near this deep.
+  it('throws a clean MUI X error instead of recursing unbounded on a pathologically deep value', () => {
+    let deeplyNested: unknown = 'leaf';
+    for (let i = 0; i < 1000; i += 1) {
+      deeplyNested = { nested: deeplyNested };
+    }
+    expect(() => sortedStringify(deeplyNested)).toThrow(/^MUI X Studio Server:/);
+    expect(() => sortedStringify(deeplyNested)).toThrow(/nested more than \d+ levels deep/);
+  });
+
+  it('still handles ordinary, shallowly-nested values without throwing', () => {
+    expect(() =>
+      sortedStringify({ column: 'sale_date', value: { a: { b: { c: 1 } } } }),
+    ).not.toThrow();
+  });
+
   it('pins the exact canonical output for a representative security profile', () => {
     // Exact-output snapshot: any future "improvement" to the algorithm that
     // would silently re-key every deployed cache entry / policy digest fails

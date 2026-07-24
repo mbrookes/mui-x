@@ -11,6 +11,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { handleMutation, MAX_MUTATIONS_PER_BATCH } from '../handleMutation';
+import { MAX_ARRAY_ITEMS_PER_DESCRIPTOR } from '../../shared/limits';
 import type { BatchMutationRequest, CacheProvider } from '../../index';
 
 // ── Mutable in-memory mock DB (same as mutationBuilder.test.ts) ───────────────
@@ -821,6 +822,160 @@ describe('handleMutation — malformed "where" shapes', () => {
       /^MUI X Studio Server: Malformed mutation descriptor at mutations\[0\] — "where\[1\]"/,
     );
     expect(db.snapshot().orders).toHaveLength(1);
+  });
+});
+
+// Regression (Tier3 — asymmetric validation): "where" was validated up front as
+// an array of objects, but "values" had no equivalent object-shape guard, so a
+// non-object "values" (an array, string, number, or null) reached
+// `validateMutation`/`buildInsertMutation`/`buildUpdateMutation` in
+// `mutationBuilder.ts`, none of which throw for it — producing a silently
+// degraded insert/update instead of a clean validation error.
+describe('handleMutation — malformed "values" shape', () => {
+  it('rejects an array "values" with a clean MUI X error instead of silently degrading the insert', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const body: BatchMutationRequest = {
+      mutations: [{ id: 'm1', operation: 'insert', table: 'orders', values: ['pending'] as any }],
+    };
+    await expect(
+      handleMutation(body, CLAIMS, { db, schemaAllowlist: ALLOWLIST, tenancy: SINGLE_TENANT }),
+    ).rejects.toThrow(
+      /^MUI X Studio Server: Malformed mutation descriptor at mutations\[0\] — "values" must be a plain object/,
+    );
+    expect(db.snapshot().orders).toHaveLength(0);
+  });
+
+  it('rejects a string "values"', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const body: BatchMutationRequest = {
+      mutations: [{ id: 'm1', operation: 'insert', table: 'orders', values: 'pending' as any }],
+    };
+    await expect(
+      handleMutation(body, CLAIMS, { db, schemaAllowlist: ALLOWLIST, tenancy: SINGLE_TENANT }),
+    ).rejects.toThrow(
+      /^MUI X Studio Server: Malformed mutation descriptor at mutations\[0\] — "values" must be a plain object/,
+    );
+  });
+
+  it('rejects a null "values"', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const body: BatchMutationRequest = {
+      mutations: [{ id: 'm1', operation: 'insert', table: 'orders', values: null as any }],
+    };
+    await expect(
+      handleMutation(body, CLAIMS, { db, schemaAllowlist: ALLOWLIST, tenancy: SINGLE_TENANT }),
+    ).rejects.toThrow(
+      /^MUI X Studio Server: Malformed mutation descriptor at mutations\[0\] — "values" must be a plain object/,
+    );
+  });
+
+  it('rejects a numeric "values"', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const body: BatchMutationRequest = {
+      mutations: [{ id: 'm1', operation: 'insert', table: 'orders', values: 42 as any }],
+    };
+    await expect(
+      handleMutation(body, CLAIMS, { db, schemaAllowlist: ALLOWLIST, tenancy: SINGLE_TENANT }),
+    ).rejects.toThrow(
+      /^MUI X Studio Server: Malformed mutation descriptor at mutations\[0\] — "values" must be a plain object/,
+    );
+  });
+
+  it('still accepts a well-formed object "values"', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const body: BatchMutationRequest = {
+      mutations: [
+        { id: 'm1', operation: 'insert', table: 'orders', values: { status: 'pending' } },
+      ],
+    };
+    const { results } = await handleMutation(body, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      tenancy: SINGLE_TENANT,
+    });
+    expect(results[0]).toMatchObject({ id: 'm1', ok: true });
+  });
+});
+
+// Regression (Tier3 — resource exhaustion): the batch-size caps
+// (`MAX_MUTATIONS_PER_BATCH`) bound the NUMBER of mutations per request but not
+// the size of any single mutation's own "where" array / "values" object — an
+// unbounded array/object inside one otherwise-well-formed mutation is still
+// unbounded query-building work driven entirely by client input.
+describe('handleMutation — per-array size caps (finding Tier3 resource exhaustion)', () => {
+  it('rejects a "where" array exceeding MAX_ARRAY_ITEMS_PER_DESCRIPTOR', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const where = Array.from({ length: MAX_ARRAY_ITEMS_PER_DESCRIPTOR + 1 }, (_unused, i) => ({
+      column: 'id',
+      operator: 'eq' as const,
+      value: i,
+    }));
+    const body: BatchMutationRequest = {
+      mutations: [{ id: 'm1', operation: 'delete', table: 'orders', where }],
+    };
+    await expect(
+      handleMutation(body, CLAIMS, { db, schemaAllowlist: ALLOWLIST, tenancy: SINGLE_TENANT }),
+    ).rejects.toThrow(
+      new RegExp(
+        `^MUI X Studio Server: Malformed mutation descriptor at mutations\\[0\\] — "where" contains ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR + 1} predicates, which exceeds the maximum of ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR}`,
+      ),
+    );
+  });
+
+  it('rejects a where[].value "in"-list exceeding MAX_ARRAY_ITEMS_PER_DESCRIPTOR', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const inList = Array.from({ length: MAX_ARRAY_ITEMS_PER_DESCRIPTOR + 1 }, (_unused, i) => i);
+    const body: BatchMutationRequest = {
+      mutations: [
+        {
+          id: 'm1',
+          operation: 'delete',
+          table: 'orders',
+          where: [{ column: 'id', operator: 'in', value: inList }],
+        },
+      ],
+    };
+    await expect(
+      handleMutation(body, CLAIMS, { db, schemaAllowlist: ALLOWLIST, tenancy: SINGLE_TENANT }),
+    ).rejects.toThrow(/"where\[0\]\.value" contains .* which exceeds the maximum/);
+  });
+
+  it('rejects a "values" object exceeding MAX_ARRAY_ITEMS_PER_DESCRIPTOR keys', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const values = Object.fromEntries(
+      Array.from({ length: MAX_ARRAY_ITEMS_PER_DESCRIPTOR + 1 }, (_unused, i) => [`col${i}`, i]),
+    );
+    const body: BatchMutationRequest = {
+      mutations: [{ id: 'm1', operation: 'insert', table: 'orders', values }],
+    };
+    await expect(
+      handleMutation(body, CLAIMS, { db, schemaAllowlist: ALLOWLIST, tenancy: SINGLE_TENANT }),
+    ).rejects.toThrow(
+      new RegExp(
+        `^MUI X Studio Server: Malformed mutation descriptor at mutations\\[0\\] — "values" contains ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR + 1} keys, which exceeds the maximum of ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR}`,
+      ),
+    );
+  });
+
+  it('still accepts a "where" array exactly at MAX_ARRAY_ITEMS_PER_DESCRIPTOR', async () => {
+    const db = createMutableMockDb({
+      orders: Array.from({ length: 1 }, (_unused, i) => ({
+        id: i,
+        tenant_id: 'acme',
+        status: 'pending',
+      })),
+    });
+    const where = Array.from({ length: MAX_ARRAY_ITEMS_PER_DESCRIPTOR }, (_unused, i) => ({
+      column: 'id',
+      operator: 'eq' as const,
+      value: i,
+    }));
+    const result = await handleMutation(
+      { mutations: [{ id: 'm1', operation: 'delete', table: 'orders', where }] },
+      CLAIMS,
+      { db, schemaAllowlist: ALLOWLIST, tenancy: SINGLE_TENANT },
+    );
+    expect(result.results[0].ok).toBe(true);
   });
 });
 

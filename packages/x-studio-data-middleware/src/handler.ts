@@ -52,6 +52,7 @@ import {
 } from './router/tierDecision';
 import { assertQualifiedColumnsAllowed, assertTablesAllowed } from './shared/assertTablesAllowed';
 import { sanitizeBoundaryError } from './shared/sanitizeError';
+import { MAX_ARRAY_ITEMS_PER_DESCRIPTOR } from './shared/limits';
 import type { CacheEntry, CacheProvider, TierCacheProvider } from './cache/types';
 
 const DEFAULT_TIER_CACHE_TTL_MS = 30_000; // 30 seconds — aligned with data cache default
@@ -131,7 +132,14 @@ function assertValidBatchQueryRequest(body: BatchQueryRequest): void {
     // `assertValidBatchMutationRequest` does — yields this package's own
     // `MUI X`-prefixed error instead of the generic per-widget fallback. Each
     // field is optional, so only a PRESENT non-array value is rejected.
-    for (const field of ['filters', 'orderBy', 'aggregations', 'joins'] as const) {
+    for (const field of [
+      'filters',
+      'orderBy',
+      'aggregations',
+      'joins',
+      'columns',
+      'having',
+    ] as const) {
       const value = (widget as Partial<BatchWidgetDescriptor>)[field];
       if (value !== undefined && !Array.isArray(value)) {
         throw new Error(
@@ -141,6 +149,43 @@ function assertValidBatchQueryRequest(body: BatchQueryRequest): void {
             `Ensure "${field}" is an array (or omit it) on every widget descriptor.`,
         );
       }
+      // Per-array size cap (finding Tier3 — resource exhaustion). The widget-count
+      // cap above (`MAX_WIDGETS_PER_BATCH`) does not bound the size of any ONE
+      // widget's own collection fields — a single well-formed-looking widget can
+      // still smuggle in an arbitrarily large `filters`/`joins`/`columns`/`orderBy`/
+      // `aggregations`/`having` array, which is still unbounded work downstream
+      // (query building, plan validation, execution) driven entirely by client input.
+      if (Array.isArray(value) && value.length > MAX_ARRAY_ITEMS_PER_DESCRIPTOR) {
+        throw new Error(
+          `MUI X Studio Server: Malformed widget descriptor at widgets[${index}] — "${field}" contains ` +
+            `${value.length} entries, which exceeds the maximum of ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR} allowed per ` +
+            `widget. An unbounded array is unbounded query-building and execution work driven entirely by client ` +
+            `input. Reduce the number of entries in "${field}" to at most ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR}.`,
+        );
+      }
+    }
+    // Size cap for an `in`-predicate's value list. `filters` is validated as an
+    // array above (or absent), so it is safe to iterate here. `filters[].value` is
+    // NOT validated for shape yet (that happens later, per widget, via
+    // `isScalarComparisonValue`/`isPrimitivePredicateElement` in `shared/predicates.ts`)
+    // — only a PRESENT array value is length-capped here, regardless of operator,
+    // so a pathologically long `in`-list can't reach query building at all.
+    const filters = (widget as Partial<BatchWidgetDescriptor>).filters;
+    if (Array.isArray(filters)) {
+      filters.forEach((predicate, predicateIndex) => {
+        const predicateValue = (predicate as { value?: unknown } | null)?.value;
+        if (
+          Array.isArray(predicateValue) &&
+          predicateValue.length > MAX_ARRAY_ITEMS_PER_DESCRIPTOR
+        ) {
+          throw new Error(
+            `MUI X Studio Server: Malformed widget descriptor at widgets[${index}] — "filters[${predicateIndex}].value" ` +
+              `contains ${predicateValue.length} entries, which exceeds the maximum of ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR} ` +
+              `allowed per predicate. An unbounded "in" value list is unbounded query-building and execution work ` +
+              `driven entirely by client input. Reduce the number of entries to at most ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR}.`,
+          );
+        }
+      });
     }
   });
 }

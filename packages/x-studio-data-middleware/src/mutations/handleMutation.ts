@@ -61,6 +61,7 @@ import {
   assertQualifiedWhereColumnsAllowed,
 } from '../shared/assertTablesAllowed';
 import { sanitizeBoundaryError } from '../shared/sanitizeError';
+import { MAX_ARRAY_ITEMS_PER_DESCRIPTOR } from '../shared/limits';
 import {
   compileSecurityPolicy,
   type CompiledSecurityPolicy,
@@ -168,6 +169,18 @@ function assertValidBatchMutationRequest(body: BatchMutationRequest): void {
     // undefined, or primitive entry — are rejected here, fail closed, before that
     // loop ever runs.
     if (Array.isArray(where)) {
+      // Size cap on the "where" array itself (finding Tier3 — resource exhaustion,
+      // mirrors the read path's per-array caps in `handler.ts`). Mutations run
+      // sequentially, not concurrently, but an unbounded predicate array is still
+      // unbounded query-building work driven entirely by client input.
+      if (where.length > MAX_ARRAY_ITEMS_PER_DESCRIPTOR) {
+        throw new Error(
+          `MUI X Studio Server: Malformed mutation descriptor at mutations[${index}] — "where" contains ` +
+            `${where.length} predicates, which exceeds the maximum of ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR} allowed per ` +
+            `mutation. An unbounded array is unbounded query-building work driven entirely by client input. ` +
+            `Reduce the number of entries in "where" to at most ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR}.`,
+        );
+      }
       where.forEach((predicate, predicateIndex) => {
         if (typeof predicate !== 'object' || predicate === null) {
           throw new Error(
@@ -178,7 +191,62 @@ function assertValidBatchMutationRequest(body: BatchMutationRequest): void {
               `Ensure every entry in "where" is a { column, operator, value } predicate.`,
           );
         }
+        // Size cap for an `in`-predicate's value list — only a PRESENT array value
+        // is length-capped here, regardless of operator (shape validation for
+        // `value` happens later, per mutation, inside `validateMutation`).
+        const predicateValue = (predicate as { value?: unknown }).value;
+        if (
+          Array.isArray(predicateValue) &&
+          predicateValue.length > MAX_ARRAY_ITEMS_PER_DESCRIPTOR
+        ) {
+          throw new Error(
+            `MUI X Studio Server: Malformed mutation descriptor at mutations[${index}] — "where[${predicateIndex}].value" ` +
+              `contains ${predicateValue.length} entries, which exceeds the maximum of ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR} ` +
+              `allowed per predicate. An unbounded "in" value list is unbounded query-building work driven entirely by ` +
+              `client input. Reduce the number of entries to at most ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR}.`,
+          );
+        }
       });
+    }
+    // A "values" field that is present but not a plain object — e.g. `values: []`,
+    // `values: "oops"`, `values: 42`, `values: null` — passes the checks above
+    // (which only look at "id"/"table"/"where") and previously reached
+    // `validateMutation`/`buildInsertMutation`/`buildUpdateMutation` downstream
+    // (`mutationBuilder.ts`), which do `descriptor.values ?? {}`, `{ ...descriptor.values }`,
+    // `Object.keys(values)` — none of which throw for a non-object "values": an
+    // array indexes as '0', '1', ...; a string indexes by character; `null`/a
+    // number silently becomes `{}`. That produced a silently degraded insert/update
+    // (or an opaque downstream DB error) instead of a clean validation failure.
+    // Mirrors the "where" array-shape check above exactly, for the object shape.
+    const { values } = mutation as Partial<MutationDescriptor>;
+    if (
+      values !== undefined &&
+      (typeof values !== 'object' || values === null || Array.isArray(values))
+    ) {
+      throw new Error(
+        `MUI X Studio Server: Malformed mutation descriptor at mutations[${index}] — "values" must be a plain ` +
+          `object of column-value pairs when present, but received ${JSON.stringify(values)}. ` +
+          `A non-object "values" cannot be safely mapped to column-value pairs, and would otherwise silently ` +
+          `produce a degraded insert/update, or an opaque downstream database error, instead of a clean ` +
+          `validation failure. Set "values" to a { column: value, ... } object, or omit it entirely.`,
+      );
+    }
+    // Size cap on the "values" object's key count (finding Tier3 — resource
+    // exhaustion), mirroring the array-length caps above for the one mutation
+    // field that isn't an array.
+    if (
+      values !== undefined &&
+      typeof values === 'object' &&
+      values !== null &&
+      !Array.isArray(values) &&
+      Object.keys(values).length > MAX_ARRAY_ITEMS_PER_DESCRIPTOR
+    ) {
+      throw new Error(
+        `MUI X Studio Server: Malformed mutation descriptor at mutations[${index}] — "values" contains ` +
+          `${Object.keys(values).length} keys, which exceeds the maximum of ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR} ` +
+          `allowed per mutation. An unbounded object is unbounded query-building work driven entirely by client ` +
+          `input. Reduce the number of keys in "values" to at most ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR}.`,
+      );
     }
   });
 }

@@ -74,6 +74,21 @@ const CHART_LIBRARY_SNAPSHOT_STORE_PATH =
 // (see weeklyCapture.ts), so it self-heals across restarts/redeploys regardless of exact timing.
 const REFRESH_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
+// How long a live GET endpoint waits for a cold-start capture before answering anyway (with
+// whatever's available — usually still nothing, on a true cold start). A full matrix now takes
+// up to ~2.5min (component libraries × other libraries, ~2.5s apart — see githubLibraryUsage.ts),
+// which is long enough to risk tripping a reverse-proxy or browser request timeout if a request
+// just blocked on it outright. The capture itself is NOT cancelled when this wait elapses — it
+// keeps running in the background and the next request (or a client retry) picks up the result
+// once it's done; see waitForCapture below.
+const INITIAL_CAPTURE_WAIT_MS = 30_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 async function main(): Promise<void> {
   const app = express();
   // Railway (like most PaaS) terminates TLS at an edge proxy and forwards via X-Forwarded-*;
@@ -136,14 +151,30 @@ async function main(): Promise<void> {
     void refreshAllIfDue();
   }, REFRESH_CHECK_INTERVAL_MS);
 
+  // Waits up to INITIAL_CAPTURE_WAIT_MS for `capture`'s in-flight/triggered refresh, then
+  // returns regardless — the refresh itself is not cancelled, it just keeps running in the
+  // background past the timeout. `.catch()` is attached unconditionally (not just when we're
+  // still waiting) so a refresh that fails *after* this function has already returned doesn't
+  // surface as an unhandled rejection.
+  async function waitForCapture(
+    capture: ReturnType<typeof createWeeklyCapture>,
+    label: string,
+  ): Promise<void> {
+    const refreshPromise = capture.refreshIfDue().catch((err) => {
+      error(`[${label}] Capture failed:`, err);
+    });
+    await Promise.race([refreshPromise, sleep(INITIAL_CAPTURE_WAIT_MS)]);
+  }
+
   // GET /api/github-library-usage — the latest captured snapshot's component-library ×
   // data-grid-library adoption matrix (unchanged shape from before weekly history existed).
   app.get('/api/github-library-usage', async (_req: Request, res: Response): Promise<void> => {
     try {
       if (dataGridCapture.getSnapshots().length === 0) {
         // Nothing captured yet (fresh install, or first boot after a filesystem reset) — wait
-        // for the in-flight initial capture rather than answering with an empty matrix.
-        await dataGridCapture.refreshIfDue();
+        // (briefly — see waitForCapture) for the in-flight initial capture rather than
+        // answering with an empty matrix outright.
+        await waitForCapture(dataGridCapture, 'github-library-usage');
       }
       const latest = dataGridCapture.getSnapshots().at(-1);
       res.json({ rows: latest?.rows ?? [], fetchedAt: latest?.fetchedAt ?? null });
@@ -164,7 +195,7 @@ async function main(): Promise<void> {
   app.get('/api/chart-library-usage', async (_req: Request, res: Response): Promise<void> => {
     try {
       if (chartLibraryCapture.getSnapshots().length === 0) {
-        await chartLibraryCapture.refreshIfDue();
+        await waitForCapture(chartLibraryCapture, 'github-chart-library-usage');
       }
       const latest = chartLibraryCapture.getSnapshots().at(-1);
       res.json({ rows: latest?.rows ?? [], fetchedAt: latest?.fetchedAt ?? null });

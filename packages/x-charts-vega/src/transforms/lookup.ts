@@ -34,11 +34,15 @@ import { extractTopojsonFeatureRows } from '../normalize';
  * written at the TOP LEVEL of the (cloned) row, which is correct for
  * Features too — downstream geoshape field reads support top-level reads.
  *
- * `from.data` only supports inline `values`; `url` (remote fetch) and `name`
- * (named datasets, resolved elsewhere during spec normalization — this layer
- * has no access to them) are recorded as 'unsupported' gaps and the rows
+ * `from.data` supports inline `values` and a named dataset (`from.data.name`,
+ * resolved against the `datasets` map the caller passes through — the same
+ * merged `spec.datasets`/host-provided map `NormalizedSpec.datasets` already
+ * exposes, since named datasets are otherwise resolved during spec
+ * normalization, which this transform-level function has no access to on its
+ * own). `url` (remote fetch) is recorded as an 'unsupported' gap and the rows
  * pass through with default (or unchanged, when the output fields can't be
- * determined statically) values.
+ * determined statically) values; likewise for a `name` the `datasets` map
+ * doesn't have an entry for.
  */
 
 /** Reads `field` off a primary row, supporting dotted paths and a GeoJSON-Feature `properties` fallback. */
@@ -192,6 +196,7 @@ export function applyLookupTransform(
   transform: VegaLookupTransform,
   gaps: GapCollector,
   path: string,
+  datasets?: Record<string, readonly DatasetRow[]>,
 ): readonly DatasetRow[] {
   const { lookup, from, default: defaultValue = null } = transform;
   const { data, key } = from;
@@ -214,17 +219,28 @@ export function applyLookupTransform(
     }
     return rows.map((row) => applyPlan(row, plan, undefined, defaultValue, [], key));
   }
+  // `from.data.name` references a named dataset — resolved the same way
+  // `normalize/index.ts` resolves one for the PRIMARY data source (the
+  // spec's own inline `datasets` merged with host-provided ones), just
+  // passed through here since a transform-level function has no access to
+  // spec normalization on its own. Only consulted when `values` itself is
+  // absent — an inline `values` always wins if somehow both are given.
+  const namedDatasetRows =
+    data.values === undefined && typeof data.name === 'string' ? datasets?.[data.name] : undefined;
+  const resolvedValues = data.values !== undefined ? data.values : namedDatasetRows;
+
   // A topojson secondary dataset (a common "choropleth via lookup" pattern —
   // joining map geometry onto a primary table by id) needs the same
   // topology→GeoJSON conversion `normalize/index.ts` applies to primary geo
   // data, but exploded to one row per Feature (keyed by its `id`) rather than
   // one row holding the whole FeatureCollection — a lookup matches per-row,
-  // not against the collection as a single candidate.
+  // not against the collection as a single candidate. Works the same whether
+  // the topology came from inline `values` or a resolved named dataset.
   const format = (data as { format?: { type?: unknown } }).format;
   const secondaryRows =
     format?.type === 'topojson'
-      ? extractTopojsonFeatureRows(data as never, gaps, path)
-      : data.values;
+      ? extractTopojsonFeatureRows({ ...data, values: resolvedValues } as never, gaps, path)
+      : resolvedValues;
 
   if (secondaryRows === undefined) {
     if (data.url !== undefined) {
@@ -237,7 +253,7 @@ export function applyLookupTransform(
     } else if (data.name !== undefined) {
       gaps.add({
         code: 'transform:lookup-named-dataset',
-        message: `The lookup transform references the named dataset "${data.name}"; only inline \`from.data.values\` are supported for lookups, so it was skipped and its output fields are left at their default.`,
+        message: `The lookup transform references the named dataset "${data.name}", but it was not found (pass it via the \`datasets\` prop, or the spec's own \`datasets\` map); the lookup was skipped and its output fields are left at their default.`,
         severity: 'unsupported',
         path,
       });

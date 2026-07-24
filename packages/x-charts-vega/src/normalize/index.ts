@@ -32,6 +32,14 @@ export interface NormalizedSpec {
   title?: string;
   width?: number;
   height?: number;
+  /**
+   * The spec's own inline `datasets` merged with host-provided
+   * `options.datasets` (the latter winning) — the same merge every named-
+   * dataset lookup in this file already does for the PRIMARY data source,
+   * exposed here so callers can resolve a named dataset referenced from
+   * elsewhere (e.g. a `lookup` transform's `from.data.name`).
+   */
+  datasets: Record<string, readonly DatasetRow[]>;
 }
 
 export interface NormalizeOptions {
@@ -472,5 +480,6 @@ export function normalizeSpec(
     title: titleText(spec.title),
     width: numericSize(spec.width, gaps, 'width'),
     height: numericSize(spec.height, gaps, 'height'),
+    datasets,
   };
 }

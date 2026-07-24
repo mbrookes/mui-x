@@ -244,7 +244,7 @@ describe('applyLookupTransform', () => {
     expect(gap?.severity).to.equal('unsupported');
   });
 
-  it('reports an unsupported gap for a named-dataset secondary source and passes rows through unchanged when the output shape is unknown', () => {
+  it('reports an unsupported gap for a named-dataset secondary source that is not found in the `datasets` map, and passes rows through unchanged when the output shape is unknown', () => {
     const gaps = createGapCollector();
     const rows = [{ state: 'CA' }];
     const transform: VegaLookupTransform = {
@@ -254,6 +254,7 @@ describe('applyLookupTransform', () => {
         key: 'state',
       },
     };
+    // No `datasets` map is passed at all, so the name can never resolve.
     const result = applyLookupTransform(rows, transform, gaps, '$.transform[0]');
     // Both `fields` and `as` are omitted and there's no secondary data to
     // infer a schema from, so nothing can be safely defaulted.
@@ -262,6 +263,74 @@ describe('applyLookupTransform', () => {
     expect(namedGap?.severity).to.equal('unsupported');
     const mergeGap = gaps.list().find((entry) => entry.code === 'transform:lookup-implicit-merge');
     expect(mergeGap?.severity).to.equal('partial');
+  });
+
+  it('reports an unsupported gap for a named-dataset secondary source that is absent from a provided `datasets` map', () => {
+    const gaps = createGapCollector();
+    const rows = [{ state: 'CA' }];
+    const transform: VegaLookupTransform = {
+      lookup: 'state',
+      from: {
+        data: { name: 'population-table' },
+        key: 'state',
+        fields: ['pop'],
+      },
+      as: 'population',
+    };
+    const result = applyLookupTransform(rows, transform, gaps, '$.transform[0]', {
+      'some-other-table': [{ state: 'CA', pop: 39 }],
+    });
+    expect(result).to.deep.equal([{ state: 'CA', population: null }]);
+    const namedGap = gaps.list().find((entry) => entry.code === 'transform:lookup-named-dataset');
+    expect(namedGap?.severity).to.equal('unsupported');
+  });
+
+  it('joins against a named secondary dataset resolved from the `datasets` map, with no gap', () => {
+    const gaps = createGapCollector();
+    const rows = [{ state: 'CA' }, { state: 'NY' }];
+    const transform: VegaLookupTransform = {
+      lookup: 'state',
+      from: {
+        data: { name: 'population-table' },
+        key: 'code',
+        fields: ['pop', 'capital'],
+      },
+      as: ['population', 'capitalCity'],
+    };
+    const result = applyLookupTransform(rows, transform, gaps, '$.transform[0]', {
+      'population-table': [
+        { code: 'CA', pop: 39, capital: 'Sacramento' },
+        { code: 'NY', pop: 19, capital: 'Albany' },
+      ],
+    });
+    expect(result).to.deep.equal([
+      { state: 'CA', population: 39, capitalCity: 'Sacramento' },
+      { state: 'NY', population: 19, capitalCity: 'Albany' },
+    ]);
+    expect(gaps.list().filter((entry) => entry.code.startsWith('transform:lookup'))).to.have.length(
+      0,
+    );
+  });
+
+  it('prefers inline `values` over `name` when a lookup somehow specifies both', () => {
+    const gaps = createGapCollector();
+    const rows = [{ state: 'CA' }];
+    const transform: VegaLookupTransform = {
+      lookup: 'state',
+      from: {
+        data: {
+          values: [{ state: 'CA', pop: 39 }],
+          name: 'population-table',
+        } as never,
+        key: 'state',
+        fields: ['pop'],
+      },
+      as: 'population',
+    };
+    const result = applyLookupTransform(rows, transform, gaps, '$.transform[0]', {
+      'population-table': [{ state: 'CA', pop: 999 }],
+    });
+    expect(result).to.deep.equal([{ state: 'CA', population: 39 }]);
   });
 
   it('reports an unsupported gap when `from.data` has neither `values`, `url`, nor `name`', () => {
@@ -307,6 +376,46 @@ describe('applyLookupTransform', () => {
         y: { field: 'sales', type: 'quantitative' },
       },
     });
+    expect(compiled.xAxis?.categories).to.deep.equal(['East', 'West']);
+    expect(compiled.gaps.filter((gap) => gap.code.startsWith('transform:lookup'))).to.have.length(
+      0,
+    );
+  });
+
+  it('runs a lookup transform against a named dataset supplied via `compileSpec` options', () => {
+    const compiled = compileSpec(
+      {
+        data: {
+          values: [
+            { state: 'CA', sales: 10 },
+            { state: 'NY', sales: 20 },
+          ],
+        },
+        transform: [
+          {
+            lookup: 'state',
+            from: {
+              data: { name: 'regions' },
+              key: 'code',
+              fields: ['region'],
+            },
+          } as unknown as VegaLookupTransform,
+        ],
+        mark: 'bar',
+        encoding: {
+          x: { field: 'region', type: 'nominal' },
+          y: { field: 'sales', type: 'quantitative' },
+        },
+      },
+      {
+        datasets: {
+          regions: [
+            { code: 'CA', region: 'West' },
+            { code: 'NY', region: 'East' },
+          ],
+        },
+      },
+    );
     expect(compiled.xAxis?.categories).to.deep.equal(['East', 'West']);
     expect(compiled.gaps.filter((gap) => gap.code.startsWith('transform:lookup'))).to.have.length(
       0,

@@ -325,7 +325,14 @@ function transformedRootRows(
     return { rows: raw, gaps: [] };
   }
   const collector = createGapCollector();
-  const rows = applyTransforms(raw, transforms, collector, '$');
+  // Same merge `resolveRootRows` does for the primary data source — passed
+  // through so a `lookup` transform's `from.data.name` can resolve a named
+  // secondary dataset too.
+  const datasets: Record<string, readonly DatasetRow[]> = {
+    ...(spec.datasets as Record<string, readonly DatasetRow[]> | undefined),
+    ...options.datasets,
+  };
+  const rows = applyTransforms(raw, transforms, collector, '$', undefined, datasets);
   return { rows, gaps: collector.list() };
 }
 

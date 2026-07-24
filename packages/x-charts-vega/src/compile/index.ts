@@ -350,7 +350,14 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
 
   // Run transforms per unit first so axis domains see post-transform rows.
   const prepared = normalized.units.map((unit) => {
-    const afterTopLevel = applyTransforms(unit.rows, unit.transform, gaps, unit.path, signals);
+    const afterTopLevel = applyTransforms(
+      unit.rows,
+      unit.transform,
+      gaps,
+      unit.path,
+      signals,
+      normalized.datasets,
+    );
     const { rows, encoding } = applyEncodingTransforms(
       afterTopLevel,
       unit.encoding,

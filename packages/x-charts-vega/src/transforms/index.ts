@@ -34,6 +34,9 @@ const KNOWN_UNSUPPORTED_TRANSFORMS: Record<string, string> = {
 /**
  * Runs a unit's top-level `transform` array over its rows, in order.
  * Unrecognized transform kinds are reported as gaps and skipped.
+ * `datasets` (the spec's own inline `datasets` merged with host-provided
+ * ones — see `NormalizedSpec.datasets`) is only consumed by a `lookup`
+ * transform whose `from.data.name` references a named secondary dataset.
  */
 export function applyTransforms(
   rows: readonly DatasetRow[],
@@ -41,6 +44,7 @@ export function applyTransforms(
   gaps: GapCollector,
   path: string,
   signals?: Readonly<Record<string, unknown>>,
+  datasets?: Record<string, readonly DatasetRow[]>,
 ): readonly DatasetRow[] {
   let current = rows;
   transforms.forEach((transform, index) => {
@@ -56,7 +60,7 @@ export function applyTransforms(
     } else if ('timeUnit' in transform) {
       current = applyTimeUnitTransform(current, transform as never, gaps, transformPath);
     } else if ('lookup' in transform) {
-      current = applyLookupTransform(current, transform as never, gaps, transformPath);
+      current = applyLookupTransform(current, transform as never, gaps, transformPath, datasets);
     } else if ('window' in transform) {
       current = applyWindowTransform(current, transform as never, gaps, transformPath);
     } else if ('joinaggregate' in transform) {

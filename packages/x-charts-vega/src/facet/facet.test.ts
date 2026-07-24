@@ -255,6 +255,32 @@ describe('planFacets', () => {
     expect((plan.cells[1].spec as { mark: unknown }).mark).to.equal('line');
   });
 
+  it("applies a concat spec's own top-level transform before handing rows to each cell", () => {
+    // The top-level `transform` is shared preprocessing (a `calculate`-derived
+    // field here) that must run once before every concatenated view sees the
+    // rows — mirroring the facet/repeat behavior above. Without it, a cell
+    // relying on the derived field sees only the raw, untransformed rows.
+    const spec: VegaLiteSpec = {
+      data: { values: [{ x: 1 }, { x: 2 }] },
+      transform: [{ calculate: 'datum.x * 10', as: 'y' }],
+      hconcat: [
+        { mark: 'bar', encoding: { x: { field: 'y' } } },
+        { mark: 'line', encoding: { x: { field: 'y' } } },
+      ],
+    } as unknown as VegaLiteSpec;
+    const plan = planFacets(spec, SIZE)!;
+    expect(plan.cells).to.have.length(2);
+    for (const cell of plan.cells) {
+      const rows = (cell.spec.data as { values: Array<Record<string, unknown>> }).values;
+      expect(rows).to.deep.equal([
+        { x: 1, y: 10 },
+        { x: 2, y: 20 },
+      ]);
+      expect(cell.spec.transform).to.equal(undefined);
+    }
+    expect(plan.gaps.filter((gap) => gap.code.startsWith('transform:'))).to.have.length(0);
+  });
+
   it('keeps a concat entry that declares its own data', () => {
     const spec: VegaLiteSpec = {
       data: { values: [{ x: 1 }] },

@@ -183,4 +183,38 @@ describe('<VegaLiteChart /> point/scatter marks', () => {
     expect(lines.length).to.equal(3);
     expect(reported.map((gap) => gap.code)).not.to.include('mark:point-tick');
   });
+
+  it("honors an explicit tick `mark.size` as the drawn line's pixel length instead of the bandwidth-ratio default", () => {
+    const values = [
+      { key: 'a', norm: 0.2 },
+      { key: 'b', norm: 0.8 },
+    ];
+    const encoding: VegaLiteSpec['encoding'] = {
+      x: { field: 'key', type: 'nominal' },
+      y: { value: 150 },
+    };
+    const { container: defaultContainer } = render(
+      <VegaLiteChart
+        width={400}
+        height={300}
+        spec={{ data: { values }, mark: { type: 'tick' }, encoding }}
+        onGaps={() => {}}
+      />,
+    );
+    const { container: explicitContainer } = render(
+      <VegaLiteChart
+        width={400}
+        height={300}
+        spec={{ data: { values }, mark: { type: 'tick', size: 8 }, encoding }}
+        onGaps={() => {}}
+      />,
+    );
+    const lineLength = (line: Element) =>
+      Math.abs(Number(line.getAttribute('y2')) - Number(line.getAttribute('y1'))) ||
+      Math.abs(Number(line.getAttribute('x2')) - Number(line.getAttribute('x1')));
+    const defaultLine = defaultContainer.querySelector('.MuiVegaOverlay-segments line')!;
+    const explicitLine = explicitContainer.querySelector('.MuiVegaOverlay-segments line')!;
+    expect(lineLength(explicitLine)).to.equal(8);
+    expect(lineLength(defaultLine)).not.to.equal(8);
+  });
 });

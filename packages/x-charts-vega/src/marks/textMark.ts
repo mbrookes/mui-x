@@ -1,11 +1,12 @@
 import type {
   AxisResolution,
   CompiledUnit,
+  OverlayPixelPosition,
   OverlayRadialLabelItem,
   OverlayTextItem,
   UnitContext,
 } from '../compile/context';
-import type { DatasetRow, VegaFieldDef, VegaMarkDef } from '../types';
+import type { DatasetRow, VegaChannelDef, VegaFieldDef, VegaMarkDef } from '../types';
 import { isDatumDef, isFieldDef, isValueDef } from '../types';
 import { resolveColor } from '../compile/color';
 import { resolveFieldType, toDate, toNumber } from '../compile/fieldTypes';
@@ -78,6 +79,28 @@ export function resolveAxisValue(
     return toNumber(raw);
   }
   return raw as string | number;
+}
+
+/**
+ * A layer's own literal `{value: N}` positional encoding (a plot-area PIXEL
+ * offset per Vega-Lite semantics, not a data value) resolved to the
+ * `OverlayPixelPosition` this overlay understands — or `undefined` when the
+ * channel is field/datum-based, in which case the caller falls through to
+ * `resolveAxisValue`'s shared, field-based axis as before. Without this, a
+ * text layer whose own `x`/`y` encoding is a plain value def (inherited down
+ * from a parent layer group's shared encoding, e.g. `parallel_coordinate`'s
+ * fixed label rows) was always resolved through the chart-wide field-based
+ * axis instead — usually inherited from an unrelated sibling layer —
+ * scattering every row across that axis' whole range instead of pinning them
+ * all to one fixed row.
+ */
+function valuePixelOverride(
+  channelDef: VegaChannelDef | undefined,
+): OverlayPixelPosition | undefined {
+  if (isValueDef(channelDef) && typeof channelDef.value === 'number') {
+    return { pixel: channelDef.value };
+  }
+  return undefined;
 }
 
 // Vega's default text-mark font size (`config.text.fontSize`); the SVG
@@ -554,11 +577,13 @@ export function compileTextMark(ctx: UnitContext): CompiledUnit {
   const style = buildTextStyle(mark);
   const dxResolver = resolveOffsetProperty(mark.dx, gaps, path, 'dx');
   const dyResolver = resolveOffsetProperty(mark.dy, gaps, path, 'dy');
+  const xOverride = valuePixelOverride(encoding.x);
+  const yOverride = valuePixelOverride(encoding.y);
 
   const items: OverlayTextItem[] = [];
   rows.forEach((row) => {
-    const x = resolveAxisValue(ctx.x, row);
-    const y = resolveAxisValue(ctx.y, row);
+    const x = xOverride ?? resolveAxisValue(ctx.x, row);
+    const y = yOverride ?? resolveAxisValue(ctx.y, row);
     if (x == null || y == null) {
       return;
     }

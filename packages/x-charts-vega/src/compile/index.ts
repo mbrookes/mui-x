@@ -19,6 +19,7 @@ import type {
   CompiledSeries,
   CompiledZAxis,
   OverlayLegendItem,
+  OverlayPosition,
   PlotKind,
   SizeLegend,
   UnitContext,
@@ -180,7 +181,10 @@ function staticMarkOpacity(unit: {
 
 /** Numeric values an overlay contributes to a continuous axis. */
 function overlayAxisValues(overlay: CompiledOverlay, axis: 'x' | 'y'): number[] {
-  const numbers = (values: Array<number | string | Date | undefined>) =>
+  // A literal `OverlayPixelPosition` (`{pixel: N}`) is a plot-area pixel
+  // offset, not a data value, so it's excluded here the same as a string/Date
+  // — it must never widen a continuous axis' computed domain.
+  const numbers = (values: Array<number | string | Date | OverlayPosition | undefined>) =>
     values.filter((value): value is number => typeof value === 'number');
   switch (overlay.kind) {
     case 'boxes': {

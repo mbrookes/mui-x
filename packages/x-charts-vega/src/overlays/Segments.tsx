@@ -21,8 +21,11 @@ import { scaleBandwidth, scalePosition } from './scaleUtils';
  * `y1 === y2` in data space (a single point, not a span). This renderer
  * recognizes that shape and expands it into a short line perpendicular to
  * whichever axis is continuous, centered on the point:
- *   - if the y scale has a `bandwidth()` (categorical y), draw a vertical
- *     line spanning `bandwidth * TICK_BANDWIDTH_RATIO`;
+ *   - if `item.tickLength` is given (an explicit `mark.size` — a tick's
+ *     pixel length, unlike point/circle's area-like `size`), that length
+ *     always wins over the bandwidth-ratio default below;
+ *   - else if the y scale has a `bandwidth()` (categorical y), draw a
+ *     vertical line spanning `bandwidth * TICK_BANDWIDTH_RATIO`;
  *   - else if the x scale has a `bandwidth()` (categorical x), draw a
  *     horizontal line spanning `bandwidth * TICK_BANDWIDTH_RATIO`;
  *   - else (both axes continuous) fall back to a fixed-length vertical line
@@ -70,7 +73,19 @@ export function SegmentsOverlay(props: {
 
         const isDegenerate = item.x1 === item.x2 && item.y1 === item.y2;
         if (isDegenerate) {
-          if (yBandwidth > 0) {
+          if (item.tickLength !== undefined) {
+            // An explicit `mark.size` (pixel length) always wins over the
+            // bandwidth-ratio default, matching Vega-Lite's own tick sizing —
+            // still expanding perpendicular to whichever axis is categorical.
+            const half = item.tickLength / 2;
+            if (yBandwidth > 0) {
+              y1 = py1 - half;
+              y2 = py1 + half;
+            } else {
+              x1 = px1 - half;
+              x2 = px1 + half;
+            }
+          } else if (yBandwidth > 0) {
             const half = (yBandwidth * TICK_BANDWIDTH_RATIO) / 2;
             y1 = py1 - half;
             y2 = py1 + half;

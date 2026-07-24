@@ -332,6 +332,34 @@ describe('compilePointMark', () => {
     expect(overlayGap?.origin).to.equal('x-charts');
   });
 
+  it("passes an explicit tick `mark.size` through as the segment's pixel tickLength", () => {
+    const spec: VegaLiteSpec = {
+      data: { values: [{ x: 1, y: 1 }] },
+      mark: { type: 'tick', size: 8 },
+      encoding: {
+        x: { field: 'x', type: 'quantitative' },
+        y: { field: 'y', type: 'quantitative' },
+      },
+    };
+    const compiled = compileSpec(spec);
+    const overlay = compiled.overlays[0] as { items: Array<{ tickLength?: number }> };
+    expect(overlay.items[0].tickLength).to.equal(8);
+  });
+
+  it('omits tickLength when the tick mark has no explicit `size` (Segments.tsx falls back to its bandwidth-ratio default)', () => {
+    const spec: VegaLiteSpec = {
+      data: { values: [{ x: 1, y: 1 }] },
+      mark: 'tick',
+      encoding: {
+        x: { field: 'x', type: 'quantitative' },
+        y: { field: 'y', type: 'quantitative' },
+      },
+    };
+    const compiled = compileSpec(spec);
+    const overlay = compiled.overlays[0] as { items: Array<{ tickLength?: number }> };
+    expect(overlay.items[0].tickLength).to.equal(undefined);
+  });
+
   it('renders a 1D strip plot (tick with only x) over a synthetic perpendicular band', () => {
     const spec: VegaLiteSpec = {
       data: { values: [{ p: 0.5 }, { p: 1.2 }, { p: 3.4 }] },
@@ -381,6 +409,47 @@ describe('compilePointMark', () => {
     expect(overlay.items[0].style?.stroke).to.be.a('string');
     expect(overlay.items[1].style?.stroke).to.be.a('string');
     expect(overlay.items[0].style?.stroke).not.to.equal(overlay.items[1].style?.stroke);
+  });
+
+  it('honors a layer-local literal `{value: N}` y position instead of the chart-wide field-based axis (parallel_coordinate fixed tick rows)', () => {
+    const spec: VegaLiteSpec = {
+      data: {
+        values: [
+          { key: 'a', norm: 0.2 },
+          { key: 'b', norm: 0.8 },
+        ],
+      },
+      layer: [
+        // Establishes the chart-wide field-based y axis, inherited by the
+        // tick layer below (which has no field-based y of its own).
+        {
+          mark: 'line',
+          encoding: {
+            x: { field: 'key', type: 'nominal' },
+            y: { field: 'norm', type: 'quantitative' },
+          },
+        },
+        {
+          mark: { type: 'tick' },
+          encoding: {
+            x: { field: 'key', type: 'nominal' },
+            y: { value: 150 },
+          },
+        },
+      ],
+    };
+    const compiled = compileSpec(spec);
+    const tickOverlay = compiled.overlays.find((overlay) => overlay.kind === 'segments') as {
+      items: Array<{ y1: unknown; y2: unknown }>;
+    };
+    expect(tickOverlay).not.to.equal(undefined);
+    expect(tickOverlay.items).to.have.length(2);
+    // Every tick pins to the literal pixel value, not the shared `norm` axis
+    // (which would have scattered them across 0.2/0.8 instead).
+    tickOverlay.items.forEach((item) => {
+      expect(item.y1).to.deep.equal({ pixel: 150 });
+      expect(item.y2).to.deep.equal({ pixel: 150 });
+    });
   });
 
   it('bakes a static mark opacity into the marker color (no gap); still gaps strokeOpacity', () => {

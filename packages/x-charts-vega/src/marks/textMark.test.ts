@@ -330,6 +330,38 @@ describe('compileTextMark', () => {
     expect(gap?.origin).to.equal('x-charts');
   });
 
+  it('honors a layer-local literal `{value: N}` y position instead of the chart-wide field-based axis (parallel_coordinate fixed label rows)', () => {
+    const compiled = compileSpec({
+      data: { values: rows },
+      layer: [
+        // Establishes the chart-wide field-based y axis, inherited by the
+        // text layer below (which has no field-based y of its own).
+        {
+          mark: 'line',
+          encoding: {
+            x: { field: 'category', type: 'nominal' },
+            y: { field: 'amount', type: 'quantitative' },
+          },
+        },
+        {
+          mark: { type: 'text' },
+          encoding: {
+            x: { field: 'category', type: 'nominal' },
+            y: { value: 150 },
+            text: { field: 'category' },
+          },
+        },
+      ],
+    });
+    const items = textItems(compiled.overlays);
+    expect(items).to.have.length(2);
+    // Every label pins to the literal pixel value, not the shared `amount`
+    // axis (which would have scattered them across 10/20 instead).
+    items?.forEach((item) => {
+      expect(item.y).to.deep.equal({ pixel: 150 });
+    });
+  });
+
   describe('geo-projected (longitude/latitude) text', () => {
     it('draws a geoText overlay for a longitude/latitude text mark (geo_text-shaped)', () => {
       const compiled = compileSpec({

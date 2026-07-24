@@ -997,7 +997,14 @@ function planFacetOperator(spec: VegaLiteSpec, options: FacetOptions): FacetPlan
 /** Plan `hconcat`/`vconcat`/`concat`: independent sub-specs, no partitioning. */
 function planConcat(spec: VegaLiteSpec, options: FacetOptions): FacetPlan {
   const gaps: TranslationGap[] = [];
-  const rootRows = resolveRootRows(spec, options);
+  // A `concat`/`hconcat`/`vconcat` spec's own top-level `transform` (a sibling
+  // of the composition array) is shared preprocessing that must run once before
+  // the result is handed to every cell — the same rule already applied to
+  // facet/repeat via `transformedRootRows`. Without it, a cell relying on a
+  // root-level `calculate`/`filter`/`aggregate` etc. sees only the raw,
+  // untransformed rows.
+  const { rows: rootRows, gaps: rootTransformGaps } = transformedRootRows(spec, options);
+  gaps.push(...rootTransformGaps);
 
   let entries: VegaLiteSpec[];
   let columns: number;

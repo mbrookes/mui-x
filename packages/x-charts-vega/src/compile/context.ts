@@ -28,14 +28,30 @@ export type PlotKind =
   | 'geoBase'
   | 'mapShape';
 
-/** A data-space position on a cartesian axis (band/point categories included). */
-export type OverlayPosition = number | string | Date;
+/**
+ * A literal pixel-space position — Vega-Lite's positional `{value: N}`
+ * encoding is a plot-area pixel offset from the top-left corner, NOT a data
+ * value, so it must bypass the data scale entirely at render time instead of
+ * being (mis)treated as one (`parallel_coordinate`'s fixed label/tick rows).
+ */
+export interface OverlayPixelPosition {
+  pixel: number;
+}
+
+/** A data-space position on a cartesian axis (band/point categories included), or a literal pixel-space override. */
+export type OverlayPosition = number | string | Date | OverlayPixelPosition;
 
 export interface OverlaySegment {
   x1: OverlayPosition;
   y1: OverlayPosition;
   x2: OverlayPosition;
   y2: OverlayPosition;
+  /**
+   * An explicit `mark.size` (a `tick` mark's length in pixels, unlike
+   * point/circle's area-like `size`) for a degenerate (tick) segment —
+   * overrides `Segments.tsx`'s bandwidth-ratio default expansion length.
+   */
+  tickLength?: number;
   style?: React.CSSProperties;
 }
 

@@ -1,6 +1,6 @@
 import type { ScatterValueType } from '@mui/x-charts/models';
 import { isFieldDef, isValueDef } from '../types';
-import type { DatasetRow, VegaEncoding, VegaFieldDef } from '../types';
+import type { DatasetRow, VegaChannelDef, VegaEncoding, VegaFieldDef } from '../types';
 import { resolveColor } from '../compile/color';
 import type { ColorResolution } from '../compile/color';
 import { resolveFieldType, toDate, toNumber } from '../compile/fieldTypes';
@@ -10,6 +10,7 @@ import type {
   CompiledUnit,
   CompiledZAxis,
   OverlayGeoPointItem,
+  OverlayPixelPosition,
   OverlaySegment,
   SizeLegend,
   UnitContext,
@@ -61,10 +62,16 @@ import { resolveGeoProjection, resolveGeoProjectionTuning } from './geoshape';
  * `mark:point-categorical-axis` gap is needed.
  */
 
-/** A scatter datum before being cast to `ScatterValueType` (x/y may be non-numeric on a point/band scale — see the note above). */
+/**
+ * A scatter datum before being cast to `ScatterValueType` (x/y may be
+ * non-numeric on a point/band scale — see the note above). The `tick` path
+ * (the only one that ever supplies a `positionOverride` to
+ * `resolveCandidates`) may instead carry a literal `OverlayPixelPosition` —
+ * see `buildTickItems`'s degenerate-segment consumption of these fields.
+ */
 interface PointDatum {
-  x: number | string | Date;
-  y: number | string | Date;
+  x: number | string | Date | OverlayPixelPosition;
+  y: number | string | Date | OverlayPixelPosition;
   id: number;
   /**
    * Per-point size-scale input for a quantitative `size` field encoding
@@ -110,6 +117,22 @@ function resolveAxisValue(
 }
 
 /**
+ * A layer's own literal `{value: N}` positional encoding (a plot-area PIXEL
+ * offset per Vega-Lite semantics, not a data value) resolved to the
+ * `OverlayPixelPosition` a custom overlay understands — or `undefined` when
+ * the channel is field/datum-based (the ordinary case), in which case the
+ * caller falls through to the shared axis as before.
+ */
+function valuePixelOverride(
+  channelDef: VegaChannelDef | undefined,
+): OverlayPixelPosition | undefined {
+  if (isValueDef(channelDef) && typeof channelDef.value === 'number') {
+    return { pixel: channelDef.value };
+  }
+  return undefined;
+}
+
+/**
  * Resolves every row to a plottable `{x, y}` position (dropping rows with
  * missing/unparseable positional values) in a single pass over `ctx.rows`,
  * tagging each with its color-group key/value when `colorField` is given and
@@ -121,16 +144,21 @@ function resolveAxisValue(
  *
  * Rows whose `colorField` value is `null`/`undefined` still get a (stable,
  * shared) group — they are not silently dropped from the chart.
+ *
+ * `positionOverride` (only ever supplied by the `tick` path) pins a channel
+ * to a literal pixel position for every row instead of resolving it from the
+ * shared field-based axis — see `valuePixelOverride`'s doc comment for why.
  */
 function resolveCandidates(
   ctx: UnitContext,
   colorField: string | undefined,
   sizeField: string | undefined,
+  positionOverride?: { x?: OverlayPixelPosition; y?: OverlayPixelPosition },
 ): ResolvedCandidate[] {
   const candidates: ResolvedCandidate[] = [];
   ctx.rows.forEach((row, index) => {
-    const x = resolveAxisValue(ctx.x, row);
-    const y = resolveAxisValue(ctx.y, row);
+    const x = positionOverride?.x ?? resolveAxisValue(ctx.x, row);
+    const y = positionOverride?.y ?? resolveAxisValue(ctx.y, row);
     if (x == null || y == null) {
       return;
     }
@@ -207,18 +235,23 @@ function buildTickStyle(mark: UnitContext['unit']['mark']): React.CSSProperties 
  * instead of creating a separate x-charts series per group — segments have
  * no series/legend concept, so every group's ticks land in one overlay with
  * per-item `style.stroke`.
+ * `tickLength` (from an explicit `mark.size` — a tick's length in pixels,
+ * unlike point/circle's area-like `size`) overrides `Segments.tsx`'s
+ * bandwidth-ratio default expansion length when given.
  */
 function buildTickItems(
   ctx: UnitContext,
   candidates: ResolvedCandidate[],
   colorRes: ColorResolution,
   style: React.CSSProperties | undefined,
+  tickLength: number | undefined,
 ): OverlaySegment[] {
   const makeItem = (point: PointDatum, stroke: string | undefined): OverlaySegment => ({
     x1: point.x,
     y1: point.y,
     x2: point.x,
     y2: point.y,
+    ...(tickLength !== undefined ? { tickLength } : {}),
     style: stroke !== undefined ? { ...style, stroke } : style,
   });
 
@@ -557,8 +590,12 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
 
   if (isTick) {
     const tickStyle = buildTickStyle(unit.mark);
-    const candidates = resolveCandidates(ctx, colorRes.splitField, undefined);
-    const items = buildTickItems(ctx, candidates, colorRes, tickStyle);
+    const candidates = resolveCandidates(ctx, colorRes.splitField, undefined, {
+      x: valuePixelOverride(encoding.x),
+      y: valuePixelOverride(encoding.y),
+    });
+    const tickLength = typeof unit.mark.size === 'number' ? unit.mark.size : undefined;
+    const items = buildTickItems(ctx, candidates, colorRes, tickStyle, tickLength);
     if (items.length > 0) {
       gaps.add({
         code: 'mark:tick-custom-overlay',

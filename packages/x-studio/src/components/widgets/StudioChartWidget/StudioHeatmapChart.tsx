@@ -6,6 +6,14 @@ import type { HeatmapData } from '../../../internals/chartShapes/heatmap';
 import type { StudioChartConfig, StudioDataField } from '../../../models';
 import { formatFieldValue } from '../../../internals/numberFormat';
 
+/**
+ * Allow-list of the theme-palette keys a heatmap may index for its cell gradient. Guards
+ * `theme.palette[colorScheme].main`: `colorScheme` is typed as this union but that type is
+ * NOT enforced at the load/AI-tool boundary, so an unrecognized value (e.g. `"zzz"`) would
+ * make `theme.palette[key]` undefined and crash the whole dashboard when `.main` is read.
+ */
+const SAFE_HEAT_SCHEMES = new Set<string>(['primary', 'success', 'warning', 'error']);
+
 interface StudioHeatmapChartProps {
   height: number;
   heatData: HeatmapData;
@@ -55,7 +63,15 @@ export function StudioHeatmapChart({
     }
   }
 
-  const paletteColor = theme.palette[colorScheme].main;
+  // The `colorScheme` prop is typed as the four-key palette union, but that type is not
+  // enforced at the load/AI-tool boundary (`config.heatColorScheme` can carry any string
+  // from a hostile/corrupted doc). Indexing `theme.palette` with an unknown key yields
+  // `undefined`, and reading `.main` off it throws — and since this package has NO error
+  // boundary, that single bad value crashes the entire dashboard, not just this widget.
+  // Allow-list before indexing and fall back to `'primary'` (mirrors the map widget's
+  // `COLOR_RAMPS[colorScheme] ?? COLOR_RAMPS.blues`).
+  const safeScheme = SAFE_HEAT_SCHEMES.has(colorScheme) ? colorScheme : 'primary';
+  const paletteColor = theme.palette[safeScheme].main;
   // Low end of the continuous color ramp: anchoring to a hardcoded `'#ffffff'` made
   // low-value cells render bright white on a dark canvas in dark mode, inverting
   // perceived intensity (finding 4). `background.paper` already tracks the theme mode

@@ -39,6 +39,7 @@ import {
   sanitizeCssColor,
   isSafeFontWeightKeyword,
   sanitizeCssIdentifierToken,
+  sanitizeFiniteNumber,
 } from '../../../internals/cssValueValidation';
 
 import { computeGridSummary } from '../../../utils/gridSummary';
@@ -1084,7 +1085,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         columnVisibilityModel={columnVisibilityModel}
         onColumnVisibilityModelChange={() => {}}
         sx={{
-          height: widget.config.gridHeight ?? 400,
+          height: sanitizeFiniteNumber(widget.config.gridHeight, 1) ?? 400,
           '& .MuiDataGrid-cell': { cursor: 'default' },
           '& .StudioGrid-crossFilterMatch': {
             bgcolor: 'action.selected',

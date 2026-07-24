@@ -41,6 +41,7 @@ import { TextSetupPanel } from '../components/StudioComposeDrawer/TextSetupPanel
 import { FilterSetupPanel } from '../components/StudioComposeDrawer/FilterSetupPanel';
 import { PivotSetupPanel } from '../components/StudioComposeDrawer/PivotSetupPanel';
 import { MapSetupPanel } from '../components/StudioComposeDrawer/MapSetupPanel';
+import { sanitizeFiniteNumber } from './cssValueValidation';
 
 const KPI_WIDGET_MIN_HEIGHT = 160;
 const FILTER_WIDGET_MIN_HEIGHT = KPI_WIDGET_MIN_HEIGHT / 2;
@@ -178,7 +179,8 @@ export const BUILTIN_WIDGET_DEFS = {
     capabilities: {
       export: 'csv',
       widgetFilters: true,
-      skeletonHeight: (widget) => (widget as StudioWidgetOf<'grid'>).config.gridHeight ?? 400,
+      skeletonHeight: (widget) =>
+        sanitizeFiniteNumber((widget as StudioWidgetOf<'grid'>).config.gridHeight, 1) ?? 400,
     },
   },
   chart: {

@@ -35,7 +35,14 @@ export function CrossFilterSection({
       return exprField.label;
     }
     if (filterSourceId) {
-      const source = dataSources[filterSourceId];
+      // `filterSourceId` is doc-authored (persisted `StudioFilterState.filterSourceId`, also
+      // reachable via `loadSerializedState`/the AI tool loop), so guard the record index against
+      // inherited keys ("toString"/"constructor"/…) so a bare bracket lookup can't resolve a
+      // function off `Object.prototype` instead of "not found" and then throw on `.fields.find`
+      // (same prototype-chain-safe-lookup convention as `StudioFiltersDrawer.tsx`).
+      const source = Object.hasOwn(dataSources, filterSourceId)
+        ? dataSources[filterSourceId]
+        : undefined;
       const dataField = source?.fields.find((f) => f.id === fieldId);
       if (dataField) {
         return dataField.label;

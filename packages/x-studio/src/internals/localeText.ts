@@ -139,6 +139,10 @@ export interface StudioLocaleText {
   // ── Drawer panel / sidebar ────────────────────────────────────────────────
   drawerPanelCloseAriaLabel: string;
   sidebarPanelsAriaLabel: string;
+  /** Fallback message shown when a render error inside the compose/filters drawer panel is
+   * caught by `StudioDrawerErrorBoundary`, confining the failure to the panel instead of the
+   * whole `<Studio>` tree. */
+  drawerPanelError: string;
 
   // ── NumberField ───────────────────────────────────────────────────────────
   numberFieldIncreaseAriaLabel: string;
@@ -1371,6 +1375,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   // Drawer panel / sidebar
   drawerPanelCloseAriaLabel: 'Close widget configuration',
   sidebarPanelsAriaLabel: 'Sidebar panels',
+  drawerPanelError: 'Something went wrong displaying this panel.',
 
   // NumberField
   numberFieldIncreaseAriaLabel: 'Increase',

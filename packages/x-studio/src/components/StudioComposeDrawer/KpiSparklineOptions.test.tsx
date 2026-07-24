@@ -147,6 +147,50 @@ describe('KpiSparklineOptions date-field derivation (finding 2.8)', () => {
   });
 });
 
+// Tier1 crash-site regression: a `StudioRelationship.sourceId`/`.targetId` equal to
+// "constructor" (a persisted/doc-authored id, reachable via `loadSerializedState` or the AI
+// tool loop) used to make `dataSources[relatedId]` resolve the inherited
+// `Object.prototype.constructor` function instead of `undefined`. That truthy non-source
+// value passed the `if (!relSource) continue` guard, and `addSourceDateFields` then threw
+// inside `buildSourceFieldEntries`'s unguarded `source.fields.flatMap(...)`, unmounting the
+// whole `<Studio>` tree via the compose drawer (which had no error boundary). The lookup is
+// now guarded with `Object.hasOwn`, matching `context/selectors.ts`'s `makeSelectWidgetSource`.
+describe('KpiSparklineOptions hostile relationship id (Tier1 crash fix)', () => {
+  beforeEach(() => {
+    controller.updateWidgetConfig.mockClear();
+    mockState.doc.dashboard = { id: 'dashboard-1', title: 'Dashboard', activePageId: 'page-1' };
+    mockState.doc.widgets['widget-1'] = {
+      id: 'widget-1',
+      kind: 'kpi',
+      sourceId: 'orders',
+      title: 'Orders',
+      config: {} as StudioWidgetConfig,
+    };
+    mockState.doc.relationships = [
+      { id: 'rel-1', type: 'many-to-one', sourceId: 'orders', targetId: 'constructor' },
+    ] as unknown as typeof mockState.doc.relationships;
+    configureStudioContextMock({ getState: () => mockState, controller });
+  });
+
+  afterEach(() => {
+    mockState.doc.relationships = [];
+  });
+
+  it('does not throw when a relationship targetId is a prototype-chain key like "constructor"', () => {
+    expect(() =>
+      render(
+        <KpiSparklineOptions
+          widgetId="widget-1"
+          config={mockState.doc.widgets['widget-1'].config}
+        />,
+      ),
+    ).not.toThrow();
+    // No data source is registered under "constructor", so only the primary source's own
+    // date field is offered — the hostile related id contributes nothing rather than crashing.
+    expect(screen.getByLabelText('Time field')).not.toBe(null);
+  });
+});
+
 // Finding 3: the auto-detected date filter must be scoped through the SAME authority
 // (`selectFiltersForWidget`) the KPI widget itself uses to resolve its effective date
 // filter at render time — not a raw, unscoped scan — so this setup-panel preview never

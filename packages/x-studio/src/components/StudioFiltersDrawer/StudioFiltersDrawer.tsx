@@ -39,6 +39,7 @@ import {
 } from '../../context';
 import { getReachableSourceIds } from '../../internals/dataSourceGraph';
 import { buildFieldCatalog, buildFieldLabelMap } from '../../internals/fieldCatalog';
+import { StudioDrawerErrorBoundary } from '../../internals/StudioDrawerErrorBoundary';
 import { isWidgetOfKind } from '../../models';
 import type { StudioChartConfig, StudioFilterState } from '../../models';
 import type { SimpleField } from './filterDrawerTypes';
@@ -309,240 +310,251 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
     });
   };
 
+  // Defense-in-depth (this drawer had no error boundary at all): a render throw from any
+  // section below (e.g. a filter row reading a hostile/malformed doc-authored field or
+  // source id) previously had no boundary to stop at and unmounted the entire `<Studio>`
+  // tree. `resetKey` tracks the selected widget, so switching selection after a transient
+  // error clears the fallback instead of latching it.
   return (
-    <Stack spacing={2} sx={sx}>
-      {allFields.length === 0 && (
-        <Alert severity="info">{localeText.filtersAddDataSourceHint}</Alert>
-      )}
+    <StudioDrawerErrorBoundary resetKey={selectedWidgetId ?? 'none'}>
+      <Stack spacing={2} sx={sx}>
+        {allFields.length === 0 && (
+          <Alert severity="info">{localeText.filtersAddDataSourceHint}</Alert>
+        )}
 
-      {(pageFilters.length > 0 || widgetFilters.length > 0) && (
-        <TextField
-          size="small"
-          placeholder={localeText.filterSearchPlaceholder}
-          value={filterSearch}
-          onChange={(event) => setFilterSearch(event.target.value)}
-          slotProps={{
-            input: {
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon fontSize="small" />
-                </InputAdornment>
-              ),
-              endAdornment: filterSearch ? (
-                <InputAdornment position="end">
-                  <IconButton size="small" onClick={() => setFilterSearch('')} edge="end">
-                    <ClearIcon fontSize="small" />
-                  </IconButton>
-                </InputAdornment>
-              ) : null,
-            },
-          }}
-        />
-      )}
-
-      <FilterSection
-        title={localeText.filtersSectionPageFiltersTitle}
-        filters={visiblePageFilters}
-        allFilters={pageFilters}
-        fields={allFields}
-        fieldOptions={fieldOptions}
-        onAddFilter={handleAddPageFilter}
-        onRemoveFilter={(id) => controller.removeFilter(id)}
-        emptyMessage={searchLower ? localeText.filtersSectionNoMatchingFilters : undefined}
-      />
-
-      {selectedWidgetId && selectedWidget?.kind !== 'filter' && selectedWidget?.kind !== 'text' ? (
-        <React.Fragment>
-          <Divider />
-          <WidgetFilterSection
-            title={localeText.filtersSectionWidgetTitle(selectedWidget?.title ?? selectedWidgetId)}
-            filters={visibleWidgetFilters}
-            widgetSourceId={selectedWidget?.sourceId}
-            fieldOptions={widgetFieldOptions}
-            dataSources={dataSources}
-            onAddFilter={handleAddWidgetFilter}
-            onRemoveFilter={(id) => controller.removeFilter(id)}
-            chartXField={chartXField}
-            chartYFieldLabel={chartYFieldLabel}
-            chartAvailableSeries={chartAvailableSeries}
-            emptyMessage={searchLower ? localeText.filtersSectionNoMatchingFilters : undefined}
+        {(pageFilters.length > 0 || widgetFilters.length > 0) && (
+          <TextField
+            size="small"
+            placeholder={localeText.filterSearchPlaceholder}
+            value={filterSearch}
+            onChange={(event) => setFilterSearch(event.target.value)}
+            slotProps={{
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" />
+                  </InputAdornment>
+                ),
+                endAdornment: filterSearch ? (
+                  <InputAdornment position="end">
+                    <IconButton size="small" onClick={() => setFilterSearch('')} edge="end">
+                      <ClearIcon fontSize="small" />
+                    </IconButton>
+                  </InputAdornment>
+                ) : null,
+              },
+            }}
           />
-        </React.Fragment>
-      ) : null}
+        )}
 
-      {interactiveFilters.length > 0 && (
-        <React.Fragment>
-          <Divider />
-          <InteractiveFilterSection filters={interactiveFilters} />
-        </React.Fragment>
-      )}
+        <FilterSection
+          title={localeText.filtersSectionPageFiltersTitle}
+          filters={visiblePageFilters}
+          allFilters={pageFilters}
+          fields={allFields}
+          fieldOptions={fieldOptions}
+          onAddFilter={handleAddPageFilter}
+          onRemoveFilter={(id) => controller.removeFilter(id)}
+          emptyMessage={searchLower ? localeText.filtersSectionNoMatchingFilters : undefined}
+        />
 
-      {crossFilters.length > 0 && (
-        <React.Fragment>
-          <Divider />
-          <CrossFilterSection filters={crossFilters} pages={pages} activePageId={activePageId} />
-        </React.Fragment>
-      )}
+        {selectedWidgetId &&
+        selectedWidget?.kind !== 'filter' &&
+        selectedWidget?.kind !== 'text' ? (
+          <React.Fragment>
+            <Divider />
+            <WidgetFilterSection
+              title={localeText.filtersSectionWidgetTitle(
+                selectedWidget?.title ?? selectedWidgetId,
+              )}
+              filters={visibleWidgetFilters}
+              widgetSourceId={selectedWidget?.sourceId}
+              fieldOptions={widgetFieldOptions}
+              dataSources={dataSources}
+              onAddFilter={handleAddWidgetFilter}
+              onRemoveFilter={(id) => controller.removeFilter(id)}
+              chartXField={chartXField}
+              chartYFieldLabel={chartYFieldLabel}
+              chartAvailableSeries={chartAvailableSeries}
+              emptyMessage={searchLower ? localeText.filtersSectionNoMatchingFilters : undefined}
+            />
+          </React.Fragment>
+        ) : null}
 
-      {/* Saved views */}
-      {features.savedFilterViews && (
-        <React.Fragment>
-          <Divider />
-          <div>
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{ flexGrow: 1, fontWeight: 600 }}
-              >
-                {localeText.filtersSavedViewsTitle}
-              </Typography>
-              {!savingPreset && (
-                <Tooltip title={localeText.filtersSaveViewTooltip}>
-                  <Button
+        {interactiveFilters.length > 0 && (
+          <React.Fragment>
+            <Divider />
+            <InteractiveFilterSection filters={interactiveFilters} />
+          </React.Fragment>
+        )}
+
+        {crossFilters.length > 0 && (
+          <React.Fragment>
+            <Divider />
+            <CrossFilterSection filters={crossFilters} pages={pages} activePageId={activePageId} />
+          </React.Fragment>
+        )}
+
+        {/* Saved views */}
+        {features.savedFilterViews && (
+          <React.Fragment>
+            <Divider />
+            <div>
+              <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ flexGrow: 1, fontWeight: 600 }}
+                >
+                  {localeText.filtersSavedViewsTitle}
+                </Typography>
+                {!savingPreset && (
+                  <Tooltip title={localeText.filtersSaveViewTooltip}>
+                    <Button
+                      size="small"
+                      startIcon={<BookmarkBorderIcon fontSize="small" />}
+                      onClick={() => {
+                        setSavingPreset(true);
+                        setPresetName('');
+                      }}
+                      disabled={pageFilters.length === 0}
+                      sx={{ fontSize: 11 }}
+                    >
+                      {localeText.filtersSaveViewButton}
+                    </Button>
+                  </Tooltip>
+                )}
+              </Stack>
+
+              {savingPreset && (
+                <Box sx={{ mb: 1 }}>
+                  <TextField
                     size="small"
-                    startIcon={<BookmarkBorderIcon fontSize="small" />}
-                    onClick={() => {
-                      setSavingPreset(true);
-                      setPresetName('');
+                    fullWidth
+                    autoFocus
+                    placeholder={localeText.filtersSaveViewPlaceholder}
+                    value={presetName}
+                    onChange={(event) => setPresetName(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && presetName.trim()) {
+                        controller.saveFilterPreset(presetName.trim());
+                        setSavingPreset(false);
+                      }
+                      if (event.key === 'Escape') {
+                        setSavingPreset(false);
+                      }
                     }}
-                    disabled={pageFilters.length === 0}
-                    sx={{ fontSize: 11 }}
-                  >
-                    {localeText.filtersSaveViewButton}
-                  </Button>
-                </Tooltip>
+                    slotProps={{
+                      input: {
+                        endAdornment: (
+                          <InputAdornment position="end">
+                            <Button
+                              size="small"
+                              disabled={!presetName.trim()}
+                              onClick={() => {
+                                if (presetName.trim()) {
+                                  controller.saveFilterPreset(presetName.trim());
+                                  setSavingPreset(false);
+                                }
+                              }}
+                            >
+                              {localeText.filtersSaveViewButton}
+                            </Button>
+                          </InputAdornment>
+                        ),
+                      },
+                    }}
+                  />
+                </Box>
               )}
-            </Stack>
 
-            {savingPreset && (
-              <Box sx={{ mb: 1 }}>
-                <TextField
-                  size="small"
-                  fullWidth
-                  autoFocus
-                  placeholder={localeText.filtersSaveViewPlaceholder}
-                  value={presetName}
-                  onChange={(event) => setPresetName(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' && presetName.trim()) {
-                      controller.saveFilterPreset(presetName.trim());
-                      setSavingPreset(false);
-                    }
-                    if (event.key === 'Escape') {
-                      setSavingPreset(false);
-                    }
-                  }}
-                  slotProps={{
-                    input: {
-                      endAdornment: (
-                        <InputAdornment position="end">
-                          <Button
-                            size="small"
-                            disabled={!presetName.trim()}
-                            onClick={() => {
-                              if (presetName.trim()) {
-                                controller.saveFilterPreset(presetName.trim());
-                                setSavingPreset(false);
-                              }
-                            }}
-                          >
-                            {localeText.filtersSaveViewButton}
-                          </Button>
-                        </InputAdornment>
-                      ),
-                    },
-                  }}
-                />
-              </Box>
-            )}
-
-            {filterPresets.length === 0 && !savingPreset && (
-              <Typography variant="caption" color="text.disabled" sx={{ fontStyle: 'italic' }}>
-                {localeText.filtersNoSavedViews}
-              </Typography>
-            )}
-
-            <Stack spacing={0.5}>
-              {filterPresets.length > 0 && (
-                <Chip
-                  icon={<HomeOutlinedIcon sx={{ fontSize: '14px !important' }} />}
-                  label={localeText.filtersDefaultViewLabel}
-                  size="small"
-                  color={isDefaultViewActive ? 'primary' : 'default'}
-                  disabled={isDefaultViewActive}
-                  clickable={!isDefaultViewActive}
-                  onClick={!isDefaultViewActive ? () => controller.clearPageFilters() : undefined}
-                  sx={{ justifyContent: 'flex-start' }}
-                />
+              {filterPresets.length === 0 && !savingPreset && (
+                <Typography variant="caption" color="text.disabled" sx={{ fontStyle: 'italic' }}>
+                  {localeText.filtersNoSavedViews}
+                </Typography>
               )}
-              {filterPresets.map((preset) => {
-                const isActive = preset.id === activePresetId;
-                return (
-                  <Stack
-                    key={preset.id}
-                    direction="row"
-                    spacing={0.5}
-                    sx={{ alignItems: 'center' }}
-                  >
-                    {renamingPresetId === preset.id ? (
-                      <TextField
-                        size="small"
-                        value={renameValue}
-                        autoFocus
-                        sx={{ flexGrow: 1 }}
-                        onChange={(event) => setRenameValue(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter') {
-                            handleRenameConfirm();
-                          } else if (event.key === 'Escape') {
-                            handleRenameCancel();
+
+              <Stack spacing={0.5}>
+                {filterPresets.length > 0 && (
+                  <Chip
+                    icon={<HomeOutlinedIcon sx={{ fontSize: '14px !important' }} />}
+                    label={localeText.filtersDefaultViewLabel}
+                    size="small"
+                    color={isDefaultViewActive ? 'primary' : 'default'}
+                    disabled={isDefaultViewActive}
+                    clickable={!isDefaultViewActive}
+                    onClick={!isDefaultViewActive ? () => controller.clearPageFilters() : undefined}
+                    sx={{ justifyContent: 'flex-start' }}
+                  />
+                )}
+                {filterPresets.map((preset) => {
+                  const isActive = preset.id === activePresetId;
+                  return (
+                    <Stack
+                      key={preset.id}
+                      direction="row"
+                      spacing={0.5}
+                      sx={{ alignItems: 'center' }}
+                    >
+                      {renamingPresetId === preset.id ? (
+                        <TextField
+                          size="small"
+                          value={renameValue}
+                          autoFocus
+                          sx={{ flexGrow: 1 }}
+                          onChange={(event) => setRenameValue(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              handleRenameConfirm();
+                            } else if (event.key === 'Escape') {
+                              handleRenameCancel();
+                            }
+                          }}
+                          onBlur={handleRenameConfirm}
+                          slotProps={{
+                            input: { 'aria-label': localeText.filtersRenameViewAriaLabel },
+                          }}
+                        />
+                      ) : (
+                        <Chip
+                          icon={<BookmarkIcon sx={{ fontSize: '14px !important' }} />}
+                          label={preset.name}
+                          size="small"
+                          color={isActive ? 'primary' : 'default'}
+                          disabled={isActive}
+                          clickable={!isActive}
+                          onClick={
+                            isActive ? undefined : () => controller.applyFilterPreset(preset.id)
                           }
-                        }}
-                        onBlur={handleRenameConfirm}
-                        slotProps={{
-                          input: { 'aria-label': localeText.filtersRenameViewAriaLabel },
-                        }}
-                      />
-                    ) : (
-                      <Chip
-                        icon={<BookmarkIcon sx={{ fontSize: '14px !important' }} />}
-                        label={preset.name}
-                        size="small"
-                        color={isActive ? 'primary' : 'default'}
-                        disabled={isActive}
-                        clickable={!isActive}
-                        onClick={
-                          isActive ? undefined : () => controller.applyFilterPreset(preset.id)
-                        }
-                        sx={{ flexGrow: 1, justifyContent: 'flex-start' }}
-                      />
-                    )}
-                    <Tooltip title={localeText.filtersDrawerRenameViewTooltip}>
-                      <IconButton
-                        size="small"
-                        onClick={() => handleRenameStart(preset.id, preset.name)}
-                        aria-label={localeText.filtersRenameViewButtonAriaLabel(preset.name)}
-                      >
-                        <EditIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title={localeText.filtersDeleteViewTooltip}>
-                      <IconButton
-                        size="small"
-                        onClick={() => controller.deleteFilterPreset(preset.id)}
-                        aria-label={localeText.filtersDeleteViewAriaLabel(preset.name)}
-                      >
-                        <DeleteOutlineOutlinedIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  </Stack>
-                );
-              })}
-            </Stack>
-          </div>
-        </React.Fragment>
-      )}
-    </Stack>
+                          sx={{ flexGrow: 1, justifyContent: 'flex-start' }}
+                        />
+                      )}
+                      <Tooltip title={localeText.filtersDrawerRenameViewTooltip}>
+                        <IconButton
+                          size="small"
+                          onClick={() => handleRenameStart(preset.id, preset.name)}
+                          aria-label={localeText.filtersRenameViewButtonAriaLabel(preset.name)}
+                        >
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title={localeText.filtersDeleteViewTooltip}>
+                        <IconButton
+                          size="small"
+                          onClick={() => controller.deleteFilterPreset(preset.id)}
+                          aria-label={localeText.filtersDeleteViewAriaLabel(preset.name)}
+                        >
+                          <DeleteOutlineOutlinedIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </Stack>
+                  );
+                })}
+              </Stack>
+            </div>
+          </React.Fragment>
+        )}
+      </Stack>
+    </StudioDrawerErrorBoundary>
   );
 }

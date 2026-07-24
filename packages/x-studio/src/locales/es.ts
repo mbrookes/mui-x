@@ -92,6 +92,7 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   // Drawer panel / sidebar
   drawerPanelCloseAriaLabel: 'Cerrar configuración del widget',
   sidebarPanelsAriaLabel: 'Paneles laterales',
+  drawerPanelError: 'Se produjo un error al mostrar este panel.',
 
   // NumberField
   numberFieldIncreaseAriaLabel: 'Aumentar',

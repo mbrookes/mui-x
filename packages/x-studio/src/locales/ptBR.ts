@@ -90,6 +90,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   // Drawer panel / sidebar
   drawerPanelCloseAriaLabel: 'Fechar configuração do widget',
   sidebarPanelsAriaLabel: 'Painéis laterais',
+  drawerPanelError: 'Ocorreu um erro ao exibir este painel.',
 
   // NumberField
   numberFieldIncreaseAriaLabel: 'Aumentar',

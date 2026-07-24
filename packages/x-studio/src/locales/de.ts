@@ -94,6 +94,7 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   // Drawer panel / sidebar
   drawerPanelCloseAriaLabel: 'Widget-Konfiguration schließen',
   sidebarPanelsAriaLabel: 'Seitenleistenbereiche',
+  drawerPanelError: 'Beim Anzeigen dieses Bereichs ist ein Fehler aufgetreten.',
 
   // NumberField
   numberFieldIncreaseAriaLabel: 'Erhöhen',

@@ -59,3 +59,29 @@ describe('<CrossFilterSection /> value formatting (finding 3.10)', () => {
     expect(screen.getByText('region = EMEA, APAC')).not.toBe(null);
   });
 });
+
+// Tier1 crash-site regression: a cross-filter (or interactive filter) persisted with
+// `filterSourceId: 'constructor'` used to make `dataSources[filterSourceId]` resolve the
+// inherited `Object.prototype.constructor` function instead of `undefined` — a truthy
+// non-source value that slipped past `source?.fields` and threw `TypeError` on `.find`,
+// unmounting the whole `<Studio>` tree since the drawer had no error boundary. The lookup
+// is now guarded with `Object.hasOwn`, matching `StudioFiltersDrawer.tsx`'s sibling guards.
+describe('<CrossFilterSection /> hostile filterSourceId (Tier1 crash fix)', () => {
+  it('does not throw when filterSourceId is a prototype-chain key like "constructor"', () => {
+    expect(() =>
+      renderSection([
+        {
+          id: 'cf4',
+          field: 'region',
+          filterSourceId: 'constructor',
+          operator: 'equals',
+          value: 'EMEA',
+          scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'page-1' },
+        },
+      ]),
+    ).not.toThrow();
+    // No data source is registered under "constructor", so the field label falls back to
+    // the raw field id rather than resolving a label off the inherited function.
+    expect(screen.getByText('region = EMEA')).not.toBe(null);
+  });
+});

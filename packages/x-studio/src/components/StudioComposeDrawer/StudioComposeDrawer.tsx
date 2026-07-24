@@ -5,6 +5,7 @@ import { useDrawerSubheader } from '../Studio/DrawerPanelContext';
 import { useStudioSelector, selectWidgets, selectShell, useStudioLocaleText } from '../../context';
 import { StudioUIConfigContext } from '../../internals/StudioUIConfigContext';
 import { useWidgetDefMap } from '../../internals/builtinWidgetDefs';
+import { StudioDrawerErrorBoundary } from '../../internals/StudioDrawerErrorBoundary';
 import { AddWidgetView } from './AddWidgetView';
 import { FieldDetailView } from './FieldDetailView';
 import { FormatPanel } from './FormatPanel';
@@ -117,11 +118,24 @@ export function StudioComposeDrawer(props: StudioComposeDrawerProps = {}) {
     content = <FieldDetailView />;
   }
 
+  // Defense-in-depth (this drawer had no error boundary at all): a render throw from any
+  // sub-view here (a custom `setupPanel`, `FormatPanel`, etc. — e.g. reached through a
+  // hostile/malformed doc-authored id) previously had no boundary to stop at and unmounted
+  // the entire `<Studio>` tree. `resetKey` is the current selection, so switching the
+  // selected widget/field after a transient error clears the fallback instead of latching it.
+  const boundedContent = (
+    <StudioDrawerErrorBoundary resetKey={selectedWidgetId ?? selectedFieldId ?? 'none'}>
+      {content}
+    </StudioDrawerErrorBoundary>
+  );
+
   if (tableSourceMode !== undefined) {
     return (
-      <StudioUIConfigContext.Provider value={configValue}>{content}</StudioUIConfigContext.Provider>
+      <StudioUIConfigContext.Provider value={configValue}>
+        {boundedContent}
+      </StudioUIConfigContext.Provider>
     );
   }
 
-  return content;
+  return boundedContent;
 }

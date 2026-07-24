@@ -100,7 +100,14 @@ export function KpiSparklineOptions(props: { widgetId: string; config: StudioWid
       if (!relatedId) {
         continue;
       }
-      const relSource = dataSources[relatedId];
+      // `relatedId` comes from a doc-authored `StudioRelationship.sourceId`/`.targetId`
+      // (persisted, also reachable via `loadSerializedState`/the AI tool loop), so guard the
+      // record index against inherited keys ("toString"/"constructor"/…): a bare bracket lookup
+      // would otherwise resolve a function off `Object.prototype` instead of "not found", which
+      // passes the `!relSource` guard below and then throws inside `addSourceDateFields`'s
+      // `buildSourceFieldEntries(src, ...)` → `source.fields.flatMap(...)` (prototype-chain-safe
+      // lookup convention, matching `makeSelectWidgetSource` in `context/selectors.ts`).
+      const relSource = Object.hasOwn(dataSources, relatedId) ? dataSources[relatedId] : undefined;
       if (!relSource) {
         continue;
       }

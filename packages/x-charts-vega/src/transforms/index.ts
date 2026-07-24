@@ -15,6 +15,7 @@ import { applyQuantileTransform } from './quantile';
 import { applyDensityTransform } from './density';
 import { applyPivotTransform } from './pivot';
 import { applyStackTransform } from './stack';
+import { applyFlattenTransform } from './flatten';
 
 export { applyEncodingTransforms };
 export type { EncodingTransformResult } from './encoding';
@@ -28,7 +29,6 @@ export type { EncodingTransformResult } from './encoding';
 const KNOWN_UNSUPPORTED_TRANSFORMS: Record<string, string> = {
   sample: 'Sample transforms (random row sampling) are not supported.',
   impute: 'Impute transforms (synthesizing missing data points) are not supported.',
-  flatten: 'Flatten transforms (expanding array-valued fields into rows) are not supported.',
 };
 
 /**
@@ -67,6 +67,8 @@ export function applyTransforms(
       current = applyJoinAggregateTransform(current, transform as never, gaps, transformPath);
     } else if ('stack' in transform) {
       current = applyStackTransform(current, transform as never, gaps, transformPath);
+    } else if ('flatten' in transform) {
+      current = applyFlattenTransform(current, transform as never, gaps, transformPath);
     } else if ('regression' in transform) {
       current = applyRegressionTransform(current, transform as never, gaps, transformPath);
     } else if ('loess' in transform) {

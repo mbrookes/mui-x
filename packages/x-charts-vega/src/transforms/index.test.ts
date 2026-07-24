@@ -84,11 +84,29 @@ describe('applyTransforms / dispatcher', () => {
     expect(gaps.list()).to.have.length(0);
   });
 
+  it('dispatches a flatten transform', () => {
+    const gaps = createGapCollector();
+    const rows = [
+      { species: 'A', outliers: [1, 2] },
+      { species: 'B', outliers: [] },
+    ];
+    const result = applyTransforms(
+      rows,
+      [{ flatten: ['outliers'] } as unknown as VegaTransform],
+      gaps,
+      '$',
+    );
+    expect(result).to.deep.equal([
+      { species: 'A', outliers: 1 },
+      { species: 'A', outliers: 2 },
+    ]);
+    expect(gaps.list()).to.have.length(0);
+  });
+
   it('reports a kind-specific gap for each recognized-but-unsupported transform kind', () => {
     const kinds: Array<[string, VegaTransform]> = [
       ['sample', { sample: 100 } as unknown as VegaTransform],
       ['impute', { impute: 'v', key: 'k' } as unknown as VegaTransform],
-      ['flatten', { flatten: ['a'] } as unknown as VegaTransform],
     ];
     for (const [kind, transform] of kinds) {
       const gaps = createGapCollector();

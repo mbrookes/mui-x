@@ -300,6 +300,10 @@ export interface VegaFoldTransform {
   fold: string[];
   as?: [string, string];
 }
+export interface VegaFlattenTransform {
+  flatten: string[];
+  as?: string[];
+}
 export interface VegaPivotTransform {
   /** Field whose distinct values become new output columns. */
   pivot: string;
@@ -401,6 +405,7 @@ export type VegaTransform =
   | VegaWindowTransform
   | VegaJoinAggregateTransform
   | VegaStackTransform
+  | VegaFlattenTransform
   | VegaRegressionTransform
   | VegaLoessTransform
   | VegaQuantileTransform

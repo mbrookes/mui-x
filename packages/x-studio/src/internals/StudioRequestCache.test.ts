@@ -356,4 +356,55 @@ describe('StudioRequestCache', () => {
     expect(cache.get('key-1')).toBeUndefined();
     expect(cache.get('key-2')).toBeUndefined();
   });
+
+  // ── per-adapter-instance isolation ──────────────────────────────────────────
+  // Two <Studio> instances sharing a `sourceId` string but backed by DIFFERENT host adapters must
+  // never read each other's cached rows or join each other's in-flight requests.
+
+  describe('adapter-instance isolation', () => {
+    it('scopes cached entries by adapter instance for the same cacheKey', () => {
+      const adapterA = { getRows: () => Promise.resolve(RESULT_A) };
+      const adapterB = { getRows: () => Promise.resolve(RESULT_B) };
+
+      cache.set('src1:shape', RESULT_A, 'src1', adapterA);
+      cache.set('src1:shape', RESULT_B, 'src1', adapterB);
+
+      // Same cacheKey + sourceId, different adapters → no cross-instance bleed.
+      expect(cache.get('src1:shape', adapterA)).toBe(RESULT_A);
+      expect(cache.get('src1:shape', adapterB)).toBe(RESULT_B);
+      // An instance that stored under adapterA does not see adapterB's entry, and vice versa.
+      expect(cache.get('src1:shape', adapterB)).not.toBe(RESULT_A);
+    });
+
+    it('does not join an in-flight request started by a different adapter', () => {
+      const adapterA = {};
+      const adapterB = {};
+      const promiseA = new Promise<StudioQueryResult>(() => {});
+      cache.addInflight('src1:shape', promiseA, 'src1', adapterA);
+
+      expect(cache.getInflight('src1:shape', adapterA)).toBe(promiseA);
+      expect(cache.getInflight('src1:shape', adapterB)).toBeUndefined();
+      expect(cache.isInflight('src1:shape', adapterB)).toBe(false);
+    });
+
+    it('remains backward compatible when no adapter is supplied', () => {
+      cache.set('src1:shape', RESULT_A, 'src1');
+      // A legacy (adapter-less) read hits the un-namespaced entry a legacy write stored.
+      expect(cache.get('src1:shape')).toBe(RESULT_A);
+      // But an adapter-scoped read of the same cacheKey does NOT see the un-namespaced entry.
+      expect(cache.get('src1:shape', {})).toBeUndefined();
+    });
+
+    it('invalidateSource clears every adapter namespace for the source', () => {
+      const adapterA = {};
+      const adapterB = {};
+      cache.set('src1:shape', RESULT_A, 'src1', adapterA);
+      cache.set('src1:shape', RESULT_B, 'src1', adapterB);
+
+      cache.invalidateSource('src1');
+
+      expect(cache.get('src1:shape', adapterA)).toBeUndefined();
+      expect(cache.get('src1:shape', adapterB)).toBeUndefined();
+    });
+  });
 });

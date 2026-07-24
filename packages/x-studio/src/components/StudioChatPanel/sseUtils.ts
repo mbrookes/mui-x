@@ -71,6 +71,14 @@ export async function parseSSEStream(
   const decoder = new TextDecoder();
   let buffer = '';
 
+  // Hard cap on the un-newlined buffer. A well-behaved server delimits every event with a
+  // newline, so `buffer` only ever holds a single partial line between reads. A hostile or
+  // misbehaving proxy could stream bytes containing NO newline at all, which would grow `buffer`
+  // without bound — an eventual out-of-memory in a long-lived tab. If the cap is exceeded we
+  // cancel the read and fail the stream cleanly (surfaced as an error to the caller) rather than
+  // keep accumulating. 8 MB is far larger than any legitimate single SSE event.
+  const MAX_BUFFER_SIZE = 8 * 1024 * 1024;
+
   // Parses one `data: <json>` line (with any trailing newline already stripped) and
   // forwards the event to `onEvent`. Shared by the main loop and the `done` flush
   // below so both paths handle a trailing/partial line identically.
@@ -112,11 +120,28 @@ export async function parseSSEStream(
     }
 
     buffer += decoder.decode(value, { stream: true });
+    if (buffer.length > MAX_BUFFER_SIZE) {
+      // Free the connection before surfacing the failure so a runaway stream doesn't keep the
+      // socket alive. `cancel()` can reject if the stream is already errored/closed — ignore it.
+      reader.cancel().catch(() => {});
+      throw new Error(
+        `MUI X: SSE response exceeded the ${MAX_BUFFER_SIZE}-byte buffer limit without a newline. ` +
+          `This usually means the server or a proxy is streaming malformed (un-delimited) data. ` +
+          `The stream was aborted to avoid unbounded memory growth.`,
+      );
+    }
     const lines = buffer.split('\n');
     buffer = lines.pop() ?? '';
 
     for (const line of lines) {
       if (processLine(line) === false) {
+        // The callback signalled a terminal event (`finish`/`error`). Cancel the reader so the
+        // underlying socket/stream is released immediately — otherwise, if the server/proxy keeps
+        // the connection open past the terminal event, it would stay alive until the caller
+        // separately invokes `.stop()` or the page unloads. `cancel()` is idempotent-safe here:
+        // the caller's `finally` removes this reader from its tracking set once we return, so a
+        // later `.stop()` won't double-cancel it. Fire-and-forget (no await) to avoid blocking.
+        reader.cancel().catch(() => {});
         return;
       }
     }

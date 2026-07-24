@@ -954,7 +954,17 @@ export function buildWidgetDataSummary(
   const { sampling = 'stride' } = options;
   const { sample, label } =
     sampling === 'aggregate'
-      ? aggregateRows(enrichedFilteredRows, fieldIds, source.fields, maxRows)
+      ? aggregateRows(
+          enrichedFilteredRows,
+          fieldIds,
+          // Include own-source expression (calculated) fields — same lookup as `buildNumericStats`
+          // and the header-label merge below. With bare `source.fields`, a numeric CALCULATED
+          // column isn't found, so it fails `aggregateRows`' `field?.type === 'number'` check and
+          // gets bucket/`first`-style sampling instead of numeric aggregation, silently
+          // misrepresenting a computed measure in the AI-generated insight summary.
+          sourceFieldsWithExpressions(source, state.doc.expressionFields),
+          maxRows,
+        )
       : selectSampleRows(enrichedFilteredRows, options, xFieldId);
 
   // Stats computed from ALL filtered rows (not just sample) for global context

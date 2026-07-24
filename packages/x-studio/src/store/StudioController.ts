@@ -514,6 +514,17 @@ export class StudioController {
    */
   private commitShellPatch = (patch: Partial<StudioSession['shell']>) => {
     const state = this.store.state;
+    // Key-wise reference no-op guard, mirroring `commitDocPatch` (1.6) and `updateState` (2.4):
+    // when every entry in `patch` is already reference-equal to the current `shell` field there
+    // is nothing to commit — skip so a redundant shell write (e.g. `clearSelection()` when
+    // nothing is selected) never rebuilds `session.shell` and notifies every subscriber for no
+    // actual change. `commitState` bails on `nextState === current`, but only AFTER this method
+    // has already rebuilt the `session`/`shell` objects (whose references would change); guarding
+    // here avoids that rebuild entirely.
+    const keys = Object.keys(patch) as (keyof StudioSession['shell'])[];
+    if (keys.every((key) => patch[key] === state.session.shell[key])) {
+      return;
+    }
     this.commitState(
       {
         ...state,

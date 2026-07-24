@@ -58,9 +58,49 @@ export class StudioRequestCache {
 
   private readonly maxEntries: number;
 
+  /**
+   * Per-adapter-instance namespace tokens. `studioRequestCache` is a module-level singleton
+   * shared by every `<Studio>`/`StudioController` on the page, and the cacheKey is deliberately
+   * built from `sourceId` + query shape with NO adapter-identity component. Two separate `<Studio>`
+   * instances mounted on the same page that use the SAME `sourceId` string but were handed
+   * DIFFERENT host adapters (e.g. different tenant / auth / backend) would therefore collide:
+   * they'd serve each other's cached rows for up to the TTL and join each other's in-flight
+   * request promises. Callers pass the live `adapter` object so its entries are keyed in a private
+   * per-adapter-instance namespace; a `WeakMap` keeps the mapping GC-friendly (an adapter that is
+   * unmounted/dropped takes its token with it). Callers that omit `adapter` keep the legacy
+   * un-namespaced key, so the change is fully backward compatible.
+   */
+  private readonly adapterTokens = new WeakMap<object, string>();
+
+  private adapterTokenCounter = 0;
+
   constructor(ttlMs: number = TTL_MS, maxEntries: number = MAX_ENTRIES) {
     this.ttlMs = ttlMs;
     this.maxEntries = maxEntries;
+  }
+
+  /**
+   * Stable namespace prefix for an adapter instance (empty string when no adapter is supplied,
+   * preserving the legacy un-namespaced key). The token is a monotonic, per-adapter-unique prefix
+   * (`@adapterN `), so two distinct adapters can never map to the same effective key even when
+   * their cacheKeys are identical, and the same adapter always resolves to the same prefix.
+   */
+  private adapterNamespace(adapter?: object): string {
+    if (!adapter) {
+      return '';
+    }
+    let token = this.adapterTokens.get(adapter);
+    if (token === undefined) {
+      this.adapterTokenCounter += 1;
+      token = `@adapter${this.adapterTokenCounter} `;
+      this.adapterTokens.set(adapter, token);
+    }
+    return token;
+  }
+
+  /** The effective (per-adapter-namespaced) key used for all internal storage/lookup. */
+  private effectiveKey(cacheKey: string, adapter?: object): string {
+    return this.adapterNamespace(adapter) + cacheKey;
   }
 
   /**
@@ -122,42 +162,52 @@ export class StudioRequestCache {
     return sourceId ?? cacheKey.split(':')[0];
   }
 
-  /** Returns a cached result if present and not expired, otherwise undefined. */
-  get(cacheKey: string): StudioQueryResult | undefined {
-    const entry = this.cache.get(cacheKey);
+  /**
+   * Returns a cached result if present and not expired, otherwise undefined.
+   *
+   * Pass the live `adapter` object so a `<Studio>` instance only ever reads entries written by its
+   * OWN adapter — two instances sharing a `sourceId` but backed by different adapters must not
+   * serve each other's rows. Omitting `adapter` keeps the legacy shared (un-namespaced) key.
+   */
+  get(cacheKey: string, adapter?: object): StudioQueryResult | undefined {
+    const key = this.effectiveKey(cacheKey, adapter);
+    const entry = this.cache.get(key);
     if (!entry) {
       return undefined;
     }
     if (Date.now() - entry.fetchedAt > this.ttlMs) {
       // Use the sourceId stored at set-time so the correct bucket is cleaned even when
       // the sourceId contains a ':' (the parse-based fallback would target a wrong bucket).
-      this.deleteEntry(cacheKey, entry);
+      this.deleteEntry(key, entry);
       return undefined;
     }
     // Mark as most-recently-used: delete + re-insert moves the key to the end of the Map's
     // iteration order so LRU eviction in `evictIfNeeded` targets genuinely cold entries.
-    this.cache.delete(cacheKey);
-    this.cache.set(cacheKey, entry);
+    this.cache.delete(key);
+    this.cache.set(key, entry);
     return entry.result;
   }
 
   /**
    * Stores a result in the cache. Pass `sourceId` (from `descriptor.sourceId`) so the
    * reverse index and TTL cleanup use the true source; when omitted it falls back to the
-   * legacy first-colon parse of the cacheKey.
+   * legacy first-colon parse of the cacheKey. Pass `adapter` to namespace the entry to a single
+   * adapter instance (see `get`); `sourceId` is always resolved from the ORIGINAL cacheKey (never
+   * the namespaced form) so the `invalidateSource` reverse index stays keyed by the true source.
    */
-  set(cacheKey: string, result: StudioQueryResult, sourceId?: string): void {
+  set(cacheKey: string, result: StudioQueryResult, sourceId?: string, adapter?: object): void {
+    const key = this.effectiveKey(cacheKey, adapter);
     const resolvedSourceId = this.resolveSourceId(cacheKey, sourceId);
     // Delete first so a re-set moves the key to the most-recently-used end of the Map's
     // insertion order (Map.set on an existing key keeps its original position).
-    this.cache.delete(cacheKey);
-    this.cache.set(cacheKey, { result, fetchedAt: Date.now(), sourceId: resolvedSourceId });
+    this.cache.delete(key);
+    this.cache.set(key, { result, fetchedAt: Date.now(), sourceId: resolvedSourceId });
     let keys = this.sourceIndex.get(resolvedSourceId);
     if (!keys) {
       keys = new Set();
       this.sourceIndex.set(resolvedSourceId, keys);
     }
-    keys.add(cacheKey);
+    keys.add(key);
     // Bound growth eagerly on every write: sweep expired entries and, if still over the cap,
     // evict least-recently-used ones. Without this the singleton grows monotonically since
     // entries are otherwise only removed when the SAME key is re-requested after TTL.
@@ -170,8 +220,8 @@ export class StudioRequestCache {
    * generation no longer matches the source's current generation) is treated as absent,
    * so callers arriving after invalidation start a fresh request instead of joining it.
    */
-  isInflight(cacheKey: string): boolean {
-    return this.getInflight(cacheKey) !== undefined;
+  isInflight(cacheKey: string, adapter?: object): boolean {
+    return this.getInflight(cacheKey, adapter) !== undefined;
   }
 
   /**
@@ -179,9 +229,13 @@ export class StudioRequestCache {
    * request that was invalidated mid-flight (its source's generation has advanced since the
    * request started) so post-invalidation callers do not join a now-stale request; the
    * request itself keeps running and any caller already awaiting its promise is unaffected.
+   *
+   * Pass the live `adapter` so an instance never JOINS an in-flight request started by a different
+   * instance's adapter for the same `sourceId`.
    */
-  getInflight(cacheKey: string): Promise<StudioQueryResult> | undefined {
-    const entry = this.inflight.get(cacheKey);
+  getInflight(cacheKey: string, adapter?: object): Promise<StudioQueryResult> | undefined {
+    const key = this.effectiveKey(cacheKey, adapter);
+    const entry = this.inflight.get(key);
     if (!entry) {
       return undefined;
     }
@@ -199,6 +253,7 @@ export class StudioRequestCache {
     cacheKey: string,
     promise: Promise<StudioQueryResult>,
     sourceId?: string,
+    adapter?: object,
   ): Promise<StudioQueryResult> {
     // Capture the source's generation at request-start time. If `invalidateSource`
     // runs before this resolves, the generation will have advanced and we must NOT
@@ -206,9 +261,10 @@ export class StudioRequestCache {
     // cache HIT on it. The generation is also stored on the in-flight entry so that a
     // post-invalidation caller sees this request as absent (via `getInflight`) and starts
     // a fresh fetch rather than joining it. The awaiting caller still receives this result.
+    const key = this.effectiveKey(cacheKey, adapter);
     const resolvedSourceId = this.resolveSourceId(cacheKey, sourceId);
     const generationAtStart = this.getGeneration(resolvedSourceId);
-    this.inflight.set(cacheKey, {
+    this.inflight.set(key, {
       promise,
       sourceId: resolvedSourceId,
       generation: generationAtStart,
@@ -218,14 +274,16 @@ export class StudioRequestCache {
     // (now-stale) one is still running; that newer entry must not be deleted when the
     // stale promise settles.
     const clearIfCurrent = () => {
-      if (this.inflight.get(cacheKey)?.promise === promise) {
-        this.inflight.delete(cacheKey);
+      if (this.inflight.get(key)?.promise === promise) {
+        this.inflight.delete(key);
       }
     };
     promise.then(
       (result) => {
         if (this.getGeneration(resolvedSourceId) === generationAtStart) {
-          this.set(cacheKey, result, resolvedSourceId);
+          // Pass `adapter` through so the settled result is stored under the SAME per-adapter
+          // namespace the in-flight entry used (and that `get` will look it up under).
+          this.set(cacheKey, result, resolvedSourceId, adapter);
         }
         clearIfCurrent();
       },

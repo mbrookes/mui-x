@@ -227,14 +227,33 @@ const repairThreadLeafShapes = <T>(thread: T): T => {
   }
   const messagesOk = Array.isArray((thread as { messages?: unknown }).messages);
   const nameOk = typeof (thread as { name?: unknown }).name === 'string';
-  if (messagesOk && nameOk) {
+  // `createdAt` is REQUIRED by `StudioAIChatThread`, and both timestamps are consumed as strings
+  // by the chat panel's thread sort (`bTime.localeCompare(aTime)` in `useChatThreads`). A hostile
+  // or hand-edited persisted doc can carry a thread with a non-string / missing `createdAt` or a
+  // non-string `updatedAt`; left unrepaired it loads successfully and then throws a `TypeError`
+  // inside the sort `useMemo`, crashing the whole panel on mount (the comparator only runs with
+  // 2+ threads). Coerce a bad `createdAt` to a safe epoch default and DROP (rather than pass
+  // through) a non-string `updatedAt` — mirroring the fallback-over-drop treatment above, since
+  // neither timestamp is identity data.
+  const createdAtOk = typeof (thread as { createdAt?: unknown }).createdAt === 'string';
+  const hasUpdatedAt = 'updatedAt' in (thread as object);
+  const updatedAtOk =
+    !hasUpdatedAt || typeof (thread as { updatedAt?: unknown }).updatedAt === 'string';
+  if (messagesOk && nameOk && createdAtOk && updatedAtOk) {
     return thread;
   }
-  return {
+  const repaired = {
     ...thread,
     ...(messagesOk ? {} : { messages: [] }),
     ...(nameOk ? {} : { name: 'Untitled Thread' }),
-  } as T;
+    ...(createdAtOk ? {} : { createdAt: new Date(0).toISOString() }),
+  } as T & { updatedAt?: unknown };
+  // Delete a non-string `updatedAt` outright (it's optional) so it can't reach the comparator;
+  // the sort falls back to `createdAt`, which is now guaranteed to be a string.
+  if (!updatedAtOk) {
+    delete repaired.updatedAt;
+  }
+  return repaired as T;
 };
 
 /**

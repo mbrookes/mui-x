@@ -442,10 +442,44 @@ export function createBackendChatAdapter(
               streamController.enqueue({ type: 'start-step' });
             } else if (type === 'message-metadata') {
               // Forward model name + token counts into the assistant message metadata.
-              streamController.enqueue({
-                type: 'message-metadata',
-                metadata: (event as { metadata: Record<string, unknown> }).metadata,
-              });
+              // Defensive coercion (matching the `tool-activity`/`usage` branches, which never
+              // pass untrusted wire data straight through): the renderer (`StudioMessageRoot`)
+              // draws `{metadata.model}` directly as a React child and reads numeric token /
+              // iteration counts, so a non-string `model` or a non-numeric count from a
+              // malformed event would crash the message renderer in non-production builds. Emit
+              // only a sanitized record — validate `model` as a string, keep each numeric field
+              // solely when it is a finite number (preserving the renderer's `!= null` checks),
+              // and drop the whole `metadata` object if it isn't a plain record.
+              const rawMetadata = (event as { metadata?: unknown }).metadata;
+              if (
+                rawMetadata != null &&
+                typeof rawMetadata === 'object' &&
+                !Array.isArray(rawMetadata)
+              ) {
+                const md = rawMetadata as Record<string, unknown>;
+                const cleanMetadata: {
+                  model?: string;
+                  inputTokens?: number;
+                  outputTokens?: number;
+                  iterations?: number;
+                } = {};
+                if (typeof md.model === 'string') {
+                  cleanMetadata.model = md.model;
+                }
+                if (typeof md.inputTokens === 'number' && Number.isFinite(md.inputTokens)) {
+                  cleanMetadata.inputTokens = md.inputTokens;
+                }
+                if (typeof md.outputTokens === 'number' && Number.isFinite(md.outputTokens)) {
+                  cleanMetadata.outputTokens = md.outputTokens;
+                }
+                if (typeof md.iterations === 'number' && Number.isFinite(md.iterations)) {
+                  cleanMetadata.iterations = md.iterations;
+                }
+                streamController.enqueue({
+                  type: 'message-metadata',
+                  metadata: cleanMetadata,
+                });
+              }
             } else if (type === 'tool-approval-request') {
               // Forward the approval request as an x-chat chunk so the UI can
               // render an inline confirmation card (via ChatConfirmation / ToolPart).

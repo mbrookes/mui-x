@@ -201,8 +201,13 @@ export function useChatThreads(controller: StudioController): UseChatThreadsResu
   const sortedThreads = React.useMemo(
     () =>
       (aiState?.threads ?? []).toSorted((a, b) => {
-        const aTime = a.updatedAt ?? a.createdAt;
-        const bTime = b.updatedAt ?? b.createdAt;
+        // Defense-in-depth (the schema-side `repairThreadLeafShapes` load-boundary repair also
+        // coerces these): coerce to string here too so an untrusted / hand-edited persisted doc
+        // that slips a non-string (or entirely missing) `updatedAt`/`createdAt` past the loader
+        // can never throw a `TypeError` on `.localeCompare` and take down the whole chat panel on
+        // mount. The comparator only runs with 2+ threads, so a single bad thread never surfaces it.
+        const aTime = String(a.updatedAt ?? a.createdAt ?? '');
+        const bTime = String(b.updatedAt ?? b.createdAt ?? '');
         return bTime.localeCompare(aTime);
       }),
     [aiState?.threads],

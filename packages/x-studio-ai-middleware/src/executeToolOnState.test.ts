@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { executeToolOnState } from './executeToolOnState';
+import { executeToolOnState, capIncomingDashboardState } from './executeToolOnState';
 import { STUDIO_AI_TOOL_NAMES } from './studioAITools';
 import {
   createDefaultStudioState,
@@ -1299,6 +1299,32 @@ describe('executeToolOnState: add_page_filter', () => {
       args: { filter: { value: Array<{ id: number; label: string }> } };
     };
     expect(mut.args.filter.value[0].label.length).toBe(200);
+  });
+
+  // Finding F3 (Tier 3): the object branch of `capFilterValue` bounded each key's
+  // recursively-capped VALUE but not the NUMBER of keys — an object-typed filter value
+  // with thousands of short keys was persisted verbatim and re-interpolated via
+  // `JSON.stringify(f.value)` on every future request. Retain at most 50 keys.
+  it('caps the number of keys retained in an object filter value', () => {
+    const state = makeState();
+    const hugeObject: Record<string, number> = {};
+    for (let i = 0; i < 500; i += 1) {
+      hugeObject[`k${i}`] = i;
+    }
+    const result = executeToolOnState(
+      'add_page_filter',
+      { field: 'revenue', sourceId: 'src1', operator: 'equals', value: hugeObject },
+      state,
+    );
+    const mut = result.mutation as {
+      type: string;
+      args: { filter: { value: Record<string, number> } };
+    };
+    expect(Object.keys(mut.args.filter.value).length).toBe(50);
+    // Retains the first 50 keys in insertion order.
+    expect(mut.args.filter.value.k0).toBe(0);
+    expect(mut.args.filter.value.k49).toBe(49);
+    expect(mut.args.filter.value.k50).toBeUndefined();
   });
 });
 
@@ -3130,5 +3156,90 @@ describe('handleAIChat', () => {
     expect(allText).toContain('"type":"finish"');
 
     vi.unstubAllGlobals();
+  });
+});
+
+// Finding F2 (Tier 2): the initial client-supplied `dashboardState` bypassed every
+// write-time cap, so the first request's system prompt was effectively unbounded.
+// `capIncomingDashboardState` applies the same caps at the top of request handling.
+describe('capIncomingDashboardState', () => {
+  it('caps oversized dashboard/page/widget titles and filter values', () => {
+    const long = 'x'.repeat(1000);
+    const state = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd1', title: long, activePageId: 'p1' },
+        pages: { p1: { id: 'p1', title: long, widgetRows: [['w1']] } },
+        widgets: {
+          w1: {
+            id: 'w1',
+            kind: 'chart',
+            title: long,
+            subtitle: long,
+            sourceId: long,
+            config: { chartType: 'bar', xField: long },
+          },
+        },
+        filters: [
+          {
+            id: 'f1',
+            field: long,
+            filterSourceId: long,
+            operator: 'equals',
+            value: long,
+            scope: { kind: 'page', pageId: 'p1' },
+          },
+        ],
+      },
+    });
+
+    const capped = capIncomingDashboardState(state);
+
+    expect(capped.doc.dashboard.title.length).toBe(200);
+    expect(capped.doc.pages.p1.title.length).toBe(200);
+    const w1 = capped.doc.widgets.w1;
+    expect(w1.title.length).toBe(200);
+    expect(w1.subtitle!.length).toBe(200);
+    expect(w1.sourceId!.length).toBe(200);
+    expect((w1.config as { xField: string }).xField.length).toBe(200);
+    const f1 = capped.doc.filters[0];
+    expect(f1.field.length).toBe(200);
+    expect(f1.filterSourceId!.length).toBe(200);
+    expect((f1.value as string).length).toBe(200);
+    // The input is not mutated.
+    expect(state.doc.dashboard.title.length).toBe(1000);
+  });
+
+  it('caps the number of pages/widgets/filters retained', () => {
+    const widgets: Record<string, StudioState['doc']['widgets'][string]> = {};
+    for (let i = 0; i < 1100; i += 1) {
+      widgets[`w${i}`] = { id: `w${i}`, kind: 'kpi', title: `W${i}`, config: {} };
+    }
+    const pages: Record<string, StudioState['doc']['pages'][string]> = {};
+    for (let i = 0; i < 250; i += 1) {
+      pages[`p${i}`] = { id: `p${i}`, title: `P${i}`, widgetRows: [] };
+    }
+    const filters: StudioState['doc']['filters'] = [];
+    for (let i = 0; i < 600; i += 1) {
+      filters.push({
+        id: `f${i}`,
+        field: 'x',
+        operator: 'equals',
+        value: 1,
+        scope: { kind: 'page', pageId: 'p0' },
+      });
+    }
+    const state = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'p0' },
+        pages,
+        widgets,
+        filters,
+      },
+    });
+
+    const capped = capIncomingDashboardState(state);
+    expect(Object.keys(capped.doc.widgets).length).toBe(1000);
+    expect(Object.keys(capped.doc.pages).length).toBe(200);
+    expect(capped.doc.filters.length).toBe(500);
   });
 });

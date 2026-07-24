@@ -151,10 +151,10 @@ export interface StudioAIDataConfig {
    */
   maxQueryRows?: number;
   /**
-   * Optional server-side allowlist of physical table names that `query_data_source`
-   * (and `describe_data_source` / `get_field_values` / `compute_field_stats`) may
-   * resolve a `sourceId` to. When set, a data source whose `tableName` is not in
-   * this list is rejected with an error before `queryDataSource` is ever called.
+   * Server-side allowlist of physical table names that `query_data_source` (and
+   * `describe_data_source` / `get_field_values` / `compute_field_stats`) may resolve
+   * a `sourceId` to. When set to an array, a data source whose `tableName` is not in
+   * the list is rejected with an error before `queryDataSource` is ever called.
    *
    * SECURITY NOTE — read this before wiring `data` on the CHAT transport
    * (`handleAIChat`/`runAgenticLoop`): on that transport, `dashboardState` (and
@@ -167,12 +167,19 @@ export interface StudioAIDataConfig {
    * caller is actually allowed to query. (The MCP transport does not have this gap:
    * its state box is server-held, not request-supplied.)
    *
-   * Set `allowedTables` to close this gap for BOTH transports, or omit it only if
-   * `queryDataSource` itself already enforces an equivalent allowlist/routing (e.g.
-   * by ignoring `params.tableName` and re-deriving the physical table from a
-   * server-side `sourceId` → table map instead of trusting the request).
+   * FAIL-CLOSED DEFAULT ON THE CHAT TRANSPORT (finding F1): because of the trust
+   * boundary above, `query_data_source` on the chat transport now REFUSES to resolve
+   * any data source when `allowedTables` is left `undefined` — rather than silently
+   * trusting the client-supplied catalog — returning an error that instructs the host
+   * to configure this option. To close the gap, set `allowedTables` to the explicit
+   * list of tables the AI may query. To OPT OUT (e.g. a trusted dev/demo setup, or a
+   * host whose `queryDataSource` already re-derives the physical table server-side and
+   * ignores `params.tableName`), set it to the literal `'*'` — an explicit, greppable
+   * "no table restriction" acknowledgement rather than an accidental fail-open. The MCP
+   * transport (server-held state) keeps the historical behavior when `allowedTables`
+   * is omitted: no restriction.
    */
-  allowedTables?: string[];
+  allowedTables?: string[] | '*';
 }
 
 // ── Server-side skill ─────────────────────────────────────────────────────────

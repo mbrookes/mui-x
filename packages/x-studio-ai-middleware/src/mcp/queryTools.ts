@@ -272,11 +272,18 @@ type ResolveSourceResult =
  * that gap: a resolved `tableName` outside the allowlist is rejected here, before
  * any query is built. See `StudioAIDataConfig.allowedTables`'s doc comment for the
  * full trust-boundary rationale.
+ *
+ * NOTE (finding F1): the chat transport additionally enforces a FAIL-CLOSED default
+ * upstream, at its `query_data_source` dispatch site (`agenticLoop/toolDispatch.ts`) —
+ * it refuses to resolve any source when `allowedTables` is `undefined`, so this
+ * function is only ever reached from the chat transport with an array allowlist or the
+ * explicit permissive `'*'`. Trusted MCP/server-held callers may still pass `undefined`
+ * (no restriction), which `checkAllowedTable` permits.
  */
 export function resolveSource(
   stateBox: StudioStateBox,
   sourceId: string,
-  allowedTables?: string[],
+  allowedTables?: string[] | '*',
 ): ResolveSourceResult {
   // `Object.hasOwn`-guarded lookup (finding T2-1): a prototype-member sourceId
   // (`"constructor"`, `"__proto__"`) would otherwise resolve a truthy inherited value

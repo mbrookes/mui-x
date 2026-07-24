@@ -58,6 +58,7 @@ import { runAgenticLoop } from './agenticLoop';
 import type { PendingApproval } from './agenticLoop/toolDispatch';
 import type { ToolPolicy } from './toolPolicy';
 import { withTimeout } from './mcp/helpers';
+import { capIncomingDashboardState } from './executeToolOnState';
 import type { StudioAIRequest, StudioAISSEEvent } from './models/protocol';
 import type {
   StudioAISkill,
@@ -393,6 +394,27 @@ export interface StudioAIHandlerOptions {
 export const CONTEXT_ENRICHER_TIMEOUT_MS = 15_000;
 
 /**
+ * Max number of entries accepted in a request's `body.messages` array (finding F2,
+ * Tier 2). The conversation history comes straight from the client `body` and is
+ * serialized into the first LLM request by `toOpenAIMessages` with no length cap of
+ * its own, so a client could post an unbounded number of messages (or a handful of
+ * multi-megabyte ones) and blow the request up before any per-turn token/turn budget
+ * — checked only AFTER a turn completes — could apply. Sized generously (a real chat
+ * thread is nowhere near this) so it only ever trips for a runaway/hostile payload;
+ * rejected (not silently truncated) with an actionable error, since truncating could
+ * silently drop the user's latest message.
+ */
+export const MAX_REQUEST_MESSAGES = 1_000;
+
+/**
+ * Max total size (chars, ~bytes of the JSON text) of a request's `body.messages`
+ * array (finding F2, Tier 2). Complements {@link MAX_REQUEST_MESSAGES}: a small
+ * number of enormous messages is the same unbounded-first-request class as a large
+ * number of small ones. Sized generously so only a runaway/hostile payload trips it.
+ */
+export const MAX_REQUEST_MESSAGES_TOTAL_CHARS = 2_000_000;
+
+/**
  * Encodes a `StudioAISSEEvent` as an SSE-formatted string.
  */
 function encodeSSE(event: StudioAISSEEvent): string {
@@ -455,6 +477,31 @@ function validateStudioAIRequestBody(body: unknown): string | undefined {
       '`{ messages: ChatMessage[], ... }` and that the host route forwards the parsed body as-is.'
     );
   }
+  // Finding F2 (Tier 2): the client-supplied `messages` array is serialized into the
+  // FIRST LLM request with no length/size cap of its own — the per-turn token/turn
+  // budgets are checked only AFTER a turn completes, so nothing bounds the initial
+  // request. Reject (rather than truncate, which could silently drop the user's latest
+  // message) an over-count or over-size `messages` array up front.
+  if (body.messages.length > MAX_REQUEST_MESSAGES) {
+    return (
+      `MUI X Studio: The request body has ${body.messages.length} \`messages\` entries, which ` +
+      `exceeds the limit of ${MAX_REQUEST_MESSAGES} (\`StudioAIRequest.messages\`). This prevents ` +
+      'the first LLM request from growing unbounded before any per-turn token/turn budget can ' +
+      'apply. Trim the conversation history client-side before sending.'
+    );
+  }
+  let messagesTotalChars = 0;
+  for (let i = 0; i < body.messages.length; i += 1) {
+    messagesTotalChars += JSON.stringify(body.messages[i] ?? null).length;
+    if (messagesTotalChars > MAX_REQUEST_MESSAGES_TOTAL_CHARS) {
+      return (
+        "MUI X Studio: The request body's `messages` array exceeds the maximum total size of " +
+        `${MAX_REQUEST_MESSAGES_TOTAL_CHARS} characters (\`StudioAIRequest.messages\`). This prevents ` +
+        'the first LLM request from growing unbounded before any per-turn token budget can apply. ' +
+        'Trim the conversation history (or oversized message parts) client-side before sending.'
+      );
+    }
+  }
   // Each message must carry a `parts` array (finding 3b, iteration 24) — the shape
   // `toOpenAIMessages`/`agenticLoop/openaiWire.ts` actually iterate. An OpenAI-shaped
   // `{ role, content }` message (no `parts`) passes the `messages` array check above
@@ -497,6 +544,19 @@ function validateStudioAIRequestBody(body: unknown): string | undefined {
             'prevents the agentic loop from matching the tool call to its result when replaying ' +
             'the conversation history to the LLM. Ensure every `dynamic-tool` part carries a ' +
             '`toolInvocation` object with at least `{ toolCallId: string, toolName, input, output, state }`.'
+          );
+        }
+        // Finding F5 (Tier 3): `toOpenAIMessages` reads `toolInvocation.toolName` into an
+        // OpenAI `function.name` — a non-string value produces a malformed OpenAI message
+        // and an opaque provider 400 instead of a clean validation error. Require it to be
+        // a string when present (it is optional on the wire; only its TYPE is enforced).
+        if (toolInvocation.toolName !== undefined && typeof toolInvocation.toolName !== 'string') {
+          return (
+            `MUI X Studio: \`messages[${i}].parts[${j}]\` is a \`dynamic-tool\` part whose ` +
+            '`toolInvocation.toolName` is not a string (`ChatMessage.parts[number].toolInvocation.toolName`). ' +
+            'This would be serialized into a malformed OpenAI `function.name`, which the model provider ' +
+            'rejects with an opaque 400 when replaying the conversation history. Ensure every ' +
+            "`dynamic-tool` part's `toolName` is a string (the built-in/skill tool name it invoked)."
           );
         }
       }
@@ -577,6 +637,26 @@ function validateStudioAIRequestBody(body: unknown): string | undefined {
       'tool call reads it. Omit `customWidgets` if there are none, or pass an array of ' +
       '`StudioCustomWidgetDef` objects.'
     );
+  }
+  // Finding F4 (Tier 3): the array check above does NOT validate element shapes — a
+  // `customWidgets: [null]` (or an element with no string `kind`) throws a raw
+  // `TypeError` deeper in `buildAISystemPrompt.ts`'s widget-listing loop and
+  // `buildWidgetFromArgs`, currently swallowed by outer try/catches rather than
+  // surfacing as the actionable `MUI X Studio:`-prefixed message every other malformed
+  // field gets. Validate each element is a plain object with a string `kind`.
+  if (Array.isArray(customWidgets)) {
+    for (let i = 0; i < customWidgets.length; i += 1) {
+      const cw: unknown = customWidgets[i];
+      if (!isObject(cw) || typeof (cw as { kind?: unknown }).kind !== 'string') {
+        return (
+          `MUI X Studio: \`customWidgets[${i}]\` must be an object with a string \`kind\` field ` +
+          '(`StudioAIRequest.customWidgets[number]` / `StudioCustomWidgetDef`). This prevents a crash ' +
+          "inside `buildAISystemPrompt.ts`'s widget-listing loop and `buildWidgetFromArgs` when a " +
+          'malformed element (e.g. `null` or one without a `kind`) is read. Ensure every custom ' +
+          'widget is shaped like `{ kind: string, ... }`.'
+        );
+      }
+    }
   }
   // Finding F1 (Tier 2): `handleAIChat` previously computed `effectiveSkills` from
   // `body.skills` BEFORE this validator ran, so a malformed `skills` (a truthy
@@ -688,6 +768,16 @@ export function handleAIChat(
           return;
         }
 
+        // Finding F2 (Tier 2): cap the client-supplied `dashboardState` BEFORE it is used
+        // anywhere — for context enrichment or interpolated into the system prompt via the
+        // agentic loop. The per-tool `cap*` helpers only run when an AI tool MUTATES state,
+        // so without this the very first request's titles/filter values/widget counts reach
+        // `<dashboard_state>` completely unbounded (see `capIncomingDashboardState`). The
+        // validator above has already guaranteed the `doc`/`session`/`runtime` shape this
+        // relies on. This capped snapshot is what the loop threads forward as its starting
+        // `currentState`, so subsequent mutations build on the bounded state too.
+        const cappedDashboardState = capIncomingDashboardState(dashboardState);
+
         // Server-side allowlist / private-mode enforcement (invariant 10: the client
         // asserts these in the body; a host that needs a hard guarantee overrides them
         // here). The effective tool set is the INTERSECTION of the server allowlist and
@@ -762,7 +852,7 @@ export function handleAIChat(
             enrichedContext = await withTimeout(
               Promise.resolve(
                 options.contextEnricher({
-                  dashboardState,
+                  dashboardState: cappedDashboardState,
                   richContext,
                   signal: abortController.signal,
                 }),
@@ -780,7 +870,7 @@ export function handleAIChat(
 
         const loop = runAgenticLoop(
           messages,
-          dashboardState,
+          cappedDashboardState,
           customWidgets,
           focusedWidgetId,
           effectiveAllowedTools,

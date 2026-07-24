@@ -367,6 +367,70 @@ describe('dispatchToolCall', () => {
     expect(parsed.error).toMatch(/no data access was configured/);
   });
 
+  // Finding F1 (Tier 1): the chat transport resolves tables from the CLIENT-supplied
+  // `runtime.dataSources`, so it must fail CLOSED when the host has not configured a
+  // table allowlist — refusing to resolve any source and never calling into the host's
+  // `queryDataSource` — rather than trusting the client catalog.
+  it('fail-closes query_data_source when data is configured but allowedTables is omitted', async () => {
+    const queryDataSource = vi.fn(async () => ({ rows: [{ secret: 1 }], rowCount: 1 }));
+    const state = createDefaultStudioState({
+      runtime: {
+        dataSources: {
+          src1: { id: 'src1', label: 'Source 1', tableName: 'src1_table', fields: [] },
+        },
+      },
+    });
+    const ctx = makeCtx({
+      advertisedToolNames: new Set(['query_data_source']),
+      data: { queryDataSource },
+    });
+    const { outcome } = await runDispatch(
+      dispatchToolCall(
+        tc('query_data_source', JSON.stringify({ sourceId: 'src1' })),
+        { sourceId: 'src1' },
+        false,
+        state,
+        ctx,
+      ),
+    );
+    const parsed = JSON.parse((outcome as { output: string }).output) as { error: string };
+    expect(parsed.error).toMatch(/has not configured a table allowlist/);
+    expect(parsed.error).toMatch(/allowedTables/);
+    // The host's data access is never reached.
+    expect(queryDataSource).not.toHaveBeenCalled();
+  });
+
+  // Finding F1 (Tier 1): `allowedTables: '*'` is the explicit permissive opt-out — a
+  // host that genuinely wants no restriction must say so, and then the query proceeds.
+  it('allows query_data_source when allowedTables is the explicit "*" opt-out', async () => {
+    const queryDataSource = vi.fn(async () => ({ rows: [{ a: 1 }], rowCount: 1 }));
+    const state = createDefaultStudioState({
+      runtime: {
+        dataSources: {
+          src1: { id: 'src1', label: 'Source 1', tableName: 'src1_table', fields: [] },
+        },
+      },
+    });
+    const ctx = makeCtx({
+      advertisedToolNames: new Set(['query_data_source']),
+      data: { queryDataSource, allowedTables: '*' },
+    });
+    const { outcome } = await runDispatch(
+      dispatchToolCall(
+        tc('query_data_source', JSON.stringify({ sourceId: 'src1' })),
+        { sourceId: 'src1' },
+        false,
+        state,
+        ctx,
+      ),
+    );
+    expect(queryDataSource).toHaveBeenCalledOnce();
+    expect(JSON.parse((outcome as { output: string }).output)).toMatchObject({
+      sourceId: 'src1',
+      rowCount: 1,
+    });
+  });
+
   // Regression for finding 7 (Tier 3, latent, iteration 24): a real `data.queryDataSource`
   // failure still goes through `errorResult` (`mcp/helpers.ts`), i.e. valid JSON, and
   // the fix must not have broken that ordinary path — `onToolError` should still
@@ -381,6 +445,9 @@ describe('dispatchToolCall', () => {
     const ctx = makeCtx({
       advertisedToolNames: new Set(['query_data_source']),
       data: {
+        // `allowedTables: '*'` opts into the explicit permissive setup (finding F1):
+        // an omitted allowlist now fail-closes the chat transport before dispatch.
+        allowedTables: '*',
         queryDataSource: vi.fn(async () => {
           throw new Error('db unreachable');
         }),
@@ -424,7 +491,8 @@ describe('dispatchToolCall', () => {
       const queryDataSource = vi.fn(() => new Promise<never>(() => {}));
       const ctx = makeCtx({
         advertisedToolNames: new Set(['query_data_source']),
-        data: { queryDataSource },
+        // `allowedTables: '*'` opts into the explicit permissive setup (finding F1).
+        data: { queryDataSource, allowedTables: '*' },
       });
 
       const dispatchPromise = runDispatch(

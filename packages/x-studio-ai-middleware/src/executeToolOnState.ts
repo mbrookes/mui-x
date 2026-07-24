@@ -26,6 +26,7 @@ import type {
   StudioState,
   StudioCustomWidgetDef,
   StudioWidget,
+  StudioPage,
   StudioFilterOperator,
   StudioDataField,
   StudioFilterState,
@@ -83,6 +84,20 @@ export const MAX_FILTER_STRING_LENGTH = 200;
  * system prompt on every future request exactly like an oversized string.
  */
 const MAX_FILTER_VALUE_ARRAY_LENGTH = 50;
+
+/**
+ * Max number of keys retained in a plain-object-typed filter `value` (finding F3,
+ * Tier 3). `capFilterValue`'s array branch already bounds array length and its
+ * string branch bounds string length, but the object branch previously recursed
+ * over EVERY key with no cap on key COUNT — so a model-supplied object-typed filter
+ * `value` with a huge number of (individually short) keys was persisted verbatim and
+ * re-interpolated via `JSON.stringify(f.value)` into `<dashboard_state>` on every
+ * subsequent request, exactly the same persistent token-bomb class the array-length
+ * cap already guards against. Reuses {@link MAX_FILTER_VALUE_ARRAY_LENGTH}'s 50-entry
+ * convention rather than inventing a second bound for the same class of unbounded
+ * container.
+ */
+const MAX_FILTER_VALUE_OBJECT_KEYS = MAX_FILTER_VALUE_ARRAY_LENGTH;
 
 /**
  * Max number of operations accepted per array/record arg of a single
@@ -200,7 +215,16 @@ export function capFilterValue(value: unknown, depth = 0): unknown {
   }
   if (value !== null && typeof value === 'object') {
     const capped: Record<string, unknown> = {};
-    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    // Finding F3 (Tier 3): bound the NUMBER of retained keys, not just each key's
+    // recursively-capped value — an object with thousands of short keys is otherwise
+    // persisted and re-interpolated verbatim, the same token-bomb class the array
+    // branch above already caps by length.
+    const entries = Object.entries(value as Record<string, unknown>);
+    const boundedEntries =
+      entries.length > MAX_FILTER_VALUE_OBJECT_KEYS
+        ? entries.slice(0, MAX_FILTER_VALUE_OBJECT_KEYS)
+        : entries;
+    for (const [key, entry] of boundedEntries) {
       capped[key] = capFilterValue(entry, depth + 1);
     }
     return capped;
@@ -247,6 +271,94 @@ function capConfigStringValues(config: unknown): unknown {
     capped[key] = typeof value === 'string' ? capString(value, MAX_FILTER_STRING_LENGTH) : value;
   }
   return capped;
+}
+
+/**
+ * Max number of pages / widgets / filters retained from an INCOMING, client-supplied
+ * `dashboardState` before it is interpolated into `<dashboard_state>` (finding F2,
+ * Tier 2).
+ *
+ * Every `cap*` helper above only runs when an AI tool MUTATES state — the very first
+ * request's `dashboardState` comes straight from the client `body` and is fed into the
+ * system prompt with only `sanitizeForPrompt` (which neutralizes `<`/`>` but neither
+ * truncates length nor counts). So a client could post thousands of pages/widgets/
+ * filters (each with an oversized title / megabyte filter value) and blow the system
+ * prompt up unbounded on turn one — before any tool-call cap can apply, and before
+ * `maxTokensPerRequest` (checked only AFTER a turn completes, and a documented no-op
+ * when a gateway omits usage chunks) could ever catch it. {@link capIncomingDashboardState}
+ * closes that gap by running the incoming state through the same caps at the top of
+ * request handling. These count bounds are sized generously — far beyond any realistic
+ * hand-authored dashboard — so they only ever trip for a runaway/hostile payload; kept
+ * as three separate constants because pages, widgets, and filters legitimately scale
+ * very differently.
+ */
+const MAX_STATE_PAGES = 200;
+const MAX_STATE_WIDGETS = 1000;
+const MAX_STATE_FILTERS = 500;
+
+/**
+ * Cap a client-supplied `dashboardState` (finding F2, Tier 2) by running its
+ * dashboard title, pages, widgets, and filters through the SAME caps the AI-tool
+ * mutation paths already apply at their write sources — `capTitle` for dashboard/
+ * page/widget titles, `capSourceId` for widget `sourceId`, `capConfigStringValues`
+ * for each widget `config`, `capFilterValue` for each filter `value`/`value2`, and
+ * `MAX_FILTER_STRING_LENGTH` for filter `field`/`filterSourceId` — plus a count cap
+ * on each of pages/widgets/filters ({@link MAX_STATE_PAGES}/{@link MAX_STATE_WIDGETS}/
+ * {@link MAX_STATE_FILTERS}).
+ *
+ * Applied once, at the top of `handleAIChat` request handling, BEFORE the state is
+ * used to build the system prompt or threaded into the agentic loop as the starting
+ * `currentState`. Non-interpolated `doc` sub-partitions (`relationships`,
+ * `expressionFields`, `filterPresets`, `ai`) and the `session`/`runtime` partitions
+ * are passed through unchanged. Returns a shallow-cloned state; the input is not
+ * mutated.
+ */
+export function capIncomingDashboardState(state: StudioState): StudioState {
+  const { doc } = state;
+
+  const cappedDashboard = {
+    ...doc.dashboard,
+    title: capTitle(String(doc.dashboard.title ?? '')),
+  };
+
+  const cappedWidgets: Record<string, StudioWidget> = {};
+  for (const [id, widget] of Object.entries(doc.widgets).slice(0, MAX_STATE_WIDGETS)) {
+    cappedWidgets[id] = {
+      ...widget,
+      title: capTitle(String(widget.title ?? '')),
+      ...(widget.subtitle !== undefined
+        ? { subtitle: capString(String(widget.subtitle), MAX_TITLE_LENGTH) }
+        : {}),
+      ...(widget.sourceId !== undefined ? { sourceId: capSourceId(String(widget.sourceId)) } : {}),
+      config: capConfigStringValues(widget.config) as StudioWidget['config'],
+    } as StudioWidget;
+  }
+
+  const cappedPages: Record<string, StudioPage> = {};
+  for (const [id, page] of Object.entries(doc.pages).slice(0, MAX_STATE_PAGES)) {
+    cappedPages[id] = { ...page, title: capTitle(String(page.title ?? '')) };
+  }
+
+  const cappedFilters: StudioFilterState[] = doc.filters.slice(0, MAX_STATE_FILTERS).map((f) => ({
+    ...f,
+    field: capString(String(f.field ?? ''), MAX_FILTER_STRING_LENGTH),
+    ...(f.filterSourceId !== undefined
+      ? { filterSourceId: capString(String(f.filterSourceId), MAX_FILTER_STRING_LENGTH) }
+      : {}),
+    value: capFilterValue(f.value),
+    ...(f.value2 !== undefined ? { value2: capFilterValue(f.value2) } : {}),
+  }));
+
+  return {
+    ...state,
+    doc: {
+      ...doc,
+      dashboard: cappedDashboard,
+      pages: cappedPages,
+      widgets: cappedWidgets,
+      filters: cappedFilters,
+    },
+  };
 }
 
 /**

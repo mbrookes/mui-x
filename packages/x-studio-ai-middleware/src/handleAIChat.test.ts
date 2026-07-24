@@ -361,6 +361,47 @@ describe('handleAIChat', () => {
       expect(fetch).not.toHaveBeenCalled();
     });
 
+    // Finding F2 (Tier 2): the client-supplied `messages` array is serialized into the
+    // FIRST LLM request with no length/size cap of its own — the per-turn token/turn
+    // budgets are checked only AFTER a turn completes. Reject an over-count array up
+    // front rather than letting it grow the first request unbounded.
+    it('rejects a `messages` array that exceeds the count cap', async () => {
+      const many = Array.from({ length: 1001 }, (_v, i) => ({
+        id: `m${i}`,
+        role: 'user' as const,
+        parts: [{ type: 'text' as const, text: 'hi' }],
+      }));
+      const body = makeBody({
+        messages: many as unknown as StudioAIRequest['messages'],
+      });
+
+      const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+      const errorEvent = events.find(
+        (event): event is { type: 'error'; message: string } => event.type === 'error',
+      );
+      expect(errorEvent?.message).toMatch(/^MUI X Studio:/);
+      expect(errorEvent?.message).toMatch(/exceeds the limit of 1000/);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    // Finding F2 (Tier 2): a small number of enormous messages is the same
+    // unbounded-first-request class as many small ones — cap total size too.
+    it('rejects a `messages` array that exceeds the total-size cap', async () => {
+      const huge = 'x'.repeat(2_100_000);
+      const body = makeBody({
+        messages: [
+          { id: 'm1', role: 'user', parts: [{ type: 'text', text: huge }] },
+        ] as unknown as StudioAIRequest['messages'],
+      });
+
+      const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+      const errorEvent = events.find(
+        (event): event is { type: 'error'; message: string } => event.type === 'error',
+      );
+      expect(errorEvent?.message).toMatch(/exceeds the maximum total size/);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
     // Finding 2 (Tier 3): the validator previously checked `parts` was an ARRAY but
     // never validated its ELEMENTS — `parts: [null]` passed and only crashed deep in
     // `agenticLoop/openaiWire.ts`'s `toOpenAIMessages` (`p.type` on `null`).
@@ -453,6 +494,34 @@ describe('handleAIChat', () => {
       expect(fetch).not.toHaveBeenCalled();
     });
 
+    // Finding F5 (Tier 3): `toOpenAIMessages` reads `toolInvocation.toolName` into an
+    // OpenAI `function.name`; a non-string value previously produced a malformed OpenAI
+    // message and an opaque provider 400 instead of a clean validation error.
+    it('rejects a `dynamic-tool` part whose `toolInvocation.toolName` is not a string', async () => {
+      const body = makeBody({
+        messages: [
+          {
+            id: 'm1',
+            role: 'assistant',
+            parts: [
+              {
+                type: 'dynamic-tool',
+                toolInvocation: { toolCallId: 'tc_1', toolName: 42, input: {}, output: {} },
+              },
+            ],
+          } as unknown as StudioAIRequest['messages'][number],
+        ],
+      });
+
+      const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+      const errorEvent = events.find(
+        (event): event is { type: 'error'; message: string } => event.type === 'error',
+      );
+      expect(errorEvent?.message).toMatch(/^MUI X Studio:/);
+      expect(errorEvent?.message).toMatch(/`toolInvocation\.toolName` is not a string/);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
     // Regression for finding F2 (Tier 3): `session`/`runtime` previously went
     // unchecked, so a body with a valid `doc` but no `session`/`runtime` passed
     // validation and only crashed once `buildAISystemPrompt.ts` destructured
@@ -529,6 +598,41 @@ describe('handleAIChat', () => {
       );
       expect(errorEvent?.message).toMatch(/^MUI X Studio:/);
       expect(errorEvent?.message).toMatch(/`customWidgets` must be an array/);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    // Finding F4 (Tier 3): the array check does not validate ELEMENT shapes — a
+    // `customWidgets: [null]` (or an element without a string `kind`) previously threw
+    // a raw `TypeError` deeper in `buildAISystemPrompt.ts`/`buildWidgetFromArgs` instead
+    // of the actionable `MUI X Studio:`-prefixed message every other malformed field gets.
+    it('rejects a `customWidgets` element that is not a plain object', async () => {
+      const body = makeBody({
+        customWidgets: [null] as unknown as StudioAIRequest['customWidgets'],
+      });
+
+      const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+      const errorEvent = events.find(
+        (event): event is { type: 'error'; message: string } => event.type === 'error',
+      );
+      expect(errorEvent?.message).toMatch(/^MUI X Studio:/);
+      expect(errorEvent?.message).toMatch(
+        /`customWidgets\[0\]` must be an object with a string `kind`/,
+      );
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('rejects a `customWidgets` element missing a string `kind`', async () => {
+      const body = makeBody({
+        customWidgets: [{ label: 'no kind here' }] as unknown as StudioAIRequest['customWidgets'],
+      });
+
+      const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+      const errorEvent = events.find(
+        (event): event is { type: 'error'; message: string } => event.type === 'error',
+      );
+      expect(errorEvent?.message).toMatch(
+        /`customWidgets\[0\]` must be an object with a string `kind`/,
+      );
       expect(fetch).not.toHaveBeenCalled();
     });
 

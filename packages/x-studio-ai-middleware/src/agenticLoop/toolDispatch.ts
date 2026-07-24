@@ -579,10 +579,15 @@ export async function* dispatchToolCall(
   // caller can submit a `dashboardState` whose `runtime.dataSources` fabricates an
   // entry pointing an innocuous-looking `sourceId` at an arbitrary table your DB
   // connection can reach. The MCP transport does not share this gap: its state box
-  // is server-held, never request-supplied. Hosts wiring `data` here MUST either
-  // set `StudioAIDataConfig.allowedTables` (enforced inside `resolveSource`) or
-  // have their own `queryDataSource` implementation independently verify/re-derive
-  // the physical table rather than trusting `params.tableName` as-is.
+  // is server-held, never request-supplied.
+  //
+  // This branch is therefore FAIL-CLOSED by default (finding F1): when the host has
+  // not configured `StudioAIDataConfig.allowedTables`, it refuses to resolve any
+  // source rather than trusting the client-supplied catalog. A host opts in with an
+  // explicit `allowedTables` array (validated inside `resolveSource`), or with the
+  // literal `'*'` sentinel to explicitly allow all tables (e.g. when its own
+  // `queryDataSource` implementation independently re-derives the physical table and
+  // ignores `params.tableName`).
   if (name === 'query_data_source') {
     // `query_data_source` is SIDE-EFFECTFUL (runs a live query) but never mutates
     // dashboard state, so the policy is consulted args-only BEFORE it runs
@@ -621,6 +626,24 @@ export async function* dispatchToolCall(
           error:
             'query_data_source is not available: no data access was configured on the server. ' +
             'Pass a `data` config in AgenticLoopOptions to enable this tool.',
+        });
+      } else if (ctx.data.allowedTables === undefined) {
+        // Finding F1 (Tier 1): FAIL-CLOSED table scoping on the chat transport. Here
+        // `currentState.runtime.dataSources` descends from the CLIENT-SUPPLIED request
+        // body, so trusting an omitted allowlist would let a hostile caller point an
+        // innocuous `sourceId` at any table the DB connection can reach and have the
+        // model query it. Refuse to resolve ANY source until the host declares its
+        // intent — an explicit `allowedTables` array, or the literal `'*'` opt-out for a
+        // trusted setup / a `queryDataSource` that re-derives the physical table itself.
+        // The MCP transport (server-held state) is unaffected: it never routes through
+        // this dispatch branch.
+        output = JSON.stringify({
+          error:
+            'query_data_source is disabled: this server has not configured a table allowlist. ' +
+            'On the chat transport the data-source catalog comes from the client-supplied request, ' +
+            'so tables cannot be resolved safely without one. The host must set ' +
+            '`StudioAIDataConfig.allowedTables` to the tables the assistant may query (or to the ' +
+            "literal '*' to explicitly allow all tables in a trusted setup).",
         });
       } else {
         const handlers = createDataToolHandlers({

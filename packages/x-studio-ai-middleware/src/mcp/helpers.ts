@@ -63,17 +63,30 @@ export function jsonResult(data: unknown, pretty = false): CallToolResult {
  * they resolve the source through their own lookup rather than through
  * `resolveSource` (Tier 3, iteration 24, finding 4).
  *
- * Returns `null` when the table is permitted (or no allowlist is configured), or
- * a ready-to-surface deny-reason string otherwise — the exact same message shape
- * `resolveSource` returns, so a denial reads identically regardless of which
- * surface produced it.
+ * Returns `null` when the table is permitted (an array allowlist that contains it,
+ * the explicit permissive sentinel `'*'`, or — for trusted server-held callers — no
+ * allowlist at all), or a ready-to-surface deny-reason string otherwise — the exact
+ * same message shape `resolveSource` returns, so a denial reads identically
+ * regardless of which surface produced it.
+ *
+ * `'*'` is the explicit "no table restriction" opt-out (finding F1): the chat
+ * transport treats an OMITTED (`undefined`) `allowedTables` as fail-closed at its
+ * dispatch site, so a host that genuinely wants no restriction must say so with `'*'`
+ * rather than by omission. When `allowedTables` is `undefined` this helper still
+ * returns `null` (permit) — the trusted MCP/server-held read paths that call it
+ * directly keep their historical no-allowlist-means-no-restriction behavior; the
+ * client-supplied chat transport never reaches here with `undefined` because its
+ * dispatch site refuses first.
  */
 export function checkAllowedTable(
   sourceId: string,
   tableName: string,
-  allowedTables: string[] | undefined,
+  allowedTables: string[] | '*' | undefined,
 ): string | null {
-  if (allowedTables && !allowedTables.includes(tableName)) {
+  if (allowedTables === '*' || allowedTables === undefined) {
+    return null;
+  }
+  if (!allowedTables.includes(tableName)) {
     return (
       `Data source "${sourceId}" resolves to table "${tableName}", which is not in the ` +
       'server-configured allowedTables list. This request was blocked before reaching the database.'

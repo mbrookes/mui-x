@@ -1487,7 +1487,9 @@ describe('runAgenticLoop — query_data_source execution', () => {
         undefined,
         undefined,
         undefined,
-        { ...BASE_OPTIONS, data: { queryDataSource } },
+        // `allowedTables: '*'` opts into the explicit permissive setup (finding F1):
+        // without a configured allowlist the chat transport now fail-closes.
+        { ...BASE_OPTIONS, data: { queryDataSource, allowedTables: '*' } },
       ),
     );
 
@@ -1529,7 +1531,8 @@ describe('runAgenticLoop — query_data_source execution', () => {
         undefined,
         undefined,
         undefined,
-        { ...BASE_OPTIONS, data: { queryDataSource }, onToolError },
+        // `allowedTables: '*'` opts into the explicit permissive setup (finding F1).
+        { ...BASE_OPTIONS, data: { queryDataSource, allowedTables: '*' }, onToolError },
       ),
     );
 
@@ -1688,7 +1691,8 @@ describe('runAgenticLoop — request-body skill name collides with a built-in to
         undefined,
         undefined,
         [collidingSkill],
-        { ...BASE_OPTIONS, data: { queryDataSource } },
+        // `allowedTables: '*'` opts into the explicit permissive setup (finding F1).
+        { ...BASE_OPTIONS, data: { queryDataSource, allowedTables: '*' } },
       ),
     );
 

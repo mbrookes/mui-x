@@ -93,6 +93,17 @@ const HEX_COLOR = /^#[0-9a-fA-F]{3,8}$/;
  */
 const MAX_CHART_ARRAY_LENGTH = 1000;
 
+/**
+ * Max length of a single model-supplied chart text field (label, series name,
+ * title, …) (finding F7, Tier 3). `MAX_CHART_ARRAY_LENGTH` bounds the NUMBER of
+ * entries but left each individual string unbounded — a single multi-megabyte label
+ * is the same unbounded-work/response-payload class as an oversized array. Truncated
+ * (not rejected) in `sanitizeText`, consistent with the file's coerce-at-one-choke-
+ * point contract and the 200-char string bounds used across the package
+ * (`MAX_TITLE_LENGTH`/`MAX_FILTER_STRING_LENGTH` in `executeToolOnState.ts`).
+ */
+const MAX_CHART_TEXT_LENGTH = 200;
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
@@ -157,12 +168,18 @@ function sanitizeValue(value: unknown): number {
  * colors/dimensions/values — closes the gap for every renderer at once.
  */
 function sanitizeText(value: unknown): string {
-  return value === undefined || value === null ? '' : String(value);
+  if (value === undefined || value === null) {
+    return '';
+  }
+  const str = String(value);
+  // Truncate an oversized text field (finding F7) — a huge single label is the same
+  // unbounded-work/response-payload class `MAX_CHART_ARRAY_LENGTH` guards for arrays.
+  return str.length > MAX_CHART_TEXT_LENGTH ? str.slice(0, MAX_CHART_TEXT_LENGTH) : str;
 }
 
 /** Same as `sanitizeText`, but preserves `undefined` for optional fields like `title`. */
 function sanitizeOptionalText(value: unknown): string | undefined {
-  return value === undefined || value === null ? undefined : String(value);
+  return value === undefined || value === null ? undefined : sanitizeText(value);
 }
 
 /**

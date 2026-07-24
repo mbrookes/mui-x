@@ -190,13 +190,11 @@ function validateAndCapRecordArrayElements<T extends object>(
       };
     }
     const record = entry as unknown as Record<string, unknown>;
-    const cappedRecord: Record<string, unknown> = { ...record };
+    // The named `stringFields` must, if present, be strings — an object/array/number
+    // masquerading as e.g. a column name is not recoverable by truncation.
     for (const field of stringFields) {
       const fieldValue = record[field];
-      if (fieldValue === undefined) {
-        continue;
-      }
-      if (typeof fieldValue !== 'string') {
+      if (fieldValue !== undefined && typeof fieldValue !== 'string') {
         return {
           ok: false,
           error: errorResult(
@@ -205,10 +203,19 @@ function validateAndCapRecordArrayElements<T extends object>(
           ),
         };
       }
-      cappedRecord[field] =
-        fieldValue.length > MAX_FILTER_STRING_LENGTH
-          ? fieldValue.slice(0, MAX_FILTER_STRING_LENGTH)
-          : fieldValue;
+    }
+    // Finding F5 (Tier 3): cap EVERY string-typed value on the record — not just the
+    // named `stringFields`. The previous `{ ...record }` spread forwarded any UNLISTED
+    // key verbatim, so an extra key carrying an unbounded string reached
+    // `data.queryDataSource` uncapped. Projecting each string down to
+    // {@link MAX_FILTER_STRING_LENGTH} closes that hole while leaving non-string values
+    // (numbers such as `having`'s `value`, booleans) untouched.
+    const cappedRecord: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(record)) {
+      cappedRecord[key] =
+        typeof value === 'string' && value.length > MAX_FILTER_STRING_LENGTH
+          ? value.slice(0, MAX_FILTER_STRING_LENGTH)
+          : value;
     }
     capped.push(cappedRecord as unknown as T);
   }
@@ -738,17 +745,20 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
       // `validateQueryArrayArg`'s cast only guarantees array-ness, not that every
       // entry is actually a `string` — a non-string element (e.g. a number or a
       // nested object) would otherwise be forwarded verbatim as an aggregation
-      // `column` to `data.queryDataSource` below. Check + narrow before trusting
-      // `statFields` as `string[]` for the rest of this handler.
-      const nonStringIndex = rawStatFields.findIndex((f) => typeof f !== 'string');
-      if (nonStringIndex !== -1) {
-        return errorResult(
-          `compute_field_stats: "fields[${nonStringIndex}]" must be a string field id, received ` +
-            `${typeof rawStatFields[nonStringIndex]}. Pass an array of field-id strings, e.g. ` +
-            '["revenue", "region"].',
-        );
+      // `column` to `data.queryDataSource` below. Run it through the SAME
+      // validate-and-cap helper `query_data_source`'s `columns` uses (finding F5,
+      // Tier 3): a non-string element is rejected, and an oversized-but-valid field id
+      // is truncated to `MAX_FILTER_STRING_LENGTH` — previously the element type was
+      // checked but the string length was NOT capped, unlike `columns`.
+      const statFieldsResult = validateAndCapStringArrayElements(
+        'compute_field_stats',
+        'fields',
+        rawStatFields,
+      );
+      if (!statFieldsResult.ok) {
+        return statFieldsResult.error;
       }
-      const statFields = rawStatFields as string[];
+      const statFields = statFieldsResult.value;
       const resolved = resolveSource(stateBox, sourceId, data.allowedTables);
       if (!resolved.ok) {
         return resolved.error;

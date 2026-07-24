@@ -84,9 +84,72 @@ export const MAX_FILTER_STRING_LENGTH = 200;
  */
 const MAX_FILTER_VALUE_ARRAY_LENGTH = 50;
 
+/**
+ * Max number of operations accepted per array/record arg of a single
+ * `apply_bulk_update` call (finding F2, Tier 2). One bulk call counts as ONE
+ * mutation against `maxMutationsPerRequest`, but without a per-arg cap a single call
+ * could mint unbounded persisted widgets via `widgetAdditions` — a PERSISTENT token
+ * bomb, since every widget is re-described in `<dashboard_state>` on every future
+ * request — plus unbounded diff work in `computeToolEffects`. Entries beyond this cap
+ * are rejected with actionable guidance (mirroring `validateQueryArrayArg`'s
+ * reject-with-guidance pattern) rather than silently dropped or processed.
+ */
+const MAX_BULK_UPDATE_OPS = 200;
+
+/**
+ * Max number of layout rows accepted by `set_widget_layout` / `apply_bulk_update`'s
+ * `layout` op (finding F3). Same unbounded-work/token-bomb class as
+ * {@link MAX_BULK_UPDATE_OPS}: an unbounded row array is re-flattened and re-validated
+ * on every call and, once committed, re-described on every future request.
+ */
+const MAX_LAYOUT_ROWS = 200;
+
+/**
+ * Max number of ids interpolated into a single tool-result error string before the
+ * list is truncated with a "…N more" suffix (finding F3). Several error paths
+ * (`set_widget_layout` and `apply_bulk_update`'s layout op) join an offending id list
+ * into the error text; a model that sends hundreds of bad ids would otherwise echo the
+ * whole list straight back into the conversation as an unbounded response bomb.
+ */
+const MAX_IDS_IN_ERROR = 10;
+
+/**
+ * Max number of `skipped` entries echoed in an `apply_bulk_update` tool result before
+ * the list is truncated with a trailing "…N more" marker (finding F2). Each rejected
+ * op appends to `skipped`, and the whole array is echoed back verbatim — an unbounded
+ * response echo without this cap.
+ */
+const MAX_SKIPPED_IN_OUTPUT = 20;
+
 /** Cap a model-supplied string to `maxLength` characters. */
 function capString(value: string, maxLength: number): string {
   return value.length > maxLength ? value.slice(0, maxLength) : value;
+}
+
+/**
+ * Join an id list for a tool-result error string, truncating to the first
+ * {@link MAX_IDS_IN_ERROR} with a "…N more" suffix (finding F3). Bounds the response
+ * echo when the model sends a very large list of offending ids.
+ */
+function joinIdsForError(ids: string[]): string {
+  if (ids.length <= MAX_IDS_IN_ERROR) {
+    return ids.join(', ');
+  }
+  return `${ids.slice(0, MAX_IDS_IN_ERROR).join(', ')}, …${ids.length - MAX_IDS_IN_ERROR} more`;
+}
+
+/**
+ * Truncate an `apply_bulk_update` `skipped` list to a bounded prefix for the tool
+ * result (finding F2), appending a "…N more" marker when entries were dropped.
+ */
+function truncateSkipped(skipped: string[]): string[] {
+  if (skipped.length <= MAX_SKIPPED_IN_OUTPUT) {
+    return skipped;
+  }
+  return [
+    ...skipped.slice(0, MAX_SKIPPED_IN_OUTPUT),
+    `…and ${skipped.length - MAX_SKIPPED_IN_OUTPUT} more`,
+  ];
 }
 
 /** Cap a model-supplied title to {@link MAX_TITLE_LENGTH} (see the constant's rationale). */
@@ -931,6 +994,20 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         };
       }
       const rows = rawRows as string[][];
+      // Cap the row COUNT (finding F3): an unbounded row array is re-flattened and
+      // re-validated on every call and, once committed, re-described on every future
+      // request. Reject rather than truncate — a truncated layout would silently orphan
+      // every widget beyond the cap.
+      if (rows.length > MAX_LAYOUT_ROWS) {
+        return {
+          output: JSON.stringify({
+            error:
+              `set_widget_layout received ${rows.length} rows, more than the ${MAX_LAYOUT_ROWS} ` +
+              'allowed. Send a layout with fewer rows.',
+          }),
+          nextState: state,
+        };
+      }
       const activePageId = state.doc.dashboard.activePageId;
       const activePage = getPage(state, activePageId);
       if (!activePage) {
@@ -958,7 +1035,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         return {
           output: JSON.stringify({
             error:
-              `set_widget_layout received duplicate widget IDs: ${duplicateIds.join(', ')}. ` +
+              `set_widget_layout received duplicate widget IDs: ${joinIdsForError(duplicateIds)}. ` +
               'Each widget must appear exactly once across all rows.',
           }),
           nextState: state,
@@ -974,7 +1051,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         return {
           output: JSON.stringify({
             error:
-              `set_widget_layout received unknown widget IDs: ${unknownIds.join(', ')}. ` +
+              `set_widget_layout received unknown widget IDs: ${joinIdsForError(unknownIds)}. ` +
               'Call get_dashboard_state to get the current widget IDs.',
           }),
           nextState: state,
@@ -999,7 +1076,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         return {
           output: JSON.stringify({
             error:
-              `set_widget_layout received widget IDs that live on another page: ${foreignPageIds.join(', ')}. ` +
+              `set_widget_layout received widget IDs that live on another page: ${joinIdsForError(foreignPageIds)}. ` +
               'A layout call only arranges the active page; call set_active_page for the page that ' +
               'contains them before rearranging them.',
           }),
@@ -1371,6 +1448,13 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       if (rawRemovals !== undefined) {
         if (!Array.isArray(rawRemovals) || !rawRemovals.every((id) => typeof id === 'string')) {
           skipped.push('widgetRemovals: must be an array of widget-ID strings (e.g. ["w1","w2"]).');
+        } else if (rawRemovals.length > MAX_BULK_UPDATE_OPS) {
+          skipped.push(
+            `widgetRemovals: received ${rawRemovals.length} entries; only the first ` +
+              `${MAX_BULK_UPDATE_OPS} were processed. Split the rest into a separate ` +
+              'apply_bulk_update call.',
+          );
+          removals = (rawRemovals as string[]).slice(0, MAX_BULK_UPDATE_OPS);
         } else {
           removals = rawRemovals as string[];
         }
@@ -1453,6 +1537,13 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
             'widgetAdditions: must be an array of objects each with a string `kind` and ' +
               'string `title` (e.g. [{ "kind": "chart", "title": "Revenue" }]).',
           );
+        } else if (rawAdditions.length > MAX_BULK_UPDATE_OPS) {
+          skipped.push(
+            `widgetAdditions: received ${rawAdditions.length} entries; only the first ` +
+              `${MAX_BULK_UPDATE_OPS} were processed. Split the rest into a separate ` +
+              'apply_bulk_update call.',
+          );
+          additions = (rawAdditions as typeof additions).slice(0, MAX_BULK_UPDATE_OPS);
         } else {
           additions = rawAdditions as typeof additions;
         }
@@ -1526,6 +1617,13 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
             'widgetUpdates: must be an array of objects each with a string `widgetId` ' +
               '(e.g. [{ "widgetId": "w1", "title": "New" }]).',
           );
+        } else if (rawUpdates.length > MAX_BULK_UPDATE_OPS) {
+          skipped.push(
+            `widgetUpdates: received ${rawUpdates.length} entries; only the first ` +
+              `${MAX_BULK_UPDATE_OPS} were processed. Split the rest into a separate ` +
+              'apply_bulk_update call.',
+          );
+          updates = (rawUpdates as typeof updates).slice(0, MAX_BULK_UPDATE_OPS);
         } else {
           updates = rawUpdates as typeof updates;
         }
@@ -1609,6 +1707,14 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
             'layout: must be an array of rows, where each row is an array of widget-ID ' +
               '(or added-widget-title) strings (e.g. [["w1","w2"],["w3"]]).',
           );
+        } else if (rawLayout.length > MAX_LAYOUT_ROWS) {
+          // A layout op REPLACES the active page's rows wholesale, so a truncated layout
+          // would orphan every widget beyond the cap. Reject the whole op with guidance
+          // rather than applying a partial arrangement (finding F3).
+          skipped.push(
+            `layout: received ${rawLayout.length} rows, more than the ${MAX_LAYOUT_ROWS} allowed. ` +
+              'Layout not applied — send a layout with fewer rows.',
+          );
         } else {
           const mappedRows = (rawLayout as string[][])
             .map((row) => row.map((ref) => addedTitleToId.get(ref) ?? ref))
@@ -1659,25 +1765,25 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
             .filter((id) => !layoutIdSet.has(id));
           if (duplicateLayoutIds.length > 0) {
             skipped.push(
-              `layout: duplicate widget IDs: ${duplicateLayoutIds.join(', ')}. ` +
+              `layout: duplicate widget IDs: ${joinIdsForError(duplicateLayoutIds)}. ` +
                 'Each widget must appear exactly once across all rows.',
             );
           } else if (unknownLayoutIds.length > 0) {
             skipped.push(
-              `layout: unknown or removed widget IDs: ${unknownLayoutIds.join(', ')}. ` +
+              `layout: unknown or removed widget IDs: ${joinIdsForError(unknownLayoutIds)}. ` +
                 'Reference only widgets that exist after this update (added-widget titles ' +
                 'are resolved to their new IDs).',
             );
           } else if (foreignPageLayoutIds.length > 0) {
             skipped.push(
-              `layout: widget IDs that live on another page: ${foreignPageLayoutIds.join(', ')}. ` +
+              `layout: widget IDs that live on another page: ${joinIdsForError(foreignPageLayoutIds)}. ` +
                 'A layout op only arranges the active page; switch to the page that contains ' +
                 'them first.',
             );
           } else if (unplacedAddedIds.length > 0) {
             skipped.push(
-              `layout: widgets added in this batch are not placed in the layout: ${unplacedAddedIds.join(
-                ', ',
+              `layout: widgets added in this batch are not placed in the layout: ${joinIdsForError(
+                unplacedAddedIds,
               )}. A layout op replaces the active page, so every added widget must appear in ` +
                 'it (reference an added widget by its title). Layout not applied.',
             );
@@ -1711,7 +1817,16 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // here already reflects this batch's removals, additions, and (if provided) layout.
       const activePageWidgetIdsAfterBatch = new Set(widgetRows.flat());
       const colSpanPatch = (args.colSpans as Record<string, unknown> | undefined) ?? {};
-      for (const [ref, span] of Object.entries(colSpanPatch)) {
+      let colSpanEntries = Object.entries(colSpanPatch);
+      if (colSpanEntries.length > MAX_BULK_UPDATE_OPS) {
+        skipped.push(
+          `colSpans: received ${colSpanEntries.length} entries; only the first ` +
+            `${MAX_BULK_UPDATE_OPS} were processed. Split the rest into a separate ` +
+            'apply_bulk_update call.',
+        );
+        colSpanEntries = colSpanEntries.slice(0, MAX_BULK_UPDATE_OPS);
+      }
+      for (const [ref, span] of colSpanEntries) {
         // Resolve added-widget TITLE refs to their minted ids, mirroring the `layout` op
         // above: a widget added earlier in this same batch is only known to the model by
         // title (its id is server-minted), so keying `colSpans` strictly by id would
@@ -1788,7 +1903,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         output: JSON.stringify({
           success: true,
           applied,
-          ...(skipped.length > 0 ? { skipped } : {}),
+          ...(skipped.length > 0 ? { skipped: truncateSkipped(skipped) } : {}),
         }),
         mutation,
         nextState: applyMutation(state, mutation),

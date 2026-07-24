@@ -603,6 +603,21 @@ function validateStudioAIRequestBody(body: unknown): string | undefined {
       '`{ name, mode, promptFragment, tool? }`).'
     );
   }
+  // Finding F6 (Tier 3): a truthy non-string `pageSnapshot` both enables the
+  // `summarise_page` tool advertisement and is returned VERBATIM as that tool's output
+  // (`agenticLoop.ts`/`executeToolOnState.ts`). A non-string value therefore lands as
+  // non-string `content` in the next OpenAI turn message, which the provider rejects
+  // with an opaque 400. Require it, when present, to be a string so the failure is a
+  // clean, actionable SSE error frame instead.
+  const { pageSnapshot } = body as { pageSnapshot?: unknown };
+  if (pageSnapshot !== undefined && typeof pageSnapshot !== 'string') {
+    return (
+      'MUI X Studio: `pageSnapshot` must be a string (`StudioAIRequest.pageSnapshot`) when provided. ' +
+      'This prevents a non-string value from being advertised via the `summarise_page` tool and then ' +
+      'echoed verbatim as non-string message `content`, which the model provider rejects with an ' +
+      'opaque 400. Omit `pageSnapshot` if there is none, or pass a plain-text snapshot string.'
+    );
+  }
   return undefined;
 }
 
@@ -628,26 +643,6 @@ export function handleAIChat(
     pageSnapshot,
     richContext,
   } = body ?? ({} as StudioAIRequest);
-
-  // Server-side allowlist / private-mode enforcement (invariant 10: the client
-  // asserts these in the body; a host that needs a hard guarantee overrides them
-  // here). The effective tool set is the INTERSECTION of the server allowlist and
-  // the body's — a body omitting `allowedTools` allows all, so intersecting yields
-  // the server list. Effective private mode is `server || body`: the client may opt
-  // in but never out of a server-mandated private mode. When both server options are
-  // omitted, both values are bit-identical to the raw body values (current behavior).
-  let effectiveAllowedTools: string[] | undefined;
-  if (!options.allowedTools) {
-    // No server allowlist — trust the body's list (or its absence = all tools).
-    effectiveAllowedTools = bodyAllowedTools;
-  } else if (bodyAllowedTools) {
-    // Both present — intersect (server can only ever narrow the client's list).
-    effectiveAllowedTools = options.allowedTools.filter((t) => bodyAllowedTools.includes(t));
-  } else {
-    // Body omits its list (allows all) — the server list is the effective set.
-    effectiveAllowedTools = options.allowedTools;
-  }
-  const effectivePrivateMode = Boolean(options.privateMode || bodyPrivateMode);
 
   // Internal abort controller so consumer-side stream cancellation (`reader.cancel()`)
   // actually propagates into the agentic loop. It is also linked to any external
@@ -692,6 +687,36 @@ export function handleAIChat(
           controller.enqueue(encodeSSE({ type: 'error', message: validationError }));
           return;
         }
+
+        // Server-side allowlist / private-mode enforcement (invariant 10: the client
+        // asserts these in the body; a host that needs a hard guarantee overrides them
+        // here). The effective tool set is the INTERSECTION of the server allowlist and
+        // the body's — a body omitting `allowedTools` allows all, so intersecting yields
+        // the server list. Effective private mode is `server || body`: the client may opt
+        // in but never out of a server-mandated private mode. When both server options are
+        // omitted, both values are bit-identical to the raw body values (current behavior).
+        //
+        // Finding F1 (Tier 2): computed HERE, after `validateStudioAIRequestBody` has
+        // already rejected a malformed `body.allowedTools` (a truthy non-array, whose
+        // `.includes(...)` is undefined) and INSIDE `start()` — not at the top of
+        // `handleAIChat` as before. Previously the intersection ran before validation and
+        // before the stream existed, so a truthy non-array `body.allowedTools` threw a
+        // synchronous `TypeError` straight out of `handleAIChat`, violating its "always
+        // returns a stream, never throws" contract (the same bug class the `effectiveSkills`
+        // relocation fixed). Now a malformed value is always caught by validation first and
+        // surfaces as a normal `{ type: 'error' }` SSE frame.
+        let effectiveAllowedTools: string[] | undefined;
+        if (!options.allowedTools) {
+          // No server allowlist — trust the body's list (or its absence = all tools).
+          effectiveAllowedTools = bodyAllowedTools;
+        } else if (bodyAllowedTools) {
+          // Both present — intersect (server can only ever narrow the client's list).
+          effectiveAllowedTools = options.allowedTools.filter((t) => bodyAllowedTools.includes(t));
+        } else {
+          // Body omits its list (allows all) — the server list is the effective set.
+          effectiveAllowedTools = options.allowedTools;
+        }
+        const effectivePrivateMode = Boolean(options.privateMode || bodyPrivateMode);
 
         // Server-side skill allow-list enforcement (finding 2.1, hardened for T1-1).
         // A client-asserted `body.skills` entry's `promptFragment` (and, for

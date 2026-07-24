@@ -877,7 +877,7 @@ describe('createDataToolHandlers', () => {
       });
       expect(result.isError).toBe(true);
       const parsed = JSON.parse(await readText(result));
-      expect(parsed.error).toMatch(/"fields\[1\]" must be a string field id/);
+      expect(parsed.error).toMatch(/"fields\[1\]" must be a string/);
       expect(queryDataSource).not.toHaveBeenCalled();
     });
 

@@ -135,7 +135,10 @@ export function useBlendedSeriesRows(
         continue;
       }
       seen.add(sid);
-      const src = dataSources[sid];
+      // `sid` comes from a series' doc/AI-authored `sourceId`: guard the record index against
+      // inherited keys ("toString"/"constructor"/…) so a bare bracket lookup can't resolve a
+      // function off `Object.prototype` instead of "no such source" (prototype-chain key lookup).
+      const src = Object.hasOwn(dataSources, sid) ? dataSources[sid] : undefined;
       if (!src) {
         continue;
       }
@@ -222,7 +225,9 @@ export function useBlendedSeriesRows(
       if (spec.hasAdapter) {
         continue;
       }
-      const src = dataSources[spec.sid];
+      // `spec.sid` is doc/AI-authored: guard against inherited `Object.prototype` keys
+      // (see the `foreignSpecs` lookup above for the full rationale).
+      const src = Object.hasOwn(dataSources, spec.sid) ? dataSources[spec.sid] : undefined;
       if (!src?.rows) {
         map.set(spec.sid, []);
         continue;
@@ -267,7 +272,9 @@ export function useBlendedSeriesRows(
       if (!spec.hasAdapter) {
         continue;
       }
-      const src = dataSources[spec.sid];
+      // `spec.sid` is doc/AI-authored: guard against inherited `Object.prototype` keys
+      // (see the `foreignSpecs` lookup above for the full rationale).
+      const src = Object.hasOwn(dataSources, spec.sid) ? dataSources[spec.sid] : undefined;
       const seriesForSource = (blendSeries ?? []).filter(
         (s) => s.sourceId === spec.sid && s.fieldId,
       );
@@ -365,23 +372,30 @@ export function useBlendedSeriesRows(
         foreignUsedFieldIdsBySid.get(sid),
       );
     for (const [sid, descriptor] of foreignDescriptors) {
-      const adapter = dataSources[sid]?.adapter;
+      // `sid` is doc/AI-authored: guard against inherited `Object.prototype` keys (see the
+      // `foreignSpecs` lookup above for the full rationale).
+      const adapter = Object.hasOwn(dataSources, sid) ? dataSources[sid]?.adapter : undefined;
       if (!adapter) {
         continue;
       }
-      const cached = studioRequestCache.get(descriptor.cacheKey);
+      // Pass the live `adapter` so this instance only reads/joins entries written by its OWN
+      // adapter — two `<Studio>` instances sharing a `sourceId` but backed by different
+      // adapters must not serve each other's rows or in-flight requests.
+      const cached = studioRequestCache.get(descriptor.cacheKey, adapter);
       if (cached) {
         cachedHits.set(sid, enrichForSource(sid, cached.rows));
         continue;
       }
-      let promise = studioRequestCache.getInflight(descriptor.cacheKey);
+      let promise = studioRequestCache.getInflight(descriptor.cacheKey, adapter);
       if (!promise) {
         // Pass descriptor.sourceId explicitly so the generation guard / reverse index use
-        // the true source even if it contains a ':' (rather than the cacheKey parse).
+        // the true source even if it contains a ':' (rather than the cacheKey parse). Pass
+        // `adapter` so the settled result is namespaced to this adapter instance.
         promise = studioRequestCache.addInflight(
           descriptor.cacheKey,
           adapter.getRows(descriptor),
           descriptor.sourceId,
+          adapter,
         );
       }
       promise.then(

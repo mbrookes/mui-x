@@ -78,7 +78,10 @@ export function runWidgetExport({
         relationships: state.doc.relationships,
         crossFilterAllPages: state.doc.dashboard.crossFilterAllPages ?? false,
       });
-      const cached = studioRequestCache.get(descriptor.cacheKey);
+      // Pass the live adapter so this export reads only the cache entry written by its OWN
+      // adapter — two `<Studio>` instances sharing a `sourceId` but backed by different
+      // adapters must not serve each other's rows.
+      const cached = studioRequestCache.get(descriptor.cacheKey, source?.adapter);
       cacheMiss = cached === undefined;
       sourceRows = cached?.rows ?? [];
     } else {

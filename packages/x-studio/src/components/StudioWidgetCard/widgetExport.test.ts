@@ -208,7 +208,14 @@ describe('runWidgetExport', () => {
     const controller = makeController(widget, { s1: adapterSource });
     const state = controller.getState();
     const descriptor = buildQueryDescriptor(widget, state.doc.filters, 'page-1', undefined, []);
-    studioRequestCache.set(descriptor.cacheKey, { rows: [{ status: 'active' }] }, 's1');
+    // Namespaced to `adapterSource.adapter` — the live adapter instance `runWidgetExport`
+    // reads off `source?.adapter` — matching the Tier2 adapter-isolation fix.
+    studioRequestCache.set(
+      descriptor.cacheKey,
+      { rows: [{ status: 'active' }] },
+      's1',
+      adapterSource.adapter,
+    );
 
     runWidgetExport({
       widget,
@@ -279,7 +286,7 @@ describe('runWidgetExport', () => {
     const controller = makeController(widget, { s1: adapterSource });
     const state = controller.getState();
     const descriptor = buildQueryDescriptor(widget, state.doc.filters, 'page-1', undefined, []);
-    studioRequestCache.set(descriptor.cacheKey, { rows: [] }, 's1');
+    studioRequestCache.set(descriptor.cacheKey, { rows: [] }, 's1', adapterSource.adapter);
 
     runWidgetExport({
       widget,
@@ -584,9 +591,16 @@ describe('runWidgetExport', () => {
     });
     expect(liveRenderDescriptor.hasIncomingCrossOrInteractiveFilters).toBe(true);
 
-    // Seed the cache exactly as the on-screen grid would have (via `useAdapterRows`).
+    // Seed the cache exactly as the on-screen grid would have (via `useAdapterRows`),
+    // namespaced to `ordersSource.adapter` — the live adapter instance `runWidgetExport`
+    // reads off `source?.adapter` — matching the Tier2 adapter-isolation fix.
     const cachedRows = [{ category: 'Electronics', total: 500 }];
-    studioRequestCache.set(liveRenderDescriptor.cacheKey, { rows: cachedRows }, 'orders');
+    studioRequestCache.set(
+      liveRenderDescriptor.cacheKey,
+      { rows: cachedRows },
+      'orders',
+      ordersSource.adapter,
+    );
 
     runWidgetExport({
       widget,
@@ -602,6 +616,77 @@ describe('runWidgetExport', () => {
     // Cache HIT: the export must not fall back to the "no data" placeholder.
     expect(downloadCsv).not.toHaveBeenCalled();
     expect(exportGridToCsv).toHaveBeenCalledTimes(1);
+  });
+
+  // ─── Adapter-instance cache isolation (Tier2 fix) ──────────────────────────────
+  //
+  // Two `<Studio>` instances sharing a `sourceId` string but backed by DIFFERENT host
+  // adapters must not export each other's cached rows. `runWidgetExport` must pass the
+  // live `source.adapter` through to `studioRequestCache.get`, matching the on-screen
+  // grid's `useAdapterRows` call site.
+
+  it('does not export a DIFFERENT adapter instance rows cached under the same cacheKey', () => {
+    const widget: StudioWidget = {
+      id: 'w12',
+      kind: 'grid',
+      title: 'Grid',
+      sourceId: 's1',
+      config: {} as StudioWidgetConfig,
+    };
+    const adapterA = { getRows: vi.fn() };
+    const adapterASource: StudioDataSource = {
+      id: 's1',
+      label: 'Source',
+      fields: [{ id: 'status', label: 'Status', type: 'string' }],
+      adapter: adapterA,
+    };
+    const controllerA = makeController(widget, { s1: adapterASource });
+    const stateA = controllerA.getState();
+    const descriptorA = buildWidgetQueryDescriptor(widget, 'page-1', undefined, {
+      filters: stateA.doc.filters,
+      expressionFields: stateA.doc.expressionFields,
+      relationships: stateA.doc.relationships,
+      crossFilterAllPages: stateA.doc.dashboard.crossFilterAllPages ?? false,
+    });
+    // Instance A's cache entry, namespaced to adapterA.
+    studioRequestCache.set(
+      descriptorA.cacheKey,
+      { rows: [{ status: 'tenant-a-row' }] },
+      's1',
+      adapterA,
+    );
+
+    // Instance B: same sourceId string ("s1") and identical query shape (so the legacy
+    // un-namespaced cacheKey would be identical), but a DIFFERENT adapter instance that has
+    // NOT populated any cache entry of its own — a cold cache for this tenant.
+    const adapterB = { getRows: vi.fn() };
+    const adapterBSource: StudioDataSource = {
+      id: 's1',
+      label: 'Source',
+      fields: [{ id: 'status', label: 'Status', type: 'string' }],
+      adapter: adapterB,
+    };
+    const controllerB = makeController(widget, { s1: adapterBSource });
+
+    runWidgetExport({
+      widget,
+      source: adapterBSource,
+      controller: controllerB,
+      pageId: 'page-1',
+      isCustomKind: false,
+      chartContainer: null,
+      imperativeExport: null,
+      localeText: DEFAULT_STUDIO_LOCALE_TEXT,
+    });
+
+    // Before the fix: this would be a cache HIT on adapterA's entry (same un-namespaced
+    // cacheKey), silently exporting tenant A's rows into tenant B's CSV. After the fix,
+    // adapterB's cache is cold, so the export falls back to the "no data" message instead of
+    // ever reading adapterA's rows.
+    expect(exportGridToCsv).not.toHaveBeenCalled();
+    expect(downloadCsv).toHaveBeenCalledTimes(1);
+    const [message] = vi.mocked(downloadCsv).mock.calls[0];
+    expect(message).toMatch(/no data available/i);
   });
 
   it('delegates pivot and custom-kind widgets to their imperative export handler', () => {

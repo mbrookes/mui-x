@@ -490,16 +490,17 @@ describe('async adapter path', () => {
     mockState = createState();
     const widget = makeWidget({ sourceId: 'src1' });
 
-    // Pre-populate the cache with data
-    const cachedRows: Row[] = [{ id: 'cached', region: 'EU' }];
-    const { buildQueryDescriptor } = await import('./queryDescriptor');
-    const descriptor = buildQueryDescriptor(widget, [], 'page-1');
-    studioRequestCache.set(descriptor.cacheKey, { rows: cachedRows });
-
     const adapter: StudioDataSourceAdapter = {
       getRows: vi.fn().mockResolvedValue({ rows: [] }),
     };
     const dataSource = makeDataSource([], { adapter });
+
+    // Pre-populate the cache with data, namespaced to this SAME adapter instance (matching
+    // the adapter identity `useAdapterRows` will pass through to `get`).
+    const cachedRows: Row[] = [{ id: 'cached', region: 'EU' }];
+    const { buildQueryDescriptor } = await import('./queryDescriptor');
+    const descriptor = buildQueryDescriptor(widget, [], 'page-1');
+    studioRequestCache.set(descriptor.cacheKey, { rows: cachedRows }, undefined, adapter);
 
     const { result } = renderHook(() => useWidgetRows(widget, dataSource, 'page-1'));
 
@@ -545,6 +546,58 @@ describe('async adapter path', () => {
 
     unmount1();
     unmount2();
+  });
+
+  // ── Adapter-instance cache isolation (Tier2 fix) ───────────────────────────
+  // Two `<Studio>` instances mounted in the same page/process (e.g. a multi-tenant admin
+  // console) can share a `sourceId` string ("src1") while each being configured with its
+  // OWN host adapter (different tenant/auth/backend). `studioRequestCache` is a
+  // module-level singleton whose cacheKey has no adapter-identity component, so
+  // `useAdapterRows` must pass the live `dataSource.adapter` through to
+  // `get`/`getInflight`/`addInflight` — otherwise the second instance would get a cache
+  // HIT on the first instance's rows (or join its in-flight request) for an identical
+  // descriptor, a cross-tenant data leak.
+
+  it('does not serve a different adapter instance the previous adapter instance rows for the same sourceId', async () => {
+    mockState = createState();
+    const widget = makeWidget({ sourceId: 'src1' });
+
+    const adapterA: StudioDataSourceAdapter = {
+      getRows: vi.fn().mockResolvedValue({ rows: [{ id: 'tenant-a', region: 'EU' }] }),
+    };
+    const dataSourceA = makeDataSource([], { adapter: adapterA });
+
+    const { result: resultA, unmount: unmountA } = renderHook(() =>
+      useWidgetRows(widget, dataSourceA, 'page-1'),
+    );
+    // eslint-disable-next-line testing-library/no-unnecessary-act
+    await act(async () => {
+      await vi.waitFor(() => !resultA.current.isLoading);
+    });
+    expect(resultA.current.filteredRows).toEqual([{ id: 'tenant-a', region: 'EU' }]);
+    unmountA();
+
+    // A second, separate `<Studio>` instance: same sourceId string and identical query
+    // shape (so the legacy un-namespaced cacheKey would be identical), but a DIFFERENT
+    // adapter instance/tenant.
+    const adapterB: StudioDataSourceAdapter = {
+      getRows: vi.fn().mockResolvedValue({ rows: [{ id: 'tenant-b', region: 'US' }] }),
+    };
+    const dataSourceB = makeDataSource([], { adapter: adapterB });
+
+    const { result: resultB, unmount: unmountB } = renderHook(() =>
+      useWidgetRows(widget, dataSourceB, 'page-1'),
+    );
+    // eslint-disable-next-line testing-library/no-unnecessary-act
+    await act(async () => {
+      await vi.waitFor(() => !resultB.current.isLoading);
+    });
+
+    // Before the fix: this would be a cache HIT on adapterA's un-namespaced entry, so
+    // `adapterB.getRows` would never be called and instance B would render tenant A's rows.
+    expect(adapterB.getRows).toHaveBeenCalledTimes(1);
+    expect(resultB.current.filteredRows).toEqual([{ id: 'tenant-b', region: 'US' }]);
+    unmountB();
   });
 
   it('applies cross-filters client-side on adapter rows', async () => {
@@ -617,9 +670,15 @@ describe('async adapter path', () => {
       makeDataSource([], { adapter: { getRows: vi.fn().mockResolvedValue({ rows }) } });
 
     // Default (crossFilterAllPages = false): the other-page cross-filter is ignored.
+    // The `dataSource` (and its adapter) is created ONCE per rendered instance — matching
+    // real usage, where a widget's `dataSource` prop reference stays stable across its own
+    // re-renders — rather than inline in the render callback, which would mint a brand new
+    // adapter identity (and therefore a brand new adapter-namespaced cache entry) on every
+    // re-render and never let a single fetch actually settle.
     mockState = buildState(false);
+    const dataSourceOff = makeAdapterSource();
     const { result: resultOff, unmount: unmountOff } = renderHook(() =>
-      useWidgetRows(widget, makeAdapterSource(), 'page-1'),
+      useWidgetRows(widget, dataSourceOff, 'page-1'),
     );
     // eslint-disable-next-line testing-library/no-unnecessary-act
     await act(async () => {
@@ -633,8 +692,9 @@ describe('async adapter path', () => {
 
     // crossFilterAllPages = true: the other-page cross-filter now applies (EU rows only).
     mockState = buildState(true);
+    const dataSourceOn = makeAdapterSource();
     const { result: resultOn, unmount: unmountOn } = renderHook(() =>
-      useWidgetRows(widget, makeAdapterSource(), 'page-1'),
+      useWidgetRows(widget, dataSourceOn, 'page-1'),
     );
     // eslint-disable-next-line testing-library/no-unnecessary-act
     await act(async () => {
@@ -721,6 +781,15 @@ describe('async adapter path', () => {
     const { buildQueryDescriptor } = await import('./queryDescriptor');
     const widget = makeWidget({ id: 'w1', sourceId: 'src1' });
 
+    // The SAME adapter/dataSource instance is used across the A → B transition (a rerender
+    // of one widget instance, not a fresh mount), so descriptor B's cache entry must be
+    // seeded under that SAME adapter identity for the effect's namespaced `get` to find it.
+    const neverResolves = new Promise<StudioQueryResult>(() => {});
+    const adapter: StudioDataSourceAdapter = {
+      getRows: vi.fn().mockReturnValue(neverResolves),
+    };
+    const dataSource = makeDataSource([], { adapter });
+
     // Descriptor B — a page filter on region=EU — pre-seeded into the cache so switching to
     // it produces a synchronous cache hit.
     const filtersB = [
@@ -733,15 +802,15 @@ describe('async adapter path', () => {
       }),
     ];
     const descriptorB = buildQueryDescriptor(widget, filtersB, 'page-1', undefined, []);
-    studioRequestCache.set(descriptorB.cacheKey, { rows: [{ id: 'cached-B', region: 'EU' }] });
+    studioRequestCache.set(
+      descriptorB.cacheKey,
+      { rows: [{ id: 'cached-B', region: 'EU' }] },
+      undefined,
+      adapter,
+    );
 
     // State A — no filters → descriptor A, NOT cached → an in-flight fetch that never resolves.
     mockState = createState({ filters: [] });
-    const neverResolves = new Promise<StudioQueryResult>(() => {});
-    const adapter: StudioDataSourceAdapter = {
-      getRows: vi.fn().mockReturnValue(neverResolves),
-    };
-    const dataSource = makeDataSource([], { adapter });
 
     const { result, rerender } = renderHook(() => useWidgetRows(widget, dataSource, 'page-1'));
 

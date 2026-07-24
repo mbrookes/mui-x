@@ -82,8 +82,12 @@ export function useAdapterRows(
     if (!hasAdapter) {
       return [];
     }
-    // Seed from cache synchronously on mount.
-    const cached = descriptor ? studioRequestCache.get(descriptor.cacheKey) : undefined;
+    // Seed from cache synchronously on mount. Pass the live adapter so this instance only
+    // ever reads entries written by its OWN adapter (two `<Studio>` instances sharing a
+    // `sourceId` but backed by different adapters must not serve each other's rows).
+    const cached = descriptor
+      ? studioRequestCache.get(descriptor.cacheKey, dataSource?.adapter)
+      : undefined;
     if (cached) {
       return cached.rows;
     }
@@ -114,7 +118,8 @@ export function useAdapterRows(
     }
 
     const { cacheKey } = descriptor;
-    const cached = studioRequestCache.get(cacheKey);
+    const adapter = dataSource.adapter;
+    const cached = studioRequestCache.get(cacheKey, adapter);
 
     if (cached) {
       // Cache hit — serve synchronously, no loading state.
@@ -135,7 +140,7 @@ export function useAdapterRows(
     }
 
     // Check for an existing in-flight request to deduplicate.
-    let promise = studioRequestCache.getInflight(cacheKey);
+    let promise = studioRequestCache.getInflight(cacheKey, adapter);
     if (!promise) {
       // A well-behaved adapter returns a promise (rejecting on failure), but a host adapter
       // can also throw synchronously from getRows(). Without this guard that throw escapes
@@ -151,8 +156,15 @@ export function useAdapterRows(
         return;
       }
       // Pass descriptor.sourceId explicitly so the generation guard / reverse index use
-      // the true source even if it contains a ':' (rather than the cacheKey parse).
-      promise = studioRequestCache.addInflight(cacheKey, getRowsResult, descriptor.sourceId);
+      // the true source even if it contains a ':' (rather than the cacheKey parse). Pass
+      // `adapter` so the settled result is namespaced to this adapter instance, matching
+      // the `get`/`getInflight` calls above.
+      promise = studioRequestCache.addInflight(
+        cacheKey,
+        getRowsResult,
+        descriptor.sourceId,
+        adapter,
+      );
     }
 
     // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change -- setting loading state when descriptor changes triggers a new fetch

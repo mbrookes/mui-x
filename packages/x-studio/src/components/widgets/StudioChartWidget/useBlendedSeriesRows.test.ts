@@ -183,8 +183,11 @@ describe('useBlendedSeriesRows — adapter-backed foreign source caching', () =>
     expect(getRows.mock.calls[0][0].sourceId).toBe(COLON_SOURCE_ID);
     expect(cacheKey.startsWith(`${COLON_SOURCE_ID}:`)).toBe(true);
 
+    // The entry is namespaced to `colonSource.adapter` (the live adapter instance
+    // `useBlendedSeriesRows` reads off `dataSources[sid]`), matching the Tier2 adapter-
+    // isolation fix — an un-namespaced `get` would miss it entirely.
     await waitFor(() => {
-      expect(studioRequestCache.get(cacheKey)).toBeDefined();
+      expect(studioRequestCache.get(cacheKey, colonSource.adapter)).toBeDefined();
     });
 
     // Invalidate using the TRUE (colon-containing) sourceId, as a host would after
@@ -194,7 +197,78 @@ describe('useBlendedSeriesRows — adapter-backed foreign source caching', () =>
     // miss it — leaving the stale entry cached.
     studioRequestCache.invalidateSource(COLON_SOURCE_ID);
 
-    expect(studioRequestCache.get(cacheKey)).toBeUndefined();
+    expect(studioRequestCache.get(cacheKey, colonSource.adapter)).toBeUndefined();
+  });
+});
+
+describe('useBlendedSeriesRows — adapter-instance cache isolation (Tier2 fix)', () => {
+  // Two `<Studio>` instances mounted in the same process (e.g. a multi-tenant admin console)
+  // can be configured with the SAME sourceId string ("inventory") but DIFFERENT host adapters
+  // (different tenant/auth/backend). `studioRequestCache` is a module-level singleton whose
+  // cacheKey has no adapter-identity component, so without threading the live `adapter` object
+  // through to `get`/`getInflight`/`addInflight`, the second instance would get a cache HIT on
+  // the first instance's rows for an identical descriptor — a cross-tenant data leak.
+  it('does not serve a different adapter instance the previous adapter instance rows for the same sourceId', async () => {
+    const getRowsA = vi.fn().mockResolvedValue({
+      rows: [{ category: 'Electronics', stock: 111 }],
+    });
+    const adapterA = { getRows: getRowsA };
+    const widget = inventoryBlendedWidget('stock');
+
+    // Instance A: mounts with adapterA.
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: {
+        orders: ordersSource,
+        inventory: { ...inventorySource, rows: undefined, adapter: adapterA },
+      },
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    const { result: resultA, unmount: unmountA } = renderHook(() =>
+      useBlendedSeriesRows(widget, 'page-1'),
+    );
+    await waitFor(() => {
+      expect(getRowsA).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(resultA.current.foreignRowsBySource.get('inventory')).toEqual([
+        { category: 'Electronics', stock: 111 },
+      ]);
+    });
+    unmountA();
+
+    // Instance B: a SEPARATE `<Studio>` instance, same sourceId string ("inventory") and the
+    // SAME query shape (so the legacy un-namespaced cacheKey would be identical), but backed by
+    // a DIFFERENT adapter object returning different rows (e.g. a different tenant's backend).
+    const getRowsB = vi.fn().mockResolvedValue({
+      rows: [{ category: 'Electronics', stock: 999 }],
+    });
+    const adapterB = { getRows: getRowsB };
+    mockState = createState({
+      widgets: { [widget.id]: widget },
+      dataSources: {
+        orders: ordersSource,
+        inventory: { ...inventorySource, rows: undefined, adapter: adapterB },
+      },
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    const { result: resultB, unmount: unmountB } = renderHook(() =>
+      useBlendedSeriesRows(widget, 'page-1'),
+    );
+
+    // Before the fix: this would be a cache HIT on instance A's un-namespaced entry, so
+    // `getRowsB` would never be called and instance B would render instance A's tenant's rows.
+    await waitFor(() => {
+      expect(getRowsB).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(resultB.current.foreignRowsBySource.get('inventory')).toEqual([
+        { category: 'Electronics', stock: 999 },
+      ]);
+    });
+    unmountB();
   });
 });
 

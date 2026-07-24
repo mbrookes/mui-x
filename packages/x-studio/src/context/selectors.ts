@@ -509,7 +509,14 @@ export function makeSelectIncomingCrossFilters(widgetId: string, pageId: string)
 export function makeSelectWidget(
   widgetId: string,
 ): (state: StudioState) => StudioWidget | undefined {
-  return (state) => state.doc.widgets[widgetId];
+  return (state) =>
+    // `widgetId` is doc-authored (host/AI-writable): guard the record index against inherited
+    // keys ("toString"/"constructor"/…) so a bare bracket lookup can't resolve a function off
+    // `Object.prototype` instead of resolving to "no such widget" (prototype-chain key lookup
+    // fix, matching `makeSelectWidgetSource`/`selectActivePage`). This is the most exploitable of
+    // the sibling selectors: it's used unguarded in `StudioWidgetCard.tsx`, whose own
+    // `if (!widget) return null;` check would not catch an inherited-function result (truthy).
+    Object.hasOwn(state.doc.widgets, widgetId) ? state.doc.widgets[widgetId] : undefined;
 }
 
 /**
@@ -565,7 +572,9 @@ export function makeSelectWidgetRankFilter(
   widgetId: string,
 ): (state: StudioState) => StudioFilterState | null {
   return (state) => {
-    if (!state.doc.widgets[widgetId]) {
+    // `widgetId` is doc-authored: guard against inherited `Object.prototype` keys (see
+    // `makeSelectWidget` above for the full rationale).
+    if (!(Object.hasOwn(state.doc.widgets, widgetId) ? state.doc.widgets[widgetId] : undefined)) {
       return null;
     }
     return (
@@ -600,7 +609,9 @@ export function makeSelectWidgetSliderFilter(
   pageId: string,
 ): (state: StudioState) => StudioFilterState | null {
   return (state) => {
-    const w = state.doc.widgets[widgetId];
+    // `widgetId` is doc-authored: guard against inherited `Object.prototype` keys (see
+    // `makeSelectWidget` above for the full rationale).
+    const w = Object.hasOwn(state.doc.widgets, widgetId) ? state.doc.widgets[widgetId] : undefined;
     if (!w || !isWidgetOfKind(w, 'filter') || w.config?.filterWidgetType !== 'slider') {
       return null;
     }
@@ -635,7 +646,9 @@ export function makeSelectWidgetActiveCrossFilter(
   pageId: string,
 ): (state: StudioState) => StudioFilterState | null {
   return (state) => {
-    if (!state.doc.widgets[widgetId]) {
+    // `widgetId` is doc-authored: guard against inherited `Object.prototype` keys (see
+    // `makeSelectWidget` above for the full rationale).
+    if (!(Object.hasOwn(state.doc.widgets, widgetId) ? state.doc.widgets[widgetId] : undefined)) {
       return null;
     }
     return state.doc.filters.find((f) => isActiveCrossFilter(f, widgetId, pageId)) ?? null;

@@ -416,6 +416,17 @@ describe('per-widget selectors', () => {
     expect(makeSelectWidget('missing')(s)).toBeUndefined();
   });
 
+  it('makeSelectWidget does not resolve an inherited Object.prototype member for a widgetId equal to its name', () => {
+    // A doc/AI-authored widget id equal to "constructor" (or "toString"/"valueOf"/…) must not
+    // resolve a bare bracket lookup to the inherited function off Object.prototype — that truthy
+    // non-widget object would slip past `if (!widget) return null` guards in consumers like
+    // `StudioWidgetCard.tsx` and crash on the first `.kind`/`.config` read.
+    const s = state({ widgets: { w1: widget('w1', 'chart') } });
+    expect(makeSelectWidget('constructor')(s)).toBeUndefined();
+    expect(makeSelectWidget('toString')(s)).toBeUndefined();
+    expect(makeSelectWidget('__proto__')(s)).toBeUndefined();
+  });
+
   it('makeSelectIsWidgetSelected reflects the shell selection', () => {
     const s = state({ shell: { selectedWidgetId: 'w1' } as StudioSession['shell'] });
     expect(makeSelectIsWidgetSelected('w1')(s)).toBe(true);
@@ -524,6 +535,22 @@ describe('makeSelectWidgetRankFilter', () => {
     });
     expect(makeSelectWidgetRankFilter('w1')(s)).toBeNull();
   });
+
+  it('returns null (not a rank filter) for a widgetId equal to an Object.prototype member name', () => {
+    // A bare `state.doc.widgets[widgetId]` lookup would resolve the inherited `constructor`
+    // function (truthy), so the widget-existence guard must not treat that as "widget exists".
+    // Scope a rank filter to the SAME phantom id: before the fix, the guard would pass (the
+    // inherited function is truthy) and the filter lookup below would then match and return
+    // it — reporting a "Top N" chip for a widget that doesn't exist.
+    const phantomRankFilter = filter({
+      id: 'r-phantom',
+      scope: { kind: 'widget', widgetId: 'constructor' },
+      filterMode: 'rank',
+      value: 5,
+    });
+    const s = state({ widgets: { w1: widget('w1', 'chart') }, filters: [phantomRankFilter] });
+    expect(makeSelectWidgetRankFilter('constructor')(s)).toBeNull();
+  });
 });
 
 describe('makeSelectWidgetSliderFilter', () => {
@@ -565,6 +592,16 @@ describe('makeSelectWidgetSliderFilter', () => {
     });
     expect(makeSelectWidgetSliderFilter('w1', 'page-1')(s)).toBeNull();
   });
+
+  it('returns null (not a phantom widget) for a widgetId equal to an Object.prototype member name', () => {
+    // `state.doc.widgets[widgetId]` must not resolve the inherited `constructor` function for
+    // a widgetId that isn't an own key of `widgets` — guarded the same way as
+    // `makeSelectWidgetSource`/`makeSelectWidget`.
+    const s = state({
+      widgets: { w1: widget('w1', 'filter', { config: { filterWidgetType: 'slider' } }) },
+    });
+    expect(makeSelectWidgetSliderFilter('constructor', 'page-1')(s)).toBeNull();
+  });
 });
 
 describe('makeSelectWidgetActiveCrossFilter', () => {
@@ -588,6 +625,19 @@ describe('makeSelectWidgetActiveCrossFilter', () => {
   it('returns null when the widget has no active cross-filter', () => {
     const s = state({ widgets: { w1: widget('w1', 'kpi') }, filters: [] });
     expect(makeSelectWidgetActiveCrossFilter('w1', 'page-1')(s)).toBeNull();
+  });
+
+  it('returns null (not a phantom widget) for a widgetId equal to an Object.prototype member name', () => {
+    // `state.doc.widgets[widgetId]` must not resolve the inherited `constructor` function for
+    // a widgetId that isn't an own key of `widgets`. Scope a cross-filter to the SAME phantom
+    // id: before the fix, the existence guard would pass (the inherited function is truthy)
+    // and the filter lookup below would then match and return it.
+    const phantomCrossFilter = filter({
+      id: 'c-phantom',
+      scope: { kind: 'cross-filter', sourceWidgetId: 'constructor', pageId: 'page-1' },
+    });
+    const s = state({ widgets: { w1: widget('w1', 'chart') }, filters: [phantomCrossFilter] });
+    expect(makeSelectWidgetActiveCrossFilter('constructor', 'page-1')(s)).toBeNull();
   });
 });
 

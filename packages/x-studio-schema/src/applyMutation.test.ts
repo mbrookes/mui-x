@@ -4646,6 +4646,196 @@ describe('applyMutation', () => {
       const next = applyDocMutation(state, { type: 'addFilter', args: {} } as any);
       expect(next).toBe(state);
     });
+
+    // Finding 6: `applyDocMutation`/`mutationLabel` read `mutation.type` before the
+    // existing `args`-level totality gate, so a non-record `mutation` (`null`, a
+    // primitive) threw on `Object.hasOwn(…, mutation.type)`. Both must stay total.
+    it('a non-record mutation is a graceful no-op / label, not a throw (Finding 6)', () => {
+      const state = twoPageState();
+      for (const mutation of [undefined, null, 42, 'x', []]) {
+        let next!: StudioDoc;
+        expect(
+          () => {
+            next = applyDocMutation(state, mutation as any);
+          },
+          `mutation=${JSON.stringify(mutation)}`,
+        ).not.toThrow();
+        expect(next, `mutation=${JSON.stringify(mutation)}`).toBe(state);
+        expect(() => mutationLabel(mutation as any)).not.toThrow();
+        expect(mutationLabel(mutation as any)).toBe('unknown');
+      }
+    });
+  });
+
+  // Finding 1: the ADD channels (`addWidget`, `applyBulkUpdate.addedWidgets`) require a
+  // string `kind`/`title` but installed the OPTIONAL scalars (`subtitle`/`sourceId`/
+  // `titleMode`/`subtitleMode`) verbatim. The wire boundary validates all four; the load
+  // boundary strips the offending key. These paths must key-strip an invalid value on
+  // write so it never lands to be silently dropped on the next load.
+  describe('ADD channels screen optional widget scalars (Finding 1)', () => {
+    it('addWidget key-strips a non-string subtitle/sourceId and a non-auto/manual titleMode/subtitleMode', () => {
+      const state = twoPageState();
+      const next = applyDocMutation(state, {
+        type: 'addWidget',
+        args: {
+          widget: {
+            id: 'w1',
+            kind: 'chart',
+            title: 'T',
+            config: { chartType: 'bar' },
+            subtitle: 42,
+            sourceId: 42,
+            titleMode: 'weird',
+            subtitleMode: 7,
+          },
+          pageId: 'page-1',
+        },
+      } as any);
+      const w = next.widgets.w1 as unknown as Record<string, unknown>;
+      expect(Object.hasOwn(w, 'subtitle')).toBe(false);
+      expect(Object.hasOwn(w, 'sourceId')).toBe(false);
+      expect(Object.hasOwn(w, 'titleMode')).toBe(false);
+      expect(Object.hasOwn(w, 'subtitleMode')).toBe(false);
+    });
+
+    it('addWidget keeps valid optional scalars', () => {
+      const state = twoPageState();
+      const next = applyDocMutation(state, {
+        type: 'addWidget',
+        args: {
+          widget: {
+            id: 'w1',
+            kind: 'chart',
+            title: 'T',
+            config: { chartType: 'bar' },
+            subtitle: 'sub',
+            sourceId: 'src',
+            titleMode: 'manual',
+            subtitleMode: 'auto',
+          },
+          pageId: 'page-1',
+        },
+      } as any);
+      const w = next.widgets.w1 as unknown as Record<string, unknown>;
+      expect(w.subtitle).toBe('sub');
+      expect(w.sourceId).toBe('src');
+      expect(w.titleMode).toBe('manual');
+      expect(w.subtitleMode).toBe('auto');
+    });
+
+    it('applyBulkUpdate.addedWidgets key-strips invalid optional scalars', () => {
+      const state = twoPageState();
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: [],
+          addedWidgets: [
+            {
+              id: 'w1',
+              kind: 'chart',
+              title: 'T',
+              config: { chartType: 'bar' },
+              subtitle: 42,
+              titleMode: 'weird',
+            },
+          ],
+          updatedWidgets: [],
+          activePageId: 'page-1',
+        },
+      } as any);
+      const w = next.widgets.w1 as unknown as Record<string, unknown>;
+      expect(Object.hasOwn(w, 'subtitle')).toBe(false);
+      expect(Object.hasOwn(w, 'titleMode')).toBe(false);
+    });
+  });
+
+  // Finding 2: `addFilter` checked id/scope/anchors/ranks but appended a filter with a
+  // non-string `field` or an invalid `operator`/`operator2` verbatim, which the load
+  // boundary then dropped wholesale. No-op instead of installing.
+  describe('addFilter screens field/operator/operator2 (Finding 2)', () => {
+    const baseFilter = {
+      id: 'f1',
+      field: 'country',
+      operator: 'equals',
+      value: 'FR',
+      scope: { kind: 'page', pageId: 'page-1' },
+    };
+
+    it('no-ops a non-string field', () => {
+      const state = twoPageState();
+      const next = applyDocMutation(state, {
+        type: 'addFilter',
+        args: { filter: { ...baseFilter, field: 42 } },
+      } as any);
+      expect(next).toBe(state);
+    });
+
+    it('no-ops an invalid operator', () => {
+      const state = twoPageState();
+      const next = applyDocMutation(state, {
+        type: 'addFilter',
+        args: { filter: { ...baseFilter, operator: 'equal' } },
+      } as any);
+      expect(next).toBe(state);
+    });
+
+    it('no-ops an invalid operator2 when present', () => {
+      const state = twoPageState();
+      const next = applyDocMutation(state, {
+        type: 'addFilter',
+        args: { filter: { ...baseFilter, operator2: 'nonsense' } },
+      } as any);
+      expect(next).toBe(state);
+    });
+
+    it('accepts a valid field/operator/operator2', () => {
+      const state = twoPageState();
+      const next = applyDocMutation(state, {
+        type: 'addFilter',
+        args: { filter: { ...baseFilter, operator2: 'contains' } },
+      } as any);
+      expect(next.filters).toHaveLength(1);
+      expect(next.filters[0].id).toBe('f1');
+    });
+  });
+
+  // Finding 4: `dashboard-date-range` scope's `pageId` is REQUIRED, but the string guard
+  // exempted `pageId === undefined`. A parser-bypassing payload omitting it installed a
+  // filter anchored to nothing. Require a string pageId outright.
+  describe('addFilter requires dashboard-date-range pageId (Finding 4)', () => {
+    it('no-ops a dashboard-date-range scope with a missing pageId', () => {
+      const state = twoPageState();
+      const next = applyDocMutation(state, {
+        type: 'addFilter',
+        args: {
+          filter: {
+            id: 'f1',
+            field: 'date',
+            operator: 'equals',
+            value: '2024',
+            scope: { kind: 'dashboard-date-range', sourceId: 's1' },
+          },
+        },
+      } as any);
+      expect(next).toBe(state);
+    });
+
+    it('accepts a dashboard-date-range scope with a valid string pageId', () => {
+      const state = twoPageState();
+      const next = applyDocMutation(state, {
+        type: 'addFilter',
+        args: {
+          filter: {
+            id: 'f1',
+            field: 'date',
+            operator: 'equals',
+            value: '2024',
+            scope: { kind: 'dashboard-date-range', sourceId: 's1', pageId: 'page-1' },
+          },
+        },
+      } as any);
+      expect(next.filters).toHaveLength(1);
+    });
   });
 });
 

@@ -22,6 +22,7 @@ import { normalizeChartSeries } from './factories';
 import { isSafeKey } from './unsafeKeys';
 import { hasUnsafeOwnKeys, isStringArray } from './parseStateMutation';
 import { getAllowedConfigKeys } from './configKeyValidation';
+import { isStudioFilterOperator } from './widgetTypeGuards';
 // `isPlainRecord` (the single shared "is this a usable record" predicate: a non-record
 // `config`/`widget`/`filter` — `null`, an array, or a truthy primitive like a string —
 // is treated as ABSENT, never as a record to merge or install), `stripUnsafeConfigKeys`
@@ -268,6 +269,39 @@ function coerceWidgetConfig(widget: StudioWidget): StudioWidget {
   }
   const safeConfig = stripUnsafeConfigKeys(config);
   return safeConfig === config ? widget : ({ ...widget, config: safeConfig } as StudioWidget);
+}
+
+// Key-strip the OPTIONAL widget scalars a parser-bypassing ADD channel (`addWidget`,
+// `applyBulkUpdate.addedWidgets`) never validated (Finding 1). The wire boundary's
+// `validateWidget` (`parseStateMutation.ts`) membership-checks all four — `subtitle`/
+// `sourceId` via `isOptionalString`, `titleMode`/`subtitleMode` via `isOptionalTitleMode`
+// — and the load boundary (`deserializeState`) drops each offending KEY. But a server-
+// built add bypassing the parser installed e.g. `subtitle: 42`/`titleMode: 'weird'`
+// verbatim, only for the very next load's key-drop to silently discard it — deferred data
+// loss rather than a write-time repair. Mirror the load boundary's "strip the key, don't
+// sink the whole widget" convention (these are optional, so an invalid value degrades to
+// the field's default, not a widget no-op): delete a non-string `subtitle`/`sourceId` and
+// a non-`'auto'|'manual'` `titleMode`/`subtitleMode`. Reference-stable when all four are
+// valid or absent (the only shape the wire boundary itself ever lets through).
+function screenOptionalWidgetScalars(widget: StudioWidget): StudioWidget {
+  let base = widget;
+  for (const modeKey of ['titleMode', 'subtitleMode'] as const) {
+    const modeValue = (base as unknown as Record<string, unknown>)[modeKey];
+    if (modeValue !== undefined && modeValue !== 'auto' && modeValue !== 'manual') {
+      const nextBase = { ...base };
+      delete (nextBase as unknown as Record<string, unknown>)[modeKey];
+      base = nextBase as StudioWidget;
+    }
+  }
+  for (const stringKey of ['subtitle', 'sourceId'] as const) {
+    const stringValue = (base as unknown as Record<string, unknown>)[stringKey];
+    if (stringValue !== undefined && typeof stringValue !== 'string') {
+      const nextBase = { ...base };
+      delete (nextBase as unknown as Record<string, unknown>)[stringKey];
+      base = nextBase as StudioWidget;
+    }
+  }
+  return base;
 }
 
 // Drop widget/interactive/cross-filter-scoped filters anchored to any removed
@@ -921,7 +955,11 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // hand-built `config: null` never lands in `state.widgets` verbatim to detonate on
       // the next config-touching mutation. Mirrors `deserializeState`'s load-boundary
       // coercion (finding 2.4).
-      const safeWidget = coerceWidgetConfig(widget);
+      // Key-strip the optional scalars (`subtitle`/`sourceId`/`titleMode`/
+      // `subtitleMode`) the wire boundary validates but this ADD channel didn't
+      // (Finding 1) BEFORE installing, so an invalid value never lands verbatim to be
+      // silently dropped on the next load.
+      const safeWidget = screenOptionalWidgetScalars(coerceWidgetConfig(widget));
       // Normalize the deprecated `seriesType` alias to canonical `type` on write, so
       // the alias never survives a live add (it is otherwise only normalized at the
       // load boundary in `deserializeState`). Reference-stable when already canonical.
@@ -1386,6 +1424,15 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       if (typeof widgetId !== 'string') {
         return state;
       }
+      // Prototype-hazard guard before the `newSpans[widgetId] = clamped` bracket-write
+      // below (Tier3/4 consistency finding), matching every other key-by-key rebuild in
+      // this reducer (`updateWidget`/`applyBulkUpdate` inserts, the span rebuild). The
+      // `Object.hasOwn(state.widgets, widgetId)` check below already rejects a `'__proto__'`
+      // id in practice (no widget carries such an own key post-`addWidget` screen), but the
+      // explicit guard keeps this bracket-write uniform with its siblings.
+      if (!isSafePatchKey(widgetId)) {
+        return state;
+      }
       // Explicit, server-chosen target page — falls back to the active page for
       // legacy payloads, mirroring `addWidget.pageId`.
       const targetPageId = args.pageId ?? state.dashboard.activePageId;
@@ -1665,6 +1712,25 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       if (typeof args.filter.id !== 'string') {
         return state;
       }
+      // Screen `field`/`operator`/`operator2` (Finding 2), parser-bypass parity with the
+      // wire boundary's `validateFilter` gate in `parseStateMutation.ts`, which
+      // membership-checks all three. Without this, a server-built `addFilter` bypassing
+      // the parser with `field: 42` or an invalid `operator` installs VERBATIM, only for
+      // the load boundary (`deserializeState`) to drop the WHOLE filter on the next load —
+      // deferred silent data loss and, worse, a live filter whose junk `operator` steers
+      // the client's evaluator until then. No-op instead of installing: `field` must be a
+      // string, `operator` must be a valid `StudioFilterOperator`, and `operator2` — when
+      // present — must be one too. Mirrors the load boundary's `isStudioFilterOperator`
+      // check on these same fields.
+      if (typeof args.filter.field !== 'string') {
+        return state;
+      }
+      if (!isStudioFilterOperator(args.filter.operator)) {
+        return state;
+      }
+      if (args.filter.operator2 !== undefined && !isStudioFilterOperator(args.filter.operator2)) {
+        return state;
+      }
       // Idempotent: re-delivery of the same addFilter SSE event must not append a
       // duplicate (unlike a fresh filter, the id already exists).
       if (state.filters.some((f) => f.id === args.filter.id)) {
@@ -1701,15 +1767,19 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       ) {
         return state;
       }
+      // `dashboard-date-range` scope's `pageId` is REQUIRED by the type
+      // (`FILTER_SCOPE_REQUIRED_IDS` in `stateTypes.ts` lists `pageId` for it), so it must
+      // be a STRING outright — reject a missing/non-string one (Finding 4). The previous
+      // `scope.pageId !== undefined` exemption (borrowed from `page` scope's genuinely
+      // OPTIONAL `pageId`) wrongly let a parser-bypassing `dashboard-date-range` filter
+      // with NO `pageId` through, where it would then slip past the orphan check below
+      // (also gated on `!== undefined`) and install anchored to nothing.
+      if (scope.kind === 'dashboard-date-range' && typeof scope.pageId !== 'string') {
+        return state;
+      }
       // `page` scope's `pageId` is OPTIONAL (a legacy pageId-less filter applies on every
-      // page), so only screen it for string-ness when present; `dashboard-date-range`'s
-      // `pageId` is required but a parser-bypassing payload could still omit it, matching
-      // the identical `!== undefined` gate the orphan check below already uses.
-      if (
-        (scope.kind === 'page' || scope.kind === 'dashboard-date-range') &&
-        scope.pageId !== undefined &&
-        typeof scope.pageId !== 'string'
-      ) {
+      // page), so only screen it for string-ness when present.
+      if (scope.kind === 'page' && scope.pageId !== undefined && typeof scope.pageId !== 'string') {
         return state;
       }
       let orphanAnchorId: string | undefined;
@@ -2190,7 +2260,10 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         // Coerce a non-record `config` to `{}` BEFORE installing (T2-2), mirroring
         // `addWidget` and the load boundary — otherwise a hand-built `config: null`
         // added widget detonates on the next config-touching mutation.
-        const safeWidget = coerceWidgetConfig(widget);
+        // Key-strip the optional scalars (`subtitle`/`sourceId`/`titleMode`/
+        // `subtitleMode`) the wire boundary validates but this ADD channel didn't
+        // (Finding 1) BEFORE installing, mirroring `addWidget` and the load boundary.
+        const safeWidget = screenOptionalWidgetScalars(coerceWidgetConfig(widget));
         // Normalize the deprecated `seriesType` alias on write (reference-stable when
         // already canonical), so a bulk-added widget matches the load-boundary shape.
         const normalizedConfig = normalizeConfigChartSeries(safeWidget.config);
@@ -2250,6 +2323,14 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         // `updatedWidgets` (e.g. from a parser-bypassing payload) would otherwise throw
         // reading `.widgetId` below instead of being gracefully skipped.
         if (!isPlainRecord(update)) {
+          continue;
+        }
+        // Prototype-hazard guard before the `nextWidgets[update.widgetId] = patchedWidget`
+        // bracket-write below (Tier3/4 consistency finding), keeping this write uniform with
+        // every other key-by-key rebuild in the reducer. The `Object.hasOwn` existence check
+        // just below already rejects an unsafe key in practice, but the explicit guard makes
+        // the intent local to the write.
+        if (!isSafePatchKey(update.widgetId)) {
           continue;
         }
         // `Object.hasOwn` existence check (not truthy `nextWidgets[update.widgetId]`)
@@ -2423,6 +2504,14 @@ export const MUTATION_TYPES = Object.keys(MUTATION_HANDLERS) as StateMutation['t
  * not a fresh object — callers rely on `next === doc` to detect a no-op.
  */
 export function applyDocMutation(doc: StudioDoc, mutation: StateMutation): StudioDoc {
+  // Totality guard before the `mutation.type` read below (T2 finding), the mutation-level
+  // sibling of the `isPlainRecord(mutation.args)` gate further down. A server-built value
+  // bypassing `parseStateMutation` (the `executeToolOnState` path) could hand a non-record
+  // `mutation` (`null`, `undefined`, a primitive), on which `Object.hasOwn(…, mutation.type)`
+  // throws. Gate it here so the reducer stays total and returns the documented no-op `doc`.
+  if (!isPlainRecord(mutation)) {
+    return doc;
+  }
   // A single cast at the dispatch boundary: TS cannot prove that
   // `MUTATION_HANDLERS[mutation.type]` and `mutation.args` share the same `M`
   // (the correlation is lost once `mutation.type` is read), so we assert the
@@ -2474,6 +2563,15 @@ export function applyMutation(state: StudioState, mutation: StateMutation): Stud
  * log (client-side undo/redo history label + MCP `get_recent_changes`).
  */
 export function mutationLabel(mutation: StateMutation): string {
+  // Totality guard before the `mutation.type` read below (T2 finding), the mutation-level
+  // sibling of the `isPlainRecord(mutation.args)` gate below and matching `applyDocMutation`'s
+  // own new mutation-level gate. A non-record `mutation` (`null`/primitive) would otherwise
+  // throw on `Object.hasOwn(…, mutation.type)`, breaking the "mutationLabel never throws"
+  // contract the AI recent-mutation log relies on. Fall back to a static `'unknown'` label
+  // (there is no readable `type` to echo), mirroring the per-handler `'unknown'` fallbacks.
+  if (!isPlainRecord(mutation)) {
+    return 'unknown';
+  }
   // `Object.hasOwn` before the bracket read (T2-1), same reasoning as `applyDocMutation`:
   // a `type` naming an `Object.prototype` member would otherwise resolve to a prototype
   // function and throw `handler.label is not a function` instead of returning the raw type

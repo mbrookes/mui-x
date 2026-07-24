@@ -990,6 +990,16 @@ export function deserializeState(
   // `filters: [null]` / `scope: null` entry must be defensively removed here too —
   // otherwise it installs into live `doc.filters` and then throws in `serializeDoc` and
   // the reducer on the next commit.
+  // First-occurrence-wins dedup of duplicate filter `id`s (Finding 3), mirroring the
+  // `dedupeLayoutRows` convention in `applyMutation.ts` (keep first, drop later
+  // duplicates). A hand-edited/foreign doc with two filters sharing an `id` previously
+  // loaded BOTH — and worse, defeated the rank-uniqueness dedup pass below:
+  // `hasConflictingRankFilter(filter.id, …)` self-excludes the entry whose id it's
+  // checking (`filter.id === filterId` in `applyMutation.ts`), so a duplicate-id rank
+  // filter never registered as conflicting with the already-kept copy of the SAME id and
+  // both survived. Dropping duplicate ids here (before that pass) closes both the raw
+  // duplicate and the rank-dedup escape.
+  const seenFilterIds = new Set<string>();
   const screenedFilters = dependsOnRepairedFilters.filter((f) => {
     if (!isRecord(f)) {
       return false;
@@ -1014,6 +1024,13 @@ export function deserializeState(
     if (typeof (f as { id?: unknown }).id !== 'string') {
       return false;
     }
+    // Drop a duplicate `id` — first occurrence already kept (Finding 3). Runs after the
+    // string-id screen above so a non-string id never poisons the `seen` set.
+    const filterId = (f as { id: string }).id;
+    if (seenFilterIds.has(filterId)) {
+      return false;
+    }
+    seenFilterIds.add(filterId);
     const scope = (f as { scope?: unknown }).scope;
     // Full scope validity — record-ness, kind membership AND every required id field
     // present — via the ONE shared predicate the wire boundary uses (Finding T3-1),

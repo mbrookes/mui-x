@@ -1864,6 +1864,62 @@ describe('deserializeState', () => {
     expect(state.doc.filters.map((f) => f.id)).toEqual(['rank-1']);
   });
 
+  // Finding 3 (iteration-28): the load boundary never deduped filters sharing an `id`,
+  // which also defeated the rank-uniqueness dedup (`hasConflictingRankFilter` self-excludes
+  // the entry whose id it checks, so two identical-id rank filters both survived). First
+  // occurrence must win, mirroring the `dedupeLayoutRows` convention.
+  it('drops a duplicate filter id at load, keeping the first occurrence (Finding 3)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      filters: [
+        {
+          id: 'dup',
+          field: 'x',
+          operator: 'equals',
+          value: 'first',
+          scope: { kind: 'page', pageId: 'page-1' },
+        },
+        {
+          id: 'dup',
+          field: 'y',
+          operator: 'equals',
+          value: 'second',
+          scope: { kind: 'page', pageId: 'page-1' },
+        },
+      ],
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.filters.map((f) => f.id)).toEqual(['dup']);
+    expect(state.doc.filters[0].value).toBe('first');
+  });
+
+  it('drops two identical-id rank filters down to the first at load (Finding 3, rank-dedup escape)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      filters: [
+        {
+          id: 'rank-dup',
+          field: 'x',
+          operator: 'equals',
+          value: '',
+          filterMode: 'rank',
+          scope: { kind: 'page', pageId: 'page-1' },
+        },
+        {
+          id: 'rank-dup',
+          field: 'x',
+          operator: 'equals',
+          value: '',
+          filterMode: 'rank',
+          scope: { kind: 'page', pageId: 'page-1' },
+        },
+      ],
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.filters).toHaveLength(1);
+    expect(state.doc.filters[0].id).toBe('rank-dup');
+  });
+
   it('keeps two rank filters on DIFFERENT pages at load (not a global uniqueness constraint)', () => {
     const serialized = {
       ...minimalSerialized,

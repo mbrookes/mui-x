@@ -3242,4 +3242,51 @@ describe('capIncomingDashboardState', () => {
     expect(Object.keys(capped.doc.pages).length).toBe(200);
     expect(capped.doc.filters.length).toBe(500);
   });
+
+  // Tier 1 resource-exhaustion finding: `runtime.dataSources` is interpolated into
+  // `<dashboard_state>`'s "## Data Sources" section with no cap of its own —
+  // `capIncomingDashboardState` must bound it the same way it already bounds
+  // `doc.pages`/`doc.widgets`/`doc.filters`.
+  it('caps an oversized runtime.dataSources map (entry count, field count, and free-text length)', () => {
+    const long = 'x'.repeat(1000);
+    const fields = [];
+    for (let i = 0; i < 600; i += 1) {
+      fields.push({
+        id: `f${i}`,
+        label: long,
+        type: 'number' as const,
+        format: long as never,
+        aiDescription: long,
+      });
+    }
+    const dataSources: Record<string, StudioState['runtime']['dataSources'][string]> = {};
+    for (let i = 0; i < 600; i += 1) {
+      dataSources[`src${i}`] = {
+        id: `src${i}`,
+        label: long,
+        aiDescription: long,
+        fields: i === 0 ? fields : [],
+      };
+    }
+    const state = createDefaultStudioState({ runtime: { dataSources } });
+
+    const capped = capIncomingDashboardState(state);
+
+    // Entry count capped.
+    expect(Object.keys(capped.runtime.dataSources).length).toBe(500);
+    const src0 = capped.runtime.dataSources.src0;
+    // Free-text strings capped.
+    expect(src0.label.length).toBe(200);
+    expect(src0.aiDescription!.length).toBe(200);
+    // The id (structural identifier) is left untouched.
+    expect(src0.id).toBe('src0');
+    // Field count per source capped.
+    expect(src0.fields.length).toBe(500);
+    expect(src0.fields[0].label.length).toBe(200);
+    expect((src0.fields[0].format as unknown as string).length).toBe(200);
+    expect(src0.fields[0].aiDescription!.length).toBe(200);
+    // The input is not mutated.
+    expect(state.runtime.dataSources.src0.label.length).toBe(1000);
+    expect(state.runtime.dataSources.src0.fields.length).toBe(600);
+  });
 });

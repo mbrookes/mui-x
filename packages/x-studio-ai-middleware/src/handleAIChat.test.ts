@@ -15,6 +15,7 @@ import {
   type StudioAIHandlerOptions,
 } from './handleAIChat';
 import { createDefaultStudioState } from './models/studioTypes';
+import type { StudioDataSource } from './models/studioTypes';
 import type { StudioAISkill } from './models/aiTypes';
 import type { StudioAIRequest, StudioAISSEEvent } from './models/protocol';
 
@@ -1198,5 +1199,110 @@ describe('handleAIChat — server-side allowedSkills enforcement (T1-1)', () => 
     const prompt = await systemPromptText(body, {});
 
     expect(prompt).toContain('Body-supplied content, trusted when allowedSkills is unset.');
+  });
+});
+
+// Tier 1 resource-exhaustion finding: `runtime.dataSources`, `richContext`, and
+// `customWidgets` are all client-supplied request fields interpolated into the very
+// FIRST system prompt with only `sanitizeForPrompt`'s angle-bracket escaping — no
+// count/length cap of its own. `capIncomingDashboardState` (dataSources) and the new
+// `capIncomingRichContext`/`capIncomingCustomWidgets` helpers bound all three at the
+// same request-handling chokepoint, before `buildAISystemPrompt` ever sees them.
+describe('handleAIChat — Tier 1 resource-exhaustion caps (dataSources / richContext / customWidgets)', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** Run one text-only turn and return the system-prompt text sent to the LLM. */
+  async function systemPromptText(body: StudioAIRequest): Promise<string> {
+    vi.mocked(fetch).mockResolvedValueOnce(textResponse('ok'));
+    await readAll(handleAIChat(body, OPTIONS));
+    const sentBody = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string) as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    return sentBody.messages.find((m) => m.role === 'system')?.content ?? '';
+  }
+
+  it('caps an oversized runtime.dataSources map before it reaches the system prompt', async () => {
+    const state = createDefaultStudioState();
+    const dataSources: Record<string, StudioDataSource> = {};
+    for (let i = 0; i < 700; i += 1) {
+      dataSources[`src${i}`] = {
+        id: `src${i}`,
+        label: `Source ${i}`,
+        fields: [{ id: 'x', label: 'X', type: 'number' }],
+      };
+    }
+    const body = makeBody({
+      dashboardState: { ...state, runtime: { ...state.runtime, dataSources } },
+    });
+
+    const prompt = await systemPromptText(body);
+
+    // Only the capped (500-entry) prefix is described in the prompt, not all 700.
+    expect(prompt).toContain('Source 0');
+    expect(prompt).not.toContain('Source 699');
+    expect(fetch).toHaveBeenCalled();
+  });
+
+  it('caps an oversized richContext before it reaches the system prompt', async () => {
+    const fieldStats: Record<
+      string,
+      { type: 'number'; min: number; max: number; mean: number; sampledRows: number }
+    > = {};
+    for (let i = 0; i < 700; i += 1) {
+      fieldStats[`field${i}`] = { type: 'number', min: 0, max: 1, mean: 0.5, sampledRows: 10 };
+    }
+    const body = makeBody({ richContext: { fieldStats } });
+
+    const prompt = await systemPromptText(body);
+
+    expect(prompt).toContain('field0');
+    expect(prompt).not.toContain('field699');
+  });
+
+  it('caps an oversized customWidgets array before it reaches the system prompt', async () => {
+    const customWidgets = Array.from({ length: 300 }, (_, i) => ({
+      kind: `custom-${i}`,
+      label: `Custom Widget ${i}`,
+    }));
+    const body = makeBody({ customWidgets });
+
+    const prompt = await systemPromptText(body);
+
+    expect(prompt).toContain('custom-0');
+    expect(prompt).not.toContain('custom-299');
+  });
+
+  // Tier 3 crash-resilience gap: `describeSource`'s `source.fields.filter(...)` throws
+  // an unprefixed native `TypeError` when `fields` is missing/wrong-typed on a
+  // `dataSources[id]` entry — previously only caught by the outer generic `catch` in
+  // `start()`, not surfaced as this codebase's actionable `MUI X Studio:`-prefixed
+  // validation error. `validateStudioAIRequestBody` now validates each entry's shape.
+  it('rejects a malformed runtime.dataSources entry (missing fields) with a clean validation error', async () => {
+    const state = createDefaultStudioState();
+    const body = makeBody({
+      dashboardState: {
+        ...state,
+        runtime: {
+          ...state.runtime,
+          dataSources: {
+            bad: { id: 'bad', label: 'Bad Source' } as unknown as StudioDataSource,
+          },
+        },
+      },
+    });
+
+    const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+    const errorEvent = events.find(
+      (event): event is { type: 'error'; message: string } => event.type === 'error',
+    );
+    expect(errorEvent?.message).toMatch(/^MUI X Studio:/);
+    expect(errorEvent?.message).toMatch(/dataSources\[.*bad.*\]/);
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

@@ -67,7 +67,7 @@ import type {
   StudioAIRichContext,
   StudioAIEnrichedContext,
 } from './models/aiTypes';
-import type { StudioState } from './models/studioTypes';
+import type { StudioState, StudioCustomWidgetDef } from './models/studioTypes';
 
 /** Arguments passed to a {@link StudioAIContextEnricher}. */
 export interface StudioAIContextEnricherArgs {
@@ -415,6 +415,168 @@ export const MAX_REQUEST_MESSAGES = 1_000;
 export const MAX_REQUEST_MESSAGES_TOTAL_CHARS = 2_000_000;
 
 /**
+ * Max string length a capped `richContext`/`customWidgets` free-text field is
+ * truncated to (Tier 1 resource-exhaustion finding, sibling to
+ * `executeToolOnState.ts`'s `MAX_TITLE_LENGTH`). Both `richContext` and
+ * `customWidgets` are client-supplied request fields interpolated into the
+ * FIRST system prompt (via `buildAISystemPrompt.ts`'s `buildRichContextBlock`
+ * and its custom-widget listing loop) with only `sanitizeForPrompt`'s
+ * angle-bracket escaping — no length bound of its own. Sized the same as
+ * `MAX_TITLE_LENGTH` rather than inventing a second constant for the same
+ * class of free-text string.
+ */
+const MAX_REQUEST_STRING_LENGTH = 200;
+
+/**
+ * Max number of `richContext.fieldStats` keys retained (Tier 1
+ * resource-exhaustion finding). `buildRichContextBlock` iterates
+ * `Object.entries(rc.fieldStats)` with no existing cap before interpolating
+ * every entry into `<dashboard_context>`. `StudioAIRichContext`'s own doc
+ * comment says the CLIENT is expected to stay under a token budget — that is
+ * a documented assumption, not a server-enforced bound, so a hostile/buggy
+ * client is not actually stopped by it.
+ */
+const MAX_RICH_CONTEXT_FIELD_STATS = 500;
+
+/** Max number of `richContext.pageLayout.rows` retained (see {@link MAX_RICH_CONTEXT_FIELD_STATS}). */
+const MAX_RICH_CONTEXT_LAYOUT_ROWS = 200;
+
+/** Max number of widget cells retained per `richContext.pageLayout.rows` row (see {@link MAX_RICH_CONTEXT_FIELD_STATS}). */
+const MAX_RICH_CONTEXT_ROW_CELLS = 50;
+
+/** Max number of `richContext.pageLayout.crossFilters` entries retained (see {@link MAX_RICH_CONTEXT_FIELD_STATS}). */
+const MAX_RICH_CONTEXT_CROSS_FILTERS = 200;
+
+/** Max number of `richContext.recentMutations` entries retained (see {@link MAX_RICH_CONTEXT_FIELD_STATS}). */
+const MAX_RICH_CONTEXT_RECENT_MUTATIONS = 200;
+
+/** Max number of `richContext.omitted` entries retained (see {@link MAX_RICH_CONTEXT_FIELD_STATS}). */
+const MAX_RICH_CONTEXT_OMITTED = 50;
+
+/**
+ * Max number of `customWidgets` entries retained from the request body
+ * (Tier 1 resource-exhaustion finding). `buildAISystemPrompt.ts` loops over
+ * the whole array, unbounded, to list each custom widget kind in the system
+ * prompt.
+ */
+const MAX_REQUEST_CUSTOM_WIDGETS = 200;
+
+/**
+ * Max number of `defaultConfig` keys retained per `customWidgets` entry (see
+ * {@link MAX_REQUEST_CUSTOM_WIDGETS}). `buildAISystemPrompt.ts` interpolates
+ * `Object.keys(cw.defaultConfig)` in full with no existing cap.
+ */
+const MAX_CUSTOM_WIDGET_CONFIG_KEYS = 200;
+
+/** Cap a value to {@link MAX_REQUEST_STRING_LENGTH} when it is a string; pass through otherwise. */
+function capRequestString(value: unknown): unknown {
+  return typeof value === 'string' && value.length > MAX_REQUEST_STRING_LENGTH
+    ? value.slice(0, MAX_REQUEST_STRING_LENGTH)
+    : value;
+}
+
+/** Plain-object guard mirroring `buildAISystemPrompt.ts`'s own defensive shape checks. */
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Cap a client-supplied `richContext` (Tier 1 resource-exhaustion finding,
+ * sibling to `executeToolOnState.ts`'s `capIncomingDashboardState`) before it
+ * is threaded into `buildAISystemPrompt`'s `<dashboard_context>` block.
+ * `buildRichContextBlock` already defensively guards against malformed shapes
+ * (a non-plain-object `fieldStats`, a non-array `pageLayout.rows`, …) via
+ * `isPlainObject`/`Array.isArray` checks and simply omits a malformed
+ * section — so this cap mirrors those SAME shape guards and only bounds the
+ * count/length of an otherwise-well-shaped section, leaving a malformed one
+ * untouched for `buildRichContextBlock` to skip as it already does. Applied
+ * once, at the same request-handling chokepoint as
+ * `capIncomingDashboardState`, before `richContext` reaches the context
+ * enricher or the agentic loop. Returns the input unchanged when it is not a
+ * plain object (including `undefined`); never mutates the input.
+ */
+export function capIncomingRichContext(
+  richContext: StudioAIRichContext | undefined,
+): StudioAIRichContext | undefined {
+  if (!isPlainRecord(richContext)) {
+    return richContext;
+  }
+  const rc = richContext as unknown as {
+    fieldStats?: unknown;
+    pageLayout?: unknown;
+    recentMutations?: unknown;
+    omitted?: unknown;
+  };
+  const capped: Record<string, unknown> = { ...richContext };
+
+  if (isPlainRecord(rc.fieldStats)) {
+    capped.fieldStats = Object.fromEntries(
+      Object.entries(rc.fieldStats).slice(0, MAX_RICH_CONTEXT_FIELD_STATS),
+    );
+  }
+
+  if (isPlainRecord(rc.pageLayout)) {
+    const layout = rc.pageLayout as { rows?: unknown; crossFilters?: unknown };
+    const cappedLayout: Record<string, unknown> = { ...layout };
+    if (Array.isArray(layout.rows)) {
+      cappedLayout.rows = layout.rows
+        .slice(0, MAX_RICH_CONTEXT_LAYOUT_ROWS)
+        .map((row) => (Array.isArray(row) ? row.slice(0, MAX_RICH_CONTEXT_ROW_CELLS) : row));
+    }
+    if (Array.isArray(layout.crossFilters)) {
+      cappedLayout.crossFilters = layout.crossFilters.slice(0, MAX_RICH_CONTEXT_CROSS_FILTERS);
+    }
+    capped.pageLayout = cappedLayout;
+  }
+
+  if (Array.isArray(rc.recentMutations)) {
+    capped.recentMutations = rc.recentMutations
+      .slice(0, MAX_RICH_CONTEXT_RECENT_MUTATIONS)
+      .map((m) => (isPlainRecord(m) ? { ...m, label: capRequestString(m.label) } : m));
+  }
+
+  if (Array.isArray(rc.omitted)) {
+    capped.omitted = rc.omitted.slice(0, MAX_RICH_CONTEXT_OMITTED).map(capRequestString);
+  }
+
+  return capped as StudioAIRichContext;
+}
+
+/**
+ * Cap a client-supplied `customWidgets` array (Tier 1 resource-exhaustion
+ * finding, sibling to {@link capIncomingRichContext}) before it is threaded
+ * into `buildAISystemPrompt`'s custom-widget listing loop and the agentic
+ * loop's widget-creation tools. Caps the array length
+ * ({@link MAX_REQUEST_CUSTOM_WIDGETS}) and, per entry, the `label`/
+ * `description` string length ({@link MAX_REQUEST_STRING_LENGTH}) and the
+ * `defaultConfig` key count ({@link MAX_CUSTOM_WIDGET_CONFIG_KEYS}).
+ * `validateStudioAIRequestBody` has already guaranteed each element is a
+ * plain object with a string `kind` by the time this runs. Returns the input
+ * unchanged when it is `undefined`; never mutates the input.
+ */
+export function capIncomingCustomWidgets(
+  customWidgets: StudioCustomWidgetDef[] | undefined,
+): StudioCustomWidgetDef[] | undefined {
+  if (!customWidgets) {
+    return customWidgets;
+  }
+  return customWidgets.slice(0, MAX_REQUEST_CUSTOM_WIDGETS).map((cw) => ({
+    ...cw,
+    label: capRequestString(cw.label) as string,
+    ...(cw.description !== undefined
+      ? { description: capRequestString(cw.description) as string }
+      : {}),
+    ...(isPlainRecord(cw.defaultConfig)
+      ? {
+          defaultConfig: Object.fromEntries(
+            Object.entries(cw.defaultConfig).slice(0, MAX_CUSTOM_WIDGET_CONFIG_KEYS),
+          ),
+        }
+      : {}),
+  }));
+}
+
+/**
  * Encodes a `StudioAISSEEvent` as an SSE-formatted string.
  */
 function encodeSSE(event: StudioAISSEEvent): string {
@@ -609,6 +771,34 @@ function validateStudioAIRequestBody(body: unknown): string | undefined {
       'than a partial or hand-built object.'
     );
   }
+  // Tier 3 crash-resilience gap (companion to the Tier 1 `runtime.dataSources`
+  // resource-exhaustion cap in `capIncomingDashboardState`): the check above only
+  // validates that `runtime.dataSources` itself is a map, not the shape of any
+  // individual entry. `describeSource` (`buildAISystemPrompt.ts`) does
+  // `source.fields.filter(...)` unconditionally, so a `dataSources[id]` entry with
+  // a missing/non-array `fields` throws an unprefixed native `TypeError` the first
+  // time the system prompt is built — currently masked by the outer `try`/`catch`
+  // in `handleAIChat`'s `start()`, which reports it as a generic error rather than
+  // this codebase's actionable `MUI X Studio:`-prefixed message. Validate each
+  // entry has at least a string `id`/`label` and an array `fields`, mirroring how
+  // `doc.pages`/`doc.widgets`/`doc.filters`/`messages[].parts` are validated above.
+  for (const [sourceId, source] of Object.entries(dashboardState.runtime.dataSources)) {
+    if (
+      !isObject(source) ||
+      typeof source.id !== 'string' ||
+      typeof source.label !== 'string' ||
+      !Array.isArray(source.fields)
+    ) {
+      return (
+        `MUI X Studio: \`dashboardState.runtime.dataSources[${JSON.stringify(sourceId)}]\` is ` +
+        'missing a string `id`, a string `label`, and/or an array `fields` (`StudioDataSource`). ' +
+        "This prevents `buildAISystemPrompt.ts`'s `describeSource` from reading the source's field " +
+        'list when building the system prompt. Ensure every entry in `dashboardState.runtime.' +
+        'dataSources` is a complete `StudioDataSource` — e.g. ' +
+        '`{ id, label, fields: StudioDataField[], ... }` — not a partial or hand-built object.'
+      );
+    }
+  }
   // Finding F2 (Tier 3), related smaller gap: a non-array `allowedTools` reaches
   // `agenticLoop.ts`'s `(allowedTools as string[]).includes(...)` — on a string body
   // this silently degrades to SUBSTRING matching rather than array membership
@@ -778,6 +968,16 @@ export function handleAIChat(
         // `currentState`, so subsequent mutations build on the bounded state too.
         const cappedDashboardState = capIncomingDashboardState(dashboardState);
 
+        // Tier 1 resource-exhaustion finding, sibling gap to the above: `richContext`
+        // and `customWidgets` are ALSO client-supplied and interpolated into the very
+        // first system prompt (`buildAISystemPrompt.ts`'s `buildRichContextBlock` and
+        // its custom-widget listing loop) with only `sanitizeForPrompt`'s angle-bracket
+        // escaping — no count/length bound of its own. Capped here, at the same
+        // request-handling chokepoint as `cappedDashboardState` above, BEFORE either
+        // reaches the context enricher or the agentic loop.
+        const cappedRichContext = capIncomingRichContext(richContext);
+        const cappedCustomWidgets = capIncomingCustomWidgets(customWidgets);
+
         // Server-side allowlist / private-mode enforcement (invariant 10: the client
         // asserts these in the body; a host that needs a hard guarantee overrides them
         // here). The effective tool set is the INTERSECTION of the server allowlist and
@@ -853,7 +1053,7 @@ export function handleAIChat(
               Promise.resolve(
                 options.contextEnricher({
                   dashboardState: cappedDashboardState,
-                  richContext,
+                  richContext: cappedRichContext,
                   signal: abortController.signal,
                 }),
               ),
@@ -871,7 +1071,7 @@ export function handleAIChat(
         const loop = runAgenticLoop(
           messages,
           cappedDashboardState,
-          customWidgets,
+          cappedCustomWidgets,
           focusedWidgetId,
           effectiveAllowedTools,
           effectiveSkills,
@@ -891,7 +1091,7 @@ export function handleAIChat(
             approvalFallback: options.approvalFallback,
             approvalTimeoutMs: options.approvalTimeoutMs,
             pageSnapshot,
-            richContext,
+            richContext: cappedRichContext,
             enrichedContext,
           },
         );

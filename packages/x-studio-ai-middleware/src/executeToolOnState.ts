@@ -297,6 +297,92 @@ const MAX_STATE_WIDGETS = 1000;
 const MAX_STATE_FILTERS = 500;
 
 /**
+ * Max number of `runtime.dataSources` entries retained from an incoming,
+ * client-supplied `dashboardState` before it is interpolated into
+ * `<dashboard_state>`'s "## Data Sources" section (Tier 1 resource-exhaustion
+ * finding, sibling to {@link MAX_STATE_PAGES}/{@link MAX_STATE_WIDGETS}/
+ * {@link MAX_STATE_FILTERS}). `buildAISystemPrompt.ts`'s `buildDashboardState`
+ * does `Object.values(dataSources)` with NO existing count cap, and
+ * `describeSource`/`serializeFieldForAI` interpolate every entry's free-text
+ * strings with only `sanitizeForPrompt`'s angle-bracket escaping — escaping
+ * neutralizes markup but does not bound size. A client posting thousands of
+ * fabricated data sources would blow the very first system prompt up
+ * unbounded, before any tool-call cap or token-budget check could apply.
+ * Sized like {@link MAX_STATE_FILTERS} — a real integration wires at most a
+ * few dozen data sources, so this only ever trips a runaway/hostile payload.
+ */
+const MAX_STATE_DATA_SOURCES = 500;
+
+/**
+ * Max number of `fields` entries retained per data source in the same cap pass
+ * (see {@link MAX_STATE_DATA_SOURCES}). `describeSource` iterates every field
+ * with no existing cap, and each field is individually rendered via
+ * `serializeFieldForAI` in `<dashboard_state>`.
+ */
+const MAX_STATE_DATA_SOURCE_FIELDS = 500;
+
+/**
+ * Cap a model-supplied `StudioDataField`'s free-text strings before it is
+ * persisted onto an incoming data source (see {@link MAX_STATE_DATA_SOURCES}).
+ * `label`/`aiDescription` reuse {@link MAX_TITLE_LENGTH} — the same bound
+ * already applied to dashboard/page/widget titles — rather than inventing a
+ * new constant for the same class of free-text string. `format` is nominally
+ * typed as a fixed `StudioNumberFormat` enum, but `dashboardState` is
+ * client-supplied JSON with no runtime enum check, so it is capped the same
+ * defensive way (`serializeFieldForAI` interpolates it verbatim).
+ */
+function capDataSourceField(field: StudioDataField): StudioDataField {
+  return {
+    ...field,
+    label: capTitle(String(field.label ?? '')),
+    ...(field.format !== undefined
+      ? { format: capString(String(field.format), MAX_TITLE_LENGTH) as StudioDataField['format'] }
+      : {}),
+    ...(field.aiDescription !== undefined
+      ? { aiDescription: capTitle(String(field.aiDescription)) }
+      : {}),
+  };
+}
+
+/**
+ * Cap a model-supplied `StudioDataSource` before it is interpolated into
+ * `<dashboard_state>`'s "## Data Sources" section (see
+ * {@link MAX_STATE_DATA_SOURCES}). Caps the `fields` count
+ * ({@link MAX_STATE_DATA_SOURCE_FIELDS}) and every field's free-text strings
+ * (via {@link capDataSourceField}), plus the source's own `label`/
+ * `aiDescription`. Mirrors `capIncomingDashboardState`'s widget/page title
+ * caps — the source `id` itself is left untouched (like widget/page `id`s),
+ * since it is a structural identifier other request fields (`widget.sourceId`)
+ * reference by exact value, not free text.
+ */
+function capDataSource(source: StudioDataSource): StudioDataSource {
+  return {
+    ...source,
+    label: capTitle(String(source.label ?? '')),
+    ...(source.aiDescription !== undefined
+      ? { aiDescription: capTitle(String(source.aiDescription)) }
+      : {}),
+    fields: (source.fields ?? []).slice(0, MAX_STATE_DATA_SOURCE_FIELDS).map(capDataSourceField),
+  };
+}
+
+/**
+ * Cap a client-supplied `runtime.dataSources` map (Tier 1 resource-exhaustion
+ * finding — see {@link MAX_STATE_DATA_SOURCES}) before `capIncomingDashboardState`
+ * threads it forward. Bounds entry count, per-source field count, and every
+ * free-text string, mirroring the `doc`-partition caps below.
+ */
+function capDataSources(
+  dataSources: Record<string, StudioDataSource>,
+): Record<string, StudioDataSource> {
+  const capped: Record<string, StudioDataSource> = {};
+  for (const [id, source] of Object.entries(dataSources).slice(0, MAX_STATE_DATA_SOURCES)) {
+    capped[id] = capDataSource(source);
+  }
+  return capped;
+}
+
+/**
  * Cap a client-supplied `dashboardState` (finding F2, Tier 2) by running its
  * dashboard title, pages, widgets, and filters through the SAME caps the AI-tool
  * mutation paths already apply at their write sources — `capTitle` for dashboard/
@@ -306,12 +392,17 @@ const MAX_STATE_FILTERS = 500;
  * on each of pages/widgets/filters ({@link MAX_STATE_PAGES}/{@link MAX_STATE_WIDGETS}/
  * {@link MAX_STATE_FILTERS}).
  *
+ * Also caps `runtime.dataSources` (Tier 1 resource-exhaustion finding —
+ * see {@link MAX_STATE_DATA_SOURCES}/{@link capDataSources}): unlike the other
+ * `doc` partitions this cap guards, `dataSources` is interpolated into the
+ * system prompt directly from `runtime`, with no per-tool-call write path of
+ * its own to cap at — so this is the ONLY chokepoint that bounds it.
+ *
  * Applied once, at the top of `handleAIChat` request handling, BEFORE the state is
  * used to build the system prompt or threaded into the agentic loop as the starting
  * `currentState`. Non-interpolated `doc` sub-partitions (`relationships`,
- * `expressionFields`, `filterPresets`, `ai`) and the `session`/`runtime` partitions
- * are passed through unchanged. Returns a shallow-cloned state; the input is not
- * mutated.
+ * `expressionFields`, `filterPresets`, `ai`) and the `session` partition are passed
+ * through unchanged. Returns a shallow-cloned state; the input is not mutated.
  */
 export function capIncomingDashboardState(state: StudioState): StudioState {
   const { doc } = state;
@@ -357,6 +448,10 @@ export function capIncomingDashboardState(state: StudioState): StudioState {
       pages: cappedPages,
       widgets: cappedWidgets,
       filters: cappedFilters,
+    },
+    runtime: {
+      ...state.runtime,
+      dataSources: capDataSources(state.runtime.dataSources),
     },
   };
 }

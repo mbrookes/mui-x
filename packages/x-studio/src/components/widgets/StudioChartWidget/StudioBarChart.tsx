@@ -9,6 +9,7 @@ import type {
   MultiSeriesData,
   MultiYSeriesData,
 } from '../../../internals/chartAggregation';
+import { sanitizeFiniteNumber } from '../../../internals/cssValueValidation';
 import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
 import {
   alignFilteredToAllLabels,
@@ -35,6 +36,10 @@ import { AxisFieldTooltip } from './StudioChartFieldTooltip';
 
 const CROSS_FILTER_AXIS_ID = 'cross-filter-axis';
 const CROSS_FILTER_SERIES_ID = 'cross-filter-series';
+
+// Upper bound for `barMinBandSize` (finding: architecture review, Tier 3) — see the sanitization
+// block near the top of `StudioBarChart` for why this is needed.
+const MAX_BAR_MIN_BAND_SIZE = 500;
 
 type BarHighlightItem = HighlightItemIdentifier<'bar' | 'line' | 'pie'>;
 
@@ -157,6 +162,41 @@ export function StudioBarChart({
 }: StudioBarChartProps) {
   const localeText = useStudioLocaleText();
   const otherBucketLabel = localeText.chartOtherBucketLabel;
+
+  // Sanitize `barMinBandSize`/`barCategoryGapRatio` — typed as `number` but, unlike every other
+  // bar-chart config field, neither has ANY setup-panel UI (no `BarConfigSection.tsx` exists, and
+  // nothing in `StudioComposeDrawer` writes these keys), so they're reachable ONLY via
+  // `loadSerializedState`/an AI `update_widget`/`apply_bulk_update` tool call — never validated by
+  // any UI. `barMinBandSize` feeds `xAxisData.length * barMinBandSize + 40` into a
+  // `<div style={{ height }}>` below: a non-finite value collapses the container to a NaN height
+  // (silently blanks the chart), and an unbounded one (e.g. `1e9`) inflates it to an enormous
+  // layout height with no cap. `barCategoryGapRatio` feeds the x-charts axis `categoryGapRatio`
+  // prop directly, whose valid range is `[0, 1)`; an out-of-range or non-finite value produces
+  // broken/garbage band geometry. Both are validated here, at the render call site — never just
+  // formatted for the height style — mirroring `StudioGaugeChart`'s "guard-and-continue, warn in
+  // dev, never throw" `rangeIsValid` pattern.
+  const barMinBandSizeIsValid =
+    barMinBandSize === undefined ||
+    (sanitizeFiniteNumber(barMinBandSize, 1) !== undefined &&
+      barMinBandSize <= MAX_BAR_MIN_BAND_SIZE);
+  if (!barMinBandSizeIsValid && process.env.NODE_ENV !== 'production') {
+    console.warn(
+      `MUI X Studio: Bar chart "barMinBandSize" must be a finite number between 1 and ` +
+        `${MAX_BAR_MIN_BAND_SIZE} (received ${barMinBandSize}). Ignoring the value.`,
+    );
+  }
+  const safeBarMinBandSize = barMinBandSizeIsValid ? barMinBandSize : undefined;
+
+  const barCategoryGapRatioIsValid =
+    barCategoryGapRatio === undefined ||
+    (Number.isFinite(barCategoryGapRatio) && barCategoryGapRatio >= 0 && barCategoryGapRatio < 1);
+  if (!barCategoryGapRatioIsValid && process.env.NODE_ENV !== 'production') {
+    console.warn(
+      `MUI X Studio: Bar chart "barCategoryGapRatio" must be a finite number in [0, 1) ` +
+        `(received ${barCategoryGapRatio}). Ignoring the value.`,
+    );
+  }
+  const safeBarCategoryGapRatio = barCategoryGapRatioIsValid ? barCategoryGapRatio : undefined;
 
   const isHorizontalBarLayout = barLayout === 'horizontal';
 
@@ -380,8 +420,8 @@ export function StudioBarChart({
       };
     });
     const multiYEffectiveHeight =
-      isHorizontalBarLayout && barMinBandSize
-        ? Math.max(height, xAxisData.length * barMinBandSize + 40)
+      isHorizontalBarLayout && safeBarMinBandSize
+        ? Math.max(height, xAxisData.length * safeBarMinBandSize + 40)
         : height;
     return (
       <CrossFilterBarContext.Provider value={multiYBarContext}>
@@ -430,8 +470,8 @@ export function StudioBarChart({
                       ...(axisTickFontSize !== undefined
                         ? { tickLabelStyle: { fontSize: `${axisTickFontSize}px` } }
                         : {}),
-                      ...(barCategoryGapRatio !== undefined
-                        ? { categoryGapRatio: barCategoryGapRatio }
+                      ...(safeBarCategoryGapRatio !== undefined
+                        ? { categoryGapRatio: safeBarCategoryGapRatio }
                         : {}),
                     },
                   ]
@@ -555,8 +595,8 @@ export function StudioBarChart({
     });
     const selectedDataIndices = getSelectedDataIndices(effectiveSFData.labels);
     const effectiveSFBarHeight =
-      isHorizontalBarLayout && barMinBandSize
-        ? Math.max(height, xAxisData.length * barMinBandSize + 40)
+      isHorizontalBarLayout && safeBarMinBandSize
+        ? Math.max(height, xAxisData.length * safeBarMinBandSize + 40)
         : height;
     return (
       <CrossFilterBarContext.Provider value={sfBarContext}>
@@ -590,8 +630,8 @@ export function StudioBarChart({
                       scaleType: 'band',
                       height: 'auto',
                       valueFormatter: (v: string | number) => wrapBandLabel(formatLabel(String(v))),
-                      ...(barCategoryGapRatio !== undefined
-                        ? { categoryGapRatio: barCategoryGapRatio }
+                      ...(safeBarCategoryGapRatio !== undefined
+                        ? { categoryGapRatio: safeBarCategoryGapRatio }
                         : {}),
                     },
                   ]
@@ -608,8 +648,8 @@ export function StudioBarChart({
                       ...(axisTickFontSize !== undefined
                         ? { tickLabelStyle: { fontSize: `${axisTickFontSize}px` } }
                         : {}),
-                      ...(barCategoryGapRatio !== undefined
-                        ? { categoryGapRatio: barCategoryGapRatio }
+                      ...(safeBarCategoryGapRatio !== undefined
+                        ? { categoryGapRatio: safeBarCategoryGapRatio }
                         : {}),
                     },
                   ]
@@ -802,7 +842,7 @@ export function StudioBarChart({
   const isHorizontal = isHorizontalBarLayout;
 
   // When barMinBandSize is set, expand the container so every row gets at least that many px.
-  const minBandSize = barMinBandSize;
+  const minBandSize = safeBarMinBandSize;
   const effectiveHBarHeight =
     isHorizontal && minBandSize
       ? Math.max(height, displayXAxisData.length * minBandSize + 40)
@@ -832,7 +872,7 @@ export function StudioBarChart({
     ...(isHorizontal && axisTickFontSize !== undefined
       ? { tickLabelStyle: { fontSize: `${axisTickFontSize}px` } }
       : {}),
-    ...(barCategoryGapRatio !== undefined ? { categoryGapRatio: barCategoryGapRatio } : {}),
+    ...(safeBarCategoryGapRatio !== undefined ? { categoryGapRatio: safeBarCategoryGapRatio } : {}),
   };
 
   // Value (measure) axis config, shared across orientations (dimension added at the slot below).

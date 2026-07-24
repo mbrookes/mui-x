@@ -153,6 +153,116 @@ describe('StudioScatterChart', () => {
     );
   });
 
+  // ── Bubble radius sanitization (architecture review, Tier 3) ─────────────────
+  // `scatterMinRadius`/`scatterMaxRadius` are only validated by `ScatterConfigSection.tsx`'s
+  // editor UI (min < max, 1-50, 1-100). A value written via `loadSerializedState`/an AI
+  // `update_widget`/`apply_bulk_update` tool call bypasses that editor entirely and must be
+  // sanitized at this render call site instead.
+  describe('bubble radius sanitization', () => {
+    function sizeMapRange(): [number, number] {
+      const props = lastScatterProps();
+      return (props.zAxis as Array<{ sizeMap: { size: [number, number] } }>)[0].sizeMap.size;
+    }
+
+    it('falls back to the defaults for a NaN min/max radius', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      renderScatter(
+        <StudioScatterChart
+          height={200}
+          sizeField="volume"
+          minRadius={NaN}
+          maxRadius={NaN}
+          scatterData={pointsA}
+          scatterSeries={null}
+          allScatterData={null}
+          allScatterSeries={null}
+          shouldShowGhost={false}
+          skipAnimation={false}
+        />,
+      );
+      expect(sizeMapRange()).toEqual([4, 40]);
+      warnSpy.mockRestore();
+    });
+
+    it('falls back to the defaults for an inverted (min > max) radius range', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      renderScatter(
+        <StudioScatterChart
+          height={200}
+          sizeField="volume"
+          minRadius={50}
+          maxRadius={10}
+          scatterData={pointsA}
+          scatterSeries={null}
+          allScatterData={null}
+          allScatterSeries={null}
+          shouldShowGhost={false}
+          skipAnimation={false}
+        />,
+      );
+      expect(sizeMapRange()).toEqual([4, 40]);
+      warnSpy.mockRestore();
+    });
+
+    it('falls back to the defaults for a negative radius', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      renderScatter(
+        <StudioScatterChart
+          height={200}
+          sizeField="volume"
+          minRadius={-5}
+          maxRadius={40}
+          scatterData={pointsA}
+          scatterSeries={null}
+          allScatterData={null}
+          allScatterSeries={null}
+          shouldShowGhost={false}
+          skipAnimation={false}
+        />,
+      );
+      expect(sizeMapRange()).toEqual([4, 40]);
+      warnSpy.mockRestore();
+    });
+
+    it('falls back to the defaults when min equals max', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      renderScatter(
+        <StudioScatterChart
+          height={200}
+          sizeField="volume"
+          minRadius={20}
+          maxRadius={20}
+          scatterData={pointsA}
+          scatterSeries={null}
+          allScatterData={null}
+          allScatterSeries={null}
+          shouldShowGhost={false}
+          skipAnimation={false}
+        />,
+      );
+      expect(sizeMapRange()).toEqual([4, 40]);
+      warnSpy.mockRestore();
+    });
+
+    it('still applies a valid, in-range radius pair', () => {
+      renderScatter(
+        <StudioScatterChart
+          height={200}
+          sizeField="volume"
+          minRadius={5}
+          maxRadius={30}
+          scatterData={pointsA}
+          scatterSeries={null}
+          allScatterData={null}
+          allScatterSeries={null}
+          shouldShowGhost={false}
+          skipAnimation={false}
+        />,
+      );
+      expect(sizeMapRange()).toEqual([5, 30]);
+    });
+  });
+
   it('pins matching colors on ghost/highlighted series of the same category and strips ghost legend labels (finding 1.2)', () => {
     const highlighted: ScatterSeriesData[] = [
       { id: 'a', label: 'A', data: pointsA },

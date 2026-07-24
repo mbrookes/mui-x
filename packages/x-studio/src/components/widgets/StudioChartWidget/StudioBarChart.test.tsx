@@ -854,6 +854,85 @@ describe('StudioBarChart', () => {
     });
   });
 
+  // ── Numeric config sanitization (architecture review, Tier 3) ────────────────
+  // `barMinBandSize`/`barCategoryGapRatio` have no setup-panel UI at all, so a hostile/corrupted
+  // `loadSerializedState` payload or an AI `update_widget`/`apply_bulk_update` tool call is the
+  // ONLY way these fields are ever set — they must be validated at the render call site rather
+  // than trusted as-is.
+  describe('numeric config sanitization', () => {
+    function heightDivStyle(container: HTMLElement): CSSStyleDeclaration {
+      return (container.querySelector('[data-testid="bar-chart"]')!.parentElement as HTMLElement)
+        .style;
+    }
+
+    it('ignores a NaN barMinBandSize instead of collapsing the container to a NaN height', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const { container } = renderChart(
+        baseProps({ barLayout: 'horizontal', barMinBandSize: NaN, height: 300 }),
+      );
+      expect(heightDivStyle(container).height).toBe('300px');
+      warnSpy.mockRestore();
+    });
+
+    it('ignores a negative barMinBandSize', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const { container } = renderChart(
+        baseProps({ barLayout: 'horizontal', barMinBandSize: -50, height: 300 }),
+      );
+      expect(heightDivStyle(container).height).toBe('300px');
+      warnSpy.mockRestore();
+    });
+
+    it('ignores an extreme barMinBandSize instead of inflating to an enormous layout height', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const { container } = renderChart(
+        baseProps({
+          barLayout: 'horizontal',
+          barMinBandSize: 1e9,
+          height: 300,
+          chartData: { labels: ['A', 'B', 'C'], values: [1, 2, 3] },
+        }),
+      );
+      expect(heightDivStyle(container).height).toBe('300px');
+      warnSpy.mockRestore();
+    });
+
+    it('still applies a valid, in-range barMinBandSize', () => {
+      const labels = Array.from({ length: 10 }, (_, i) => `L${i}`);
+      const values = labels.map(() => 1);
+      const { container } = renderChart(
+        baseProps({
+          barLayout: 'horizontal',
+          barMinBandSize: 50,
+          height: 100,
+          chartData: { labels, values },
+        }),
+      );
+      // 10 categories * 50px + 40 = 540, which exceeds the base height of 100.
+      expect(heightDivStyle(container).height).toBe('540px');
+    });
+
+    it('ignores an out-of-range or non-finite barCategoryGapRatio', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      renderChart(baseProps({ barCategoryGapRatio: 1.5 }));
+      expect(lastBarProps().xAxis[0].categoryGapRatio).toBeUndefined();
+
+      barChartSpy.mockClear();
+      renderChart(baseProps({ barCategoryGapRatio: -0.2 }));
+      expect(lastBarProps().xAxis[0].categoryGapRatio).toBeUndefined();
+
+      barChartSpy.mockClear();
+      renderChart(baseProps({ barCategoryGapRatio: NaN }));
+      expect(lastBarProps().xAxis[0].categoryGapRatio).toBeUndefined();
+      warnSpy.mockRestore();
+    });
+
+    it('still applies a valid barCategoryGapRatio', () => {
+      renderChart(baseProps({ barCategoryGapRatio: 0.3 }));
+      expect(lastBarProps().xAxis[0].categoryGapRatio).toBe(0.3);
+    });
+  });
+
   // ── Shared behaviour across shapes ───────────────────────────────────────────
   describe('shared', () => {
     it('densifies temporal gaps with null values (single-series)', () => {

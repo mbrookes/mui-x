@@ -11,6 +11,8 @@ import {
 } from '../../../internals/chartAggregation';
 
 const GHOST_SERIES_SUFFIX = '-ghost';
+const DEFAULT_MIN_RADIUS = 4;
+const DEFAULT_MAX_RADIUS = 40;
 
 interface StudioScatterChartProps {
   height: number;
@@ -65,6 +67,29 @@ export function StudioScatterChart({
   const muiTheme = useTheme();
   const { colorScheme } = useColorScheme();
   const resolvedMode = (colorScheme ?? muiTheme.palette.mode) as 'light' | 'dark';
+
+  // Sanitize the bubble radius range — `minRadius`/`maxRadius` (`config.scatterMinRadius`/
+  // `config.scatterMaxRadius`) are validated ONLY by `ScatterConfigSection.tsx`'s `RadiusInput`
+  // (min < max, 1 <= min <= 50, 1 <= max <= 100), which is editor-level validation: it enforces
+  // the constraint on a keystroke typed through that specific setup-panel control. A value
+  // written via `loadSerializedState`/an AI `update_widget`/`apply_bulk_update` tool call bypasses
+  // that editor entirely and reaches `sizeMap.size` below unchecked — an inverted (`min > max`),
+  // negative, or non-finite pair would otherwise feed a broken/crashing bubble size scale. Self-
+  // validate here, at the render call site, mirroring `StudioGaugeChart`'s "guard-and-continue,
+  // warn in dev, never throw" `rangeIsValid` pattern rather than relying on the editor alone.
+  const radiusRangeIsValid =
+    (minRadius === undefined || (Number.isFinite(minRadius) && minRadius > 0)) &&
+    (maxRadius === undefined || (Number.isFinite(maxRadius) && maxRadius > 0)) &&
+    (minRadius ?? DEFAULT_MIN_RADIUS) < (maxRadius ?? DEFAULT_MAX_RADIUS);
+  if (!radiusRangeIsValid && process.env.NODE_ENV !== 'production') {
+    console.warn(
+      `MUI X Studio: Scatter chart requires finite, positive "scatterMinRadius"/"scatterMaxRadius" ` +
+        `with max > min (received min=${minRadius}, max=${maxRadius}). Falling back to ` +
+        `${DEFAULT_MIN_RADIUS}/${DEFAULT_MAX_RADIUS}.`,
+    );
+  }
+  const safeMinRadius = radiusRangeIsValid ? (minRadius ?? DEFAULT_MIN_RADIUS) : DEFAULT_MIN_RADIUS;
+  const safeMaxRadius = radiusRangeIsValid ? (maxRadius ?? DEFAULT_MAX_RADIUS) : DEFAULT_MAX_RADIUS;
 
   // Colour-by is only active when both a field is configured and grouped series exist.
   const colorSeries = colorField && scatterSeries ? scatterSeries : null;
@@ -177,7 +202,7 @@ export function StudioScatterChart({
         {
           sizeMap: {
             type: 'continuous' as const,
-            size: [minRadius ?? 4, maxRadius ?? 40] as [number, number],
+            size: [safeMinRadius, safeMaxRadius] as [number, number],
           },
         },
       ]

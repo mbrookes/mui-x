@@ -76,6 +76,12 @@ export const CHART_LIBRARIES: LibraryDef[] = [
   // undercount.
   { id: 'visx', label: 'visx', pkg: '@visx/visx' },
   { id: 'plotly', label: 'Plotly', pkg: 'react-plotly.js' },
+  { id: 'ant-design-charts', label: 'Ant Design Charts', pkg: '@ant-design/charts' },
+  // amCharts has no official React wrapper package — the docs have React users import the
+  // core library directly and manage it in a useEffect/ref, so `@amcharts/amcharts5` (the
+  // current major version) is the only meaningful search term, unlike the React-facing
+  // wrapper packages used for Chart.js/ECharts/Highcharts/ApexCharts above.
+  { id: 'amcharts', label: 'amCharts', pkg: '@amcharts/amcharts5' },
 ];
 
 const GITHUB_SEARCH_ENDPOINT = 'https://api.github.com/search/code';

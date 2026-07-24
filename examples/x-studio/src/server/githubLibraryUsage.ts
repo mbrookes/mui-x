@@ -60,6 +60,22 @@ export const CHART_LIBRARIES: LibraryDef[] = [
   // Same reasoning as Chart.js above: the React wrapper (`echarts-for-react`), not the
   // framework-agnostic `echarts` core.
   { id: 'echarts', label: 'ECharts', pkg: 'echarts-for-react' },
+  { id: 'highcharts', label: 'Highcharts', pkg: 'highcharts-react-official' },
+  { id: 'apexcharts', label: 'ApexCharts', pkg: 'react-apexcharts' },
+  // No single "install nivo" package — each chart type is its own `@nivo/*` package
+  // (`@nivo/bar`, `@nivo/line`, ...). `@nivo/core` is a peer dependency of all of them and
+  // Nivo's own docs have users install it explicitly alongside whichever chart package they
+  // need, so it's the best available single-package proxy — but a repo using only e.g.
+  // `@nivo/line` without listing `@nivo/core` directly won't match. Treat this as an
+  // undercount, same caveat as Radix UI above.
+  { id: 'nivo', label: 'Nivo', pkg: '@nivo/core' },
+  // Same "no single package" situation as Nivo, but visx does publish an all-in-one meta
+  // package (`@visx/visx`) — used here for consistency with Radix UI's `radix-ui` package,
+  // though real-world visx usage skews toward importing individual `@visx/*` primitives
+  // directly (e.g. `@visx/shape`, `@visx/scale`) without the meta package, so likewise an
+  // undercount.
+  { id: 'visx', label: 'visx', pkg: '@visx/visx' },
+  { id: 'plotly', label: 'Plotly', pkg: 'react-plotly.js' },
 ];
 
 const GITHUB_SEARCH_ENDPOINT = 'https://api.github.com/search/code';

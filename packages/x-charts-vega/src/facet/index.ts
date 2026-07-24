@@ -35,11 +35,14 @@
  * channel a `scale.domain: [min, max]` is injected (respecting an existing
  * explicit domain); for discrete positional channels the union category array
  * is injected as `sort` so every cell shows the same category order. Concat
- * sub-specs keep independent scales (Vega-Lite's default for concat), so no
- * domains are injected there. Repeat cells likewise keep INDEPENDENT scales —
- * each cell plots a different field, so a shared domain would be meaningless;
- * this is a deliberate deviation from Vega-Lite's default `resolve.scale` for
- * repeat.
+ * sub-specs keep independent scales by default (Vega-Lite's own default for
+ * concat) — but an explicit top-level `resolve: {scale: {x: 'shared'}}` (or
+ * `y`) is honored: the union quantitative domain across every entry (and, for
+ * a `layer` entry, every one of its layers) is computed and injected the same
+ * way, before each entry is handed to its cell (see `planConcat`). Repeat
+ * cells likewise keep INDEPENDENT scales — each cell plots a different field,
+ * so a shared domain would be meaningless; this is a deliberate deviation from
+ * Vega-Lite's default `resolve.scale` for repeat.
  *
  * Known repeat limitations (also tracked in GAPS.md):
  *   - Nested same-key repeats (a repeat template that itself repeats on the same
@@ -53,6 +56,7 @@ import type {
   VegaChannelDef,
   VegaEncoding,
   VegaFieldDef,
+  VegaLayerSpec,
   VegaLiteSpec,
   VegaRepeatMapping,
   VegaRepeatRef,
@@ -1001,6 +1005,131 @@ function planFacetOperator(spec: VegaLiteSpec, options: FacetOptions): FacetPlan
   return { ...plan, gaps: [...transformGaps, ...plan.gaps] };
 }
 
+/**
+ * Rows a concat entry resolves against for shared-domain purposes: the shared
+ * root rows, unless the entry supplies its own inline `data.values` array — a
+ * named/URL data source is left alone (mirrors the "own data wins" rule
+ * `planConcat`'s cell-building already follows; there's no cheap way to
+ * resolve a named/URL source's rows this early without duplicating the
+ * normalizer's own resolution).
+ */
+function concatEntryRows(
+  entry: VegaLiteSpec,
+  rootRows: readonly DatasetRow[],
+): readonly DatasetRow[] | undefined {
+  if (entry.data == null) {
+    return rootRows;
+  }
+  const values = (entry.data as { values?: unknown }).values;
+  return Array.isArray(values) ? (values as DatasetRow[]) : undefined;
+}
+
+/**
+ * Every encoding within a concat entry that carries this channel — the
+ * entry's own top-level `encoding`, plus (for a `layer` entry, e.g. a mosaic
+ * cell's rect+label layer pair) each child layer's own encoding. A child with
+ * no own encoding inherits the entry's, which is already included once, so it
+ * isn't listed again.
+ */
+function collectConcatChannelOccurrences(
+  entry: VegaLiteSpec,
+  rootRows: readonly DatasetRow[],
+  channel: 'x' | 'y',
+): Array<{ encoding: VegaEncoding; rows: readonly DatasetRow[] }> {
+  const rows = concatEntryRows(entry, rootRows);
+  if (!rows) {
+    return [];
+  }
+  const encodings: VegaEncoding[] = [];
+  if (entry.encoding) {
+    encodings.push(entry.encoding);
+  }
+  const layer = (entry as { layer?: Array<{ encoding?: VegaEncoding }> }).layer;
+  if (Array.isArray(layer)) {
+    layer.forEach((child) => {
+      if (child.encoding) {
+        encodings.push(child.encoding);
+      }
+    });
+  }
+  return encodings
+    .filter((encoding) => isFieldDef(encoding[channel]))
+    .map((encoding) => ({ encoding, rows }));
+}
+
+/**
+ * Union `[min, max]` domain for a channel across every entry/layer occurrence
+ * `collectConcatChannelOccurrences` found, reusing the same aggregate-aware
+ * `quantDomain`/`collectGroupByFields` facet's own shared-scale injection
+ * uses (no faceting fields here, so `collectGroupByFields` only groups by the
+ * occurrence's own other positional channel). An occurrence with its own
+ * explicit `scale.domain` is skipped — its authored domain stands, and it
+ * contributes nothing to the union. `undefined` when nothing quantitative
+ * resolves at all.
+ */
+function concatSharedDomain(
+  occurrences: Array<{ encoding: VegaEncoding; rows: readonly DatasetRow[] }>,
+  channel: 'x' | 'y',
+): [number, number] | undefined {
+  let min: number | undefined;
+  let max: number | undefined;
+  for (const { encoding, rows } of occurrences) {
+    const def = encoding[channel];
+    if (!isFieldDef(def) || resolveFieldType(def, rows) !== 'quantitative') {
+      continue;
+    }
+    const scale = def.scale && typeof def.scale === 'object' ? (def.scale as VegaScale) : undefined;
+    if (Array.isArray(scale?.domain)) {
+      continue;
+    }
+    const domain = quantDomain(def, rows, collectGroupByFields(encoding, [], channel));
+    if (domain) {
+      min = min === undefined ? domain[0] : Math.min(min, domain[0]);
+      max = max === undefined ? domain[1] : Math.max(max, domain[1]);
+    }
+  }
+  return min !== undefined && max !== undefined ? [min, max] : undefined;
+}
+
+/**
+ * Overwrites a channel's `scale.domain` with the shared union domain on an
+ * entry's own encoding and on every child layer's own encoding (a child with
+ * no own encoding inherits the entry's, already updated) — mirroring facet's
+ * `injectSharedScales`, but applied independently across each concat entry's
+ * differently-shaped encoding instead of one shared template. An occurrence
+ * with its own explicit domain is left untouched.
+ */
+function injectConcatSharedDomain(
+  entry: VegaLiteSpec,
+  channel: 'x' | 'y',
+  domain: [number, number],
+): VegaLiteSpec {
+  const inject = (encoding: VegaEncoding): VegaEncoding => {
+    const def = encoding[channel];
+    if (!isFieldDef(def)) {
+      return encoding;
+    }
+    const scale = def.scale && typeof def.scale === 'object' ? (def.scale as VegaScale) : undefined;
+    if (Array.isArray(scale?.domain)) {
+      return encoding;
+    }
+    return { ...encoding, [channel]: { ...def, scale: { ...(scale ?? {}), domain } } };
+  };
+
+  const nextEncoding = entry.encoding ? inject(entry.encoding) : entry.encoding;
+  const layer = (entry as { layer?: Array<{ encoding?: VegaEncoding }> }).layer;
+  if (Array.isArray(layer)) {
+    return {
+      ...entry,
+      encoding: nextEncoding,
+      layer: layer.map((child) =>
+        child.encoding ? { ...child, encoding: inject(child.encoding) } : child,
+      ),
+    } as VegaLiteSpec;
+  }
+  return { ...entry, encoding: nextEncoding } as VegaLiteSpec;
+}
+
 /** Plan `hconcat`/`vconcat`/`concat`: independent sub-specs, no partitioning. */
 function planConcat(spec: VegaLiteSpec, options: FacetOptions): FacetPlan {
   const gaps: TranslationGap[] = [];
@@ -1025,6 +1154,26 @@ function planConcat(spec: VegaLiteSpec, options: FacetOptions): FacetPlan {
     entries = (spec.concat ?? []) as VegaLiteSpec[];
     columns = Math.max(1, (numericSize(spec.columns) ?? entries.length) || 1);
   }
+
+  // Concat cells keep independent scales by default (Vega-Lite's own default),
+  // but an explicit `resolve: {scale: {x: 'shared'}}` (or `y`) requests the
+  // same shared-domain treatment facet gets — computed across every entry
+  // (and each layer of a `layer` entry) instead of assuming one shared
+  // template, since concat entries are independently shaped.
+  const scaleResolve = ('resolve' in spec ? (spec as VegaLayerSpec).resolve : undefined)?.scale;
+  for (const channel of ['x', 'y'] as const) {
+    if (scaleResolve?.[channel] !== 'shared') {
+      continue;
+    }
+    const occurrences = entries.flatMap((entry) =>
+      collectConcatChannelOccurrences(entry, rootRows, channel),
+    );
+    const domain = concatSharedDomain(occurrences, channel);
+    if (domain) {
+      entries = entries.map((entry) => injectConcatSharedDomain(entry, channel, domain));
+    }
+  }
+
   const gridRows = Math.max(1, Math.ceil(entries.length / columns) || 1);
   // Concat subplots are full-size views, not the shrink-to-fit small multiples
   // of a facet grid: Vega-Lite lays each out at its natural size and lets the

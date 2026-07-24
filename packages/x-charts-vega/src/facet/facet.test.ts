@@ -293,6 +293,110 @@ describe('planFacets', () => {
     expect((plan.cells[1].spec.data as { values: unknown[] }).values).to.deep.equal([{ x: 1 }]);
   });
 
+  it('injects a shared union domain across concat cells when `resolve.scale.x` is "shared"', () => {
+    const spec: VegaLiteSpec = {
+      data: {
+        values: [
+          { x: 1, y: 2 },
+          { x: 9, y: 4 },
+        ],
+      },
+      hconcat: [
+        { mark: 'bar', encoding: { x: { field: 'x', type: 'quantitative' } } },
+        { mark: 'point', encoding: { x: { field: 'y', type: 'quantitative' } } },
+      ],
+      resolve: { scale: { x: 'shared' } },
+    } as unknown as VegaLiteSpec;
+    const plan = planFacets(spec, SIZE)!;
+    // The union of [0, 9] (x, zero-anchored) and [0, 4] (y, zero-anchored) is
+    // [0, 9] — both cells get it, even though they plot different fields.
+    expect(domainOf(plan.cells[0].spec, 'x')).to.deep.equal([0, 9]);
+    expect(domainOf(plan.cells[1].spec, 'x')).to.deep.equal([0, 9]);
+  });
+
+  it("keeps concat cells independent when `resolve.scale` is absent (Vega-Lite's own default)", () => {
+    const spec: VegaLiteSpec = {
+      data: {
+        values: [
+          { x: 1, y: 2 },
+          { x: 9, y: 4 },
+        ],
+      },
+      hconcat: [
+        { mark: 'bar', encoding: { x: { field: 'x', type: 'quantitative' } } },
+        { mark: 'point', encoding: { x: { field: 'y', type: 'quantitative' } } },
+      ],
+    } as unknown as VegaLiteSpec;
+    const plan = planFacets(spec, SIZE)!;
+    expect(domainOf(plan.cells[0].spec, 'x')).to.equal(undefined);
+    expect(domainOf(plan.cells[1].spec, 'x')).to.equal(undefined);
+  });
+
+  it('respects an explicit `scale.domain` on one concat cell instead of overwriting it with the shared union', () => {
+    const spec: VegaLiteSpec = {
+      data: {
+        values: [
+          { x: 1, y: 2 },
+          { x: 9, y: 4 },
+        ],
+      },
+      hconcat: [
+        {
+          mark: 'bar',
+          encoding: { x: { field: 'x', type: 'quantitative', scale: { domain: [0, 100] } } },
+        },
+        { mark: 'point', encoding: { x: { field: 'y', type: 'quantitative' } } },
+      ],
+      resolve: { scale: { x: 'shared' } },
+    } as unknown as VegaLiteSpec;
+    const plan = planFacets(spec, SIZE)!;
+    expect(domainOf(plan.cells[0].spec, 'x')).to.deep.equal([0, 100]);
+    // The other cell still gets the union of the OTHER (non-explicit)
+    // occurrences only — here just its own [0, 4].
+    expect(domainOf(plan.cells[1].spec, 'x')).to.deep.equal([0, 4]);
+  });
+
+  it("shares a domain across a `layer` concat cell's own layers (a mosaic-style rect+label pair)", () => {
+    const spec: VegaLiteSpec = {
+      data: {
+        values: [
+          { nx: 0, nx2: 0.4 },
+          { nx: 0.4, nx2: 1 },
+        ],
+      },
+      vconcat: [
+        {
+          mark: { type: 'text' },
+          encoding: { x: { aggregate: 'min', field: 'nx', type: 'quantitative' } },
+        },
+        {
+          layer: [
+            {
+              mark: 'rect',
+              encoding: {
+                x: { field: 'nx', type: 'quantitative' },
+                x2: { field: 'nx2' },
+              },
+            },
+            { mark: 'text', encoding: { x: { field: 'nx', type: 'quantitative' } } },
+          ],
+        },
+      ],
+      resolve: { scale: { x: 'shared' } },
+    } as unknown as VegaLiteSpec;
+    const plan = planFacets(spec, SIZE)!;
+    // The `x2` companion field isn't itself examined for domain purposes (only
+    // `x`/`y` are, matching the same scope limitation `resolve.scale` already
+    // has elsewhere in this wrapper) — the union here is over the plain `nx`
+    // field's own values ([0, 0.4]) across all three occurrences.
+    expect(domainOf(plan.cells[0].spec, 'x')).to.deep.equal([0, 0.4]);
+    const layerCell = plan.cells[1].spec as unknown as {
+      layer: Array<{ encoding: { x: { scale?: { domain?: unknown } } } }>;
+    };
+    expect(layerCell.layer[0].encoding.x.scale?.domain).to.deep.equal([0, 0.4]);
+    expect(layerCell.layer[1].encoding.x.scale?.domain).to.deep.equal([0, 0.4]);
+  });
+
   it('sizes each concat cell to its own natural dimensions (flush subplots, not shrunk)', () => {
     const spec: VegaLiteSpec = {
       data: { values: [{ x: 1 }] },

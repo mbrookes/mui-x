@@ -238,6 +238,34 @@ describe('applyMutation', () => {
     expect(next.widgets).toEqual(state.widgets);
   });
 
+  // Tier 2/3 real bug: `validRowIds` (the row-placement allow-list for
+  // `applyBulkUpdate`'s own `addedWidgets`) only screened a candidate widget id through
+  // `isSafePatchKey`, which rejects `'__proto__'`/`'constructor'`/`'prototype'` but never
+  // checks `typeof widget.id === 'string'`. A numeric `addedWidgets[].id` therefore
+  // survived into `validRowIds` and into the sanitized `widgetRows` row, while the
+  // separate widget-insertion loop above (which DOES require a string id) skipped
+  // inserting it into `state.widgets` — leaving a dangling `widgetRows` reference to a
+  // widget id with no `widgets` entry. Both the `validRowIds` population and the
+  // `row.filter` sanitization step must reject the non-string id.
+  it('applyBulkUpdate with a non-string addedWidgets id does not leave a dangling widgetRows reference (Tier 2/3)', () => {
+    const state = twoPageState('page-1');
+    const next = applyDocMutation(state, {
+      type: 'applyBulkUpdate',
+      args: {
+        removedWidgetIds: [],
+        addedWidgets: [{ ...chartWidget('t'), id: 42, kind: 'text', title: 't', config: {} }],
+        updatedWidgets: [],
+        widgetRows: [[42]],
+        activePageId: 'page-1',
+      } as never,
+    });
+    // The numeric id was never inserted into `widgets` …
+    expect(Object.hasOwn(next.widgets, '42')).toBe(false);
+    expect(Object.hasOwn(next.widgets, 42 as unknown as string)).toBe(false);
+    // … so it must also be filtered out of the sanitized `widgetRows`, not left dangling.
+    expect(next.pages['page-1'].widgetRows).toEqual([]);
+  });
+
   // Finding 2 (iteration-27): `addWidget`/`applyBulkUpdate.addedWidgets` guarded `id` and
   // `config` but never checked `widget.kind`/`widget.title` are strings. A server-built
   // payload with a numeric `kind`/`title` previously installed VERBATIM — it isn't

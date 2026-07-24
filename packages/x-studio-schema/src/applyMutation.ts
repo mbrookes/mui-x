@@ -1871,6 +1871,15 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
   removeFilter: {
     apply: (state, args) => {
       const { filterId } = args;
+      // Require a STRING `filterId` (parser-bypass parity with `removeWidget`/`removePage`'s
+      // `typeof id !== 'string'` guards). The comparison below is a strict `===` that never
+      // coerces, so a non-string `filterId` (e.g. `42`) simply never matches any `f.id` and
+      // this is already a harmless no-op — but every other id-bearing handler in this file
+      // guards explicitly rather than relying on that incidental behavior. No-op instead, for
+      // uniformity with the sibling handlers.
+      if (typeof filterId !== 'string') {
+        return state;
+      }
       const nextFilters = state.filters.filter((f: StudioFilterState) => f.id !== filterId);
       return nextFilters.length !== state.filters.length
         ? { ...state, filters: nextFilters }
@@ -1966,7 +1975,18 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // deltas are still applied rather than silently dropping the WHOLE mutation. Only the
       // page-scoped layout is conditional on the page existing. `Object.hasOwn` so an
       // untrusted `activePageId` can't match a prototype member.
-      const pageExists = Object.hasOwn(state.pages, activePageId);
+      //
+      // Require a STRING `activePageId` (parser-bypass parity with the `typeof id !==
+      // 'string'` guards other id-bearing handlers use, e.g. `addPage.id`,
+      // `removeWidget.widgetId`): `Object.hasOwn` below COERCES a non-string
+      // `activePageId` (e.g. `42`) to its string property key, which could coincidentally
+      // match an existing page keyed `"42"`. Not independently exploitable here — every
+      // downstream use of `activePageId` is itself gated on `pageExists`/`Object.hasOwn`
+      // and it is never persisted to `dashboard.activePageId` — but requiring the type up
+      // front keeps this handler uniform with the rest of the file's convention rather
+      // than relying on incidental coercion behavior.
+      const pageExists =
+        typeof activePageId === 'string' && Object.hasOwn(state.pages, activePageId);
       // Strip `removedWidgetIds` from the ACTIVE page's rows FIRST, unconditionally —
       // not only when the producer also supplied `widgetRows` (finding: a bulk that
       // removes widgets but omits `widgetRows` — the common updates/removals-only case,
@@ -2040,7 +2060,7 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
           // `addedWidgets` (e.g. from a parser-bypassing payload) would otherwise throw
           // reading `.id` below instead of being gracefully skipped, like every other
           // malformed-entry guard in this handler.
-          if (isPlainRecord(widget) && isSafePatchKey(widget.id)) {
+          if (isPlainRecord(widget) && typeof widget.id === 'string' && isSafePatchKey(widget.id)) {
             validRowIds.add(widget.id);
           }
         }
@@ -2105,7 +2125,7 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         const sanitizedRows = dedupeLayoutRows(
           safeRows
             .filter((row): row is string[] => Array.isArray(row))
-            .map((row) => row.filter((id) => validRowIds.has(id))),
+            .map((row) => row.filter((id) => typeof id === 'string' && validRowIds.has(id))),
         );
 
         // Normalize the producer-supplied active-page spans through the SAME invariants

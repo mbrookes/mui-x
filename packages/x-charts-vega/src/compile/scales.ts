@@ -1,13 +1,21 @@
 import type { XAxis, YAxis } from '@mui/x-charts/models';
-import type { DatasetRow, VegaChannelDef, VegaFieldDef, VegaFieldType, VegaSort } from '../types';
+import type {
+  DatasetRow,
+  VegaAggregateOp,
+  VegaChannelDef,
+  VegaFieldDef,
+  VegaFieldType,
+  VegaSort,
+} from '../types';
 import { isFieldDef } from '../types';
 import type { GapCollector } from '../gaps';
 import type { NormalizedSpec, NormalizedUnit } from '../normalize';
 import type { AxisResolution } from './context';
 import { categoryKey } from './context';
-import { resolveFieldPath, resolveFieldType, toDate } from './fieldTypes';
+import { resolveFieldPath, resolveFieldType, toDate, toNumber } from './fieldTypes';
 import { createValueFormatter } from '../format';
 import { compileExpression, UnsupportedExpressionError } from '../transforms/calculate';
+import { evaluateAggregate } from '../transforms/aggregateOps';
 
 /*
  * Positional-scale resolution: turns the x/y channel definitions of all
@@ -415,14 +423,78 @@ interface CategoryPair {
 }
 
 /**
+ * Resolves the field (and, for an object sort, aggregate op) a `sort` should
+ * rank categories by:
+ * - an object sort `{field, op}` reads `field`/`op` directly;
+ * - a channel-shorthand string (`"x"`/`"-x"`/`"color"`/…, Vega-Lite's compact
+ *   "sort by another encoding channel" form — the `-` prefix is stripped by
+ *   the caller before this runs) resolves that channel's OWN field from any
+ *   occurrence's unit that defines it. No `op` is needed here: the encoding-
+ *   transform pass (`transforms/encoding.ts`) already rewrote a channel-level
+ *   `aggregate` into a synthetic field name and collapsed the rows to one per
+ *   category before this ever runs, so the channel's field already holds the
+ *   resolved per-category value.
+ * Returns `undefined` when nothing resolves (an object sort with no `field`,
+ * or a channel name no occurrence's unit actually encodes).
+ */
+function resolveSortField(
+  sort: { field?: string; op?: VegaAggregateOp } | string,
+  occurrences: ChannelOccurrence[],
+): { field: string; op?: VegaAggregateOp } | undefined {
+  if (typeof sort === 'string') {
+    for (const occurrence of occurrences) {
+      const channelDef = occurrence.unit.encoding[sort] as VegaChannelDef | undefined;
+      if (channelDef && !Array.isArray(channelDef) && isFieldDef(channelDef) && channelDef.field) {
+        return { field: channelDef.field };
+      }
+    }
+    return undefined;
+  }
+  return sort.field ? { field: sort.field, op: sort.op } : undefined;
+}
+
+/**
+ * A category's sort key for `resolveSortField`'s resolved field/op: the
+ * aggregate of every row sharing that category when `op` is given, else the
+ * (already-resolved, one-row-per-category) value straight off the first
+ * matching row. `null` for a category with no matching rows or an
+ * unresolvable/non-numeric aggregate — sorted to the end, same as an
+ * explicit-array sort's unlisted values.
+ */
+function sortKeyForCategory(
+  key: string,
+  field: string,
+  op: VegaAggregateOp | undefined,
+  rowsByCategoryKey: Map<string, DatasetRow[]>,
+): number | null {
+  const rows = rowsByCategoryKey.get(key);
+  if (!rows || rows.length === 0) {
+    return null;
+  }
+  if (op) {
+    const values = rows.map((row) => resolveFieldPath(row, field));
+    const result = evaluateAggregate(op, values, rows);
+    return typeof result === 'number' ? result : null;
+  }
+  return toNumber(resolveFieldPath(rows[0], field));
+}
+
+/**
  * Applies a discrete-axis `sort` to the collected category/key pairs. Data
- * order is preserved for `null`/`undefined`; field/op sort objects and bare
- * field references are recorded as `partial` gaps and fall back to data order.
+ * order is preserved for `null`/`undefined`. An object sort (`{field, op,
+ * order}`) or a channel-shorthand string (`"x"`/`"-x"`/…) ranks categories by
+ * that field's (aggregated) numeric value via `resolveSortField`/
+ * `sortKeyForCategory`; a category whose key can't be resolved to a number
+ * keeps its data order at the end. A sort that can't be resolved at all (no
+ * `field`, or a channel name nothing encodes) reports a `partial` gap and
+ * falls back to data order, same as before.
  */
 function applySort(
   pairs: CategoryPair[],
   sort: VegaSort | undefined,
   isTemporal: boolean,
+  rowsByCategoryKey: Map<string, DatasetRow[]>,
+  occurrences: ChannelOccurrence[],
   gaps: GapCollector,
   path: string,
 ): CategoryPair[] {
@@ -455,17 +527,48 @@ function applySort(
     // matching Vega-Lite's handling of unlisted domain values.
     return [...inList, ...rest];
   }
-  // Object ({field, op, order}) or bare field-name sorts reorder the domain by
-  // another encoded field — x-charts axes have no equivalent hook.
-  gaps.add({
-    code: 'scale:sort-by-field',
-    message:
-      'Sorting a discrete axis by another field or aggregate is not supported; ' +
-      'the domain keeps its data order. Pre-sort or pre-aggregate the rows to control the order.',
-    severity: 'partial',
-    path: `${path}.sort`,
-  });
-  return pairs;
+
+  // Object ({field, op, order}) or channel-shorthand string ("x"/"-x"/…)
+  // sorts rank categories by another field's (aggregated) value.
+  let descending: boolean;
+  let sortFieldSource: { field?: string; op?: VegaAggregateOp } | string;
+  if (typeof sort === 'string') {
+    descending = sort.startsWith('-');
+    sortFieldSource = descending ? sort.slice(1) : sort;
+  } else {
+    descending = sort.order === 'descending';
+    sortFieldSource = sort;
+  }
+  const resolved = resolveSortField(sortFieldSource, occurrences);
+  if (!resolved) {
+    gaps.add({
+      code: 'scale:sort-by-field',
+      message:
+        'Sorting a discrete axis by another field or aggregate could not be resolved (no `field`, ' +
+        'or a channel-shorthand name nothing in this chart actually encodes); ' +
+        'the domain keeps its data order. Pre-sort or pre-aggregate the rows to control the order.',
+      severity: 'partial',
+      path: `${path}.sort`,
+    });
+    return pairs;
+  }
+
+  const keyed = pairs.map((pair) => ({
+    pair,
+    sortKey: sortKeyForCategory(pair.key, resolved.field, resolved.op, rowsByCategoryKey),
+  }));
+  const resolvedEntries = keyed.filter(
+    (entry): entry is { pair: CategoryPair; sortKey: number } => entry.sortKey !== null,
+  );
+  const unresolvedEntries = keyed.filter((entry) => entry.sortKey === null);
+  resolvedEntries.sort((a, b) => a.sortKey - b.sortKey);
+  if (descending) {
+    resolvedEntries.reverse();
+  }
+  // A category whose sort key couldn't be resolved keeps data order, appended
+  // after the successfully-ranked ones (mirroring the explicit-array sort's
+  // handling of unlisted values above).
+  return [...resolvedEntries, ...unresolvedEntries].map((entry) => entry.pair);
 }
 
 /**
@@ -630,6 +733,11 @@ function resolveChannelAxis(
     const explicitDiscrete = explicitDiscreteScaleType(occurrences);
     const pairs: CategoryPair[] = [];
     const seen = new Set<string>();
+    // Rows keyed by their category, for a `sort` that ranks categories by
+    // another field's (aggregated) value (`applySort`'s object/channel-
+    // shorthand forms) — every row sharing a category, not deduped like
+    // `pairs`, since an aggregate op needs the full group.
+    const rowsByCategoryKey = new Map<string, DatasetRow[]>();
     for (const occurrence of occurrences) {
       const occurrenceField = fieldOf(occurrence.def);
       if (!occurrenceField) {
@@ -645,6 +753,12 @@ function resolveChannelAxis(
         if (!seen.has(key)) {
           seen.add(key);
           pairs.push({ value, key });
+        }
+        const group = rowsByCategoryKey.get(key);
+        if (group) {
+          group.push(row);
+        } else {
+          rowsByCategoryKey.set(key, [row]);
         }
       }
     }
@@ -717,6 +831,8 @@ function resolveChannelAxis(
       pairs,
       sort,
       isTemporal,
+      rowsByCategoryKey,
+      occurrences,
       gaps,
       `${first.unit.path}.encoding.${channel}`,
     );

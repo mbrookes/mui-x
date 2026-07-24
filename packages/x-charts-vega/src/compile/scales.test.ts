@@ -315,12 +315,75 @@ describe('scales & axes', () => {
       expect(compiled.gaps.some((g) => g.code === 'scale:sort-by-field')).to.equal(false);
     });
 
-    it('records a partial gap for field/op sort objects and keeps data order', () => {
+    it('ranks categories by an object {field, op, order} sort with no gap', () => {
       const compiled = compileSpec({
         data: { values: rows },
         mark: 'bar',
         encoding: {
           x: { field: 'c', type: 'nominal', sort: { field: 'v', op: 'sum', order: 'descending' } },
+          y: { field: 'v' },
+        },
+      });
+      // One row per category (B:2, A:1, C:3) — sum-per-category is just v,
+      // descending: C, B, A.
+      expect(compiled.xAxis?.categories).to.deep.equal(['C', 'B', 'A']);
+      expect(compiled.gaps.some((g) => g.code === 'scale:sort-by-field')).to.equal(false);
+    });
+
+    it('ranks categories by a channel-shorthand sort ("-y": sort by the y channel, descending)', () => {
+      const compiled = compileSpec({
+        data: { values: rows },
+        mark: 'bar',
+        encoding: {
+          x: { field: 'c', type: 'nominal', sort: '-y' },
+          y: { field: 'v', type: 'quantitative' },
+        },
+      });
+      expect(compiled.xAxis?.categories).to.deep.equal(['C', 'B', 'A']);
+      expect(compiled.gaps.some((g) => g.code === 'scale:sort-by-field')).to.equal(false);
+    });
+
+    it('ranks categories by a channel-shorthand sort referencing an aggregated channel ("-x")', () => {
+      const compiled = compileSpec({
+        data: {
+          values: [
+            { age: '0-10', gender: 'F', people: 10 },
+            { age: '0-10', gender: 'M', people: 20 },
+            { age: '20-30', gender: 'F', people: 50 },
+            { age: '20-30', gender: 'M', people: 5 },
+          ],
+        },
+        mark: 'bar',
+        encoding: {
+          y: { field: 'age', type: 'ordinal', sort: '-x' },
+          x: { aggregate: 'sum', field: 'people' },
+        },
+      });
+      // Sums: '0-10' -> 30, '20-30' -> 55. Descending by x: '20-30' then '0-10'.
+      expect(compiled.yAxis?.categories).to.deep.equal(['20-30', '0-10']);
+      expect(compiled.gaps.some((g) => g.code === 'scale:sort-by-field')).to.equal(false);
+    });
+
+    it('records a partial gap and keeps data order for an unresolvable sort object (no field)', () => {
+      const compiled = compileSpec({
+        data: { values: rows },
+        mark: 'bar',
+        encoding: {
+          x: { field: 'c', type: 'nominal', sort: { op: 'sum' } as never },
+          y: { field: 'v' },
+        },
+      });
+      expect(compiled.xAxis?.categories).to.deep.equal(['B', 'A', 'C']);
+      const gap = compiled.gaps.find((g) => g.code === 'scale:sort-by-field');
+      expect(gap?.severity).to.equal('partial');
+    });
+
+    it('records a partial gap and keeps data order for a channel-shorthand sort naming an unencoded channel', () => {
+      const compiled = compileSpec({
+        data: { values: rows },
+        mark: 'bar',
+        encoding: {
+          x: { field: 'c', type: 'nominal', sort: '-color' },
           y: { field: 'v' },
         },
       });

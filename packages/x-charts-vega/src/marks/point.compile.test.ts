@@ -189,7 +189,67 @@ describe('compilePointMark', () => {
     expect(zAxis.sizeMap?.size).to.deep.equal([0, Math.sqrt(200 / Math.PI)]);
   });
 
-  it('reports an unsupported gap for a discretizing size scale (quantile/quantize/threshold)', () => {
+  it('builds a piecewise sizeMap for a "threshold" size scale (explicit domain breakpoints)', () => {
+    const spec: VegaLiteSpec = {
+      data: {
+        values: [
+          { x: 1, y: 1, weight: 10 },
+          { x: 2, y: 2, weight: 90 },
+        ],
+      },
+      mark: 'circle',
+      encoding: {
+        x: { field: 'x', type: 'quantitative' },
+        y: { field: 'y', type: 'quantitative' },
+        size: {
+          field: 'weight',
+          type: 'quantitative',
+          scale: { type: 'threshold', domain: [30, 70], range: [80, 200, 320] } as never,
+        },
+      },
+    };
+    const compiled = compileSpec(spec);
+    expect(compiled.gaps.map((gap) => gap.code)).not.to.include('encoding:size-scale-discretizing');
+    const zAxis = compiled.zAxis![0] as unknown as {
+      sizeMap?: { type: string; thresholds: number[]; sizes: number[] };
+    };
+    expect(zAxis.sizeMap?.type).to.equal('piecewise');
+    expect(zAxis.sizeMap?.thresholds).to.deep.equal([30, 70]);
+    expect(zAxis.sizeMap?.sizes).to.deep.equal(
+      [80, 200, 320].map((area) => Math.sqrt(area / Math.PI)),
+    );
+  });
+
+  it('builds a piecewise sizeMap for a "quantize" size scale (equal-width domain bands)', () => {
+    const spec: VegaLiteSpec = {
+      data: {
+        values: [
+          { x: 1, y: 1, weight: 0 },
+          { x: 2, y: 2, weight: 90 },
+        ],
+      },
+      mark: 'circle',
+      encoding: {
+        x: { field: 'x', type: 'quantitative' },
+        y: { field: 'y', type: 'quantitative' },
+        size: {
+          field: 'weight',
+          type: 'quantitative',
+          scale: { type: 'quantize', domain: [0, 90], range: [80, 160, 240] } as never,
+        },
+      },
+    };
+    const compiled = compileSpec(spec);
+    expect(compiled.gaps.map((gap) => gap.code)).not.to.include('encoding:size-scale-discretizing');
+    const zAxis = compiled.zAxis![0] as unknown as {
+      sizeMap?: { type: string; thresholds: number[]; sizes: number[] };
+    };
+    expect(zAxis.sizeMap?.type).to.equal('piecewise');
+    // 3 equal-width bands over [0, 90]: boundaries at 30 and 60.
+    expect(zAxis.sizeMap?.thresholds).to.deep.equal([30, 60]);
+  });
+
+  it('builds a piecewise sizeMap for a "quantile" size scale (equal-count data bands)', () => {
     const spec: VegaLiteSpec = {
       data: {
         values: [
@@ -209,10 +269,70 @@ describe('compilePointMark', () => {
       },
     };
     const compiled = compileSpec(spec);
-    const gap = compiled.gaps.find((entry) => entry.code === 'encoding:size-scale-discretizing');
-    expect(gap?.severity).to.equal('unsupported');
-    // Falls back to the plain continuous default rather than misreading the
-    // per-band size list as a two-element continuous range.
+    expect(compiled.gaps.map((gap) => gap.code)).not.to.include('encoding:size-scale-discretizing');
+    const zAxis = compiled.zAxis![0] as unknown as {
+      sizeMap?: { type: string; thresholds: number[]; sizes: number[] };
+    };
+    expect(zAxis.sizeMap?.type).to.equal('piecewise');
+    // Linear-interpolation quantile breakpoints of the sorted [10, 20] data at
+    // p=1/3 and p=2/3 (the same helper backing median/q1/q3).
+    expect(zAxis.sizeMap?.thresholds[0]).to.be.closeTo(13.33, 0.01);
+    expect(zAxis.sizeMap?.thresholds[1]).to.be.closeTo(16.67, 0.01);
+  });
+
+  it('falls back to the continuous default and reports a partial gap for a threshold scale with a malformed domain', () => {
+    const spec: VegaLiteSpec = {
+      data: {
+        values: [
+          { x: 1, y: 1, weight: 10 },
+          { x: 2, y: 2, weight: 20 },
+        ],
+      },
+      mark: 'circle',
+      encoding: {
+        x: { field: 'x', type: 'quantitative' },
+        y: { field: 'y', type: 'quantitative' },
+        // Only 1 domain breakpoint for 3 range sizes (needs 2).
+        size: {
+          field: 'weight',
+          type: 'quantitative',
+          scale: { type: 'threshold', domain: [50], range: [80, 160, 240] } as never,
+        },
+      },
+    };
+    const compiled = compileSpec(spec);
+    const gap = compiled.gaps.find(
+      (entry) => entry.code === 'encoding:size-scale-threshold-domain-unsupported',
+    );
+    expect(gap?.severity).to.equal('partial');
+    const zAxis = compiled.zAxis![0] as unknown as { sizeMap?: { size: [number, number] } };
+    expect(zAxis.sizeMap?.size).to.deep.equal([0, 11]);
+  });
+
+  it('falls back to the continuous default and reports a partial gap for a discretizing scale with a malformed range', () => {
+    const spec: VegaLiteSpec = {
+      data: {
+        values: [
+          { x: 1, y: 1, weight: 10 },
+          { x: 2, y: 2, weight: 20 },
+        ],
+      },
+      mark: 'circle',
+      encoding: {
+        x: { field: 'x', type: 'quantitative' },
+        y: { field: 'y', type: 'quantitative' },
+        size: {
+          field: 'weight',
+          type: 'quantitative',
+          scale: { type: 'quantize', range: 'not-an-array' } as never,
+        },
+      },
+    };
+    const compiled = compileSpec(spec);
+    const gap = compiled.gaps.find(
+      (entry) => entry.code === 'encoding:size-scale-range-unsupported',
+    );
+    expect(gap?.severity).to.equal('partial');
     const zAxis = compiled.zAxis![0] as unknown as { sizeMap?: { size: [number, number] } };
     expect(zAxis.sizeMap?.size).to.deep.equal([0, 11]);
   });

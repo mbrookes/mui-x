@@ -1,6 +1,6 @@
 import type { ScatterValueType } from '@mui/x-charts/models';
 import { isFieldDef, isValueDef } from '../types';
-import type { DatasetRow, VegaChannelDef, VegaEncoding, VegaFieldDef } from '../types';
+import type { DatasetRow, VegaChannelDef, VegaEncoding, VegaFieldDef, VegaScale } from '../types';
 import { resolveColor } from '../compile/color';
 import type { ColorResolution } from '../compile/color';
 import { resolveFieldPath, resolveFieldType, toDate, toNumber } from '../compile/fieldTypes';
@@ -15,6 +15,8 @@ import type {
   SizeLegend,
   UnitContext,
 } from '../compile/context';
+import type { GapCollector } from '../gaps';
+import { quantile } from '../transforms/aggregateOps';
 import { resolveGeoProjection, resolveGeoProjectionTuning } from './geoshape';
 
 /*
@@ -688,16 +690,16 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
   let zAxis: CompiledZAxis[] | undefined;
   let sizeLegend: SizeLegend | undefined;
   if (sizeField !== undefined) {
-    let min: number | undefined;
-    let max: number | undefined;
+    const sizeValues: number[] = [];
     candidates.forEach((candidate) => {
       const value = candidate.point.sizeValue;
-      if (value === undefined) {
-        return;
+      if (value !== undefined) {
+        sizeValues.push(value);
       }
-      min = min === undefined ? value : Math.min(min, value);
-      max = max === undefined ? value : Math.max(max, value);
     });
+    sizeValues.sort((a, b) => a - b);
+    const min = sizeValues.length > 0 ? sizeValues[0] : undefined;
+    const max = sizeValues.length > 0 ? sizeValues[sizeValues.length - 1] : undefined;
     if (min !== undefined && max !== undefined) {
       // Vega-Lite's `size` channel is area-like (comparable to a symbol's
       // pixel area); x-charts' continuous `sizeMap` defaults to a `sqrt`
@@ -716,89 +718,102 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
         : undefined;
       // A discretizing scale type (quantile/quantize/threshold — see
       // `concat_bar_scales_discretize`) buckets the domain into bands with
-      // their own explicit sizes, an entirely different shape from the
-      // continuous domain/range pin below; there's no x-charts continuous
-      // `sizeMap` equivalent, so it's reported and the plain continuous
-      // defaults are used instead of silently misreading its `range` as a
-      // two-element continuous endpoint pair.
-      const isDiscretizing =
-        sizeScale?.type === 'quantile' ||
-        sizeScale?.type === 'quantize' ||
-        sizeScale?.type === 'threshold';
-      if (isDiscretizing) {
-        gaps.add({
-          code: 'encoding:size-scale-discretizing',
-          message: `A "${sizeScale?.type}" size scale buckets its domain into discrete bands with their own sizes; x-charts' continuous size map has no equivalent, so the default continuous sqrt scale is used instead.`,
-          severity: 'unsupported',
-          path: `${path}.encoding.size.scale`,
-        });
-      }
+      // their own explicit sizes — x-charts' `PiecewiseSizeConfig`
+      // (`{type: 'piecewise', thresholds, sizes}`, a plain `d3.scaleThreshold`)
+      // maps onto this directly, so it's built instead of falling back to the
+      // continuous sqrt scale.
+      const rawScaleType = sizeScale?.type as 'quantile' | 'quantize' | 'threshold' | undefined;
+      const discretizingType =
+        rawScaleType === 'quantile' || rawScaleType === 'quantize' || rawScaleType === 'threshold'
+          ? rawScaleType
+          : undefined;
       // An explicit `scale.domain` pins the size axis independent of this
       // layer's own data extent (e.g. so bubble sizes stay comparable across
       // multiple views/legend numbers) — mirrors how `compile/color.ts` reads
-      // a continuous color scale's own `scale.domain`.
+      // a continuous color scale's own `scale.domain`. Not read for
+      // `threshold`, whose `domain` is the band-boundary array itself (a
+      // different shape from a plain `[min, max]` pair, even though it can
+      // coincidentally also have exactly 2 numeric entries).
       const explicitDomain =
-        !isDiscretizing &&
+        discretizingType !== 'threshold' &&
         Array.isArray(sizeScale?.domain) &&
         sizeScale.domain.length === 2 &&
         sizeScale.domain.every((value) => typeof value === 'number')
           ? (sizeScale.domain as [number, number])
           : undefined;
-      let domainMin: number | undefined;
+      let domainMin: number;
       if (explicitDomain) {
         domainMin = explicitDomain[0];
       } else {
         domainMin = sizeScale?.zero === false ? min : 0;
       }
       const domainMax = explicitDomain ? explicitDomain[1] : max;
-      // `scale.range` is a `[minArea, maxArea]` symbol-area pair (Vega-Lite's
-      // `size` semantics) — converted to `sizeMap`'s marker-*radius* range the
-      // same way a static `mark.size` is (r = sqrt(area/π)) — replacing the
-      // `[0, 11]` (Vega-Lite's own default range, area [0, 361]) default.
-      // Anything else (a signal-expression endpoint — `interactive_geo_
-      // earthquakes`'s param-bound max — a wrong-length array, or a
-      // discretizing scale, whose `range` is a per-band size list, not two
-      // continuous endpoints) is reported and falls back to that default
-      // rather than being misread as two plain numbers.
-      let sizeRange: [number, number] = [0, 11];
-      if (!isDiscretizing && sizeScale?.range !== undefined) {
-        if (
-          Array.isArray(sizeScale.range) &&
-          sizeScale.range.length === 2 &&
-          sizeScale.range.every((value) => typeof value === 'number')
-        ) {
-          const [rangeMinArea, rangeMaxArea] = sizeScale.range as [number, number];
-          sizeRange = [Math.sqrt(rangeMinArea / Math.PI), Math.sqrt(rangeMaxArea / Math.PI)];
-        } else {
-          gaps.add({
-            code: 'encoding:size-scale-range-unsupported',
-            message:
-              'This size scale `range` is not a plain two-number `[minArea, maxArea]` pair (e.g. a signal-expression endpoint, or a per-band size list on a discretizing scale); the default continuous size range is used instead.',
-            severity: 'partial',
-            path: `${path}.encoding.size.scale.range`,
-          });
+
+      const discretizing = discretizingType
+        ? buildDiscretizingSizeMap(
+            discretizingType,
+            sizeScale as VegaScale,
+            domainMin,
+            domainMax,
+            sizeValues,
+            gaps,
+            path,
+          )
+        : undefined;
+
+      if (discretizing) {
+        zAxis = [{ min: domainMin, max: domainMax, sizeMap: discretizing }];
+        sizeLegend = buildDiscretizingSizeLegend(discretizing, domainMax, encoding.size);
+      } else {
+        // `scale.range` is a `[minArea, maxArea]` symbol-area pair (Vega-Lite's
+        // `size` semantics) — converted to `sizeMap`'s marker-*radius* range the
+        // same way a static `mark.size` is (r = sqrt(area/π)) — replacing the
+        // `[0, 11]` (Vega-Lite's own default range, area [0, 361]) default.
+        // Anything else (a signal-expression endpoint — `interactive_geo_
+        // earthquakes`'s param-bound max, a wrong-length array, or a
+        // discretizing scale `buildDiscretizingSizeMap` couldn't build — its
+        // own gap already explains why) is reported and falls back to that
+        // default rather than being misread as two plain numbers.
+        let sizeRange: [number, number] = [0, 11];
+        if (!discretizingType && sizeScale?.range !== undefined) {
+          if (
+            Array.isArray(sizeScale.range) &&
+            sizeScale.range.length === 2 &&
+            sizeScale.range.every((value) => typeof value === 'number')
+          ) {
+            const [rangeMinArea, rangeMaxArea] = sizeScale.range as [number, number];
+            sizeRange = [Math.sqrt(rangeMinArea / Math.PI), Math.sqrt(rangeMaxArea / Math.PI)];
+          } else {
+            gaps.add({
+              code: 'encoding:size-scale-range-unsupported',
+              message:
+                'This size scale `range` is not a plain two-number `[minArea, maxArea]` pair (e.g. a signal-expression endpoint, or a per-band size list on a discretizing scale); the default continuous size range is used instead.',
+              severity: 'partial',
+              path: `${path}.encoding.size.scale.range`,
+            });
+          }
         }
+        // NOTE: heatmap cells (marks/rect.ts) also push a `zAxis` entry (for
+        // `colorMap`) without an explicit `id`, so both fall back to the same
+        // compiler-assigned `defaultized-z-axis-<index>` id scheme. A spec
+        // mixing a heatmap layer with a per-point-sized bubble scatter layer
+        // in one chart is not a realistic combination and isn't specially
+        // handled here — whichever layer's `zAxis` entry lands at index 0
+        // (`zAxisIds[0]`) wins as the scatter series' default size axis.
+        zAxis = [
+          {
+            min: domainMin,
+            max: domainMax,
+            // `size` is the marker *radius* and the `sqrt` interpolator makes area
+            // proportional to the value (Vega-Lite's `size` semantics). Match
+            // Vega-Lite's default point size range of [0, 361] in *area*, i.e. a
+            // radius up to sqrt(361/π) ≈ 10.7px, rather than the previous 20px
+            // radius that rendered bubbles at roughly double Vega-Lite's size.
+            sizeMap: { type: 'continuous', size: sizeRange, interpolator: 'sqrt' },
+          },
+        ];
+        sizeLegend = buildSizeLegend(domainMin, domainMax, encoding.size);
       }
-      // NOTE: heatmap cells (marks/rect.ts) also push a `zAxis` entry (for
-      // `colorMap`) without an explicit `id`, so both fall back to the same
-      // compiler-assigned `defaultized-z-axis-<index>` id scheme. A spec
-      // mixing a heatmap layer with a per-point-sized bubble scatter layer
-      // in one chart is not a realistic combination and isn't specially
-      // handled here — whichever layer's `zAxis` entry lands at index 0
-      // (`zAxisIds[0]`) wins as the scatter series' default size axis.
-      zAxis = [
-        {
-          min: domainMin,
-          max: domainMax,
-          // `size` is the marker *radius* and the `sqrt` interpolator makes area
-          // proportional to the value (Vega-Lite's `size` semantics). Match
-          // Vega-Lite's default point size range of [0, 361] in *area*, i.e. a
-          // radius up to sqrt(361/π) ≈ 10.7px, rather than the previous 20px
-          // radius that rendered bubbles at roughly double Vega-Lite's size.
-          sizeMap: { type: 'continuous', size: sizeRange, interpolator: 'sqrt' },
-        },
-      ];
-      sizeLegend = buildSizeLegend(domainMin, domainMax, encoding.size);
     }
   }
 
@@ -959,6 +974,39 @@ function niceSizeTicks(max: number): number[] {
  * markers. The title follows Vega-Lite's `size` channel ("Count of Records" for
  * an unfielded count aggregate, else the field name with its aggregate prefix).
  */
+/**
+ * The `size` legend's title, following Vega-Lite's `size` channel ("Count of
+ * Records" for an unfielded count aggregate, else the field name with its
+ * aggregate prefix). Shared by the continuous and discretizing legend
+ * builders below.
+ */
+function sizeLegendTitle(sizeDef: VegaEncoding['size']): string | undefined {
+  if (!isFieldDef(sizeDef)) {
+    return undefined;
+  }
+  // The aggregate rewrite (transforms/encoding.ts) already stamped a
+  // human-readable title ("Count of Records", "MEAN of v") onto the size def
+  // and renamed `field` to a synthetic column, so prefer that title; only
+  // fall back to deriving one for a raw (un-aggregated) size field.
+  const aggregate = typeof sizeDef.aggregate === 'string' ? sizeDef.aggregate : undefined;
+  if (sizeDef.title) {
+    return sizeDef.title;
+  }
+  if (sizeDef.field) {
+    return aggregate ? `${aggregate.toUpperCase()} of ${sizeDef.field}` : sizeDef.field;
+  }
+  if (aggregate === 'count') {
+    return 'Count of Records';
+  }
+  return undefined;
+}
+
+/**
+ * A bubble-size legend mirroring the `zAxis` `sizeMap` (radius up to 11px via a
+ * `sqrt` interpolator over `[min, max]`), so its swatches match the plotted
+ * markers. The title follows Vega-Lite's `size` channel ("Count of Records" for
+ * an unfielded count aggregate, else the field name with its aggregate prefix).
+ */
 function buildSizeLegend(
   min: number,
   max: number,
@@ -971,20 +1019,122 @@ function buildSizeLegend(
     const t = Math.min(1, Math.max(0, (value - min) / (max - min)));
     return { value, radius: 11 * Math.sqrt(t) };
   });
-  let title: string | undefined;
-  if (isFieldDef(sizeDef)) {
-    // The aggregate rewrite (transforms/encoding.ts) already stamped a
-    // human-readable title ("Count of Records", "MEAN of v") onto the size def
-    // and renamed `field` to a synthetic column, so prefer that title; only
-    // fall back to deriving one for a raw (un-aggregated) size field.
-    const aggregate = typeof sizeDef.aggregate === 'string' ? sizeDef.aggregate : undefined;
-    if (sizeDef.title) {
-      title = sizeDef.title;
-    } else if (sizeDef.field) {
-      title = aggregate ? `${aggregate.toUpperCase()} of ${sizeDef.field}` : sizeDef.field;
-    } else if (aggregate === 'count') {
-      title = 'Count of Records';
+  return { title: sizeLegendTitle(sizeDef), entries };
+}
+
+/**
+ * Structurally matches `@mui/x-charts`' `PiecewiseSizeConfig` (a plain
+ * `d3.scaleThreshold`: `sizes.length` bands, `thresholds.length ===
+ * sizes.length - 1` boundaries between them) — not imported directly since
+ * it isn't part of `@mui/x-charts/models`'s public export surface, but
+ * `CompiledZAxis['sizeMap']` accepts it structurally.
+ */
+interface DiscretizingSizeMap {
+  type: 'piecewise';
+  thresholds: number[];
+  sizes: number[];
+}
+
+/**
+ * Converts a Vega-Lite discretizing (`quantile`/`quantize`/`threshold`) size
+ * scale into a `DiscretizingSizeMap` (`{type: 'piecewise', thresholds,
+ * sizes}`) — a plain `d3.scaleThreshold` x-charts already understands, one
+ * per-band size instead of a continuously-interpolated one. Returns
+ * `undefined` (having already reported the specific reason as a gap) when the
+ * scale's `range`/`domain` can't be read as the plain arrays this needs — the
+ * caller falls back to the default continuous scale in that case.
+ * - `threshold`: `scale.domain` already IS the band boundaries (one fewer
+ *   entry than `range`) — used verbatim.
+ * - `quantize`: bands are equal-WIDTH slices of `[domainMin, domainMax]`.
+ * - `quantile`: bands are equal-COUNT slices of the actual sorted data
+ *   values (the same linear-interpolation `quantile()` helper backing the
+ *   `median`/`q1`/`q3` aggregate ops and the `quantile` transform).
+ */
+function buildDiscretizingSizeMap(
+  scaleType: 'quantile' | 'quantize' | 'threshold',
+  sizeScale: VegaScale,
+  domainMin: number,
+  domainMax: number,
+  sortedValues: readonly number[],
+  gaps: GapCollector,
+  path: string,
+): DiscretizingSizeMap | undefined {
+  const rangeRaw = sizeScale.range;
+  if (
+    !Array.isArray(rangeRaw) ||
+    rangeRaw.length < 2 ||
+    !rangeRaw.every((value) => typeof value === 'number')
+  ) {
+    gaps.add({
+      code: 'encoding:size-scale-range-unsupported',
+      message: `A "${scaleType}" size scale needs \`range\` to be a plain array of per-band areas (one more entry than \`domain\`'s thresholds); the default continuous size range is used instead.`,
+      severity: 'partial',
+      path: `${path}.encoding.size.scale.range`,
+    });
+    return undefined;
+  }
+  // Vega-Lite's `size` range values are symbol AREAS, converted to
+  // `sizeMap`'s marker-*radius* sizes the same way the continuous range is
+  // (r = sqrt(area/π)).
+  const sizes = (rangeRaw as number[]).map((area) => Math.sqrt(area / Math.PI));
+  const bandCount = sizes.length;
+
+  if (scaleType === 'threshold') {
+    const domainRaw = sizeScale.domain;
+    if (
+      !Array.isArray(domainRaw) ||
+      domainRaw.length !== bandCount - 1 ||
+      !domainRaw.every((value) => typeof value === 'number')
+    ) {
+      gaps.add({
+        code: 'encoding:size-scale-threshold-domain-unsupported',
+        message:
+          'A "threshold" size scale needs `domain` to be a plain array of band-boundary numbers, one fewer than `range`\'s per-band sizes; the default continuous size range is used instead.',
+        severity: 'partial',
+        path: `${path}.encoding.size.scale.domain`,
+      });
+      return undefined;
+    }
+    return { type: 'piecewise', thresholds: domainRaw as number[], sizes };
+  }
+
+  if (scaleType === 'quantize') {
+    const thresholds: number[] = [];
+    for (let i = 1; i < bandCount; i += 1) {
+      thresholds.push(domainMin + (domainMax - domainMin) * (i / bandCount));
+    }
+    return { type: 'piecewise', thresholds, sizes };
+  }
+
+  // quantile: equal-count bands over the actual data values, not equal-width
+  // bands over the domain range.
+  if (sortedValues.length === 0) {
+    return undefined;
+  }
+  const thresholds: number[] = [];
+  for (let i = 1; i < bandCount; i += 1) {
+    const breakpoint = quantile(sortedValues, i / bandCount);
+    if (breakpoint !== null) {
+      thresholds.push(breakpoint);
     }
   }
-  return { title, entries };
+  return { type: 'piecewise', thresholds, sizes };
+}
+
+/**
+ * A bubble-size legend for a discretizing scale: one entry per band, labeled
+ * with the value at its upper boundary (the last band uses the domain max,
+ * since it has no upper threshold of its own) and sized with that band's own
+ * (already area→radius converted) size.
+ */
+function buildDiscretizingSizeLegend(
+  sizeMap: DiscretizingSizeMap,
+  domainMax: number,
+  sizeDef: VegaEncoding['size'],
+): SizeLegend {
+  const entries = sizeMap.sizes.map((radius, index) => ({
+    value: index < sizeMap.thresholds.length ? sizeMap.thresholds[index] : domainMax,
+    radius,
+  }));
+  return { title: sizeLegendTitle(sizeDef), entries };
 }

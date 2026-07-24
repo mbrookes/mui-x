@@ -68,10 +68,25 @@ describe('applyTransforms / dispatcher', () => {
     expect(gaps.list()).to.have.length(0);
   });
 
+  it('dispatches a stack transform', () => {
+    const gaps = createGapCollector();
+    const rows = [{ v: 10 }, { v: 20 }];
+    const result = applyTransforms(
+      rows,
+      [{ stack: 'v', as: ['start', 'end'] } as unknown as VegaTransform],
+      gaps,
+      '$',
+    );
+    expect(result).to.deep.equal([
+      { v: 10, start: 0, end: 10 },
+      { v: 20, start: 10, end: 30 },
+    ]);
+    expect(gaps.list()).to.have.length(0);
+  });
+
   it('reports a kind-specific gap for each recognized-but-unsupported transform kind', () => {
     const kinds: Array<[string, VegaTransform]> = [
       ['sample', { sample: 100 } as unknown as VegaTransform],
-      ['stack', { stack: 'x', as: 'y' } as unknown as VegaTransform],
       ['impute', { impute: 'v', key: 'k' } as unknown as VegaTransform],
       ['flatten', { flatten: ['a'] } as unknown as VegaTransform],
     ];

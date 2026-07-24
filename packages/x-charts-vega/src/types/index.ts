@@ -345,6 +345,14 @@ export interface VegaJoinAggregateTransform {
   joinaggregate: Array<{ op: VegaAggregateOp; field?: string; as: string }>;
   groupby?: string[];
 }
+export interface VegaStackTransform {
+  stack: string;
+  groupby?: string[];
+  /** Output field name(s) for `[start, end]`; a single string defaults the end field to `<as>_end`. */
+  as?: string | [string, string];
+  offset?: 'zero' | 'center' | 'normalize';
+  sort?: Array<{ field: string; order?: 'ascending' | 'descending' }>;
+}
 export interface VegaRegressionTransform {
   regression: string;
   on: string;
@@ -392,6 +400,7 @@ export type VegaTransform =
   | VegaLookupTransform
   | VegaWindowTransform
   | VegaJoinAggregateTransform
+  | VegaStackTransform
   | VegaRegressionTransform
   | VegaLoessTransform
   | VegaQuantileTransform

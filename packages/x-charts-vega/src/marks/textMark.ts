@@ -175,21 +175,26 @@ function resolveOffsetProperty(
 const FULL_CIRCLE = 2 * Math.PI;
 
 /**
- * A text mark with `mark.radiusOffset` and no positional `x`/`y` fields is a
- * label layer for a `radius`-encoded arc mark ("coxcomb" chart, see
- * arc.ts's `compileRadialArcMark`) — a separate unit sharing the same
- * `theta`/`radius`/`color` encoding. Recomputes the identical stacked-angle
+ * A text mark with `mark.radiusOffset` (and a `radius`-encoded arc sibling —
+ * a "coxcomb" chart, see arc.ts's `compileRadialArcMark`) or with a plain
+ * fixed `mark.radius` (labeling an ordinary `theta`-only pie) is a label
+ * layer for a polar arc mark — a separate unit sharing the same
+ * `theta`/(`radius`)/`color` encoding. Recomputes the identical stacked-angle
  * math independently (same rows, same deterministic default-ascending sort)
  * rather than threading it through from arc.ts, so each mark compiler still
  * only touches its own unit. Returns `undefined` (falling back to the
- * ordinary missing-axis gap) when there's no usable `theta`/`radius` pair —
+ * ordinary missing-axis gap) when there's no usable `theta` field, or (for
+ * the `radiusOffset` coxcomb case specifically) no `radius` encoding —
  * simpler than arc.ts's version, it doesn't honor an `order` channel, since
  * neither gallery spec that reaches this path sets one.
  */
 function compilePolarTextLabels(ctx: UnitContext): CompiledUnit | undefined {
   const { unit, encoding, rows } = ctx;
-  const mark = unit.mark as VegaMarkDef & TextMarkExtras & { radiusOffset?: number };
-  if (typeof mark.radiusOffset !== 'number') {
+  const mark = unit.mark as VegaMarkDef &
+    TextMarkExtras & { radius?: number; radiusOffset?: number };
+  const hasRadiusOffset = typeof mark.radiusOffset === 'number';
+  const hasFixedRadius = typeof mark.radius === 'number';
+  if (!hasRadiusOffset && !hasFixedRadius) {
     return undefined;
   }
   const thetaDef = encoding.theta;
@@ -198,7 +203,7 @@ function compilePolarTextLabels(ctx: UnitContext): CompiledUnit | undefined {
     thetaDef && !Array.isArray(thetaDef) && isFieldDef(thetaDef) ? thetaDef.field : undefined;
   const radiusField =
     radiusDef && !Array.isArray(radiusDef) && isFieldDef(radiusDef) ? radiusDef.field : undefined;
-  if (!thetaField || !radiusField) {
+  if (!thetaField || (hasRadiusOffset && !radiusField)) {
     return undefined;
   }
   const textDef = encoding.text;
@@ -218,7 +223,11 @@ function compilePolarTextLabels(ctx: UnitContext): CompiledUnit | undefined {
   const slices: Slice[] = [];
   rows.forEach((row) => {
     const thetaValue = toNumber(row[thetaField]);
-    const radiusValue = toNumber(row[radiusField]);
+    // A fixed `mark.radius` (plain pie label) places every slice at the same
+    // literal pixel radius — encoded as `radiusValue: 0` below so the
+    // (degenerate, always-0) domain-to-range scale resolves to 0, and the
+    // fixed radius is applied entirely through `radiusOffset` instead.
+    const radiusValue = hasFixedRadius ? 0 : toNumber(row[radiusField!]);
     const rawText = row[textField];
     if (thetaValue == null || radiusValue == null || rawText == null) {
       return;
@@ -266,7 +275,7 @@ function compilePolarTextLabels(ctx: UnitContext): CompiledUnit | undefined {
     };
   });
 
-  const radiusScaleConfig = (radiusDef as VegaFieldDef).scale as
+  const radiusScaleConfig = (hasFixedRadius ? undefined : (radiusDef as VegaFieldDef).scale) as
     { type?: string; domain?: unknown[]; zero?: boolean; rangeMin?: number } | null | undefined;
   const scaleType =
     radiusScaleConfig?.type === 'linear' || radiusScaleConfig?.type === 'pow'
@@ -280,7 +289,11 @@ function compilePolarTextLabels(ctx: UnitContext): CompiledUnit | undefined {
   const dataMin = ordered.reduce((min, slice) => Math.min(min, slice.radiusValue), dataMax);
   const domainMin =
     explicitDomain?.[0] ?? (radiusScaleConfig?.zero === false ? dataMin : Math.min(0, dataMin));
-  const domainMax = explicitDomain?.[1] ?? dataMax;
+  // A fixed radius still needs a non-degenerate domain (`domainMin` would
+  // otherwise equal `domainMax` at 0, making the linear scale's slope 0/0);
+  // the actual pixel position comes entirely from `radiusOffset` below, so
+  // any distinct upper bound works.
+  const domainMax = explicitDomain?.[1] ?? (hasFixedRadius ? 1 : dataMax);
   const radiusRangeMin =
     typeof radiusScaleConfig?.rangeMin === 'number' ? radiusScaleConfig.rangeMin : 0;
 
@@ -302,7 +315,7 @@ function compilePolarTextLabels(ctx: UnitContext): CompiledUnit | undefined {
         radiusScaleType: scaleType,
         radiusDomain: [domainMin, domainMax],
         radiusRangeMin,
-        radiusOffset: mark.radiusOffset,
+        radiusOffset: hasFixedRadius ? mark.radius! : mark.radiusOffset!,
       },
     ],
   };

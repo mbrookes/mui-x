@@ -362,6 +362,89 @@ describe('compileTextMark', () => {
     });
   });
 
+  describe('polar (radial) text labels', () => {
+    function radialLabelsOverlay(overlays: CompiledOverlay[]) {
+      const overlay = overlays.find((entry) => entry.kind === 'radialLabels');
+      return overlay && overlay.kind === 'radialLabels' ? overlay : undefined;
+    }
+
+    it('draws a radialLabels overlay offset from a radius-encoded arc (arc_radial-shaped coxcomb)', () => {
+      const compiled = compileSpec({
+        data: { values: [{ data: 12 }, { data: 23 }] },
+        layer: [
+          { mark: { type: 'arc', innerRadius: 20, stroke: '#fff' } },
+          {
+            mark: { type: 'text', radiusOffset: 10 },
+            encoding: { text: { field: 'data', type: 'quantitative' } },
+          },
+        ],
+        encoding: {
+          theta: { field: 'data', type: 'quantitative', stack: true },
+          radius: { field: 'data', scale: { type: 'sqrt', zero: true, rangeMin: 20 } },
+          color: { field: 'data', type: 'nominal', legend: null },
+        },
+      });
+      const overlay = radialLabelsOverlay(compiled.overlays);
+      expect(overlay).to.not.equal(undefined);
+      expect(overlay?.items.map((item) => item.text)).to.deep.equal(['12', '23']);
+      // Each item's own `data` value drives its (scaled) radius; the offset
+      // is the same fixed 10px for both.
+      expect(overlay?.items.map((item) => item.radiusValue)).to.deep.equal([12, 23]);
+      expect(overlay?.radiusOffset).to.equal(10);
+      expect(overlay?.radiusScaleType).to.equal('sqrt');
+      expect(overlay?.radiusRangeMin).to.equal(20);
+      const gap = compiled.gaps.find((entry) => entry.code === 'mark:text-radial-custom-overlay');
+      expect(gap?.severity).to.equal('ignored');
+    });
+
+    it('draws a radialLabels overlay at one fixed pixel radius for a plain theta-only pie (layer_arc_label-shaped)', () => {
+      const compiled = compileSpec({
+        data: {
+          values: [
+            { category: 'a', value: 4 },
+            { category: 'b', value: 6 },
+          ],
+        },
+        encoding: {
+          theta: { field: 'value', type: 'quantitative', stack: true },
+          color: { field: 'category', type: 'nominal', legend: null },
+        },
+        layer: [
+          { mark: { type: 'arc', outerRadius: 80 } },
+          {
+            mark: { type: 'text', radius: 90 },
+            encoding: { text: { field: 'category', type: 'nominal' } },
+          },
+        ],
+      });
+      const overlay = radialLabelsOverlay(compiled.overlays);
+      expect(overlay).to.not.equal(undefined);
+      expect(overlay?.items.map((item) => item.text)).to.deep.equal(['a', 'b']);
+      // No `radius` encoding here — every label sits at the same literal 90px
+      // radius (applied entirely through `radiusOffset`), not a data-scaled one.
+      expect(overlay?.items.map((item) => item.radiusValue)).to.deep.equal([0, 0]);
+      expect(overlay?.radiusOffset).to.equal(90);
+      const gap = compiled.gaps.find((entry) => entry.code === 'mark:text-radial-custom-overlay');
+      expect(gap?.severity).to.equal('ignored');
+    });
+
+    it('falls back to the missing-axis gap when there is no theta encoding at all', () => {
+      const compiled = compileSpec({
+        data: { values: [{ category: 'a' }] },
+        layer: [
+          { mark: { type: 'arc' } },
+          {
+            mark: { type: 'text', radius: 90 },
+            encoding: { text: { field: 'category', type: 'nominal' } },
+          },
+        ],
+      });
+      expect(radialLabelsOverlay(compiled.overlays)).to.equal(undefined);
+      const gap = compiled.gaps.find((entry) => entry.code === 'mark:text-missing-axis');
+      expect(gap?.severity).to.equal('unsupported');
+    });
+  });
+
   describe('geo-projected (longitude/latitude) text', () => {
     it('draws a geoText overlay for a longitude/latitude text mark (geo_text-shaped)', () => {
       const compiled = compileSpec({

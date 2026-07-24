@@ -392,6 +392,33 @@ export function buildUpdateMutation(
   descriptor: MutationDescriptor,
   policy: CompiledSecurityPolicy | SecurityPolicyOptions,
 ): any {
+  // Defense-in-depth: re-assert the WHERE-required invariant at the builder
+  // boundary, mirroring the qualified-key / security-value re-checks below, so a
+  // direct caller that skips `validateMutation` can never emit an unscoped,
+  // full-table update. This is the single most important write invariant, and
+  // previously lived ONLY in `validateMutation`.
+  if (!descriptor.where || descriptor.where.length === 0) {
+    throw new Error(
+      `MUI X Studio Server: "update" mutation on table "${descriptor.table}" ` +
+        `requires at least one "where" predicate to prevent unscoped mutations.`,
+    );
+  }
+
+  // Defense-in-depth: re-assert the non-empty-values invariant at the builder
+  // boundary, checked from the CLIENT's perspective (on `descriptor.values`,
+  // before the tenant strip below), so a direct caller cannot reach Knex's
+  // `query.update({})` with an empty SET clause. An update-by-definition sets at
+  // least one column.
+  if (Object.keys(descriptor.values ?? {}).length === 0) {
+    throw new Error(
+      `MUI X Studio Server: "update" mutation on table "${descriptor.table}" requires at least one value to set, ` +
+        `but "values" is empty or missing. ` +
+        `An update with no values would reach the database driver with an empty SET clause instead of failing with ` +
+        `a clear validation error. ` +
+        `Include at least one column in "values" to update.`,
+    );
+  }
+
   const query = db(descriptor.table);
   const cols = resolvePrimaryCols(descriptor.table, policy);
 
@@ -442,6 +469,18 @@ export function buildDeleteMutation(
   descriptor: MutationDescriptor,
   policy: CompiledSecurityPolicy | SecurityPolicyOptions,
 ): any {
+  // Defense-in-depth: re-assert the WHERE-required invariant at the builder
+  // boundary, mirroring the security re-checks in `buildInsertMutation` /
+  // `buildUpdateMutation`, so a direct caller that skips `validateMutation` can
+  // never emit an unscoped, full-table delete. This is the single most important
+  // write invariant, and previously lived ONLY in `validateMutation`.
+  if (!descriptor.where || descriptor.where.length === 0) {
+    throw new Error(
+      `MUI X Studio Server: "delete" mutation on table "${descriptor.table}" ` +
+        `requires at least one "where" predicate to prevent unscoped mutations.`,
+    );
+  }
+
   const query = db(descriptor.table);
   const cols = resolvePrimaryCols(descriptor.table, policy);
 

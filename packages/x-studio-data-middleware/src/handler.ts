@@ -123,6 +123,25 @@ function assertValidBatchQueryRequest(body: BatchQueryRequest): void {
           `Ensure every entry in "widgets" is a BatchWidgetDescriptor with at least an "id" and "table".`,
       );
     }
+    // Array-shape guard for the descriptor's collection fields. These are typed
+    // as arrays, but the wire value is client JSON — a non-array (e.g.
+    // `filters: {}`) would reach a `for...of` deeper in and throw a raw
+    // `TypeError` on a non-iterable. Rejecting them up front here — mirroring the
+    // precise, up-front shape validation the write path's
+    // `assertValidBatchMutationRequest` does — yields this package's own
+    // `MUI X`-prefixed error instead of the generic per-widget fallback. Each
+    // field is optional, so only a PRESENT non-array value is rejected.
+    for (const field of ['filters', 'orderBy', 'aggregations', 'joins'] as const) {
+      const value = (widget as Partial<BatchWidgetDescriptor>)[field];
+      if (value !== undefined && !Array.isArray(value)) {
+        throw new Error(
+          `MUI X Studio Server: Malformed widget descriptor at widgets[${index}] — "${field}" must be an array, ` +
+            `but received ${JSON.stringify(value)}. A non-array value cannot be iterated to build the query and ` +
+            `would otherwise throw a confusing internal error instead of a clean validation failure. ` +
+            `Ensure "${field}" is an array (or omit it) on every widget descriptor.`,
+        );
+      }
+    }
   });
 }
 
@@ -221,8 +240,19 @@ async function processWidget(
     // `ValidatedQueryPlan` whose fields are already-resolved `ColumnRef`s, threaded
     // down in place of the raw descriptor's logical column names + `columnAliases`
     // map so `runPreflight` / `executeForTier` never re-derive alias resolution.
+    // Skip any null/non-object join element when extracting join table names —
+    // otherwise `.table` on a `null` join (`joins: [null]`) throws a raw
+    // `TypeError` here, BEFORE `assertQualifiedColumnsAllowed` below (which now
+    // guards that element) can produce this package's precise "malformed entry"
+    // error. A malformed join element is rejected there with a clean message; the
+    // real join tables are still validated here.
     assertTablesAllowed(
-      [descriptor.table, ...(descriptor.joins?.map((j) => j.table) ?? [])],
+      [
+        descriptor.table,
+        ...(descriptor.joins ?? [])
+          .filter((j) => typeof j === 'object' && j !== null)
+          .map((j) => j.table),
+      ],
       schemaAllowlist,
     );
     assertQualifiedColumnsAllowed(descriptor, schemaAllowlist);

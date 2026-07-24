@@ -458,6 +458,86 @@ describe('buildDeleteMutation', () => {
   });
 });
 
+// ── Builder-boundary WHERE-required / non-empty-values re-checks ───────────────
+//
+// The "update/delete requires a WHERE" and "update requires a value" invariants
+// live in `validateMutation`, but the builders themselves re-assert them at the
+// boundary (mirroring the qualified-key / security-value re-checks) so a DIRECT
+// caller that skips `validateMutation` can never emit an unscoped/empty mutation.
+
+describe('builder-boundary WHERE-required / non-empty-values re-checks', () => {
+  it('buildUpdateMutation rejects a missing WHERE directly and mutates nothing', () => {
+    const db = createMutableMockDb({ orders: [{ id: 1, tenant_id: 'acme', status: 'pending' }] });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'update',
+      table: 'orders',
+      values: { status: 'shipped' },
+    };
+    expect(() => buildUpdateMutation(db, CLAIMS, descriptor, MT_POLICY)).toThrow(
+      /requires at least one "where"/,
+    );
+    expect(db.snapshot().orders[0].status).toBe('pending');
+  });
+
+  it('buildUpdateMutation rejects an empty WHERE array directly', () => {
+    const db = createMutableMockDb({ orders: [{ id: 1, tenant_id: 'acme', status: 'pending' }] });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'update',
+      table: 'orders',
+      values: { status: 'shipped' },
+      where: [],
+    };
+    expect(() => buildUpdateMutation(db, CLAIMS, descriptor, MT_POLICY)).toThrow(
+      /requires at least one "where"/,
+    );
+    expect(db.snapshot().orders[0].status).toBe('pending');
+  });
+
+  it('buildUpdateMutation rejects empty "values" directly and mutates nothing', () => {
+    const db = createMutableMockDb({ orders: [{ id: 1, tenant_id: 'acme', status: 'pending' }] });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'update',
+      table: 'orders',
+      values: {},
+      where: [{ column: 'id', operator: 'eq', value: 1 }],
+    };
+    expect(() => buildUpdateMutation(db, CLAIMS, descriptor, MT_POLICY)).toThrow(
+      /"update".*requires at least one value to set/,
+    );
+    expect(db.snapshot().orders[0].status).toBe('pending');
+  });
+
+  it('buildDeleteMutation rejects a missing WHERE directly and mutates nothing', () => {
+    const db = createMutableMockDb({ orders: [{ id: 1, tenant_id: 'acme', status: 'pending' }] });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'delete',
+      table: 'orders',
+    };
+    expect(() => buildDeleteMutation(db, CLAIMS, descriptor, MT_POLICY)).toThrow(
+      /"delete".*requires at least one "where"/,
+    );
+    expect(db.snapshot().orders).toHaveLength(1);
+  });
+
+  it('buildDeleteMutation rejects an empty WHERE array directly', () => {
+    const db = createMutableMockDb({ orders: [{ id: 1, tenant_id: 'acme', status: 'pending' }] });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'delete',
+      table: 'orders',
+      where: [],
+    };
+    expect(() => buildDeleteMutation(db, CLAIMS, descriptor, MT_POLICY)).toThrow(
+      /"delete".*requires at least one "where"/,
+    );
+    expect(db.snapshot().orders).toHaveLength(1);
+  });
+});
+
 // ── Write-path predicate safety (empty IN, unknown operator) ──────────────────
 
 describe('write-path predicate safety', () => {

@@ -671,6 +671,59 @@ describe('handleBatchQuery — malformed request body guard', () => {
       ),
     ).rejects.toThrow(/^MUI X Studio Server: Malformed widget descriptor at widgets\[1\]/);
   });
+
+  // Regression: a non-array collection field (e.g. `filters: {}`) used to reach a
+  // `for...of` over a non-iterable deeper in and throw a raw TypeError, degraded to
+  // the generic per-widget error. The up-front array-shape check now yields this
+  // package's own precise error, and — like the other request-shape defects above
+  // — rejects the whole request rather than isolating per widget.
+  it('rejects a widget whose "filters" is not an array', async () => {
+    await expect(
+      handleBatchQuery(
+        { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', filters: {} }] } as any,
+        ACME_CLAIMS,
+        { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
+      ),
+    ).rejects.toThrow(
+      /^MUI X Studio Server: Malformed widget descriptor at widgets\[0\] — "filters" must be an array/,
+    );
+  });
+
+  it('rejects a widget whose "orderBy" is not an array', async () => {
+    await expect(
+      handleBatchQuery(
+        { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', orderBy: 'region' }] } as any,
+        ACME_CLAIMS,
+        { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
+      ),
+    ).rejects.toThrow(
+      /^MUI X Studio Server: Malformed widget descriptor at widgets\[0\] — "orderBy" must be an array/,
+    );
+  });
+
+  it('rejects a widget whose "aggregations" is not an array', async () => {
+    await expect(
+      handleBatchQuery(
+        { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', aggregations: 5 }] } as any,
+        ACME_CLAIMS,
+        { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
+      ),
+    ).rejects.toThrow(
+      /^MUI X Studio Server: Malformed widget descriptor at widgets\[0\] — "aggregations" must be an array/,
+    );
+  });
+
+  it('rejects a widget whose "joins" is not an array', async () => {
+    await expect(
+      handleBatchQuery(
+        { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', joins: {} }] } as any,
+        ACME_CLAIMS,
+        { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
+      ),
+    ).rejects.toThrow(
+      /^MUI X Studio Server: Malformed widget descriptor at widgets\[0\] — "joins" must be an array/,
+    );
+  });
 });
 
 // Regression (finding T3 — unbounded widget fan-out): a batch request used to
@@ -940,6 +993,29 @@ describe('handleBatchQuery — schema allowlist enforcement', () => {
         tenancy: SINGLE_TENANT,
       }),
       /Malformed entry in "filters"/,
+    );
+  });
+
+  // Read-path analogue of the filters[]/orderBy[]/aggregations[] element-shape
+  // guards for `joins`. A `null` (or non-object) ELEMENT inside `joins[]` used to
+  // reach `.table` on the null join (in the handler's join-table extraction) and
+  // throw a raw TypeError, degraded to a generic per-widget message.
+  // `assertQualifiedColumnsAllowed`'s join-element shape check now yields this
+  // package's own precise error, still isolated to the offending widget.
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
+  it('rejects a null joins[] element with a clean MUI X error instead of a raw TypeError', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [{ id: 'w1', table: 'sales', joins: [null as any] }],
+    };
+
+    await expectWidgetError(
+      handleBatchQuery(body, ACME_CLAIMS, {
+        db: makeDb(),
+        schemaAllowlist: ['sales', 'customers'],
+        tenancy: SINGLE_TENANT,
+      }),
+      /Malformed entry in "joins"/,
     );
   });
 

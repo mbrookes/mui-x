@@ -190,6 +190,19 @@ export function assertQualifiedColumnsAllowed(
     checkQualifiedColumn(agg.column, 'aggregations', schemaAllowlist);
   }
   for (const join of descriptor.joins ?? []) {
+    // Guard a null/non-object join element before dereferencing `.table` / `.on`,
+    // mirroring `assertPredicateElementShape` for the other descriptor arrays.
+    // `joins` is typed as an array of objects, but the wire value is client JSON,
+    // so a `null`/primitive element (e.g. `joins: [null]`) is not a runtime
+    // impossibility; dereferencing it would throw a raw `TypeError`. Rejecting it
+    // here yields this package's own precise, `MUI X`-prefixed error instead.
+    if (typeof join !== 'object' || join === null) {
+      throw new Error(
+        `MUI X Studio Server: Malformed entry in "joins" — expected a join descriptor object with a "table" field, ` +
+          `but received ${JSON.stringify(join)}. A null or non-object entry has no "table" to validate against ` +
+          `the schema allowlist. Ensure every entry in "joins" is an object with a "table" field.`,
+      );
+    }
     for (const pair of join.on ?? []) {
       if (!Array.isArray(pair)) {
         throw new Error(

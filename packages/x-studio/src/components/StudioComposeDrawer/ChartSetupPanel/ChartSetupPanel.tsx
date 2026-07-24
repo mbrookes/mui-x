@@ -429,7 +429,13 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   const isGantt = chartType === 'gantt';
   const isSankey = chartType === 'sankey';
 
-  const widgetSource = widget?.sourceId ? dataSources[widget.sourceId] : undefined;
+  // `widget.sourceId` is doc-authored: guard the record index against inherited prototype keys
+  // ("toString"/"constructor"/…) so a bare bracket lookup can't resolve a function off
+  // `Object.prototype` instead of "not found" (prototype-chain key lookup fix).
+  const widgetSource =
+    widget?.sourceId && Object.hasOwn(dataSources, widget.sourceId)
+      ? dataSources[widget.sourceId]
+      : undefined;
   // BL-179/180: calculated-field context for the in-dropdown "Add calculated field…"
   // entry on the Y-measure pickers. Gated to chart types that take measure fields and
   // to the calculatedFields feature flags. reachableSourceIds scopes operands (BL-180).

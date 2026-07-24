@@ -181,7 +181,12 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
     if (!chartYFieldId || !selectedWidget?.sourceId) {
       return undefined;
     }
-    const source = dataSources[selectedWidget.sourceId];
+    // `sourceId` is doc-authored: guard the record index against inherited prototype keys
+    // ("toString"/"constructor"/…) so a bare bracket lookup can't resolve a function instead
+    // of "not found" and then throw on `source?.fields` (prototype-chain key lookup fix).
+    const source = Object.hasOwn(dataSources, selectedWidget.sourceId)
+      ? dataSources[selectedWidget.sourceId]
+      : undefined;
     return source?.fields.find((f) => f.id === chartYFieldId)?.label ?? chartYFieldId;
   }, [chartYFieldId, selectedWidget?.sourceId, dataSources]);
 
@@ -190,7 +195,12 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
     if (!selectedWidget || !isWidgetOfKind(selectedWidget, 'chart') || !selectedWidget.sourceId) {
       return undefined;
     }
-    const source = dataSources[selectedWidget.sourceId];
+    // `sourceId` is doc-authored: guard the record index against inherited prototype keys
+    // ("toString"/"constructor"/…) so a bare bracket lookup can't resolve a function instead
+    // of "not found" and then throw on `source?.fields` (prototype-chain key lookup fix).
+    const source = Object.hasOwn(dataSources, selectedWidget.sourceId)
+      ? dataSources[selectedWidget.sourceId]
+      : undefined;
     if (!source) {
       return undefined;
     }

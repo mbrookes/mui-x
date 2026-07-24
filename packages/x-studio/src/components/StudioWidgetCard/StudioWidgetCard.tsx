@@ -157,16 +157,27 @@ function DefaultLoadingOverlay() {
  * catch-and-display only, no retry logic.
  */
 class StudioWidgetErrorBoundary extends React.Component<
-  { children: React.ReactNode },
+  { children: React.ReactNode; resetKey?: string },
   { hasError: boolean; message?: string }
 > {
-  constructor(props: { children: React.ReactNode }) {
+  constructor(props: { children: React.ReactNode; resetKey?: string }) {
     super(props);
     this.state = { hasError: false };
   }
 
   static getDerivedStateFromError(error: unknown): { hasError: boolean; message?: string } {
     return { hasError: true, message: error instanceof Error ? error.message : undefined };
+  }
+
+  componentDidUpdate(prevProps: { resetKey?: string }) {
+    // Recover from a latched error once the widget's config plausibly changed (finding T3):
+    // `getDerivedStateFromError` latches `hasError` permanently, and the card is keyed by
+    // `widgetId` (so config edits don't remount it) while inactive pages stay mounted. Without
+    // this, a transient render error from a bad (e.g. AI-authored) config that the user then
+    // corrects would leave the widget stuck on the error overlay until a full page reload.
+    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
+      this.setState({ hasError: false, message: undefined });
+    }
   }
 
   render() {
@@ -724,7 +735,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           {def &&
             (showContent ? (
               <Box sx={{ position: 'relative', ...(def.capabilities.contentSx ?? {}) }}>
-                <StudioWidgetErrorBoundary>
+                <StudioWidgetErrorBoundary resetKey={JSON.stringify(widget.config)}>
                   <def.component
                     widget={widget}
                     dataSource={isCustomKind ? enrichedCustomSource : source}

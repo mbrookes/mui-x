@@ -54,7 +54,10 @@ interface StudioContentProps {
   stackBreakpoint?: number;
   aiConfig?: StudioAIConfig | null;
   slotProps?: {
-    chatPanel?: Omit<StudioChatPanelProps, 'aiConfig' | 'open' | 'onClose' | 'overlay'>;
+    chatPanel?: Omit<
+      StudioChatPanelProps,
+      'aiConfig' | 'open' | 'onClose' | 'overlay' | 'focusedWidgetId' | 'pendingMessage'
+    >;
     canvas?: StudioCanvasProps;
   };
 }
@@ -118,7 +121,13 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
     if (!selectedSourceId || !selectedFieldId) {
       return null;
     }
-    return dataSources[selectedSourceId]?.fields.find((f) => f.id === selectedFieldId) ?? null;
+    // `selectedSourceId` can originate from doc/host/AI-authored ids, so guard the record index
+    // against inherited keys ("toString"/"constructor"/…): a bare bracket lookup would resolve a
+    // function off `Object.prototype` that slips past `?.fields` and throws (prototype-chain fix).
+    const selectedSource = Object.hasOwn(dataSources, selectedSourceId)
+      ? dataSources[selectedSourceId]
+      : undefined;
+    return selectedSource?.fields.find((f) => f.id === selectedFieldId) ?? null;
   }, [dataSources, selectedSourceId, selectedFieldId]);
 
   const composePanelTitle =
@@ -385,8 +394,14 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
             </Tooltip>
             <React.Suspense fallback={null}>
               <StudioChatPanel
-                focusedWidgetId={insightFocusedWidgetId}
                 {...slotProps?.chatPanel}
+                // `focusedWidgetId` and `pendingMessage` are Studio-internally managed (the
+                // widget-insight focus + queued insight prompt), so they sit AFTER the spread —
+                // matching aiConfig/open/onClose/overlay — and are excluded from the consumer's
+                // `slotProps.chatPanel` type via the Omit above. Previously `focusedWidgetId` sat
+                // BEFORE the spread, letting a consumer silently override "Explain this widget",
+                // while `pendingMessage` sat after but was still spreadable in the type (T3).
+                focusedWidgetId={insightFocusedWidgetId}
                 aiConfig={aiConfig}
                 open={chatOpen}
                 onClose={() => setChatOpen(false)}

@@ -151,7 +151,13 @@ export function GridSetupPanel(props: { widgetId: string }) {
     min: localeText.aggFnMin,
     max: localeText.aggFnMax,
   };
-  const source = widget?.sourceId ? dataSources[widget.sourceId] : undefined;
+  // `widget.sourceId` is doc-authored: guard the record index against inherited prototype keys
+  // ("toString"/"constructor"/…) so a bare bracket lookup can't resolve a function off
+  // `Object.prototype` instead of "not found" (prototype-chain key lookup fix).
+  const source =
+    widget?.sourceId && Object.hasOwn(dataSources, widget.sourceId)
+      ? dataSources[widget.sourceId]
+      : undefined;
   // `widget` comes from a broad selector, so its `config` is the cross-kind union.
   // Narrow to the grid config shape for reading grid-specific keys.
   const config = (widget?.config ?? {}) as StudioWidgetConfigForKind<'grid'>;
@@ -219,7 +225,12 @@ export function GridSetupPanel(props: { widgetId: string }) {
       if (!reachableIds.has(rel.targetId)) {
         continue;
       }
-      const relatedSource = dataSources[rel.targetId];
+      // `rel.targetId` is doc-authored: guard the record index against inherited prototype keys
+      // ("toString"/"constructor"/…) so a bare bracket lookup can't resolve a function off
+      // `Object.prototype` instead of "not found" (prototype-chain key lookup fix).
+      const relatedSource = Object.hasOwn(dataSources, rel.targetId)
+        ? dataSources[rel.targetId]
+        : undefined;
       if (!relatedSource || relatedSource.hidden) {
         continue;
       }

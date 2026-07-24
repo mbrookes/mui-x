@@ -68,7 +68,12 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
       });
       return entries;
     }
-    const source = dataSources[widget.sourceId];
+    // `widget.sourceId` is doc-authored: guard the record index against inherited prototype
+    // keys ("toString"/"constructor"/…) so a bare bracket lookup can't resolve a function off
+    // `Object.prototype` instead of "not found" (prototype-chain key lookup fix).
+    const source = Object.hasOwn(dataSources, widget.sourceId)
+      ? dataSources[widget.sourceId]
+      : undefined;
     if (!source) {
       return [];
     }

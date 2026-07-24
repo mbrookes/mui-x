@@ -188,7 +188,13 @@ export function KpiSetupPanel(props: { widgetId: string }) {
     }
   }, [config.kpiAggregation, storedAggIsValid, selectedAgg, controller, widgetId]);
 
-  const widgetSource = widget?.sourceId ? dataSources[widget.sourceId] : undefined;
+  // `widget.sourceId` is doc-authored: guard the record index against inherited prototype keys
+  // ("toString"/"constructor"/…) so a bare bracket lookup can't resolve a function off
+  // `Object.prototype` instead of "not found" (prototype-chain key lookup fix).
+  const widgetSource =
+    widget?.sourceId && Object.hasOwn(dataSources, widget.sourceId)
+      ? dataSources[widget.sourceId]
+      : undefined;
   // BL-179/180: pass calculated-field context to the value picker only when the
   // feature is enabled for KPIs and a primary source is established. The reachable
   // source set scopes operands offered in the expression dialog (BL-180).

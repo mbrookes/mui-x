@@ -274,7 +274,13 @@ function StudioPageRows({
             if (!customDef?.shouldHide) {
               return false;
             }
-            const dataSource = widget.sourceId ? dataSources[widget.sourceId] : undefined;
+            // `widget.sourceId` is doc-authored (host/AI-writable): guard the record index
+            // against inherited keys ("toString"/"constructor"/…) so a bare bracket lookup
+            // can't resolve a function off `Object.prototype` instead of "not found".
+            const dataSource =
+              widget.sourceId && Object.hasOwn(dataSources, widget.sourceId)
+                ? dataSources[widget.sourceId]
+                : undefined;
             return customDef.shouldHide({ widget, dataSource });
           })
         ) {
@@ -645,16 +651,28 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
         ...(Array.isArray(sx) ? sx : [sx]),
       ]}
       onMouseDown={(event) => {
-        // Deselect + notify only when clicking the canvas background (not a widget card)
+        // Deselect + notify only when clicking the canvas background (not a widget card).
+        // The date-range bar renders inside this root but is NOT a widget card, so without the
+        // second guard, pressing its preset Select would be treated as a background click —
+        // clearing the widget selection and closing the AI chat mid-interaction (finding T3).
         const target = event.target as HTMLElement;
-        if (!target.closest('[data-widget-card]')) {
+        if (
+          !target.closest('[data-widget-card]') &&
+          !target.closest('[data-studio-date-range-bar]')
+        ) {
           controller.setSelectedWidget(null);
           onBackgroundClick?.();
         }
       }}
     >
-      {/* Date range bar — shown in both modes when the page has date/datetime fields */}
-      {features.quickFilter && <StudioDateRangeBar />}
+      {/* Date range bar — shown in both modes when the page has date/datetime fields.
+          Wrapped with a stable data attribute so the canvas background-click handler can
+          exclude interactions with it (see onMouseDown above). */}
+      {features.quickFilter && (
+        <Box data-studio-date-range-bar="">
+          <StudioDateRangeBar />
+        </Box>
+      )}
 
       {isEmptyPage && (
         <Paper

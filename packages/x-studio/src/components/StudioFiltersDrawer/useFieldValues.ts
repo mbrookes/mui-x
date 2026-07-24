@@ -109,7 +109,13 @@ export function useFieldValues(
       return [];
     }
     // Scope to the filter's own source when known, else scan every source.
-    const scopedSource = filterSourceId ? dataSources[filterSourceId] : undefined;
+    // `filterSourceId` is doc-authored: guard the record index against inherited prototype keys
+    // ("toString"/"constructor"/…) so a bare bracket lookup can't resolve a function off
+    // `Object.prototype` instead of "not found" (prototype-chain key lookup fix).
+    const scopedSource =
+      filterSourceId && Object.hasOwn(dataSources, filterSourceId)
+        ? dataSources[filterSourceId]
+        : undefined;
     const sources = scopedSource
       ? [scopedSource]
       : (Object.values(dataSources) as StudioDataSource[]);

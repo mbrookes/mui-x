@@ -138,7 +138,13 @@ export function GridConditionalFormatSection(props: { widgetId: string }) {
   const dataSources = useStudioSelector(selectDataSources);
   const localeText = useStudioLocaleText();
 
-  const source = widget?.sourceId ? dataSources[widget.sourceId] : undefined;
+  // `widget.sourceId` is doc-authored: guard the record index against inherited prototype keys
+  // ("toString"/"constructor"/…) so a bare bracket lookup can't resolve a function off
+  // `Object.prototype` instead of "not found" (prototype-chain key lookup fix).
+  const source =
+    widget?.sourceId && Object.hasOwn(dataSources, widget.sourceId)
+      ? dataSources[widget.sourceId]
+      : undefined;
 
   const cfOperators: { value: StudioConditionalFormat['operator']; label: string }[] = [
     { value: 'equals', label: '=' },

@@ -30,8 +30,13 @@ export const selectShell = (state: StudioState) => state.session.shell;
 export const selectActivePageId = (state: StudioState) => state.doc.dashboard.activePageId;
 export const selectPages = (state: StudioState) => state.doc.pages;
 export const selectDashboard = (state: StudioState) => state.doc.dashboard;
-export const selectActivePage = (state: StudioState) =>
-  state.doc.pages[state.doc.dashboard.activePageId];
+export const selectActivePage = (state: StudioState) => {
+  // `activePageId` is doc-authored (host/AI-writable): guard the record index against inherited
+  // keys ("toString"/"constructor"/…) so a bare bracket lookup can't resolve a function off
+  // `Object.prototype` instead of resolving to "no such page" (prototype-chain key lookup fix).
+  const { activePageId } = state.doc.dashboard;
+  return Object.hasOwn(state.doc.pages, activePageId) ? state.doc.pages[activePageId] : undefined;
+};
 export const selectGlobalCrossFilterMode = (state: StudioState) =>
   state.doc.dashboard.globalCrossFilterMode ?? null;
 export const selectCrossFilterAllPages = (state: StudioState) =>
@@ -534,7 +539,14 @@ export function makeSelectWidgetSource(
 ): (state: StudioState) => StudioDataSource | undefined {
   return (state) => {
     const w = state.doc.widgets[widgetId];
-    return w?.sourceId ? state.runtime.dataSources[w.sourceId] : undefined;
+    const sourceId = w?.sourceId;
+    // `sourceId` is doc-authored (host/AI-writable), so guard the record index against
+    // inherited keys: a key like "toString"/"constructor" would otherwise resolve a function
+    // off `Object.prototype` instead of "not found", and that truthy non-source object slips
+    // past `?.fields` guards downstream and throws (finding: prototype-chain key lookup).
+    return sourceId && Object.hasOwn(state.runtime.dataSources, sourceId)
+      ? state.runtime.dataSources[sourceId]
+      : undefined;
   };
 }
 

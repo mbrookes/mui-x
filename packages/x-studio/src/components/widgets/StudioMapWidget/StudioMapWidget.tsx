@@ -205,8 +205,15 @@ export function StudioMapWidget({
       // its own (non-measure) expression fields — so a related-source *calculated* value field
       // keeps its format/currency/precision in the tooltip + legend, mirroring the same-source
       // fallback below and the grid's `resolveCrossSourceFieldDefs` expression fallback (finding 1.1).
+      // `valueSourceId` is doc-authored (`config.mapValueSourceId`/`config.mapCountrySourceId`),
+      // so guard the record index against inherited keys: a key like "toString"/"constructor"
+      // would otherwise resolve a function off `Object.prototype` instead of "not found"
+      // (prototype-chain key lookup fix, matching `makeSelectWidgetSource` in `context/selectors.ts`).
+      const valueSource = Object.hasOwn(dataSources, valueSourceId)
+        ? dataSources[valueSourceId]
+        : undefined;
       return (
-        dataSources[valueSourceId]?.fields.find((f) => f.id === valueField) ??
+        valueSource?.fields.find((f) => f.id === valueField) ??
         allExpressionFields.find(
           (f) => f.id === valueField && f.sourceId === valueSourceId && !f.isMeasure,
         )

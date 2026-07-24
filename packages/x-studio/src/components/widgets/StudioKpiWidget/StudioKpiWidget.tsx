@@ -503,8 +503,11 @@ function useKpiGrainAnchoredRows(
  * both the headline and the sparkline tooltip (finding 3.1). `analyzeChartSupport`'s precomputed
  * `fieldOwners` gives us the owning source so we can read the def off it — mirroring the map
  * widget's cross-source value-field def resolution.
+ *
+ * Exported so tests can exercise the `dataSources[ownerSourceId]` prototype-chain key lookup
+ * guard directly, without needing to drive a full `analyzeChartSupport` relationship graph.
  */
-function resolveKpiValueFieldDef(
+export function resolveKpiValueFieldDef(
   valueFieldId: string | undefined,
   dataSource: StudioDataSource | undefined,
   dataSources: Record<string, StudioDataSource>,
@@ -536,7 +539,14 @@ function resolveKpiValueFieldDef(
   );
   const ownerSourceId = support.fieldOwners?.get(valueFieldId);
   if (ownerSourceId && ownerSourceId !== dataSource?.id) {
-    return dataSources[ownerSourceId]?.fields.find((f) => f.id === valueFieldId);
+    // `ownerSourceId` is traced from relationship analysis (ultimately a `StudioRelationship`
+    // id), so guard the record index against inherited keys: a key like "toString"/"constructor"
+    // would otherwise resolve a function off `Object.prototype` instead of "not found"
+    // (prototype-chain key lookup fix, matching `makeSelectWidgetSource` in `context/selectors.ts`).
+    const ownerSource = Object.hasOwn(dataSources, ownerSourceId)
+      ? dataSources[ownerSourceId]
+      : undefined;
+    return ownerSource?.fields.find((f) => f.id === valueFieldId);
   }
   return undefined;
 }

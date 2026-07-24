@@ -74,6 +74,27 @@ describe('resolveCrossSourceFieldDefs', () => {
     );
     expect(defs.has('doesNotExist')).toBe(false);
   });
+
+  it('does not throw when a column sourceId is an Object.prototype member name (prototype-chain key lookup fix)', () => {
+    // `c.sourceId` is doc-authored (part of `StudioWidgetConfig['columns']`): a hostile/AI-
+    // authored value like "constructor" must resolve to "no such source", not the inherited
+    // `Object.prototype.constructor` function — which would otherwise slip past the `?.fields`
+    // guard and crash on `.find(...)` (finding: prototype-chain key lookup).
+    expect(() =>
+      resolveCrossSourceFieldDefs(
+        [{ fieldId: 'total', sourceId: 'constructor' }],
+        'orders',
+        dataSources,
+      ),
+    ).not.toThrow();
+
+    const defs = resolveCrossSourceFieldDefs(
+      [{ fieldId: 'total', sourceId: 'constructor' }],
+      'orders',
+      dataSources,
+    );
+    expect(defs.has('total')).toBe(false);
+  });
 });
 
 describe('computeOrderedFieldIds + resolveCrossSourceFieldDefs integration', () => {

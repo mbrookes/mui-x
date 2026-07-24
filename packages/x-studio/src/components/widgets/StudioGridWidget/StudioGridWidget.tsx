@@ -261,7 +261,13 @@ export function resolveCrossSourceFieldDefs(
     if (!c.sourceId || c.sourceId === ownSourceId) {
       continue;
     }
-    const field = dataSources[c.sourceId]?.fields.find((f) => f.id === c.fieldId);
+    // `c.sourceId` is doc-authored (part of `StudioWidgetConfig['columns']`), so guard the
+    // record index against inherited keys: a key like "toString"/"constructor" would otherwise
+    // resolve a function off `Object.prototype` instead of "not found", and that truthy
+    // non-source object slips past `?.fields` and throws (prototype-chain key lookup fix,
+    // matching `makeSelectWidgetSource` in `context/selectors.ts`).
+    const source = Object.hasOwn(dataSources, c.sourceId) ? dataSources[c.sourceId] : undefined;
+    const field = source?.fields.find((f) => f.id === c.fieldId);
     if (field) {
       map.set(c.fieldId, field);
       continue;

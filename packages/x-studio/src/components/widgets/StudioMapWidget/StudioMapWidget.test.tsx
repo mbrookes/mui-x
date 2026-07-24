@@ -589,6 +589,36 @@ describe('<StudioMapWidget /> value-field lookup — expression + cross-source f
     expect(latestLegendAriaLabel()).toMatch(/\$/);
   });
 
+  it('does not throw when mapValueSourceId is an Object.prototype member name (prototype-chain key lookup fix)', async () => {
+    // `valueSourceId` is doc-authored (`config.mapValueSourceId`): a hostile/AI-authored
+    // value like "constructor" must resolve to "no such source" (`undefined`), not the
+    // inherited `Object.prototype.constructor` function — which would otherwise slip past
+    // the `?.fields` guard and crash on `.find(...)` (finding: prototype-chain key lookup).
+    rows = [
+      { country: 'United States', lifetimeValue: 9999.99 },
+      { country: 'France', lifetimeValue: 42 },
+    ];
+    const widget: StudioWidget = {
+      ...baseWidget,
+      config: {
+        ...baseWidget.config,
+        mapValueField: 'lifetimeValue',
+        mapValueSourceId: 'constructor',
+      },
+    } as StudioWidget;
+    mockState = createState({
+      widgets: { 'map-1': widget },
+      dataSources: { sales: dataSource },
+    });
+    configureStudioContextMock({ getState: () => mockState, controller });
+
+    // Rendering must not throw — pre-fix, `dataSources['constructor']?.fields.find(...)`
+    // resolved `Object.prototype.constructor` (a truthy function) instead of `undefined`,
+    // so `.fields` was `undefined` and `.find` crashed.
+    await renderMap(widget);
+    expect(latestLegendAriaLabel()).toEqual(expect.any(String));
+  });
+
   it('resolves format/currency from a cross-source CALCULATED (expression) field via mapValueSourceId (finding 1.1)', async () => {
     rows = [
       { country: 'United States', bonus: 9999.99, customerId: 'c1' },

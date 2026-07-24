@@ -243,6 +243,34 @@ describe('StudioMixedChart', () => {
     expect(props.xAxis[0].valueFormatter!('2024-W07')).toBe('fmt(2024-W07)');
   });
 
+  // Prototype-chain key lookup guard: a blended series' `sourceId` is doc-authored, so a
+  // hostile/AI-authored value equal to an `Object.prototype` member name ("constructor",
+  // "toString", …) must resolve to "no such source" (falling back to the fieldId as the
+  // label) instead of crashing when `resolveFieldDef` calls `.fields.find(...)` on the
+  // inherited `Object.prototype.constructor` function.
+  it('does not throw when a blended series sourceId is an Object.prototype member name', () => {
+    expect(() =>
+      renderMixed(
+        baseProps({
+          multiYData: {
+            labels: ['Jan', 'Feb'],
+            series: [{ fieldId: 'amount', sourceId: 'constructor', values: [100, 200] }],
+          },
+          ySeries: [
+            { fieldId: 'amount', sourceId: 'constructor', seriesType: 'bar' },
+          ] as unknown as StudioMixedChartProps['ySeries'],
+          // Deliberately no "constructor" key in dataSources — the runtime/doc mismatch
+          // the guard defends against.
+          dataSources: { orders: dataSource },
+        }),
+      ),
+    ).not.toThrow();
+
+    const props = lastProps();
+    // No field def resolved (no matching source) — label falls back to the raw fieldId.
+    expect(props.series.map((s) => s.label)).toEqual(['amount']);
+  });
+
   // Regression for finding 2.3: series values ignored the field's format/currencyCode,
   // while the y-axes (which read the same field) were already formatted — the mismatch
   // was visible within one chart.

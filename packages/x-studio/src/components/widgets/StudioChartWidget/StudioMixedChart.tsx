@@ -18,6 +18,21 @@ import { makeValueFormatter, resolveFieldDef } from './chartWidgetHelpers';
 
 type YSeriesConfig = NonNullable<StudioChartConfig['ySeries']>[number];
 
+/**
+ * Looks up a blended series' source in the `dataSources` record, guarding against inherited
+ * keys. `srcId` is doc-authored (a blended chart series' `sourceId`, or the widget's own
+ * `sourceId` as fallback), so a key like "toString"/"constructor" would otherwise resolve a
+ * function off `Object.prototype` instead of "not found" — and that truthy non-source object
+ * slips past `resolveFieldDef`'s `dataSource?.fields.find(...)` and throws (prototype-chain key
+ * lookup fix, matching `makeSelectWidgetSource` in `context/selectors.ts`).
+ */
+function getBlendedDataSource(
+  dataSources: Record<string, StudioDataSource>,
+  srcId: string | undefined,
+): StudioDataSource | undefined {
+  return srcId && Object.hasOwn(dataSources, srcId) ? dataSources[srcId] : undefined;
+}
+
 export interface StudioMixedChartProps {
   /** Aggregated multi-series data (one entry per configured y-series). */
   multiYData: MultiYSeriesData;
@@ -108,7 +123,7 @@ export function StudioMixedChart({
     const fieldDef =
       resolveFieldDef(
         s.fieldId,
-        seriesSourceId ? dataSources[seriesSourceId] : dataSource,
+        seriesSourceId ? getBlendedDataSource(dataSources, seriesSourceId) : dataSource,
         expressionFields,
       ) ?? resolveFieldDef(s.fieldId, dataSource, expressionFields);
     const seriesLabel = seriesConfig?.label ?? fieldDef?.label ?? s.fieldId;
@@ -149,7 +164,11 @@ export function StudioMixedChart({
       return undefined;
     }
     const srcId = sc.sourceId ?? widgetSourceId;
-    return resolveFieldDef(sc.fieldId, srcId ? dataSources[srcId] : dataSource, expressionFields);
+    return resolveFieldDef(
+      sc.fieldId,
+      srcId ? getBlendedDataSource(dataSources, srcId) : dataSource,
+      expressionFields,
+    );
   };
   const leftSeriesConfig =
     ySeries.find((sc) => (normalizeChartSeries(sc).type ?? 'bar') === 'bar') ?? ySeries[0];

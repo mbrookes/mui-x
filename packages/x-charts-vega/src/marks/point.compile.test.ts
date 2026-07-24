@@ -452,6 +452,30 @@ describe('compilePointMark', () => {
     });
   });
 
+  it("resolves a tick layer's own bracket-indexed field instead of the shared axis' single representative field (bullet-chart marker)", () => {
+    // Several bar layers (not modeled here) share this same continuous
+    // x-axis, each drawing from its own distinct array-indexed field
+    // (ranges[i]/measures[i]); the tick's own field ("markers[0]") must
+    // resolve independently, not read whichever field the shared axis
+    // happens to represent.
+    const spec: VegaLiteSpec = {
+      data: { values: [{ ranges: [150, 225, 300], markers: [250] }] },
+      layer: [
+        { mark: { type: 'bar', color: '#eee' }, encoding: { x: { field: 'ranges[2]' } } },
+        { mark: { type: 'tick', color: 'black' }, encoding: { x: { field: 'markers[0]' } } },
+      ],
+      encoding: { x: { type: 'quantitative', scale: { nice: false } } },
+    };
+    const compiled = compileSpec(spec);
+    const tickOverlay = compiled.overlays.find((overlay) => overlay.kind === 'segments') as {
+      items: Array<{ x1: unknown; x2: unknown }>;
+    };
+    expect(tickOverlay).not.to.equal(undefined);
+    expect(tickOverlay.items).to.have.length(1);
+    expect(tickOverlay.items[0].x1).to.equal(250);
+    expect(tickOverlay.items[0].x2).to.equal(250);
+  });
+
   it('bakes a static mark opacity into the marker color (no gap); still gaps strokeOpacity', () => {
     const spec: VegaLiteSpec = {
       data: { values: [{ x: 1, y: 1 }] },

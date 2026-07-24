@@ -13,7 +13,7 @@ import type {
 import type { GapCollector } from '../gaps';
 import type { ColorResolution } from '../compile/color';
 import { resolveColor } from '../compile/color';
-import { toDate, toNumber } from '../compile/fieldTypes';
+import { resolveFieldPath, toDate, toNumber } from '../compile/fieldTypes';
 import type { DatasetRow, VegaChannelDef } from '../types';
 import { isDatumDef, isFieldDef, isValueDef } from '../types';
 
@@ -87,12 +87,15 @@ function buildSeriesData(
     // A synthetic axis (aggregate-only bars) has a single implicit category —
     // every row lands at index 0.
     const index = categoryField
-      ? ctx.categoryIndex(categoryAxis, toCategoryValue(categoryAxis, row[categoryField]))
+      ? ctx.categoryIndex(
+          categoryAxis,
+          toCategoryValue(categoryAxis, resolveFieldPath(row, categoryField)),
+        )
       : 0;
     if (index < 0) {
       continue;
     }
-    const value = toNumber(row[valueField]);
+    const value = toNumber(resolveFieldPath(row, valueField));
     if (value === null) {
       continue;
     }
@@ -132,13 +135,19 @@ function buildRangedSeriesData(
   for (const row of rows) {
     // Synthetic axis (aggregate-only bars): single implicit category, index 0.
     const index = categoryField
-      ? ctx.categoryIndex(categoryAxis, toCategoryValue(categoryAxis, row[categoryField]))
+      ? ctx.categoryIndex(
+          categoryAxis,
+          toCategoryValue(categoryAxis, resolveFieldPath(row, categoryField)),
+        )
       : 0;
     if (index < 0) {
       continue;
     }
-    const start = toNumber(row[startField]);
-    const end = twin.field !== undefined ? toNumber(row[twin.field]) : (twin.constant ?? null);
+    const start = toNumber(resolveFieldPath(row, startField));
+    const end =
+      twin.field !== undefined
+        ? toNumber(resolveFieldPath(row, twin.field))
+        : (twin.constant ?? null);
     if (start === null || end === null) {
       continue;
     }
@@ -181,7 +190,7 @@ export function groupRowsByField(
 ): RowGroup[] {
   const groups = new Map<string, RowGroup>();
   for (const row of rows) {
-    const value = row[splitField];
+    const value = resolveFieldPath(row, splitField);
     if (value == null) {
       continue;
     }
@@ -271,7 +280,7 @@ function resolveRectRowColor(
   // every other auto-colored series/group in this wrapper.
   const effectiveRange = range && range.length > 0 ? range : ctx.palette;
   return (row) => {
-    const raw = row[splitField];
+    const raw = resolveFieldPath(row, splitField);
     if (raw == null) {
       return fallback;
     }
@@ -309,9 +318,9 @@ function compileContinuousRects(
 ): CompiledUnit {
   const items: OverlayRectItem[] = [];
   for (const row of rows) {
-    const start = toNumber(row[rangeField]);
-    const end = toNumber(row[rangeTwinField]);
-    const value = toNumber(row[valueField]);
+    const start = toNumber(resolveFieldPath(row, rangeField));
+    const end = toNumber(resolveFieldPath(row, rangeTwinField));
+    const value = toNumber(resolveFieldPath(row, valueField));
     if (start === null || end === null || value === null) {
       continue;
     }
@@ -344,10 +353,10 @@ function compileFullyRangedRects(
 ): CompiledUnit {
   const items: OverlayRectItem[] = [];
   for (const row of rows) {
-    const x1 = toNumber(row[xField]);
-    const x2 = toNumber(row[xTwinField]);
-    const y1 = toNumber(row[yField]);
-    const y2 = toNumber(row[yTwinField]);
+    const x1 = toNumber(resolveFieldPath(row, xField));
+    const x2 = toNumber(resolveFieldPath(row, xTwinField));
+    const y1 = toNumber(resolveFieldPath(row, yField));
+    const y2 = toNumber(resolveFieldPath(row, yTwinField));
     if (x1 === null || x2 === null || y1 === null || y2 === null) {
       continue;
     }
@@ -380,9 +389,15 @@ function compileCategoryRangedRects(
 ): CompiledUnit {
   const items: OverlayRectItem[] = [];
   for (const row of rows) {
-    const category = toCategoryValue(categoryAxis, row[categoryField]) as OverlayPosition | null;
-    const twin = toCategoryValue(categoryAxis, row[twinField]) as OverlayPosition | null;
-    const value = toNumber(row[valueField]);
+    const category = toCategoryValue(
+      categoryAxis,
+      resolveFieldPath(row, categoryField),
+    ) as OverlayPosition | null;
+    const twin = toCategoryValue(
+      categoryAxis,
+      resolveFieldPath(row, twinField),
+    ) as OverlayPosition | null;
+    const value = toNumber(resolveFieldPath(row, valueField));
     if (category == null || twin == null || value === null) {
       continue;
     }
@@ -475,7 +490,16 @@ export function compileBarMark(ctx: UnitContext): CompiledUnit {
   const categoryAxis = horizontal ? ctx.y : ctx.x;
   const valueAxis = horizontal ? ctx.x : ctx.y;
   const valueChannelDef = horizontal ? encoding.x : encoding.y;
-  const valueField = horizontal ? ctx.x?.field : ctx.y?.field;
+  // Prefer THIS layer's own resolved field over the shared axis' field: when
+  // several bar layers share one continuous axis but each draws from its own
+  // distinct field (a composite "bullet chart" — one bar per `ranges[i]`/
+  // `measures[i]` array element, all sharing one x-axis), `ctx.x`/`ctx.y`
+  // only carries a single representative field for the whole shared axis, so
+  // every layer would otherwise read the SAME field regardless of its own
+  // encoding. Falls back to the shared axis field when this layer's own
+  // encoding has none of its own (e.g. an aggregate/bin channel, whose
+  // resolved output field only `ctx.x`/`ctx.y` reflects reliably).
+  const valueField = fieldOf(valueChannelDef) ?? (horizontal ? ctx.x?.field : ctx.y?.field);
   // A usable value channel must resolve to a continuous (quantitative/
   // temporal) axis — if both positional channels ended up categorical (e.g.
   // two nominal fields), there is no numeric value to draw a bar length

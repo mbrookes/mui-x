@@ -706,4 +706,47 @@ describe('compileBarMark', () => {
     expect(series.layout).to.equal('horizontal');
     expect(series.data).to.deep.equal([5, 7]);
   });
+
+  it('resolves a bracket-indexed array field (e.g. "ranges[2]") as the bar value instead of null', () => {
+    const spec: VegaLiteSpec = {
+      data: { values: [{ ranges: [150, 225, 300] }] },
+      mark: 'bar',
+      encoding: {
+        x: { field: 'ranges[2]', type: 'quantitative' },
+      },
+    };
+    const compiled = compileSpec(spec);
+    expect(compiled.series).to.have.length(1);
+    const series = compiled.series[0] as { data: unknown[] };
+    expect(series.data).to.deep.equal([300]);
+  });
+
+  it("resolves each layer's own distinct field instead of the shared axis' single representative field (bullet-chart-shaped layering)", () => {
+    // Several bar layers share one continuous x-axis but each draws from its
+    // own distinct field — a composite "bullet chart": one bar per
+    // ranges[i]/measures[i] array element. `ctx.x`/`ctx.y` only carries a
+    // single representative field for the whole shared axis, so without
+    // preferring each layer's own encoding field, every layer would read the
+    // SAME value.
+    const spec: VegaLiteSpec = {
+      data: { values: [{ ranges: [150, 225, 300], measures: [220, 270] }] },
+      layer: [
+        { mark: { type: 'bar', color: '#eee' }, encoding: { x: { field: 'ranges[2]' } } },
+        { mark: { type: 'bar', color: '#ddd' }, encoding: { x: { field: 'ranges[1]' } } },
+        { mark: { type: 'bar', color: '#ccc' }, encoding: { x: { field: 'ranges[0]' } } },
+        {
+          mark: { type: 'bar', color: 'lightsteelblue', size: 10 },
+          encoding: { x: { field: 'measures[1]' } },
+        },
+        {
+          mark: { type: 'bar', color: 'steelblue', size: 10 },
+          encoding: { x: { field: 'measures[0]' } },
+        },
+      ],
+      encoding: { x: { type: 'quantitative', scale: { nice: false } } },
+    };
+    const compiled = compileSpec(spec);
+    const values = (compiled.series as Array<{ data: unknown[] }>).map((s) => s.data[0]);
+    expect(values).to.deep.equal([300, 225, 150, 270, 220]);
+  });
 });

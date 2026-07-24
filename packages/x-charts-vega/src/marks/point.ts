@@ -3,7 +3,7 @@ import { isFieldDef, isValueDef } from '../types';
 import type { DatasetRow, VegaChannelDef, VegaEncoding, VegaFieldDef } from '../types';
 import { resolveColor } from '../compile/color';
 import type { ColorResolution } from '../compile/color';
-import { resolveFieldType, toDate, toNumber } from '../compile/fieldTypes';
+import { resolveFieldPath, resolveFieldType, toDate, toNumber } from '../compile/fieldTypes';
 import type {
   AxisResolution,
   CompiledSeries,
@@ -89,12 +89,26 @@ interface ResolvedCandidate {
   groupValue?: unknown;
 }
 
-/** Resolves a row's raw value for a positional axis, coerced to match the axis' resolved field type. Returns `null` for value/datum-only axes (no `field`) or unparseable/missing data. */
+/**
+ * Resolves a row's raw value for a positional axis, coerced to match the
+ * axis' resolved field type. Returns `null` for value/datum-only axes (no
+ * `field`) or unparseable/missing data.
+ * `ownField` (only ever supplied by the `tick` path) reads from THIS layer's
+ * own encoding field instead of the shared axis' field when given — several
+ * layers may share one continuous axis while each drawing from its own
+ * distinct field (a composite "bullet chart": one tick/bar per array-indexed
+ * field, e.g. `markers[0]` alongside sibling `bar` layers reading `ranges[i]`/
+ * `measures[i]`), and `axis.field` only carries a single representative field
+ * for the whole shared axis — every layer would otherwise read that SAME
+ * field regardless of its own encoding.
+ */
 function resolveAxisValue(
   axis: AxisResolution | undefined,
   row: DatasetRow,
+  ownField?: string,
 ): number | string | Date | null {
-  if (!axis?.field) {
+  const field = ownField ?? axis?.field;
+  if (!field) {
     // A synthetic single-category axis (the perpendicular band of a 1D
     // strip/tick plot — see scales.ts) has no backing field; every row sits on
     // its lone category so the tick can span that band.
@@ -103,14 +117,14 @@ function resolveAxisValue(
     }
     return null;
   }
-  const raw = row[axis.field];
+  const raw = resolveFieldPath(row, field);
   if (raw == null) {
     return null;
   }
-  if (axis.fieldType === 'temporal') {
+  if (axis?.fieldType === 'temporal') {
     return toDate(raw);
   }
-  if (axis.fieldType === 'quantitative') {
+  if (axis?.fieldType === 'quantitative') {
     return toNumber(raw);
   }
   return raw as string | number;
@@ -148,17 +162,21 @@ function valuePixelOverride(
  * `positionOverride` (only ever supplied by the `tick` path) pins a channel
  * to a literal pixel position for every row instead of resolving it from the
  * shared field-based axis — see `valuePixelOverride`'s doc comment for why.
+ * `fieldOverride` (also tick-only) reads from this layer's own encoding
+ * field instead of the shared axis' field — see `resolveAxisValue`'s doc
+ * comment for why.
  */
 function resolveCandidates(
   ctx: UnitContext,
   colorField: string | undefined,
   sizeField: string | undefined,
   positionOverride?: { x?: OverlayPixelPosition; y?: OverlayPixelPosition },
+  fieldOverride?: { x?: string; y?: string },
 ): ResolvedCandidate[] {
   const candidates: ResolvedCandidate[] = [];
   ctx.rows.forEach((row, index) => {
-    const x = positionOverride?.x ?? resolveAxisValue(ctx.x, row);
-    const y = positionOverride?.y ?? resolveAxisValue(ctx.y, row);
+    const x = positionOverride?.x ?? resolveAxisValue(ctx.x, row, fieldOverride?.x);
+    const y = positionOverride?.y ?? resolveAxisValue(ctx.y, row, fieldOverride?.y);
     if (x == null || y == null) {
       return;
     }
@@ -590,10 +608,19 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
 
   if (isTick) {
     const tickStyle = buildTickStyle(unit.mark);
-    const candidates = resolveCandidates(ctx, colorRes.splitField, undefined, {
-      x: valuePixelOverride(encoding.x),
-      y: valuePixelOverride(encoding.y),
-    });
+    const candidates = resolveCandidates(
+      ctx,
+      colorRes.splitField,
+      undefined,
+      {
+        x: valuePixelOverride(encoding.x),
+        y: valuePixelOverride(encoding.y),
+      },
+      {
+        x: isFieldDef(encoding.x) ? encoding.x.field : undefined,
+        y: isFieldDef(encoding.y) ? encoding.y.field : undefined,
+      },
+    );
     const tickLength = typeof unit.mark.size === 'number' ? unit.mark.size : undefined;
     const items = buildTickItems(ctx, candidates, colorRes, tickStyle, tickLength);
     if (items.length > 0) {

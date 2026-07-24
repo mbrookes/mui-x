@@ -5,7 +5,7 @@ import type { GapCollector } from '../gaps';
 import type { NormalizedSpec, NormalizedUnit } from '../normalize';
 import type { AxisResolution } from './context';
 import { categoryKey } from './context';
-import { resolveFieldType, toDate } from './fieldTypes';
+import { resolveFieldPath, resolveFieldType, toDate } from './fieldTypes';
 import { createValueFormatter } from '../format';
 import { compileExpression, UnsupportedExpressionError } from '../transforms/calculate';
 
@@ -636,7 +636,7 @@ function resolveChannelAxis(
         continue;
       }
       for (const row of occurrence.rows) {
-        const raw = row[occurrenceField];
+        const raw = resolveFieldPath(row, occurrenceField);
         const value = isTemporal ? toDate(raw) : (raw as string | number | Date);
         if (value == null) {
           continue;
@@ -679,7 +679,7 @@ function resolveChannelAxis(
         continue;
       }
       for (const row of occurrence.rows) {
-        const raw = row[twinField];
+        const raw = resolveFieldPath(row, twinField);
         const value = isTemporal ? toDate(raw) : (raw as string | number | Date | null);
         if (value == null) {
           continue;
@@ -1036,7 +1036,7 @@ function channelNumericExtent(
       continue;
     }
     for (const row of occurrence.rows) {
-      const raw = row[field];
+      const raw = resolveFieldPath(row, field);
       if (typeof raw === 'number' && Number.isFinite(raw)) {
         if (raw < min) {
           min = raw;

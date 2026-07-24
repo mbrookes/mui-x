@@ -107,12 +107,7 @@ describe('resolveColor', () => {
       const { result } = resolve({
         color: { field: 'category', type: 'nominal', scale: { scheme: 'category20b' } },
       });
-      expect(result.range?.slice(0, 4)).to.deep.equal([
-        '#393b79',
-        '#5254a3',
-        '#6b6ecf',
-        '#9c9ede',
-      ]);
+      expect(result.range?.slice(0, 4)).to.deep.equal(['#393b79', '#5254a3', '#6b6ecf', '#9c9ede']);
       expect(result.range).to.have.length(20);
     });
 
@@ -357,7 +352,7 @@ describe('resolveColor', () => {
   });
 
   describe('conditional defs', () => {
-    it('reports an unsupported gap and falls back to the base value', () => {
+    it('compiles a test-predicate condition on a value-def base into a per-row conditionResolver (no gap)', () => {
       const { result, gaps } = resolve({
         color: {
           condition: { test: 'datum.x > 0', value: 'green' },
@@ -365,11 +360,34 @@ describe('resolveColor', () => {
         } as VegaEncoding['color'],
       });
       expect(result.staticColor).to.equal('red');
-      const gap = gaps.find((g) => g.code === 'encoding:color-condition-unsupported');
-      expect(gap?.severity).to.equal('unsupported');
+      expect(result.conditionResolver?.({ x: 1 })).to.equal('green');
+      expect(result.conditionResolver?.({ x: -1 })).to.equal(undefined);
+      expect(gaps.map((g) => g.code)).to.not.include('encoding:color-condition-unsupported');
     });
 
-    it('reports an unsupported gap and falls back to the base field', () => {
+    it('evaluates a condition array first-match-wins (waterfall_chart-shaped)', () => {
+      const { result } = resolve({
+        color: {
+          condition: [{ test: "datum.label === 'Begin'", value: '#725a30' }],
+          value: 'white',
+        } as VegaEncoding['color'],
+      });
+      expect(result.conditionResolver?.({ label: 'Begin' })).to.equal('#725a30');
+      expect(result.conditionResolver?.({ label: 'other' })).to.equal(undefined);
+    });
+
+    it('compiles a condition with no base value/field at all (point_invalid_color-shaped)', () => {
+      const { result, gaps } = resolve({
+        color: { condition: { test: 'datum.x === null', value: '#aaa' } } as VegaEncoding['color'],
+      });
+      expect(result.staticColor).to.equal(undefined);
+      expect(result.splitField).to.equal(undefined);
+      expect(result.conditionResolver?.({ x: null })).to.equal('#aaa');
+      expect(result.conditionResolver?.({ x: 1 })).to.equal(undefined);
+      expect(gaps.map((g) => g.code)).to.not.include('encoding:color-condition-unsupported');
+    });
+
+    it('reports an unsupported gap and falls back to the base field (condition x field-based color not combined)', () => {
       const { result, gaps } = resolve({
         color: {
           condition: { test: 'datum.x > 0', value: 'green' },
@@ -378,6 +396,19 @@ describe('resolveColor', () => {
         } as VegaEncoding['color'],
       });
       expect(result.splitField).to.equal('category');
+      expect(result.conditionResolver).to.equal(undefined);
+      expect(gaps.map((g) => g.code)).to.include('encoding:color-condition-unsupported');
+    });
+
+    it('reports an unsupported gap for a param-bound condition (interactive selection)', () => {
+      const { result, gaps } = resolve({
+        color: {
+          condition: { param: 'brush', value: 'green' },
+          value: 'red',
+        } as VegaEncoding['color'],
+      });
+      expect(result.staticColor).to.equal('red');
+      expect(result.conditionResolver).to.equal(undefined);
       expect(gaps.map((g) => g.code)).to.include('encoding:color-condition-unsupported');
     });
 

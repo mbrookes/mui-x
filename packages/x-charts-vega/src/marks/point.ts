@@ -166,7 +166,12 @@ function valuePixelOverride(
  * shared field-based axis — see `valuePixelOverride`'s doc comment for why.
  * `fieldOverride` (also tick-only) reads from this layer's own encoding
  * field instead of the shared axis' field — see `resolveAxisValue`'s doc
- * comment for why.
+ * comment for why. `conditionResolver` (used instead of `colorField` when
+ * there is no real color field) resolves each row's own literal color from a
+ * test-predicate `condition` — see `compile/color.ts`'s `conditionResolver`.
+ * @param {(row: DatasetRow) => string | undefined} [conditionResolver] Per-row condition-based color resolver.
+ * @param {DatasetRow} row The row to resolve a color for (`conditionResolver`'s own parameter).
+ * @returns {string | undefined} The matched condition's color, or undefined when none matched.
  */
 function resolveCandidates(
   ctx: UnitContext,
@@ -174,6 +179,7 @@ function resolveCandidates(
   sizeField: string | undefined,
   positionOverride?: { x?: OverlayPixelPosition; y?: OverlayPixelPosition },
   fieldOverride?: { x?: string; y?: string },
+  conditionResolver?: (row: DatasetRow) => string | undefined,
 ): ResolvedCandidate[] {
   const candidates: ResolvedCandidate[] = [];
   ctx.rows.forEach((row, index) => {
@@ -194,6 +200,14 @@ function resolveCandidates(
       const groupValue = row[colorField];
       candidate.groupValue = groupValue;
       candidate.groupKey = ctx.categoryKey(groupValue);
+    } else if (conditionResolver) {
+      // No real color field — group by the row's own resolved literal color
+      // (a test-predicate `condition`, e.g. point_invalid_color's "invalid
+      // rating" gray); `groupValue`/`groupKey` double as that color string
+      // itself (undefined → the shared "no test matched" group).
+      const resolved = conditionResolver(row);
+      candidate.groupValue = resolved;
+      candidate.groupKey = resolved ?? '';
     }
     candidates.push(candidate);
   });
@@ -685,7 +699,14 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
   }
 
   const colorField = colorRes.splitField;
-  const candidates = resolveCandidates(ctx, colorField, sizeField);
+  const candidates = resolveCandidates(
+    ctx,
+    colorField,
+    sizeField,
+    undefined,
+    undefined,
+    colorField ? undefined : colorRes.conditionResolver,
+  );
 
   let zAxis: CompiledZAxis[] | undefined;
   let sizeLegend: SizeLegend | undefined;
@@ -820,7 +841,7 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
   const series: CompiledSeries[] = [];
   const baseId = `vega-point:${path}`;
 
-  if (colorField) {
+  if (colorField || colorRes.conditionResolver) {
     // Single pass bucketing every candidate by its (pre-computed) group key —
     // avoids re-scanning `ctx.rows` once per group.
     const groups = new Map<string, { value: unknown; points: PointDatum[] }>();
@@ -839,10 +860,15 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
       if (!group || group.points.length === 0) {
         return;
       }
-      // An identity (`scale: null`) color field's raw row value IS the color
-      // to draw — no palette/range lookup, unlike an ordinary categorical split.
       let color: string | undefined;
-      if (colorRes.identity) {
+      if (!colorField) {
+        // No real color field — `value` is the row's own resolved literal
+        // color from a test-predicate `condition` (or undefined for the "no
+        // test matched" group, which falls back to the base/default color).
+        color = typeof value === 'string' ? value : colorRes.staticColor;
+      } else if (colorRes.identity) {
+        // An identity (`scale: null`) color field's raw row value IS the color
+        // to draw — no palette/range lookup, unlike an ordinary categorical split.
         color = typeof value === 'string' ? value : undefined;
       } else {
         color = colorRes.range?.[groupIndex % colorRes.range.length];

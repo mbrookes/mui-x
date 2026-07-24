@@ -2,7 +2,7 @@ import { compileSpec } from '../compile';
 import { categoryIndex, categoryKey } from '../compile/context';
 import type { UnitContext } from '../compile/context';
 import { createGapCollector } from '../gaps';
-import type { VegaLiteSpec } from '../types';
+import type { VegaEncoding, VegaLiteSpec } from '../types';
 import { compileBarMark } from './bar';
 
 describe('compileBarMark', () => {
@@ -57,6 +57,43 @@ describe('compileBarMark', () => {
     expect((compiled.series[0] as { color?: string }).color).to.equal('#00ff00');
     // A value-def color channel carries no legend.
     expect(compiled.hasLegend).to.equal(false);
+  });
+
+  it('splits into one series per resolved test-predicate color, unstacked (layer_candlestick-shaped)', () => {
+    const spec: VegaLiteSpec = {
+      data: {
+        values: [
+          { date: '2009-06-01', open: 100, close: 110 },
+          { date: '2009-06-02', open: 120, close: 100 },
+          { date: '2009-06-03', open: 90, close: 95 },
+        ],
+      },
+      mark: 'bar',
+      encoding: {
+        x: { field: 'date', type: 'nominal' },
+        y: { field: 'close', type: 'quantitative' },
+        color: {
+          condition: { test: 'datum.open < datum.close', value: '#06982d' },
+          value: '#ae1325',
+        } as VegaEncoding['color'],
+      },
+    };
+    const compiled = compileSpec(spec);
+    expect(compiled.gaps.map((gap) => gap.code)).to.not.include(
+      'encoding:color-condition-unsupported',
+    );
+    expect(compiled.series).to.have.length(2);
+    const [up, down] = compiled.series as unknown as {
+      color?: string;
+      data: Array<number | null>;
+    }[];
+    // 2009-06-01 (100 < 110) and 2009-06-03 (90 < 95) are "up" days; only
+    // 2009-06-02 (120 < 100 is false) is "down" — each series is
+    // index-aligned to the full 3-category domain, null elsewhere.
+    expect(up.color).to.equal('#06982d');
+    expect(up.data).to.deep.equal([110, null, 95]);
+    expect(down.color).to.equal('#ae1325');
+    expect(down.data).to.deep.equal([null, 100, null]);
   });
 
   it('splits into one series per color group, stacked by default (Vega-Lite default stack behavior)', () => {

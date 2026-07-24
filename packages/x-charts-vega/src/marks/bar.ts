@@ -661,7 +661,56 @@ export function compileBarMark(ctx: UnitContext): CompiledUnit {
 
   const series: Array<BarSeriesType | RangeBarSeriesType> = [];
 
-  if (!color.splitField) {
+  if (!color.splitField && color.conditionResolver) {
+    // A per-row test-predicate color (`{condition: {test, value}, value}`,
+    // e.g. layer_candlestick's up/down color) isn't a real Vega-Lite color
+    // *field* — it never stacks or groups bars — so this splits into one
+    // series per distinct resolved color while keeping every group's data
+    // aligned to the SAME shared category domain as an unsplit series
+    // (`buildSeriesData`/`buildRangedSeriesData` already fill unrelated
+    // categories with `null`), unlike the `color.splitField` branch below.
+    const resolver = color.conditionResolver;
+    const order: string[] = [];
+    const groups = new Map<string, { color: string | undefined; rows: DatasetRow[] }>();
+    rows.forEach((row) => {
+      const resolved = resolver(row);
+      const key = resolved ?? '';
+      let group = groups.get(key);
+      if (!group) {
+        group = { color: resolved ?? staticColor, rows: [] };
+        groups.set(key, group);
+        order.push(key);
+      }
+      group.rows.push(row);
+    });
+    order.forEach((key) => {
+      const group = groups.get(key)!;
+      const id = `${unit.path}:condition:${key || 'base'}`;
+      if (rangeTwin) {
+        const data = buildRangedSeriesData(ctx, group.rows, categoryAxis, valueField, rangeTwin);
+        series.push(
+          omitUndefined({
+            type: 'rangeBar',
+            id,
+            data,
+            layout: horizontal ? ('horizontal' as const) : undefined,
+            color: group.color,
+          }),
+        );
+      } else {
+        const data = buildSeriesData(ctx, group.rows, categoryAxis, valueField);
+        series.push(
+          omitUndefined({
+            type: 'bar',
+            id,
+            data,
+            layout: horizontal ? ('horizontal' as const) : undefined,
+            color: group.color,
+          }),
+        );
+      }
+    });
+  } else if (!color.splitField) {
     if (rangeTwin) {
       const data = buildRangedSeriesData(ctx, rows, categoryAxis, valueField, rangeTwin);
       series.push(

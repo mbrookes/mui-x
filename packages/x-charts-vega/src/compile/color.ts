@@ -10,6 +10,7 @@ import type { DatasetRow, VegaEncoding, VegaFieldDef, VegaScale } from '../types
 import { isFieldDef, isValueDef } from '../types';
 import type { GapCollector } from '../gaps';
 import { VEGA_CATEGORICAL_SCHEMES } from './vegaDefaults';
+import { compileExpression, UnsupportedExpressionError } from '../transforms/calculate';
 
 /*
  * Color-channel resolution.
@@ -72,6 +73,20 @@ export interface ColorResolution {
   identity?: boolean;
   /** Whether a legend is meaningful (a field is color-encoded). */
   hasLegend: boolean;
+  /**
+   * Per-row resolved color from a test-predicate `condition` on a value-def
+   * (or field-less) color channel — `{condition: {test, value}, value}`, or
+   * an array of such entries, first-match-wins (e.g. `layer_candlestick`'s
+   * up/down color, `waterfall_chart`'s begin/end highlight). `undefined` for
+   * a row means no test matched; the caller falls back to its own default
+   * (usually `staticColor`, or the chart's palette when that's unset too).
+   * Only set for marks whose compiler can split into one series per distinct
+   * resolved color (currently `bar`/`point`) — other mark compilers ignore
+   * it and the `encoding:color-condition-unsupported` gap below still fires.
+   * @param {DatasetRow} row The row to resolve a color for.
+   * @returns {string | undefined} The matched condition's color, or undefined when none matched.
+   */
+  conditionResolver?: (row: DatasetRow) => string | undefined;
   /**
    * Ready-to-use axis `colorMap` for continuous/binned quantitative or
    * temporal color fields. Consumers should be aware that only some
@@ -512,6 +527,61 @@ function resolveContinuousColorMap(
   };
 }
 
+/**
+ * Compiles a color channel's `condition` into a per-row resolver, for the
+ * narrow subset this can translate: every entry is a plain `{test, value}`
+ * object with a string `test` (in the safe expression subset already used by
+ * `calculate`/text conditions) and a literal string `value` — no
+ * selection/param reference, no field-based value. Returns `undefined` for
+ * anything wider (a param condition, a non-string value, an unparseable
+ * test), which callers report as `encoding:color-condition-unsupported`.
+ */
+function compileColorCondition(
+  condition: unknown,
+): ((row: DatasetRow) => string | undefined) | undefined {
+  const entries = Array.isArray(condition) ? condition : [condition];
+  const compiled: Array<{ test: (row: DatasetRow) => unknown; value: string }> = [];
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object') {
+      return undefined;
+    }
+    const record = entry as Record<string, unknown>;
+    if (typeof record.test !== 'string' || typeof record.value !== 'string') {
+      return undefined;
+    }
+    let evaluate: (row: DatasetRow) => unknown;
+    try {
+      evaluate = compileExpression(record.test);
+    } catch (error) {
+      if (!(error instanceof UnsupportedExpressionError)) {
+        throw error;
+      }
+      return undefined;
+    }
+    compiled.push({ test: evaluate, value: record.value });
+  }
+  if (compiled.length === 0) {
+    return undefined;
+  }
+  return (row: DatasetRow) => {
+    for (const entry of compiled) {
+      let result: unknown;
+      try {
+        result = entry.test(row);
+      } catch (error) {
+        if (!(error instanceof UnsupportedExpressionError)) {
+          throw error;
+        }
+        return undefined;
+      }
+      if (result === true) {
+        return entry.value;
+      }
+    }
+    return undefined;
+  };
+}
+
 export interface ResolveColorOptions {
   /**
    * Set by callers that feed the returned `colorMap` into a real color axis
@@ -573,20 +643,30 @@ export function resolveColor(
     return { hasLegend: false };
   }
 
+  let conditionResolver: ((row: DatasetRow) => string | undefined) | undefined;
   if ((def as { condition?: unknown }).condition) {
-    gaps.add({
-      code: 'encoding:color-condition-unsupported',
-      message:
-        'Conditional color encodings (`condition`) have no x-charts equivalent: an x-charts series is drawn in a single color, so a per-row test-predicate color cannot be applied (unlike `text`/`url` conditions, which this wrapper does resolve per row). The base `value`/`field` was used instead and the condition branches were dropped.',
-      severity: 'unsupported',
-      path: `${path}.encoding.color`,
-    });
+    // A field-based base (`{condition, field}`) would need a combined
+    // condition × field-domain split; not attempted — keep the previous
+    // fallback behavior for that combination.
+    conditionResolver = isFieldDef(def)
+      ? undefined
+      : compileColorCondition((def as { condition: unknown }).condition);
+    if (!conditionResolver) {
+      gaps.add({
+        code: 'encoding:color-condition-unsupported',
+        message:
+          'Conditional color encodings (`condition`) have no x-charts equivalent: an x-charts series is drawn in a single color, so a per-row test-predicate color cannot be applied (unlike `text`/`url` conditions, which this wrapper does resolve per row). The base `value`/`field` was used instead and the condition branches were dropped.',
+        severity: 'unsupported',
+        path: `${path}.encoding.color`,
+      });
+    }
   }
 
   if (isValueDef(def)) {
     return {
       staticColor: typeof def.value === 'string' ? def.value : undefined,
       hasLegend: false,
+      conditionResolver,
     };
   }
 
@@ -726,5 +806,5 @@ export function resolveColor(
     };
   }
 
-  return { hasLegend: false };
+  return { hasLegend: false, conditionResolver };
 }

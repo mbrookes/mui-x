@@ -1,5 +1,5 @@
 import { compileSpec } from '../compile';
-import type { VegaLiteSpec } from '../types';
+import type { VegaEncoding, VegaLiteSpec } from '../types';
 
 describe('compilePointMark', () => {
   it('compiles a quantitative x/y point mark into a single scatter series aligned to the rows', () => {
@@ -94,6 +94,42 @@ describe('compilePointMark', () => {
       { x: 1, y: 1, id: 0 },
       { x: 3, y: 3, id: 2 },
     ]);
+  });
+
+  it('splits into one series per resolved condition color when color has no base value/field at all (point_invalid_color-shaped)', () => {
+    const spec: VegaLiteSpec = {
+      data: {
+        values: [
+          { x: 1, y: 1 },
+          { x: 2, y: 5 },
+          { x: 3, y: 2 },
+        ],
+      },
+      mark: 'point',
+      encoding: {
+        x: { field: 'x', type: 'quantitative' },
+        y: { field: 'y', type: 'quantitative' },
+        color: {
+          condition: { test: 'datum.y > 3', value: '#aaa' },
+        } as VegaEncoding['color'],
+      },
+    };
+    const compiled = compileSpec(spec);
+    expect(compiled.gaps.map((gap) => gap.code)).to.not.include(
+      'encoding:color-condition-unsupported',
+    );
+    // No base value/field to fall back on: the non-matching rows keep an
+    // auto-assigned default palette color instead (never left uncolored).
+    expect(compiled.series).to.have.length(2);
+    const [base, matched] = compiled.series as unknown as {
+      color?: string;
+      data: { x: number }[];
+    }[];
+    expect(matched.color).to.equal('rgba(170, 170, 170, 0.7)');
+    expect(matched.data.map((d) => d.x)).to.deep.equal([2]);
+    expect(base.color).to.not.equal(undefined);
+    expect(base.color).to.not.equal(matched.color);
+    expect(base.data.map((d) => d.x)).to.deep.equal([1, 3]);
   });
 
   it('converts mark.size (a symbol area) to a circle radius and reports a partial gap', () => {

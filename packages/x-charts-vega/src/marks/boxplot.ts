@@ -220,22 +220,10 @@ export function compileBoxplotMark(ctx: UnitContext): CompiledUnit {
   const outliersSubMark = resolveSubMark(mark.outliers, gaps, unit.path, 'outliers');
   const opacity = typeof mark.opacity === 'number' ? mark.opacity : undefined;
 
-  // Unlike the other sub-marks, the box (IQR rectangle) is the overlay's
-  // primary glyph and cannot be hidden — `mark.box: false` degrades to an
-  // 'ignored' gap instead of a hidden box.
-  const boxRaw = resolveSubMark(mark.box, gaps, unit.path, 'box');
-  let box: OverlayBoxSubMark | undefined;
-  if (boxRaw === false) {
-    gaps.add({
-      code: 'mark:boxplot-box-hide-unsupported',
-      message:
-        'mark.box: false would hide the box (IQR rectangle) sub-mark, but the overlay always draws it as the primary box-plot glyph; the box was rendered instead.',
-      severity: 'ignored',
-      path: `${unit.path}.mark.box`,
-    });
-  } else {
-    box = boxRaw;
-  }
+  // The box (IQR rectangle) sub-mark can be hidden the same way median/rule/
+  // ticks/outliers can — `BoxPlot.tsx` skips drawing its `<rect>` when this is
+  // `false` — leaving the whiskers/median/outliers to render on their own.
+  const box = resolveSubMark(mark.box, gaps, unit.path, 'box');
 
   const color = resolveColor(encoding, rows, gaps, unit.path);
   const staticColor = color.staticColor ?? mark.color ?? mark.fill;

@@ -340,6 +340,30 @@ describe('compileBoxplotMark', () => {
     expect(overlay.ticks).to.equal(false);
   });
 
+  it('passes box:false through to hide the box (IQR rectangle) sub-mark, with no gap (whiskers/median still draw)', () => {
+    const compiled = compileSpec({
+      data: {
+        values: [
+          { g: 'A', v: 1 },
+          { g: 'A', v: 3 },
+        ],
+      },
+      mark: { type: 'boxplot', box: false },
+      encoding: {
+        x: { field: 'g', type: 'nominal' },
+        y: { field: 'v', type: 'quantitative' },
+      },
+    });
+    const overlay = compiled.overlays.find((entry) => entry.kind === 'boxes');
+    if (!overlay || overlay.kind !== 'boxes') {
+      throw new Error('expected a boxes overlay');
+    }
+    expect(overlay.box).to.equal(false);
+    expect(compiled.gaps.map((gap) => gap.code)).not.to.include(
+      'mark:boxplot-box-hide-unsupported',
+    );
+  });
+
   it('carries whole-glyph mark.opacity through to the overlay', () => {
     const compiled = compileSpec({
       data: {

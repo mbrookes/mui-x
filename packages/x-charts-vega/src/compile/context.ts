@@ -196,8 +196,8 @@ export type CompiledOverlay =
       opacity?: number;
       /** Median line styling, or `false` to hide it. */
       median?: OverlayBoxSubMark | false;
-      /** Box (IQR rectangle) styling. */
-      box?: OverlayBoxSubMark;
+      /** Box (IQR rectangle) styling, or `false` to hide it. */
+      box?: OverlayBoxSubMark | false;
       /** Whisker rule styling, or `false` to hide it. */
       rule?: OverlayBoxSubMark | false;
       /** Whisker end-tick styling, or `false` to hide it. */

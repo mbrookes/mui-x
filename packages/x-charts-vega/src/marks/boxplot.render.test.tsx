@@ -181,4 +181,26 @@ describe('<VegaLiteChart /> boxplot mark', () => {
       expect(group.getAttribute('opacity')).to.equal('0.4');
     });
   });
+
+  it('draws no box rect (but still draws whiskers/median) when box: false', () => {
+    const noBoxSpec: VegaLiteSpec = {
+      ...spec,
+      mark: { type: 'boxplot', box: false },
+    };
+    let reported: Array<{ code: string }> = [];
+    const { container } = render(
+      <VegaLiteChart
+        width={500}
+        height={350}
+        spec={noBoxSpec}
+        onGaps={(gaps) => {
+          reported = gaps;
+        }}
+      />,
+    );
+    expect(container.querySelectorAll('.MuiVegaOverlay-boxes rect').length).to.equal(0);
+    // Whiskers (the rule line spanning min→max) still render independently.
+    expect(container.querySelectorAll('.MuiVegaOverlay-boxes line').length).to.be.greaterThan(0);
+    expect(reported.map((gap) => gap.code)).not.to.include('mark:boxplot-box-hide-unsupported');
+  });
 });

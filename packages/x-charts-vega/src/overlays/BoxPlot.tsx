@@ -20,8 +20,9 @@ import { scaleBandwidth, scalePosition } from './scaleUtils';
  * stacking on the category center.
  *
  * Sub-mark styling: `overlay.median`/`box`/`rule`/`ticks`/`outliers` — each
- * `false` hides that sub-mark, an `OverlayBoxSubMark` supplies its
- * color/opacity (falling back to the item/overlay defaults).
+ * `false` hides that sub-mark (the box's own `false` skips only its `<rect>`;
+ * whiskers/median/outliers still draw independently), an `OverlayBoxSubMark`
+ * supplies its color/opacity (falling back to the item/overlay defaults).
  */
 
 /** Fallback box fill when the compiler didn't resolve a static color. */
@@ -89,30 +90,33 @@ function renderBox(
 
   const strokeWidth = 1;
   const boxFill = subMarkColor(overlay.box, color);
-  const boxFillOpacity = overlay.box?.opacity ?? 0.9;
+  const boxFillOpacity = subMarkOpacity(overlay.box) ?? 0.9;
 
   // `main` = along the value axis (whisker direction); `cross` = category axis.
-  const rect = horizontal ? (
-    <rect
-      x={boxStart}
-      y={start}
-      width={boxLength}
-      height={thickness}
-      fill={boxFill}
-      fillOpacity={boxFillOpacity}
-      stroke={boxFill}
-    />
-  ) : (
-    <rect
-      x={start}
-      y={boxStart}
-      width={thickness}
-      height={boxLength}
-      fill={boxFill}
-      fillOpacity={boxFillOpacity}
-      stroke={boxFill}
-    />
-  );
+  let rect: React.ReactNode = null;
+  if (overlay.box !== false) {
+    rect = horizontal ? (
+      <rect
+        x={boxStart}
+        y={start}
+        width={boxLength}
+        height={thickness}
+        fill={boxFill}
+        fillOpacity={boxFillOpacity}
+        stroke={boxFill}
+      />
+    ) : (
+      <rect
+        x={start}
+        y={boxStart}
+        width={thickness}
+        height={boxLength}
+        fill={boxFill}
+        fillOpacity={boxFillOpacity}
+        stroke={boxFill}
+      />
+    );
+  }
 
   const ruleStroke = subMarkColor(overlay.rule, 'currentColor');
   const ruleOpacity = subMarkOpacity(overlay.rule);

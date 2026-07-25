@@ -107,21 +107,33 @@ export function DataSourceSection(props: {
           })}
 
           {/* Expression fields */}
-          {sourceExprFields.map((ef) => (
-            <ExpressionFieldRow
-              key={ef.id}
-              field={ef}
-              isEditMode={isEditMode}
-              onEdit={() => handleEditExpressionField(ef)}
-              onDelete={() => handleDeleteExpressionField(ef.id)}
-              enrichedRows={enrichedRows}
-              measureValue={
-                ef.isMeasure && source.rows && source.rows.length > 0
-                  ? evaluateMeasure(ef, source.rows, expressionFields)
-                  : undefined
+          {sourceExprFields.map((ef) => {
+            // Tier2 consistency fix: mirrors `ExpressionPreview.tsx`'s try/catch around its
+            // equivalent `evaluateMeasure`/`evaluateExpression` call. The evaluator has no
+            // throw statements today (and an explicit cycle guard), so this isn't currently
+            // exploitable, but without the try/catch a future evaluator change that introduces
+            // a throwing path would take down this tooltip preview's render — and everything
+            // above it in the tree — instead of just falling back to "no preview".
+            let measureValue: unknown;
+            if (ef.isMeasure && source.rows && source.rows.length > 0) {
+              try {
+                measureValue = evaluateMeasure(ef, source.rows, expressionFields);
+              } catch {
+                measureValue = undefined;
               }
-            />
-          ))}
+            }
+            return (
+              <ExpressionFieldRow
+                key={ef.id}
+                field={ef}
+                isEditMode={isEditMode}
+                onEdit={() => handleEditExpressionField(ef)}
+                onDelete={() => handleDeleteExpressionField(ef.id)}
+                enrichedRows={enrichedRows}
+                measureValue={measureValue}
+              />
+            );
+          })}
 
           {/* Add calculated field button (edit mode only) */}
           {isEditMode && (

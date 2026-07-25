@@ -24,6 +24,7 @@ import type {
 } from '../../models';
 import { useStudioController, useStudioLocaleText } from '../../context';
 import { validateExpressionField, inferExpressionType } from '../../utils/expressionEvaluator';
+import { StudioDrawerErrorBoundary } from '../../internals/StudioDrawerErrorBoundary';
 import { ExpressionBuilder } from './ExpressionNodeEditor';
 import { ExpressionPreview } from './ExpressionPreview';
 
@@ -202,123 +203,137 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
       </DialogTitle>
 
       <DialogContent dividers>
-        <Stack spacing={2}>
-          {/* Name */}
-          <TextField
-            label={localeText.expressionNameLabel}
-            size="small"
-            fullWidth
-            required
-            helperText={localeText.expressionNameHelperText}
-            value={label}
-            onChange={(event) => setForm((prev) => ({ ...prev, label: event.target.value }))}
-            placeholder={localeText.expressionNamePlaceholder}
-          />
-
-          {/* Description */}
-          <TextField
-            label={localeText.expressionDescriptionLabel}
-            size="small"
-            fullWidth
-            multiline
-            rows={2}
-            helperText={localeText.expressionDescriptionHelperText}
-            value={description}
-            onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
-            placeholder={localeText.expressionDescriptionPlaceholder}
-          />
-
-          {/* Measure toggle */}
-          <div>
-            <FormControlLabel
-              control={
-                <Switch
-                  size="small"
-                  checked={isMeasure}
-                  onChange={(event) =>
-                    setForm((prev) => ({ ...prev, isMeasure: event.target.checked }))
-                  }
-                />
-              }
-              label={
-                <Stack>
-                  <Typography variant="body2">{localeText.exprMeasureLabel}</Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {isMeasure
-                      ? localeText.exprMeasureHelperText
-                      : localeText.exprDimensionHelperText}
-                  </Typography>
-                </Stack>
-              }
-            />
-          </div>
-
-          <Divider />
-
-          {/* Inferred output type */}
-          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-            <Typography variant="caption" color="text.secondary">
-              {localeText.exprOutputTypeLabel}
-            </Typography>
-            <Chip label={inferredType} size="small" variant="outlined" />
-          </Stack>
-
-          {inferredType === 'number' && (
+        {/* Tier2 fix: this dialog renders both user- and AI-authored expression trees
+            (`ExpressionBuilder`/`ExpressionNodeEditor` and `ExpressionPreview`). Every
+            existing render site happens to sit inside some other drawer's
+            `StudioDrawerErrorBoundary` (e.g. `DataSourceSection.tsx` under
+            `StudioDataDrawer`, or `GridSetupPanel.tsx`/`StudioMapWidget.tsx` under
+            `StudioComposeDrawer`), so today's protection is incidental — a future caller
+            (e.g. a standalone or AI-chat-triggered flow) would get none. Give the dialog
+            its own boundary so the guarantee doesn't depend on the caller. `resetKey` is
+            the field id being edited (or 'new' for a fresh field), so switching fields
+            clears a latched error instead of leaving the dialog stuck on the fallback. */}
+        <StudioDrawerErrorBoundary resetKey={fieldId}>
+          <Stack spacing={2}>
+            {/* Name */}
             <TextField
-              label={localeText.expressionPrecisionLabel}
+              label={localeText.expressionNameLabel}
               size="small"
-              type="number"
               fullWidth
-              value={precision}
+              required
+              helperText={localeText.expressionNameHelperText}
+              value={label}
+              onChange={(event) => setForm((prev) => ({ ...prev, label: event.target.value }))}
+              placeholder={localeText.expressionNamePlaceholder}
+            />
+
+            {/* Description */}
+            <TextField
+              label={localeText.expressionDescriptionLabel}
+              size="small"
+              fullWidth
+              multiline
+              rows={2}
+              helperText={localeText.expressionDescriptionHelperText}
+              value={description}
               onChange={(event) =>
-                setForm((prev) => ({
-                  ...prev,
-                  precision: event.target.value,
-                }))
+                setForm((prev) => ({ ...prev, description: event.target.value }))
               }
-              helperText={localeText.expressionPrecisionHelperText}
-              slotProps={{ htmlInput: { min: 0, max: 10, step: 1 } }}
+              placeholder={localeText.expressionDescriptionPlaceholder}
             />
-          )}
 
-          {/* Expression builder */}
-          <div>
-            <Typography variant="subtitle2" sx={{ mb: 1 }}>
-              {localeText.expressionBuilderSectionLabel}
-            </Typography>
-            <ExpressionBuilder
+            {/* Measure toggle */}
+            <div>
+              <FormControlLabel
+                control={
+                  <Switch
+                    size="small"
+                    checked={isMeasure}
+                    onChange={(event) =>
+                      setForm((prev) => ({ ...prev, isMeasure: event.target.checked }))
+                    }
+                  />
+                }
+                label={
+                  <Stack>
+                    <Typography variant="body2">{localeText.exprMeasureLabel}</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {isMeasure
+                        ? localeText.exprMeasureHelperText
+                        : localeText.exprDimensionHelperText}
+                    </Typography>
+                  </Stack>
+                }
+              />
+            </div>
+
+            <Divider />
+
+            {/* Inferred output type */}
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+              <Typography variant="caption" color="text.secondary">
+                {localeText.exprOutputTypeLabel}
+              </Typography>
+              <Chip label={inferredType} size="small" variant="outlined" />
+            </Stack>
+
+            {inferredType === 'number' && (
+              <TextField
+                label={localeText.expressionPrecisionLabel}
+                size="small"
+                type="number"
+                fullWidth
+                value={precision}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    precision: event.target.value,
+                  }))
+                }
+                helperText={localeText.expressionPrecisionHelperText}
+                slotProps={{ htmlInput: { min: 0, max: 10, step: 1 } }}
+              />
+            )}
+
+            {/* Expression builder */}
+            <div>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                {localeText.expressionBuilderSectionLabel}
+              </Typography>
+              <ExpressionBuilder
+                expression={expression}
+                sourceFields={dataSource.fields}
+                expressionFields={selectableExpressionFields}
+                isMeasure={isMeasure}
+                onChange={(expr) => setForm((prev) => ({ ...prev, expression: expr }))}
+              />
+            </div>
+
+            {/* Preview */}
+            <ExpressionPreview
               expression={expression}
-              sourceFields={dataSource.fields}
-              expressionFields={selectableExpressionFields}
               isMeasure={isMeasure}
-              onChange={(expr) => setForm((prev) => ({ ...prev, expression: expr }))}
+              dataSource={dataSource}
+              expressionFields={expressionFields}
+              currentFieldId={fieldId}
+              precision={parsedPrecision}
             />
-          </div>
 
-          {/* Preview */}
-          <ExpressionPreview
-            expression={expression}
-            isMeasure={isMeasure}
-            dataSource={dataSource}
-            expressionFields={expressionFields}
-            currentFieldId={fieldId}
-            precision={parsedPrecision}
-          />
-
-          {/* Validation errors */}
-          {hasErrors && (
-            <Alert severity="error" role="alert">
-              <Stack spacing={0.5}>
-                {validationErrors.map((err, i) => (
-                  // react-doctor-disable-next-line react-doctor/no-array-index-as-key, react-doctor/no-array-index-key -- error list is ephemeral display, no reorder
-                  <Typography key={`error-${i}`} variant="caption" component="div">
-                    {err.message}
-                  </Typography>
-                ))}
-              </Stack>
-            </Alert>
-          )}
-        </Stack>
+            {/* Validation errors */}
+            {hasErrors && (
+              <Alert severity="error" role="alert">
+                <Stack spacing={0.5}>
+                  {validationErrors.map((err, i) => (
+                    // react-doctor-disable-next-line react-doctor/no-array-index-as-key, react-doctor/no-array-index-key -- error list is ephemeral display, no reorder
+                    <Typography key={`error-${i}`} variant="caption" component="div">
+                      {err.message}
+                    </Typography>
+                  ))}
+                </Stack>
+              </Alert>
+            )}
+          </Stack>
+        </StudioDrawerErrorBoundary>
       </DialogContent>
 
       <DialogActions>

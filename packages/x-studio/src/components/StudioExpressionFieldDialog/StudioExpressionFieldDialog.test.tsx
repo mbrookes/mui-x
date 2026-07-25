@@ -1,9 +1,31 @@
 import * as React from 'react';
 import { createRenderer, screen } from '@mui/internal-test-utils';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, afterEach } from 'vitest';
 import type { StudioDataSource, StudioExpression, StudioExpressionField } from '../../models';
 import { createStudioHarness } from '../../internals/test-utils';
 import { StudioExpressionFieldDialog } from './StudioExpressionFieldDialog';
+
+// Tier2 fix: `StudioExpressionFieldDialog` previously had no error boundary of its own —
+// every existing render site happened to sit inside some other drawer's
+// `StudioDrawerErrorBoundary` (e.g. `DataSourceSection.tsx` under `StudioDataDrawer`), so
+// its safety was incidental. This mutable flag lets a single test force
+// `ExpressionPreview` (one of the two components rendering user/AI-authored expression
+// trees, alongside `ExpressionNodeEditor`) to throw, without disturbing every other test
+// in this file that renders the dialog normally.
+let throwFromExpressionPreview = false;
+
+vi.mock('./ExpressionPreview', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./ExpressionPreview')>();
+  return {
+    ...actual,
+    ExpressionPreview: (props: React.ComponentProps<typeof actual.ExpressionPreview>) => {
+      if (throwFromExpressionPreview) {
+        throw new Error('expression preview exploded');
+      }
+      return <actual.ExpressionPreview {...props} />;
+    },
+  };
+});
 
 const { render } = createRenderer();
 
@@ -180,5 +202,44 @@ describe('StudioExpressionFieldDialog', () => {
 
     expect(screen.getByText('Type de sortie :')).not.toBe(null);
     expect(screen.queryByText('Output type:')).toBe(null);
+  });
+
+  describe('error boundary (Tier2 fix)', () => {
+    afterEach(() => {
+      throwFromExpressionPreview = false;
+    });
+
+    it('contains a render throw when rendered standalone, not nested under another drawer boundary', () => {
+      throwFromExpressionPreview = true;
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const { wrapper } = createStudioHarness();
+
+      expect(() =>
+        render(
+          <div>
+            <div data-testid="sibling">Canary content outside the dialog</div>
+            <StudioExpressionFieldDialog
+              open
+              onClose={() => {}}
+              dataSource={DATA_SOURCE}
+              expressionFields={[]}
+            />
+          </div>,
+          { wrapper },
+        ),
+      ).not.toThrow();
+
+      // The sibling survives -- without the dialog's own boundary, React would have
+      // unmounted the whole render tree (nothing in it would catch the throw), since this
+      // dialog isn't nested under any other drawer's `StudioDrawerErrorBoundary` here.
+      expect(screen.getByTestId('sibling')).not.toBe(null);
+      // `StudioDrawerErrorBoundary` renders the thrown error's own message.
+      expect(screen.getByText('expression preview exploded')).not.toBe(null);
+      // Dialog chrome outside the boundary (title, actions) is unaffected.
+      expect(screen.getByText('New Calculated Field')).not.toBe(null);
+      expect(screen.getByRole('button', { name: 'Cancel' })).not.toBe(null);
+
+      errorSpy.mockRestore();
+    });
   });
 });

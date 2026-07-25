@@ -18,9 +18,11 @@ import {
   selectWidgets,
   selectDataSources,
   selectFilters,
+  selectAi,
 } from '../../context';
 import { useStudioKeyboardShortcuts } from '../../internals/useStudioKeyboardShortcuts';
 import { StudioLiveRegionProvider } from '../../internals/StudioLiveRegion';
+import { StudioDrawerErrorBoundary } from '../../internals/StudioDrawerErrorBoundary';
 import { DrawerPanel } from './DrawerPanel';
 import { TabbedSidebar } from './TabbedSidebar';
 import { StudioCanvas } from '../StudioCanvas';
@@ -85,6 +87,18 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
 
   const filters = useStudioSelector(selectFilters);
   const hasCrossFilters = filters.some((f) => f.scope.kind === 'cross-filter' && !f.disabled);
+
+  // Tier1 whole-dashboard-crash fix: the chat panel renders AI-authored tool-call content
+  // (`chatToolRenderers.tsx`'s per-tool dispatch), so a render throw there needs a boundary
+  // — otherwise it propagates all the way up and unmounts the entire `<Studio>` tree, unlike
+  // every other dynamic-content surface in the package (compose/filters/data drawers, widget
+  // cards), all of which sit under a `StudioDrawerErrorBoundary`/`StudioWidgetErrorBoundary`.
+  // `resetKey` combines the active thread id with that thread's message count so switching
+  // threads OR sending/receiving a new message in the current thread clears a latched error,
+  // instead of leaving the panel stuck on the fallback until the page reloads.
+  const aiState = useStudioSelector(selectAi);
+  const activeChatThread = aiState?.threads.find((t) => t.id === aiState.activeThreadId);
+  const chatPanelResetKey = `${aiState?.activeThreadId ?? 'none'}:${activeChatThread?.messages.length ?? 0}`;
 
   // The pinned filter bars sit above the scroll container, so mounting/unmounting them (the
   // first cross-filter, clearing all filters, chips wrapping to another line) shrinks or grows
@@ -393,21 +407,23 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
               </Fab>
             </Tooltip>
             <React.Suspense fallback={null}>
-              <StudioChatPanel
-                {...slotProps?.chatPanel}
-                // `focusedWidgetId` and `pendingMessage` are Studio-internally managed (the
-                // widget-insight focus + queued insight prompt), so they sit AFTER the spread —
-                // matching aiConfig/open/onClose/overlay — and are excluded from the consumer's
-                // `slotProps.chatPanel` type via the Omit above. Previously `focusedWidgetId` sat
-                // BEFORE the spread, letting a consumer silently override "Explain this widget",
-                // while `pendingMessage` sat after but was still spreadable in the type (T3).
-                focusedWidgetId={insightFocusedWidgetId}
-                aiConfig={aiConfig}
-                open={chatOpen}
-                onClose={() => setChatOpen(false)}
-                overlay
-                pendingMessage={pendingInsight ?? undefined}
-              />
+              <StudioDrawerErrorBoundary resetKey={chatPanelResetKey}>
+                <StudioChatPanel
+                  {...slotProps?.chatPanel}
+                  // `focusedWidgetId` and `pendingMessage` are Studio-internally managed (the
+                  // widget-insight focus + queued insight prompt), so they sit AFTER the spread —
+                  // matching aiConfig/open/onClose/overlay — and are excluded from the consumer's
+                  // `slotProps.chatPanel` type via the Omit above. Previously `focusedWidgetId` sat
+                  // BEFORE the spread, letting a consumer silently override "Explain this widget",
+                  // while `pendingMessage` sat after but was still spreadable in the type (T3).
+                  focusedWidgetId={insightFocusedWidgetId}
+                  aiConfig={aiConfig}
+                  open={chatOpen}
+                  onClose={() => setChatOpen(false)}
+                  overlay
+                  pendingMessage={pendingInsight ?? undefined}
+                />
+              </StudioDrawerErrorBoundary>
             </React.Suspense>
           </React.Fragment>
         )}

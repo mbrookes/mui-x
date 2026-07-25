@@ -11,6 +11,7 @@ import { RadialLabelsOverlay } from './RadialLabels';
 import { RectsOverlay } from './Rects';
 import { GeoPointsOverlay } from './GeoPoints';
 import { GeoSegmentsOverlay } from './GeoSegments';
+import { GeoShapesOverlay } from './GeoShapes';
 import { GeoTextOverlay } from './GeoText';
 
 /**
@@ -52,6 +53,8 @@ export function VegaOverlays(props: { overlays?: CompiledOverlay[] }) {
             return <GeoPointsOverlay key={index} overlay={overlay} />;
           case 'geoSegments':
             return <GeoSegmentsOverlay key={index} overlay={overlay} />;
+          case 'geoShapes':
+            return <GeoShapesOverlay key={index} overlay={overlay} />;
           case 'geoText':
             return <GeoTextOverlay key={index} overlay={overlay} />;
           default:

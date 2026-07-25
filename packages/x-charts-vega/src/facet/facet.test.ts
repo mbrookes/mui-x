@@ -413,6 +413,74 @@ describe('planFacets', () => {
     }
   });
 
+  it('sizes a layered concat cell from its layer fields, not as an encoding-less default view', () => {
+    // The view level declares the shared scale/axis while the layers supply the
+    // actual fields (`concat_layer_voyager_result`-shaped). Reading only the
+    // entry's own encoding sees no field on either channel, so the cell claims
+    // the 200px continuous default on both axes and reserves no axis room.
+    const spec: VegaLiteSpec = {
+      data: {
+        values: [
+          { lo: -2, hi: 2, mean: 0, study: 'A' },
+          { lo: -1, hi: 1, mean: 0, study: 'B' },
+        ],
+      },
+      vconcat: [
+        {
+          encoding: {
+            y: { field: 'study', type: 'nominal' },
+            x: { type: 'quantitative', scale: { domain: [-3, 3] } },
+          },
+          layer: [
+            { mark: 'rule', encoding: { x: { field: 'lo' }, x2: { field: 'hi' } } },
+            { mark: 'circle', encoding: { x: { field: 'mean' } } },
+          ],
+        },
+      ],
+    } as unknown as VegaLiteSpec;
+    const [cell] = planFacets(spec, SIZE)!.cells;
+    // Two `study` categories at the default 20px step, plus the allowance the
+    // layer-supplied (and therefore genuinely drawn) x axis needs on both sides.
+    expect(cell.height).to.equal(2 * 20 + 40 + 24);
+  });
+
+  it('sizes an entirely absent positional channel of a concat cell as one implicit band', () => {
+    // Vega-Lite's own compiler emits `concat_1_height: 20` for a y-less concat
+    // child (`bandspace(1) * step`), NOT the 200px continuous default a
+    // standalone unit would get — so such a strip must not out-size its siblings.
+    const spec: VegaLiteSpec = {
+      data: { values: [{ from: -1, to: 1 }] },
+      vconcat: [
+        {
+          mark: 'rule',
+          encoding: { x: { field: 'from', type: 'quantitative' }, x2: { field: 'to' } },
+        },
+      ],
+    } as unknown as VegaLiteSpec;
+    const [cell] = planFacets(spec, SIZE)!.cells;
+    // 20px band + the drawn x-axis allowance, well under the 200px default view.
+    expect(cell.height).to.equal(20 + 40 + 24);
+    expect(cell.height).to.be.lessThan(200);
+  });
+
+  it('budgets the margin opposite a drawn concat axis so the plot never collapses', () => {
+    // A single-band plot has no slack: budgeting only the labelled side left
+    // `concat_bar_scales_discretize`'s circle strips with a NEGATIVE drawing
+    // area, so x-charts rendered no marks at all. The cell must be wide enough
+    // for the y-axis labels AND the plot itself.
+    const spec: VegaLiteSpec = {
+      data: { values: [{ b: 28 }, { b: 55 }] },
+      hconcat: [
+        { mark: 'circle', encoding: { y: { field: 'b', type: 'nominal' } } },
+        { mark: 'circle', encoding: { y: { field: 'b', type: 'nominal' } } },
+      ],
+    } as unknown as VegaLiteSpec;
+    const [cell] = planFacets(spec, SIZE)!.cells;
+    // The y axis is drawn, so its label allowance (>= 60) plus the far-side pad
+    // sit on top of the 20px single-band plot.
+    expect(cell.width).to.be.greaterThan(60 + 20);
+  });
+
   it('wraps a `concat` grid to the requested column count', () => {
     const spec: VegaLiteSpec = {
       columns: 2,

@@ -134,6 +134,45 @@ describe('compileSpec (foundation pipeline)', () => {
     expect(feature100?.geometry).not.to.equal(null);
   });
 
+  it('keeps every LINE feature sharing an id (a route network is many arcs, not one)', () => {
+    // The id-dedupe above exists to disambiguate keyed choropleth polygons, but
+    // `londonTubeLines` splits each named line across dozens of `LineString`
+    // arcs that all carry the SAME id — collapsing those kept one stub per line
+    // and threw the rest of the route away, so the tube map rendered as a dozen
+    // disconnected fragments.
+    const topology = {
+      type: 'Topology',
+      objects: {
+        line: {
+          type: 'GeometryCollection',
+          geometries: [
+            { type: 'LineString', id: 'Central', arcs: [0], properties: {} },
+            { type: 'LineString', id: 'Central', arcs: [1], properties: {} },
+            { type: 'LineString', id: 'Victoria', arcs: [0], properties: {} },
+          ],
+        },
+      },
+      arcs: [
+        [
+          [0, 0],
+          [1, 1],
+        ],
+        [
+          [1, 1],
+          [2, 2],
+        ],
+      ],
+    };
+    const compiled = compileSpec({
+      data: { values: topology, format: { type: 'topojson', feature: 'line' } },
+      mark: 'geoshape',
+    } as unknown as VegaLiteSpec);
+    const geoData = compiled.geo?.geoData as { features: Array<{ id?: string }> };
+    // All three arcs survive — both "Central" segments plus "Victoria".
+    expect(geoData.features).to.have.length(3);
+    expect(geoData.features.filter((entry) => entry.id === 'Central')).to.have.length(2);
+  });
+
   it('reports a gap naming the available objects for a missing topojson feature', () => {
     const compiled = compileSpec({
       data: {

@@ -663,12 +663,59 @@ function vegaCellSize(
 
 /** The inter-view gap Vega-Lite leaves between concatenated views (`spacing`). */
 const CONCAT_SPACING = 15;
+// The margin x-charts keeps on the side of a concat cell's plot OPPOSITE the
+// drawn axis (right of the y axis, top of the x axis). Calibrated against the
+// rendered geometry: an 80px-wide cell measured a 65px left margin and a 20px
+// right one, so budgeting only the left allowance left the plot at −5px.
+const CONCAT_PLOT_FAR_PAD = 24;
 /** Padding to leave beside an axis that is hidden (`axis: null`) — just a small margin. */
 const HIDDEN_AXIS_PAD = 8;
 
 /** Whether a channel draws its axis (shown unless `axis: null`), i.e. reserves label room. */
 function channelAxisShown(def: VegaChannelDef | undefined): boolean {
   return isFieldDef(def) && def.axis !== null;
+}
+
+/**
+ * The positional def a concat entry effectively draws on `channel`, resolving a
+ * `layer` composite the way the compiler itself does: the view-level encoding
+ * carries the shared scale/axis config while a child layer supplies the actual
+ * field (e.g. `concat_layer_voyager_result`'s error-bar unit declares
+ * `x: {type, scale, axis}` at view level and `x: {field: "lo"}` on its rule
+ * layer). Merging entry-over-layer keeps the view's own `axis: null`/`scale`
+ * authoritative while still seeing the field, so sizing no longer mistakes a
+ * layered unit for one with no positional encoding at all.
+ */
+function concatChannelDef(entry: VegaLiteSpec, channel: 'x' | 'y'): VegaChannelDef | undefined {
+  const own = (entry.encoding ?? {})[channel];
+  if (isFieldDef(own)) {
+    return own;
+  }
+  const layer = (entry as { layer?: Array<{ encoding?: VegaEncoding }> }).layer;
+  if (!Array.isArray(layer)) {
+    return own;
+  }
+  const fromLayer = layer
+    .map((child) => child.encoding?.[channel])
+    .find((def): def is VegaChannelDef => isFieldDef(def));
+  if (!fromLayer) {
+    return own;
+  }
+  // Entry-level props win (the view owns the shared axis/scale); the layer only
+  // contributes what the view left unspecified — in practice the `field`.
+  return { ...fromLayer, ...(own && typeof own === 'object' ? own : {}) } as VegaChannelDef;
+}
+
+/** The mark of a concat entry, falling back to a `layer` composite's first child. */
+function concatMarkType(entry: VegaLiteSpec): string | undefined {
+  const own = markTypeOf(entry.mark);
+  if (own) {
+    return own;
+  }
+  const layer = (entry as { layer?: Array<{ mark?: VegaLiteSpec['mark'] }> }).layer;
+  return Array.isArray(layer)
+    ? layer.map((child) => markTypeOf(child.mark)).find((mark) => mark != null)
+    : undefined;
 }
 
 /**
@@ -705,20 +752,64 @@ function naturalConcatSize(
     };
   }
   const encoding = (entry.encoding ?? {}) as VegaEncoding;
-  const mark = markTypeOf(entry.mark);
-  const plotWidth = vegaAxisPlotSize(entry.width, encoding.x, rows, mark);
-  const plotHeight = vegaAxisPlotSize(
+  const mark = concatMarkType(entry);
+  const xDef = concatChannelDef(entry, 'x');
+  const yDef = concatChannelDef(entry, 'y');
+  const plotWidth = concatAxisPlotSize(entry.width, xDef, encoding, 'x', rows, mark);
+  const plotHeight = concatAxisPlotSize(
     entry.height as VegaLiteSpec['width'],
-    encoding.y,
+    yDef,
+    encoding,
+    'y',
     rows,
     mark,
   );
   return {
     // The left y-axis widens the view; the bottom x-axis heightens it — but only
-    // when that axis is actually drawn.
-    width: plotWidth + (channelAxisShown(encoding.y) ? CELL_Y_AXIS_ALLOWANCE : HIDDEN_AXIS_PAD),
-    height: plotHeight + (channelAxisShown(encoding.x) ? CELL_X_AXIS_ALLOWANCE : HIDDEN_AXIS_PAD),
+    // when that axis is actually drawn. A drawn axis also needs the OPPOSITE
+    // margin counted: x-charts keeps a margin on the far side of the plot too,
+    // and budgeting only the labelled side leaves the plot short by that much.
+    // For a wide continuous view the shortfall is invisible, but a view whose
+    // plot is a single 20px band (`concat_bar_scales_discretize`'s circle
+    // strips) has no slack at all — the drawing area came out NEGATIVE, so
+    // x-charts rendered no marks whatsoever.
+    width:
+      plotWidth +
+      (channelAxisShown(yDef) ? yAxisAllowance(yDef, rows) + CONCAT_PLOT_FAR_PAD : HIDDEN_AXIS_PAD),
+    height:
+      plotHeight +
+      (channelAxisShown(xDef) ? CELL_X_AXIS_ALLOWANCE + CONCAT_PLOT_FAR_PAD : HIDDEN_AXIS_PAD),
   };
+}
+
+/**
+ * `vegaAxisPlotSize` for a concat child, adding the composed-view rule for a
+ * positional channel that is absent *entirely* (not present-but-fieldless):
+ * Vega-Lite sizes that axis as one implicit band (`bandspace(1) × step`, i.e.
+ * 20px) rather than the 200px continuous default it would use for a standalone
+ * unit — the same single implicit category `compile/scales.ts` synthesizes for
+ * such a unit. Verified against `vega-lite`'s own compiler, which emits
+ * `concat_1_height: 20` for `concat_layer_voyager_result`'s y-less arrow strip.
+ * Without this the strip claims 200px and squeezes its sibling out of the view.
+ */
+function concatAxisPlotSize(
+  specSize: VegaLiteSpec['width'] | undefined,
+  def: VegaChannelDef | undefined,
+  encoding: VegaEncoding,
+  channel: 'x' | 'y',
+  rows: readonly DatasetRow[],
+  mark: string | undefined,
+): number {
+  if (typeof specSize !== 'number' && def === undefined && encoding[channel] === undefined) {
+    const step =
+      specSize &&
+      typeof specSize === 'object' &&
+      typeof (specSize as { step?: unknown }).step === 'number'
+        ? (specSize as { step: number }).step
+        : VEGA_DEFAULT_STEP;
+    return step;
+  }
+  return vegaAxisPlotSize(specSize, def, rows, mark);
 }
 
 /** Default column count for a wrapping facet (roughly square). */

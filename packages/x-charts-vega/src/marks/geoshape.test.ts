@@ -572,6 +572,117 @@ describe('compileGeoshapeMark', () => {
     });
   });
 
+  describe('constant color + extra geo layers', () => {
+    /** A two-point line feature, the shape a route network is built from. */
+    function line(id: string, x: number) {
+      return {
+        type: 'Feature',
+        id,
+        properties: { name: id },
+        geometry: {
+          type: 'LineString',
+          coordinates: [
+            [x, 0],
+            [x + 5, 5],
+          ],
+        },
+      };
+    }
+
+    it('fills an outline map from a constant encoding.color value', () => {
+      // `pickColorChannel` only claims a FIELD def, so `{value}` lands on the
+      // outline path — which used to read only `mark.fill`/`mark.color` and so
+      // painted `geo_layer_line_london`'s boroughs the default solid black.
+      const compiled = compileSpec({
+        data: { values: [featureA, featureB] },
+        mark: { type: 'geoshape', stroke: 'white', strokeWidth: 2 },
+        encoding: { color: { value: '#eee' } },
+      } as unknown as VegaLiteSpec);
+      expect(compiled.geo?.outlineFill).to.equal('#eee');
+      expect(compiled.geo?.outlineStroke).to.equal('white');
+    });
+
+    it('lets an explicit mark.fill win over a constant color encoding', () => {
+      const compiled = compileSpec({
+        data: { values: [featureA] },
+        mark: { type: 'geoshape', fill: 'lightgray' },
+        encoding: { color: { value: '#eee' } },
+      } as unknown as VegaLiteSpec);
+      expect(compiled.geo?.outlineFill).to.equal('lightgray');
+    });
+
+    it('draws a second geoshape layer as a projected-path overlay instead of dropping it', () => {
+      // Only the first geo layer can own the chart's single geoData; the second
+      // used to compile a map series whose geometry the layer merge discarded,
+      // so `geo_layer_line_london`'s whole tube network silently vanished.
+      const compiled = compileSpec({
+        layer: [
+          {
+            data: { values: [featureA, featureB] },
+            mark: 'geoshape',
+            encoding: { color: { value: '#eee' } },
+          },
+          {
+            data: { values: [line('Central', 0), line('Victoria', 20)] },
+            mark: { type: 'geoshape', filled: false, strokeWidth: 2 },
+            encoding: {
+              color: {
+                field: 'id',
+                type: 'nominal',
+                scale: { domain: ['Central', 'Victoria'], range: ['red', 'blue'] },
+              },
+            },
+          },
+        ],
+      } as unknown as VegaLiteSpec);
+
+      const overlay = compiled.overlays.find((entry) => entry.kind === 'geoShapes');
+      expect(overlay).to.not.equal(undefined);
+      const items = (overlay as { items: Array<{ stroke?: string; fill?: string }> }).items;
+      expect(items).to.have.length(2);
+      // `filled: false` strokes the route and leaves it unfilled — a fill would
+      // flood each line's bounding area with its color.
+      expect(items.map((item) => item.stroke)).to.deep.equal(['red', 'blue']);
+      expect(items.every((item) => item.fill === undefined)).to.equal(true);
+      // The base layer still owns the map itself.
+      expect(compiled.geo?.outlineFill).to.equal('#eee');
+      // ...and the overlay carries its own legend, since it has no series.
+      expect(compiled.overlayLegend.map((entry) => entry.label)).to.deep.equal([
+        'Central',
+        'Victoria',
+      ]);
+      const gap = compiled.gaps.find(
+        (entry) => entry.code === 'mark:geoshape-layer-custom-overlay',
+      );
+      expect(gap?.origin).to.equal('x-charts');
+    });
+
+    it('promotes a later layer to the base map when the first resolves no geometry', () => {
+      // `interactive_geo_earthquakes` opens with a `sphere` generator this
+      // wrapper cannot draw. Classifying "base map" by layer ORDER alone
+      // demoted the real countries layer to an overlay with no projection to
+      // draw against, blanking a chart that used to render.
+      const compiled = compileSpec({
+        layer: [
+          { data: { values: [{ type: 'Sphere' }] }, mark: 'geoshape' },
+          {
+            data: { values: [featureA, featureB] },
+            mark: { type: 'geoshape', fill: 'lightgray' },
+          },
+        ],
+      } as unknown as VegaLiteSpec);
+
+      // The second layer became the map rather than a projected-path overlay.
+      expect(compiled.geo?.geoData).to.not.equal(undefined);
+      expect(compiled.geo?.outlineFill).to.equal('lightgray');
+      expect(compiled.overlays.some((entry) => entry.kind === 'geoShapes')).to.equal(false);
+      // ...so no "extra layer" gap is reported: nothing was demoted.
+      expect(
+        compiled.gaps.some((entry) => entry.code === 'mark:geoshape-layer-custom-overlay'),
+      ).to.equal(false);
+    });
+  });
+
   describe('gaps', () => {
     it('ignores the shape channel', () => {
       const compiled = compileSpec({

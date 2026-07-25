@@ -435,6 +435,42 @@ describe('compilePointMark', () => {
     expect(gap?.severity).to.equal('ignored');
   });
 
+  it('reports an unsupported gap for a yOffset jitter channel instead of dropping it silently', () => {
+    // `point_offset_random`-shaped: an ordinal y plus a random `yOffset` spreads
+    // co-located points across the band. Without the gap the chart claimed full
+    // native support while every point sat exactly on its category line.
+    const spec: VegaLiteSpec = {
+      data: { values: [{ hp: 100, cyl: 4, jitter: 0.5 }] },
+      mark: 'point',
+      encoding: {
+        x: { field: 'hp', type: 'quantitative' },
+        y: { field: 'cyl', type: 'ordinal' },
+        yOffset: { field: 'jitter', type: 'quantitative' },
+      },
+    } as unknown as VegaLiteSpec;
+    const compiled = compileSpec(spec);
+    const gap = compiled.gaps.find((entry) => entry.code === 'encoding:offset-unsupported');
+    expect(gap?.severity).to.equal('unsupported');
+    expect(gap?.origin).to.equal('x-charts');
+    // The rest of the layer still renders — only the sub-band offset is lost.
+    expect(compiled.series.length).to.be.greaterThan(0);
+  });
+
+  it('reports no offset gap when neither offset channel is present', () => {
+    const spec: VegaLiteSpec = {
+      data: { values: [{ x: 1, y: 1 }] },
+      mark: 'point',
+      encoding: {
+        x: { field: 'x', type: 'quantitative' },
+        y: { field: 'y', type: 'quantitative' },
+      },
+    };
+    const compiled = compileSpec(spec);
+    expect(compiled.gaps.some((entry) => entry.code === 'encoding:offset-unsupported')).to.equal(
+      false,
+    );
+  });
+
   it('reports an ignored gap for the square mark shape but still renders a scatter series', () => {
     const spec: VegaLiteSpec = {
       data: { values: [{ x: 1, y: 1 }] },

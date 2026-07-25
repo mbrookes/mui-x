@@ -131,6 +131,15 @@ interface GeoFeatureLike {
 }
 
 /**
+ * Whether a feature's geometry is an AREA (polygonal) one. Only these are
+ * choropleth shapes keyed by id; lines and points are not.
+ */
+function isAreaGeometry(geometry: unknown): boolean {
+  const type = (geometry as { type?: unknown } | null | undefined)?.type;
+  return type === 'Polygon' || type === 'MultiPolygon' || type === 'GeometryCollection';
+}
+
+/**
  * Collapse GeoJSON features to one per `id`. TopoJSON `feature()` can yield
  * several features sharing an `id` — commonly a null-geometry placeholder plus
  * the real polygon (and, in malformed topologies, two real polygons). Duplicate
@@ -139,13 +148,21 @@ interface GeoFeatureLike {
  * key"). Keep the first feature per id, but let a real geometry replace a
  * previously-kept null-geometry placeholder so no visible shape is lost.
  * Features without an `id` are never merged (they carry no join/key identity).
+ *
+ * LINE (and point) features are exempt: a route network legitimately splits one
+ * named entity across many arcs that all carry the SAME id — every one of
+ * `londonTubeLines`' twelve lines is dozens of separate `LineString` features
+ * named e.g. "Victoria". Deduping those keeps a single arc and silently throws
+ * the rest of the route away, which is how the London tube map rendered as a
+ * dozen disconnected stubs. They are also never the keyed choropleth shapes
+ * this collapse exists to disambiguate.
  */
 function dedupeFeaturesById(features: GeoFeatureLike[]): GeoFeatureLike[] {
   const positionById = new Map<string, number>();
   const out: GeoFeatureLike[] = [];
   for (const feat of features) {
     const id = feat?.id;
-    if (id == null) {
+    if (id == null || (feat?.geometry != null && !isAreaGeometry(feat.geometry))) {
       out.push(feat);
       continue;
     }

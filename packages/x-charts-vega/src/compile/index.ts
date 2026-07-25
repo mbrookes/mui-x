@@ -17,6 +17,7 @@ import type {
   CompiledOverlay,
   CompiledReferenceLine,
   CompiledSeries,
+  CompiledUnit,
   CompiledZAxis,
   OverlayLegendItem,
   OverlayPosition,
@@ -499,7 +500,39 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
       hasGeoshapeLayer,
     };
     const before = series.length;
-    const compiled = compiler(ctx);
+    const rawCompiled = compiler(ctx);
+    // A chart binds exactly one geoData, so only the layer that FIRST resolves
+    // one becomes the map; any later geo layer swaps to its projected-path
+    // overlay form (`geoFallback`) rather than being silently discarded, which
+    // is how `geo_layer_line_london` lost its whole tube network. Deciding here
+    // — not in the mark — is what lets `interactive_geo_earthquakes` promote
+    // its SECOND layer to the map after the first (a `sphere` generator)
+    // resolves nothing.
+    const compiled: CompiledUnit =
+      rawCompiled.geo && geo && rawCompiled.geoFallback
+        ? {
+            ...rawCompiled,
+            series: [],
+            plots: [],
+            geo: undefined,
+            zAxis: undefined,
+            overlays: [...(rawCompiled.overlays ?? []), ...rawCompiled.geoFallback.overlays],
+            overlayLegend: [
+              ...(rawCompiled.overlayLegend ?? []),
+              ...(rawCompiled.geoFallback.overlayLegend ?? []),
+            ],
+          }
+        : rawCompiled;
+    if (compiled !== rawCompiled) {
+      rawCompiled.geoFallback?.gaps?.forEach((gap) => gaps.add(gap));
+      gaps.add({
+        code: 'mark:geoshape-layer-custom-overlay',
+        message:
+          'x-charts binds a single geo dataset to a chart, so only the first geoshape layer becomes a native map; this additional layer is drawn as projected SVG paths by a custom overlay (sharing the base map projection) instead of an x-charts series.',
+        severity: 'ignored',
+        path: unit.path,
+      });
+    }
     series.push(...compiled.series);
     // Record this layer's static opacity against the series it produced, so it
     // can be baked into the resolved color once palette colors are assigned.

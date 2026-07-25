@@ -69,6 +69,9 @@ const X_CHARTS_LIMITATION_CODES = new Set<string>([
   // Opacity: an x-charts series/marker has a single color, no separate alphas.
   'encoding:opacity',
   'encoding:opacity-field-unsupported',
+  // A scatter marker is positioned from its data value alone; x-charts has no
+  // within-band pixel offset for `xOffset`/`yOffset` sub-positioning (jitter).
+  'encoding:offset-unsupported',
   // x-charts ties a stack's draw order to the series/legend order, so a custom
   // color-domain order can't reproduce Vega's descending-by-value stack sort.
   'mark:stack-order-explicit-domain',
@@ -108,6 +111,9 @@ const X_CHARTS_LIMITATION_CODES = new Set<string>([
   'mark:line-closed-polygon-custom-overlay',
   'mark:tick-custom-overlay',
   'mark:rule-segment-custom-overlay',
+  // x-charts binds one geo dataset per chart, so a second/third geoshape layer
+  // draws as projected SVG paths sharing the base map's projection.
+  'mark:geoshape-layer-custom-overlay',
 ]);
 
 /** Classify a gap `code`'s origin (see `X_CHARTS_LIMITATION_CODES`). */

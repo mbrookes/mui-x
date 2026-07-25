@@ -660,6 +660,17 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
     // Concat views keep their own (differing) sizes, so each grid column is sized
     // to the widest cell in it rather than to a single uniform track. A shared
     // trellis keeps its uniform packed tracks.
+    //
+    // The track is `minmax(<natural width>, max-content)`, not a hard pixel
+    // width: a cell's plot is exactly its natural width, but anything the chart
+    // composes BESIDE that plot — a size legend, a right-side color legend — is
+    // an HTML sibling of the fixed-width surface, so the cell's real content is
+    // wider than the plot it was sized from. A hard `<w>px` track let that
+    // surplus spill over the next column and paint on top of its axis labels
+    // (`concat_bar_scales_discretize`'s three size legends, each landing on the
+    // neighbouring panel's tick labels). Growing the track to `max-content`
+    // instead reproduces Vega-Lite's own layout, where a view's legend occupies
+    // real estate outside the plot and the composition widens to fit it.
     const concatColumnWidths = !shared
       ? Array.from({ length: plan.columns }, (_, col) => {
           let max = 0;
@@ -676,7 +687,7 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
           : `${leftTrackWidth}px`
         : `repeat(${plan.columns}, minmax(0, 1fr))`
       : concatColumnWidths && concatColumnWidths.every((w) => w > 0)
-        ? concatColumnWidths.map((w) => `${w}px`).join(' ')
+        ? concatColumnWidths.map((w) => `minmax(${w}px, max-content)`).join(' ')
         : `repeat(${plan.columns}, minmax(0, 1fr))`;
     const grid = (
       <div
@@ -975,6 +986,7 @@ function SingleViewChart(props: VegaLiteChartProps) {
         legend
       );
     let geoLegend: React.ReactNode;
+    let geoLegendInset = false;
     if (geoColorMap?.type === 'piecewise') {
       geoLegend = withGeoLegendTitle(
         <PiecewiseColorLegend
@@ -992,10 +1004,23 @@ function SingleViewChart(props: VegaLiteChartProps) {
           {...(geoColorLabel ? { minLabel: geoColorLabel, maxLabel: geoColorLabel } : {})}
         />,
       );
-    } else {
-      geoLegend = compiled.hasLegend && <ChartsLegend sx={LEGEND_SX} />;
+    } else if (compiled.hasLegend) {
+      geoLegend = <ChartsLegend sx={LEGEND_SX} />;
+    } else if (compiled.overlayLegend.length > 0) {
+      // A non-base geoshape layer draws through the `geoShapes` overlay rather
+      // than an x-charts series, so it has no native legend entries — its color
+      // key comes from `overlayLegend` instead (the twelve named tube lines of
+      // `geo_layer_line_london`, which the reference renderer also lists).
+      geoLegendInset = true;
+      geoLegend = (
+        <OverlayLegend items={compiled.overlayLegend} direction="vertical" inset={true} />
+      );
     }
-    return (
+    // An inset legend paints over the plot, so it needs a positioned ancestor —
+    // and must NOT sit in `ChartsWrapper`'s legend slot, which would give it a
+    // layout column again (the very thing insetting avoids).
+    const geoInsetLegend = geoLegendInset ? geoLegend : undefined;
+    const chart = (
       <ChartsGeoDataProviderPremium
         geoData={compiled.geo?.geoData as never}
         projection={compiled.geo?.projection as never}
@@ -1010,7 +1035,7 @@ function SingleViewChart(props: VegaLiteChartProps) {
           legendPosition={{ vertical: 'top', horizontal: 'end' }}
           legendDirection="vertical"
         >
-          {geoLegend}
+          {geoInsetLegend ? undefined : geoLegend}
           <ChartsSurface title={compiled.title}>
             {compiled.plots.includes('geoBase') && (
               <GeoDataPlot
@@ -1032,6 +1057,14 @@ function SingleViewChart(props: VegaLiteChartProps) {
           <ChartsTooltip trigger="item" />
         </ChartsWrapper>
       </ChartsGeoDataProviderPremium>
+    );
+    return geoInsetLegend ? (
+      <div style={{ position: 'relative', display: 'inline-block' }}>
+        {chart}
+        {geoInsetLegend}
+      </div>
+    ) : (
+      chart
     );
   }
 

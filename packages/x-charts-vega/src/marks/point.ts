@@ -598,6 +598,24 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
     });
   }
 
+  // `xOffset`/`yOffset` sub-position a mark WITHIN its band (Vega-Lite's
+  // jittering idiom: an ordinal y plus a random `yOffset` spreads otherwise
+  // co-located points across the band). An x-charts scatter point is placed
+  // from its data value alone — there is no per-item pixel nudge inside a band
+  // — so the channel cannot be honored. It was previously dropped in silence,
+  // which read as "rendered natively" while every point sat exactly on its
+  // category line; report it instead so the overplotting is explained.
+  for (const channel of ['xOffset', 'yOffset'] as const) {
+    if (encoding[channel] !== undefined) {
+      gaps.add({
+        code: 'encoding:offset-unsupported',
+        message: `The "${channel}" channel sub-positions each mark within its band (e.g. jittering overlapping points); x-charts places a scatter marker from its data value alone, with no within-band pixel offset, so the channel is ignored and co-located points overplot exactly.`,
+        severity: 'unsupported',
+        path: `${path}.encoding.${channel}`,
+      });
+    }
+  }
+
   // Vega-Lite's `filled` default is mark-dependent: `point` marks are hollow
   // (stroke-only), while `circle`/`square` are solid. An explicit `filled`
   // overrides either way. Hollow markers render through the shell's custom

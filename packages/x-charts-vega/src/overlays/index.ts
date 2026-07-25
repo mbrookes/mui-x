@@ -8,4 +8,5 @@ export * from './ArcLabels';
 export * from './Rects';
 export * from './GeoPoints';
 export * from './GeoSegments';
+export * from './GeoShapes';
 export * from './GeoText';

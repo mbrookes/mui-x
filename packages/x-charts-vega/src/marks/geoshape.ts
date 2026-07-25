@@ -1,6 +1,11 @@
 import { geoAlbersUsa } from '@mui/x-charts-vendor/d3-geo';
 import type { GeoProjection } from '@mui/x-charts-vendor/d3-geo';
-import type { CompiledSeries, CompiledUnit, UnitContext } from '../compile/context';
+import type {
+  CompiledSeries,
+  CompiledUnit,
+  OverlayLegendItem,
+  UnitContext,
+} from '../compile/context';
 import type { ContinuousColorMapConfig, PiecewiseColorMapConfig } from '../compile/color';
 import { resolveColor } from '../compile/color';
 import { resolveFieldType, toDate, toNumber } from '../compile/fieldTypes';
@@ -13,8 +18,10 @@ import type {
   VegaLookupTransform,
   VegaTransform,
 } from '../types';
-import { isFieldDef } from '../types';
+import { isFieldDef, isValueDef } from '../types';
 import { applyLookupTransform } from '../transforms/lookup';
+import { createGapCollector } from '../gaps';
+import type { GapCollector } from '../gaps';
 
 /*
  * OWNERSHIP: the "geoshape/map mark" work unit owns this file.
@@ -522,6 +529,89 @@ function pickColorChannel(
 }
 
 /**
+ * Draw this `geoshape` layer as a `geoShapes` overlay — the representation used
+ * when some EARLIER layer already claimed the chart's single geoData.
+ *
+ * Returned on `CompiledUnit.geoFallback` rather than swapped in here: whether
+ * this layer is the base map is not knowable from the layer itself. The first
+ * geoshape unit in a spec can perfectly well fail to resolve any geometry (
+ * `interactive_geo_earthquakes` opens with a `sphere` generator this wrapper
+ * cannot draw), in which case a later layer legitimately becomes the base. So
+ * every layer compiles its native form AND this fallback, and
+ * `compile/index.ts` — the only place that knows whether a map already exists —
+ * picks between them.
+ *
+ * Per-feature color comes from the layer's own categorical color scale: a
+ * `{domain, range}` pair maps the feature's color-field value to its color
+ * (`geo_layer_line_london` names all twelve tube lines and gives each its
+ * official color), falling back to the auto palette when the scale leaves it
+ * implicit. `mark.filled === false` (the tube-line case) strokes the path and
+ * leaves it unfilled; otherwise the color fills it, matching Vega-Lite's own
+ * `filled` default for a geoshape.
+ */
+function buildGeoShapeOverlay(
+  ctx: UnitContext,
+  features: GeoFeature[],
+  color: { channel: VegaFieldDef; field: string } | undefined,
+  gaps: GapCollector,
+): NonNullable<CompiledUnit['geoFallback']> {
+  const { mark } = ctx.unit;
+  const colorRes = color ? resolveColor(ctx.encoding, ctx.rows, gaps, ctx.unit.path) : undefined;
+  const domain = colorRes?.domain;
+  const range = colorRes?.range;
+  const staticColor =
+    (typeof mark.stroke === 'string' ? mark.stroke : undefined) ??
+    (typeof mark.fill === 'string' ? mark.fill : undefined) ??
+    mark.color;
+
+  const colorAt = (value: unknown): string | undefined => {
+    if (value == null) {
+      return staticColor;
+    }
+    const key = String(value);
+    const index = domain?.findIndex((entry) => String(entry) === key) ?? -1;
+    if (index >= 0 && range && range.length > 0) {
+      return range[index % range.length];
+    }
+    if (index >= 0) {
+      return ctx.palette[index % ctx.palette.length];
+    }
+    return staticColor;
+  };
+
+  // Vega-Lite's geoshape is filled unless told otherwise; a line network
+  // (`filled: false`) must stroke instead, or every path floods its bounding
+  // area with the line color.
+  const filled = mark.filled !== false;
+  const seenLabels = new Set<string>();
+  const legend: OverlayLegendItem[] = [];
+  const items = features.map((feature) => {
+    const value = color ? resolveFieldValue(feature, color.field) : undefined;
+    const resolved = colorAt(value);
+    if (color && value != null && resolved) {
+      const label = String(value);
+      if (!seenLabels.has(label)) {
+        seenLabels.add(label);
+        legend.push({ label, color: resolved });
+      }
+    }
+    return {
+      feature,
+      ...(filled
+        ? { fill: resolved, stroke: mark.stroke as string | undefined }
+        : { stroke: resolved }),
+      ...(typeof mark.strokeWidth === 'number' ? { strokeWidth: mark.strokeWidth } : {}),
+      ...(value != null ? { label: String(value) } : {}),
+    };
+  });
+
+  return {
+    overlays: [{ kind: 'geoShapes' as const, items }],
+    ...(legend.length > 0 && color?.channel.legend !== null ? { overlayLegend: legend } : {}),
+  };
+}
+
+/**
  * Prepare features for a choropleth join. x-charts matches `mapShape` series
  * data to features **only by `feature.properties.name`**, yet a Vega-Lite
  * choropleth commonly (a) carries the value in a *separate* dataset joined by a
@@ -588,6 +678,16 @@ export function compileGeoshapeMark(ctx: UnitContext): CompiledUnit {
   }
 
   const color = pickColorChannel(ctx);
+
+  // Only ONE geo dataset can drive the chart's projection. Compile the
+  // projected-path form alongside the native one and let `compile/index.ts`
+  // choose: it alone knows whether an earlier layer already became the map.
+  // Gaps raised while resolving the fallback's colors are collected separately
+  // so they are only reported if the fallback is the form actually used.
+  const fallbackGaps = createGapCollector();
+  const geoFallback = buildGeoShapeOverlay(ctx, resolution.features, color, fallbackGaps);
+  geoFallback.gaps = fallbackGaps.list();
+
   // A choropleth joins any `lookup` values onto each feature and bridges a
   // numeric feature `id` into `properties.name` so x-charts can color it; the
   // rebuilt geoData must carry those bridged names so its name index matches the
@@ -630,20 +730,30 @@ export function compileGeoshapeMark(ctx: UnitContext): CompiledUnit {
   }
 
   if (!color) {
-    // Outline map: no color encoding, just the base features. `mark.fill`/
+    // Outline map: no color FIELD, just the base features. `mark.fill`/
     // `stroke`/`strokeWidth` (e.g. `layer_geo`'s `{fill: 'lightgray', stroke:
     // 'white'}`) forward to `<GeoDataPlot>` instead of its `currentColor`/
     // `none` defaults, which otherwise render the whole shape solid black on
     // a light theme.
+    //
+    // A constant `encoding.color`/`fill` (`{value: "#eee"}`) is the same
+    // instruction expressed on the encoding rather than the mark, and lands
+    // here too — `pickColorChannel` deliberately only claims a *field* def, so
+    // a value-def is not a choropleth. Reading only the mark properties left
+    // `geo_layer_line_london`'s boroughs painted the default solid black even
+    // though the spec explicitly asked for `#eee`.
     const { mark } = ctx.unit;
-    const outlineFill = typeof mark.fill === 'string' ? mark.fill : mark.color;
+    const constantColor = [ctx.encoding.color, ctx.encoding.fill]
+      .map((def) => (isValueDef(def) && typeof def.value === 'string' ? def.value : undefined))
+      .find((value) => value !== undefined);
+    const outlineFill = typeof mark.fill === 'string' ? mark.fill : (mark.color ?? constantColor);
     const geoWithOutlineStyle: CompiledUnit['geo'] = {
       ...geo,
       ...(outlineFill !== undefined ? { outlineFill } : {}),
       ...(mark.stroke !== undefined ? { outlineStroke: mark.stroke } : {}),
       ...(mark.strokeWidth !== undefined ? { outlineStrokeWidth: mark.strokeWidth } : {}),
     };
-    return { series: [], plots: ['geoBase'], geo: geoWithOutlineStyle };
+    return { series: [], plots: ['geoBase'], geo: geoWithOutlineStyle, geoFallback };
   }
 
   const { entries, colorMap } = buildChoroplethEntries(
@@ -663,7 +773,7 @@ export function compileGeoshapeMark(ctx: UnitContext): CompiledUnit {
       severity: 'unsupported',
       path: findLookupPath(ctx),
     });
-    return { series: [], plots: ['geoBase'], geo };
+    return { series: [], plots: ['geoBase'], geo, geoFallback };
   }
 
   const series = {
@@ -688,6 +798,7 @@ export function compileGeoshapeMark(ctx: UnitContext): CompiledUnit {
     // shape color, so it is omitted. Outline-only maps (no color field) still
     // return `['geoBase']` above.
     plots: ['mapShape'],
+    geoFallback,
     geo: geoWithLegend,
     // A quantitative/temporal color field surfaces a real color axis, keyed
     // so the shell can pick the matching (continuous vs. piecewise) legend.

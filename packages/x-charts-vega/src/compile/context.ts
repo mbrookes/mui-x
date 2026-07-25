@@ -4,7 +4,7 @@ import type { XAxis, YAxis } from '@mui/x-charts/models';
 // `CompiledSeries` includes heatmap/rangeBar/mapShape series types.
 import type {} from '@mui/x-charts-premium';
 import type { DatasetRow, VegaChannelDef, VegaEncoding, VegaFieldType } from '../types';
-import type { GapCollector } from '../gaps';
+import type { GapCollector, TranslationGap } from '../gaps';
 import type { NormalizedUnit } from '../normalize';
 
 /** A series object accepted by `ChartsContainer`'s `series` prop (incl. Premium types via augmentation). */
@@ -268,6 +268,20 @@ export type CompiledOverlay =
        */
       kind: 'geoText';
       items: OverlayGeoTextItem[];
+    }
+  | {
+      /**
+       * A `geoshape` mark that is NOT the chart's base map (`marks/geoshape.ts`
+       * `buildGeoShapeOverlay`). x-charts draws one `geoData` per chart, so a
+       * spec layering several geo datasets — `geo_layer_line_london`'s borough
+       * outlines with the tube-line network over them — can only render the
+       * first natively. Rather than dropping the rest (the tube lines simply
+       * never appeared), each extra layer's features are drawn as `<path>`s
+       * through the base chart's own `useGeoPath()`, so they share its
+       * projection and stay aligned under pan/zoom.
+       */
+      kind: 'geoShapes';
+      items: OverlayGeoShapeItem[];
     };
 
 /**
@@ -293,6 +307,22 @@ export interface OverlayGeoSegmentItem {
   lon2: number;
   lat2: number;
   style?: React.CSSProperties;
+}
+
+/**
+ * One feature of a non-base `geoshape` layer — see the `geoShapes` overlay
+ * kind's doc comment. The GeoJSON geometry is kept as-is and handed to the
+ * base chart's `useGeoPath()` at render time, so no coordinate is projected
+ * here (unlike the `lon`/`lat` item types above, which carry single points).
+ */
+export interface OverlayGeoShapeItem {
+  /** The GeoJSON Feature (or bare geometry) to draw. */
+  feature: unknown;
+  fill?: string;
+  stroke?: string;
+  strokeWidth?: number;
+  /** Legend/tooltip label — the resolved color-field value for this feature. */
+  label?: string;
 }
 
 /** One label of a geo-projected `text` layer — see the `geoText` overlay kind's doc comment. */
@@ -392,6 +422,20 @@ export interface CompiledUnit {
   zAxis?: CompiledZAxis[];
   /** Present when the layer requires geographic rendering ('geoshape'). */
   geo?: CompiledGeo;
+  /**
+   * How a `geoshape` layer renders when it is NOT the chart's base map — as
+   * projected `<path>`s sharing whichever layer did become the map. A chart
+   * binds one `geoData`, but which layer supplies it isn't decidable locally
+   * (the first geoshape unit may resolve no geometry at all), so the mark
+   * compiles both forms and `compile/index.ts` swaps this one in for every
+   * layer after the map is claimed. Its `gaps` are only reported when it is
+   * the form actually used.
+   */
+  geoFallback?: {
+    overlays: CompiledOverlay[];
+    overlayLegend?: OverlayLegendItem[];
+    gaps?: readonly TranslationGap[];
+  };
   /** Custom-drawn output for marks with no x-charts series equivalent. */
   overlays?: CompiledOverlay[];
   /**

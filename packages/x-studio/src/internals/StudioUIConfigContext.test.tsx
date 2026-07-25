@@ -33,15 +33,20 @@ function renderGeographies(initialGeographies: Geographies | undefined) {
   }
 
   function Harness({ geographies }: { geographies: Geographies | undefined }) {
+    // Memoized on `geographies` alone: the point of this suite is that
+    // `useStudioGeographies` re-derives when the geographies OBJECT changes, so the
+    // provider value must change exactly when that does — never on an unrelated render.
+    const contextValue = React.useMemo(
+      () => ({
+        tableSourceMode: 'explicit' as const,
+        featureFlags: {},
+        localeText: DEFAULT_STUDIO_LOCALE_TEXT,
+        geographies,
+      }),
+      [geographies],
+    );
     return (
-      <StudioUIConfigContext.Provider
-        value={{
-          tableSourceMode: 'explicit',
-          featureFlags: {},
-          localeText: DEFAULT_STUDIO_LOCALE_TEXT,
-          geographies,
-        }}
-      >
+      <StudioUIConfigContext.Provider value={contextValue}>
         <Probe />
       </StudioUIConfigContext.Provider>
     );

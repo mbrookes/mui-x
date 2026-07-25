@@ -117,12 +117,14 @@ async function setup(submitMutation?: ReturnType<typeof vi.fn>) {
 
 function cellText(container: HTMLElement, rowId: string, field: string): string | null {
   return (
+    // eslint-disable-next-line testing-library/no-container -- MUI DataGrid rows are addressed by `data-id`; no role-based query can target a SPECIFIC row identity, which is the whole point of these assertions
     container.querySelector(`[data-id="${rowId}"] [data-field="${field}"]`)?.textContent ?? null
   );
 }
 
 /** Drives a full cell edit through the real DOM, as a user would. */
 function editCell(container: HTMLElement, rowId: string, field: string, value: string) {
+  // eslint-disable-next-line testing-library/no-container -- MUI DataGrid rows are addressed by `data-id`; no role-based query can target a SPECIFIC row identity, which is the whole point of these assertions
   const cell = container.querySelector(`[data-id="${rowId}"] [data-field="${field}"]`);
   expect(cell).not.toBe(null);
   fireEvent.doubleClick(cell as HTMLElement);
@@ -137,9 +139,11 @@ describe('StudioGridWidget — synthetic row identity does not clobber `row.id`'
     const { container } = await setup();
 
     // Grid identities stay unique: real id, synthetic (nullable id), deduped (duplicate id).
+    /* eslint-disable testing-library/no-container -- see note on `cellText` above */
     expect(container.querySelector('[data-id="r1"]')).not.toBe(null);
     expect(container.querySelector('[data-id="grid-1-1"]')).not.toBe(null);
     expect(container.querySelector('[data-id="grid-1-dup-2"]')).not.toBe(null);
+    /* eslint-enable testing-library/no-container */
 
     // ...but the rendered `id` COLUMN shows the row's real data, not the internal token.
     expect(cellText(container, 'r1', 'id')).toBe('r1');
@@ -150,6 +154,7 @@ describe('StudioGridWidget — synthetic row identity does not clobber `row.id`'
   it('emits the real cell value as a cross-filter, not the synthetic identity', async () => {
     const { controller, container } = await setup();
 
+    // eslint-disable-next-line testing-library/no-container -- MUI DataGrid rows are addressed by `data-id`; no role-based query can target a SPECIFIC row identity, which is the whole point of these assertions
     const cell = container.querySelector('[data-id="grid-1-dup-2"] [data-field="id"]');
     expect(cell).not.toBe(null);
     fireEvent.click(cell as HTMLElement);

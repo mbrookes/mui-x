@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { createRenderer } from '@mui/internal-test-utils';
+import { createRenderer, screen } from '@mui/internal-test-utils';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { HeatmapData } from '../../../internals/chartShapes/heatmap';
@@ -156,9 +156,8 @@ describe('StudioHeatmapChart', () => {
     }
 
     it('exposes a named image with the measured dimensions and value range', () => {
-      const { container } = renderHeatmap('Revenue heatmap');
-      const img = container.querySelector('[role="img"]')!;
-      expect(img).not.toBeNull();
+      renderHeatmap('Revenue heatmap');
+      const img = screen.getByRole('img');
       const label = img.getAttribute('aria-label')!;
       expect(label).toContain('Revenue heatmap');
       expect(label).toContain('Region');
@@ -168,8 +167,8 @@ describe('StudioHeatmapChart', () => {
     });
 
     it('still exposes the graphic role when no title is supplied', () => {
-      const { container } = renderHeatmap(undefined);
-      expect(container.querySelector('[role="img"]')).not.toBeNull();
+      renderHeatmap(undefined);
+      expect(screen.getByRole('img')).not.toBeNull();
     });
   });
 });

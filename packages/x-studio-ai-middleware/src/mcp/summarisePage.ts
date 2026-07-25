@@ -118,6 +118,7 @@ export function createSummarisePageHandler(deps: {
    * per-source gate is applied (used only by unit tests and callers that construct
    * the handler directly).
    * @param {{ sourceId: string }} input The source about to be queried.
+   * @param {string} input.sourceId Id of the data source the widget would read.
    * @returns {Promise<string | null>} A deny-reason string, or `null` to proceed.
    */
   authorizeSourceDataAccess?: (input: { sourceId: string }) => Promise<string | null>;
@@ -423,10 +424,10 @@ export function createSummarisePageHandler(deps: {
                 const shownLabels = anomalyLabels.slice(0, MAX_ANOMALY_LABELS);
                 const omittedLabels = anomalyLabels.length - shownLabels.length;
                 lines.push(
-                  `Anomalies detected at: ${shownLabels.join(', ')}` +
-                    (omittedLabels > 0
+                  `Anomalies detected at: ${shownLabels.join(', ')}${ 
+                    omittedLabels > 0
                       ? ` (+${omittedLabels} more of ${anomalyLabels.length} total)`
-                      : ''),
+                      : ''}`,
                 );
               }
             }

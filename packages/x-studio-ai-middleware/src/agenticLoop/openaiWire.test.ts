@@ -433,7 +433,7 @@ describe('accumulateToolCallDeltas — prototype pollution', () => {
 
     const entries = Object.values(acc.reqToolCalls);
     expect(entries).toHaveLength(2);
-    expect(entries.map((e) => e.name).sort()).toEqual(['get_dashboard_state', 'list_pages']);
+    expect(entries.map((entry) => entry.name).sort()).toEqual(['get_dashboard_state', 'list_pages']);
     // `idToIdx` must not resolve through the prototype either — a truthy inherited
     // lookup would have merged both fragments into one `"[object Object]"` slot.
     expect(Object.values(acc.idToIdx)).toHaveLength(2);

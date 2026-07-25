@@ -4,7 +4,26 @@ import { parseStateMutation, PARSEABLE_MUTATION_TYPES } from './parseStateMutati
 import { applyMutation, MUTATION_TYPES } from './applyMutation';
 import type { StateMutation } from './aiTypes';
 import type { StudioState } from './stateTypes';
+
+
 import type { StudioWidget } from './widgetTypes';
+
+/**
+ * Narrow a parse result to its failure branch and hand back the message.
+ *
+ * `result.error` only exists on the failure arm of the discriminated union, so the
+ * assertions below used to sit inside an `if (!result.ok)` guard — which reads as a
+ * CONDITIONAL assertion (one that silently passes if the parse unexpectedly succeeds).
+ * Throwing here makes the failure explicit and keeps `expect` unconditional.
+ * @param {ReturnType<typeof parseStateMutation>} result The parse result under test.
+ * @returns {string} The failure message.
+ */
+function parseError(result: ReturnType<typeof parseStateMutation>): string {
+  if (result.ok) {
+    throw new Error('expected parseStateMutation to reject, but it succeeded');
+  }
+  return result.error;
+}
 
 const chartWidget = (id: string, title = 'W'): StudioWidget => ({
   id,
@@ -1349,10 +1368,8 @@ describe('parseStateMutation leaf boundedness (M2)', () => {
       },
     });
     expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toMatch(/addWidget\.args\.widget\.config/);
-      expect(result.error).toMatch(/bounded, dashboard-sized value/);
-    }
+    expect(parseError(result)).toMatch(/addWidget\.args\.widget\.config/);
+    expect(parseError(result)).toMatch(/bounded, dashboard-sized value/);
   });
 
   it.each([
@@ -1364,9 +1381,7 @@ describe('parseStateMutation leaf boundedness (M2)', () => {
   ])('rejects a deeply-nested %s', (path, args) => {
     const result = parseStateMutation({ type: 'updateWidget', args });
     expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toContain(path);
-    }
+    expect(parseError(result)).toContain(path);
   });
 
   it('rejects a deeply-nested applyBulkUpdate.updatedWidgets[].config', () => {
@@ -1380,9 +1395,7 @@ describe('parseStateMutation leaf boundedness (M2)', () => {
       },
     });
     expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toMatch(/updatedWidgets\[0\]\.config/);
-    }
+    expect(parseError(result)).toMatch(/updatedWidgets\[0\]\.config/);
   });
 
   it.each(['value', 'value2'] as const)(
@@ -1402,9 +1415,7 @@ describe('parseStateMutation leaf boundedness (M2)', () => {
         },
       });
       expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error).toMatch(new RegExp(`addFilter\\.args\\.filter\\.${field}`));
-      }
+      expect(parseError(result)).toMatch(new RegExp(`addFilter\\.args\\.filter\\.${field}`));
     },
   );
 

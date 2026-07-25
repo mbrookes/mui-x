@@ -299,10 +299,10 @@ export class RedisCacheProvider implements CacheProvider {
             await this.sRem(this.tagKey(tag), [key]);
           }
         }
-        // eslint-disable-next-line no-await-in-loop
+         
         await delKeys(this.redis, [...page, ...page.map((k) => this.keyTagsKey(k))]);
       } else {
-        // eslint-disable-next-line no-await-in-loop
+         
         await delKeys(this.redis, page);
       }
     }

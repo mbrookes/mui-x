@@ -421,8 +421,12 @@ export async function handleMutation(
   // beats the marginal latency of `Promise.all`.
   const results: MutationResult[] = [];
   for (const descriptor of body.mutations) {
-    // eslint-disable-next-line no-await-in-loop
+     
     results.push(
+      // Mutations are applied SEQUENTIALLY by design: each item's outcome is reported
+      // independently and, in atomic mode, a failure must roll back before any later item
+      // runs. Parallelising would break both.
+      // eslint-disable-next-line no-await-in-loop
       await processMutation(descriptor, claims, options, policy, {
         db: options.db,
         invalidateCache: true,

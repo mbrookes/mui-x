@@ -205,17 +205,17 @@ describe('useSpeechRecognition', () => {
   // unmount cleanup) no-op'd forever and the microphone stayed hot until page unload.
   describe('superseded instances', () => {
     function startStopStart() {
-      const rendered = renderHook(() => useSpeechRecognition());
+      const view = renderHook(() => useSpeechRecognition());
       act(() => {
-        rendered.result.current.start();
+        view.result.current.start();
       });
       act(() => {
-        rendered.result.current.stop();
+        view.result.current.stop();
       });
       act(() => {
-        rendered.result.current.start();
+        view.result.current.start();
       });
-      return rendered;
+      return view;
     }
 
     it("ignores a superseded instance's late onend", () => {

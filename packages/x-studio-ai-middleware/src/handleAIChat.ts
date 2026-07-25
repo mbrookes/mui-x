@@ -1467,7 +1467,7 @@ export function handleAIChat(
             // the stream's internal queue, bounded only by `MAX_TURN_TEXT_BUFFER_CHARS`
             // × turns plus every tool result. Waiting while `desiredSize` is
             // exhausted makes the producer run at the consumer's pace.
-            // eslint-disable-next-line no-await-in-loop -- backpressure is inherently sequential
+             
             await waitForDrain(controller);
             controller.enqueue(encodeSSE(event));
             if (event.type === 'finish' || event.type === 'error') {

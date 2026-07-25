@@ -3564,6 +3564,7 @@ describe('handleBatchQuery — malformed having/aggregation elements (finding L1
     });
   }
 
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it.each([[null], [42], ['nope']])(
     'rejects a "%s" entry in "having" with a precise message, not the generic fallback',
     async (element) => {
@@ -3579,6 +3580,7 @@ describe('handleBatchQuery — malformed having/aggregation elements (finding L1
     },
   );
 
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('rejects a "having" entry whose alias is not a string', async () => {
     await expectWidgetError(
       run({
@@ -3591,6 +3593,7 @@ describe('handleBatchQuery — malformed having/aggregation elements (finding L1
     );
   });
 
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('rejects an aggregation with no "column"', async () => {
     await expectWidgetError(
       run({ id: 'w1', table: 'sales', aggregations: [{ func: 'sum', alias: 'total' }] }),
@@ -3598,6 +3601,7 @@ describe('handleBatchQuery — malformed having/aggregation elements (finding L1
     );
   });
 
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('rejects an aggregation with no "alias"', async () => {
     await expectWidgetError(
       run({ id: 'w1', table: 'sales', aggregations: [{ column: 'amount', func: 'sum' }] }),
@@ -3605,6 +3609,7 @@ describe('handleBatchQuery — malformed having/aggregation elements (finding L1
     );
   });
 
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('rejects a non-array "joins[].on" with a precise message instead of a raw TypeError', async () => {
     // `for (const pair of join.on ?? [])` only substitutes for null/undefined —
     // a present non-iterable threw `TypeError: join.on is not iterable` from that
@@ -3650,6 +3655,7 @@ describe('handleBatchQuery — implicit " as " column references are rejected (f
     });
   }
 
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('rejects an " as "-aliased projection column with NO columnAllowlist configured', async () => {
     await expectWidgetError(
       run({ id: 'w1', table: 'sales', columns: ['sales.amount as product', 'product'] }),
@@ -3657,6 +3663,7 @@ describe('handleBatchQuery — implicit " as " column references are rejected (f
     );
   });
 
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it.each(['AS', 'As', 'aS'])('rejects the case-variant " %s " form too', async (as) => {
     await expectWidgetError(
       run({ id: 'w1', table: 'sales', columns: [`sales.amount ${as} product`] }),
@@ -3664,6 +3671,7 @@ describe('handleBatchQuery — implicit " as " column references are rejected (f
     );
   });
 
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('rejects an " as "-aliased filter column', async () => {
     await expectWidgetError(
       run({
@@ -3675,6 +3683,7 @@ describe('handleBatchQuery — implicit " as " column references are rejected (f
     );
   });
 
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('rejects an " as "-bearing columnAliases VALUE (which would render `x as y as z`)', async () => {
     await expectWidgetError(
       run({

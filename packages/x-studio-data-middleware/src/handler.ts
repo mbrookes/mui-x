@@ -105,6 +105,8 @@ export const MAX_CONCURRENT_WIDGET_QUERIES = 6;
  * A fixed pool of workers pulls the next index off a shared cursor, so a slow
  * widget delays only itself rather than blocking a whole "chunk" the way a
  * chunked `Promise.all` loop would.
+ * @param {T} item The next input pulled off the shared cursor.
+ * @returns {Promise<R>} Resolves with that item's result, stored at its input index.
  */
 async function mapWithConcurrency<T, R>(
   items: T[],
@@ -122,6 +124,10 @@ async function mapWithConcurrency<T, R>(
         if (index >= items.length) {
           return;
         }
+        // This IS the concurrency limiter: each worker must finish one item before pulling
+        // the next, and `workerCount` workers run this loop in parallel. Awaiting in the
+        // loop is the mechanism, not an oversight.
+        // eslint-disable-next-line no-await-in-loop
         results[index] = await task(items[index]);
       }
     }),

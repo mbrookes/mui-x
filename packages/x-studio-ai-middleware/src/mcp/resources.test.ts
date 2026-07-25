@@ -925,7 +925,7 @@ describe('resources/read host-error redaction (finding H4)', () => {
       () => {
         throw new Error('expected the read to be rejected');
       },
-      (e: Error) => e,
+      (err: Error) => err,
     );
     expect(err.message).not.toContain('studio_ro');
     expect(err.message).toMatch(/withheld/i);
@@ -1007,7 +1007,7 @@ describe('untrusted identifiers echoed into resource errors (finding M7)', () =>
       () => {
         throw new Error('expected the read to be rejected');
       },
-      (e: Error) => e,
+      (err: Error) => err,
     );
     expect(err.message).toMatch(/Unknown data source/);
     expect(err.message.length).toBeLessThan(1_000);
@@ -1019,7 +1019,7 @@ describe('untrusted identifiers echoed into resource errors (finding M7)', () =>
       () => {
         throw new Error('expected the read to be rejected');
       },
-      (e: Error) => e,
+      (err: Error) => err,
     );
     expect(err.message).toMatch(/&lt;b&gt;/);
     expect(err.message.length).toBeLessThan(1_000);

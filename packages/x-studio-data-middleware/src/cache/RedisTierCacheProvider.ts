@@ -195,7 +195,7 @@ export class RedisTierCacheProvider implements TierCacheProvider {
     // so the eviction silently deletes nothing on exactly the large keyspaces
     // that need it most.
     for await (const page of scanKeyPages(this.redis, this.clientStyle, pattern, this.scanCount)) {
-      // eslint-disable-next-line no-await-in-loop
+       
       await delKeys(this.redis, page);
     }
   }

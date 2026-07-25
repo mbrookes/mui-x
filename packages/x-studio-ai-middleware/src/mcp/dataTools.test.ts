@@ -1731,11 +1731,13 @@ describe('createSummarisePageHandler', () => {
       const result: any = await handler({});
       const text = result.content[0].text as string;
       const anomalyLine = text.split('\n').find((l) => l.startsWith('Anomalies detected at:'));
-      if (anomalyLine) {
-        // At most 20 labels are spelled out; the rest are reported as a count.
-        expect(anomalyLine.split(', ').length).toBeLessThanOrEqual(21);
-        expect(anomalyLine.length).toBeLessThan(500);
-      }
+      // Assert the line EXISTS rather than guarding on it: this fixture is built to trip the
+      // detector, so an absent line means the cap was never exercised and the test would have
+      // passed vacuously — precisely what the conditional-expect it replaced allowed.
+      expect(anomalyLine).toBeDefined();
+      // At most 20 labels are spelled out; the rest are reported as a count.
+      expect(anomalyLine!.split(', ').length).toBeLessThanOrEqual(21);
+      expect(anomalyLine!.length).toBeLessThan(500);
     });
   });
 });

@@ -219,6 +219,8 @@ function validateStateStructure(state: unknown): state is Record<string, unknown
  * down the whole pipeline — with NO self-heal, since `serializeDoc` re-persisted the junk
  * forever. It receives an already-record, already-own-key-screened entry, so it only has
  * to check the leaves consumers dereference unguarded.
+ * @param {Record<string, unknown>} entry An already-record, already-own-key-screened entry.
+ * @returns {boolean} `true` when every leaf the consumers dereference unguarded is present.
  */
 const screenRecordArray = <T>(
   value: unknown,

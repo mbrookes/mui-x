@@ -2529,7 +2529,7 @@ describe('buildStudioMcpServer — tools/call error redaction (finding H4)', () 
       () => {
         throw new Error('expected prompts/get to be rejected');
       },
-      (e: Error) => e,
+      (err: Error) => err,
     );
     expect(err.message).toMatch(/Unknown sourceId/);
     expect(err.message).toContain('&lt;b&gt;');

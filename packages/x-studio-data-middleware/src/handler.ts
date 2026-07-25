@@ -187,6 +187,69 @@ function assertValidBatchQueryRequest(body: BatchQueryRequest): void {
         }
       });
     }
+    // Size cap for each JOIN's own "on" sub-array (Tier2 finding — resource
+    // exhaustion). `joins` is validated as an array (and length-capped as a
+    // whole) above, but that cap bounds the NUMBER of joins, not the size of any
+    // ONE join's own `on` list — a single join can still smuggle in an
+    // arbitrarily large `on` array, which is unbounded schema-allowlist-check,
+    // alias-resolution, and ON-clause-building work in `assertQualifiedColumnsAllowed`,
+    // `validateJoinOnPairs`, and `buildSecureQuery`'s per-join Knex callback. Only a
+    // PRESENT array value is length-capped here; shape validation (non-object join,
+    // non-array `on`, malformed pair) happens later in `assertQualifiedColumnsAllowed`.
+    const joins = (widget as Partial<BatchWidgetDescriptor>).joins;
+    if (Array.isArray(joins)) {
+      joins.forEach((join, joinIndex) => {
+        const on = (join as { on?: unknown } | null)?.on;
+        if (Array.isArray(on) && on.length > MAX_ARRAY_ITEMS_PER_DESCRIPTOR) {
+          throw new Error(
+            `MUI X Studio Server: Malformed widget descriptor at widgets[${index}] — "joins[${joinIndex}].on" ` +
+              `contains ${on.length} entries, which exceeds the maximum of ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR} allowed ` +
+              `per join. An unbounded "on" list is unbounded schema-allowlist-check, alias-resolution, and ` +
+              `ON-clause-building work driven entirely by client input. Reduce the number of entries in ` +
+              `"joins[${joinIndex}].on" to at most ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR}.`,
+          );
+        }
+      });
+    }
+    // Shape guard + key-count cap for "columnAliases" (Tier2 + Tier3 findings).
+    // Unlike `filters`/`orderBy`/`aggregations`/`joins`/`columns`/`having` above,
+    // `columnAliases` is a plain `Record<string,string>`, not an array, so it falls
+    // outside the `Array.isArray` shape-guard loop entirely and previously got no
+    // shape check AND no size cap — even though it is exactly the same class of
+    // client-controlled per-widget collection those caps exist for, and is hashed
+    // unbounded in `computeQueryHash` (`security/cacheKey.ts`). This is not an
+    // exploitable bypass on its own (`resolveAlias`'s own-property gate plus
+    // downstream re-validation already contain a malformed value), but is worth
+    // guarding explicitly for the same "clean MUI X error over a raw TypeError /
+    // unbounded work" reasons as every other field here. Only a PRESENT value is
+    // checked — the field is optional.
+    const columnAliases = (widget as Partial<BatchWidgetDescriptor>).columnAliases;
+    if (columnAliases !== undefined) {
+      if (
+        typeof columnAliases !== 'object' ||
+        columnAliases === null ||
+        Array.isArray(columnAliases) ||
+        Object.values(columnAliases).some((value) => typeof value !== 'string')
+      ) {
+        throw new Error(
+          `MUI X Studio Server: Malformed widget descriptor at widgets[${index}] — "columnAliases" must be a plain ` +
+            `object mapping logical field ids to string column references, but received ` +
+            `${JSON.stringify(columnAliases)}. A non-object value (or one with non-string values) cannot be safely ` +
+            `resolved into column references and would otherwise throw a confusing internal error instead of a ` +
+            `clean validation failure. Ensure "columnAliases" is a { [logicalId: string]: string } object (or omit it).`,
+        );
+      }
+      const columnAliasesKeyCount = Object.keys(columnAliases).length;
+      if (columnAliasesKeyCount > MAX_ARRAY_ITEMS_PER_DESCRIPTOR) {
+        throw new Error(
+          `MUI X Studio Server: Malformed widget descriptor at widgets[${index}] — "columnAliases" contains ` +
+            `${columnAliasesKeyCount} keys, which exceeds the maximum of ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR} allowed ` +
+            `per widget. An unbounded number of column aliases is unbounded alias-resolution work (and an unbounded ` +
+            `cache-key hash input) driven entirely by client input. Reduce the number of keys in "columnAliases" to ` +
+            `at most ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR}.`,
+        );
+      }
+    }
   });
 }
 

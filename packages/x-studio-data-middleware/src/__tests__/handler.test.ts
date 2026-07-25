@@ -842,6 +842,112 @@ describe('handleBatchQuery — per-array size caps (finding Tier3 resource exhau
     );
     expect(result.results[0].error).toBeUndefined();
   });
+
+  // Regression (Finding 1, Tier2 — nested-array resource exhaustion): the
+  // top-level "joins" array is length-capped above, but that cap never bounded
+  // the size of any ONE join's own "on" sub-array. A single join with a huge
+  // "on" list is still unbounded schema-allowlist-check / alias-resolution /
+  // ON-clause-building work.
+  it('rejects a join whose "on" array exceeds MAX_ARRAY_ITEMS_PER_DESCRIPTOR', async () => {
+    const oversizedOn = Array.from({ length: MAX_ARRAY_ITEMS_PER_DESCRIPTOR + 1 }, () => [
+      'sales.customer_id',
+      'customers.id',
+    ]);
+    await expect(
+      handleBatchQuery(
+        {
+          pageId: 'p1',
+          widgets: [{ id: 'w1', table: 'sales', joins: [{ table: 'customers', on: oversizedOn }] }],
+        } as any,
+        ACME_CLAIMS,
+        { db: makeDb(), schemaAllowlist: ['sales', 'customers'], tenancy: SINGLE_TENANT },
+      ),
+    ).rejects.toThrow(
+      new RegExp(
+        `^MUI X Studio Server: Malformed widget descriptor at widgets\\[0\\] — "joins\\[0\\]\\.on" contains ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR + 1} entries, which exceeds the maximum of ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR}`,
+      ),
+    );
+  });
+
+  it('still accepts a join whose "on" array is exactly at MAX_ARRAY_ITEMS_PER_DESCRIPTOR', async () => {
+    // The mock db has no built-in "join" (inner join, the default when no
+    // `type` is given) support — stub it as a no-op, mirroring the
+    // "db-tier aggregation with a JOIN" test's `leftJoin` stub, so this test
+    // exercises the size-cap validation rather than an unrelated mock gap.
+    const joinCapableDb = (table: string) => {
+      const qb = makeDb()(table) as any;
+      qb.join = () => qb;
+      return qb;
+    };
+    const on: [string, string][] = [['sales.customer_id', 'customers.id']];
+    const result = await handleBatchQuery(
+      {
+        pageId: 'p1',
+        widgets: [{ id: 'w1', table: 'sales', joins: [{ table: 'customers', on }] }],
+      },
+      ACME_CLAIMS,
+      { db: joinCapableDb, schemaAllowlist: ['sales', 'customers'], tenancy: SINGLE_TENANT },
+    );
+    expect(result.results[0].error).toBeUndefined();
+  });
+
+  // Regression (Finding 2, Tier2 — resource exhaustion): `columnAliases` is a
+  // `Record<string,string>`, not an array, so it fell outside the
+  // `Array.isArray` shape-guard loop and the per-array size cap entirely, even
+  // though it is hashed unbounded in `computeQueryHash` (`security/cacheKey.ts`).
+  it('rejects a widget whose "columnAliases" exceeds MAX_ARRAY_ITEMS_PER_DESCRIPTOR keys', async () => {
+    const columnAliases = Object.fromEntries(
+      Array.from({ length: MAX_ARRAY_ITEMS_PER_DESCRIPTOR + 1 }, (_unused, i) => [
+        `alias${i}`,
+        'amount',
+      ]),
+    );
+    await expect(
+      handleBatchQuery(
+        { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', columnAliases }] } as any,
+        ACME_CLAIMS,
+        { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
+      ),
+    ).rejects.toThrow(
+      new RegExp(
+        `^MUI X Studio Server: Malformed widget descriptor at widgets\\[0\\] — "columnAliases" contains ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR + 1} keys, which exceeds the maximum of ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR}`,
+      ),
+    );
+  });
+
+  it('still accepts a widget whose "columnAliases" is exactly at MAX_ARRAY_ITEMS_PER_DESCRIPTOR keys', async () => {
+    const columnAliases = Object.fromEntries(
+      Array.from({ length: MAX_ARRAY_ITEMS_PER_DESCRIPTOR }, (_unused, i) => [
+        `alias${i}`,
+        'amount',
+      ]),
+    );
+    const result = await handleBatchQuery(
+      { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', columnAliases }] },
+      ACME_CLAIMS,
+      { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
+    );
+    expect(result.results[0].error).toBeUndefined();
+  });
+
+  // Regression (Finding 3, Tier3 — consistency gap): every other optional
+  // descriptor field gets an explicit shape guard before use; `columnAliases`
+  // previously got none at all.
+  it.each([
+    ['a non-object value', 'not-an-object'],
+    ['an array', ['revenue', 'amount']],
+    ['an object with a non-string value', { revenue: 42 }],
+  ])('rejects a widget whose "columnAliases" is %s', async (_description, columnAliases) => {
+    await expect(
+      handleBatchQuery(
+        { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', columnAliases }] } as any,
+        ACME_CLAIMS,
+        { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
+      ),
+    ).rejects.toThrow(
+      /^MUI X Studio Server: Malformed widget descriptor at widgets\[0\] — "columnAliases" must be a plain object/,
+    );
+  });
 });
 
 describe('handleBatchQuery — schema allowlist enforcement', () => {

@@ -125,7 +125,8 @@ function checkQualifiedColumn(column: string, context: string, schemaAllowlist: 
       `table "${table}" is not in the schema allowlist. Allowed tables: ${schemaAllowlist.join(', ')}`,
   );
   throw new Error(
-    `MUI X: Qualified column reference "${column}" (in ${context}) names table "${table}", which is not in the ` +
+    `MUI X Studio Server: Qualified column reference "${column}" (in ${context}) names table "${table}", ` +
+      `which is not in the ` +
       `schema allowlist. Every table a query can touch — including one named only through a qualified column ` +
       `reference, not just the primary table or an explicit join — must be explicitly allowlisted, or an ` +
       `unregistered table could be probed through a filter/column/orderBy reference alone. ` +

@@ -118,9 +118,14 @@ export function resolveRelativeDate(rel: RelativeDateValue): string {
   const now = dayjs();
   const result =
     rel.direction === 'past' ? now.subtract(rel.amount, rel.unit) : now.add(rel.amount, rel.unit);
-  return isSubDayRelativeUnit(rel.unit)
-    ? result.startOf(rel.unit).toISOString()
-    : result.format('YYYY-MM-DD');
+  // Sub-day units keep full precision: "last 1 hour" must mean exactly one hour, not
+  // "since the top of the hour an hour ago" (which widens the window by up to 59min).
+  // Quantization belongs to the CACHE KEY, not the predicate — `resolvedRowsCache`'s
+  // `quantizedRelativeDate` already truncates the fingerprint to the unit boundary, so
+  // sub-day filters hit the cache without the resolved bound drifting from what the
+  // user asked for. Day/week/month/year still truncate to a calendar boundary because
+  // that IS their intended semantics ("last 3 days" means 3 whole days).
+  return isSubDayRelativeUnit(rel.unit) ? result.toISOString() : result.format('YYYY-MM-DD');
 }
 
 function toComparable(

@@ -1192,10 +1192,13 @@ describe('resolveRelativeDate — sub-day units', () => {
     vi.useRealTimers();
   });
 
-  // The instant is quantized to the START OF ITS OWN UNIT (here, the hour) rather than carried
-  // at millisecond precision — see `resolveRelativeDate`. The point of the original fix stands:
-  // it resolves to an hour-level cutoff, NOT to "start of today".
-  it('resolves an hour-unit value to an hour-boundary instant, not a truncated day', () => {
+  // The instant keeps FULL precision: "1 hour ago" at 10:30 is 09:30, not 09:00. Quantizing
+  // the predicate would widen the window by up to 59min of real data; that quantization
+  // belongs to the cache key alone (`resolvedRowsCache.quantizedRelativeDate`), which is
+  // what makes sub-day filters cacheable without moving the bound the user asked for.
+  // The point of the original fix still stands: it resolves to an hour-level cutoff, NOT
+  // to "start of today".
+  it('resolves an hour-unit value to a full ISO instant, not a truncated day', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2024-06-15T10:30:00.000Z'));
     const resolved = resolveRelativeDate({
@@ -1204,7 +1207,7 @@ describe('resolveRelativeDate — sub-day units', () => {
       unit: 'hour',
       direction: 'past',
     });
-    expect(resolved).toBe('2024-06-15T09:00:00.000Z');
+    expect(resolved).toBe('2024-06-15T09:30:00.000Z');
   });
 
   it('resolves a minute-unit value to a full ISO instant', () => {
@@ -1231,7 +1234,7 @@ describe('resolveRelativeDate — sub-day units', () => {
     expect(resolved).toBe('2024-06-15T10:30:00.000Z');
   });
 
-  it('resolves a sub-day "next" direction forward from now (quantized to the unit)', () => {
+  it('resolves a sub-day "next" direction forward from now at full precision', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2024-06-15T10:30:00.000Z'));
     const resolved = resolveRelativeDate({
@@ -1240,26 +1243,25 @@ describe('resolveRelativeDate — sub-day units', () => {
       unit: 'hour',
       direction: 'next',
     });
-    expect(resolved).toBe('2024-06-15T12:00:00.000Z');
+    expect(resolved).toBe('2024-06-15T12:30:00.000Z');
   });
 
-  // Regression: the resolved value must be BYTE-STABLE for the whole duration of its unit.
-  // A raw `toISOString()` produced a different string on every call, so the L3 row-cache
-  // fingerprint (which stringifies the resolved filter value) changed on every evaluation and
-  // sub-day relative filters missed the cache 100% of the time, re-running all downstream
-  // aggregation on every render.
+  // The resolved bound deliberately MOVES with wall-clock time: "1 hour ago" must keep
+  // meaning exactly one hour. Cache stability is not this function's job — the L3 row-cache
+  // quantizes its own fingerprint (`resolvedRowsCache.quantizedRelativeDate`), so sub-day
+  // filters hit the cache for the duration of their unit while the predicate itself stays
+  // exact. Pinning that split here: two calls a fraction of a second apart differ.
   it.each(['hour', 'minute', 'second'] as const)(
-    'returns an identical string across calls within the same %s',
+    'tracks wall-clock time rather than snapping to a %s boundary',
     (unit) => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date('2024-06-15T10:30:30.123Z'));
       const rel = { relative: true, amount: 1, unit, direction: 'past' } as const;
       const first = resolveRelativeDate(rel);
-      // Advance by less than one unit — the resolved bound must not move.
       vi.setSystemTime(new Date('2024-06-15T10:30:30.876Z'));
-      expect(resolveRelativeDate(rel)).toBe(first);
-      // …and it carries no millisecond remainder at all.
-      expect(first.endsWith('.000Z')).toBe(true);
+      expect(resolveRelativeDate(rel)).not.toBe(first);
+      // The offset from "now" is exactly one unit, with no boundary truncation.
+      expect(first).toBe(dayjs('2024-06-15T10:30:30.123Z').subtract(1, unit).toISOString());
     },
   );
 

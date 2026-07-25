@@ -666,6 +666,14 @@ export interface StudioLocaleText {
   chartSetupSplitByDisabledHelperText: string;
   chartSetupSplitByFieldlessCountHelperText: string;
   chartSetupInnerRingHelperText: string;
+  /** Shown under the gauge Min field when a typed value was rejected and reverted. */
+  chartSetupGaugeMinRevertedHelperText: string;
+  /** Shown under the gauge Max field when a typed value was rejected and reverted. */
+  chartSetupGaugeMaxRevertedHelperText: string;
+  /** Shown under a scatter radius field when a typed value was rejected and reverted. */
+  chartSetupRadiusRevertedHelperText: (min: number, max: number) => string;
+  /** Shown under a numeric field whose typed value was adjusted to fit the allowed range. */
+  chartSetupValueClampedHelperText: (clamped: number) => string;
 
   // ── KPI setup panel ────────────────────────────────────────────────────────
   kpiSetupChartLine: string;
@@ -1930,6 +1938,12 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chartSetupSplitByFieldlessCountHelperText:
     'Not available for a fieldless count — pick a measure field first',
   chartSetupInnerRingHelperText: 'Adds a concentric inner ring grouped by this field',
+  chartSetupGaugeMinRevertedHelperText: 'Min must be a number below Max — your entry was reverted.',
+  chartSetupGaugeMaxRevertedHelperText: 'Max must be a number above Min — your entry was reverted.',
+  chartSetupRadiusRevertedHelperText: (min, max) =>
+    `Enter a number from ${min} to ${max}, keeping Min radius below Max radius — your entry was reverted.`,
+  chartSetupValueClampedHelperText: (clamped) =>
+    `Outside the allowed range — adjusted to ${clamped}.`,
 
   // KPI setup panel
   kpiSetupChartLine: 'Line',

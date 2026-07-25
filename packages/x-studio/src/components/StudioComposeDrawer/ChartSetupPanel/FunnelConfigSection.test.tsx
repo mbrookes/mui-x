@@ -25,6 +25,7 @@ const { render } = createRenderer();
 
 const numericFields: DataSourceFieldEntry[] = [
   { id: 'count', label: 'Count', type: 'number', sourceId: 'orders', sourceLabel: 'Orders' },
+  { id: 'revenue', label: 'Revenue', type: 'number', sourceId: 'orders', sourceLabel: 'Orders' },
 ];
 
 function renderFunnel(config: Partial<StudioChartConfigOfType<'funnel'>>) {
@@ -69,6 +70,34 @@ describe('FunnelConfigSection gap input (finding 2.3)', () => {
     fireEvent.change(input, { target: { value: '100' } });
     fireEvent.blur(input);
     expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', { funnelGap: 32 });
+  });
+
+  // A clamp that says nothing is indistinguishable from "nothing happened", so the user
+  // retypes the same rejected value. The message explains the adjustment already applied.
+  it('explains the clamp instead of silently adjusting the value', () => {
+    renderFunnel({});
+    const input = screen.getByLabelText('Section gap (px)');
+    fireEvent.change(input, { target: { value: '100' } });
+    expect(screen.queryByText(/Outside the allowed range/i)).toBeNull();
+    fireEvent.blur(input);
+    expect(screen.getByText('Outside the allowed range — adjusted to 32.')).toBeVisible();
+  });
+
+  it('clears the clamp message as soon as the value is edited again', () => {
+    renderFunnel({});
+    const input = screen.getByLabelText('Section gap (px)');
+    fireEvent.change(input, { target: { value: '100' } });
+    fireEvent.blur(input);
+    fireEvent.change(input, { target: { value: '8' } });
+    expect(screen.queryByText(/Outside the allowed range/i)).toBeNull();
+  });
+
+  it('leaves an in-range value with no message', () => {
+    renderFunnel({});
+    const input = screen.getByLabelText('Section gap (px)');
+    fireEvent.change(input, { target: { value: '12' } });
+    fireEvent.blur(input);
+    expect(screen.queryByText(/Outside the allowed range/i)).toBeNull();
   });
 
   it('commits undefined (not 0) when clamped to zero', () => {
@@ -136,5 +165,74 @@ describe('FunnelConfigSection gap input (finding 2.3)', () => {
     // stray "12" from widget-1 into widget-2's config.
     fireEvent.blur(screen.getByLabelText('Section gap (px)'));
     expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+  });
+});
+
+// The funnel value picker is a SINGLE-measure control over a config whose `ySeries` is
+// shared with the multi-series chart families. It owns slot 0 only — a bar chart with three
+// measures switched to funnel must still carry all three when switched back.
+describe('FunnelConfigSection value field over a multi-series config', () => {
+  beforeEach(() => {
+    configureStudioContextMock({ getState: () => mockState, controller });
+    controller.updateWidgetConfig.mockClear();
+  });
+
+  it('preserves the remaining series when a new value field is picked', async () => {
+    const { user } = render(
+      <FunnelConfigSection
+        widgetId="widget-1"
+        config={
+          {
+            chartType: 'funnel',
+            yField: 'count',
+            ySeries: [{ fieldId: 'count' }, { fieldId: 'other' }],
+          } as never
+        }
+        numericFields={numericFields}
+      />,
+    );
+
+    await user.click(screen.getByLabelText('Value field', { exact: false }));
+    await user.click(await screen.findByRole('option', { name: /Revenue$/ }));
+
+    expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+      ySeries: [{ fieldId: 'revenue' }, { fieldId: 'other' }],
+      yField: 'revenue',
+    });
+  });
+
+  // Clearing means "no measure": an empty list plus the BL-186 count re-lock, never a
+  // `{ fieldId: '' }` placeholder that the multi-series panel renders as an empty series row
+  // beside the locked Count select.
+  it('clears to an empty series list and re-locks the aggregation to count', async () => {
+    const { user } = render(
+      <FunnelConfigSection
+        widgetId="widget-1"
+        config={{ chartType: 'funnel', yField: 'count', ySeries: [{ fieldId: 'count' }] } as never}
+        numericFields={numericFields}
+      />,
+    );
+
+    await user.click(screen.getByLabelText('Clear field'));
+
+    expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+      ySeries: [],
+      yField: '',
+      yAggregation: 'count',
+    });
+  });
+});
+
+// MUI's `Select` reports no accessible name unless it is handed a `labelId` pairing it with
+// its `InputLabel` — `label` alone only sizes the outline notch. Without it a screen-reader
+// user hears just the selected value ("Value, combobox") with no indication of the setting.
+describe('FunnelConfigSection select accessible names', () => {
+  beforeEach(() => {
+    configureStudioContextMock({ getState: () => mockState, controller });
+  });
+
+  it.each(['Label format', 'Label position', 'Shape'])('names the %s select', (name) => {
+    renderFunnel({});
+    expect(screen.getByRole('combobox', { name })).toBeVisible();
   });
 });

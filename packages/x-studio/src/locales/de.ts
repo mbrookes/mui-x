@@ -561,6 +561,14 @@ export const deLocaleText: Partial<StudioLocaleText> = {
     'Nicht verfügbar, wenn mehrere Kennzahlenfelder konfiguriert sind',
   chartSetupInnerRingHelperText:
     'Fügt einen konzentrischen Innenring hinzu, der nach diesem Feld gruppiert ist',
+  chartSetupGaugeMinRevertedHelperText:
+    'Min muss eine Zahl unter Max sein — Ihre Eingabe wurde zurückgesetzt.',
+  chartSetupGaugeMaxRevertedHelperText:
+    'Max muss eine Zahl über Min sein — Ihre Eingabe wurde zurückgesetzt.',
+  chartSetupRadiusRevertedHelperText: (min, max) =>
+    `Geben Sie eine Zahl von ${min} bis ${max} ein, wobei Min-Radius unter Max-Radius bleibt — Ihre Eingabe wurde zurückgesetzt.`,
+  chartSetupValueClampedHelperText: (clamped) =>
+    `Außerhalb des zulässigen Bereichs — auf ${clamped} angepasst.`,
 
   // KPI setup panel
   kpiSetupChartLine: 'Linie',

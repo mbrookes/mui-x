@@ -54,6 +54,8 @@ import { GanttFieldsSection } from './GanttFieldsSection';
 import { AnnotationsEditorSection } from './AnnotationsEditorSection';
 import { PieArcLabelsSection } from './PieArcLabelsSection';
 import { SortDirectionToggle } from './SortDirectionToggle';
+import { buildMeasureSeriesPatch } from './commitMeasureSeries';
+import { commitChartConfigWithSource } from './commitConfigWithSource';
 
 const sortBySourceLabel = (a: { sourceLabel: string }, b: { sourceLabel: string }) =>
   a.sourceLabel.localeCompare(b.sourceLabel);
@@ -77,6 +79,18 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   const widget = allWidgets[widgetId];
   const dataSources = useStudioSelector(selectDataSources);
   const expressionFields = useStudioSelector(selectExpressionFields);
+
+  // MUI's `Select` emits `aria-labelledby` only when it is given a `labelId` — its `label`
+  // prop merely sizes the outlined notch, and `InputLabel` generates no id of its own from
+  // `FormControl` context. Without the pairing below each of these comboboxes reports no
+  // accessible name at all (`combobox` is not a name-from-content role), so a screen-reader
+  // user hears only the selected value. Ids are minted per mount (`React.useId`) so two
+  // mounted `<Studio>` instances can't emit duplicate DOM ids — same pattern as
+  // `FieldDetailView`. Declared here, unconditionally, because the controls they name are
+  // rendered conditionally further down.
+  const groupByLabelId = React.useId();
+  const sortByLabelId = React.useId();
+  const aggregationLabelId = React.useId();
 
   const relationships = useStudioSelector(selectRelationships);
   const allFilters = useStudioSelector(selectFilters);
@@ -373,27 +387,16 @@ export function ChartSetupPanel(props: { widgetId: string }) {
     controller.updateWidgetConfig(widgetId, { ySeries: [...ySeries, { fieldId: '' }] });
   };
 
-  // Shared "commit ySeries + derive yField/yAggregation" transition used by both
-  // handlers below, so the BL-186 fieldless-count re-lock can't be missed by either
-  // (finding 2.4). BL-186: when the resulting series list has no field, the only valid
-  // aggregation is a row "count" — force it so the chart keeps rendering instead of
-  // going blank. When a field remains, preserve the existing `yAggregation` (a chart may
-  // carry a non-default sum/avg/min/max) rather than wiping it on every series change.
+  // Shared "commit ySeries + derive yField/yAggregation" transition used by both handlers
+  // below, so neither can miss the BL-186 fieldless-count re-lock or the own-source `yField`
+  // mirror (finding 2.4 / 2.5). The patch shape itself lives in `buildMeasureSeriesPatch`,
+  // which the single-measure sections (scatter / funnel / heatmap / sankey) share — see that
+  // module for the invariants.
   const commitYSeries = (next: typeof ySeries) => {
-    const nextHasField = next.some((s) => s.fieldId);
-    // finding 2.5 (iteration 20): mirror the `nativeYFieldIds` own-source guard here too.
-    // `yField` is read back as a flat, single-source field (by `analyzeChartSupport` and the
-    // eventual SELECT/aggregation), so blindly mirroring `next[0]`'s id — which may belong to a
-    // foreign-source blended series (mixed charts) — pushes an unresolvable foreign column
-    // reference into `yField` even though `ySeries` correctly keeps the series' own `sourceId`.
-    const nextNativeFieldIds = next.flatMap((s) =>
-      s.fieldId && !(s.sourceId && s.sourceId !== widgetSourceId) ? [s.fieldId] : [],
+    controller.updateWidgetConfig(
+      widgetId,
+      buildMeasureSeriesPatch(chartType, next, widgetSourceId),
     );
-    controller.updateWidgetConfig(widgetId, {
-      ySeries: next,
-      yField: nextNativeFieldIds[0] ?? '',
-      ...(nextHasField ? {} : { yAggregation: 'count' }),
-    });
   };
 
   const handleRemoveSeries = (index: number) => {
@@ -614,36 +617,34 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                 xField: fieldId,
                 ...(seedFieldlessCount && { yAggregation: 'count' as const }),
               };
-              // Fold the X-field pick and the source adoption into ONE `updateWidget`
-              // commit so the source-switch gesture is a single undo step (finding 2.2);
-              // a lone Ctrl+Z otherwise lands on a torn state (new sourceId, old xField)
-              // the UI never produced. Without a source switch it's already one commit.
+              // The X-field pick and the source adoption it implies are ONE undo step
+              // (finding 2.2), and only the keys this pick changes are sent — never the
+              // widget's full stored config, which would be re-validated against the current
+              // chart type and lose the keys the schema deliberately retains from another
+              // chart family. See `commitChartConfigWithSource` for both invariants.
               //
-              // Also fold in the removal of any widget-scoped filter that no longer
-              // resolves against the new source (finding 1.5) — left in place, a stale
-              // filter's field would be absent from the new source's rows and the
-              // `between`/`gte` date branches in `filterUtils.ts` would then exclude
-              // every row, silently blanking the chart.
-              if (sourceId && sourceId !== widget?.sourceId) {
-                controller.updateWidget(
-                  widgetId,
-                  {
-                    sourceId,
-                    config: { ...config, ...configUpdate } as StudioChartWidgetConfig,
-                  },
-                  {
-                    removeFilterIds: collectStaleWidgetFilterIds(
-                      allFilters,
-                      widgetId,
-                      sourceId,
-                      allFields,
-                      relationships,
-                    ),
-                  },
-                );
-              } else {
-                controller.updateWidgetConfig(widgetId, configUpdate);
-              }
+              // The removal of any widget-scoped filter that no longer resolves against the
+              // new source rides along in the same step (finding 1.5) — left in place, a
+              // stale filter's field would be absent from the new source's rows and the
+              // `between`/`gte` date branches in `filterUtils.ts` would then exclude every
+              // row, silently blanking the chart.
+              commitChartConfigWithSource({
+                controller,
+                widgetId,
+                configPatch: configUpdate,
+                sourceId,
+                widgetSourceId: widget?.sourceId,
+                removeFilterIds:
+                  sourceId && sourceId !== widget?.sourceId
+                    ? collectStaleWidgetFilterIds(
+                        allFilters,
+                        widgetId,
+                        sourceId,
+                        allFields,
+                        relationships,
+                      )
+                    : undefined,
+              });
             }}
             fields={isScatter ? fieldsForCapability(allFields, 'numeric') : allFields}
             getOptionDisabled={(option) => {
@@ -698,8 +699,9 @@ export function ChartSetupPanel(props: { widgetId: string }) {
             !isScatter &&
             (selectedXField?.type === 'date' || selectedXField?.type === 'datetime') && (
               <FormControl size="small" fullWidth>
-                <InputLabel>{localeText.chartSetupGroupByLabel}</InputLabel>
+                <InputLabel id={groupByLabelId}>{localeText.chartSetupGroupByLabel}</InputLabel>
                 <Select
+                  labelId={groupByLabelId}
                   label={localeText.chartSetupGroupByLabel}
                   value={config.xGroupBy ?? ''}
                   onChange={(evt) => {
@@ -725,8 +727,9 @@ export function ChartSetupPanel(props: { widgetId: string }) {
           {config.xField && !isScatter && !isHeatmap && !isSankey && (
             <Stack direction="column" spacing={1}>
               <FormControl size="small" fullWidth>
-                <InputLabel>{localeText.chartSetupSortByLabel}</InputLabel>
+                <InputLabel id={sortByLabelId}>{localeText.chartSetupSortByLabel}</InputLabel>
                 <Select
+                  labelId={sortByLabelId}
                   label={localeText.chartSetupSortByLabel}
                   value={config.chartSortBy ?? 'category'}
                   onChange={(evt) => {
@@ -958,8 +961,14 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                     and multi-Y can't tally rows, so they aren't offered fieldless. */}
                 {!hasYField && (supportsMultipleSeries || isPieOrDonut) && (
                   <FormControl size="small" fullWidth disabled>
-                    <InputLabel>{localeText.chartSetupAggregationLabel}</InputLabel>
-                    <Select label={localeText.chartSetupAggregationLabel} value="count">
+                    <InputLabel id={aggregationLabelId}>
+                      {localeText.chartSetupAggregationLabel}
+                    </InputLabel>
+                    <Select
+                      labelId={aggregationLabelId}
+                      label={localeText.chartSetupAggregationLabel}
+                      value="count"
+                    >
                       <MenuItem value="count">{localeText.aggFnCount}</MenuItem>
                     </Select>
                     <FormHelperText>{localeText.aggregationLockedHelperText}</FormHelperText>

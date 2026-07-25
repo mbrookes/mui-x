@@ -12,6 +12,7 @@ import {
 import { useStudioController, useStudioLocaleText } from '../../../context';
 import type { StudioChartConfigOfType } from '../../../models';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from '../DataSourceFieldSelect';
+import { buildSingleMeasurePatch } from './commitMeasureSeries';
 
 export interface SankeyConfigSectionProps {
   widgetId: string;
@@ -32,6 +33,9 @@ export function SankeyConfigSection({
 }: SankeyConfigSectionProps) {
   const controller = useStudioController();
   const localeText = useStudioLocaleText();
+  // See `ChartSetupPanel`'s own `React.useId` block: MUI's `Select` only exposes an
+  // accessible name when it is handed a `labelId` pairing it with its `InputLabel`.
+  const linkColorLabelId = React.useId();
 
   return (
     <React.Fragment>
@@ -50,10 +54,13 @@ export function SankeyConfigSection({
       <DataSourceFieldSelect
         value={config.yField ?? firstYSeriesFieldId ?? ''}
         onChange={(fieldId) => {
-          controller.updateWidgetConfig(widgetId, {
-            yField: fieldId,
-            ySeries: [{ fieldId }],
-          });
+          // Single-measure picker over a multi-series config — see `buildSingleMeasurePatch`
+          // for why the remaining series are preserved and why clearing writes `ySeries: []`
+          // rather than a placeholder entry.
+          controller.updateWidgetConfig(
+            widgetId,
+            buildSingleMeasurePatch('sankey', config, fieldId),
+          );
         }}
         fields={numericFields}
         label={localeText.chartSetupValueFieldLabel}
@@ -61,8 +68,9 @@ export function SankeyConfigSection({
         required
       />
       <FormControl size="small" fullWidth>
-        <InputLabel>{localeText.chartSetupSankeyLinkColorLabel}</InputLabel>
+        <InputLabel id={linkColorLabelId}>{localeText.chartSetupSankeyLinkColorLabel}</InputLabel>
         <Select
+          labelId={linkColorLabelId}
           label={localeText.chartSetupSankeyLinkColorLabel}
           value={config.sankeyLinkColor ?? 'source'}
           onChange={(evt) =>

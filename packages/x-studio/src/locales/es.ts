@@ -557,6 +557,14 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   chartSetupSplitByHelperText: 'Divide los datos en una serie separada por valor',
   chartSetupSplitByDisabledHelperText: 'No disponible cuando se configuran varios campos de medida',
   chartSetupInnerRingHelperText: 'Agrega un anillo interior concéntrico agrupado por este campo.',
+  chartSetupGaugeMinRevertedHelperText:
+    'El mínimo debe ser un número menor que el máximo: se revirtió tu entrada.',
+  chartSetupGaugeMaxRevertedHelperText:
+    'El máximo debe ser un número mayor que el mínimo: se revirtió tu entrada.',
+  chartSetupRadiusRevertedHelperText: (min, max) =>
+    `Introduce un número entre ${min} y ${max}, manteniendo el radio mínimo por debajo del máximo: se revirtió tu entrada.`,
+  chartSetupValueClampedHelperText: (clamped) =>
+    `Fuera del intervalo permitido: se ajustó a ${clamped}.`,
 
   // KPI setup panel
   kpiSetupChartLine: 'Línea',

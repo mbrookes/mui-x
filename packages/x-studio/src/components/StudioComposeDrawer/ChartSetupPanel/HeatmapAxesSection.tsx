@@ -5,6 +5,7 @@ import { useStudioController, useStudioLocaleText } from '../../../context';
 import type { StudioChartConfigOfType } from '../../../models';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from '../DataSourceFieldSelect';
 import { SortDirectionToggle } from './SortDirectionToggle';
+import { buildSingleMeasurePatch } from './commitMeasureSeries';
 
 export interface HeatmapAxesSectionProps {
   widgetId: string;
@@ -32,6 +33,10 @@ export function HeatmapAxesSection({
 }: HeatmapAxesSectionProps) {
   const controller = useStudioController();
   const localeText = useStudioLocaleText();
+  // See `ChartSetupPanel`'s own `React.useId` block: MUI's `Select` only exposes an
+  // accessible name when it is handed a `labelId` pairing it with its `InputLabel`.
+  const colourSchemeLabelId = React.useId();
+  const sortByLabelId = React.useId();
 
   const heatAxesSet = !!(config.xField && config.heatYField);
   const heatXFieldLabel = allFields.find((f) => f.id === config.xField)?.label;
@@ -52,10 +57,13 @@ export function HeatmapAxesSection({
       <DataSourceFieldSelect
         value={config.yField ?? firstYSeriesFieldId ?? ''}
         onChange={(fieldId) => {
-          controller.updateWidgetConfig(widgetId, {
-            yField: fieldId,
-            ySeries: [{ fieldId }],
-          });
+          // Single-measure picker over a multi-series config — see `buildSingleMeasurePatch`
+          // for why the remaining series are preserved and why clearing writes `ySeries: []`
+          // rather than a placeholder entry.
+          controller.updateWidgetConfig(
+            widgetId,
+            buildSingleMeasurePatch('heatmap', config, fieldId),
+          );
         }}
         fields={numericFields}
         label={localeText.chartSetupHeatmapValueLabel}
@@ -63,8 +71,11 @@ export function HeatmapAxesSection({
         required
       />
       <FormControl size="small" fullWidth>
-        <InputLabel>{localeText.chartSetupHeatmapColourSchemeLabel}</InputLabel>
+        <InputLabel id={colourSchemeLabelId}>
+          {localeText.chartSetupHeatmapColourSchemeLabel}
+        </InputLabel>
         <Select
+          labelId={colourSchemeLabelId}
           label={localeText.chartSetupHeatmapColourSchemeLabel}
           value={config.heatColorScheme ?? 'primary'}
           onChange={(evt) =>
@@ -82,8 +93,9 @@ export function HeatmapAxesSection({
       {/* Heatmap sort — disabled until both axes are configured */}
       <Stack direction="column" spacing={1}>
         <FormControl size="small" fullWidth disabled={!heatAxesSet}>
-          <InputLabel>{localeText.chartSetupHeatmapSortByLabel}</InputLabel>
+          <InputLabel id={sortByLabelId}>{localeText.chartSetupHeatmapSortByLabel}</InputLabel>
           <Select
+            labelId={sortByLabelId}
             label={localeText.chartSetupHeatmapSortByLabel}
             value={config.heatSortBy ?? 'natural'}
             onChange={(evt) =>

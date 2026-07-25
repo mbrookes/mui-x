@@ -168,6 +168,106 @@ describe('ScatterConfigSection radii inputs reject out-of-range/cross-invalid va
       scatterMinRadius: 20,
     });
   });
+
+  // A revert that says nothing is indistinguishable from "nothing happened", so the user
+  // retypes the same rejected value and watches it snap back again. Each input advertises
+  // its OWN range in the message (1–50 for min, 1–100 for max).
+  it('explains a reverted min radius, quoting its own advertised range', () => {
+    renderScatter({ scatterMinRadius: 4, scatterMaxRadius: 40 });
+    const input = screen.getByLabelText('Min radius');
+    fireEvent.change(input, { target: { value: '45' } });
+    expect(screen.queryByText(/your entry was reverted/i)).toBeNull();
+    fireEvent.blur(input);
+    expect(
+      screen.getByText(
+        'Enter a number from 1 to 50, keeping Min radius below Max radius — your entry was reverted.',
+      ),
+    ).toBeVisible();
+  });
+
+  it('explains a reverted max radius, quoting its own advertised range', () => {
+    renderScatter({ scatterMinRadius: 4, scatterMaxRadius: 40 });
+    const input = screen.getByLabelText('Max radius');
+    fireEvent.change(input, { target: { value: '500' } });
+    fireEvent.blur(input);
+    expect(
+      screen.getByText(
+        'Enter a number from 1 to 100, keeping Min radius below Max radius — your entry was reverted.',
+      ),
+    ).toBeVisible();
+  });
+
+  it('clears the revert message as soon as the field is edited again', () => {
+    renderScatter({ scatterMinRadius: 4, scatterMaxRadius: 40 });
+    const input = screen.getByLabelText('Min radius');
+    fireEvent.change(input, { target: { value: '45' } });
+    fireEvent.blur(input);
+    fireEvent.change(input, { target: { value: '20' } });
+    expect(screen.queryByText(/your entry was reverted/i)).toBeNull();
+  });
+
+  it('shows no message for an accepted value', () => {
+    renderScatter({ scatterMinRadius: 4, scatterMaxRadius: 40 });
+    const input = screen.getByLabelText('Min radius');
+    fireEvent.change(input, { target: { value: '20' } });
+    fireEvent.blur(input);
+    expect(screen.queryByText(/your entry was reverted/i)).toBeNull();
+  });
+});
+
+// The scatter Y picker is a SINGLE-measure control over a config whose `ySeries` is shared
+// with the multi-series chart families. It owns slot 0 only, so a chart carrying several
+// measures from another family keeps them.
+describe('ScatterConfigSection Y field over a multi-series config', () => {
+  beforeEach(() => {
+    configureStudioContextMock({ getState: () => mockState, controller });
+    controller.updateWidgetConfig.mockClear();
+  });
+
+  it('preserves the remaining series when a new Y field is picked', async () => {
+    const { user } = render(
+      <ScatterConfigSection
+        widgetId="widget-1"
+        config={
+          {
+            chartType: 'scatter',
+            yField: 'x',
+            ySeries: [{ fieldId: 'x' }, { fieldId: 'other' }],
+          } as never
+        }
+        numericFields={numericFields}
+        categoryFields={categoryFields}
+      />,
+    );
+
+    await user.click(screen.getByLabelText('Y field', { exact: false }));
+    await user.click(await screen.findByRole('option', { name: /^Number Y$/ }));
+
+    expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+      ySeries: [{ fieldId: 'y' }, { fieldId: 'other' }],
+      yField: 'y',
+    });
+  });
+
+  // `yAggregation` is not a scatter config key, so the fieldless-count re-lock must NOT be
+  // written here — the controller would strip it with a dev warning.
+  it('clears to an empty series list without writing a scatter-invalid aggregation', async () => {
+    const { user } = render(
+      <ScatterConfigSection
+        widgetId="widget-1"
+        config={{ chartType: 'scatter', yField: 'x', ySeries: [{ fieldId: 'x' }] } as never}
+        numericFields={numericFields}
+        categoryFields={categoryFields}
+      />,
+    );
+
+    await user.click(screen.getAllByLabelText('Clear field')[0]);
+
+    expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+      ySeries: [],
+      yField: '',
+    });
+  });
 });
 
 // Stale-buffer-on-widget-switch (architecture review Tier2 finding): the resync effect

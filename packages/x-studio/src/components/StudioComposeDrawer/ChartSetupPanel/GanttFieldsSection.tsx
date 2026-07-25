@@ -10,6 +10,7 @@ import type {
 } from '../../../models';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from '../DataSourceFieldSelect';
 import { collectStaleWidgetFilterIds } from '../collectStaleWidgetFilterIds';
+import { commitChartConfigWithSource } from './commitConfigWithSource';
 
 export interface GanttFieldsSectionProps {
   widgetId: string;
@@ -55,33 +56,30 @@ export function GanttFieldsSection({
   // section holds the ONLY source-adopting controls the gantt panel offers (the shared
   // X-field picker is hidden for gantt), so each pick must adopt the picked field's
   // source or the widget can never acquire one and renders permanently blank
-  // (finding 1.6). When the field belongs to a different source, adopt that source AND
-  // write the field in ONE `updateWidget` commit so the cross-source pick is a single
-  // undo step, and fold in the removal of any widget-scoped filter that no longer
-  // resolves against the new source — mirroring the X-field / Gauge paths.
+  // (finding 1.6). The adoption and the field write are one undo step carrying only the
+  // changed key, and any widget-scoped filter that no longer resolves against the new
+  // source rides along — see `commitChartConfigWithSource`, shared with the X-field /
+  // Gauge paths.
   const commitField = (configUpdate: Partial<StudioChartWidgetConfig>, sourceId: string) => {
-    if (sourceId && sourceId !== widgetSourceId) {
-      controller.updateWidget(
-        widgetId,
-        {
-          sourceId,
-          config: { ...config, ...configUpdate } as StudioChartWidgetConfig,
-        },
-        {
-          removeFilterIds: collectStaleWidgetFilterIds(
-            allFilters,
-            widgetId,
-            sourceId,
-            // The FULL catalog, never the reachability-narrowed picker list — see the
-            // `fieldCatalog` prop doc.
-            fieldCatalog ?? allFields,
-            relationships ?? [],
-          ),
-        },
-      );
-    } else {
-      controller.updateWidgetConfig(widgetId, configUpdate);
-    }
+    commitChartConfigWithSource({
+      controller,
+      widgetId,
+      configPatch: configUpdate,
+      sourceId,
+      widgetSourceId,
+      removeFilterIds:
+        sourceId && sourceId !== widgetSourceId
+          ? collectStaleWidgetFilterIds(
+              allFilters,
+              widgetId,
+              sourceId,
+              // The FULL catalog, never the reachability-narrowed picker list — see the
+              // `fieldCatalog` prop doc.
+              fieldCatalog ?? allFields,
+              relationships ?? [],
+            )
+          : undefined,
+    });
   };
 
   return (

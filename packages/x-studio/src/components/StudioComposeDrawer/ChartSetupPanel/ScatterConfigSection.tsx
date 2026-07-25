@@ -4,6 +4,7 @@ import { Stack, TextField } from '@mui/material';
 import { useStudioController, useStudioLocaleText } from '../../../context';
 import type { StudioChartConfigOfType } from '../../../models';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from '../DataSourceFieldSelect';
+import { buildSingleMeasurePatch } from './commitMeasureSeries';
 
 /**
  * Scatter min/max radius numeric input (architecture review finding 2.3): committing
@@ -34,16 +35,25 @@ function RadiusInput(props: {
   otherBound: number;
   /** Which side of the min/max pair this input is, to pick the cross-check direction. */
   kind: 'min' | 'max';
+  /** Builds the message shown when a typed value was rejected and the field snapped back. */
+  revertedHelperText: (min: number, max: number) => string;
   onCommit: (next: number) => void;
 }) {
-  const { widgetId, value, label, min, max, otherBound, kind, onCommit } = props;
+  const { widgetId, value, label, min, max, otherBound, kind, revertedHelperText, onCommit } =
+    props;
   const [text, setText] = React.useState(String(value));
   const [dirty, setDirty] = React.useState(false);
+  // Set when a commit REJECTED the typed value and snapped the field back. The revert is
+  // otherwise indistinguishable from "nothing happened", so the user retypes the same
+  // out-of-range value and watches it vanish again. Advisory only — it explains the
+  // already-applied revert, mirroring `FilterSetupPanel`'s cross-bound messages.
+  const [notice, setNotice] = React.useState<string | undefined>(undefined);
 
   // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed radius; resync on external change (widget switch, undo/redo). `widgetId` must be in the deps (not just `value`) — a widget switch that lands on the SAME radius value would otherwise leave a still-dirty buffer from the previous widget uncommitted into the new one.
   React.useEffect(() => {
     setText(String(value));
     setDirty(false);
+    setNotice(undefined);
   }, [value, widgetId]);
 
   const commit = () => {
@@ -61,6 +71,7 @@ function RadiusInput(props: {
     // An unparseable/emptied/out-of-range/cross-invalid entry reverts to the last
     // committed value rather than silently clamping to a boundary or the fallback default.
     setText(String(valid ? parsed : value));
+    setNotice(valid ? undefined : revertedHelperText(min, max));
     setDirty(false);
   };
 
@@ -70,9 +81,12 @@ function RadiusInput(props: {
       label={label}
       type="number"
       value={text}
+      error={notice !== undefined}
+      helperText={notice}
       onChange={(evt) => {
         setText(evt.target.value);
         setDirty(true);
+        setNotice(undefined);
       }}
       onBlur={commit}
       onKeyDown={(evt) => {
@@ -111,10 +125,13 @@ export function ScatterConfigSection({
       <DataSourceFieldSelect
         value={config.yField ?? firstYSeriesFieldId ?? ''}
         onChange={(fieldId) => {
-          controller.updateWidgetConfig(widgetId, {
-            yField: fieldId,
-            ySeries: [{ fieldId }],
-          });
+          // Single-measure picker over a multi-series config — see `buildSingleMeasurePatch`
+          // for why the remaining series are preserved and why clearing writes `ySeries: []`
+          // rather than a placeholder entry.
+          controller.updateWidgetConfig(
+            widgetId,
+            buildSingleMeasurePatch('scatter', config, fieldId),
+          );
         }}
         fields={numericFields}
         label={localeText.chartSetupYFieldLabel}
@@ -153,6 +170,7 @@ export function ScatterConfigSection({
             max={50}
             otherBound={config.scatterMaxRadius ?? 40}
             kind="min"
+            revertedHelperText={localeText.chartSetupRadiusRevertedHelperText}
             onCommit={(next) => controller.updateWidgetConfig(widgetId, { scatterMinRadius: next })}
           />
           <RadiusInput
@@ -163,6 +181,7 @@ export function ScatterConfigSection({
             max={100}
             otherBound={config.scatterMinRadius ?? 4}
             kind="max"
+            revertedHelperText={localeText.chartSetupRadiusRevertedHelperText}
             onCommit={(next) => controller.updateWidgetConfig(widgetId, { scatterMaxRadius: next })}
           />
         </Stack>

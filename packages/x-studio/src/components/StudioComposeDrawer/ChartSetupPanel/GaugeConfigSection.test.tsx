@@ -68,6 +68,54 @@ describe('GaugeConfigSection min/max validation (finding 3.4 / 1.14)', () => {
     expect(input.value).toBe('0');
   });
 
+  // A revert that says nothing is indistinguishable from "nothing happened", so the user
+  // retypes the same rejected value and watches it snap back again.
+  it('explains a reverted min instead of silently snapping back', () => {
+    renderGauge({});
+    const input = screen.getByLabelText('Min');
+    fireEvent.change(input, { target: { value: '150' } });
+    expect(screen.queryByText(/your entry was reverted/i)).toBeNull();
+    fireEvent.blur(input);
+    expect(
+      screen.getByText('Min must be a number below Max — your entry was reverted.'),
+    ).toBeVisible();
+  });
+
+  it('explains a reverted max instead of silently snapping back', () => {
+    renderGauge({ gaugeMin: 10 });
+    const input = screen.getByLabelText('Max');
+    fireEvent.change(input, { target: { value: '5' } });
+    fireEvent.blur(input);
+    expect(
+      screen.getByText('Max must be a number above Min — your entry was reverted.'),
+    ).toBeVisible();
+  });
+
+  it('clears the revert message as soon as the field is edited again', () => {
+    renderGauge({});
+    const input = screen.getByLabelText('Min');
+    fireEvent.change(input, { target: { value: '150' } });
+    fireEvent.blur(input);
+    fireEvent.change(input, { target: { value: '50' } });
+    expect(screen.queryByText(/your entry was reverted/i)).toBeNull();
+  });
+
+  it('shows no message for an accepted value', () => {
+    renderGauge({});
+    const input = screen.getByLabelText('Min');
+    fireEvent.change(input, { target: { value: '50' } });
+    fireEvent.blur(input);
+    expect(screen.queryByText(/your entry was reverted/i)).toBeNull();
+  });
+
+  // MUI's `Select` reports no accessible name unless it is handed a `labelId` pairing it
+  // with its `InputLabel` — `label` alone only sizes the outline notch, so a screen-reader
+  // user heard just the selected value ("Sum, combobox").
+  it('names the Aggregation select from its own InputLabel', () => {
+    renderGauge({});
+    expect(screen.getByRole('combobox', { name: 'Aggregation' })).toBeVisible();
+  });
+
   it('commits a valid max above min on blur', () => {
     renderGauge({});
     const input = screen.getByLabelText('Max');
@@ -325,6 +373,105 @@ describe('GaugeConfigSection cross-source field pick folds to a single undo step
     const reverted = realController.getState();
     expect(reverted.doc.widgets['widget-1'].sourceId).toBe('orders');
     expect(reverted.doc.filters).toHaveLength(1);
+  });
+
+  // A chart widget deliberately RETAINS config keys authored under a previous chart type
+  // (`StudioController`'s chart-type guard checks only the incoming config, never the stored
+  // one), so bar → gauge keeps `xField`/`ySeries` and switching back restores them. Replaying
+  // the full stored config through `updateWidget`'s wholesale `config` channel ran those
+  // retained keys through the guard and stripped them; only the changed key is sent now.
+  it('keeps config keys retained from another chart family when adopting a source', async () => {
+    const realController = new StudioController({
+      doc: {
+        widgets: {
+          'widget-1': {
+            id: 'widget-1',
+            kind: 'chart',
+            title: 'Gauge',
+            config: {
+              chartType: 'gauge',
+              gaugeMin: 0,
+              gaugeMax: 100,
+              yField: 'total',
+              // Authored while this widget was a bar chart — not gauge keys.
+              xField: 'category',
+              ySeries: [{ fieldId: 'total' }],
+            },
+            sourceId: 'orders',
+          } as StudioWidget,
+        },
+      },
+      runtime: {
+        dataSources: {
+          orders: {
+            id: 'orders',
+            label: 'Orders',
+            fields: [{ id: 'total', label: 'Total', type: 'number' }],
+            rows: [],
+          },
+          customers: {
+            id: 'customers',
+            label: 'Customers',
+            fields: [{ id: 'revenue', label: 'Revenue', type: 'number' }],
+            rows: [],
+          },
+        },
+      },
+    });
+    configureStudioContextMock({
+      getState: () => realController.getState(),
+      controller: realController,
+    });
+
+    const crossSourceFields: DataSourceFieldEntry[] = [
+      { id: 'total', label: 'Total', type: 'number', sourceId: 'orders', sourceLabel: 'Orders' },
+      {
+        id: 'revenue',
+        label: 'Revenue',
+        type: 'number',
+        sourceId: 'customers',
+        sourceLabel: 'Customers',
+      },
+    ];
+
+    const { user } = render(
+      <GaugeConfigSection
+        widgetId="widget-1"
+        config={
+          {
+            chartType: 'gauge',
+            gaugeMin: 0,
+            gaugeMax: 100,
+            yField: 'total',
+            xField: 'category',
+            ySeries: [{ fieldId: 'total' }],
+          } as never
+        }
+        allFields={crossSourceFields}
+        widgetSourceId="orders"
+      />,
+    );
+
+    await user.click(screen.getByLabelText('Value field', { exact: false }));
+    await user.click(await screen.findByRole('option', { name: /Revenue$/ }));
+
+    const after = realController.getState().doc.widgets['widget-1'];
+    expect(after.sourceId).toBe('customers');
+    const afterConfig = after.config as StudioChartConfigOfType<'gauge'> & {
+      xField?: string;
+      ySeries?: { fieldId: string }[];
+    };
+    expect(afterConfig.yField).toBe('revenue');
+    expect(afterConfig.xField).toBe('category');
+    expect(afterConfig.ySeries).toEqual([{ fieldId: 'total' }]);
+
+    // Still exactly one undo entry covering source AND config together.
+    expect(realController.canUndo()).toBe(true);
+    realController.undo();
+    const reverted = realController.getState().doc.widgets['widget-1'];
+    expect(reverted.sourceId).toBe('orders');
+    expect((reverted.config as StudioChartConfigOfType<'gauge'>).yField).toBe('total');
+    expect(realController.canUndo()).toBe(false);
   });
 
   it('does not adopt a new source for a same-source field pick (single commit, unchanged)', async () => {

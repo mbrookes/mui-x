@@ -29,16 +29,25 @@ function MinAngleInput(props: {
   value: number;
   label: string;
   helperText: string;
+  /** Message shown, in place of `helperText`, when a typed value had to be adjusted. */
+  clampedHelperText: (clamped: number) => string;
   onCommit: (next: number) => void;
 }) {
-  const { widgetId, value, label, helperText, onCommit } = props;
+  const { widgetId, value, label, helperText, clampedHelperText, onCommit } = props;
   const [text, setText] = React.useState(String(value));
   const [dirty, setDirty] = React.useState(false);
+  // Set when a commit CHANGED the typed value to fit the range. Without it the clamp is
+  // indistinguishable from "nothing happened" and the user retypes the same rejected
+  // value. Advisory only — it explains the already-applied clamp, mirroring
+  // `FilterSetupPanel`'s cross-bound messages, and replaces the standing helper text so
+  // the field never shows two competing hints at once.
+  const [notice, setNotice] = React.useState<string | undefined>(undefined);
 
   // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed min angle; resync on external change (widget switch, undo/redo). `widgetId` is in the deps because a widget switch that lands on the SAME min-angle value would otherwise leave a still-dirty buffer from the previous widget uncommitted into the new one.
   React.useEffect(() => {
     setText(String(value));
     setDirty(false);
+    setNotice(undefined);
   }, [value, widgetId]);
 
   const commit = () => {
@@ -53,8 +62,10 @@ function MinAngleInput(props: {
         onCommit(clamped);
       }
       setText(String(clamped));
+      setNotice(clamped === parsed ? undefined : clampedHelperText(clamped));
     } else {
       setText(String(value));
+      setNotice(clampedHelperText(value));
     }
     setDirty(false);
   };
@@ -65,10 +76,12 @@ function MinAngleInput(props: {
       label={label}
       type="number"
       value={text}
-      helperText={helperText}
+      error={notice !== undefined}
+      helperText={notice ?? helperText}
       onChange={(evt) => {
         setText(evt.target.value);
         setDirty(true);
+        setNotice(undefined);
       }}
       onBlur={commit}
       onKeyDown={(evt) => {
@@ -85,6 +98,9 @@ function MinAngleInput(props: {
 export function PieArcLabelsSection({ widgetId, config }: PieArcLabelsSectionProps) {
   const controller = useStudioController();
   const localeText = useStudioLocaleText();
+  // See `ChartSetupPanel`'s own `React.useId` block: MUI's `Select` only exposes an
+  // accessible name when it is handed a `labelId` pairing it with its `InputLabel`.
+  const arcLabelLabelId = React.useId();
 
   return (
     <React.Fragment>
@@ -93,8 +109,9 @@ export function PieArcLabelsSection({ widgetId, config }: PieArcLabelsSectionPro
         {localeText.chartSetupArcLabelsTitle}
       </Typography>
       <FormControl size="small" fullWidth>
-        <InputLabel>{localeText.chartSetupArcLabelLabel}</InputLabel>
+        <InputLabel id={arcLabelLabelId}>{localeText.chartSetupArcLabelLabel}</InputLabel>
         <Select
+          labelId={arcLabelLabelId}
           label={localeText.chartSetupArcLabelLabel}
           value={config.pieArcLabel ?? 'none'}
           onChange={(evt) =>
@@ -114,6 +131,7 @@ export function PieArcLabelsSection({ widgetId, config }: PieArcLabelsSectionPro
           value={config.pieArcLabelMinAngle ?? 20}
           label={localeText.chartSetupMinAngleLabel}
           helperText={localeText.chartSetupMinAngleHelperText}
+          clampedHelperText={localeText.chartSetupValueClampedHelperText}
           onCommit={(next) =>
             controller.updateWidgetConfig(widgetId, { pieArcLabelMinAngle: next })
           }

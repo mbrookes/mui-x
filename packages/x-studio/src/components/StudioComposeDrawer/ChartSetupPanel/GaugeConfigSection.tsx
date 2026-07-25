@@ -10,6 +10,7 @@ import type {
 } from '../../../models';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from '../DataSourceFieldSelect';
 import { collectStaleWidgetFilterIds } from '../collectStaleWidgetFilterIds';
+import { commitChartConfigWithSource } from './commitConfigWithSource';
 
 export interface GaugeConfigSectionProps {
   widgetId: string;
@@ -35,6 +36,9 @@ export function GaugeConfigSection({
 }: GaugeConfigSectionProps) {
   const controller = useStudioController();
   const localeText = useStudioLocaleText();
+  // See `ChartSetupPanel`'s own `React.useId` block: MUI's `Select` only exposes an
+  // accessible name when it is handed a `labelId` pairing it with its `InputLabel`.
+  const aggregationLabelId = React.useId();
 
   const gaugeMin = config.gaugeMin ?? 0;
   const gaugeMax = config.gaugeMax ?? 100;
@@ -49,17 +53,25 @@ export function GaugeConfigSection({
   const [minDirty, setMinDirty] = React.useState(false);
   const [maxText, setMaxText] = React.useState(String(gaugeMax));
   const [maxDirty, setMaxDirty] = React.useState(false);
+  // Set when a commit REJECTED the typed value and snapped the field back. The revert is
+  // otherwise indistinguishable from "nothing happened", so the user retypes the same
+  // out-of-range value and watches it vanish again. Advisory only — it explains the
+  // already-applied revert, mirroring `FilterSetupPanel`'s cross-bound messages.
+  const [minNotice, setMinNotice] = React.useState<string | undefined>(undefined);
+  const [maxNotice, setMaxNotice] = React.useState<string | undefined>(undefined);
 
   // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed gaugeMin; resync on external change (widget switch, undo/redo, the sibling field's commit re-deriving this one)
   React.useEffect(() => {
     setMinText(String(gaugeMin));
     setMinDirty(false);
+    setMinNotice(undefined);
   }, [gaugeMin, widgetId]);
 
   // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- see above, for gaugeMax
   React.useEffect(() => {
     setMaxText(String(gaugeMax));
     setMaxDirty(false);
+    setMaxNotice(undefined);
   }, [gaugeMax, widgetId]);
 
   const commitMin = () => {
@@ -73,6 +85,7 @@ export function GaugeConfigSection({
       controller.updateWidgetConfig(widgetId, { gaugeMin: parsed });
     }
     setMinText(String(valid ? parsed : gaugeMin));
+    setMinNotice(valid ? undefined : localeText.chartSetupGaugeMinRevertedHelperText);
     setMinDirty(false);
   };
 
@@ -87,6 +100,7 @@ export function GaugeConfigSection({
       controller.updateWidgetConfig(widgetId, { gaugeMax: parsed });
     }
     setMaxText(String(valid ? parsed : gaugeMax));
+    setMaxNotice(valid ? undefined : localeText.chartSetupGaugeMaxRevertedHelperText);
     setMaxDirty(false);
   };
 
@@ -95,38 +109,29 @@ export function GaugeConfigSection({
       <DataSourceFieldSelect
         value={config.yField ?? ''}
         onChange={(fieldId, sourceId) => {
-          const configUpdate = { yField: fieldId };
-          // When the picked field belongs to a different source, adopt that source AND
-          // write the field in ONE `updateWidget` commit so the cross-source field pick
-          // is a single undo step (finding 2.5) — writing them as two separate commits
-          // (`updateWidgetConfig` then `updateWidget`) left a lone Ctrl+Z landing on a
-          // torn `{ old sourceId, new yField }` state the UI never produced. Every
-          // sibling setup panel (Chart/KPI/Filter/Map) already folds this the same way.
-          if (sourceId && sourceId !== widgetSourceId) {
-            // Also fold in the removal of any widget-scoped filter that no longer resolves
-            // against the new source (finding 1.16) — left in place, a stale filter's field
-            // is absent from the new source's rows and the `between`/`gte` branches in
-            // `filterUtils.ts` then exclude EVERY row, silently blanking the gauge. Every
-            // sibling setup panel (Chart/KPI/Grid) already folds this into the same commit.
-            controller.updateWidget(
-              widgetId,
-              {
-                sourceId,
-                config: { ...config, ...configUpdate },
-              },
-              {
-                removeFilterIds: collectStaleWidgetFilterIds(
-                  allFilters,
-                  widgetId,
-                  sourceId,
-                  allFields,
-                  relationships ?? [],
-                ),
-              },
-            );
-          } else {
-            controller.updateWidgetConfig(widgetId, configUpdate);
-          }
+          // A cross-source value-field pick also ADOPTS that source, and the two halves are
+          // one undo step (finding 2.5) carrying only the changed key — see
+          // `commitChartConfigWithSource`. Any widget-scoped filter that no longer resolves
+          // against the new source rides along (finding 1.16): left in place, a stale
+          // filter's field is absent from the new source's rows and the `between`/`gte`
+          // branches in `filterUtils.ts` then exclude EVERY row, silently blanking the gauge.
+          commitChartConfigWithSource({
+            controller,
+            widgetId,
+            configPatch: { yField: fieldId },
+            sourceId,
+            widgetSourceId,
+            removeFilterIds:
+              sourceId && sourceId !== widgetSourceId
+                ? collectStaleWidgetFilterIds(
+                    allFilters,
+                    widgetId,
+                    sourceId,
+                    allFields,
+                    relationships ?? [],
+                  )
+                : undefined,
+          });
         }}
         fields={fieldsForCapability(allFields, 'numeric')}
         label={localeText.chartSetupValueFieldLabel}
@@ -135,8 +140,9 @@ export function GaugeConfigSection({
       />
 
       <FormControl size="small" fullWidth>
-        <InputLabel>{localeText.chartSetupAggregationLabel}</InputLabel>
+        <InputLabel id={aggregationLabelId}>{localeText.chartSetupAggregationLabel}</InputLabel>
         <Select
+          labelId={aggregationLabelId}
           label={localeText.chartSetupAggregationLabel}
           value={config.yAggregation ?? 'sum'}
           onChange={(evt) =>
@@ -159,9 +165,12 @@ export function GaugeConfigSection({
           label={localeText.chartSetupMinLabel}
           type="number"
           value={minText}
+          error={minNotice !== undefined}
+          helperText={minNotice}
           onChange={(evt) => {
             setMinText(evt.target.value);
             setMinDirty(true);
+            setMinNotice(undefined);
           }}
           onBlur={commitMin}
           onKeyDown={(evt) => {
@@ -176,9 +185,12 @@ export function GaugeConfigSection({
           label={localeText.chartSetupMaxLabel}
           type="number"
           value={maxText}
+          error={maxNotice !== undefined}
+          helperText={maxNotice}
           onChange={(evt) => {
             setMaxText(evt.target.value);
             setMaxDirty(true);
+            setMaxNotice(undefined);
           }}
           onBlur={commitMax}
           onKeyDown={(evt) => {

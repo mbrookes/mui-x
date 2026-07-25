@@ -14,6 +14,7 @@ import {
 import { useStudioController, useStudioLocaleText } from '../../../context';
 import type { StudioChartConfigOfType } from '../../../models';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from '../DataSourceFieldSelect';
+import { buildSingleMeasurePatch } from './commitMeasureSeries';
 
 export interface FunnelConfigSectionProps {
   widgetId: string;
@@ -34,16 +35,24 @@ function FunnelGapInput(props: {
   widgetId: string;
   value: number;
   label: string;
+  /** Message shown when a typed value had to be adjusted to fit the 0–32 range. */
+  clampedHelperText: (clamped: number) => string;
   onCommit: (next: number | undefined) => void;
 }) {
-  const { widgetId, value, label, onCommit } = props;
+  const { widgetId, value, label, clampedHelperText, onCommit } = props;
   const [text, setText] = React.useState(String(value));
   const [dirty, setDirty] = React.useState(false);
+  // Set when a commit CHANGED the typed value to fit the range. Without it the clamp is
+  // indistinguishable from "nothing happened" and the user retypes the same rejected
+  // value. Advisory only — it explains the already-applied clamp, mirroring
+  // `FilterSetupPanel`'s cross-bound messages.
+  const [notice, setNotice] = React.useState<string | undefined>(undefined);
 
   // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed gap; resync on external change (widget switch, undo/redo). `widgetId` is in the deps because a widget switch that lands on the SAME gap value (e.g. both widgets default to 0) would otherwise leave a still-dirty buffer from the previous widget uncommitted into the new one.
   React.useEffect(() => {
     setText(String(value));
     setDirty(false);
+    setNotice(undefined);
   }, [value, widgetId]);
 
   const commit = () => {
@@ -58,8 +67,10 @@ function FunnelGapInput(props: {
         onCommit(clamped || undefined);
       }
       setText(String(clamped));
+      setNotice(clamped === parsed ? undefined : clampedHelperText(clamped));
     } else {
       setText(String(value));
+      setNotice(clampedHelperText(value));
     }
     setDirty(false);
   };
@@ -70,9 +81,12 @@ function FunnelGapInput(props: {
       type="number"
       label={label}
       value={text}
+      error={notice !== undefined}
+      helperText={notice}
       onChange={(evt) => {
         setText(evt.target.value);
         setDirty(true);
+        setNotice(undefined);
       }}
       onBlur={commit}
       onKeyDown={(evt) => {
@@ -95,16 +109,24 @@ export function FunnelConfigSection({
 }: FunnelConfigSectionProps) {
   const controller = useStudioController();
   const localeText = useStudioLocaleText();
+  // See `ChartSetupPanel`'s own `React.useId` block: MUI's `Select` only exposes an
+  // accessible name when it is handed a `labelId` pairing it with its `InputLabel`.
+  const labelFormatLabelId = React.useId();
+  const labelPlacementLabelId = React.useId();
+  const shapeLabelId = React.useId();
 
   return (
     <React.Fragment>
       <DataSourceFieldSelect
         value={config.yField ?? firstYSeriesFieldId ?? ''}
         onChange={(fieldId) => {
-          controller.updateWidgetConfig(widgetId, {
-            yField: fieldId,
-            ySeries: [{ fieldId }],
-          });
+          // Single-measure picker over a multi-series config — see `buildSingleMeasurePatch`
+          // for why the remaining series are preserved and why clearing writes `ySeries: []`
+          // rather than a placeholder entry.
+          controller.updateWidgetConfig(
+            widgetId,
+            buildSingleMeasurePatch('funnel', config, fieldId),
+          );
         }}
         fields={numericFields}
         label={localeText.chartSetupValueFieldLabel}
@@ -112,8 +134,11 @@ export function FunnelConfigSection({
         required
       />
       <FormControl size="small" fullWidth>
-        <InputLabel>{localeText.chartSetupFunnelLabelFormatLabel}</InputLabel>
+        <InputLabel id={labelFormatLabelId}>
+          {localeText.chartSetupFunnelLabelFormatLabel}
+        </InputLabel>
         <Select
+          labelId={labelFormatLabelId}
           label={localeText.chartSetupFunnelLabelFormatLabel}
           value={config.funnelLabelFormat ?? 'value'}
           onChange={(evt) =>
@@ -131,8 +156,11 @@ export function FunnelConfigSection({
         </Select>
       </FormControl>
       <FormControl size="small" fullWidth>
-        <InputLabel>{localeText.chartSetupFunnelLabelPlacementLabel}</InputLabel>
+        <InputLabel id={labelPlacementLabelId}>
+          {localeText.chartSetupFunnelLabelPlacementLabel}
+        </InputLabel>
         <Select
+          labelId={labelPlacementLabelId}
           label={localeText.chartSetupFunnelLabelPlacementLabel}
           value={
             config.funnelLabelPlacement ??
@@ -154,8 +182,9 @@ export function FunnelConfigSection({
         </Select>
       </FormControl>
       <FormControl size="small" fullWidth>
-        <InputLabel>{localeText.chartSetupFunnelShapeLabel}</InputLabel>
+        <InputLabel id={shapeLabelId}>{localeText.chartSetupFunnelShapeLabel}</InputLabel>
         <Select
+          labelId={shapeLabelId}
           label={localeText.chartSetupFunnelShapeLabel}
           value={config.funnelCurve ?? 'linear'}
           onChange={(evt) =>
@@ -198,6 +227,7 @@ export function FunnelConfigSection({
         widgetId={widgetId}
         value={config.funnelGap ?? 0}
         label={localeText.chartSetupFunnelGapLabel}
+        clampedHelperText={localeText.chartSetupValueClampedHelperText}
         onCommit={(next) => controller.updateWidgetConfig(widgetId, { funnelGap: next })}
       />
     </React.Fragment>

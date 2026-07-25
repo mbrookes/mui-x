@@ -101,13 +101,17 @@ describe('ChartSetupPanel', () => {
     configureStudioContextMock({ getState: () => mockState, controller });
   });
 
-  it('labels the split-by field with its own floating label only (no duplicate heading)', () => {
+  it('labels the split-by and X-field controls with their own floating label only (no duplicate heading)', () => {
     render(<ChartSetupPanel widgetId="widget-1" />);
 
-    // Rule B (label-system spec): a single control's own floating label is its only name —
-    // there is no separate "Category field" heading duplicating it.
+    // Rule B (label-system spec): a control's own floating label is its ONLY name — nothing
+    // else in the panel carries the same accessible name, so each query resolves to exactly
+    // one control. Asserted against the strings the panel actually renders
+    // (`chartSetupSplitByLabel` / `chartSetupXFieldCategoryHorizLabel`); the X picker is
+    // `required`, so MUI appends " *" to its label content and only a substring match hits it.
     expect(screen.getByLabelText('Split by (series field)')).toBeVisible();
-    expect(screen.queryByText('Category field')).to.equal(null);
+    expect(screen.getAllByLabelText('Split by (series field)')).toHaveLength(1);
+    expect(screen.getAllByLabelText('X / Category field', { exact: false })).toHaveLength(1);
   });
 
   it('keeps the split-by field visible and disabled when multiple measure fields are configured', () => {
@@ -228,89 +232,98 @@ describe('ChartSetupPanel', () => {
     }
   });
 
-  it('removes stale source filtering when xField is cleared', async () => {
-    mockState.doc.widgets['widget-1'].config = {
-      ...mockState.doc.widgets['widget-1'].config,
-      xField: undefined,
-      yField: 'total',
-      ySeries: [{ fieldId: 'total' }],
-      seriesField: undefined,
-    };
+  // The source restriction is anchored on `widgetSourceId ?? supportSourceId`, so clearing
+  // the X field alone changes nothing while the widget still owns a source (that is what the
+  // test above pins). It is only when the widget has NO anchor at all — no `sourceId` and no
+  // X field — that `analyzeChartSupport` short-circuits to "supported" and every source's
+  // fields become selectable, which is what lets a from-scratch chart adopt any source.
+  it('enables every source option once the widget has no anchor at all (no sourceId, no xField)', async () => {
+    const previousWidget = mockState.doc.widgets['widget-1'];
 
-    const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
+    try {
+      mockState.doc.widgets['widget-1'] = {
+        ...previousWidget,
+        config: {
+          chartType: 'bar',
+          yField: 'total',
+          ySeries: [{ fieldId: 'total' }],
+        },
+      };
+      // No source yet — remove it rather than assign `undefined` (the fixture's inferred type
+      // requires `sourceId: string`). The spread above means `previousWidget` keeps its own.
+      delete (mockState.doc.widgets['widget-1'] as Record<string, unknown>).sourceId;
 
-    const splitByInput = screen.getByLabelText('Split by (series field)');
+      const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
 
-    await user.click(splitByInput);
+      await user.click(screen.getByLabelText('Split by (series field)'));
 
-    const [countryOption, statusOption] = await Promise.all([
-      screen.findByRole('option', { name: /Country$/ }),
-      screen.findByRole('option', { name: /Status$/ }),
-    ]);
+      const [countryOption, statusOption] = await Promise.all([
+        screen.findByRole('option', { name: /Country$/ }),
+        screen.findByRole('option', { name: /Status$/ }),
+      ]);
 
-    expect(countryOption.getAttribute('aria-disabled')).toBe('false');
-    expect(statusOption.getAttribute('aria-disabled')).toBe('true');
-
-    mockState.doc.widgets['widget-1'].config = {
-      ...mockState.doc.widgets['widget-1'].config,
-      xField: 'id',
-      ySeries: undefined,
-    };
+      // `shipments.status` is unreachable from `orders` and IS disabled while the widget is
+      // anchored there (the preceding test) — here both are enabled, since there is no anchor
+      // to validate against yet.
+      expect(countryOption.getAttribute('aria-disabled')).toBe('false');
+      expect(statusOption.getAttribute('aria-disabled')).toBe('false');
+    } finally {
+      mockState.doc.widgets['widget-1'] = previousWidget;
+    }
   });
 
   it('does not warn for a safe order-items chart when the x field comes from orders', () => {
-    mockState.doc.widgets['widget-1'] = {
-      ...mockState.doc.widgets['widget-1'],
-      sourceId: 'orderItems',
-      config: {
-        chartType: 'bar-stacked',
-        xField: 'date',
-        xGroupBy: 'quarter',
-        yField: 'total',
-        seriesField: 'category',
-      },
-    };
+    const previousWidget = mockState.doc.widgets['widget-1'];
+    const previousOrdersFields = mockState.runtime.dataSources.orders.fields;
+    const previousOrderItemsFields = mockState.runtime.dataSources.orderItems.fields;
 
-    mockState.runtime.dataSources.orders = {
-      ...mockState.runtime.dataSources.orders,
-      fields: [
-        { id: 'id', label: 'Order ID', type: 'string' },
-        { id: 'date', label: 'Order Date', type: 'date' },
-        { id: 'total', label: 'Order Total', type: 'number' },
-      ],
-    };
+    try {
+      mockState.doc.widgets['widget-1'] = {
+        ...previousWidget,
+        sourceId: 'orderItems',
+        config: {
+          chartType: 'bar-stacked',
+          xField: 'date',
+          xGroupBy: 'quarter',
+          yField: 'total',
+          seriesField: 'category',
+        },
+      };
 
-    mockState.runtime.dataSources.orderItems = {
-      ...mockState.runtime.dataSources.orderItems,
-      fields: [
-        { id: 'total', label: 'Total', type: 'number' },
-        { id: 'category', label: 'Category', type: 'string' },
-      ],
-    };
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
+        fields: [
+          { id: 'id', label: 'Order ID', type: 'string' },
+          { id: 'date', label: 'Order Date', type: 'date' },
+          { id: 'total', label: 'Order Total', type: 'number' },
+        ],
+      };
 
-    render(<ChartSetupPanel widgetId="widget-1" />);
+      mockState.runtime.dataSources.orderItems = {
+        ...mockState.runtime.dataSources.orderItems,
+        fields: [
+          { id: 'total', label: 'Total', type: 'number' },
+          { id: 'category', label: 'Category', type: 'string' },
+        ],
+      };
 
-    expect(screen.queryByText(/single safe aggregation grain/i)).toBeNull();
+      render(<ChartSetupPanel widgetId="widget-1" />);
 
-    mockState.doc.widgets['widget-1'] = {
-      ...mockState.doc.widgets['widget-1'],
-      sourceId: 'orders',
-      config: {
-        chartType: 'bar',
-        xField: 'id',
-        yField: 'total',
-      },
-    };
-
-    mockState.runtime.dataSources.orders = {
-      ...mockState.runtime.dataSources.orders,
-      fields: [{ id: 'id', label: 'Order ID', type: 'string' }],
-    };
-
-    mockState.runtime.dataSources.orderItems = {
-      ...mockState.runtime.dataSources.orderItems,
-      fields: [{ id: 'total', label: 'Total', type: 'number' }],
-    };
+      expect(screen.queryByText(/single safe aggregation grain/i)).toBeNull();
+    } finally {
+      // `finally`, like every other fixture mutation in this file: vitest runs with
+      // `isolate: false`, so a failed assertion that skipped the restore would leak this
+      // widget/source shape into every later test in the run.
+      mockState.doc.widgets['widget-1'] = previousWidget;
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
+        fields: previousOrdersFields,
+      };
+      mockState.runtime.dataSources.orderItems = {
+        ...mockState.runtime.dataSources.orderItems,
+        fields: previousOrderItemsFields,
+      };
+    }
   });
 
   it('shows source, target, value and link controls for a sankey chart', () => {
@@ -344,8 +357,13 @@ describe('ChartSetupPanel', () => {
       expect(screen.getAllByText('Target (to) field').length).toBeGreaterThan(0);
       expect(screen.getAllByText('Link color').length).toBeGreaterThan(0);
       expect(screen.getByText('Show values on links')).toBeVisible();
-      // Irrelevant controls are hidden for sankey (split-by section title)
-      expect(screen.queryByText('Category field')).toBeNull();
+      // Irrelevant controls are hidden for sankey: `supportsSeriesField` excludes it, so
+      // there is no split-by picker, and its X picker is labelled "Source (from) field"
+      // rather than the categorical "X / Category field". Both queries resolve to exactly
+      // one control on the bar-chart fixture (see the first test in this file), so their
+      // `null` here is a real absence rather than a query that can never match.
+      expect(screen.queryByLabelText('Split by (series field)')).toBeNull();
+      expect(screen.queryByLabelText('X / Category field', { exact: false })).toBeNull();
     } finally {
       mockState.doc.widgets['widget-1'] = previousWidget;
       mockState.runtime.dataSources.orders = {

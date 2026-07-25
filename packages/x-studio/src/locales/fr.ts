@@ -559,6 +559,14 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   chartSetupSplitByDisabledHelperText:
     'Non disponible lorsque plusieurs champs de mesure sont configurés',
   chartSetupInnerRingHelperText: 'Ajoute une bague intérieure concentrique regroupée par ce champ',
+  chartSetupGaugeMinRevertedHelperText:
+    'Le minimum doit être un nombre inférieur au maximum — votre saisie a été rétablie.',
+  chartSetupGaugeMaxRevertedHelperText:
+    'Le maximum doit être un nombre supérieur au minimum — votre saisie a été rétablie.',
+  chartSetupRadiusRevertedHelperText: (min, max) =>
+    `Saisissez un nombre entre ${min} et ${max}, en gardant le rayon minimum inférieur au rayon maximum — votre saisie a été rétablie.`,
+  chartSetupValueClampedHelperText: (clamped) =>
+    `En dehors de la plage autorisée — ajusté à ${clamped}.`,
 
   // KPI setup panel
   kpiSetupChartLine: 'Doubler',

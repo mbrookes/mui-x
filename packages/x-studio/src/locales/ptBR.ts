@@ -553,6 +553,14 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   chartSetupSplitByDisabledHelperText:
     'Não disponível quando vários campos de medida estão configurados',
   chartSetupInnerRingHelperText: 'Adiciona um anel interno concêntrico agrupado por este campo',
+  chartSetupGaugeMinRevertedHelperText:
+    'O mínimo deve ser um número menor que o máximo — sua entrada foi revertida.',
+  chartSetupGaugeMaxRevertedHelperText:
+    'O máximo deve ser um número maior que o mínimo — sua entrada foi revertida.',
+  chartSetupRadiusRevertedHelperText: (min, max) =>
+    `Informe um número de ${min} a ${max}, mantendo o raio mínimo abaixo do raio máximo — sua entrada foi revertida.`,
+  chartSetupValueClampedHelperText: (clamped) =>
+    `Fora do intervalo permitido — ajustado para ${clamped}.`,
 
   // KPI setup panel
   kpiSetupChartLine: 'Linha',

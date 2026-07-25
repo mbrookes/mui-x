@@ -142,10 +142,6 @@ export function numericSize(value: unknown): number | undefined {
   return typeof value === 'number' ? value : undefined;
 }
 
-function fieldOf(def: VegaChannelDef | undefined): string | undefined {
-  return isFieldDef(def) ? def.field : undefined;
-}
-
 /** The mark type name from a `mark` string or `{type}` object. */
 function markTypeOf(mark: VegaLiteSpec['mark'] | undefined): string | undefined {
   if (typeof mark === 'string') {
@@ -1267,14 +1263,12 @@ function planConcat(spec: VegaLiteSpec, options: FacetOptions): FacetPlan {
 
   const gridRows = Math.max(1, Math.ceil(entries.length / columns) || 1);
   // Concat subplots are full-size views, not the shrink-to-fit small multiples
-  // of a facet grid: Vega-Lite lays each out at its natural size and lets the
-  // composition grow. So the width is divided across columns (to sit side by
-  // side within the available width), but each row keeps the full requested
-  // height instead of dividing it — otherwise a vconcat's lower panel is
-  // compressed until its marks (e.g. binned-scatter bubbles) overlap.
+  // of a facet grid: Vega-Lite lays each out at its natural size (see
+  // `naturalConcatSize`, which sizes every cell below) and lets the composition
+  // grow past the requested box rather than compressing panels into it. So the
+  // available width is not divided among the cells — it only tells us whether
+  // the composition will overflow, which is worth reporting.
   const rawWidth = Math.floor(options.width / columns);
-  const width = Math.max(MIN_CELL_WIDTH, rawWidth);
-  const height = Math.max(MIN_CELL_HEIGHT, options.height);
   if (rawWidth < MIN_CELL_WIDTH) {
     gaps.push({
       code: 'facet:min-cell-size',

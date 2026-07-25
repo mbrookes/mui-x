@@ -1,3 +1,4 @@
+import { scaleLinear, scalePow, scaleSqrt } from '@mui/x-charts-vendor/d3-scale';
 import type { OverlayPixelPosition, OverlayPosition } from '../compile/context';
 
 /**
@@ -41,4 +42,21 @@ export function scalePosition(scale: AnyScale, value: OverlayPosition): number |
  */
 export function scaleBandwidth(scale: AnyScale): number {
   return typeof scale.bandwidth === 'function' ? scale.bandwidth() : 0;
+}
+
+/**
+ * The d3 scale constructor for a radial overlay's `radiusScaleType`, defaulting
+ * to `sqrt` — Vega-Lite's own default for a radius scale, which keeps a slice's
+ * AREA proportional to its value rather than its radius. Shared by
+ * `RadialArcs.tsx` and `RadialLabels.tsx` so labels land at the same radius the
+ * arcs were drawn at (they already share the centering/full-radius formula).
+ */
+export function radiusScaleBuilder(radiusScaleType: string | undefined): typeof scaleLinear {
+  // The three constructors share the `(domain, range)` overload used here, but
+  // their full signatures don't unify into a callable union — so they are
+  // normalized to one builder type rather than returned as a union.
+  if (radiusScaleType === 'linear') {
+    return scaleLinear;
+  }
+  return (radiusScaleType === 'pow' ? scalePow : scaleSqrt) as typeof scaleLinear;
 }

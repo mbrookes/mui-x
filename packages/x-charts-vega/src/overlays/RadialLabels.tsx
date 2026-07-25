@@ -1,8 +1,8 @@
 'use client';
 import * as React from 'react';
-import { scaleLinear, scalePow, scaleSqrt } from '@mui/x-charts-vendor/d3-scale';
 import { useDrawingArea } from '@mui/x-charts/hooks';
 import type { CompiledOverlay } from '../compile/context';
+import { radiusScaleBuilder } from './scaleUtils';
 
 /*
  * OWNERSHIP: the "text/image marks" work unit owns this file.
@@ -24,13 +24,10 @@ export function RadialLabelsOverlay(props: { overlay: Overlay }) {
   const cx = drawingArea.left + drawingArea.width / 2;
   const cy = drawingArea.top + drawingArea.height / 2;
 
-  const buildScale =
-    overlay.radiusScaleType === 'linear'
-      ? scaleLinear
-      : overlay.radiusScaleType === 'pow'
-        ? scalePow
-        : scaleSqrt;
-  const radiusScale = buildScale(overlay.radiusDomain, [overlay.radiusRangeMin, fullRadius]);
+  const radiusScale = radiusScaleBuilder(overlay.radiusScaleType)(overlay.radiusDomain, [
+    overlay.radiusRangeMin,
+    fullRadius,
+  ]);
 
   return (
     <g className="MuiVegaOverlay-radialLabels" transform={`translate(${cx}, ${cy})`}>

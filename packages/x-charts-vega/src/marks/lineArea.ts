@@ -1,4 +1,5 @@
 import type { CurveType } from '@mui/x-charts/models';
+import { color as d3Color } from '@mui/x-charts-vendor/d3-color';
 import type {
   CompiledGradient,
   CompiledOverlay,
@@ -10,7 +11,6 @@ import type {
   PlotKind,
   UnitContext,
 } from '../compile/context';
-import { color as d3Color } from '@mui/x-charts-vendor/d3-color';
 import { resolveColor, compareColorValues } from '../compile/color';
 import { applyAlpha } from '../compile/colorUtils';
 import { toDate, toNumber } from '../compile/fieldTypes';
@@ -563,13 +563,12 @@ function buildContinuousAreaOverlay(
   // which shares this overlay but wants the renderer's translucent 0.3 default.
   // Set the opacity explicitly here so the area fills solid, honoring an explicit
   // `fillOpacity`/`opacity` on the mark.
-  const markFillOpacity = (mark as { fillOpacity?: unknown }).fillOpacity;
+  const numericOrUndefined = (value: unknown): number | undefined =>
+    typeof value === 'number' ? value : undefined;
   const fillOpacity =
-    typeof markFillOpacity === 'number'
-      ? markFillOpacity
-      : typeof mark.opacity === 'number'
-        ? mark.opacity
-        : 1;
+    numericOrUndefined((mark as { fillOpacity?: unknown }).fillOpacity) ??
+    numericOrUndefined(mark.opacity) ??
+    1;
 
   const overlays: CompiledOverlay[] = [];
   order.forEach((key, groupIndex) => {

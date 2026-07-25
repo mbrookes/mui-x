@@ -1,4 +1,5 @@
 import type { XAxis, YAxis } from '@mui/x-charts/models';
+import { scaleLinear, scaleLog, scalePow, scaleSqrt } from '@mui/x-charts-vendor/d3-scale';
 import { VEGA_TABLEAU10 } from './vegaDefaults';
 import type { DatasetRow, VegaEncoding, VegaLiteSpec, VegaMarkDef } from '../types';
 import { isFieldDef } from '../types';
@@ -25,7 +26,6 @@ import type {
   SizeLegend,
   UnitContext,
 } from './context';
-import { scaleLinear, scaleLog, scalePow, scaleSqrt } from '@mui/x-charts-vendor/d3-scale';
 import { applyAlpha } from './colorUtils';
 import { categoryIndex, categoryKey } from './context';
 
@@ -36,19 +36,18 @@ import { categoryIndex, categoryKey } from './context';
  * instead of stopping at an arbitrary padded float. symlog has no direct d3
  * scale export here, so it falls back to a linear approximation.
  */
+const NICE_SCALE_BUILDERS: Record<string, typeof scaleLinear> = {
+  log: scaleLog as typeof scaleLinear,
+  pow: scalePow as typeof scaleLinear,
+  sqrt: scaleSqrt as typeof scaleLinear,
+};
+
 function niceContinuousDomain(
   scaleType: string | undefined,
   min: number,
   max: number,
 ): [number, number] {
-  const build =
-    scaleType === 'log'
-      ? scaleLog
-      : scaleType === 'pow'
-        ? scalePow
-        : scaleType === 'sqrt'
-          ? scaleSqrt
-          : scaleLinear;
+  const build = (scaleType && NICE_SCALE_BUILDERS[scaleType]) || scaleLinear;
   const [niceMin, niceMax] = build([min, max], [0, 1]).nice().domain();
   return [niceMin, niceMax];
 }

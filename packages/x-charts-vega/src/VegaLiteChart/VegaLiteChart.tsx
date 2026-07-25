@@ -680,15 +680,23 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
           return max;
         })
       : undefined;
-    const gridTemplateColumns = shared
-      ? leftTrackWidth !== undefined && innerTrackWidth !== undefined
-        ? plan.columns > 1
+    const evenColumns = `repeat(${plan.columns}, minmax(0, 1fr))`;
+    const gridTemplateColumns = (() => {
+      if (shared) {
+        // A trellis packs uniform tracks: only the leftmost column carries the
+        // shared y axis, so the rest are narrower by exactly the margin they drop.
+        if (leftTrackWidth === undefined || innerTrackWidth === undefined) {
+          return evenColumns;
+        }
+        return plan.columns > 1
           ? `${leftTrackWidth}px repeat(${plan.columns - 1}, ${innerTrackWidth}px)`
-          : `${leftTrackWidth}px`
-        : `repeat(${plan.columns}, minmax(0, 1fr))`
-      : concatColumnWidths && concatColumnWidths.every((w) => w > 0)
-        ? concatColumnWidths.map((w) => `minmax(${w}px, max-content)`).join(' ')
-        : `repeat(${plan.columns}, minmax(0, 1fr))`;
+          : `${leftTrackWidth}px`;
+      }
+      if (concatColumnWidths && concatColumnWidths.every((w) => w > 0)) {
+        return concatColumnWidths.map((w) => `minmax(${w}px, max-content)`).join(' ');
+      }
+      return evenColumns;
+    })();
     const grid = (
       <div
         style={{
@@ -1186,6 +1194,15 @@ function SingleViewChart(props: VegaLiteChartProps) {
     : undefined;
   const seriesLegendTitle = resolveLegendTitle(spec);
   const viewStroke = resolveViewStroke(spec);
+  // `legend.gradientLength` sizes the color bar ALONG its own direction, so it
+  // is a width for a horizontal legend and a height for a vertical one.
+  let colorLegendLengthSx: { width?: number; height?: number } | undefined;
+  if (compiled.colorLegendLength !== undefined) {
+    colorLegendLengthSx =
+      compiled.colorLegendDirection === 'horizontal'
+        ? { width: compiled.colorLegendLength }
+        : { height: compiled.colorLegendLength };
+  }
 
   const chart = (
     <ChartsDataProviderPremium
@@ -1246,13 +1263,7 @@ function SingleViewChart(props: VegaLiteChartProps) {
               <ContinuousColorLegend
                 axisDirection="z"
                 direction={compiled.colorLegendDirection ?? 'vertical'}
-                sx={
-                  compiled.colorLegendLength !== undefined
-                    ? compiled.colorLegendDirection === 'horizontal'
-                      ? { width: compiled.colorLegendLength }
-                      : { height: compiled.colorLegendLength }
-                    : undefined
-                }
+                sx={colorLegendLengthSx}
               />
             )}
           </div>

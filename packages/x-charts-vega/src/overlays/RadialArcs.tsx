@@ -1,9 +1,9 @@
 'use client';
 import * as React from 'react';
 import { arc as d3Arc } from '@mui/x-charts-vendor/d3-shape';
-import { scaleLinear, scalePow, scaleSqrt } from '@mui/x-charts-vendor/d3-scale';
 import { useDrawingArea } from '@mui/x-charts/hooks';
 import type { CompiledOverlay } from '../compile/context';
+import { radiusScaleBuilder } from './scaleUtils';
 
 /*
  * OWNERSHIP: the "arc/pie mark" work unit owns this file.
@@ -28,13 +28,10 @@ export function RadialArcsOverlay(props: { overlay: Overlay }) {
   const cx = drawingArea.left + drawingArea.width / 2;
   const cy = drawingArea.top + drawingArea.height / 2;
 
-  const buildScale =
-    overlay.radiusScaleType === 'linear'
-      ? scaleLinear
-      : overlay.radiusScaleType === 'pow'
-        ? scalePow
-        : scaleSqrt;
-  const radiusScale = buildScale(overlay.radiusDomain, [overlay.radiusRangeMin, fullRadius]);
+  const radiusScale = radiusScaleBuilder(overlay.radiusScaleType)(overlay.radiusDomain, [
+    overlay.radiusRangeMin,
+    fullRadius,
+  ]);
 
   const generator = d3Arc();
 

@@ -5,7 +5,6 @@ import { applyMutation, MUTATION_TYPES } from './applyMutation';
 import type { StateMutation } from './aiTypes';
 import type { StudioState } from './stateTypes';
 
-
 import type { StudioWidget } from './widgetTypes';
 
 /**
@@ -227,7 +226,7 @@ describe('parseStateMutation — valid payloads (one per variant)', () => {
       if (!parsed.ok) {
         return;
       }
-      // Pure gate: returns the input value unchanged, not a clone.
+      // Never clones: the success arm hands back the very object it was given.
       expect(parsed.mutation).toBe(wire);
       assert(applyMutation(baseState(), parsed.mutation));
     },
@@ -783,8 +782,45 @@ describe('parseStateMutation — per-kind config-key validation (fail-closed)', 
     expect(result.ok).toBe(false);
   });
 
-  it('rejects an addWidget chart whose explicit chartType conflicts with a cross-family key', () => {
-    // `sankeyTargetField` is a sankey-only key; on a gauge chart it must be rejected.
+  // A chart config's foreign-FAMILY keys are stripped, not fatal. A stored chart config
+  // legitimately retains keys authored under a previously-selected chartType (see
+  // `StudioChartConfig` in `widgetTypes.ts`, and the load boundary, which keeps them), so
+  // rejecting the whole mutation would drop a user-authored widget — and the client's SSE
+  // handler only `console.error`s a rejection, silently diverging from the server's state.
+  it('strips a cross-family key from an addWidget chart config instead of rejecting it', () => {
+    // `sankeyTargetField` is a sankey-only key; on a gauge chart it is dropped. The strip
+    // rewrites `widget.config` on the payload itself, which is the object the gate hands
+    // back on success, so asserting on the input reads the normalized result.
+    const widget = {
+      id: 'w',
+      kind: 'chart',
+      title: 'T',
+      config: { chartType: 'gauge', gaugeMin: 0, sankeyTargetField: 'to' } as Record<
+        string,
+        unknown
+      >,
+    };
+    expect(parseStateMutation({ type: 'addWidget', args: { widget } }).ok).toBe(true);
+    expect(widget.config).toEqual({ chartType: 'gauge', gaugeMin: 0 });
+  });
+
+  // The exact round trip the strip exists for: a bar chart switched to a gauge via
+  // `updateWidget` keeps its bar-era `xField` in storage by design, and re-submitting that
+  // STORED widget must survive the boundary rather than being rejected wholesale.
+  it('accepts a stored chart widget whose config retains keys from a previous chartType', () => {
+    const widget = {
+      id: 'w',
+      kind: 'chart',
+      title: 'T',
+      config: { chartType: 'gauge', xField: 'x', gaugeMax: 10 } as Record<string, unknown>,
+    };
+    expect(parseStateMutation({ type: 'addWidget', args: { widget } }).ok).toBe(true);
+    expect(widget.config).toEqual({ chartType: 'gauge', gaugeMax: 10 });
+  });
+
+  // Only WRONG-FAMILY keys are soft. A key belonging to no chart family at all is still
+  // rejected by the kind-level check, which runs before the strip.
+  it('still rejects an addWidget chart config key that belongs to no chart family', () => {
     const result = parseStateMutation({
       type: 'addWidget',
       args: {
@@ -792,16 +828,21 @@ describe('parseStateMutation — per-kind config-key validation (fail-closed)', 
           id: 'w',
           kind: 'chart',
           title: 'T',
-          config: { chartType: 'gauge', sankeyTargetField: 'to' },
+          config: { chartType: 'gauge', notAChartKeyAtAll: 1 },
         },
       },
     });
     expect(result.ok).toBe(false);
-    if (result.ok) {
-      throw new Error('expected parseStateMutation to reject a cross-family chart config key');
-    }
-    expect(result.error).toContain('sankeyTargetField');
-    expect(result.error).toContain('gauge');
+    expect(parseError(result)).toContain('notAChartKeyAtAll');
+  });
+
+  // A config that needs no normalization keeps its object identity, so a value-identical
+  // config still hits the reducer's reference-equality no-op path.
+  it('leaves an already-family-clean chart config object identical', () => {
+    const config: Record<string, unknown> = { chartType: 'gauge', gaugeMin: 0, gaugeMax: 100 };
+    const widget = { id: 'w', kind: 'chart', title: 'T', config };
+    expect(parseStateMutation({ type: 'addWidget', args: { widget } }).ok).toBe(true);
+    expect(widget.config).toBe(config);
   });
 
   it('rejects an addWidget chart whose explicit chartType is not a known chart type', () => {
@@ -849,46 +890,35 @@ describe('parseStateMutation — per-kind config-key validation (fail-closed)', 
     ).toBe(true);
   });
 
-  // Finding 2.3: `validateWidget` previously skipped the chart-family-key check
-  // entirely whenever `chartType` was absent, treating a create-path widget as
-  // unvalidatable in that case. But a create-path config with no `chartType` IS
-  // effectively a bar chart (the same `?? 'bar'` fallback `resolveChartType`/the
-  // middleware's `invalidChartConfigKeyError` apply), so a bar-incompatible key
-  // like `sankeyTargetField` must now be rejected even with no explicit `chartType`
-  // — exactly as the semantically identical `{ chartType: 'bar', sankeyTargetField
-  // }` already was.
-  it('rejects an addWidget chart with NO chartType but a cross-family key (2.3: resolves to the bar fallback)', () => {
-    const result = parseStateMutation({
-      type: 'addWidget',
-      args: {
-        widget: {
-          id: 'w',
-          kind: 'chart',
-          title: 'T',
-          config: { sankeyTargetField: 'to' },
-        },
-      },
-    });
-    expect(result.ok).toBe(false);
-    if (result.ok) {
-      throw new Error(
-        'expected parseStateMutation to reject a bar-incompatible key with no chartType',
-      );
-    }
-    expect(result.error).toContain('sankeyTargetField');
-    expect(result.error).toContain('bar');
+  // A config with no `chartType` resolves to the bar family (the same `?? 'bar'` fallback
+  // `resolveChartType` and the middleware's `buildWidgetFromArgs` apply), so a
+  // bar-incompatible key is stripped against BAR's key set rather than left in place.
+  it('strips a cross-family key from a chart config with NO chartType (resolves to the bar fallback)', () => {
+    const widget = {
+      id: 'w',
+      kind: 'chart',
+      title: 'T',
+      config: { xField: 'a', sankeyTargetField: 'to' } as Record<string, unknown>,
+    };
+    expect(parseStateMutation({ type: 'addWidget', args: { widget } }).ok).toBe(true);
+    expect(widget.config).toEqual({ xField: 'a' });
   });
 
   // Same fallback, exercised via the applyBulkUpdate.addedWidgets sibling path.
-  it('rejects an applyBulkUpdate addedWidgets entry with NO chartType but a cross-family key (2.3)', () => {
-    const result = parseStateMutation({
-      type: 'applyBulkUpdate',
-      args: {
-        ...validBulkArgs(),
-        addedWidgets: [{ id: 'w', kind: 'chart', title: 'T', config: { sankeyTargetField: 'to' } }],
-      },
-    });
-    expect(result.ok).toBe(false);
+  it('strips a cross-family key from an applyBulkUpdate addedWidgets entry with NO chartType', () => {
+    const widget = {
+      id: 'w',
+      kind: 'chart',
+      title: 'T',
+      config: { xField: 'a', sankeyTargetField: 'to' } as Record<string, unknown>,
+    };
+    expect(
+      parseStateMutation({
+        type: 'applyBulkUpdate',
+        args: { ...validBulkArgs(), addedWidgets: [widget] },
+      }).ok,
+    ).toBe(true);
+    expect(widget.config).toEqual({ xField: 'a' });
   });
 
   it('accepts an addWidget with a valid per-kind config', () => {
@@ -1460,5 +1490,143 @@ describe('parseStateMutation leaf boundedness (M2)', () => {
         args: { widgetId: 'w1', config: { ySeries: [{ fieldId: 'a', format: { style: 'x' } }] } },
       }).ok,
     ).toBe(true);
+  });
+
+  // ── Whole-record bounds ──────────────────────────────────────────────────
+  //
+  // `validateWidget`/`validateFilter`/`validateFilterScope` deliberately tolerate unknown
+  // extra own keys for forward compatibility, and the reducer installs the widget, the
+  // filter and its scope VERBATIM. Bounding only the leaves those validators name
+  // (`config`, `value`, `value2`) therefore leaves every unnamed key carrying the exact
+  // same payload, so the bound is applied to each whole record instead. `config` and
+  // `value`/`value2` keep their own narrower checks purely so they still report their own
+  // path — the record-level bound subsumes them.
+  describe('whole-record bounds on records installed verbatim', () => {
+    it.each([
+      ['deeply nested', () => deeplyNested()],
+      // Breadth, not depth: a single multi-megabyte string under an unnamed key.
+      ['a multi-megabyte string', () => 'x'.repeat(5_000_000)],
+    ])('rejects an addWidget whose unknown extra widget key holds %s', (_label, makeValue) => {
+      const result = parseStateMutation({
+        type: 'addWidget',
+        args: {
+          widget: {
+            id: 'w-extra',
+            kind: 'text',
+            title: 'T',
+            config: {},
+            extra: makeValue(),
+          },
+          pageId: 'page-1',
+        },
+      });
+      expect(result.ok).toBe(false);
+      expect(parseError(result)).toMatch(/^addWidget\.args\.widget is not a bounded/);
+    });
+
+    it('rejects an applyBulkUpdate addedWidgets entry whose unknown extra key is deeply nested', () => {
+      const result = parseStateMutation({
+        type: 'applyBulkUpdate',
+        args: {
+          ...validBulkArgs(),
+          addedWidgets: [{ id: 'w', kind: 'text', title: 'T', config: {}, extra: deeplyNested() }],
+        },
+      });
+      expect(result.ok).toBe(false);
+      expect(parseError(result)).toMatch(/addedWidgets\[0\] is not a bounded/);
+    });
+
+    it('rejects an addFilter whose unknown extra filter key is deeply nested', () => {
+      const result = parseStateMutation({
+        type: 'addFilter',
+        args: {
+          filter: {
+            id: 'f1',
+            field: 'x',
+            operator: 'equals',
+            value: 1,
+            scope: { kind: 'page', pageId: 'page-1' },
+            extra: deeplyNested(),
+          },
+        },
+      });
+      expect(result.ok).toBe(false);
+      expect(parseError(result)).toMatch(/^addFilter\.args\.filter is not a bounded/);
+    });
+
+    // `scope` is a record nested one level inside the filter. `stripUnsafeFilterKeys`
+    // removes only the prototype-hazard key names from it, so an extra key survives into
+    // the doc exactly like a filter-level or widget-level extra.
+    it.each([
+      ['deeply nested', () => deeplyNested()],
+      ['a multi-megabyte string', () => 'x'.repeat(5_000_000)],
+    ])('rejects an addFilter whose unknown extra scope key holds %s', (_label, makeValue) => {
+      const result = parseStateMutation({
+        type: 'addFilter',
+        args: {
+          filter: {
+            id: 'f1',
+            field: 'x',
+            operator: 'equals',
+            value: 1,
+            scope: { kind: 'page', pageId: 'page-1', extra: makeValue() },
+          },
+        },
+      });
+      expect(result.ok).toBe(false);
+      expect(parseError(result)).toMatch(/^addFilter\.args\.filter\.scope is not a bounded/);
+    });
+
+    // The bound must not cost forward compatibility: a SMALL unknown key still parses.
+    it('still accepts small unknown extra keys on a widget, a filter and a scope', () => {
+      expect(
+        parseStateMutation({
+          type: 'addWidget',
+          args: {
+            widget: {
+              id: 'w',
+              kind: 'text',
+              title: 'T',
+              config: {},
+              someNewerServerField: { a: 1 },
+            },
+          },
+        }).ok,
+      ).toBe(true);
+      expect(
+        parseStateMutation({
+          type: 'addFilter',
+          args: {
+            filter: {
+              id: 'f1',
+              field: 'x',
+              operator: 'equals',
+              value: 1,
+              someNewerServerField: 1,
+              scope: { kind: 'page', pageId: 'page-1', someNewerServerField: 1 },
+            },
+          },
+        }).ok,
+      ).toBe(true);
+    });
+
+    // `updateWidget.args.changes` needs no whole-record bound: unlike a full widget, it is
+    // never installed verbatim — the reducer copies only `MERGEABLE_WIDGET_CHANGE_KEYS`
+    // (`applyMutation.ts`), so an unknown extra key is dropped before it can reach the doc.
+    // Pinned here so the asymmetry with `validateWidget` above is deliberate, not an omission.
+    it('tolerates an unbounded unknown key in updateWidget.changes, which the reducer drops', () => {
+      const mutation = {
+        type: 'updateWidget',
+        args: { widgetId: 'w1', changes: { title: 'New', extra: deeplyNested() } },
+      };
+      const parsed = parseStateMutation(mutation);
+      expect(parsed.ok).toBe(true);
+      if (!parsed.ok) {
+        return;
+      }
+      const next = applyMutation(baseState(), parsed.mutation);
+      expect(next.doc.widgets.w1.title).toBe('New');
+      expect(Object.hasOwn(next.doc.widgets.w1, 'extra')).toBe(false);
+    });
   });
 });

@@ -27,7 +27,7 @@
  */
 import type { StateMutation } from './aiTypes';
 import type { StudioFilterScope } from './stateTypes';
-import { validateChartConfigKeysForType, validateConfigKeysForKind } from './configKeyValidation';
+import { stripForeignFamilyKeys, validateConfigKeysForKind } from './configKeyValidation';
 import {
   isStudioChartType,
   isStudioFilterOperator,
@@ -81,10 +81,19 @@ const MAX_STRING_LENGTH = 10_000;
 //  - No bound at all on `filter.value`/`value2`, the other deliberately-unvalidated leaf,
 //    which is the identical vector via `addFilter`.
 //
-// `isBoundedValue` closes both with ONE shared predicate applied at every unchecked leaf
-// that crosses this boundary, rather than an open-coded check per site. Like the caps
-// above it is deliberately generous: 32 levels is far beyond any real widget config or
-// filter value, but far below the recursion limit of `JSON.stringify`/`structuredClone`.
+// `isBoundedValue` closes both with ONE shared predicate, rather than an open-coded check
+// per site. Like the caps above it is deliberately generous: 32 levels is far beyond any
+// real widget config or filter value, but far below the recursion limit of
+// `JSON.stringify`/`structuredClone`.
+//
+// It is applied to each WHOLE RECORD that crosses this boundary and is installed verbatim
+// by the reducer (a widget, a filter, a filter scope), not only to the leaves the
+// validators happen to name. That is load-bearing: those validators deliberately tolerate
+// unknown extra own keys for forward compatibility (see `MutationArgValidator`), so a
+// per-leaf list can always be out-run by one more unnamed key — `addWidget` with
+// `widget: { …, extra: <20,000-deep nested array> }` carries the identical payload as an
+// unbounded `config` and lands in `doc.widgets` all the same. Bounding the record itself
+// costs strictly less than the per-leaf walks it subsumes and cannot be out-run.
 const MAX_DEPTH = 32;
 // Own-key cap for a record leaf, mirroring `isFiniteNumberRecord`'s existing key-count cap
 // (and `MAX_ARRAY_LENGTH` for arrays): breadth and depth both need a bound, since a wide-
@@ -97,12 +106,13 @@ const MAX_RECORD_KEYS = MAX_ARRAY_LENGTH;
  * more than {@link MAX_RECORD_KEYS} own keys, and no string (value OR key) longer than
  * {@link MAX_STRING_LENGTH}.
  *
- * Deliberately shape-AGNOSTIC — it makes no claim about what the leaf MEANS, only that a
+ * Deliberately shape-AGNOSTIC — it makes no claim about what the value MEANS, only that a
  * consumer can `JSON.stringify`/`structuredClone`/render it without blowing a stack or a
- * memory budget. That is exactly the property `widget.config` and `filter.value` need: the
- * boundary's whole design is that their interiors are not interpreted here (deep-validating
- * them would drift on every config change for no safety gain), but "not interpreted" must
- * not mean "not bounded".
+ * memory budget. That is exactly the property `widget.config`, `filter.value` and every
+ * unknown extra own key need: the boundary's whole design is that their interiors are not
+ * interpreted here (deep-validating them would drift on every config change for no safety
+ * gain, and unknown keys exist precisely so a newer server can add fields), but "not
+ * interpreted" must not mean "not bounded".
  *
  * `depth` counts nesting levels of the value passed in, so a caller checking a record
  * field passes the default `0` for that record itself.
@@ -136,7 +146,9 @@ function isBoundedValue(value: unknown, depth: number = 0): boolean {
  */
 function unboundedValueError(path: string): string {
   return (
-    `${path} is not a bounded, dashboard-sized value: it must nest no deeper than ` +
+    `${path} is not a bounded, dashboard-sized value, so storing it would break every ` +
+    `later JSON.stringify/structuredClone of the document (autosave and schema migration ` +
+    `both fail closed once it is installed). Send a value that nests no deeper than ` +
     `${MAX_DEPTH} levels, with no array longer than ${MAX_ARRAY_LENGTH} entries, no object ` +
     `with more than ${MAX_RECORD_KEYS} keys, and no string longer than ${MAX_STRING_LENGTH} characters`
   );
@@ -292,18 +304,27 @@ function hasInvalidChartTypeInConfig(config: Record<string, unknown>): boolean {
  * the reducer never keys/iterates on, and deep-validating them here would drift on
  * every widget-config change for no safety gain.
  *
- * CONSTRAINT — full-widget variants may only carry FRESHLY-BUILT configs. The
- * chart-family check below is STATELESS (it resolves the family from the incoming
- * config's own `chartType`, with no access to any stored widget). A round-tripped
- * STORED chart config legitimately retains keys authored under a previously-selected
- * chartType (retention-across-chartType-switch — see `StudioChartConfig`'s doc in
- * `widgetTypes.ts`), so it would be rejected here for carrying another family's key
- * (e.g. a gauge keeping a bar-era `xField`). Today no producer round-trips a stored
- * widget through `addWidget`/`applyBulkUpdate.addedWidgets` (both middleware paths
- * build widgets fresh), so nothing breaks. A future producer that DOES ship a stored
- * widget verbatim must first strip its config to its effective family's keys via
- * `stripForeignFamilyKeys` (`configKeyValidation.ts`), or the valid, user-authored
- * config will fail this check.
+ * A chart config carrying keys from ANOTHER chart family is NORMALIZED rather than
+ * rejected: `widget.config` is rewritten in place to its effective family's keys via
+ * `stripForeignFamilyKeys` (`configKeyValidation.ts`). This is the one place this
+ * validator rewrites its input, and it exists because a STORED chart config
+ * legitimately retains keys authored under a previously-selected chartType
+ * (retention-across-chartType-switch — see `StudioChartConfig`'s doc in
+ * `widgetTypes.ts`; the persistence load boundary keeps them for the same reason). A
+ * producer that ships a stored widget back through `addWidget`/
+ * `applyBulkUpdate.addedWidgets` must not have the whole mutation dropped over a key
+ * the user legitimately authored — the client's SSE handler only logs a rejection, so
+ * the server's threaded state and the client's would silently diverge.
+ *
+ * "Wrong family" is therefore soft; "not a chart key at all" stays fatal — the
+ * kind-level `validateConfigKeysForKind` check runs first and rejects any key outside
+ * the union of every chart family, so only keys that ARE valid for some chart family
+ * ever reach the strip.
+ *
+ * The whole widget record is bounded (see `isBoundedValue`) as the last step: unknown
+ * extra own keys are tolerated for forward compatibility and the reducer installs the
+ * widget object verbatim, so the record-level bound is the only thing that holds for a
+ * key this function does not name.
  */
 function validateWidget(widget: unknown, path: string): string | null {
   if (!isRecord(widget)) {
@@ -375,27 +396,20 @@ function validateWidget(widget: unknown, path: string): string | null {
   if (invalidConfigKeys.length > 0) {
     return `${path}.config carries key(s) not valid for a '${widget.kind}' widget: ${invalidConfigKeys.join(', ')}`;
   }
-  // Second, finer-grained fail-closed check for chart widgets: a chart config
-  // carrying a key that belongs to a DIFFERENT chart family (e.g. `sankeyTargetField`
-  // on a `gauge` chart) is rejected. An explicit `chartType` that is not a real
-  // `StudioChartType` is itself rejected first — there are no custom chart types.
+  // Second, finer-grained pass for chart widgets, resolving the chart FAMILY from the
+  // config's own `chartType`. An explicit `chartType` that is not a real
+  // `StudioChartType` is fatal — there are no custom chart types. An ABSENT `chartType`
+  // resolves to `'bar'`, the same `?? 'bar'` fallback `resolveChartType` and the
+  // middleware's `buildWidgetFromArgs` apply, so the two boundaries agree on which
+  // family an empty/`chartType`-less config belongs to.
   //
-  // Finding 2.3 — this validator only ever sees FULL-WIDGET creation payloads
-  // (`addWidget`/`applyBulkUpdate.addedWidgets`; see the STATELESS constraint
-  // above), so there is no "existing widget" to omit a discriminant relative to
-  // in the first place: a fresh config with no `chartType` IS effectively a bar
-  // chart, by the same `?? 'bar'` rule `resolveChartType`/the middleware's
-  // `invalidChartConfigKeyError` apply (an empty config is a valid bar config).
-  // Previously this check was skipped entirely whenever `chartType` was absent,
-  // which meant `{ sankeyTargetField: 'x' }` with no `chartType` passed the wire
-  // gate while the semantically identical `{ chartType: 'bar', sankeyTargetField:
-  // 'x' }` was rejected — the middleware's own `buildWidgetFromArgs` already
-  // resolves the same `'bar'` fallback and rejects it, so the two boundaries
-  // disagreed on an identical payload. Using the same fallback here keeps them in
-  // agreement. (An `updateWidget` config PATCH is a different case: it genuinely
-  // has no full widget/kind to fall back from, so it is intentionally NOT
-  // family-key-validated here — see `hasInvalidChartTypeInConfig`'s membership-only
-  // check for that channel instead.)
+  // Keys belonging to a DIFFERENT family (e.g. a gauge keeping a bar-era `xField`) are
+  // STRIPPED, not rejected — see this function's doc comment for why a stored,
+  // user-authored config must survive a round trip through this boundary. The strip is
+  // shallow and key-presence-based, so it only ever removes whole top-level config keys.
+  // (An `updateWidget` config PATCH is a different case: it carries no `kind` and no full
+  // widget to resolve a family from, so it is intentionally NOT family-checked at all —
+  // see `hasInvalidChartTypeInConfig`'s membership-only check for that channel.)
   if (widget.kind === 'chart') {
     const chartTypeValue = widget.config.chartType;
     if (
@@ -405,10 +419,24 @@ function validateWidget(widget: unknown, path: string): string | null {
       return `${path}.config.chartType must be one of the known chart types`;
     }
     const effectiveChartType = chartTypeValue === undefined ? 'bar' : chartTypeValue;
-    const invalidChartKeys = validateChartConfigKeysForType(effectiveChartType, widget.config);
-    if (invalidChartKeys.length > 0) {
-      return `${path}.config carries key(s) not valid for a '${effectiveChartType}' chart: ${invalidChartKeys.join(', ')}`;
+    const familyConfig = stripForeignFamilyKeys(widget.config, effectiveChartType);
+    // Only rewrite when something was actually dropped, so a config that needs no
+    // normalization keeps its object identity (this gate otherwise returns its input
+    // untouched, and the reducer's own reference-equality no-op contract depends on
+    // value-identical configs staying value-identical).
+    if (Object.keys(familyConfig).length !== Object.keys(widget.config).length) {
+      widget.config = familyConfig;
     }
+  }
+  // Bound the WHOLE widget record last (see `isBoundedValue`). The fields above are
+  // shape-checked one by one, but unknown extra own keys are deliberately tolerated for
+  // forward compatibility while the reducer installs the widget verbatim
+  // (`widgets[widget.id] = widget`), so an unnamed key is the one place arbitrary payload
+  // can still cross. Bounding the record subsumes the narrower `config` check above
+  // (which runs first purely so a deep `config` still reports its own path) and cannot be
+  // out-run by a future extra key.
+  if (!isBoundedValue(widget)) {
+    return unboundedValueError(path);
   }
   return null;
 }
@@ -464,6 +492,15 @@ function validateFilterScope(scope: unknown, path: string): string | null {
   // install/round-trip verbatim instead of being rejected here.
   if (kind === 'page' && !isOptionalString(scope.pageId)) {
     return `${path}.pageId must be a string for scope kind 'page'`;
+  }
+  // Bound the WHOLE scope record (see `isBoundedValue`). Only `kind` and the id fields
+  // this scope kind requires are named above; every other own key is tolerated for
+  // forward compatibility and survives into the doc — the reducer appends the filter
+  // (and therefore its scope) verbatim, and `stripUnsafeFilterKeys` removes only the
+  // prototype-hazard names, not arbitrary extras. `isValidFilterScope` below delegates
+  // here, so the persistence load boundary inherits the same bound.
+  if (!isBoundedValue(scope)) {
+    return unboundedValueError(path);
   }
   return null;
 }
@@ -571,7 +608,21 @@ function validateFilter(filter: unknown, path: string): string | null {
   if (!isBoundedValue(filter.value2)) {
     return unboundedValueError(`${path}.value2`);
   }
-  return validateFilterScope(filter.scope, `${path}.scope`);
+  const scopeError = validateFilterScope(filter.scope, `${path}.scope`);
+  if (scopeError) {
+    return scopeError;
+  }
+  // Bound the WHOLE filter record last (see `isBoundedValue`), for the same reason
+  // `validateWidget` does: the fields above are named one by one, but unknown extra own
+  // keys are tolerated for forward compatibility and `addFilter` appends the filter
+  // verbatim (`[...state.filters, args.filter]`), so an unnamed key carries exactly the
+  // payload the `value`/`value2` checks above are there to stop. Runs after the named
+  // checks so a deep `value`/`value2`/`scope` still reports its own path; it subsumes
+  // them.
+  if (!isBoundedValue(filter)) {
+    return unboundedValueError(path);
+  }
+  return null;
 }
 
 // ── Per-variant arg validators ──────────────────────────────────────────────────
@@ -588,6 +639,10 @@ function validateFilter(filter: unknown, path: string): string | null {
  * fields the reducer keys/iterates on are checked; leaf payloads (widget `config`,
  * filter `value`) stay shallow, and unknown EXTRA keys are tolerated for forward
  * compatibility (an older client receiving a newer server's additive field).
+ *
+ * Tolerated is not unbounded: every record the reducer installs VERBATIM (a widget, a
+ * filter, a filter scope) is additionally checked as a whole by `isBoundedValue`, so an
+ * unknown key can carry a new field but not an unbounded one.
  */
 type MutationArgValidator = (args: Record<string, unknown>) => string | null;
 
@@ -892,11 +947,14 @@ export const PARSEABLE_MUTATION_TYPES = Object.keys(
 ) as StateMutation['type'][];
 
 /**
- * Validate an untrusted `value` claiming to be a `StateMutation`. A pure gate: it
- * neither clones nor normalizes — on success it returns the input unchanged (typed
- * as `StateMutation`); on any failure it returns a descriptive `error` string
- * naming the field and why it was rejected (a loggable reason where the reducer's
- * dispatch would otherwise silently no-op).
+ * Validate an untrusted `value` claiming to be a `StateMutation`. It never clones: on
+ * success it returns the SAME object (typed as `StateMutation`); on any failure it
+ * returns a descriptive `error` string naming the field and why it was rejected (a
+ * loggable reason where the reducer's dispatch would otherwise silently no-op).
+ *
+ * The one normalization it performs is in place, on the returned object: a full
+ * widget's chart `config` has its foreign-chart-family keys stripped rather than being
+ * rejected (see `validateWidget`). Nothing else is rewritten.
  */
 export function parseStateMutation(value: unknown): ParseStateMutationResult {
   if (!isRecord(value)) {

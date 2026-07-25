@@ -25,7 +25,11 @@ export function getFieldCapabilities(field: StudioDataField): FieldCapability[] 
   if (field.capabilities && field.capabilities.length > 0) {
     return field.capabilities as FieldCapability[];
   }
-  return TYPE_CAPABILITIES[field.type] ?? [];
+  // `field.type` is doc-authored (an expression field's declared type flows through here
+  // with no runtime enum validation): guard the record index against inherited keys
+  // ("toString"/"constructor"/…) so a bare bracket lookup can't resolve a function off
+  // `Object.prototype` instead of "no default capabilities" (prototype-chain key lookup fix).
+  return Object.hasOwn(TYPE_CAPABILITIES, field.type) ? TYPE_CAPABILITIES[field.type] : [];
 }
 
 /** Returns true if the field has the given capability. */

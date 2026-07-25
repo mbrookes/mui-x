@@ -230,8 +230,12 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   // Unified widget-kind definition — built-in or consumer-registered custom kind.
   const def = widget ? widgetDefMap.get(widget.kind) : undefined;
   // Only non-builtin (custom) kinds need L2 enrichment applied here; built-in widgets
-  // enrich their own rows internally via `useWidgetRows`.
-  const isCustomKind = widget != null && !(widget.kind in BUILTIN_WIDGET_DEFS);
+  // enrich their own rows internally via `useWidgetRows`. `widget.kind` is doc-authored, so
+  // use `Object.hasOwn` rather than `in`: the latter walks the prototype chain, so a bogus
+  // kind like "constructor" would resolve `'constructor' in BUILTIN_WIDGET_DEFS` to `true`
+  // and misclassify it as built-in (harmless today since dispatch goes through a `Map`, but
+  // incorrect — prototype-chain key lookup fix).
+  const isCustomKind = widget != null && !Object.hasOwn(BUILTIN_WIDGET_DEFS, widget.kind);
 
   // Enrich the raw data source with expression-field values (L2 pipeline) for custom widgets.
   // Built-in widgets handle enrichment themselves via useWidgetRows; custom widgets receive

@@ -349,6 +349,40 @@ describe('StudioQuickFilterBar', () => {
     expect(screen.getByText(/Country: France, Germany/)).toBeDefined();
   });
 
+  // Regression coverage: `filter.scope.pageId` (used to prefix a cross-page cross-filter
+  // chip with its origin page's title) is doc-authored. A bare `pages[pageId]` lookup would
+  // resolve an inherited `Object.prototype` member (truthy) for a pageId like "constructor",
+  // and reading `.title` off that would throw. Rendering must not throw, and since no such
+  // page actually exists the origin-page prefix must be omitted.
+  it('does not throw and omits the origin-page prefix for a cross-page filter pageId colliding with an inherited Object.prototype member', () => {
+    mockState = createDefaultStudioState({
+      doc: {
+        filters: [
+          {
+            ...makeCrossFilter('cf1', 'country', 'France'),
+            scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'constructor' },
+          },
+        ],
+        // Cross-page filters are only rendered at all when `crossFilterAllPages` is on
+        // (otherwise they're scoped out entirely, unrelated to this fix) — needed here so
+        // the chip (and its origin-page-title lookup) actually renders.
+        dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID, crossFilterAllPages: true },
+      },
+      runtime: {
+        dataSources: {
+          src1: {
+            id: 'src1',
+            label: 'Source',
+            fields: [{ id: 'country', label: 'Country', type: 'string' as const }],
+            rows: [],
+          },
+        },
+      },
+    });
+    expect(() => render(<StudioQuickFilterBar />)).not.toThrow();
+    expect(screen.getByText(/Country: France/)).toBeDefined();
+  });
+
   // Regression coverage for architecture-review finding #7: the tooltip describing the
   // toggle/remove affordance used to be driven only by mouseenter/mouseleave state, so a
   // keyboard user tabbing onto the (already-focusable, clickable) chip never saw it.

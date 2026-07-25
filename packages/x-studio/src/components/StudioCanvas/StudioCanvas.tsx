@@ -266,7 +266,11 @@ function StudioPageRows({
           mode !== 'edit' &&
           row.length > 0 &&
           row.every((widgetId) => {
-            const widget = widgets[widgetId];
+            // `widgetId` is doc-authored: guard the record index against inherited keys
+            // ("toString"/"constructor"/…) so a bare bracket lookup can't resolve a function
+            // off `Object.prototype` instead of "not found" — the `!widget` check below would
+            // not catch a truthy inherited function (prototype-chain key lookup fix).
+            const widget = Object.hasOwn(widgets, widgetId) ? widgets[widgetId] : undefined;
             if (!widget) {
               return true;
             }

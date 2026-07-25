@@ -19,7 +19,7 @@ import {
 import {
   useStudioController,
   useStudioSelector,
-  selectWidgets,
+  makeSelectWidget,
   selectDataSources,
   selectFilters,
   selectActivePageId,
@@ -94,7 +94,8 @@ function LegendPositionSection(props: {
 export function FormatPanel(props: { widgetId: string }) {
   const { widgetId } = props;
   const controller = useStudioController();
-  const widget = useStudioSelector(selectWidgets)[widgetId];
+  const selectWidgetFn = React.useMemo(() => makeSelectWidget(widgetId), [widgetId]);
+  const widget = useStudioSelector(selectWidgetFn);
   // This panel renders controls for several widget kinds and reads their config
   // keys behind per-kind `widget?.kind === …` branches. Because the widget union
   // includes a custom-kind member (which defeats automatic discriminated

@@ -545,7 +545,11 @@ export function makeSelectWidgetSource(
   widgetId: string,
 ): (state: StudioState) => StudioDataSource | undefined {
   return (state) => {
-    const w = state.doc.widgets[widgetId];
+    // `widgetId` is doc-authored (host/AI-writable): guard the record index against inherited
+    // keys ("toString"/"constructor"/…) so a bare bracket lookup can't resolve a function off
+    // `Object.prototype` instead of "not found" (prototype-chain key lookup fix, matching the
+    // identical guard in `makeSelectWidget` above).
+    const w = Object.hasOwn(state.doc.widgets, widgetId) ? state.doc.widgets[widgetId] : undefined;
     const sourceId = w?.sourceId;
     // `sourceId` is doc-authored (host/AI-writable), so guard the record index against
     // inherited keys: a key like "toString"/"constructor" would otherwise resolve a function

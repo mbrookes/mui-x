@@ -7,10 +7,10 @@ import type { StudioFilterState, StudioDataField } from '../../models';
 import { useStudioController } from '../../context/StudioContext';
 import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 import {
+  makeSelectWidget,
   selectDataSources,
   selectFilters,
   selectRelationships,
-  selectWidgets,
   useStudioSelector,
 } from '../../context';
 import { FilterRow, type FieldOption } from './FilterRow';
@@ -22,11 +22,11 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
   const controller = useStudioController();
   const localeText = useStudioLocaleText();
   const allFilters = useStudioSelector(selectFilters);
-  const widgets = useStudioSelector(selectWidgets);
+  const selectWidgetFn = React.useMemo(() => makeSelectWidget(widgetId), [widgetId]);
+  const widget = useStudioSelector(selectWidgetFn);
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
 
-  const widget = widgets[widgetId];
   const sourceId = widget?.sourceId;
 
   // Own source fields

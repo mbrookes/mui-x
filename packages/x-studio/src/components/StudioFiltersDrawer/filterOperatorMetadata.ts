@@ -90,7 +90,8 @@ const OPERATORS_BY_TYPE: Record<FilterOperatorFieldType, FilterOperatorOption[]>
 export function getOperatorsForFieldType(
   fieldType: FilterOperatorFieldType | undefined,
 ): FilterOperatorOption[] {
-  return OPERATORS_BY_TYPE[fieldType ?? 'string'] ?? OPERATORS_BY_TYPE.string;
+  const key = fieldType ?? 'string';
+  return Object.hasOwn(OPERATORS_BY_TYPE, key) ? OPERATORS_BY_TYPE[key] : OPERATORS_BY_TYPE.string;
 }
 
 /**

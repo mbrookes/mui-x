@@ -15,7 +15,7 @@ import {
 import {
   useStudioController,
   useStudioSelector,
-  selectWidgets,
+  makeSelectWidget,
   selectDataSources,
   selectExpressionFields,
   selectFilters,
@@ -97,14 +97,21 @@ function deriveKpiAggregationOptions(
   if (!hasField) {
     return countOnly;
   }
+  // `fieldType` is doc-authored (derived from an expression field's `type`, with no runtime
+  // enum validation on this path): guard the record index against inherited keys
+  // ("toString"/"constructor"/…) so a bare bracket lookup can't resolve a function off
+  // `Object.prototype` instead of "not found" (prototype-chain key lookup fix).
   if (fieldType) {
-    return aggregations[fieldType as keyof typeof aggregations] ?? countOnly;
+    return Object.hasOwn(aggregations, fieldType)
+      ? aggregations[fieldType as keyof typeof aggregations]
+      : countOnly;
   }
   return aggregations.number;
 }
 
 export function KpiSetupPanel(props: { widgetId: string }) {
-  const widget = useStudioSelector(selectWidgets)[props.widgetId];
+  const selectWidgetFn = React.useMemo(() => makeSelectWidget(props.widgetId), [props.widgetId]);
+  const widget = useStudioSelector(selectWidgetFn);
   const controller = useStudioController();
   const features = useStudioFeatures();
   const localeText = useStudioLocaleText();

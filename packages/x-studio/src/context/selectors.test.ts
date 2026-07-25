@@ -450,6 +450,16 @@ describe('per-widget selectors', () => {
     expect(makeSelectWidgetSource('w1')(s)).toBe(source);
     expect(makeSelectWidgetSource('w2')(s)).toBeUndefined(); // no sourceId
   });
+
+  it('makeSelectWidgetSource does not resolve an inherited Object.prototype member for a widgetId equal to its name', () => {
+    // Same prototype-chain hazard as `makeSelectWidget` above, but on the `widgets[widgetId]`
+    // lookup that precedes the (already-guarded) `dataSources[sourceId]` lookup inside
+    // `makeSelectWidgetSource` itself.
+    const s = state({ widgets: { w1: widget('w1', 'chart', { sourceId: 's1' }) } });
+    expect(makeSelectWidgetSource('constructor')(s)).toBeUndefined();
+    expect(makeSelectWidgetSource('toString')(s)).toBeUndefined();
+    expect(makeSelectWidgetSource('__proto__')(s)).toBeUndefined();
+  });
 });
 
 describe('makeSelectWidgetRankFilter', () => {

@@ -239,8 +239,15 @@ export function StudioQuickFilterBar() {
       {crossFilters.map((filter) => {
         const fieldLabel = fieldLabelMap.get(filter.field ?? '') ?? filter.field ?? '';
         const summary = formatCrossFilterValueLabel(filter.value);
-        const isFromOtherPage = filter.scope.pageId && filter.scope.pageId !== activePageId;
-        const pageTitle = isFromOtherPage ? (pages[filter.scope.pageId]?.title ?? '') : '';
+        const otherPageId =
+          filter.scope.pageId && filter.scope.pageId !== activePageId
+            ? filter.scope.pageId
+            : undefined;
+        // `filter.scope.pageId` is doc-authored: guard the record index against inherited
+        // keys ("toString"/"constructor"/…) so a bare bracket lookup can't resolve a function
+        // off `Object.prototype` instead of "not found" (prototype-chain key lookup fix).
+        const pageTitle =
+          otherPageId && Object.hasOwn(pages, otherPageId) ? pages[otherPageId].title : '';
         const baseLabel = fieldLabel ? `${fieldLabel}: ${summary}` : summary;
         const chipLabel = pageTitle ? `${pageTitle} · ${baseLabel}` : baseLabel;
         return (

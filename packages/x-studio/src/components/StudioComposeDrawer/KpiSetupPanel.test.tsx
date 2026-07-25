@@ -237,6 +237,42 @@ describe('KpiSetupPanel', () => {
     }
   });
 
+  // Regression coverage: the KPI value field's `type` is doc-authored (it can come from an
+  // expression field with no runtime enum validation on this path). `deriveKpiAggregationOptions`
+  // used to index the `aggregations` plain object with a bare `aggregations[fieldType]`, so a
+  // field type colliding with an inherited `Object.prototype` member (e.g. "toString") resolved
+  // a truthy function instead of `undefined` — the `?? countOnly` fallback never fired, and
+  // `aggregationOptions.some(...)` then threw `TypeError: aggregationOptions.some is not a
+  // function` because "options" was actually a function. Rendering the panel must not throw
+  // and must fall back to the count-only option set.
+  it('falls back to count-only aggregation options for a value field type colliding with an inherited Object.prototype member', () => {
+    const previousWidget = mockState.doc.widgets['widget-1'];
+    const previousFields = mockState.runtime.dataSources.orders.fields;
+    controller.updateWidgetConfig.mockClear();
+
+    try {
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
+        fields: [...previousFields, { id: 'weird', label: 'Weird', type: 'toString' as any }],
+      };
+      mockState.doc.widgets['widget-1'] = {
+        ...previousWidget,
+        config: { kpiValueField: 'weird', kpiAggregation: 'count' },
+      };
+
+      expect(() => render(<KpiSetupPanel widgetId="widget-1" />)).not.toThrow();
+
+      // Only "Count" is offered — the count-only fallback, not an inherited function.
+      expect(screen.getByText('Count', { selector: '[role="combobox"]' })).toBeVisible();
+    } finally {
+      mockState.doc.widgets['widget-1'] = previousWidget;
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
+        fields: previousFields,
+      };
+    }
+  });
+
   // Finding 1 (Tier 1, non-undoable data destruction): `count_distinct` is a valid,
   // schema-supported (`StudioKpiAggregation`) and renderer-supported (`computeAggregate`)
   // KPI aggregation, but was previously omitted from every option list `getKpiAggregations`

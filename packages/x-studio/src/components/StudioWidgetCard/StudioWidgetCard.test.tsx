@@ -154,6 +154,15 @@ describe('StudioWidgetCard', () => {
     expect(card.getAttribute('aria-current')).toBe(null);
   });
 
+  // Regression coverage: `widget.kind` is doc-authored. The custom/built-in classification
+  // used to check `widget.kind in BUILTIN_WIDGET_DEFS`, and `in` walks the prototype chain —
+  // so a bogus kind equal to an inherited `Object.prototype` member name (e.g. "constructor")
+  // would misclassify as built-in. Rendering such a widget must not throw (with no matching
+  // def, the card simply renders no widget content).
+  it('does not throw for a widget kind colliding with an inherited Object.prototype member', () => {
+    expect(() => setup({ widget: widget({ kind: 'constructor' as any }) })).not.toThrow();
+  });
+
   // Regression coverage: Space used to select the widget without calling
   // `event.preventDefault()`, so the browser would also scroll the page (its default
   // action for a Space keypress) on top of activating the card.

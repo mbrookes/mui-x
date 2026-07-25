@@ -2,7 +2,7 @@
 import * as React from 'react';
 import { Box, Dialog, DialogTitle, IconButton, Stack, Tab, Tabs, Typography } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import { useStudioSelector, selectWidgets } from '../../context';
+import { useStudioSelector, makeSelectWidget } from '../../context';
 import { useStudioFeatures, useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 import { useWidgetDefMap } from '../../internals/builtinWidgetDefs';
 import { StudioDrawerErrorBoundary } from '../../internals/StudioDrawerErrorBoundary';
@@ -43,8 +43,8 @@ export interface StudioWidgetEditDialogProps {
 export function StudioWidgetEditDialog(props: StudioWidgetEditDialogProps) {
   const { open, onClose, widgetId, children } = props;
   const [tab, setTab] = React.useState(0);
-  const widgets = useStudioSelector(selectWidgets);
-  const widget = widgets[widgetId];
+  const selectWidgetFn = React.useMemo(() => makeSelectWidget(widgetId), [widgetId]);
+  const widget = useStudioSelector(selectWidgetFn);
   const features = useStudioFeatures();
   const localeText = useStudioLocaleText();
   const widgetDefMap = useWidgetDefMap();

@@ -64,6 +64,21 @@ describe('getOperatorsForFieldType', () => {
       'not_equals',
     ]);
   });
+
+  // Regression coverage: `fieldType` flows from doc/AI-authored data with no runtime enum
+  // validation on this path. A bare `OPERATORS_BY_TYPE[fieldType]` lookup would resolve an
+  // inherited `Object.prototype` member (truthy) for a value like "constructor"/"toString",
+  // so the `?? OPERATORS_BY_TYPE.string` fallback would never fire — and callers that then
+  // call `.some(...)`/`.map(...)` on the "result" would throw `TypeError: ... is not a
+  // function`. `getOperatorsForFieldType` must fall back to the string operator list instead.
+  it('falls back to string operators for a fieldType colliding with an inherited Object.prototype member', () => {
+    for (const badType of ['constructor', 'toString', 'valueOf', 'hasOwnProperty']) {
+      const ops = getOperatorsForFieldType(badType as any);
+      expect(Array.isArray(ops)).toBe(true);
+      expect(ops).toEqual(getOperatorsForFieldType('string'));
+      expect(() => ops.some((o) => o.value === 'equals')).not.toThrow();
+    }
+  });
 });
 
 describe('getOperatorLabel', () => {

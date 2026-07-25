@@ -36,8 +36,9 @@ import { toDate } from '../compile/fieldTypes';
  * `datum['field']` reads a row property (including chained/nested access).
  * A short allow-list of pure functions is supported: abs, round, floor,
  * ceil, sqrt, log, pow, sin, cos, min, max, length, upper, lower, substring,
- * toNumber, toString, year, month, date, hours, minutes, seconds, timeFormat,
- * utcFormat, format. `if(test, then, else)` (Vega's ternary function) is a
+ * indexof, isValid, toNumber, toString, year, month, date, hours, minutes,
+ * seconds, timeFormat, utcFormat, format, random, quantileUniform,
+ * quantileNormal. `if(test, then, else)` (Vega's ternary function) is a
  * special form rather than a plain function — like the `?:` operator, only
  * the taken branch is evaluated. An array literal (`[a, b, ...]`, used by an
  * axis `labelExpr` to build a multi-line label) is also supported. Anything
@@ -365,6 +366,54 @@ function asNumber(value: unknown): number {
   return Number(value);
 }
 
+// Peter Acklam's rational approximation of the standard normal distribution's
+// inverse CDF (the "probit" function) — relative error under 1.15e-9 across
+// (0, 1), well within what a Q-Q plot needs. Used by `quantileNormal` below.
+// Coefficients as published (https://web.archive.org/web/20151030215612/http://home.online.no/~pjacklam/notes/invnorm/).
+const A = [
+  -3.969683028665376e1, 2.209460984245205e2, -2.759285104469687e2, 1.38357751867269e2,
+  -3.066479806614716e1, 2.506628277459239,
+];
+const B = [
+  -5.447609879822406e1, 1.615858368580409e2, -1.556989798598866e2, 6.680131188771972e1,
+  -1.328068155288572e1,
+];
+const C = [
+  -7.784894002430293e-3, -3.223964580411365e-1, -2.400758277161838, -2.549732539343734,
+  4.374664141464968, 2.938163982698783,
+];
+const D = [7.784695709041462e-3, 3.224671290700398e-1, 2.445134137142996, 3.754408661907416];
+
+function inverseNormalCdf(p: number): number {
+  if (!(p > 0) || !(p < 1)) {
+    return p <= 0 ? -Infinity : Infinity;
+  }
+  const pLow = 0.02425;
+  if (p < pLow) {
+    // Lower tail.
+    const q = Math.sqrt(-2 * Math.log(p));
+    return (
+      (((((C[0] * q + C[1]) * q + C[2]) * q + C[3]) * q + C[4]) * q + C[5]) /
+      ((((D[0] * q + D[1]) * q + D[2]) * q + D[3]) * q + 1)
+    );
+  }
+  if (p <= 1 - pLow) {
+    // Central region.
+    const q = p - 0.5;
+    const r = q * q;
+    return (
+      ((((((A[0] * r + A[1]) * r + A[2]) * r + A[3]) * r + A[4]) * r + A[5]) * q) /
+      (((((B[0] * r + B[1]) * r + B[2]) * r + B[3]) * r + B[4]) * r + 1)
+    );
+  }
+  // Upper tail.
+  const q = Math.sqrt(-2 * Math.log(1 - p));
+  return (
+    -(((((C[0] * q + C[1]) * q + C[2]) * q + C[3]) * q + C[4]) * q + C[5]) /
+    ((((D[0] * q + D[1]) * q + D[2]) * q + D[3]) * q + 1)
+  );
+}
+
 function stringify(value: unknown): string {
   if (value == null) {
     return '';
@@ -510,6 +559,47 @@ const FUNCTIONS: Record<string, (args: unknown[]) => unknown> = {
     } catch {
       return String(n);
     }
+  },
+  // Vega's `indexof(collection, value)`: the first index of `value` in a
+  // string or array, or -1 when not found.
+  indexof: (args) => {
+    const collection = args[0];
+    if (typeof collection === 'string') {
+      return collection.indexOf(String(args[1]));
+    }
+    if (Array.isArray(collection)) {
+      return collection.indexOf(args[1]);
+    }
+    return -1;
+  },
+  // Vega's `isValid(value)`: false for null/undefined/NaN, true otherwise.
+  isValid: (args) => {
+    const value = args[0];
+    return (
+      value !== null && value !== undefined && !(typeof value === 'number' && Number.isNaN(value))
+    );
+  },
+  // Vega's `random()`: a pseudorandom number in [0, 1), matching Vega's own
+  // (equally nondeterministic) behavior — used for jittering overlapping
+  // points, not anything requiring reproducibility.
+  random: () => Math.random(),
+  // Vega's `quantileUniform(p[, min, max])`: the inverse CDF of a uniform
+  // distribution (default [0, 1]) — used to generate reference quantiles for
+  // a Q-Q plot.
+  quantileUniform: (args) => {
+    const p = asNumber(args[0]);
+    const min = args.length > 1 ? asNumber(args[1]) : 0;
+    const max = args.length > 2 ? asNumber(args[2]) : 1;
+    return min + p * (max - min);
+  },
+  // Vega's `quantileNormal(p[, mean, stdev])`: the inverse CDF of a normal
+  // distribution (default mean 0, stdev 1) — the other half of a Q-Q plot's
+  // reference quantiles.
+  quantileNormal: (args) => {
+    const p = asNumber(args[0]);
+    const mean = args.length > 1 ? asNumber(args[1]) : 0;
+    const stdev = args.length > 2 ? asNumber(args[2]) : 1;
+    return mean + stdev * inverseNormalCdf(p);
   },
 };
 

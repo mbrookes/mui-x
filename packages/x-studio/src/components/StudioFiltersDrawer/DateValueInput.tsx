@@ -28,14 +28,27 @@ export function DateValueInput({
   const isRel = isRelativeDateValue(value);
   const mode = isRel ? 'relative' : 'absolute';
 
+  // `absoluteToRelative`/`relativeToAbsolute` are lossy: "2024-05-20" viewed 45 days later
+  // becomes "2 months ago", and converting that back yields ~60 days ago — the original date
+  // is gone. The control reads as a display-mode switch, so remember the last value the user
+  // actually had in each mode and restore it verbatim when they toggle back; conversion runs
+  // only the first time a mode is entered, when there is nothing to restore.
+  const lastAbsoluteRef = React.useRef<string | null>(null);
+  const lastRelativeRef = React.useRef<RelativeDateValue | null>(null);
+  if (isRel) {
+    lastRelativeRef.current = value as RelativeDateValue;
+  } else if (typeof value === 'string' && value !== '') {
+    lastAbsoluteRef.current = value;
+  }
+
   const handleModeChange = (_: React.MouseEvent, newMode: 'absolute' | 'relative' | null) => {
     if (!newMode || newMode === mode) {
       return;
     }
     if (newMode === 'relative') {
-      onChange(absoluteToRelative(String(value ?? '')));
+      onChange(lastRelativeRef.current ?? absoluteToRelative(String(value ?? '')));
     } else {
-      onChange(relativeToAbsolute(value as RelativeDateValue));
+      onChange(lastAbsoluteRef.current ?? relativeToAbsolute(value as RelativeDateValue));
     }
   };
 

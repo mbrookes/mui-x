@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { act, createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
-import { describe, expect, it, vi, afterEach } from 'vitest';
+import { createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
+import { describe, expect, it, vi } from 'vitest';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import { FilterValueInput } from './FilterValueInput';
@@ -113,18 +113,63 @@ describe('FilterValueInput', () => {
     expect(container.firstChild).toBe(null);
   });
 
-  // ── M4: operator change must not strand an uncommitted edit ─────────────────
+  // ── Buffered commit: one undo entry per editing gesture ────────────────────
   //
-  // The operator branch used to `clearTimeout` the pending 150ms debounce and stop there, so
-  // the in-flight keystrokes were dropped from the store but LEFT in the input. The field
-  // then showed text that the card summary and the query knew nothing about, permanently.
-  describe('operator change with a pending edit (M4)', () => {
-    afterEach(() => {
-      vi.useRealTimers();
+  // The plain TextField and the Autocomplete used to commit through a 150ms debounce, so
+  // typing "Northern Europe" at a normal pace landed a separate undoable `updateFilter` at
+  // every pause — Ctrl+Z un-typed the value in fragments — and a commit still pending when the
+  // row unmounted was dropped without ever reaching the store.
+  describe('buffered commit (finding 3)', () => {
+    it('does not commit while typing, and commits once on blur', () => {
+      const onChange = vi.fn();
+      render(
+        <FilterValueInput fieldType="string" operator="equals" value="" onChange={onChange} />,
+      );
+
+      const input = screen.getByRole('textbox') as HTMLInputElement;
+      fireEvent.change(input, { target: { value: 'North' } });
+      fireEvent.change(input, { target: { value: 'Northern' } });
+      fireEvent.change(input, { target: { value: 'Northern Europe' } });
+      expect(onChange).not.toHaveBeenCalled();
+      expect(input.value).toBe('Northern Europe');
+
+      fireEvent.blur(input);
+      expect(onChange).toHaveBeenCalledTimes(1);
+      expect(onChange).toHaveBeenCalledWith('Northern Europe');
     });
 
+    it('commits on Enter', () => {
+      const onChange = vi.fn();
+      render(
+        <FilterValueInput fieldType="string" operator="equals" value="" onChange={onChange} />,
+      );
+
+      const input = screen.getByRole('textbox');
+      fireEvent.change(input, { target: { value: 'DE' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+      expect(onChange).toHaveBeenCalledTimes(1);
+      expect(onChange).toHaveBeenCalledWith('DE');
+    });
+
+    it('does not re-commit on a blur that follows no edit', () => {
+      // Focusing and leaving an untouched input must not push an undo entry.
+      const onChange = vi.fn();
+      render(
+        <FilterValueInput fieldType="string" operator="equals" value="foo" onChange={onChange} />,
+      );
+
+      fireEvent.blur(screen.getByRole('textbox'));
+      expect(onChange).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── M4: operator change must not strand an uncommitted edit ─────────────────
+  //
+  // The operator branch used to drop the in-flight keystrokes from the store but LEAVE them in
+  // the input. The field then showed text that the card summary and the query knew nothing
+  // about, permanently.
+  describe('operator change with a pending edit (M4)', () => {
     it('resyncs the displayed text to the committed value when the operator changes', () => {
-      vi.useFakeTimers();
       const onChange = vi.fn();
       const { rerender } = render(
         <FilterValueInput fieldType="string" operator="equals" value="foo" onChange={onChange} />,
@@ -134,25 +179,22 @@ describe('FilterValueInput', () => {
       fireEvent.change(input, { target: { value: 'bar' } });
       expect(input.value).toBe('bar');
 
-      // The operator changes inside the 150ms window — via the dropdown, or via
+      // The operator changes before the edit is committed — via the dropdown, or via
       // `PageFilterRow`'s self-repair effect after a data-source load race. The stored
-      // value is still `foo`.
+      // value is still `foo`, and the operator switch changes the value SHAPE, so the
+      // uncommitted scalar must not survive it.
       rerender(
         <FilterValueInput fieldType="string" operator="contains" value="foo" onChange={onChange} />,
       );
 
-      act(() => {
-        vi.advanceTimersByTime(300);
-      });
-
-      // The stale commit is still cancelled …
+      // The stale edit is dropped …
+      fireEvent.blur(screen.getByRole('textbox'));
       expect(onChange).not.toHaveBeenCalled();
       // … and the input no longer disagrees with what is actually stored.
       expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('foo');
     });
 
     it('clears the input when the operator changes and the committed value is empty', () => {
-      vi.useFakeTimers();
       const onChange = vi.fn();
       const { rerender } = render(
         <FilterValueInput fieldType="string" operator="equals" value="" onChange={onChange} />,
@@ -163,27 +205,19 @@ describe('FilterValueInput', () => {
         <FilterValueInput fieldType="string" operator="contains" value="" onChange={onChange} />,
       );
 
-      act(() => {
-        vi.advanceTimersByTime(300);
-      });
-
+      fireEvent.blur(screen.getByRole('textbox'));
       expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('');
       expect(onChange).not.toHaveBeenCalled();
     });
   });
 
   describe('Autocomplete reset echo (finding 2.16)', () => {
-    afterEach(() => {
-      vi.useRealTimers();
-    });
-
-    it('does not schedule a commit when an external value change echoes back the same value', () => {
+    it('does not mark the input dirty when an external value change echoes back the same value', () => {
       // Regression for finding 2.16: MUI's free-solo Autocomplete fires
       // `onInputChange(value, 'reset')` whenever its controlled `value` changes externally
-      // (undo, redo, preset apply, AI mutation). The drawer's handler used to schedule its
-      // 150ms debounce unconditionally, eventually re-committing the content-identical value
-      // as a fresh, undoable, redo-clearing `updateFilter` commit.
-      vi.useFakeTimers();
+      // (undo, redo, preset apply, AI mutation). Buffering that echo would leave the input
+      // dirty, so the next blur would re-commit the content-identical value as a fresh,
+      // undoable, redo-clearing `updateFilter`.
       const onChange = vi.fn();
       const { rerender } = render(
         <FilterValueInput
@@ -207,18 +241,13 @@ describe('FilterValueInput', () => {
         />,
       );
 
-      // Advance well past the 150ms debounce window.
-      act(() => {
-        vi.advanceTimersByTime(300);
-      });
-
+      fireEvent.blur(screen.getByRole('combobox'));
       expect(onChange).not.toHaveBeenCalled();
     });
 
-    it('still commits a genuine option pick after an external value change', () => {
+    it('still commits a genuine free-text edit after an external value change', () => {
       // The fix must not swallow real edits — only the reset echo that redelivers the
-      // ALREADY-current value. Picking a different option must still commit.
-      vi.useFakeTimers();
+      // ALREADY-current value.
       const onChange = vi.fn();
       render(
         <FilterValueInput
@@ -232,10 +261,27 @@ describe('FilterValueInput', () => {
 
       const input = screen.getByRole('combobox') as HTMLInputElement;
       fireEvent.change(input, { target: { value: 'B' } });
+      expect(onChange).not.toHaveBeenCalled();
 
-      act(() => {
-        vi.advanceTimersByTime(300);
-      });
+      fireEvent.blur(input);
+      expect(onChange).toHaveBeenCalledWith('B');
+    });
+
+    it('commits immediately when an option is picked, without waiting for a blur', async () => {
+      // Clicking an option never blurs the input, so the pick has to commit on its own.
+      const onChange = vi.fn();
+      const { user } = render(
+        <FilterValueInput
+          fieldType="string"
+          operator="equals"
+          value="A"
+          onChange={onChange}
+          fieldValues={['A', 'B']}
+        />,
+      );
+
+      await user.click(screen.getByRole('button', { name: /open/i }));
+      await user.click(screen.getByRole('option', { name: 'B' }));
 
       expect(onChange).toHaveBeenCalledWith('B');
     });

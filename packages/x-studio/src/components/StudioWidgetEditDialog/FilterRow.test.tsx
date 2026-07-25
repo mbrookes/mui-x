@@ -113,8 +113,7 @@ describe('FilterRow', () => {
       />,
     );
 
-    // combobox[0] is the field selector; combobox[1] is the operator selector.
-    const operatorSelect = screen.getAllByRole('combobox')[1];
+    const operatorSelect = screen.getByRole('combobox', { name: 'Operator' });
     await user.click(operatorSelect);
     const listbox = screen.getByRole('listbox');
     await user.click(within(listbox).getByText('Before'));
@@ -141,8 +140,7 @@ describe('FilterRow', () => {
         onUpdate={() => {}}
       />,
     );
-    const operatorSelect = screen.getAllByRole('combobox')[1];
-    expect(operatorSelect.textContent).toBe('=');
+    expect(screen.getByRole('combobox', { name: 'Operator' }).textContent).toBe('=');
   });
 
   it('calls onRemove when the delete button is clicked', () => {
@@ -155,7 +153,152 @@ describe('FilterRow', () => {
         onUpdate={() => {}}
       />,
     );
-    screen.getByRole('button').click();
+    screen.getByRole('button', { name: 'Remove filter' }).click();
     expect(onRemove).toHaveBeenCalled();
+  });
+
+  // Regression for finding 5: both Selects were anonymous. `role="combobox"` takes its name
+  // from the author, not from the rendered value, so a screen-reader user heard
+  // "combobox, combobox, edit text" — and the tests had to index positionally to say which
+  // control they meant.
+  it('names both Selects and the value input', () => {
+    render(
+      <FilterRow
+        filter={makeFilter({ fieldType: 'number', value: '42' })}
+        fieldOptions={[numberField]}
+        onRemove={() => {}}
+        onUpdate={() => {}}
+      />,
+    );
+    expect(screen.getByRole('combobox', { name: 'Field' })).not.toBe(null);
+    expect(screen.getByRole('combobox', { name: 'Operator' })).not.toBe(null);
+    expect(screen.getByRole('textbox', { name: 'Value' })).not.toBe(null);
+  });
+
+  // Regression for finding 1: the row derived the field type from the option list alone. A
+  // filter on a field the panel doesn't list (a cross-source pick, a renamed column) therefore
+  // degraded to STRING — a numeric `greater_than` filter rendered "Equals" while the engine
+  // kept applying `greater_than`, and picking "Contains" off that wrong list wrote a string
+  // operator onto a number field, where `toNumericValue` yields NaN and the filter stops
+  // matching. The stamped `filter.fieldType` is authoritative.
+  describe('field type resolution (finding 1)', () => {
+    it('uses the stamped fieldType when the field is absent from the option list', () => {
+      render(
+        <FilterRow
+          filter={makeFilter({
+            field: 'quantity',
+            filterSourceId: 'orderLines',
+            fieldType: 'number',
+            operator: 'greater_than',
+            value: '100',
+          })}
+          fieldOptions={[numberField]}
+          onRemove={() => {}}
+          onUpdate={() => {}}
+        />,
+      );
+
+      // The number table's label for `greater_than`, not the string list's "Equals".
+      expect(screen.getByRole('combobox', { name: 'Operator' }).textContent).toBe('>');
+    });
+
+    it('types the between bounds as number inputs from the stamped fieldType', () => {
+      render(
+        <FilterRow
+          filter={makeFilter({
+            field: 'quantity',
+            filterSourceId: 'orderLines',
+            fieldType: 'number',
+            operator: 'between',
+            value: { from: '1', to: '9' },
+          })}
+          fieldOptions={[numberField]}
+          onRemove={() => {}}
+          onUpdate={() => {}}
+        />,
+      );
+
+      expect((screen.getByRole('spinbutton', { name: 'From' }) as HTMLInputElement).type).toBe(
+        'number',
+      );
+    });
+
+    it('repairs a stored operator that is invalid for the resolved type, non-undoably', () => {
+      // `activeOperator` is display-only; without the repair the dialog shows one operator
+      // while the engine applies another, forever.
+      const onUpdate = vi.fn();
+      render(
+        <FilterRow
+          filter={makeFilter({ fieldType: 'number', operator: 'contains', value: 'x' })}
+          fieldOptions={[numberField]}
+          onRemove={() => {}}
+          onUpdate={onUpdate}
+        />,
+      );
+
+      expect(onUpdate).toHaveBeenCalledWith({ operator: 'equals' }, { undoable: false });
+    });
+
+    it('does not repair while the field type is still unresolved', () => {
+      // During a load race `getOperatorsForFieldType(undefined)` yields the string table, which
+      // would condemn a perfectly valid `between` to a permanent rewrite.
+      const onUpdate = vi.fn();
+      render(
+        <FilterRow
+          filter={makeFilter({ field: 'ship_date', fieldType: undefined, operator: 'between' })}
+          fieldOptions={[]}
+          onRemove={() => {}}
+          onUpdate={onUpdate}
+        />,
+      );
+
+      expect(onUpdate).not.toHaveBeenCalled();
+    });
+  });
+
+  // Regression for finding 2: an unresolvable field rendered as an ordinary-looking column
+  // name while the widget silently matched zero rows.
+  describe('unresolved field (finding 2)', () => {
+    it('marks the field and explains why when it matches no catalog entry', () => {
+      render(
+        <FilterRow
+          filter={makeFilter({ field: 'total', fieldType: 'number' })}
+          fieldOptions={[numberField]}
+          onRemove={() => {}}
+          onUpdate={() => {}}
+        />,
+      );
+
+      expect(screen.getByTestId('filter-field-unresolved')).not.toBe(null);
+      expect(screen.getByRole('combobox', { name: 'Field' }).textContent).toBe(
+        'total (unavailable)',
+      );
+    });
+
+    it('stays silent while the option list is still empty', () => {
+      render(
+        <FilterRow
+          filter={makeFilter({ field: 'total', fieldType: 'number' })}
+          fieldOptions={[]}
+          onRemove={() => {}}
+          onUpdate={() => {}}
+        />,
+      );
+
+      expect(screen.queryByTestId('filter-field-unresolved')).toBe(null);
+    });
+
+    it('stays silent for a resolvable field', () => {
+      render(
+        <FilterRow
+          filter={makeFilter()}
+          fieldOptions={[numberField]}
+          onRemove={() => {}}
+          onUpdate={() => {}}
+        />,
+      );
+
+      expect(screen.queryByTestId('filter-field-unresolved')).toBe(null);
+    });
   });
 });

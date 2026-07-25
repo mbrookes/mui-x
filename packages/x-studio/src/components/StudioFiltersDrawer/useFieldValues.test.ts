@@ -2,6 +2,7 @@ import { renderHook } from '@mui/internal-test-utils';
 import { describe, expect, it } from 'vitest';
 import type { StudioDataSource, StudioFilterState } from '../../models';
 import { createStudioHarness } from '../../internals/test-utils';
+import type { FieldType } from './filterDrawerTypes';
 import { useFieldValues } from './useFieldValues';
 
 const ORDERS_SOURCE: StudioDataSource = {
@@ -10,12 +11,14 @@ const ORDERS_SOURCE: StudioDataSource = {
   fields: [
     { id: 'country', label: 'Country', type: 'string' },
     { id: 'segment', label: 'Segment', type: 'string' },
+    { id: 'storeId', label: 'Store ID', type: 'number' },
+    { id: 'isActive', label: 'Is active', type: 'boolean' },
   ],
   rows: [
-    { id: 'o1', country: 'US', segment: 'Consumer' },
-    { id: 'o2', country: 'US', segment: 'Corporate' },
-    { id: 'o3', country: 'DE', segment: 'Consumer' },
-    { id: 'o4', country: 'FR', segment: 'Home Office' },
+    { id: 'o1', country: 'US', segment: 'Consumer', storeId: 3, isActive: true },
+    { id: 'o2', country: 'US', segment: 'Corporate', storeId: 3, isActive: false },
+    { id: 'o3', country: 'DE', segment: 'Consumer', storeId: 7, isActive: true },
+    { id: 'o4', country: 'FR', segment: 'Home Office', storeId: 7, isActive: true },
   ],
 };
 
@@ -39,6 +42,36 @@ function setup(parentFilters?: StudioFilterState[]) {
     wrapper,
   });
 }
+
+function setupForField(fieldId: string, fieldType: FieldType | undefined) {
+  const { wrapper } = createStudioHarness({
+    initialState: { runtime: { dataSources: { orders: ORDERS_SOURCE } } },
+  });
+  return renderHook(() => useFieldValues(fieldId, fieldType, 'orders'), { wrapper });
+}
+
+// Regression for finding 4: values used to be collected only for `string`/`undefined` field
+// types, so picking a numeric or boolean field and clicking "Select" rendered a permanently
+// empty picker ("No values found") next to an enabled toggle — while a filter WIDGET on the
+// very same field listed every distinct value. The engine's `in`/`not_in` compare
+// `String(row[field] ?? '')`, so string-keyed values are exactly what selection mode needs
+// regardless of the declared type.
+describe('useFieldValues — non-string field types (finding 4)', () => {
+  it('collects distinct values for a number field', () => {
+    const { result } = setupForField('storeId', 'number');
+    expect(result.current).toEqual(['3', '7']);
+  });
+
+  it('collects distinct values for a boolean field', () => {
+    const { result } = setupForField('isActive', 'boolean');
+    expect(result.current).toEqual(['false', 'true']);
+  });
+
+  it('still collects distinct values for a string field', () => {
+    const { result } = setupForField('country', 'string');
+    expect(result.current).toEqual(['DE', 'FR', 'US']);
+  });
+});
 
 describe('useFieldValues — cascading option narrowing (finding 2.8)', () => {
   it('narrows to rows matching an `in`/default selection parent', () => {

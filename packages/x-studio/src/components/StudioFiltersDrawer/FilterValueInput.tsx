@@ -81,53 +81,48 @@ export function FilterValueInput(props: {
   const localeText = useStudioLocaleText();
   const strVal = String(value ?? '');
 
-  // Local text state for the plain TextField and Autocomplete inputs.
-  // The local state updates immediately (fast UI feedback); the store dispatch
-  // (onChange prop) is debounced by 150ms so rapid keystrokes don't trigger
-  // full pipeline recalculations on every character.
+  // Buffered text for the plain TextField and Autocomplete paths. Typing updates only local
+  // state; the store commit happens on blur / Enter / option pick — one undo entry per
+  // editing gesture. The previous 150ms debounce committed at every typing pause, so
+  // "Northern Europe" landed on the undo stack as `North`, `Northern`, `Northern Eur`, …, and
+  // a commit still pending at unmount was dropped outright. Same buffer-and-commit contract as
+  // `BufferedBoundInput` above and `StudioWidgetEditDialog/FilterRow`'s `BufferedTextField`.
   const [localText, setLocalText] = React.useState(strVal);
-  const debounceTimer = React.useRef<ReturnType<typeof setTimeout>>(undefined);
+  const dirtyRef = React.useRef(false);
 
-  // Sync local text when external value changes programmatically (e.g., filter cleared).
+  // Sync local text when the external value changes programmatically (filter cleared, undo,
+  // redo, preset apply, AI mutation) — the store is the source of truth, so an in-progress
+  // uncommitted edit is discarded rather than allowed to disagree with it.
   const prevValueRef = React.useRef(value);
   if (prevValueRef.current !== value) {
     prevValueRef.current = value;
-    setLocalText(String(value ?? ''));
-    clearTimeout(debounceTimer.current);
+    setLocalText(strVal);
+    dirtyRef.current = false;
   }
 
-  // 2.12: cancel any pending debounced commit when the operator changes. A mode/operator
-  // switch within the 150ms window would otherwise let a stale commit fire `onChange` with
-  // the OLD scalar text against the NEW operator's value shape (e.g. landing a scalar string
-  // onto a `between` object filter, or vice versa).
-  //
-  // M4: dropping the pending commit is only half the job — `localText` must be re-synced to
-  // the value that is actually committed, exactly as the value branch above does. Without it,
-  // typing `bar` into an `Equals: foo` filter and switching the operator within 150ms (via the
-  // dropdown, or via `PageFilterRow`'s self-repair effect firing after a data-source load
-  // race) left the input rendering `bar` while the card summary and the query both used `foo`,
-  // with nothing that would ever reconcile the two.
+  // M4: an operator switch (from the dropdown, or from `PageFilterRow`'s self-repair effect
+  // after a data-source load race) changes the value SHAPE the input is editing, so an
+  // uncommitted scalar edit must not survive it — it would otherwise land on e.g. a `between`
+  // object filter. Re-sync to what is actually stored, exactly as the value branch does.
   const prevOperatorRef = React.useRef(operator);
   if (prevOperatorRef.current !== operator) {
     prevOperatorRef.current = operator;
-    clearTimeout(debounceTimer.current);
-    setLocalText(String(value ?? ''));
+    setLocalText(strVal);
+    dirtyRef.current = false;
   }
 
-  // 2.12: flush nothing but clear the timer on unmount so a debounced commit can't fire
-  // against an unmounted component (React state update warning) or a since-changed filter.
-  React.useEffect(() => () => clearTimeout(debounceTimer.current), []);
+  const commitLocalText = () => {
+    if (!dirtyRef.current) {
+      return;
+    }
+    dirtyRef.current = false;
+    onChange(localText);
+  };
 
-  const handleTextChange = React.useCallback(
-    (newVal: string) => {
-      setLocalText(newVal);
-      clearTimeout(debounceTimer.current);
-      debounceTimer.current = setTimeout(() => {
-        onChange(newVal);
-      }, 150);
-    },
-    [onChange],
-  );
+  const bufferLocalText = (next: string) => {
+    setLocalText(next);
+    dirtyRef.current = true;
+  };
 
   if (OPERATORS_NO_VALUE.has(operator)) {
     return null;
@@ -209,24 +204,33 @@ export function FilterValueInput(props: {
         size="small"
         options={fieldValues}
         value={localText}
+        // Picking an option (or pressing Enter on free text) is a completed gesture: commit
+        // straight away rather than waiting for the blur that a click on an option never fires.
+        onChange={(_, next) => {
+          const nextText = next ?? '';
+          setLocalText(nextText);
+          dirtyRef.current = false;
+          if (nextText !== strVal) {
+            onChange(nextText);
+          }
+        }}
         onInputChange={(_, newVal, reason) => {
           // 2.16: MUI's Autocomplete fires `onInputChange(value, 'reset')` whenever the
           // controlled `value` changes externally (undo, redo, preset apply, AI mutation).
-          // Scheduling the 150ms debounce for that echo would re-commit the content-identical
-          // value as a fresh, undoable, redo-clearing `updateFilter` commit ~150ms after the
-          // undo/redo. Ignore the reset echo when it merely re-delivers the already-committed
-          // value (an option pick — also `reason: 'reset'` — carries a DIFFERENT value and
-          // still commits).
+          // Buffering that echo would mark the input dirty, so the next blur would re-commit
+          // the content-identical value as a fresh, undoable, redo-clearing `updateFilter`.
+          // Ignore the echo when it merely re-delivers the already-committed value.
           if (reason === 'reset' && newVal === strVal) {
             return;
           }
-          handleTextChange(newVal);
+          bufferLocalText(newVal);
         }}
         renderInput={(params) => (
           <TextField
             {...params}
             label={localeText.filterValueLabel}
             helperText={localeText.filterValueHelper}
+            onBlur={commitLocalText}
           />
         )}
         sx={{ minWidth: 80, flexGrow: 1 }}
@@ -240,7 +244,13 @@ export function FilterValueInput(props: {
       label={localeText.filterValueLabel}
       helperText={localeText.filterValueHelper}
       value={localText}
-      onChange={(event) => handleTextChange(event.target.value)}
+      onChange={(event) => bufferLocalText(event.target.value)}
+      onBlur={commitLocalText}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          commitLocalText();
+        }
+      }}
       sx={{ minWidth: 80, flexGrow: 1 }}
     />
   );

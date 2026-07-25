@@ -8,6 +8,7 @@ import {
   isFilterEffective,
   isRelativeDateValue,
   relativeToAbsolute,
+  resolveFilterField,
   summarizeFilter,
 } from './filterDrawerUtils';
 import type { StudioDataSource, StudioFilterState } from '../../models';
@@ -140,11 +141,15 @@ describe('summarizeFilter — condition mode', () => {
   });
 
   it('between with from and to', () => {
+    // `STRING_OPERATORS` has no `between`, so this pairing can only arrive from a host/AI
+    // author or a field that changed type under the filter. The label must still be a
+    // translated word — `getOperatorLabel` borrows it from the first table that defines the
+    // operator — never the raw `between` enum identifier leaking into the UI.
     expect(
       summarizeFilter(
         makeFilter({ operator: 'between', value: { from: '10', to: '20' }, fieldType: 'string' }),
       ),
-    ).toBe('between: 10 — 20');
+    ).toBe('Between: 10 — 20');
   });
 
   it('between with from only', () => {
@@ -659,5 +664,80 @@ describe('buildModeReset', () => {
       expect(conditionReset).not.toHaveProperty('field');
       expect(selectionReset).not.toHaveProperty('field');
     });
+  });
+});
+
+// ─── resolveFilterField ───────────────────────────────────────────────────────
+
+// A filter whose field no longer names a column is not inert: `compileSingleCondition` reads
+// `undefined` on every row, so the widget renders EMPTY while the drawer card still looks
+// perfectly normal. `resolveFilterField` is what lets the rows say so — and, just as
+// importantly, what stops them from crying wolf during a data-load race.
+describe('resolveFilterField', () => {
+  const ORDERS: StudioDataSource = {
+    id: 'orders',
+    label: 'Orders',
+    fields: [
+      { id: 'total', label: 'Total', type: 'number' },
+      { id: 'secret', label: 'Secret', type: 'string', hidden: true },
+    ],
+    rows: [],
+  };
+  const CUSTOMERS: StudioDataSource = {
+    id: 'customers',
+    label: 'Customers',
+    fields: [{ id: 'name', label: 'Name', type: 'string' }],
+    rows: [],
+  };
+  const sources = { orders: ORDERS, customers: CUSTOMERS };
+
+  it('resolves a field that exists on the filter own source', () => {
+    expect(resolveFilterField({ field: 'total', filterSourceId: 'orders' }, sources)).toBe(
+      'resolved',
+    );
+  });
+
+  it('resolves a HIDDEN field — a filter may legitimately target one', () => {
+    expect(resolveFilterField({ field: 'secret', filterSourceId: 'orders' }, sources)).toBe(
+      'resolved',
+    );
+  });
+
+  it('resolves an expression field, which lives outside every source field list', () => {
+    expect(
+      resolveFilterField({ field: 'margin' }, sources, [
+        { id: 'margin', label: 'Margin', sourceId: 'orders', expression: 'a - b' },
+      ] as never),
+    ).toBe('resolved');
+  });
+
+  it('reports unresolved when the widget source no longer has the column', () => {
+    // The concrete failure: a chart on Orders filtered by `total > 100`, then re-pointed at
+    // Customers. Nothing prunes the widget-scoped filter, so the chart silently goes blank.
+    expect(resolveFilterField({ field: 'total' }, sources, [], 'customers')).toBe('unresolved');
+  });
+
+  it('reports unresolved when no source anywhere has the column', () => {
+    expect(resolveFilterField({ field: 'ghost' }, sources)).toBe('unresolved');
+  });
+
+  it('reports unknown before any data source has been injected', () => {
+    expect(resolveFilterField({ field: 'total', filterSourceId: 'orders' }, {})).toBe('unknown');
+  });
+
+  it('reports unknown while the source the filter names is still loading', () => {
+    expect(resolveFilterField({ field: 'total', filterSourceId: 'shipments' }, sources)).toBe(
+      'unknown',
+    );
+  });
+
+  it('reports unknown for a filter that has no field yet', () => {
+    expect(resolveFilterField({ field: '' }, sources)).toBe('unknown');
+  });
+
+  it('does not resolve a source id off the prototype chain', () => {
+    expect(resolveFilterField({ field: 'total', filterSourceId: 'constructor' }, sources)).toBe(
+      'unknown',
+    );
   });
 });

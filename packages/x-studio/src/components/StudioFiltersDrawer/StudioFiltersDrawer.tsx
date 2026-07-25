@@ -318,10 +318,15 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
     [widgetFilters, matchesSearch],
   );
 
+  // A freshly added filter has no field yet, so `matchesSearch` rejects it: adding one while
+  // the search box has text would create an invisible filter (and an undo entry) under an
+  // empty-state message reading "No matching filters". Clearing the search keeps the invariant
+  // that what the user just added is what the user sees.
   const handleAddPageFilter = () => {
     if (allFields.length === 0) {
       return;
     }
+    setFilterSearch('');
     controller.addFilter({
       id: createFilterId(),
       field: '',
@@ -335,6 +340,7 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
     if (!selectedWidgetId || Object.keys(dataSources).length === 0) {
       return;
     }
+    setFilterSearch('');
     controller.addFilter({
       id: createFilterId(),
       field: '',

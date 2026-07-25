@@ -139,3 +139,87 @@ describe('WidgetFiltersPanel (finding 2.18)', () => {
     expect(screen.queryByText('No filters, all data is shown.')).toBe(null);
   });
 });
+
+// Regression for finding 1: the panel walked the relationship list by ENDPOINT only, so the
+// junction source of a many-to-many relationship was never added. A widget filter the drawer
+// authored on a junction field (the drawer uses `getReachableSourceIds`, which includes it)
+// resolved to nothing here — losing its label, its type, and therefore its operator list.
+describe('WidgetFiltersPanel reachable sources (finding 1)', () => {
+  const ORDERS = {
+    id: 'orders',
+    label: 'Orders',
+    fields: [{ id: 'total', label: 'Total', type: 'number' as const }],
+    rows: [],
+  };
+  const CUSTOMERS = {
+    id: 'customers',
+    label: 'Customers',
+    fields: [{ id: 'name', label: 'Name', type: 'string' as const }],
+    rows: [],
+  };
+  const ORDER_LINES = {
+    id: 'orderLines',
+    label: 'Order lines',
+    fields: [{ id: 'quantity', label: 'Quantity', type: 'number' as const }],
+    rows: [],
+  };
+  const MANY_TO_MANY = [
+    {
+      id: 'rel-1',
+      sourceId: 'orders',
+      targetId: 'customers',
+      sourceField: 'customerId',
+      targetField: 'id',
+      type: 'many-to-many' as const,
+      junctionSourceId: 'orderLines',
+    },
+  ];
+
+  function renderWithJunction(filter: StudioFilterState) {
+    const { wrapper } = createStudioHarness({
+      initialState: {
+        doc: {
+          widgets: { w1: chartWidget({ sourceId: 'orders' }) },
+          filters: [filter],
+          relationships: MANY_TO_MANY,
+        },
+        runtime: {
+          dataSources: { orders: ORDERS, customers: CUSTOMERS, orderLines: ORDER_LINES },
+        },
+      },
+    });
+    return render(<WidgetFiltersPanel widgetId="w1" />, { wrapper });
+  }
+
+  it('resolves a filter on the junction source of a many-to-many relationship', () => {
+    renderWithJunction(
+      conditionFilter({
+        field: 'quantity',
+        fieldType: 'number',
+        filterSourceId: 'orderLines',
+        operator: 'greater_than',
+        value: '100',
+      }),
+    );
+
+    // The field Select shows the junction field's LABEL, not the raw id and not "(unavailable)".
+    expect(screen.getByText('Order lines: Quantity')).not.toBe(null);
+    expect(screen.queryByTestId('filter-field-unresolved')).toBe(null);
+  });
+
+  it('keeps the stored numeric operator instead of falling back to the string list', () => {
+    renderWithJunction(
+      conditionFilter({
+        field: 'quantity',
+        fieldType: 'number',
+        filterSourceId: 'orderLines',
+        operator: 'greater_than',
+        value: '100',
+      }),
+    );
+
+    // `>` is the number-table label for `greater_than`. The string fallback used to render
+    // "Equals" here while the engine kept applying `greater_than`.
+    expect(screen.getByRole('combobox', { name: 'Operator' }).textContent).toBe('>');
+  });
+});

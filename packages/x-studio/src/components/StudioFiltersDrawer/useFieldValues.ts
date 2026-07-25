@@ -89,6 +89,13 @@ export const FIELD_VALUES_CAP = 1000;
 /**
  * Build sorted unique string values for a field.
  *
+ * Values are collected for EVERY field type, not just strings. Selection mode ("Select") is
+ * offered for any field, and the engine's `in`/`not_in` compare `String(row[field] ?? '')`
+ * against the stored candidates — so a numeric or boolean field yields a perfectly usable
+ * value list, exactly as `StudioFilterWidget`'s own `distinctValues` already computes it.
+ * `fieldType` is retained in the signature (and the memo deps) because it identifies which
+ * field is being read when two sources share an id.
+ *
  * When `filterSourceId` is provided, the lookup is scoped to that source only (finding
  * 2.15) — a bare field-id scan across every source pollutes the list when two sources share
  * a field id (e.g. both have `status`). When omitted, falls back to the all-sources scan for
@@ -105,9 +112,6 @@ export function useFieldValues(
 ): string[] {
   const dataSources = useStudioSelector(selectDataSources);
   return React.useMemo(() => {
-    if (fieldType !== 'string' && fieldType !== undefined) {
-      return [];
-    }
     // Scope to the filter's own source when known, else scan every source.
     // `filterSourceId` is doc-authored: guard the record index against inherited prototype keys
     // ("toString"/"constructor"/…) so a bare bracket lookup can't resolve a function off

@@ -111,12 +111,16 @@ export function SelectionFilterInput({
               }}
               onClick={handleSelectAll}
             >
+              {/* The adjacent Typography is not a <label>, so `role="checkbox"` would take its
+                  name from nowhere. Name each checkbox explicitly — the select-all row from the
+                  shared "Select all" key, each value row from the value it toggles. */}
               <Checkbox
                 size="small"
                 checked={allFilteredSelected}
                 indeterminate={someFilteredSelected}
                 onChange={handleSelectAll}
                 onClick={(event) => event.stopPropagation()}
+                slotProps={{ input: { 'aria-label': localeText.filterWidgetSelectAllLabel } }}
                 sx={{ p: 0.5 }}
               />
               <Typography
@@ -138,6 +142,7 @@ export function SelectionFilterInput({
                   checked={selectedSet.has(v)}
                   onChange={() => toggle(v)}
                   onClick={(event) => event.stopPropagation()}
+                  slotProps={{ input: { 'aria-label': v } }}
                   sx={{ p: 0.5 }}
                 />
                 <Typography variant="body2" noWrap sx={{ flexGrow: 1, minWidth: 0, ml: 0.5 }}>

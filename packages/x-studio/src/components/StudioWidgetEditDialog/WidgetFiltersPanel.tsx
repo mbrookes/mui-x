@@ -9,10 +9,12 @@ import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 import {
   makeSelectWidget,
   selectDataSources,
+  selectExpressionFields,
   selectFilters,
   selectRelationships,
   useStudioSelector,
 } from '../../context';
+import { getReachableSourceIds } from '../../internals/dataSourceGraph';
 import { FilterRow, type FieldOption } from './FilterRow';
 
 // ── Panel ─────────────────────────────────────────────────────────────────────
@@ -35,7 +37,19 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
     [dataSources, sourceId],
   );
 
-  // Build flattened FieldOption list: own fields first, then fields from related sources
+  // Build the flattened FieldOption list: own fields first, then fields from every reachable
+  // source.
+  //
+  // Reachability comes from `getReachableSourceIds`, the same helper the filters drawer uses,
+  // so both surfaces offer the same fields. Walking the relationship list by endpoint alone
+  // missed the JUNCTION source of a many-to-many relationship: a widget filter the drawer
+  // authored on a junction field (Orders ↔ Customers via OrderLines) resolved to nothing here,
+  // which stripped its label, its type, and therefore its operator list.
+  //
+  // Expression fields are added as `hidden` entries: they stay out of the offered pick list
+  // (`FilterRow`'s `isOffered`), matching the drawer, but a filter already targeting one still
+  // resolves its label and type instead of being reported as a missing field.
+  const expressionFields = useStudioSelector(selectExpressionFields);
   const fieldOptions: FieldOption[] = React.useMemo(() => {
     if (!sourceId) {
       return [];
@@ -46,21 +60,23 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
       type: f.type,
       hidden: f.hidden,
     }));
-    for (const rel of relationships ?? []) {
-      let relatedSourceId: string | undefined;
-      if (rel.sourceId === sourceId) {
-        relatedSourceId = rel.targetId;
-      } else if (rel.targetId === sourceId) {
-        relatedSourceId = rel.sourceId;
+    for (const expressionField of expressionFields) {
+      if (expressionField.sourceId === sourceId) {
+        options.push({
+          id: expressionField.id,
+          label: expressionField.label,
+          type: expressionField.type ?? 'number',
+          hidden: true,
+        });
       }
-      if (!relatedSourceId || !dataSources[relatedSourceId]) {
+    }
+    for (const relatedSourceId of getReachableSourceIds(sourceId, relationships ?? [])) {
+      // `sourceId`/relationship endpoints are doc-authored: guard the record index against
+      // inherited prototype keys so a bare lookup can't resolve off `Object.prototype`.
+      if (relatedSourceId === sourceId || !Object.hasOwn(dataSources, relatedSourceId)) {
         continue;
       }
       const relatedSource = dataSources[relatedSourceId];
-      const alreadyAdded = options.some((o) => o.sourceId === relatedSourceId);
-      if (alreadyAdded) {
-        continue;
-      }
       for (const f of relatedSource.fields ?? []) {
         options.push({
           id: f.id,
@@ -73,7 +89,7 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
       }
     }
     return options;
-  }, [dataSources, ownFields, relationships, sourceId]);
+  }, [dataSources, expressionFields, ownFields, relationships, sourceId]);
 
   const widgetFilters = React.useMemo(
     () =>
@@ -123,9 +139,11 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
     [controller],
   );
 
+  // `options` carries `{ undoable: false }` through for `FilterRow`'s operator self-repair —
+  // a write caused by rendering must not push an undo entry the user never authored.
   const handleUpdate = React.useCallback(
-    (filterId: string, patch: Partial<StudioFilterState>) => {
-      controller.updateFilter(filterId, patch);
+    (filterId: string, patch: Partial<StudioFilterState>, options?: { undoable?: boolean }) => {
+      controller.updateFilter(filterId, patch, options);
     },
     [controller],
   );
@@ -152,7 +170,7 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
               filter={filter}
               fieldOptions={fieldOptions}
               onRemove={() => handleRemove(filter.id)}
-              onUpdate={(patch) => handleUpdate(filter.id, patch)}
+              onUpdate={(patch, options) => handleUpdate(filter.id, patch, options)}
             />
           ))}
         </Stack>

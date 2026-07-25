@@ -5,6 +5,8 @@ import CloseIcon from '@mui/icons-material/Close';
 import {
   useStudioController,
   useStudioSelector,
+  selectDataSources,
+  selectExpressionFields,
   selectFilters,
   selectPages,
   useStudioLocaleText,
@@ -14,6 +16,7 @@ import { hasConflictingRankFilter } from '../../internals/rankFilterScope';
 import type { FieldOption, FilterMode } from './filterDrawerTypes';
 import {
   getOperators,
+  resolveFilterField,
   summarizeFilter,
   buildModeReset,
   defaultValueForMode,
@@ -24,6 +27,7 @@ import { useFieldValues } from './useFieldValues';
 import { FilterModeToggle } from './FilterModeToggle';
 import { FilterCard } from './FilterCard';
 import { FilterBody } from './FilterBody';
+import { UnresolvedFieldAlert } from './UnresolvedFieldAlert';
 import type { AvailableSeries } from './RankFilterInput';
 
 interface WidgetFilterRowProps {
@@ -81,6 +85,14 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
     filter.filterSourceId ?? widgetSourceId,
   );
   const fieldLabel = selectedOption?.label ?? filter.field;
+  // A widget filter whose field vanished (the widget's source was switched, or the source
+  // reloaded with the column renamed/dropped) makes the widget render EMPTY — every row reads
+  // `undefined`, so nothing passes. Resolve against the raw catalogs, not `fieldOptions`,
+  // which drops hidden and expression fields that a filter may legitimately target.
+  const dataSources = useStudioSelector(selectDataSources);
+  const expressionFields = useStudioSelector(selectExpressionFields);
+  const fieldResolution = resolveFilterField(filter, dataSources, expressionFields, widgetSourceId);
+  const isFieldUnresolved = fieldResolution === 'unresolved';
   const filters = useStudioSelector(selectFilters);
   const pages = useStudioSelector(selectPages);
   // Per-page rank-uniqueness: mirror EXACTLY what `StudioController.updateFilter` allows
@@ -221,11 +233,25 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
 
   return (
     <FilterCard
-      title={cardTitle}
+      title={
+        isFieldUnresolved ? localeText.dataSourceFieldUnavailableOption(filter.field) : cardTitle
+      }
       summary={summarizeFilter(filter, localeText)}
       onRemove={() => onRemove(filter.id)}
-      initialExpanded={isFilterFresh(filter) || !isFilterEffective(filter)}
+      // An unresolved field is opened by default: the whole point of the banner is that it
+      // must be seen without the user first suspecting the filter.
+      initialExpanded={isFieldUnresolved || isFilterFresh(filter) || !isFilterEffective(filter)}
     >
+      {isFieldUnresolved && (
+        <Box sx={{ px: 1.5, pt: 1.5 }}>
+          <UnresolvedFieldAlert
+            fieldId={filter.field}
+            onRepoint={() =>
+              handleFilterChange({ field: '', fieldType: undefined, filterSourceId: undefined })
+            }
+          />
+        </Box>
+      )}
       <FilterBody
         filter={filter}
         fieldType={fieldType}

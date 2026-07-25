@@ -129,4 +129,103 @@ describe('WidgetFilterRow', () => {
 
     expect(updateSpy).toHaveBeenCalledWith('wf1', { operator: 'equals' }, { undoable: false });
   });
+
+  // Regression for finding 2: switching a widget's source leaves its widget-scoped filters
+  // pointing at columns the new source doesn't have. The engine then reads `undefined` on every
+  // row, so the widget renders EMPTY — while the drawer card looked completely normal. The row
+  // must say the field is gone, and must not say it during a load race.
+  describe('unresolved field (finding 2)', () => {
+    const SOURCE = {
+      id: 'src',
+      label: 'Sales',
+      fields: [{ id: 'amount', label: 'Amount', type: 'number' as const }],
+      rows: [],
+    };
+
+    it('flags a filter whose field no longer exists on the widget source', () => {
+      const filter = makeFilter({ field: 'total', fieldType: 'number' });
+      const { wrapper } = createStudioHarness({
+        initialState: {
+          doc: { filters: [filter] },
+          runtime: { dataSources: { src: SOURCE } },
+        },
+      });
+      render(
+        <WidgetFilterRow
+          filter={filter}
+          fieldOptions={fieldOptions}
+          widgetSourceId="src"
+          onRemove={() => {}}
+        />,
+        { wrapper },
+      );
+
+      expect(screen.getByTestId('filter-field-unresolved')).not.toBe(null);
+      expect(screen.getByText('total (unavailable)')).not.toBe(null);
+    });
+
+    it('clears the field so the row falls back to its picker when the user re-points it', async () => {
+      const filter = makeFilter({ field: 'total', fieldType: 'number' });
+      const { controller, wrapper } = createStudioHarness({
+        initialState: {
+          doc: { filters: [filter] },
+          runtime: { dataSources: { src: SOURCE } },
+        },
+      });
+      const updateSpy = vi.spyOn(controller, 'updateFilter');
+      const { user } = render(
+        <WidgetFilterRow
+          filter={filter}
+          fieldOptions={fieldOptions}
+          widgetSourceId="src"
+          onRemove={() => {}}
+        />,
+        { wrapper },
+      );
+
+      await user.click(screen.getByRole('button', { name: 'Select a field…' }));
+      expect(updateSpy).toHaveBeenCalledWith('wf1', {
+        field: '',
+        fieldType: undefined,
+        filterSourceId: undefined,
+      });
+    });
+
+    it('stays silent while the data sources have not been injected yet', () => {
+      const filter = makeFilter({ field: 'total', fieldType: 'number' });
+      const { wrapper } = createStudioHarness({ initialState: { doc: { filters: [filter] } } });
+      render(
+        <WidgetFilterRow
+          filter={filter}
+          fieldOptions={fieldOptions}
+          widgetSourceId="src"
+          onRemove={() => {}}
+        />,
+        { wrapper },
+      );
+
+      expect(screen.queryByTestId('filter-field-unresolved')).toBe(null);
+    });
+
+    it('stays silent for a resolvable field', () => {
+      const filter = makeFilter();
+      const { wrapper } = createStudioHarness({
+        initialState: {
+          doc: { filters: [filter] },
+          runtime: { dataSources: { src: SOURCE } },
+        },
+      });
+      render(
+        <WidgetFilterRow
+          filter={filter}
+          fieldOptions={fieldOptions}
+          widgetSourceId="src"
+          onRemove={() => {}}
+        />,
+        { wrapper },
+      );
+
+      expect(screen.queryByTestId('filter-field-unresolved')).toBe(null);
+    });
+  });
 });

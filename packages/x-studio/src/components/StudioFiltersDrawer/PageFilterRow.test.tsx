@@ -331,4 +331,85 @@ describe('PageFilterRow', () => {
     expect(screen.getByText('Corporate')).not.toBeNull();
     expect(screen.getByText('Home Office')).not.toBeNull();
   });
+
+  // Regression for finding 2: a page filter whose column was renamed or dropped on reload
+  // matches zero rows on every widget it reaches, while the card kept rendering the raw field
+  // id as a perfectly ordinary title. Say the field is gone — but only once the catalogs are
+  // actually loaded, so a data-load race is never reported as a broken filter.
+  describe('unresolved field (finding 2)', () => {
+    const SOURCE = {
+      id: 'src',
+      label: 'Sales',
+      fields: [{ id: 'amount', label: 'Amount', type: 'number' as const }],
+      rows: [],
+    };
+
+    it('flags a filter whose field exists in no data source', () => {
+      const filter = makeFilter({ field: 'total' });
+      const { wrapper } = createStudioHarness({
+        initialState: {
+          doc: { filters: [filter] },
+          runtime: { dataSources: { src: SOURCE } },
+        },
+      });
+      render(
+        <PageFilterRow
+          filter={filter}
+          fields={fields}
+          fieldOptions={fieldOptions}
+          onRemove={() => {}}
+          allPageFilters={[filter]}
+        />,
+        { wrapper },
+      );
+
+      expect(screen.getByTestId('filter-field-unresolved')).not.toBe(null);
+      expect(screen.getByText('total (unavailable)')).not.toBe(null);
+    });
+
+    it('stays silent while the data sources have not been injected yet', () => {
+      const filter = makeFilter({ field: 'total' });
+      const { wrapper } = createStudioHarness({ initialState: { doc: { filters: [filter] } } });
+      render(
+        <PageFilterRow
+          filter={filter}
+          fields={fields}
+          fieldOptions={fieldOptions}
+          onRemove={() => {}}
+          allPageFilters={[filter]}
+        />,
+        { wrapper },
+      );
+
+      expect(screen.queryByTestId('filter-field-unresolved')).toBe(null);
+    });
+
+    it('stays silent for a HIDDEN field, which the offered option list drops but the data has', () => {
+      const hiddenSource = {
+        id: 'src',
+        label: 'Sales',
+        fields: [{ id: 'secret', label: 'Secret', type: 'string' as const, hidden: true }],
+        rows: [],
+      };
+      const filter = makeFilter({ field: 'secret', fieldType: 'string' });
+      const { wrapper } = createStudioHarness({
+        initialState: {
+          doc: { filters: [filter] },
+          runtime: { dataSources: { src: hiddenSource } },
+        },
+      });
+      render(
+        <PageFilterRow
+          filter={filter}
+          fields={fields}
+          fieldOptions={fieldOptions}
+          onRemove={() => {}}
+          allPageFilters={[filter]}
+        />,
+        { wrapper },
+      );
+
+      expect(screen.queryByTestId('filter-field-unresolved')).toBe(null);
+    });
+  });
 });

@@ -1,6 +1,7 @@
 'use client';
 import * as React from 'react';
 import {
+  Alert,
   Box,
   FormControl,
   IconButton,
@@ -57,10 +58,12 @@ function BufferedTextField(props: {
   value: unknown;
   onCommit: (next: string) => void;
   placeholder?: string;
+  /** Accessible name. `placeholder` is only a last-resort accname source — always pass this. */
+  ariaLabel: string;
   type?: string;
   sx?: object;
 }) {
-  const { value, onCommit, placeholder, type, sx } = props;
+  const { value, onCommit, placeholder, ariaLabel, type, sx } = props;
   const initialText = value === undefined || value === null ? '' : String(value);
   const [text, setText] = React.useState(initialText);
   const [dirty, setDirty] = React.useState(false);
@@ -84,6 +87,7 @@ function BufferedTextField(props: {
       size="small"
       type={type}
       placeholder={placeholder}
+      slotProps={{ htmlInput: { 'aria-label': ariaLabel } }}
       value={text}
       onChange={(event) => {
         setText(event.target.value);
@@ -106,14 +110,27 @@ export function FilterRow(props: {
   filter: StudioFilterState;
   fieldOptions: FieldOption[];
   onRemove: () => void;
-  onUpdate: (patch: Partial<StudioFilterState>) => void;
+  onUpdate: (patch: Partial<StudioFilterState>, options?: { undoable?: boolean }) => void;
 }) {
   const { filter, fieldOptions, onRemove, onUpdate } = props;
   const localeText = useStudioLocaleText();
   const fieldMeta = fieldOptions.find(
     (f) => f.id === filter.field && (f.sourceId ?? null) === (filter.filterSourceId ?? null),
   );
-  const operators = getOperatorsForFieldType(fieldMeta?.type);
+  // The stamped `filter.fieldType` is authoritative and survives a field the catalog can't
+  // resolve (a cross-source pick the panel doesn't list, a since-renamed column). Deriving the
+  // type from the catalog alone silently degraded every such filter to STRING: a numeric
+  // `greater_than` filter rendered "Equals", offered string operators, and picking one wrote
+  // e.g. `contains` onto a number field, where `toNumericValue` yields NaN and the filter stops
+  // matching. Resolve exactly as the drawer rows do.
+  const resolvedFieldType = filter.fieldType ?? fieldMeta?.type;
+  // Memoized so the repair effect below re-runs on a genuine type change only, not on every
+  // unrelated re-render (`getOperatorsForFieldType` returns a stable array, but the identity
+  // is what the effect's dependency array compares).
+  const operators = React.useMemo(
+    () => getOperatorsForFieldType(resolvedFieldType),
+    [resolvedFieldType],
+  );
   // 2.16: the stored `operator` can be invalid for the current field type (a legacy /
   // AI / host-authored filter, or the field switched under it) — the drawer rows
   // (`PageFilterRow`/`WidgetFilterRow`) fall back to `operators[0]` for display so the
@@ -122,6 +139,35 @@ export function FilterRow(props: {
   const activeOperator = operators.some((o) => o.value === filter.operator)
     ? filter.operator
     : operators[0].value;
+
+  // `activeOperator` above is DISPLAY-ONLY, so without this the dialog shows one operator
+  // while the engine applies another, indefinitely. Reconcile the doc to what is rendered,
+  // non-undoably — the write comes from rendering, not a user gesture, and self-terminates
+  // once the stored operator is valid. Gated on a RESOLVED type: while the type is unknown
+  // `getOperatorsForFieldType(undefined)` yields the string table, which would condemn a
+  // perfectly valid `between`/`greater_than` to a permanent rewrite. Same contract as
+  // `PageFilterRow`/`WidgetFilterRow`.
+  //
+  // `onUpdate` is rebuilt on every render by the panel's `.map(...)`, so it is held in a ref:
+  // the effect must react to the resolved type and the stored operators, nothing else.
+  const onUpdateRef = React.useRef(onUpdate);
+  onUpdateRef.current = onUpdate;
+  React.useEffect(() => {
+    if (resolvedFieldType === undefined) {
+      return;
+    }
+    const repair: Partial<StudioFilterState> = {};
+    if (filter.operator && !operators.some((o) => o.value === filter.operator)) {
+      repair.operator = operators[0].value;
+    }
+    if (filter.operator2 && !operators.some((o) => o.value === filter.operator2)) {
+      repair.operator2 = operators[0].value;
+    }
+    if (repair.operator !== undefined || repair.operator2 !== undefined) {
+      onUpdateRef.current(repair, { undoable: false });
+    }
+  }, [resolvedFieldType, filter.operator, filter.operator2, operators]);
+
   const noValue = NO_VALUE_OPERATORS.has(activeOperator);
   const isBetween = activeOperator === 'between';
   // A `between` filter's value is a `{ from, to }` object. Read the bounds defensively —
@@ -131,8 +177,15 @@ export function FilterRow(props: {
     filter.value !== null && typeof filter.value === 'object' && !Array.isArray(filter.value)
       ? (filter.value as { from?: unknown; to?: unknown })
       : {};
-  const betweenInputType = fieldMeta?.type === 'number' ? 'number' : 'text';
+  const betweenInputType = resolvedFieldType === 'number' ? 'number' : 'text';
   const toBoundString = (v: unknown) => (v === undefined || v === null ? '' : String(v));
+
+  // `fieldOptions` is the COMPLETE catalog for this widget (own source + every reachable
+  // source, hidden physical fields and expression fields included) — only `isOffered` below
+  // narrows the pick list. So an id absent from it genuinely names no column: the filter
+  // matches zero rows and the widget renders empty with nothing on screen saying why. The
+  // non-empty guard keeps a data-load race from being reported as a broken filter.
+  const isFieldUnresolved = !!filter.field && !fieldMeta && fieldOptions.length > 0;
 
   const currentValue = filter.filterSourceId
     ? `${filter.filterSourceId}::${filter.field}`
@@ -153,11 +206,12 @@ export function FilterRow(props: {
     }, new Set<string>()),
   );
 
-  return (
+  const conditionRow = (
     <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
       {/* Field selector */}
       <FormControl size="small" sx={{ minWidth: 130 }}>
         <Select
+          inputProps={{ 'aria-label': localeText.filterFieldLabel }}
           value={currentValue}
           onChange={(evt) => {
             const raw = evt.target.value as string;
@@ -200,7 +254,9 @@ export function FilterRow(props: {
               (f) => f.id === fId && (f.sourceId ?? null) === (srcId ?? null),
             );
             if (!opt) {
-              return fId;
+              // Nothing in the catalog matches: say so instead of echoing the raw id, which
+              // reads exactly like a legitimate column name.
+              return localeText.dataSourceFieldUnavailableOption(fId);
             }
             return opt.sourceId ? `${opt.sourceLabel}: ${opt.label}` : opt.label;
           }}
@@ -234,6 +290,7 @@ export function FilterRow(props: {
       {/* Operator selector */}
       <FormControl size="small" sx={{ minWidth: 130 }}>
         <Select
+          inputProps={{ 'aria-label': localeText.filterOperatorLabel }}
           value={activeOperator}
           onChange={(evt) => {
             const nextOperator = evt.target.value as StudioFilterOperator;
@@ -259,7 +316,7 @@ export function FilterRow(props: {
         >
           {operators.map((op) => (
             <MenuItem key={op.value} value={op.value}>
-              {getOperatorLabel(op.value, localeText, fieldMeta?.type)}
+              {getOperatorLabel(op.value, localeText, resolvedFieldType)}
             </MenuItem>
           ))}
         </Select>
@@ -277,6 +334,7 @@ export function FilterRow(props: {
           <BufferedTextField
             type={betweenInputType}
             placeholder={localeText.filterWidgetDateFromLabel}
+            ariaLabel={localeText.filterWidgetDateFromLabel}
             value={toBoundString(betweenValue.from)}
             onCommit={(next) => onUpdate({ value: { ...betweenValue, from: next } })}
             sx={{ flex: 1, minWidth: 60 }}
@@ -284,6 +342,7 @@ export function FilterRow(props: {
           <BufferedTextField
             type={betweenInputType}
             placeholder={localeText.filterWidgetDateToLabel}
+            ariaLabel={localeText.filterWidgetDateToLabel}
             value={toBoundString(betweenValue.to)}
             onCommit={(next) => onUpdate({ value: { ...betweenValue, to: next } })}
             sx={{ flex: 1, minWidth: 60 }}
@@ -301,13 +360,17 @@ export function FilterRow(props: {
         <TextField
           size="small"
           value={formatDateFilterLabel(filter, localeText)}
-          slotProps={{ input: { readOnly: true } }}
+          slotProps={{
+            input: { readOnly: true },
+            htmlInput: { 'aria-label': localeText.filterValueLabel },
+          }}
           sx={{ flex: 1, minWidth: 80 }}
         />
       )}
       {!noValue && !isBetween && !isRelativeDateValue(filter.value) && (
         <BufferedTextField
           placeholder={localeText.filterValueLabel}
+          ariaLabel={localeText.filterValueLabel}
           value={filter.value === undefined || filter.value === null ? '' : String(filter.value)}
           onCommit={(next) => onUpdate({ value: next })}
           sx={{ flex: 1, minWidth: 80 }}
@@ -321,6 +384,22 @@ export function FilterRow(props: {
           <DeleteOutlineOutlinedIcon fontSize="small" />
         </IconButton>
       </Tooltip>
+    </Stack>
+  );
+
+  if (!isFieldUnresolved) {
+    return conditionRow;
+  }
+
+  // The field names no column, so this filter matches nothing and the widget renders empty.
+  // Keep the row editable (the field Select is the re-point affordance, the delete button the
+  // removal one) and put the reason directly above it.
+  return (
+    <Stack spacing={0.5}>
+      <Alert severity="warning" data-testid="filter-field-unresolved">
+        {localeText.dataSourceFieldUnavailableHelperText(filter.field)}
+      </Alert>
+      {conditionRow}
     </Stack>
   );
 }

@@ -95,6 +95,20 @@ export function getOperatorsForFieldType(
 }
 
 /**
+ * Order in which the operator tables are consulted when the requested (fieldType, operator)
+ * pair has no entry — see `getOperatorLabel`. The requested type is always tried first; this
+ * list only decides which OTHER table supplies a human label for an operator that type does
+ * not offer.
+ */
+const LABEL_LOOKUP_TYPES: FilterOperatorFieldType[] = [
+  'string',
+  'number',
+  'date',
+  'datetime',
+  'boolean',
+];
+
+/**
  * Returns the display label for an operator, scoped to a field type (some
  * operators read differently per type — e.g. `equals` reads "=" for numbers but
  * "On" for dates).
@@ -106,16 +120,33 @@ export function getOperatorsForFieldType(
  * provided by each locale bundle in `src/locales/`. When a key is missing from
  * the provided `localeText` (e.g. a caller passes a partial override), this
  * function falls back to the hardcoded English labels above.
+ *
+ * An operator can legitimately be stored on a field type whose table does not offer it — a
+ * host/AI-authored filter, or a filter whose field switched type under it (e.g. `between` on
+ * a `string` field, which `STRING_OPERATORS` has no entry for). In that case the label is
+ * resolved from the first OTHER type table that does define the operator, so the UI shows a
+ * translated word ("Between") rather than the raw enum identifier ("between") leaking into
+ * card summaries and operator pickers. The raw identifier remains the last resort, for
+ * operators no table offers at all (`in`/`not_in`, which are selection-mode only).
  */
 export function getOperatorLabel(
   operator: StudioFilterOperator,
   localeText?: Partial<StudioLocaleText>,
   fieldType?: FilterOperatorFieldType,
 ): string {
-  const fallback =
-    getOperatorsForFieldType(fieldType).find((option) => option.value === operator)?.label ??
-    operator;
-  const key = `filterOperator_${fieldType ?? 'string'}_${operator}` as keyof StudioLocaleText;
-  const override = localeText?.[key];
-  return typeof override === 'string' ? override : fallback;
+  const requestedType = fieldType ?? 'string';
+  const candidateTypes = [
+    requestedType,
+    ...LABEL_LOOKUP_TYPES.filter((type) => type !== requestedType),
+  ];
+  for (const type of candidateTypes) {
+    const option = getOperatorsForFieldType(type).find((entry) => entry.value === operator);
+    if (!option) {
+      continue;
+    }
+    const key = `filterOperator_${type}_${operator}` as keyof StudioLocaleText;
+    const override = localeText?.[key];
+    return typeof override === 'string' ? override : option.label;
+  }
+  return operator;
 }

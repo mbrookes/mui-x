@@ -258,22 +258,33 @@ describe('StudioFilterWidget', () => {
   });
 
   describe('date-range', () => {
-    const config = { filterWidgetType: 'date-range', filterWidgetField: 'country' } as const;
+    // The field must be an actual DATE field. Configuring a date-range control over the
+    // `country` string column, and asserting with a loose `objectContaining`, hid what the
+    // widget really emits: `fieldType` comes from the field's declared type, so a string field
+    // produced `fieldType: 'string'` for a `between` date filter and the assertion said nothing.
+    const DATE_RANGE_SOURCE: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: [{ id: 'orderDate', label: 'Order date', type: 'date' }],
+      rows: [{ orderDate: '2024-01-15' }],
+    };
+    const config = { filterWidgetType: 'date-range', filterWidgetField: 'orderDate' } as const;
 
     it('applies a "between" filter for a date range', () => {
-      const { captured, applySpy } = setup(config, 'dateRangeControl');
+      const { captured, applySpy } = setup(config, 'dateRangeControl', DATE_RANGE_SOURCE);
       act(() => captured.onApply!({ from: '2024-01-01', to: '2024-03-31' }));
       expect(applySpy).toHaveBeenCalledWith(
         'w1',
-        'country',
+        'orderDate',
         'between',
         { from: '2024-01-01', to: '2024-03-31' },
-        expect.objectContaining({ filterSourceId: 'orders' }),
+        // Asserted in full: the widget must stamp the field's real type, not fall back.
+        { fieldType: 'date', filterSourceId: 'orders' },
       );
     });
 
     it('clears when an empty range is applied', () => {
-      const { captured, clearSpy } = setup(config, 'dateRangeControl');
+      const { captured, clearSpy } = setup(config, 'dateRangeControl', DATE_RANGE_SOURCE);
       act(() => captured.onApply!({}));
       expect(clearSpy).toHaveBeenCalledWith('w1');
     });

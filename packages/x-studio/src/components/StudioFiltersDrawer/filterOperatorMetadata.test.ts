@@ -94,6 +94,28 @@ describe('getOperatorLabel', () => {
     expect(getOperatorLabel('in', undefined, 'string')).toBe('in');
   });
 
+  // An operator can be stored on a field type whose table does not offer it: a host/AI-authored
+  // filter, or a field that changed type under it. The label must stay a human word — the raw
+  // enum identifier used to reach card summaries and operator pickers verbatim ("between: 10 —
+  // 20" for a string field).
+  it('borrows a label from another type table when the field type does not offer the operator', () => {
+    expect(getOperatorLabel('between', undefined, 'string')).toBe('Between');
+    expect(getOperatorLabel('greater_than', undefined, 'string')).toBe('>');
+    expect(getOperatorLabel('contains', undefined, 'number')).toBe('Contains');
+  });
+
+  it('borrows the borrowed table locale key too, so the fallback is translated', () => {
+    const localeText = { filterOperator_number_between: 'Entre' };
+    expect(getOperatorLabel('between', localeText as any, 'string')).toBe('Entre');
+  });
+
+  it('never lets a borrowed label override the field type own label', () => {
+    // `equals` exists in every table; the requested type must always win.
+    expect(getOperatorLabel('equals', undefined, 'date')).toBe('On');
+    expect(getOperatorLabel('equals', undefined, 'number')).toBe('=');
+    expect(getOperatorLabel('equals', undefined, 'string')).toBe('Equals');
+  });
+
   it('prefers a locale override when StudioLocaleText defines a matching key', () => {
     const localeText = { filterOperator_number_equals: 'Egal à' };
     expect(getOperatorLabel('equals', localeText as any, 'number')).toBe('Egal à');

@@ -1,6 +1,11 @@
 import dayjs from 'dayjs';
 import type { RelativeDateValue } from '../../internals/filterTypes';
-import type { StudioDataSource, StudioFilterOperator, StudioFilterState } from '../../models';
+import type {
+  StudioDataSource,
+  StudioExpressionField,
+  StudioFilterOperator,
+  StudioFilterState,
+} from '../../models';
 import {
   DEFAULT_STUDIO_LOCALE_TEXT,
   type StudioLocaleText,
@@ -48,6 +53,58 @@ export function buildFieldOptions(dataSources: Record<string, StudioDataSource>)
     sourceId: entry.sourceId,
     sourceLabel: entry.sourceLabel,
   }));
+}
+
+// ─── Field resolution ─────────────────────────────────────────────────────────
+
+/**
+ * Whether a filter's stored `field` still names a real column.
+ *
+ * - `'resolved'` — the field exists on the filter's source (or, when the filter carries no
+ *   source, on some loaded source), or it is a declared expression field.
+ * - `'unresolved'` — the catalogs are loaded and none of them has this field. The filter is
+ *   dead: every row reads `undefined` for it, so the widget silently matches zero rows.
+ * - `'unknown'` — the answer cannot be trusted yet and must never be reported as a problem:
+ *   the filter has no field at all (the row is still showing its field picker), no data
+ *   source has been injected, or the source the filter names has not loaded yet.
+ *
+ * Resolution deliberately runs against the RAW catalogs rather than a drawer/dialog option
+ * list: `buildFieldOptions` drops hidden fields and expression fields, so a filter that is
+ * legitimately configured on one of those would otherwise be reported as broken.
+ */
+export type FilterFieldResolution = 'resolved' | 'unresolved' | 'unknown';
+
+export function resolveFilterField(
+  filter: Pick<StudioFilterState, 'field' | 'filterSourceId'>,
+  dataSources: Record<string, StudioDataSource>,
+  expressionFields: StudioExpressionField[] = [],
+  fallbackSourceId?: string,
+): FilterFieldResolution {
+  const fieldId = filter.field;
+  if (!fieldId) {
+    return 'unknown';
+  }
+  if (expressionFields.some((expressionField) => expressionField.id === fieldId)) {
+    return 'resolved';
+  }
+  const sources = Object.values(dataSources);
+  if (sources.length === 0) {
+    return 'unknown';
+  }
+  const scopedSourceId = filter.filterSourceId ?? fallbackSourceId;
+  if (scopedSourceId) {
+    // `filterSourceId`/`sourceId` are doc-authored: guard the record index against inherited
+    // prototype keys so a bare lookup can't resolve a function off `Object.prototype`.
+    if (!Object.hasOwn(dataSources, scopedSourceId)) {
+      return 'unknown';
+    }
+    return dataSources[scopedSourceId].fields.some((field) => field.id === fieldId)
+      ? 'resolved'
+      : 'unresolved';
+  }
+  return sources.some((source) => source.fields.some((field) => field.id === fieldId))
+    ? 'resolved'
+    : 'unresolved';
 }
 
 // ─── Relative date helpers ────────────────────────────────────────────────────

@@ -75,6 +75,44 @@ describe('<StudioFiltersDrawer /> widget filter section', () => {
   });
 });
 
+// Regression for finding 6: a freshly added filter has no field yet, so `matchesSearch`
+// rejects it. Adding one while the search box had text created a filter and an undo entry that
+// were both invisible — the section still read "No matching filters" — so a user hunting for a
+// filter that didn't exist could add several without ever seeing one.
+describe('<StudioFiltersDrawer /> add filter while searching (finding 6)', () => {
+  const CHART: StudioWidget = {
+    id: 'chart-1',
+    kind: 'chart',
+    title: 'Revenue',
+    sourceId: 'src',
+    config: { chartType: 'bar', xField: 'region' },
+  };
+  const EXISTING_FILTER: StudioFilterState = {
+    id: 'pf1',
+    field: 'region',
+    fieldType: 'string',
+    operator: 'equals',
+    value: 'EMEA',
+    scope: { kind: 'page' },
+  };
+
+  it('clears the search so the newly added filter is visible', async () => {
+    const { user } = renderWithSelectedWidget(CHART, { filters: [EXISTING_FILTER] });
+
+    const search = screen.getByPlaceholderText('Search filters…');
+    await user.type(search, 'nothing-matches-this');
+    expect(screen.getAllByText('No matching filters.').length).toBeGreaterThan(0);
+
+    await user.click(screen.getAllByRole('button', { name: 'Add filter' })[0]);
+
+    expect((search as HTMLInputElement).value).toBe('');
+    expect(screen.queryByText('No matching filters.')).toBe(null);
+    // The pre-existing filter is visible again, and so is the field-less one just added
+    // (rendered as its field picker rather than a card).
+    expect(screen.getByText('Region')).not.toBe(null);
+  });
+});
+
 // Regression coverage for Tier-2 finding #6 in the architecture review: the drawer's
 // `getOperators` used to return raw hardcoded English labels, so the `filterOperator_*`
 // locale tokens (already translated into fr/de/es/ptBR) were unused there even though

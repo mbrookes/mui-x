@@ -7,7 +7,8 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { createHmac } from 'node:crypto';
-import { handleBatchQuery, MAX_WIDGETS_PER_BATCH } from '../handler';
+import { handleBatchQuery, MAX_CONCURRENT_WIDGET_QUERIES, MAX_WIDGETS_PER_BATCH } from '../handler';
+import { MAX_ROWS_PER_REQUEST } from '../router/execute';
 import {
   MAX_ARRAY_ITEMS_PER_DESCRIPTOR,
   MAX_STRING_LENGTH,
@@ -3289,5 +3290,407 @@ describe('handleBatchQuery — partial batch failure recovery', () => {
     // generic message rather than leaked verbatim (finding T3.5).
     expect(errResult.error).toMatch(/could not be completed/);
     expect(errResult.error).not.toMatch('db connection failed');
+  });
+});
+
+// ─── handleBatchQuery — per-request resource governors (finding H2) ───────────
+//
+// `MAX_WIDGETS_PER_BATCH` capped the COUNT of widgets, but the fan-out itself was
+// a bare `Promise.all` with no concurrency cap, no shared row budget, and no
+// in-flight dedup. 50 identical unbounded widgets therefore issued 50 preflights
+// + 50 full queries (all missing the not-yet-populated cache because they started
+// concurrently) and could hold 50 x MAX_RESULT_ROWS rows live at once.
+describe('handleBatchQuery — per-request resource governors (finding H2)', () => {
+  /**
+   * Wrap a mock DB so every builder it hands out records when it is CREATED and
+   * tracks how many query executions overlap in time. `then`/`first` are deferred
+   * by a macrotask so concurrent widgets are actually observable.
+   */
+  function trackingDb(base: ReturnType<typeof makeDb>) {
+    const tablesQueried: string[] = [];
+    let inFlight = 0;
+    let peakInFlight = 0;
+    const enter = () => {
+      inFlight += 1;
+      peakInFlight = Math.max(peakInFlight, inFlight);
+    };
+    const tick = () =>
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, 0);
+      });
+    const db: any = (table: string) => {
+      tablesQueried.push(table);
+      const qb: any = base(table);
+      const originalThen = qb.then.bind(qb);
+      const originalFirst = qb.first.bind(qb);
+      qb.then = (resolve: (rows: unknown) => void, reject?: (err: Error) => void) => {
+        enter();
+        tick().then(() => {
+          inFlight -= 1;
+          originalThen(resolve, reject);
+        }, reject);
+      };
+      qb.first = async () => {
+        enter();
+        await tick();
+        inFlight -= 1;
+        return originalFirst();
+      };
+      return qb;
+    };
+    db.raw = (base as any).raw;
+    return { db, tablesQueried, peakInFlight: () => peakInFlight };
+  }
+
+  /** Options with FRESH cache planes so a shared module-level default cannot leak between tests. */
+  function isolatedOptions(db: any) {
+    return {
+      db,
+      schemaAllowlist: ['sales'],
+      tenancy: MULTI_TENANT,
+      cacheProvider: new LRUCacheProvider({ ttlMs: 5000 }),
+      // Disable the tier cache so every widget's routing decision comes from its
+      // own preflight — otherwise the dedup assertion below would be confounded
+      // by a tier-cache hit rather than by the single-flight map.
+      tierCacheTtlMs: 0,
+    };
+  }
+
+  it('single-flights identical widgets: N duplicates run ONE preflight and ONE query', async () => {
+    const { db, tablesQueried } = trackingDb(makeDb());
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        { id: 'w1', table: 'sales' },
+        { id: 'w2', table: 'sales' },
+        { id: 'w3', table: 'sales' },
+        { id: 'w4', table: 'sales' },
+      ],
+    };
+    const result = await handleBatchQuery(body, ACME_CLAIMS, isolatedOptions(db));
+
+    // The widget `id` is deliberately excluded from the cache key, so all four
+    // descriptors share ONE key and therefore ONE pipeline: 1 preflight COUNT(*)
+    // + 1 data query = 2 builders. Before the fix this was 4 x 2 = 8.
+    expect(tablesQueried).toEqual(['sales', 'sales']);
+
+    // Every widget still gets its OWN id and the shared rows.
+    expect(result.results.map((r) => r.id)).toEqual(['w1', 'w2', 'w3', 'w4']);
+    for (const r of result.results) {
+      expect(r.error).toBeUndefined();
+      expect(r.rows.length).toBeGreaterThan(0);
+      expect(r.rows).toEqual(result.results[0].rows);
+    }
+  });
+
+  it('does NOT dedup widgets whose query shape differs', async () => {
+    const { db, tablesQueried } = trackingDb(makeDb());
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          filters: [{ column: 'region', operator: 'eq', value: 'west' }],
+        },
+        {
+          id: 'w2',
+          table: 'sales',
+          filters: [{ column: 'region', operator: 'eq', value: 'east' }],
+        },
+      ],
+    };
+    const result = await handleBatchQuery(body, ACME_CLAIMS, isolatedOptions(db));
+    // Two distinct shapes → two independent pipelines (2 preflights + 2 queries).
+    expect(tablesQueried).toHaveLength(4);
+    expect(result.results[0].rows).not.toEqual(result.results[1].rows);
+  });
+
+  it('caps how many widget pipelines run at once', async () => {
+    const { db, peakInFlight } = trackingDb(makeDb());
+    // Distinct shapes so single-flight dedup cannot mask the concurrency cap.
+    const widgets = Array.from({ length: MAX_CONCURRENT_WIDGET_QUERIES * 2 }, (_, i) => ({
+      id: `w${i}`,
+      table: 'sales',
+      limit: i + 1,
+    }));
+    const result = await handleBatchQuery(
+      { pageId: 'p1', widgets },
+      ACME_CLAIMS,
+      isolatedOptions(db),
+    );
+    // Before the fix, a bare `Promise.all` would put ALL of them in flight at once.
+    expect(peakInFlight()).toBeLessThanOrEqual(MAX_CONCURRENT_WIDGET_QUERIES);
+    // …but the batch is still genuinely concurrent, not serialized one-by-one.
+    expect(peakInFlight()).toBeGreaterThan(1);
+    // Results stay in request order despite the worker-pool scheduling.
+    expect(result.results.map((r) => r.id)).toEqual(widgets.map((w) => w.id));
+  });
+
+  it('threads ONE shared row budget through the batch instead of one per widget', async () => {
+    // Records the LIMIT each executed data query received. Rows returned by an
+    // earlier widget must be charged against the allowance a LATER widget sees.
+    const base = makeDb();
+    const limits: number[] = [];
+    const db: any = (table: string) => {
+      const qb: any = base(table);
+      const originalLimit = qb.limit.bind(qb);
+      qb.limit = (n: number) => {
+        limits.push(n);
+        return originalLimit(n);
+      };
+      return qb;
+    };
+    db.raw = (base as any).raw;
+
+    // More widgets than the concurrency cap, each with a DISTINCT query shape so
+    // single-flight dedup cannot collapse them: the widgets past the first wave
+    // start only after earlier ones have already charged their rows.
+    const widgets = Array.from({ length: MAX_CONCURRENT_WIDGET_QUERIES + 2 }, (_, i) => ({
+      id: `w${i}`,
+      table: 'sales',
+      filters: [{ column: 'amount', operator: 'gte' as const, value: i }],
+    }));
+    const result = await handleBatchQuery(
+      { pageId: 'p1', widgets },
+      ACME_CLAIMS,
+      isolatedOptions(db),
+    );
+    expect(result.results.every((r) => r.error === undefined)).toBe(true);
+
+    // One LIMIT per widget (the preflight COUNT(*) applies none).
+    expect(limits).toHaveLength(widgets.length);
+    // No widget may ever exceed the request-wide allowance…
+    expect(Math.max(...limits)).toBe(MAX_ROWS_PER_REQUEST);
+    // …and at least one later widget saw a REDUCED allowance, which is only
+    // possible if all of them share ONE counter. Before the fix every widget
+    // independently resolved to MAX_RESULT_ROWS, so 50 of them could sum to
+    // 50 x MAX_RESULT_ROWS live rows.
+    expect(limits.some((limit) => limit < MAX_ROWS_PER_REQUEST)).toBe(true);
+  });
+});
+
+// ─── handleBatchQuery — malformed cache entries are treated as a MISS (L5) ────
+//
+// A `CacheProvider` is host-pluggable and its store is not exclusively ours: a
+// Redis keyspace collision (no `keyPrefix` configured), a partially-written
+// value, or a buggy custom provider all produce a truthy entry that is not a
+// `CacheEntry`. The handler used to return `rows: <undefined or non-array>` in a
+// field typed `Record<string, unknown>[]`, so every downstream `rows.map` /
+// `rows.length` crashed on data the DB never produced.
+describe('handleBatchQuery — malformed cache entry degrades to a DB fetch (finding L5)', () => {
+  function makeCacheReturning(value: unknown) {
+    return {
+      async get() {
+        return value as any;
+      },
+      async set() {},
+      async invalidatePrefix() {},
+      async deleteByTag() {},
+    };
+  }
+
+  const MALFORMED_ENTRIES: Array<[string, unknown]> = [
+    ['a foreign JSON value from a colliding key', { hello: 'world' }],
+    ['an entry with no "rows" field', { cachedAt: Date.now(), tier: 'server' }],
+    ['an entry whose "rows" is not an array', { rows: 'not-an-array', cachedAt: Date.now() }],
+    ['an entry whose "rows" is null', { rows: null, cachedAt: Date.now() }],
+  ];
+
+  it.each(MALFORMED_ENTRIES)('re-queries the database for %s', async (_label, entry) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const result = await handleBatchQuery(
+        { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales' }] },
+        ACME_CLAIMS,
+        {
+          db: makeDb(),
+          schemaAllowlist: ['sales'],
+          tenancy: MULTI_TENANT,
+          cacheProvider: makeCacheReturning(entry),
+          tierCacheTtlMs: 0,
+        },
+      );
+      // Served from the DB with REAL rows — never `rows: undefined` / a string.
+      expect(result.results[0].error).toBeUndefined();
+      expect(Array.isArray(result.results[0].rows)).toBe(true);
+      expect(result.results[0].rows.length).toBeGreaterThan(0);
+      expect(warn).toHaveBeenCalledWith(expect.stringMatching(/malformed cache entry/));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('still serves a WELL-FORMED cache entry from the cache', async () => {
+    const cachedRows = [{ id: 99, product: 'from-cache' }];
+    const result = await handleBatchQuery(
+      { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales' }] },
+      ACME_CLAIMS,
+      {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: MULTI_TENANT,
+        cacheProvider: makeCacheReturning({
+          rows: cachedRows,
+          cachedAt: Date.now(),
+          tier: 'client',
+          rowCount: 42,
+        }),
+        tierCacheTtlMs: 0,
+      },
+    );
+    expect(result.results[0].rows).toEqual(cachedRows);
+    expect(result.results[0].tier).toBe('client');
+    expect(result.results[0].rowCount).toBe(42);
+  });
+});
+
+// ─── handleBatchQuery — element-shape guards for `having` / `aggregations` (L1) ──
+//
+// Every other client-supplied descriptor array was shape-guarded up front, so a
+// malformed element produced this package's own precise `MUI X` error. `having`
+// was not covered at all and `aggregations` was only checked for object-ness, so
+// `having: [null]` produced `TypeError: Cannot read properties of null (reading
+// 'alias')` — which `sanitizeBoundaryError` then replaced with the generic
+// "could not be completed" message, telling the caller nothing about what was
+// malformed. That is the exact outcome the up-front guards exist to prevent.
+describe('handleBatchQuery — malformed having/aggregation elements (finding L1)', () => {
+  function run(widget: Record<string, unknown>) {
+    return handleBatchQuery({ pageId: 'p1', widgets: [widget as any] }, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenancy: MULTI_TENANT,
+      tierCacheTtlMs: 0,
+    });
+  }
+
+  it.each([[null], [42], ['nope']])(
+    'rejects a "%s" entry in "having" with a precise message, not the generic fallback',
+    async (element) => {
+      await expectWidgetError(
+        run({
+          id: 'w1',
+          table: 'sales',
+          aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+          having: [element],
+        }),
+        /Malformed entry in "having"/,
+      );
+    },
+  );
+
+  it('rejects a "having" entry whose alias is not a string', async () => {
+    await expectWidgetError(
+      run({
+        id: 'w1',
+        table: 'sales',
+        aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+        having: [{ alias: 7, operator: 'gt', value: 1 }],
+      }),
+      /Malformed entry in "having" — its "alias" must be a string/,
+    );
+  });
+
+  it('rejects an aggregation with no "column"', async () => {
+    await expectWidgetError(
+      run({ id: 'w1', table: 'sales', aggregations: [{ func: 'sum', alias: 'total' }] }),
+      /Malformed entry in "aggregations" — its "column" must be a string/,
+    );
+  });
+
+  it('rejects an aggregation with no "alias"', async () => {
+    await expectWidgetError(
+      run({ id: 'w1', table: 'sales', aggregations: [{ column: 'amount', func: 'sum' }] }),
+      /Malformed entry in "aggregations" — its "alias" must be a string/,
+    );
+  });
+
+  it('rejects a non-array "joins[].on" with a precise message instead of a raw TypeError', async () => {
+    // `for (const pair of join.on ?? [])` only substitutes for null/undefined —
+    // a present non-iterable threw `TypeError: join.on is not iterable` from that
+    // loop, pre-empting `validateJoinOnPairs`'s clean downstream message.
+    await expectWidgetError(
+      run({ id: 'w1', table: 'sales', joins: [{ table: 'sales', on: {} }] }),
+      /Malformed "joins\[\]\.on" for table "sales"/,
+    );
+  });
+
+  it('still accepts a well-formed having + aggregations pair', async () => {
+    const result = await run({
+      id: 'w1',
+      table: 'sales',
+      columns: ['product'],
+      aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+      having: [{ alias: 'total', operator: 'gt', value: 0 }],
+    });
+    expect(result.results[0].error).toBeUndefined();
+  });
+});
+
+// ─── handleBatchQuery — implicit `" as "` alias references are rejected (L2) ──
+//
+// Knex's `wrapString` splits ANY identifier containing `" as "` into
+// `<expr> as <alias>` before quoting; `resultKeyOf` splits only on `.`. On a
+// `schemaAllowlist`-only deployment (no `columnAllowlist` — the documented
+// backward-compatible posture) `columns: ["sales.amount as product", "product"]`
+// therefore yielded two DIFFERENT keys here, so `validateProjectionKeyCollisions`
+// saw no collision — while Knex emitted both under `product` and one silently
+// overwrote the other in every row.
+describe('handleBatchQuery — implicit " as " column references are rejected (finding L2)', () => {
+  // Deliberately NO `columnAllowlist` — the deployment posture where the silent
+  // projection-key collision actually bites (with an allowlist configured,
+  // `checkColumnAgainstAllowlist` would reject the reference for a different
+  // reason). The guard must therefore be unconditional.
+  function run(widget: Record<string, unknown>) {
+    return handleBatchQuery({ pageId: 'p1', widgets: [widget as any] }, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenancy: MULTI_TENANT,
+      tierCacheTtlMs: 0,
+    });
+  }
+
+  it('rejects an " as "-aliased projection column with NO columnAllowlist configured', async () => {
+    await expectWidgetError(
+      run({ id: 'w1', table: 'sales', columns: ['sales.amount as product', 'product'] }),
+      /Column reference "sales\.amount as product" \(in columns\) contains " as "/,
+    );
+  });
+
+  it.each(['AS', 'As', 'aS'])('rejects the case-variant " %s " form too', async (as) => {
+    await expectWidgetError(
+      run({ id: 'w1', table: 'sales', columns: [`sales.amount ${as} product`] }),
+      /contains " as "/,
+    );
+  });
+
+  it('rejects an " as "-aliased filter column', async () => {
+    await expectWidgetError(
+      run({
+        id: 'w1',
+        table: 'sales',
+        filters: [{ column: 'amount as product', operator: 'eq', value: 1 }],
+      }),
+      /Column reference "amount as product" \(in filters\) contains " as "/,
+    );
+  });
+
+  it('rejects an " as "-bearing columnAliases VALUE (which would render `x as y as z`)', async () => {
+    await expectWidgetError(
+      run({
+        id: 'w1',
+        table: 'sales',
+        columns: ['revenue'],
+        columnAliases: { revenue: 'sales.amount as product' },
+      }),
+      /\(in columnAliases\) contains " as "/,
+    );
+  });
+
+  it('does NOT reject a legitimate column that merely CONTAINS the letters "as"', async () => {
+    // The guard matches the delimited `" as "` token Knex parses, not any
+    // substring — `last_assigned` / `as_of_date` must still be queryable.
+    const result = await run({ id: 'w1', table: 'sales', columns: ['product', 'sale_date'] });
+    expect(result.results[0].error).toBeUndefined();
   });
 });

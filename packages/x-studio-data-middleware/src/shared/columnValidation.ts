@@ -84,6 +84,45 @@ export function resolveAlias(descriptor: BatchWidgetDescriptor, column: string):
 }
 
 /**
+ * Reject a column reference that carries Knex's IMPLICIT `" as "` alias syntax
+ * (finding L2).
+ *
+ * Knex's `wrapString` (`knex/lib/formatter/wrappingFormatter.js`) splits ANY
+ * identifier containing `" as "` — case-insensitively — into `<expr> as <alias>`
+ * BEFORE quoting it. This package's own reference parsers do not: `resultKeyOf`
+ * (`security/validateQueryPlan.ts`) splits only on `.`, so it reads
+ * `"orders.total as amount"` as the result key `"total as amount"` while Knex
+ * emits the row under `amount`. That divergence defeats
+ * `validateProjectionKeyCollisions`: on a `schemaAllowlist`-only deployment (no
+ * `columnAllowlist` — the documented backward-compatible posture),
+ * `columns: ["orders.total as amount", "customers.amount"]` yields two distinct
+ * keys here, so no collision is reported, yet Knex emits BOTH under `amount` and
+ * one silently overwrites the other in every row — exactly the hazard that guard
+ * exists to close. The same string in `columnAliases` reaches
+ * `db.raw('?? as ??', …)` and renders the nonsensical
+ * `"orders"."x" as "y" as "a"`, an opaque driver error.
+ *
+ * Rejected outright rather than resolved, for the same reason (and with the same
+ * fail-closed posture) as the multi-dot rejection in `checkColumnAgainstAllowlist`
+ * / `checkQualifiedColumn`: two components must never be free to disagree about
+ * what a client's reference string means. Client-side renaming already has a
+ * first-class channel — `columnAliases` plus `PlanProjectionColumn.outputAlias` —
+ * which routes the alias through a `??` binding and the `SAFE_ALIAS_PATTERN`
+ * charset check instead.
+ */
+export function assertNoImplicitAlias(reference: string, context: string): void {
+  if (reference.toLowerCase().includes(' as ')) {
+    throw new Error(
+      `MUI X Studio Server: Column reference "${reference}" (in ${context}) contains " as ". ` +
+        `The query builder parses that as an implicit "<column> as <alias>" rename, which this package's own ` +
+        `result-key and allowlist parsers do not — so a reference aliased this way can silently collide with ` +
+        `another projected column and overwrite it in every result row. ` +
+        `Reference the plain column and declare the rename via "columnAliases" instead.`,
+    );
+  }
+}
+
+/**
  * Validate a single (already alias-resolved) column reference against a
  * per-table allowlist. Throws (fail-closed) when the table has no entry or the
  * column is not allowed.
@@ -135,6 +174,10 @@ export function checkColumnAgainstAllowlist(
         `Reference the column as "table.column", not a deeper-qualified path.`,
     );
   }
+  // Reject Knex's implicit `" as "` alias syntax (finding L2) alongside the
+  // multi-dot rejection above — same class of parser divergence, same
+  // fail-closed posture. See `assertNoImplicitAlias`.
+  assertNoImplicitAlias(physical, context);
   const dotIdx = physical.indexOf('.');
   const table = dotIdx !== -1 ? physical.slice(0, dotIdx) : defaultTable;
   const column = dotIdx !== -1 ? physical.slice(dotIdx + 1) : physical;
@@ -276,8 +319,23 @@ export function validateHavingAliases(descriptor: BatchWidgetDescriptor): void {
         `Add an "aggregations" entry whose alias the HAVING predicate references, or remove the "having" clause.`,
     );
   }
-  const aggAliases = new Set(aggregations.map((a) => a.alias));
+  const aggAliases = new Set(aggregations.map((a) => a?.alias));
   for (const h of descriptor.having) {
+    // ELEMENT SHAPE (finding L1) — `having` is client JSON, so a `null`/primitive
+    // element (or one with a non-string `alias`) is not a runtime impossibility.
+    // The `h.alias` dereference just below used to throw a raw `TypeError` that
+    // `sanitizeBoundaryError` degraded to the generic "could not be completed"
+    // message. The request path now rejects this earlier, in
+    // `assertQualifiedColumnsAllowed`; this guard keeps direct callers of this
+    // validator (which is exported and unconditional) on the same footing.
+    if (typeof h !== 'object' || h === null || typeof h.alias !== 'string') {
+      throw new Error(
+        `MUI X Studio Server: Malformed HAVING predicate ${JSON.stringify(h)} — expected an object with a string ` +
+          `"alias" naming a declared aggregation. A null, non-object, or unaliased HAVING predicate cannot be ` +
+          `matched to an aggregation and would otherwise surface as a confusing internal error. ` +
+          `Give every "having" entry a string "alias" matching an "aggregations" entry.`,
+      );
+    }
     if (!aggAliases.has(h.alias)) {
       throw new Error(
         `MUI X Studio Server: HAVING alias "${h.alias}" does not match any aggregation alias. ` +
@@ -379,6 +437,19 @@ export function validateAggregationAliases(
   const projectionKeySet = projectionKeys ? new Set(projectionKeys) : undefined;
   const seen = new Set<string>();
   for (const agg of descriptor.aggregations ?? []) {
+    // ELEMENT SHAPE (finding L1) — every dereference below (`agg.alias.length`,
+    // the regex test, the collision checks) assumes a string alias, but
+    // `aggregations` is client JSON. The request path rejects this earlier in
+    // `assertQualifiedColumnsAllowed`; this keeps direct callers of this exported,
+    // unconditional validator from getting a raw `TypeError` instead.
+    if (typeof agg !== 'object' || agg === null || typeof agg.alias !== 'string') {
+      throw new Error(
+        `MUI X Studio Server: Malformed aggregation ${JSON.stringify(agg)} — expected an object with a string ` +
+          `"alias". The alias becomes the aggregate's result-row key and is emitted into the SQL projection as an ` +
+          `identifier, so it cannot be missing or non-string. ` +
+          `Give every "aggregations" entry a string "alias".`,
+      );
+    }
     // Length cap (Tier2 finding — resource exhaustion): `SAFE_ALIAS_PATTERN`
     // constrains the CHARSET of an alias but not its length — a client could
     // still send an arbitrarily long string built entirely from allowed

@@ -14,6 +14,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
+  assertNoImplicitAlias,
   resolveAlias,
   checkColumnAgainstAllowlist,
   validateAggregationAliases,
@@ -242,6 +243,42 @@ describe('validateHavingAliases — numeric value-shape guard (finding 2.1)', ()
   ])('rejects a non-numeric HAVING value (%s) with a descriptive error', (_label, value) => {
     expect(() => validateHavingAliases(descriptor(value))).toThrow(
       /HAVING value for alias "total" must be a finite number/,
+    );
+  });
+});
+
+// ─── Implicit `" as "` alias references are rejected (finding L2) ─────────────
+//
+// Knex's `wrapString` splits ANY identifier containing `" as "` (case-insensitively)
+// into `<expr> as <alias>` before quoting; this package's own parsers do not —
+// `resultKeyOf` splits only on `.`. That divergence let two projected columns land
+// on the SAME Knex row key while `validateProjectionKeyCollisions` saw two distinct
+// keys, so one silently overwrote the other in every row.
+describe('assertNoImplicitAlias / checkColumnAgainstAllowlist — " as " is rejected (finding L2)', () => {
+  const ALLOWLIST = { orders: ['*'], customers: ['*'] };
+
+  it.each([
+    ['lowercase', 'orders.total as amount'],
+    ['uppercase', 'orders.total AS amount'],
+    ['mixed case', 'orders.total As amount'],
+    ['unqualified', 'total as amount'],
+  ])('rejects a %s " as " reference', (_label, reference) => {
+    expect(() => assertNoImplicitAlias(reference, 'columns')).toThrow(/contains " as "/);
+    expect(() => checkColumnAgainstAllowlist(reference, 'orders', ALLOWLIST, 'columns')).toThrow(
+      /contains " as "/,
+    );
+  });
+
+  it.each(['total', 'orders.total', 'as_of_date', 'last_assigned', 'aspect', 'orders.gas'])(
+    'accepts "%s" — the guard matches the delimited " as " token, not any substring',
+    (reference) => {
+      expect(() => assertNoImplicitAlias(reference, 'columns')).not.toThrow();
+    },
+  );
+
+  it('names the reference and the context so the caller can locate it', () => {
+    expect(() => assertNoImplicitAlias('orders.total as amount', 'orderBy')).toThrow(
+      /Column reference "orders\.total as amount" \(in orderBy\) contains " as "/,
     );
   });
 });

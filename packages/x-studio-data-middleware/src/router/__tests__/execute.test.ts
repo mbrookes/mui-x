@@ -9,7 +9,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import Knex from 'knex';
-import { executeForTier, MAX_RESULT_ROWS } from '../execute';
+import { createRowBudget, executeForTier, MAX_RESULT_ROWS } from '../execute';
 import { validateQueryPlan } from '../../security/validateQueryPlan';
 import type { JwtSecurityClaims, BatchWidgetDescriptor } from '../../security/types';
 
@@ -418,5 +418,123 @@ describe('executeForTier — renamed projection column qualification under a joi
       const rendered = `select ${renamedFragment.toString()}, "${directColumn.replace('.', '"."')}"`;
       expect(rendered).toBe('select "orders"."total" as "revenue", "orders"."status"');
     });
+  });
+});
+
+// ─── Per-request row budget (finding H2) ──────────────────────────────────────
+//
+// `MAX_RESULT_ROWS` bounds ONE widget's query and `MAX_WIDGETS_PER_BATCH` bounds
+// the NUMBER of widgets, but nothing bounded their PRODUCT: 50 unbounded widgets
+// each independently resolved to `MAX_RESULT_ROWS`, so a single authenticated
+// request could hold 5,000,000 rows live before serialization. `RowBudget` is one
+// shared, mutable allowance threaded through every widget of a batch, so their
+// limits COMPOSE instead of multiplying.
+describe('executeForTier — per-request row budget (finding H2)', () => {
+  /** A Knex stand-in that resolves to rows and records the LIMIT it was given. */
+  function createResolvingDb(rowCount: number) {
+    const limits: number[] = [];
+    let queriesRun = 0;
+    const builder: any = {};
+    for (const method of ['where', 'whereIn', 'select', 'orderBy', 'groupBy', 'sum', 'count']) {
+      builder[method] = () => builder;
+    }
+    builder.limit = (n: number) => {
+      limits.push(n);
+      return builder;
+    };
+    builder.then = (resolve: (rows: Record<string, unknown>[]) => void) => {
+      queriesRun += 1;
+      const appliedLimit = limits[limits.length - 1] ?? rowCount;
+      resolve(Array.from({ length: Math.min(rowCount, appliedLimit) }, () => ({})));
+    };
+    const db = () => builder;
+    (db as any).raw = () => ({ kind: 'raw' });
+    return { db, limits, queriesRun: () => queriesRun };
+  }
+
+  const OPTIONS = { tenancy: SINGLE_TENANT } as const;
+
+  it('caps a widget with no client limit at MAX_RESULT_ROWS when no budget is threaded', async () => {
+    const { db, limits } = createResolvingDb(3);
+    await executeForTier(db, BASE_CLAIMS, descriptor(), 'server', OPTIONS);
+    expect(limits).toEqual([MAX_RESULT_ROWS]);
+  });
+
+  it('caps the LIMIT at the budget that is left, not at MAX_RESULT_ROWS', async () => {
+    const { db, limits } = createResolvingDb(3);
+    const budget = createRowBudget(10);
+    await executeForTier(db, BASE_CLAIMS, descriptor(), 'server', OPTIONS, undefined, budget);
+    expect(limits).toEqual([10]);
+  });
+
+  it('decrements the shared budget by the rows actually returned', async () => {
+    const { db } = createResolvingDb(4);
+    const budget = createRowBudget(10);
+    await executeForTier(db, BASE_CLAIMS, descriptor(), 'server', OPTIONS, undefined, budget);
+    expect(budget.remaining).toBe(6);
+  });
+
+  it('makes successive widgets share ONE allowance instead of each getting a full one', async () => {
+    // The core of finding H2: two widgets in one request must SUM to the budget,
+    // not each independently resolve to `MAX_RESULT_ROWS`.
+    const { db, limits } = createResolvingDb(4);
+    const budget = createRowBudget(10);
+    await executeForTier(db, BASE_CLAIMS, descriptor(), 'server', OPTIONS, undefined, budget);
+    await executeForTier(db, BASE_CLAIMS, descriptor(), 'server', OPTIONS, undefined, budget);
+    expect(limits).toEqual([10, 6]);
+    expect(budget.remaining).toBe(2);
+  });
+
+  it('short-circuits to an empty result WITHOUT querying once the budget is exhausted', async () => {
+    const { db, queriesRun } = createResolvingDb(5);
+    const budget = createRowBudget(5);
+    await executeForTier(db, BASE_CLAIMS, descriptor(), 'server', OPTIONS, undefined, budget);
+    expect(budget.remaining).toBe(0);
+    const rows = await executeForTier(
+      db,
+      BASE_CLAIMS,
+      descriptor(),
+      'server',
+      OPTIONS,
+      undefined,
+      budget,
+    );
+    expect(rows).toEqual([]);
+    // Only the FIRST widget hit the database.
+    expect(queriesRun()).toBe(1);
+  });
+
+  it('still honors a smaller CLIENT limit when the budget is larger', async () => {
+    const { db, limits } = createResolvingDb(2);
+    const budget = createRowBudget(10);
+    await executeForTier(
+      db,
+      BASE_CLAIMS,
+      descriptor({ limit: 2 }),
+      'server',
+      OPTIONS,
+      undefined,
+      budget,
+    );
+    expect(limits).toEqual([2]);
+  });
+
+  it('applies the budget on the aggregation ("db" tier) path too', async () => {
+    const { db, limits } = createResolvingDb(1);
+    const budget = createRowBudget(7);
+    await executeForTier(
+      db,
+      BASE_CLAIMS,
+      descriptor({
+        columns: ['product'],
+        aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+      }),
+      'db',
+      OPTIONS,
+      undefined,
+      budget,
+    );
+    expect(limits).toEqual([7]);
+    expect(budget.remaining).toBe(6);
   });
 });

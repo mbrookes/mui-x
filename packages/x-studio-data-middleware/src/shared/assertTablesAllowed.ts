@@ -7,6 +7,7 @@
  * and its error text — live in exactly one place.
  */
 import type { BatchWidgetDescriptor, FilterPredicate } from '../security/types';
+import { assertNoImplicitAlias } from './columnValidation';
 import { MAX_STRING_LENGTH } from './limits';
 
 /**
@@ -119,6 +120,12 @@ function checkQualifiedColumn(column: string, context: string, schemaAllowlist: 
         `Reference the column as "table.column", not a deeper-qualified path.`,
     );
   }
+  // Reject Knex's implicit `" as "` alias syntax (finding L2). Runs
+  // UNCONDITIONALLY here — unlike `checkColumnAgainstAllowlist`, which only runs
+  // when a `columnAllowlist` is configured — so the `schemaAllowlist`-only
+  // deployment (where the silent projection-key collision actually bites) is
+  // covered too. See `assertNoImplicitAlias`.
+  assertNoImplicitAlias(column, context);
   const table = qualifiedTableOf(column);
   if (table === undefined || schemaAllowlist.includes(table)) {
     return;
@@ -190,14 +197,46 @@ function checkQualifiedColumn(column: string, context: string, schemaAllowlist: 
  * generic message, rejecting it here — the write path's
  * `assertValidBatchMutationRequest` does the equivalent up front — yields this
  * package's own precise, `MUI X`-prefixed error instead.
+ *
+ * REQUIRED STRING FIELDS (finding L1) — the object check alone is not enough for
+ * every array. `filters`/`orderBy` hand their `.column` straight to
+ * `checkQualifiedColumn`, which has its own non-string guard, so they need no
+ * extra fields. But `aggregations` and `having` are dereferenced by validators
+ * that do NOT guard: `validateQueryPlan` calls `resultKeyOf(resolveAlias(d,
+ * agg.column))` (→ `undefined.lastIndexOf`), `validateAggregationAliases` reads
+ * `agg.alias.length`, and `validateHavingAliases` reads `h.alias`/`h.value`. Each
+ * of those produced a raw `TypeError` that `sanitizeBoundaryError` then replaced
+ * with the generic "could not be completed" message — so the caller learned
+ * nothing about what was malformed, the exact outcome these up-front guards exist
+ * to prevent everywhere else. Naming the required string fields here closes that
+ * inconsistency for the two arrays that lacked it.
  */
-function assertPredicateElementShape(element: unknown, context: string): void {
+function assertPredicateElementShape(
+  element: unknown,
+  context: string,
+  requiredStringFields: readonly string[] = [],
+): void {
+  const expectedFields =
+    requiredStringFields.length > 0
+      ? requiredStringFields.map((field) => `"${field}"`).join(' and ')
+      : '"column"';
   if (typeof element !== 'object' || element === null) {
     throw new Error(
-      `MUI X Studio Server: Malformed entry in "${context}" — expected a predicate object with a "column" field, ` +
-        `but received ${JSON.stringify(element)}. A null or non-object entry has no "column" to validate against ` +
-        `the schema allowlist. Ensure every entry in "${context}" is an object with a "column" field.`,
+      `MUI X Studio Server: Malformed entry in "${context}" — expected a predicate object with a ${expectedFields} field, ` +
+        `but received ${JSON.stringify(element)}. A null or non-object entry has no ${expectedFields} to validate against ` +
+        `the schema allowlist. Ensure every entry in "${context}" is an object with a ${expectedFields} field.`,
     );
+  }
+  for (const field of requiredStringFields) {
+    const value = (element as Record<string, unknown>)[field];
+    if (typeof value !== 'string') {
+      throw new Error(
+        `MUI X Studio Server: Malformed entry in "${context}" — its "${field}" must be a string, but received ` +
+          `${JSON.stringify(value)}. A missing or non-string "${field}" cannot be resolved into a column reference ` +
+          `or SQL identifier, and would otherwise surface as a confusing internal error instead of a clean ` +
+          `validation failure. Ensure every entry in "${context}" declares a string "${field}".`,
+      );
+    }
   }
 }
 
@@ -222,8 +261,24 @@ export function assertQualifiedColumnsAllowed(
     }
   }
   for (const agg of descriptor.aggregations ?? []) {
-    assertPredicateElementShape(agg, 'aggregations');
+    // `column` AND `alias` are both required strings here (finding L1):
+    // `validateQueryPlan` dereferences `agg.column` through `resultKeyOf` and
+    // `validateAggregationAliases` reads `agg.alias.length`, neither of which
+    // guards the type itself.
+    assertPredicateElementShape(agg, 'aggregations', ['column', 'alias']);
     checkQualifiedColumn(agg.column, 'aggregations', schemaAllowlist);
+  }
+  // HAVING predicates carry NO column reference — they may only name an
+  // aggregation alias (`validateHavingAliases` enforces that) — so there is
+  // nothing here to check against the schema allowlist. They are shape-guarded
+  // anyway (finding L1) because this is the package's up-front, per-widget shape
+  // gate for every client-supplied descriptor array, and `having` was the one
+  // array it did not cover: a `having: [null]` reached `validateHavingAliases`'s
+  // unguarded `h.alias` dereference and produced a raw `TypeError` that
+  // `sanitizeBoundaryError` degraded to the generic "could not be completed"
+  // message, telling the caller nothing about what was malformed.
+  for (const having of descriptor.having ?? []) {
+    assertPredicateElementShape(having, 'having', ['alias']);
   }
   for (const join of descriptor.joins ?? []) {
     // Guard a null/non-object join element before dereferencing `.table` / `.on`,
@@ -237,6 +292,24 @@ export function assertQualifiedColumnsAllowed(
         `MUI X Studio Server: Malformed entry in "joins" — expected a join descriptor object with a "table" field, ` +
           `but received ${JSON.stringify(join)}. A null or non-object entry has no "table" to validate against ` +
           `the schema allowlist. Ensure every entry in "joins" is an object with a "table" field.`,
+      );
+    }
+    // Guard the `on` COLLECTION before iterating it (finding L1). `for (const
+    // pair of join.on ?? [])` only substitutes for `null`/`undefined` — a present
+    // non-iterable (`on: {}`, `on: 5`) threw a raw `TypeError: join.on is not
+    // iterable` from this very loop, PRE-EMPTING `validateJoinOnPairs`'s clean
+    // "has no 'on' conditions" message downstream (that validator runs later, in
+    // `validateQueryPlan`). Checking here keeps the first thing a caller hits an
+    // actionable `MUI X` error, consistent with every sibling array on the
+    // descriptor. An OMITTED `on` still falls through to `validateJoinOnPairs`,
+    // which owns the "a join must declare at least one condition" rule.
+    if (join.on !== undefined && !Array.isArray(join.on)) {
+      throw new Error(
+        `MUI X Studio Server: Malformed "joins[].on" for table "${join.table}" — expected an array of ` +
+          `[left, right] column pairs, but received ${JSON.stringify(join.on)}. A non-array "on" cannot be ` +
+          `iterated to validate its column references against the schema allowlist, and would otherwise throw a ` +
+          `confusing internal error instead of a clean validation failure. ` +
+          `Provide "on" as an array of [leftColumn, rightColumn] tuples.`,
       );
     }
     for (const pair of join.on ?? []) {

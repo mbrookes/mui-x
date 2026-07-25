@@ -228,6 +228,72 @@ describe('applyPredicates — value-shape guards (finding 3.1)', () => {
   });
 });
 
+// ── Empty "in" list must FAIL CLOSED on the read path (H1) ──────────────────
+//
+// REGRESSION: the read path used to DROP an empty `in` predicate entirely
+// ("autoRemove"), justified by a comment claiming the alternative was a
+// malformed `WHERE x IN ()`. That premise is false — Knex's
+// `whereIn(column, [])` short-circuits to `where(false)` → `1 = 0`. Dropping it
+// failed OPEN: a widget filter resolving to an empty selection returned every
+// tenant-scoped row of the table. The same file's `regionIds: []` security
+// predicate had ALWAYS relied on the correct behavior, so the two paths held
+// contradictory beliefs about the identical Knex call.
+describe('applyPredicates — empty "in" list fails closed (H1)', () => {
+  function recordingQuery() {
+    const calls: Array<{ method: string; args: unknown[] }> = [];
+    const q: any = {};
+    for (const method of ['where', 'whereIn', 'whereBetween', 'whereLike']) {
+      q[method] = (...args: unknown[]) => {
+        calls.push({ method, args });
+        return q;
+      };
+    }
+    return { q, calls };
+  }
+
+  it('emits whereIn(column, []) on the read path instead of dropping the predicate', () => {
+    const { q, calls } = recordingQuery();
+    const predicate: FilterPredicate = { column: 'status', operator: 'in', value: [] };
+    applyPredicates(q, [predicate], 'read');
+    expect(calls).toEqual([{ method: 'whereIn', args: ['status', []] }]);
+  });
+
+  it('renders as the match-nothing "1 = 0" through real Knex', () => {
+    const realDb = Knex({ client: 'pg' });
+    const query = realDb('orders');
+    applyPredicates(query, [{ column: 'status', operator: 'in', value: [] }], 'read');
+    expect(query.toString()).toBe('select * from "orders" where 1 = 0');
+  });
+
+  it('still THROWS on the write path (an empty "in" must never widen a mutation)', () => {
+    const { q, calls } = recordingQuery();
+    const predicate: FilterPredicate = { column: 'status', operator: 'in', value: [] };
+    expect(() => applyPredicates(q, [predicate], 'write')).toThrow(
+      /"in" predicate with an empty value list/,
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  it('does not drop the OTHER predicates alongside an empty "in"', () => {
+    // The old `break` exited the `in` case only, but the fail-open result was
+    // that the whole widget query lost its narrowing predicate. Pin that an
+    // empty `in` now composes with its siblings.
+    const { q, calls } = recordingQuery();
+    applyPredicates(
+      q,
+      [
+        { column: 'status', operator: 'in', value: [] },
+        { column: 'amount', operator: 'gt', value: 10 },
+      ],
+      'read',
+    );
+    expect(calls).toEqual([
+      { method: 'whereIn', args: ['status', []] },
+      { method: 'where', args: ['amount', '>', 10] },
+    ]);
+  });
+});
+
 // ── Element-shape guards for "in" / "between" (iter22 finding) ──────────────
 //
 // The array-SHAPE guards ("is an array", "has exactly 2 elements") already

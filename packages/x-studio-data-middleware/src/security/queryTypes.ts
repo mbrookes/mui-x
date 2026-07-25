@@ -103,11 +103,12 @@ export interface BatchWidgetDescriptor {
    *
    * Optional and purely advisory as an UPPER bound from the client's point of
    * view: `router/execute.ts` always applies an effective limit of
-   * `min(limit ?? MAX_RESULT_ROWS, MAX_RESULT_ROWS)`, where `MAX_RESULT_ROWS`
-   * is a hard server-side ceiling. This means an omitted (or excessively large)
-   * `limit` can never make the server attempt an uncapped SELECT against a
-   * multi-million-row table — the effective limit is always at most
-   * `MAX_RESULT_ROWS`, regardless of what the client requests.
+   * `min(limit ?? cap, cap)`, where `cap` is the hard server-side ceiling
+   * `MAX_RESULT_ROWS` further reduced by whatever the REQUEST-wide row budget
+   * (`MAX_ROWS_PER_REQUEST`) still allows. This means an omitted (or excessively
+   * large) `limit` can never make the server attempt an uncapped SELECT against
+   * a multi-million-row table, and a batch of widgets can never sum past the
+   * request budget — regardless of what the client requests.
    */
   limit?: number;
   /**

@@ -34,10 +34,36 @@ import { sortedStringify } from './canonicalize';
  * regionIds, department, or the policy digest change, so repeated calls for the
  * same user within a request (or across requests from the same user) pay the
  * HMAC cost at most once per unique permission set per process lifetime.
- * The memo map is bounded to MAX_MEMO_SIZE entries to prevent unbounded growth.
+ * The memo map is bounded to MAX_MEMO_SIZE entries to prevent unbounded growth,
+ * and evicts least-RECENTLY-USED rather than least-recently-INSERTED — see
+ * `touchMemoEntry` (finding L4).
  */
 const securityHashMemo = new Map<string, string>();
-const MAX_MEMO_SIZE = 1_000;
+
+/**
+ * Entry ceiling for `securityHashMemo`. Exported for tests only — it is not
+ * re-exported from the package root, so it is not public API.
+ */
+export const SECURITY_HASH_MEMO_MAX_SIZE = 1_000;
+
+/**
+ * Move `memoKey` to the END of the memo's insertion order, making it the LAST
+ * candidate for eviction (finding L4).
+ *
+ * Eviction picks `securityHashMemo.keys().next().value` — the oldest-INSERTED
+ * key. A `Map` only updates a key's position on insertion, never on a `get`, so
+ * without this the memo evicted FIFO, not LRU: once full, a stream of cold
+ * one-off security profiles evicted the HOTTEST tenant's entry on every miss
+ * (its insertion is by definition the oldest), so the HMAC was recomputed on
+ * essentially every request while the memo stayed full of cold entries.
+ * Deleting and re-setting on a HIT re-appends the key, so the eviction order
+ * tracks recency of USE. Performance only — the computed hash is identical
+ * either way.
+ */
+function touchMemoEntry(memoKey: string, hash: string): void {
+  securityHashMemo.delete(memoKey);
+  securityHashMemo.set(memoKey, hash);
+}
 
 function computeSecurityHash(
   claims: JwtSecurityClaims,
@@ -61,16 +87,21 @@ function computeSecurityHash(
   const memoKey = `${hmacSecret}::${securityProfile}`;
   const cached = securityHashMemo.get(memoKey);
   if (cached !== undefined) {
+    // Re-append on a HIT so this key becomes the most-recently-USED, not merely
+    // the most-recently-inserted (finding L4) — otherwise eviction is FIFO and
+    // repeatedly discards the hottest profile.
+    touchMemoEntry(memoKey, cached);
     return cached;
   }
 
   const hash = createHmac('sha256', hmacSecret).update(securityProfile).digest('hex').slice(0, 16);
 
-  if (securityHashMemo.size >= MAX_MEMO_SIZE) {
-    // Evict the oldest entry (Map insertion order).
+  if (securityHashMemo.size >= SECURITY_HASH_MEMO_MAX_SIZE) {
+    // Evict the LEAST-RECENTLY-USED entry — the first key in insertion order,
+    // which `touchMemoEntry` keeps in sync with recency of use.
     securityHashMemo.delete(securityHashMemo.keys().next().value as string);
   }
-  securityHashMemo.set(memoKey, hash);
+  touchMemoEntry(memoKey, hash);
   return hash;
 }
 

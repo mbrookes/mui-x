@@ -255,7 +255,13 @@ describe('buildSecureQuery', () => {
       expect(calls).toContainEqual({ method: 'whereIn', args: ['sales.product', ['a', 'b']] });
     });
 
-    it('skips an empty "in" list (autoRemove) rather than emitting WHERE x IN ()', () => {
+    it('emits a match-nothing whereIn for an empty "in" list instead of dropping it (fail-closed)', () => {
+      // REGRESSION (H1): this used to assert the OPPOSITE — that an empty `in`
+      // was dropped ("autoRemove"), justified by the claim that the alternative
+      // was a malformed `WHERE x IN ()`. That claim is false: Knex 3.x's
+      // `whereIn(col, [])` short-circuits to `where(false)` → `1 = 0`. Dropping
+      // the predicate failed OPEN — a filter widget with an empty selection
+      // returned every tenant-scoped row of the table.
       const { db, calls } = createRecordingDb();
       buildSecureQuery(
         db,
@@ -265,7 +271,7 @@ describe('buildSecureQuery', () => {
         }),
         { tenancy: SINGLE_TENANT },
       );
-      expect(calls.some((c) => c.method === 'whereIn')).toBe(false);
+      expect(calls).toContainEqual({ method: 'whereIn', args: ['sales.product', []] });
     });
 
     it('maps "like" to whereLike', () => {
@@ -1543,6 +1549,43 @@ describe('buildSecureQuery', () => {
       expect(query.toString()).toBe(
         'select * from "sales" right join "customers" on "sales"."customer_id" = "customers"."id" ' +
           'and "sales"."tenant_id" = \'acme\' and 1 = 0 where "customers"."tenant_id" = \'acme\' and 1 = 0',
+      );
+    });
+  });
+
+  // ── Empty USER "in" filter renders `1 = 0`, not "no filter" (H1) ────────────
+  // The sibling of the `regionIds: []` rendering tests above, for the USER-filter
+  // path. The two paths held CONTRADICTORY beliefs about the identical Knex call:
+  // the security path relied on `whereIn(col, [])` rendering `1 = 0`, while the
+  // user-filter path DROPPED the predicate on the (false) premise that Knex would
+  // otherwise emit a malformed `WHERE x IN ()`. Pinning the rendered SQL here
+  // means a future Knex version that changed the empty-`whereIn` behavior fails
+  // this test instead of silently failing OPEN.
+  describe('real Knex SQL rendering — empty user "in" filter (H1)', () => {
+    const realDb = Knex({ client: 'pg' });
+
+    it('renders an empty "in" filter as the match-nothing "1 = 0"', () => {
+      const query = buildSecureQuery(
+        realDb,
+        BASE_CLAIMS,
+        descriptor({ filters: [{ column: 'status', operator: 'in', value: [] }] }),
+        { tenancy: MULTI_TENANT },
+      );
+      expect(query.toString()).toBe(
+        'select * from "sales" where "sales"."tenant_id" = \'acme\' and 1 = 0',
+      );
+    });
+
+    it('renders a NON-empty "in" filter as a real IN list (unchanged)', () => {
+      const query = buildSecureQuery(
+        realDb,
+        BASE_CLAIMS,
+        descriptor({ filters: [{ column: 'status', operator: 'in', value: ['a', 'b'] }] }),
+        { tenancy: MULTI_TENANT },
+      );
+      expect(query.toString()).toBe(
+        'select * from "sales" where "sales"."tenant_id" = \'acme\' ' +
+          'and "sales"."status" in (\'a\', \'b\')',
       );
     });
   });

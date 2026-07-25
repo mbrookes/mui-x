@@ -105,6 +105,23 @@ export async function decideTierWithCache(
           `Cause: ${cacheErr instanceof Error ? cacheErr.message : String(cacheErr)}`,
       );
     }
+    // SHAPE-CHECK THE HIT (finding L5, sibling of the data-cache guard in
+    // `handler.ts`). A `TierCacheProvider` is host-pluggable and its backing store
+    // is not exclusively ours — a Redis key collision, a partially-written value,
+    // or a buggy custom provider all yield a truthy entry whose `rowCount` is not
+    // a number. That would flow into `tierFromRowCount`, whose comparisons against
+    // `undefined`/`NaN` are all false, silently routing every such widget to the
+    // 'db' tier and reporting a nonsense `rowCount` to the client. Treat a
+    // structurally invalid entry as a MISS and fall through to the authoritative
+    // preflight COUNT(*), mirroring the read-failure degradation just above.
+    if (cached && !Number.isFinite(cached.rowCount)) {
+      console.warn(
+        `MUI X Studio Server: discarded a malformed tier-cache entry for a widget (its "rowCount" field is not a ` +
+          `finite number); falling back to the preflight COUNT(*). The result is still served, but the tier-cache ` +
+          `backend should be checked for a key collision or a faulty TierCacheProvider.`,
+      );
+      cached = undefined;
+    }
     if (cached) {
       // Re-map the cached `rowCount` through the CURRENT `thresholds` instead of
       // trusting `cached.tier` verbatim (finding 2.4). `thresholds` is folded into

@@ -379,3 +379,60 @@ describe('decideTierWithCache — tier-cache failure isolation (finding 2.1)', (
     }
   });
 });
+
+// ─── Malformed tier-cache entries are treated as a MISS (finding L5) ──────────
+//
+// Sibling of the data-cache shape guard in `handler.ts`. A `TierCacheProvider` is
+// host-pluggable and its store is not exclusively ours — a Redis key collision, a
+// partially-written value, or a buggy custom provider all yield a truthy entry
+// whose `rowCount` is not a number. `tierFromRowCount`'s comparisons against
+// `undefined`/`NaN` are all false, so such an entry silently routed EVERY
+// affected widget to the 'db' tier and reported a nonsense `rowCount` to the
+// client — from data the database never produced.
+describe('decideTierWithCache — malformed tier-cache entry falls back to the preflight (finding L5)', () => {
+  const MALFORMED: Array<[string, unknown]> = [
+    ['a foreign JSON value from a colliding key', { hello: 'world' }],
+    ['an entry with no rowCount', { tier: 'client' }],
+    ['an entry whose rowCount is a string', { tier: 'client', rowCount: '42' }],
+    ['an entry whose rowCount is NaN', { tier: 'client', rowCount: Number.NaN }],
+    ['an entry whose rowCount is null', { tier: 'client', rowCount: null }],
+  ];
+
+  it.each(MALFORMED)('re-runs the COUNT(*) for %s', async (_label, entry) => {
+    const tierCache = makeTierCache(entry as TierEntry);
+    const getRowCount = makeGetRowCount(50);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const result = await decideTierWithCache(
+        false,
+        'key',
+        getRowCount,
+        tierCache,
+        DEFAULT_THRESHOLDS,
+      );
+      // The authoritative preflight ran and produced the decision — the malformed
+      // entry was never trusted.
+      expect(getRowCount).toHaveBeenCalledTimes(1);
+      expect(result).toEqual({ tier: 'client', rowCount: 50, source: 'preflight' });
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/malformed tier-cache entry/));
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('still trusts a WELL-FORMED entry (including rowCount: 0)', async () => {
+    const tierCache = makeTierCache({ tier: 'client', rowCount: 0 });
+    const getRowCount = makeGetRowCount(999);
+    const result = await decideTierWithCache(
+      false,
+      'key',
+      getRowCount,
+      tierCache,
+      DEFAULT_THRESHOLDS,
+    );
+    // `0` is a legitimate count and must not be mistaken for a malformed entry.
+    expect(getRowCount).not.toHaveBeenCalled();
+    expect(result).toEqual({ tier: 'client', rowCount: 0, source: 'tier-cache' });
+  });
+});

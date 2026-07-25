@@ -12,11 +12,19 @@
  * SECURITY: values are always bound via Knex parameterized bindings (`.where`,
  * `.whereIn`, …) — never string-concatenated into SQL.
  *
- * Read vs write divergence (deliberate):
- *   - An empty `in` list means "match nothing". On READS that is a no-op filter
- *     and is dropped (mirrors the client's empty-selection semantics). On WRITES
- *     dropping it would silently widen a scoped UPDATE/DELETE into a full-tenant
- *     mutation, so it THROWS instead.
+ * Empty `in` list — an empty `in` means "match NOTHING", and that is what both
+ * paths enforce (it is NOT a no-op filter that may be dropped):
+ *   - READS emit `whereIn(column, [])`. Knex renders that as `1 = 0` (see
+ *     `knex/lib/query/querybuilder.js`'s `whereIn`, which short-circuits an empty
+ *     array to `this.where(this._not())` → `where(1, '=', 0)`), so the query
+ *     matches zero rows. It is deliberately NOT dropped: dropping it would fail
+ *     OPEN, returning the whole (tenant-scoped) table for a filter that asked for
+ *     nothing — e.g. a Studio filter widget whose selection is currently empty.
+ *     This is the same behavior the row-level-security `regionIds: []` predicate
+ *     already relies on (see `applySecurityPredicates`).
+ *   - WRITES throw. A mutation that matches nothing is almost certainly a client
+ *     bug, and the failure mode of getting it wrong (a full-tenant UPDATE/DELETE)
+ *     is unrecoverable, so the write path refuses rather than emitting `1 = 0`.
  */
 import type {
   FilterPredicate,
@@ -528,9 +536,11 @@ function emitSecurityPredicates(
 /**
  * Apply a list of structured filter predicates to a Knex query.
  *
- * @param mode - `'read'` drops an empty `in` list (match-nothing no-op);
- *   `'write'` throws for an empty `in` list (dropping it would make the mutation
- *   unscoped). Unrecognized operators always throw in both modes.
+ * @param mode - `'read'` emits an empty `in` list as `whereIn(column, [])`, which
+ *   Knex renders as the match-nothing `1 = 0`; `'write'` throws for an empty `in`
+ *   list (a mutation that matches nothing is a client bug, and mis-handling it
+ *   would risk an unscoped UPDATE/DELETE). Unrecognized operators always throw in
+ *   both modes.
  */
 export function applyPredicates(
   query: any,
@@ -607,17 +617,23 @@ function applyPredicate(query: any, predicate: FilterPredicate, mode: 'read' | '
             `Provide the values as an array (e.g. { operator: "in", value: [1, 2, 3] }).`,
         );
       }
-      if (value.length === 0) {
-        if (mode === 'write') {
-          throw new Error(
-            `MUI X Studio Server: "in" predicate with an empty value list would make the mutation unscoped and is not allowed. ` +
-              `An empty "in" matches no rows, so dropping it would widen the UPDATE/DELETE to the whole tenant table. ` +
-              `Provide at least one value, or omit the predicate intentionally.`,
-          );
-        }
-        // Read path: empty IN means "match nothing" — drop it (autoRemove).
-        break;
+      if (value.length === 0 && mode === 'write') {
+        throw new Error(
+          `MUI X Studio Server: "in" predicate with an empty value list would make the mutation unscoped and is not allowed. ` +
+            `An empty "in" matches no rows, so dropping it would widen the UPDATE/DELETE to the whole tenant table. ` +
+            `Provide at least one value, or omit the predicate intentionally.`,
+        );
       }
+      // Read path: an empty list falls THROUGH to `query.whereIn(column, [])`
+      // below — it is never dropped. Knex short-circuits an empty array to
+      // `where(false)` → `1 = 0`, so the filter matches zero rows, which is
+      // exactly what an empty "in" asks for. Dropping it (the historical
+      // behavior, justified by a since-disproven claim that Knex would emit a
+      // malformed `WHERE x IN ()`) failed OPEN: a filter widget with an empty
+      // selection returned every tenant-scoped row of the table, and the
+      // preflight `COUNT(*)` reported the full unfiltered total. The element
+      // guard below is a no-op for an empty list.
+      //
       // Runtime-guard EACH element's shape, not just the array's. The check
       // above only confirms "this is an array" — a client can still supply an
       // array whose elements are themselves objects/arrays/`null`

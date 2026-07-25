@@ -165,10 +165,20 @@ function asColumnRef(physical: string): ColumnRef {
  * dot-segment of its (possibly table-qualified) name, e.g. `orders.category` →
  * `category`. Knex assigns a bare `SELECT orders.category` this key on the row
  * object, so it is the key an aggregation alias can collide with (findings 2.1/2.2).
+ *
+ * NON-STRING TOLERANCE (finding L1): `physical` derives from client JSON via
+ * `resolveAlias`, so an aggregation with a missing/non-string `column` reached
+ * `undefined.lastIndexOf` here and threw a raw `TypeError` that
+ * `sanitizeBoundaryError` degraded to a generic message. The request path now
+ * rejects that shape up front in `assertQualifiedColumnsAllowed`, but this
+ * function is also reached from `buildPlan` via `toValidatedQueryPlan`, whose
+ * direct-caller branch deliberately runs NO validators — coercing keeps that
+ * branch's documented no-throw behavior instead of crashing on it.
  */
 function resultKeyOf(physical: string): string {
-  const dot = physical.lastIndexOf('.');
-  return dot === -1 ? physical : physical.slice(dot + 1);
+  const value = typeof physical === 'string' ? physical : String(physical);
+  const dot = value.lastIndexOf('.');
+  return dot === -1 ? value : value.slice(dot + 1);
 }
 
 /** Accepts only the two canonical SQL sort directions (case-insensitive). */
@@ -613,8 +623,13 @@ export function validateQueryPlan(
     physical.includes('.') ? physical : `${descriptor.table}.${physical}`;
   const measurePhysicals = new Set<string>();
   for (const agg of descriptor.aggregations ?? []) {
-    const physical = resolveAlias(descriptor, agg.column);
-    if (agg.alias === resultKeyOf(physical)) {
+    // Optional-chained (finding L1): this pure-measure pre-pass runs BEFORE
+    // `validateAggregationAliases` (which owns the fail-closed shape rejection),
+    // so a malformed element must not crash it with a raw `TypeError` before that
+    // validator can report the real problem. A malformed entry simply doesn't
+    // register as a pure measure and is rejected a few lines below.
+    const physical = resolveAlias(descriptor, agg?.column as string);
+    if (typeof physical === 'string' && agg?.alias === resultKeyOf(physical)) {
       measurePhysicals.add(qualify(physical));
     }
   }

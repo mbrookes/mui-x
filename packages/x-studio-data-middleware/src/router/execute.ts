@@ -36,14 +36,80 @@ type RoutingTier = 'client' | 'server' | 'db';
 export const MAX_RESULT_ROWS = 100_000;
 
 /**
- * Resolve the LIMIT actually applied to a query: the client's requested
- * `limit`, capped at `MAX_RESULT_ROWS`, defaulting to `MAX_RESULT_ROWS` when
- * the client omits `limit` entirely. `limit: 0` (a legitimate "return zero
- * rows" request, finding 3.1) is preserved — `??` only substitutes on
- * `undefined`, never on `0`.
+ * Hard ceiling on the number of rows a single BATCH REQUEST may materialize in
+ * total, across every widget it contains (finding H2 — resource exhaustion via
+ * the unbounded product of individually-bounded limits).
+ *
+ * `MAX_RESULT_ROWS` bounds ONE widget's query; `MAX_WIDGETS_PER_BATCH`
+ * (`handler.ts`) bounds the NUMBER of widgets. Nothing bounded their PRODUCT: 50
+ * widgets on a large table, each with no `limit`, each independently resolved to
+ * `MAX_RESULT_ROWS`, so one authenticated request could hold 5,000,000 rows
+ * simultaneously in the `results` array and then serialize them all again into
+ * the JSON body — a single-request OOM. This is the `widgets × rows` analogue of
+ * the aggregate `joins × on-pairs` cap `assertValidBatchQueryRequest` already
+ * applies.
+ *
+ * Deliberately equal to `MAX_RESULT_ROWS`: a request may still materialize one
+ * full-size widget result, but the batch as a whole can never exceed what a
+ * single widget was already allowed to return.
  */
-function effectiveLimit(clientLimit: number | undefined): number {
-  return Math.min(clientLimit ?? MAX_RESULT_ROWS, MAX_RESULT_ROWS);
+export const MAX_ROWS_PER_REQUEST = MAX_RESULT_ROWS;
+
+/**
+ * A mutable per-REQUEST row allowance, threaded through every widget of one
+ * batch so their limits compose instead of multiplying (finding H2).
+ *
+ * Created once by `handleBatchQuery` and passed to each `executeForTier` call;
+ * each executed query decrements `remaining` by the number of rows it actually
+ * returned. Once exhausted, later widgets short-circuit to an empty result
+ * rather than issuing an unbounded query. Direct callers (unit tests) omit it
+ * entirely, which reproduces the previous per-widget-only behavior exactly.
+ */
+export interface RowBudget {
+  /** Rows the rest of this request may still materialize. Never negative. */
+  remaining: number;
+}
+
+/** Create a fresh per-request row budget. */
+export function createRowBudget(maxRows: number = MAX_ROWS_PER_REQUEST): RowBudget {
+  return { remaining: maxRows };
+}
+
+/**
+ * Resolve the LIMIT actually applied to a query: the client's requested
+ * `limit`, capped at `MAX_RESULT_ROWS` AND at whatever the request's shared
+ * `RowBudget` still allows, defaulting to that cap when the client omits `limit`
+ * entirely. `limit: 0` (a legitimate "return zero rows" request, finding 3.1) is
+ * preserved — `??` only substitutes on `undefined`, never on `0`.
+ *
+ * With no budget threaded (direct callers), the cap is `MAX_RESULT_ROWS`,
+ * exactly as before.
+ */
+function effectiveLimit(clientLimit: number | undefined, budget: RowBudget | undefined): number {
+  const cap = budget === undefined ? MAX_RESULT_ROWS : Math.min(budget.remaining, MAX_RESULT_ROWS);
+  return Math.max(0, Math.min(clientLimit ?? cap, cap));
+}
+
+/**
+ * Apply the effective LIMIT, run the query, and charge the rows it returned
+ * against the request's shared budget.
+ *
+ * Every one of `executeForTier`'s three exit paths (client/server tier, db tier
+ * without aggregations, db tier with aggregations) goes through this single
+ * helper so none of them can drift on how the limit is derived or forget to
+ * decrement the budget.
+ */
+async function runBounded(
+  query: any,
+  clientLimit: number | undefined,
+  budget: RowBudget | undefined,
+): Promise<Record<string, unknown>[]> {
+  query.limit(effectiveLimit(clientLimit, budget));
+  const rows = (await query) as Record<string, unknown>[];
+  if (budget !== undefined && Array.isArray(rows)) {
+    budget.remaining = Math.max(0, budget.remaining - rows.length);
+  }
+  return rows;
 }
 
 /**
@@ -63,6 +129,10 @@ function effectiveLimit(clientLimit: number | undefined): number {
  *   callers omit it; a plan is then resolved on the spot from `descriptor`, reproducing the pre-refactor
  *   inline `resolveAlias` behavior. Every column reference below reads a pre-resolved `ColumnRef` off the
  *   plan — this module never calls `resolveAlias` itself.
+ * @param rowBudget - The request's shared, mutable row allowance (finding H2, request path). Caps this
+ *   query's LIMIT at whatever the batch has left and is decremented by the rows actually returned, so
+ *   `MAX_WIDGETS_PER_BATCH × MAX_RESULT_ROWS` can no longer multiply into a single-request OOM. Direct
+ *   callers omit it, which restores the previous per-widget-only `MAX_RESULT_ROWS` cap.
  */
 export async function executeForTier(
   db: any,
@@ -71,8 +141,18 @@ export async function executeForTier(
   tier: RoutingTier,
   options: CompiledSecurityPolicy | SecurityPolicyOptions,
   plan?: ValidatedQueryPlan,
+  rowBudget?: RowBudget,
 ): Promise<Record<string, unknown>[]> {
   const queryPlan = plan ?? toValidatedQueryPlan(descriptor);
+
+  // Budget exhausted by earlier widgets in this same batch: return an empty
+  // result WITHOUT issuing a query at all. Emitting `LIMIT 0` would be
+  // semantically identical but still costs a database round-trip per remaining
+  // widget, which is exactly the fan-out this budget exists to contain. Only
+  // reachable when a budget is threaded (the request path).
+  if (rowBudget !== undefined && rowBudget.remaining <= 0) {
+    return [];
+  }
 
   // Qualify an unqualified physical column with the primary table to prevent
   // "ambiguous column name" errors when JOINs are present (e.g. an ORDER BY on a
@@ -126,9 +206,9 @@ export async function executeForTier(
     }
     // Always apply an effective limit — `limit: 0` is a legitimate "return zero
     // rows" request (finding 3.1), and an omitted or excessive client `limit` is
-    // capped at `MAX_RESULT_ROWS` (finding T2) rather than left unbounded.
-    query.limit(effectiveLimit(queryPlan.limit));
-    return query as Promise<Record<string, unknown>[]>;
+    // capped at `MAX_RESULT_ROWS` (finding T2) and at the request's remaining
+    // row budget (finding H2) rather than left unbounded.
+    return runBounded(query, queryPlan.limit, rowBudget);
   }
 
   // 'db' tier: DB push-down aggregation using explicit AggregationSpec[]
@@ -149,9 +229,8 @@ export async function executeForTier(
     for (const ob of queryPlan.orderBy) {
       query.orderBy(orderColumnOf(ob), ob.direction);
     }
-    // Always apply an effective limit — see finding 3.1 / finding T2 above.
-    query.limit(effectiveLimit(queryPlan.limit));
-    return query as Promise<Record<string, unknown>[]>;
+    // Always apply an effective limit — see finding 3.1 / T2 / H2 above.
+    return runBounded(query, queryPlan.limit, rowBudget);
   }
 
   // Pure-measure columns are those whose aggregation alias equals the source
@@ -221,8 +300,6 @@ export async function executeForTier(
     // fall back to it as-is.
     query.orderBy(orderColumnOf(ob), ob.direction);
   }
-  // Always apply an effective limit — see finding 3.1 / finding T2 above.
-  query.limit(effectiveLimit(queryPlan.limit));
-
-  return query as Promise<Record<string, unknown>[]>;
+  // Always apply an effective limit — see finding 3.1 / T2 / H2 above.
+  return runBounded(query, queryPlan.limit, rowBudget);
 }

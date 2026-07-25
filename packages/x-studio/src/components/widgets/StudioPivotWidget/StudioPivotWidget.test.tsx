@@ -185,8 +185,69 @@ describe('StudioPivotWidget — measure-expression pivotValueField', () => {
     // as empty ('—'), never a real number. There's only one column ("A"), so the
     // per-cell value and the row-total column both show the same figure —
     // `getAllByText` accounts for that duplication.
-    expect(screen.getAllByText('10.00').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('20.00').length).toBeGreaterThan(0);
+    //
+    // The measure declares no number format, so cells render as plain numbers ('10'),
+    // not the hard-coded 2-decimal '10.00' every pivot cell used to be forced through.
+    expect(screen.getAllByText('10').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('20').length).toBeGreaterThan(0);
     expect(screen.queryByText('—')).toBe(null);
+  });
+});
+
+// ─── Cell formatting follows the value field, not a hard-coded 2-decimal format
+// (M6), and an unvalidated aggregation name never silently becomes a sum (M7) ──
+
+describe('StudioPivotWidget — cell formatting', () => {
+  it('renders a count as a whole number, agreeing with what the CSV export writes', () => {
+    renderWidget({
+      pivotRowField: 'region',
+      pivotColField: 'product',
+      pivotValueField: 'amount',
+      pivotAggregation: 'count',
+    });
+
+    // Pre-fix: every cell went through `formatNumber(v, 'decimal')` (min AND max 2
+    // fraction digits), so a count rendered '1.00' on screen while the CSV wrote '1'.
+    expect(screen.getAllByText('1').length).toBeGreaterThan(0);
+    expect(screen.queryByText('1.00')).toBe(null);
+  });
+
+  it("renders a currency measure in the value field's own format", () => {
+    const currencySource: StudioDataSource = {
+      id: 'sales',
+      label: 'Sales',
+      fields: [
+        { id: 'region', label: 'Region', type: 'string' },
+        { id: 'product', label: 'Product', type: 'string' },
+        { id: 'amount', label: 'Amount', type: 'number', format: 'currency', currencyCode: 'EUR' },
+      ],
+      rows: [{ region: 'EMEA', product: 'A', amount: 1234 }],
+    };
+
+    renderWidget(
+      { pivotRowField: 'region', pivotColField: 'product', pivotValueField: 'amount' },
+      currencySource,
+    );
+
+    // Pre-fix: '1234.00' — the pivot was the only widget kind that ignored the field's
+    // declared format.
+    expect(screen.getAllByText('€1,234').length).toBeGreaterThan(0);
+    expect(screen.queryByText('1234.00')).toBe(null);
+  });
+
+  it('renders every cell as "no value" for an unrecognized aggregation instead of a sum', () => {
+    renderWidget({
+      pivotRowField: 'region',
+      pivotColField: 'product',
+      pivotValueField: 'amount',
+      // Not one of the five supported names — reachable via a persisted doc or an AI
+      // `update_widget` call, neither of which validates config VALUES.
+      pivotAggregation: 'median' as never,
+    });
+
+    // Pre-fix: the sums (10 / 20 / 30) rendered as if `median` had been honoured.
+    expect(screen.getAllByText('—').length).toBeGreaterThan(0);
+    expect(screen.queryByText('10')).toBe(null);
+    expect(screen.queryByText('30')).toBe(null);
   });
 });

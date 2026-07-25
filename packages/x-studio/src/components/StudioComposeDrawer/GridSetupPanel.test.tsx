@@ -319,4 +319,46 @@ describe('GridSetupPanel', () => {
       mockState.doc.widgets['widget-1'] = previousWidget;
     }
   });
+
+  // Sibling of the finding above, on the OTHER side of the same bracket lookup: the
+  // aggregation record is indexed by the doc-authored COLUMN key. A column whose key
+  // matches an inherited `Object.prototype` member resolved that member as its
+  // "current aggregation" — the ⋮ button rendered `color="primary"` (claiming an
+  // aggregation was configured) and the tooltip interpolated `function Object() {…}`.
+  it('treats a column keyed like an Object.prototype member as having no aggregation configured', async () => {
+    const previousWidget = mockState.doc.widgets['widget-1'];
+    const previousOrders = mockState.runtime.dataSources.orders;
+    try {
+      mockState.runtime.dataSources.orders = {
+        ...previousOrders,
+        fields: [
+          ...previousOrders.fields,
+          { id: 'constructor', label: 'Constructor', type: 'string' },
+        ],
+      };
+      mockState.doc.widgets['widget-1'] = {
+        ...previousWidget,
+        config: {
+          columns: [{ fieldId: 'constructor' }],
+          // Deliberately empty — nothing is configured for ANY column.
+          gridSummaryFields: {},
+        } as StudioWidgetConfig,
+      };
+
+      const { user } = render(<GridSetupPanel widgetId="widget-1" />);
+      const optionsButton = screen.getByRole('button', { name: 'Options for Constructor' });
+      expect(optionsButton.className).not.toContain('colorPrimary');
+
+      await user.hover(optionsButton);
+      await waitFor(() => {
+        expect(screen.getByRole('tooltip')).toBeVisible();
+      });
+      const tooltip = screen.getByRole('tooltip');
+      expect(tooltip.textContent).toBe('Set summary / remove');
+      expect(tooltip.textContent).not.toMatch(/function/i);
+    } finally {
+      mockState.doc.widgets['widget-1'] = previousWidget;
+      mockState.runtime.dataSources.orders = previousOrders;
+    }
+  });
 });

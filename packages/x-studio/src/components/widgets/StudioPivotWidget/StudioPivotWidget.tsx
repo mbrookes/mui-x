@@ -8,9 +8,15 @@ import {
   makeSelectExpressionFieldsForSource,
 } from '../../../context';
 import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
-import type { StudioDataSource, StudioWidgetOf } from '../../../models';
+import type { StudioDataField, StudioDataSource, StudioWidgetOf } from '../../../models';
 import { PivotTable } from './PivotTable';
-import { buildPivotMatrix, pivotToCsv, downloadCsv, type PivotMeasureContext } from './pivotUtils';
+import {
+  buildPivotMatrix,
+  pivotToCsv,
+  downloadCsv,
+  resolvePivotAggregation,
+  type PivotMeasureContext,
+} from './pivotUtils';
 
 export interface StudioPivotWidgetProps {
   widget: StudioWidgetOf<'pivot'>;
@@ -32,9 +38,16 @@ export function StudioPivotWidget({
     pivotRowField,
     pivotColField,
     pivotValueField,
-    pivotAggregation = 'sum',
+    pivotAggregation,
     pivotShowTotals = true,
   } = config;
+
+  // `pivotAggregation` is doc-/AI-authored and only its KEY name is validated at the load
+  // boundary, never its value — an unrecognized name used to fall through to `sum`, so the
+  // pivot showed a sum while the config asserted a different measure. Screen it against the
+  // allow-list here, at the widget boundary (`SAFE_MAP_COLOR_SCHEMES` pattern); `null` makes
+  // every cell render as `—` instead of a plausible-but-wrong number.
+  const aggFn = resolvePivotAggregation(pivotAggregation);
 
   // `effectiveRows` (not `filteredRows`) so the pivot honours `config.crossFilterMode` the
   // same way Map/KPI do: `'none'` shows the grand total (chart cross-filters ignored),
@@ -71,6 +84,34 @@ export function StudioPivotWidget({
     [measureExprField, expressionFields],
   );
 
+  // The value field's own definition — resolved from the data source, or normalized from an
+  // expression field (measure or calculated column) the same way `StudioGridWidget` does it.
+  // Threaded into `PivotTable` so a cell renders in the measure's format/currency/precision
+  // (`€1,234`) like every other widget kind, instead of the hard-coded 2-decimal number the
+  // pivot used to print for every value regardless of type (`1234.00`, and `12.00` for a
+  // `count`, which the CSV wrote as `12`).
+  const valueFieldDef = React.useMemo<
+    Pick<StudioDataField, 'type' | 'format' | 'currencyCode' | 'precision'> | undefined
+  >(() => {
+    if (!pivotValueField) {
+      return undefined;
+    }
+    const field = dataSource?.fields.find((f) => f.id === pivotValueField);
+    if (field) {
+      return field;
+    }
+    const ef = expressionFields.find((f) => f.id === pivotValueField);
+    if (ef) {
+      return {
+        type: ef.type ?? 'number',
+        format: ef.format,
+        precision: ef.precision,
+        currencyCode: ef.currencyCode,
+      };
+    }
+    return undefined;
+  }, [pivotValueField, dataSource?.fields, expressionFields]);
+
   const matrix = React.useMemo(() => {
     if (!pivotRowField || !pivotColField || filteredRows.length === 0) {
       return null;
@@ -88,9 +129,9 @@ export function StudioPivotWidget({
     if (!matrix) {
       return;
     }
-    const csv = pivotToCsv(matrix, pivotAggregation, pivotShowTotals, localeText.pivotTotalLabel);
+    const csv = pivotToCsv(matrix, aggFn, pivotShowTotals, localeText.pivotTotalLabel);
     downloadCsv(csv, `${widget.title || 'pivot'}.csv`);
-  }, [matrix, pivotAggregation, pivotShowTotals, widget.title, localeText.pivotTotalLabel]);
+  }, [matrix, aggFn, pivotShowTotals, widget.title, localeText.pivotTotalLabel]);
 
   React.useEffect(() => {
     if (exportRef) {
@@ -157,7 +198,8 @@ export function StudioPivotWidget({
     <Box sx={{ position: 'relative' }}>
       <PivotTable
         matrix={matrix}
-        aggFn={pivotAggregation}
+        aggFn={aggFn}
+        valueField={valueFieldDef}
         showTotals={pivotShowTotals}
         height={300}
       />

@@ -42,7 +42,7 @@ import {
   sanitizeFiniteNumber,
 } from '../../../internals/cssValueValidation';
 
-import { computeGridSummary } from '../../../utils/gridSummary';
+import { columnAggKey, computeGridSummary } from '../../../utils/gridSummary';
 import { aggregateValues } from '../../../utils/gridGrouping';
 import { useWidgetRows } from '../../../internals/useWidgetRows';
 import { getRowIdentity } from '../../../internals/rowIdentity';
@@ -61,33 +61,67 @@ function toGridAggFn(fn: string): string {
 }
 
 /**
- * `config.gridSummaryFields`/`config.gridAggregations` are keyed by
- * `GridSetupPanel`'s composite column key (`sourceId/fieldId` for a cross-source
- * column, bare `fieldId` for a primary one — see `GridSetupPanel.tsx`'s
- * `columnAggKey`), so that two selected columns sharing a bare field id across
- * sources get independent aggregation-menu entries instead of silently colliding
- * (architecture review: per-column aggregation collision). Aggregating an actual
- * row only ever needs the bare field id though — every row's cell lives under the
- * plain field name regardless of which source it was cross-source-enriched from,
+ * `config.gridSummaryFields`/`config.gridAggregations` are keyed by the composite
+ * column key (`sourceId/fieldId` for a cross-source column, bare `fieldId` for a
+ * primary one — see `utils/gridSummary.ts`'s shared `columnAggKey`, which
+ * `GridSetupPanel` writes with), so that two selected columns sharing a bare field id
+ * across sources get independent aggregation-menu entries instead of silently
+ * colliding (architecture review: per-column aggregation collision). Aggregating an
+ * actual row only ever needs the bare field id though — every row's cell lives under
+ * the plain field name regardless of which source it was cross-source-enriched from,
  * and DataGridPremium's own `GridColDef.field`/pinned-summary-row keys are always
  * the bare field id too — so translate composite keys back to their bare field id
  * here, at the single point both the native `aggregationModel` and the
  * summary-row computation read from `config.gridAggregations`/
  * `config.gridSummaryFields`.
+ *
+ * The translation is driven by `config.columns` — the exact list the producer derived
+ * its keys from — never by string surgery on the key itself. Re-deriving the bare id
+ * with `key.slice(key.indexOf('/') + 1)` was wrong twice over:
+ *
+ * - It collapsed `{ total: 'sum', 'customers/total': 'avg' }` back to `{ total: 'avg' }`
+ *   (last write wins), so configuring the RELATED column's aggregation silently flipped
+ *   the PRIMARY column's footer — re-introducing the very collision the composite key
+ *   was introduced to fix. Own-source columns are applied last here, so an own column
+ *   always wins a bare-id tie, matching every other own-field-wins guard in this file.
+ * - It mangled a field id that legitimately contains a slash: a primary column named
+ *   `P/L` (composite key `P/L`, no `sourceId` prefix) resolved to a bare `L`, so its
+ *   footer disappeared and an unrelated `L` column inherited its aggregation.
+ *
+ * A key no configured column claims is passed through untouched (a widget with no
+ * explicit `config.columns` renders every source field, and its entries are bare field
+ * ids with no column entry to match), but never overwrites a column-resolved entry.
  */
 export function resolveAggregationFieldKeys<T>(
   aggregations: Record<string, T> | undefined,
+  configColumns: StudioWidgetConfig['columns'],
 ): Record<string, T> {
   if (!aggregations) {
     return {};
   }
-  const result: Record<string, T> = {};
-  for (const [key, value] of Object.entries(aggregations)) {
-    const slashIndex = key.indexOf('/');
-    const fieldId = slashIndex === -1 ? key : key.slice(slashIndex + 1);
-    result[fieldId] = value;
+  const resolved = new Map<string, T>();
+  const claimedKeys = new Set<string>();
+  const columns = configColumns ?? [];
+  // Cross-source columns first so an own-source column's entry always wins a tie on
+  // the bare field id both resolve to.
+  for (const col of [...columns.filter((c) => c.sourceId), ...columns.filter((c) => !c.sourceId)]) {
+    const key = columnAggKey(col);
+    // `key` is doc-authored, so guard the record index against inherited
+    // `Object.prototype` members ("toString"/"constructor"/…) — a bare `in`/bracket
+    // lookup would otherwise resolve a function off the prototype chain and configure
+    // the column with it as its aggregation.
+    if (!Object.hasOwn(aggregations, key)) {
+      continue;
+    }
+    claimedKeys.add(key);
+    resolved.set(col.fieldId, aggregations[key]);
   }
-  return result;
+  for (const [key, value] of Object.entries(aggregations)) {
+    if (!claimedKeys.has(key) && !resolved.has(key)) {
+      resolved.set(key, value);
+    }
+  }
+  return Object.fromEntries(resolved) as Record<string, T>;
 }
 
 /**
@@ -148,6 +182,11 @@ export function resolveCrossSourceFkFields(
  * dedupe key falls back to the row's own (always-unique, see the `rows` memo
  * below) id, making the dedupe pass a no-op and preserving prior behaviour exactly.
  *
+ * The own-field fallback key is the row's `__rowId` (the always-unique grid row identity
+ * stamped by the `rows` memo below), NOT `row.id` — a nullable/duplicated `id` column
+ * would otherwise make every own-field value share one dedupe key (or be dropped entirely
+ * as an unlinked null FK), collapsing the aggregation to a single row.
+ *
  * `getCellValue` extracts a `(dedupeKey, value)` pair per row instead of the raw
  * cell value (DataGridPremium's supported extensibility point for aggregating from
  * more than one row field — see `GridAggregationFunction.getCellValue`); `apply`
@@ -166,7 +205,8 @@ export function makeFanoutSafeAggregationFunction(
       const fkField = crossSourceFkFields.get(field);
       const record = row as Record<string, unknown>;
       return {
-        dedupeKey: fkField ? record[fkField] : record.id,
+        // eslint-disable-next-line no-underscore-dangle -- internal grid row identity (see the doc comment above)
+        dedupeKey: fkField ? record[fkField] : (record.__rowId ?? record.id),
         value: record[field],
       };
     },
@@ -726,21 +766,34 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     // results, which is undefined behavior for DataGridPremium (finding).
     const seenIds = new Set<string>();
     return baseRows.map((row, index) => {
-      // Spread `row` FIRST, then set `id`, so the synthetic-id fallback always wins when the
-      // row carries an `id` property that is null/undefined (a nullable database id column).
-      // With the fallback placed before `...row`, `...row` overwrote the computed id back to
-      // nullish and every such row collided on the same DataGrid id (finding 1.9).
-      let id: unknown = row.id ?? `${widget.id}-${index}`;
+      // The grid's row identity is stamped on `__rowId` — the internal identity field
+      // `getRowId` already reads first (and the pinned summary row already uses) — and NEVER
+      // onto `row.id`.
+      //
+      // Writing the synthetic/deduped identity over `row.id` clobbered the row's real data
+      // value with an internal token, which then leaked into everything that reads the row:
+      // the rendered `id` column, `handleCellClick`'s emitted cross-filter value, conditional
+      // formats evaluated on `id`, and — worst — write-back's `where: [{ column: pkField,
+      // value: newRow[pkField] }]`. With `gridPkField: 'id'` on a source whose `id` column is
+      // nullable or non-unique, the mutation ran `WHERE id = 'w3-7'`, matched zero rows, and
+      // most adapters report a 0-row update as `{ ok: true }` — so `processRowUpdate` resolved
+      // and the grid painted the edit as committed while nothing was persisted (silent data
+      // loss). Keeping the synthetic token off `row.id` leaves every consumer reading the real
+      // value.
+      //
+      // The synthetic fallback covers a row whose `id` property is null/undefined (a nullable
+      // database id column) as well as an id-less source (finding 1.9).
+      let rowId = String(row.id ?? `${widget.id}-${index}`);
       // On a collision (a duplicate non-null id, or a synthetic id that happens to match a real
       // one), fall back to a synthetic per-index unique id so every rendered row keeps a distinct
       // getRowId value.
-      if (seenIds.has(String(id))) {
-        id = `${widget.id}-dup-${index}`;
+      if (seenIds.has(rowId)) {
+        rowId = `${widget.id}-dup-${index}`;
       }
-      seenIds.add(String(id));
+      seenIds.add(rowId);
       return {
         ...row,
-        id,
+        __rowId: rowId,
         // Stashed during this same pass (while `row` still has its original identity) so
         // `getRowClassName` below never needs to re-derive matching from `row.id`.
         __highlighted: highlightedRowKeys ? highlightedRowKeys.has(rowMatchKey(row)) : undefined,
@@ -755,11 +808,14 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   );
 
   const aggregationModel = React.useMemo<GridAggregationModel>(() => {
-    const resolved = resolveAggregationFieldKeys(widget.config.gridAggregations);
+    const resolved = resolveAggregationFieldKeys(
+      widget.config.gridAggregations,
+      widget.config.columns,
+    );
     return Object.fromEntries(
       Object.entries(resolved).map(([field, fn]) => [field, toGridAggFn(fn)]),
     );
-  }, [widget.config.gridAggregations]);
+  }, [widget.config.gridAggregations, widget.config.columns]);
 
   // Drive sorting externally (like `rowGroupingModel`/`aggregationModel` above) so a
   // config-only edit to `gridSortField`/`gridSortDirection` takes effect immediately.
@@ -813,6 +869,12 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       }
       const changedValues: Record<string, unknown> = {};
       for (const key of Object.keys(newRow)) {
+        // `__rowId`/`__highlighted` are internal render-time fields stamped by the `rows`
+        // memo, not columns of the underlying table — they must never reach the adapter's
+        // `values` payload.
+        if (key.startsWith('__')) {
+          continue;
+        }
         if (newRow[key] !== oldRow[key]) {
           changedValues[key] = newRow[key];
         }
@@ -820,15 +882,27 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       if (Object.keys(changedValues).length === 0) {
         return newRow;
       }
-      const rowId = String(newRow.id);
+      // The grid row identity, used only to revert the stuck cell in
+      // `onProcessRowUpdateError` — deliberately `__rowId` (what `getRowId` returns), not
+      // `newRow.id`, which is the row's real (possibly null/duplicated) data value.
+      // eslint-disable-next-line no-underscore-dangle -- internal grid row identity
+      const rowId = String(newRow.__rowId ?? newRow.id);
       const [changedField] = Object.keys(changedValues);
+      const pkValue = newRow[pkField];
+      // A row whose PK cell is null/undefined addresses no database row: the mutation's
+      // `WHERE <pk> IS NULL`-equivalent matches nothing, and most adapters report a 0-row
+      // update as `{ ok: true }` — so the edit would be painted as committed while nothing
+      // was persisted. Fail loudly (and revert the cell) instead of silently losing the edit.
+      if (pkValue === null || pkValue === undefined) {
+        throw toEnrichedMutationError(new Error(localeText.gridMutationError), rowId, changedField);
+      }
       let result;
       try {
         result = await dataSource.adapter.submitMutation({
           operation: 'update',
           table: dataSource.tableName ?? dataSource.id,
           values: changedValues,
-          where: [{ column: pkField, operator: 'eq', value: newRow[pkField] }],
+          where: [{ column: pkField, operator: 'eq', value: pkValue }],
         });
       } catch (err) {
         // Adapter rejected/threw — enrich with the row/field being edited so
@@ -846,7 +920,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       setMutationError(null);
       return newRow;
     },
-    [dataSource, pkField],
+    [dataSource, pkField, localeText.gridMutationError],
   );
 
   const handleProcessRowUpdateError = React.useCallback(
@@ -997,9 +1071,17 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   // In cross-highlight mode the grid body shows ALL baseline rows but dims non-matching ones.
   // The summary should reflect only the highlighted (cross-filter-inclusive) subset so the
   // totals agree with what the user is focusing on. In all other modes use `rows` directly.
-  const summaryConfig = widget.config.gridGroupByField
-    ? undefined
-    : resolveAggregationFieldKeys(widget.config.gridSummaryFields);
+  //
+  // Memoized: an unmemoized object literal changed identity on every render, so
+  // `summaryValues` re-scanned every row and `pinnedRows` handed DataGridPremium a brand
+  // new pinned-row array each time.
+  const summaryConfig = React.useMemo(
+    () =>
+      widget.config.gridGroupByField
+        ? undefined
+        : resolveAggregationFieldKeys(widget.config.gridSummaryFields, widget.config.columns),
+    [widget.config.gridGroupByField, widget.config.gridSummaryFields, widget.config.columns],
+  );
   const summaryBasisRows = React.useMemo(
     () =>
       hasChartCrossFilters && crossFilterMode === 'cross-highlight'

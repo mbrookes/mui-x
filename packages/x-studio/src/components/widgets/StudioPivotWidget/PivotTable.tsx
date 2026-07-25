@@ -1,8 +1,13 @@
 'use client';
 import * as React from 'react';
 import { Box, useTheme } from '@mui/material';
-import { formatNumber } from '../../../internals/numberFormat';
-import { type PivotMatrix, resolveAgg, roundPivotValue } from './pivotUtils';
+import type { StudioDataField } from '../../../models';
+import {
+  formatPivotCellValue,
+  resolvePivotCellValue,
+  type PivotAggregation,
+  type PivotMatrix,
+} from './pivotUtils';
 import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
 
 const CELL_W = 90;
@@ -11,23 +16,37 @@ const ROW_H = 32;
 
 interface PivotTableProps {
   matrix: PivotMatrix;
-  aggFn: 'sum' | 'avg' | 'count' | 'min' | 'max';
+  /**
+   * `null` when the configured `pivotAggregation` failed validation — every cell then
+   * renders as "no value" rather than silently showing a different measure
+   * (see `resolvePivotAggregation`).
+   */
+  aggFn: PivotAggregation | null;
+  /**
+   * Definition of the resolved `pivotValueField` (a data-source field or an expression
+   * field normalized to the same shape), so cells render in the measure's own
+   * format/currency/precision — the same way the grid, KPI and map widgets format it —
+   * instead of a hard-coded 2-decimal number.
+   */
+  valueField?: Pick<StudioDataField, 'type' | 'format' | 'currencyCode' | 'precision'>;
   showTotals: boolean;
   height: number;
 }
 
-const fmt = (v: number | null) => {
-  if (v === null) {
-    return '—';
-  }
-  // Shared rounding helper with the CSV export (`pivotToCsv`/`formatCell`) so an
-  // exported cell never differs from the displayed cell (finding 3.2).
-  return formatNumber(roundPivotValue(v), 'decimal');
-};
-
-export function PivotTable({ matrix, aggFn, showTotals, height }: PivotTableProps) {
+export function PivotTable({ matrix, aggFn, valueField, showTotals, height }: PivotTableProps) {
   const theme = useTheme();
   const localeText = useStudioLocaleText();
+
+  // Cell resolution (aggregation + rounding) is shared with the CSV export
+  // (`pivotToCsv`) via `resolvePivotCellValue`, so an exported cell can never differ
+  // from the displayed cell (finding 3.2); only the presentation differs.
+  const fmt = (agg: Parameters<typeof resolvePivotCellValue>[0]) => {
+    const value = resolvePivotCellValue(agg, aggFn);
+    if (value === null) {
+      return '—';
+    }
+    return formatPivotCellValue(value, aggFn, valueField);
+  };
 
   // Use theme.vars for CSS variable references so styles adapt in dark mode.
   const vars =
@@ -107,12 +126,12 @@ export function PivotTable({ matrix, aggFn, showTotals, height }: PivotTableProp
                 </th>
                 {matrix.colValues.map((cv) => (
                   <td key={cv} style={{ ...cellStyle, background: rowBg }}>
-                    {fmt(resolveAgg(rowCells?.get(cv), aggFn))}
+                    {fmt(rowCells?.get(cv))}
                   </td>
                 ))}
                 {showTotals && (
                   <td style={{ ...cellStyle, background: totalBg, fontWeight: 500 }}>
-                    {fmt(resolveAgg(matrix.rowTotals.get(rv), aggFn))}
+                    {fmt(matrix.rowTotals.get(rv))}
                   </td>
                 )}
               </tr>
@@ -125,11 +144,11 @@ export function PivotTable({ matrix, aggFn, showTotals, height }: PivotTableProp
               </th>
               {matrix.colValues.map((cv) => (
                 <td key={cv} style={{ ...cellStyle, background: totalBg, fontWeight: 500 }}>
-                  {fmt(resolveAgg(matrix.colTotals.get(cv), aggFn))}
+                  {fmt(matrix.colTotals.get(cv))}
                 </td>
               ))}
               <td style={{ ...cellStyle, background: totalBg, fontWeight: 700 }}>
-                {fmt(resolveAgg(matrix.grandTotal, aggFn))}
+                {fmt(matrix.grandTotal)}
               </td>
             </tr>
           )}

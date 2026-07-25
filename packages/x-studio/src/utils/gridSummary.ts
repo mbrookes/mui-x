@@ -1,4 +1,4 @@
-import type { StudioDataField, StudioGridSummaryAggregation } from '../models';
+import type { StudioDataField, StudioGridColumn, StudioGridSummaryAggregation } from '../models';
 import { formatFieldValue } from '../internals/numberFormat';
 import {
   DEFAULT_STUDIO_LOCALE_TEXT,
@@ -10,6 +10,26 @@ import { aggregateValues } from './gridGrouping';
 interface GridSummaryConfig {
   /** Map of fieldId → aggregation function. Only listed fields get a summary cell. */
   fields: Record<string, StudioGridSummaryAggregation>;
+}
+
+/**
+ * Composite key identifying one configured grid column in the
+ * `config.gridSummaryFields`/`config.gridAggregations` maps: bare `fieldId` for a
+ * primary-source column, `sourceId/fieldId` for a cross-source one.
+ *
+ * Keying those maps by bare `fieldId` alone made a related-source column whose field id
+ * happens to match a primary column's (e.g. both sources have a `total`) share the exact
+ * same entry, so configuring one column's aggregation silently overwrote the other's
+ * (architecture review: per-column aggregation collision).
+ *
+ * Lives here — not in `GridSetupPanel` (the producer) nor `StudioGridWidget` (the
+ * consumer) — so both sides derive the key with the SAME function instead of one of them
+ * re-deriving it by string surgery (`key.slice(key.indexOf('/') + 1)`), which silently
+ * mangled a field id that legitimately contains a slash (a `P/L` column resolved to a
+ * bare `L`) and re-introduced the very collision the composite key was added to fix.
+ */
+export function columnAggKey(col: Pick<StudioGridColumn, 'fieldId' | 'sourceId'>): string {
+  return col.sourceId ? `${col.sourceId}/${col.fieldId}` : col.fieldId;
 }
 
 /**
@@ -71,7 +91,11 @@ export function computeGridSummary(
   localeText: StudioLocaleText = DEFAULT_STUDIO_LOCALE_TEXT,
   crossSourceFkFields?: Map<string, string>,
 ): Record<string, string> {
-  const result: Record<string, string> = {};
+  // Collected in a Map, not a plain object literal: `config.fields`' keys are
+  // doc-/AI-authored, and `result['__proto__'] = …` on an object literal mutates the
+  // prototype instead of creating an own property. `Object.fromEntries` always creates
+  // own data properties, so the returned record stays a plain value map.
+  const result = new Map<string, string>();
 
   const fieldIndex = new Map(fields.map((f) => [f.id, f]));
 
@@ -102,14 +126,14 @@ export function computeGridSummary(
     const label = aggregationLabel(effectiveAgg, localeText);
 
     if (effectiveAgg === 'count' || effectiveAgg === 'count_distinct') {
-      result[fieldId] = `${label} ${raw.toLocaleString()}`;
+      result.set(fieldId, `${label} ${raw.toLocaleString()}`);
     } else {
       const formatted = formatFieldValue(raw, fieldDef);
-      result[fieldId] = `${label} ${formatted}`;
+      result.set(fieldId, `${label} ${formatted}`);
     }
   }
 
-  return result;
+  return Object.fromEntries(result);
 }
 
 /** Short prefix label shown before the computed value in a summary cell. */

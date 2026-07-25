@@ -7,7 +7,11 @@ import type {
   StudioWidget,
 } from '../../../models';
 import { resolveRows } from '../../../internals/dataSourceGraph';
-import { evalConditionalFormat, makeFanoutSafeAggregationFunction } from './StudioGridWidget';
+import {
+  evalConditionalFormat,
+  makeFanoutSafeAggregationFunction,
+  resolveAggregationFieldKeys,
+} from './StudioGridWidget';
 
 function makeWidget(overrides: Partial<StudioWidget> = {}): StudioWidget {
   return {
@@ -273,5 +277,79 @@ describe('makeFanoutSafeAggregationFunction — min/max restrict to number colum
     const values = dates.map((d, i) => ({ dedupeKey: `k${i}`, value: d }));
     // The shared reducer coerces every date string to null → empty numeric set → null.
     expect(fn.apply({ values } as any)).toBe(null);
+  });
+});
+
+// ─── Own-field dedupe key uses the grid row identity, not the raw `id` value ───
+//
+// The own-field (non-cross-source) branch used to key on `row.id`. Now that the
+// synthetic/deduped row identity lives on `__rowId` and `row.id` keeps its real (possibly
+// null or duplicated) data value, keying on `row.id` would drop every row of a
+// nullable-id source (a null dedupe key never joins) or collapse duplicate ids into one.
+
+describe('makeFanoutSafeAggregationFunction — own-field dedupe key', () => {
+  it('uses __rowId so rows with a null or duplicated `id` still aggregate individually', () => {
+    const fn = makeFanoutSafeAggregationFunction('sum', new Map(), ['number']);
+    const rows = [
+      { __rowId: 'w-0', id: null, amount: 10 },
+      { __rowId: 'w-1', id: null, amount: 20 },
+      { __rowId: 'w-2', id: 'dup', amount: 30 },
+      { __rowId: 'w-dup-3', id: 'dup', amount: 40 },
+    ];
+    const values = rows.map((row) => fn.getCellValue!({ row, field: 'amount' } as any));
+    expect(fn.apply({ values } as any)).toBe(100);
+  });
+});
+
+// ─── Per-column aggregation keys must survive the composite → bare-id mapping ──
+//
+// `GridSetupPanel` writes `gridSummaryFields`/`gridAggregations` keyed by the shared
+// composite `columnAggKey` (`sourceId/fieldId` for a cross-source column, bare `fieldId`
+// for a primary one) precisely so two columns sharing a bare field id across sources get
+// independent entries. `resolveAggregationFieldKeys` used to undo that by string surgery
+// (`key.slice(key.indexOf('/') + 1)`), collapsing both entries back onto the bare id —
+// last write wins — and mangling any field id that legitimately contains a slash.
+
+describe('resolveAggregationFieldKeys', () => {
+  it('keeps the OWN column entry when a cross-source column shares its bare field id', () => {
+    const resolved = resolveAggregationFieldKeys({ total: 'sum', 'customers/total': 'avg' }, [
+      { fieldId: 'total' },
+      { fieldId: 'total', sourceId: 'customers' },
+    ]);
+    // Pre-fix: `{ total: 'avg' }` — configuring the RELATED column silently flipped the
+    // primary column's footer from `Sum:` to `Avg:`.
+    expect(resolved).toEqual({ total: 'sum' });
+  });
+
+  it('applies a cross-source entry when no own column claims the bare field id', () => {
+    const resolved = resolveAggregationFieldKeys({ 'orders/total': 'sum' }, [
+      { fieldId: 'category' },
+      { fieldId: 'total', sourceId: 'orders' },
+    ]);
+    expect(resolved).toEqual({ total: 'sum' });
+  });
+
+  it('does not split a field id that legitimately contains a slash', () => {
+    const resolved = resolveAggregationFieldKeys({ 'P/L': 'sum' }, [{ fieldId: 'P/L' }]);
+    // Pre-fix: `{ L: 'sum' }` — the `P/L` footer disappeared and any `L` column inherited it.
+    expect(resolved).toEqual({ 'P/L': 'sum' });
+  });
+
+  it('passes through bare entries for a widget with no explicit column list', () => {
+    expect(resolveAggregationFieldKeys({ amount: 'sum' }, undefined)).toEqual({ amount: 'sum' });
+  });
+
+  it('ignores inherited Object.prototype keys when matching a column', () => {
+    // The aggregation record has no own `toString`, so a column keyed `toString` must
+    // resolve to "not configured" rather than picking up `Object.prototype.toString`.
+    const resolved = resolveAggregationFieldKeys({ amount: 'sum' }, [
+      { fieldId: 'toString' },
+      { fieldId: 'amount' },
+    ]);
+    expect(resolved).toEqual({ amount: 'sum' });
+  });
+
+  it('returns an empty record when nothing is configured', () => {
+    expect(resolveAggregationFieldKeys(undefined, [{ fieldId: 'total' }])).toEqual({});
   });
 });

@@ -46,6 +46,10 @@ import {
   useStudioLocaleText,
 } from '../../context';
 import { getReachableSourceIds } from '../../internals/dataSourceGraph';
+// The composite per-column aggregation key is shared with its consumer
+// (`StudioGridWidget`'s `resolveAggregationFieldKeys`) so producer and consumer can
+// never drift on the key format — see `columnAggKey`'s doc comment.
+import { columnAggKey } from '../../utils/gridSummary';
 import {
   buildFieldCatalog,
   buildSourceFieldEntries,
@@ -102,22 +106,6 @@ function clearFieldBoundGridConfig(
   }
   next.columns = [];
   return next as StudioWidgetConfigForKind<'grid'>;
-}
-
-/**
- * Composite key identifying a configured column for its per-column aggregation
- * (summary/group) menu entry: bare `fieldId` for a primary-source column,
- * `sourceId/fieldId` for a cross-source one. Matches the exact same convention the
- * column list below already uses for React keys / menu-anchor identity (`colKey`).
- *
- * `gridSummaryFields`/`gridAggregations` used to be keyed by bare `fieldId` alone, so
- * a related-source column whose field id happens to match a primary column's (e.g.
- * both have an `id` or `name` field) shared the exact same map entry — configuring
- * one column's aggregation silently overwrote the other's (architecture review:
- * per-column aggregation collision).
- */
-function columnAggKey(col: Pick<StudioGridColumn, 'fieldId' | 'sourceId'>): string {
-  return col.sourceId ? `${col.sourceId}/${col.fieldId}` : col.fieldId;
 }
 
 /** A selectable field entry with its source context */
@@ -507,7 +495,18 @@ export function GridSetupPanel(props: { widgetId: string }) {
             const fieldInfo = fieldLookup.get(colKey) ?? fieldLookup.get(col.fieldId);
             const isNumeric = fieldInfo?.type === 'number';
             const availableAggs = isNumeric ? NUMERIC_AGGREGATIONS : STRING_AGGREGATIONS;
-            const currentAgg = groupByField ? groupAggregations[colKey] : summaryFields[colKey];
+            // `colKey` is derived from the doc-authored `config.columns`, and
+            // `groupAggregations`/`summaryFields` are plain doc-authored records: guard the
+            // bracket lookup against inherited `Object.prototype` members so a column whose
+            // key is e.g. "constructor"/"toString" resolves to "no aggregation configured"
+            // instead of a function off the prototype chain — which rendered the ⋮ button
+            // `color="primary"` (claiming an aggregation was set) and interpolated
+            // `function Object() {…}` into the tooltip (prototype-chain key lookup fix,
+            // same pattern as the `aggLabels` guard below).
+            const currentAggRecord = groupByField ? groupAggregations : summaryFields;
+            const currentAgg = Object.hasOwn(currentAggRecord, colKey)
+              ? currentAggRecord[colKey]
+              : undefined;
             const isGroupByField = col.fieldId === groupByField && !col.sourceId;
             const isDraggingOver = dragOverIndex === index && dragIndex !== index;
             let aggregationTooltipTitle = localeText.gridSetupColumnAggSummaryTooltip;

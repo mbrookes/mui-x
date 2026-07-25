@@ -6,6 +6,9 @@ import {
   pivotToCsv,
   downloadCsv,
   roundPivotValue,
+  resolvePivotAggregation,
+  resolvePivotCellValue,
+  formatPivotCellValue,
   type PivotMatrix,
 } from './pivotUtils';
 
@@ -403,6 +406,86 @@ describe('roundPivotValue', () => {
   it('rounds to 2 decimal places — the shared precision used by both the CSV export and PivotTable', () => {
     expect(roundPivotValue(4 / 3)).toBe(1.33);
     expect(roundPivotValue(10)).toBe(10);
+  });
+
+  it('rounds a count to a whole number — a row count is never fractional', () => {
+    expect(roundPivotValue(12, 'count')).toBe(12);
+  });
+});
+
+// ─── Unvalidated `pivotAggregation` must not silently become a sum (M7) ───────
+//
+// `configKeyValidation` screens config key NAMES, never their values, so an
+// unrecognized `pivotAggregation` used to fall through every branch of `resolveAgg`
+// and land on the `sum` path — rendering a sum under a config asserting a different
+// measure, with no error anywhere.
+
+describe('resolvePivotAggregation', () => {
+  it('accepts every supported aggregation name', () => {
+    for (const fn of ['sum', 'avg', 'count', 'min', 'max'] as const) {
+      expect(resolvePivotAggregation(fn)).toBe(fn);
+    }
+  });
+
+  it('defaults to sum when nothing is configured', () => {
+    expect(resolvePivotAggregation(undefined)).toBe('sum');
+  });
+
+  it('rejects an unrecognized name instead of falling through to sum', () => {
+    expect(resolvePivotAggregation('median')).toBe(null);
+    expect(resolvePivotAggregation('')).toBe(null);
+    // Also rejects inherited Object.prototype member names.
+    expect(resolvePivotAggregation('constructor')).toBe(null);
+    expect(resolvePivotAggregation('toString')).toBe(null);
+  });
+});
+
+// ─── Screen and CSV resolve through the same helper (M6) ─────────────────────
+
+describe('resolvePivotCellValue / formatPivotCellValue', () => {
+  const matrix: PivotMatrix = buildPivotMatrix(ROWS, 'region', 'product', 'amount');
+
+  it('resolves the same rounded number the CSV writes', () => {
+    const cell = matrix.cells.get('EMEA')!.get('A');
+    expect(resolvePivotCellValue(cell, 'sum')).toBe(10);
+    expect(resolvePivotCellValue(cell, 'count')).toBe(1);
+    expect(resolvePivotCellValue(undefined, 'sum')).toBe(null);
+  });
+
+  it('resolves every cell to "no value" when the aggregation failed validation', () => {
+    const cell = matrix.cells.get('EMEA')!.get('A');
+    expect(resolvePivotCellValue(cell, null)).toBe(null);
+    // The whole CSV degrades to empty numeric cells rather than a plausible-but-wrong sum.
+    expect(pivotToCsv(matrix, null, false).split('\n')).toEqual([
+      '"","A","B"',
+      '"APAC",,',
+      '"EMEA",,',
+    ]);
+  });
+
+  it('formats a count as an integer, never with the 2-decimal tail the CSV lacks', () => {
+    // Pre-fix the screen printed `12.00` while the CSV wrote `12`, breaking the very
+    // screen-agrees-with-export invariant `roundPivotValue` exists to hold.
+    expect(formatPivotCellValue(12, 'count')).toBe('12');
+    // A count is not in the value field's unit — a currency column's count is a plain
+    // integer (mirrors the grid's `hasCellUnit: fn !== 'count'`).
+    expect(formatPivotCellValue(12, 'count', { type: 'number', format: 'currency' })).toBe('12');
+  });
+
+  it("formats a value cell in the value field's own format", () => {
+    expect(
+      formatPivotCellValue(1234, 'sum', {
+        type: 'number',
+        format: 'currency',
+        currencyCode: 'EUR',
+      }),
+    ).toBe('€1,234');
+    expect(formatPivotCellValue(1234, 'sum', { type: 'number', format: 'integer' })).toBe('1,234');
+  });
+
+  it('falls back to plain number formatting when the value field is unknown or non-numeric', () => {
+    expect(formatPivotCellValue(1234.5, 'sum')).toBe('1,234.5');
+    expect(formatPivotCellValue(1234.5, 'sum', { type: 'string' })).toBe('1,234.5');
   });
 });
 

@@ -7,8 +7,9 @@ import {
 } from '../../../internals/aggregate';
 import { escapeCsvCell } from '../../../internals/csvUtils';
 import { downloadCsv } from '../../../internals/widgetUtils';
+import { formatFieldValue, formatNumber } from '../../../internals/numberFormat';
 import { evaluateMeasure } from '../../../utils/expressionEvaluator';
-import type { StudioExpressionField } from '../../../models';
+import type { StudioDataField, StudioExpressionField } from '../../../models';
 
 // Re-exported so existing importers of `./pivotUtils` keep working unchanged —
 // the Blob/`createObjectURL`/anchor-click download plumbing now lives in one
@@ -41,10 +42,34 @@ function addToAgg(agg: AggState, v: number) {
   accumulateValue(agg.acc, v);
 }
 
-export function resolveAgg(
-  agg: AggState | undefined,
-  fn: 'sum' | 'avg' | 'count' | 'min' | 'max',
-): number | null {
+/** The aggregation functions a pivot cell can be reduced with. */
+export type PivotAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max';
+
+const PIVOT_AGGREGATIONS = new Set<string>(['sum', 'avg', 'count', 'min', 'max']);
+
+/**
+ * Validates a doc-/AI-authored `config.pivotAggregation` at the widget boundary.
+ *
+ * `pivotAggregation` is TYPED as the five-name union, but that type is not enforced at
+ * the load/AI-tool boundary — `configKeyValidation` screens config key NAMES, never
+ * their values. An unrecognized name used to fall through every `if` in `resolveAgg`
+ * and land on the `sum` branch, so the pivot rendered a SUM while the user's config
+ * asserted a different measure entirely, with no error anywhere. Returning `null`
+ * instead makes every cell render as "no value" (`—` on screen, empty in the CSV),
+ * which is visible rather than silently wrong. Mirrors the `SAFE_MAP_COLOR_SCHEMES`
+ * allow-list `StudioMapWidget` applies to its own unvalidated config value.
+ *
+ * `undefined` is the legitimate "not configured" case and resolves to the documented
+ * `sum` default.
+ */
+export function resolvePivotAggregation(fn: string | undefined): PivotAggregation | null {
+  if (fn === undefined) {
+    return 'sum';
+  }
+  return PIVOT_AGGREGATIONS.has(fn) ? (fn as PivotAggregation) : null;
+}
+
+export function resolveAgg(agg: AggState | undefined, fn: PivotAggregation): number | null {
   if (fn === 'count') {
     // COUNT(*) semantics: every row that landed in this cell counts, even one
     // whose measure value was null/non-numeric (finding 2.7). A cell that
@@ -322,29 +347,92 @@ function naturalCompare(a: string, b: string): number {
   return 0;
 }
 
-// ── Rounding ──────────────────────────────────────────────────────────────────
+// ── Cell value resolution & formatting ────────────────────────────────────────
 
 /**
  * Shared rounding precision for pivot cell values — the CSV export and the
  * on-screen `PivotTable` must agree, or an exported cell can differ from the
  * displayed cell in the third decimal (classic for `avg`) (finding 3.2).
+ *
+ * A `count` is a row count, never a fractional measure, so it rounds to a whole number
+ * (it already is one; the branch documents the intent and guards a measure matrix's
+ * `rowCount` from ever picking up a `.00` tail downstream).
  */
-export function roundPivotValue(v: number): number {
+export function roundPivotValue(v: number, aggFn?: PivotAggregation): number {
+  if (aggFn === 'count') {
+    return Math.round(v);
+  }
   return Math.round(v * 100) / 100;
+}
+
+/**
+ * THE single resolution path for one pivot cell — used by both `PivotTable` (screen) and
+ * `pivotToCsv` (export), so the two can never drift on either the aggregation applied or
+ * the rounding (finding 3.2). Returns `null` for "no value", which the screen renders as
+ * `—` and the CSV as an empty cell.
+ *
+ * A `null` `aggFn` means the configured aggregation name failed validation
+ * (see {@link resolvePivotAggregation}) — every cell then resolves to "no value" rather
+ * than silently falling back to a different measure than the one configured.
+ */
+export function resolvePivotCellValue(
+  agg: AggState | undefined,
+  aggFn: PivotAggregation | null,
+): number | null {
+  if (aggFn === null) {
+    return null;
+  }
+  const raw = resolveAgg(agg, aggFn);
+  return raw === null ? null : roundPivotValue(raw, aggFn);
+}
+
+/**
+ * Formats a resolved pivot cell for DISPLAY, using the value field's own definition —
+ * the same `formatFieldValue` the grid/KPI/map cells use, so a currency measure renders
+ * `€1,234` in the pivot too instead of a bare `1234.00`.
+ *
+ * Every cell used to go through `formatNumber(v, 'decimal')`, which pins BOTH fraction
+ * digits at 2: a `count` aggregation rendered `12.00 / 5.00 / 1.00` on screen while the
+ * CSV wrote `12 / 5 / 1`, breaking the very screen-agrees-with-export invariant
+ * {@link roundPivotValue} exists to hold.
+ *
+ * A `count` is a plain row count and is NOT in the value field's unit (a currency
+ * column's count is an integer, not an amount), so it is formatted as an integer
+ * regardless of the field's format — mirroring the grid's
+ * `makeFanoutSafeAggregationFunction` `hasCellUnit: fn !== 'count'` policy.
+ */
+export function formatPivotCellValue(
+  value: number,
+  aggFn: PivotAggregation | null,
+  valueField?: Pick<StudioDataField, 'type' | 'format' | 'currencyCode' | 'precision'>,
+): string {
+  if (aggFn === 'count') {
+    return formatNumber(value, 'integer');
+  }
+  if (valueField?.type === 'number') {
+    return formatFieldValue(value, valueField);
+  }
+  return formatNumber(value);
 }
 
 // ── CSV export ────────────────────────────────────────────────────────────────
 
-function formatCell(v: number | null): string {
+/**
+ * CSV cells stay machine-readable (raw digits, no grouping separators or currency
+ * symbols — a `1,234` cell would break the row's column alignment), but they carry the
+ * exact same NUMBER the screen shows, because both sides resolve through
+ * {@link resolvePivotCellValue}.
+ */
+function formatCsvCell(v: number | null): string {
   if (v === null) {
     return '';
   }
-  return String(roundPivotValue(v));
+  return String(v);
 }
 
 export function pivotToCsv(
   matrix: PivotMatrix,
-  aggFn: 'sum' | 'avg' | 'count' | 'min' | 'max',
+  aggFn: PivotAggregation | null,
   showTotals: boolean,
   // Defaults to the English literal so existing callers (and the existing test
   // suite) keep working unchanged; `StudioPivotWidget` passes
@@ -358,24 +446,28 @@ export function pivotToCsv(
   // Label cells (header row + row labels + the totals caption) come from user data,
   // so they go through `escapeCsvCell`, which neutralizes spreadsheet formula
   // injection (a label like `=HYPERLINK(...)`) on top of standard CSV quoting
-  // (finding 1.8). Numeric cells (`formatCell`) are emitted raw — escaping them would
+  // (finding 1.8). Numeric cells (`formatCsvCell`) are emitted raw — escaping them would
   // corrupt legitimate negatives like `-5`.
   const header = ['', ...colValues, ...(showTotals ? [totalLabel] : [])];
   const lines: string[] = [header.map((h) => escapeCsvCell(h)).join(',')];
 
   for (const rv of rowValues) {
     const rowCells = matrix.cells.get(rv);
-    const cells = colValues.map((cv) => formatCell(resolveAgg(rowCells?.get(cv), aggFn)));
+    const cells = colValues.map((cv) =>
+      formatCsvCell(resolvePivotCellValue(rowCells?.get(cv), aggFn)),
+    );
     const rowTotal = showTotals
-      ? formatCell(resolveAgg(matrix.rowTotals.get(rv), aggFn))
+      ? formatCsvCell(resolvePivotCellValue(matrix.rowTotals.get(rv), aggFn))
       : undefined;
     const line = [escapeCsvCell(rv), ...cells, ...(rowTotal !== undefined ? [rowTotal] : [])];
     lines.push(line.join(','));
   }
 
   if (showTotals) {
-    const totals = colValues.map((cv) => formatCell(resolveAgg(matrix.colTotals.get(cv), aggFn)));
-    const grand = formatCell(resolveAgg(matrix.grandTotal, aggFn));
+    const totals = colValues.map((cv) =>
+      formatCsvCell(resolvePivotCellValue(matrix.colTotals.get(cv), aggFn)),
+    );
+    const grand = formatCsvCell(resolvePivotCellValue(matrix.grandTotal, aggFn));
     lines.push([escapeCsvCell(totalLabel), ...totals, grand].join(','));
   }
 

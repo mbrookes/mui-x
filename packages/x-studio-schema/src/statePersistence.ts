@@ -7,7 +7,11 @@ import {
   stripUnsafeOwnKeys,
   repairFilterDependsOn,
 } from './internalGuards';
-import { isStudioChartType, isStudioFilterOperator } from './widgetTypeGuards';
+import {
+  isStudioChartType,
+  isStudioFilterOperator,
+  isStudioExpressionOperator,
+} from './widgetTypeGuards';
 import { CURRENT_SCHEMA_VERSION } from './stateTypes';
 import type {
   StudioState,
@@ -244,15 +248,105 @@ const screenRecordArray = <T>(
 };
 
 /**
+ * Depth bound for the recursive `expression` tree of a persisted `expressionFields` entry.
+ *
+ * `StudioExpression` is the only genuinely RECURSIVE shape that crosses this load boundary,
+ * and not every consumer walker is self-bounded: `x-studio`'s `expressionEvaluator` carries
+ * its own depth counter, but `internals/expressionRefs.ts`'s `collectExpressionRefs` /
+ * `collectJoinSourceIds` recurse through `inputs` with no bound at all, so a persisted tree
+ * nested deeply enough overflows the stack the first time a widget referencing the field
+ * renders. Bound it here, at the boundary, so no walker downstream has to.
+ *
+ * `32` is this package's uniform nesting bound for untrusted JSON (`parseStateMutation.ts`'s
+ * `MAX_DEPTH`, applied to `widget.config` and `filter.value` at the wire boundary), and is
+ * deliberately generous: the expression builder UI's deepest built-in template is ~4 levels,
+ * so no authorable tree comes near it.
+ */
+const MAX_EXPRESSION_DEPTH = 32;
+
+/**
+ * True when `node` is a structurally valid {@link StudioExpression} — one of the union's four
+ * members, with the leaves that member's consumers dereference, nested no deeper than
+ * {@link MAX_EXPRESSION_DEPTH}.
+ *
+ * The function branch is tested FIRST because `operator` is the only key that introduces
+ * RECURSION: any node carrying it must be a well-formed function node (a known operator, an
+ * ARRAY `inputs`, and every input itself valid) or be dropped, regardless of which member a
+ * given consumer's guard precedence would resolve it to. The remaining three branches follow
+ * the order `evaluateExpression` discriminates them in, so a node this screen accepts is the
+ * same member the evaluator resolves it to.
+ *
+ * The `operator` membership check is the point of the recursion: an unknown operator is not a
+ * crash but a SILENT wrong answer — every evaluator walker falls through to its `default:`
+ * case and the whole computed column evaluates to `null` — which is the same fail-open class
+ * as an unknown relationship `type`, and is why that sibling discriminant is membership-checked
+ * too rather than merely type-checked.
+ * @param {unknown} node A node of the persisted expression tree.
+ * @param {number} depth Nesting level of `node`, `0` for the root.
+ * @returns {boolean} `true` when the node resolves to exactly one union member with valid leaves.
+ */
+const isValidExpressionNode = (node: unknown, depth: number): boolean => {
+  if (depth > MAX_EXPRESSION_DEPTH) {
+    return false;
+  }
+  if (!isRecord(node)) {
+    return false;
+  }
+  // StudioFunctionExpression — the recursive member.
+  if ('operator' in node) {
+    return (
+      isStudioExpressionOperator(node.operator) &&
+      Array.isArray(node.inputs) &&
+      node.inputs.every((input) => isValidExpressionNode(input, depth + 1))
+    );
+  }
+  // StudioValueExpression. `value` is a deliberately uninterpreted scalar leaf (the evaluator
+  // returns it verbatim), but `type` is a closed three-member union, so it gets the same
+  // membership treatment as the operator above.
+  if ('type' in node && 'value' in node) {
+    return node.type === 'number' || node.type === 'string' || node.type === 'boolean';
+  }
+  // StudioJoinFieldExpression — both ids are destructured and used as record keys unguarded.
+  if ('joinSourceId' in node && 'fieldId' in node) {
+    return typeof node.joinSourceId === 'string' && typeof node.fieldId === 'string';
+  }
+  // StudioFieldExpression — the terminal reference member. `aggregation` is optional and
+  // defaulted downstream, so it follows this file's fallback-over-drop convention.
+  if ('id' in node) {
+    return typeof node.id === 'string';
+  }
+  // Matches none of the four members: an unresolvable node every walker would skip.
+  return false;
+};
+
+/**
  * Required-leaf screen for a persisted `expressionFields` entry. `id`/`sourceId` are
- * identity data every consumer compares as strings, and `expression` is the tree
- * `x-studio`'s `expressionEvaluator` walks with an unguarded `'joinSourceId' in expr` —
- * a missing/non-record `expression` is the crash described on {@link screenRecordArray}.
+ * identity data every consumer compares as strings, `label` is required by
+ * `StudioExpressionField` and rendered directly as a React child by every field picker
+ * (a non-string throws on first render), and `expression` is the tree `x-studio`'s
+ * `expressionEvaluator` walks with an unguarded `'joinSourceId' in expr` — a
+ * missing/non-record `expression` is the crash described on {@link screenRecordArray}.
+ *
+ * `expression` is validated all the way DOWN via {@link isValidExpressionNode}, not merely
+ * for record-ness: it is a recursive tree whose interiors carry both a closed operator union
+ * (fail-open to a silently-`null` column when unknown) and unbounded nesting (stack overflow
+ * in the unbounded consumer walkers).
+ *
+ * `isMeasure` is required by the interface but documents `false` as its default, so an ABSENT
+ * value is legal here; a PRESENT non-boolean is not. It decides whether the field is a per-row
+ * calculated column or a single aggregate over the whole dataset, so a truthy junk value
+ * (`isMeasure: 'no'`) silently loads a calculated column as a measure and reports a wrong
+ * number everywhere it appears.
+ *
  * The remaining fields are optional, defaulted, or display-only, so they follow this
  * file's fallback-over-drop convention and are not screened here.
  */
 const isExpressionFieldSafe = (entry: Record<string, unknown>): boolean =>
-  typeof entry.id === 'string' && typeof entry.sourceId === 'string' && isRecord(entry.expression);
+  typeof entry.id === 'string' &&
+  typeof entry.sourceId === 'string' &&
+  typeof entry.label === 'string' &&
+  (entry.isMeasure === undefined || typeof entry.isMeasure === 'boolean') &&
+  isValidExpressionNode(entry.expression, 0);
 
 /**
  * The closed `StudioRelationship['type']` union (`dataTypes.ts`), as a `Set` so an
@@ -1060,7 +1154,27 @@ export function deserializeState(
   // Sweep the persisted pages (drop prototype-hazard keys / non-record values, clamp
   // layout) BEFORE reconciling `activePageId`, so a page the sweep legitimately drops
   // (a `null` page, a `"__proto__"` key) is accounted for by the reconciliation below.
-  const normalizedPages = normalizePersistedPages(serializedPages, normalizedWidgets);
+  const sweptPages = normalizePersistedPages(serializedPages, normalizedWidgets);
+
+  // "At least one page always exists" is a real invariant of this doc shape, and this is the
+  // last boundary that can uphold it. Every legacy pageId-less mutation
+  // (`addWidget`/`setWidgetLayout`/`setWidgetColSpan` without an explicit `pageId`) resolves
+  // its target through `Object.hasOwn(state.pages, dashboard.activePageId)`, which no
+  // `activePageId` satisfies once the page map is empty — so a zero-page doc silently no-ops
+  // every one of those mutations forever, renders nothing, and offers no affordance to
+  // recover. `removePage` refuses to delete the final page for exactly this reason, but a
+  // persisted doc reaches the same state without any hand-editing: the sweep above
+  // legitimately DROPS pages (an unsafe own key, a non-record value), so a doc whose only
+  // page is dropped lands here with `pages: {}`.
+  //
+  // Synthesize the factory's default page instead, and let the `activePageId` reconciliation
+  // below point at it. The reducer declined this repair because it must stay DETERMINISTIC —
+  // the server-threaded state (`executeToolOnState`) and the client-applied state
+  // (`StudioController.applyExternalMutation`) would diverge on a freshly-minted page id —
+  // but the loader has no such constraint and already mints replacement values for every
+  // other missing required field (`dashboard.id`, `dashboard.title`), so the repair belongs
+  // here.
+  const normalizedPages = Object.keys(sweptPages).length > 0 ? sweptPages : defaultState.doc.pages;
 
   // Reconcile a dangling `dashboard.activePageId` at the load boundary, mirroring the
   // exact fallback the factory (`createDefaultStudioState`) and `removePage` already use:
@@ -1109,6 +1223,9 @@ export function deserializeState(
           ...dashboard,
           id: safeDashboardId,
           title: safeDashboardTitle,
+          // `normalizedPages` is guaranteed non-empty by the synthesis above, so this always
+          // resolves to a real page id — the `?? ''` is unreachable and kept only because
+          // the indexed read is not statically known to be defined.
           activePageId: activePageIdValid
             ? dashboard.activePageId
             : (Object.keys(normalizedPages)[0] ?? ''),

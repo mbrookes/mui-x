@@ -16,6 +16,7 @@
  * cross-kind sites that branch on `widget.kind`.
  */
 import type { BuiltinStudioWidgetKind, StudioChartType, StudioFilterOperator } from './baseTypes';
+import type { StudioExpressionOperator } from './expressionTypes';
 import type {
   StudioChartConfig,
   StudioChartConfigByType,
@@ -191,5 +192,85 @@ void ALL_FILTER_OPERATORS_LISTED;
 export function isStudioFilterOperator(value: unknown): value is StudioFilterOperator {
   return (
     typeof value === 'string' && (STUDIO_FILTER_OPERATORS as readonly string[]).includes(value)
+  );
+}
+
+// ── Expression-operator helpers ─────────────────────────────────────────────────
+//
+// `StudioExpressionOperator` (`expressionTypes.ts`) is the third closed union this package
+// membership-checks at a trust boundary, and it is the one that had no runtime counterpart:
+// the persistence load boundary (`statePersistence.ts`'s `isExpressionFieldSafe`) validated
+// only that a persisted `expressionFields[i].expression` was a RECORD, so an unknown
+// operator loaded successfully and every walker in `@mui/x-studio`'s `expressionEvaluator`
+// then fell through to its `default:` case and evaluated the whole computed column to
+// `null` — a silent wrong-numbers result with no error, the same fail-open class the sibling
+// `relationships[i].type` membership check exists to prevent. The list below is the shared
+// runtime source that boundary checks against, mirroring the `STUDIO_CHART_TYPES` /
+// `STUDIO_FILTER_OPERATORS` pattern above.
+
+/**
+ * Every `StudioExpressionOperator` literal. The `as const` preserves the literal element
+ * types so `(typeof STUDIO_EXPRESSION_OPERATORS)[number]` is the exact union of listed
+ * operators; the `satisfies readonly StudioExpressionOperator[]` clause checks each element
+ * is a VALID operator (no stray entry). Element-validity alone does NOT enforce
+ * COMPLETENESS — a list missing `'datediff'` still satisfies it — so the
+ * `AssertAllExpressionOperatorsListed` error-tuple lock below (the same pattern as
+ * `AssertAllChartTypesListed` / `AssertAllFilterOperatorsListed`) fails the build if any
+ * `StudioExpressionOperator` literal is absent from this list.
+ */
+export const STUDIO_EXPRESSION_OPERATORS = [
+  // Arithmetic
+  'add',
+  'subtract',
+  'multiply',
+  'divide',
+  'modulo',
+  // Comparison
+  'equals',
+  'notEqual',
+  'lessThan',
+  'greaterThan',
+  'lessThanOrEqual',
+  'greaterThanOrEqual',
+  // Logical
+  'and',
+  'or',
+  'not',
+  'negate',
+  // Conditional / membership
+  'if',
+  'in',
+  // Null / truthiness predicates
+  'isTrue',
+  'isFalse',
+  'isNull',
+  'isNotNull',
+  // Date
+  'datediff',
+] as const satisfies readonly StudioExpressionOperator[];
+
+/**
+ * Fail-closed compile-time assertion that EVERY `StudioExpressionOperator` literal appears
+ * in `STUDIO_EXPRESSION_OPERATORS`. Resolves to `true` when the list is complete; otherwise
+ * to a descriptive error tuple naming the missing operators, which makes the
+ * `ALL_EXPRESSION_OPERATORS_LISTED` binding below fail to compile. This is what actually
+ * fail-closes the list — `isStudioExpressionOperator` gates the persisted-doc load boundary,
+ * so a new operator missing here would make every expression field using it silently
+ * disappear from loaded dashboards.
+ */
+type AssertAllExpressionOperatorsListed =
+  Exclude<StudioExpressionOperator, (typeof STUDIO_EXPRESSION_OPERATORS)[number]> extends never
+    ? true
+    : [
+        'STUDIO_EXPRESSION_OPERATORS is missing:',
+        Exclude<StudioExpressionOperator, (typeof STUDIO_EXPRESSION_OPERATORS)[number]>,
+      ];
+const ALL_EXPRESSION_OPERATORS_LISTED: AssertAllExpressionOperatorsListed = true;
+void ALL_EXPRESSION_OPERATORS_LISTED;
+
+/** Runtime membership test for the closed `StudioExpressionOperator` union. */
+export function isStudioExpressionOperator(value: unknown): value is StudioExpressionOperator {
+  return (
+    typeof value === 'string' && (STUDIO_EXPRESSION_OPERATORS as readonly string[]).includes(value)
   );
 }

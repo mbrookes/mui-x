@@ -10,6 +10,7 @@ import {
 import { createDefaultStudioState } from './factories';
 import { applyDocMutation } from './applyMutation';
 import type { StudioWidget } from './widgetTypes';
+import type { StudioDoc } from './stateTypes';
 
 // A minimal but STRUCTURALLY COMPLETE serialized doc (all four required top-level
 // fields), for tests exercising migration success paths now that `migrateState`
@@ -630,11 +631,16 @@ describe('deserializeState', () => {
       state = deserializeState({} as typeof minimalSerialized, {});
     }).not.toThrow();
     expect(state.doc.widgets).toEqual({});
-    expect(state.doc.pages).toEqual({});
     expect(state.doc.filters).toEqual([]);
-    // A missing `dashboard` heals to a usable shape: title falls back and activePageId to ''.
+    // `pages` is the ONE container that does not coerce to empty: a doc must always carry
+    // at least one page, so an absent/empty page map synthesizes the factory's default one.
+    expect(state.doc.pages).toEqual({
+      'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] },
+    });
+    // A missing `dashboard` heals to a usable shape: title falls back and activePageId
+    // points at the synthesized page.
     expect(state.doc.dashboard.title).toBe('Untitled Dashboard');
-    expect(state.doc.dashboard.activePageId).toBe('');
+    expect(state.doc.dashboard.activePageId).toBe('page-1');
   });
 
   it('does not throw when an individual top-level container is missing (finding 2)', () => {
@@ -644,7 +650,7 @@ describe('deserializeState', () => {
       state = deserializeState(rest as typeof minimalSerialized, {});
     }).not.toThrow();
     expect(state.doc.widgets).toEqual({});
-    expect(state.doc.pages).toEqual({});
+    expect(Object.keys(state.doc.pages)).toEqual(['page-1']);
     expect(state.doc.filters).toEqual([]);
   });
 
@@ -1707,7 +1713,7 @@ describe('deserializeState', () => {
     expect(typeof state.doc.dashboard.activePageId).toBe('string');
   });
 
-  it('falls back activePageId to "" when the pages map is empty (Tier 2)', () => {
+  it('synthesizes the default page and points activePageId at it when the page map is empty', () => {
     const serialized = {
       ...minimalSerialized,
       dashboard: { id: 'd', title: 'T', activePageId: 'nope' },
@@ -1715,7 +1721,8 @@ describe('deserializeState', () => {
       widgets: {},
     } as unknown as typeof minimalSerialized;
     const state = deserializeState(serialized, {});
-    expect(state.doc.dashboard.activePageId).toBe('');
+    expect(Object.keys(state.doc.pages)).toEqual(['page-1']);
+    expect(state.doc.dashboard.activePageId).toBe('page-1');
   });
 
   // ── junk doc.ai shape validation at the load boundary (Tier 2) ───────────────
@@ -2721,15 +2728,62 @@ describe('serializeState / deserializeState — doc completeness', () => {
     });
   }
 
+  // The authoritative `StudioDoc` key set, locked to the INTERFACE rather than to any
+  // fixture. `serializeDoc` is spread-based, so it carries a new doc field automatically,
+  // but `deserializeState` rebuilds the doc from an explicit field literal — so a field
+  // added to `StudioDoc` is serialized and then silently dropped on load unless that
+  // literal is updated too. A REQUIRED new field fails to compile in `deserializeState`
+  // (its return type is `StudioState`); an OPTIONAL one does not, which is the gap this
+  // list closes: `satisfies Record<keyof StudioDoc, true>` makes adding ANY field to the
+  // interface fail to compile here until it is listed, and the assertion below then fails
+  // at runtime until `deserializeState` actually produces it.
+  const STUDIO_DOC_KEYS = {
+    schemaVersion: true,
+    dashboard: true,
+    pages: true,
+    widgets: true,
+    relationships: true,
+    filters: true,
+    expressionFields: true,
+    filterPresets: true,
+    ai: true,
+  } satisfies Record<keyof StudioDoc, true>;
+
   it('a doc field cannot be forgotten: full doc round-trips to an identical doc', () => {
     const state = fullDocState();
     const roundTripped = deserializeState(serializeState(state), {});
 
     // Deep identity (minus stripped cross-filter entries — there are none here).
     expect(roundTripped.doc).toEqual(state.doc);
-    // Key-set equality: a StudioDoc field added without a matching persistence path
-    // would show up as a missing key here and fail loudly.
-    expect(new Set(Object.keys(roundTripped.doc))).toEqual(new Set(Object.keys(state.doc)));
+    // Key-set equality against the interface-locked list, NOT against the fixture: a
+    // fixture-to-fixture comparison passes vacuously for a new optional field, since a
+    // field nobody adds to `fullDocState` is absent from both sides.
+    expect(new Set(Object.keys(roundTripped.doc))).toEqual(new Set(Object.keys(STUDIO_DOC_KEYS)));
+    // The fixture is still required to populate every field, so the deep-identity
+    // assertion above is meaningful for all of them rather than only the populated ones.
+    expect(new Set(Object.keys(state.doc))).toEqual(new Set(Object.keys(STUDIO_DOC_KEYS)));
+  });
+
+  it('deserializeState emits every StudioDoc key even for a doc that populates none of the optional ones', () => {
+    // The optional fields (`filterPresets`, `ai`) are the ones the fixture-driven gate
+    // could not see. `deserializeState` assigns them unconditionally — as `undefined` when
+    // absent — so the loaded doc's key set is the full interface regardless of input.
+    const loaded = deserializeState(
+      {
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        dashboard: { id: 'd', title: 'T', activePageId: 'p1' },
+        pages: { p1: { id: 'p1', title: 'P1', widgetRows: [] } },
+        widgets: {},
+        filters: [],
+      },
+      {},
+    );
+
+    expect(new Set(Object.keys(loaded.doc))).toEqual(new Set(Object.keys(STUDIO_DOC_KEYS)));
+    // `filterPresets` normalizes an absent value to the empty array (`screenFilterPresets`);
+    // `ai` stays `undefined`, its documented "no threads yet" value.
+    expect(loaded.doc.filterPresets).toEqual([]);
+    expect(loaded.doc.ai).toBeUndefined();
   });
 
   it('cross-filter entries are never persisted; other filter scopes are', () => {
@@ -3039,5 +3093,180 @@ describe('deserializeState rank-filter dedup with an unplaced widget (H1)', () =
     });
     const serialized = { ...base, filters: [rank('r1'), rank('r2')] } as unknown as typeof base;
     expect(deserializeState(serialized, {}).doc.filters.map((f) => f.id)).toEqual(['r1']);
+  });
+});
+
+// ─── the at-least-one-page invariant at the load boundary ────────────────────
+// `removePage` refuses to delete the final page because every legacy pageId-less mutation
+// resolves its target through `Object.hasOwn(state.pages, dashboard.activePageId)`, which
+// nothing satisfies once the map is empty. The loader used to mint exactly that state, and
+// unlike the reducer — which must stay deterministic and therefore declines to synthesize a
+// fresh page id — it is free to repair it.
+describe('deserializeState at-least-one-page invariant', () => {
+  const zeroPageDoc = (pages: unknown) =>
+    ({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      dashboard: { id: 'd', title: 'T', activePageId: 'p1' },
+      pages,
+      widgets: {},
+      filters: [],
+    }) as unknown as ReturnType<typeof serializeState>;
+
+  it('synthesizes the factory default page for a doc whose page map is empty', () => {
+    const state = deserializeState(zeroPageDoc({}), {});
+    expect(state.doc.pages).toEqual({
+      'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] },
+    });
+    expect(state.doc.dashboard.activePageId).toBe('page-1');
+  });
+
+  it("synthesizes a page when the persisted sweep drops the doc's only page", () => {
+    // Reachable without hand-editing the page map to `{}`: `normalizePersistedPages`
+    // legitimately drops a page whose value is not a record.
+    const state = deserializeState(zeroPageDoc({ p1: null }), {});
+    expect(Object.keys(state.doc.pages)).toEqual(['page-1']);
+    expect(state.doc.dashboard.activePageId).toBe('page-1');
+  });
+
+  it('a zero-page doc loads into a state whose pageId-less mutations still apply', () => {
+    // The consequence the invariant protects against: with `activePageId: ''` every legacy
+    // pageId-less mutation silently no-op'd forever, with no error and no way to recover.
+    const state = deserializeState(zeroPageDoc({}), {});
+    const widget = {
+      id: 'w1',
+      kind: 'chart',
+      title: 'C',
+      config: { chartType: 'bar' },
+    } as StudioWidget;
+
+    const next = applyDocMutation(state.doc, { type: 'addWidget', args: { widget } });
+
+    expect(next).not.toBe(state.doc);
+    expect(next.widgets.w1).toBeDefined();
+    expect(next.pages['page-1'].widgetRows.flat()).toContain('w1');
+  });
+
+  it('leaves a doc that already has a page untouched', () => {
+    const serialized = serializeState(createDefaultStudioState());
+    const state = deserializeState(serialized, {});
+    expect(Object.keys(state.doc.pages)).toEqual(['page-1']);
+    expect(state.doc.pages).toEqual(serialized.pages);
+  });
+});
+
+// ─── expression-field interiors at the load boundary ─────────────────────────
+// `expressionFields[i].expression` is the only RECURSIVE shape crossing this boundary. It
+// used to be screened for record-ness alone, so an unknown operator (which every
+// `expressionEvaluator` walker falls through to its `default:` case for, silently evaluating
+// the whole computed column to `null`), a non-array `inputs`, and unbounded nesting (which
+// overflows the stack in the un-bounded `collectExpressionRefs`/`collectJoinSourceIds`
+// walkers) all loaded with `success: true` and were re-persisted by `serializeDoc` forever.
+describe('deserializeState expression-field interior screen', () => {
+  const minimal = serializeState(createDefaultStudioState());
+  const goodEf = {
+    id: 'ef1',
+    label: 'Margin',
+    sourceId: 's1',
+    isMeasure: false,
+    expression: { operator: 'subtract', inputs: [{ id: 'revenue' }, { id: 'cost' }] },
+  };
+  const load = (expressionFields: unknown[]) =>
+    deserializeState({ ...minimal, expressionFields } as unknown as typeof minimal, {});
+
+  it('keeps a well-formed entry and every valid expression-node member', () => {
+    const entries = [
+      goodEf,
+      { ...goodEf, id: 'value', expression: { type: 'number', value: 1 } },
+      { ...goodEf, id: 'field', expression: { id: 'revenue', aggregation: 'sum' } },
+      { ...goodEf, id: 'join', expression: { joinSourceId: 'customers', fieldId: 'country' } },
+      // `isMeasure` is documented as defaulting to `false`, so an absent one stays legal.
+      { id: 'no-measure', label: 'L', sourceId: 's1', expression: { id: 'revenue' } },
+    ];
+    expect(load(entries).doc.expressionFields.map((ef) => ef.id)).toEqual([
+      'ef1',
+      'value',
+      'field',
+      'join',
+      'no-measure',
+    ]);
+  });
+
+  it('drops a function node with no inputs, a non-array inputs, or a junk input entry', () => {
+    const entries = [
+      goodEf,
+      { ...goodEf, id: 'e1', expression: { operator: 'add' } },
+      { ...goodEf, id: 'e2', expression: { operator: 'add', inputs: 'nope' } },
+      { ...goodEf, id: 'e3', expression: { operator: 'add', inputs: [{ id: 'a' }, null] } },
+    ];
+    expect(load(entries).doc.expressionFields.map((ef) => ef.id)).toEqual(['ef1']);
+  });
+
+  it('drops an unknown operator the way the sibling relationship type check does', () => {
+    const entries = [
+      goodEf,
+      { ...goodEf, id: 'bogus-op', expression: { operator: 'NOT_A_REAL_OP', inputs: [] } },
+      // Nested one level down — the screen recurses rather than checking only the root.
+      {
+        ...goodEf,
+        id: 'bogus-nested',
+        expression: { operator: 'add', inputs: [{ id: 'a' }, { operator: 'nope', inputs: [] }] },
+      },
+    ];
+    const state = load(entries);
+    expect(state.doc.expressionFields.map((ef) => ef.id)).toEqual(['ef1']);
+    // Self-heals: the junk is not re-persisted.
+    expect(serializeState(state).expressionFields).toEqual([goodEf]);
+  });
+
+  it.each([
+    ['add', true],
+    ['datediff', true],
+    ['isNotNull', true],
+    ['negate', true],
+    ['pow', false],
+    ['equal', false],
+  ])('operator "%s" is a known member: %s', (operator, kept) => {
+    const entry = { ...goodEf, id: 'op', expression: { operator, inputs: [] } };
+    expect(load([entry]).doc.expressionFields).toHaveLength(kept ? 1 : 0);
+  });
+
+  it('drops an entry whose label is missing or not a string', () => {
+    const { label: ignoredLabel, ...noLabel } = goodEf;
+    const entries = [goodEf, { ...noLabel, id: 'e1' }, { ...goodEf, id: 'e2', label: 42 }];
+    expect(load(entries).doc.expressionFields.map((ef) => ef.id)).toEqual(['ef1']);
+  });
+
+  it('drops an entry whose present isMeasure is not a boolean', () => {
+    // A truthy junk value silently loads a calculated column as a whole-dataset measure.
+    const entries = [goodEf, { ...goodEf, id: 'e1', isMeasure: 'no' }];
+    expect(load(entries).doc.expressionFields.map((ef) => ef.id)).toEqual(['ef1']);
+  });
+
+  it('drops a value node with an unknown type and a partial join node', () => {
+    const entries = [
+      goodEf,
+      { ...goodEf, id: 'e1', expression: { type: 'date', value: '2026-01-01' } },
+      // Neither a join node (no `fieldId`) nor any other member: unresolvable.
+      { ...goodEf, id: 'e2', expression: { joinSourceId: 'customers' } },
+      // Matches no member at all.
+      { ...goodEf, id: 'e3', expression: {} },
+    ];
+    expect(load(entries).doc.expressionFields.map((ef) => ef.id)).toEqual(['ef1']);
+  });
+
+  it('drops an expression tree nested past the depth bound, keeping one just inside it', () => {
+    const nest = (depth: number) => {
+      let node: Record<string, unknown> = { id: 'leaf' };
+      for (let i = 0; i < depth; i += 1) {
+        node = { operator: 'add', inputs: [node] };
+      }
+      return node;
+    };
+    // The leaf of a `depth`-deep chain sits at nesting level `depth`; 32 is the bound.
+    const entries = [
+      { ...goodEf, id: 'deep-ok', expression: nest(32) },
+      { ...goodEf, id: 'too-deep', expression: nest(33) },
+    ];
+    expect(load(entries).doc.expressionFields.map((ef) => ef.id)).toEqual(['deep-ok']);
   });
 });

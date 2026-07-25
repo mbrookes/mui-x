@@ -36,18 +36,34 @@ type RoutingTier = 'client' | 'server' | 'db';
 export const MAX_RESULT_ROWS = 100_000;
 
 /**
- * Hard ceiling on the number of rows a single BATCH REQUEST may materialize in
- * total, across every widget it contains (finding H2 — resource exhaustion via
- * the unbounded product of individually-bounded limits).
+ * Ceiling on the number of rows one BATCH REQUEST may contribute to its
+ * response, summed across every widget it contains.
  *
  * `MAX_RESULT_ROWS` bounds ONE widget's query; `MAX_WIDGETS_PER_BATCH`
  * (`handler.ts`) bounds the NUMBER of widgets. Nothing bounded their PRODUCT: 50
  * widgets on a large table, each with no `limit`, each independently resolved to
- * `MAX_RESULT_ROWS`, so one authenticated request could hold 5,000,000 rows
- * simultaneously in the `results` array and then serialize them all again into
- * the JSON body — a single-request OOM. This is the `widgets × rows` analogue of
- * the aggregate `joins × on-pairs` cap `assertValidBatchQueryRequest` already
- * applies.
+ * `MAX_RESULT_ROWS`, so one authenticated request could put 5,000,000 rows in the
+ * `results` array and serialize them all again into the JSON body.
+ *
+ * WHAT THIS BOUNDS, EXACTLY. Every row that reaches the response is charged to
+ * the request's shared `RowBudget` exactly once — by the query that fetched it
+ * (`runBounded` below), by the cache-hit path, or by each extra widget that
+ * shares a single-flighted pipeline (both in `handler.ts`). A widget whose rows
+ * no longer fit is failed with an error instead of contributing a truncated
+ * slice, so the SUM of `results[].rows.length` can never exceed
+ * `MAX_ROWS_PER_REQUEST`.
+ *
+ * WHAT IT DOES NOT BOUND. It is not a live-memory cap on concurrently executing
+ * queries: `MAX_CONCURRENT_WIDGET_QUERIES` widgets can each read the same
+ * remaining allowance before any of them has rows to charge, so peak
+ * simultaneously-materialized rows is bounded by
+ * `MAX_ROWS_PER_REQUEST + (MAX_CONCURRENT_WIDGET_QUERIES - 1) × MAX_RESULT_ROWS`
+ * — the losers of that race are then rejected at charge time rather than
+ * returned. Reserving the full limit up front instead would make that peak exact,
+ * but the first widget with no client `limit` would reserve the ENTIRE request
+ * budget (`MAX_ROWS_PER_REQUEST` is deliberately equal to `MAX_RESULT_ROWS`) and
+ * starve every sibling in the same batch, so the response bound is enforced on
+ * what queries actually returned rather than on what they might return.
  *
  * Deliberately equal to `MAX_RESULT_ROWS`: a request may still materialize one
  * full-size widget result, but the batch as a whole can never exceed what a
@@ -59,14 +75,15 @@ export const MAX_ROWS_PER_REQUEST = MAX_RESULT_ROWS;
  * A mutable per-REQUEST row allowance, threaded through every widget of one
  * batch so their limits compose instead of multiplying (finding H2).
  *
- * Created once by `handleBatchQuery` and passed to each `executeForTier` call;
- * each executed query decrements `remaining` by the number of rows it actually
- * returned. Once exhausted, later widgets short-circuit to an empty result
- * rather than issuing an unbounded query. Direct callers (unit tests) omit it
- * entirely, which reproduces the previous per-widget-only behavior exactly.
+ * Created once by `handleBatchQuery` and shared by every widget of that batch.
+ * `remaining` is charged by `chargeRowBudgetOrThrow` at each of the three points
+ * where rows enter the response, and is also read by `effectiveLimit` so a query
+ * never asks the database for more than the batch has left. Direct callers (unit
+ * tests) omit it entirely, which reproduces the per-widget-only `MAX_RESULT_ROWS`
+ * behavior exactly.
  */
 export interface RowBudget {
-  /** Rows the rest of this request may still materialize. Never negative. */
+  /** Rows the rest of this request may still contribute. Never negative. */
   remaining: number;
 }
 
@@ -76,38 +93,113 @@ export function createRowBudget(maxRows: number = MAX_ROWS_PER_REQUEST): RowBudg
 }
 
 /**
- * Resolve the LIMIT actually applied to a query: the client's requested
- * `limit`, capped at `MAX_RESULT_ROWS` AND at whatever the request's shared
- * `RowBudget` still allows, defaulting to that cap when the client omits `limit`
- * entirely. `limit: 0` (a legitimate "return zero rows" request, finding 3.1) is
- * preserved — `??` only substitutes on `undefined`, never on `0`.
+ * The error every budget-degradation path raises.
  *
- * With no budget threaded (direct callers), the cap is `MAX_RESULT_ROWS`,
- * exactly as before.
+ * `handler.ts` turns it into that widget's `{ error }` result via
+ * `sanitizeBoundaryError`, which passes this package's own `MUI X`-prefixed
+ * messages through verbatim.
  */
-function effectiveLimit(clientLimit: number | undefined, budget: RowBudget | undefined): number {
-  const cap = budget === undefined ? MAX_RESULT_ROWS : Math.min(budget.remaining, MAX_RESULT_ROWS);
-  return Math.max(0, Math.min(clientLimit ?? cap, cap));
+function rowBudgetExhaustedError(remaining: number): Error {
+  return new Error(
+    `MUI X Studio Server: This widget's rows were dropped because the request's shared row budget is exhausted — ` +
+      `${remaining} of ${MAX_ROWS_PER_REQUEST} rows are left for this batch and this widget's result does not fit. ` +
+      `Every widget in one batch shares that budget, so returning only the rows that fit would present a truncated ` +
+      `result as a complete one — silent data loss the client cannot detect, which would then be cached and served ` +
+      `to later requests as a complete answer. ` +
+      `Split the dashboard page across more batch requests, or set a smaller "limit" on each widget so the batch's ` +
+      `limits sum to at most ${MAX_ROWS_PER_REQUEST} rows.`,
+  );
 }
 
 /**
- * Apply the effective LIMIT, run the query, and charge the rows it returned
- * against the request's shared budget.
+ * Charge `rowCount` rows to the request's shared budget, or throw when they do
+ * not fit.
+ *
+ * INVARIANT: every row that reaches `BatchQueryResponse.results[].rows` is
+ * charged here exactly once — freshly queried rows (`runBounded`), rows served
+ * from the data cache, and rows a widget receives by attaching to another
+ * widget's single-flighted pipeline (the last two in `handler.ts`). A charge that
+ * does not fit leaves `remaining` UNTOUCHED and throws: the oversized widget
+ * fails, but a smaller sibling later in the batch can still be served.
+ *
+ * With no budget threaded (direct callers) this is a no-op.
+ */
+export function chargeRowBudgetOrThrow(budget: RowBudget | undefined, rowCount: number): void {
+  if (budget === undefined) {
+    return;
+  }
+  if (rowCount > budget.remaining) {
+    throw rowBudgetExhaustedError(budget.remaining);
+  }
+  budget.remaining -= rowCount;
+}
+
+/**
+ * The LIMIT a widget may ask for on its own: the client's requested `limit`
+ * capped at `MAX_RESULT_ROWS`, defaulting to that cap when `limit` is omitted.
+ * `limit: 0` (a legitimate "return zero rows" request, finding 3.1) is preserved
+ * — `??` only substitutes on `undefined`, never on `0`.
+ */
+function widgetLimit(clientLimit: number | undefined): number {
+  return Math.max(0, Math.min(clientLimit ?? MAX_RESULT_ROWS, MAX_RESULT_ROWS));
+}
+
+/**
+ * Resolve the LIMIT actually applied to a query: `widgetLimit` further reduced by
+ * whatever the request's shared `RowBudget` still allows, so a query never asks
+ * the database for rows the batch could not return anyway.
+ *
+ * With no budget threaded (direct callers), this is `widgetLimit` exactly.
+ */
+function effectiveLimit(clientLimit: number | undefined, budget: RowBudget | undefined): number {
+  const cap = widgetLimit(clientLimit);
+  return budget === undefined ? cap : Math.min(cap, Math.max(0, budget.remaining));
+}
+
+/**
+ * Apply the effective LIMIT, run the query, charge the rows it returned against
+ * the request's shared budget, and FAIL rather than return a result the budget
+ * degraded.
  *
  * Every one of `executeForTier`'s three exit paths (client/server tier, db tier
  * without aggregations, db tier with aggregations) goes through this single
- * helper so none of them can drift on how the limit is derived or forget to
- * decrement the budget.
+ * helper so none of them can drift on how the limit is derived, forget to charge
+ * the budget, or return a silently-shortened result.
+ *
+ * DEGRADATION IS AN ERROR, NOT A SHORTER SUCCESS. Two things can shorten a result
+ * for reasons the client never asked for, and both throw:
+ *   - the charge does not fit — widgets running concurrently consumed the
+ *     remaining allowance while this query was in flight;
+ *   - the applied LIMIT came from the budget rather than from the client's own
+ *     `limit`/`MAX_RESULT_ROWS`, and the query filled it, so more matching rows
+ *     exist behind it.
+ * Returning those rows would be indistinguishable from a normal limited page:
+ * the client would report "N of M rows" with no way to tell that the server, not
+ * the query, chose N — and `handler.ts` would cache that slice and serve it to
+ * later requests as a complete answer for the whole TTL. The second test is
+ * deliberately fail-closed: a query that returns exactly as many rows as a
+ * budget-reduced LIMIT allowed MAY have had nothing more to return, but that is
+ * indistinguishable from truncation without fetching an extra row, so it is
+ * treated as degraded.
+ *
+ * Rows that were fetched and then dropped stay CHARGED. They were materialized,
+ * and refunding them would let the next widget re-issue the identical
+ * about-to-be-truncated query, burning a round-trip per remaining widget to
+ * produce the same error.
  */
 async function runBounded(
   query: any,
   clientLimit: number | undefined,
   budget: RowBudget | undefined,
 ): Promise<Record<string, unknown>[]> {
-  query.limit(effectiveLimit(clientLimit, budget));
+  const ownLimit = widgetLimit(clientLimit);
+  const appliedLimit = effectiveLimit(clientLimit, budget);
+  query.limit(appliedLimit);
   const rows = (await query) as Record<string, unknown>[];
-  if (budget !== undefined && Array.isArray(rows)) {
-    budget.remaining = Math.max(0, budget.remaining - rows.length);
+  const returned = Array.isArray(rows) ? rows.length : 0;
+  chargeRowBudgetOrThrow(budget, returned);
+  if (appliedLimit < ownLimit && returned >= appliedLimit) {
+    throw rowBudgetExhaustedError(budget === undefined ? 0 : budget.remaining);
   }
   return rows;
 }
@@ -130,9 +222,10 @@ async function runBounded(
  *   inline `resolveAlias` behavior. Every column reference below reads a pre-resolved `ColumnRef` off the
  *   plan — this module never calls `resolveAlias` itself.
  * @param rowBudget - The request's shared, mutable row allowance (finding H2, request path). Caps this
- *   query's LIMIT at whatever the batch has left and is decremented by the rows actually returned, so
- *   `MAX_WIDGETS_PER_BATCH × MAX_RESULT_ROWS` can no longer multiply into a single-request OOM. Direct
- *   callers omit it, which restores the previous per-widget-only `MAX_RESULT_ROWS` cap.
+ *   query's LIMIT at whatever the batch has left and is charged by the rows actually returned, so
+ *   `MAX_WIDGETS_PER_BATCH × MAX_RESULT_ROWS` can no longer multiply into a single-request OOM. THROWS
+ *   rather than returning a shortened result when the budget is what shortened it — see `runBounded`.
+ *   Direct callers omit it, which restores the previous per-widget-only `MAX_RESULT_ROWS` cap.
  */
 export async function executeForTier(
   db: any,
@@ -145,13 +238,14 @@ export async function executeForTier(
 ): Promise<Record<string, unknown>[]> {
   const queryPlan = plan ?? toValidatedQueryPlan(descriptor);
 
-  // Budget exhausted by earlier widgets in this same batch: return an empty
-  // result WITHOUT issuing a query at all. Emitting `LIMIT 0` would be
-  // semantically identical but still costs a database round-trip per remaining
-  // widget, which is exactly the fan-out this budget exists to contain. Only
+  // Budget exhausted by earlier widgets in this same batch: fail this widget
+  // WITHOUT issuing a query at all. Emitting `LIMIT 0` would cost a database
+  // round-trip per remaining widget, which is exactly the fan-out this budget
+  // exists to contain — and an empty SUCCESS would tell the client "0 rows out
+  // of <rowCount>", a starved result presented as the real answer. Only
   // reachable when a budget is threaded (the request path).
   if (rowBudget !== undefined && rowBudget.remaining <= 0) {
-    return [];
+    throw rowBudgetExhaustedError(rowBudget.remaining);
   }
 
   // Qualify an unqualified physical column with the primary table to prevent

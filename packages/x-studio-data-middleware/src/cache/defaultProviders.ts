@@ -9,6 +9,17 @@
  * cached reads but never invalidated them after a mutation — guaranteed staleness
  * for ≤ the data-cache TTL. Centralizing the singletons here makes the two
  * handlers share the exact same instance.
+ *
+ * PROCESS-WIDE, ACROSS OPTION SETS (finding 3). "Zero-config" is per CALL, not per
+ * data source: every `handleBatchQuery`/`handleMutation` invocation in the process
+ * that omits `cacheProvider` lands on this ONE `LRUCacheProvider`, including calls
+ * made with different `db` connections. Separation therefore has to come from the
+ * KEY, not from the instance. It does, on two axes: the compiled policy digest
+ * folded into every key now includes the request's `schemaAllowlist`, so two option
+ * sets exposing different tables never collide; and `HandleBatchQueryOptions.cacheScope`
+ * separates the remaining case of two data sources with identical schemas. A host
+ * that wants hard isolation (separate memory budgets, independent eviction) still
+ * passes its own provider per data source.
  */
 import { LRUCacheProvider } from './LRUCacheProvider';
 import { MapTierCacheProvider } from './MapTierCacheProvider';

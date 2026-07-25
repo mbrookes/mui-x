@@ -15,6 +15,7 @@ import {
   MAX_STRING_VALUE_LENGTH,
 } from '../shared/limits';
 import { generateCacheKey } from '../security/cacheKey';
+import { compileSecurityPolicy } from '../security/compileSecurityPolicy';
 import { extractSecurityClaims } from '../security/extractSecurityClaims';
 import { LRUCacheProvider } from '../cache/LRUCacheProvider';
 import { MapTierCacheProvider } from '../cache/MapTierCacheProvider';
@@ -89,6 +90,21 @@ const GLOBEX_CLAIMS: JwtSecurityClaims = {
 // silently implied by omission).
 const MULTI_TENANT = { mode: 'multi-tenant', tenantColumn: 'tenant_id' } as const;
 const SINGLE_TENANT = { mode: 'single-tenant' } as const;
+
+/**
+ * The policy digest the handler compiles for the single-tenant, `['sales']`-only
+ * options used throughout this file.
+ *
+ * `handleBatchQuery` folds its `schemaAllowlist` into the compiled policy digest
+ * and the digest into the cache key (finding 3 — it is what separates two data
+ * sources sharing one cache provider), so a test that recomputes a key by hand
+ * must compile the same policy the handler did rather than relying on
+ * `generateCacheKey`'s single-tenant default digest.
+ */
+const SALES_POLICY_DIGEST = compileSecurityPolicy({
+  tenancy: SINGLE_TENANT,
+  schemaAllowlist: ['sales'],
+}).digest;
 
 function makeDb() {
   return createMockDb({ sales: SALES_ROWS });
@@ -2054,7 +2070,8 @@ describe('handleBatchQuery — tier routing cache', () => {
     // The tier plane's key is namespaced with TIER_CACHE_KEY_PREFIX (finding 2.1)
     // so it can never collide with the data plane's entry for the same widget.
     const tierEntry = await tierCache.get(
-      TIER_CACHE_KEY_PREFIX + generateCacheKey(ACME_CLAIMS, body.widgets[0]),
+      TIER_CACHE_KEY_PREFIX +
+        generateCacheKey(ACME_CLAIMS, body.widgets[0], undefined, SALES_POLICY_DIGEST),
     );
     expect(tierEntry?.tier).toBeDefined();
 
@@ -2816,7 +2833,7 @@ describe('handleBatchQuery — non-aggregation db-tier caching (finding 3.2)', (
     const r1 = await handleBatchQuery(body, ACME_CLAIMS, opts);
     expect(r1.results[0].tier).toBe('db');
 
-    const cacheKey = generateCacheKey(ACME_CLAIMS, body.widgets[0]);
+    const cacheKey = generateCacheKey(ACME_CLAIMS, body.widgets[0], undefined, SALES_POLICY_DIGEST);
     const cached = await cache.get(cacheKey);
     expect(cached).toBeDefined();
     expect(cached?.tier).toBe('db');

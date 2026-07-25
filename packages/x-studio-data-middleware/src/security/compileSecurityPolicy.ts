@@ -12,10 +12,13 @@
  *     columns for a table (they delegate to `resolvePrimarySecurityColumns` /
  *     `resolveJoinSecurityColumns` in `shared/predicates.ts`), so centralizing
  *     changes WHERE the chain runs, never WHAT it resolves to for a given input.
- *   - `digest` is a stable hash of the resolved policy inputs, computed ONCE at
- *     compile time and folded into the cache key so two nodes running different
- *     `tenancy` / `securityColumns` config never serve one node's cached rows to
- *     the other node's differently-scoped requests (Gap B).
+ *   - `digest` is a stable hash of the resolved policy inputs — `tenancy`,
+ *     `securityColumns`, and (when supplied) the `columnAllowlist` and
+ *     `schemaAllowlist` — computed ONCE at compile time and folded into the cache
+ *     key so two nodes running different config never serve one node's cached rows
+ *     to the other node's differently-scoped requests (Gap B), and so two option
+ *     sets in ONE process that expose different tables do not collide on the same
+ *     shared cache (finding 3).
  *
  * SECURITY: tenancy is now an EXPLICIT, REQUIRED decision. A deployment declares
  * either `{ mode: 'multi-tenant', tenantColumn }` or `{ mode: 'single-tenant' }`
@@ -48,6 +51,26 @@ export interface SecurityPolicyOptions {
    * is byte-identical to one computed before this field existed.
    */
   columnAllowlist?: Record<string, string[]>;
+  /**
+   * Allowlist of tables this deployment may query, mirroring
+   * `HandleBatchQueryOptions.schemaAllowlist`.
+   *
+   * Folded into `digest` — and therefore into the cache key — so that the set of
+   * tables a request may reach is part of the cached result's identity (finding 3).
+   * That gives the common multi-database deployment automatic cache separation at
+   * zero configuration: the cache key is otherwise derived only from
+   * `(claims, policy, descriptor)` and carries no data-source dimension, so one
+   * process serving two logical databases through the module-singleton default
+   * cache produced byte-identical keys and served DB-A's rows for DB-B. Two data
+   * sources that expose different tables now key differently on their own.
+   *
+   * NOT a substitute for `HandleBatchQueryOptions.cacheScope`: two data sources
+   * with the SAME table names (e.g. one database per region, identical schema)
+   * still collide, and only an explicit `cacheScope` separates them. Omitting it
+   * is fully backward compatible — the digest is byte-identical to one computed
+   * before this field existed.
+   */
+  schemaAllowlist?: string[];
 }
 
 /**
@@ -98,9 +121,13 @@ function canonicalizeColumnAllowlist(
  * Builds the `{ tenancy, securityColumns }` pair from the options so the digest
  * reflects both the tenancy posture and the row-level-security column config, and
  * — when supplied — the `columnAllowlist` so tightening column visibility yields a
- * different cache key. The `columnAllowlist` key is only present in the hashed
- * input when supplied, so an omitted allowlist stays byte-identical to a digest
- * computed before the allowlist was folded in (backward compatible).
+ * different cache key, plus the `schemaAllowlist` so two option sets exposing
+ * different TABLES (the ordinary shape of "one process, two logical databases")
+ * key differently without any explicit `cacheScope` (finding 3). Both allowlists
+ * are sorted before hashing so array order never changes the digest, and each key
+ * is only present in the hashed input when supplied, so an omitted allowlist stays
+ * byte-identical to a digest computed before it was folded in (backward
+ * compatible).
  */
 function computePolicyDigest(opts: SecurityPolicyOptions): string {
   const canonical = sortedStringify({
@@ -108,6 +135,9 @@ function computePolicyDigest(opts: SecurityPolicyOptions): string {
     securityColumns: opts.securityColumns,
     ...(opts.columnAllowlist !== undefined && {
       columnAllowlist: canonicalizeColumnAllowlist(opts.columnAllowlist),
+    }),
+    ...(opts.schemaAllowlist !== undefined && {
+      schemaAllowlist: [...opts.schemaAllowlist].sort(),
     }),
   });
   return createHash('sha256').update(canonical).digest('hex').slice(0, 16);

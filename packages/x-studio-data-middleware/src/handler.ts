@@ -23,6 +23,14 @@
  * so one request cannot drain the host's Knex pool), and single-flight dedup on
  * the cache key (so identical widgets in one batch share one pipeline).
  *
+ * The row budget is charged at all THREE points where rows enter the response —
+ * a fresh query (`runBounded`, `router/execute.ts`), a data-cache hit, and each
+ * extra widget that attaches to another widget's single-flighted pipeline — so
+ * `sum(results[].rows.length) <= MAX_ROWS_PER_REQUEST` holds no matter which path
+ * served a widget. Charging only the fresh-query path left both other paths free:
+ * N identical widgets shared one charge yet each serialized a full row array, and
+ * a batch of pre-warmed cache hits was never charged at all.
+ *
  * PURE FUNCTION GUARANTEE:
  * - No HTTP imports (no express, fastify, koa, etc.)
  * - No process.exit()
@@ -51,7 +59,12 @@ import {
 import { validateQueryPlan } from './security/validateQueryPlan';
 import { getDefaultCache, getDefaultTierCache } from './cache/defaultProviders';
 import { runPreflight } from './router/preflight';
-import { createRowBudget, executeForTier, type RowBudget } from './router/execute';
+import {
+  chargeRowBudgetOrThrow,
+  createRowBudget,
+  executeForTier,
+  type RowBudget,
+} from './router/execute';
 import {
   decideTierWithCache,
   DEFAULT_THRESHOLDS,
@@ -433,7 +446,17 @@ export async function handleBatchQuery(
   // instead of fresh at every enforcement site, and `policy.digest` folds the
   // resolved policy into the cache key so differently-scoped nodes never share
   // cache entries (Gap B).
-  const policy = compileSecurityPolicy({ tenancy, securityColumns, columnAllowlist });
+  //
+  // `schemaAllowlist` is folded in for the same reason it separates DATA SOURCES
+  // (finding 3): two option sets in one process that expose different tables get
+  // different digests, hence different cache keys, without the host having to
+  // remember to set `cacheScope`.
+  const policy = compileSecurityPolicy({
+    tenancy,
+    securityColumns,
+    columnAllowlist,
+    schemaAllowlist,
+  });
   const cacheProvider = options.cacheProvider ?? getDefaultCache();
   const tierCacheTtlMs = options.tierCacheTtlMs ?? DEFAULT_TIER_CACHE_TTL_MS;
   const tierCacheProvider =
@@ -590,6 +613,10 @@ async function processWidget(
     // by the catch below).
     const { inFlight } = context;
     let pipeline = inFlight.get(cacheKey);
+    // Whoever CREATES the pipeline is the widget its internal row-budget charge
+    // is made on behalf of (`runBounded`, or the cache-hit charge in
+    // `runWidgetPipeline`); every other widget attaching to it is charged below.
+    const ownsPipeline = pipeline === undefined;
     if (pipeline === undefined) {
       // The `.finally` cleanup is stored (not merely attached) so every awaiter
       // observes the SAME derived promise — a rejection therefore always has a
@@ -599,7 +626,18 @@ async function processWidget(
       });
       inFlight.set(cacheKey, pipeline);
     }
-    return { id: descriptor.id, ...(await pipeline) };
+    const outcome = await pipeline;
+    if (!ownsPipeline) {
+      // Dedup collapses the DB WORK, never the RESPONSE: each of the N widgets
+      // sharing this pipeline still serializes its own full copy of these rows
+      // into the JSON body. Charging once per pipeline therefore let 50 identical
+      // widgets put 50 × MAX_RESULT_ROWS rows in one response against a
+      // MAX_ROWS_PER_REQUEST budget — the exact figure the budget exists to
+      // prevent. Charge once per AWAITING widget instead; a widget that no longer
+      // fits fails via the catch below rather than adding rows.
+      chargeRowBudgetOrThrow(context.rowBudget, outcome.rows.length);
+    }
+    return { id: descriptor.id, ...outcome };
   } catch (err) {
     return {
       id: descriptor.id,
@@ -672,6 +710,13 @@ async function runWidgetPipeline(
     cached = undefined;
   }
   if (cached) {
+    // A cache hit costs no database work but still materializes (the provider
+    // `structuredClone`s on read) and serializes a full row array into the
+    // response, so it consumes the request's row budget exactly like a fresh
+    // query. Returning here before `executeForTier` used to skip the charge
+    // entirely, so a batch of pre-warmed widgets could return
+    // MAX_WIDGETS_PER_BATCH × MAX_RESULT_ROWS rows with the budget untouched.
+    chargeRowBudgetOrThrow(rowBudget, cached.rows.length);
     return {
       rows: cached.rows,
       // Echo the tier that actually produced the cached rows (defaults to
@@ -719,9 +764,12 @@ async function runWidgetPipeline(
 
   // ── 4. Execute query for the selected tier ─────────────────────────────
   // `rowBudget` is the request-wide row allowance (finding H2): it caps this
-  // query's LIMIT at whatever the batch has left and is decremented by the rows
+  // query's LIMIT at whatever the batch has left and is charged by the rows
   // actually returned, so 50 unbounded widgets can no longer sum to 50 ×
-  // `MAX_RESULT_ROWS` live rows.
+  // `MAX_RESULT_ROWS` rows in one response. If the budget — rather than the
+  // client's own `limit` — is what shortened this result, `executeForTier`
+  // THROWS instead of returning the short slice, so the rows below are always a
+  // complete answer for the limit the client asked for.
   const rows = await executeForTier(db, claims, descriptor, tier, queryOptions, plan, rowBudget);
 
   // For aggregation queries decideTier returns rowCount=0 (bypassed);
@@ -746,6 +794,16 @@ async function runWidgetPipeline(
   // them invalidates this cached (joined) result — tagging only the primary
   // table would leave joined rows stale until TTL. Persist `rowCount` so a
   // later cache hit reports the same total as the cold miss.
+  //
+  // ONLY COMPLETE RESULTS ARE CACHED. `rows` here can never be a
+  // budget-degraded slice: the cache key is derived from `(claims, policy,
+  // descriptor)` and carries no budget dimension, so caching a result the
+  // SERVER shortened would hand later requests — including other users sharing
+  // the security profile — a truncated slice labelled with the full `rowCount`,
+  // for the whole TTL, with no way to tell it apart from a normal limited page.
+  // The invariant is upheld upstream rather than by a flag: `executeForTier`
+  // throws on any budget-driven degradation, so this line is only reached with a
+  // result that is complete for the limit the client itself requested.
   if (tier !== 'db' || !hasAggregations) {
     // The rows are already in hand from the DB — a cache WRITE failure must not
     // discard them. Catch and degrade to "served, uncached" (finding 2.6).

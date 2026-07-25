@@ -75,12 +75,16 @@ function computeSecurityHash(
     tenantId: claims.tenantId,
     regionIds: claims.regionIds ? [...claims.regionIds].sort((a, b) => a - b) : undefined,
     department: claims.department,
+    // `policyDigest` also carries the request's `schemaAllowlist` (finding 3), so
+    // two option sets pointed at different logical databases separate on their table
+    // sets alone — no host configuration required for the common case.
     policyDigest,
-    // Fold in the host-provided cache scope (finding 2.4) so two option sets that
-    // point at DIFFERENT logical databases in ONE process never collide on the same
-    // (claims, policy, query) key and serve DB-A's rows for DB-B. Included via a
-    // conditional spread so an omitted scope keeps the profile — and therefore every
-    // existing key — byte-identical (fully backward compatible).
+    // Fold in the host-provided cache scope (finding 2.4) for the case the table
+    // sets do NOT distinguish: two databases with identical schemas in ONE process
+    // would otherwise collide on the same (claims, policy, query) key and serve
+    // DB-A's rows for DB-B. Included via a conditional spread so an omitted scope
+    // keeps the profile — and therefore every existing key — byte-identical
+    // (fully backward compatible).
     ...(cacheScope !== undefined && { cacheScope }),
   });
 
@@ -146,16 +150,20 @@ function computeQueryHash(descriptor: BatchWidgetDescriptor): string {
  * @param policyDigest - Digest of the compiled security policy in force
  *   (`CompiledSecurityPolicy.digest`). Folds the row-level-security POLICY — not
  *   just the caller's claims — into the key so differently-scoped nodes never
- *   share cache entries. Defaults to the single-tenant policy digest so direct
- *   callers (e.g. unit tests) that don't pass one stay deterministic and match a
+ *   share cache entries. It also folds in the request's `schemaAllowlist`
+ *   (finding 3), which is what gives two option sets in one process that expose
+ *   DIFFERENT tables automatically distinct keys even when neither sets a
+ *   `cacheScope`. Defaults to the single-tenant policy digest so direct callers
+ *   (e.g. unit tests) that don't pass one stay deterministic and match a
  *   single-tenant deployment.
  * @param cacheScope - Optional host-provided identity for the DATA SOURCE behind
- *   this request (`HandleBatchQueryOptions.cacheScope`, finding 2.4). The cache key
- *   otherwise carries no data-source dimension, so a single process serving TWO
- *   logical databases through ONE shared cache provider would produce identical keys
- *   for the same (claims, policy, descriptor) and serve one DB's rows for the other.
- *   Supply a stable per-database string to keep their entries distinct. Omitted →
- *   byte-identical to the pre-2.4 key (backward compatible).
+ *   this request (`HandleBatchQueryOptions.cacheScope`, finding 2.4). Beyond the
+ *   table-set separation the policy digest now provides, this is what separates two
+ *   data sources that expose the SAME table names (e.g. one database per region with
+ *   an identical schema): without it they produce identical keys for the same
+ *   (claims, policy, descriptor) and one DB's rows are served for the other. Supply
+ *   a stable per-database string. Omitted → byte-identical to the pre-2.4 key
+ *   (backward compatible).
  */
 export function generateCacheKey(
   claims: JwtSecurityClaims,

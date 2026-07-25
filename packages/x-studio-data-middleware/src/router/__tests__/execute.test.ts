@@ -428,7 +428,9 @@ describe('executeForTier — renamed projection column qualification under a joi
 // each independently resolved to `MAX_RESULT_ROWS`, so a single authenticated
 // request could hold 5,000,000 rows live before serialization. `RowBudget` is one
 // shared, mutable allowance threaded through every widget of a batch, so their
-// limits COMPOSE instead of multiplying.
+// limits COMPOSE instead of multiplying — and a widget the BUDGET (rather than
+// the client's own `limit`) would shorten fails instead of returning a slice that
+// looks like a complete page.
 describe('executeForTier — per-request row budget (finding H2)', () => {
   /** A Knex stand-in that resolves to rows and records the LIMIT it was given. */
   function createResolvingDb(rowCount: number) {
@@ -485,11 +487,48 @@ describe('executeForTier — per-request row budget (finding H2)', () => {
     expect(budget.remaining).toBe(2);
   });
 
-  it('short-circuits to an empty result WITHOUT querying once the budget is exhausted', async () => {
-    const { db, queriesRun } = createResolvingDb(5);
-    const budget = createRowBudget(5);
-    await executeForTier(db, BASE_CLAIMS, descriptor(), 'server', OPTIONS, undefined, budget);
+  it('FAILS without querying once the budget is exhausted, instead of returning []', async () => {
+    // An empty SUCCESS here is silent data loss: the widget reports "0 rows" next
+    // to a full `rowCount`, and `handler.ts` would cache that as the answer for
+    // this query shape. A starved widget must be an explicit per-widget error.
+    const { db, queriesRun } = createResolvingDb(4);
+    const budget = createRowBudget(4);
+    await executeForTier(
+      db,
+      BASE_CLAIMS,
+      descriptor({ limit: 4 }),
+      'server',
+      OPTIONS,
+      undefined,
+      budget,
+    );
     expect(budget.remaining).toBe(0);
+    await expect(
+      executeForTier(db, BASE_CLAIMS, descriptor(), 'server', OPTIONS, undefined, budget),
+    ).rejects.toThrow(/shared row budget is exhausted/);
+    // Only the FIRST widget hit the database.
+    expect(queriesRun()).toBe(1);
+  });
+
+  it('FAILS rather than returning a result the BUDGET truncated', async () => {
+    // The budget cut the LIMIT to 5 while the client asked for none, and the query
+    // filled it — more matching rows exist behind it. Returning them would be
+    // indistinguishable from a normal limited page.
+    const { db } = createResolvingDb(50);
+    const budget = createRowBudget(5);
+    await expect(
+      executeForTier(db, BASE_CLAIMS, descriptor(), 'server', OPTIONS, undefined, budget),
+    ).rejects.toThrow(/shared row budget is exhausted/);
+    // The rows it did materialize stay charged, so the next widget cannot re-issue
+    // the same about-to-be-truncated query and burn another round-trip.
+    expect(budget.remaining).toBe(0);
+  });
+
+  it('does NOT fail a budget-capped query that returned fewer rows than the cap', async () => {
+    // The budget lowered the LIMIT, but the query exhausted the matching rows
+    // before reaching it — nothing was truncated, so this is a complete result.
+    const { db, limits } = createResolvingDb(3);
+    const budget = createRowBudget(9);
     const rows = await executeForTier(
       db,
       BASE_CLAIMS,
@@ -499,9 +538,27 @@ describe('executeForTier — per-request row budget (finding H2)', () => {
       undefined,
       budget,
     );
-    expect(rows).toEqual([]);
-    // Only the FIRST widget hit the database.
-    expect(queriesRun()).toBe(1);
+    expect(limits).toEqual([9]);
+    expect(rows).toHaveLength(3);
+    expect(budget.remaining).toBe(6);
+  });
+
+  it('does NOT fail when the CLIENT limit, not the budget, is what bounded the result', async () => {
+    // `limit: 4` against a table with more rows is a normal page, whatever the
+    // budget allows — only a budget-derived shortening is a degradation.
+    const { db } = createResolvingDb(50);
+    const budget = createRowBudget(MAX_RESULT_ROWS);
+    const rows = await executeForTier(
+      db,
+      BASE_CLAIMS,
+      descriptor({ limit: 4 }),
+      'server',
+      OPTIONS,
+      undefined,
+      budget,
+    );
+    expect(rows).toHaveLength(4);
+    expect(budget.remaining).toBe(MAX_RESULT_ROWS - 4);
   });
 
   it('still honors a smaller CLIENT limit when the budget is larger', async () => {

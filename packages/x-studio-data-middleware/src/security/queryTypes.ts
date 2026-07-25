@@ -105,10 +105,22 @@ export interface BatchWidgetDescriptor {
    * view: `router/execute.ts` always applies an effective limit of
    * `min(limit ?? cap, cap)`, where `cap` is the hard server-side ceiling
    * `MAX_RESULT_ROWS` further reduced by whatever the REQUEST-wide row budget
-   * (`MAX_ROWS_PER_REQUEST`) still allows. This means an omitted (or excessively
-   * large) `limit` can never make the server attempt an uncapped SELECT against
-   * a multi-million-row table, and a batch of widgets can never sum past the
-   * request budget — regardless of what the client requests.
+   * (`MAX_ROWS_PER_REQUEST`) still allows. An omitted (or excessively large)
+   * `limit` therefore can never make the server attempt an uncapped SELECT
+   * against a multi-million-row table.
+   *
+   * The rows a whole BATCH returns are bounded by the same request budget:
+   * `sum(results[].rows.length) <= MAX_ROWS_PER_REQUEST`. That bound is enforced
+   * by failing a widget whose rows no longer fit, NOT by shortening it — a
+   * budget-shortened result is indistinguishable from a normal limited page, so
+   * such a widget comes back as `{ error }` instead. Set an explicit `limit` on
+   * each widget (or split the page across requests) when a batch's limits would
+   * otherwise sum past the budget.
+   *
+   * The budget does not bound PEAK concurrent materialization: up to
+   * `MAX_CONCURRENT_WIDGET_QUERIES` queries can be in flight having each read the
+   * same remaining allowance, and the losers are rejected when their rows are
+   * charged rather than before they run.
    */
   limit?: number;
   /**

@@ -50,8 +50,11 @@ const { render } = createRenderer();
  */
 describe('TextSetupPanel blur commit guard', () => {
   beforeEach(() => {
-    controller.updateWidgetConfig.mockClear();
-    controller.updateWidget.mockClear();
+    // `mockReset`, not `mockClear`: one test below installs a write-back implementation, and
+    // `mockClear` only wipes the call log, so the implementation would leak into later tests.
+    controller.updateWidgetConfig.mockReset();
+    controller.updateWidget.mockReset();
+    mockState.doc.widgets['widget-1'].config = {} as StudioWidgetConfig;
     configureStudioContextMock({ getState: () => mockState, controller });
   });
 
@@ -94,18 +97,47 @@ describe('TextSetupPanel blur commit guard', () => {
   });
 
   it('does not re-commit an unchanged field on a second blur', () => {
-    render(<TextSetupPanel widgetId="widget-1" />);
+    // The guard compares the local buffer against the CURRENT config, so this test only
+    // means something if the commit actually lands — with an inert `vi.fn()` the config
+    // stays `{}` forever, the buffer stays permanently "dirty", and a correct guard would
+    // still be obliged to re-commit. Mirror a real store: apply the patch, then re-render so
+    // the panel observes it (the real store notifies its subscribers here).
+    controller.updateWidgetConfig.mockImplementation(
+      (_widgetId: string, changes: Partial<StudioWidgetConfig>) => {
+        mockState.doc.widgets['widget-1'].config = {
+          ...mockState.doc.widgets['widget-1'].config,
+          ...changes,
+        } as StudioWidgetConfig;
+      },
+    );
+
+    // `nonce` only exists to force the re-render the real store would have triggered.
+    function Wrapper(props: { nonce: number }) {
+      return (
+        <div data-nonce={props.nonce}>
+          <TextSetupPanel widgetId="widget-1" />
+        </div>
+      );
+    }
+
+    const { setProps } = render(<Wrapper nonce={0} />);
 
     const body = screen.getByLabelText('Body');
     fireEvent.change(body, { target: { value: 'Hello' } });
     fireEvent.blur(body);
     expect(controller.updateWidgetConfig).toHaveBeenCalledTimes(1);
+    expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', { textBody: 'Hello' });
 
-    // The mock state is static, so the buffered value still differs from the (empty)
-    // config — but a real commit would have updated it. What matters here is that the
-    // no-edit path below adds nothing.
+    setProps({ nonce: 1 });
+
+    // Body is now clean (buffer === committed config) and Subtitle was never edited, so
+    // blurring commits nothing at all — no empty-string write, no no-op undo entry.
     controller.updateWidgetConfig.mockClear();
     fireEvent.blur(screen.getByLabelText('Subtitle'));
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+
+    // ...and re-blurring Body itself is equally inert.
+    fireEvent.blur(screen.getByLabelText('Body'));
     expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
   });
 });

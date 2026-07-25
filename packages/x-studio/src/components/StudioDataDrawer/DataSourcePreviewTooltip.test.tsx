@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { act, createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
+import { act, createRenderer, fireEvent, screen, waitFor } from '@mui/internal-test-utils';
 import { describe, expect, it, vi } from 'vitest';
 import type { StudioDataSource } from '../../models';
 import { createStudioHarness } from '../../internals/test-utils';
@@ -70,7 +70,10 @@ describe('DataSourcePreviewTooltip', () => {
       const viewSource = screen.getByRole('button', { name: /View source data/i });
 
       // Focus moves from the trigger into the tooltip — the tooltip must survive it.
-      fireEvent.blur(trigger, { relatedTarget: viewSource });
+      // `focusOut`, not `blur`: the wrapper closes on React's `onBlur`, which React binds to
+      // the BUBBLING native `focusout`. A plain `blur` event does not bubble, so it never
+      // reaches the wrapper and the assertion below would pass without exercising anything.
+      fireEvent.focusOut(trigger, { relatedTarget: viewSource });
       act(() => {
         viewSource.focus();
       });
@@ -90,7 +93,7 @@ describe('DataSourcePreviewTooltip', () => {
       expect(onOpenPreview).toHaveBeenCalledWith('orders');
     });
 
-    it('closes the tooltip when focus leaves the trigger and the tooltip entirely', () => {
+    it('closes the tooltip when focus leaves the trigger and the tooltip entirely', async () => {
       setup(() => {});
 
       const trigger = screen.getByRole('button', { name: 'Orders' });
@@ -99,9 +102,13 @@ describe('DataSourcePreviewTooltip', () => {
       });
       expect(screen.queryByRole('button', { name: /View source data/i })).not.toBe(null);
 
-      fireEvent.blur(trigger, { relatedTarget: document.body });
+      fireEvent.focusOut(trigger, { relatedTarget: document.body });
 
-      expect(screen.queryByRole('button', { name: /View source data/i })).toBe(null);
+      // `waitFor`, not a synchronous assertion: the popper unmounts at the END of MUI's Grow
+      // exit transition, so it is still in the tree for a frame after `open` flips to false.
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: /View source data/i })).toBe(null);
+      });
     });
 
     it('renders no "View source" affordance when the host supplies no handler', () => {

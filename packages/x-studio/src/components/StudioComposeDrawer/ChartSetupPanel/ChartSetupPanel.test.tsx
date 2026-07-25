@@ -187,23 +187,45 @@ describe('ChartSetupPanel', () => {
   });
 
   it('flips axis labels for horizontal bar charts', () => {
-    mockState.doc.widgets['widget-1'].config = {
-      ...mockState.doc.widgets['widget-1'].config,
-      chartType: 'bar',
-      barLayout: 'horizontal',
-    };
+    const previousConfig = mockState.doc.widgets['widget-1'].config;
+    const previousOrdersFields = mockState.runtime.dataSources.orders.fields;
 
-    render(<ChartSetupPanel widgetId="widget-1" />);
+    try {
+      // The shared fixture gives `orders` a single string field, so the default
+      // `yField: 'total'` (a field of the RELATED `orderItems` source) does not resolve in
+      // the measure picker. That was invisible until M11 gave an unresolvable stored id its
+      // own "…is no longer available…" helper text, which then replaced the axis helper text
+      // this test is about. Give the widget a measure field that genuinely resolves on its
+      // own source, so the assertions below exercise the horizontal/vertical flip rather
+      // than the unresolved-field fallback.
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
+        fields: [
+          { id: 'id', label: 'Order ID', type: 'string' },
+          { id: 'amount', label: 'Amount', type: 'number' },
+        ],
+      };
+      mockState.doc.widgets['widget-1'].config = {
+        ...previousConfig,
+        chartType: 'bar',
+        barLayout: 'horizontal',
+        yField: 'amount',
+        ySeries: [{ fieldId: 'amount' }],
+      };
 
-    expect(screen.getAllByText('Y / Category field').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('X / Measure field').length).toBeGreaterThan(0);
-    expect(screen.getByText('Groups data along the vertical axis')).toBeVisible();
-    expect(screen.getByText('Numeric field plotted along the horizontal axis')).toBeVisible();
+      render(<ChartSetupPanel widgetId="widget-1" />);
 
-    mockState.doc.widgets['widget-1'].config = {
-      ...mockState.doc.widgets['widget-1'].config,
-      barLayout: undefined,
-    };
+      expect(screen.getAllByText('Y / Category field').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('X / Measure field').length).toBeGreaterThan(0);
+      expect(screen.getByText('Groups data along the vertical axis')).toBeVisible();
+      expect(screen.getByText('Numeric field plotted along the horizontal axis')).toBeVisible();
+    } finally {
+      mockState.doc.widgets['widget-1'].config = { ...previousConfig };
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
+        fields: previousOrdersFields,
+      };
+    }
   });
 
   it('removes stale source filtering when xField is cleared', async () => {
@@ -1316,7 +1338,9 @@ describe('ChartSetupPanel — X-field adoption survives other configured fields 
       };
 
       const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
-      await user.click(screen.getByLabelText('X / Category field', { exact: false }));
+      // Scatter's X picker takes numeric fields, so it is labelled "X field (numeric)" —
+      // "X / Category field" is the CATEGORICAL label used by the bar-chart sibling test.
+      await user.click(screen.getByLabelText('X field (numeric)', { exact: false }));
 
       const scoreOption = await screen.findByRole('option', { name: /Score$/ });
       expect(scoreOption.getAttribute('aria-disabled')).toBe('false');

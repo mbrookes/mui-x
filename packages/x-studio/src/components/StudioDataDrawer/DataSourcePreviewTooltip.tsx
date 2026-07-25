@@ -194,6 +194,15 @@ export default function DataSourcePreviewTooltip({
         title={title}
         placement="right"
         arrow
+        // The tooltip DESCRIBES the trigger, it does not name it. Without this, MUI wires the
+        // popper to the trigger with `aria-labelledby` (its default for a non-string `title`),
+        // which replaces the trigger's own accessible name — "Orders" — with the flattened
+        // text of the entire preview table, ending in "View source data →". A screen-reader
+        // user then hears the whole five-row table read out as the button's name, and the
+        // source name itself is buried in the middle of it. `describeChild` switches the
+        // wiring to `aria-describedby`, so the trigger keeps its name and the preview is
+        // announced as supplementary detail.
+        describeChild
         open={tooltipOpen}
         onOpen={() => setTooltipOpen(true)}
         onClose={(event) => {

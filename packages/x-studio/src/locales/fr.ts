@@ -717,6 +717,9 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   filterSetupSelectFieldAlert: 'Sélectionnez un champ pour configurer le contrôle de filtre.',
   filterSetupSliderRangeHelperText:
     'Plage du curseur (laissez vide pour détecter automatiquement à partir des données)',
+  filterSetupMinAboveMaxError: 'Min. doit être inférieur à Max. — sinon le widget les inverse.',
+  filterSetupStepNotPositiveError: "L'étape doit être supérieure à 0 — sinon le widget l'ignore.",
+  filterSetupStepExceedsRangeError: "L'étape est plus large que la plage Min.–Max.",
 
   // Text setup panel
   textSetupTitleLabel: 'Titre',
@@ -771,6 +774,10 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   // Data source field select
   dataSourceClearFieldAriaLabel: 'Effacer le champ',
   dataSourceAddCalculatedField: 'Ajouter un champ calculé…',
+  dataSourceFieldUnavailableOption: (fieldId) => `${fieldId} (indisponible)`,
+  dataSourceFieldUnavailableHelperText: (fieldId) =>
+    `« ${fieldId} » n'est plus disponible dans les données. Choisissez un autre champ.`,
+  dataSourceFieldUnavailableGroupLabel: 'Indisponible',
 
   // Widget filter row
   widgetFilterFieldHelperText: "Champ auquel ce filtre s'applique",
@@ -888,6 +895,23 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   chatNewConversationName: 'Nouvelle conversation',
   chatSwitchConversationTooltip: 'Changer de conversation',
   chatNoConversationsLabel: 'Aucune conversation pour le moment',
+  aiInsightSummaryPrompt: (widgetTitle) =>
+    `Donne-moi un résumé général du widget « ${widgetTitle} » en 2 ou 3 phrases — ce qu'il montre et l'enseignement le plus important. Sois bref, sans puces.`,
+  aiInsightAnalysisPrompt: (widgetTitle) =>
+    `Analyse le widget « ${widgetTitle} » — identifie les tendances clés, les schémas et les valeurs notables`,
+  aiInsightForecastPrompt: (widgetTitle) =>
+    `Établis une prévision pour le widget « ${widgetTitle} » — quelle tendance attends-tu sur les prochaines périodes ?`,
+  aiInsightCorrelationPrompt: (widgetTitle) =>
+    `Montre une analyse de corrélation pour le widget « ${widgetTitle} »`,
+  aiAnomalyExplainPrivatePrompt: (widgetTitle, count) =>
+    `Explique ${count === 1 ? "l'anomalie détectée" : `les ${count} anomalies détectées`} dans le widget « ${widgetTitle} ». Les valeurs de données sous-jacentes sont masquées (mode privé) ; raisonne sur les causes probables en termes généraux.`,
+  aiAnomalyExplainPrompt: (widgetTitle, details) =>
+    `Explique les anomalies détectées dans le widget « ${widgetTitle} » :\n${details}`,
+  aiAnomalyDetailLine: (axisLabel, value, annotationLabel) =>
+    `- Anomalie sur l'${axisLabel} à ${value}${annotationLabel ? ` (${annotationLabel})` : ''}`,
+  aiAnomalyAxisX: 'axe X',
+  aiAnomalyAxisY: 'axe Y',
+  chatUserDisplayName: 'Vous',
   chatComposerPlaceholder: 'Comment puis-je vous aider ?',
   chatEmptyStateTitle: "Posez-moi n'importe quelle question sur votre tableau de bord",
   chatEmptyStateSubtitle: 'Je peux ajouter des widgets, analyser vos données et plus encore',

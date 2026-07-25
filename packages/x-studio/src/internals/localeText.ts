@@ -2121,7 +2121,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   dataSourceAddCalculatedField: 'Add calculated field…',
   dataSourceFieldUnavailableOption: (fieldId) => `${fieldId} (unavailable)`,
   dataSourceFieldUnavailableHelperText: (fieldId) =>
-    `“${fieldId}” is no longer available in the data. Pick another field.`,
+    `"${fieldId}" is no longer available in the data. Pick another field.`,
   dataSourceFieldUnavailableGroupLabel: 'Unavailable',
 
   // Widget filter row

@@ -74,8 +74,19 @@ let setupPanelMounts = 0;
  */
 function BufferingSetupPanel(): React.ReactElement {
   const [buffer, setBuffer] = React.useState('');
+  // The ref guard is what makes this a MOUNT counter rather than an effect counter. These
+  // tests render under StrictMode, which deliberately runs mount effects twice on a single
+  // mount (effect → cleanup → effect) to surface non-idempotent setup. A bare `+= 1` in the
+  // effect therefore reports 2 for one mount. The ref survives StrictMode's simulated
+  // remount because it is the same fiber, so the second invocation is suppressed — while a
+  // GENUINE remount (the `key` changing) builds a fresh fiber with a fresh ref and is
+  // counted. That is exactly the distinction under test.
+  const counted = React.useRef(false);
   React.useEffect(() => {
-    setupPanelMounts += 1;
+    if (!counted.current) {
+      counted.current = true;
+      setupPanelMounts += 1;
+    }
   }, []);
   return (
     <input aria-label="buffer" value={buffer} onChange={(event) => setBuffer(event.target.value)} />
@@ -144,7 +155,9 @@ describe('<StudioComposeDrawer /> widget-switch state isolation (M2)', () => {
       providerProps: { customWidgets: [bufferingWidgetDef] },
     });
 
-    render(<StudioComposeDrawer />, { wrapper });
+    const { user } = render(<StudioComposeDrawer />, { wrapper });
+    await user.type(screen.getByLabelText('buffer'), '#ff0000');
+
     await act(async () => {
       controller.updateWidget(widgetA.id, { title: 'Renamed' });
     });
@@ -152,5 +165,7 @@ describe('<StudioComposeDrawer /> widget-switch state isolation (M2)', () => {
     // The key is the widget id, not a fresh value per render — an unrelated store update
     // must not blow away the user's in-progress edit.
     expect(setupPanelMounts).to.equal(1);
+    // The user-visible half of the same claim: the in-progress buffer is still there.
+    expect((screen.getByLabelText('buffer') as HTMLInputElement).value).to.equal('#ff0000');
   });
 });

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
+import { act, createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The plot is built on the premium Map's unstable surface — stub the whole hook stack so the
@@ -61,6 +61,24 @@ describe('StudioMapShapePlot keyboard navigation', () => {
     return screen.getAllByRole('button');
   }
 
+  // A roving tab index only ever receives keys on the region that currently HAS focus, so
+  // every key press below is delivered the way a real keyboard user delivers it: focus the
+  // region first, then fire the key at it. `fireEvent.keyDown` enforces this (it rejects a
+  // target that isn't `document.activeElement`), which is also what makes the assertions
+  // meaningful — `moveFocus` must move real DOM focus, not just the `tabindex` attribute.
+  function pressKey(regionIndex: number, key: string) {
+    const target = regionButtons()[regionIndex];
+    act(() => {
+      (target as unknown as HTMLElement).focus();
+    });
+    fireEvent.keyDown(target, { key });
+  }
+
+  /** Index of the region that currently holds DOM focus, or -1. */
+  function focusedRegionIndex() {
+    return regionButtons().findIndex((el) => el === document.activeElement);
+  }
+
   // LOW finding: every region was `tabIndex={0}`, so the world map emitted ~175 sequential
   // tab stops — a keyboard user had to press Tab once per country to get past the widget.
   it('exposes exactly one tab stop for the whole region set', () => {
@@ -75,38 +93,41 @@ describe('StudioMapShapePlot keyboard navigation', () => {
 
   it('moves the tab stop with the arrow keys instead of adding more of them', () => {
     renderPlot(() => {});
-    fireEvent.keyDown(regionButtons()[0], { key: 'ArrowRight' });
-    let buttons = regionButtons();
-    expect(buttons.map((el) => el.getAttribute('tabindex'))).toEqual(['-1', '0', '-1']);
+    pressKey(0, 'ArrowRight');
+    expect(regionButtons().map((el) => el.getAttribute('tabindex'))).toEqual(['-1', '0', '-1']);
+    // The arrow key must carry real DOM focus along with the tab stop, not just relabel it.
+    expect(focusedRegionIndex()).toBe(1);
 
-    fireEvent.keyDown(buttons[1], { key: 'ArrowLeft' });
-    buttons = regionButtons();
-    expect(buttons.map((el) => el.getAttribute('tabindex'))).toEqual(['0', '-1', '-1']);
+    pressKey(1, 'ArrowLeft');
+    expect(regionButtons().map((el) => el.getAttribute('tabindex'))).toEqual(['0', '-1', '-1']);
+    expect(focusedRegionIndex()).toBe(0);
   });
 
   it('supports Home and End', () => {
     renderPlot(() => {});
-    fireEvent.keyDown(regionButtons()[0], { key: 'End' });
+    pressKey(0, 'End');
     expect(regionButtons().map((el) => el.getAttribute('tabindex'))).toEqual(['-1', '-1', '0']);
+    expect(focusedRegionIndex()).toBe(2);
 
-    fireEvent.keyDown(regionButtons()[2], { key: 'Home' });
+    pressKey(2, 'Home');
     expect(regionButtons().map((el) => el.getAttribute('tabindex'))).toEqual(['0', '-1', '-1']);
+    expect(focusedRegionIndex()).toBe(0);
   });
 
   it('does not wrap past either end', () => {
     renderPlot(() => {});
-    fireEvent.keyDown(regionButtons()[0], { key: 'ArrowLeft' });
+    pressKey(0, 'ArrowLeft');
     expect(regionButtons().map((el) => el.getAttribute('tabindex'))).toEqual(['0', '-1', '-1']);
 
-    fireEvent.keyDown(regionButtons()[0], { key: 'End' });
-    fireEvent.keyDown(regionButtons()[2], { key: 'ArrowRight' });
+    pressKey(0, 'End');
+    pressKey(2, 'ArrowRight');
     expect(regionButtons().map((el) => el.getAttribute('tabindex'))).toEqual(['-1', '-1', '0']);
   });
 
   it.each(['Enter', ' '])('still emits the cross-filter on %p', (key) => {
     const onShapeClick = vi.fn();
     renderPlot(onShapeClick);
-    fireEvent.keyDown(regionButtons()[1], { key });
+    pressKey(1, key);
     expect(onShapeClick).toHaveBeenCalledTimes(1);
     expect(onShapeClick.mock.calls[0][1]).toBe('BB');
   });
@@ -129,7 +150,7 @@ describe('StudioMapShapePlot keyboard navigation', () => {
     }
 
     const { setProps } = render(<Wrapper nonce={0} />);
-    fireEvent.keyDown(regionButtons()[0], { key: 'End' });
+    pressKey(0, 'End');
     expect(regionButtons().map((el) => el.getAttribute('tabindex'))).toEqual(['-1', '-1', '0']);
 
     featureIndexes = new Map<string, number[]>([['AA', [0]]]);

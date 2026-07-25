@@ -212,7 +212,10 @@ describe('useChartWidgetData — cross-source blending', () => {
     const sup = data.labels.indexOf('Supplies');
     expect(stockSeries.values[ent]).toBe(12); // 5 + 7 from products
     expect(stockSeries.values[sup]).toBe(9); // Supplies only exists in products
-    expect(totalSeries.values[sup]).toBe(0); // no orders revenue for Supplies
+    // 'Supplies' is contributed to the shared axis by the foreign (products) source only;
+    // orders has no row in that category at all. That is absence of data, not a measured
+    // zero, so the outer join fills `null` rather than reinstating a fake 0 bar (H4).
+    expect(totalSeries.values[sup]).toBeNull();
   });
 
   it('renders a fieldless row count: count chart with an X field but no Y field (BL-186)', () => {
@@ -339,10 +342,17 @@ describe('useChartWidgetData — cross-source blending', () => {
     expect(getRows.mock.calls[0][0].sourceId).toBe('products');
   });
 
-  it('renders synchronously with foreign series at 0 while the adapter fetch is still pending', () => {
+  it('renders synchronously with the foreign series unmeasured while the adapter fetch is still pending', () => {
     // The foreign source's getRows() never resolves in this test. Before it settles,
     // asyncForeignRows is empty, so blendedMultiYData outer-joins the foreign field
     // against zero rows — the primary series must still render its real aggregation.
+    //
+    // The foreign series' cells come back `null`, not 0. A pending fetch is "not measured
+    // yet", and a real 0 would assert that stock IS zero in every category — a factual
+    // claim about data that has not arrived, which then silently flips to the true values
+    // once the promise settles. `null` renders as a gap instead of a confident flat zero
+    // line. The point of this test is that the hook renders SYNCHRONOUSLY and the primary
+    // series is unaffected by the in-flight foreign fetch; that is asserted below.
     const getRows = vi.fn(() => new Promise<{ rows: Record<string, unknown>[] }>(() => {}));
     const adapterProducts: StudioDataSource = {
       ...productsSource,
@@ -360,7 +370,7 @@ describe('useChartWidgetData — cross-source blending', () => {
     expect(getRows).toHaveBeenCalled();
     const data = result.current.multiYData!;
     const stockSeries = data.series.find((s) => s.fieldId === 'stock')!;
-    expect(stockSeries.values.every((v) => v === 0)).toBe(true);
+    expect(stockSeries.values.every((v) => v === null)).toBe(true);
     const totalSeries = data.series.find((s) => s.fieldId === 'total')!;
     const ent = data.labels.indexOf('Electronics');
     expect(totalSeries.values[ent]).toBe(150); // primary series unaffected by the pending fetch
@@ -403,7 +413,10 @@ describe('useChartWidgetData — cross-source blending', () => {
 
     const data = result.current.multiYData!;
     const stockSeries = data.series.find((s) => s.fieldId === 'stock')!;
-    expect(stockSeries.values.every((v) => v === 0)).toBe(true);
+    // Every foreign cell is `null` (unmeasured), not 0: the fetch failed, so we have no
+    // stock figures at all. Painting 0 would report a hard "zero stock everywhere" for
+    // what is actually a network error.
+    expect(stockSeries.values.every((v) => v === null)).toBe(true);
     const totalSeries = data.series.find((s) => s.fieldId === 'total')!;
     const ent = data.labels.indexOf('Electronics');
     expect(totalSeries.values[ent]).toBe(150); // primary chart still renders after the error
@@ -697,9 +710,14 @@ describe('useChartWidgetData — cross-filter ghost baseline memos', () => {
     // The baseline sees a real numeric value (100) somewhere for this field, so BOTH
     // computations must be 'sum' quantities — not one 'count' (1 row) and one 'sum' (100).
     expect(all.values[all.labels.indexOf('Electronics')]).toBe(100);
-    // The filtered subset's only row is non-numeric, so its forced-to-sum contribution is 0
-    // (skipped, not counted as "1 row").
-    expect(filtered.values[filtered.labels.indexOf('Electronics')]).toBe(0);
+    // The filtered subset's only row is non-numeric, so the forced-to-sum computation finds
+    // nothing measurable and yields `null` — NOT `1`, which is the row count this test exists
+    // to rule out. `null` rather than `0` is the deliberate aggregation widening: a bucket
+    // with no measurable value is unmeasured, and reporting a hard 0 would claim EU
+    // Electronics revenue IS zero when the only row's measure is the 'N/A' sentinel.
+    const filteredValue = filtered.values[filtered.labels.indexOf('Electronics')];
+    expect(filteredValue).not.toBe(1);
+    expect(filteredValue).toBeNull();
   });
 
   it('allMultiYData is the full unfiltered multi-series aggregation while multiYData reflects the active cross-filter', () => {

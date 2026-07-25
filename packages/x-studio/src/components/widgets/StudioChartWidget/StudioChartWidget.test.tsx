@@ -2434,11 +2434,22 @@ describe('<StudioChartWidget />', () => {
       label?: string;
     };
 
-    function collectAnnotationLines(): Array<React.ReactElement<AnnotationLineProps>> {
+    /** Every child handed to the chart — annotation lines AND the a11y/keyboard-nav helpers. */
+    function collectChartChildren(): Array<React.ReactElement<AnnotationLineProps>> {
       const props = barChartSpy.mock.calls.at(-1)?.[0] as { children?: React.ReactNode };
       return React.Children.toArray(props.children) as Array<
         React.ReactElement<AnnotationLineProps>
       >;
+    }
+
+    /**
+     * Only the annotation reference lines. Annotations are no longer the chart's only
+     * children: `StudioBarChart` also renders a `ChartFocusTracker` (which backs keyboard
+     * activation of the cross-filter), so these tests filter by component type rather than
+     * treating every child as an annotation.
+     */
+    function collectAnnotationLines(): Array<React.ReactElement<AnnotationLineProps>> {
+      return collectChartChildren().filter((child) => child.type === ChartsReferenceLine);
     }
 
     it('targets the y-axis for a value annotation and the x-axis for a category annotation in the default (vertical) layout', () => {
@@ -2452,7 +2463,9 @@ describe('<StudioChartWidget />', () => {
 
       const lines = collectAnnotationLines();
       expect(lines).toHaveLength(2);
-      expect(lines.every((line) => line.type === ChartsReferenceLine)).toBe(true);
+      // The two annotations are the only reference lines, but not the only children — the
+      // keyboard-navigation focus tracker rides along too.
+      expect(collectChartChildren().length).toBeGreaterThan(lines.length);
 
       const thresholdLine = lines.find((line) => line.props.label === 'Threshold')!;
       expect(thresholdLine.props.y).toBe(15);

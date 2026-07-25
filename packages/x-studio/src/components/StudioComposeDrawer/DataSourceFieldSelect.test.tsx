@@ -271,7 +271,11 @@ describe('DataSourceFieldSelect — unresolvable stored field (M11)', () => {
       />,
     );
 
-    const input = screen.getByLabelText('Value field') as HTMLInputElement;
+    // `getByRole`, not `getByLabelText('Value field')`: `required` makes MUI append an
+    // `aria-hidden` asterisk INSIDE the `<label>`, so the label's textContent is
+    // "Value field *" and an exact-string label query misses. The accessible name skips the
+    // aria-hidden asterisk, so this matches what a screen reader actually announces.
+    const input = screen.getByRole('combobox', { name: 'Value field' }) as HTMLInputElement;
     expect(input.value).toContain('removed_field');
     expect(screen.getByText(/removed_field/)).not.toBe(null);
     expect(input.getAttribute('aria-invalid')).toBe('true');
@@ -288,7 +292,8 @@ describe('DataSourceFieldSelect — unresolvable stored field (M11)', () => {
       />,
     );
 
-    const input = screen.getByLabelText('Value field') as HTMLInputElement;
+    // See the note above: `required` puts an aria-hidden asterisk in the label text.
+    const input = screen.getByRole('combobox', { name: 'Value field' }) as HTMLInputElement;
     expect(input.value).toBe('');
     // A legitimately-unset required field is not a mistake — no error styling.
     expect(input.getAttribute('aria-invalid')).not.toBe('true');

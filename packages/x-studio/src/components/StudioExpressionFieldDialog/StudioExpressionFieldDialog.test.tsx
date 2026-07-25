@@ -238,7 +238,10 @@ describe('StudioExpressionFieldDialog', () => {
         'Revenue Growth',
       );
       expect(screen.getByRole('textbox', { name: 'Description' })).toHaveProperty('value', '');
-      expect(screen.getByRole('checkbox')).toHaveProperty('checked', false);
+      // The "Measure (aggregate)" toggle is a MUI `Switch`, which exposes `role="switch"`
+      // (not `checkbox`) — MARGIN is a measure and GROWTH is not, so this is the assertion
+      // that actually proves the isMeasure flag resynced to the newly-opened field.
+      expect(screen.getByRole('switch', { name: /Measure/ })).toHaveProperty('checked', false);
     });
 
     it("saves the newly-opened field's own definition", async () => {

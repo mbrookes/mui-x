@@ -66,6 +66,13 @@ export function resolveAxisValue(
   row: DatasetRow,
 ): number | string | Date | null {
   if (!axis?.field) {
+    // A synthetic single-category axis (the perpendicular side of a text
+    // mark with only one positional field set, e.g. brush_table's
+    // single-column tables — see scales.ts) has no backing field; every row
+    // sits on its lone category.
+    if (axis?.synthetic && axis.categories && axis.categories.length > 0) {
+      return axis.categories[0] as string | number | Date;
+    }
     return null;
   }
   const raw = row[axis.field];
@@ -465,7 +472,18 @@ export function compileTextMark(ctx: UnitContext): CompiledUnit {
     return compileGeoTextMark(ctx);
   }
 
-  if (!ctx.x?.field || !ctx.y?.field) {
+  const xHasField = !!ctx.x?.field;
+  const yHasField = !!ctx.y?.field;
+  // The missing side must specifically be the SYNTHETIC axis scales.ts built
+  // for a single-axis text mark (e.g. brush_table's single-column tables) —
+  // not just any falsy axis — so a deliberate but unresolved `{value}`/
+  // `{datum}` def on that channel still falls through to the gap below
+  // instead of silently rendering at a meaningless synthetic position.
+  const axesOk =
+    (xHasField && yHasField) ||
+    (xHasField && !!ctx.y?.synthetic) ||
+    (yHasField && !!ctx.x?.synthetic);
+  if (!axesOk) {
     const polar = compilePolarTextLabels(ctx);
     if (polar) {
       return polar;
@@ -473,7 +491,7 @@ export function compileTextMark(ctx: UnitContext): CompiledUnit {
     gaps.add({
       code: 'mark:text-missing-axis',
       message:
-        'A text mark needs field-based x and y positional encodings to place its labels; a value/datum-only or missing positional channel means the layer was dropped.',
+        'A text mark needs a field-based x and/or y positional encoding to place its labels; a value/datum-only or missing positional channel on both means the layer was dropped.',
       severity: 'unsupported',
       path,
     });

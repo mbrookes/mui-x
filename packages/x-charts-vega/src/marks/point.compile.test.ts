@@ -686,13 +686,28 @@ describe('compilePointMark', () => {
     expect(filledPoint.hollowSeriesIds).to.equal(undefined);
   });
 
-  it('drops the layer with an unsupported gap when a positional channel is missing', () => {
+  it('renders a single column of points centered on a synthetic band when the other positional channel is entirely unset (concat_bar_scales_discretize-shaped)', () => {
     const spec: VegaLiteSpec = {
-      data: { values: [{ x: 1 }] },
+      data: { values: [{ x: 1 }, { x: 2 }] },
       mark: 'point',
       encoding: {
         x: { field: 'x', type: 'quantitative' },
       },
+    };
+    const compiled = compileSpec(spec);
+    expect(compiled.series).to.have.length(1);
+    const series = compiled.series[0] as unknown as { data: { x: number; y: unknown }[] };
+    // Every row shares the same (synthetic, single-category) y position.
+    expect(series.data.map((d) => d.x)).to.deep.equal([1, 2]);
+    expect(new Set(series.data.map((d) => d.y)).size).to.equal(1);
+    expect(compiled.gaps.map((entry) => entry.code)).to.not.include('mark:point-missing-axis');
+  });
+
+  it('reports an unsupported gap and drops the layer when BOTH positional channels are missing', () => {
+    const spec: VegaLiteSpec = {
+      data: { values: [{ x: 1 }] },
+      mark: 'point',
+      encoding: {},
     };
     const compiled = compileSpec(spec);
     expect(compiled.series).to.have.length(0);

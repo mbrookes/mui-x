@@ -201,12 +201,27 @@ describe('compileTextMark', () => {
     expect(compiled.overlays).to.have.length(0);
   });
 
-  it('reports an unsupported gap and drops the layer when a positional channel is missing', () => {
+  it('renders a single-column text table centered on a synthetic band when the other positional channel is entirely unset (brush_table-shaped)', () => {
     const compiled = compileSpec({
       data: { values: rows },
       mark: 'text',
       encoding: {
-        x: { field: 'category', type: 'nominal' },
+        y: { field: 'category', type: 'nominal' },
+        text: { field: 'amount' },
+      },
+    });
+    const items = textItems(compiled.overlays);
+    expect(items).to.have.length(2);
+    // Every row shares the same (synthetic, single-category) x position.
+    expect(new Set(items?.map((item) => item.x)).size).to.equal(1);
+    expect(compiled.gaps.map((entry) => entry.code)).to.not.include('mark:text-missing-axis');
+  });
+
+  it('reports an unsupported gap and drops the layer when BOTH positional channels are missing', () => {
+    const compiled = compileSpec({
+      data: { values: rows },
+      mark: 'text',
+      encoding: {
         text: { field: 'amount' },
       },
     });

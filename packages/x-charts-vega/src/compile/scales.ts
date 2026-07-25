@@ -1285,19 +1285,32 @@ export function resolveAxes(
   //   - an aggregate-only bar (a value channel, no category channel) → Vega-Lite
   //     draws one bar over an implicit "all" category;
   //   - a 1D `tick` strip/rug plot (only `x` or only `y`) → the ticks span the
-  //     full perpendicular extent of that lone band.
-  // The axis is marked `synthetic` (no backing data field); the bar/tick
-  // compilers place every row on its single category.
-  const hasSingleAxisMarkWith = (channel: 'x' | 'y') =>
+  //     full perpendicular extent of that lone band;
+  //   - a `point`/`circle`/`square`/`text` mark with only one positional field
+  //     (e.g. `brush_table`'s single-column text table, only `y`; or
+  //     `concat_bar_scales_discretize`'s size/color-only circle panels) →
+  //     Vega-Lite centers every row on one implicit position along the unset
+  //     axis, varying only along the one it did encode.
+  // The axis is marked `synthetic` (no backing data field); each of these
+  // compilers places every row on its single category.
+  const SINGLE_AXIS_MARK_TYPES = new Set(['bar', 'tick', 'point', 'circle', 'square', 'text']);
+  // `missingChannel` must be entirely unset (not just non-field) on that same
+  // unit — a deliberate `{value}`/`{datum}` def on the "missing" side (e.g. a
+  // point mark explicitly pinning `y: {value: 0}`) is a different, distinct
+  // case this wrapper doesn't otherwise resolve, and must keep reporting its
+  // own missing-axis gap rather than silently being overridden by a synthetic
+  // band it never asked for.
+  const hasSingleAxisMarkWith = (presentChannel: 'x' | 'y', missingChannel: 'x' | 'y') =>
     units.some(
       ({ unit }) =>
-        (unit.mark.type === 'bar' || unit.mark.type === 'tick') &&
-        isFieldDef(unit.encoding[channel]),
+        SINGLE_AXIS_MARK_TYPES.has(unit.mark.type) &&
+        isFieldDef(unit.encoding[presentChannel]) &&
+        unit.encoding[missingChannel] === undefined,
     );
-  if (!x && xOccurrences.length === 0 && hasSingleAxisMarkWith('y')) {
+  if (!x && xOccurrences.length === 0 && hasSingleAxisMarkWith('y', 'x')) {
     x = syntheticBandAxis('x') as AxisResolution<XAxis>;
   }
-  if (!y && yOccurrences.length === 0 && hasSingleAxisMarkWith('x')) {
+  if (!y && yOccurrences.length === 0 && hasSingleAxisMarkWith('x', 'y')) {
     y = syntheticBandAxis('y') as AxisResolution<YAxis>;
   }
 

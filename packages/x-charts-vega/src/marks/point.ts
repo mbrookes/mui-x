@@ -548,12 +548,26 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
     return compileGeoPointMark(ctx);
   }
 
-  // A tick mark tolerates a single positional field — the missing side resolves
-  // to a synthetic one-category band (scales.ts) the ticks span across, giving a
-  // 1D strip/rug plot. Genuine point/scatter marks still need both axes.
+  // A tick mark tolerates a single positional field unconditionally — its own
+  // `positionOverride`/`valuePixelOverride` mechanism (below) resolves a
+  // value/datum-def on the missing side directly, independent of whatever
+  // scales.ts did or didn't synthesize for it (`honors a layer-local literal
+  // {value: N} y position` — parallel_coordinate/this file's own tick tests).
+  // `point`/`circle`/`square` have no such override yet, so their missing
+  // side must specifically be the SYNTHETIC axis scales.ts built for a
+  // single-axis mark (not just any falsy axis) — giving every row a shared
+  // one-category position (Vega-Lite's own behavior for an unset positional
+  // channel — e.g. `concat_bar_scales_discretize`'s size/color-only circle
+  // panels, only `y` set) — while a deliberate but unresolved `{value}`/
+  // `{datum}` def on that channel still correctly falls through to the gap
+  // below instead of silently rendering at a meaningless synthetic position.
   const xHasField = !!ctx.x?.field;
   const yHasField = !!ctx.y?.field;
-  const axesOk = isTick ? xHasField || yHasField : xHasField && yHasField;
+  const axesOk = isTick
+    ? xHasField || yHasField
+    : (xHasField && yHasField) ||
+      (xHasField && !!ctx.y?.synthetic) ||
+      (yHasField && !!ctx.x?.synthetic);
   if (!axesOk) {
     gaps.add({
       code: 'mark:point-missing-axis',

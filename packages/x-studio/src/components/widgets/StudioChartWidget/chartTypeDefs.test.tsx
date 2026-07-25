@@ -55,6 +55,8 @@ import { StudioBarChart } from './StudioBarChart';
 import { StudioPieChart } from './StudioPieChart';
 // eslint-disable-next-line import/first -- must follow the vi.mock calls above
 import { StudioLineAreaChart } from './StudioLineAreaChart';
+// eslint-disable-next-line import/first -- must follow the vi.mock calls above
+import { StudioScatterChart } from './StudioScatterChart';
 
 const dataSource: StudioDataSource = {
   id: 'src',
@@ -461,5 +463,35 @@ describe('chart-family renderers consult allChartData before bailing to EmptyCha
     });
 
     expect(view.type).not.toBe(StudioBarChart);
+  });
+
+  // Architecture-review Tier 2 finding 3: `renderScatter` used to never forward
+  // `preserveXFieldBaseline`/`preserveSplitByBaseline` to `StudioScatterChart` at all, so a
+  // scatter widget's ghost overlay ignored the same baseline-reliability gate every sibling
+  // chart type (bar/line/pie) respects — it rendered a ghost baseline from data the rest of
+  // the dashboard's own convention would treat as unreliable. `StudioScatterChart` renders
+  // unconditionally (there's no `EmptyChartBox` bypass to assert on, unlike bar/line/pie
+  // above), so this asserts the props reach the component instead.
+  it('renderScatter forwards preserveXFieldBaseline/preserveSplitByBaseline to StudioScatterChart', () => {
+    const config: StudioWidgetConfig = {
+      chartType: 'scatter',
+      xField: 'category',
+      yField: 'amount',
+    } as StudioWidgetConfig;
+    const ctx = makeCtx<'scatter'>(config, []);
+
+    const view = CHART_TYPE_DEFS.scatter.render({
+      ...ctx,
+      preserveXFieldBaseline: true,
+      preserveSplitByBaseline: false,
+    });
+
+    expect(view.type).toBe(StudioScatterChart);
+    const props = view.props as {
+      preserveXFieldBaseline: boolean;
+      preserveSplitByBaseline: boolean;
+    };
+    expect(props.preserveXFieldBaseline).toBe(true);
+    expect(props.preserveSplitByBaseline).toBe(false);
   });
 });

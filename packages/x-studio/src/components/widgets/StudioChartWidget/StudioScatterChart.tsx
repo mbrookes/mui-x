@@ -32,6 +32,22 @@ interface StudioScatterChartProps {
   allScatterSeries: ScatterSeriesData[] | null;
   /** When true, render the unfiltered ("ghost") points behind the filtered ones. */
   shouldShowGhost: boolean;
+  /**
+   * Gates the single-series (no `colorField`) ghost baseline — mirrors
+   * `StudioBarChart`/`StudioLineAreaChart`/`StudioPieChart`'s identical
+   * `shouldShowGhost && allChartData && preserveXFieldBaseline` gate. When the
+   * widget's x-field reads from a join-field expression a sibling cross-filter is
+   * driving unreliable (e.g. a related-source join field), the baseline must not
+   * render even though `shouldShowGhost` is true.
+   */
+  preserveXFieldBaseline: boolean;
+  /**
+   * Gates the colour-by (`colorField`) grouped ghost baseline — mirrors
+   * `StudioBarChart`/`StudioLineAreaChart`'s split-by ghost gate
+   * (`shouldShowGhost && allBarSeriesFieldData && preserveSplitByBaseline`).
+   * `colorField` is scatter's equivalent of a split-by/series field.
+   */
+  preserveSplitByBaseline: boolean;
   skipAnimation: boolean;
   colors?: string[];
   xAxisLabel?: string;
@@ -57,6 +73,8 @@ export function StudioScatterChart({
   allScatterData,
   allScatterSeries,
   shouldShowGhost,
+  preserveXFieldBaseline,
+  preserveSplitByBaseline,
   skipAnimation,
   colors,
   xAxisLabel,
@@ -105,11 +123,18 @@ export function StudioScatterChart({
   // entirely, so an emptied filter yields `scatterSeries: []` (truthy, not null) — checking
   // `allScatterSeries` the same way (rather than falling through to the single-series
   // `allScatterData` branch) keeps this consistent with the colour-by ghost path below.
+  //
+  // Also gated on `preserveXFieldBaseline`/`preserveSplitByBaseline` (mirroring every sibling
+  // chart type's ghost gate): a cross-filter can mark the baseline unreliable (e.g. the widget's
+  // x-field/colour-by field is a join-field expression reading a related source), in which case
+  // the baseline must not render even though `shouldShowGhost` is true.
   const hasGhostBaseline = Boolean(
     shouldShowGhost &&
     (colorField
-      ? allScatterSeries && allScatterSeries.some((s) => s.data.length > 0)
-      : allScatterData != null && allScatterData.length > 0),
+      ? preserveSplitByBaseline &&
+        allScatterSeries &&
+        allScatterSeries.some((s) => s.data.length > 0)
+      : preserveXFieldBaseline && allScatterData != null && allScatterData.length > 0),
   );
   const hasData = hasFilteredData || hasGhostBaseline;
 
@@ -150,30 +175,37 @@ export function StudioScatterChart({
     return buildScatterCategoryColorMap(orderedCategoryIds, resolvedPalette);
   })();
 
-  // When cross-highlight is active, render ghost (all data, dim) + highlighted (filtered) series
+  // When cross-highlight is active, render ghost (all data, dim) + highlighted (filtered) series.
+  // Gated on `preserveSplitByBaseline`/`preserveXFieldBaseline` respectively (same rationale as
+  // `hasGhostBaseline` above) so an unreliable baseline is never drawn even when `shouldShowGhost`
+  // is true — mirrors every sibling chart type's ghost-series gate.
   const ghostSeries = (() => {
     if (!shouldShowGhost) {
       return null;
     }
     if (colorSeries && allScatterSeries) {
-      return allScatterSeries.map((s) => ({
-        id: `${s.id}${GHOST_SERIES_SUFFIX}`,
-        // No `label`: ghost series must not add a second legend entry for a
-        // category that's already shown (highlighted) in the legend.
-        data: s.data,
-        markerSize: 3,
-        color: categoryColorMap?.get(s.id),
-      }));
+      return preserveSplitByBaseline
+        ? allScatterSeries.map((s) => ({
+            id: `${s.id}${GHOST_SERIES_SUFFIX}`,
+            // No `label`: ghost series must not add a second legend entry for a
+            // category that's already shown (highlighted) in the legend.
+            data: s.data,
+            markerSize: 3,
+            color: categoryColorMap?.get(s.id),
+          }))
+        : null;
     }
     if (allScatterData) {
-      return [
-        {
-          id: `__all${GHOST_SERIES_SUFFIX}`,
-          data: allScatterData,
-          markerSize: 3,
-          color: resolvedPalette[0],
-        },
-      ];
+      return preserveXFieldBaseline
+        ? [
+            {
+              id: `__all${GHOST_SERIES_SUFFIX}`,
+              data: allScatterData,
+              markerSize: 3,
+              color: resolvedPalette[0],
+            },
+          ]
+        : null;
     }
     return null;
   })();

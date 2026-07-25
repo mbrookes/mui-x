@@ -463,7 +463,16 @@ export function getDescriptor(
   config: StudioWidgetConfig,
 ): ChartTypeDescriptor {
   if (kind === 'chart') {
-    return chartTypeRegistry[config.chartType as StudioChartType] ?? xyDescriptor;
+    // `config.chartType` is doc/AI-authored with no closed-enum validation at this
+    // boundary, so `Object.hasOwn` (not `chartTypeRegistry[chartType] ?? …`) guards
+    // against a hostile value like "constructor"/"toString"/"valueOf" resolving an
+    // inherited `Object.prototype` member instead of `undefined`. Mirrors
+    // `StudioChartWidget.tsx`'s render-time `Object.hasOwn(CHART_TYPE_DEFS, chartType)`
+    // dispatch guard for the same bug class.
+    const chartType = config.chartType as StudioChartType;
+    return Object.hasOwn(chartTypeRegistry, chartType)
+      ? chartTypeRegistry[chartType]
+      : xyDescriptor;
   }
   return widgetKindRegistry[kind] ?? xyDescriptor;
 }

@@ -158,8 +158,18 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
       return [];
     }
     // Fast path: use the pre-computed index built lazily for this filter field.
-    // O(1) rather than O(N).
-    const precomputed = normalizedDataSource?.fieldDistinctValues?.[fieldId];
+    // O(1) rather than O(N). `fieldId` is doc/AI-authored (`config.filterWidgetField`)
+    // with no closed-enum validation, so guard the record index against inherited
+    // keys: a hostile id like "constructor"/"toString" would otherwise resolve
+    // `Object.prototype`'s function off the prototype chain instead of `undefined`,
+    // which the `MultiSelectControl`/`ToggleControl` consumers would then throw on
+    // when calling `.filter`/`.map` on it. Mirrors `StudioMapWidget`'s
+    // `Object.hasOwn(allGeographies, mapGeography)` guard for the same bug class.
+    const fieldDistinctValues = normalizedDataSource?.fieldDistinctValues;
+    const precomputed =
+      fieldDistinctValues && Object.hasOwn(fieldDistinctValues, fieldId)
+        ? fieldDistinctValues[fieldId]
+        : undefined;
     if (precomputed) {
       return precomputed;
     }

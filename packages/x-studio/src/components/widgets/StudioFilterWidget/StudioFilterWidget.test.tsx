@@ -46,10 +46,16 @@ function setup(
   slotKey: keyof NonNullable<React.ComponentProps<typeof StudioFilterWidget>['slots']>,
   dataSource: StudioDataSource = DATA_SOURCE,
 ) {
-  const captured: { onApply?: (...args: any[]) => void; onClear?: () => void } = {};
-  function Stub(props: { onApply?: (...args: any[]) => void; onClear?: () => void }) {
+  const captured: { onApply?: (...args: any[]) => void; onClear?: () => void; values?: unknown } =
+    {};
+  function Stub(props: {
+    onApply?: (...args: any[]) => void;
+    onClear?: () => void;
+    values?: unknown;
+  }) {
     captured.onApply = props.onApply;
     captured.onClear = props.onClear;
+    captured.values = props.values;
     return <div data-testid="control" />;
   }
   const { controller, wrapper } = createStudioHarness();
@@ -152,6 +158,26 @@ describe('StudioFilterWidget', () => {
         filterSourceId: 'orders',
       });
     });
+
+    // Architecture-review Tier 2 finding 1: `filterWidgetField` is doc/AI-authored with no
+    // closed-enum validation, so a hostile value equal to an `Object.prototype` member name
+    // used to resolve the inherited function instead of `undefined` from the
+    // `fieldDistinctValues` fast-path lookup — `distinctValues` became a `Function` at
+    // runtime, which the control would then throw on when calling `.filter`/`.map`. This must
+    // never crash, and the `values` handed to the control must always be an array.
+    it.each(['constructor', 'toString', 'valueOf', 'hasOwnProperty', '__proto__'])(
+      'does not crash and passes an array of values for filterWidgetField=%s',
+      (hostileFieldId) => {
+        const { captured } = setup(
+          { filterWidgetType: 'multi-select', filterWidgetField: hostileFieldId },
+          'multiSelectControl',
+        );
+        // Rendering succeeded (no throw) and the control was mounted with an ARRAY of
+        // values, never the inherited `Object.prototype` function itself.
+        expect(captured.onApply).toBeDefined();
+        expect(Array.isArray(captured.values)).toBe(true);
+      },
+    );
   });
 
   describe('toggle', () => {

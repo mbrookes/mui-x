@@ -436,9 +436,14 @@ export function normalizeToAlpha2(value: unknown): string | null {
   // Full name / alias lookup first — handles non-standard codes like "UK" → "GB",
   // "Burma" → "MM", etc. Must run before the 2-letter shortcut so that aliases
   // like "UK" (not a valid ISO alpha-2) are resolved correctly.
-  const fromName = NAME_TO_ALPHA2[lower];
-  if (fromName) {
-    return fromName;
+  // `lower` is derived from untrusted row data (not a fixed enum), so guard the record
+  // index against inherited keys: a hostile value that lower-cases to "constructor"/
+  // "toString"/"valueOf" would otherwise resolve `Object.prototype`'s member instead of
+  // `undefined`, returning a function where this documented `string | null` return is
+  // relied on. Mirrors `StudioMapWidget`'s `Object.hasOwn(allGeographies, mapGeography)`
+  // guard for the same bug class.
+  if (Object.hasOwn(NAME_TO_ALPHA2, lower)) {
+    return NAME_TO_ALPHA2[lower];
   }
 
   // Looks like a valid ISO alpha-2 code?
@@ -830,8 +835,13 @@ export function normalizeToStateAbbr(value: unknown): string | null {
     return FIPS_TO_STATE_ABBR[padded] ?? null;
   }
 
-  // Full name lookup
-  return STATE_NAME_TO_ABBR[lower] ?? null;
+  // Full name lookup. `lower` is derived from untrusted row data (not a fixed enum), so
+  // guard the record index against inherited keys the same way as `normalizeToAlpha2`'s
+  // `NAME_TO_ALPHA2` lookup above — a hostile value that lower-cases to "constructor"/
+  // "toString"/"valueOf" would otherwise resolve `Object.prototype`'s member instead of
+  // `undefined`, returning a function where this documented `string | null` return is
+  // relied on.
+  return Object.hasOwn(STATE_NAME_TO_ABBR, lower) ? STATE_NAME_TO_ABBR[lower] : null;
 }
 
 // ─── European country codes ────────────────────────────────────────────────

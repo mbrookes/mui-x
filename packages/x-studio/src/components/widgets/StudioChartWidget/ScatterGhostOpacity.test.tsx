@@ -34,6 +34,8 @@ describe('StudioScatterChart ghost opacity (real DOM, finding 1)', () => {
           allScatterData={all}
           allScatterSeries={null}
           shouldShowGhost
+          preserveXFieldBaseline
+          preserveSplitByBaseline
           skipAnimation
           // Give the chart an explicit pixel width — jsdom does no layout, so without
           // this the auto-sizing (ResizeObserver-driven) container measures 0 and the
@@ -72,6 +74,8 @@ describe('StudioScatterChart ghost opacity (real DOM, finding 1)', () => {
           allScatterData={null}
           allScatterSeries={null}
           shouldShowGhost={false}
+          preserveXFieldBaseline
+          preserveSplitByBaseline
           skipAnimation
           slotProps={{ width: 300 }}
         />

@@ -638,6 +638,132 @@ describe('StudioController.addWidget', () => {
     const activePageId = controller.getState().doc.dashboard.activePageId;
     expect(controller.getState().doc.pages[activePageId].widgetRows).toHaveLength(2);
   });
+
+  // ── Write-side CHART-TYPE guard (architecture-review Tier 2 finding 2) ────────
+  // `updateWidgetConfig` already validates chart-type-appropriate config keys on every
+  // UPDATE; `addWidget` (the CREATE path) had no equivalent guard of its own, so a widget
+  // could be created with an invalid/hostile `chartType` (e.g. a value equal to an
+  // `Object.prototype` member name) that later reaches `getDescriptor`/render-time dispatch.
+  // `addWidget` must repair this at the CREATE boundary itself, belt-and-braces alongside the
+  // `Object.hasOwn` guard in `chartTypeRegistry.ts`'s `getDescriptor`.
+  describe('chartType validation (defense-in-depth, finding 2)', () => {
+    it('falls back to "bar" and warns when a chart widget is created with an invalid chartType', () => {
+      const controller = new StudioController();
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      controller.addWidget(
+        makeWidget('chart1', {
+          kind: 'chart',
+          config: {
+            chartType: 'not-a-real-chart-type',
+            xField: 'category',
+          } as unknown as StudioWidgetConfig,
+        }),
+      );
+
+      const config = controller.getState().doc.widgets.chart1.config as StudioWidgetConfig;
+      expect(config.chartType).toBe('bar');
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0][0]).toContain('chart1');
+      expect(warnSpy.mock.calls[0][0]).toContain('not-a-real-chart-type');
+
+      warnSpy.mockRestore();
+    });
+
+    it.each(['constructor', 'toString', 'valueOf', 'hasOwnProperty', '__proto__'])(
+      'falls back to "bar" (never an inherited Object.prototype member) for chartType=%s',
+      (hostileChartType) => {
+        const controller = new StudioController();
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        expect(() => {
+          controller.addWidget(
+            makeWidget(`chart-${hostileChartType}`, {
+              kind: 'chart',
+              config: { chartType: hostileChartType } as StudioWidgetConfig,
+            }),
+          );
+        }).not.toThrow();
+
+        const config = controller.getState().doc.widgets[`chart-${hostileChartType}`]
+          .config as StudioWidgetConfig;
+        expect(config.chartType).toBe('bar');
+
+        warnSpy.mockRestore();
+      },
+    );
+
+    it('drops config keys that belong to a different chart family than the repaired chartType', () => {
+      const controller = new StudioController();
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      controller.addWidget(
+        makeWidget('chart2', {
+          kind: 'chart',
+          config: {
+            chartType: 'not-a-real-chart-type',
+            sankeyTargetField: 'region',
+          } as unknown as StudioWidgetConfig,
+        }),
+      );
+
+      const config = controller.getState().doc.widgets.chart2.config as StudioWidgetConfig;
+      expect(config.chartType).toBe('bar');
+      expect('sankeyTargetField' in config).toBe(false);
+
+      warnSpy.mockRestore();
+    });
+
+    it('does not touch a valid chartType and does not warn', () => {
+      const controller = new StudioController();
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      controller.addWidget(
+        makeWidget('chart3', {
+          kind: 'chart',
+          config: { chartType: 'gauge', yField: 'revenue', gaugeMax: 100 },
+        }),
+      );
+
+      const config = controller.getState().doc.widgets.chart3.config as StudioWidgetConfig;
+      expect(config.chartType).toBe('gauge');
+      expect(config.gaugeMax).toBe(100);
+      expect(warnSpy).not.toHaveBeenCalled();
+
+      warnSpy.mockRestore();
+    });
+
+    // An ABSENT `chartType` is the sanctioned "no discriminant yet == bar" default (mirrors
+    // `parseStateMutation.ts`'s `hasInvalidChartTypeInConfig`) — it must never warn, and the
+    // widget's config must pass through untouched (no `chartType: 'bar'` forcibly written in).
+    it('does not warn or alter the config when chartType is absent from a chart widget', () => {
+      const controller = new StudioController();
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      controller.addWidget(
+        makeWidget('chart4', { kind: 'chart', config: { crossFilterMode: 'cross-highlight' } }),
+      );
+
+      expect(controller.getState().doc.widgets.chart4.config).toEqual({
+        crossFilterMode: 'cross-highlight',
+      });
+      expect(warnSpy).not.toHaveBeenCalled();
+
+      warnSpy.mockRestore();
+    });
+
+    it('does not validate chartType for a non-chart widget kind', () => {
+      const controller = new StudioController();
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      controller.addWidget(makeWidget('grid1', { kind: 'grid', config: { gridHeight: 300 } }));
+
+      expect(controller.getState().doc.widgets.grid1.config).toEqual({ gridHeight: 300 });
+      expect(warnSpy).not.toHaveBeenCalled();
+
+      warnSpy.mockRestore();
+    });
+  });
 });
 
 describe('StudioController.removeWidget', () => {

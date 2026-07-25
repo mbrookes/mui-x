@@ -96,6 +96,20 @@ describe('normalizeToAlpha2', () => {
     expect(normalizeToAlpha2('MDV_')).toBeNull();
     expect(normalizeToAlpha2('MDV')).toBe('MV');
   });
+
+  // Architecture-review Tier 2 finding 4: `NAME_TO_ALPHA2` is a plain object literal
+  // indexed by a lower-cased value taken directly from untrusted row data. A hostile value
+  // lower-casing to an `Object.prototype` member name must resolve to `null` (the documented
+  // `string | null` return), never to the inherited function itself — which would otherwise
+  // become an unmatchable Map key downstream while still skewing the shared color-scale
+  // domain.
+  it('returns null (not an inherited Object.prototype member) for a hostile Object.prototype-shaped value', () => {
+    expect(normalizeToAlpha2('constructor')).toBeNull();
+    expect(normalizeToAlpha2('toString')).toBeNull();
+    expect(normalizeToAlpha2('valueOf')).toBeNull();
+    expect(normalizeToAlpha2('hasOwnProperty')).toBeNull();
+    expect(normalizeToAlpha2('__proto__')).toBeNull();
+  });
 });
 
 // ─── normalizeToStateAbbr ──────────────────────────────────────────────────
@@ -139,6 +153,18 @@ describe('normalizeToStateAbbr', () => {
   it('returns null for empty or whitespace-only strings', () => {
     expect(normalizeToStateAbbr('')).toBeNull();
     expect(normalizeToStateAbbr('   ')).toBeNull();
+  });
+
+  // Architecture-review Tier 2 finding 4: `STATE_NAME_TO_ABBR` is a plain object literal
+  // indexed by a lower-cased value taken directly from untrusted row data. A hostile value
+  // lower-casing to an `Object.prototype` member name must resolve to `null` (the documented
+  // `string | null` return), never to the inherited function itself.
+  it('returns null (not an inherited Object.prototype member) for a hostile Object.prototype-shaped value', () => {
+    expect(normalizeToStateAbbr('constructor')).toBeNull();
+    expect(normalizeToStateAbbr('toString')).toBeNull();
+    expect(normalizeToStateAbbr('valueOf')).toBeNull();
+    expect(normalizeToStateAbbr('hasOwnProperty')).toBeNull();
+    expect(normalizeToStateAbbr('__proto__')).toBeNull();
   });
 });
 

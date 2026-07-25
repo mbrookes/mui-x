@@ -418,6 +418,28 @@ describe('collectFields — unknown chartType (fallback)', () => {
       expect(fields).toContain('x');
     }).not.toThrow();
   });
+
+  // Architecture-review Tier 2 finding 2: `chartTypeRegistry` is a plain object literal
+  // indexed directly by `config.chartType`. A hostile chart type equal to an
+  // `Object.prototype` member name used to resolve the inherited function instead of
+  // `undefined`, silently bypassing the `?? xyDescriptor` fallback (a truthy function is
+  // never nullish) and returning something that is not a `ChartTypeDescriptor` at all.
+  // `getDescriptor` must still fall back to `xyDescriptor` (a real, usable descriptor) for
+  // every one of these, mirroring `StudioChartWidget.tsx`'s render-time `Object.hasOwn`
+  // dispatch guard for the same bug class.
+  it.each(['constructor', 'toString', 'valueOf', 'hasOwnProperty', '__proto__'])(
+    'falls back to the xy descriptor (not an inherited Object.prototype member) for chartType=%s',
+    (hostileChartType) => {
+      const desc = getDescriptor('chart', { chartType: hostileChartType as never });
+      expect(() => {
+        const fields = desc.collectFields({ xField: 'x', yField: 'y' }, SOURCE_A);
+        expect(fields).toContain('x');
+        expect(fields).toContain('y');
+      }).not.toThrow();
+      // Same descriptor `getDescriptor` returns for a genuinely unknown chartType.
+      expect(desc).toBe(getDescriptor('chart', { chartType: 'unknown-future-type' as never }));
+    },
+  );
 });
 
 // ── buildAggregationSpecs: chart types ───────────────────────────────────────

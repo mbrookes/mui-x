@@ -440,6 +440,8 @@ function renderScatter(ctx: ChartRenderContext<'scatter'>): React.ReactElement {
       allScatterData={ctx.allScatterData}
       allScatterSeries={ctx.allScatterSeries}
       shouldShowGhost={ctx.shouldShowGhost}
+      preserveXFieldBaseline={ctx.preserveXFieldBaseline}
+      preserveSplitByBaseline={ctx.preserveSplitByBaseline}
       skipAnimation={ctx.skipAnimation}
       colors={ctx.chartColors}
       xAxisLabel={xAxisLabel}

@@ -25,6 +25,7 @@ import {
   validateConfigKeysForKind,
   validateChartConfigKeysForType,
   resolveChartType,
+  isStudioChartType,
 } from '@mui/x-studio-schema';
 
 import {
@@ -1164,6 +1165,56 @@ export class StudioController {
 
   addWidget = (widget: StudioWidget) => {
     const state = this.store.state;
+    // Write-side CHART-TYPE guard (defense-in-depth companion to `getDescriptor`'s
+    // `Object.hasOwn` guard in `chartTypeRegistry.ts`): a widget can reach this
+    // CREATE path with an invalid/hostile `chartType` (e.g. a client-built widget
+    // that skipped `createWidgetFromDescription.ts`'s own sanitization, or a future
+    // call site that doesn't sanitize). `updateWidgetConfig` already validates
+    // chart-type-appropriate keys on every UPDATE; mirror that "validate at every
+    // mutation boundary" convention here so a widget can never be CREATED with a
+    // chart type outside the closed `StudioChartType` union in the first place.
+    //
+    // Mirrors `parseStateMutation.ts`'s `hasInvalidChartTypeInConfig`: an ABSENT (or
+    // explicit `undefined`) `chartType` is sanctioned — it's the same "no discriminant
+    // yet == bar" default `resolveChartType`/the AI middleware's `buildWidgetFromArgs`
+    // apply — so only an OWN, non-undefined `chartType` that fails `isStudioChartType`
+    // is repaired here. This keeps the guard from touching the many widgets created
+    // with no `chartType` at all.
+    let effectiveWidget = widget;
+    if (widget.kind === 'chart') {
+      const configRecord = widget.config as Record<string, unknown>;
+      const hasOwnChartType =
+        Object.hasOwn(configRecord, 'chartType') && configRecord.chartType !== undefined;
+      if (hasOwnChartType) {
+        const rawChartType = configRecord.chartType;
+        const chartTypeIsValid =
+          typeof rawChartType === 'string' && isStudioChartType(rawChartType);
+        if (!chartTypeIsValid) {
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn(
+              `MUI X Studio: Widget '${widget.id}' was created with an invalid chartType ` +
+                `'${String(rawChartType)}'. Falling back to 'bar'. Ensure the caller supplies a ` +
+                'valid StudioChartType (see isStudioChartType).',
+            );
+          }
+          // Repaired to 'bar', so also drop any config key that isn't valid for 'bar' —
+          // a hostile/invalid `chartType` is commonly paired with keys authored for that
+          // same bogus type.
+          const effectiveChartType: StudioChartType = 'bar';
+          const invalidChartKeys = validateChartConfigKeysForType(effectiveChartType, configRecord);
+          const stripped: Record<string, unknown> = {};
+          for (const [key, value] of Object.entries(configRecord)) {
+            if (!invalidChartKeys.includes(key)) {
+              stripped[key] = value;
+            }
+          }
+          effectiveWidget = {
+            ...widget,
+            config: { ...stripped, chartType: effectiveChartType } as StudioWidget['config'],
+          };
+        }
+      }
+    }
     // Delegate the state-shape transform (new row on the target page) to the shared
     // reducer, stamping the active page explicitly (D6) so the constructed mutation
     // is self-describing rather than relying on the reducer's active-page fallback.
@@ -1172,7 +1223,10 @@ export class StudioController {
     // `state.pages[activePageId]` read — which threw when the active page was
     // missing — into a clean no-op; a crash was never desired behaviour.)
     this.commitMutation(
-      { type: 'addWidget', args: { widget, pageId: state.doc.dashboard.activePageId } },
+      {
+        type: 'addWidget',
+        args: { widget: effectiveWidget, pageId: state.doc.dashboard.activePageId },
+      },
       {
         // The reducer no-ops (same state reference) for an unknown page or an
         // already-existing widget id — guard on the widget's actual presence so

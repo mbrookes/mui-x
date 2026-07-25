@@ -62,6 +62,8 @@ describe('StudioScatterChart', () => {
         scatterSeries={null}
         allScatterData={null}
         allScatterSeries={null}
+        preserveXFieldBaseline
+        preserveSplitByBaseline
         shouldShowGhost={false}
         skipAnimation={false}
       />,
@@ -77,6 +79,8 @@ describe('StudioScatterChart', () => {
         scatterSeries={null}
         allScatterData={null}
         allScatterSeries={null}
+        preserveXFieldBaseline
+        preserveSplitByBaseline
         shouldShowGhost={false}
         skipAnimation={false}
       />,
@@ -101,6 +105,8 @@ describe('StudioScatterChart', () => {
         scatterSeries={series}
         allScatterData={null}
         allScatterSeries={null}
+        preserveXFieldBaseline
+        preserveSplitByBaseline
         shouldShowGhost={false}
         skipAnimation={false}
       />,
@@ -119,6 +125,8 @@ describe('StudioScatterChart', () => {
         scatterSeries={null}
         allScatterData={[...pointsA, { id: 2, x: 9, y: 9 }]}
         allScatterSeries={null}
+        preserveXFieldBaseline
+        preserveSplitByBaseline
         shouldShowGhost
         skipAnimation={false}
       />,
@@ -129,6 +137,105 @@ describe('StudioScatterChart', () => {
     expect(props.series[0].id).toBe('__all-ghost');
     expect(props.series[0].data).toHaveLength(3);
     expect(props.series[1].data).toEqual(pointsA);
+  });
+
+  // ── Ghost baseline reliability gate (architecture review, Tier 2 finding 3) ──
+  // `preserveXFieldBaseline`/`preserveSplitByBaseline` gate the ghost baseline exactly like
+  // `StudioBarChart`/`StudioLineAreaChart`/`StudioPieChart` already do: when a sibling
+  // cross-filter marks the baseline unreliable (e.g. the widget's x-field/colour-by field is a
+  // join-field expression reading a related source), the ghost must not render even though
+  // `shouldShowGhost` is true.
+  describe('ghost baseline reliability gate', () => {
+    it('suppresses the single-series ghost when preserveXFieldBaseline is false, even with shouldShowGhost active', () => {
+      renderScatter(
+        <StudioScatterChart
+          height={200}
+          scatterData={pointsA}
+          scatterSeries={null}
+          allScatterData={[...pointsA, { id: 2, x: 9, y: 9 }]}
+          allScatterSeries={null}
+          shouldShowGhost
+          preserveXFieldBaseline={false}
+          preserveSplitByBaseline
+          skipAnimation={false}
+        />,
+      );
+      const props = lastScatterProps();
+      // Only the highlighted (filtered) series renders — no `-ghost` series.
+      expect(props.series).toHaveLength(1);
+      expect(props.series.some((s) => s.id?.endsWith('-ghost'))).toBe(false);
+      expect(props.series[0].data).toEqual(pointsA);
+    });
+
+    it('renders the single-series ghost when preserveXFieldBaseline is true', () => {
+      renderScatter(
+        <StudioScatterChart
+          height={200}
+          scatterData={pointsA}
+          scatterSeries={null}
+          allScatterData={[...pointsA, { id: 2, x: 9, y: 9 }]}
+          allScatterSeries={null}
+          shouldShowGhost
+          preserveXFieldBaseline
+          preserveSplitByBaseline
+          skipAnimation={false}
+        />,
+      );
+      const props = lastScatterProps();
+      expect(props.series.some((s) => s.id === '__all-ghost')).toBe(true);
+    });
+
+    it('suppresses the grouped (colour-by) ghost when preserveSplitByBaseline is false, even with shouldShowGhost active', () => {
+      const highlighted: ScatterSeriesData[] = [
+        { id: 'a', label: 'A', data: pointsA },
+        { id: 'b', label: 'B', data: [{ id: 0, x: 5, y: 6 }] },
+      ];
+      const baseline: ScatterSeriesData[] = [
+        { id: 'a', label: 'A', data: [...pointsA, { id: 2, x: 9, y: 9 }] },
+        { id: 'b', label: 'B', data: [{ id: 0, x: 5, y: 6 }] },
+      ];
+      renderScatter(
+        <StudioScatterChart
+          height={200}
+          colorField="segment"
+          scatterData={null}
+          scatterSeries={highlighted}
+          allScatterData={null}
+          allScatterSeries={baseline}
+          shouldShowGhost
+          preserveXFieldBaseline
+          preserveSplitByBaseline={false}
+          skipAnimation={false}
+        />,
+      );
+      const props = lastScatterProps();
+      // Only the highlighted (filtered) series render — no `-ghost` series.
+      expect(props.series).toHaveLength(2);
+      expect(props.series.some((s) => s.id?.endsWith('-ghost'))).toBe(false);
+    });
+
+    it('renders the grouped (colour-by) ghost when preserveSplitByBaseline is true', () => {
+      const highlighted: ScatterSeriesData[] = [{ id: 'a', label: 'A', data: pointsA }];
+      const baseline: ScatterSeriesData[] = [
+        { id: 'a', label: 'A', data: [...pointsA, { id: 2, x: 9, y: 9 }] },
+      ];
+      renderScatter(
+        <StudioScatterChart
+          height={200}
+          colorField="segment"
+          scatterData={null}
+          scatterSeries={highlighted}
+          allScatterData={null}
+          allScatterSeries={baseline}
+          shouldShowGhost
+          preserveXFieldBaseline
+          preserveSplitByBaseline
+          skipAnimation={false}
+        />,
+      );
+      const props = lastScatterProps();
+      expect(props.series.some((s) => s.id === 'a-ghost')).toBe(true);
+    });
   });
 
   it('configures a bubble size axis when a size field is set', () => {
@@ -142,6 +249,8 @@ describe('StudioScatterChart', () => {
         scatterSeries={null}
         allScatterData={null}
         allScatterSeries={null}
+        preserveXFieldBaseline
+        preserveSplitByBaseline
         shouldShowGhost={false}
         skipAnimation={false}
       />,
@@ -176,6 +285,8 @@ describe('StudioScatterChart', () => {
           scatterSeries={null}
           allScatterData={null}
           allScatterSeries={null}
+          preserveXFieldBaseline
+          preserveSplitByBaseline
           shouldShowGhost={false}
           skipAnimation={false}
         />,
@@ -196,6 +307,8 @@ describe('StudioScatterChart', () => {
           scatterSeries={null}
           allScatterData={null}
           allScatterSeries={null}
+          preserveXFieldBaseline
+          preserveSplitByBaseline
           shouldShowGhost={false}
           skipAnimation={false}
         />,
@@ -216,6 +329,8 @@ describe('StudioScatterChart', () => {
           scatterSeries={null}
           allScatterData={null}
           allScatterSeries={null}
+          preserveXFieldBaseline
+          preserveSplitByBaseline
           shouldShowGhost={false}
           skipAnimation={false}
         />,
@@ -236,6 +351,8 @@ describe('StudioScatterChart', () => {
           scatterSeries={null}
           allScatterData={null}
           allScatterSeries={null}
+          preserveXFieldBaseline
+          preserveSplitByBaseline
           shouldShowGhost={false}
           skipAnimation={false}
         />,
@@ -255,6 +372,8 @@ describe('StudioScatterChart', () => {
           scatterSeries={null}
           allScatterData={null}
           allScatterSeries={null}
+          preserveXFieldBaseline
+          preserveSplitByBaseline
           shouldShowGhost={false}
           skipAnimation={false}
         />,
@@ -283,6 +402,8 @@ describe('StudioScatterChart', () => {
         scatterSeries={highlighted}
         allScatterData={null}
         allScatterSeries={baseline}
+        preserveXFieldBaseline
+        preserveSplitByBaseline
         shouldShowGhost
         skipAnimation={false}
       />,
@@ -323,6 +444,8 @@ describe('StudioScatterChart', () => {
         scatterSeries={null}
         allScatterData={[...pointsA, { id: 2, x: 9, y: 9 }]}
         allScatterSeries={null}
+        preserveXFieldBaseline
+        preserveSplitByBaseline
         shouldShowGhost
         skipAnimation={false}
       />,
@@ -342,6 +465,8 @@ describe('StudioScatterChart', () => {
         scatterSeries={null}
         allScatterData={null}
         allScatterSeries={null}
+        preserveXFieldBaseline
+        preserveSplitByBaseline
         shouldShowGhost={false}
         skipAnimation={false}
       />,
@@ -361,6 +486,8 @@ describe('StudioScatterChart', () => {
           scatterSeries={null}
           allScatterData={pointsA}
           allScatterSeries={null}
+          preserveXFieldBaseline
+          preserveSplitByBaseline
           shouldShowGhost
           skipAnimation={false}
         />,
@@ -384,6 +511,8 @@ describe('StudioScatterChart', () => {
           scatterSeries={null}
           allScatterData={pointsA}
           allScatterSeries={null}
+          preserveXFieldBaseline
+          preserveSplitByBaseline
           shouldShowGhost={false}
           skipAnimation={false}
         />,
@@ -406,6 +535,8 @@ describe('StudioScatterChart', () => {
           scatterData={null}
           allScatterData={null}
           allScatterSeries={baseline}
+          preserveXFieldBaseline
+          preserveSplitByBaseline
           shouldShowGhost
           skipAnimation={false}
         />,
@@ -426,6 +557,8 @@ describe('StudioScatterChart', () => {
           scatterData={null}
           allScatterData={null}
           allScatterSeries={[]}
+          preserveXFieldBaseline
+          preserveSplitByBaseline
           shouldShowGhost
           skipAnimation={false}
         />,
@@ -444,6 +577,8 @@ describe('StudioScatterChart', () => {
           scatterSeries={null}
           allScatterData={null}
           allScatterSeries={null}
+          preserveXFieldBaseline
+          preserveSplitByBaseline
           shouldShowGhost={false}
           skipAnimation={false}
           slotProps={{
@@ -467,6 +602,8 @@ describe('StudioScatterChart', () => {
           scatterSeries={null}
           allScatterData={null}
           allScatterSeries={null}
+          preserveXFieldBaseline
+          preserveSplitByBaseline
           shouldShowGhost={false}
           skipAnimation={false}
           slotProps={{

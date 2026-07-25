@@ -91,4 +91,39 @@ describe('PieArcLabelsSection min-angle input (finding 2.3)', () => {
       pieArcLabelMinAngle: 30,
     });
   });
+
+  // Stale-buffer-on-widget-switch (architecture review Tier2 finding): the resync effect
+  // used to key off `value` alone. Switching to a DIFFERENT widget whose
+  // `pieArcLabelMinAngle` happens to carry the SAME value (both default to 20 here) looked
+  // like no change to that effect, so a dirty buffer from the previous widget survived and
+  // a subsequent blur would have committed the stray uncommitted text into the NEW widget.
+  it('resyncs (clears dirty) instead of committing stale text when switching to a different widget with the same min-angle value', () => {
+    const { setProps } = render(
+      <PieArcLabelsSection
+        widgetId="widget-1"
+        config={{ chartType: 'pie', pieArcLabel: 'value', pieArcLabelMinAngle: 20 } as never}
+      />,
+    );
+    const input = screen.getByLabelText('Minimum angle (°)') as HTMLInputElement;
+
+    // Type into widget-1's field but never blur — buffer is dirty, nothing committed yet.
+    fireEvent.change(input, { target: { value: '45' } });
+    expect(input.value).toBe('45');
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+
+    // Switch to a different widget whose committed `pieArcLabelMinAngle` is ALSO 20 — the
+    // raw `value` prop is unchanged, only `widgetId` differs.
+    setProps({
+      widgetId: 'widget-2',
+      config: { chartType: 'pie', pieArcLabel: 'value', pieArcLabelMinAngle: 20 } as never,
+    });
+
+    // The buffer must have resynced to the new widget's committed value...
+    expect((screen.getByLabelText('Minimum angle (°)') as HTMLInputElement).value).toBe('20');
+
+    // ...so a blur now commits nothing (the buffer is clean), instead of writing the
+    // stray "45" from widget-1 into widget-2's config.
+    fireEvent.blur(screen.getByLabelText('Minimum angle (°)'));
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+  });
 });

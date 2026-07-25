@@ -38,20 +38,21 @@ import { collectStaleWidgetFilterIds } from './collectStaleWidgetFilterIds';
  * `GaugeConfigSection.tsx`'s min/max inputs.
  */
 function SliderBoundInput(props: {
+  widgetId: string;
   value: number | undefined;
   label: string;
   onCommit: (next: number | undefined) => void;
 }) {
-  const { value, label, onCommit } = props;
+  const { widgetId, value, label, onCommit } = props;
   const initialText = value !== undefined ? String(value) : '';
   const [text, setText] = React.useState(initialText);
   const [dirty, setDirty] = React.useState(false);
 
-  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed bound; resync on external change (field swap, undo/redo)
+  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed bound; resync on external change (field swap, widget switch, undo/redo). `widgetId` must be in the deps (not just `initialText`) — a widget switch that lands on the SAME bound value would otherwise leave a still-dirty buffer from the previous widget uncommitted into the new one.
   React.useEffect(() => {
     setText(initialText);
     setDirty(false);
-  }, [initialText]);
+  }, [initialText, widgetId]);
 
   const commit = () => {
     if (!dirty) {
@@ -286,6 +287,7 @@ export function FilterSetupPanel(props: { widgetId: string }) {
           </Typography>
           <Stack spacing={1}>
             <SliderBoundInput
+              widgetId={widgetId}
               value={config.filterWidgetMin}
               label={localeText.filterSetupMinLabel}
               onCommit={(next) =>
@@ -293,6 +295,7 @@ export function FilterSetupPanel(props: { widgetId: string }) {
               }
             />
             <SliderBoundInput
+              widgetId={widgetId}
               value={config.filterWidgetMax}
               label={localeText.filterSetupMaxLabel}
               onCommit={(next) =>
@@ -300,6 +303,7 @@ export function FilterSetupPanel(props: { widgetId: string }) {
               }
             />
             <SliderBoundInput
+              widgetId={widgetId}
               value={config.filterWidgetStep}
               label={localeText.filterSetupStepLabel}
               onCommit={(next) =>

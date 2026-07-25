@@ -22,20 +22,26 @@ import { SetupSection } from './SetupSection';
  * on blur, mirroring `FormatPanel.tsx`'s grid-height input.
  */
 function ConditionalFormatValueInput(props: {
+  widgetId: string;
+  /** Index of this rule within the widget's `gridConditionalFormats` array (rules have no
+   * stable id — see the `no-array-index-as-key` disable below), used together with
+   * `widgetId` to gate the resync so switching which rule/widget is being edited always
+   * resyncs the buffer, even when the two rules/widgets happen to share the same value. */
+  ruleIndex: number;
   value: unknown;
   ariaLabel: string;
   onCommit: (next: number | undefined) => void;
 }) {
-  const { value, ariaLabel, onCommit } = props;
+  const { widgetId, ruleIndex, value, ariaLabel, onCommit } = props;
   const initialText = value !== undefined && value !== null ? String(value) : '';
   const [text, setText] = React.useState(initialText);
   const [dirty, setDirty] = React.useState(false);
 
-  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed rule value; resync on external change (field/operator swap, undo/redo)
+  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed rule value; resync on external change (field/operator swap, widget switch, undo/redo). `widgetId`/`ruleIndex` must be in the deps (not just `initialText`) — switching to a different widget or a different rule on the SAME widget that happens to carry the same value would otherwise leave a still-dirty buffer uncommitted into the wrong rule.
   React.useEffect(() => {
     setText(initialText);
     setDirty(false);
-  }, [initialText]);
+  }, [initialText, widgetId, ruleIndex]);
 
   const commit = () => {
     if (!dirty) {
@@ -80,21 +86,27 @@ function ConditionalFormatValueInput(props: {
  * `ConditionalFormatValueInput` above (no numeric parsing needed here).
  */
 function ConditionalFormatStringValueInput(props: {
+  widgetId: string;
+  /** Index of this rule within the widget's `gridConditionalFormats` array (rules have no
+   * stable id — see the `no-array-index-as-key` disable below), used together with
+   * `widgetId` to gate the resync so switching which rule/widget is being edited always
+   * resyncs the buffer, even when the two rules/widgets happen to share the same value. */
+  ruleIndex: number;
   value: unknown;
   ariaLabel: string;
   onCommit: (next: string) => void;
 }) {
-  const { value, ariaLabel, onCommit } = props;
+  const { widgetId, ruleIndex, value, ariaLabel, onCommit } = props;
   const localeText = useStudioLocaleText();
   const initialText = value !== undefined && value !== null ? String(value) : '';
   const [text, setText] = React.useState(initialText);
   const [dirty, setDirty] = React.useState(false);
 
-  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed rule value; resync on external change (field/operator swap, undo/redo)
+  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed rule value; resync on external change (field/operator swap, widget switch, undo/redo). `widgetId`/`ruleIndex` must be in the deps (not just `initialText`) — switching to a different widget or a different rule on the SAME widget that happens to carry the same value would otherwise leave a still-dirty buffer uncommitted into the wrong rule.
   React.useEffect(() => {
     setText(initialText);
     setDirty(false);
-  }, [initialText]);
+  }, [initialText, widgetId, ruleIndex]);
 
   const commit = () => {
     if (!dirty) {
@@ -215,6 +227,17 @@ export function GridConditionalFormatSection(props: { widgetId: string }) {
                     {f.label}
                   </MenuItem>
                 ))}
+                {/* Schema drift: the persisted rule references a field id no longer present
+                    on the source (e.g. the field was removed/renamed after the rule was
+                    saved). Without this, the Select's value matches no MenuItem and MUI
+                    renders the control blank — indistinguishable from an unset field, even
+                    though `rule.fieldId` is still set. Mirrors the `fieldInfo?.label ?? col.fieldId`
+                    raw-id fallback in `GridSetupPanel`'s column list. */}
+                {!fieldEntry && (
+                  <MenuItem value={rule.fieldId} dense sx={{ fontSize: 12, fontStyle: 'italic' }}>
+                    {rule.fieldId}
+                  </MenuItem>
+                )}
               </Select>
               <Select
                 size="small"
@@ -239,6 +262,8 @@ export function GridConditionalFormatSection(props: { widgetId: string }) {
               {!noValueOp &&
                 (fieldEntry?.type === 'number' ? (
                   <ConditionalFormatValueInput
+                    widgetId={widgetId}
+                    ruleIndex={i}
                     value={rule.value}
                     ariaLabel={localeText.gridConditionValueAriaLabel}
                     onCommit={(v) => {
@@ -249,6 +274,8 @@ export function GridConditionalFormatSection(props: { widgetId: string }) {
                   />
                 ) : (
                   <ConditionalFormatStringValueInput
+                    widgetId={widgetId}
+                    ruleIndex={i}
                     value={rule.value}
                     ariaLabel={localeText.gridConditionValueAriaLabel}
                     onCommit={(v) => {

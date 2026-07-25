@@ -25,6 +25,7 @@ import { DataSourceFieldSelect, type DataSourceFieldEntry } from '../DataSourceF
  * clamp to the nearest boundary.
  */
 function RadiusInput(props: {
+  widgetId: string;
   value: number;
   label: string;
   min: number;
@@ -35,15 +36,15 @@ function RadiusInput(props: {
   kind: 'min' | 'max';
   onCommit: (next: number) => void;
 }) {
-  const { value, label, min, max, otherBound, kind, onCommit } = props;
+  const { widgetId, value, label, min, max, otherBound, kind, onCommit } = props;
   const [text, setText] = React.useState(String(value));
   const [dirty, setDirty] = React.useState(false);
 
-  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed radius; resync on external change (widget switch, undo/redo)
+  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed radius; resync on external change (widget switch, undo/redo). `widgetId` must be in the deps (not just `value`) — a widget switch that lands on the SAME radius value would otherwise leave a still-dirty buffer from the previous widget uncommitted into the new one.
   React.useEffect(() => {
     setText(String(value));
     setDirty(false);
-  }, [value]);
+  }, [value, widgetId]);
 
   const commit = () => {
     if (!dirty) {
@@ -145,6 +146,7 @@ export function ScatterConfigSection({
       {config.scatterSizeField && (
         <Stack direction="row" spacing={1}>
           <RadiusInput
+            widgetId={widgetId}
             value={config.scatterMinRadius ?? 4}
             label={localeText.chartSetupMinRadiusLabel}
             min={1}
@@ -154,6 +156,7 @@ export function ScatterConfigSection({
             onCommit={(next) => controller.updateWidgetConfig(widgetId, { scatterMinRadius: next })}
           />
           <RadiusInput
+            widgetId={widgetId}
             value={config.scatterMaxRadius ?? 40}
             label={localeText.chartSetupMaxRadiusLabel}
             min={1}

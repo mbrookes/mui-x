@@ -25,20 +25,21 @@ export interface PieArcLabelsSectionProps {
  * `GaugeConfigSection.tsx`'s min/max inputs.
  */
 function MinAngleInput(props: {
+  widgetId: string;
   value: number;
   label: string;
   helperText: string;
   onCommit: (next: number) => void;
 }) {
-  const { value, label, helperText, onCommit } = props;
+  const { widgetId, value, label, helperText, onCommit } = props;
   const [text, setText] = React.useState(String(value));
   const [dirty, setDirty] = React.useState(false);
 
-  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed min angle; resync on external change (undo/redo)
+  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed min angle; resync on external change (widget switch, undo/redo). `widgetId` is in the deps because a widget switch that lands on the SAME min-angle value would otherwise leave a still-dirty buffer from the previous widget uncommitted into the new one.
   React.useEffect(() => {
     setText(String(value));
     setDirty(false);
-  }, [value]);
+  }, [value, widgetId]);
 
   const commit = () => {
     if (!dirty) {
@@ -109,6 +110,7 @@ export function PieArcLabelsSection({ widgetId, config }: PieArcLabelsSectionPro
       </FormControl>
       {(config.pieArcLabel ?? 'none') !== 'none' && (
         <MinAngleInput
+          widgetId={widgetId}
           value={config.pieArcLabelMinAngle ?? 20}
           label={localeText.chartSetupMinAngleLabel}
           helperText={localeText.chartSetupMinAngleHelperText}

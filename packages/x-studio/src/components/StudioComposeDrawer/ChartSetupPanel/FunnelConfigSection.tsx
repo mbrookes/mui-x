@@ -31,19 +31,20 @@ export interface FunnelConfigSectionProps {
  * `GaugeConfigSection.tsx`'s min/max inputs.
  */
 function FunnelGapInput(props: {
+  widgetId: string;
   value: number;
   label: string;
   onCommit: (next: number | undefined) => void;
 }) {
-  const { value, label, onCommit } = props;
+  const { widgetId, value, label, onCommit } = props;
   const [text, setText] = React.useState(String(value));
   const [dirty, setDirty] = React.useState(false);
 
-  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed gap; resync on external change (undo/redo)
+  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed gap; resync on external change (widget switch, undo/redo). `widgetId` is in the deps because a widget switch that lands on the SAME gap value (e.g. both widgets default to 0) would otherwise leave a still-dirty buffer from the previous widget uncommitted into the new one.
   React.useEffect(() => {
     setText(String(value));
     setDirty(false);
-  }, [value]);
+  }, [value, widgetId]);
 
   const commit = () => {
     if (!dirty) {
@@ -194,6 +195,7 @@ export function FunnelConfigSection({
         </ToggleButtonGroup>
       </Stack>
       <FunnelGapInput
+        widgetId={widgetId}
         value={config.funnelGap ?? 0}
         label={localeText.chartSetupFunnelGapLabel}
         onCommit={(next) => controller.updateWidgetConfig(widgetId, { funnelGap: next })}

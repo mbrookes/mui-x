@@ -29,6 +29,7 @@ import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import type {
+  StudioDataField,
   StudioGridColumn,
   StudioGridSummaryAggregation,
   StudioWidgetConfig,
@@ -123,7 +124,7 @@ function columnAggKey(col: Pick<StudioGridColumn, 'fieldId' | 'sourceId'>): stri
 interface SelectableField {
   fieldId: string;
   label: string;
-  type: string;
+  type: StudioDataField['type'];
   generated?: boolean;
   sourceId: string;
   sourceLabel: string;
@@ -555,7 +556,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
                   sx={{ color: 'text.disabled', flexShrink: 0, cursor: 'grab' }}
                 />
                 <FieldTypeIcon
-                  type={(fieldInfo?.type ?? 'string') as any}
+                  type={fieldInfo?.type ?? 'string'}
                   generated={fieldInfo?.generated}
                   size={14}
                 />
@@ -720,11 +721,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
                     onClick={() => handleColumnAdd(field)}
                   >
                     <ListItemIcon>
-                      <FieldTypeIcon
-                        type={field.type as any}
-                        generated={field.generated}
-                        size={14}
-                      />
+                      <FieldTypeIcon type={field.type} generated={field.generated} size={14} />
                     </ListItemIcon>
                     {field.label}
                   </MenuItem>

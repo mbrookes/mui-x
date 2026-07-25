@@ -169,3 +169,47 @@ describe('ScatterConfigSection radii inputs reject out-of-range/cross-invalid va
     });
   });
 });
+
+// Stale-buffer-on-widget-switch (architecture review Tier2 finding): the resync effect
+// used to key off `value` alone. Switching to a DIFFERENT widget whose `scatterMinRadius`
+// happens to carry the SAME value (both default to 4 here) looked like no change to that
+// effect, so a dirty buffer from the previous widget survived and a subsequent blur would
+// have committed the stray uncommitted text into the NEW widget's config.
+describe('ScatterConfigSection radii inputs resync on widget switch', () => {
+  beforeEach(() => {
+    configureStudioContextMock({ getState: () => mockState, controller });
+    controller.updateWidgetConfig.mockClear();
+  });
+
+  it('resyncs (clears dirty) instead of committing stale text when switching to a different widget with the same min radius value', () => {
+    const { setProps } = render(
+      <ScatterConfigSection
+        widgetId="widget-1"
+        config={{ chartType: 'scatter', scatterSizeField: 'y', scatterMinRadius: 4 } as never}
+        numericFields={numericFields}
+        categoryFields={categoryFields}
+      />,
+    );
+    const input = screen.getByLabelText('Min radius') as HTMLInputElement;
+
+    // Type into widget-1's field but never blur — buffer is dirty, nothing committed yet.
+    fireEvent.change(input, { target: { value: '10' } });
+    expect(input.value).toBe('10');
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+
+    // Switch to a different widget whose committed `scatterMinRadius` is ALSO 4 — the raw
+    // `value` prop is unchanged, only `widgetId` differs.
+    setProps({
+      widgetId: 'widget-2',
+      config: { chartType: 'scatter', scatterSizeField: 'y', scatterMinRadius: 4 } as never,
+    });
+
+    // The buffer must have resynced to the new widget's committed value...
+    expect((screen.getByLabelText('Min radius') as HTMLInputElement).value).toBe('4');
+
+    // ...so a blur now commits nothing (the buffer is clean), instead of writing the
+    // stray "10" from widget-1 into widget-2's config.
+    fireEvent.blur(screen.getByLabelText('Min radius'));
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+  });
+});

@@ -287,6 +287,50 @@ describe('FilterSetupPanel', () => {
     expect(screen.getByText('Select a field to configure the filter control.')).toBeVisible();
   });
 
+  // Stale-buffer-on-widget-switch (architecture review Tier2 finding): the slider bound
+  // inputs' resync effect used to key off the derived `initialText` alone. Switching to a
+  // DIFFERENT widget whose slider min happens to carry the SAME value looked like no change
+  // to that effect, so a dirty buffer from the previous widget survived and a subsequent
+  // blur would have committed the stray uncommitted text into the NEW widget's config.
+  it('resyncs (clears dirty) the slider min buffer instead of committing stale text when switching widgets', () => {
+    mockState.doc.widgets['widget-1'].config = {
+      filterWidgetType: 'slider',
+      filterWidgetField: 'amount',
+      filterWidgetMin: 0,
+    };
+    (mockState.doc.widgets as Record<string, (typeof mockState.doc.widgets)['widget-1']>)[
+      'widget-2'
+    ] = {
+      id: 'widget-2',
+      kind: 'filter',
+      sourceId: 'orders',
+      config: {
+        filterWidgetType: 'slider',
+        filterWidgetField: 'amount',
+        filterWidgetMin: 0,
+      } as StudioWidgetConfig,
+    };
+
+    const { setProps } = render(<FilterSetupPanel widgetId="widget-1" />);
+    const input = screen.getByLabelText('Min') as HTMLInputElement;
+
+    // Type into widget-1's min field but never blur — buffer is dirty, nothing committed.
+    fireEvent.change(input, { target: { value: '999' } });
+    expect(input.value).toBe('999');
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+
+    // Switch to a different widget whose committed slider min is ALSO 0.
+    setProps({ widgetId: 'widget-2' });
+
+    // The buffer must have resynced to the new widget's committed value...
+    expect((screen.getByLabelText('Min') as HTMLInputElement).value).toBe('0');
+
+    // ...so a blur now commits nothing, instead of writing the stray "999" from widget-1
+    // into widget-2's config.
+    fireEvent.blur(screen.getByLabelText('Min'));
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+  });
+
   // Finding 7 (architecture review): a slider's explicit min/max/step are scoped to the
   // field they were set for. Re-pointing the filter at a different field (e.g. a 0-1000
   // price slider re-pointed at a 0-1 rate field) must not keep the stale bounds — that

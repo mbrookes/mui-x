@@ -235,3 +235,81 @@ describe('GridConditionalFormatSection string value input (finding 2.3)', () => 
     expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
   });
 });
+
+// Stale-buffer-on-widget-switch (architecture review Tier2 finding): the resync effect
+// used to key off the rule's value alone. Switching to a DIFFERENT widget whose rule at
+// the same array position happens to carry the SAME value looked like no change to that
+// effect, so a dirty buffer from the previous widget survived and a subsequent blur would
+// have committed the stray uncommitted text into the NEW widget's rule.
+describe('GridConditionalFormatSection resyncs on widget switch', () => {
+  beforeEach(() => {
+    mockState.doc.widgets['widget-1'] = {
+      id: 'widget-1',
+      kind: 'grid',
+      sourceId: 'orders',
+      title: 'Orders',
+      config: { gridConditionalFormats: [makeRule({ value: 10 })] } as StudioWidgetConfig,
+    };
+    (mockState.doc.widgets as Record<string, (typeof mockState.doc.widgets)['widget-1']>)[
+      'widget-2'
+    ] = {
+      id: 'widget-2',
+      kind: 'grid',
+      sourceId: 'orders',
+      title: 'Other Orders',
+      config: { gridConditionalFormats: [makeRule({ value: 10 })] } as StudioWidgetConfig,
+    };
+    controller.updateWidgetConfig.mockClear();
+    configureStudioContextMock({ getState: () => mockState, controller });
+  });
+
+  it('resyncs (clears dirty) the numeric value buffer instead of committing stale text when switching widgets', () => {
+    const { setProps } = render(<GridConditionalFormatSection widgetId="widget-1" />);
+    const valueInput = screen.getByLabelText('Condition value') as HTMLInputElement;
+
+    // Type into widget-1's rule value but never blur — buffer is dirty, nothing committed.
+    fireEvent.change(valueInput, { target: { value: '999' } });
+    expect(valueInput.value).toBe('999');
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+
+    // Switch to a different widget whose rule at the same position has the SAME value (10).
+    setProps({ widgetId: 'widget-2' });
+
+    // The buffer must have resynced to the new widget's committed rule value...
+    expect((screen.getByLabelText('Condition value') as HTMLInputElement).value).toBe('10');
+
+    // ...so a blur now commits nothing, instead of writing the stray "999" from widget-1
+    // into widget-2's rule.
+    fireEvent.blur(screen.getByLabelText('Condition value'));
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+  });
+});
+
+// Tier3 secondary fix: a persisted rule can reference a field id no longer present on the
+// source (schema drift after a field is removed/renamed). Before this fix, the fieldId
+// `Select` had no MenuItem matching the stale value, so MUI rendered it blank —
+// indistinguishable from an unset field, even though `rule.fieldId` is technically still
+// set. Mirrors `GridSetupPanel`'s `fieldInfo?.label ?? col.fieldId` raw-id fallback.
+describe('GridConditionalFormatSection stale fieldId fallback (Tier3)', () => {
+  beforeEach(() => {
+    mockState.doc.widgets['widget-1'] = {
+      id: 'widget-1',
+      kind: 'grid',
+      sourceId: 'orders',
+      title: 'Orders',
+      config: {
+        gridConditionalFormats: [makeRule({ fieldId: 'removedField', value: 'Pending' })],
+      } as StudioWidgetConfig,
+    };
+    controller.updateWidgetConfig.mockClear();
+    configureStudioContextMock({ getState: () => mockState, controller });
+  });
+
+  it('shows a fallback option for a fieldId no longer present on the source, instead of rendering blank', () => {
+    render(<GridConditionalFormatSection widgetId="widget-1" />);
+
+    const fieldSelect = screen.getByLabelText('Condition field');
+    // The Select's displayed value must still reflect the stale id (not silently blank).
+    expect(fieldSelect.textContent).toContain('removedField');
+  });
+});

@@ -44,7 +44,7 @@ import {
   isSafeTextAlign,
 } from '../../internals/cssValueValidation';
 import { useStudioAnnounce } from '../../internals/StudioLiveRegion';
-import { StudioWidgetErrorOverlay } from '../../internals/StudioWidgetErrorOverlay';
+import { StudioWidgetErrorBoundary } from '../../internals/StudioWidgetErrorBoundary';
 import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
 import { useWidgetDefMap, BUILTIN_WIDGET_DEFS } from '../../internals/builtinWidgetDefs';
 import { StudioWidgetEditDialog } from '../StudioWidgetEditDialog';
@@ -146,46 +146,6 @@ function DefaultLoadingOverlay() {
       <CircularProgress size={24} aria-label={localeText.widgetLoadingLabel} />
     </Box>
   );
-}
-
-/**
- * Per-widget error boundary. A render throw inside a single widget's component
- * (built-in or custom) would otherwise unmount the entire Studio dashboard, since
- * an uncaught render error propagates to the nearest boundary (of which there was
- * none in this package). This confines the failure to the offending card and shows
- * the shared `StudioWidgetErrorOverlay` in its place. Kept intentionally minimal:
- * catch-and-display only, no retry logic.
- */
-class StudioWidgetErrorBoundary extends React.Component<
-  { children: React.ReactNode; resetKey?: string },
-  { hasError: boolean; message?: string }
-> {
-  constructor(props: { children: React.ReactNode; resetKey?: string }) {
-    super(props);
-    this.state = { hasError: false };
-  }
-
-  static getDerivedStateFromError(error: unknown): { hasError: boolean; message?: string } {
-    return { hasError: true, message: error instanceof Error ? error.message : undefined };
-  }
-
-  componentDidUpdate(prevProps: { resetKey?: string }) {
-    // Recover from a latched error once the widget's config plausibly changed (finding T3):
-    // `getDerivedStateFromError` latches `hasError` permanently, and the card is keyed by
-    // `widgetId` (so config edits don't remount it) while inactive pages stay mounted. Without
-    // this, a transient render error from a bad (e.g. AI-authored) config that the user then
-    // corrects would leave the widget stuck on the error overlay until a full page reload.
-    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
-      this.setState({ hasError: false, message: undefined });
-    }
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return <StudioWidgetErrorOverlay message={this.state.message} />;
-    }
-    return this.props.children;
-  }
 }
 
 export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: StudioWidgetCardProps) {

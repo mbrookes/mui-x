@@ -1,6 +1,7 @@
 'use client';
 import * as React from 'react';
 import { Box, Stack, Tooltip, Typography } from '@mui/material';
+import type { PopperProps } from '@mui/material/Popper';
 import { useStudioLocaleText } from '../../context';
 import { formatFieldValue } from '../../internals/numberFormat';
 
@@ -206,11 +207,12 @@ export default function DataSourcePreviewTooltip({
         }}
         slotProps={{
           // MUI types the popper slot's `ref` against the `Popper` component instance,
-          // but at runtime `disablePortal` renders a plain element and the ref receives
-          // the DOM node — which is what the `contains()` focus check above needs.
+          // but at runtime the ref receives the rendered DOM node — which is what the
+          // `contains()` focus check above needs. Cast to the declared slot type rather
+          // than to what we actually get, since only the declaration is wrong.
           popper: {
             disablePortal: true,
-            ref: popperRef as unknown as React.Ref<HTMLElement>,
+            ref: popperRef as unknown as PopperProps['ref'],
           },
           tooltip: { sx: { maxWidth: 340 } },
         }}

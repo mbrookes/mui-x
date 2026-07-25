@@ -4,6 +4,7 @@ import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { HeatmapData } from '../../../internals/chartShapes/heatmap';
 
+const theme = createTheme();
 const heatmapSpy = vi.fn();
 
 vi.mock('@mui/x-charts-premium/HeatmapPremium', () => ({

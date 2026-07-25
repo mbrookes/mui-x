@@ -227,7 +227,7 @@ export function StudioPieChart({
     const ringAggregation = yAggregation ?? 'sum';
     const categoryKeyOf = (r: Record<string, unknown>): string | null => {
       const rawX = r[xField];
-      if (isEmptyXValue(rawX, localeText)) {
+      if (isEmptyXValue(rawX)) {
         return null;
       }
       return String(applyXGroupBy(toXValue(rawX, localeText), xGroupBy));
@@ -407,7 +407,9 @@ export function StudioPieChart({
     allChartData.labels.forEach((label, i) => {
       const allValue = allChartData.values[i];
       const filteredValue = filteredValueMap.get(String(label)) ?? 0;
-      map.set(i, allValue > 0 ? filteredValue / allValue : 1);
+      // `null` is "no data measured", not zero: there is no meaningful dim ratio for it,
+      // so treat it the same as a non-positive total and leave the slice undimmed.
+      map.set(i, allValue !== null && allValue > 0 ? filteredValue / allValue : 1);
     });
     return map;
   }, [isPieHighlightActive, allChartData, chartData]);
@@ -481,7 +483,7 @@ export function StudioPieChart({
     const pieSeries = rings.map((ring, ringIndex) => {
       const outerRadius = maxRadius - ringIndex * (ringWidth + ringGapActual);
       const innerRadius = Math.max(donutHole, outerRadius - ringWidth);
-      const ringTotal = ring.slices.values.reduce((sum, v) => sum + (v ?? 0), 0);
+      const ringTotal = ring.slices.values.reduce<number>((sum, v) => sum + (v ?? 0), 0);
 
       // For multi-ring, compute per-ring arc label props
       let ringArcLabel: 'value' | ((item: { value: number }) => string) | undefined;
@@ -592,7 +594,10 @@ export function StudioPieChart({
   // Trigger when we have >= pieMaxSlices items (>= so N items collapses the last one).
   // Also absorb any top-N item whose share is < 1% of total into the "Other" group.
   let displayLabels = pieBaseData.labels;
-  let displayValues: (number | undefined)[] = pieBaseData.values;
+  // A `null` aggregate means "no data measured" for that category. x-charts has no
+  // null slice, and rendering it as 0 would be the fabrication the aggregation layer
+  // was just fixed to stop — so it degrades to `undefined` (an absent slice) instead.
+  let displayValues: (number | undefined)[] = pieBaseData.values.map((v) => v ?? undefined);
   // True once the "Other" slice is a grouping bucket (an appended synthetic bucket, or a real
   // "Other" category that also absorbed the folded remainder). Used to guard clicks on it.
   let otherIsSynthetic = false;

@@ -835,6 +835,13 @@ function renderGauge(ctx: ChartRenderContext<'gauge'>): React.ReactElement {
     () => computeAggregate(enrichedRows, gaugeValueField, gaugeAggregation),
   );
 
+  // `null` = the gauge's measure had no measurable data (all-null avg/min/max). Rendering
+  // it as `0` would point the needle at the bottom of the range as if that were measured —
+  // the same fabrication the aggregation layer was fixed to stop. Show "no data" instead.
+  if (gaugeValue === null) {
+    return <StudioNoDataOverlay height={chartHeight} />;
+  }
+
   return (
     <StudioGaugeChart
       value={gaugeValue}

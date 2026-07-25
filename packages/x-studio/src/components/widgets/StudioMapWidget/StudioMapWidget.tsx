@@ -117,7 +117,7 @@ const SAFE_MAP_AGGREGATIONS = new Set<string>(['sum', 'count', 'avg', 'min', 'ma
 // (null/undefined/NaN/non-numeric skipped, booleans → 0/1), so this only reduces the
 // clean numeric set — routed through the shared reducer so map, KPI, pivot and chart
 // aggregation share one policy (findings 1.4 / 2.1).
-function aggregateValues(values: number[], fn: AggFn): number {
+function aggregateValues(values: number[], fn: AggFn): number | null {
   return aggregateNumbers(values, fn);
 }
 
@@ -426,7 +426,14 @@ export function StudioMapWidget({
       }
     } else {
       for (const [id, values] of groups) {
-        result.set(id, aggregateValues(values, aggFn));
+        const aggregated = aggregateValues(values, aggFn);
+        // `null` means the region had rows but nothing measurable (every value was
+        // null/non-numeric for avg/min/max). Leaving it OUT of `result` renders it as an
+        // uncoloured "no data" region, which is what the data supports — writing 0 would
+        // paint it at the bottom of the colour scale as if it had been measured.
+        if (aggregated !== null) {
+          result.set(id, aggregated);
+        }
       }
     }
     return [result, rawKeys];
@@ -448,8 +455,15 @@ export function StudioMapWidget({
     // remaining unbounded spread in x-studio: `internals/aggregate.ts`, `utils/gridSummary.ts`
     // and `generateInsight.ts` were all already converted to reduce loops for this same reason.
     const rawMin = aggregateNumbers(values, 'min');
-    const dataMin = legendZeroMin ? Math.min(0, rawMin) : rawMin;
     const dataMax = aggregateNumbers(values, 'max');
+    // `values` is non-empty (guarded above) and every entry is a real number, so min/max
+    // cannot actually be null here — but the shared reducer's type allows it, and an
+    // unchecked assertion would be a lie if that guard ever moved. Fall back to the same
+    // neutral domain the empty case uses.
+    if (rawMin === null || dataMax === null) {
+      return [0, 1];
+    }
+    const dataMin = legendZeroMin ? Math.min(0, rawMin) : rawMin;
     // Degenerate case: all values are equal (common when cross-filter shows only one country).
     // Use [0, max] so the value renders at full color intensity rather than the lightest shade.
     if (dataMin === dataMax) {

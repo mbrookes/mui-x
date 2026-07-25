@@ -16,19 +16,23 @@ export interface HeatmapData {
   /** Unique values for the row (Y) axis, ordered. */
   yLabels: string[];
   /**
-   * Aggregated value for each (xLabel, yLabel) cell that had at least one contributing
-   * row. A combo with NO contributing rows is absent from this map entirely — callers
-   * must treat a missing key as "no data" (render as null), not as 0, so a genuine
-   * computed 0 (e.g. avg/min/max over rows that summed to zero) stays visually
-   * distinct from a cell no row ever touched (finding 5).
+   * Aggregated value for each (xLabel, yLabel) cell that had at least one contributing row.
+   *
+   * Two kinds of "no data" exist, and neither is a number:
+   * - a combo NO row ever landed in is absent from this map entirely;
+   * - a combo rows landed in but whose measure was never numeric (every contributing row's
+   *   value was null / empty / non-numeric) is present with the value `null`.
+   *
+   * Callers must render both as "no data" — `value == null`, not `cells.has(key)`, is the
+   * "is there a measurement here" test. A synthetic 0 for either case is indistinguishable
+   * from a genuine computed 0 (avg/min/max over rows that really measured zero), which is
+   * the package-wide aggregation doctrine stated in `internals/aggregators.ts`.
    */
-  cells: Map<string, number>;
+  cells: Map<string, number | null>;
   /**
-   * Colour-scale domain over the cells that produced a REAL aggregate. A cell whose
-   * measures were all null is emitted as 0 in `cells` (so it stays on the grid) but is
-   * excluded from this domain — otherwise its placeholder 0 stretched the ramp and
-   * compressed the variation among the cells that do have data. Both are 0 when no cell
-   * has a value.
+   * Colour-scale domain over the cells that produced a REAL aggregate — the `null` cells
+   * above are excluded, so an unmeasured cell never stretches the ramp and compresses the
+   * variation among the cells that do have data. Both are 0 when no cell has a value.
    */
   minValue: number;
   maxValue: number;
@@ -114,22 +118,25 @@ export function aggregateHeatmap(
     }
   }
 
-  // Every cell that occurred (by row count) gets a value: `'count'` reads the unconditional
-  // row count; sum/avg/min/max read the accumulator (a cell with only null measures finalises
-  // to `null` → shown as 0 rather than disappearing).
+  // Every cell that occurred (by row count) gets an entry: `'count'` reads the unconditional
+  // row count; sum/avg/min/max read the accumulator, which finalises to `null` when no
+  // contributing row carried a numeric measure. That `null` is stored VERBATIM — coercing it
+  // to 0 would paint an unmeasured cell at the bottom of the colour ramp and make its tooltip
+  // read "0 °C" for a reading that was never taken, exactly the fabrication
+  // `internals/aggregators.ts` forbids ("`null`, not 0"). The cell keeps its key so callers
+  // can tell "rows landed here but measured nothing" from "no row landed here at all".
   //
-  // The min/max color domain is computed HERE, from the finalized values, and deliberately
-  // skips those synthetic 0s. An all-null cell is "no data", not a measurement, so letting
-  // its placeholder 0 into the scan compressed every real cell's colour: a heatmap over
-  // 80–95 °C readings with one empty cell got a [0, 95] domain, collapsing the entire real
-  // 15-degree spread into the top ~15% of the ramp.
-  const cellMap = new Map<string, number>();
+  // The min/max colour domain is computed HERE, from the finalized values, and skips those
+  // nulls: an all-null cell is "no data", not a measurement, so letting a placeholder into the
+  // scan compressed every real cell's colour — a heatmap over 80–95 °C readings with one empty
+  // cell got a [0, 95] domain, collapsing the real 15-degree spread into the top ~15% of the ramp.
+  const cellMap = new Map<string, number | null>();
   let minValue = Infinity;
   let maxValue = -Infinity;
   for (const [key, rowCount] of cellRowCount) {
     const value =
       yAggregation === 'count' ? rowCount : finalizeAccumulator(cellAcc.get(key), yAggregation);
-    cellMap.set(key, value ?? 0);
+    cellMap.set(key, value);
     if (value !== null) {
       if (value < minValue) {
         minValue = value;

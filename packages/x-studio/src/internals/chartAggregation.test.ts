@@ -3411,12 +3411,15 @@ describe('aggregateHeatmap aggregation policy', () => {
     expect(data.cells.get('Jan\x00EU')).toBe(3);
   });
 
-  it('keeps a cell whose measures are all null (shows 0 for sum, not vanish)', () => {
+  it('keeps a cell whose measures are all null on the grid, with a null (not 0) value', () => {
     const rows = [{ x: 'Jan', y: 'EU', v: null }];
     const data = aggregateHeatmap(rows, 'x', 'y', 'v', undefined, 'sum');
+    // The axes keep the combo (rows did land there), but the cell holds no measurement: a 0
+    // here would paint a coloured tile and a "0" tooltip for a value nobody measured.
     expect(data.xLabels).toContain('Jan');
     expect(data.yLabels).toContain('EU');
-    expect(data.cells.get('Jan\x00EU')).toBe(0);
+    expect(data.cells.has('Jan\x00EU')).toBe(true);
+    expect(data.cells.get('Jan\x00EU')).toBe(null);
   });
 
   it("does not inflate 'sum'/'avg' with an empty-string cell coerced to 0", () => {
@@ -3464,9 +3467,9 @@ describe('aggregateHeatmap aggregation policy', () => {
     expect(data.xLabels).toEqual(['Jan']);
   });
 
-  // Regression: an all-null cell is still emitted as 0 so it does not vanish from the grid,
-  // but that placeholder must NOT stretch the colour domain — letting it in gave a heatmap
-  // over 80-95 °C readings a [0, 95] ramp, compressing the whole real 15-degree spread.
+  // Regression: an all-null cell keeps its key (so the grid stays complete) but holds `null`,
+  // and must NOT stretch the colour domain — letting a placeholder in gave a heatmap over
+  // 80-95 °C readings a [0, 95] ramp, compressing the whole real 15-degree spread.
   it('excludes an all-null cell from the min/max colour domain', () => {
     const rows = [
       { x: 'Jan', y: 'EU', v: 80 },
@@ -3476,8 +3479,8 @@ describe('aggregateHeatmap aggregation policy', () => {
     const data = aggregateHeatmap(rows, 'x', 'y', 'v', undefined, 'sum');
     expect(data.minValue).toBe(80);
     expect(data.maxValue).toBe(95);
-    // The cell itself is still present (at its placeholder 0) so the grid stays complete.
-    expect(data.cells.get('Mar\x00EU')).toBe(0);
+    // The cell itself is still keyed (so the grid stays complete) but carries no measurement.
+    expect(data.cells.get('Mar\x00EU')).toBe(null);
   });
 
   it('still reports a 0/0 colour domain when no cell has any data', () => {

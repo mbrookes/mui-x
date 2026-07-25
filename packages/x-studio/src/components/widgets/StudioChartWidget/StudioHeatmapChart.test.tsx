@@ -22,6 +22,7 @@ type HeatmapCallProps = {
     data: [number, number, number][];
     valueFormatter: (v: number | null) => string;
   }>;
+  xAxis: Array<{ data: string[]; valueFormatter: (v: string | number) => string }>;
   zAxis: Array<{ colorMap: { color: [string, string]; min: number; max: number } }>;
 };
 
@@ -31,12 +32,21 @@ function lastHeatmapProps(): HeatmapCallProps {
 
 function makeHeatData(): HeatmapData {
   // 'B'/'y2' never had a contributing row — its cell must be absent from `cells`.
-  const cells = new Map<string, number>([
+  const cells = new Map<string, number | null>([
     [`A\x00y1`, 10],
     [`A\x00y2`, 0], // a genuine computed 0 (e.g. avg over rows summing to 0)
     [`B\x00y1`, 5],
   ]);
   return { xLabels: ['A', 'B'], yLabels: ['y1', 'y2'], cells, minValue: 0, maxValue: 10 };
+}
+
+/** A grid where ('B', 'y1') had rows but no measurable value — `aggregateHeatmap` emits `null`. */
+function makeHeatDataWithUnmeasuredCell(): HeatmapData {
+  const cells = new Map<string, number | null>([
+    [`A\x00y1`, 10],
+    [`B\x00y1`, null],
+  ]);
+  return { xLabels: ['A', 'B'], yLabels: ['y1'], cells, minValue: 10, maxValue: 10 };
 }
 
 describe('StudioHeatmapChart', () => {
@@ -86,8 +96,8 @@ describe('StudioHeatmapChart', () => {
     });
   });
 
-  // ── finding 5: a no-data cell must not be indistinguishable from a real 0 ───────
-  describe('no-data cells vs. genuine computed 0 (finding 5)', () => {
+  // A cell that measured nothing must not be indistinguishable from a real 0.
+  describe('no-data cells vs. genuine computed 0', () => {
     const theme = createTheme();
 
     it('omits an (x, y) combo with no contributing rows from the series data entirely', () => {
@@ -113,6 +123,26 @@ describe('StudioHeatmapChart', () => {
       expect(data.some(([xi, yi, v]) => xi === 0 && yi === 0 && v === 10)).toBe(true);
     });
 
+    it('omits a cell whose rows had no measurable value (null), instead of painting it as 0', () => {
+      render(
+        <ThemeProvider theme={theme}>
+          <StudioHeatmapChart
+            height={200}
+            heatData={makeHeatDataWithUnmeasuredCell()}
+            colorScheme="primary"
+            legendPosition="bottom"
+            legendAlign="center"
+          />
+        </ThemeProvider>,
+      );
+      const data = lastHeatmapProps().series[0].data;
+      // ('B', 'y1') -> (1, 0): rows landed there, but nothing was measured. It must not be
+      // pushed as a datum at all — a `0` here would render a coloured tile and a "0" tooltip
+      // for a reading that was never taken.
+      expect(data.some(([xi, yi]) => xi === 1 && yi === 0)).toBe(false);
+      expect(data).toEqual([[0, 0, 10]]);
+    });
+
     it('formats a genuinely missing cell differently from a real computed 0 via valueFormatter', () => {
       render(
         <ThemeProvider theme={theme}>
@@ -131,6 +161,47 @@ describe('StudioHeatmapChart', () => {
       // rendering from a genuine 0.
       expect(valueFormatter(null)).toBe('');
       expect(valueFormatter(0)).not.toBe('');
+    });
+  });
+
+  // `xLabels` are raw aggregation keys ('2024-01' under `xGroupBy: 'month'`), so the axis has to
+  // run them through the widget's `formatLabel` like every other x-axis family does.
+  describe('x-axis label formatting', () => {
+    function renderWithFormatLabel(formatLabel?: (label: string | number) => string) {
+      const periodData: HeatmapData = {
+        xLabels: ['2024-01', '2024-02'],
+        yLabels: ['EU'],
+        cells: new Map<string, number | null>([
+          [`2024-01\x00EU`, 10],
+          [`2024-02\x00EU`, 20],
+        ]),
+        minValue: 10,
+        maxValue: 20,
+      };
+      return render(
+        <ThemeProvider theme={theme}>
+          <StudioHeatmapChart
+            height={200}
+            heatData={periodData}
+            colorScheme="primary"
+            legendPosition="bottom"
+            legendAlign="center"
+            formatLabel={formatLabel}
+          />
+        </ThemeProvider>,
+      );
+    }
+
+    it('renders x-axis ticks through formatLabel instead of the raw period key', () => {
+      renderWithFormatLabel((label) => (label === '2024-01' ? 'Jan 2024' : 'Feb 2024'));
+      const { valueFormatter } = lastHeatmapProps().xAxis[0];
+      expect(valueFormatter('2024-01')).toBe('Jan 2024');
+      expect(valueFormatter('2024-02')).toBe('Feb 2024');
+    });
+
+    it('falls back to rendering the label as-is when no formatLabel is supplied', () => {
+      renderWithFormatLabel(undefined);
+      expect(lastHeatmapProps().xAxis[0].valueFormatter('2024-01')).toBe('2024-01');
     });
   });
 

@@ -25,6 +25,9 @@ const SAFE_HEAT_SCHEMES = new Set<string>(['primary', 'success', 'warning', 'err
  */
 const SAFE_HEAT_LEGEND_ALIGNS = new Set<string>(['start', 'center', 'end']);
 
+/** Default `formatLabel`: render an axis label as-is. Module-level so the prop identity is stable. */
+const IDENTITY_LABEL = (label: string | number) => String(label);
+
 interface StudioHeatmapChartProps {
   height: number;
   heatData: HeatmapData;
@@ -32,6 +35,15 @@ interface StudioHeatmapChartProps {
   yFieldLabel?: string;
   /** Value field's format config (drives the cell/legend value formatter). */
   valueFieldDef?: Pick<StudioDataField, 'type' | 'format' | 'currencyCode' | 'precision'>;
+  /**
+   * Formats an x-axis label for display. `aggregateHeatmap` builds `xLabels` from
+   * `applyXGroupBy`, whose output is a sort-stable INTERNAL period key (`'2024-01'`,
+   * `'2024-W03'`) whenever an `xGroupBy` is set — not something to show a user. Every other
+   * x-axis family runs those keys through the widget's `formatLabel` (`'Jan 2024'`), so
+   * without this a heatmap and the bar chart beside it labelled the same field differently.
+   * Defaults to rendering the label as-is (the correct behaviour for a non-grouped axis).
+   */
+  formatLabel?: (label: string | number) => string;
   /** Theme palette key used for the cell color gradient (white → this color's `main`). */
   colorScheme: NonNullable<StudioChartConfig['heatColorScheme']>;
   legendPosition: NonNullable<StudioChartConfig['heatLegendPosition']>;
@@ -61,6 +73,7 @@ export function StudioHeatmapChart({
   xFieldLabel,
   yFieldLabel,
   valueFieldDef,
+  formatLabel = IDENTITY_LABEL,
   colorScheme,
   legendPosition,
   legendAlign,
@@ -70,20 +83,24 @@ export function StudioHeatmapChart({
   const { filterSummaryAndMore: andMore } = useStudioLocaleText();
   const { xLabels, yLabels, cells, minValue, maxValue } = heatData;
 
-  // `@mui/x-charts-pro`'s `HeatmapValueType` tuple has no null slot — a cell with
-  // genuinely zero contributing rows is represented by OMITTING its (xIndex, yIndex)
-  // entry entirely, not by pushing a `0`. `HeatmapData.getValue` (x-charts-pro) then
-  // returns `null` for any index pair absent from `data`, which flows into
-  // `valueFormatter` as `null` (already handled below) and renders with no fill via
-  // `getColor` — distinct from a real computed 0, which gets a genuine color (finding
-  // 5). `aggregateHeatmap` only records a cell in `cells` when at least one row landed
-  // in it, so `cells.has(...)` is exactly the "did any row contribute" check.
+  // `@mui/x-charts-pro`'s `HeatmapValueType` tuple has no null slot, so a cell with NO
+  // measurement is represented by OMITTING its (xIndex, yIndex) entry entirely rather than by
+  // pushing a `0`. `HeatmapData.getValue` (x-charts-pro) returns `null` for any index pair
+  // absent from `data`, which flows into `valueFormatter` as `null` (handled below) and renders
+  // unfilled via `getColor` — distinct from a real computed 0, which gets a genuine colour.
+  //
+  // `aggregateHeatmap` reports "no measurement" two ways, and both must be skipped here: an
+  // absent key (no row landed in the cell at all) and a `null` value (rows landed, but every
+  // one of their measures was null/non-numeric). Testing `value != null` covers both; testing
+  // `cells.has(key)` covered only the first and pushed the all-null cells in as fabricated 0s,
+  // so an Oslo/March tile with five null temperature readings painted at the bottom of the ramp
+  // and its tooltip read "0 °C".
   const seriesData: [number, number, number][] = [];
   for (let xi = 0; xi < xLabels.length; xi += 1) {
     for (let yi = 0; yi < yLabels.length; yi += 1) {
-      const key = `${xLabels[xi]}\x00${yLabels[yi]}`;
-      if (cells.has(key)) {
-        seriesData.push([xi, yi, cells.get(key) as number]);
+      const value = cells.get(`${xLabels[xi]}\x00${yLabels[yi]}`);
+      if (value != null) {
+        seriesData.push([xi, yi, value]);
       }
     }
   }
@@ -154,6 +171,9 @@ export function StudioHeatmapChart({
             data: xLabels,
             label: xFieldLabel,
             height: xFieldLabel ? 60 : 40,
+            // `xLabels` are the raw aggregation keys — period keys ('2024-01') under an
+            // `xGroupBy`. Format them the same way every other x-axis family does.
+            valueFormatter: (value: string | number) => formatLabel(String(value)),
           },
         ]}
         yAxis={[

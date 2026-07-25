@@ -24,6 +24,8 @@ type GaugeCallProps = {
   width: number;
   height: number;
   startAngle?: number;
+  title?: string;
+  text?: (params: { value: number | null; valueMin: number; valueMax: number }) => string | null;
 };
 
 function lastGaugeProps(): GaugeCallProps {
@@ -86,6 +88,51 @@ describe('StudioGaugeChart', () => {
       </ThemeProvider>,
     );
     expect(lastGaugeProps().width).toBe(320);
+  });
+
+  // WCAG 1.1.1 / 4.1.2: the gauge renders `role="meter"`, which `GaugeContainer` names from
+  // `title`. Without it the graphic had no accessible name at all.
+  it('names the gauge graphic from ariaTitle', () => {
+    render(
+      <ThemeProvider theme={theme}>
+        <StudioGaugeChart
+          value={42}
+          valueMin={0}
+          valueMax={100}
+          height={200}
+          ariaTitle="Revenue gauge"
+        />
+      </ThemeProvider>,
+    );
+    expect(lastGaugeProps().title).toBe('Revenue gauge');
+  });
+
+  describe('value text', () => {
+    it('renders the value through the supplied formatter', () => {
+      render(
+        <ThemeProvider theme={theme}>
+          <StudioGaugeChart
+            value={1234567.89}
+            valueMin={0}
+            valueMax={2000000}
+            height={200}
+            valueFormatter={(v) => (v === null ? '' : `€${v}`)}
+          />
+        </ThemeProvider>,
+      );
+      const { text } = lastGaugeProps();
+      expect(text!({ value: 1234567.89, valueMin: 0, valueMax: 2000000 })).toBe('€1234567.89');
+      expect(text!({ value: null, valueMin: 0, valueMax: 2000000 })).toBe('');
+    });
+
+    it('leaves the Gauge default formatting in place when no formatter is supplied', () => {
+      render(
+        <ThemeProvider theme={theme}>
+          <StudioGaugeChart value={42} valueMin={0} valueMax={100} height={200} />
+        </ThemeProvider>,
+      );
+      expect(lastGaugeProps().text).toBe(undefined);
+    });
   });
 
   it('forwards extra gauge slot props', () => {

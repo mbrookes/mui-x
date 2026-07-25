@@ -587,6 +587,10 @@ function renderHeatmap(ctx: ChartRenderContext<'heatmap'>): React.ReactElement {
       xFieldLabel={xFieldDef?.label}
       yFieldLabel={yFieldDef?.label}
       valueFieldDef={heatFormatDef}
+      // The heatmap's x labels come out of `applyXGroupBy` as internal period keys, so they need
+      // the same `formatLabel` pass the bar/line/mixed axes get — otherwise the same field with
+      // the same grouping reads "2024-01" here and "Jan 2024" on the chart beside it.
+      formatLabel={ctx.formatLabel}
       colorScheme={config.heatColorScheme ?? 'primary'}
       legendPosition={config.heatLegendPosition ?? 'bottom'}
       legendAlign={config.heatLegendAlign ?? 'center'}
@@ -810,7 +814,7 @@ function renderGantt(ctx: ChartRenderContext<'gantt'>): React.ReactElement {
 function renderGauge(ctx: ChartRenderContext<'gauge'>): React.ReactElement {
   // Aggregate `enrichedRows` (cross-filter-mode aware via `effectiveRows`) rather than raw
   // `filteredRows`, so a `'none'`-mode gauge doesn't react to sibling cross-filters (finding 2.5).
-  const { config, enrichedRows, chartHeight } = ctx;
+  const { config, dataSource, expressionFields, enrichedRows, chartHeight } = ctx;
   // Mirror the `yField ?? ySeries[0].fieldId` fallback + per-series aggregation precedence every
   // sibling family (heatmap/funnel/sankey) has, so a chart authored via `ySeries` then switched to
   // gauge still resolves its measure instead of showing "configure gauge" (finding 2.7). The fn is
@@ -842,12 +846,28 @@ function renderGauge(ctx: ChartRenderContext<'gauge'>): React.ReactElement {
     return <StudioNoDataOverlay height={chartHeight} />;
   }
 
+  // The arc's centre number is the gauge's whole payload, so it must carry the measure's own
+  // format — `resolveFieldDef` (native + expression fields) then the shared formatter, exactly
+  // like the KPI card on the same measure. `noFormatFallback: 'undefined'` leaves an unformatted
+  // field to the Gauge's own `toLocaleString()` default rather than a bare `String(value)`.
+  const gaugeFieldDef = resolveFieldDef(gaugeValueField, dataSource, expressionFields);
+  const gaugeValueFormatter = makeValueFormatter(
+    gaugeFieldDef?.format,
+    gaugeFieldDef?.currencyCode,
+    gaugeFieldDef?.precision,
+    { noFormatFallback: 'undefined' },
+  );
+
   return (
     <StudioGaugeChart
       value={gaugeValue}
       valueMin={config.gaugeMin ?? 0}
       valueMax={config.gaugeMax ?? 100}
       height={chartHeight}
+      // Every sibling family names its graphic; the gauge was the only one rendering an
+      // unnamed one (WCAG 1.1.1 / 4.1.2).
+      ariaTitle={ctx.chartAriaTitle}
+      valueFormatter={gaugeValueFormatter}
       slotProps={ctx.slotProps?.gaugeChart}
     />
   );

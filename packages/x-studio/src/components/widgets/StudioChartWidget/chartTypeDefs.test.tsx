@@ -131,6 +131,7 @@ function makeCtx<T extends StudioChartType = StudioChartType>(
     onAxisHoverChange: () => {},
     onItemClick: () => {},
     annotationChildren: null,
+    chartAriaTitle: 'Chart title',
   } as unknown as ChartRenderContext<T>;
 }
 
@@ -621,5 +622,62 @@ describe('chart-family renderers consult allChartData before bailing to EmptyCha
         expect([chartType, def.runsSupportGuard]).toEqual([chartType, true]);
       }
     });
+  });
+});
+
+// The gauge used to receive neither the accessible name every sibling family forwards nor any
+// field-format information, so it rendered an unnamed graphic printing a raw `toLocaleString()`
+// number while the KPI card on the same measure printed "€1.2M".
+describe('renderGauge naming and value formatting', () => {
+  const gaugeConfig = { chartType: 'gauge', yField: 'amount' } as StudioWidgetConfig;
+  const rows = [{ amount: 1 }];
+
+  function renderGaugeProps(field: Record<string, unknown>) {
+    const ctx = makeCtx<'gauge'>(gaugeConfig, rows);
+    const view = CHART_TYPE_DEFS.gauge.render({
+      ...ctx,
+      dataSource: { ...dataSource, fields: [field as never] },
+    });
+    return view.props as { ariaTitle?: string; valueFormatter?: (v: number | null) => string };
+  }
+
+  it("forwards the chart's accessible name to the gauge", () => {
+    const props = renderGaugeProps({ id: 'amount', label: 'Amount', type: 'number' });
+    expect(props.ariaTitle).toBe('Chart title');
+  });
+
+  it("formats the gauge value with the measure's own currency format", () => {
+    const props = renderGaugeProps({
+      id: 'amount',
+      label: 'Amount',
+      type: 'number',
+      format: 'currency',
+      currencyCode: 'EUR',
+    });
+    const formatted = props.valueFormatter!(1234567.89);
+    expect(formatted).toContain('€');
+    // Compact, like the KPI card — not the Gauge default's "1,234,567.89".
+    expect(formatted).not.toContain('1,234,567');
+  });
+
+  it('supplies no formatter for a field with no format config, leaving the Gauge default', () => {
+    const props = renderGaugeProps({ id: 'amount', label: 'Amount', type: 'number' });
+    expect(props.valueFormatter).toBe(undefined);
+  });
+});
+
+// The heatmap's x labels are raw period keys under an `xGroupBy`; `renderHeatmap` must thread the
+// widget's `formatLabel` down so they render like every other x-axis family's ticks.
+describe('renderHeatmap label formatting', () => {
+  it('forwards formatLabel to the heatmap chart', () => {
+    const config = {
+      chartType: 'heatmap',
+      xField: 'category',
+      heatYField: 'region',
+      yField: 'amount',
+    } as StudioWidgetConfig;
+    const ctx = makeCtx<'heatmap'>(config, [{ category: 'a', region: 'b', amount: 1 }]);
+    const view = CHART_TYPE_DEFS.heatmap.render(ctx);
+    expect((view.props as { formatLabel?: unknown }).formatLabel).toBe(ctx.formatLabel);
   });
 });

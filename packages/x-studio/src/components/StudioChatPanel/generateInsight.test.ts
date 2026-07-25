@@ -297,13 +297,17 @@ describe('buildWidgetDataSummary', () => {
       });
 
       const result = buildWidgetDataSummary(widget, state);
+      // `US,30,` — the trailing cell is EMPTY, not `0`: there is no US/product-B row, so
+      // the outer join measured nothing for that pair. This summary is read by the LLM as
+      // fact, and `0` would assert that US sold zero of product B, which the data does not
+      // say. Empty is the standard CSV encoding for a missing value.
       expect(result).toBe(
         [
           'Aggregated by region × product (sum of Amount)',
           '2 x-values',
           'region,A,B',
           'EU,10,20',
-          'US,30,0',
+          'US,30,',
           'Stats: Amount: min=10, max=30, mean=20, median=20',
         ].join('\n'),
       );

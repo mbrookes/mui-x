@@ -422,6 +422,21 @@ function buildKpiWidgetSummary(
 
 const CHART_RAW_ROW_FALLBACK = new Set(['scatter', 'gantt', 'sankey']);
 
+/**
+ * Render an aggregated cell for the model-facing CSV summary.
+ *
+ * `null`/`undefined` mean the bucket had NOTHING measurable (see the aggregation layer's
+ * `number | null` contract), which is not the same claim as `0`. These tables are read by
+ * the LLM as fact, so an empty cell — the standard CSV encoding for a missing value — is
+ * the honest rendering; `?? 0` would assert a measurement that was never taken and skew
+ * any trend or comparison the model draws from it.
+ * @param {number | null | undefined} value The aggregated value, or nullish when unmeasured.
+ * @returns {string} The number as text, or an empty string when unmeasured.
+ */
+function insightCell(value: number | null | undefined): string {
+  return value === null || value === undefined ? '' : String(value);
+}
+
 function buildChartWidgetSummary(
   widget: StudioWidget,
   source: StudioDataSource,
@@ -567,7 +582,7 @@ function buildChartWidgetSummary(
     );
     for (const xLabel of xSlice) {
       const row = result.yLabels.map((yLabel) =>
-        String(result.cells.get(`${xLabel}::${yLabel}`) ?? 0),
+        insightCell(result.cells.get(`${xLabel}::${yLabel}`)),
       );
       lines.push([xLabel, ...row].join(','));
     }
@@ -594,7 +609,7 @@ function buildChartWidgetSummary(
       [xField, ...result.seriesNames].join(','),
     );
     for (let i = 0; i < slice.length; i += 1) {
-      const vals = result.seriesNames.map((s) => String(result.seriesData[s]?.[i] ?? 0));
+      const vals = result.seriesNames.map((s) => insightCell(result.seriesData[s]?.[i]));
       lines.push([slice[i], ...vals].join(','));
     }
   } else if (activeYFields.length > 1 && !seriesField) {
@@ -619,7 +634,7 @@ function buildChartWidgetSummary(
       [xField, ...result.series.map((s) => yFieldLabel(s.fieldId))].join(','),
     );
     for (let i = 0; i < slice.length; i += 1) {
-      const vals = result.series.map((s) => String(s.values[i] ?? 0));
+      const vals = result.series.map((s) => insightCell(s.values[i]));
       lines.push([slice[i], ...vals].join(','));
     }
   } else {

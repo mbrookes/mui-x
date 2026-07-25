@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
 import type {
+  StudioExpression,
   StudioExpressionField,
   StudioFunctionExpression,
   StudioValueExpression,
@@ -19,6 +20,7 @@ import {
   isValueExpression,
   isFieldExpression,
   isJoinFieldExpression,
+  MAX_EXPRESSION_DEPTH,
   type EvaluationContext,
 } from './expressionEvaluator';
 import { computeAggregate } from '../components/widgets/StudioKpiWidget/kpiUtils';
@@ -1367,5 +1369,234 @@ describe('validateExpressionField', () => {
     };
     const errors = validateExpressionField(ef, [ef], sourceFields);
     expect(errors.some((err) => err.message.includes('"add"'))).toBe(true);
+  });
+});
+
+// ─── Malformed / hostile persisted expressions ───────────────────────────────
+//
+// H1 — the load boundary (`@mui/x-studio-schema`'s `loadSerializedState`) only screens each
+// `expressionFields[i]` for being a record; it never looks at its `expression`. So every
+// walker in this module can be handed a string, a number, `null`, `undefined`, an array, or a
+// function node with no `inputs` array. Before the fix the `in`-based type guards threw a raw
+// `TypeError: Cannot use 'in' operator to search for 'operator' in 1 + 1`, which — from a
+// render path — blanks the whole data drawer plus every widget on the source. Every entry
+// point must instead degrade to the module's normal "unresolvable node" fallback.
+
+const malformedExpressions: Array<[string, unknown]> = [
+  ['a raw expression string (never parsed)', '1 + 1'],
+  ['a number', 1],
+  ['a boolean', true],
+  ['null', null],
+  ['undefined', undefined],
+  ['an array', [{ operator: 'add' }]],
+  ['a function node with no inputs', { operator: 'add' }],
+  ['a function node with non-array inputs', { operator: 'add', inputs: 'nope' }],
+  ['an empty object', {}],
+];
+
+describe('malformed expression nodes (H1)', () => {
+  const sourceFields = [{ id: 'a', label: 'A', type: 'number' as const }];
+
+  it.each(malformedExpressions)('type guards do not throw for %s', (_label, bad) => {
+    const expr = bad as StudioExpression;
+    expect(() => isFunctionExpression(expr)).not.toThrow();
+    expect(() => isValueExpression(expr)).not.toThrow();
+    expect(() => isFieldExpression(expr)).not.toThrow();
+    expect(() => isJoinFieldExpression(expr)).not.toThrow();
+    expect(isFunctionExpression(expr)).toBe(false);
+    expect(isValueExpression(expr)).toBe(false);
+    expect(isFieldExpression(expr)).toBe(false);
+    expect(isJoinFieldExpression(expr)).toBe(false);
+  });
+
+  it.each(malformedExpressions)('evaluateExpression returns null for %s', (_label, bad) => {
+    expect(evaluateExpression(bad as StudioExpression, ctx({ a: 1 }))).toBeNull();
+  });
+
+  it.each(malformedExpressions)(
+    'evaluateExpression does not throw when %s is nested inside a function node',
+    (_label, bad) => {
+      const expr = fn('add', numVal(1), bad as StudioExpression);
+      expect(() => evaluateExpression(expr, ctx({ a: 1 }))).not.toThrow();
+      // The malformed operand resolves to null → `toNumber(null) === 0`.
+      expect(evaluateExpression(expr, ctx({ a: 1 }))).toBe(1);
+    },
+  );
+
+  it.each(malformedExpressions)('inferExpressionType returns a type for %s', (_label, bad) => {
+    const expr = bad as StudioExpression;
+    expect(() => inferExpressionType(expr, sourceFields, noFields)).not.toThrow();
+    expect(inferExpressionType(expr, sourceFields, noFields)).toBe('string');
+  });
+
+  it.each(malformedExpressions)(
+    'validateExpressionField reports %s instead of throwing',
+    (_label, bad) => {
+      const ef = {
+        id: 'x',
+        label: 'X',
+        sourceId: 'sales',
+        isMeasure: false,
+        expression: bad,
+      } as unknown as StudioExpressionField;
+      expect(() => validateExpressionField(ef, [ef], sourceFields)).not.toThrow();
+      expect(validateExpressionField(ef, [ef], sourceFields).length).toBeGreaterThan(0);
+    },
+  );
+
+  it.each(malformedExpressions)('evaluateMeasure returns a number for %s', (_label, bad) => {
+    const measure = {
+      id: 'm',
+      label: 'M',
+      sourceId: 'sales',
+      isMeasure: true,
+      expression: bad,
+    } as unknown as StudioExpressionField;
+    expect(() => evaluateMeasure(measure, [{ a: 1 }], noFields)).not.toThrow();
+    expect(evaluateMeasure(measure, [{ a: 1 }], noFields)).toBe(0);
+  });
+
+  it.each(malformedExpressions)('topoSortExpressionFields tolerates %s', (_label, bad) => {
+    const ef = {
+      id: 'x',
+      label: 'X',
+      sourceId: 'sales',
+      isMeasure: false,
+      expression: bad,
+    } as unknown as StudioExpressionField;
+    expect(() => topoSortExpressionFields([ef])).not.toThrow();
+    expect(topoSortExpressionFields([ef])).toHaveLength(1);
+  });
+
+  // The exact reproduction from the report: a persisted expression field whose `expression`
+  // is the raw authoring string rather than a parsed AST.
+  it('enrichRowsWithExpressions survives a persisted string expression', () => {
+    const ef = {
+      id: 'ef1',
+      sourceId: 's1',
+      label: 'EF1',
+      isMeasure: false,
+      expression: '1 + 1',
+    } as unknown as StudioExpressionField;
+    expect(() => enrichRowsWithExpressions([{ a: 1 }], [ef], 's1')).not.toThrow();
+    expect(enrichRowsWithExpressions([{ a: 1 }], [ef], 's1')).toEqual([{ a: 1, ef1: null }]);
+  });
+});
+
+// ─── Unbounded recursion guards (M4) ─────────────────────────────────────────
+
+describe('cycle guard in inferExpressionType (M4)', () => {
+  const sourceFields = [{ id: 'revenue', label: 'Revenue', type: 'number' as const }];
+
+  // `deserializeState` does NOT run `hasExpressionCycle` (only the controller's add/update
+  // path does), so a persisted `a → b → a` pair reaches every walker in this module.
+  // `evaluateExpression`/`detectCycles`/`topoSortExpressionFields` all guarded already;
+  // `inferExpressionType` did not, and blew the stack from `StudioMapWidget`'s render and
+  // from `StudioExpressionFieldDialog`.
+  const mutuallyReferencing: StudioExpressionField[] = [
+    { id: 'a', label: 'A', sourceId: 'sales', isMeasure: false, expression: field('b') },
+    { id: 'b', label: 'B', sourceId: 'sales', isMeasure: false, expression: field('a') },
+  ];
+
+  it('does not overflow the stack on a → b → a', () => {
+    expect(() => inferExpressionType(field('a'), sourceFields, mutuallyReferencing)).not.toThrow();
+    expect(inferExpressionType(field('a'), sourceFields, mutuallyReferencing)).toBe('string');
+  });
+
+  it('does not overflow the stack on a direct self-reference', () => {
+    const selfRef: StudioExpressionField[] = [
+      { id: 'loop', label: 'Loop', sourceId: 'sales', isMeasure: false, expression: field('loop') },
+    ];
+    expect(() => inferExpressionType(field('loop'), sourceFields, selfRef)).not.toThrow();
+  });
+
+  it('still resolves a legitimate (acyclic) chain of expression-field references', () => {
+    const chain: StudioExpressionField[] = [
+      { id: 'a', label: 'A', sourceId: 'sales', isMeasure: false, expression: field('b') },
+      { id: 'b', label: 'B', sourceId: 'sales', isMeasure: false, expression: field('revenue') },
+    ];
+    expect(inferExpressionType(field('a'), sourceFields, chain)).toBe('number');
+  });
+});
+
+describe('expression depth bound (M4)', () => {
+  // A ~20 000-deep nested `negate` is only a few hundred KB of JSON; V8's parser is iterative,
+  // so it survives `JSON.parse` intact and only overflows the stack inside these recursive
+  // walkers.
+  function nest(depth: number): StudioExpression {
+    let expr: StudioExpression = numVal(1);
+    for (let i = 0; i < depth; i += 1) {
+      expr = fn('negate', expr);
+    }
+    return expr;
+  }
+
+  const deep = nest(20_000);
+  const sourceFields = [{ id: 'revenue', label: 'Revenue', type: 'number' as const }];
+
+  it('MAX_EXPRESSION_DEPTH leaves plenty of headroom for real expressions', () => {
+    expect(MAX_EXPRESSION_DEPTH).toBeGreaterThanOrEqual(32);
+  });
+
+  it('evaluateExpression does not overflow the stack', () => {
+    expect(() => evaluateExpression(deep, ctx({}))).not.toThrow();
+  });
+
+  it('evaluateMeasure does not overflow the stack', () => {
+    const measure: StudioExpressionField = {
+      id: 'm',
+      label: 'M',
+      sourceId: 'sales',
+      isMeasure: true,
+      expression: deep,
+    };
+    expect(() => evaluateMeasure(measure, [{ revenue: 1 }], noFields)).not.toThrow();
+  });
+
+  it('inferExpressionType does not overflow the stack', () => {
+    expect(() => inferExpressionType(deep, sourceFields, noFields)).not.toThrow();
+  });
+
+  it('validateExpressionField reports the over-deep tree instead of overflowing', () => {
+    const ef: StudioExpressionField = {
+      id: 'x',
+      label: 'X',
+      sourceId: 'sales',
+      isMeasure: false,
+      expression: deep,
+    };
+    let errors: ReturnType<typeof validateExpressionField> = [];
+    expect(() => {
+      errors = validateExpressionField(ef, [ef], sourceFields);
+    }).not.toThrow();
+    expect(errors.some((err) => err.message.includes('nested more than'))).toBe(true);
+  });
+
+  it('topoSortExpressionFields (via collectFieldRefs) does not overflow the stack', () => {
+    const ef: StudioExpressionField = {
+      id: 'x',
+      label: 'X',
+      sourceId: 'sales',
+      isMeasure: false,
+      expression: deep,
+    };
+    expect(() => topoSortExpressionFields([ef])).not.toThrow();
+  });
+
+  it('enrichRowsWithExpressions does not overflow the stack', () => {
+    const ef: StudioExpressionField = {
+      id: 'ef1',
+      label: 'EF1',
+      sourceId: 's1',
+      isMeasure: false,
+      expression: deep,
+    };
+    expect(() => enrichRowsWithExpressions([{ a: 1 }], [ef], 's1')).not.toThrow();
+  });
+
+  it('evaluates an expression nested just under the bound normally', () => {
+    // 8 nested negates over 1 → still 1 (even count), and well inside the bound.
+    expect(evaluateExpression(nest(8), ctx({}))).toBe(1);
+    expect(evaluateExpression(nest(9), ctx({}))).toBe(-1);
   });
 });

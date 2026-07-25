@@ -87,8 +87,26 @@ export function sanitizeCssColor<T = undefined>(
  */
 const SAFE_FONT_FAMILY_PATTERN = /^[\w\s,'"-]+$/;
 
+/**
+ * A single family in the comma-separated stack: either a fully quoted name (`"Inter Tight"`,
+ * `'Inter Tight'`) or an unquoted identifier run (`serif`, `Helvetica Neue`).
+ *
+ * The character allow-list above is enough to stop CSS *injection* (`;{}():/` are all
+ * excluded), but it accepts an UNBALANCED quote — e.g. `Inter"` or `'Inter`. An odd quote
+ * leaves stylis parsing the rest of the stylesheet as a string literal, so it silently
+ * swallows every declaration after it: not an injection vector, but a styling denial of
+ * service that blanks the widget's remaining styles. Requiring each family to be either
+ * wholly quoted or wholly unquoted rejects those without narrowing any legitimate stack.
+ */
+const SAFE_FONT_FAMILY_ITEM_PATTERN = /^(?:"[\w\s-]*"|'[\w\s-]*'|[\w-][\w\s-]*)$/;
+
 export function isSafeFontFamily(value: unknown): value is string {
-  return typeof value === 'string' && value.trim() !== '' && SAFE_FONT_FAMILY_PATTERN.test(value);
+  if (typeof value !== 'string' || value.trim() === '' || !SAFE_FONT_FAMILY_PATTERN.test(value)) {
+    return false;
+  }
+  // An empty item (a leading/trailing/doubled comma) fails the item pattern too, which is
+  // correct — `font-family: Inter, ;` is invalid CSS and would drop the whole declaration.
+  return value.split(',').every((item) => SAFE_FONT_FAMILY_ITEM_PATTERN.test(item.trim()));
 }
 
 /**
@@ -159,7 +177,13 @@ export function isSafeFontWeightKeyword(value: unknown): value is 'bold' | 'norm
  * `` `& .StudioGrid-cf-${id}-${i}` `` would inject arbitrary CSS the moment the grid has
  * any conditional format. This only sanitizes the local token used to build that class
  * name — it must never be used to rewrite the id itself anywhere it's used as a data key.
+ *
+ * Takes `unknown` rather than `string` for the same reason every other validator in this
+ * module does: the id is only *typed* as a string. The persisted-doc load boundary screens
+ * ids for prototype-pollution-unsafe keys, not for being strings at all, so a hostile
+ * dashboard can carry a numeric/`null` id — and `null.replace` is a `TypeError` thrown from
+ * a render path, which is a worse outcome than an empty class token.
  */
-export function sanitizeCssIdentifierToken(value: string): string {
-  return value.replace(/[^A-Za-z0-9_-]/g, '');
+export function sanitizeCssIdentifierToken(value: unknown): string {
+  return typeof value === 'string' ? value.replace(/[^A-Za-z0-9_-]/g, '') : '';
 }

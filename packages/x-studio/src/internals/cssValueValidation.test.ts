@@ -63,6 +63,31 @@ describe('cssValueValidation (finding 1)', () => {
       expect(isSafeFontFamily('')).toBe(false);
       expect(isSafeFontFamily('   ')).toBe(false);
     });
+
+    // An unbalanced quote clears the character allow-list (`;{}():/` are all absent) but
+    // leaves stylis parsing the remainder of the stylesheet as a string literal, swallowing
+    // every declaration after it — a styling denial of service rather than an injection.
+    it('rejects unbalanced quotes', () => {
+      expect(isSafeFontFamily('Inter"')).toBe(false);
+      expect(isSafeFontFamily('\'Inter"')).toBe(false);
+      expect(isSafeFontFamily('"Inter')).toBe(false);
+      expect(isSafeFontFamily("Inter'")).toBe(false);
+      expect(isSafeFontFamily('Fraunces, "Inter Tight, serif')).toBe(false);
+      expect(isSafeFontFamily('Fraunces, In"ter, serif')).toBe(false);
+    });
+
+    it('rejects empty families in the stack', () => {
+      expect(isSafeFontFamily('Inter,')).toBe(false);
+      expect(isSafeFontFamily(',Inter')).toBe(false);
+      expect(isSafeFontFamily('Inter,,serif')).toBe(false);
+    });
+
+    it('still accepts every legitimate stack shape', () => {
+      expect(isSafeFontFamily('serif')).toBe(true);
+      expect(isSafeFontFamily('Helvetica Neue, Arial, sans-serif')).toBe(true);
+      expect(isSafeFontFamily('"Helvetica Neue"')).toBe(true);
+      expect(isSafeFontFamily('  Inter ,  serif  ')).toBe(true);
+    });
   });
 
   describe('sanitizeFontSize / sanitizeFiniteNumber', () => {
@@ -143,6 +168,15 @@ describe('cssValueValidation (finding 1)', () => {
       expect(sanitized).not.toContain(':');
       expect(sanitized).not.toContain('.');
       expect(sanitized).not.toContain(' ');
+    });
+
+    // Same class as the color/font validators above: the id is only *typed* as a string, and
+    // `null.replace(...)` from a render path is worse than an empty class token.
+    it('returns an empty token for a non-string id instead of throwing', () => {
+      expect(sanitizeCssIdentifierToken(undefined)).toBe('');
+      expect(sanitizeCssIdentifierToken(null)).toBe('');
+      expect(sanitizeCssIdentifierToken(42)).toBe('');
+      expect(sanitizeCssIdentifierToken({})).toBe('');
     });
   });
 });

@@ -171,7 +171,13 @@ function enrichForeignExpressionFields(
  * per-row aggregation over the result cannot double-count from a fan-out join.
  * `fieldOwners` maps each requested field id to the source that owns it (as
  * computed by `analyzeChartSupport`); callers that don't have it can pass an
- * empty map — the anchor branches only read owners to route fields.
+ * empty map. The anchor branches only read owners to route fields, and a field
+ * with no entry falls back to the anchor source's own schema (see
+ * `isAnchorOwnedField`), so an empty map still routes anchor-owned fields to the
+ * anchor row's real value rather than overwriting it from the widget row. The
+ * only thing lost is the tie-break for a field id that exists on BOTH sources —
+ * that resolves to the anchor instead of to the owner `analyzeChartSupport`
+ * computed.
  *
  * DIRECTION / SCOPE: this resolves rows to a **fan-out** anchor — either the
  * widget source itself (no re-anchor, display-column enrichment only), the
@@ -520,11 +526,32 @@ export function resolveRowsAtGrain(
   const widgetJoinField = anchorRelationship.targetField;
   const anchorJoinField = anchorRelationship.sourceField;
   const allowedWidgetKeys = collectKeySet(widgetRows, widgetJoinField);
+  /**
+   * "Is this field owned by the anchor source?" — the only question this branch asks of
+   * `fieldOwners`.
+   *
+   * `fieldOwners` is documented as passable EMPTY by callers that haven't run
+   * `analyzeChartSupport`, but a bare `fieldOwners.get(f) === anchorSourceId` answers "no" for
+   * every field under an empty map, which routes anchor-OWNED fields through the widget-row
+   * lookup below and overwrites each anchor row's real value with the widget row's (at best a
+   * single fanned-out value repeated across every anchor row, at worst `undefined`). Falling
+   * back to the anchor source's own schema when the map has no entry makes the empty-map case
+   * behave like the populated one. With a populated map this is never reached, so the routing
+   * `analyzeChartSupport` computed always wins.
+   */
+  const isAnchorOwnedField = (fieldId: string): boolean => {
+    const declaredOwner = fieldOwners.get(fieldId);
+    if (declaredOwner !== undefined) {
+      return declaredOwner === anchorSourceId;
+    }
+    return (
+      (dataSources[anchorSourceId]?.fields.some((f) => f.id === fieldId) ?? false) ||
+      expressionFields.some((ef) => ef.id === fieldId && ef.sourceId === anchorSourceId)
+    );
+  };
   // Pass only the fields owned by anchorSourceId so getCachedEnrichedRows
   // builds a tighter field-set key and skips unrelated widget-source fields.
-  const anchorFieldIds = new Set(
-    requestedFields.filter((f) => fieldOwners.get(f) === anchorSourceId),
-  );
+  const anchorFieldIds = new Set(requestedFields.filter(isAnchorOwnedField));
   // Widen the enrichment set to also include any field referenced by an anchor-scoped filter.
   // Enrichment is otherwise scoped to the REQUESTED anchor fields, so a filter on an anchor-owned
   // EXPRESSION column outside that set would be `undefined` when `applyFilters` evaluates it below —
@@ -562,9 +589,7 @@ export function resolveRowsAtGrain(
     return key !== null && allowedWidgetKeys.has(key);
   });
 
-  const thirdSourceFieldIds = requestedFields.filter(
-    (fieldId) => fieldOwners.get(fieldId) !== anchorSourceId,
-  );
+  const thirdSourceFieldIds = requestedFields.filter((fieldId) => !isAnchorOwnedField(fieldId));
   const widgetRowsForLookup = enrichRowsWithRelatedFields(
     widgetRows,
     widgetSourceId,
@@ -607,10 +632,18 @@ export function resolveRowsAtGrain(
       // same-named anchor-source column that is NOT the field's real owner (e.g. a coincidental
       // physical column on the anchor source sharing an id with a widget-owned field) must not
       // silently win over the correctly-owned widget value (finding 3).
-      if (fieldOwners.get(fieldId) === anchorSourceId) {
+      if (isAnchorOwnedField(fieldId)) {
         continue;
       }
-      extras[fieldId] = widgetRow[fieldId];
+      const value = widgetRow[fieldId];
+      // Belt-and-braces: never blank out a value the anchor row already carries. A field that
+      // reaches here is not anchor-owned, so the raw anchor row normally has nothing for it —
+      // but if a caller's `fieldOwners` disagrees with the anchor's schema, "keep what's
+      // there" beats writing `undefined` over a real value.
+      if (value === undefined && anchorRow[fieldId] !== undefined) {
+        continue;
+      }
+      extras[fieldId] = value;
     }
 
     return Object.keys(extras).length > 0 ? { ...anchorRow, ...extras } : anchorRow;

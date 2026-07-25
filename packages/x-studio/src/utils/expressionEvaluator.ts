@@ -18,22 +18,74 @@ import { normalizeJoinKey } from '../internals/joinKeys';
 import { collectJoinSourceIds } from '../internals/expressionRefs';
 import { getCachedNormalizedDataSource } from '../internals/normalizedRowsCache';
 
+// ─── Structural limits ────────────────────────────────────────────────────────
+
+/**
+ * Maximum nesting depth accepted for an expression AST.
+ *
+ * `JSON.parse` is iterative in V8, so a deeply nested persisted expression (e.g. ~20 000
+ * nested `negate` nodes — only a few hundred KB of JSON) deserializes without complaint and
+ * only blows the stack later, inside the recursive walkers below (`evaluateExpression`,
+ * `validateExpression`, `collectFieldRefs`, `inferExpressionType`, `evalMeasureExpression`).
+ * Every one of those walkers therefore carries a depth counter and bails at this bound
+ * instead of recursing until `RangeError: Maximum call stack size exceeded` takes down the
+ * whole drawer/page. 64 is far beyond anything the expression builder UI can author (its
+ * deepest built-in template is ~4 levels).
+ */
+export const MAX_EXPRESSION_DEPTH = 64;
+
 // ─── Type guards ──────────────────────────────────────────────────────────────
 
+/**
+ * Local structural check used by the expression type guards below.
+ *
+ * The guards are declared over `StudioExpression`, but they are routinely reached with
+ * values that are only *typed* as one: `loadSerializedState` screens a persisted
+ * `expressionFields[i]` for being a record and never looks at its `expression` at all, so a
+ * corrupted/hostile doc can hand every walker in this module a string, a number, `null`, or
+ * `undefined`. Applying `in` to such a value throws a raw
+ * `TypeError: Cannot use 'in' operator to search for 'operator' in 1 + 1` — which, from a
+ * render path, blanks the data drawer and every widget on the source. Screening with
+ * `isRecord` first turns that crash into the module's normal "unresolvable node" fallback.
+ */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * A function node must carry an `inputs` ARRAY, not merely an `operator` key: every walker
+ * that accepts this guard immediately iterates `inputs` (here, and in
+ * `internals/expressionRefs.ts`), so admitting `{ operator: 'add' }` or
+ * `{ operator: 'add', inputs: 'nope' }` would just move the crash one line down. A node with
+ * a missing/!Array `inputs` matches none of the four guards and is handled by each walker's
+ * "unrecognized node" fallback (`null` when evaluating, an error when validating).
+ */
 export function isFunctionExpression(expr: StudioExpression): expr is StudioFunctionExpression {
-  return 'operator' in expr;
+  return isRecord(expr) && 'operator' in expr && Array.isArray(expr.inputs);
 }
 
 export function isValueExpression(expr: StudioExpression): expr is StudioValueExpression {
-  return 'type' in expr && 'value' in expr;
+  return isRecord(expr) && 'type' in expr && 'value' in expr;
 }
 
 export function isFieldExpression(expr: StudioExpression): expr is StudioFieldExpression {
-  return 'id' in expr && !('operator' in expr) && !('type' in expr && 'value' in expr);
+  return (
+    isRecord(expr) && 'id' in expr && !('operator' in expr) && !('type' in expr && 'value' in expr)
+  );
 }
 
 export function isJoinFieldExpression(expr: StudioExpression): expr is StudioJoinFieldExpression {
-  return 'joinSourceId' in expr && 'fieldId' in expr;
+  return isRecord(expr) && 'joinSourceId' in expr && 'fieldId' in expr;
+}
+
+/**
+ * The `inputs` of a function node, normalized to an array. `isFunctionExpression` already
+ * guarantees this for every node that reaches a walker through the guards, but the
+ * lower-level helpers below are also called directly, so they normalize defensively rather
+ * than trusting the declared type.
+ */
+function expressionInputs(expr: StudioFunctionExpression): StudioExpression[] {
+  return Array.isArray(expr.inputs) ? expr.inputs : [];
 }
 
 // ─── Evaluation context ───────────────────────────────────────────────────────
@@ -175,6 +227,20 @@ export function evaluateExpression(
   expr: StudioExpression,
   context: EvaluationContext,
 ): ScalarValue {
+  return evaluateExpressionAtDepth(expr, context, 0);
+}
+
+function evaluateExpressionAtDepth(
+  expr: StudioExpression,
+  context: EvaluationContext,
+  depth: number,
+): ScalarValue {
+  // Depth bound (see `MAX_EXPRESSION_DEPTH`): an over-deep persisted tree resolves to the
+  // module's standard "unresolvable" value instead of overflowing the stack.
+  if (depth > MAX_EXPRESSION_DEPTH) {
+    return null;
+  }
+
   if (isValueExpression(expr)) {
     return expr.value as ScalarValue;
   }
@@ -242,43 +308,57 @@ export function evaluateExpression(
     if (exprField) {
       const nextResolving = new Set(resolvingFieldIds);
       nextResolving.add(expr.id);
-      return evaluateExpression(exprField.expression, {
-        ...context,
-        resolvingFieldIds: nextResolving,
-      });
+      return evaluateExpressionAtDepth(
+        exprField.expression,
+        {
+          ...context,
+          resolvingFieldIds: nextResolving,
+        },
+        depth + 1,
+      );
     }
     return null;
   }
 
-  // Function expression
-  return evaluateFunctionExpression(expr, context);
+  // Function expression. Anything that matches none of the four node shapes above is a
+  // malformed persisted node (a string, a number, `null`, a function node with no `inputs`
+  // array, …) — resolve it to `null` rather than destructuring it and throwing.
+  if (!isFunctionExpression(expr)) {
+    return null;
+  }
+  return evaluateFunctionExpression(expr, context, depth);
 }
 
 function evaluateFunctionExpression(
   expr: StudioFunctionExpression,
   context: EvaluationContext,
+  depth: number = 0,
 ): ScalarValue {
-  const { operator, inputs } = expr;
+  const { operator } = expr;
+  const inputs = expressionInputs(expr);
+
+  const evalNode = (inp: StudioExpression): ScalarValue =>
+    evaluateExpressionAtDepth(inp, context, depth + 1);
 
   const evalInput = (index: number): ScalarValue =>
-    inputs[index] !== undefined ? evaluateExpression(inputs[index], context) : null;
+    inputs[index] !== undefined ? evalNode(inputs[index]) : null;
 
   switch (operator) {
     // ── Arithmetic ──────────────────────────────────────────────────────────
     case 'add':
-      return inputs.reduce((acc, inp) => acc + toNumber(evaluateExpression(inp, context)), 0);
+      return inputs.reduce((acc, inp) => acc + toNumber(evalNode(inp)), 0);
     case 'subtract': {
       if (inputs.length === 0) {
         return 0;
       }
       const [first, ...rest] = inputs;
       return rest.reduce(
-        (acc, inp) => acc - toNumber(evaluateExpression(inp, context)),
-        toNumber(evaluateExpression(first, context)),
+        (acc, inp) => acc - toNumber(evalNode(inp)),
+        toNumber(evalNode(first)),
       );
     }
     case 'multiply':
-      return inputs.reduce((acc, inp) => acc * toNumber(evaluateExpression(inp, context)), 1);
+      return inputs.reduce((acc, inp) => acc * toNumber(evalNode(inp)), 1);
     case 'divide': {
       const numerator = toNumber(evalInput(0));
       const denominator = toNumber(evalInput(1));
@@ -318,9 +398,9 @@ function evaluateFunctionExpression(
 
     // ── Logical ─────────────────────────────────────────────────────────────
     case 'and':
-      return inputs.every((inp) => toBoolean(evaluateExpression(inp, context)));
+      return inputs.every((inp) => toBoolean(evalNode(inp)));
     case 'or':
-      return inputs.some((inp) => toBoolean(evaluateExpression(inp, context)));
+      return inputs.some((inp) => toBoolean(evalNode(inp)));
     case 'not':
       return !toBoolean(evalInput(0));
     case 'isTrue':
@@ -344,7 +424,7 @@ function evaluateFunctionExpression(
         inputs
           .slice(1)
           // eslint-disable-next-line eqeqeq
-          .some((inp) => target == evaluateExpression(inp, context))
+          .some((inp) => target == evalNode(inp))
       );
     }
 
@@ -483,14 +563,21 @@ export function evaluateMeasure(
   if (!exprField.isMeasure) {
     return 0;
   }
-  return evalMeasureExpression(exprField.expression, rows, expressionFields);
+  return evalMeasureExpression(exprField.expression, rows, expressionFields, 0);
 }
 
 function evalMeasureExpression(
   expr: StudioExpression,
   rows: Record<string, unknown>[],
   expressionFields: StudioExpressionField[],
+  depth: number,
 ): number | null {
+  // Depth bound (see `MAX_EXPRESSION_DEPTH`) — same rationale as `evaluateExpressionAtDepth`.
+  // `0` is this walker's established "nothing to contribute" value (its `default:` case).
+  if (depth > MAX_EXPRESSION_DEPTH) {
+    return 0;
+  }
+
   if (isValueExpression(expr)) {
     return toNumber(expr.value);
   }
@@ -553,19 +640,28 @@ function evalMeasureExpression(
     return 0;
   }
 
+  // Anything matching none of the four node shapes above is a malformed persisted node —
+  // fall back to this walker's `default:` value instead of destructuring it and throwing.
+  if (!isFunctionExpression(expr)) {
+    return 0;
+  }
+
   // FunctionExpression — recursively evaluate each input as a measure scalar,
   // then apply the operator to those scalars. Nested `null` results (from a
   // divide/modulo by zero elsewhere in the tree) coerce to 0 here — the same
   // "null surfaces only at the top level, 0 once nested inside other arithmetic"
   // behavior the row-context evaluator gets from `toNumber(null) === 0`.
-  const { operator, inputs } = expr;
+  const { operator } = expr;
+  const inputs = expressionInputs(expr);
+  const evalMeasureNode = (inp: StudioExpression): number | null =>
+    evalMeasureExpression(inp, rows, expressionFields, depth + 1);
   const evalIn = (i: number): number =>
-    inputs[i] !== undefined ? (evalMeasureExpression(inputs[i], rows, expressionFields) ?? 0) : 0;
+    inputs[i] !== undefined ? (evalMeasureNode(inputs[i]) ?? 0) : 0;
 
   switch (operator as StudioExpressionOperator) {
     case 'add':
       return inputs.reduce(
-        (acc, inp) => acc + (evalMeasureExpression(inp, rows, expressionFields) ?? 0),
+        (acc, inp) => acc + (evalMeasureNode(inp) ?? 0),
         0,
       );
     case 'subtract': {
@@ -574,13 +670,13 @@ function evalMeasureExpression(
       }
       const [first, ...rest] = inputs;
       return rest.reduce(
-        (acc, inp) => acc - (evalMeasureExpression(inp, rows, expressionFields) ?? 0),
-        evalMeasureExpression(first, rows, expressionFields) ?? 0,
+        (acc, inp) => acc - (evalMeasureNode(inp) ?? 0),
+        evalMeasureNode(first) ?? 0,
       );
     }
     case 'multiply':
       return inputs.reduce(
-        (acc, inp) => acc * (evalMeasureExpression(inp, rows, expressionFields) ?? 0),
+        (acc, inp) => acc * (evalMeasureNode(inp) ?? 0),
         1,
       );
     case 'divide': {
@@ -615,7 +711,7 @@ function evalMeasureExpression(
       // results before aggregating, mirroring the field-expression branch (finding 1.6).
       const rowValues = rows.flatMap((row) => {
         const v = coerceAggregateValue(
-          evaluateFunctionExpression(expr, { row, expressionFields, allRows: rows }),
+          evaluateFunctionExpression(expr, { row, expressionFields, allRows: rows }, depth),
         );
         return v === null ? [] : [v];
       });
@@ -632,7 +728,7 @@ function evalMeasureExpression(
       // operator's only documented real-world use, "average days to ship" (finding 6).
       const rowValues = rows.flatMap((row) => {
         const v = coerceAggregateValue(
-          evaluateFunctionExpression(expr, { row, expressionFields, allRows: rows }),
+          evaluateFunctionExpression(expr, { row, expressionFields, allRows: rows }, depth),
         );
         return v === null ? [] : [v];
       });
@@ -688,6 +784,29 @@ export function inferExpressionType(
   sourceFields: StudioDataField[],
   expressionFields: StudioExpressionField[],
 ): StudioDataField['type'] {
+  return inferExpressionTypeInternal(expr, sourceFields, expressionFields, new Set(), 0);
+}
+
+function inferExpressionTypeInternal(
+  expr: StudioExpression,
+  sourceFields: StudioDataField[],
+  expressionFields: StudioExpressionField[],
+  /**
+   * Cycle guard over the expression-FIELD reference graph, matching the guards every other
+   * walker over the same graph already carries (`evaluateExpression`'s `resolvingFieldIds`,
+   * `detectCycles`, `topoSortExpressionFields`). Without it, a persisted `a → b → a` pair —
+   * which `deserializeState` accepts, since only the controller's add/update path runs
+   * `hasExpressionCycle` — hard-crashes this function with a `RangeError` on the render path
+   * (`StudioMapWidget`) and in the expression dialog.
+   */
+  seen: Set<string>,
+  /** AST depth guard, see `MAX_EXPRESSION_DEPTH`. */
+  depth: number,
+): StudioDataField['type'] {
+  if (depth > MAX_EXPRESSION_DEPTH) {
+    return 'string';
+  }
+
   if (isValueExpression(expr)) {
     if (expr.type === 'number') {
       return 'number';
@@ -703,10 +822,22 @@ export function inferExpressionType(
     if (physical) {
       return physical.type;
     }
+    if (seen.has(expr.id)) {
+      return 'string';
+    }
     const exprField = expressionFields.find((ef) => ef.id === expr.id);
     if (exprField) {
-      return (
-        exprField.type ?? inferExpressionType(exprField.expression, sourceFields, expressionFields)
+      if (exprField.type) {
+        return exprField.type;
+      }
+      const nextSeen = new Set(seen);
+      nextSeen.add(expr.id);
+      return inferExpressionTypeInternal(
+        exprField.expression,
+        sourceFields,
+        expressionFields,
+        nextSeen,
+        depth + 1,
       );
     }
     return 'string';
@@ -717,7 +848,13 @@ export function inferExpressionType(
     return 'string';
   }
 
-  const { operator } = expr as StudioFunctionExpression;
+  if (!isFunctionExpression(expr)) {
+    // Malformed persisted node — same 'cannot be determined' fallback as everything else here.
+    return 'string';
+  }
+
+  const { operator } = expr;
+  const inputs = expressionInputs(expr);
 
   if (NUMERIC_OPERATORS.has(operator)) {
     return 'number';
@@ -726,8 +863,8 @@ export function inferExpressionType(
     return 'boolean';
   }
   // 'if' — infer from the then-branch
-  if (operator === 'if' && expr.inputs[1]) {
-    return inferExpressionType(expr.inputs[1], sourceFields, expressionFields);
+  if (operator === 'if' && inputs[1]) {
+    return inferExpressionTypeInternal(inputs[1], sourceFields, expressionFields, seen, depth + 1);
   }
 
   return 'string';
@@ -770,6 +907,7 @@ export function validateExpressionField(
     allExpressionFields,
     sourceFields,
     [],
+    0,
   );
   errors.push(...exprErrors);
 
@@ -781,8 +919,20 @@ function validateExpression(
   expressionFields: StudioExpressionField[],
   sourceFields: StudioDataField[],
   path: string[],
+  depth: number,
 ): ExpressionValidationError[] {
   const errors: ExpressionValidationError[] = [];
+
+  // Depth bound (see `MAX_EXPRESSION_DEPTH`). Reported as a validation error rather than
+  // silently truncated: this is the boundary where a hostile/corrupted persisted expression
+  // should be rejected outright, and recursing further would overflow the stack.
+  if (depth > MAX_EXPRESSION_DEPTH) {
+    errors.push({
+      message: `Expression is nested more than ${MAX_EXPRESSION_DEPTH} levels deep.`,
+      path,
+    });
+    return errors;
+  }
 
   if (isValueExpression(expr)) {
     return errors;
@@ -805,7 +955,18 @@ function validateExpression(
     return errors;
   }
 
-  const { operator, inputs } = expr as StudioFunctionExpression;
+  if (!isFunctionExpression(expr)) {
+    errors.push({
+      message:
+        'Expression node is malformed: expected an operator node (with an `inputs` array), a ' +
+        'literal value, a field reference, or a join-field reference.',
+      path,
+    });
+    return errors;
+  }
+
+  const { operator } = expr;
+  const inputs = expressionInputs(expr);
 
   // Validate arity
   const minArity: Partial<Record<StudioExpressionOperator, number>> = {
@@ -843,11 +1004,13 @@ function validateExpression(
 
   // Recurse into inputs
   for (let i = 0; i < inputs.length; i += 1) {
-    const childErrors = validateExpression(inputs[i], expressionFields, sourceFields, [
-      ...path,
-      'inputs',
-      String(i),
-    ]);
+    const childErrors = validateExpression(
+      inputs[i],
+      expressionFields,
+      sourceFields,
+      [...path, 'inputs', String(i)],
+      depth + 1,
+    );
     errors.push(...childErrors);
   }
 
@@ -926,17 +1089,24 @@ function detectCycles(
 function collectFieldRefs(expr: StudioExpression): Set<string> {
   const refs = new Set<string>();
 
-  function walk(node: StudioExpression): void {
+  function walk(node: StudioExpression, depth: number): void {
+    // Depth bound (see `MAX_EXPRESSION_DEPTH`). This walker backs `detectCycles` and
+    // `topoSortExpressionFields`, both of which run on the persisted-doc load path, so an
+    // over-deep tree must not overflow the stack here either. Refs below the bound are
+    // dropped; the tree is rejected by `validateExpression` for the same reason.
+    if (depth > MAX_EXPRESSION_DEPTH) {
+      return;
+    }
     if (isFieldExpression(node)) {
       refs.add(node.id);
     } else if (isFunctionExpression(node)) {
       for (const input of node.inputs) {
-        walk(input);
+        walk(input, depth + 1);
       }
     }
   }
 
-  walk(expr);
+  walk(expr, 0);
   return refs;
 }
 

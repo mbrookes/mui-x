@@ -1432,6 +1432,112 @@ describe('resolveRowsAtGrain — own-field ownership guards at the merge sites (
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// `resolveRowsAtGrain`'s doc comment states that "callers that don't have
+// `fieldOwners` can pass an empty map". The many-to-one merge loop read ownership as a bare
+// `fieldOwners.get(fieldId) === anchorSourceId`, which answers "not anchor-owned" for EVERY
+// field under an empty map — so anchor-OWNED measures were routed through the widget-row
+// lookup and each anchor row's real value was replaced by the widget row's (a single
+// fanned-out value repeated across every anchor row, or `undefined` when the widget row
+// carried nothing at all).
+// ─────────────────────────────────────────────────────────────────────────────
+describe('resolveRowsAtGrain — an empty fieldOwners map matches the documented contract', () => {
+  const customers: Row[] = [{ id: 'c1', label: 'Acme Corp' }];
+  const orders: Row[] = [
+    { id: 'o1', customerId: 'c1', total: 100 },
+    { id: 'o2', customerId: 'c1', total: 250 },
+  ];
+  const rel: StudioRelationship = {
+    id: 'r',
+    type: 'many-to-one',
+    sourceId: 'orders',
+    sourceField: 'customerId',
+    targetId: 'customers',
+    targetField: 'id',
+  };
+  const dataSources: Record<string, StudioDataSource> = {
+    customers: {
+      id: 'customers',
+      label: 'Customers',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'label', label: 'Label', type: 'string' },
+      ],
+      rows: customers,
+    },
+    orders: {
+      id: 'orders',
+      label: 'Orders',
+      fields: [
+        { id: 'id', label: 'ID', type: 'string' },
+        { id: 'customerId', label: 'Customer', type: 'string' },
+        { id: 'total', label: 'Total', type: 'number' },
+      ],
+      rows: orders,
+    },
+  };
+
+  it('keeps each anchor row its own anchor-owned value', () => {
+    const resolved = resolveRowsAtGrain(
+      customers,
+      'customers',
+      'orders',
+      ['label', 'total'],
+      new Map(), // deliberately empty — the documented "caller has no fieldOwners" case
+      dataSources,
+      [rel],
+      [],
+    );
+
+    expect(resolved).toHaveLength(2);
+    // Anchor-owned: each order keeps its OWN total (they must not collapse to one value).
+    expect(resolved.map((r) => r.total).sort()).toEqual([100, 250]);
+    // Widget-owned: still enriched onto every anchor row.
+    expect(resolved.every((r) => r.label === 'Acme Corp')).toBe(true);
+  });
+
+  it('produces the same rows as an explicitly populated fieldOwners map', () => {
+    const withEmptyOwners = resolveRowsAtGrain(
+      customers,
+      'customers',
+      'orders',
+      ['label', 'total'],
+      new Map(),
+      dataSources,
+      [rel],
+      [],
+    );
+    const withPopulatedOwners = resolveRowsAtGrain(
+      customers,
+      'customers',
+      'orders',
+      ['label', 'total'],
+      new Map([
+        ['label', 'customers'],
+        ['total', 'orders'],
+      ]),
+      dataSources,
+      [rel],
+      [],
+    );
+    expect(withEmptyOwners).toEqual(withPopulatedOwners);
+  });
+
+  it('never writes undefined over a value the anchor row already carries', () => {
+    const resolved = resolveRowsAtGrain(
+      customers,
+      'customers',
+      'orders',
+      ['total'],
+      new Map(),
+      dataSources,
+      [rel],
+      [],
+    );
+    expect(resolved.every((r) => r.total !== undefined)).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Finding 4 — a one-hop related source's EXPRESSION field is evaluated from L1-normalized rows
 // ─────────────────────────────────────────────────────────────────────────────
 //

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { formatFieldValue, formatNumber } from './numberFormat';
+import {
+  formatFieldValue,
+  formatNumber,
+  getFormatCacheSizes,
+  MAX_FORMAT_CACHE_ENTRIES,
+} from './numberFormat';
 
 // Assertions use pattern matching rather than exact locale strings so the tests
 // pass regardless of the system locale (Intl.NumberFormat(undefined, ...) follows
@@ -113,6 +118,45 @@ describe('formatNumber — currency format', () => {
   it('does not throw for an invalid currency code combined with compact notation/precision', () => {
     expect(() => formatNumber(2_000_000, 'currency', 'NOTREAL', true)).not.toThrow();
     expect(() => formatNumber(1234.5, 'currency', 'NOTREAL', false, 2)).not.toThrow();
+  });
+
+  it('normalizes a lowercase ISO 4217 code', () => {
+    expect(formatNumber(1000, 'currency', 'eur')).toBe(formatNumber(1000, 'currency', 'EUR'));
+  });
+
+  // `currencyFormatCache` is a module-global keyed in part on the doc/AI-authored
+  // `currencyCode`, so without a bound every distinct (including every invalid) code a
+  // dashboard renders leaves a permanent entry behind.
+  describe('currency formatter cache is bounded', () => {
+    it('collapses every non-ISO-4217-shaped code onto a single USD entry', () => {
+      const before = getFormatCacheSizes().currency;
+      for (let i = 0; i < 200; i += 1) {
+        formatNumber(1000, 'currency', `NOTREAL-${i}`);
+      }
+      // All 200 garbage codes share the single normalized `USD:false:default` key, so at
+      // most one new entry can appear.
+      expect(getFormatCacheSizes().currency - before).toBeLessThanOrEqual(1);
+      expect(formatNumber(1000, 'currency', 'NOTREAL-0')).toContain('$');
+    });
+
+    it('never exceeds MAX_FORMAT_CACHE_ENTRIES even for well-formed but unusual codes', () => {
+      const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+      for (const a of letters) {
+        for (const b of letters) {
+          formatNumber(1000, 'currency', `Z${a}${b}`);
+        }
+      }
+      expect(getFormatCacheSizes().currency).toBeLessThanOrEqual(MAX_FORMAT_CACHE_ENTRIES);
+      // Eviction must not break correctness: a re-requested formatter is simply rebuilt.
+      expect(formatNumber(1000, 'currency', 'EUR')).toContain('€');
+    });
+
+    it('bounds the precision formatter cache too', () => {
+      for (let i = 0; i < 200; i += 1) {
+        formatNumber(1234.5, 'decimal', undefined, i % 2 === 0, i % 11);
+      }
+      expect(getFormatCacheSizes().precise).toBeLessThanOrEqual(MAX_FORMAT_CACHE_ENTRIES);
+    });
   });
 });
 

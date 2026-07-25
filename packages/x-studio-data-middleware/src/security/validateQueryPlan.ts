@@ -40,12 +40,16 @@ import type {
   AggregationSpec,
 } from './types';
 import {
+  isWildcardReference,
+  qualifiedTableOf,
+  qualifyAgainst,
   resolveAlias,
   SAFE_ALIAS_PATTERN,
   validateAggregationAliases,
   validateDescriptorColumns,
   validateHavingAliases,
   validateProjectionKeyCollisions,
+  validateWildcardProjection,
 } from '../shared/columnValidation';
 
 /**
@@ -107,6 +111,32 @@ export interface PlanAggregation {
    */
   pureMeasure: boolean;
 }
+
+/**
+ * The five aggregate functions this package supports, mapped to their SQL name.
+ *
+ * ONE definition, consumed by every site that has to know the set:
+ *   - `router/queryBuilder.ts`'s `applyHaving` needs the SQL NAME, because a
+ *     HAVING predicate re-emits the aggregate expression (`SUM(??) > ?`) rather
+ *     than the SELECT output alias, for PostgreSQL portability.
+ *   - `router/execute.ts` needs the KEY as an own-property gate before calling
+ *     the same-named Knex builder method (`query.sum({ [alias]: col })` etc.);
+ *     the five keys are also the five Knex method names.
+ *
+ * `agg.func` is client JSON, so both sites must gate on
+ * `Object.prototype.hasOwnProperty.call(AGGREGATE_SQL_FUNCTIONS, agg.func)` and
+ * fail closed — a dropped measure would surface as a silently incomplete result.
+ * Keeping the set here, next to `PlanAggregation['func']`, makes the type and the
+ * runtime table impossible to drift apart; they were previously a `Record` in
+ * `queryBuilder.ts` and a `switch` in `execute.ts` kept in sync by a comment.
+ */
+export const AGGREGATE_SQL_FUNCTIONS: Record<AggregationSpec['func'], string> = {
+  sum: 'SUM',
+  avg: 'AVG',
+  count: 'COUNT',
+  min: 'MIN',
+  max: 'MAX',
+};
 
 /** A resolved ORDER BY entry. */
 export interface PlanOrderBy {
@@ -187,22 +217,31 @@ const SAFE_ORDER_BY_DIRECTION = /^(asc|desc)$/i;
 /**
  * Validate every ORDER BY direction against a fail-closed allowlist.
  *
- * SECURITY INVARIANT — runs UNCONDITIONALLY for every widget (independent of
+ * CORRECTNESS INVARIANT — runs UNCONDITIONALLY for every widget (independent of
  * whether a `columnAllowlist` is configured). `ob.direction` is client JSON that
- * `execute.ts` passes as the second argument of Knex `.orderBy(col, direction)`,
- * where Knex interpolates the direction token straight into the ORDER BY clause
- * rather than through a `?`/`??` binding. The TS type (`'asc' | 'desc'`) is not a
- * runtime guarantee — the wire value can be an arbitrary string (or even a
- * number/object), so constrain it to `asc`/`desc` (fail-closed), mirroring the
- * `SAFE_OPERATORS`/`SAFE_ALIAS_PATTERN` guards elsewhere in this package. Kept
- * module-private: no other consumer needs it (mutations have no ORDER BY).
+ * `execute.ts` passes as the second argument of Knex `.orderBy(col, direction)`.
+ *
+ * This is NOT an injection guard. Knex sanitizes the direction token itself:
+ * `direction()` in `knex/lib/formatter/wrappingFormatter.js` is
+ * `orderBys.indexOf((value || '').toLowerCase()) !== -1 ? value : 'asc'`, so an
+ * unrecognized token never reaches the SQL — verified against the pinned
+ * `knex@3.2.10`, where `orderBy('a', 'asc; drop table x')` emits
+ * `order by "a" asc`.
+ *
+ * That silent coercion is exactly why the check is worth keeping: a typo
+ * (`'descending'`, `'DSC'`) or a non-string wire value does not fail, it returns
+ * data sorted the OPPOSITE way with no signal at all — a wrong answer rendered as
+ * a correct-looking chart. Rejecting it here turns a silently mis-sorted result
+ * into a clean per-widget error naming the bad token. Kept module-private: no
+ * other consumer needs it (mutations have no ORDER BY).
  */
 function validateOrderByDirections(descriptor: BatchWidgetDescriptor): void {
   for (const ob of descriptor.orderBy ?? []) {
     if (typeof ob.direction !== 'string' || !SAFE_ORDER_BY_DIRECTION.test(ob.direction)) {
       throw new Error(
         `MUI X Studio Server: ORDER BY direction "${ob.direction}" is not allowed. ` +
-          `The direction is emitted into the SQL ORDER BY clause, so an unexpected value could alter the query. ` +
+          `The query builder silently coerces an unrecognized direction to "asc", so this widget would return ` +
+          `wrongly-ordered rows with no other indication that the direction was ignored. ` +
           `Use "asc" or "desc".`,
       );
     }
@@ -248,15 +287,6 @@ function validateJoinTypes(descriptor: BatchWidgetDescriptor): void {
       );
     }
   }
-}
-
-/** The table name embedded in a `table.column` reference, or `undefined` when unqualified. */
-function qualifiedTableOf(column: string): string | undefined {
-  if (typeof column !== 'string') {
-    return undefined;
-  }
-  const dotIndex = column.indexOf('.');
-  return dotIndex === -1 ? undefined : column.slice(0, dotIndex);
 }
 
 /**
@@ -474,7 +504,7 @@ function synthesizeProjectionFromAllowlist(
     // bypassing that table's own allowlist entry — the Tier 1 finding. Qualifying
     // the wildcard keeps single-table `SELECT *` semantics while forcing joined
     // columns to be named explicitly (routed through `checkColumnAgainstAllowlist`).
-    plan.columns = [{ physical: asColumnRef(`${table}.*`) }];
+    plan.columns = [{ physical: asColumnRef(qualifyAgainst(table, '*')) }];
     return;
   }
   plan.columns = allowed.map((col) => ({ physical: asColumnRef(col) }));
@@ -570,6 +600,11 @@ function buildPlan(descriptor: BatchWidgetDescriptor): ValidatedQueryPlan {
  * downstream. Runs, in order (matching the pre-refactor handler's intra-widget
  * order):
  *   1. `validateHavingAliases`             — UNCONDITIONAL (throws on an invalid HAVING).
+ *   1a0. `validateWildcardProjection`      — UNCONDITIONAL (throws when a
+ *      wildcard `<table>.*` shares the projection with another column or an
+ *      aggregation — its result keys are unknowable, so no collision check can
+ *      cover it). Runs FIRST of the projection checks so the key list below
+ *      contains only real, comparable keys.
  *   1a. `validateProjectionKeyCollisions`  — UNCONDITIONAL (throws when two
  *      projected columns share a result-row key, e.g. `orders.category` and
  *      `customers.category` both keying as `category` — one would silently
@@ -593,9 +628,13 @@ function buildPlan(descriptor: BatchWidgetDescriptor): ValidatedQueryPlan {
  *      driver into returning every tenant-scoped row, finding 3.1).
  *   7. `validateDescriptorColumns`   — ONLY when a `columnAllowlist` is supplied
  *      (throws fail-closed on an unlisted table/column).
- * then resolves every column reference into the plan and, when a `columnAllowlist`
- * is configured for a no-columns/no-aggregations widget, synthesizes an explicit
- * projection from the allowlist so Knex never falls back to `SELECT *` (fail-closed).
+ * then resolves every column reference into the plan and replaces an IMPLICIT
+ * projection (no `columns`, no `aggregations` — which would make Knex emit a bare
+ * `SELECT *`) with an explicit single-table one: from the allowlist when a
+ * `columnAllowlist` is configured, or — for a joined widget on a
+ * `schemaAllowlist`-only deployment — anchored to the primary table as
+ * `<table>.*`, so a joined `SELECT *` can never collapse two tables' same-named
+ * columns onto one result-row key.
  *
  * The reused HAVING/aggregation/allowlist validators are the EXISTING
  * single-source-of-truth functions — this module never re-implements their logic
@@ -606,6 +645,19 @@ export function validateQueryPlan(
   columnAllowlist?: Record<string, string[]>,
 ): ValidatedQueryPlan {
   validateHavingAliases(descriptor);
+  // A WILDCARD projection (`*` / `<table>.*`) has UNKNOWN result-row keys — this
+  // package holds no schema metadata, and `resultKeyOf` would hand back the
+  // literal `"*"`, a key no row actually carries. Reject a wildcard that shares
+  // the projection with anything else BEFORE the key computation below, so
+  // `validateProjectionKeyCollisions` only ever sees real, comparable keys.
+  // See `validateWildcardProjection`.
+  validateWildcardProjection(
+    (descriptor.columns ?? []).map((column) => {
+      const physical = resolveAlias(descriptor, column);
+      return { physical, renamed: physical !== column };
+    }),
+    (descriptor.aggregations ?? []).length,
+  );
   // Compute the RESULT-ROW KEY of every projected column (findings 2.1 / 3.4) so
   // `validateAggregationAliases` can reject an `agg.alias` that would collide with
   // one on the row object:
@@ -619,8 +671,7 @@ export function validateQueryPlan(
   // Membership is compared on primary-table-qualified physicals, exactly as
   // `execute.ts`'s `measureColSet` / `dimensionColumns` split does, so an
   // unqualified column and its qualified aggregation still match.
-  const qualify = (physical: string): string =>
-    physical.includes('.') ? physical : `${descriptor.table}.${physical}`;
+  const qualify = (physical: string): string => qualifyAgainst(descriptor.table, physical);
   const measurePhysicals = new Set<string>();
   for (const agg of descriptor.aggregations ?? []) {
     // Optional-chained (finding L1): this pure-measure pre-pass runs BEFORE
@@ -636,6 +687,14 @@ export function validateQueryPlan(
   const projectionKeys = (descriptor.columns ?? []).flatMap((column) => {
     const physical = resolveAlias(descriptor, column);
     if (measurePhysicals.has(qualify(physical))) {
+      return [];
+    }
+    // A wildcard contributes NO key: its expansion is unknown, so `"*"` would be
+    // a fictional key that both collision checks would then compare against real
+    // ones. `validateWildcardProjection` above already guaranteed such a wildcard
+    // is the ENTIRE projection (no sibling column, no aggregation), so dropping
+    // it here leaves nothing unchecked.
+    if (isWildcardReference(physical)) {
       return [];
     }
     return [physical !== column ? column : resultKeyOf(physical)];
@@ -657,12 +716,31 @@ export function validateQueryPlan(
     validateDescriptorColumns(descriptor, columnAllowlist);
   }
   const plan = buildPlan(descriptor);
-  // Close the SELECT * bypass: a no-columns/no-aggregations widget under an
-  // allowlist gets an explicit projection synthesized from the allowlist (or is
-  // rejected fail-closed when its table has no entry). Aggregation widgets are
-  // exempt — the db tier emits only aggregation/GROUP BY clauses, never SELECT *.
-  if (columnAllowlist && plan.columns.length === 0 && plan.aggregations.length === 0) {
-    synthesizeProjectionFromAllowlist(plan, descriptor.table, columnAllowlist);
+  // An IMPLICIT projection (no `columns`, no `aggregations`) makes `execute.ts`
+  // skip `.select()` entirely, so Knex emits a bare `SELECT *`. Both branches
+  // below replace that with an explicit, single-table projection. Aggregation
+  // widgets are exempt — the db tier emits only aggregation/GROUP BY clauses,
+  // never `SELECT *`, and a `<table>.*` entry would land in GROUP BY.
+  if (plan.columns.length === 0 && plan.aggregations.length === 0) {
+    if (columnAllowlist) {
+      // Allowlisted deployment: project exactly the allowlisted columns (or
+      // `<table>.*` for the `['*']` opt-out), so a bare `SELECT *` can never
+      // return a column the host never allowlisted.
+      synthesizeProjectionFromAllowlist(plan, descriptor.table, columnAllowlist);
+    } else if (plan.joins.length > 0) {
+      // `schemaAllowlist`-only deployment (the README quick-start shape) WITH a
+      // join — the case with no allowlist to synthesize from. A bare `SELECT *`
+      // across a join returns one row object per row with EVERY column of EVERY
+      // joined table folded into it, so each name the two tables share (`id`,
+      // `name`, `created_at`, `tenant_id`, …) collapses last-wins: `orders.id`
+      // silently becomes `customers.id` in the result the client renders. Anchor
+      // the implicit wildcard to the PRIMARY table so the row shape is exactly
+      // one table's columns and every key is unambiguous; a client that wants
+      // joined-table columns names them explicitly (which then routes through
+      // `validateProjectionKeyCollisions`). Without a join, `SELECT *` already
+      // names exactly one table's columns, so it is left untouched.
+      plan.columns = [{ physical: asColumnRef(qualifyAgainst(descriptor.table, '*')) }];
+    }
   }
   return plan;
 }

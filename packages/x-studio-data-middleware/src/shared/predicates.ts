@@ -285,21 +285,25 @@ export function resolveJoinSecurityColumns(
  *       - `mode: 'write'` → throw; silently dropping the scope would widen the
  *         UPDATE/DELETE beyond the caller's (empty) region set.
  *
- * Region VALUE type (finding 2.1) — `claims.regionIds` is typed `number[]`, but
- * `validateSecurityColumnValues` (`mutations/mutationBuilder.ts`) already treats
- * a TEXT-typed region column as a supported deployment shape: it compares a
- * client-supplied region value to `claims.regionIds` as strings so a legitimate
- * `"5"` isn't rejected against `[5]`. This predicate — the actual row-level-
- * security WHERE clause, shared by reads AND writes — used to `whereIn` the raw
- * numbers only, so that same TEXT-typed deployment would error (PostgreSQL:
- * `operator does not exist: text = integer`) or coerce inconsistently
- * (MySQL/SQLite) at the enforcement site even though the value-validator
- * explicitly accommodates it. Both the number and its string form are now
- * included in the `whereIn` list so a NUMERIC region column matches exactly as
- * before (the original numbers are still present) while a TEXT-typed one also
- * matches, reconciling this predicate with the value-validator's existing,
- * already-tested tolerance rather than picking one type and rejecting the
- * other's deployment shape.
+ * Region VALUE type — `claims.regionIds` is normalized to `number[]` by
+ * `normalizeRegionIds` (`security/extractSecurityClaims.ts`), but the region
+ * COLUMN may be numeric or TEXT: `validateSecurityColumnValues`
+ * (`mutations/mutationBuilder.ts`) already treats a TEXT-typed region column as a
+ * supported deployment shape, comparing a client-supplied region value against
+ * the claim as strings so a legitimate `"5"` isn't rejected against `[5]`.
+ *
+ * This predicate emits exactly ONE comparison value per region — the canonical
+ * decimal STRING (`String(id)`) — and lets the engine coerce it against a numeric
+ * column. Emitting both forms (`IN (5, '5')`) is what a row-level-security
+ * predicate must not do: on MySQL, mixing a NUMERIC literal with a TEXT column
+ * forces numeric coercion of the whole comparison, so `region_id = 5` also
+ * matches rows stored as `'05'`, `' 5'`, `'5.0'` or `'5abc'` — a caller scoped to
+ * region 5 seeing rows belonging to region `'05'`, i.e. a WIDENING of the
+ * security scope. Picking the string direction is safe both ways round: a
+ * canonical decimal string coerces to exactly one number (numeric column →
+ * matches 5 and nothing else), while against a TEXT column it stays an exact
+ * string comparison (matches `'5'`, never `'05'`). The number → string direction
+ * has no such guarantee, which is why only the string form is emitted.
  */
 export function applySecurityPredicates(
   query: any,
@@ -477,7 +481,7 @@ function willEmitSecurityPredicates(
 // on which columns/values — shared by the WHERE-clause (`applySecurityPredicates`)
 // and ON-clause (`applySecurityPredicatesToJoinOn`) emitters so the two can never
 // drift on which dimensions are scoped, the `undefined`-vs-`[]` region semantics,
-// the empty-string department distinction, or the numeric+string region matching.
+// the empty-string department distinction, or the region comparison type.
 // The callers (`emitEq`/`emitIn`) supply only the two Knex primitives — `.where`/
 // `.andOnVal` and `.whereIn`/`.andOnIn` respectively — that differ between clauses.
 function emitSecurityPredicates(
@@ -510,12 +514,11 @@ function emitSecurityPredicates(
     // Read path (or write with a non-empty set): an empty list renders as
     // `1 = 0` in Knex, matching zero rows instead of failing open.
     //
-    // Include both the numeric claim and its string form (finding 2.1) so this
-    // predicate matches a TEXT-typed region column exactly the way
-    // `validateSecurityColumnValues` already does for mutation `values` — see
-    // the doc comment above. `[].flatMap(...)` stays `[]`, so the empty-scope
-    // `1 = 0` behavior above is unaffected.
-    const regionMatchValues = claims.regionIds.flatMap((id) => [id, String(id)]);
+    // ONE comparison type — the canonical decimal STRING form of each region id
+    // (see the doc comment above for why the string, not the number).
+    // `[].map(...)` stays `[]`, so the empty-scope `1 = 0` behavior above is
+    // unaffected.
+    const regionMatchValues = claims.regionIds.map((id) => String(id));
     emitIn(`${table}.${securityColumns.region}`, regionMatchValues);
   }
 

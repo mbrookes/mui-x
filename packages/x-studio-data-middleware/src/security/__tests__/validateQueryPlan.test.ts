@@ -12,6 +12,7 @@
 import { describe, it, expect } from 'vitest';
 import Knex from 'knex';
 import {
+  AGGREGATE_SQL_FUNCTIONS,
   validateQueryPlan,
   isValidatedQueryPlan,
   toValidatedQueryPlan,
@@ -827,6 +828,94 @@ describe('validateQueryPlan — tautological/self-referential JOIN "on" pairs (T
       joins: [{ table: 'customers', on: [['customer_id', 'id']] }],
     };
     expect(() => validateQueryPlan(descriptor)).not.toThrow();
+  });
+});
+
+// ── Wildcard / implicit projections are always single-table ───────────────────
+//
+// `resultKeyOf` maps `orders.*` to the literal `"*"`, a key no row carries, so
+// the projection-collision guard was blind to a wildcard sharing the projection
+// with anything else. And a widget with NO `columns` at all made `execute.ts`
+// skip `.select()` entirely — a bare `SELECT *` that, under a join, folds every
+// column of every joined table into one row object (same-named columns collapse
+// last-wins). Both are now resolved into an explicit, single-table projection.
+describe('validateQueryPlan — wildcard and implicit projections', () => {
+  it('rejects a wildcard projected alongside a named column', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'orders',
+      columns: ['orders.*', 'customers.name'],
+    };
+    expect(() => validateQueryPlan(descriptor)).toThrow(/cannot be combined/);
+  });
+
+  it('rejects a wildcard projected alongside an aggregation', () => {
+    const descriptor: BatchWidgetDescriptor = {
+      id: 'w1',
+      table: 'orders',
+      columns: ['orders.*'],
+      aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+    };
+    expect(() => validateQueryPlan(descriptor)).toThrow(/cannot be combined/);
+  });
+
+  it('keeps a sole wildcard as the whole projection', () => {
+    const plan = validateQueryPlan({ id: 'w1', table: 'orders', columns: ['orders.*'] });
+    expect(plan.columns).toEqual([{ physical: 'orders.*' }]);
+  });
+
+  it('anchors an implicit projection to the primary table when the widget joins', () => {
+    const plan = validateQueryPlan({
+      id: 'w1',
+      table: 'orders',
+      joins: [{ table: 'customers', on: [['orders.customer_id', 'customers.id']] }],
+    });
+    expect(plan.columns).toEqual([{ physical: 'orders.*' }]);
+  });
+
+  it('leaves an implicit projection empty for a single-table widget', () => {
+    const plan = validateQueryPlan({ id: 'w1', table: 'orders' });
+    expect(plan.columns).toEqual([]);
+  });
+
+  it('leaves an implicit projection empty for an AGGREGATION widget (a `<table>.*` would land in GROUP BY)', () => {
+    const plan = validateQueryPlan({
+      id: 'w1',
+      table: 'orders',
+      aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+      joins: [{ table: 'customers', on: [['orders.customer_id', 'customers.id']] }],
+    });
+    expect(plan.columns).toEqual([]);
+  });
+
+  it('still prefers the allowlist-synthesized projection when a columnAllowlist is configured', () => {
+    const plan = validateQueryPlan(
+      {
+        id: 'w1',
+        table: 'orders',
+        joins: [{ table: 'customers', on: [['orders.customer_id', 'customers.id']] }],
+      },
+      { orders: ['id', 'amount'], customers: ['id'] },
+    );
+    expect(plan.columns).toEqual([{ physical: 'id' }, { physical: 'amount' }]);
+  });
+});
+
+// ── One aggregate-function table, two enforcement sites ───────────────────────
+describe('AGGREGATE_SQL_FUNCTIONS', () => {
+  it('declares exactly the five supported functions, mapped to their SQL name', () => {
+    expect(AGGREGATE_SQL_FUNCTIONS).toEqual({
+      sum: 'SUM',
+      avg: 'AVG',
+      count: 'COUNT',
+      min: 'MIN',
+      max: 'MAX',
+    });
+  });
+
+  it('keys match the Knex builder method names `execute.ts` dispatches on', () => {
+    const knexBuilderMethods = ['sum', 'avg', 'count', 'min', 'max'];
+    expect(Object.keys(AGGREGATE_SQL_FUNCTIONS).sort()).toEqual(knexBuilderMethods.sort());
   });
 });
 

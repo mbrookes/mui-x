@@ -84,6 +84,155 @@ export function resolveAlias(descriptor: BatchWidgetDescriptor, column: string):
 }
 
 /**
+ * Qualify a column reference with `table` unless the client already qualified it.
+ *
+ * This is the ONE place the "qualify with the owning table unless already dotted"
+ * rule is expressed. Every site that hands a column reference to Knex —
+ * `router/queryBuilder.ts` (join `on` sides, user filter predicates, the HAVING
+ * aggregate column, the join null-indicator column), `router/execute.ts`'s
+ * `qualify()` (SELECT / GROUP BY / ORDER BY / aggregation columns) and
+ * `security/validateQueryPlan.ts`'s pure-measure/projection-key membership tests
+ * — must route through this function rather than re-inlining
+ * `ref.includes('.') ? ref : `${table}.${ref}``.
+ *
+ * INVARIANT: a validator and an executor can never disagree about which table an
+ * unqualified reference belongs to. That matters concretely because
+ * `validateQueryPlan` decides whether a projected column IS an aggregation's own
+ * pure measure by comparing QUALIFIED physicals, and `execute.ts` repeats that
+ * exact membership test to decide what goes in GROUP BY — two copies of the rule
+ * disagreeing would silently change the query's grain. It is the same class of
+ * divergence `resolveAlias` exists to prevent for the sibling concern (alias
+ * resolution), and it is enforced structurally here instead of by hand.
+ *
+ * A bare `*` is qualified too (`orders.*`), which is deliberate: an unqualified
+ * `*` under a JOIN would project every column of every joined table, collapsing
+ * same-named columns last-wins on the row object. Anchoring it to one table keeps
+ * the projection key-able.
+ */
+export function qualifyAgainst(table: string, reference: string): string {
+  return reference.includes('.') ? reference : `${table}.${reference}`;
+}
+
+/**
+ * The table name embedded in a `table.column` reference, or `undefined` when the
+ * reference is unqualified.
+ *
+ * NON-STRING TOLERANT: returns `undefined` rather than throwing for a non-string
+ * reference. Callers that require a string (`assertTablesAllowed.ts`'s
+ * `checkQualifiedColumn`) reject that shape themselves, with their own message,
+ * before calling; callers on the no-throw path (`validateJoinOnPairs`, reached
+ * from `toValidatedQueryPlan`'s deliberately validator-free direct-caller branch)
+ * rely on the tolerance. Previously defined twice with DIFFERENT guards, which is
+ * exactly the drift this single definition removes.
+ */
+export function qualifiedTableOf(reference: string): string | undefined {
+  if (typeof reference !== 'string') {
+    return undefined;
+  }
+  const dotIndex = reference.indexOf('.');
+  return dotIndex === -1 ? undefined : reference.slice(0, dotIndex);
+}
+
+/**
+ * Reject a reference carrying MORE than one dot (`a.b.c` or deeper).
+ *
+ * Every reference parser in this package splits a qualified reference at the
+ * FIRST dot, reading `a.b.c` as table `a`, column `b.c` — while Knex/SQL read the
+ * same string as `schema.table.column`. Rather than leave this package's
+ * validation and the driver's interpretation free to disagree, a deeper reference
+ * is rejected outright (fail-closed, matching the `" as "` rejection below).
+ *
+ * Shared by `checkColumnAgainstAllowlist` (runs only when a `columnAllowlist` is
+ * configured) and `assertTablesAllowed.ts`'s `checkQualifiedColumn` (runs
+ * unconditionally), so the identical rule can no longer carry two different error
+ * texts — it previously did, under two different `MUI X` prefixes.
+ */
+export function assertSingleDotReference(reference: string, context: string): void {
+  if (reference.split('.').length > 2) {
+    throw new Error(
+      `MUI X Studio Server: Column reference "${reference}" (in ${context}) contains more than one ".". ` +
+        `This package validates a qualified reference as "table.column", splitting at the FIRST dot — a deeper ` +
+        `reference such as "schema.table.column" would be parsed differently here than a SQL engine would parse ` +
+        `the same string, which is rejected outright rather than resolved ambiguously. ` +
+        `Reference the column as "table.column", not a deeper-qualified path.`,
+    );
+  }
+}
+
+/**
+ * Does this (already alias-resolved) reference project a WILDCARD — a bare `*` or
+ * a table-qualified `<table>.*`?
+ *
+ * A wildcard expands, at the database, to a set of columns this package cannot
+ * enumerate (it holds no schema metadata), so its result-row keys are UNKNOWN.
+ * `resultKeyOf` would hand back the literal `"*"`, which is not a key any row
+ * actually carries — see `validateWildcardProjection` for what that costs.
+ */
+export function isWildcardReference(reference: string): boolean {
+  return reference === '*' || reference.endsWith('.*');
+}
+
+/**
+ * Reject a wildcard projection that cannot be checked for result-key collisions.
+ *
+ * INVARIANT UPHELD: `validateProjectionKeyCollisions` can only do its job when
+ * every projected column's result-row key is KNOWN. A wildcard's keys are not —
+ * this package has no schema metadata — so a wildcard is admitted ONLY when it is
+ * the entire projection: the sole `columns` entry, unrenamed, with no
+ * aggregations. Then there is nothing for it to collide with and the row shape is
+ * exactly one table's columns.
+ *
+ * What this closes (all three verified against `resultKeyOf`, which maps
+ * `orders.*` to the literal `"*"`):
+ *   - `columns: ['orders.*', 'customers.name']` keyed as `['*', 'name']` — no
+ *     collision reported, yet `SELECT orders.*, customers.name` returns a row
+ *     object in which `customers.name` OVERWRITES `orders.name` (pg and mysql2
+ *     both key rows by field name, last-wins). This is the real hazard: a
+ *     silently wrong value in every row.
+ *   - `columns: ['orders.*', 'customers.*']` keyed as `['*', '*']` — reported as a
+ *     collision on the meaningless key `"*"`. Still rejected, but now with a
+ *     message that says what is actually wrong.
+ *   - a wildcard reached through `columnAliases` (`{ all: 'orders.*' }`) would
+ *     emit `SELECT "orders".* as "all"`, which is a syntax error on every dialect.
+ *
+ * A wildcard alongside an AGGREGATION is rejected for the same reason: the
+ * expansion may contain the aggregation's alias, and neither this validator nor
+ * `validateAggregationAliases` can see it.
+ *
+ * @param projection - One entry per projected column: its alias-resolved physical
+ *   reference and whether the client renamed it (`?? as ??`).
+ * @param aggregationCount - How many aggregations the same widget declares.
+ */
+export function validateWildcardProjection(
+  projection: readonly { physical: string; renamed: boolean }[],
+  aggregationCount: number,
+): void {
+  for (const column of projection) {
+    if (typeof column.physical !== 'string' || !isWildcardReference(column.physical)) {
+      continue;
+    }
+    if (column.renamed) {
+      throw new Error(
+        `MUI X Studio Server: Wildcard column reference "${column.physical}" cannot be renamed. ` +
+          `A rename is emitted as "<column> AS <alias>", and a wildcard has no single column to rename — the ` +
+          `database rejects the resulting SQL outright. ` +
+          `Reference the individual columns you want to rename instead of a wildcard.`,
+      );
+    }
+    if (projection.length > 1 || aggregationCount > 0) {
+      throw new Error(
+        `MUI X Studio Server: Wildcard column reference "${column.physical}" cannot be combined with another ` +
+          `projected column or an aggregation. ` +
+          `A wildcard expands to a set of columns this middleware cannot enumerate, so it is impossible to tell ` +
+          `whether one of them lands on the same result-row key as another projected column or aggregation alias — ` +
+          `and a collision would silently overwrite one of the two values in every result row. ` +
+          `List the wildcard's columns explicitly, or project the wildcard on its own.`,
+      );
+    }
+  }
+}
+
+/**
  * Reject a column reference that carries Knex's IMPLICIT `" as "` alias syntax
  * (finding L2).
  *
@@ -156,24 +305,11 @@ export function checkColumnAgainstAllowlist(
         `Shorten the identifier in "${context}" to at most ${MAX_STRING_LENGTH} characters.`,
     );
   }
-  // Reject a reference with MORE than one dot (`a.b.c` or deeper) outright
-  // (Tier3 iter26 finding 6) rather than silently parsing it at the FIRST dot
-  // below. Splitting at the first dot reads `a.b.c` as table `a`, column
-  // `b.c` — but Knex/SQL would read the same string as `schema.table.column`.
-  // That parser divergence between this validator and how the driver would
-  // actually interpret the string is worth removing even though it is not
-  // exploitable today (an unregistered "table" from the wrong split still
-  // fails closed via the "has no entry" branch below). Mirrors the identical
-  // guard in `shared/assertTablesAllowed.ts`'s `checkQualifiedColumn`.
-  if (physical.split('.').length > 2) {
-    throw new Error(
-      `MUI X Studio Server: Column reference "${physical}" (in ${context}) contains more than one ".". ` +
-        `This package validates a qualified reference as "table.column", splitting at the FIRST dot — a deeper ` +
-        `reference such as "schema.table.column" would be parsed differently here than a SQL engine would parse ` +
-        `the same string, which is rejected outright rather than resolved ambiguously. ` +
-        `Reference the column as "table.column", not a deeper-qualified path.`,
-    );
-  }
+  // Reject a reference with MORE than one dot (`a.b.c` or deeper) before parsing
+  // it at the FIRST dot below. One shared implementation with
+  // `assertTablesAllowed.ts`'s `checkQualifiedColumn` — see
+  // `assertSingleDotReference`.
+  assertSingleDotReference(physical, context);
   // Reject Knex's implicit `" as "` alias syntax (finding L2) alongside the
   // multi-dot rejection above — same class of parser divergence, same
   // fail-closed posture. See `assertNoImplicitAlias`.

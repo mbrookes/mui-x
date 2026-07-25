@@ -7,7 +7,11 @@
  * and its error text — live in exactly one place.
  */
 import type { BatchWidgetDescriptor, FilterPredicate } from '../security/types';
-import { assertNoImplicitAlias } from './columnValidation';
+import {
+  assertNoImplicitAlias,
+  assertSingleDotReference,
+  qualifiedTableOf,
+} from './columnValidation';
 import { MAX_STRING_LENGTH } from './limits';
 
 /**
@@ -63,12 +67,6 @@ export function assertTablesAllowed(tables: string[], schemaAllowlist: string[])
   }
 }
 
-/** The table name embedded in a `table.column` reference, or `undefined` when unqualified. */
-function qualifiedTableOf(column: string): string | undefined {
-  const dotIndex = column.indexOf('.');
-  return dotIndex === -1 ? undefined : column.slice(0, dotIndex);
-}
-
 /**
  * Shared by `assertQualifiedColumnsAllowed` (read path) and
  * `assertQualifiedWhereColumnsAllowed` (write path): throw when `column` is
@@ -86,14 +84,11 @@ function qualifiedTableOf(column: string): string | undefined {
  *     past this package's own error boundary. Reject it here instead, fail
  *     closed, with this package's own `MUI X`-prefixed message.
  *   - A reference with MORE than one dot (`a.b.c` or deeper) is rejected
- *     outright rather than silently parsed at the FIRST dot (finding 6):
- *     `qualifiedTableOf` treats `a.b.c` as table `a`, column `b.c`, while
- *     Knex/SQL would read it as `schema.table.column` — a parser divergence
- *     between this package's validation and how the driver would actually
- *     interpret the same string. Not exploitable today (an unregistered
- *     "table" from the wrong split still fails closed downstream), but the
- *     divergence itself is worth closing rather than leaving two components
- *     free to disagree about what a multi-dot reference means.
+ *     outright via the SHARED `assertSingleDotReference`
+ *     (`shared/columnValidation.ts`) — the same implementation, and therefore
+ *     the same error text, the column-allowlist path uses. The rule was
+ *     previously duplicated here with a different `MUI X` prefix for the
+ *     identical condition.
  */
 function checkQualifiedColumn(column: string, context: string, schemaAllowlist: string[]): void {
   if (typeof column !== 'string') {
@@ -111,15 +106,7 @@ function checkQualifiedColumn(column: string, context: string, schemaAllowlist: 
   // qualified-table logic below so it applies uniformly whether the reference
   // is qualified or not.
   assertIdentifierLength(column, context);
-  if (column.split('.').length > 2) {
-    throw new Error(
-      `MUI X: Column reference "${column}" (in ${context}) contains more than one ".". ` +
-        `This package validates a qualified reference as "table.column", splitting at the FIRST dot — a deeper ` +
-        `reference such as "schema.table.column" would be parsed differently here than a SQL engine would parse ` +
-        `the same string, which is rejected outright rather than resolved ambiguously. ` +
-        `Reference the column as "table.column", not a deeper-qualified path.`,
-    );
-  }
+  assertSingleDotReference(column, context);
   // Reject Knex's implicit `" as "` alias syntax (finding L2). Runs
   // UNCONDITIONALLY here — unlike `checkColumnAgainstAllowlist`, which only runs
   // when a `columnAllowlist` is configured — so the `schemaAllowlist`-only

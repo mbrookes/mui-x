@@ -164,14 +164,31 @@ describe('buildSecureQuery', () => {
       buildSecureQuery(db, { ...BASE_CLAIMS, regionIds: [1, 2] }, descriptor(), {
         tenancy: SINGLE_TENANT,
       });
-      // Both the numeric claim and its string form are included (finding 2.1) so
-      // this predicate matches a TEXT-typed region column the same way
-      // `validateSecurityColumnValues` already tolerates one on the write path —
-      // see `shared/predicates.ts`'s `applySecurityPredicates` doc comment.
+      // EXACTLY ONE comparison value per region — the canonical decimal string.
+      // Emitting the numeric form alongside it (`IN (1, '1', 2, '2')`) WIDENS the
+      // predicate on MySQL: a numeric literal compared against a TEXT region
+      // column coerces the whole comparison to numbers, so region `1` would also
+      // match rows stored as `'01'`, `' 1'` or `'1abc'`. See
+      // `shared/predicates.ts`'s `applySecurityPredicates` doc comment.
       expect(calls).toContainEqual({
         method: 'whereIn',
-        args: ['sales.region_id', [1, '1', 2, '2']],
+        args: ['sales.region_id', ['1', '2']],
       });
+    });
+
+    it('emits ONLY the string form of each region id (no numeric duplicate that could widen scope)', () => {
+      const { db, calls } = createRecordingDb();
+      buildSecureQuery(db, { ...BASE_CLAIMS, regionIds: [5] }, descriptor(), {
+        tenancy: SINGLE_TENANT,
+      });
+      const regionCall = calls.find(
+        (c) => c.method === 'whereIn' && c.args[0] === 'sales.region_id',
+      )!;
+      expect(regionCall.args[1]).toEqual(['5']);
+      // The numeric form must be absent: `region_id IN (5, '5')` on MySQL matches
+      // a TEXT region stored as '05'/' 5'/'5.0'/'5abc' — a widening of a
+      // row-level-security predicate.
+      expect(regionCall.args[1]).not.toContain(5);
     });
 
     it('does not apply a region predicate when regionIds is undefined (no region scoping)', () => {
@@ -728,7 +745,7 @@ describe('buildSecureQuery', () => {
       );
       expect(calls).toContainEqual({
         method: 'andOnIn',
-        args: ['customers.region_id', [1, '1', 2, '2']],
+        args: ['customers.region_id', ['1', '2']],
       });
       expect(calls).toContainEqual({
         method: 'andOnVal',
@@ -1152,7 +1169,7 @@ describe('buildSecureQuery', () => {
         tenancy: SINGLE_TENANT,
         securityColumns: { region: 'sales_region' },
       });
-      expect(calls).toContainEqual({ method: 'whereIn', args: ['sales.sales_region', [7, '7']] });
+      expect(calls).toContainEqual({ method: 'whereIn', args: ['sales.sales_region', ['7']] });
     });
 
     it('uses a custom department column name from securityColumns', () => {
@@ -1169,7 +1186,7 @@ describe('buildSecureQuery', () => {
       buildSecureQuery(db, { ...BASE_CLAIMS, regionIds: [1], department: 'ops' }, descriptor(), {
         tenancy: SINGLE_TENANT,
       });
-      expect(calls).toContainEqual({ method: 'whereIn', args: ['sales.region_id', [1, '1']] });
+      expect(calls).toContainEqual({ method: 'whereIn', args: ['sales.region_id', ['1']] });
       expect(calls).toContainEqual({ method: 'where', args: ['sales.department', '=', 'ops'] });
     });
 
@@ -1222,7 +1239,7 @@ describe('buildSecureQuery', () => {
       );
       expect(calls).toContainEqual({
         method: 'whereIn',
-        args: ['customers.region_id', [1, '1', 2, '2']],
+        args: ['customers.region_id', ['1', '2']],
       });
       expect(calls).toContainEqual({ method: 'where', args: ['customers.department', '=', 'ops'] });
     });
@@ -1270,7 +1287,7 @@ describe('buildSecureQuery', () => {
         false,
       );
       // The PRIMARY table is still fully region/department-scoped.
-      expect(calls).toContainEqual({ method: 'whereIn', args: ['sales.region_id', [7, '7']] });
+      expect(calls).toContainEqual({ method: 'whereIn', args: ['sales.region_id', ['7']] });
       expect(calls).toContainEqual({ method: 'where', args: ['sales.department', '=', 'ops'] });
     });
   });

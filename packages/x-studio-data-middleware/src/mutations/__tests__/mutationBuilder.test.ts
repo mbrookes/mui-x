@@ -54,7 +54,26 @@ function createMutableMockDb(initialTables: Record<string, Row[]>) {
       },
       whereIn(col: string, vals: unknown[]) {
         const key = col.includes('.') ? col.split('.').pop()! : col;
-        predicates.push((r) => vals.includes(r[key]));
+        // Type-directed comparison rather than a strict `vals.includes(...)`: the
+        // row-level-security region predicate binds region ids as canonical
+        // decimal STRINGS and lets the engine coerce them against the column's
+        // type (see `shared/predicates.ts`), so a numerically-typed region column
+        // must still match. Mirrors `__tests__/mockDb.ts`'s `sqlValueEquals`.
+        predicates.push((r) =>
+          vals.some((v) => {
+            const rowValue = r[key];
+            if (rowValue === v) {
+              return true;
+            }
+            if (typeof rowValue === 'number' && typeof v === 'string') {
+              return v.trim() !== '' && Number(v) === rowValue;
+            }
+            if (typeof rowValue === 'string' && typeof v === 'number') {
+              return rowValue.trim() !== '' && Number(rowValue) === v;
+            }
+            return false;
+          }),
+        );
         return qb;
       },
       whereBetween(col: string, [lo, hi]: [unknown, unknown]) {

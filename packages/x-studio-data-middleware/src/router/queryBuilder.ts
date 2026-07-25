@@ -34,10 +34,12 @@ import {
   type SecurityPolicyOptions,
 } from '../security/compileSecurityPolicy';
 import {
+  AGGREGATE_SQL_FUNCTIONS,
   toValidatedQueryPlan,
   type PlanAggregation,
   type ValidatedQueryPlan,
 } from '../security/validateQueryPlan';
+import { qualifiedTableOf, qualifyAgainst } from '../shared/columnValidation';
 
 /**
  * Build a Knex query builder with security predicates, joins, and user filters applied.
@@ -153,11 +155,11 @@ export function buildSecureQuery(
       // renders an ambiguous identifier Postgres/MySQL reject outright. Qualify
       // each side with the table it's validated against — left with the primary
       // table, right with `join.table` — leaving an already-dotted (client-
-      // qualified) column untouched, mirroring the filter qualify-if-no-dot pass.
+      // qualified) column untouched. `qualifyAgainst` (`shared/columnValidation.ts`)
+      // is the single implementation of that rule, shared with the filter,
+      // HAVING, null-indicator and `execute.ts` projection sites.
       for (const [left, right] of join.on) {
-        const qualifiedLeft = left.includes('.') ? left : `${queryPlan.table}.${left}`;
-        const qualifiedRight = right.includes('.') ? right : `${join.table}.${right}`;
-        this.on(qualifiedLeft, '=', qualifiedRight);
+        this.on(qualifyAgainst(queryPlan.table, left), '=', qualifyAgainst(join.table, right));
       }
       if (join.type === 'left') {
         // The joined (right) side is nullable — scope it in ON so genuinely
@@ -268,15 +270,15 @@ export function buildSecureQuery(
   // filter predicates were the sole exception: `applyPredicate` emits a bare
   // `where('<col>', ...)`, which Postgres/MySQL reject as ambiguous once a joined
   // table shares the column name (`region_id`, `id`, `status`, …). Qualify an
-  // unqualified resolved filter column with the PRIMARY table here, mirroring
-  // `execute.ts`'s `qualify()` — a column already containing a `.` (a
-  // client-qualified reference, e.g. `customers.region_id`) is left untouched so it
-  // still resolves against the table the caller explicitly named.
-  const qualifiedFilters = (queryPlan.filters as FilterPredicate[]).map((filter) =>
-    filter.column.includes('.')
-      ? filter
-      : { ...filter, column: `${queryPlan.table}.${filter.column}` },
-  );
+  // unqualified resolved filter column with the PRIMARY table here, through the
+  // SAME `qualifyAgainst` (`shared/columnValidation.ts`) `execute.ts`'s `qualify()`
+  // uses — a column already containing a `.` (a client-qualified reference, e.g.
+  // `customers.region_id`) is left untouched so it still resolves against the
+  // table the caller explicitly named.
+  const qualifiedFilters = (queryPlan.filters as FilterPredicate[]).map((filter) => {
+    const qualified = qualifyAgainst(queryPlan.table, filter.column);
+    return qualified === filter.column ? filter : { ...filter, column: qualified };
+  });
   applyPredicates(query, qualifiedFilters, 'read');
 
   // ── Phase 3: Post-aggregation HAVING predicates ──────────────────────────
@@ -364,11 +366,13 @@ function joinNullIndicatorColumn(join: {
     return undefined;
   }
   const [, right] = firstPair;
-  const dotIndex = right.indexOf('.');
-  if (dotIndex === -1) {
-    return `${join.table}.${right}`;
+  const qualifiedTable = qualifiedTableOf(right);
+  if (qualifiedTable === undefined) {
+    // Unqualified — qualified with `join.table` here, the SAME rule (and the same
+    // `qualifyAgainst` implementation) the ON-clause loop above applies to this
+    // identical pair, so the two can never name different tables.
+    return qualifyAgainst(join.table, right);
   }
-  const qualifiedTable = right.slice(0, dotIndex);
   if (qualifiedTable !== join.table) {
     throw new Error(
       `MUI X Studio Server: JOIN "on" pair for table "${join.table}" has a right-hand column ` +
@@ -381,15 +385,6 @@ function joinNullIndicatorColumn(join: {
   }
   return right;
 }
-
-/** SQL aggregate function name per plan aggregation func — same five as `execute.ts`. */
-const HAVING_FUNC_MAP: Record<PlanAggregation['func'], string> = {
-  sum: 'SUM',
-  avg: 'AVG',
-  count: 'COUNT',
-  min: 'MIN',
-  max: 'MAX',
-};
 
 /**
  * Apply a HAVING predicate to a Knex query.
@@ -447,16 +442,20 @@ function applyHaving(
         `expression for cross-dialect portability. Declare an aggregation whose alias the HAVING references.`,
     );
   }
-  if (!Object.prototype.hasOwnProperty.call(HAVING_FUNC_MAP, agg.func)) {
+  // Own-property-gated against the SHARED `AGGREGATE_SQL_FUNCTIONS`
+  // (`security/validateQueryPlan.ts`) that `execute.ts` gates on too — one table,
+  // so the two enforcement sites cannot disagree about which functions exist.
+  if (!Object.prototype.hasOwnProperty.call(AGGREGATE_SQL_FUNCTIONS, agg.func)) {
     throw new Error(
       `MUI X Studio Server: Aggregation function "${agg.func}" is not supported in HAVING. ` +
         `Supported aggregation functions are: sum, avg, count, min, max.`,
     );
   }
-  const func = HAVING_FUNC_MAP[agg.func];
+  const func = AGGREGATE_SQL_FUNCTIONS[agg.func];
   // Qualify an unqualified aggregate column with the primary table (as SELECT /
-  // GROUP BY / aggregations are in `execute.ts`) to avoid ambiguity under joins.
-  const physical = agg.physical.includes('.') ? agg.physical : `${table}.${agg.physical}`;
+  // GROUP BY / aggregations are in `execute.ts`) to avoid ambiguity under joins —
+  // through the shared `qualifyAgainst`, the same rule those sites use.
+  const physical = qualifyAgainst(table, agg.physical);
   // havingRaw: ?? binds the column identifier, ? binds the value; the FUNC and
   // operator are fixed tokens from own-property-gated maps (never client text).
   query.havingRaw(`${func}(??) ${op} ?`, [physical, h.value]);

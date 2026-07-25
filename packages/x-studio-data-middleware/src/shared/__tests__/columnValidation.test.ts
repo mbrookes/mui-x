@@ -15,12 +15,18 @@
 import { describe, it, expect } from 'vitest';
 import {
   assertNoImplicitAlias,
+  assertSingleDotReference,
+  isWildcardReference,
+  qualifiedTableOf,
+  qualifyAgainst,
   resolveAlias,
   checkColumnAgainstAllowlist,
   validateAggregationAliases,
   validateHavingAliases,
   validateProjectionKeyCollisions,
+  validateWildcardProjection,
 } from '../columnValidation';
+import { assertQualifiedColumnsAllowed } from '../assertTablesAllowed';
 import type { BatchWidgetDescriptor } from '../../security/types';
 
 const PROTO_KEYS = ['constructor', 'toString', 'valueOf', 'hasOwnProperty', '__proto__'];
@@ -282,3 +288,139 @@ describe('assertNoImplicitAlias / checkColumnAgainstAllowlist — " as " is reje
     );
   });
 });
+
+// ── Table qualification is minted in ONE place ────────────────────────────────
+//
+// `qualifyAgainst` replaces seven independent copies of
+// `x.includes('.') ? x : `${table}.${x}`` that were spread across the validation
+// stage (`validateQueryPlan`) and three enforcement sites (`queryBuilder`'s join
+// `on` / filter / HAVING / null-indicator paths, and `execute.ts`'s `qualify()`).
+// A validator and an executor disagreeing about which table an unqualified
+// column belongs to is the same failure mode `resolveAlias` exists to prevent
+// for the sibling concern, alias resolution.
+describe('qualifyAgainst', () => {
+  it('qualifies an unqualified reference with the supplied table', () => {
+    expect(qualifyAgainst('orders', 'amount')).toBe('orders.amount');
+  });
+
+  it('leaves an already-qualified reference untouched, whatever table it names', () => {
+    expect(qualifyAgainst('orders', 'customers.amount')).toBe('customers.amount');
+    expect(qualifyAgainst('orders', 'orders.amount')).toBe('orders.amount');
+  });
+
+  it('is idempotent, so a second qualification pass can never double-qualify', () => {
+    expect(qualifyAgainst('orders', qualifyAgainst('orders', 'amount'))).toBe('orders.amount');
+  });
+
+  it('anchors a bare wildcard to the table (never leaves a cross-table `*`)', () => {
+    expect(qualifyAgainst('orders', '*')).toBe('orders.*');
+  });
+});
+
+describe('qualifiedTableOf', () => {
+  it('returns the qualifying table of a dotted reference', () => {
+    expect(qualifiedTableOf('customers.name')).toBe('customers');
+  });
+
+  it('returns undefined for an unqualified reference', () => {
+    expect(qualifiedTableOf('name')).toBeUndefined();
+  });
+
+  it('tolerates a non-string reference instead of throwing (one tolerant definition)', () => {
+    // Previously defined twice with DIFFERENT runtime guards — the
+    // `validateQueryPlan` copy tolerated a non-string, the `assertTablesAllowed`
+    // copy threw a raw `TypeError` on it.
+    expect(qualifiedTableOf(5 as unknown as string)).toBeUndefined();
+    expect(qualifiedTableOf(undefined as unknown as string)).toBeUndefined();
+  });
+});
+
+describe('assertSingleDotReference — one rule, one error text', () => {
+  it('accepts an unqualified and a table-qualified reference', () => {
+    expect(() => assertSingleDotReference('amount', 'columns')).not.toThrow();
+    expect(() => assertSingleDotReference('orders.amount', 'columns')).not.toThrow();
+  });
+
+  it('rejects a deeper-qualified reference', () => {
+    expect(() => assertSingleDotReference('public.orders.amount', 'columns')).toThrow(
+      /contains more than one "\."/,
+    );
+  });
+
+  it('reports the SAME message from the column-allowlist and schema-allowlist paths', () => {
+    // The identical rule used to throw `MUI X Studio Server:` from
+    // `checkColumnAgainstAllowlist` and `MUI X:` from `checkQualifiedColumn`.
+    const fromColumnAllowlist = captureMessage(() =>
+      checkColumnAgainstAllowlist('a.b.c', 'orders', { orders: ['*'] }, 'columns'),
+    );
+    const fromSchemaAllowlist = captureMessage(() =>
+      assertQualifiedColumnsAllowed({ id: 'w1', table: 'orders', columns: ['a.b.c'] }, ['orders']),
+    );
+    expect(fromColumnAllowlist).toMatch(/^MUI X Studio Server: /);
+    expect(fromSchemaAllowlist).toBe(fromColumnAllowlist);
+  });
+});
+
+// ── Wildcard projections are un-key-able ──────────────────────────────────────
+//
+// `resultKeyOf` maps `orders.*` to the literal `"*"`, which is not a key any row
+// actually carries — so `validateProjectionKeyCollisions` could not see that
+// `SELECT orders.*, customers.name` returns a row object in which
+// `customers.name` overwrites `orders.name` (pg and mysql2 both key rows by
+// field name, last-wins). A wildcard is therefore admitted only as the WHOLE
+// projection, where nothing can collide with it.
+describe('isWildcardReference', () => {
+  it.each(['*', 'orders.*', 'customers.*'])('recognizes "%s"', (reference) => {
+    expect(isWildcardReference(reference)).toBe(true);
+  });
+
+  it.each(['amount', 'orders.amount', 'orders.star'])('does not match "%s"', (reference) => {
+    expect(isWildcardReference(reference)).toBe(false);
+  });
+});
+
+describe('validateWildcardProjection', () => {
+  const plain = (physical: string) => ({ physical, renamed: false });
+
+  it('accepts a wildcard that is the entire projection', () => {
+    expect(() => validateWildcardProjection([plain('orders.*')], 0)).not.toThrow();
+  });
+
+  it('accepts a projection with no wildcard at all', () => {
+    expect(() =>
+      validateWildcardProjection([plain('orders.id'), plain('customers.name')], 2),
+    ).not.toThrow();
+  });
+
+  it('rejects a wildcard beside a named column (the silent last-wins overwrite)', () => {
+    expect(() =>
+      validateWildcardProjection([plain('orders.*'), plain('customers.name')], 0),
+    ).toThrow(/Wildcard column reference "orders\.\*" cannot be combined/);
+  });
+
+  it('rejects two wildcards from different tables', () => {
+    expect(() => validateWildcardProjection([plain('orders.*'), plain('customers.*')], 0)).toThrow(
+      /cannot be combined with another projected column or an aggregation/,
+    );
+  });
+
+  it('rejects a wildcard beside an aggregation (the expansion may contain its alias)', () => {
+    expect(() => validateWildcardProjection([plain('orders.*')], 1)).toThrow(/cannot be combined/);
+  });
+
+  it('rejects a RENAMED wildcard ("orders.* AS x" is a syntax error on every dialect)', () => {
+    expect(() => validateWildcardProjection([{ physical: 'orders.*', renamed: true }], 0)).toThrow(
+      /Wildcard column reference "orders\.\*" cannot be renamed/,
+    );
+  });
+});
+
+/** Run `fn` and return the thrown Error's message (or a sentinel if it did not throw). */
+function captureMessage(fn: () => void): string {
+  try {
+    fn();
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+  return '<did not throw>';
+}

@@ -2,8 +2,15 @@
  * Lightweight in-memory mock Knex query builder for tests.
  *
  * Implements the subset of the Knex API used by x-studio-data-middleware:
- *   db(table), .where(), .whereIn(), .count(), .select(), .orderBy(), .limit()
- *   .sum(), .avg(), .min(), .max(), .groupBy() — with real in-memory aggregation
+ *   db(table), .where(), .whereIn(), .whereLike(), .whereBetween(), .count(),
+ *   .select(), .orderBy(), .limit(), .sum(), .avg(), .min(), .max(), .groupBy()
+ *   — with real in-memory filtering and aggregation
+ *
+ * Every column reference the real pipeline emits is table-qualified, so every
+ * builder below resolves it through `rowKeyOf` before indexing a row (rows are
+ * keyed by the bare column name), and value comparisons go through
+ * `sqlValueEquals` so the mock models a SQL engine's type coercion instead of
+ * JS `===`.
  *
  * Also implements a minimal `db.raw(sql, bindings)` — just enough to support the
  * one shape this package actually emits, `?? as ??` (used by `executeForTier` to
@@ -63,6 +70,47 @@ interface AggSpec {
   alias: string;
 }
 
+/**
+ * The row key a (possibly table-qualified) column reference addresses.
+ *
+ * Rows in this mock are keyed by the BARE column name, while the real pipeline
+ * qualifies every column reference it hands to Knex with its owning table
+ * (`shared/columnValidation.ts`'s `qualifyAgainst`, applied by `queryBuilder.ts`
+ * to join `on` sides / filter predicates / HAVING columns and by `execute.ts` to
+ * the projection, GROUP BY and ORDER BY). Every predicate builder below must
+ * strip that qualifier — `whereLike`/`whereBetween` did not, so once filter
+ * columns became qualified they indexed `row['sales.product']` (always
+ * `undefined`) and matched ZERO rows for every `like`/`between` filter.
+ */
+function rowKeyOf(column: string): string {
+  return column.includes('.') ? column.split('.').pop()! : column;
+}
+
+/**
+ * Compare one row value against one bound predicate value the way a SQL engine
+ * would, rather than with JS `===`.
+ *
+ * The security predicates bind region ids as canonical decimal STRINGS
+ * (`shared/predicates.ts`) and let the engine coerce them against the column's
+ * type. A strict `===` mock would therefore never match a numerically-typed
+ * region column, so it models the engine's rule instead: the COLUMN's type
+ * decides the comparison. A numeric row value compares numerically (`'5'` matches
+ * `5`); a string row value compares as a string (`'5'` matches `'5'` but NOT
+ * `'05'` — the exact widening the string-only binding exists to prevent).
+ */
+function sqlValueEquals(rowValue: unknown, boundValue: unknown): boolean {
+  if (rowValue === boundValue) {
+    return true;
+  }
+  if (typeof rowValue === 'number' && typeof boundValue === 'string') {
+    return boundValue.trim() !== '' && Number(boundValue) === rowValue;
+  }
+  if (typeof rowValue === 'string' && typeof boundValue === 'number') {
+    return rowValue.trim() !== '' && Number(rowValue) === boundValue;
+  }
+  return false;
+}
+
 function computeAgg(func: AggSpec['func'], groupRows: Row[], column: string): number {
   if (func === 'count') {
     return groupRows.filter((r) => r[column] != null).length;
@@ -118,7 +166,7 @@ export function createMockDb(
     const qb: MockQueryBuilder = {
       where(column: string, opOrValue: unknown, value?: unknown) {
         // Strip table prefix (e.g. "sales.tenant_id" → "tenant_id") for mock row lookup
-        const key = column.includes('.') ? column.split('.')[1] : column;
+        const key = rowKeyOf(column);
         if (value !== undefined) {
           const op = opOrValue as string;
           if (op === '=' || op === '==') {
@@ -140,19 +188,23 @@ export function createMockDb(
         return qb;
       },
       whereIn(column: string, values: unknown[]) {
-        const key = column.includes('.') ? column.split('.')[1] : column;
-        predicates.push((row) => values.includes(row[key]));
+        const key = rowKeyOf(column);
+        // Type-directed comparison rather than `values.includes(row[key])` — see
+        // `sqlValueEquals`. An empty `values` still matches nothing, mirroring the
+        // `1 = 0` Knex renders for `whereIn(col, [])`.
+        predicates.push((row) => values.some((value) => sqlValueEquals(row[key], value)));
         return qb;
       },
       whereLike(column: string, pattern: string) {
+        const key = rowKeyOf(column);
         const regex = new RegExp(`^${pattern.replace(/%/g, '.*').replace(/_/g, '.')}$`, 'i');
-        predicates.push((row) => regex.test(String(row[column])));
+        predicates.push((row) => regex.test(String(row[key])));
         return qb;
       },
       whereBetween(column: string, [lo, hi]: [unknown, unknown]) {
+        const key = rowKeyOf(column);
         predicates.push(
-          (row) =>
-            (row[column] as number) >= (lo as number) && (row[column] as number) <= (hi as number),
+          (row) => (row[key] as number) >= (lo as number) && (row[key] as number) <= (hi as number),
         );
         return qb;
       },
@@ -185,10 +237,10 @@ export function createMockDb(
           const func = funcMatch[1].toLowerCase();
           const op = funcMatch[2];
           const [physical, value] = bindings as [string, number];
-          const physKey = physical.includes('.') ? physical.split('.').pop()! : physical;
+          const physKey = rowKeyOf(physical);
           havingPredicates.push((row) => {
             const spec = aggSpecs.find((a) => {
-              const specKey = a.column.includes('.') ? a.column.split('.').pop()! : a.column;
+              const specKey = rowKeyOf(a.column);
               return a.func === func && specKey === physKey;
             });
             const key = spec ? spec.alias : physKey;
@@ -245,7 +297,7 @@ export function createMockDb(
         // (rows are keyed by the bare column name in this mock). The real
         // `executeForTier` qualifies unqualified ORDER BY columns with the
         // primary table to avoid join ambiguity.
-        const key = column.includes('.') ? column.split('.').pop()! : column;
+        const key = rowKeyOf(column);
         orderByClauses.push({ column: key, dir });
         return qb;
       },
@@ -281,7 +333,7 @@ export function createMockDb(
               for (const row of filtered) {
                 const key = groupByColumns
                   .map((c) => {
-                    const k = c.includes('.') ? c.split('.')[1] : c;
+                    const k = rowKeyOf(c);
                     return String(row[k]);
                   })
                   .join('\x00');
@@ -293,11 +345,11 @@ export function createMockDb(
               result = [...groups.values()].map((groupRows) => {
                 const outRow: Row = {};
                 for (const col of groupByColumns!) {
-                  const k = col.includes('.') ? col.split('.')[1] : col;
+                  const k = rowKeyOf(col);
                   outRow[k] = groupRows[0][k];
                 }
                 for (const agg of aggSpecs) {
-                  const k = agg.column.includes('.') ? agg.column.split('.')[1] : agg.column;
+                  const k = rowKeyOf(agg.column);
                   outRow[agg.alias] = computeAgg(agg.func, groupRows, k);
                 }
                 return outRow;
@@ -306,7 +358,7 @@ export function createMockDb(
               // Global aggregation: single result row
               const outRow: Row = {};
               for (const agg of aggSpecs) {
-                const k = agg.column.includes('.') ? agg.column.split('.')[1] : agg.column;
+                const k = rowKeyOf(agg.column);
                 outRow[agg.alias] = computeAgg(agg.func, filtered, k);
               }
               result = [outRow];
@@ -371,9 +423,7 @@ export function createMockDb(
                   // db.raw('?? as ??', [physicalColumn, logicalAlias]) — resolve the
                   // physical column (stripping any "table." qualifier) and project
                   // its value under the logical alias, mirroring `SELECT phys AS alias`.
-                  const physKey = col.physicalColumn.includes('.')
-                    ? col.physicalColumn.split('.')[1]
-                    : col.physicalColumn;
+                  const physKey = rowKeyOf(col.physicalColumn);
                   projected[col.alias] = row[physKey];
                 } else if (col === '*' || col.endsWith('.*')) {
                   // Wildcard projection: a bare `*` or a table-qualified `table.*`
@@ -384,7 +434,7 @@ export function createMockDb(
                   Object.assign(projected, row);
                 } else {
                   // Handle "table.column" qualified names
-                  const key = col.includes('.') ? col.split('.')[1] : col;
+                  const key = rowKeyOf(col);
                   projected[key] = row[key];
                 }
               }

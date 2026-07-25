@@ -3703,3 +3703,229 @@ describe('handleBatchQuery — implicit " as " column references are rejected (f
     expect(result.results[0].error).toBeUndefined();
   });
 });
+
+// ─── handleBatchQuery — `like` / `between` filters actually filter ────────────
+//
+// These two operators had NO end-to-end row coverage: `whereLike`/`whereBetween`
+// in `mockDb` indexed the row with the FULL reference (`row['sales.product']`,
+// always `undefined`) while `where`/`whereIn` stripped the table qualifier. Since
+// `queryBuilder.ts` qualifies every unqualified filter column with the primary
+// table, every `like`/`between` filter routed through the mock matched ZERO rows,
+// and the one `like` test only asserted `error` was `undefined`. These assert the
+// ROWS, so the qualification path is validated end-to-end for both operators.
+describe('handleBatchQuery — like / between filters return the matching rows', () => {
+  const OPTS = { schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT };
+
+  it('"like" matches on the pattern and excludes non-matching rows', async () => {
+    const result = await handleBatchQuery(
+      {
+        pageId: 'p1',
+        widgets: [
+          {
+            id: 'w1',
+            table: 'sales',
+            columns: ['id', 'product'],
+            filters: [{ column: 'product', operator: 'like', value: 'wid%' }],
+          },
+        ],
+      },
+      ACME_CLAIMS,
+      { db: makeDb(), ...OPTS },
+    );
+    expect(result.results[0].error).toBeUndefined();
+    // Only the two `widget` rows (ids 1 and 3); `gadget`/`thingamajig` excluded.
+    expect(result.results[0].rows.map((r) => r.id).sort()).toEqual([1, 3]);
+  });
+
+  it('"like" on a QUALIFIED column resolves against the same rows', async () => {
+    const result = await handleBatchQuery(
+      {
+        pageId: 'p1',
+        widgets: [
+          {
+            id: 'w1',
+            table: 'sales',
+            columns: ['id'],
+            filters: [{ column: 'sales.product', operator: 'like', value: '%adget' }],
+          },
+        ],
+      },
+      ACME_CLAIMS,
+      { db: makeDb(), ...OPTS },
+    );
+    expect(result.results[0].rows.map((r) => r.id).sort()).toEqual([2, 5]);
+  });
+
+  it('"between" bounds the result inclusively and excludes rows outside the range', async () => {
+    const result = await handleBatchQuery(
+      {
+        pageId: 'p1',
+        widgets: [
+          {
+            id: 'w1',
+            table: 'sales',
+            columns: ['id', 'amount'],
+            filters: [{ column: 'amount', operator: 'between', value: [100, 200] }],
+          },
+        ],
+      },
+      ACME_CLAIMS,
+      { db: makeDb(), ...OPTS },
+    );
+    expect(result.results[0].error).toBeUndefined();
+    // amounts 100 / 200 / 150 are in range; 500 and 75 are not.
+    expect(result.results[0].rows.map((r) => r.id).sort()).toEqual([1, 2, 3]);
+  });
+
+  it('"between" returns no rows when nothing falls inside the range (not "everything")', async () => {
+    const result = await handleBatchQuery(
+      {
+        pageId: 'p1',
+        widgets: [
+          {
+            id: 'w1',
+            table: 'sales',
+            columns: ['id'],
+            filters: [{ column: 'sales.amount', operator: 'between', value: [1000, 2000] }],
+          },
+        ],
+      },
+      ACME_CLAIMS,
+      { db: makeDb(), ...OPTS },
+    );
+    expect(result.results[0].rows).toEqual([]);
+  });
+});
+
+// ─── handleBatchQuery — wildcard projections ──────────────────────────────────
+//
+// `resultKeyOf` maps `orders.*` to the literal `"*"`, so
+// `validateProjectionKeyCollisions` could not see that `SELECT sales.*,
+// customers.product` returns a row object in which the joined column overwrites
+// the primary table's same-named one (pg and mysql2 both key rows by field name,
+// last-wins). A wildcard is admitted only as the WHOLE projection.
+describe('handleBatchQuery — wildcard projections', () => {
+  /**
+   * A join-capable mock that also records every `.select()` projection list, so
+   * a test can assert what the SELECT actually was — including the case where
+   * `.select()` is never called at all, which is what makes Knex emit a bare
+   * `SELECT *`.
+   */
+  const joinCapableDb = () => {
+    const projections: unknown[][] = [];
+    const inner = createMockDb({
+      sales: SALES_ROWS,
+      customers: [{ id: 1, tenant_id: 'acme', product: 'other' }],
+    });
+    const db = ((table: string) => {
+      const qb = inner(table) as any;
+      qb.join = () => qb;
+      qb.leftJoin = () => qb;
+      const { select } = qb;
+      qb.select = (columns: unknown) => {
+        projections.push(Array.isArray(columns) ? columns : [columns]);
+        return select.call(qb, columns as any);
+      };
+      return qb;
+    }) as any;
+    db.raw = inner.raw;
+    return { db, projections };
+  };
+
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
+  it('rejects a wildcard projected alongside a named column from another table', async () => {
+    await expectWidgetError(
+      handleBatchQuery(
+        {
+          pageId: 'p1',
+          widgets: [
+            {
+              id: 'w1',
+              table: 'sales',
+              columns: ['sales.*', 'customers.product'],
+              joins: [{ table: 'customers', on: [['sales.id', 'customers.id']] }],
+            },
+          ],
+        },
+        ACME_CLAIMS,
+        { db: joinCapableDb().db, schemaAllowlist: ['sales', 'customers'], tenancy: SINGLE_TENANT },
+      ),
+      /Wildcard column reference "sales\.\*" cannot be combined/,
+    );
+  });
+
+  // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
+  it('rejects two table-qualified wildcards with a message that names the real problem', async () => {
+    await expectWidgetError(
+      handleBatchQuery(
+        {
+          pageId: 'p1',
+          widgets: [
+            {
+              id: 'w1',
+              table: 'sales',
+              columns: ['sales.*', 'customers.*'],
+              joins: [{ table: 'customers', on: [['sales.id', 'customers.id']] }],
+            },
+          ],
+        },
+        ACME_CLAIMS,
+        { db: joinCapableDb().db, schemaAllowlist: ['sales', 'customers'], tenancy: SINGLE_TENANT },
+      ),
+      /cannot be combined with another projected column or an aggregation/,
+    );
+  });
+
+  it('accepts a wildcard that is the entire projection', async () => {
+    const result = await handleBatchQuery(
+      {
+        pageId: 'p1',
+        widgets: [{ id: 'w1', table: 'sales', columns: ['sales.*'] }],
+      },
+      ACME_CLAIMS,
+      { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
+    );
+    expect(result.results[0].error).toBeUndefined();
+    expect(result.results[0].rows[0]).toHaveProperty('product');
+  });
+
+  // A widget with NO `columns` and a join used to emit a bare `SELECT *` on a
+  // `schemaAllowlist`-only deployment: `plan.columns` stayed empty and
+  // `synthesizeProjectionFromAllowlist` only runs when a `columnAllowlist` is
+  // configured. Every name the two tables share then collapsed last-wins. The
+  // implicit projection is now anchored to the primary table.
+  it('anchors an IMPLICIT projection to the primary table when the widget joins', async () => {
+    const { db, projections } = joinCapableDb();
+    const result = await handleBatchQuery(
+      {
+        pageId: 'p1',
+        widgets: [
+          {
+            id: 'w1',
+            table: 'sales',
+            joins: [{ table: 'customers', on: [['sales.id', 'customers.id']] }],
+          },
+        ],
+      },
+      ACME_CLAIMS,
+      { db, schemaAllowlist: ['sales', 'customers'], tenancy: SINGLE_TENANT },
+    );
+    expect(result.results[0].error).toBeUndefined();
+    // Previously NO `.select()` was emitted at all (a bare `SELECT *` across both
+    // joined tables); the projection is now explicitly the primary table's.
+    expect(projections).toContainEqual(['sales.*']);
+  });
+
+  it('leaves an IMPLICIT projection alone for a single-table widget (SELECT * is unambiguous)', async () => {
+    const { db, projections } = joinCapableDb();
+    const result = await handleBatchQuery(
+      { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales' }] },
+      ACME_CLAIMS,
+      { db, schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
+    );
+    expect(result.results[0].error).toBeUndefined();
+    expect(result.results[0].rows.length).toBeGreaterThan(0);
+    // No join, so `SELECT *` already names exactly one table's columns.
+    expect(projections).toEqual([]);
+  });
+});

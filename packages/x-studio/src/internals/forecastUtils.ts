@@ -262,23 +262,59 @@ interface ForecastData {
 }
 
 /**
+ * Upper bound on `forecast.periods`. A projected horizon beyond this is never
+ * legible on a chart, and an unbounded value is an easy way to allocate an
+ * arbitrarily large array from a persisted dashboard document.
+ */
+const MAX_FORECAST_PERIODS = 1000;
+
+/**
+ * Normalizes an untrusted `forecast.periods` into a safe, non-negative integer.
+ *
+ * `periods` is a plain number on the persisted `StudioDoc`, so it arrives from
+ * `deserializeState` (and from any host that writes state directly) completely
+ * unchecked — only the `set_widget_forecast` AI tool validates it, and that covers
+ * exactly one of the several write paths. `Array(periods)` (used below to pad the
+ * series) throws `RangeError: Invalid array length` for a negative, fractional or
+ * huge length, and it is NOT symmetric with `Array.from({ length: periods })`,
+ * which silently yields `[]` for the same input — which is why the `periods <= 0`
+ * guards in `extendLabels` (and the `linearRegression` guard above) never caught it.
+ * Clamp here, at the shared load boundary, so every caller is covered.
+ */
+function normalizeForecastPeriods(periods: unknown): number {
+  const n = Number(periods);
+  if (!Number.isFinite(n) || n <= 0) {
+    return 0;
+  }
+  return Math.min(Math.floor(n), MAX_FORECAST_PERIODS);
+}
+
+/**
  * Computes forecast data from a historical value series.
  *
  * @param labels     X-axis labels for historical data points.
  * @param values     Y-axis values corresponding to each label.
  * @param forecast   Forecast configuration from `StudioWidgetConfig.forecast`.
  * @returns          Extended label/series arrays ready to pass to `@mui/x-charts`.
- *                   Returns `null` when regression cannot be computed (fewer than 2 points).
+ *                   Returns `null` when regression cannot be computed (fewer than 2 points),
+ *                   or when `periods` does not normalize to at least one future period.
  */
 export function computeWidgetForecast(
   labels: (string | number)[],
   values: (number | null)[],
   forecast: StudioWidgetForecast,
 ): ForecastData | null {
-  const { periods = 3, showConfidenceBands = false } = forecast;
+  const { showConfidenceBands = false } = forecast;
+  const periods = normalizeForecastPeriods(forecast.periods ?? 3);
 
   const regression = linearRegression(values);
   if (!regression) {
+    return null;
+  }
+
+  // Nothing to project: a zero/negative/non-numeric horizon would otherwise render an
+  // overlay consisting only of the connection point, which reads as a stray dot.
+  if (periods === 0) {
     return null;
   }
 

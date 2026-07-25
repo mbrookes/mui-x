@@ -269,6 +269,53 @@ describe('computeWidgetForecast', () => {
     });
     expect(result!.labels).toHaveLength(7); // 4 + 3
   });
+
+  // M11: only the `set_widget_forecast` AI tool validated `periods`. Every other write path
+  // (`deserializeState`, a host writing state directly) reached `Array(periods)`, which throws
+  // `RangeError: Invalid array length` — and is NOT symmetric with the
+  // `Array.from({ length: periods })` used two lines earlier, which silently yields `[]`, so
+  // the existing `periods <= 0` guards never caught it.
+  it.each([-1, -0.5, 0, 2.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    'does not throw for an unvalidated periods value (%p)',
+    (periods) => {
+      expect(() =>
+        computeWidgetForecast(historicalLabels, historicalValues, {
+          enabled: true,
+          periods: periods as number,
+        }),
+      ).not.toThrow();
+    },
+  );
+
+  it('returns null rather than a stray connection point for a non-positive periods', () => {
+    for (const periods of [-1, 0, Number.NaN]) {
+      expect(
+        computeWidgetForecast(historicalLabels, historicalValues, {
+          enabled: true,
+          periods: periods as number,
+        }),
+      ).toBeNull();
+    }
+  });
+
+  it('floors a fractional periods to a whole number of future points', () => {
+    const result = computeWidgetForecast(historicalLabels, historicalValues, {
+      enabled: true,
+      periods: 2.9,
+    });
+    expect(result!.labels).toHaveLength(6); // 4 historical + floor(2.9) = 2
+  });
+
+  it('caps an absurd periods so a persisted document cannot allocate an unbounded array', () => {
+    const result = computeWidgetForecast(historicalLabels, historicalValues, {
+      enabled: true,
+      periods: 5_000_000,
+    });
+    expect(result).not.toBeNull();
+    expect(result!.labels).toHaveLength(4 + 1000);
+    expect(result!.historicalSeries).toHaveLength(4 + 1000);
+    expect(result!.forecastSeries).toHaveLength(4 + 1000);
+  });
 });
 
 describe('pearsonCorrelation', () => {

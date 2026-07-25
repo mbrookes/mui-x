@@ -609,4 +609,117 @@ describe('StudioPieChart', () => {
       expect(other?.value).toBe(6 + 4);
     });
   });
+
+  describe('selection highlight with pieMaxSlices', () => {
+    // M8: the highlight used to be suppressed whenever `pieMaxSlices` was merely SET
+    // (`pieMaxSlices ? [] : getSelectedDataIndices(...)`), but grouping only kicks in at
+    // `displayLabels.length >= pieMaxSlices`. Clicking a slice applied the cross-filter while
+    // the pie showed no selected arc at all.
+    it('highlights the selected arc when pieMaxSlices is set but no grouping is triggered', () => {
+      renderPie(
+        baseProps({
+          chartData: { labels: ['a', 'b', 'c', 'd', 'e'], values: [5, 4, 3, 2, 1] },
+          pieMaxSlices: 8,
+          getSelectedDataIndices: (labels) =>
+            labels.map((l, i) => (String(l) === 'b' ? i : -1)).filter((i) => i >= 0),
+        }),
+      );
+      expect(lastPieProps().highlightedItem).toEqual({
+        seriesId: 'cross-filter-series',
+        dataIndex: 1,
+      });
+    });
+
+    // `getSelectedDataIndices` matches by LABEL, so the re-sorted/grouped display order
+    // resolves the kept label to its new rendered index rather than losing the highlight.
+    it('highlights against the re-sorted display order when grouping IS applied', () => {
+      renderPie(
+        baseProps({
+          // Descending sort puts 'e' (100) first, so the selected 'd' (80) lands at index 1.
+          chartData: { labels: ['a', 'b', 'c', 'd', 'e'], values: [10, 20, 30, 80, 100] },
+          pieMaxSlices: 3,
+          getSelectedDataIndices: (labels) =>
+            labels.map((l, i) => (String(l) === 'd' ? i : -1)).filter((i) => i >= 0),
+        }),
+      );
+      const props = lastPieProps();
+      expect(props.series[0].data.map((d) => d.label)).toEqual(['e', 'd', 'Other']);
+      expect(props.highlightedItem).toEqual({ seriesId: 'cross-filter-series', dataIndex: 1 });
+    });
+
+    it('never highlights the synthetic "Other" bucket for a folded-away selection', () => {
+      renderPie(
+        baseProps({
+          chartData: { labels: ['a', 'b', 'c', 'd', 'e'], values: [10, 20, 30, 80, 100] },
+          pieMaxSlices: 3,
+          // 'a' is folded into the synthetic bucket — it must simply yield no index.
+          getSelectedDataIndices: (labels) =>
+            labels.map((l, i) => (String(l) === 'a' ? i : -1)).filter((i) => i >= 0),
+        }),
+      );
+      expect(lastPieProps().highlightedItem).toBeNull();
+    });
+  });
+
+  describe('"Other" fold-in under a cross-highlight', () => {
+    // M11: the ghost fold-in lacked the `otherIsSynthetic` guard the bar chart applies at both
+    // its keep-set exclusion and its sum (`otherGroupingApplied && …`). A dashboard with a REAL
+    // category named "Other" therefore had it absorb the filtered value of every label missing
+    // from the baseline — which happens routinely, because a widget rank filter applies to the
+    // BASELINE aggregation while the ghost is active but not to the filtered one.
+    it('does not let a real "Other" category absorb other categories\' filtered values', () => {
+      renderPie(
+        baseProps({
+          // Filtered set carries a label ('b') the rank-limited baseline does not.
+          chartData: { labels: ['A', 'b', 'Other'], values: [4, 30, 5] },
+          allChartData: { labels: ['A', 'Other'], values: [10, 20] },
+          shouldShowGhost: true,
+          preserveXFieldBaseline: true,
+        }),
+      );
+      expect(capturedCtx!.isActive).toBe(true);
+      // 'Other' is a real category here: its dim ratio is its OWN 5 / 20, not (30 + 5) / 20,
+      // which exceeded 1 and rendered the arc fully undimmed.
+      expect(capturedCtx!.ratioByIndex.get(1)).toBe(0.25);
+      expect(capturedCtx!.ratioByIndex.get(0)).toBe(0.4);
+    });
+
+    it('still folds filtered values into the SYNTHETIC bucket when grouping is applied', () => {
+      renderPie(
+        baseProps({
+          chartData: { labels: ['a', 'b', 'c', 'd'], values: [50, 40, 10, 5] },
+          allChartData: { labels: ['a', 'b', 'c', 'd'], values: [100, 80, 20, 10] },
+          pieMaxSlices: 3,
+          shouldShowGhost: true,
+          preserveXFieldBaseline: true,
+        }),
+      );
+      const props = lastPieProps();
+      expect(props.series[0].data.map((d) => d.label)).toEqual(['a', 'b', 'Other']);
+      // Synthetic bucket baseline = 20 + 10 = 30; filtered = 10 + 5 = 15 → ratio 0.5.
+      expect(capturedCtx!.ratioByIndex.get(2)).toBe(0.5);
+    });
+  });
+
+  describe('accessibility', () => {
+    // M10: the pie shipped with no accessible name, and its slices were distinguished by hue
+    // alone whenever arc labels were off.
+    it('names the chart and describes its slices', () => {
+      renderPie(
+        baseProps({
+          chartData: { labels: ['A', 'B'], values: [10, 20] },
+          ariaTitle: 'Revenue by region',
+        }),
+      );
+      const props = lastPieProps() as unknown as { title?: string; desc?: string };
+      expect(props.title).toBe('Revenue by region');
+      expect(props.desc).toBe('A: 10, B: 20');
+    });
+
+    it('opts into x-charts keyboard navigation so Enter/Space can reach the arcs', () => {
+      renderPie(baseProps());
+      const props = lastPieProps() as unknown as { disableKeyboardNavigation?: boolean };
+      expect(props.disableKeyboardNavigation).toBe(false);
+    });
+  });
 });

@@ -9,6 +9,8 @@ import {
   type ScatterDataPoint,
   type ScatterSeriesData,
 } from '../../../internals/chartAggregation';
+import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
+import { buildChartDescription } from './chartA11y';
 
 const GHOST_SERIES_SUFFIX = '-ghost';
 const DEFAULT_MIN_RADIUS = 4;
@@ -52,6 +54,11 @@ interface StudioScatterChartProps {
   colors?: string[];
   xAxisLabel?: string;
   yAxisLabel?: string;
+  /**
+   * Accessible name for the chart graphic — forwarded to the `ScatterChart`'s `title` prop,
+   * which becomes the chart container's `aria-label` (WCAG 1.1.1 / 4.1.2, finding M10).
+   */
+  ariaTitle?: string;
   slotProps?: Partial<ScatterChartProps>;
   /** Annotation reference lines rendered as chart children. */
   children?: React.ReactNode;
@@ -79,10 +86,12 @@ export function StudioScatterChart({
   colors,
   xAxisLabel,
   yAxisLabel,
+  ariaTitle,
   slotProps,
   children,
 }: StudioScatterChartProps) {
   const muiTheme = useTheme();
+  const { filterSummaryAndMore: andMore } = useStudioLocaleText();
   const { colorScheme } = useColorScheme();
   const resolvedMode = (colorScheme ?? muiTheme.palette.mode) as 'light' | 'dark';
 
@@ -246,6 +255,12 @@ export function StudioScatterChart({
   return (
     <div style={{ height }}>
       <ScatterChart
+        title={ariaTitle}
+        // Colour-by series are otherwise distinguished by hue alone (finding M10).
+        desc={buildChartDescription(
+          (colorSeries ?? []).map((entry) => String(entry.label ?? entry.id)),
+          andMore,
+        )}
         {...slotProps}
         skipAnimation={skipAnimation}
         series={resolvedSeries}

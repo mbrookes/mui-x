@@ -33,6 +33,13 @@ import { CrossFilterGhostBar } from './CrossFilterGhostBar';
 import { SourceSelectionContext } from './SourceSelectionContext';
 import { SourceSelectionBar } from './SourceSelectionBar';
 import { AxisFieldTooltip } from './StudioChartFieldTooltip';
+import {
+  buildChartDescription,
+  chartKeyboardActivationProps,
+  ChartFocusTracker,
+  CHART_KEYBOARD_NAV_PROPS,
+  useChartFocusRef,
+} from './chartA11y';
 
 const CROSS_FILTER_AXIS_ID = 'cross-filter-axis';
 const CROSS_FILTER_SERIES_ID = 'cross-filter-series';
@@ -110,6 +117,12 @@ export interface StudioBarChartProps {
   onAxisHoverChange: (axis: AxisItemIdentifier[] | null) => void;
   /** Emit a cross-filter for the clicked x-value (regular = single-select, shift = multi-select). */
   onItemClick: (label: string | number | Date, shiftKey: boolean) => void;
+  /**
+   * Accessible name for the chart graphic — forwarded to the `BarChart`'s `title` prop, which
+   * becomes the chart container's `aria-label`. Without it the chart is an unnamed graphic
+   * (WCAG 1.1.1 / 4.1.2, finding M10).
+   */
+  ariaTitle?: string;
   /** Spread onto the underlying BarChart. */
   slotProps?: Partial<BarChartProps>;
   /** Annotation reference lines rendered as chart children. */
@@ -157,11 +170,15 @@ export function StudioBarChart({
   onHoverChange,
   onAxisHoverChange,
   onItemClick,
+  ariaTitle,
   slotProps,
   children,
 }: StudioBarChartProps) {
   const localeText = useStudioLocaleText();
   const otherBucketLabel = localeText.chartOtherBucketLabel;
+  // Allocated unconditionally (rules of hooks): the three render paths below are mutually
+  // exclusive and each builds its own label array, but they all share this one focus ref.
+  const chartFocusRef = useChartFocusRef();
 
   // Sanitize `barMinBandSize`/`barCategoryGapRatio` — typed as `number` but, unlike every other
   // bar-chart config field, neither has ANY setup-panel UI (no `BarConfigSection.tsx` exists, and
@@ -425,8 +442,20 @@ export function StudioBarChart({
         : height;
     return (
       <CrossFilterBarContext.Provider value={multiYBarContext}>
-        <div style={{ height: multiYEffectiveHeight }}>
+        {/* The keydown is DELEGATED: it originates on x-charts' own focusable
+            keyboard-navigation proxy inside the chart and bubbles up here, so this wrapper is
+            deliberately not itself a tab stop (finding M10). */}
+        <div
+          style={{ height: multiYEffectiveHeight }}
+          {...chartKeyboardActivationProps(chartFocusRef, xAxisData, onItemClick)}
+        >
           <BarChart
+            {...CHART_KEYBOARD_NAV_PROPS}
+            title={ariaTitle}
+            desc={buildChartDescription(
+              series.map((entry) => String(entry.label ?? '')),
+              localeText.filterSummaryAndMore,
+            )}
             {...slotProps}
             skipAnimation={skipAnimation}
             layout={isHorizontalBarLayout ? 'horizontal' : undefined}
@@ -492,6 +521,7 @@ export function StudioBarChart({
             slots={multiYBarContext ? { bar: CrossFilterGhostBar } : undefined}
             slotProps={CHART_LEGEND_SLOT_PROPS}
           >
+            <ChartFocusTracker focusRef={chartFocusRef} />
             {children}
           </BarChart>
         </div>
@@ -609,8 +639,20 @@ export function StudioBarChart({
         : height;
     return (
       <CrossFilterBarContext.Provider value={sfBarContext}>
-        <div style={{ height: effectiveSFBarHeight }}>
+        {/* Delegated keydown — see the multi-Y wrapper above. */}
+        <div
+          style={{ height: effectiveSFBarHeight }}
+          {...chartKeyboardActivationProps(chartFocusRef, xAxisData, onItemClick)}
+        >
           <BarChart
+            {...CHART_KEYBOARD_NAV_PROPS}
+            title={ariaTitle}
+            // Split-by series are otherwise distinguished by hue alone — enumerate them so the
+            // chart's description names each category (finding M10).
+            desc={buildChartDescription(
+              effectiveSFData.seriesNames.map(String),
+              localeText.filterSummaryAndMore,
+            )}
             {...slotProps}
             skipAnimation={skipAnimation}
             layout={isHorizontalBarLayout ? 'horizontal' : undefined}
@@ -694,6 +736,7 @@ export function StudioBarChart({
             slots={sfBarContext ? { bar: CrossFilterGhostBar } : undefined}
             slotProps={CHART_LEGEND_SLOT_PROPS}
           >
+            <ChartFocusTracker focusRef={chartFocusRef} />
             {children}
           </BarChart>
         </div>
@@ -893,11 +936,30 @@ export function StudioBarChart({
       : {}),
   };
 
+  // Same "Other"-bucket guard the pointer path applies, reused for keyboard activation.
+  const isBlockedLabel = (label: string | number | Date) =>
+    otherGroupingApplied && label === otherBucketLabel;
+
   return (
     <SourceSelectionContext.Provider value={sourceSelectionCtxValue}>
       <CrossFilterBarContext.Provider value={singleBarContext}>
-        <div style={{ height: effectiveHBarHeight }}>
+        {/* Delegated keydown — see the multi-Y wrapper above. */}
+        <div
+          style={{ height: effectiveHBarHeight }}
+          {...chartKeyboardActivationProps(
+            chartFocusRef,
+            displayXAxisData,
+            onItemClick,
+            isBlockedLabel,
+          )}
+        >
           <BarChart
+            {...CHART_KEYBOARD_NAV_PROPS}
+            title={ariaTitle}
+            desc={buildChartDescription(
+              displayXAxisData.map((label) => formatLabel(String(label))),
+              localeText.filterSummaryAndMore,
+            )}
             {...slotProps}
             skipAnimation={skipAnimation}
             layout={isHorizontal ? 'horizontal' : undefined}
@@ -934,14 +996,12 @@ export function StudioBarChart({
             // The synthetic "Other" bucket has no single underlying category value, so a
             // cross-filter on it would match nothing — ignore the click. A real "Other"
             // category (no grouping active) still cross-filters normally.
-            onAxisClick={makeAxisClickHandler(
-              onItemClick,
-              (label) => otherGroupingApplied && label === otherBucketLabel,
-            )}
+            onAxisClick={makeAxisClickHandler(onItemClick, isBlockedLabel)}
             sx={{ cursor: 'default' }}
             slots={singleBarSlots}
             slotProps={CHART_LEGEND_SLOT_PROPS}
           >
+            <ChartFocusTracker focusRef={chartFocusRef} />
             {children}
           </BarChart>
         </div>

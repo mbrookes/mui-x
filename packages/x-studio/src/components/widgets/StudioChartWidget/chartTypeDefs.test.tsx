@@ -59,6 +59,12 @@ import { StudioLineAreaChart } from './StudioLineAreaChart';
 import { StudioScatterChart } from './StudioScatterChart';
 // eslint-disable-next-line import/first -- must follow the vi.mock calls above
 import { StudioSankeyChart } from './StudioSankeyChart';
+// eslint-disable-next-line import/first -- must follow the vi.mock calls above
+import { StudioFunnelChart } from './StudioFunnelChart';
+// eslint-disable-next-line import/first -- must follow the vi.mock calls above
+import { StudioGanttChart } from './StudioGanttChart';
+// eslint-disable-next-line import/first -- must follow the vi.mock calls above
+import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
 
 const dataSource: StudioDataSource = {
   id: 'src',
@@ -536,6 +542,84 @@ describe('chart-family renderers consult allChartData before bailing to EmptyCha
 
       expect(view.type).toBe(StudioSankeyChart);
       expect((view.props as { linkColor?: string }).linkColor).toBe('target');
+    });
+  });
+
+  // The funnel and gantt renderers used to hand an empty result straight to their chart
+  // components, which bail out with `return null` — a silently blank widget body. Sankey
+  // already showed `StudioNoDataOverlay` for the same situation.
+  describe('empty post-aggregation results are consistent across families', () => {
+    const funnelConfig: StudioWidgetConfig = {
+      chartType: 'funnel',
+      xField: 'category',
+      yField: 'amount',
+    } as StudioWidgetConfig;
+    const ganttConfig: StudioWidgetConfig = {
+      chartType: 'gantt',
+      ganttLabelField: 'label',
+      ganttStartField: 'start',
+      ganttEndField: 'end',
+    } as StudioWidgetConfig;
+    const rows = [{ category: 'a', amount: 1, label: 'l', start: 's', end: 'e' }];
+
+    it('funnel: shows the no-data overlay instead of rendering nothing', () => {
+      buildFunnelStagesSpy.mockReturnValue({ stages: [], sort: 'none' });
+      const view = CHART_TYPE_DEFS.funnel.render(makeCtx(funnelConfig, rows));
+      expect(view.type).toBe(StudioNoDataOverlay);
+    });
+
+    it('funnel (reached mode): shows the no-data overlay instead of rendering nothing', () => {
+      aggregateFunnelReachedSpy.mockReturnValue({ stages: [] });
+      const view = CHART_TYPE_DEFS.funnel.render(
+        makeCtx(
+          {
+            ...funnelConfig,
+            funnelReachedField: 'region',
+            funnelStageSequence: ['a', 'b'],
+          } as StudioWidgetConfig,
+          rows,
+        ),
+      );
+      expect(view.type).toBe(StudioNoDataOverlay);
+    });
+
+    it('funnel: still renders the chart when stages exist', () => {
+      buildFunnelStagesSpy.mockReturnValue({
+        stages: [{ label: 'a', value: 1 }],
+        sort: 'none',
+      });
+      const view = CHART_TYPE_DEFS.funnel.render(makeCtx(funnelConfig, [...rows]));
+      expect(view.type).toBe(StudioFunnelChart);
+    });
+
+    it('gantt: shows the no-data overlay instead of rendering nothing', () => {
+      buildGanttItemsSpy.mockReturnValue({ items: [], categories: [] });
+      const view = CHART_TYPE_DEFS.gantt.render(makeCtx(ganttConfig, rows));
+      expect(view.type).toBe(StudioNoDataOverlay);
+    });
+
+    it('gantt: still renders the chart when items exist', () => {
+      buildGanttItemsSpy.mockReturnValue({
+        items: [{ label: 'l', startMs: 0, endMs: 1 }],
+        categories: [],
+      });
+      const view = CHART_TYPE_DEFS.gantt.render(makeCtx(ganttConfig, [...rows]));
+      expect(view.type).toBe(StudioGanttChart);
+    });
+  });
+
+  // M11: `gauge` was the only family that skipped the shared chart-support guard. With an
+  // unresolvable measure, `useChartRows` short-circuits to `[]`, the gauge aggregates nothing
+  // and renders a confident `0` where every other family explains the problem.
+  describe('guard flags', () => {
+    it('runs the shared chart-support guard for the gauge', () => {
+      expect(CHART_TYPE_DEFS.gauge.runsSupportGuard).toBe(true);
+    });
+
+    it('keeps the support guard on for every family', () => {
+      for (const [chartType, def] of Object.entries(CHART_TYPE_DEFS)) {
+        expect([chartType, def.runsSupportGuard]).toEqual([chartType, true]);
+      }
     });
   });
 });

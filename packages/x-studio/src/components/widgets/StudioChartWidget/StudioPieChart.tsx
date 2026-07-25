@@ -14,6 +14,13 @@ import { computeControlledHighlight } from './chartWidgetHelpers';
 import { PieHighlightContext } from './PieCrossHighlightContext';
 import { PIE_HIGHLIGHT_SLOTS } from './PieCrossHighlightSlots';
 import { ChartFieldTitleContext, ItemFieldTooltip } from './StudioChartFieldTooltip';
+import {
+  buildChartDescription,
+  chartKeyboardActivationProps,
+  ChartFocusTracker,
+  CHART_KEYBOARD_NAV_PROPS,
+  useChartFocusRef,
+} from './chartA11y';
 
 const CROSS_FILTER_SERIES_ID = 'cross-filter-series';
 
@@ -128,6 +135,11 @@ export interface StudioPieChartProps {
   onHoverChange: (item: PieHighlightItem | null) => void;
   /** Emit a cross-filter for the clicked slice (regular = single-select, shift = multi-select). */
   onItemClick: (label: string | number | Date, shiftKey: boolean) => void;
+  /**
+   * Accessible name for the chart graphic — forwarded to the `PieChart`'s `title` prop, which
+   * becomes the chart container's `aria-label` (WCAG 1.1.1 / 4.1.2, finding M10).
+   */
+  ariaTitle?: string;
   /** Spread onto the underlying PieChart. */
   slotProps?: Partial<PieChartProps>;
 }
@@ -169,11 +181,14 @@ export function StudioPieChart({
   hasIncomingCrossFilters,
   onHoverChange,
   onItemClick,
+  ariaTitle,
   slotProps,
 }: StudioPieChartProps) {
   const theme = useTheme();
   const localeText = useStudioLocaleText();
   const otherBucketLabel = localeText.chartOtherBucketLabel;
+  // Allocated unconditionally (rules of hooks) — shared by the ring and single-series paths.
+  const chartFocusRef = useChartFocusRef();
 
   // Resolve the colour palette shared by the single-series arcs, the custom legend, AND the
   // grouped concentric rings so they always agree. Priority: explicit chartColors > theme
@@ -514,6 +529,13 @@ export function StudioPieChart({
     return (
       <PieRingDimContext.Provider value={ringDimMap}>
         <PieChart
+          title={ariaTitle}
+          // Rings and their split-by categories are otherwise distinguished by hue alone —
+          // enumerate the rings so the description names each one (finding M10).
+          desc={buildChartDescription(
+            rings.map((ring) => String(ring.label)),
+            localeText.filterSummaryAndMore,
+          )}
           {...slotProps}
           height={twoRingPieH}
           skipAnimation={skipAnimation}
@@ -627,12 +649,37 @@ export function StudioPieChart({
     onItemClick(label, Boolean(event?.shiftKey));
   };
 
-  // When no "Other" grouping is applied, displayLabels === pieBaseData.labels (which is
-  // allChartData.labels while a cross-highlight is active, chartData.labels otherwise) —
-  // the same ordering the arcs below are rendered from. Compute the highlighted indices
-  // against that ordering so an own-selection plus an incoming cross-filter highlights the
-  // correct arc. (With pieMaxSlices the labels are re-sorted/grouped, so we skip highlighting.)
-  const selectedDataIndices = pieMaxSlices ? [] : getSelectedDataIndices(displayLabels);
+  // Keyboard cross-filtering: Enter / Space on the arc x-charts' keyboard navigation has
+  // focused emits the same cross-filter as a pointer click, with the same synthetic-"Other"
+  // guard `handleSliceClick` applies (finding M10).
+  const pieKeyboardProps = chartKeyboardActivationProps(
+    chartFocusRef,
+    displayLabels,
+    onItemClick,
+    (label) => otherIsSynthetic && String(label) === otherBucketLabel,
+  );
+
+  // Text alternative for the single-series pie: slices are distinguished by hue alone once arc
+  // labels are off, so name every slice in the chart's description (finding M10).
+  const pieAriaDescription = buildChartDescription(
+    displayLabels.map(
+      (label, i) => `${formatLabel(label)}: ${valueFormatter(displayValues[i] ?? null)}`,
+    ),
+    localeText.filterSummaryAndMore,
+  );
+
+  // Selection is computed against the RENDERED (display) label order, exactly like the bar
+  // chart's `getSelectedDataIndices(displayXAxisData)`. `getSelectedDataIndices` matches by
+  // LABEL, so the re-sorting/grouping `pieMaxSlices` applies is irrelevant: a kept label
+  // resolves to its new rendered index, a folded-away label simply yields no index, and the
+  // synthetic "Other" bucket can never match a real selected category.
+  //
+  // This was previously suppressed whenever `pieMaxSlices` was merely *set* (`pieMaxSlices ? []
+  // : …`). Because grouping only kicks in at `displayLabels.length >= pieMaxSlices`, a
+  // `pieMaxSlices: 8` over 5 categories does no grouping at all yet still lost its selected
+  // arc: clicking a slice applied the cross-filter (siblings narrowed, the chip appeared) while
+  // the pie showed no selection at all.
+  const selectedDataIndices = getSelectedDataIndices(displayLabels);
 
   // Capture local copy to avoid TDZ in valueFormatter closures
   const localPieValueFormatter = valueFormatter;
@@ -645,13 +692,18 @@ export function StudioPieChart({
   // than falling through to the `: allValue` fallback below, which rendered the ghost at full
   // (undimmed) opacity instead of the "filtered out" treatment (Tier 2 finding). `.get(...) ?? 0`
   // below already handles an empty map correctly (every label resolves to 0 = fully filtered out).
+  //
+  // Both the keep-set exclusion and the fold-in sum are gated on `otherIsSynthetic`, mirroring
+  // the bar chart's `otherGroupingApplied &&` guards. Without it, a dashboard with a REAL
+  // category literally named "Other" (and no grouping active) had that category absorb the
+  // filtered value of every other category, so it rendered fully undimmed under a
+  // cross-highlight while its true filtered value could be zero.
   let filteredDisplayValues: number[] | null = null;
   if (isPieHighlightActive) {
-    const keepSet = new Set(
-      displayLabels.filter((l) => String(l) !== otherBucketLabel).map(String),
-    );
+    const isOtherBucket = (l: unknown) => otherIsSynthetic && String(l) === otherBucketLabel;
+    const keepSet = new Set(displayLabels.filter((l) => !isOtherBucket(l)).map(String));
     filteredDisplayValues = displayLabels.map((label) => {
-      if (String(label) === otherBucketLabel) {
+      if (isOtherBucket(label)) {
         let sum = 0;
         for (const [lbl, fv] of pieFilteredValueByLabel) {
           if (!keepSet.has(lbl)) {
@@ -784,8 +836,16 @@ export function StudioPieChart({
     <ChartFieldTitleContext.Provider value={fieldLabel}>
       <PieHighlightContext.Provider value={pieDisplayCtxValue}>
         {pieLegendBelow ? (
-          <React.Fragment>
+          // `display: contents` so wiring the keyboard handler adds no box of its own — the
+          // PieChart and the custom legend keep the exact layout they had under a Fragment.
+          // The keydown is DELEGATED: it originates on x-charts' own focusable
+          // keyboard-navigation proxy inside the chart and bubbles up here, so this wrapper is
+          // deliberately not itself a tab stop (finding M10).
+          <div style={{ display: 'contents' }} {...pieKeyboardProps}>
             <PieChart
+              {...CHART_KEYBOARD_NAV_PROPS}
+              title={ariaTitle}
+              desc={pieAriaDescription}
               {...slotProps}
               height={pieH}
               skipAnimation={skipAnimation}
@@ -799,7 +859,9 @@ export function StudioPieChart({
               }
               onItemClick={handleSliceClick}
               sx={{ cursor: 'default' }}
-            />
+            >
+              <ChartFocusTracker focusRef={chartFocusRef} />
+            </PieChart>
             {/* Custom legend: color swatch + left-aligned label + right-aligned percentage */}
             <Box sx={{ px: 1.5, pb: 1 }}>
               {displayLabels.map((label, i) => {
@@ -858,10 +920,14 @@ export function StudioPieChart({
                 );
               })}
             </Box>
-          </React.Fragment>
+          </div>
         ) : (
-          <div style={{ height }}>
+          // Delegated keydown — see the legend-below wrapper above.
+          <div style={{ height }} {...pieKeyboardProps}>
             <PieChart
+              {...CHART_KEYBOARD_NAV_PROPS}
+              title={ariaTitle}
+              desc={pieAriaDescription}
               {...slotProps}
               skipAnimation={skipAnimation}
               slots={PIE_FIELD_SLOTS}
@@ -874,7 +940,9 @@ export function StudioPieChart({
               }
               onItemClick={handleSliceClick}
               sx={{ cursor: 'default' }}
-            />
+            >
+              <ChartFocusTracker focusRef={chartFocusRef} />
+            </PieChart>
           </div>
         )}
       </PieHighlightContext.Provider>

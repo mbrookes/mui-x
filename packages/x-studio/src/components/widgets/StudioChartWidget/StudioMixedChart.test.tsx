@@ -18,8 +18,14 @@ vi.mock('@mui/x-charts/LineChart', () => ({ LinePlot: () => null, MarkPlot: () =
 vi.mock('@mui/x-charts/ChartsWrapper', () => ({
   ChartsWrapper: (p: { children?: React.ReactNode }) => <div>{p.children}</div>,
 }));
+// Captures the surface props so the accessibility assertions can read `title`/`desc`
+// (the mixed chart composes `ChartsSurface` directly rather than a whole chart component).
+const chartsSurfaceSpy = vi.fn();
 vi.mock('@mui/x-charts/ChartsSurface', () => ({
-  ChartsSurface: (p: { children?: React.ReactNode }) => <div>{p.children}</div>,
+  ChartsSurface: (p: { children?: React.ReactNode }) => {
+    chartsSurfaceSpy(p);
+    return <div>{p.children}</div>;
+  },
 }));
 vi.mock('@mui/x-charts/ChartsXAxis', () => ({ ChartsXAxis: () => null }));
 vi.mock('@mui/x-charts/ChartsYAxis', () => ({ ChartsYAxis: () => null }));
@@ -101,6 +107,7 @@ describe('StudioMixedChart', () => {
 
   beforeEach(() => {
     dataProviderSpy.mockClear();
+    chartsSurfaceSpy.mockClear();
   });
 
   it('maps each y-series to its configured bar/line type (matched by fieldId)', () => {
@@ -282,5 +289,19 @@ describe('StudioMixedChart', () => {
     // 'count' field has format: 'integer' — non-compact by default at this call site's
     // options-less usage matches the y-axis's own makeValueFormatter call.
     expect(countSeries.valueFormatter!(1500000)).not.toBe('1500000');
+  });
+
+  // M10: the mixed chart shipped with no accessible name, and its bar/line series are
+  // otherwise distinguished by hue and mark shape alone.
+  describe('accessibility', () => {
+    it('names the chart surface and describes its series', () => {
+      renderMixed(baseProps({ ariaTitle: 'Revenue and orders' }));
+      const props = chartsSurfaceSpy.mock.calls.at(-1)?.[0] as { title?: string; desc?: string };
+      expect(props.title).toBe('Revenue and orders');
+      expect(props.desc).toBeTruthy();
+      for (const series of lastProps().series) {
+        expect(props.desc).toContain(series.label);
+      }
+    });
   });
 });

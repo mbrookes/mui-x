@@ -1,10 +1,12 @@
 'use client';
 import * as React from 'react';
-import { useTheme } from '@mui/material';
+import { Box, useTheme } from '@mui/material';
 import { HeatmapPremium } from '@mui/x-charts-premium/HeatmapPremium';
 import type { HeatmapData } from '../../../internals/chartShapes/heatmap';
 import type { StudioChartConfig, StudioDataField } from '../../../models';
 import { formatFieldValue } from '../../../internals/numberFormat';
+import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
+import { buildChartDescription } from './chartA11y';
 
 /**
  * Allow-list of the theme-palette keys a heatmap may index for its cell gradient. Guards
@@ -34,6 +36,18 @@ interface StudioHeatmapChartProps {
   colorScheme: NonNullable<StudioChartConfig['heatColorScheme']>;
   legendPosition: NonNullable<StudioChartConfig['heatLegendPosition']>;
   legendAlign: NonNullable<StudioChartConfig['heatLegendAlign']>;
+  /**
+   * Accessible name for the chart graphic (WCAG 1.1.1 / 4.1.2, finding M10).
+   *
+   * Unlike every sibling family, `HeatmapPremium` does NOT thread `title`/`desc` through to its
+   * `ChartsLayerContainer` — it renders `<ChartsLayerContainer>` with no props — so passing
+   * them would silently do nothing. The name is applied on a `role="img"` wrapper instead,
+   * matching the pattern `StudioSankeyChart` / `StudioGanttChart` / `KpiSparkline` already use.
+   * Safe here specifically because the studio heatmap is non-interactive: it wires no
+   * cross-filter click and leaves x-charts' (opt-in, default-off) keyboard navigation disabled,
+   * so `role="img"` hides no focusable descendant.
+   */
+  ariaTitle?: string;
 }
 
 /**
@@ -50,8 +64,10 @@ export function StudioHeatmapChart({
   colorScheme,
   legendPosition,
   legendAlign,
+  ariaTitle,
 }: StudioHeatmapChartProps) {
   const theme = useTheme();
+  const { filterSummaryAndMore: andMore } = useStudioLocaleText();
   const { xLabels, yLabels, cells, minValue, maxValue } = heatData;
 
   // `@mui/x-charts-pro`'s `HeatmapValueType` tuple has no null slot — a cell with
@@ -109,50 +125,66 @@ export function StudioHeatmapChart({
       };
   const heatValueFormatter = (v: number) => formatFieldValue(v, valueFieldDef);
 
+  // Text alternative: the heatmap is a visual-only SVG whose cells encode value by colour
+  // intensity alone. Name the chart, then its two dimensions and value range — a single
+  // `aria-label` rather than a separate description, since `role="img"` exposes no children
+  // to build an `aria-describedby` target from.
+  const heatAriaLabel = buildChartDescription(
+    [
+      ...(ariaTitle ? [ariaTitle] : []),
+      ...(xFieldLabel ? [xFieldLabel] : []),
+      ...(yFieldLabel ? [yFieldLabel] : []),
+      `${heatValueFormatter(minValue)} – ${heatValueFormatter(maxValue)}`,
+    ],
+    andMore,
+  );
+
   return (
-    <HeatmapPremium
-      height={height}
-      series={[
-        {
-          data: seriesData,
-          valueFormatter: (v) => (v == null ? '' : heatValueFormatter(v)),
-        },
-      ]}
-      xAxis={[
-        {
-          data: xLabels,
-          label: xFieldLabel,
-          height: xFieldLabel ? 60 : 40,
-        },
-      ]}
-      yAxis={[
-        {
-          data: yLabels,
-          label: yFieldLabel,
-          width: yAxisWidth,
-        },
-      ]}
-      zAxis={[
-        {
-          colorMap: {
-            type: 'continuous',
-            color: [colorRampBase, paletteColor],
-            min: minValue,
-            max: maxValue,
+    <Box role="img" aria-label={heatAriaLabel} sx={{ width: '100%', height }}>
+      <HeatmapPremium
+        height={height}
+        series={[
+          {
+            data: seriesData,
+            valueFormatter: (v) => (v == null ? '' : heatValueFormatter(v)),
           },
-        },
-      ]}
-      hideLegend={legendPosition === 'hidden'}
-      slotProps={{
-        legend: {
-          position: heatLegendPos,
-          direction: heatLegendDirection,
-          minLabel: ({ value }) => heatValueFormatter(value as number),
-          maxLabel: ({ value }) => heatValueFormatter(value as number),
-          // Match the map widget's legend dimensions (180px wide / 140px tall).
-          sx: isVerticalHeatLegend ? { height: 140 } : { width: 180 },
-        },
-      }}
-    />
+        ]}
+        xAxis={[
+          {
+            data: xLabels,
+            label: xFieldLabel,
+            height: xFieldLabel ? 60 : 40,
+          },
+        ]}
+        yAxis={[
+          {
+            data: yLabels,
+            label: yFieldLabel,
+            width: yAxisWidth,
+          },
+        ]}
+        zAxis={[
+          {
+            colorMap: {
+              type: 'continuous',
+              color: [colorRampBase, paletteColor],
+              min: minValue,
+              max: maxValue,
+            },
+          },
+        ]}
+        hideLegend={legendPosition === 'hidden'}
+        slotProps={{
+          legend: {
+            position: heatLegendPos,
+            direction: heatLegendDirection,
+            minLabel: ({ value }) => heatValueFormatter(value as number),
+            maxLabel: ({ value }) => heatValueFormatter(value as number),
+            // Match the map widget's legend dimensions (180px wide / 140px tall).
+            sx: isVerticalHeatLegend ? { height: 140 } : { width: 180 },
+          },
+        }}
+      />
+    </Box>
   );
 }

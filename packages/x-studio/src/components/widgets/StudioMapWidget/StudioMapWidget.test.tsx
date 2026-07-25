@@ -1477,3 +1477,120 @@ describe('<StudioMapWidget /> geography loader staleness & error recovery', () =
     expect(view.queryByRole('alert')).toBeNull();
   });
 });
+
+describe('<StudioMapWidget /> aggregation and colour-scale bounds', () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+
+        unobserve() {}
+
+        disconnect() {}
+      },
+    );
+    geoDataProviderSpy.mockClear();
+    mockState = createState({
+      widgets: { 'map-1': baseWidget },
+      dataSources: { sales: dataSource },
+    });
+    configureStudioContextMock({ getState: () => mockState, controller });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+    rows = DEFAULT_ROWS;
+    mockGeographies = { world: geographyDef, flex: flexGeographyDef };
+  });
+
+  function latestRegionValues(): Record<string, number> {
+    const props = geoDataProviderSpy.mock.calls.at(-1)?.[0] as {
+      series?: Array<{ data: Array<{ name: string; colorValue: number }> }>;
+    };
+    const out: Record<string, number> = {};
+    for (const point of props?.series?.[0]?.data ?? []) {
+      out[point.name] = point.colorValue;
+    }
+    return out;
+  }
+
+  async function renderWithConfig(config: Record<string, unknown>) {
+    const widget = {
+      ...baseWidget,
+      config: { ...baseWidget.config, ...config },
+    } as unknown as StudioWidget;
+    mockState = createState({
+      widgets: { 'map-1': widget },
+      dataSources: { sales: dataSource },
+    });
+    configureStudioContextMock({ getState: () => mockState, controller });
+    await renderMap(widget);
+  }
+
+  // M7: `configKeyValidation` screens config KEY NAMES, never their VALUES, so an
+  // unrecognized `mapAggregation` used to be cast straight to `AggFn` and fell through
+  // `aggregateNumbers`' `case 'sum': default:` with no error anywhere.
+  it('falls back to sum for an unrecognized mapAggregation instead of silently reinterpreting it', async () => {
+    rows = [
+      { country: 'x', sales: 1 },
+      { country: 'x', sales: 3 },
+    ];
+    await renderWithConfig({ mapGeography: 'flex', mapAggregation: 'median' });
+    expect(latestRegionValues()).toEqual({ x: 4 });
+  });
+
+  // `count_distinct` is a real `aggregateNumbers` function that is NOT a valid map
+  // aggregation — before the allow-list it reached a genuinely different code path and
+  // rendered a distinct count (2) where every label claimed a sum.
+  it('does not let a non-map aggregateNumbers function through the widget boundary', async () => {
+    rows = [
+      { country: 'x', sales: 1 },
+      { country: 'x', sales: 3 },
+    ];
+    await renderWithConfig({ mapGeography: 'flex', mapAggregation: 'count_distinct' });
+    expect(latestRegionValues()).toEqual({ x: 4 });
+  });
+
+  it('still honours every valid aggregation name', async () => {
+    rows = [
+      { country: 'x', sales: 1 },
+      { country: 'x', sales: 3 },
+    ];
+    await renderWithConfig({ mapGeography: 'flex', mapAggregation: 'avg' });
+    expect(latestRegionValues()).toEqual({ x: 2 });
+  });
+
+  // M5: `regionData` is keyed by `normalize(row[countryField])` over ALL rows BEFORE any
+  // feature join, so a host-registered normalizer over a postcode-grain source produces far
+  // more entries than the geography has features. `Math.min(...values)` threw
+  // `RangeError: Maximum call stack size exceeded` past ~125k arguments.
+  it('computes the colour-scale bounds over a region set larger than the spread-argument limit', async () => {
+    const REGION_COUNT = 150_000;
+    const bigRows: Array<Record<string, unknown>> = new Array(REGION_COUNT);
+    for (let i = 0; i < REGION_COUNT; i += 1) {
+      bigRows[i] = { country: `r${i}`, sales: i + 1 };
+    }
+    rows = bigRows;
+    // 'usa' keeps `featureIdToLabel` on the cheap `STATE_ABBR_TO_NAME` lookup rather than
+    // running an `Intl.DisplayNames` probe per region; the normalizer is what matters here.
+    mockGeographies = {
+      usa: {
+        label: 'Postcodes',
+        fieldLabel: 'Postcode field',
+        fieldHint: '',
+        normalizer: (v: unknown) => (v == null ? null : String(v)),
+        loader: () => Promise.resolve({ type: 'FeatureCollection', features: [] }),
+      },
+    };
+
+    // Rendering at all is the regression: the spread threw before reaching the plot.
+    await renderWithConfig({ mapGeography: 'usa' });
+
+    const values = latestRegionValues();
+    expect(Object.keys(values)).toHaveLength(REGION_COUNT);
+    expect(values.r0).toBe(1);
+    expect(values[`r${REGION_COUNT - 1}`]).toBe(REGION_COUNT);
+  });
+});

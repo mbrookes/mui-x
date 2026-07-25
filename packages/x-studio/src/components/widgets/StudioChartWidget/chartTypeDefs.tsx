@@ -168,6 +168,13 @@ export interface ChartRenderContext<T extends StudioChartType = StudioChartType>
   onAxisHoverChange: (axis: AxisItemIdentifier[] | null) => void;
   onItemClick: (label: string | number | Date, shiftKey: boolean) => void;
   annotationChildren: React.ReactNode;
+  /**
+   * Accessible name for the rendered chart — the widget's own (or inferred) title, e.g.
+   * "Revenue by Region". Forwarded to each family's `title` prop (or, for the families whose
+   * underlying x-charts component does not thread `title` through, to an `aria-label` on a
+   * wrapper), so the chart is not an unnamed graphic (WCAG 1.1.1 / 4.1.2, finding M10).
+   */
+  chartAriaTitle: string;
 }
 
 /** Descriptor for a single `StudioChartType`'s guard-order behavior and rendering. */
@@ -240,6 +247,7 @@ function renderBar(ctx: ChartRenderContext<'bar' | 'bar-stacked' | 'bar-100'>): 
     <StudioBarChart
       chartType={chartType}
       height={chartHeight}
+      ariaTitle={ctx.chartAriaTitle}
       barLayout={ctx.barLayout}
       chartData={chartData}
       allChartData={ctx.allChartData}
@@ -313,6 +321,7 @@ function renderPieDonut(ctx: ChartRenderContext<'pie' | 'donut'>): React.ReactEl
     <StudioPieChart
       chartType={chartType}
       height={chartHeight}
+      ariaTitle={ctx.chartAriaTitle}
       chartData={chartData}
       allChartData={ctx.allChartData}
       enrichedRows={ctx.enrichedRows}
@@ -390,6 +399,7 @@ function renderLineArea(
     <StudioLineAreaChart
       chartType={chartType}
       height={chartHeight}
+      ariaTitle={ctx.chartAriaTitle}
       chartData={chartData}
       allChartData={ctx.allChartData}
       seriesFieldData={ctx.seriesFieldData}
@@ -441,6 +451,7 @@ function renderScatter(ctx: ChartRenderContext<'scatter'>): React.ReactElement {
   return (
     <StudioScatterChart
       height={ctx.chartHeight}
+      ariaTitle={ctx.chartAriaTitle}
       colorField={config.scatterColorField}
       sizeField={config.scatterSizeField}
       minRadius={config.scatterMinRadius}
@@ -479,6 +490,7 @@ function renderMixed(ctx: ChartRenderContext<'mixed'>): React.ReactElement {
   return (
     <StudioMixedChart
       multiYData={multiYData}
+      ariaTitle={ctx.chartAriaTitle}
       ySeries={config.ySeries ?? []}
       dualYAxis={config.dualYAxis}
       resolvedChartColors={ctx.resolvedChartColors}
@@ -570,6 +582,7 @@ function renderHeatmap(ctx: ChartRenderContext<'heatmap'>): React.ReactElement {
   return (
     <StudioHeatmapChart
       height={chartHeight}
+      ariaTitle={ctx.chartAriaTitle}
       heatData={heatData}
       xFieldLabel={xFieldDef?.label}
       yFieldLabel={yFieldDef?.label}
@@ -642,10 +655,15 @@ function renderFunnel(ctx: ChartRenderContext<'funnel'>): React.ReactElement {
         ),
     );
 
+    if (reached.stages.length === 0) {
+      return <StudioNoDataOverlay height={chartHeight} />;
+    }
+
     return (
       <StudioFunnelChart
         stages={reached.stages.map((s) => ({ label: s.label, value: s.value }))}
         height={chartHeight}
+        ariaTitle={ctx.chartAriaTitle}
         valueFormat="integer"
         labelFormat={config.funnelLabelFormat}
         labelPlacement={funnelLabelPlacementSafe}
@@ -685,10 +703,18 @@ function renderFunnel(ctx: ChartRenderContext<'funnel'>): React.ReactElement {
   const funnelLabelPlacement =
     funnelLabelPlacementSafe ?? (funnelLabelFormat === 'conversion' ? 'outside-end' : 'inside');
 
+  // Empty post-aggregation result — surface the shared "no data" overlay, the same as
+  // `renderSankey` below. `StudioFunnelChart` also bails on an empty stage list, but it
+  // returns `null`, which renders a silently blank widget body with no explanation.
+  if (stages.length === 0) {
+    return <StudioNoDataOverlay height={chartHeight} />;
+  }
+
   return (
     <StudioFunnelChart
       stages={stages}
       height={chartHeight}
+      ariaTitle={ctx.chartAriaTitle}
       valueFormat={valueFieldDef?.format}
       currencyCode={valueFieldDef?.currencyCode}
       labelFormat={funnelLabelFormat}
@@ -768,6 +794,14 @@ function renderGantt(ctx: ChartRenderContext<'gantt'>): React.ReactElement {
     () => buildGanttItems(enrichedRows, labelField, startField, endField, colorField),
   );
 
+  // Empty post-aggregation result (e.g. every row has an unparseable start/end date) —
+  // surface the shared "no data" overlay, the same as `renderSankey`/`renderFunnel`.
+  // `StudioGanttChart` also bails on an empty item list, but it returns `null`, which
+  // renders a silently blank widget body with no explanation.
+  if (items.length === 0) {
+    return <StudioNoDataOverlay height={chartHeight} />;
+  }
+
   return <StudioGanttChart items={items} height={chartHeight} categories={categories} />;
 }
 
@@ -821,9 +855,10 @@ function renderGauge(ctx: ChartRenderContext<'gauge'>): React.ReactElement {
  *
  * `needsXField` / `runsSupportGuard` / `runsNoDataGuard` encode each type's exact
  * guard-order behavior from the pre-registry if-chain:
- *  - `gauge` is the only type that skips ALL three guards (it handles its own
- *    unconfigured state — see `renderGauge` — and dispatches before the shared
- *    chart-support / no-data checks).
+ *  - `gauge` skips the xField-required and no-data guards (it handles its own
+ *    unconfigured state — see `renderGauge`) but DOES run the shared chart-support
+ *    guard, so an unresolvable measure surfaces the "unsupported field" overlay
+ *    rather than rendering a confident `0` over zero rows.
  *  - `gantt` skips only the shared xField-required guard (it has its own
  *    label/start/end field guard inside `renderGantt`).
  *  - every other type requires xField and runs both shared guards. `mixed`'s
@@ -920,7 +955,15 @@ export const CHART_TYPE_DEFS = {
   },
   gauge: {
     needsXField: false,
-    runsSupportGuard: false,
+    // Runs the shared support guard like every other family. It used to skip it, which meant
+    // an unresolvable measure (a field removed from the source, or one reachable only through
+    // an unsupported multi-hop topology) produced no "unsupported field" overlay at all:
+    // `useChartRows` short-circuits to `[]` for an unsupported configuration, the gauge
+    // aggregated nothing, and it rendered a confident `0` — a real, wrong number — where a bar
+    // chart with the identical misconfiguration explains the problem (finding M11).
+    // `analyzeChartSupport` short-circuits to `supported: true` when no fields are requested,
+    // so a gauge with no measure at all still reaches `renderGauge`'s own "configure" hint.
+    runsSupportGuard: true,
     runsNoDataGuard: false,
     render: renderGauge,
   },

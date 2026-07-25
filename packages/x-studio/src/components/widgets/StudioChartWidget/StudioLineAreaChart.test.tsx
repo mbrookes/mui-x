@@ -781,6 +781,40 @@ describe('StudioLineAreaChart', () => {
       dataIndex: 1,
     });
   });
+
+  describe('accessibility', () => {
+    // M10: the line/area family shipped with no accessible name at all, while the gantt /
+    // sankey / KPI-sparkline siblings in the same directory all provide one.
+    it('names the chart and describes its categories (single series)', () => {
+      renderChart(baseProps({ ariaTitle: 'Revenue over time' }));
+      const props = lastLineProps() as unknown as { title?: string; desc?: string };
+      expect(props.title).toBe('Revenue over time');
+      expect(props.desc).toBe('A, B, C');
+    });
+
+    it('names the split-by series, which are otherwise distinguished by hue alone', () => {
+      renderChart(
+        baseProps({
+          ariaTitle: 'Revenue by segment',
+          seriesFieldData: {
+            labels: ['A', 'B'],
+            seriesNames: ['SMB', 'Enterprise'],
+            seriesData: { SMB: [1, 2], Enterprise: [3, 4] },
+          },
+        }),
+      );
+      const props = lastLineProps() as unknown as { title?: string; desc?: string };
+      expect(props.desc).toBe('SMB, Enterprise');
+    });
+
+    // x-charts defaults `disableKeyboardNavigation` to `true`, so before this the built-in
+    // keyboard navigation was not even active — Enter/Space could never reach a data item.
+    it('opts into x-charts keyboard navigation', () => {
+      renderChart(baseProps());
+      const props = lastLineProps() as unknown as { disableKeyboardNavigation?: boolean };
+      expect(props.disableKeyboardNavigation).toBe(false);
+    });
+  });
 });
 
 // ── Finding 1 (Tier 1) regression: confidence-band stacking geometry ──

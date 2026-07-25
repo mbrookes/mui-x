@@ -15,6 +15,8 @@ import { normalizeChartSeries } from '@mui/x-studio-schema';
 import type { StudioChartConfig, StudioDataSource, StudioExpressionField } from '../../../models';
 import type { MultiYSeriesData } from '../../../internals/chartAggregation';
 import { makeValueFormatter, resolveFieldDef } from './chartWidgetHelpers';
+import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
+import { buildChartDescription } from './chartA11y';
 
 type YSeriesConfig = NonNullable<StudioChartConfig['ySeries']>[number];
 
@@ -63,6 +65,11 @@ export interface StudioMixedChartProps {
    * (finding 2.3).
    */
   formatLabel: (label: string | number) => string;
+  /**
+   * Accessible name for the chart graphic — forwarded to `ChartsSurface`'s `title` prop, which
+   * becomes the chart container's `aria-label` (WCAG 1.1.1 / 4.1.2, finding M10).
+   */
+  ariaTitle?: string;
   /** Annotation reference lines rendered as chart children. */
   children?: React.ReactNode;
 }
@@ -84,8 +91,10 @@ export function StudioMixedChart({
   height,
   skipAnimation,
   formatLabel,
+  ariaTitle,
   children,
 }: StudioMixedChartProps) {
+  const { filterSummaryAndMore: andMore } = useStudioLocaleText();
   const mixedSeries = multiYData.series.map((s, index) => {
     // Match the config by fieldId, for both blended and non-blended charts.
     // `multiYData.series` order does NOT reliably line up with `ySeries` by index for
@@ -229,7 +238,14 @@ export function StudioMixedChart({
         skipAnimation={skipAnimation}
       >
         <ChartsWrapper>
-          <ChartsSurface>
+          <ChartsSurface
+            title={ariaTitle}
+            // Bar and line series are otherwise distinguished by hue/shape alone (finding M10).
+            desc={buildChartDescription(
+              mixedSeries.map((entry) => String(entry.label ?? '')),
+              andMore,
+            )}
+          >
             <ChartsGrid horizontal />
             <BarPlot />
             <LinePlot />

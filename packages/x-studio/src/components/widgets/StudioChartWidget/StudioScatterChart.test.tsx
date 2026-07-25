@@ -624,4 +624,53 @@ describe('StudioScatterChart', () => {
       expect(props.slotProps?.legend?.sx?.maxHeight).toBe('100%');
     });
   });
+
+  // M10: the scatter chart shipped with no accessible name, and its colour-by series are
+  // otherwise distinguished by hue alone.
+  describe('accessibility', () => {
+    it('names the chart and describes its colour-by series', () => {
+      const series: ScatterSeriesData[] = [
+        { id: 'a', label: 'A', data: pointsA },
+        { id: 'b', label: 'B', data: pointsA },
+      ];
+      renderScatter(
+        <StudioScatterChart
+          height={200}
+          colorField="segment"
+          scatterData={null}
+          scatterSeries={series}
+          allScatterData={null}
+          allScatterSeries={null}
+          preserveXFieldBaseline
+          preserveSplitByBaseline
+          shouldShowGhost={false}
+          skipAnimation={false}
+          ariaTitle="Revenue vs orders"
+        />,
+      );
+      const props = lastScatterProps() as unknown as { title?: string; desc?: string };
+      expect(props.title).toBe('Revenue vs orders');
+      expect(props.desc).toBe('A, B');
+    });
+
+    it('still names an ungrouped chart even with no series to describe', () => {
+      renderScatter(
+        <StudioScatterChart
+          height={200}
+          scatterData={pointsA}
+          scatterSeries={null}
+          allScatterData={null}
+          allScatterSeries={null}
+          preserveXFieldBaseline
+          preserveSplitByBaseline
+          shouldShowGhost={false}
+          skipAnimation={false}
+          ariaTitle="Revenue vs orders"
+        />,
+      );
+      const props = lastScatterProps() as unknown as { title?: string; desc?: string };
+      expect(props.title).toBe('Revenue vs orders');
+      expect(props.desc).toBeUndefined();
+    });
+  });
 });

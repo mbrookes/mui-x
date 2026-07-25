@@ -100,6 +100,19 @@ const PROJECTION_CONTENT_ASPECT: Record<string, number> = {
 
 type AggFn = 'sum' | 'count' | 'avg' | 'min' | 'max';
 
+// `mapAggregation` is typed as the five-name union above, but — exactly like `mapColorScheme` —
+// that type is NOT enforced at the load / AI-tool boundary: `configKeyValidation` screens config
+// KEY NAMES for map widgets, never their VALUES. So a persisted (or model-authored) doc carrying
+// `mapAggregation: 'median'` used to be cast straight to `AggFn` and handed to `aggregateNumbers`,
+// whose switch ends in `case 'sum': default:` — the map silently rendered the SUM, with a legend
+// range derived from it and an auto-title prefix asserting a different measure, and no error
+// anywhere. Worse, `'count_distinct'` (a valid `aggregateNumbers` fn that is NOT a valid map
+// aggregation) reached a real, different code path and produced a distinct count.
+// Allow-list at the widget boundary, same `Set` pattern as `SAFE_MAP_COLOR_SCHEMES`, so an
+// unrecognized value deterministically falls back to the schema default rather than being
+// interpreted by whatever the shared reducer's `default:` branch happens to be.
+const SAFE_MAP_AGGREGATIONS = new Set<string>(['sum', 'count', 'avg', 'min', 'max']);
+
 // The caller pre-coerces each cell via the shared `coerceAggregateValue` policy
 // (null/undefined/NaN/non-numeric skipped, booleans → 0/1), so this only reduces the
 // clean numeric set — routed through the shared reducer so map, KPI, pivot and chart
@@ -129,7 +142,9 @@ export function StudioMapWidget({
   const config = widget.config;
   const countryField = config.mapCountryField;
   const valueField = config.mapValueField;
-  const aggFn: AggFn = (config.mapAggregation as AggFn) ?? 'sum';
+  const rawAggFn = config.mapAggregation as string | undefined;
+  const aggFn: AggFn =
+    rawAggFn != null && SAFE_MAP_AGGREGATIONS.has(rawAggFn) ? (rawAggFn as AggFn) : 'sum';
   const colorScheme = config.mapColorScheme ?? 'blues';
   const mapGeography = config.mapGeography ?? 'world';
   const legendPosition = config.mapLegendPosition ?? 'bottom';
@@ -423,9 +438,18 @@ export function StudioMapWidget({
     if (!values.length) {
       return [0, 1];
     }
-    const rawMin = Math.min(...values);
+    // Reduce through the shared `aggregateNumbers` loop rather than spreading into
+    // `Math.min(...values)` / `Math.max(...values)` (finding M5). `regionData` is keyed by
+    // `normalize(row[countryField])` over ALL rows BEFORE any feature join, so it is bounded by
+    // the number of DISTINCT normalized region keys in the data — not by the feature count of
+    // the geography. A host-registered geography (`StudioMapGeographyDefinition.normalizer`)
+    // over a postcode / store-locator source yields >125k entries, and spreading that many
+    // arguments throws `RangeError: Maximum call stack size exceeded`. This was the last
+    // remaining unbounded spread in x-studio: `internals/aggregate.ts`, `utils/gridSummary.ts`
+    // and `generateInsight.ts` were all already converted to reduce loops for this same reason.
+    const rawMin = aggregateNumbers(values, 'min');
     const dataMin = legendZeroMin ? Math.min(0, rawMin) : rawMin;
-    const dataMax = Math.max(...values);
+    const dataMax = aggregateNumbers(values, 'max');
     // Degenerate case: all values are equal (common when cross-filter shows only one country).
     // Use [0, max] so the value renders at full color intensity rather than the lightest shade.
     if (dataMin === dataMax) {

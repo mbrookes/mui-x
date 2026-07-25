@@ -2679,3 +2679,69 @@ describe('<StudioChartWidget /> — no-data guard baseline (finding 1.3)', () =>
     expect(screen.queryByRole('status')).toBeNull();
   });
 });
+
+// The orchestrator's `formatLabel` called `formatPeriodLabel(String(label))` without
+// `localeText`, so the helper fell back to `DEFAULT_STUDIO_LOCALE_TEXT` and a French dashboard
+// rendered a hardcoded English "Week 3 2024" on its temporal axis — even though
+// `frLocaleText.timeGranWeek` exists and the granularity picker beside the chart was already
+// translated.
+describe('<StudioChartWidget /> temporal axis label localization', () => {
+  const weeklySource: StudioDataSource = {
+    id: 'orders',
+    label: 'Orders',
+    fields: [
+      { id: 'date', label: 'Date', type: 'date' },
+      { id: 'total', label: 'Total', type: 'number' },
+    ],
+    rows: [
+      { id: '1', date: '2024-01-15', total: 10 },
+      { id: '2', date: '2024-01-22', total: 20 },
+    ],
+  };
+
+  const weeklyWidget: StudioWidgetOf<'chart'> = {
+    id: 'chart-weekly',
+    kind: 'chart',
+    title: 'Weekly revenue',
+    sourceId: 'orders',
+    config: {
+      chartType: 'bar',
+      xField: 'date',
+      xGroupBy: 'week',
+      yField: 'total',
+    },
+  };
+
+  function bandAxisLabels() {
+    const props = barChartSpy.mock.calls.at(-1)?.[0] as {
+      xAxis: Array<{
+        data?: Array<string | number>;
+        valueFormatter?: (v: string | number) => string;
+      }>;
+    };
+    const axis = props.xAxis[0];
+    return (axis.data ?? []).map((v) => axis.valueFormatter!(v));
+  }
+
+  beforeEach(() => {
+    barChartSpy.mockClear();
+    mockState = createState({
+      widgets: { [weeklyWidget.id]: weeklyWidget },
+      dataSources: { orders: weeklySource },
+    });
+    configureStudioContextMock({ getState: () => mockState, controller });
+  });
+
+  it('uses the default English "Week" token', () => {
+    renderChart(weeklyWidget, weeklySource);
+    expect(bandAxisLabels().every((label) => label.startsWith('Week '))).toBe(true);
+  });
+
+  it('translates the week token instead of hardcoding English', () => {
+    renderChart(weeklyWidget, weeklySource, frLocaleText);
+    const labels = bandAxisLabels();
+    expect(labels.length).toBeGreaterThan(0);
+    expect(labels.every((label) => label.startsWith(`${frLocaleText.timeGranWeek} `))).toBe(true);
+    expect(labels.some((label) => label.includes('Week'))).toBe(false);
+  });
+});

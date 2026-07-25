@@ -34,6 +34,7 @@ import { CHART_TYPE_DEFS } from './chartTypeDefs';
 import type { ChartRenderContext, ChartTypeDef } from './chartTypeDefs';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
 import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
+import { inferWidgetTitles } from '../../../internals/widgetUtils';
 
 import { normalizeCrossFilterValue, crossFilterValueEquals } from './chartWidgetHelpers';
 import {
@@ -234,24 +235,51 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   );
 
   // Clear stale hover state when the chart's field/layout signature changes.
-  // useRef tracks the previous key without triggering extra re-renders; the setState
-  // calls below cause React to restart the render with cleared hover state.
-  const prevChartKeyRef = React.useRef(chartHighlightStateKey);
-  if (prevChartKeyRef.current !== chartHighlightStateKey) {
-    prevChartKeyRef.current = chartHighlightStateKey;
+  //
+  // This is React's documented "adjust state when a prop changes" pattern: comparing against a
+  // STATE value (not a ref) and calling setState during render, which makes React discard the
+  // in-progress output and immediately re-render with the cleared hover state — no extra frame,
+  // no flash of a stale highlight.
+  //
+  // The previous key is deliberately held in state rather than a ref: a render-phase ref write
+  // is unsafe once React can interrupt and retry a render (an abandoned render would have
+  // already advanced the ref, so the retry sees "unchanged" and never clears the hover). That
+  // is exactly why `prevHadCrossFiltersRef` above was moved into `useLayoutEffect`; the same
+  // hazard applies here, and the state form fixes it without deferring the reset by a frame.
+  const [prevChartKey, setPrevChartKey] = React.useState(chartHighlightStateKey);
+  if (prevChartKey !== chartHighlightStateKey) {
+    setPrevChartKey(chartHighlightStateKey);
     setHoveredItem(null);
     setHoveredAxis(null);
   }
 
-  /** Format x-axis label: apply human-readable period labels when xGroupBy is set. */
+  /**
+   * Format x-axis label: apply human-readable period labels when xGroupBy is set.
+   *
+   * `localeText` MUST be forwarded — `formatPeriodLabel` defaults it to
+   * `DEFAULT_STUDIO_LOCALE_TEXT`, so omitting it rendered a hardcoded English "Week 3 2024"
+   * on the temporal axis of a French dashboard even though `frLocaleText.timeGranWeek`
+   * exists and the granularity picker right next to the chart was already translated.
+   */
   const formatLabel = React.useCallback(
     (label: string | number): string => {
       if (xGroupBy) {
-        return formatPeriodLabel(String(label));
+        return formatPeriodLabel(String(label), localeText);
       }
       return String(label);
     },
-    [xGroupBy],
+    [xGroupBy, localeText],
+  );
+
+  /**
+   * Accessible name for the chart graphic (finding M10). The widget's own title when it has
+   * one, otherwise the same inferred title (`"Revenue by Region"`) the widget card would
+   * display — both are already localized, so this needs no new locale key. Each family
+   * forwards it to the x-charts `title` prop, which becomes the chart's `aria-label`.
+   */
+  const chartAriaTitle = React.useMemo(
+    () => widget.title || inferWidgetTitles(widget, dataSources, localeText).title,
+    [widget, dataSources, localeText],
   );
 
   const getFieldDependencySource = React.useCallback(
@@ -850,6 +878,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     onAxisHoverChange: setHoveredAxis,
     onItemClick: handleItemClick,
     annotationChildren,
+    chartAriaTitle,
   };
 
   // ONE documented cast: `chartTypeDef` is a dynamically-indexed lookup

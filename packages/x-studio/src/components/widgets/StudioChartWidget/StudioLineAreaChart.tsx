@@ -31,6 +31,13 @@ import {
   sortMultiYTemporally,
   withAlpha,
 } from './chartWidgetHelpers';
+import {
+  buildChartDescription,
+  chartKeyboardActivationProps,
+  ChartFocusTracker,
+  CHART_KEYBOARD_NAV_PROPS,
+  useChartFocusRef,
+} from './chartA11y';
 
 const CROSS_FILTER_AXIS_ID = 'cross-filter-axis';
 const CROSS_FILTER_SERIES_ID = 'cross-filter-series';
@@ -99,6 +106,11 @@ export interface StudioLineAreaChartProps {
   onAxisHoverChange: (axis: AxisItemIdentifier[] | null) => void;
   /** Emit a cross-filter for the clicked x-value (regular = single-select, shift = multi-select). */
   onItemClick: (label: string | number | Date, shiftKey: boolean) => void;
+  /**
+   * Accessible name for the chart graphic — forwarded to the `LineChart`'s `title` prop, which
+   * becomes the chart container's `aria-label` (WCAG 1.1.1 / 4.1.2, finding M10).
+   */
+  ariaTitle?: string;
   /** Spread onto the underlying LineChart. */
   slotProps?: Partial<LineChartProps>;
   /** Annotation reference lines rendered as chart children. */
@@ -143,10 +155,14 @@ export function StudioLineAreaChart({
   onHoverChange,
   onAxisHoverChange,
   onItemClick,
+  ariaTitle,
   slotProps,
   children,
 }: StudioLineAreaChartProps) {
   const localeText = useStudioLocaleText();
+  // Allocated unconditionally (rules of hooks) — shared by the three mutually-exclusive
+  // render paths below.
+  const chartFocusRef = useChartFocusRef();
   const createLineXAxis = (labels: (string | number)[], axisId?: string) =>
     createLineXAxisConfig(labels, xGroupBy, formatLabel, axisId);
 
@@ -312,8 +328,21 @@ export function StudioLineAreaChart({
       };
     });
     return (
-      <div style={{ height }}>
+      // The keydown is DELEGATED: it originates on x-charts' own focusable
+      // keyboard-navigation proxy inside the chart and bubbles up here, so this wrapper is
+      // deliberately not itself a tab stop (finding M10).
+      <div
+        style={{ height }}
+        {...chartKeyboardActivationProps(chartFocusRef, effectiveSFLineData.labels, onItemClick)}
+      >
         <LineChart
+          {...CHART_KEYBOARD_NAV_PROPS}
+          title={ariaTitle}
+          // Split-by series are otherwise distinguished by hue alone (finding M10).
+          desc={buildChartDescription(
+            effectiveSFLineData.seriesNames.map(String),
+            localeText.filterSummaryAndMore,
+          )}
           {...slotProps}
           skipAnimation={skipAnimation}
           xAxis={xAxis}
@@ -347,6 +376,7 @@ export function StudioLineAreaChart({
           sx={{ cursor: 'default' }}
           slotProps={CHART_LEGEND_SLOT_PROPS}
         >
+          <ChartFocusTracker focusRef={chartFocusRef} />
           {children}
         </LineChart>
       </div>
@@ -443,8 +473,18 @@ export function StudioLineAreaChart({
       : buildMultiYLineSeries(multiYData, chartType, dataSource, expressionFields);
 
     return (
-      <div style={{ height }}>
+      // Delegated keydown — see the split-by wrapper above.
+      <div
+        style={{ height }}
+        {...chartKeyboardActivationProps(chartFocusRef, effectiveLabels, onItemClick)}
+      >
         <LineChart
+          {...CHART_KEYBOARD_NAV_PROPS}
+          title={ariaTitle}
+          desc={buildChartDescription(
+            activeSeries.map((entry) => String(entry.label ?? '')),
+            localeText.filterSummaryAndMore,
+          )}
           {...slotProps}
           skipAnimation={skipAnimation}
           xAxis={xAxis}
@@ -472,6 +512,7 @@ export function StudioLineAreaChart({
           sx={{ cursor: 'default' }}
           slotProps={CHART_LEGEND_SLOT_PROPS}
         >
+          <ChartFocusTracker focusRef={chartFocusRef} />
           {children}
         </LineChart>
       </div>
@@ -541,8 +582,18 @@ export function StudioLineAreaChart({
   const xAxis = createLineXAxis(effectiveLabels, CROSS_FILTER_AXIS_ID);
   const lineColor = resolvedChartColors[0];
   return (
-    <div style={{ height }}>
+    // Delegated keydown — see the split-by wrapper above.
+    <div
+      style={{ height }}
+      {...chartKeyboardActivationProps(chartFocusRef, effectiveLabels, onItemClick)}
+    >
       <LineChart
+        {...CHART_KEYBOARD_NAV_PROPS}
+        title={ariaTitle}
+        desc={buildChartDescription(
+          effectiveLabels.map((label) => formatLabel(String(label))),
+          localeText.filterSummaryAndMore,
+        )}
         {...slotProps}
         skipAnimation={skipAnimation}
         xAxis={xAxis}
@@ -678,6 +729,7 @@ export function StudioLineAreaChart({
         sx={{ cursor: 'default' }}
         slotProps={CHART_LEGEND_SLOT_PROPS}
       >
+        <ChartFocusTracker focusRef={chartFocusRef} />
         {children}
       </LineChart>
     </div>

@@ -132,4 +132,43 @@ describe('StudioHeatmapChart', () => {
       expect(valueFormatter(0)).not.toBe('');
     });
   });
+
+  // M10: the heatmap had no accessible name. Unlike every sibling family, `HeatmapPremium`
+  // never threads `title`/`desc` through to its `ChartsLayerContainer`, so the name has to be
+  // applied on a `role="img"` wrapper — the same shape as `StudioSankeyChart`/`StudioGanttChart`.
+  describe('accessibility', () => {
+    function renderHeatmap(ariaTitle?: string) {
+      return render(
+        <ThemeProvider theme={theme}>
+          <StudioHeatmapChart
+            height={200}
+            heatData={makeHeatData()}
+            xFieldLabel="Region"
+            yFieldLabel="Segment"
+            colorScheme="primary"
+            legendPosition="bottom"
+            legendAlign="center"
+            ariaTitle={ariaTitle}
+          />
+        </ThemeProvider>,
+      );
+    }
+
+    it('exposes a named image with the measured dimensions and value range', () => {
+      const { container } = renderHeatmap('Revenue heatmap');
+      const img = container.querySelector('[role="img"]')!;
+      expect(img).not.toBeNull();
+      const label = img.getAttribute('aria-label')!;
+      expect(label).toContain('Revenue heatmap');
+      expect(label).toContain('Region');
+      expect(label).toContain('Segment');
+      expect(label).toContain('0');
+      expect(label).toContain('10');
+    });
+
+    it('still exposes the graphic role when no title is supplied', () => {
+      const { container } = renderHeatmap(undefined);
+      expect(container.querySelector('[role="img"]')).not.toBeNull();
+    });
+  });
 });

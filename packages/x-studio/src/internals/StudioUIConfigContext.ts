@@ -2131,6 +2131,13 @@ interface StudioUIConfig {
    * When omitted, no filter icon button is shown.
    */
   onOpenFilterPanel?: () => void;
+  /**
+   * Overrides the default 6-color chart palette with a fixed, per-mode categorical
+   * palette. Assigned to series in the array's order — pass at least as many colors
+   * as the largest chart's series count, since `usePageChartColors` does not cycle
+   * or generate additional hues itself.
+   */
+  chartColors?: { light: string[]; dark: string[] };
 }
 
 /** Pre-built map from `kind` → `StudioCustomWidgetDef` for fast lookup. */

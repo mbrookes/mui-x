@@ -43,6 +43,7 @@ import {
   prefetchGithubLibraryUsageHistory,
   prefetchGithubChartLibraryUsage,
 } from './connectors/githubLibraryUsageSource';
+import { CHART_LIBRARY_COLORS } from './chartLibraryColors';
 
 const PAGE_ID = 'page-library-usage';
 const INTRO_WIDGET_ID = 'widget-text-intro';
@@ -617,6 +618,7 @@ export default function App() {
                 aiConfig={aiConfig}
                 customWidgets={customWidgets}
                 localeText={localeBundle.studioLocaleText}
+                chartColors={CHART_LIBRARY_COLORS}
               />
             </Box>
           </Box>

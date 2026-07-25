@@ -206,6 +206,23 @@ export interface StudioProps extends StudioSlots {
    */
   customWidgets?: StudioCustomWidgetDef[];
   /**
+   * Overrides the default 6-color chart palette with a fixed, per-mode categorical
+   * palette applied to every chart widget's series — e.g. when a dashboard has more
+   * series than the default palette can distinguish. Colors are assigned in array
+   * order and are not cycled or generated, so pass at least as many entries as the
+   * largest chart's series count.
+   * @example
+   * ```tsx
+   * <Studio
+   *   chartColors={{
+   *     light: ['#2a78d6', '#eb6834', '#1baf7a'],
+   *     dark: ['#3987e5', '#d95926', '#199e70'],
+   *   }}
+   * />
+   * ```
+   */
+  chartColors?: { light: string[]; dark: string[] };
+  /**
    * Additional map geography definitions to register alongside the built-in `'world'`,
    * `'usa'`, and `'europe'` geographies.
    *
@@ -278,6 +295,8 @@ export const Studio = React.memo(
     const customWidgets = (slots as { customWidgets?: StudioCustomWidgetDef[] }).customWidgets;
     const geographies = (slots as { geographies?: Record<string, StudioMapGeographyDefinition> })
       .geographies;
+    const chartColors = (slots as { chartColors?: { light: string[]; dark: string[] } })
+      .chartColors;
 
     // Controller is created once at mount and never replaced.
     const controller = React.useMemo(
@@ -336,6 +355,7 @@ export const Studio = React.memo(
           aiConfig={aiConfig}
           customWidgets={customWidgets}
           geographies={geographies}
+          chartColors={chartColors}
         >
           <StudioContent {...slots} />
         </StudioProvider>

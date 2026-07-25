@@ -645,6 +645,9 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   gridSetupCFStyleYellow: 'Amarillo',
   gridSetupCFStyleBlue: 'Azul',
   gridSetupCFStyleBold: 'Atrevido',
+  gridSetupMeasuresSubheader: 'Medidas',
+  gridSetupMeasureNotColumnHelper:
+    'Las medidas agregan todo el conjunto de datos, por lo que no tienen un valor por fila y no pueden ser columnas de la tabla. Úselas en un KPI o en un gráfico.',
   gridSetupCFValuePlaceholder: 'valor',
 
   // Map setup panel

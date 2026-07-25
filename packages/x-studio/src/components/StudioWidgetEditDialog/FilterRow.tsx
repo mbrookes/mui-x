@@ -261,6 +261,19 @@ export function FilterRow(props: {
             return opt.sourceId ? `${opt.sourceLabel}: ${opt.label}` : opt.label;
           }}
         >
+          {/* The stored field may match no catalog entry at all — schema drift (removed or
+              renamed column), a cross-source pick this panel doesn't list, or a catalog that
+              hasn't loaded yet. Without a MenuItem carrying it, the Select's `value` is
+              out-of-range: MUI logs a dev warning and, but for `renderValue` above, would
+              render the control blank — indistinguishable from "no field chosen". Carry the
+              current selection as its own entry so the value always resolves; `renderValue`
+              is what labels it "<id> (unavailable)". Mirrors `GridConditionalFormatSection`'s
+              schema-drift MenuItem and `DataSourceFieldSelect`'s appended unresolved option. */}
+          {!fieldMeta && filter.field && (
+            <MenuItem value={currentValue} sx={{ fontStyle: 'italic' }}>
+              {localeText.dataSourceFieldUnavailableOption(filter.field)}
+            </MenuItem>
+          )}
           {ownFields.map((f) => (
             <MenuItem key={f.id} value={encodeValue(f)}>
               {f.label}

@@ -640,6 +640,9 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   gridSetupCFStyleYellow: 'Amarelo',
   gridSetupCFStyleBlue: 'Azul',
   gridSetupCFStyleBold: 'Negrito',
+  gridSetupMeasuresSubheader: 'Medidas',
+  gridSetupMeasureNotColumnHelper:
+    'As medidas agregam todo o conjunto de dados, portanto não têm valor por linha e não podem ser colunas da tabela. Use-as em um KPI ou gráfico.',
   gridSetupCFValuePlaceholder: 'valor',
 
   // Map setup panel

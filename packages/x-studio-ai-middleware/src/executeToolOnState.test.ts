@@ -998,9 +998,10 @@ describe('executeToolOnState: set_widget_width', () => {
     expect(result.nextState).toBe(state);
   });
 
-  // A widget that exists but is not yet placed on ANY page is the documented
-  // not-yet-placed case and stays permissive — it must still commit the width.
-  it('still applies the width for a widget that is not placed on any page yet', () => {
+  // A widget on no page at all cannot carry a span: the reducer no-ops, and any span written
+  // for it is an orphan the load boundary deletes, so it would revert on the next reload.
+  // Reporting success here would tell the model a width took effect that never did.
+  it('rejects a width for a widget that is not placed on any page yet', () => {
     const base = makeState();
     const unplaced: StudioState = {
       ...base,
@@ -1017,8 +1018,9 @@ describe('executeToolOnState: set_widget_width', () => {
       unplaced,
     );
     const out = parseOutput(result.output);
-    expect(out.success).toBe(true);
-    expect(out.columns).toBe(12);
+    expect(out.success).toBeUndefined();
+    expect(out.error).toMatch(/not placed on any page/i);
+    expect(result.nextState).toBe(unplaced);
   });
 
   // Regression for T2-3: a non-numeric `columns` string used to survive the bare cast and

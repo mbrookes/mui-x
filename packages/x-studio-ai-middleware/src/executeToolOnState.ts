@@ -1733,28 +1733,30 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       if (!activePage) {
         return { output: JSON.stringify({ error: 'No active page.' }), nextState: state };
       }
-      // Active-page membership check: the `setWidgetColSpan` reducer silently no-ops for a
-      // widget that lives on ANOTHER page (its orphan-span guard — writing the span there
-      // would land it on the wrong page). Without this check the tool would read back
-      // `null` and report `{ success: true, columns: null }` for a request that changed
-      // nothing, telling the model a width took effect that never did. A widget on NO page
-      // yet is the documented not-yet-placed case and stays permissive (the reducer applies
-      // it via the `[widgetId]` fallback below).
+      // Row-membership check. `setWidgetColSpan` silently no-ops unless the widget is in a row
+      // on the target page: a span written for a widget that is elsewhere would land on the
+      // wrong page, and one written for a widget on NO page is an orphan that both the
+      // reducer's own enforcement pass and the load boundary delete — so it would appear to
+      // work and silently revert on reload. Either way the tool would otherwise read back
+      // `null` and report `{ success: true, columns: null }`, telling the model a width took
+      // effect that never did. Both cases are reported as errors, with the remediation that
+      // actually applies to each.
       const currentRow = activePage.widgetRows?.find((row) => row.includes(widgetId));
       if (currentRow === undefined) {
         const onAnotherPage = Object.values(state.doc.pages).some((page) =>
           (page.widgetRows ?? []).some((row) => row.includes(widgetId)),
         );
-        if (onAnotherPage) {
-          return {
-            output: JSON.stringify({
-              error:
-                `Widget ${widgetId} is not on the active page, so its width cannot be set here. ` +
-                'Call set_active_page for the page that contains it first.',
-            }),
-            nextState: state,
-          };
-        }
+        return {
+          output: JSON.stringify({
+            error: onAnotherPage
+              ? `Widget ${widgetId} is not on the active page, so its width cannot be set here. ` +
+                'Call set_active_page for the page that contains it first.'
+              : `Widget ${widgetId} is not placed on any page, so a width set for it would be ` +
+                'discarded when the dashboard is saved. Place it with set_widget_layout first, ' +
+                'then set its width.',
+          }),
+          nextState: state,
+        };
       }
       const rowWidgetIds = currentRow ?? [widgetId];
       const mutation: StateMutation = {

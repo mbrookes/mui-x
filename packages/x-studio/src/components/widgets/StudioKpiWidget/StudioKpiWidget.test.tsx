@@ -1051,9 +1051,15 @@ describe('<StudioKpiWidget /> sparkline on a measure expression field (finding 2
 
     const sparkline = lastSparkline();
     expect(sparkline?.data).not.toBeNull();
-    expect(sparkline!.data!.some((v) => v !== 0)).toBe(true);
-    // Chronological month buckets: Jan (1000), May (200), Jul (300).
-    expect(sparkline!.data).toEqual([1000, 200, 300]);
+    // The period axis is dense: one entry per month from the first populated bucket to the
+    // last, with the months that hold no rows at all (Feb–Apr, Jun) emitted as `null` gaps
+    // rather than dropped, so the uniformly spaced points keep their true time spacing.
+    expect(sparkline!.data).toEqual([1000, null, null, null, 200, null, 300]);
+    // The populated buckets carry real measure values. Asserted separately from the shape
+    // above because a `null` is not a measurement: a series of gaps, or one collapsed to
+    // zero by `computeAggregate` reading a nonexistent `row['revenueMeasure']`, must both
+    // fail here — only `evaluateMeasure` running per bucket produces these.
+    expect(sparkline!.data!.filter((v) => v !== null)).toEqual([1000, 200, 300]);
   });
 
   it("propagates a measure field's format/currency to the sparkline tooltip formatting", () => {

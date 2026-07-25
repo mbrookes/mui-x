@@ -649,6 +649,9 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   gridSetupCFStyleYellow: 'Gelb',
   gridSetupCFStyleBlue: 'Blau',
   gridSetupCFStyleBold: 'Deutlich',
+  gridSetupMeasuresSubheader: 'Kennzahlen',
+  gridSetupMeasureNotColumnHelper:
+    'Kennzahlen aggregieren den gesamten Datensatz, haben also keinen Wert pro Zeile und können keine Tabellenspalten sein. Verwenden Sie sie in einem KPI oder Diagramm.',
   gridSetupCFValuePlaceholder: 'Wert',
 
   // Map setup panel

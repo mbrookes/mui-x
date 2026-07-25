@@ -2686,7 +2686,13 @@ export class StudioController {
                 "The moved widget's rank filter was dropped to preserve the invariant.",
             );
           }
-          mutations.push({ type: 'removeFilter', args: { filterId: f.id } });
+          // UNSHIFT, not push: this removal has to precede the `setWidgetLayout` mutations
+          // above. `setWidgetLayout` re-runs the reducer's own rank-uniqueness sweep, which
+          // breaks a tie by array order (matching the load boundary) and so could drop the
+          // TARGET page's resident filter instead. This guard is the more specific policy —
+          // the widget the user just moved yields to the page it moved into — so it must
+          // resolve the conflict first, leaving the reducer's sweep nothing to do.
+          mutations.unshift({ type: 'removeFilter', args: { filterId: f.id } });
         }
       }
       // Emitted-scope cleanup (T1.1): a cross-page move must also drop any filter this widget

@@ -647,6 +647,9 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   gridSetupCFStyleYellow: 'Jaune',
   gridSetupCFStyleBlue: 'Bleu',
   gridSetupCFStyleBold: 'Audacieux',
+  gridSetupMeasuresSubheader: 'Mesures',
+  gridSetupMeasureNotColumnHelper:
+    "Les mesures agrègent l'ensemble des données : elles n'ont donc pas de valeur par ligne et ne peuvent pas être des colonnes de tableau. Utilisez-les dans un KPI ou un graphique.",
   gridSetupCFValuePlaceholder: 'valeur',
 
   // Map setup panel

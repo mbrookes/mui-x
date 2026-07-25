@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
+import { act, createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
 import { describe, expect, it, vi } from 'vitest';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
@@ -146,6 +146,11 @@ describe('FilterValueInput', () => {
 
       const input = screen.getByRole('textbox');
       fireEvent.change(input, { target: { value: 'DE' } });
+      // A key event only reaches the element the user is actually typing into, so the input
+      // has to hold focus for the Enter to be delivered at all.
+      act(() => {
+        input.focus();
+      });
       fireEvent.keyDown(input, { key: 'Enter' });
       expect(onChange).toHaveBeenCalledTimes(1);
       expect(onChange).toHaveBeenCalledWith('DE');
@@ -280,7 +285,9 @@ describe('FilterValueInput', () => {
         />,
       );
 
-      await user.click(screen.getByRole('button', { name: /open/i }));
+      // The Autocomplete is `freeSolo`, which suppresses the popup-indicator button, so the
+      // listbox opens by clicking into the input itself.
+      await user.click(screen.getByRole('combobox'));
       await user.click(screen.getByRole('option', { name: 'B' }));
 
       expect(onChange).toHaveBeenCalledWith('B');

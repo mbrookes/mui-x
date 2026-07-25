@@ -22,7 +22,9 @@ const mockState = {
         kind: 'kpi',
         sourceId: 'orders',
         title: 'Revenue',
-        subtitle: undefined,
+        // Widened deliberately: a later test simulates an external write setting this, and a
+        // bare `undefined` would narrow the property's inferred type to `undefined` alone.
+        subtitle: undefined as string | undefined,
         config: {
           kpiField: 'total',
           kpiAggregation: 'sum',
@@ -327,9 +329,7 @@ describe('FormatPanel — per-field dirty-aware resync (finding 5)', () => {
     };
     setProps({ nonce: 1 });
 
-    expect((screen.getByLabelText('Widget title') as HTMLInputElement).value).toBe(
-      'Total revenue',
-    );
+    expect((screen.getByLabelText('Widget title') as HTMLInputElement).value).toBe('Total revenue');
   });
 });
 

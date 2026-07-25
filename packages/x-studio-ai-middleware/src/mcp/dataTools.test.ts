@@ -96,7 +96,7 @@ describe('createDataToolHandlers', () => {
       // The unified, transport-neutral hint (no `studio://` resource URI — this
       // handler is also reached via the chat transport's agentic loop, where a
       // resource URI means nothing).
-      expect(JSON.parse(await readText(result)).error).toMatch(/get_dashboard_state/);
+      expect(JSON.parse(await readText(result)).error).toMatch(/configured on this dashboard/);
       // The query was never dispatched against the bogus table name.
       expect(queryDataSource).not.toHaveBeenCalled();
     });
@@ -479,7 +479,7 @@ describe('createDataToolHandlers', () => {
       const result: any = await handlers.describe_data_source({ sourceId: 'nope' });
       expect(result.isError).toBe(true);
       expect(JSON.parse(await readText(result)).error).toMatch(/Unknown data source/);
-      expect(JSON.parse(await readText(result)).error).toMatch(/get_dashboard_state/);
+      expect(JSON.parse(await readText(result)).error).toMatch(/configured on this dashboard/);
       expect(queryDataSource).not.toHaveBeenCalled();
     });
 
@@ -703,7 +703,7 @@ describe('createDataToolHandlers', () => {
       const result: any = await handlers.get_field_values({ sourceId: 'nope', fieldId: 'status' });
       expect(result.isError).toBe(true);
       expect(JSON.parse(await readText(result)).error).toMatch(/Unknown data source/);
-      expect(JSON.parse(await readText(result)).error).toMatch(/get_dashboard_state/);
+      expect(JSON.parse(await readText(result)).error).toMatch(/configured on this dashboard/);
       expect(queryDataSource).not.toHaveBeenCalled();
     });
 
@@ -799,7 +799,7 @@ describe('createDataToolHandlers', () => {
       });
       expect(result.isError).toBe(true);
       expect(JSON.parse(await readText(result)).error).toMatch(/Unknown data source/);
-      expect(JSON.parse(await readText(result)).error).toMatch(/get_dashboard_state/);
+      expect(JSON.parse(await readText(result)).error).toMatch(/configured on this dashboard/);
       expect(queryDataSource).not.toHaveBeenCalled();
     });
 
@@ -991,8 +991,11 @@ describe('resolveSource', () => {
     expect(errorResult.error.isError).toBe(true);
     const message = JSON.parse((errorResult.error.content[0] as { text: string }).text).error;
     expect(message).toMatch(/Unknown data source: "not-a-real-source"/);
-    expect(message).toMatch(/get_dashboard_state/);
-    expect(message).toMatch(/studio:\/\/dashboard\/state/);
+    expect(message).toMatch(/configured on this dashboard/);
+    // Names neither a tool nor a resource: `allowedTools` can exclude `get_dashboard_state`
+    // on either transport, and the `studio://dashboard/state` resource exists only on MCP —
+    // so a transport-neutral message must state the constraint rather than a remedy.
+    expect(message).not.toMatch(/get_dashboard_state|studio:\/\//);
   });
 
   it('returns an ok:true result with the resolved source and tableName for a known sourceId', () => {

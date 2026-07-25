@@ -552,10 +552,9 @@ describe('RowResizeHandle — accessible name (a11y)', () => {
     const { handle } = setup({
       leftSpan: 12,
       rightSpan: 12,
-      widgets: {
-        a: { id: 'a', kind: 'text', config: {} as StudioWidgetConfig },
-        b: { id: 'b', kind: 'text', config: {} as StudioWidgetConfig },
-      },
+      // `title` is a required `string` on `StudioWidget`, so "no title" is the empty string —
+      // which `flankingTitles`' `.filter(Boolean)` drops, leaving the bare action name.
+      widgets: { a: makeWidget('a', ''), b: makeWidget('b', '') },
     });
     expect(handle.getAttribute('aria-label')).toBe('Resize columns');
   });

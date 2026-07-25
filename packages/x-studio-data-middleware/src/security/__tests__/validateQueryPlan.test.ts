@@ -895,9 +895,18 @@ describe('validateQueryPlan — wildcard and implicit projections', () => {
         table: 'orders',
         joins: [{ table: 'customers', on: [['orders.customer_id', 'customers.id']] }],
       },
-      { orders: ['id', 'amount'], customers: ['id'] },
+      // `customer_id` has to be allowlisted too: the join predicate references it, and
+      // `validateDescriptorColumns` checks join.on against the allowlist before the
+      // projection is synthesized. It is deliberately NOT in the expected projection —
+      // synthesis takes the allowlist in order, and this asserts the allowlist path wins
+      // over the `<table>.*` anchor, not that every allowed column is projected.
+      { orders: ['id', 'amount', 'customer_id'], customers: ['id'] },
     );
-    expect(plan.columns).toEqual([{ physical: 'id' }, { physical: 'amount' }]);
+    expect(plan.columns).toEqual([
+      { physical: 'id' },
+      { physical: 'amount' },
+      { physical: 'customer_id' },
+    ]);
   });
 });
 

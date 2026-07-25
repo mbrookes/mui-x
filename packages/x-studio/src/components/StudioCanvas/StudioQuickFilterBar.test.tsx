@@ -320,7 +320,14 @@ describe('StudioQuickFilterBar', () => {
       runtime: { dataSources: DATA_SOURCES_WITH_DATE },
     });
     render(<StudioQuickFilterBar />);
-    expect(screen.getByText(/Order Date: 1 Jan 2024 – 31 Jan 2024/)).toBeDefined();
+    // Built from `Intl` rather than a literal: `crossFilterValueLabel` formats through
+    // `toLocaleDateString` (dayjs is never locale-configured in this package), so a hardcoded
+    // en-GB-style string would pin one runtime's locale rather than the behaviour.
+    const fmt = (iso: string) =>
+      new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    expect(
+      screen.getByText(new RegExp(`Order Date: ${fmt('2024-01-01')} – ${fmt('2024-01-31')}`)),
+    ).toBeDefined();
     expect(screen.queryByText(/\[object Object\]/)).toBeNull();
   });
 

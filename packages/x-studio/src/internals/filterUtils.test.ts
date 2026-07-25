@@ -742,6 +742,39 @@ describe('applyFilters — selection mode', () => {
     expect(result.map((r) => r.category)).toEqual(['Games', 'Toys']);
   });
 
+  // Row values are keyed `String(row[field] ?? '')` in BOTH modes, so a selected `null` must
+  // key as `''` too. Keying it as `String(null)` → `"null"` matched no row at all, while the
+  // same value authored as a condition-mode `in` matched every empty/null row — two encodings
+  // of one value, both reachable from a host- or AI-authored `StudioFilterState`.
+  it('keys a nullish selected value the same way condition-mode `in` does', () => {
+    const nullableRows = [
+      { id: 1, status: 'active' },
+      { id: 2, status: null },
+      { id: 3, status: '' },
+      { id: 4, status: undefined },
+    ];
+    const selection = applyFilters(nullableRows, [
+      makeFilter({ field: 'status', filterMode: 'selection', operator: 'in', value: [null] }),
+    ]);
+    const condition = applyFilters(nullableRows, [
+      makeFilter({ field: 'status', operator: 'in', value: [null] }),
+    ]);
+    expect(selection.map((r) => r.id)).toEqual([2, 3, 4]);
+    expect(condition.map((r) => r.id)).toEqual(selection.map((r) => r.id));
+  });
+
+  it('excludes the empty/nullish rows for a nullish selection under not_in', () => {
+    const nullableRows = [
+      { id: 1, status: 'active' },
+      { id: 2, status: null },
+      { id: 3, status: '' },
+    ];
+    const result = applyFilters(nullableRows, [
+      makeFilter({ field: 'status', filterMode: 'selection', operator: 'not_in', value: [null] }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([1]);
+  });
+
   it('not_in and in are complementary partitions of the same selection', () => {
     const included = applyFilters(rows, [
       makeFilter({ field: 'status', filterMode: 'selection', operator: 'in', value: ['active'] }),
@@ -874,6 +907,70 @@ describe('applyFilters — rank mode', () => {
       }),
     ]);
     expect(result.map((r) => r.id).sort()).toEqual(['b', 'c']);
+  });
+
+  // The rank dimension is grouped through `normalizeJoinKey`, the same policy every other
+  // grouping/joining path uses. Keying on the raw row value made grouping depend on JS
+  // reference/type identity — a hazard for the L4-re-anchored and foreign rows that reach
+  // `applyFilters` without L1 normalization.
+  it('groups equal-but-distinct Date dimension values into ONE rank group', () => {
+    const dayRows = [
+      { id: 'a', day: new Date('2024-01-01T00:00:00.000Z'), revenue: 10 },
+      { id: 'b', day: new Date('2024-01-01T00:00:00.000Z'), revenue: 10 },
+      { id: 'c', day: new Date('2024-01-02T00:00:00.000Z'), revenue: 15 },
+    ];
+    // Jan 1 totals 20 across its two rows and is the top-1 group. Raw-value keying made the
+    // two distinct Date objects two groups of 10 each, so Jan 2 (15) wrongly won.
+    const result = applyFilters(dayRows, [
+      makeFilter({
+        field: 'day',
+        filterMode: 'rank',
+        operator: 'equals',
+        value: 1,
+        rankDirection: 'top',
+        rankByField: 'revenue',
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual(['a', 'b']);
+  });
+
+  it('groups a numeric and a string spelling of the same dimension value together', () => {
+    const yearRows = [
+      { id: 'a', year: 2024, revenue: 10 },
+      { id: 'b', year: '2024', revenue: 10 },
+      { id: 'c', year: 2023, revenue: 15 },
+    ];
+    const result = applyFilters(yearRows, [
+      makeFilter({
+        field: 'year',
+        filterMode: 'rank',
+        operator: 'equals',
+        value: 1,
+        rankDirection: 'top',
+        rankByField: 'revenue',
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual(['a', 'b']);
+  });
+
+  it('treats nullish dimension values as a single "missing" group that can itself rank', () => {
+    const sparseRows = [
+      { id: 'a', category: null, revenue: 40 },
+      { id: 'b', category: undefined, revenue: 40 },
+      { id: 'c', category: 'X', revenue: 50 },
+    ];
+    const result = applyFilters(sparseRows, [
+      makeFilter({
+        field: 'category',
+        filterMode: 'rank',
+        operator: 'equals',
+        value: 1,
+        rankDirection: 'top',
+        rankByField: 'revenue',
+      }),
+    ]);
+    // The missing group totals 80 and beats X (50); both of its rows survive together.
+    expect(result.map((r) => r.id)).toEqual(['a', 'b']);
   });
 
   it('rank N=0 is treated as incomplete and skipped', () => {
@@ -1192,12 +1289,9 @@ describe('resolveRelativeDate — sub-day units', () => {
     vi.useRealTimers();
   });
 
-  // The instant keeps FULL precision: "1 hour ago" at 10:30 is 09:30, not 09:00. Quantizing
-  // the predicate would widen the window by up to 59min of real data; that quantization
-  // belongs to the cache key alone (`resolvedRowsCache.quantizedRelativeDate`), which is
-  // what makes sub-day filters cacheable without moving the bound the user asked for.
-  // The point of the original fix still stands: it resolves to an hour-level cutoff, NOT
-  // to "start of today".
+  // The bound is offset by exactly the requested amount/unit from a "now" floored to
+  // `RELATIVE_DATE_REFRESH_CADENCE_MS` — "1 hour ago" at 10:30 is 09:30, NOT 09:00 (the
+  // filter's own unit is never used to quantize) and NOT "start of today".
   it('resolves an hour-unit value to a full ISO instant, not a truncated day', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2024-06-15T10:30:00.000Z'));
@@ -1222,8 +1316,9 @@ describe('resolveRelativeDate — sub-day units', () => {
     expect(resolved).toBe('2024-06-15T09:45:00.000Z');
   });
 
-  it('resolves a second-unit value to a full ISO instant', () => {
+  it('resolves a second-unit value to a full ISO instant, offset from the cadence-floored now', () => {
     vi.useFakeTimers();
+    // 10:30:30 floors to 10:30:00 (the refresh cadence), then the 30-second offset applies.
     vi.setSystemTime(new Date('2024-06-15T10:30:30.000Z'));
     const resolved = resolveRelativeDate({
       relative: true,
@@ -1231,7 +1326,7 @@ describe('resolveRelativeDate — sub-day units', () => {
       unit: 'second',
       direction: 'past',
     });
-    expect(resolved).toBe('2024-06-15T10:30:00.000Z');
+    expect(resolved).toBe('2024-06-15T10:29:30.000Z');
   });
 
   it('resolves a sub-day "next" direction forward from now at full precision', () => {
@@ -1246,24 +1341,51 @@ describe('resolveRelativeDate — sub-day units', () => {
     expect(resolved).toBe('2024-06-15T12:30:00.000Z');
   });
 
-  // The resolved bound deliberately MOVES with wall-clock time: "1 hour ago" must keep
-  // meaning exactly one hour. Cache stability is not this function's job — the L3 row-cache
-  // quantizes its own fingerprint (`resolvedRowsCache.quantizedRelativeDate`), so sub-day
-  // filters hit the cache for the duration of their unit while the predicate itself stays
-  // exact. Pinning that split here: two calls a fraction of a second apart differ.
+  // The anchor is quantized to the REFRESH CADENCE, never to the filter's own unit. Both
+  // halves of the invariant are pinned below: the value is byte-stable within one cadence
+  // tick (so the L3 cache key, built from this same function, is too), and it advances by
+  // the full elapsed cadence when the tick rolls over (so the window really rolls).
   it.each(['hour', 'minute', 'second'] as const)(
-    'tracks wall-clock time rather than snapping to a %s boundary',
+    'is stable within one refresh-cadence tick for unit=%s',
     (unit) => {
       vi.useFakeTimers();
-      vi.setSystemTime(new Date('2024-06-15T10:30:30.123Z'));
+      vi.setSystemTime(new Date('2024-06-15T10:30:00.123Z'));
       const rel = { relative: true, amount: 1, unit, direction: 'past' } as const;
       const first = resolveRelativeDate(rel);
-      vi.setSystemTime(new Date('2024-06-15T10:30:30.876Z'));
-      expect(resolveRelativeDate(rel)).not.toBe(first);
-      // The offset from "now" is exactly one unit, with no boundary truncation.
-      expect(first).toBe(dayjs('2024-06-15T10:30:30.123Z').subtract(1, unit).toISOString());
+      vi.setSystemTime(new Date('2024-06-15T10:30:59.876Z'));
+      expect(resolveRelativeDate(rel)).toBe(first);
+      // Offset by exactly one unit from the cadence-floored now — no unit-boundary snapping.
+      expect(first).toBe(dayjs('2024-06-15T10:30:00.000Z').subtract(1, unit).toISOString());
     },
   );
+
+  it.each(['hour', 'minute', 'second'] as const)(
+    'advances by the elapsed time when the cadence tick rolls over for unit=%s',
+    (unit) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2024-06-15T10:30:00.000Z'));
+      const rel = { relative: true, amount: 1, unit, direction: 'past' } as const;
+      const first = resolveRelativeDate(rel);
+      vi.setSystemTime(new Date('2024-06-15T10:31:00.000Z'));
+      // A true rolling window: the bound moves forward by the same minute wall-clock did,
+      // rather than staying pinned to the start of the filter's own unit.
+      expect(resolveRelativeDate(rel)).toBe(
+        dayjs('2024-06-15T10:31:00.000Z').subtract(1, unit).toISOString(),
+      );
+      expect(first).toBe(dayjs('2024-06-15T10:30:00.000Z').subtract(1, unit).toISOString());
+    },
+  );
+
+  it('a "last 1 hour" bound is a rolling hour, not "since the top of the hour an hour ago"', () => {
+    // The whole point of quantizing to a cadence instead of to the filter's unit: at 10:59
+    // a unit-quantized bound would be 09:00 — a 1h59m window — while the honest rolling
+    // bound is 09:59.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-06-15T10:59:30.000Z'));
+    expect(
+      resolveRelativeDate({ relative: true, amount: 1, unit: 'hour', direction: 'past' }),
+    ).toBe('2024-06-15T09:59:00.000Z');
+  });
 
   it('still resolves day/week/month/year units to a bare YYYY-MM-DD (no regression)', () => {
     vi.useFakeTimers();

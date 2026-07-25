@@ -1,3 +1,5 @@
+import type { StudioDataField, StudioDataSource } from '../models';
+
 type Row = Record<string, unknown>;
 
 // ─── Shared insertion-order LRU for the per-rows row caches ───────────────────
@@ -73,4 +75,62 @@ export function setLruEntry<V>(
     entries.delete(oldest.value);
   }
   entries.set(key, value);
+}
+
+// ─── Foreign-source dependency tracking ──────────────────────────────────────
+//
+// A cached result that reads a FOREIGN data source (a cross-filter semi-join, an
+// L4 re-anchoring join, a join-field expression) depends on everything that source
+// contributes to the joined values. Every such read goes through
+// `getCachedNormalizedDataSource`, which is keyed on the source's `rows` AND its
+// `fields` — normalization applies the field's declared type, so retyping a field
+// (`updateDataSourceField`) changes the normalized values while leaving `rows`
+// reference-identical.
+//
+// Tracking `rows` alone therefore reports "valid" after a retype and serves rows
+// computed against the pre-retype values, with no way for the user to recover short
+// of replacing the source's rows. `SourceDep` is the shape that tracks both; every
+// cache that depends on a foreign source records one per tracked source so a future
+// dependency is added here once rather than at each call site.
+
+/** The dependency footprint of one foreign data source at cache time. `null` = absent. */
+export interface SourceDep {
+  rows: Row[] | null;
+  fields: StudioDataField[] | null;
+}
+
+/**
+ * Snapshots `source`'s dependency footprint. An absent source is recorded as
+ * `{ rows: null, fields: null }` rather than skipped, so the entry is invalidated the
+ * moment that source loads — a cross-filter whose foreign source loaded late otherwise
+ * kept serving unfiltered rows forever.
+ */
+export function captureSourceDep(source: StudioDataSource | undefined): SourceDep {
+  return { rows: source?.rows ?? null, fields: source?.fields ?? null };
+}
+
+/** Snapshots one `SourceDep` per id in `sourceIds`. */
+export function captureSourceDeps(
+  sourceIds: Iterable<string>,
+  dataSources: Record<string, StudioDataSource>,
+): Map<string, SourceDep> {
+  const deps = new Map<string, SourceDep>();
+  for (const sourceId of sourceIds) {
+    deps.set(sourceId, captureSourceDep(dataSources[sourceId]));
+  }
+  return deps;
+}
+
+/** True when every tracked source still has BOTH the same rows ref and the same fields ref. */
+export function sourceDepsUnchanged(
+  deps: ReadonlyMap<string, SourceDep>,
+  dataSources: Record<string, StudioDataSource>,
+): boolean {
+  for (const [sourceId, dep] of deps) {
+    const source = dataSources[sourceId];
+    if ((source?.rows ?? null) !== dep.rows || (source?.fields ?? null) !== dep.fields) {
+      return false;
+    }
+  }
+  return true;
 }

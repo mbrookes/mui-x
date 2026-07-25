@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { cachedCompute } from './computedCache';
+import { cachedCompute, MAX_COMPUTED_ENTRIES_PER_ROWS } from './computedCache';
 
 type Row = Record<string, unknown>;
 
@@ -51,6 +51,41 @@ describe('cachedCompute', () => {
     const result2 = cachedCompute(rows, 'agg', () => ({ labels: ['b'], values: [2] }));
     expect(result1).toBe(result2); // second compute fn never runs
     expect(result1).toBe(obj);
+  });
+
+  it('caches an `undefined` result without re-computing', () => {
+    // The inner map stores boxed results, so a genuinely-cached `undefined` is still a HIT
+    // (the LRU signals a miss with `undefined` itself).
+    const rows: Row[] = [{ id: 1 }];
+    const compute = vi.fn(() => undefined);
+    expect(cachedCompute(rows, 'nothing', compute)).toBeUndefined();
+    expect(cachedCompute(rows, 'nothing', compute)).toBeUndefined();
+    expect(compute).toHaveBeenCalledTimes(1);
+  });
+
+  // The outer WeakMap key bounds nothing on its own: the inner key is caller-supplied widget
+  // config, which churns on every chart/KPI edit while the rows array stays alive, and each
+  // entry pins a full computed result. The shared insertion-order LRU caps that growth.
+  it('evicts the least-recently-used entry past MAX_COMPUTED_ENTRIES_PER_ROWS', () => {
+    const rows: Row[] = [{ id: 1 }];
+    const first = cachedCompute(rows, 'cfg-0', () => ({ v: 0 }));
+    // Fill the bucket with distinct keys, pushing 'cfg-0' out of the window.
+    for (let i = 1; i <= MAX_COMPUTED_ENTRIES_PER_ROWS; i += 1) {
+      cachedCompute(rows, `cfg-${i}`, () => ({ v: i }));
+    }
+    const recomputed = cachedCompute(rows, 'cfg-0', () => ({ v: 0 }));
+    expect(recomputed).not.toBe(first);
+  });
+
+  it('keeps a repeatedly-read key alive across eviction pressure (recency refresh)', () => {
+    const rows: Row[] = [{ id: 1 }];
+    const hot = cachedCompute(rows, 'hot', () => ({ v: 'hot' }));
+    for (let i = 1; i <= MAX_COMPUTED_ENTRIES_PER_ROWS * 2; i += 1) {
+      cachedCompute(rows, `cold-${i}`, () => ({ v: i }));
+      // Re-reading 'hot' moves it back to the newest position, so it is never the
+      // eviction candidate.
+      expect(cachedCompute(rows, 'hot', () => ({ v: 'recomputed' }))).toBe(hot);
+    }
   });
 
   it('handles null-compatible values (e.g. 0, false) without re-computing', () => {

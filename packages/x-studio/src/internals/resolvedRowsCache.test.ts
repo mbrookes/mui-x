@@ -1176,17 +1176,19 @@ describe('filterFingerprint — relative date detection (finding 5)', () => {
 
 // ─── filterFingerprint — sub-day relative units (H3) ──────────────────────────
 //
-// `filterUtils.resolveRelativeDate` returns a MILLISECOND-precision `toISOString()` for the
-// `second`/`minute`/`hour` units (only `day`/`week`/`month`/`year` get a stable `YYYY-MM-DD`),
-// and all three sub-day units are user-selectable in `RelativeDateInput`. Folding that raw
-// value into the fingerprint made the L3 cache key change on EVERY call — a 100% miss rate.
-// The consequences compound: a fresh `Row[]` identity each time also misses every
-// `computedCache` entry (a WeakMap keyed on the rows array) so all chart/KPI aggregation
-// re-runs, two widgets on the same source stop sharing a result, and the bounded LRU
-// degenerates into a churning ring of retained full result arrays.
+// The key is built from `resolveRelativeDate` — the SAME function `compileRowTest` compiles
+// its comparison bound from — so key and predicate cannot disagree. Stability comes from that
+// function anchoring to a "now" floored to `RELATIVE_DATE_REFRESH_CADENCE_MS`: byte-stable for
+// one cadence tick (so back-to-back renders share one entry and keep `computedCache` warm),
+// then changing, so the rows served always match the predicate that produced them.
 //
-// The deeper root cause is in `filterUtils.resolveRelativeDate`; this quantizes the cache key
-// to the filter's own unit boundary, which is all the cache needs.
+// Two shapes are ruled out by these tests. Folding a raw millisecond-precision instant into the
+// key changes it on EVERY call — a 100% miss rate whose consequences compound (a fresh `Row[]`
+// identity misses every `computedCache` entry, two widgets stop sharing a result, and the
+// bounded LRU degenerates into a churning ring of retained result arrays). Quantizing the key to
+// the FILTER'S OWN unit while the predicate keeps moving is worse than either: within one unit
+// tick the key is constant while the correct predicate is not, so a "last 1 hour" widget serves
+// rows computed up to 59 minutes earlier.
 describe('filterFingerprint — sub-day relative units (H3)', () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -1210,12 +1212,27 @@ describe('filterFingerprint — sub-day relative units (H3)', () => {
       vi.setSystemTime(new Date('2024-06-15T12:30:30.000Z'));
       const first = filterFingerprint(relativeFilter(unit));
 
-      // Two renders a few milliseconds apart — the raw resolved ISO instant differs, the
-      // quantized cache key must not.
+      // Two renders a few milliseconds apart — inside one refresh-cadence tick, so both the
+      // predicate bound and this key are the same value.
       vi.setSystemTime(new Date('2024-06-15T12:30:30.007Z'));
       const second = filterFingerprint(relativeFilter(unit));
 
       expect(second).toBe(first);
+    },
+  );
+
+  it.each(['second', 'minute', 'hour'] as const)(
+    'changes on the next cadence tick even WITHIN the filter unit for unit=%s',
+    (unit) => {
+      // The key must track the cadence, not the filter's own unit: an hour-unit filter whose
+      // key was truncated to `…THH` stayed constant for a whole hour while its predicate bound
+      // moved every millisecond, so the cache served rows the predicate no longer selects.
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2024-06-15T12:30:00.000Z'));
+      const before = filterFingerprint(relativeFilter(unit));
+
+      vi.setSystemTime(new Date('2024-06-15T12:31:00.000Z'));
+      expect(filterFingerprint(relativeFilter(unit))).not.toBe(before);
     },
   );
 
@@ -1314,6 +1331,167 @@ describe('filterFingerprint — sub-day relative units (H3)', () => {
     );
 
     // Before the fix this was a brand new array on every single call.
+    expect(second).toBe(first);
+  });
+
+  it('serves rows that match the CURRENT predicate as the clock advances inside an hour', () => {
+    // The end-to-end statement of the invariant: whatever rows a widget receives are the rows
+    // the compiled predicate selects RIGHT NOW (to within one refresh-cadence tick). Keying on
+    // the hour boundary while the predicate moved continuously meant a widget asking for "the
+    // last 1 hour" at 10:59 got the rows computed at 10:00 — every row from 09:00 onward.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-06-15T10:00:30.000Z'));
+
+    const ownRows = [
+      { id: 'a', orderDate: '2024-06-15T09:10:00.000Z' },
+      { id: 'b', orderDate: '2024-06-15T09:40:00.000Z' },
+      { id: 'c', orderDate: '2024-06-15T10:00:00.000Z' },
+    ];
+    const dataSources = makeDataSources(ownRows);
+    const filters = [
+      makeFilter({
+        id: 'f-relative',
+        field: 'orderDate',
+        fieldType: 'datetime',
+        operator: 'greater_than_or_equal',
+        value: { relative: true, amount: 1, unit: 'hour', direction: 'past' },
+      }),
+    ];
+    const call = () =>
+      resolveRowsCached(ownRows, 'orders', filters, dataSources, relationships, expressionFields);
+
+    // now floors to 10:00:00 → bound 09:00:00 → all three rows qualify.
+    expect(call().map((r) => r.id)).toEqual(['a', 'b', 'c']);
+
+    // Same hour, one cadence tick before it ends: bound 09:59:00 → only the 10:00 row.
+    vi.setSystemTime(new Date('2024-06-15T10:59:00.000Z'));
+    expect(call().map((r) => r.id)).toEqual(['c']);
+  });
+});
+
+// ─── Foreign-source `fields` dependency ──────────────────────────────────────
+
+describe('resolveRowsCached — foreign source fields dependency', () => {
+  it('invalidates when a joined source retypes a field without replacing its rows', () => {
+    // `updateDataSourceField` commits a new `fields` array and keeps `rows` reference-identical.
+    // The joined values genuinely change — the join reads the foreign source through
+    // `getCachedNormalizedDataSource`, which is keyed on rows AND fields — so tracking rows
+    // alone made the retype appear to do nothing: the grid kept rows filtered against
+    // un-normalized values, with no recovery short of replacing the source's rows.
+    const ordersRows = [{ id: 'o1', customerId: 0 }];
+    const customersRows = [{ id: 0, signupDate: new Date('2024-01-15T12:00:00.000Z') }];
+
+    const customerId = { id: 'id', label: 'ID', type: 'number' } as const;
+    const signupAsString = { id: 'signupDate', label: 'Signup', type: 'string' } as const;
+    const signupAsDate = { id: 'signupDate', label: 'Signup', type: 'date' } as const;
+
+    const makeSources = (
+      customerFields: readonly { id: string; label: string; type: string }[],
+    ): Record<string, StudioDataSource> =>
+      ({
+        orders: {
+          id: 'orders',
+          label: 'Orders',
+          fields: [{ id: 'id', label: 'ID', type: 'string' }],
+          rows: ordersRows,
+        },
+        // SAME rows reference in both variants — only `fields` differs.
+        customers: {
+          id: 'customers',
+          label: 'Customers',
+          fields: customerFields,
+          rows: customersRows,
+        },
+      }) as unknown as Record<string, StudioDataSource>;
+
+    // A calculated column on `orders` that joins `customers.signupDate`.
+    const joinExpr = {
+      id: 'expr-signup',
+      label: 'Signup',
+      sourceId: 'orders',
+      isMeasure: false,
+      expression: { joinSourceId: 'customers', fieldId: 'signupDate' },
+    } as unknown as StudioExpressionField;
+    const exprFields = [joinExpr];
+    const rels: StudioRelationship[] = [
+      {
+        id: 'rel-1',
+        sourceId: 'orders',
+        targetId: 'customers',
+        sourceField: 'customerId',
+        targetField: 'id',
+        type: 'many-to-one',
+      } as StudioRelationship,
+    ];
+    // A page filter comparing the joined column. Untyped `contains` compares the STRING form,
+    // so it sees the difference between a raw `Date` and the canonical `'2024-01-15'`.
+    const filters = [
+      makeFilter({
+        id: 'f-join',
+        field: 'expr-signup',
+        operator: 'contains',
+        value: '2024-01-15',
+      }),
+    ];
+
+    const before = resolveRowsCached(
+      ordersRows,
+      'orders',
+      filters,
+      makeSources([customerId, signupAsString]),
+      rels,
+      exprFields,
+    );
+    const after = resolveRowsCached(
+      ordersRows,
+      'orders',
+      filters,
+      makeSources([customerId, signupAsDate]),
+      rels,
+      exprFields,
+    );
+
+    // Untyped `signupDate` stays a raw Date, whose string form is not an ISO day → no match.
+    expect(before.map((r) => r.id)).toEqual([]);
+    // Retyped to `date`, L1 canonicalizes it to '2024-01-15' → the filter now matches.
+    expect(after.map((r) => r.id)).toEqual(['o1']);
+  });
+
+  it('still hits the cache when an UNRELATED source retypes a field', () => {
+    const ownRows = [...rows];
+    const crossFilter = makeFilter({
+      id: 'cf-region',
+      field: 'region',
+      operator: 'equals',
+      value: 'EU',
+    });
+    const makeSources = (unrelatedFieldType: string): Record<string, StudioDataSource> =>
+      ({
+        orders: { id: 'orders', label: 'Orders', fields: [], rows: ownRows },
+        unrelated: {
+          id: 'unrelated',
+          label: 'Unrelated',
+          fields: [{ id: 'x', label: 'X', type: unrelatedFieldType }],
+          rows: [{ x: 1 }],
+        },
+      }) as unknown as Record<string, StudioDataSource>;
+
+    const first = resolveRowsCached(
+      ownRows,
+      'orders',
+      [crossFilter],
+      makeSources('string'),
+      relationships,
+      expressionFields,
+    );
+    const second = resolveRowsCached(
+      ownRows,
+      'orders',
+      [crossFilter],
+      makeSources('number'),
+      relationships,
+      expressionFields,
+    );
     expect(second).toBe(first);
   });
 });

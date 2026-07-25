@@ -7,6 +7,14 @@ import type {
 import { findDirectRelationship } from './dataSourceGraph';
 import { effectiveFilterSourceId, resolveRowsAtGrain } from './grainResolution';
 import { filterFingerprint } from './resolvedRowsCache';
+import {
+  captureSourceDeps,
+  getLruEntry,
+  getOrCreateBucket,
+  setLruEntry,
+  sourceDepsUnchanged,
+} from './rowCacheLru';
+import type { SourceDep } from './rowCacheLru';
 
 type Row = Record<string, unknown>;
 
@@ -510,29 +518,25 @@ export function analyzeChartSupport(
 // display/dimension-field enrichment joins, the many-to-many remote endpoint, and
 // join-field-expression targets — none of which is captured by the two WeakMap keys. Their
 // rows changing would otherwise serve a stale re-anchored result (finding 1.5). The entry
-// therefore records the rows ref of every such foreign source (reported by `resolveRowsAtGrain`
-// via its `collectReadSourceIds` out-param) and invalidates when any of them changes.
+// therefore records the `SourceDep` (rows AND fields) of every such foreign source (reported by
+// `resolveRowsAtGrain` via its `collectReadSourceIds` out-param) and invalidates when either ref
+// changes: those sources are read through `getCachedNormalizedDataSource`, which is keyed on
+// both, so retyping a foreign field changes the re-anchored values while its rows ref stays
+// identical — chart buckets would otherwise keep splitting on a value the rest of the dashboard
+// has already canonicalized.
+//
+// The innermost `Map` is capped through the shared insertion-order LRU in `rowCacheLru.ts`, like
+// the three row caches: `configKey` is derived from widget config (x/y/series/extra fields plus
+// the anchor-scoped filter fingerprint), which churns on every chart-config edit while the rows
+// arrays stay alive, and each entry pins a full re-anchored result array.
 interface RcfaEntry {
   relationships: StudioRelationship[];
   exprFields: StudioExpressionField[];
-  /** Rows ref of every foreign (non-widget, non-anchor) source this result read; `null` = absent. */
-  readSourceRows: Map<string, Row[] | null>;
+  /** Rows AND fields refs of every foreign (non-widget, non-anchor) source this result read. */
+  readSourceDeps: Map<string, SourceDep>;
   result: Row[];
 }
 const rcfaCache = new WeakMap<Row[], WeakMap<Row[], Map<string, RcfaEntry>>>();
-
-/** True when every foreign source recorded in the entry still has the same rows ref. */
-function readSourceRowsUnchanged(
-  entry: RcfaEntry,
-  dataSources: Record<string, StudioDataSource>,
-): boolean {
-  for (const [sourceId, rowsRef] of entry.readSourceRows) {
-    if ((dataSources[sourceId]?.rows ?? null) !== rowsRef) {
-      return false;
-    }
-  }
-  return true;
-}
 
 /** Non-measure expression fields owned by any of `sourceIds`, in declaration order. */
 function collectRelevantExprFields(
@@ -626,11 +630,7 @@ export function resolveChartRowsForAggregation(
     byAnchor = new WeakMap();
     rcfaCache.set(widgetRows, byAnchor);
   }
-  let byKey = byAnchor.get(anchorRows);
-  if (!byKey) {
-    byKey = new Map();
-    byAnchor.set(anchorRows, byKey);
-  }
+  const byKey = getOrCreateBucket(byAnchor, anchorRows);
 
   // Reuse fieldOwners precomputed by analyzeChartSupport — no need to traverse
   // the relationship graph again (O(fields × relationships) saved per call).
@@ -677,12 +677,14 @@ export function resolveChartRowsForAggregation(
     .join('|');
 
   const configKey = `rcfa:${widgetSourceId}|${xField ?? ''}|${yFields.join(',')}|${seriesField ?? ''}|${cleanExtraFields.join(',')}|${anchorScopedFilterKey}`;
-  const cached = byKey.get(configKey);
+  // `getLruEntry` refreshes recency on read, so the config a widget is actively rendering is
+  // never the eviction candidate.
+  const cached = getLruEntry(byKey, configKey);
   if (
     cached &&
     cached.relationships === relationships &&
     exprFieldsRefEqual(cached.exprFields, relevantExprFields) &&
-    readSourceRowsUnchanged(cached, dataSources)
+    sourceDepsUnchanged(cached.readSourceDeps, dataSources)
   ) {
     return cached.result;
   }
@@ -706,20 +708,17 @@ export function resolveChartRowsForAggregation(
     widgetFilters,
   );
 
-  const readSourceRows = new Map<string, Row[] | null>();
-  for (const sourceId of readSourceIds) {
-    // The widget/anchor sources are already tracked by the two WeakMap keys — skip them.
-    if (sourceId === widgetSourceId || sourceId === anchorSourceId) {
-      continue;
-    }
-    // Record absence as null so a later data load invalidates the entry.
-    readSourceRows.set(sourceId, dataSources[sourceId]?.rows ?? null);
-  }
+  // The widget/anchor sources are already tracked by the two WeakMap keys — skip them.
+  // An absent foreign source is still recorded (as all-null) so a later data load invalidates.
+  const foreignReadSourceIds = [...readSourceIds].filter(
+    (sourceId) => sourceId !== widgetSourceId && sourceId !== anchorSourceId,
+  );
 
-  byKey.set(configKey, {
+  // `setLruEntry` evicts the least-recently-used entries before inserting when at capacity.
+  setLruEntry(byKey, configKey, {
     relationships,
     exprFields: relevantExprFields,
-    readSourceRows,
+    readSourceDeps: captureSourceDeps(foreignReadSourceIds, dataSources),
     result,
   });
   return result;

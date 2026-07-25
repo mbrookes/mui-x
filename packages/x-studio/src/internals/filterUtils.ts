@@ -4,6 +4,7 @@ import type { StudioFilterState } from '../models';
 import { normalizeToDate, normalizeToDateOnlyString } from './temporalUtils';
 import { computeDateRangePreset } from './dateRangeUtils';
 import { coerceAggregateValue } from './aggregate';
+import { normalizeJoinKey } from './joinKeys';
 
 type Row = Record<string, unknown>;
 
@@ -81,50 +82,78 @@ export function isSubDayRelativeUnit(unit: RelativeDateUnit): boolean {
 }
 
 /**
- * Resolves a `RelativeDateValue` to a concrete wire/comparison value using the current instant.
+ * The REFRESH CADENCE of a relative date, in milliseconds — NOT the filter's own unit.
+ *
+ * `resolveRelativeDateNowMs` floors the current instant to a multiple of this value, and
+ * `resolveRelativeDate` offsets the filter's amount/unit from that floored instant. Everything
+ * downstream of a `RelativeDateValue` — the comparison bound compiled by `compileRowTest`, the
+ * wire value serialized by `createSimpleAdapter`/`createBatchingAdapter`, and the L3 row-cache
+ * fingerprint built by `resolvedRowsCache.filterFingerprint` — is derived from that one value,
+ * so predicate and cache key are identical BY CONSTRUCTION rather than by convention.
+ *
+ * Why a fixed cadence rather than the filter's own unit:
+ * - Quantizing to the filter's unit would make "last 1 hour" mean "since the top of the hour an
+ *   hour ago" — a window that grows to 1h59m just before the hour rolls over.
+ * - Not quantizing at all (raw `Date.now()`) moves the bound every millisecond, so the L3 cache
+ *   key changes on every call: a 100% miss rate, a fresh `Row[]` identity that also misses every
+ *   `computedCache` entry, and a bounded LRU churning through full retained result arrays.
+ *
+ * With a fixed cadence, "last 1 hour" is a TRUE rolling hour that is re-resolved once per tick,
+ * so the window is exact to within one cadence period, and the cache key changes exactly once per
+ * tick. One minute is the default: it bounds staleness to a minute (below the granularity at
+ * which a dashboard viewer perceives a rolling window as wrong) while leaving the cache warm
+ * across the burst of renders a single interaction produces. Lowering it trades cache hit rate
+ * for freshness; the second-unit filters reachable from `RelativeDateInput` are refreshed at this
+ * same cadence, not per second.
+ */
+export const RELATIVE_DATE_REFRESH_CADENCE_MS = 60_000;
+
+/**
+ * "Now", floored to `RELATIVE_DATE_REFRESH_CADENCE_MS`, as epoch milliseconds.
+ *
+ * Every consumer of a `RelativeDateValue` resolves through this single instant, so a filter's
+ * predicate bound and its cache key can never disagree within one cadence tick. Epoch-flooring is
+ * timezone-independent for a whole-minute cadence: every real UTC offset is a whole number of
+ * minutes, so an epoch-minute boundary is a wall-clock minute boundary everywhere.
+ */
+export function resolveRelativeDateNowMs(): number {
+  return (
+    Math.floor(Date.now() / RELATIVE_DATE_REFRESH_CADENCE_MS) * RELATIVE_DATE_REFRESH_CADENCE_MS
+  );
+}
+
+/**
+ * Resolves a `RelativeDateValue` to a concrete wire/comparison value, offset from the
+ * cadence-floored "now" (`resolveRelativeDateNowMs`).
  *
  * `day`/`week`/`month`/`year` units resolve to a bare `YYYY-MM-DD` string — these follow the L1
  * canonical whole-day convention (`normalizeToDateOnlyString`) because "N days/weeks/months/years
  * ago" is inherently a calendar-day-granular concept.
  *
  * `second`/`minute`/`hour` units resolve to a full ISO-8601 UTC instant
- * (`YYYY-MM-DDTHH:mm:ss.sssZ`) instead. Previously EVERY unit was truncated to `YYYY-MM-DD` via
- * `.format('YYYY-MM-DD')`, so a filter authored as "after 1 hour ago" resolved to "after start of
- * today" — silently widening the window to include the whole day regardless of the actual hour.
- * Returning the real sub-day instant here lets callers (`isDateOnlyFilterValue`/`compileDateBound`
- * in this file, and the wire-serialization paths in `createBatchingAdapter.ts`/
- * `createSimpleAdapter.ts`) compare at full timestamp precision instead of day granularity.
+ * (`YYYY-MM-DDTHH:mm:ss.sssZ`) instead, so a filter authored as "after 1 hour ago" compares at
+ * hour-level precision rather than resolving to "after start of today" (which truncating every
+ * unit to `YYYY-MM-DD` used to do, silently widening the window to the whole current day).
+ * Callers comparing at full timestamp precision are `isDateOnlyFilterValue`/`compileDateBound` in
+ * this file plus the wire-serialization paths in `createBatchingAdapter.ts`/
+ * `createSimpleAdapter.ts`.
  *
- * QUANTIZATION: the sub-day instant is truncated to the START OF ITS OWN UNIT
- * (`startOf('hour'|'minute'|'second')`) rather than returned at millisecond precision. This is
- * the exact mirror of what `day`/`week`/`month`/`year` already do — those truncate to a stable
- * calendar boundary (`YYYY-MM-DD`) instead of carrying the current time of day — and it is
- * load-bearing for caching, not cosmetic: a raw `toISOString()` produced a DIFFERENT string on
- * every single call, so the L3 row-cache fingerprint (which stringifies the resolved filter
- * value) changed on every evaluation and a sub-day relative filter missed the cache 100% of the
- * time, re-running every downstream aggregation on every render. Quantized, the resolved bound is
- * byte-stable for the whole duration of its unit, so repeat evaluations hit the cache.
- *
- * The cost is that the bound anchors to the unit boundary rather than the exact instant — "1 hour
- * ago" at 10:30 means "since 09:00", not "since 09:30". That is the same anchoring the
- * day-or-coarser units have always applied ("1 day ago" is a whole calendar day, not this time
- * yesterday), and it is what makes the value cacheable at all.
+ * The returned sub-day instant therefore lands on a cadence boundary — at 10:59:30 a "1 hour ago"
+ * bound is `09:59:00`, not `09:00:00` and not `09:59:30`. The offset from "now" is always exactly
+ * the requested amount of the requested unit; only the anchor is quantized, and only to the
+ * cadence. See `RELATIVE_DATE_REFRESH_CADENCE_MS` for why.
  *
  * dayjs's `toISOString()` always renders in UTC regardless of the runtime's local timezone, so the
  * resolved instant is unambiguous — unlike the bare `YYYY-MM-DD` form (parsed as UTC midnight by
  * convention elsewhere in this file), a sub-day value carries its own explicit `Z` offset.
  */
 export function resolveRelativeDate(rel: RelativeDateValue): string {
-  const now = dayjs();
+  const now = dayjs(resolveRelativeDateNowMs());
   const result =
     rel.direction === 'past' ? now.subtract(rel.amount, rel.unit) : now.add(rel.amount, rel.unit);
-  // Sub-day units keep full precision: "last 1 hour" must mean exactly one hour, not
-  // "since the top of the hour an hour ago" (which widens the window by up to 59min).
-  // Quantization belongs to the CACHE KEY, not the predicate — `resolvedRowsCache`'s
-  // `quantizedRelativeDate` already truncates the fingerprint to the unit boundary, so
-  // sub-day filters hit the cache without the resolved bound drifting from what the
-  // user asked for. Day/week/month/year still truncate to a calendar boundary because
-  // that IS their intended semantics ("last 3 days" means 3 whole days).
+  // Day/week/month/year truncate to a calendar boundary because that IS their intended
+  // semantics ("last 3 days" means 3 whole days). Sub-day units keep the time-of-day
+  // component so "last 1 hour" means one hour, not the whole current day.
   return isSubDayRelativeUnit(rel.unit) ? result.toISOString() : result.format('YYYY-MM-DD');
 }
 
@@ -276,11 +305,14 @@ function compileDateBound(
 }
 
 /**
- * Filter-side candidate index for condition-mode `in` / `not_in`, built ONCE per compiled filter.
+ * Filter-side candidate index for condition-mode `in` / `not_in` AND for selection mode, built
+ * ONCE per compiled filter.
  *
- * Keyed with the SAME `String(v ?? '')` policy selection mode uses (`compileRowTest`'s
- * `selectedSet`) so an `in` authored through the multi-select drawer and one authored as a
- * condition agree on which row values match.
+ * Both modes route through this one function, so they cannot drift apart on how a candidate is
+ * keyed. `String(v ?? '')` is the same policy the ROW side uses (`String(row[field] ?? '')`), so a
+ * nullish candidate matches the empty/nullish rows rather than the literal rows spelling
+ * `"null"`/`"undefined"` — a selection built with `String(v)` instead encoded `null` as `"null"`
+ * and matched nothing, while the same value as a condition-mode `in` matched every empty row.
  */
 function buildCandidateSet(candidates: readonly unknown[]): Set<string> {
   const set = new Set<string>();
@@ -309,7 +341,10 @@ function compileRowTest(filter: StudioFilterState): (row: Row) => boolean {
     if (selected.length === 0) {
       return () => true;
     }
-    const selectedSet = new Set(selected.map((v) => String(v)));
+    // Same candidate-keying policy as condition-mode `in`/`not_in` (see `buildCandidateSet`):
+    // a nullish selected value keys as `''` and therefore matches the empty/nullish rows,
+    // which key as `''` too.
+    const selectedSet = buildCandidateSet(selected);
     // The multi-select "Exclude" toggle flips the operator to `not_in`; the compiled
     // test must EXCLUDE the selected values. Without this branch an Exclude selection is
     // byte-identical to Include and silently filters TO exactly the excluded values.
@@ -776,10 +811,20 @@ export function applyFilters(rows: Row[], filters: StudioFilterState[]): Row[] {
     const fieldId = f.field;
 
     if (f.rankByField) {
-      // Aggregate rank: group rows by fieldId, sum rankByField, keep top/bottom N groups
-      const totals = new Map<unknown, number>();
+      // Aggregate rank: group rows by fieldId, sum rankByField, keep top/bottom N groups.
+      //
+      // The group key routes through `normalizeJoinKey`, the single key-coercion policy every
+      // other grouping/joining path in the package uses (`joinKeys` for semi-joins and
+      // fan-out dedup, `chartValues.toXValue` for chart buckets). Keying on the RAW row value
+      // made grouping depend on JS reference/type identity: two equal-but-distinct `Date`
+      // objects became two one-row groups, and a numeric `2024` never grouped with the string
+      // `'2024'`. Widget-source rows are L1-normalized so this was usually masked, but
+      // L4-re-anchored and foreign rows reaching `applyFilters` carry no such guarantee.
+      // Nullish (and non-scalar) dimension values normalize to `null` and form a single
+      // "missing" group, which then ranks like any other.
+      const totals = new Map<string | null, number>();
       for (const row of result) {
-        const key = row[fieldId];
+        const key = normalizeJoinKey(row[fieldId]);
         // Route the rank-by measure through the SHARED numeric-coercion policy
         // (`coerceAggregateValue`) that every other aggregation path uses, rather than
         // `Number(... ?? 0)`. A non-numeric sentinel ("N/A") would otherwise coerce to NaN,
@@ -794,7 +839,9 @@ export function applyFilters(rows: Row[], filters: StudioFilterState[]): Row[] {
         dir === 'top' ? b[1] - a[1] : a[1] - b[1],
       );
       const topKeys = new Set(sorted.slice(0, n).map(([k]) => k));
-      result = result.filter((row) => topKeys.has(row[fieldId]));
+      // Membership is tested through the SAME normalization the grouping used, so a row can
+      // never fall outside every surviving group it contributed a total to.
+      result = result.filter((row) => topKeys.has(normalizeJoinKey(row[fieldId])));
     } else {
       // Numeric rank: sort rows by the field value directly. Route through the SHARED
       // numeric-coercion policy (`coerceAggregateValue`) — the same one the `rankByField`

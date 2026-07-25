@@ -1,8 +1,14 @@
 import { resolveRows } from './dataSourceGraph';
 import { isRelativeDateValue, resolveRelativeDate } from './filterUtils';
-import { getLruEntry, getOrCreateBucket, setLruEntry } from './rowCacheLru';
+import {
+  captureSourceDep,
+  getLruEntry,
+  getOrCreateBucket,
+  setLruEntry,
+  sourceDepsUnchanged,
+} from './rowCacheLru';
+import type { SourceDep } from './rowCacheLru';
 import { stableStringify } from './stableStringify';
-import type { RelativeDateUnit, RelativeDateValue } from './filterTypes';
 import type {
   StudioDataSource,
   StudioFilterState,
@@ -26,13 +32,16 @@ type Row = Record<string, unknown>;
 //   Two widgets sharing the same effective filters get the same key → cache hit.
 //
 // Per-entry deps (checked on every hit):
-//   crossFilterSourceRows  rows refs of EVERY foreign source this entry joined
-//                          against — declared cross-filter sources, derived
+//   crossFilterSourceDeps  rows AND fields refs of EVERY foreign source this entry
+//                          joined against — declared cross-filter sources, derived
 //                          cross-filter sources (a page filter on an expression
 //                          field owned by another source), and many-to-many
 //                          junction sources. `resolveRows` reports these via the
-//                          `collectJoinedSourceIds` out-param; if any of their
-//                          rows refs change the entry is invalidated.
+//                          `collectJoinedSourceIds` out-param; if either ref of any
+//                          of them changes the entry is invalidated. `fields` is
+//                          tracked because the join reads the foreign source through
+//                          `getCachedNormalizedDataSource`, which is keyed on both
+//                          (see `SourceDep` in `rowCacheLru.ts`).
 //   relationships          full array ref (rarely changes; OK to be broad here)
 //   relevantExprFields     object refs of the expression fields owned by any source
 //                          this result depends on (the widget source plus every joined
@@ -46,13 +55,12 @@ type Row = Record<string, unknown>;
 
 interface ResolvedCacheEntry {
   /**
-   * Rows ref of every foreign source this entry depends on. A `null` value records a
-   * source that had NO rows at compute time (absent / not yet loaded) — so when it
-   * later gains rows, `(rows ?? null) !== null` fails the equality check and the entry
-   * is invalidated. Recording absence explicitly is what fixes the stale-result bug
-   * where a cross-filter whose foreign source loaded late kept serving unfiltered rows.
+   * Rows AND fields refs of every foreign source this entry depends on (see `SourceDep`).
+   * A `null` member records a source that was absent at compute time, so when it later
+   * loads the equality check fails and the entry is invalidated — that is what keeps a
+   * cross-filter whose foreign source loaded late from serving unfiltered rows forever.
    */
-  crossFilterSourceRows: Map<string, Row[] | null>;
+  crossFilterSourceDeps: Map<string, SourceDep>;
   relationships: StudioRelationship[];
   /** Source IDs whose expression fields this result depends on. */
   relevantExprSourceIds: Set<string>;
@@ -70,39 +78,10 @@ const rowCache = new WeakMap<Row[], Map<string, ResolvedCacheEntry>>();
 // lifetime of that rows array.
 
 /**
- * Truncation length (in ISO-8601 characters) that quantizes a resolved sub-day relative date
- * to its own unit boundary: `YYYY-MM-DDTHH` / `…THH:mm` / `…THH:mm:ss`.
- *
- * `resolveRelativeDate` returns a MILLISECOND-precision `toISOString()` for `second`/`minute`/
- * `hour` (only `day`/`week`/`month`/`year` get a stable `YYYY-MM-DD`), and all three sub-day
- * units are user-selectable in `RelativeDateInput`. Folding that raw value into the fingerprint
- * made the L3 cache key change on EVERY call — a 100% miss rate — so two widgets on the same
- * source never shared a result, the fresh `Row[]` identity missed every `computedCache` entry
- * (a WeakMap keyed on the rows array) forcing all chart/KPI aggregation to re-run, and the
- * bounded LRU degenerated into a churning ring of retained full result arrays.
- *
- * The deeper root cause is `filterUtils.resolveRelativeDate` returning ms precision at all;
- * quantizing here fixes the cache-key half of it without changing filter semantics (the
- * comparison path still uses the full instant).
- */
-const RELATIVE_UNIT_KEY_PRECISION: Partial<Record<RelativeDateUnit, number>> = {
-  hour: 'YYYY-MM-DDTHH'.length,
-  minute: 'YYYY-MM-DDTHH:mm'.length,
-  second: 'YYYY-MM-DDTHH:mm:ss'.length,
-};
-
-/** Resolves `rel` and truncates it to its own unit boundary (a no-op for day+ units). */
-function quantizedRelativeDate(rel: RelativeDateValue): string {
-  const resolved = resolveRelativeDate(rel);
-  const precision = RELATIVE_UNIT_KEY_PRECISION[rel.unit];
-  return precision === undefined ? resolved : resolved.slice(0, precision);
-}
-
-/**
- * Resolves the day-boundary component of a value that carries a relative date, so the cache key
- * changes when the resolved window would change — whether the relative value sits at the TOP
- * level of a filter condition (e.g. `field >= "7 days ago"`) or NESTED inside a `between`
- * bound's `{ from, to }` object (e.g. `field between { from: "30 days ago", to: today }`).
+ * Resolves the bound a relative date currently denotes, so the cache key changes when the
+ * resolved window would change — whether the relative value sits at the TOP level of a filter
+ * condition (e.g. `field >= "7 days ago"`) or NESTED inside a `between` bound's `{ from, to }`
+ * object (e.g. `field between { from: "30 days ago", to: today }`).
  *
  * A `between` filter's `f.value` is itself a plain `{ from, to }` object — never a
  * `RelativeDateValue` — so `isRelativeDateValue(f.value)` alone never detects a relative bound
@@ -110,22 +89,27 @@ function quantizedRelativeDate(rel: RelativeDateValue): string {
  * unchanged across a midnight crossing even though the resolved window shifted, serving a STALE
  * date window for the remainder of a long-lived session (finding 5).
  *
- * Every resolved bound is quantized to its own unit boundary (`quantizedRelativeDate`) so a
- * sub-day unit contributes a value that is STABLE within the unit instead of changing on every
- * call — see `RELATIVE_UNIT_KEY_PRECISION`.
+ * The key is built from `resolveRelativeDate` itself — the SAME function `compileRowTest`
+ * compiles its comparison bound from — so the key and the predicate cannot disagree. Stability
+ * comes from `resolveRelativeDate` anchoring to a cadence-floored "now"
+ * (`RELATIVE_DATE_REFRESH_CADENCE_MS`): the value is byte-stable for one cadence tick, then
+ * changes, and the rows the cache serves always match the predicate that produced them. An
+ * earlier version truncated the key to the FILTER'S OWN unit while the predicate kept
+ * millisecond precision, so within one unit tick the key stayed constant while the correct
+ * predicate moved, and a "last 1 hour" widget served rows computed up to 59 minutes earlier.
  *
  * Returns `null` when `value` carries no relative date anywhere.
  */
-function relativeDayComponent(value: unknown): string | null {
+function resolvedRelativeBound(value: unknown): string | null {
   if (isRelativeDateValue(value)) {
-    return quantizedRelativeDate(value);
+    return resolveRelativeDate(value);
   }
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     const range = value as { from?: unknown; to?: unknown };
-    const fromDay = isRelativeDateValue(range.from) ? quantizedRelativeDate(range.from) : null;
-    const toDay = isRelativeDateValue(range.to) ? quantizedRelativeDate(range.to) : null;
-    if (fromDay !== null || toDay !== null) {
-      return `${fromDay ?? ''}..${toDay ?? ''}`;
+    const fromBound = isRelativeDateValue(range.from) ? resolveRelativeDate(range.from) : null;
+    const toBound = isRelativeDateValue(range.to) ? resolveRelativeDate(range.to) : null;
+    if (fromBound !== null || toBound !== null) {
+      return `${fromBound ?? ''}..${toBound ?? ''}`;
     }
   }
   return null;
@@ -152,16 +136,16 @@ export function filterFingerprint(f: StudioFilterState): string {
     // A relative-date value (e.g. "7 days ago") is a stable object, so `f.value` alone never
     // changes across a midnight crossing — the entry would serve a stale window forever while
     // preset filters self-heal (their resolved `{from,to}` changes daily). Fold the resolved
-    // day into the fingerprint so a relative-valued filter re-computes when the day rolls over
+    // bound into the fingerprint so a relative-valued filter re-computes when its window moves
     // (finding 2.21) — including a relative bound nested inside a `between` filter's `{from,to}`
     // value, not just a top-level relative value (finding 5). Preset (`dateRangePreset`) filters
     // are already resolved to concrete bounds in `f.value` before reaching here, so they need no
     // equivalent treatment.
-    relativeDayComponent(f.value),
+    resolvedRelativeBound(f.value),
     f.conjunction ?? null,
     f.operator2 ?? null,
     f.value2 ?? null,
-    relativeDayComponent(f.value2),
+    resolvedRelativeBound(f.value2),
     f.rankDirection ?? null,
     f.rankByField ?? null,
     f.rankMultiSeriesBy ?? null,
@@ -204,13 +188,14 @@ function isEntryValid(
   if (entry.relationships !== relationships) {
     return false;
   }
-  // Every foreign source this result depends on must still have the same rows ref.
-  // `?? null` so a source that was ABSENT at compute time (recorded as null) triggers
-  // invalidation the moment it gains rows.
-  for (const [sourceId, rowsRef] of entry.crossFilterSourceRows) {
-    if ((dataSources[sourceId]?.rows ?? null) !== rowsRef) {
-      return false;
-    }
+  // Every foreign source this result depends on must still have the same rows AND fields
+  // refs. `fields` is load-bearing: the semi-join reads the foreign source through
+  // `getCachedNormalizedDataSource`, which is keyed on both, so retyping a foreign field
+  // (`updateDataSourceField` keeps the rows ref) changes the joined values. Tracking rows
+  // alone made the retype appear to do nothing — the grid kept rows filtered against
+  // un-normalized values with no recovery short of replacing the source's rows.
+  if (!sourceDepsUnchanged(entry.crossFilterSourceDeps, dataSources)) {
+    return false;
   }
   // Expression fields relevant to this result must be the same objects (formula edits
   // replace the object). Recompute the relevant set from the stored source IDs so an
@@ -243,8 +228,8 @@ function isEntryValid(
  *
  * Invalidation triggers:
  * - own-rows changes (outer WeakMap key),
- * - any joined foreign source's rows changing (declared/derived cross-filter or
- *   many-to-many junction — tracked via resolveRows' collectJoinedSourceIds),
+ * - any joined foreign source's rows OR fields changing (declared/derived cross-filter
+ *   or many-to-many junction — tracked via resolveRows' collectJoinedSourceIds),
  * - any behavioral filter-field change (inner key fingerprint),
  * - relationships changes (array ref),
  * - a relevant expression-field formula change (object ref).
@@ -328,16 +313,17 @@ export function resolveRowsCached(
     { usedFieldIds, collectJoinedSourceIds: joinedSourceIds },
   );
 
-  const crossFilterSourceRows = new Map<string, Row[] | null>();
+  const crossFilterSourceDeps = new Map<string, SourceDep>();
   for (const sourceId of joinedSourceIds) {
-    // Record absence as null (not skip) so a later data load invalidates the entry.
-    crossFilterSourceRows.set(sourceId, dataSources[sourceId]?.rows ?? null);
+    // Record an absent source as `{ rows: null, fields: null }` (not skip) so a later data
+    // load invalidates the entry.
+    crossFilterSourceDeps.set(sourceId, captureSourceDep(dataSources[sourceId]));
   }
   // Also record any declared filterSourceId even if the join was skipped (e.g. the
   // foreign source had no rows yet) so a later data load invalidates the entry.
   for (const f of resolvedFilters) {
-    if (f.filterSourceId && !crossFilterSourceRows.has(f.filterSourceId)) {
-      crossFilterSourceRows.set(f.filterSourceId, dataSources[f.filterSourceId]?.rows ?? null);
+    if (f.filterSourceId && !crossFilterSourceDeps.has(f.filterSourceId)) {
+      crossFilterSourceDeps.set(f.filterSourceId, captureSourceDep(dataSources[f.filterSourceId]));
     }
   }
 
@@ -360,7 +346,7 @@ export function resolveRowsCached(
 
   // `setLruEntry` evicts the least-recently-used entries before inserting when at capacity.
   setLruEntry(byKey, cacheKey, {
-    crossFilterSourceRows,
+    crossFilterSourceDeps,
     relationships,
     relevantExprSourceIds,
     relevantExprFields,

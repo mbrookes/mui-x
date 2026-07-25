@@ -70,8 +70,7 @@ function getCurrencyFormat(
     // to whole currency amounts. An explicit precision pins both bounds.
     const minimumFractionDigits = normalizedPrecision ?? 0;
     const maximumFractionDigits = normalizedPrecision ?? (compact ? 1 : 0);
-    // react-doctor-disable-next-line react-doctor/js-hoist-intl -- cached; only created once per currency+compact combination
-    fmt = new Intl.NumberFormat(undefined, {
+    const options: Intl.NumberFormatOptions = {
       style: 'currency',
       currency: currencyCode,
       currencyDisplay: 'narrowSymbol',
@@ -79,7 +78,20 @@ function getCurrencyFormat(
       maximumFractionDigits,
       notation: compact ? 'compact' : 'standard',
       compactDisplay: 'short',
-    });
+    };
+    try {
+      // react-doctor-disable-next-line react-doctor/js-hoist-intl -- cached; only created once per currency+compact combination
+      fmt = new Intl.NumberFormat(undefined, options);
+    } catch {
+      // `currencyCode` is a plain, unvalidated `string` on `StudioDataField`/
+      // `StudioExpressionField` (doc/AI-authored, no enum enforced at the schema level).
+      // An invalid ISO 4217 code (e.g. "NOTREAL") makes the `Intl.NumberFormat` constructor
+      // throw a `RangeError`, which would otherwise crash whichever widget/tooltip/grid cell
+      // render triggered the format. Fall back to the 'USD' formatting for the same options
+      // rather than letting the error bubble up.
+      // react-doctor-disable-next-line react-doctor/js-hoist-intl -- cached; only created once per currency+compact combination
+      fmt = new Intl.NumberFormat(undefined, { ...options, currency: 'USD' });
+    }
     currencyFormatCache.set(key, fmt);
   }
   return fmt;

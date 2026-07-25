@@ -484,6 +484,138 @@ describe('<StudioMapWidget /> legend aria-label localization', () => {
   });
 });
 
+// Regression coverage for the `COLOR_RAMPS[colorScheme]` prototype-chain lookup fix
+// (finding 1): `mapColorScheme` is doc/AI-authored and only checked at the config-key
+// level (that `mapColorScheme` is an allowed key name), never that its *value* is one
+// of the five ramp names. A value like "constructor" resolves `COLOR_RAMPS['constructor']`
+// to the inherited `Object` constructor (truthy, so `?? COLOR_RAMPS.blues` never fires),
+// and `const [colorStart, colorEnd] = Object` throws `TypeError: object is not iterable`.
+describe('<StudioMapWidget /> mapColorScheme prototype-chain guard (fix 1)', () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+
+        unobserve() {}
+
+        disconnect() {}
+      },
+    );
+    geoDataProviderSpy.mockClear();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+    rows = DEFAULT_ROWS;
+  });
+
+  it('does not throw when mapColorScheme is an Object.prototype member name and falls back to the blues ramp', async () => {
+    const widget = {
+      ...baseWidget,
+      config: { ...baseWidget.config, mapColorScheme: 'constructor' },
+    } as unknown as StudioWidget;
+    mockState = createState({
+      widgets: { 'map-1': widget },
+      dataSources: { sales: dataSource },
+    });
+    configureStudioContextMock({ getState: () => mockState, controller });
+
+    // Rendering must not throw — pre-fix, `COLOR_RAMPS['constructor']` resolved the
+    // inherited `Object` constructor (a truthy value), so `?? COLOR_RAMPS.blues` never
+    // fired and destructuring it as `[colorStart, colorEnd]` crashed.
+    await renderMap(widget);
+
+    const props = geoDataProviderSpy.mock.calls.at(-1)?.[0] as {
+      zAxis?: Array<{ colorMap?: { color?: [string, string] } }>;
+    };
+    expect(props?.zAxis?.[0]?.colorMap?.color).toEqual(['#deebf7', '#08306b']);
+  });
+
+  it.each(['reds', 'greens', 'oranges', 'purples'])(
+    'still resolves the "%s" ramp normally',
+    async (scheme) => {
+      const widget = {
+        ...baseWidget,
+        config: { ...baseWidget.config, mapColorScheme: scheme },
+      } as unknown as StudioWidget;
+      mockState = createState({
+        widgets: { 'map-1': widget },
+        dataSources: { sales: dataSource },
+      });
+      configureStudioContextMock({ getState: () => mockState, controller });
+
+      await renderMap(widget);
+
+      const props = geoDataProviderSpy.mock.calls.at(-1)?.[0] as {
+        zAxis?: Array<{ colorMap?: { color?: [string, string] } }>;
+      };
+      expect(props?.zAxis?.[0]?.colorMap?.color).not.toEqual(['#deebf7', '#08306b']);
+    },
+  );
+});
+
+// Regression coverage for the `STATE_ABBR_TO_NAME[featureId]` prototype-chain lookup
+// fix (finding 2, defense-in-depth): not exploitable via the normal geography
+// normalizers, but guarded for consistency with this file's other `Object.hasOwn` checks.
+describe('<StudioMapWidget /> STATE_ABBR_TO_NAME prototype-chain guard (fix 2)', () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+
+        unobserve() {}
+
+        disconnect() {}
+      },
+    );
+    geoDataProviderSpy.mockClear();
+    mockGeographies = {
+      usa: {
+        label: 'USA',
+        fieldLabel: 'State field',
+        fieldHint: '',
+        // Deliberately permissive: passes the raw value through so the test can drive
+        // `featureIdToLabel` with an Object.prototype member name.
+        normalizer: (v: unknown) => (v == null ? null : String(v)),
+        loader: () => Promise.resolve({ type: 'FeatureCollection', features: [] }),
+      },
+    };
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+    rows = DEFAULT_ROWS;
+    mockGeographies = { world: geographyDef, flex: flexGeographyDef };
+  });
+
+  it('does not resolve a prototype member as the region label when the feature id is "constructor"', async () => {
+    rows = [{ country: 'constructor', sales: 10 }];
+    const widget = {
+      ...baseWidget,
+      config: { ...baseWidget.config, mapGeography: 'usa' },
+    } as StudioWidget;
+    mockState = createState({
+      widgets: { 'map-1': widget },
+      dataSources: { sales: dataSource },
+    });
+    configureStudioContextMock({ getState: () => mockState, controller });
+
+    await renderMap(widget);
+
+    const props = geoDataProviderSpy.mock.calls.at(-1)?.[0] as {
+      series?: Array<{ data?: Array<{ label?: unknown }> }>;
+    };
+    const label = props?.series?.[0]?.data?.[0]?.label;
+    // Pre-fix, `STATE_ABBR_TO_NAME['constructor']` resolved the inherited `Object`
+    // constructor function instead of falling back to the raw feature id string.
+    expect(label).toBe('constructor');
+  });
+});
+
 // ─── mapValueField lookup: expression fields + cross-source fields (architecture
 // review: the lookup only ever checked `dataSource.fields`, unlike the row-
 // enrichment pipeline (`useWidgetRows.ts`), which already explicitly resolves a

@@ -79,6 +79,15 @@ const COLOR_RAMPS: Record<string, [string, string]> = {
   purples: ['#efedf5', '#3f007d'],
 };
 
+// `mapColorScheme` is typed as the five-key union above, but that type is NOT enforced at
+// the load/AI-tool boundary (config-key validation only checks that `mapColorScheme` is an
+// allowed key name for map widgets, never that its value is one of the five ramp names). A
+// value like `"constructor"` would otherwise resolve `COLOR_RAMPS[colorScheme]` to the
+// inherited `Object` constructor off the prototype chain (truthy, so a `?? COLOR_RAMPS.blues`
+// fallback never fires) and crash the destructure below. Guard with the same
+// `Object.hasOwn` pattern used for `mapGeography` below.
+const SAFE_MAP_COLOR_SCHEMES = new Set<string>(['blues', 'reds', 'greens', 'oranges', 'purples']);
+
 // Empirical content aspect ratios (content-width / content-height) for each d3 projection.
 // Used to compute how wide the geographic features are relative to the drawing area height,
 // so the horizontal legend can be sized to match the map's visible extent rather than
@@ -302,7 +311,12 @@ export function StudioMapWidget({
   const featureIdToLabel = React.useCallback(
     (featureId: string): string => {
       if (mapGeography === 'usa') {
-        return STATE_ABBR_TO_NAME[featureId] ?? featureId;
+        // Guard against inherited prototype keys (e.g. "constructor"), same rationale as
+        // the `allGeographies` lookup above, for consistency/defense-in-depth even though
+        // every path producing `featureId` here is already pre-constrained to a closed set.
+        return Object.hasOwn(STATE_ABBR_TO_NAME, featureId)
+          ? STATE_ABBR_TO_NAME[featureId]
+          : featureId;
       }
       // world / europe / custom geography: try Intl.DisplayNames (alpha-2)
       return alpha2ToName(featureId);
@@ -721,7 +735,9 @@ export function StudioMapWidget({
     return <StudioNoDataOverlay />;
   }
 
-  const [colorStart, colorEnd] = COLOR_RAMPS[colorScheme] ?? COLOR_RAMPS.blues;
+  const [colorStart, colorEnd] = SAFE_MAP_COLOR_SCHEMES.has(colorScheme)
+    ? COLOR_RAMPS[colorScheme]
+    : COLOR_RAMPS.blues;
 
   // The geography is still loading: render nothing until it resolves.
   // (The provider needs `geoData` to project; an empty collection would render blank.)

@@ -27,9 +27,12 @@ export function resolveTextFontFamily(value: string | undefined): string | undef
   if (!value || typeof value !== 'string') {
     return undefined;
   }
-  const namedStack = NAMED_FONT_STACKS[value];
-  if (namedStack) {
-    return namedStack;
+  // `value` is doc/AI-authored (see security note above), so guard the record index against
+  // inherited keys: a value like "constructor" would otherwise resolve `NAMED_FONT_STACKS[value]`
+  // to the inherited `Object` constructor (truthy) and return it directly as the "safe" font
+  // family, bypassing the `isSafeFontFamily` allow-list check entirely.
+  if (Object.hasOwn(NAMED_FONT_STACKS, value)) {
+    return NAMED_FONT_STACKS[value];
   }
   return isSafeFontFamily(value) ? value : undefined;
 }

@@ -99,6 +99,21 @@ describe('formatNumber — currency format', () => {
     // 40,500 → "$40.5K": the fractional digit is preserved
     expect(formatNumber(40_500, 'currency', 'USD', true)).toMatch(/[.,]5K/i);
   });
+
+  it('does not throw and falls back to a valid format for an invalid ISO 4217 currency code', () => {
+    // `currencyCode` is a plain, unvalidated `string` on `StudioDataField`/
+    // `StudioExpressionField` — an invalid code like "NOTREAL" makes the underlying
+    // `Intl.NumberFormat` constructor throw a `RangeError`. Reached unguarded (pre-fix)
+    // from `FieldPreviewTooltip`, `DataSourcePreviewTooltip`, `DataSourcePreview`'s tooltip
+    // AND its live `GridColDef.valueFormatter` used during `DataGridPremium` cell render.
+    expect(() => formatNumber(1000, 'currency', 'NOTREAL')).not.toThrow();
+    expect(formatNumber(1000, 'currency', 'NOTREAL')).toContain('$');
+  });
+
+  it('does not throw for an invalid currency code combined with compact notation/precision', () => {
+    expect(() => formatNumber(2_000_000, 'currency', 'NOTREAL', true)).not.toThrow();
+    expect(() => formatNumber(1234.5, 'currency', 'NOTREAL', false, 2)).not.toThrow();
+  });
 });
 
 describe('formatNumber — default format (no format argument)', () => {

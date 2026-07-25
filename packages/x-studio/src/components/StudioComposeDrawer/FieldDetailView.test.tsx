@@ -116,3 +116,29 @@ describe('FieldDetailView data-type label lookup (Tier2)', () => {
     expect(screen.queryByText(/function/i)).toBe(null);
   });
 });
+
+/**
+ * `shell.selectedSourceId` is a doc-authored data-source id. A bare
+ * `dataSources[selectedSourceId]` on `"constructor"` resolves the `Object` constructor, whose
+ * `.fields` is `undefined` — `source?.fields.find(...)` then throws and the whole field detail
+ * view is replaced by the drawer error fallback. Guarded via `utils/safeLookup`'s `lookup`.
+ */
+describe('FieldDetailView — prototype-chain selectedSourceId', () => {
+  it('renders nothing (instead of throwing) for a prototype-named source id', () => {
+    const { wrapper } = createStudioHarness({
+      initialState: {
+        runtime: { dataSources: { src: SOURCE } },
+        session: {
+          shell: {
+            openDrawers: { data: true, compose: false, filters: false },
+            selectedWidgetId: null,
+            selectedFieldId: 'amount',
+            selectedSourceId: 'constructor',
+          },
+        },
+      },
+    });
+    expect(() => render(<FieldDetailView />, { wrapper })).not.toThrow();
+    expect(screen.queryByText(/function/i)).toBe(null);
+  });
+});

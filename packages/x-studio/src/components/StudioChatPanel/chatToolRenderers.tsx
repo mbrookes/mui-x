@@ -19,6 +19,7 @@ import TitleIcon from '@mui/icons-material/Title';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 import type { StudioLocaleText } from '../../internals/localeText';
+import { lookup } from '../../utils/safeLookup';
 
 // ── Per-tool icon map ─────────────────────────────────────────────────────────
 // Maps each Studio AI tool name to an MUI icon component for the tool call cards.
@@ -91,8 +92,12 @@ function StudioToolTitle({
   ...props
 }: React.HTMLAttributes<HTMLDivElement> & { ownerState?: ToolPartOwnerState }) {
   const localeText = useStudioLocaleText();
-  const localeKey =
-    ownerState?.toolName !== undefined ? STUDIO_TOOL_LABEL_KEYS[ownerState.toolName] : undefined;
+  // `ownerState.toolName` is whatever name the model emitted — fully LLM-controlled — so the
+  // record is indexed through the prototype-chain-safe `lookup`. A bare bracket lookup on
+  // "constructor"/"toString"/… resolves an inherited `Object.prototype` function, which is
+  // `!== undefined`, so `localeText[localeKey]` is `undefined` at best and the raw function
+  // reaches JSX at worst ("Functions are not valid as a React child", blank card title).
+  const localeKey = lookup(STUDIO_TOOL_LABEL_KEYS, ownerState?.toolName);
   const label = localeKey !== undefined ? (localeText[localeKey] as string) : children;
   return <div {...props}>{label}</div>;
 }

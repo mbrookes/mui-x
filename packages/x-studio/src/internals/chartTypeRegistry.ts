@@ -9,6 +9,7 @@
 
 import type { StudioChartType, StudioWidgetKind } from '../models/baseTypes';
 import type { StudioWidgetConfig } from '../models/widgetTypes';
+import { lookup } from '../utils/safeLookup';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -462,17 +463,18 @@ export function getDescriptor(
   kind: StudioWidgetKind,
   config: StudioWidgetConfig,
 ): ChartTypeDescriptor {
+  // Both `config.chartType` and `kind` are doc/AI-authored with no closed-enum validation at
+  // this boundary (`StudioWidgetKind` is `string & {}`), so both are indexed through the
+  // prototype-chain-safe `lookup` rather than a bare `registry[key] ?? fallback`: a hostile
+  // value like "constructor"/"toString"/"valueOf" would otherwise resolve an inherited
+  // `Object.prototype` member — truthy, so `??` never fires — and every caller would then
+  // throw `descriptor.collectFields is not a function` (`queryDescriptor.ts`), including
+  // `StudioController.ts`'s all-widgets sweep, which runs outside any error boundary.
+  // Mirrors `StudioChartWidget.tsx`'s render-time `Object.hasOwn(CHART_TYPE_DEFS, chartType)`
+  // dispatch guard for the same bug class.
   if (kind === 'chart') {
-    // `config.chartType` is doc/AI-authored with no closed-enum validation at this
-    // boundary, so `Object.hasOwn` (not `chartTypeRegistry[chartType] ?? …`) guards
-    // against a hostile value like "constructor"/"toString"/"valueOf" resolving an
-    // inherited `Object.prototype` member instead of `undefined`. Mirrors
-    // `StudioChartWidget.tsx`'s render-time `Object.hasOwn(CHART_TYPE_DEFS, chartType)`
-    // dispatch guard for the same bug class.
     const chartType = config.chartType as StudioChartType;
-    return Object.hasOwn(chartTypeRegistry, chartType)
-      ? chartTypeRegistry[chartType]
-      : xyDescriptor;
+    return lookup(chartTypeRegistry, chartType) ?? xyDescriptor;
   }
-  return widgetKindRegistry[kind] ?? xyDescriptor;
+  return lookup(widgetKindRegistry, kind) ?? xyDescriptor;
 }

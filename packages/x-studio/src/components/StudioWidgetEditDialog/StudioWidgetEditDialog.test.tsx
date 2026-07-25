@@ -250,3 +250,48 @@ describe('StudioWidgetEditDialog error boundaries (Tier1 whole-dashboard-crash f
     errorSpy.mockRestore();
   });
 });
+
+// M11 (a11y): the tabs carried no `id`/`aria-controls` and the tab panels no
+// `id`/`aria-labelledby`/`tabIndex`, so assistive tech could not associate a tab with its
+// panel, and a scrollable panel whose content has no focusable child was unreachable by
+// keyboard entirely (WCAG 2.1.1). Mirrors `Studio/TabbedSidebar.tsx`.
+describe('StudioWidgetEditDialog tab/panel wiring (M11)', () => {
+  it('associates every tab with its own panel', () => {
+    setup({ widgets: { w1: chartWidget() }, dataSources: { src: CHART_SOURCE } });
+    ['Setup', 'Filters', 'Format'].forEach((name) => {
+      const tab = screen.getByRole('tab', { name });
+      const panelId = tab.getAttribute('aria-controls');
+      expect(panelId).toBeTruthy();
+      const panel = document.getElementById(panelId!);
+      expect(panel).not.toBe(null);
+      expect(panel!.getAttribute('role')).toBe('tabpanel');
+      expect(panel!.getAttribute('aria-labelledby')).toBe(tab.id);
+    });
+  });
+
+  it('gives the selected panel its own tab stop', () => {
+    setup({ widgets: { w1: chartWidget() }, dataSources: { src: CHART_SOURCE } });
+    const setupTab = screen.getByRole('tab', { name: 'Setup' });
+    const selectedPanel = document.getElementById(setupTab.getAttribute('aria-controls')!);
+    expect(selectedPanel!.getAttribute('tabindex')).toBe('0');
+    // Hidden panels must not add stray tab stops.
+    const formatTab = screen.getByRole('tab', { name: 'Format' });
+    const hiddenPanel = document.getElementById(formatTab.getAttribute('aria-controls')!);
+    expect(hiddenPanel!.hasAttribute('tabindex')).toBe(false);
+  });
+});
+
+/**
+ * `widget.kind` is doc/AI-authored and `StudioWidgetKind` is open, so
+ * `widgetKindLabels[widget.kind]` on `"toString"` resolves the inherited function — truthy,
+ * so `?? widget.kind` never fires — and the dialog title rendered
+ * `function toString() { [native code] } preview`. `StudioWidgetCard` already guarded this
+ * exact map; the dialog now does too.
+ */
+describe('StudioWidgetEditDialog prototype-chain widget kind', () => {
+  it('falls back to the raw kind string instead of an inherited function', () => {
+    setup({ widgets: { w1: { ...textWidget(), kind: 'toString' } } });
+    expect(screen.queryByText(/native code/)).toBe(null);
+    expect(screen.getAllByText(/toString/).length).toBeGreaterThan(0);
+  });
+});

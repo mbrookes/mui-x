@@ -17,6 +17,7 @@ import {
   selectDataSources,
 } from '../../context';
 import type { StudioNumberFormat } from '../../models';
+import { lookup } from '../../utils/safeLookup';
 import { useDataTypeLabels } from './StudioComposeDrawerLabels';
 import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 
@@ -30,8 +31,13 @@ export function FieldDetailView() {
   // Unique per-mount id so two mounted <Studio> instances don't emit duplicate DOM ids
   // (matches how `StudioDateRangeBar.tsx` derives its label id).
   const numberFormatLabelId = React.useId();
-  const source = shell.selectedSourceId ? dataSources[shell.selectedSourceId] : null;
-  const field = source?.fields.find((f) => f.id === selectedFieldId) ?? null;
+  // `selectedSourceId` originates from doc-authored source ids: index the record through the
+  // prototype-chain-safe `lookup` (same convention as the `dataTypeLabels` guards below) so a
+  // source id named after an `Object.prototype` member ("constructor"/"toString"/…) resolves to
+  // "not found" instead of an inherited function whose `.fields` is `undefined` — which sails
+  // past `source?.` and throws on `.find`, replacing the field detail view with the fallback.
+  const source = lookup(dataSources, shell.selectedSourceId) ?? null;
+  const field = source?.fields?.find((f) => f.id === selectedFieldId) ?? null;
 
   if (!field || !source) {
     return null;
@@ -53,9 +59,9 @@ export function FieldDetailView() {
       // `field.type` is doc-authored: guard against inherited `Object.prototype` keys
       // ("toString"/"constructor"/…) so a bare bracket lookup can't resolve a function off the
       // prototype chain instead of falling through to the capitalized-type fallback.
-      value: Object.hasOwn(dataTypeLabels, field.type)
-        ? dataTypeLabels[field.type]
-        : field.type.charAt(0).toUpperCase() + field.type.slice(1),
+      value:
+        lookup(dataTypeLabels, field.type) ??
+        field.type.charAt(0).toUpperCase() + field.type.slice(1),
     },
     {
       label: localeText.fieldDetailRowCalculationType,
@@ -64,7 +70,7 @@ export function FieldDetailView() {
     {
       label: localeText.fieldDetailRowFormat,
       // Same doc-authored-key guard as `fieldDetailRowDataType` above.
-      value: Object.hasOwn(dataTypeLabels, field.type) ? dataTypeLabels[field.type] : field.type,
+      value: lookup(dataTypeLabels, field.type) ?? field.type,
     },
   ];
 

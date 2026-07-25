@@ -182,3 +182,28 @@ describe('computeGridLineLefts (BL-109)', () => {
     expect(lefts).toHaveLength(23);
   });
 });
+
+/**
+ * `widgetColSpans` is a doc-authored record keyed by widget id. A bare `widgetColSpans?.[id]`
+ * on an id named after an `Object.prototype` member resolves the inherited function — truthy,
+ * so `?? flexGrowDefault` never fires — and the accumulator poisons every subsequent boundary
+ * into `NaN`. Guarded via `utils/safeLookup`'s `lookup`.
+ */
+describe('computeGridLineLefts — prototype-chain widget ids', () => {
+  it('treats an Object.prototype-named widget id as having no stored span', () => {
+    // `constructor` has no OWN entry in `widgetColSpans`, so it must fall back to the
+    // even split (24 / 2 = 12) — putting the second widget's boundary at column 12.
+    const lefts = computeGridLineLefts(
+      ['constructor', 'w1'],
+      { w1: 12 },
+      { leftId: '__none__', rightId: '__none2__', leftSpanLive: 0, totalSpan: 0 },
+    );
+    expect(lefts).toHaveLength(23);
+    // Column 11 is still inside the first widget (one 8px leading gap)…
+    expect(lefts[10].startsWith('calc(8px + ')).toBe(true);
+    // …column 12 starts the second widget (two 8px leading gaps). With the unguarded
+    // lookup the accumulator became a string, every `cumSpans[k] <= col` comparison went
+    // NaN-false, and every boundary stayed pinned to the first widget's 8px offset.
+    expect(lefts[11].startsWith('calc(16px + ')).toBe(true);
+  });
+});

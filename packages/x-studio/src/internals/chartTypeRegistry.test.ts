@@ -868,3 +868,35 @@ describe('ySeries foreign-source exclusion in multi-series charts', () => {
     expect(fields).toContain('revenue');
   });
 });
+
+// ── Prototype-chain-safe registry lookups ─────────────────────────────────────
+
+/**
+ * `StudioWidgetKind` is `string & {}` and `config.chartType` has no closed-enum validation at
+ * this boundary, so both registry keys are attacker-/AI-reachable. A bare `registry[key]`
+ * resolves an inherited `Object.prototype` member (truthy, so `?? xyDescriptor` never fires)
+ * and every caller then throws `descriptor.collectFields is not a function` — including
+ * `StudioController`'s all-widgets sweep, which runs outside any error boundary.
+ */
+describe('getDescriptor — Object.prototype keys fall back to the xy descriptor', () => {
+  const PROTO_KEYS = ['constructor', 'toString', 'valueOf', 'hasOwnProperty'] as const;
+
+  PROTO_KEYS.forEach((key) => {
+    it(`returns a usable descriptor for widget kind "${key}"`, () => {
+      const desc = getDescriptor(key, {});
+      expect(typeof desc.collectFields).toBe('function');
+      expect(() => desc.collectFields({}, SOURCE_A)).not.toThrow();
+    });
+
+    it(`returns a usable descriptor for chart type "${key}"`, () => {
+      const config = { chartType: key } as unknown as StudioWidgetConfig;
+      const desc = getDescriptor('chart', config);
+      expect(typeof desc.collectFields).toBe('function');
+      expect(() => desc.collectFields(config, SOURCE_A)).not.toThrow();
+    });
+  });
+
+  it('still resolves the real widget-kind descriptors', () => {
+    expect(getDescriptor('kpi', {})).not.toBe(getDescriptor('grid', {}));
+  });
+});

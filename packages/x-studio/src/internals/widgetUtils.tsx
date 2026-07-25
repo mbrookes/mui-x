@@ -14,6 +14,7 @@ import type {
   StudioWidgetKind,
 } from '../models';
 import { isWidgetOfKind } from '../models';
+import { lookup } from '../utils/safeLookup';
 import { isRelativeDateValue } from './filterUtils';
 import { selectFiltersForWidget } from './filterScoping';
 import type { RelativeDateValue } from './filterTypes';
@@ -241,7 +242,11 @@ export function formatDateFilterLabel(
         last_12_months: 'dateRangePresetLast12Months',
         ytd: 'dateRangePresetYTD',
       };
-      const localeKey = PRESET_LOCALE_KEY[filter.dateRangePreset];
+      // `dateRangePreset` is doc-authored: index through the prototype-chain-safe `lookup`
+      // so a preset named after an `Object.prototype` member ("constructor"/"toString"/…)
+      // resolves to `undefined` (falling through to the absolute-range formatting below)
+      // instead of an inherited function that `localeText[localeKey]` renders as `undefined`.
+      const localeKey = lookup(PRESET_LOCALE_KEY, filter.dateRangePreset);
       if (localeKey) {
         return localeText[localeKey] as string;
       }
@@ -293,8 +298,12 @@ export function formatDateFilterLabel(
 }
 
 function formatRelativeDateValue(rel: RelativeDateValue, localeText: StudioLocaleText): string {
-  const singularKey = UNIT_SINGULAR_KEYS[rel.unit];
-  const pluralKey = UNIT_PLURAL_KEYS[rel.unit];
+  // `rel.unit` is doc/AI-authored and only checked by `isRelativeDateValue`'s `relative === true`
+  // test, so it can be any string. Index through the prototype-chain-safe `lookup`: a unit named
+  // after an `Object.prototype` member ("constructor"/"toString"/…) would otherwise resolve an
+  // inherited function, pass the `singularKey ?` truthiness check, and render "Last 3 undefined".
+  const singularKey = lookup(UNIT_SINGULAR_KEYS, rel.unit);
+  const pluralKey = lookup(UNIT_PLURAL_KEYS, rel.unit);
   const singular = singularKey ? (localeText[singularKey] as string) : rel.unit;
   const plural = pluralKey ? (localeText[pluralKey] as string) : `${rel.unit}s`;
   const unitLabel = rel.amount === 1 ? singular : plural;
@@ -387,7 +396,13 @@ export function inferWidgetTitles(
   dataSources: Record<string, StudioDataSource>,
   localeText: StudioLocaleText = DEFAULT_STUDIO_LOCALE_TEXT,
 ): { title: string; subtitle: string } {
-  const source = widget.sourceId ? dataSources[widget.sourceId] : undefined;
+  // `widget.sourceId` is doc-authored (persisted load / AI `update_widget`), so index the
+  // record through the prototype-chain-safe `lookup` — a bare bracket lookup on a source id
+  // named after an `Object.prototype` member ("constructor"/"toString"/…) resolves an inherited
+  // function whose `.fields` is `undefined`, which sails past every `source?.` check below and
+  // throws inside `inferWidgetTitles` — a mutation-time call site (`StudioController.ts`), i.e.
+  // above every error boundary.
+  const source = lookup(dataSources, widget.sourceId);
   // This builder branches on `widget.kind` but reads a single pre-extracted
   // `config` local across every case, so it operates across kinds by design —
   // read it through the flat cross-kind `StudioWidgetConfig` patch type.
@@ -401,16 +416,20 @@ export function inferWidgetTitles(
       return undefined;
     }
     if (sourceId) {
-      // Cross-source lookup (rare — e.g. KPI sparkline from related source)
-      const ds = dataSources[sourceId];
-      return ds?.fields.find((f) => f.id === fieldId)?.label;
+      // Cross-source lookup (rare — e.g. KPI sparkline from related source). Same
+      // doc-authored-key guard as `source` above — `config.filterWidgetSourceId` is the
+      // AI-writable id that reaches here — plus an optional `?.fields?.` (matching the
+      // `primaryFieldMap` line above) so a source object without a `fields` array can't throw.
+      const ds = lookup(dataSources, sourceId);
+      return ds?.fields?.find((f) => f.id === fieldId)?.label;
     }
     return primaryFieldMap.get(fieldId);
   };
 
   const aggPrefix = (agg: StudioKpiAggregation | undefined, fallback: StudioKpiAggregation) => {
-    const key = KPI_AGG_PREFIXES_DEFAULT[agg ?? fallback];
-    return (localeText[key] as string) ?? '';
+    // `agg` is doc/AI-authored — guarded lookup, same reason as the maps above.
+    const key = lookup(KPI_AGG_PREFIXES_DEFAULT, agg ?? fallback);
+    return key ? ((localeText[key] as string) ?? '') : '';
   };
 
   switch (widget.kind) {
@@ -426,7 +445,7 @@ export function inferWidgetTitles(
       const seriesLabel = findFieldLabel(config.seriesField);
       const chartType = config.chartType ?? 'bar';
       const isScatter = chartType === 'scatter';
-      const groupByKey = config.xGroupBy ? CHART_GROUP_BY_PREFIX_KEYS[config.xGroupBy] : undefined;
+      const groupByKey = lookup(CHART_GROUP_BY_PREFIX_KEYS, config.xGroupBy);
       const groupByTitlePrefix = groupByKey ? (localeText[groupByKey] as string) : undefined;
 
       let title = source
@@ -471,7 +490,7 @@ export function inferWidgetTitles(
       const visibleColumnLabels = (
         config.columns?.length
           ? columnFieldIds(config.columns)
-          : (source?.fields.map((f) => f.id) ?? [])
+          : (source?.fields?.map((f) => f.id) ?? [])
       ).flatMap((fieldId) => {
         const label = findFieldLabel(fieldId);
         return label ? [label] : [];
@@ -615,7 +634,10 @@ export function buildCsvContent(
   const csvRows = rows.map((row) =>
     visibleColumns
       .map((col) => {
-        const value = row[col];
+        // `col` is a doc-authored column id: read the row through the prototype-chain-safe
+        // `lookup` so a column named after an `Object.prototype` member can't export the
+        // inherited function's source text as a cell value instead of an empty cell.
+        const value = lookup(row, col);
         const field = fieldMap.get(col);
         const strVal = formatFieldValue(value, field);
         if (typeof value === 'number') {

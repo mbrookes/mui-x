@@ -991,3 +991,40 @@ describe('toLocalYmd', () => {
     expect(toLocalYmd(localMidnight)).toBe(expected);
   });
 });
+
+// ─── Prototype-chain-safe record lookups ──────────────────────────────────────
+
+/**
+ * `period` and the field ids below come from a doc/AI-authored widget config with no runtime
+ * enum validation. A bare `PERIOD_DAYS[period]` on a `"constructor"` period resolves the
+ * inherited `Object` constructor, so `days` is a function, `start.setDate(NaN)` yields an
+ * Invalid Date, and the trend badge silently disappears instead of falling back.
+ */
+describe('prototype-chain keys in KPI record lookups', () => {
+  it('computeFixedPeriodRange falls back to a valid window for an Object.prototype period', () => {
+    const today = new Date(2026, 6, 15);
+    const { start, end } = computeFixedPeriodRange('constructor' as unknown as 'month', today);
+    expect(Number.isNaN(start.getTime())).toBe(false);
+    expect(Number.isNaN(end.getTime())).toBe(false);
+    expect(toLocalYmd(end)).toBe('2026-07-15');
+    // Falls back to the documented 30-day (month) window.
+    expect(toLocalYmd(start)).toBe('2026-06-16');
+  });
+
+  it('filterRowsByDateRange ignores rows for a date field named after a prototype member', () => {
+    const rows = [{ date: '2026-07-10' }];
+    const out = filterRowsByDateRange(
+      rows,
+      'constructor',
+      new Date(2026, 0, 1),
+      new Date(2026, 11, 31),
+    );
+    expect(out).toEqual([]);
+  });
+
+  it('computeAggregate treats a prototype-named field as having no values', () => {
+    const rows = [{ revenue: 10 }, { revenue: 20 }];
+    expect(computeAggregate(rows, 'toString', 'sum')).toBe(0);
+    expect(computeAggregate(rows, 'constructor', 'count_distinct')).toBe(0);
+  });
+});

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { STUDIO_AI_TOOL_REGISTRY } from '@mui/x-studio-schema';
 import { STUDIO_TOOL_ICONS, STUDIO_TOOL_LABEL_KEYS } from './chatToolRenderers';
+import { lookup } from '../../utils/safeLookup';
 
 /**
  * Regression guard for architecture-review finding 2.28: the chat tool-card
@@ -17,5 +18,27 @@ describe('chat tool-card registry parity', () => {
 
   it('STUDIO_TOOL_LABEL_KEYS has exactly one entry per registered tool', () => {
     expect(Object.keys(STUDIO_TOOL_LABEL_KEYS).sort()).toEqual(registryToolNames);
+  });
+});
+
+/**
+ * `toolName` on a tool part is whatever the model emitted — fully LLM-controlled. A bare
+ * `STUDIO_TOOL_LABEL_KEYS[toolName]` on `"constructor"` resolves the inherited `Object`
+ * constructor: `localeKey !== undefined` passes, and the tool-card title renders blank (or
+ * React throws "Functions are not valid as a React child"). `StudioToolTitle` indexes both
+ * maps through `utils/safeLookup`'s `lookup` instead.
+ */
+describe('chat tool-card maps reject prototype-chain tool names', () => {
+  const PROTO_KEYS = ['constructor', 'toString', 'valueOf', 'hasOwnProperty'];
+
+  PROTO_KEYS.forEach((key) => {
+    it(`"${key}" is not an own key of either map and resolves to undefined`, () => {
+      expect(Object.hasOwn(STUDIO_TOOL_LABEL_KEYS, key)).toBe(false);
+      expect(Object.hasOwn(STUDIO_TOOL_ICONS, key)).toBe(false);
+      expect(lookup(STUDIO_TOOL_LABEL_KEYS, key)).toBeUndefined();
+      expect(lookup(STUDIO_TOOL_ICONS, key)).toBeUndefined();
+      // The bug: the bare index resolves a truthy inherited function instead.
+      expect(typeof (STUDIO_TOOL_LABEL_KEYS as Record<string, unknown>)[key]).toBe('function');
+    });
   });
 });

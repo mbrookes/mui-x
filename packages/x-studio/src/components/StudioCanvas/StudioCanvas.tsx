@@ -34,6 +34,7 @@ import { InsertionPoint } from './InsertionPoint';
 import { WidgetGap } from './WidgetGap';
 import { useStudioDropTarget } from './useStudioDropTarget';
 import { sanitizeCssColor } from '../../internals/cssValueValidation';
+import { lookup } from '../../utils/safeLookup';
 
 /** Minimum column span for a KPI widget without a sparkline (narrower is fine without the chart). */
 const KPI_NO_SPARKLINE_MIN_SPAN = 4;
@@ -74,7 +75,12 @@ export function computeGridLineLefts(
     } else if (wId === liveDrag.rightId) {
       acc += liveDrag.totalSpan - liveDrag.leftSpanLive;
     } else {
-      acc += widgetColSpans?.[wId] ?? flexGrowDefault;
+      // `widgetColSpans` is a doc-authored record keyed by widget id: index it through the
+      // prototype-chain-safe `lookup` so an id named after an `Object.prototype` member
+      // ("constructor"/"toString"/…) resolves to `undefined` (and therefore `flexGrowDefault`)
+      // instead of an inherited function that `??` never replaces and that poisons the
+      // arithmetic below into `NaN`.
+      acc += lookup(widgetColSpans, wId) ?? flexGrowDefault;
     }
     return start;
   });
@@ -270,7 +276,7 @@ function StudioPageRows({
             // ("toString"/"constructor"/…) so a bare bracket lookup can't resolve a function
             // off `Object.prototype` instead of "not found" — the `!widget` check below would
             // not catch a truthy inherited function (prototype-chain key lookup fix).
-            const widget = Object.hasOwn(widgets, widgetId) ? widgets[widgetId] : undefined;
+            const widget = lookup(widgets, widgetId);
             if (!widget) {
               return true;
             }
@@ -281,10 +287,7 @@ function StudioPageRows({
             // `widget.sourceId` is doc-authored (host/AI-writable): guard the record index
             // against inherited keys ("toString"/"constructor"/…) so a bare bracket lookup
             // can't resolve a function off `Object.prototype` instead of "not found".
-            const dataSource =
-              widget.sourceId && Object.hasOwn(dataSources, widget.sourceId)
-                ? dataSources[widget.sourceId]
-                : undefined;
+            const dataSource = lookup(dataSources, widget.sourceId);
             return customDef.shouldHide({ widget, dataSource });
           })
         ) {
@@ -321,7 +324,12 @@ function StudioPageRows({
               )}
               {row.map((widgetId, colIndex) => {
                 // Compute flex value, using live drag for the two resizing widgets
-                const storedSpan = widgetColSpans?.[widgetId] ?? null;
+                // Guarded record index (see `computeGridLineLefts`): an inherited
+                // `Object.prototype` member would survive `??` and produce
+                // `flex: 0 0 calc(NaN% - NaNpx)` — an invalid declaration the browser drops,
+                // collapsing the widget in view mode. Edit mode's `Number.isFinite(span)`
+                // check below already covered its own path; this covers both.
+                const storedSpan = lookup(widgetColSpans, widgetId) ?? null;
                 let liveSpan: number | null = null;
                 if (liveDrag) {
                   if (widgetId === liveDrag.leftId) {
@@ -373,7 +381,7 @@ function StudioPageRows({
 
                 // Spans for the resize handle on the right of this widget
                 const nextId = row[colIndex + 1];
-                const nextStoredSpan = nextId ? (widgetColSpans?.[nextId] ?? null) : null;
+                const nextStoredSpan = nextId ? (lookup(widgetColSpans, nextId) ?? null) : null;
                 const myEffectiveSpan = storedSpan ?? defaultFlexGrow;
                 const nextEffectiveSpan = nextId
                   ? (nextStoredSpan ?? Math.round(GRID_COLS / row.length))
@@ -418,8 +426,10 @@ function StudioPageRows({
                         rightId={nextId}
                         leftSpan={myEffectiveSpan}
                         rightSpan={nextEffectiveSpan}
-                        leftMinSpan={getWidgetMinSpan(widgets[widgetId])}
-                        rightMinSpan={nextId ? getWidgetMinSpan(widgets[nextId]) : MIN_SPAN}
+                        // Guarded record index, consistent with the `widgets` lookup in the
+                        // hidden-row check above and `context/selectors.ts`.
+                        leftMinSpan={getWidgetMinSpan(lookup(widgets, widgetId))}
+                        rightMinSpan={nextId ? getWidgetMinSpan(lookup(widgets, nextId)) : MIN_SPAN}
                         widgetRowsRef={widgetRowsRef}
                         onDragMove={(lId, rId, leftSpanLive) => {
                           setLiveDrag({
@@ -436,8 +446,8 @@ function StudioPageRows({
                             snappedLeft,
                             rId,
                             snappedRight,
-                            getWidgetMinSpan(widgets[widgetId]),
-                            nextId ? getWidgetMinSpan(widgets[nextId]) : MIN_SPAN,
+                            getWidgetMinSpan(lookup(widgets, widgetId)),
+                            nextId ? getWidgetMinSpan(lookup(widgets, nextId)) : MIN_SPAN,
                           );
                         }}
                         onDragCancel={() => setLiveDrag(null)}

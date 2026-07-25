@@ -17,6 +17,7 @@ import {
   countDistinct,
 } from '../../../internals/aggregate';
 import { evaluateMeasure } from '../../../utils/expressionEvaluator';
+import { lookup } from '../../../utils/safeLookup';
 import {
   isRelativeDateValue,
   relativeToAbsolute,
@@ -64,7 +65,12 @@ export function computeFixedPeriodRange(
   today: Date,
 ): { start: Date; end: Date } {
   const PERIOD_DAYS: Record<typeof period, number> = { month: 30, quarter: 90, year: 365 };
-  const days = PERIOD_DAYS[period];
+  // `period` reaches here from `config.kpiTrendFixedPeriod` (doc/AI-authored, not validated
+  // against the declared union at runtime): index through the prototype-chain-safe `lookup` so
+  // a value like "constructor"/"toString" yields `undefined` → the documented 30-day default,
+  // rather than an inherited function that makes `setDate(NaN)` produce an Invalid Date and
+  // silently drops the trend badge.
+  const days = lookup(PERIOD_DAYS, period) ?? 30;
   const end = new Date(today);
   end.setHours(23, 59, 59, 999);
   const start = new Date(today);
@@ -120,7 +126,7 @@ export function filterRowsByDateRange(
   const startKey = toLocalYmd(start);
   const endKey = toLocalYmd(end);
   return rows.filter((row) => {
-    const raw = row[dateField];
+    const raw = lookup(row, dateField);
     if (raw === null || raw === undefined) {
       return false;
     }
@@ -314,8 +320,8 @@ export function findDateFilter(
   // `.sort` is stable, so filters sharing a scope kind keep their original relative order.
   const bySpecificity = [...relevant].sort(
     (a, b) =>
-      (DATE_FILTER_SCOPE_PRIORITY[a.scope.kind] ?? 3) -
-      (DATE_FILTER_SCOPE_PRIORITY[b.scope.kind] ?? 3),
+      (lookup(DATE_FILTER_SCOPE_PRIORITY, a.scope.kind) ?? 3) -
+      (lookup(DATE_FILTER_SCOPE_PRIORITY, b.scope.kind) ?? 3),
   );
   return bySpecificity.find((f) => isDateFieldFilter(f, dataSource));
 }
@@ -465,14 +471,14 @@ export function computeAggregate(
     // route through the numeric coercion below. `countDistinct` excludes null/undefined
     // (SQL COUNT(DISTINCT) semantic) so the KPI, grid, and measure-expression paths all
     // return the same number for the same field (finding 2.23).
-    return countDistinct(rows.map((row) => row[field]));
+    return countDistinct(rows.map((row) => lookup(row, field)));
   }
 
   // Exclude null/non-numeric values so they don't inflate the denominator for
   // avg/min/max. Boolean fields (e.g. onTime) are coerced to 0/1 so avg produces a
   // ratio. This is the reference null-skip policy shared via `internals/aggregate`.
   const values = rows
-    .map((row) => coerceAggregateValue(row[field]))
+    .map((row) => coerceAggregateValue(lookup(row, field)))
     .filter((v): v is number => v !== null);
 
   return aggregateNumbers(values, aggregation);
@@ -541,7 +547,7 @@ export function computeSparklineData(
   const buckets = new Map<string, Record<string, unknown>[]>();
 
   for (const row of rows) {
-    const raw = row[timeField];
+    const raw = lookup(row, timeField);
     if (raw === null || raw === undefined) {
       continue;
     }

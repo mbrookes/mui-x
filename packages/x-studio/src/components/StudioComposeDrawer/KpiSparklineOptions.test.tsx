@@ -256,3 +256,44 @@ describe('KpiSparklineOptions auto-date-filter scoping (finding 3)', () => {
     expect(screen.queryByLabelText('Time field')).toBe(null);
   });
 });
+
+// Same crash class as the relationship-id case above, but on the widget's OWN
+// `sourceId` — the unguarded sibling that sat 50 lines above the guarded one. A
+// doc/AI-authored `sourceId: "constructor"` resolved the inherited `Object`
+// constructor, whose `.fields` is `undefined`, so `!source` was false and
+// `buildSourceFieldEntries(source, …)` threw — replacing the entire setup panel
+// (source picker included) with the error fallback, leaving the widget unrepairable.
+describe('KpiSparklineOptions hostile widget sourceId', () => {
+  beforeEach(() => {
+    controller.updateWidgetConfig.mockClear();
+    mockState.doc.dashboard = { id: 'dashboard-1', title: 'Dashboard', activePageId: 'page-1' };
+    mockState.doc.relationships = [];
+    mockState.doc.widgets['widget-1'] = {
+      id: 'widget-1',
+      kind: 'kpi',
+      sourceId: 'constructor',
+      title: 'Orders',
+      config: {} as StudioWidgetConfig,
+    };
+    configureStudioContextMock({ getState: () => mockState, controller });
+  });
+
+  it('does not throw when the widget sourceId is a prototype-chain key', () => {
+    expect(() =>
+      render(
+        <KpiSparklineOptions
+          widgetId="widget-1"
+          config={mockState.doc.widgets['widget-1'].config}
+        />,
+      ),
+    ).not.toThrow();
+    // No source resolves, so the panel still renders its (empty) manual time-field picker.
+    expect(screen.getByLabelText('Time field')).not.toBe(null);
+  });
+
+  it('does not throw when the widgetId itself is a prototype-chain key', () => {
+    expect(() =>
+      render(<KpiSparklineOptions widgetId="toString" config={{} as StudioWidgetConfig} />),
+    ).not.toThrow();
+  });
+});

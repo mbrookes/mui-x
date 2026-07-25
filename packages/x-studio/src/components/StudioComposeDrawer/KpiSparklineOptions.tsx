@@ -24,6 +24,7 @@ import {
   useStudioLocaleText,
 } from '../../context';
 import { fieldHasCapability } from '../../utils/fieldCapabilities';
+import { lookup } from '../../utils/safeLookup';
 import { buildSourceFieldEntries } from '../../internals/fieldCatalog';
 import { selectFiltersForWidget } from '../../internals/filterScoping';
 import type { StudioDataSource, StudioWidgetConfig } from '../../models';
@@ -50,11 +51,19 @@ export function KpiSparklineOptions(props: { widgetId: string; config: StudioWid
   const dataSources = useStudioSelector(selectDataSources);
   const expressionFields = useStudioSelector(selectExpressionFields);
   const filters = useStudioSelector(selectFilters);
-  const widget = useStudioSelector(selectWidgets)[widgetId];
+  const widgets = useStudioSelector(selectWidgets);
+  // Same doc-authored-key guard as `dataSources` below — a widget id is equally free-form.
+  const widget = lookup(widgets, widgetId);
 
   // Auto-detected date filter field
   const sourceId = widget?.sourceId;
-  const source = sourceId ? dataSources[sourceId] : undefined;
+  // `widget.sourceId` is doc-authored, exactly like the `relatedId` guarded below — index the
+  // record through the prototype-chain-safe `lookup` so a source id named after an
+  // `Object.prototype` member ("constructor"/"toString"/…) resolves to "not found" rather than
+  // an inherited function that passes the `!source` guard and then throws inside
+  // `addSourceDateFields`'s `buildSourceFieldEntries(src, …)` → `source.fields.flatMap(...)`,
+  // replacing this whole setup panel (source picker included) with the error fallback.
+  const source = lookup(dataSources, sourceId);
   const relationships = useStudioSelector(selectRelationships);
 
   // Scoping inputs mirroring the KPI widget's own effective-date-filter resolution
@@ -107,7 +116,7 @@ export function KpiSparklineOptions(props: { widgetId: string; config: StudioWid
       // passes the `!relSource` guard below and then throws inside `addSourceDateFields`'s
       // `buildSourceFieldEntries(src, ...)` → `source.fields.flatMap(...)` (prototype-chain-safe
       // lookup convention, matching `makeSelectWidgetSource` in `context/selectors.ts`).
-      const relSource = Object.hasOwn(dataSources, relatedId) ? dataSources[relatedId] : undefined;
+      const relSource = lookup(dataSources, relatedId);
       if (!relSource) {
         continue;
       }

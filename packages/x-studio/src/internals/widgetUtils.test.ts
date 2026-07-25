@@ -1207,3 +1207,72 @@ describe('inferKpiDateSubtitle — locale tokens', () => {
     expect(inferKpiDateSubtitle(widget, [relDateFilter('past', 7, 'day')])).toBeNull();
   });
 });
+
+// ─── Prototype-chain-safe record lookups ──────────────────────────────────────
+
+/**
+ * Every record key that reaches this module — a widget's `sourceId`, a filter widget's
+ * `filterWidgetSourceId`, a relative-date `unit`, a `dateRangePreset` — is doc- or AI-authored,
+ * so it can name an `Object.prototype` member. A bare `record[key]` resolves the inherited
+ * member (truthy, so neither `?.` nor `?? fallback` fires); `utils/safeLookup`'s `lookup` must
+ * make every one of these resolve to `undefined` instead.
+ */
+describe('prototype-chain keys in doc-authored record lookups', () => {
+  it('does not throw when a widget sourceId names an Object.prototype member', () => {
+    const widget = makeWidget({ kind: 'chart', sourceId: 'constructor', config: {} });
+    expect(() => inferWidgetTitles(widget, SOURCES)).not.toThrow();
+    // Falls back to the source-less chart title rather than reading `Object.fields`.
+    expect(inferWidgetTitles(widget, SOURCES).title).toBe('Chart');
+  });
+
+  it('does not throw for a grid widget whose sourceId names an Object.prototype member', () => {
+    const widget = makeWidget({ kind: 'grid', sourceId: 'toString', config: {} });
+    expect(() => inferWidgetTitles(widget, SOURCES)).not.toThrow();
+    expect(inferWidgetTitles(widget, SOURCES).subtitle).toBe('');
+  });
+
+  it('does not throw when filterWidgetSourceId names an Object.prototype member', () => {
+    const widget = makeWidget({
+      kind: 'filter',
+      sourceId: 'orders',
+      config: { filterWidgetField: 'category', filterWidgetSourceId: 'constructor' },
+    });
+    expect(() => inferWidgetTitles(widget, SOURCES)).not.toThrow();
+    expect(inferWidgetTitles(widget, SOURCES).title).toBe('Filter');
+  });
+
+  it('never renders "undefined" as a relative-date unit label', () => {
+    const filter = relDateFilter('past', 3, 'constructor' as unknown as 'day');
+    const label = formatDateFilterLabel(filter);
+    expect(label).not.toContain('undefined');
+    expect(label).toBe('Last 3 constructors');
+  });
+
+  it('never renders "undefined" for a hostile dashboard date-range preset', () => {
+    const filter: StudioFilterState = {
+      id: 'f1',
+      field: 'date',
+      fieldType: 'date',
+      operator: 'between',
+      scope: { kind: 'dashboard-date-range', sourceId: 's1', pageId: 'p1' },
+      value: null,
+      dateRangePreset: 'toString',
+    } as unknown as StudioFilterState;
+    expect(formatDateFilterLabel(filter)).not.toContain('undefined');
+  });
+
+  it('exports an empty cell for a column named after an Object.prototype member', () => {
+    const source: StudioDataSource = {
+      id: 's',
+      label: 'S',
+      fields: [{ id: 'constructor', label: 'Ctor', type: 'string' }],
+    };
+    const widget = makeWidget({
+      kind: 'grid',
+      sourceId: 's',
+      config: { columns: [{ fieldId: 'constructor' }] },
+    });
+    const csv = buildCsvContent(widget, source, [{ other: 1 }]);
+    expect(csv).toBe('"Ctor"\n""');
+  });
+});

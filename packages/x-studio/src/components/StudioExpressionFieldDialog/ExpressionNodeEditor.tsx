@@ -30,6 +30,7 @@ import type {
   StudioFieldExpression,
 } from '../../models';
 import { useStudioLocaleText } from '../../context';
+import { lookup } from '../../utils/safeLookup';
 
 // ─── Operator options ────────────────────────────────────────────────────────
 
@@ -384,6 +385,14 @@ function InputNode({
             aria-label={localeText.exprFieldAriaLabel}
             sx={{ flexGrow: 1, fontSize: '0.75rem' }}
           >
+            {/* An expression can reference a field that has since been dropped from the data
+                source (or an expression field that no longer resolves). Without a matching
+                `MenuItem` the `Select` value is out of range: MUI logs a warning and the
+                control renders blank, so the operand silently looks unset even though the
+                stale id is still stored. Surface the raw id as its own option instead. */}
+            {!allFieldOptions.some((opt) => opt.id === expr.id) && (
+              <MenuItem value={expr.id}>{expr.id}</MenuItem>
+            )}
             {allFieldOptions.map((opt) => (
               <MenuItem key={opt.id} value={opt.id}>
                 {opt.label}
@@ -406,6 +415,12 @@ function InputNode({
               aria-label={localeText.exprAggregationAriaLabel}
               sx={{ minWidth: 80, fontSize: '0.75rem' }}
             >
+              {/* `StudioKpiAggregation` is wider than the offered options (e.g.
+                  `count_distinct`), and `expr.aggregation` is doc-authored — same
+                  out-of-range-value blanking as the field `Select` above. */}
+              {!getAggregationOptions(localeText).some(
+                (opt) => opt.value === (expr.aggregation ?? 'sum'),
+              ) && <MenuItem value={expr.aggregation}>{expr.aggregation}</MenuItem>}
               {getAggregationOptions(localeText).map((opt) => (
                 <MenuItem key={opt.value} value={opt.value}>
                   {opt.label}
@@ -434,6 +449,11 @@ function InputNode({
             aria-label={localeText.exprLiteralTypeAriaLabel}
             sx={{ minWidth: 80, fontSize: '0.75rem' }}
           >
+            {/* Same out-of-range-value guard as the field/operator pickers: a persisted
+                literal can declare a type outside the three offered here. */}
+            {!['number', 'string', 'boolean'].includes(expr.type) && (
+              <MenuItem value={expr.type}>{expr.type}</MenuItem>
+            )}
             <MenuItem value="number">{localeText.exprDataTypeNumber}</MenuItem>
             <MenuItem value="string">{localeText.exprDataTypeText}</MenuItem>
             <MenuItem value="boolean">{localeText.exprDataTypeBoolean}</MenuItem>
@@ -490,13 +510,47 @@ export function ExpressionBuilder({
   const operator = fnExpr?.operator ?? 'add';
   const inputs: StudioExpression[] = fnExpr?.inputs ?? [];
 
-  const minInputs = MIN_INPUTS[operator] ?? 1;
-  const maxInputs = MAX_INPUTS[operator] ?? undefined;
+  // `operator` comes straight off a persisted/AI-authored expression node with no closed-enum
+  // validation, so both arity tables are indexed through the prototype-chain-safe `lookup`. A
+  // bare bracket lookup on "constructor"/"toString"/… resolves an inherited `Object.prototype`
+  // function: `??` never fires, `minInputs` becomes a function so `inputs.length > minInputs`
+  // is false for every operand (no remove buttons), and `maxInputs` becomes a function so
+  // `inputs.length < maxInputs` is false too (no add button) — the operand list is completely
+  // uneditable.
+  const minInputs = lookup(MIN_INPUTS, operator) ?? 1;
+  const maxInputs = lookup(MAX_INPUTS, operator);
   const canAddInput = maxInputs === undefined || inputs.length < maxInputs;
 
+  // Stable per-operand React keys. Array indices pin each `InputNode`'s local state (its
+  // function-collapse toggle) to a POSITION, so removing operand 1 of 3 leaves operand 2
+  // rendering under operand 1's old key and inheriting its collapsed state. The keys can't be
+  // derived from the operand objects either — every edit replaces the edited node with a fresh
+  // object, so an identity-derived key would remount that node (dropping input focus) on every
+  // keystroke. Instead this component, which owns every mutation, tracks one generated key per
+  // operand slot: `handleRemoveInput` splices the matching key out, and the length reconcile
+  // below covers every other length change (operator switch, add, undo/redo, or a parent
+  // swapping the whole expression), which only ever appends or truncates at the end.
+  const [keyState, setKeyState] = React.useState<{ keys: string[]; seq: number }>(() => ({
+    keys: inputs.map((_, i) => `operand-${i + 1}`),
+    seq: inputs.length,
+  }));
+  let inputKeys = keyState.keys;
+  if (inputKeys.length !== inputs.length) {
+    // Reconcile during render (rather than in an effect) so this pass already renders with
+    // correctly-sized keys instead of one `key={undefined}` child.
+    const keys = inputKeys.slice(0, inputs.length);
+    let { seq } = keyState;
+    while (keys.length < inputs.length) {
+      seq += 1;
+      keys.push(`operand-${seq}`);
+    }
+    inputKeys = keys;
+    setKeyState({ keys, seq });
+  }
+
   const handleOperatorChange = (next: StudioExpressionOperator) => {
-    const nextMin = MIN_INPUTS[next] ?? 1;
-    const nextMax = MAX_INPUTS[next];
+    const nextMin = lookup(MIN_INPUTS, next) ?? 1;
+    const nextMax = lookup(MAX_INPUTS, next);
     let nextInputs = [...inputs];
     while (nextInputs.length < nextMin) {
       nextInputs.push(makeDefaultExpr());
@@ -517,6 +571,9 @@ export function ExpressionBuilder({
   };
 
   const handleRemoveInput = (index: number) => {
+    // Drop the removed operand's key alongside the operand itself, so every surviving
+    // `InputNode` keeps the key (and therefore the local collapse state) it already had.
+    setKeyState((prev) => ({ ...prev, keys: prev.keys.filter((_, i) => i !== index) }));
     onChange({ operator, inputs: inputs.filter((_, i) => i !== index) });
   };
 
@@ -529,6 +586,13 @@ export function ExpressionBuilder({
           value={operator}
           onChange={(event) => handleOperatorChange(event.target.value as StudioExpressionOperator)}
         >
+          {/* A persisted/AI-authored expression can carry an operator this build doesn't
+              offer. Without a matching `MenuItem` the `Select` value is out of range — MUI
+              logs a warning and the control renders blank, so the node looks operator-less
+              while still evaluating under the stored operator. Show the raw operator. */}
+          {!getOperatorOptions(localeText).some((opt) => opt.value === operator) && (
+            <MenuItem value={operator}>{operator}</MenuItem>
+          )}
           {getOperatorOptions(localeText).map((opt) => (
             <MenuItem key={opt.value} value={opt.value}>
               <Stack direction="row" sx={{ justifyContent: 'space-between', width: '100%' }}>
@@ -558,8 +622,7 @@ export function ExpressionBuilder({
         }
 
         return (
-          // react-doctor-disable-next-line react-doctor/no-array-index-as-key, react-doctor/no-array-index-key -- inputs schema list is stable and ordered by position
-          <Stack key={`input-${i}`} direction="row" spacing={0.5} sx={{ alignItems: 'flex-start' }}>
+          <Stack key={inputKeys[i]} direction="row" spacing={0.5} sx={{ alignItems: 'flex-start' }}>
             <Box sx={{ flexGrow: 1 }}>
               <InputNode
                 expr={inp}

@@ -206,3 +206,73 @@ describe('<ExpressionBuilder /> numeric literal input (finding 1.14)', () => {
     expect(input.value).toBe('10');
   });
 });
+
+/**
+ * The operator arity tables are plain object literals keyed by a doc/AI-authored
+ * `operator`. A bare `MIN_INPUTS[operator]` on `"constructor"` resolves the inherited
+ * `Object` constructor: `??` never fires, `inputs.length > minInputs` is false (no remove
+ * buttons) and `inputs.length < maxInputs` is false (no add button) — the operand list
+ * becomes completely uneditable. Guarded via `utils/safeLookup`'s `lookup`.
+ */
+describe('<ExpressionBuilder /> prototype-chain operator', () => {
+  function renderWithOperator(operator: string) {
+    const expression = {
+      operator,
+      inputs: [
+        { type: 'number', value: 1 },
+        { type: 'number', value: 2 },
+      ],
+    } as unknown as StudioExpression;
+    const { wrapper } = createStudioHarness();
+    return render(
+      <ExpressionBuilder
+        expression={expression}
+        sourceFields={SOURCE_FIELDS}
+        expressionFields={[]}
+        isMeasure={false}
+        onChange={() => {}}
+      />,
+      { wrapper },
+    );
+  }
+
+  it('keeps the operand list editable for an Object.prototype-named operator', () => {
+    renderWithOperator('constructor');
+    // Add button present (no max arity resolved) …
+    expect(screen.getByRole('button', { name: 'Add input' })).not.toBe(null);
+    // … and one remove button per operand (min arity falls back to 1).
+    expect(screen.getAllByRole('button', { name: 'Remove input' })).toHaveLength(2);
+  });
+
+  it('keeps the operand list editable for a "toString" operator', () => {
+    renderWithOperator('toString');
+    expect(screen.getByRole('button', { name: 'Add input' })).not.toBe(null);
+    expect(screen.getAllByRole('button', { name: 'Remove input' })).toHaveLength(2);
+  });
+});
+
+/**
+ * A field referenced by an expression can be dropped from its data source. Without a
+ * matching `MenuItem` the `Select` value is out of range: MUI logs a warning and the
+ * control renders blank, hiding the fact that the stale id is still stored.
+ */
+describe('<ExpressionBuilder /> dropped field reference', () => {
+  it('surfaces the stale field id instead of rendering a blank Select', () => {
+    const expression = {
+      operator: 'add',
+      inputs: [{ id: 'removed_field' }, { id: 'amount' }],
+    } as unknown as StudioExpression;
+    const { wrapper } = createStudioHarness();
+    render(
+      <ExpressionBuilder
+        expression={expression}
+        sourceFields={SOURCE_FIELDS}
+        expressionFields={[]}
+        isMeasure={false}
+        onChange={() => {}}
+      />,
+      { wrapper },
+    );
+    expect(screen.getByText('removed_field')).toBeVisible();
+  });
+});

@@ -186,6 +186,22 @@ export function formatNumber(
   }
 }
 
+/**
+ * Formats an **already-scaled** percentage — i.e. `42.5` renders as `42.5%`, not `4250%`.
+ *
+ * Distinct from `formatNumber(v, 'percent')`, which takes the same 0–100 scale but is reached
+ * only through a field's `format`. Chart and KPI code computes percentages inline (a share of a
+ * stack total, a pie arc's share, a trend delta) where there is no `StudioDataField` to consult,
+ * and every one of those sites previously built the string as `` `${v.toFixed(1)}%` `` — which
+ * hardcodes the `.` decimal separator and the trailing `%`, so a German dashboard rendered
+ * `42.5%` beside a `42,5 €` produced by `Intl` two lines away. Routing them all through one
+ * `Intl.NumberFormat` keeps the separator, the sign, and the symbol's placement consistent with
+ * every other number the same widget renders.
+ */
+export function formatPercent(value: number, fractionDigits: number = 1): string {
+  return getPrecisionFormat(fractionDigits, { style: 'percent' }).format(value / 100);
+}
+
 export function formatFieldValue(
   value: unknown,
   field?: Pick<StudioDataField, 'type' | 'format' | 'currencyCode' | 'precision'>,

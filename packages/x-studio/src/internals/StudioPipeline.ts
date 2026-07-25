@@ -1,17 +1,80 @@
 import type {
+  StudioChartType,
   StudioCrossFilterMode,
   StudioDataSource,
   StudioExpressionField,
   StudioFilterState,
   StudioRelationship,
   StudioState,
+  StudioWidget,
 } from '../models';
+import { isWidgetOfKind, resolveChartType } from '../models';
 import { resolveChartRowsForAggregation } from './chartAggregation';
 import { selectFiltersForWidget } from './filterScoping';
 import { resolveRowsCached } from './resolvedRowsCache';
 import { getCachedEnrichedRows } from './enrichedRowsCache';
 
 type Row = Record<string, unknown>;
+
+/**
+ * Chart families that re-apply a widget-scoped rank (Top-N) filter POST-aggregation:
+ * `useChartWidgetData` runs `applyRankToAggregated` / `applyRankToMultiSeries` /
+ * `applyRankToSeriesFieldData` over the aggregated series, and `generateInsight`'s
+ * `buildChartWidgetSummary` mirrors that on the AI-facing path.
+ *
+ * Every OTHER chart family (heatmap / funnel / sankey / gantt / scatter / gauge) aggregates
+ * its rows directly in `chartTypeDefs` and never reads the rank filter at all.
+ *
+ * Consumed only by {@link shouldApplyWidgetRankAtL3} — deliberately not exported, so no caller
+ * can re-derive the "is this a chart?" half of the rule on its own and drift from it.
+ */
+const POST_AGGREGATION_RANK_CHART_TYPES: ReadonlySet<StudioChartType> = new Set<StudioChartType>([
+  'bar',
+  'bar-stacked',
+  'bar-100',
+  'line',
+  'area',
+  'area-stacked',
+  'area-100',
+  'pie',
+  'donut',
+  'mixed',
+]);
+
+/**
+ * Single source of truth for whether a widget's WIDGET-scoped rank (Top-N) filter must be
+ * applied at L3, as a dataset-level reduction inside `applyFilters`' "filter then rank".
+ *
+ * The invariant it upholds: **a widget-scoped rank is applied exactly once**, at either L3 or
+ * post-aggregation, never both and never neither.
+ *
+ * - `true` for every non-chart kind (grid / KPI / map / pivot / filter / text / custom) and for
+ *   the chart families that aggregate rows directly with no post-aggregation rank step
+ *   (heatmap / funnel / sankey / gantt / scatter / gauge). These have no other enforcement
+ *   point, so without L3 their authored Top-N would be silently ignored.
+ * - `false` for the xy chart families in {@link POST_AGGREGATION_RANK_CHART_TYPES}, which
+ *   re-rank their aggregated series themselves; applying it at L3 too would double-reduce.
+ *
+ * A chart with no `chartType` resolves to `'bar'` (via `resolveChartType`, the same default
+ * `StudioChartWidget` renders), so a config-less chart keeps its widget rank out of L3.
+ *
+ * Every path that resolves a widget's rows — the React hook (`useWidgetRows`), the CSV export
+ * (`widgetExport`), and the AI insight summaries (`generateInsight`) — must route through this
+ * helper, so the number the assistant reports can never be computed over a differently-ranked
+ * row set than the one the widget renders.
+ *
+ * @param widget The widget whose rows are being resolved.
+ * @returns Whether `includeWidgetRank` should be `true` for this widget's L3 pass.
+ */
+export function shouldApplyWidgetRankAtL3(widget: StudioWidget): boolean {
+  if (!isWidgetOfKind(widget, 'chart')) {
+    return true;
+  }
+  // `?? {}` mirrors the previous `(widget.config as StudioWidgetConfig)?.chartType ?? 'bar'`:
+  // a chart whose config has not been authored yet still resolves to the rendered `'bar'`
+  // default rather than throwing.
+  return !POST_AGGREGATION_RANK_CHART_TYPES.has(resolveChartType(widget.config ?? {}));
+}
 
 /**
  * The pipeline context — a snapshot of the store state slices that the pipeline functions
@@ -38,30 +101,41 @@ export interface StudioPipeline {
    * filters (page, widget, cross-filter, interactive) for a given widget on a page.
    *
    * Page-scoped rank (Top-N) filters ARE applied — they flow through `applyFilters`'
-   * "filter then rank" reduction regardless. WIDGET-scoped rank filters are excluded by
-   * default, because the chart widget re-applies its own widget rank post-aggregation and
-   * would otherwise double-reduce it. Non-chart callers (grid / KPI / map / pivot / filter)
-   * — which have no post-aggregation rank path — set `options.includeWidgetRank = true` so a
-   * widget-scoped rank is enforced at L3 as a dataset-level reduction (finding 2.1).
+   * "filter then rank" reduction regardless.
    *
-   * @param widgetId   Widget ID used to scope widget-level and cross-filter exclusions.
+   * WIDGET-scoped rank filters follow {@link shouldApplyWidgetRankAtL3}, which is the single
+   * rule deciding whether a widget's Top-N is reduced at L3 or post-aggregation. **Pass the
+   * `StudioWidget` object as the first argument** and that rule is applied automatically — a
+   * new caller gets the correct behaviour without having to know the rule exists.
+   *
+   * Passing a bare widget ID string cannot resolve the rule (there is no `kind`/`config` to
+   * read), so it falls back to `includeWidgetRank: false` — correct only for the xy chart
+   * families. Prefer the widget overload; the string form exists for callers that genuinely
+   * have no widget object, such as `richContext`'s dashboard-wide field stats, which uses a
+   * synthetic widget ID that no widget-scoped filter can ever match.
+   *
+   * @param widget     The widget whose rows are being resolved, or its bare ID (see above).
+   *   Used to scope widget-level and cross-filter exclusions.
    * @param sourceId   The widget's primary source ID.
    * @param rows       Raw (pre-normalized) rows from `dataSources[sourceId].rows`.
    * @param pageId     Active page ID, used to scope cross-filters and interactive filters.
-   * @param options    Opt-in cross-filter behaviour. When omitted, behaves exactly as before
-   *   (include: 'all', crossFilterAllPages: false, includeWidgetRank: false). When provided
+   * @param options    Opt-in cross-filter behaviour. When omitted, cross-filter handling
+   *   behaves exactly as before (include: 'all', crossFilterAllPages: false). When provided
    *   (even `{}`), the dashboard's `crossFilterAllPages` is honoured and the effective
    *   cross-filter mode is resolved as
    *   `state.globalCrossFilterMode ?? options.widgetCrossFilterMode ?? 'cross-highlight'`; an
    *   effective mode of `'none'` coerces `include` to `'no-chart-cross'` — chart-click
    *   cross-filters are ignored, but interactive (filter-widget) hard-filters still apply.
-   *   An explicit `options.include` always wins. `options.includeWidgetRank` (default `false`)
-   *   applies WIDGET-scoped rank filters at L3; pass `true` for non-chart widget kinds so their
-   *   authorable Top-N rank is enforced (matching the React hook's
-   *   `!isWidgetOfKind(widget, 'chart')`).
+   *   An explicit `options.include` always wins.
+   *
+   *   `options.includeWidgetRank` OVERRIDES the {@link shouldApplyWidgetRankAtL3} default. The
+   *   only legitimate reason to pass it is a caller that reproduces a *different* stage of the
+   *   pipeline than the widget's own render path — e.g. a comparison baseline that must mirror
+   *   another `resolveWidgetRows` call's flag verbatim. Passing it to "make the numbers match
+   *   the chart" is always wrong: the helper already does that.
    */
   resolveWidgetRows(
-    widgetId: string,
+    widget: StudioWidget | string,
     sourceId: string,
     rows: Row[],
     pageId?: string,
@@ -130,7 +204,9 @@ export interface StudioPipeline {
  * @example
  * ```ts
  * const pipeline = createStudioPipeline(controller.getState());
- * const rows = pipeline.resolveWidgetRows(widget.id, widget.sourceId, source.rows, activePageId);
+ * // Pass the widget itself, not `widget.id` — that is what lets `resolveWidgetRows` apply
+ * // `shouldApplyWidgetRankAtL3` for you.
+ * const rows = pipeline.resolveWidgetRows(widget, widget.sourceId, source.rows, activePageId);
  * exportGridToCsv(widget, source, rows);
  * ```
  *
@@ -164,14 +240,19 @@ export function createStudioPipeline(state: StudioPipelineState | StudioState): 
       : state;
 
   return {
-    resolveWidgetRows(widgetId, sourceId, rows, pageId, options) {
+    resolveWidgetRows(widget, sourceId, rows, pageId, options) {
+      const isWidgetObject = typeof widget !== 'string';
       const scopeOpts: Parameters<typeof selectFiltersForWidget>[1] = {
-        widgetId,
+        widgetId: isWidgetObject ? widget.id : widget,
         widgetSourceId: sourceId,
         activePageId: pageId,
-        // Widget-scoped rank (Top-N) filters are excluded by default (chart re-applies its
-        // own post-aggregation); non-chart callers opt in so their rank is enforced at L3.
-        includeWidgetRank: options?.includeWidgetRank ?? false,
+        // Whether a WIDGET-scoped rank (Top-N) filter is reduced here at L3 or left to the
+        // chart's post-aggregation `applyRankTo*` pass is decided in exactly one place. When a
+        // widget object is available the rule resolves itself; a bare ID has no `kind`/`config`
+        // to read, so it keeps the legacy `false`. An explicit option always wins.
+        includeWidgetRank:
+          options?.includeWidgetRank ??
+          (isWidgetObject ? shouldApplyWidgetRankAtL3(widget) : false),
       };
       // Strict backward compatibility: only engage the corrected cross-filter behaviour
       // when the caller explicitly opts in with `options`. Omitting it preserves today's

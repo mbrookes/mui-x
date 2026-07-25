@@ -70,6 +70,60 @@ describe('runWidgetExport', () => {
     expect(exportChartToPng).not.toHaveBeenCalled();
   });
 
+  // The grid has no post-aggregation rank path, so a widget-scoped Top-N must be reduced at L3
+  // or the CSV would export every row while the on-screen grid shows only the top N. That rule
+  // is no longer hardcoded here — `resolveWidgetRows` resolves `shouldApplyWidgetRankAtL3` from
+  // the widget object this path now passes it.
+  it('applies a widget-scoped Top-N rank filter to the exported rows', () => {
+    const rankSource: StudioDataSource = {
+      id: 's1',
+      label: 'Source',
+      fields: [
+        { id: 'region', label: 'Region', type: 'string' },
+        { id: 'amount', label: 'Amount', type: 'number' },
+      ],
+      rows: [
+        { region: 'EU', amount: 100 },
+        { region: 'US', amount: 300 },
+        { region: 'APAC', amount: 200 },
+      ],
+    };
+    const widget: StudioWidget = {
+      id: 'w-rank',
+      kind: 'grid',
+      title: 'Grid',
+      sourceId: 's1',
+      config: {} as StudioWidgetConfig,
+    };
+    const rankFilter = {
+      id: 'f-rank',
+      field: 'amount',
+      filterMode: 'rank',
+      value: 2,
+      rankDirection: 'top',
+      scope: { kind: 'widget', widgetId: 'w-rank' },
+    } as unknown as StudioFilterState;
+    const controller = new StudioController({
+      doc: { widgets: { [widget.id]: widget }, filters: [rankFilter] },
+      runtime: { dataSources: { s1: rankSource } },
+    });
+
+    runWidgetExport({
+      widget,
+      source: rankSource,
+      controller,
+      pageId: 'page-1',
+      isCustomKind: false,
+      chartContainer: null,
+      imperativeExport: null,
+      localeText: DEFAULT_STUDIO_LOCALE_TEXT,
+    });
+
+    const rows = vi.mocked(exportGridToCsv).mock.calls[0][2];
+    // Top 2 by amount: US (300) and APAC (200).
+    expect(rows.map((r) => r.region).sort()).toEqual(['APAC', 'US']);
+  });
+
   it('dispatches a chart widget to PNG export with its container and background colour', () => {
     const widget: StudioWidget = {
       id: 'w2',

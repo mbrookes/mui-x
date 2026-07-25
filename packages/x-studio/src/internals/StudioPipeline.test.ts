@@ -1,11 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { createStudioPipeline } from './StudioPipeline';
+import { createStudioPipeline, shouldApplyWidgetRankAtL3 } from './StudioPipeline';
 import type {
   StudioDataSource,
   StudioExpressionField,
   StudioFilterState,
   StudioRelationship,
   StudioState,
+  StudioWidget,
+  StudioWidgetConfig,
 } from '../models';
 import type { StudioPipeline, StudioPipelineState } from './StudioPipeline';
 
@@ -35,6 +37,10 @@ function makeFilter(
     value: 'EU',
     ...overrides,
   } as StudioFilterState;
+}
+
+function makeWidget(kind: string, config: StudioWidgetConfig = {}): StudioWidget {
+  return { id: 'w1', kind, title: 'Widget', sourceId: 'orders', config } as StudioWidget;
 }
 
 const ROWS = [
@@ -214,6 +220,120 @@ describe('createStudioPipeline', () => {
       const r1 = pipeline.resolveWidgetRows('w1', 'orders', rows);
       const r2 = pipeline.resolveWidgetRows('w1', 'orders', rows);
       expect(r2).toBe(r1);
+    });
+
+    // ── Widget-object overload: `shouldApplyWidgetRankAtL3` resolves itself ────────────
+    //
+    // Passing the widget OBJECT is the supported way to get widget-rank handling right without
+    // the caller knowing the rule. These lock the default in for both directions so a new
+    // caller can never silently double-reduce (or never reduce) a Top-N.
+    describe('widget-rank default when a widget object is passed', () => {
+      const rankState = () =>
+        makeState({
+          dataSources: { orders: makeSource('orders', ROWS) },
+          filters: [
+            makeFilter({
+              id: 'f-rank',
+              scope: { kind: 'widget', widgetId: 'w1' },
+              filterMode: 'rank',
+              rankDirection: 'top',
+              field: 'amount',
+              value: 1,
+            }),
+          ],
+        });
+
+      it('applies the widget rank at L3 for a non-chart widget with no explicit flag', () => {
+        const pipeline = createStudioPipeline(rankState());
+        const result = pipeline.resolveWidgetRows(makeWidget('grid'), 'orders', [...ROWS]);
+        expect(result.map((r) => r.id)).toEqual(['3']);
+      });
+
+      it('applies the widget rank at L3 for a heatmap chart (no post-aggregation re-rank path)', () => {
+        const pipeline = createStudioPipeline(rankState());
+        const result = pipeline.resolveWidgetRows(
+          makeWidget('chart', { chartType: 'heatmap' }),
+          'orders',
+          [...ROWS],
+        );
+        expect(result.map((r) => r.id)).toEqual(['3']);
+      });
+
+      it('does NOT apply the widget rank at L3 for a bar chart (it re-ranks post-aggregation)', () => {
+        const pipeline = createStudioPipeline(rankState());
+        const result = pipeline.resolveWidgetRows(
+          makeWidget('chart', { chartType: 'bar' }),
+          'orders',
+          [...ROWS],
+        );
+        expect(result).toHaveLength(3);
+      });
+
+      it('treats a chart with no chartType as bar (the rendered default)', () => {
+        const pipeline = createStudioPipeline(rankState());
+        const result = pipeline.resolveWidgetRows(makeWidget('chart'), 'orders', [...ROWS]);
+        expect(result).toHaveLength(3);
+      });
+
+      it('lets an explicit includeWidgetRank override the resolved default', () => {
+        const pipeline = createStudioPipeline(rankState());
+        const result = pipeline.resolveWidgetRows(
+          makeWidget('chart', { chartType: 'bar' }),
+          'orders',
+          [...ROWS],
+          undefined,
+          { includeWidgetRank: true },
+        );
+        expect(result.map((r) => r.id)).toEqual(['3']);
+      });
+
+      it('keeps the legacy `false` default for the bare-ID form', () => {
+        const pipeline = createStudioPipeline(rankState());
+        // A bare ID carries no `kind`/`config`, so the rule cannot be resolved — documented as
+        // the legacy form for callers with no widget object (e.g. `richContext`'s synthetic id).
+        const result = pipeline.resolveWidgetRows('w1', 'orders', [...ROWS]);
+        expect(result).toHaveLength(3);
+      });
+    });
+  });
+
+  // ── shouldApplyWidgetRankAtL3 ──────────────────────────────────────────────────────
+  //
+  // The single rule deciding whether a widget-scoped Top-N is reduced at L3 or by the chart's
+  // own post-aggregation pass. The invariant: applied exactly once, never twice, never zero
+  // times. `useWidgetRows`, `widgetExport` and `generateInsight` all route through this.
+  describe('shouldApplyWidgetRankAtL3', () => {
+    it.each(['grid', 'kpi', 'map', 'pivot', 'filter', 'text', 'my-custom-kind'])(
+      'returns true for the non-chart kind %s',
+      (kind) => {
+        expect(shouldApplyWidgetRankAtL3(makeWidget(kind))).toBe(true);
+      },
+    );
+
+    it.each(['heatmap', 'funnel', 'sankey', 'gantt', 'scatter', 'gauge'] as const)(
+      'returns true for a %s chart (aggregates rows directly, never re-ranks)',
+      (chartType) => {
+        expect(shouldApplyWidgetRankAtL3(makeWidget('chart', { chartType }))).toBe(true);
+      },
+    );
+
+    it.each([
+      'bar',
+      'bar-stacked',
+      'bar-100',
+      'line',
+      'area',
+      'area-stacked',
+      'area-100',
+      'pie',
+      'donut',
+      'mixed',
+    ] as const)('returns false for a %s chart (re-ranks post-aggregation)', (chartType) => {
+      expect(shouldApplyWidgetRankAtL3(makeWidget('chart', { chartType }))).toBe(false);
+    });
+
+    it('treats a chart with no chartType as bar', () => {
+      expect(shouldApplyWidgetRankAtL3(makeWidget('chart'))).toBe(false);
     });
   });
 

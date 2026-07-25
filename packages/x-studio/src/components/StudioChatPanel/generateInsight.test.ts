@@ -532,6 +532,104 @@ describe('buildWidgetDataSummary', () => {
         ].join('\n'),
       );
     });
+
+    // ── Widget-scoped Top-N: applied exactly once, at the right layer ────────────────
+    //
+    // `buildWidgetDataSummary` used to derive its own coarse rule (`widget.kind !== 'chart'`)
+    // for whether the L3 pass should reduce a widget-scoped rank filter. That is only correct
+    // for the xy chart families, which re-rank post-aggregation in `buildChartWidgetSummary`.
+    // Both paths now route through `shouldApplyWidgetRankAtL3`, so the number reported to the
+    // user is always computed over the same rows the widget renders.
+    describe('widget-scoped rank filters', () => {
+      const rankFields = [
+        { id: 'region', label: 'Region', type: 'string' as const },
+        { id: 'day', label: 'Day', type: 'string' as const },
+        { id: 'amount', label: 'Amount', type: 'number' as const },
+      ];
+
+      function makeRankFilter(overrides: Partial<StudioFilterState> = {}): StudioFilterState {
+        return {
+          id: 'rank1',
+          filterMode: 'rank',
+          rankDirection: 'top',
+          scope: { kind: 'widget', widgetId: 'w1' },
+          ...overrides,
+        } as StudioFilterState;
+      }
+
+      it('reduces a heatmap summary at L3, matching the rows the heatmap renders', () => {
+        // A heatmap aggregates its rows directly (`chartTypeDefs`) and never re-applies the
+        // widget rank, so `useWidgetRows` enforces it at L3. Pre-fix this path passed
+        // `includeWidgetRank: widget.kind !== 'chart'` → `false`, so the assistant described
+        // the UNRANKED dataset while the chart on screen showed only the top region.
+        const rows = [
+          { region: 'EU', day: 'Mon', amount: 300 },
+          { region: 'EU', day: 'Tue', amount: 100 },
+          { region: 'US', day: 'Mon', amount: 50 },
+          { region: 'APAC', day: 'Tue', amount: 10 },
+        ];
+        const source = makeSource({ fields: rankFields, rows });
+        // Top 1 region by summed amount → EU (400), ahead of US (50) and APAC (10).
+        const state = makeState({
+          dataSources: { orders: source },
+          filters: [makeRankFilter({ field: 'region', rankByField: 'amount', value: 1 })],
+        });
+        const widget = makeWidget({
+          kind: 'chart',
+          config: {
+            chartType: 'heatmap',
+            xField: 'region',
+            heatYField: 'day',
+            yField: 'amount',
+            yAggregation: 'sum',
+          },
+        });
+
+        const result = buildWidgetDataSummary(widget, state);
+
+        expect(result.split('\n').slice(0, 4)).toEqual([
+          'Heatmap (sum of Amount by region × day):',
+          '1 x-values × 2 y-values',
+          ',Mon,Tue',
+          'EU,300,100',
+        ]);
+        // The rank really reduced the row set — the losing regions are absent from the whole
+        // summary, including its stats preamble.
+        expect(result).not.toContain('US');
+        expect(result).not.toContain('APAC');
+      });
+
+      it('applies a bar chart rank once (post-aggregation), never also at L3', () => {
+        // A bar chart re-ranks its AGGREGATED series, so L3 must leave the rows alone.
+        // Applying it at both layers would rank raw rows first — collapsing EU to its single
+        // surviving row (100) instead of its true total (190).
+        const rows = [
+          { region: 'EU', amount: 100 },
+          { region: 'EU', amount: 90 },
+          { region: 'US', amount: 150 },
+        ];
+        const source = makeSource({ fields: rankFields, rows });
+        const state = makeState({
+          dataSources: { orders: source },
+          filters: [makeRankFilter({ field: 'amount', value: 1 })],
+        });
+        const widget = makeWidget({
+          kind: 'chart',
+          config: { chartType: 'bar', xField: 'region', yField: 'amount', yAggregation: 'sum' },
+        });
+
+        const result = buildWidgetDataSummary(widget, state);
+
+        // Aggregate first (EU 190, US 150), then Top-1 → EU. Double-application would have
+        // produced `US,150` (the single highest raw row) instead.
+        expect(result.split('\n').slice(0, 4)).toEqual([
+          'Aggregated by region (sum of Amount)',
+          '1 categories',
+          'region,Amount',
+          'EU,190',
+        ]);
+      });
+    });
   });
 
   // ─── Map widgets ────────────────────────────────────────────────────────────

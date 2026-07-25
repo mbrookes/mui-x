@@ -376,20 +376,17 @@ function buildKpiWidgetSummary(
         ...toPipelineState(state),
         filters: state.doc.filters.map((f) => (f.id === dateFilter.id ? prevDateFilter : f)),
       });
+      // Passing the widget OBJECT makes this previous-period baseline resolve
+      // `shouldApplyWidgetRankAtL3` exactly as `buildWidgetDataSummary`'s current-period
+      // `resolveWidgetRows` call does, so the two periods are always ranked identically —
+      // comparing a ranked current value against an unranked previous one is not possible.
       const prevRows = prevPipeline.resolveWidgetRows(
-        widget.id,
+        widget,
         widget.sourceId as string,
         source.rows as Record<string, unknown>[],
         state.doc.dashboard.activePageId,
         {
           widgetCrossFilterMode: cfg.crossFilterMode,
-          // Match the current-period `filteredRows` baseline's rank handling (built via
-          // `buildWidgetDataSummary`'s own `resolveWidgetRows` call with
-          // `includeWidgetRank: widget.kind !== 'chart'`, i.e. `true` for `kpi`) — without
-          // this the previous-period row set silently dropped/kept a widget-scoped Top-N rank
-          // filter inconsistently with the current period, comparing a ranked current value
-          // against an unranked previous one (finding 3.x).
-          includeWidgetRank: widget.kind !== 'chart',
         },
       );
       const prevValue = computeAggregate(prevRows, valueField, agg as StudioKpiAggregation);
@@ -581,8 +578,11 @@ function buildChartWidgetSummary(
       ['', ...result.yLabels].join(','),
     );
     for (const xLabel of xSlice) {
+      // `aggregateHeatmap` keys `cells` as `${xLabel}\x00${yLabel}` — the same key
+      // `StudioHeatmapChart` reads. Any other separator misses every entry and emits an
+      // all-empty table, which the model reads as "no data" for a chart that is full of it.
       const row = result.yLabels.map((yLabel) =>
-        insightCell(result.cells.get(`${xLabel}::${yLabel}`)),
+        insightCell(result.cells.get(`${xLabel}\x00${yLabel}`)),
       );
       lines.push([xLabel, ...row].join(','));
     }
@@ -856,8 +856,16 @@ export function buildWidgetDataSummary(
 
   // Apply the widget's active filters so data matches what the user sees
   const pipeline = createStudioPipeline(toPipelineState(state));
+  // Passing the widget OBJECT (not `widget.id`) lets `resolveWidgetRows` resolve
+  // `shouldApplyWidgetRankAtL3` itself, so this summary is computed over exactly the row set the
+  // widget renders. `widget.kind !== 'chart'` is NOT an equivalent rule: only the xy chart
+  // families (bar / line / area / pie / donut / mixed) re-rank post-aggregation in
+  // `buildChartWidgetSummary` below. A heatmap / funnel / sankey / gantt / scatter / gauge chart
+  // aggregates rows directly and never re-ranks, so its widget-scoped Top-N belongs at L3 here —
+  // otherwise the assistant reports a number computed over the UNRANKED rows while the chart on
+  // screen shows the top N.
   const filteredRows = pipeline.resolveWidgetRows(
-    widget.id,
+    widget,
     widget.sourceId,
     rawRows,
     state.doc.dashboard.activePageId,
@@ -865,11 +873,6 @@ export function buildWidgetDataSummary(
       // `crossFilterMode` is a cross-kind key, read via the flat cross-kind config type
       // (this dispatcher runs before the widget's kind-specific `cfg` is narrowed below).
       widgetCrossFilterMode: (widget.config as StudioWidgetConfig).crossFilterMode,
-      // Non-chart kinds (grid / pivot / KPI / map) have no post-aggregation rank path, so a
-      // widget-scoped Top-N rank must be enforced at L3 here for the raw-row summary to match
-      // what the widget shows. Charts re-apply their own rank in `buildChartWidgetSummary`
-      // (post-aggregation), so excluding it here avoids double-reducing them (finding 2.1).
-      includeWidgetRank: widget.kind !== 'chart',
     },
   );
 

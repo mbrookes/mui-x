@@ -1229,7 +1229,7 @@ describe('widget-scoped rank filters (finding 2.1)', () => {
     expect(result.current.filteredRows).toHaveLength(rankRows.length);
   });
 
-  it.each(['scatter', 'heatmap', 'funnel', 'sankey', 'gantt'] as const)(
+  it.each(['scatter', 'heatmap', 'funnel', 'sankey', 'gantt', 'gauge'] as const)(
     'applies a widget-scoped rank filter at L3 for a %s chart (no post-aggregation re-rank path)',
     (chartType) => {
       // These non-xy chart families aggregate their rows directly and never re-apply the widget
@@ -1253,7 +1253,18 @@ describe('widget-scoped rank filters (finding 2.1)', () => {
     },
   );
 
-  it.each(['bar', 'line', 'area', 'pie', 'mixed'] as const)(
+  it.each([
+    'bar',
+    'bar-stacked',
+    'bar-100',
+    'line',
+    'area',
+    'area-stacked',
+    'area-100',
+    'pie',
+    'donut',
+    'mixed',
+  ] as const)(
     'does NOT apply a widget-scoped rank filter at L3 for a %s chart (it re-ranks post-aggregation)',
     (chartType) => {
       mockState = createState({ filters: [makeWidgetRankFilter()] });

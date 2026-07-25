@@ -24,6 +24,7 @@ import { collectSelectFields } from './queryDescriptor';
 import { getCachedEnrichedRows } from './enrichedRowsCache';
 import { selectFiltersForWidget } from './filterScoping';
 import { getCachedNormalizedDataSource } from './normalizedRowsCache';
+import { shouldApplyWidgetRankAtL3 } from './StudioPipeline';
 import { useAdapterRows } from './useAdapterRows';
 import { enrichWithCrossSourceFields } from './crossSourceEnrichment';
 import type { CrossSourceFieldRef } from './crossSourceEnrichment';
@@ -36,27 +37,6 @@ type Row = Record<string, unknown>;
  * enrichment memo on each render.
  */
 const EMPTY_CROSS_SOURCE_FIELD_REFS: CrossSourceFieldRef[] = [];
-
-/**
- * Chart types that re-apply a widget-scoped rank (Top-N) filter POST-aggregation in
- * `useChartWidgetData` (via `applyRankToAggregated` / `applyRankToMultiSeries` /
- * `applyRankToSeriesFieldData`). For these, the widget rank must be EXCLUDED from the L3
- * dataset-level reduction to avoid double-application. Every other chart family
- * (heatmap / funnel / sankey / gantt / scatter / gauge) aggregates its rows directly and
- * never re-ranks, so its widget rank is applied at L3 like any non-chart widget (finding 2.1).
- */
-const POST_AGGREGATION_RANK_CHART_TYPES = new Set<string>([
-  'bar',
-  'bar-stacked',
-  'bar-100',
-  'line',
-  'area',
-  'area-stacked',
-  'area-100',
-  'pie',
-  'donut',
-  'mixed',
-]);
 
 interface UseWidgetRowsResult {
   /** Rows after applying all active filters — page, widget, cross-filter, and interactive. */
@@ -440,22 +420,11 @@ export function useWidgetRows(
     (widget.config as StudioWidgetConfig)?.crossFilterMode ??
     'cross-highlight';
 
-  // Widget-scoped rank (Top-N) filters are applied at L3 as a dataset-level reduction for
-  // every widget kind EXCEPT the chart families that re-rank post-aggregation (finding 2.1).
-  // Bar / line / area / pie / donut / mixed re-apply their own widget-scoped rank filter
-  // post-aggregation in `useChartWidgetData` (`applyRankTo*`), so applying it at L3 too would
-  // double-reduce them. But the non-xy chart families (heatmap / funnel / sankey / gantt) and
-  // scatter aggregate `enrichedRows` directly and NEVER read the widget rank filter — so like
-  // grid / KPI / map / pivot / filter they have no post-agg path, and their authorable widget
-  // rank was previously enforced by nothing. Applying it at L3 for those (an aggregate rank over
-  // `rankByField` grouped by the rank `field`, i.e. top-N-over-aggregated categories) is the
-  // correct enforcement point, with no double-application hazard.
-  // Default an unspecified `chartType` to `'bar'` — the same default `StudioChartWidget` renders
-  // (`config.chartType ?? 'bar'`), an xy family that re-ranks post-aggregation — so a config-less
-  // chart keeps its widget rank out of L3.
-  const chartType = (widget.config as StudioWidgetConfig)?.chartType ?? 'bar';
-  const includeWidgetRank =
-    !isWidgetOfKind(widget, 'chart') || !POST_AGGREGATION_RANK_CHART_TYPES.has(chartType);
+  // Whether this widget's WIDGET-scoped rank (Top-N) filter is reduced at L3 (here) or left to
+  // the chart's post-aggregation `applyRankTo*` pass. `shouldApplyWidgetRankAtL3` is the single
+  // source of truth for that rule — shared with the CSV export and the AI insight summaries — so
+  // the rendered rows and the rows those paths report over can never disagree.
+  const includeWidgetRank = shouldApplyWidgetRankAtL3(widget);
 
   // Ghost overlay should only render when:
   // 1. The widget is in 'cross-highlight' mode (default)

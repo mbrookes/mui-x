@@ -120,13 +120,13 @@ export function runWidgetExport({
     // was previously undocumented and easy to mistake for a bug.
     const rows =
       sourceRows.length > 0
-        ? pipeline.resolveWidgetRows(widget.id, widget.sourceId, sourceRows, pageId, {
+        ? // Passing the widget OBJECT (not `widget.id`) lets `resolveWidgetRows` resolve
+          // `shouldApplyWidgetRankAtL3` itself, so a widget-scoped Top-N is enforced at L3 for
+          // this grid exactly as it is for the on-screen grid — the CSV can't export all rows
+          // while the widget shows only the top N. No `includeWidgetRank` override belongs here.
+          pipeline.resolveWidgetRows(widget, widget.sourceId, sourceRows, pageId, {
             // `crossFilterMode` is a cross-kind key, read via the flat cross-kind config type.
             widgetCrossFilterMode: (widget.config as StudioWidgetConfig).crossFilterMode,
-            // Grid is a non-chart kind with no post-aggregation rank path, so a widget-scoped
-            // Top-N rank must be enforced at L3 here — otherwise the CSV exports all rows while
-            // the on-screen grid shows only the top N (finding 2.1).
-            includeWidgetRank: true,
           })
         : [];
 

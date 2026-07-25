@@ -299,6 +299,19 @@ function validateFilterScope(scope: unknown, path: string): string | null {
   if (!isRecord(scope)) {
     return `${path} must be an object`;
   }
+  // Screen the scope object's OWN top-level keys for the prototype-hazard denylist
+  // (Tier2 finding), closing the one nested record `validateFilter` didn't already cover:
+  // every OTHER record embedded in a mutation payload (the filter itself, a widget, a
+  // widget's config) is screened via `hasUnsafeOwnKeys` before being trusted, but `scope`
+  // — a record nested one level inside `filter` — was never checked here, even though
+  // `addFilter`'s reducer handler installs the filter (and therefore its `scope`) verbatim.
+  // Reused by `isValidFilterScope` below, so the persistence load boundary
+  // (`statePersistence.ts`, which screens every OTHER filter field for unsafe own keys)
+  // inherits the same fix rather than drifting from this wire-boundary check. Uses the
+  // SAME `hasUnsafeOwnKeys` predicate as every sibling check in this file.
+  if (hasUnsafeOwnKeys(scope)) {
+    return `${path} must not carry a '__proto__'/'constructor'/'prototype' key`;
+  }
   const { kind } = scope;
   if (typeof kind !== 'string' || !Object.hasOwn(FILTER_SCOPE_REQUIRED_IDS, kind)) {
     return `${path}.kind must be one of ${Object.keys(FILTER_SCOPE_REQUIRED_IDS).join(', ')}`;

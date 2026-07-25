@@ -1085,7 +1085,11 @@ export function deserializeState(
     // `dropWidgetScopedFilters` cleanup (both key off the known kinds); a scope missing
     // a required id (e.g. a `dashboard-date-range` without `sourceId`, which would
     // mis-apply a date window) is now dropped here exactly as the wire boundary rejects
-    // the byte-identical payload.
+    // the byte-identical payload. `isValidFilterScope` also now rejects a scope carrying
+    // an own `__proto__`/`constructor`/`prototype` key (Tier2 finding — `validateFilterScope`
+    // gained this check so this reused predicate closes the load-boundary gap too, in
+    // agreement with the wire boundary, without a separate `hasUnsafeOwnKeys(scope)` call
+    // here).
     if (!isValidFilterScope(scope)) {
       return false;
     }

@@ -15,7 +15,7 @@
  * NOT performed here — they stay in `StudioController`. This reducer captures
  * only the persisted state-shape transformation.
  */
-import type { StudioState, StudioDoc, StudioFilterState } from './stateTypes';
+import type { StudioState, StudioDoc, StudioFilterState, StudioFilterScope } from './stateTypes';
 import type { StudioChartSeries, StudioWidget } from './widgetTypes';
 import type { StateMutation } from './aiTypes';
 import { normalizeChartSeries } from './factories';
@@ -238,9 +238,27 @@ function normalizeConfigChartSeries<C extends object>(config: C): C {
  */
 function stripUnsafeFilterKeys(filter: StudioFilterState): StudioFilterState {
   const safe = stripUnsafeConfigKeys(filter as unknown as Record<string, unknown>);
-  return safe === (filter as unknown as Record<string, unknown>)
-    ? filter
-    : (safe as unknown as StudioFilterState);
+  const safeFilter =
+    safe === (filter as unknown as Record<string, unknown>)
+      ? filter
+      : (safe as unknown as StudioFilterState);
+  // Descend into `scope` (Tier2 finding): `scope` is a record nested one level inside
+  // `filter`, and every OTHER nested record this reducer installs verbatim (a widget's
+  // `config` via `coerceWidgetConfig`) already gets this same defense-in-depth strip for a
+  // server-built mutation bypassing `parseStateMutation`. Without this, a scope carrying an
+  // own `__proto__`/`constructor`/`prototype` key would append verbatim and round-trip
+  // through `serializeDoc`, later poisoning a spread of the scope object. Reference-stable
+  // when `scope` is not a record (the crash-prevention shape guard in `addFilter.apply`
+  // already handles a non-record scope before this helper runs) or carries no unsafe key.
+  const { scope } = safeFilter;
+  if (!isPlainRecord(scope)) {
+    return safeFilter;
+  }
+  const safeScope = stripUnsafeConfigKeys(scope as unknown as Record<string, unknown>);
+  if (safeScope === (scope as unknown as Record<string, unknown>)) {
+    return safeFilter;
+  }
+  return { ...safeFilter, scope: safeScope as unknown as StudioFilterScope };
 }
 
 // Coerce a widget whose `config` is not a record (e.g. `config: null` from a
@@ -1881,9 +1899,30 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         return state;
       }
       const nextFilters = state.filters.filter((f: StudioFilterState) => f.id !== filterId);
-      return nextFilters.length !== state.filters.length
-        ? { ...state, filters: nextFilters }
-        : state;
+      if (nextFilters.length === state.filters.length) {
+        return state;
+      }
+      // Cascade the removal to every remaining filter's `dependsOn` (Tier3 finding):
+      // `StudioFilterState.dependsOn` (`stateTypes.ts`) lists OTHER filter ids this filter
+      // cascades from — "purely a UX hint" per its own doc comment, but the client's cascade
+      // drawer maps over it directly, so a dangling id left pointing at a just-removed filter
+      // would silently point the UI at a filter that no longer exists. Drop the whole array
+      // (rather than leave `dependsOn: []`) when the prune empties it, mirroring
+      // `docTransforms.ts`'s own `remappedDependsOn.length > 0 ? … : undefined` convention for
+      // this exact field, and `repairFilterDependsOn`'s "absent is the canonical empty state"
+      // treatment. Reference-stable per-entry: a filter with no reference to the removed id
+      // keeps its existing object identity.
+      const prunedFilters = nextFilters.map((f) => {
+        if (!f.dependsOn?.includes(filterId)) {
+          return f;
+        }
+        const remainingDependsOn = f.dependsOn.filter((id) => id !== filterId);
+        return {
+          ...f,
+          dependsOn: remainingDependsOn.length > 0 ? remainingDependsOn : undefined,
+        };
+      });
+      return { ...state, filters: prunedFilters };
     },
     label: (args) => `removeFilter:${args.filterId}`,
   },

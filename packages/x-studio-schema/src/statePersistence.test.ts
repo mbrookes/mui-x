@@ -1448,6 +1448,38 @@ describe('deserializeState', () => {
     expect(() => serializeState(state)).not.toThrow();
   });
 
+  // Tier2 finding: `scope` was the one nested record never screened for the prototype-
+  // hazard denylist at the load boundary — the filter's OWN top-level keys, a widget, and
+  // a widget's config were all already screened, but `isValidFilterScope` (reused from the
+  // wire boundary) only checked `kind`/required id fields, not unsafe own keys, on `scope`
+  // itself. A hand-edited/shared doc carrying an own `__proto__`/`constructor`/`prototype`
+  // key on `scope` previously loaded verbatim and would poison a later spread of it.
+  it.each(['__proto__', 'constructor', 'prototype'])(
+    'drops a persisted filter whose scope carries an own "%s" key',
+    (key) => {
+      // Computed-key object-literal syntax (`{ [key]: … }`) creates an OWN data property
+      // even for `key === '__proto__'` (unlike the non-computed `{ __proto__: … }` literal,
+      // which sets the real prototype) — the same shape `JSON.parse` produces on a
+      // shared/hand-edited doc.
+      const serialized = {
+        ...minimalSerialized,
+        filters: [
+          {
+            id: 'bad',
+            field: 'x',
+            operator: 'equals',
+            value: '',
+            scope: { kind: 'page', pageId: 'page-1', [key]: { polluted: true } },
+          },
+          { id: 'page-f', field: 'date', operator: 'equals', value: '', scope: { kind: 'page' } },
+        ],
+      } as unknown as typeof minimalSerialized;
+      const state = deserializeState(serialized, {});
+      expect(state.doc.filters.map((f) => f.id)).toEqual(['page-f']);
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    },
+  );
+
   // T2-1 (revert): a doc whose ONLY defect is one filter with a well-formed-but-incomplete
   // scope (`scope: { kind: 'widget' }`, no `widgetId`) must NOT be lost. `migrateState`'s
   // crash-prevention gate lets it through, and `deserializeState`'s per-entry

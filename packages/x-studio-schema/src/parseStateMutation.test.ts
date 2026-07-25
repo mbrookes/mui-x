@@ -1066,6 +1066,21 @@ describe('parseStateMutation — id hygiene (prototype-injection defense)', () =
     expect(parsed.ok).toBe(false);
   });
 
+  // Tier2 finding: `filter.scope` was the one nested record never screened for the
+  // prototype-hazard denylist — `validateFilterScope` only checked `kind` and the
+  // per-kind required id fields, unlike every other embedded record (the filter itself,
+  // just above; a widget; a widget's config). An own `__proto__`/`constructor`/
+  // `prototype` key (materialized by `JSON.parse`, not the inherited accessor) on
+  // `scope` would otherwise install verbatim via `addFilter`'s reducer handler.
+  it.each(unsafeIds)('rejects an addFilter whose filter.scope carries an own "%s" key', (key) => {
+    const parsed = parseStateMutation(
+      JSON.parse(
+        `{"type":"addFilter","args":{"filter":{"id":"f","field":"x","operator":"equals","value":1,"scope":{"kind":"page","${key}":{"polluted":true}}}}}`,
+      ),
+    );
+    expect(parsed.ok).toBe(false);
+  });
+
   it('running every valid payload through parse + applyMutation never pollutes Object.prototype', () => {
     for (const { mutation } of VALID_CASES) {
       const wire = JSON.parse(JSON.stringify(mutation)) as unknown;

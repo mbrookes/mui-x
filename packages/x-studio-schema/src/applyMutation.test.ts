@@ -763,6 +763,24 @@ describe('applyMutation', () => {
   // instead of `string[]`) would install verbatim and later crash
   // `StudioFiltersDrawer`'s `dependsOn.map(...)`. Repair (strip the key) rather than
   // reject the whole `addFilter`.
+  // Tier2 finding: `scope` is a record nested one level inside `filter`, and it was the
+  // ONE nested record never screened for an unsafe own key — `stripUnsafeFilterKeys`
+  // only stripped the filter's OWN top-level keys before this fix. A server-built
+  // mutation bypassing `parseStateMutation` (which now also rejects this shape at the
+  // wire boundary — see `parseStateMutation.test.ts`) could otherwise install a scope
+  // carrying an own `__proto__` key verbatim.
+  it('addFilter strips a prototype-hazard own key from filter.scope before appending (Tier2)', () => {
+    const state = twoPageState('page-1');
+    const filter = JSON.parse(
+      '{"id":"f","field":"x","operator":"equals","value":1,"scope":{"kind":"page","pageId":"page-1","__proto__":{"polluted":true}}}',
+    );
+    const next = applyDocMutation(state, { type: 'addFilter', args: { filter } });
+    expect(next.filters).toHaveLength(1);
+    expect(Object.hasOwn(next.filters[0].scope, '__proto__')).toBe(false);
+    expect(next.filters[0].scope).toEqual({ kind: 'page', pageId: 'page-1' });
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
   it('addFilter repairs a malformed dependsOn before appending (F5)', () => {
     const state = twoPageState('page-1');
     const filter = {
@@ -1308,6 +1326,94 @@ describe('applyMutation', () => {
     const state = twoPageState();
     const next = applyDocMutation(state, { type: 'removeFilter', args: { filterId: 'nope' } });
     expect(next).toBe(state);
+  });
+
+  // Tier3 finding: `StudioFilterState.dependsOn` (`stateTypes.ts`) lists OTHER filter ids
+  // this filter cascades from. `removeFilter` never scanned the remaining filters to drop
+  // a now-dangling reference to the just-removed id, leaving a dangling `dependsOn` entry
+  // that the client's cascade drawer maps over directly.
+  describe('removeFilter dependsOn cascade (Tier3)', () => {
+    function stateWithDependentFilters(): StudioDoc {
+      return makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+        filters: [
+          {
+            id: 'country',
+            field: 'country',
+            operator: 'equals',
+            value: 'US',
+            scope: { kind: 'page', pageId: 'page-1' },
+          },
+          {
+            id: 'city',
+            field: 'city',
+            operator: 'equals',
+            value: 'NYC',
+            scope: { kind: 'page', pageId: 'page-1' },
+            dependsOn: ['country'],
+          },
+          {
+            id: 'district',
+            field: 'district',
+            operator: 'equals',
+            value: 'Manhattan',
+            scope: { kind: 'page', pageId: 'page-1' },
+            dependsOn: ['country', 'city'],
+          },
+          {
+            id: 'unrelated',
+            field: 'unrelated',
+            operator: 'equals',
+            value: 'x',
+            scope: { kind: 'page', pageId: 'page-1' },
+          },
+        ],
+      });
+    }
+
+    it('drops the removed id from a dependent filter, collapsing to undefined when it was the only entry', () => {
+      const state = stateWithDependentFilters();
+      const next = applyDocMutation(state, {
+        type: 'removeFilter',
+        args: { filterId: 'country' },
+      });
+      expect(next.filters.map((f) => f.id)).toEqual(['city', 'district', 'unrelated']);
+      const city = next.filters.find((f) => f.id === 'city')!;
+      expect(city.dependsOn).toBeUndefined();
+    });
+
+    it('prunes only the removed id from a dependsOn array with multiple entries, keeping the rest', () => {
+      const state = stateWithDependentFilters();
+      const next = applyDocMutation(state, {
+        type: 'removeFilter',
+        args: { filterId: 'country' },
+      });
+      const district = next.filters.find((f) => f.id === 'district')!;
+      expect(district.dependsOn).toEqual(['city']);
+    });
+
+    it('leaves a filter with no reference to the removed id reference-stable', () => {
+      const state = stateWithDependentFilters();
+      const unrelatedBefore = state.filters.find((f) => f.id === 'unrelated')!;
+      const next = applyDocMutation(state, {
+        type: 'removeFilter',
+        args: { filterId: 'country' },
+      });
+      const unrelatedAfter = next.filters.find((f) => f.id === 'unrelated')!;
+      expect(unrelatedAfter).toBe(unrelatedBefore);
+    });
+
+    it('removing a filter nobody depends on still no-ops the dependsOn cascade (reference-stable)', () => {
+      const state = stateWithDependentFilters();
+      const cityBefore = state.filters.find((f) => f.id === 'city')!;
+      const next = applyDocMutation(state, {
+        type: 'removeFilter',
+        args: { filterId: 'unrelated' },
+      });
+      const cityAfter = next.filters.find((f) => f.id === 'city')!;
+      expect(cityAfter).toBe(cityBefore);
+    });
   });
 
   describe('updateWidget', () => {

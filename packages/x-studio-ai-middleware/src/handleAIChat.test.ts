@@ -197,7 +197,7 @@ describe('handleAIChat', () => {
     expect(types).not.toContain('finish');
   });
 
-  it('surfaces a transport failure as an error frame', async () => {
+  it('surfaces a transport failure as an error frame, without relaying the transport text', async () => {
     vi.mocked(fetch).mockRejectedValueOnce(new Error('network down'));
 
     const events = parseEvents(await readAll(handleAIChat(makeBody(), OPTIONS)));
@@ -205,7 +205,12 @@ describe('handleAIChat', () => {
       (event): event is { type: 'error'; message: string } => event.type === 'error',
     );
     expect(errorEvent).toBeDefined();
-    expect(errorEvent?.message).toContain('network down');
+    // A transport error's `message` routinely names internal hosts, ports, and IPs
+    // (`connect ECONNREFUSED 10.0.3.11:5432`), and this frame goes straight to the
+    // browser — so it carries a correlation id the operator resolves in the server
+    // log, never the underlying text (finding H4).
+    expect(errorEvent?.message).not.toContain('network down');
+    expect(errorEvent?.message).toMatch(/correlation id [0-9a-f-]{36}/);
     expect(events.map((event) => event.type)).not.toContain('finish');
   });
 
@@ -1574,7 +1579,7 @@ describe('handleAIChat: malformed dashboardState sub-entities (finding M3)', () 
         handleAIChat(makeBody({ dashboardState } as Partial<StudioAIRequest>), OPTIONS),
       ),
     );
-    const err = events.find((e) => e.type === 'error') as { message: string } | undefined;
+    const err = events.find((event) => event.type === 'error') as { message: string } | undefined;
     return err?.message ?? '';
   }
 

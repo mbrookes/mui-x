@@ -646,11 +646,25 @@ export async function* dispatchToolCall(
             "literal '*' to explicitly allow all tables in a trusted setup).",
         });
       } else {
+        // `createDataToolHandlers` redacts a host/DB failure (finding H4): it writes the
+        // full detail to its `logger` and returns only a correlation id to the model. The
+        // chat transport has no logger of its own, so without this sink the detail would be
+        // dropped entirely and the reference id in the model-visible message would point at
+        // nothing an operator could look up. Capture it and hand it to the host's
+        // server-side `onToolError` callback — the one server-side error channel this
+        // transport does have.
+        let hostErrorDetail: string | undefined;
         const handlers = createDataToolHandlers({
           stateBox: { current: currentState },
           data: ctx.data,
           maxQueryRows: ctx.data.maxQueryRows ?? DEFAULT_MAX_QUERY_ROWS,
           recentChanges: [],
+          logger: {
+            log: () => {},
+            error: (...args: unknown[]) => {
+              hostErrorDetail = args.map((a) => String(a)).join(' ');
+            },
+          },
         });
         const result = await withTimeout(
           Promise.resolve(handlers.query_data_source(toolInput as Record<string, unknown>)),
@@ -662,7 +676,9 @@ export async function* dispatchToolCall(
         );
         output = textItem?.text ?? JSON.stringify(result);
         if (result.isError) {
-          ctx.onToolError?.(name, new Error(extractToolErrorMessage(output)));
+          // Full detail to the host callback (server-side); only `output` — already
+          // redacted by the handler — reaches the model and the browser.
+          ctx.onToolError?.(name, new Error(hostErrorDetail ?? extractToolErrorMessage(output)));
         }
       }
     } catch (queryErr) {

@@ -20,6 +20,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { capText } from './promptCaps';
+import { isPackageAuthoredError } from './packageError';
 
 /**
  * Max chars of a provider error body retained for the SERVER-SIDE log. Bounds the
@@ -71,15 +72,28 @@ export function reportProviderHttpError(
  * Report a transport-level failure (a rejected `fetch`, a timeout) talking to an
  * LLM provider. `err.message` goes to `detail` only — it routinely names internal
  * hosts, ports, and IP addresses.
+ *
+ * The exception is a PACKAGE-AUTHORED error — currently only a `withTimeout`
+ * deadline, whose message is `"LLM provider request timed out after <constant>ms"`.
+ * That names a server-authored label and a compile-time constant, discloses nothing
+ * about the network, and is the one thing that tells an operator (and the user
+ * watching the stream) that the provider went silent rather than refused. It is
+ * relayed verbatim.
  */
 export function reportProviderFetchError(context: string, err: unknown): ProviderErrorReport {
   const correlationId = randomUUID();
   const raw = err instanceof Error ? err.message : String(err);
+  if (isPackageAuthoredError(err)) {
+    const message = capText(raw, MAX_PROVIDER_ERROR_DETAIL_CHARS);
+    return {
+      correlationId,
+      detail: `MUI X Studio: ${message} [correlationId: ${correlationId}]`,
+      clientMessage: `MUI X Studio: ${message}. This ends the current request. Check that the LLM provider endpoint is reachable and responding within the configured deadline.`,
+    };
+  }
   return {
     correlationId,
-    detail:
-      `MUI X Studio: ${context} failed [correlationId: ${correlationId}]: ` +
-      capText(raw, MAX_PROVIDER_ERROR_DETAIL_CHARS),
+    detail: `MUI X Studio: ${context} failed [correlationId: ${correlationId}]: ${capText(raw, MAX_PROVIDER_ERROR_DETAIL_CHARS)}`,
     clientMessage:
       `MUI X Studio: ${context} could not be completed — the LLM provider was unreachable or the ` +
       'request timed out. This ends the current request. The underlying transport error is withheld ' +

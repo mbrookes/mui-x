@@ -8,6 +8,7 @@
 
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { sanitizeForPrompt } from '../buildAISystemPrompt';
+import { StudioTimeoutError, isPackageAuthoredError } from '../internal/packageError';
 import type { StudioMcpLogger } from './types';
 
 /**
@@ -141,12 +142,23 @@ export function newErrorReference(): string {
  * `context` must be a SERVER-authored description of the operation (e.g.
  * `'query_data_source'`). If it has to name something caller-supplied, route that
  * part through {@link safeIdentifier} first — it is echoed to the model verbatim.
+ *
+ * PACKAGE-AUTHORED errors are the one exception: a `withTimeout` deadline
+ * (`isPackageAuthoredError`) names only a server-authored label and a constant
+ * duration, so there is nothing in it to leak and withholding it would make "the
+ * call hung" indistinguishable from "the database rejected the query" — the single
+ * most useful distinction on this path. Those are relayed verbatim (still capped,
+ * still logged).
  */
 export function redactedHostErrorMessage(
   context: string,
   err: unknown,
   logger?: StudioMcpLogger,
 ): string {
+  if (isPackageAuthoredError(err)) {
+    logger?.error(`[mcp] ${context} failed: ${describeErrorForLog(err)}`);
+    return `MUI X Studio: ${context} failed — ${capRelayedText(err.message)}`;
+  }
   const reference = newErrorReference();
   logger?.error(`[mcp] ${context} failed (ref ${reference}): ${describeErrorForLog(err)}`);
   return (
@@ -237,7 +249,15 @@ export function checkAllowedTable(
   return null;
 }
 
-/** Race a promise against a timeout. Rejects with a descriptive error if the timeout fires first. */
+/**
+ * Race a promise against a timeout. Rejects with a {@link StudioTimeoutError} if the
+ * timeout fires first.
+ *
+ * The rejection is deliberately BRANDED as package-authored: `label` is a
+ * server-authored operation name and `ms` is a constant, so the message carries no
+ * untrusted content and {@link redactedHostErrorMessage} relays it verbatim instead
+ * of withholding it behind a correlation id.
+ */
 export function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   // Track the timer so it can be cleared once the race settles. Without this, a
   // fast-settling `promise` leaves the timeout pending — keeping the event loop
@@ -246,7 +266,7 @@ export function withTimeout<T>(promise: Promise<T>, ms: number, label: string): 
   return Promise.race([
     promise,
     new Promise<never>((_, reject) => {
-      timeoutId = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+      timeoutId = setTimeout(() => reject(new StudioTimeoutError(label, ms)), ms);
     }),
   ]).finally(() => {
     if (timeoutId !== undefined) {

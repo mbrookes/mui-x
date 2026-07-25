@@ -379,9 +379,12 @@ describe('executeToolOnState: remove_page', () => {
   });
 
   it('removes the page from nextState', () => {
-    const state = makeState();
+    // Two pages: `removePage` refuses to remove the LAST remaining one (see the
+    // last-page test below), so exercising the removal path needs a survivor.
+    const state = makeMultiPageState();
     const result = executeToolOnState('remove_page', { pageId: 'page-1' }, state);
     expect(result.nextState.doc.pages['page-1']).toBeUndefined();
+    expect(result.nextState.doc.pages['page-2']).toBeDefined();
   });
 
   it('returns a not-found error (no mutation) when the page does not exist', () => {
@@ -428,11 +431,16 @@ describe('executeToolOnState: remove_page', () => {
     expect(next.doc.dashboard.activePageId).toBe('page-1');
   });
 
-  it('removing the last remaining page leaves activePageId empty rather than dangling', () => {
+  it('refuses to remove the LAST remaining page, keeping activePageId pointed at a real page', () => {
+    // The `removePage` reducer (`x-studio-schema/src/applyMutation.ts`) now REFUSES the
+    // final page rather than removing it and leaving `activePageId: ''` — an id that
+    // satisfies no `Object.hasOwn(pages, …)` guard, so every later legacy
+    // `addWidget`/`setWidgetLayout` silently no-op'd forever with no way to recover.
     const state = makeState(); // single page 'page-1', active
     const result = executeToolOnState('remove_page', { pageId: 'page-1' }, state);
-    expect(Object.keys(result.nextState.doc.pages)).toHaveLength(0);
-    expect(result.nextState.doc.dashboard.activePageId).toBe('');
+    expect(Object.keys(result.nextState.doc.pages)).toEqual(['page-1']);
+    expect(result.nextState.doc.dashboard.activePageId).toBe('page-1');
+    expect(result.nextState.doc.pages[result.nextState.doc.dashboard.activePageId]).toBeDefined();
   });
 });
 

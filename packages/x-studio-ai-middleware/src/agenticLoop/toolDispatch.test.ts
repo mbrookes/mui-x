@@ -463,13 +463,18 @@ describe('dispatchToolCall', () => {
         ctx,
       ),
     );
-    expect(JSON.parse((outcome as { output: string }).output)).toEqual({
-      error: expect.stringContaining('db unreachable'),
-    });
+    // The `{error}` envelope is still what the model gets back — but the host/DB text is
+    // redacted out of it (finding H4) and replaced with a correlation id.
+    const parsed = JSON.parse((outcome as { output: string }).output) as { error: string };
+    expect(Object.keys(parsed)).toEqual(['error']);
+    expect(parsed.error).not.toContain('db unreachable');
+    expect(parsed.error).toMatch(/reference "mcp-/);
+
     expect(onToolError).toHaveBeenCalledOnce();
     const [toolName, error] = onToolError.mock.calls[0] as [string, Error];
     expect(toolName).toBe('query_data_source');
-    // Unwrapped from the `{"error": "..."}` JSON, not the raw JSON text itself.
+    // The full detail reaches the host's SERVER-SIDE callback instead, unwrapped —
+    // not the raw `{"error": "..."}` JSON text.
     expect(error.message).toContain('db unreachable');
     expect(error.message).not.toMatch(/^\{/);
   });

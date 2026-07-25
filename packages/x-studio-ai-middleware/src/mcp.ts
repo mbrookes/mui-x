@@ -68,6 +68,7 @@ import {
 } from './toolPolicy';
 import type { StudioAIRecentMutation } from './models/aiTypes';
 import {
+  describeErrorForLog,
   errorResult,
   jsonResult,
   redactedHostErrorResult,
@@ -75,6 +76,7 @@ import {
   withTimeout,
   type ToolHandler,
 } from './mcp/helpers';
+import { isPackageAuthoredError } from './internal/packageError';
 import {
   TOOL_TITLES,
   TOOL_ANNOTATIONS,
@@ -267,6 +269,13 @@ export function buildStudioMcpServer(
   // Session-scoped usage, threaded into the policy context. `committedMutations` is
   // bumped only when a mutation is actually committed to `stateBox.current`.
   const sessionUsage = { committedMutations: 0, toolCalls: 0 };
+
+  // Latches once `onStateChange` has blown `persistTimeoutMs`. See the call site: a
+  // per-call timeout alone bounds ONE call, but a permanently-hung persistence hook
+  // (a dead DB connection with no statement_timeout) would then re-hang every
+  // subsequent mutating call for the full timeout, each one inside the `mutationChain`
+  // critical section. A hook that has already proven it can hang is not awaited again.
+  let persistHookDegraded = false;
 
   // CRITICAL compatibility default: when the host omits `toolPolicy`, the policy is
   // ALLOW-ALL — NOT `createDefaultToolPolicy()`. MCP has no approval-pause channel
@@ -483,24 +492,47 @@ export function buildStudioMcpServer(
     // logger is configured) and otherwise swallow it, leaving the successful
     // tool-call result untouched.
     if (result.mutation && onStateChange) {
-      try {
-        // Bounded (finding H5): this `await` runs INSIDE the per-session
-        // `mutationChain` critical section, so an `onStateChange` promise that never
-        // settles hung this call AND every subsequent mutating call in the session
-        // forever — the exact failure mode `approvalTimeoutMs` was added to close for
-        // `approvalHandler`, a few lines above. A timeout is treated like any other
-        // persistence failure by the catch below: logged, non-fatal, the already-
-        // applied mutation still reports success.
-        await withTimeout(
-          Promise.resolve(onStateChange(stateBox.current)),
-          persistTimeoutMs,
-          'onStateChange (persistence hook)',
-        );
-      } catch (persistErr) {
-        logger?.error(
-          `[mcp] onStateChange (persistence hook) failed after ${toolName} already applied: ` +
-            `${persistErr instanceof Error ? (persistErr.stack ?? persistErr.message) : String(persistErr)}`,
-        );
+      if (persistHookDegraded) {
+        // The hook already blew its deadline once in this session, so it is invoked
+        // but NOT awaited: re-awaiting a hook that is known to hang would re-impose
+        // `persistTimeoutMs` on this call and on every mutating call after it, inside
+        // the `mutationChain` critical section — the session would still be
+        // effectively wedged, just in `persistTimeoutMs`-sized slices. The write is
+        // still ATTEMPTED (a hook whose backing connection recovers resumes
+        // persisting); only the wait is dropped.
+        void Promise.resolve()
+          .then(() => onStateChange(stateBox.current))
+          .catch((persistErr: unknown) => {
+            logger?.error(
+              `[mcp] onStateChange (persistence hook, not awaited — already timed out once this ` +
+                `session) failed after ${toolName} already applied: ${describeErrorForLog(persistErr)}`,
+            );
+          });
+      } else {
+        try {
+          // Bounded (finding H5): this `await` runs INSIDE the per-session
+          // `mutationChain` critical section, so an `onStateChange` promise that never
+          // settles hung this call AND every subsequent mutating call in the session
+          // forever — the exact failure mode `approvalTimeoutMs` was added to close for
+          // `approvalHandler`, a few lines above. A timeout is treated like any other
+          // persistence failure by the catch below: logged, non-fatal, the already-
+          // applied mutation still reports success.
+          await withTimeout(
+            Promise.resolve(onStateChange(stateBox.current)),
+            persistTimeoutMs,
+            'onStateChange (persistence hook)',
+          );
+        } catch (persistErr) {
+          if (isPackageAuthoredError(persistErr)) {
+            // It was the deadline, not the host throwing — latch, so the next mutating
+            // call does not pay the same wait again.
+            persistHookDegraded = true;
+          }
+          logger?.error(
+            `[mcp] onStateChange (persistence hook) failed after ${toolName} already applied: ` +
+              `${describeErrorForLog(persistErr)}`,
+          );
+        }
       }
     }
 

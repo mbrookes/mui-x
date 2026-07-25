@@ -1688,10 +1688,13 @@ describe('runAgenticLoop — query_data_source execution', () => {
       ),
     );
 
+    // The host/DB error text goes to the SERVER-SIDE `onToolError` callback in full
+    // (finding H4) — that is the only server-side error channel the chat transport has,
+    // and the correlation id in the model-visible message has to resolve to something.
     expect(onToolError).toHaveBeenCalledExactlyOnceWith('query_data_source', expect.any(Error));
-    expect((onToolError.mock.calls[0][1] as Error).message).toBe(
-      'Error: query failed: syntax error',
-    );
+    const reported = (onToolError.mock.calls[0][1] as Error).message;
+    expect(reported).toContain('query failed: syntax error');
+    expect(reported).toMatch(/ref mcp-/);
 
     const complete = events.find(
       (ev) =>
@@ -1700,7 +1703,12 @@ describe('runAgenticLoop — query_data_source execution', () => {
         (ev as { phase?: string }).phase === 'complete',
     ) as { output?: string } | undefined;
     expect(complete).toBeDefined();
-    expect(JSON.parse(complete!.output!)).toEqual({ error: 'Error: query failed: syntax error' });
+    // …and the model (and, through the SSE stream, the browser) still gets an `{error}`
+    // object — but a generic one carrying only a correlation id, never the raw text.
+    const fedBack = JSON.parse(complete!.output!) as { error: string };
+    expect(Object.keys(fedBack)).toEqual(['error']);
+    expect(fedBack.error).not.toContain('query failed: syntax error');
+    expect(fedBack.error).toMatch(/reference "mcp-/);
 
     // The generator recovers instead of crashing.
     expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);

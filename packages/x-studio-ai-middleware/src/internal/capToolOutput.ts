@@ -53,6 +53,23 @@ export const MAX_TOOL_OUTPUT_ARRAY_ITEMS = 1_000;
 const MAX_TOOL_OUTPUT_DEPTH = 12;
 
 /**
+ * Floors for the progressive re-trim (see {@link capToolOutput}). The structural caps
+ * above are the FIRST attempt, not a guarantee: 1000 rows × 200 columns × 4000 chars
+ * is still far over {@link MAX_TOOL_OUTPUT_CHARS}, so an oversized result has to be
+ * tightened until it fits. Cells shrink before rows are dropped — a narrower cell
+ * still tells the model what the column holds, whereas a dropped row is data it never
+ * learns exists.
+ */
+const MIN_TOOL_OUTPUT_CELL_CHARS = 64;
+const MIN_TOOL_OUTPUT_ARRAY_ITEMS = 1;
+
+interface TrimCaps {
+  cellChars: number;
+  arrayItems: number;
+  objectKeys: number;
+}
+
+/**
  * Explicit truncation marker, mirroring the `statsTruncatedNote` pattern
  * `mcp/dataTools.ts` already uses: the model must be told the result is partial,
  * otherwise it silently reasons over truncated data and reports a wrong answer
@@ -70,11 +87,11 @@ interface TrimState {
   truncated: boolean;
 }
 
-function trimValue(value: unknown, depth: number, state: TrimState): unknown {
+function trimValue(value: unknown, depth: number, state: TrimState, caps: TrimCaps): unknown {
   if (typeof value === 'string') {
-    if (value.length > MAX_TOOL_OUTPUT_CELL_CHARS) {
+    if (value.length > caps.cellChars) {
       state.truncated = true;
-      return `${value.slice(0, MAX_TOOL_OUTPUT_CELL_CHARS)}…`;
+      return `${value.slice(0, caps.cellChars)}…`;
     }
     return value;
   }
@@ -83,12 +100,10 @@ function trimValue(value: unknown, depth: number, state: TrimState): unknown {
       state.truncated = true;
       return [];
     }
-    if (value.length > MAX_TOOL_OUTPUT_ARRAY_ITEMS) {
+    if (value.length > caps.arrayItems) {
       state.truncated = true;
     }
-    return value
-      .slice(0, MAX_TOOL_OUTPUT_ARRAY_ITEMS)
-      .map((entry) => trimValue(entry, depth + 1, state));
+    return value.slice(0, caps.arrayItems).map((entry) => trimValue(entry, depth + 1, state, caps));
   }
   if (value !== null && typeof value === 'object') {
     if (depth >= MAX_TOOL_OUTPUT_DEPTH) {
@@ -96,7 +111,7 @@ function trimValue(value: unknown, depth: number, state: TrimState): unknown {
       return {};
     }
     const entries = Object.entries(value as Record<string, unknown>);
-    if (entries.length > MAX_TOOL_OUTPUT_OBJECT_KEYS) {
+    if (entries.length > caps.objectKeys) {
       state.truncated = true;
     }
     // `Object.create(null)`, not `{}` — the keys come from a producer's JSON, and
@@ -105,8 +120,8 @@ function trimValue(value: unknown, depth: number, state: TrimState): unknown {
     // prototype. A null-prototype target has no such member to collide with, and
     // `JSON.stringify` serialises it identically.
     const out: Record<string, unknown> = Object.create(null);
-    for (const [key, entry] of entries.slice(0, MAX_TOOL_OUTPUT_OBJECT_KEYS)) {
-      out[capText(key, MAX_TOOL_OUTPUT_CELL_CHARS)] = trimValue(entry, depth + 1, state);
+    for (const [key, entry] of entries.slice(0, caps.objectKeys)) {
+      out[capText(key, caps.cellChars)] = trimValue(entry, depth + 1, state, caps);
     }
     return out;
   }
@@ -120,6 +135,16 @@ function trimValue(value: unknown, depth: number, state: TrimState): unknown {
  * Results at or under {@link MAX_TOOL_OUTPUT_CHARS} are returned byte-identical —
  * the structural trim only engages once the total budget is already blown, so
  * normal tool results (the overwhelming majority) are never reshaped.
+ *
+ * When the first structural pass is still over budget, the caps are tightened and
+ * the trim is re-run rather than the string being sliced: a raw slice of a JSON
+ * document cuts mid-token, so the model receives something it cannot parse at all —
+ * strictly worse than a smaller, well-formed result. Cells are narrowed first (down
+ * to {@link MIN_TOOL_OUTPUT_CELL_CHARS}), then rows are dropped (down to
+ * {@link MIN_TOOL_OUTPUT_ARRAY_ITEMS}); each pass re-trims the previous pass's
+ * output, so the work shrinks geometrically. The hard slice survives only as the
+ * last resort for a result that no structural trim can fit (a million scalar rows,
+ * whose size is all commas) and for genuinely non-JSON output.
  *
  * @param output - The tool's serialized result string.
  * @returns The original string when it is within budget, otherwise a truncated
@@ -139,29 +164,59 @@ export function capToolOutput(output: string): string {
     return `${output.slice(0, MAX_TOOL_OUTPUT_CHARS)}${TOOL_OUTPUT_TRUNCATED_SUFFIX}`;
   }
 
+  let caps: TrimCaps = {
+    cellChars: MAX_TOOL_OUTPUT_CELL_CHARS,
+    arrayItems: MAX_TOOL_OUTPUT_ARRAY_ITEMS,
+    objectKeys: MAX_TOOL_OUTPUT_OBJECT_KEYS,
+  };
   const state: TrimState = { truncated: false };
-  const trimmed = trimValue(parsed, 0, state);
+  // Each pass trims the PREVIOUS pass's result, not the original: trimming is
+  // monotonic (every cap only ever shrinks), so the outcome is identical and each
+  // pass walks a much smaller value than the last.
+  let candidate: unknown = parsed;
+  let lastSerialized: string | undefined;
 
-  let serialized: string;
-  try {
-    serialized = JSON.stringify(
-      state.truncated && trimmed !== null && typeof trimmed === 'object' && !Array.isArray(trimmed)
-        ? {
-            ...(trimmed as Record<string, unknown>),
-            toolOutputTruncatedNote: TOOL_OUTPUT_TRUNCATED_NOTE,
-          }
-        : trimmed,
-    );
-  } catch {
-    return `${output.slice(0, MAX_TOOL_OUTPUT_CHARS)}${TOOL_OUTPUT_TRUNCATED_SUFFIX}`;
-  }
+  for (;;) {
+    candidate = trimValue(candidate, 0, state, caps);
 
-  if (serialized === undefined || serialized.length > MAX_TOOL_OUTPUT_CHARS) {
-    // Still over budget after the structural trim (e.g. a million short rows) —
-    // fall back to a hard slice with the same explicit marker. `JSON.stringify`
-    // returns `undefined` for a bare `undefined` root, which is not a valid tool
-    // result either, so it takes the same path.
-    return `${(serialized ?? output).slice(0, MAX_TOOL_OUTPUT_CHARS)}${TOOL_OUTPUT_TRUNCATED_SUFFIX}`;
+    let serialized: string | undefined;
+    try {
+      serialized = JSON.stringify(
+        state.truncated &&
+          candidate !== null &&
+          typeof candidate === 'object' &&
+          !Array.isArray(candidate)
+          ? {
+              ...(candidate as Record<string, unknown>),
+              toolOutputTruncatedNote: TOOL_OUTPUT_TRUNCATED_NOTE,
+            }
+          : candidate,
+      );
+    } catch {
+      return `${output.slice(0, MAX_TOOL_OUTPUT_CHARS)}${TOOL_OUTPUT_TRUNCATED_SUFFIX}`;
+    }
+
+    // `JSON.stringify` returns `undefined` for a bare `undefined` root, which is not a
+    // valid tool result either — treat it as unfittable.
+    if (serialized !== undefined && serialized.length <= MAX_TOOL_OUTPUT_CHARS) {
+      return serialized;
+    }
+    lastSerialized = serialized;
+
+    if (caps.cellChars > MIN_TOOL_OUTPUT_CELL_CHARS) {
+      caps = {
+        ...caps,
+        cellChars: Math.max(MIN_TOOL_OUTPUT_CELL_CHARS, Math.floor(caps.cellChars / 2)),
+      };
+    } else if (caps.arrayItems > MIN_TOOL_OUTPUT_ARRAY_ITEMS) {
+      caps = {
+        ...caps,
+        arrayItems: Math.max(MIN_TOOL_OUTPUT_ARRAY_ITEMS, Math.floor(caps.arrayItems / 2)),
+      };
+    } else {
+      // Nothing structural left to give (e.g. one row of a million scalar columns) —
+      // fall back to a hard slice with the same explicit marker.
+      return `${(lastSerialized ?? output).slice(0, MAX_TOOL_OUTPUT_CHARS)}${TOOL_OUTPUT_TRUNCATED_SUFFIX}`;
+    }
   }
-  return serialized;
 }

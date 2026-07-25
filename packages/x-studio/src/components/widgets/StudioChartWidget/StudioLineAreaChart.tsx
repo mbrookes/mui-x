@@ -29,6 +29,7 @@ import {
   sortAggregatedTemporally,
   sortMultiSeriesTemporally,
   sortMultiYTemporally,
+  stackSafeValues,
   withAlpha,
 } from './chartWidgetHelpers';
 import {
@@ -163,8 +164,11 @@ export function StudioLineAreaChart({
   // Allocated unconditionally (rules of hooks) — shared by the three mutually-exclusive
   // render paths below.
   const chartFocusRef = useChartFocusRef();
+  // `localeText` is threaded through so the TEMPORAL branch of the axis config localizes its
+  // period labels ("Week 3 2024" → "Semaine 3 2024"). The categorical branch localizes via
+  // `formatLabel`, which never runs once the labels parse as period keys.
   const createLineXAxis = (labels: (string | number)[], axisId?: string) =>
-    createLineXAxisConfig(labels, xGroupBy, formatLabel, axisId);
+    createLineXAxisConfig(labels, xGroupBy, formatLabel, axisId, localeText);
 
   // A temporal line/area x-axis is always plotted chronologically ascending (the axis
   // dates are sorted inside `getTemporalAxisData`). The aggregations arrive in whatever
@@ -305,8 +309,9 @@ export function StudioLineAreaChart({
       } else {
         rawData = sfLineAllData.labels.map(() => null);
       }
-      // Stacked area: null breaks the stacking algorithm → use 0
-      const stackedLineOrRaw = isStacked ? rawData.map((v) => v ?? 0) : rawData;
+      // Stacked series collapse `null` to 0 — see `stackSafeValues`. Unstacked series keep
+      // their nulls. The multi-Y path below feeds its values through the same helper.
+      const stackedLineOrRaw = stackSafeValues(rawData, isStacked);
       const data: (number | null)[] = totals100
         ? rawData.map((v, i) => {
             const total = totals100[i];
@@ -442,6 +447,21 @@ export function StudioLineAreaChart({
         }))
       : [];
 
+    // Same null policy as the split-by path above: a stacked series collapses `null` to 0
+    // before x-charts sees it, an unstacked one keeps its nulls (and this is then the very
+    // same object, so a non-stacked multi-Y chart allocates nothing extra). The ghost branch
+    // below needs no equivalent — it is only reachable when `!isStacked`, and the series it
+    // builds carry no `stack` at all.
+    const stackSafeMultiYData = isStacked
+      ? {
+          ...multiYData,
+          series: multiYData.series.map((s) => ({
+            ...s,
+            values: stackSafeValues(s.values, true),
+          })),
+        }
+      : multiYData;
+
     // Active series: aligned to allMultiYData labels when ghost series are present.
     const activeSeries = multiYAllData
       ? multiYAllData.series.map((s, i) => {
@@ -470,7 +490,7 @@ export function StudioLineAreaChart({
             ),
           };
         })
-      : buildMultiYLineSeries(multiYData, chartType, dataSource, expressionFields);
+      : buildMultiYLineSeries(stackSafeMultiYData, chartType, dataSource, expressionFields);
 
     return (
       // Delegated keydown — see the split-by wrapper above.

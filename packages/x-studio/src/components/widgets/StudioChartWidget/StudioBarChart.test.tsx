@@ -1069,4 +1069,121 @@ describe('StudioBarChart', () => {
       expect(props.disableKeyboardNavigation).toBe(false);
     });
   });
+
+  // ── Stacked null policy ─────────────────────────────────────────────────────
+  //
+  // One policy for both render paths (`stackSafeValues`): a stacked series collapses `null`
+  // to 0 before x-charts sees it, an unstacked one keeps the nulls that `AggregatedData` uses
+  // to mean "no aggregate at all". The multi-Y path previously passed nulls straight through
+  // while the split-by path zero-filled, so a stacked multi-Y bar and a stacked split-by bar
+  // over equivalent data stacked — and read in the tooltip — differently.
+  describe('stacked null policy', () => {
+    const multiYWithGap = {
+      labels: ['A', 'B', 'C'],
+      series: [
+        { fieldId: 'revenue', values: [10, null, 30] },
+        { fieldId: 'cost', values: [5, 5, 5] },
+      ],
+    };
+    const splitByWithGap = {
+      labels: ['A', 'B', 'C'],
+      seriesNames: ['revenue', 'cost'],
+      seriesData: { revenue: [10, null, 30], cost: [5, 5, 5] },
+    };
+
+    it('zero-fills the missing bucket on the multi-Y stacked path', () => {
+      renderChart(
+        baseProps({ chartType: 'bar-stacked', chartData: null, multiYData: multiYWithGap }),
+      );
+      expect(lastBarProps().series[0].data).toEqual([10, 0, 30]);
+    });
+
+    it('zero-fills the missing bucket on the split-by stacked path', () => {
+      renderChart(
+        baseProps({ chartType: 'bar-stacked', chartData: null, seriesFieldData: splitByWithGap }),
+      );
+      expect(lastBarProps().series[0].data).toEqual([10, 0, 30]);
+    });
+
+    it('renders the same stacked values from both paths over equivalent data', () => {
+      renderChart(
+        baseProps({ chartType: 'bar-stacked', chartData: null, multiYData: multiYWithGap }),
+      );
+      const multiYSeriesData = lastBarProps().series.map((s) => s.data);
+
+      barChartSpy.mockClear();
+      renderChart(
+        baseProps({ chartType: 'bar-stacked', chartData: null, seriesFieldData: splitByWithGap }),
+      );
+      expect(lastBarProps().series.map((s) => s.data)).toEqual(multiYSeriesData);
+    });
+
+    it('preserves null on the unstacked multi-Y path', () => {
+      renderChart(
+        baseProps({
+          chartType: 'bar',
+          barLayout: 'grouped',
+          chartData: null,
+          multiYData: multiYWithGap,
+        }),
+      );
+      expect(lastBarProps().series[0].data).toEqual([10, null, 30]);
+    });
+
+    it('preserves null on the unstacked split-by path', () => {
+      renderChart(
+        baseProps({
+          chartType: 'bar',
+          barLayout: 'grouped',
+          chartData: null,
+          seriesFieldData: splitByWithGap,
+        }),
+      );
+      expect(lastBarProps().series[0].data).toEqual([10, null, 30]);
+    });
+  });
+
+  // ── Horizontal band-axis width ──────────────────────────────────────────────
+  //
+  // `axisTickFontSize` is applied to the very axis whose width this heuristic estimates, so
+  // the per-character estimate has to scale with it — otherwise a large tick size reserves the
+  // default-size width and clips the labels. Reachable only via `loadSerializedState` or an AI
+  // `update_widget` call (no setup-panel UI).
+  describe('horizontal band-axis width vs axisTickFontSize', () => {
+    // 13 characters, the longest label line the heuristic measures.
+    const longLabelData = { labels: ['Refurbishment'], values: [1] };
+
+    function bandAxisWidth(axisTickFontSize?: number): number {
+      barChartSpy.mockClear();
+      renderChart(
+        baseProps({ barLayout: 'horizontal', chartData: longLabelData, axisTickFontSize }),
+      );
+      return lastBarProps().yAxis[0].width as number;
+    }
+
+    it('uses the default-size estimate when axisTickFontSize is unset', () => {
+      // 13 chars * 6.5px + 12px padding.
+      expect(bandAxisWidth()).toBeCloseTo(13 * 6.5 + 12);
+    });
+
+    it('scales the per-character estimate by axisTickFontSize / 14', () => {
+      // 13 chars * (6.5 * 20/14) + 12px padding ≈ 132.7 — not the unscaled 96.5 that clipped.
+      expect(bandAxisWidth(20)).toBeCloseTo(13 * ((6.5 * 20) / 14) + 12);
+      expect(bandAxisWidth(20)).toBeGreaterThan(bandAxisWidth());
+    });
+
+    it('is unchanged at the default tick size of 14', () => {
+      expect(bandAxisWidth(14)).toBeCloseTo(bandAxisWidth());
+    });
+
+    it('falls back to the default estimate for a non-positive or non-finite tick size', () => {
+      expect(bandAxisWidth(NaN)).toBeCloseTo(bandAxisWidth());
+      expect(bandAxisWidth(0)).toBeCloseTo(bandAxisWidth());
+      expect(bandAxisWidth(-20)).toBeCloseTo(bandAxisWidth());
+    });
+
+    it('still clamps to the 320px ceiling for a very large tick size', () => {
+      expect(bandAxisWidth(400)).toBe(320);
+    });
+  });
 });

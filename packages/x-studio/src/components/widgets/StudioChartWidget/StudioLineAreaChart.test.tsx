@@ -35,11 +35,19 @@ type SeriesEntry = {
   valueFormatter?: (value: number | null, context: { dataIndex: number }) => string;
 };
 
+type XAxisEntry = {
+  id?: string;
+  data?: Array<string | number | Date>;
+  scaleType?: string;
+  valueFormatter?: (value: string | number | Date) => string;
+};
+
 type LineCallProps = {
   series: SeriesEntry[];
   colors?: string[];
   highlightedItem?: { seriesId: string; dataIndex: number } | null;
   highlightedAxis?: Array<{ axisId: string; dataIndex: number }>;
+  xAxis: XAxisEntry[];
   yAxis: Array<{ id?: string; position?: string }>;
 };
 
@@ -114,6 +122,25 @@ describe('StudioLineAreaChart', () => {
               ...DEFAULT_STUDIO_LOCALE_TEXT,
               chartCrossFilterFilteredOutLabel: filteredOutLabel,
             },
+          }}
+        >
+          <StudioLineAreaChart {...props} />
+        </StudioUIConfigContext.Provider>
+      </ThemeProvider>,
+    );
+
+  // Same shape, but for any locale-text token — used by the temporal x-axis localization tests.
+  const renderChartWithLocaleText = (
+    props: StudioLineAreaChartProps,
+    localeTextOverrides: Partial<typeof DEFAULT_STUDIO_LOCALE_TEXT>,
+  ) =>
+    render(
+      <ThemeProvider theme={theme}>
+        <StudioUIConfigContext.Provider
+          value={{
+            tableSourceMode: 'explicit',
+            featureFlags: {},
+            localeText: { ...DEFAULT_STUDIO_LOCALE_TEXT, ...localeTextOverrides },
           }}
         >
           <StudioLineAreaChart {...props} />
@@ -813,6 +840,142 @@ describe('StudioLineAreaChart', () => {
       renderChart(baseProps());
       const props = lastLineProps() as unknown as { disableKeyboardNavigation?: boolean };
       expect(props.disableKeyboardNavigation).toBe(false);
+    });
+  });
+
+  // ── Temporal x-axis localization ────────────────────────────────────────────
+  //
+  // Period-key labels ('2024-W03') make `createLineXAxisConfig` take its TEMPORAL branch,
+  // which formats ticks with `formatTemporalAxisLabel` and never calls `formatLabel`. The
+  // component's `localeText` therefore has to reach that branch explicitly; without it the
+  // axis silently fell back to the English defaults, so a French weekly line chart rendered
+  // "Week 3 2024" while the equivalent bar and mixed charts rendered the translated label.
+  describe('temporal x-axis localization', () => {
+    const weeklyLabels = ['2024-W03', '2024-W04'];
+    // A formatLabel that would be visible in the output if the categorical branch ever ran.
+    const shoutingFormatLabel = (label: string | number) => `CATEGORICAL:${label}`;
+
+    /** Reads the first x-axis tick label off the last render, asserting the temporal branch ran. */
+    function temporalAxisTick(): string {
+      const axis = lastLineProps().xAxis[0];
+      expect(axis.scaleType).toBe('utc');
+      return axis.valueFormatter!(axis.data![0]);
+    }
+
+    it.each([
+      ['line', 'line'],
+      ['area', 'area'],
+      ['area-stacked', 'area-stacked'],
+      ['area-100', 'area-100'],
+    ] as const)('localizes the weekly tick labels for chartType=%s', (_name, chartType) => {
+      const props = baseProps({
+        chartType,
+        chartData: { labels: weeklyLabels, values: [10, 20] },
+        xGroupBy: 'week',
+        formatLabel: shoutingFormatLabel,
+      });
+      renderChartWithLocaleText(props, { timeGranWeek: 'Semaine' });
+      expect(temporalAxisTick()).toBe('Semaine 3 2024');
+    });
+
+    it('localizes the weekly tick labels on the split-by path', () => {
+      const props = baseProps({
+        chartData: null,
+        seriesFieldData: {
+          labels: weeklyLabels,
+          seriesNames: ['SMB'],
+          seriesData: { SMB: [1, 2] },
+        },
+        xGroupBy: 'week',
+        formatLabel: shoutingFormatLabel,
+      });
+      renderChartWithLocaleText(props, { timeGranWeek: 'Semaine' });
+      expect(temporalAxisTick()).toBe('Semaine 3 2024');
+    });
+
+    it('localizes the weekly tick labels on the multi-Y path', () => {
+      const props = baseProps({
+        chartData: null,
+        multiYData: { labels: weeklyLabels, series: [{ fieldId: 'total', values: [1, 2] }] },
+        xGroupBy: 'week',
+        formatLabel: shoutingFormatLabel,
+      });
+      renderChartWithLocaleText(props, { timeGranWeek: 'Semaine' });
+      expect(temporalAxisTick()).toBe('Semaine 3 2024');
+    });
+
+    it('uses formatLabel for non-temporal (categorical) labels', () => {
+      renderChartWithLocaleText(
+        baseProps({
+          chartData: { labels: ['North', 'South'], values: [10, 20] },
+          formatLabel: shoutingFormatLabel,
+        }),
+        { timeGranWeek: 'Semaine' },
+      );
+      const axis = lastLineProps().xAxis[0];
+      expect(axis.scaleType).toBe('point');
+      expect(axis.valueFormatter!('North')).toBe('CATEGORICAL:North');
+    });
+  });
+
+  // ── Stacked null policy ─────────────────────────────────────────────────────
+  //
+  // One policy for both render paths (`stackSafeValues`): a stacked series collapses `null` to
+  // 0 before x-charts sees it, an unstacked one keeps the nulls that `AggregatedData` uses to
+  // mean "no aggregate at all". A stacked area cannot express `null`: x-charts stacks it as 0
+  // for every layer above, while `connectNulls` drops the point out of the owning layer's area
+  // path, so the two halves of the stack disagree at that x position.
+  describe('stacked null policy', () => {
+    const multiYWithGap = {
+      labels: ['A', 'B', 'C'],
+      series: [
+        { fieldId: 'revenue', values: [10, null, 30] },
+        { fieldId: 'cost', values: [5, 5, 5] },
+      ],
+    };
+    const splitByWithGap = {
+      labels: ['A', 'B', 'C'],
+      seriesNames: ['revenue', 'cost'],
+      seriesData: { revenue: [10, null, 30], cost: [5, 5, 5] },
+    };
+
+    it('zero-fills the missing bucket on the multi-Y stacked path', () => {
+      renderChart(
+        baseProps({ chartType: 'area-stacked', chartData: null, multiYData: multiYWithGap }),
+      );
+      expect(lastLineProps().series[0].data).toEqual([10, 0, 30]);
+    });
+
+    it('zero-fills the missing bucket on the split-by stacked path', () => {
+      renderChart(
+        baseProps({ chartType: 'area-stacked', chartData: null, seriesFieldData: splitByWithGap }),
+      );
+      expect(lastLineProps().series[0].data).toEqual([10, 0, 30]);
+    });
+
+    it('renders the same stacked values from both paths over equivalent data', () => {
+      renderChart(
+        baseProps({ chartType: 'area-stacked', chartData: null, multiYData: multiYWithGap }),
+      );
+      const multiYSeriesData = lastLineProps().series.map((s) => s.data);
+
+      lineChartSpy.mockClear();
+      renderChart(
+        baseProps({ chartType: 'area-stacked', chartData: null, seriesFieldData: splitByWithGap }),
+      );
+      expect(lastLineProps().series.map((s) => s.data)).toEqual(multiYSeriesData);
+    });
+
+    it('preserves null on the unstacked multi-Y path', () => {
+      renderChart(baseProps({ chartType: 'line', chartData: null, multiYData: multiYWithGap }));
+      expect(lastLineProps().series[0].data).toEqual([10, null, 30]);
+    });
+
+    it('preserves null on the unstacked split-by path', () => {
+      renderChart(
+        baseProps({ chartType: 'line', chartData: null, seriesFieldData: splitByWithGap }),
+      );
+      expect(lastLineProps().series[0].data).toEqual([10, null, 30]);
     });
   });
 });

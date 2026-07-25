@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_STUDIO_LOCALE_TEXT, type StudioLocaleText } from '../../../internals/localeText';
 import {
   buildGhostBarContext,
   computeControlledHighlight,
   computeStackTotals,
+  createLineXAxisConfig,
   crossFilterValueEquals,
   densifyAggregated,
   densifyMultiSeries,
@@ -19,6 +21,7 @@ import {
   sortAggregatedTemporally,
   sortMultiSeriesTemporally,
   sortMultiYTemporally,
+  stackSafeValues,
 } from './chartWidgetHelpers';
 
 // ─── crossFilterValueEquals ───────────────────────────────────────────────────
@@ -309,16 +312,120 @@ describe('isAreaStacked', () => {
   });
 });
 
+// ─── percent formatters ──────────────────────────────────────────────────────
+//
+// These feed every bar-100 / area-100 series and axis. Assertions compare against
+// `Intl.NumberFormat(undefined, …)` rather than literal English strings, so they hold under
+// any runtime locale — and so they fail for a hand-built `` `${v.toFixed(1)}%` ``, which
+// hardcodes the `.` decimal separator, omits the grouping separator and pins the `%` to the
+// end regardless of locale.
+
+const intlPercent = (value: number, fractionDigits: number) =>
+  new Intl.NumberFormat(undefined, {
+    style: 'percent',
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  }).format(value / 100);
+
 describe('percent formatters', () => {
   it('formatPercentValue: one-decimal percent, null → 0%', () => {
-    expect(formatPercentValue(25)).toBe('25.0%');
-    expect(formatPercentValue(12.345)).toBe('12.3%');
-    expect(formatPercentValue(null)).toBe('0%');
+    expect(formatPercentValue(25)).toBe(intlPercent(25, 1));
+    expect(formatPercentValue(12.345)).toBe(intlPercent(12.3, 1));
+    expect(formatPercentValue(null)).toBe(intlPercent(0, 0));
   });
 
-  it('formatPercentAxis: whole-number percent', () => {
-    expect(formatPercentAxis(24.6)).toBe('25%');
-    expect(formatPercentAxis(0)).toBe('0%');
+  it('formatPercentValue: goes through Intl rather than building the string by hand', () => {
+    // 1234.5 is the discriminating case even on an en locale: Intl groups the thousands
+    // ("1,234.5%") while `toFixed(1)` does not ("1234.5%").
+    expect(formatPercentValue(1234.5)).toBe(intlPercent(1234.5, 1));
+    expect(formatPercentValue(1234.5)).not.toBe('1234.5%');
+  });
+
+  it('formatPercentValue: treats its input as an already-scaled 0–100 percentage', () => {
+    // A double conversion (routing an already-scaled value through `formatNumber(v, 'percent')`
+    // as well) would render 42.5 as 0.4% — pin the single conversion.
+    expect(formatPercentValue(42.5)).toBe(intlPercent(42.5, 1));
+  });
+
+  it('formatPercentAxis: whole-number percent, localized the same way', () => {
+    expect(formatPercentAxis(24.6)).toBe(intlPercent(25, 0));
+    expect(formatPercentAxis(0)).toBe(intlPercent(0, 0));
+  });
+});
+
+// ─── stackSafeValues ─────────────────────────────────────────────────────────
+//
+// One null policy for every stacked series, so the multi-Y and split-by paths (bar and
+// line/area alike) cannot drift: stacked collapses `null` to 0, unstacked keeps the nulls
+// that `AggregatedData` uses to mean "this bucket produced no aggregate at all".
+
+describe('stackSafeValues', () => {
+  it('collapses null to 0 for a stacked series', () => {
+    expect(stackSafeValues([10, null, 30], true)).toEqual([10, 0, 30]);
+  });
+
+  it('preserves null for an unstacked series, returning the same reference', () => {
+    const values = [10, null, 30];
+    expect(stackSafeValues(values, false)).toBe(values);
+  });
+
+  it('leaves a genuine 0 measurement untouched under both policies', () => {
+    expect(stackSafeValues([0, 5], true)).toEqual([0, 5]);
+    expect(stackSafeValues([0, 5], false)).toEqual([0, 5]);
+  });
+});
+
+// ─── createLineXAxisConfig ───────────────────────────────────────────────────
+
+describe('createLineXAxisConfig', () => {
+  const frLikeLocaleText = { ...DEFAULT_STUDIO_LOCALE_TEXT, timeGranWeek: 'Semaine' };
+
+  /** Narrows the returned union to the temporal (utc) branch, failing loudly otherwise. */
+  function temporalAxis(
+    labels: (string | number)[],
+    xGroupBy: 'day' | 'week' | 'month' | 'quarter' | 'year' | undefined,
+    localeText?: StudioLocaleText,
+  ) {
+    const [axis] = createLineXAxisConfig(
+      labels,
+      xGroupBy,
+      (label) => `categorical:${label}`,
+      undefined,
+      localeText,
+    );
+    if (axis.scaleType !== 'utc') {
+      throw new Error('expected period-key labels to produce a temporal (utc) axis');
+    }
+    return axis;
+  }
+
+  it('localizes the temporal tick labels through localeText', () => {
+    // The temporal branch never calls `formatLabel` (which already carries locale text), so
+    // omitting `localeText` here silently fell back to the English default and rendered
+    // "Week 3 2024" on a French dashboard.
+    const axis = temporalAxis(['2024-W03', '2024-W04'], 'week', frLikeLocaleText);
+    expect(axis.valueFormatter(axis.data[0])).toBe('Semaine 3 2024');
+  });
+
+  it('falls back to the default locale text when none is passed', () => {
+    const axis = temporalAxis(['2024-W03', '2024-W04'], 'week');
+    expect(axis.valueFormatter(axis.data[0])).toBe(
+      `${DEFAULT_STUDIO_LOCALE_TEXT.timeGranWeek} 3 2024`,
+    );
+  });
+
+  it('uses formatLabel (not localeText) on the categorical branch', () => {
+    const [axis] = createLineXAxisConfig(
+      ['North', 'South'],
+      undefined,
+      (label) => `categorical:${label}`,
+      undefined,
+      frLikeLocaleText,
+    );
+    if (axis.scaleType !== 'point') {
+      throw new Error('expected non-temporal labels to produce a point axis');
+    }
+    expect(axis.valueFormatter('North')).toBe('categorical:North');
   });
 });
 

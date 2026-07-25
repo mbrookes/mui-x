@@ -4,7 +4,7 @@ import {
   getTemporalAxisData,
   sortLabels,
 } from '../../../internals/temporalUtils';
-import { formatNumber } from '../../../internals/numberFormat';
+import { formatNumber, formatPercent } from '../../../internals/numberFormat';
 import type { StudioLocaleText } from '../../../internals/localeText';
 import type {
   AggregatedData,
@@ -82,15 +82,54 @@ export function computeStackTotals(columns: (number | null)[][], labelCount: num
 
 /**
  * Series/tooltip value formatter for 100%-stacked charts: one-decimal percent, null → `'0%'`.
- * Shared by every bar/line 100%-stacked series (previously reimplemented ~6×, finding 2.4).
+ * Shared by every bar/line 100%-stacked series.
+ *
+ * Routed through `formatPercent` (`internals/numberFormat.ts`) so the decimal separator, the
+ * grouping separator and the `%` sign's placement come from `Intl` and therefore match every
+ * other number the same widget renders — a hand-built `` `${v.toFixed(1)}%` `` hardcodes `.` as
+ * the separator, so a French dashboard showed `42.5%` in a tooltip row directly above a
+ * `42,5 €` produced by `Intl`.
+ *
+ * INVARIANT: `value` is ALREADY scaled to 0–100 (the callers divide by the per-label stack
+ * total and multiply by 100). `formatPercent` re-divides by 100 itself, so this value must
+ * never additionally pass through `formatNumber(value, 'percent')`, which would scale twice.
  */
 export function formatPercentValue(value: number | null): string {
-  return value == null ? '0%' : `${value.toFixed(1)}%`;
+  // `null` (no data in this bucket) keeps its whole-number `0%` rendering rather than `0.0%`.
+  return value == null ? formatPercent(0, 0) : formatPercent(value, 1);
 }
 
-/** Axis-tick value formatter for 100%-stacked charts: whole-number percent. */
+/**
+ * Axis-tick value formatter for 100%-stacked charts: whole-number percent, localized through
+ * the same `Intl` path as {@link formatPercentValue} so the axis and the tooltip agree.
+ */
 export function formatPercentAxis(value: number): string {
-  return `${Math.round(value)}%`;
+  return formatPercent(value, 0);
+}
+
+/**
+ * Projects a series' values into the representation a STACKED bar/line series can render.
+ *
+ * An unstacked series passes through untouched, preserving the `AggregatedData` doctrine that
+ * an empty bucket is `null` and not 0 (a synthetic 0 is indistinguishable from a genuine zero
+ * measurement — see `internals/aggregators.ts`).
+ *
+ * A stacked series cannot keep that distinction. x-charts builds the stack with
+ * `d3Stack().value((d, key) => d[key] ?? 0)`, so every layer above a `null` slot is already
+ * positioned as if that slot were 0; meanwhile `connectNulls` (which every studio line/area
+ * series sets) drops the null point out of the area path entirely, so the layer that owns the
+ * null interpolates straight across a slot the layers above it treat as zero-height. The two
+ * halves of the stack then disagree at that x position. Collapsing to 0 up front is the only
+ * representation the stack renders self-consistently.
+ *
+ * INVARIANT: every stacked series — multi-Y and split-by, bar and line/area — is built from
+ * this one helper, so the two paths cannot drift. They previously did: the split-by paths
+ * zero-filled and the multi-Y paths passed `null` through, so a stacked multi-Y bar and a
+ * stacked split-by bar over equivalent data stacked differently and read differently in the
+ * tooltip.
+ */
+export function stackSafeValues(values: (number | null)[], isStacked: boolean): (number | null)[] {
+  return isStacked ? values.map((value) => value ?? 0) : values;
 }
 
 /** A temporal-gap-densified aggregation — gap-filled positions carry `null` values. */
@@ -416,18 +455,29 @@ export function sortMultiYTemporally(data: MultiYSeriesData): MultiYSeriesData {
   };
 }
 
+/**
+ * Builds the x-axis config for a line/area chart.
+ *
+ * The labels decide the branch: period keys that `getTemporalAxisData` can parse
+ * (`'2024'`, `'2024-Q1'`, `'2024-W03'`, `'2024-01'`, `'2024-01-15'`) produce a real `utc`
+ * date scale whose ticks are formatted by `formatTemporalAxisLabel`; anything else falls back
+ * to a categorical `point` scale formatted by `formatLabel`.
+ *
+ * INVARIANT: the two branches must localize identically. `formatLabel` already carries the
+ * caller's locale text, so `localeText` MUST be threaded into the temporal branch as well —
+ * without it `formatTemporalAxisLabel` silently defaults to `DEFAULT_STUDIO_LOCALE_TEXT` and a
+ * French weekly line chart renders `Week 3 2024` on its x axis while the equivalent bar and
+ * mixed charts (which never take the temporal branch) render the translated label. Only the
+ * temporal branch reads `localeText`; the categorical branch never does.
+ *
+ * @param localeText - Locale text bundle forwarded to `formatTemporalAxisLabel`. Optional only
+ *   so a non-localized caller still compiles; every in-repo call site passes it.
+ */
 export function createLineXAxisConfig(
   labels: (string | number)[],
   xGroupBy: StudioChartConfig['xGroupBy'],
   formatLabel: (label: string | number) => string,
   axisId?: string,
-  /**
-   * Locale text bundle forwarded to `formatTemporalAxisLabel`. Omitting it made a temporal
-   * axis fall back to `DEFAULT_STUDIO_LOCALE_TEXT`, so a French dashboard rendered
-   * "Week 3 2024" on its x axis even though `frLocaleText.timeGranWeek` exists and every
-   * other surface (the time-granularity picker, tooltips) was translated. Optional so
-   * call sites that have not threaded locale text through yet keep compiling.
-   */
   localeText?: StudioLocaleText,
 ) {
   const temporalData = getTemporalAxisData(labels);

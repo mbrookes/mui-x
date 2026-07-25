@@ -78,11 +78,22 @@ export function CrossFilterGhostBar(props: BarProps) {
   // (e.g. the sum of a signed measure) must still render the foreground bar.
   const hasFilteredValue = filteredValue != null;
   const filteredRatio = allValue === 0 ? 0 : (filteredValue ?? 0) / allValue;
-  // A non-negative baseline bar grows upward from the axis (its axis-adjacent edge
-  // is its far edge in the growth direction); a negative baseline bar grows
-  // downward/leftward from the axis instead. The foreground fill must always be
-  // anchored at the axis-adjacent edge and grow toward the tip, regardless of sign.
+  // Two independent signs, which a cross-filter can make disagree (a signed measure such as
+  // net profit can be −100 across all rows and +40 within the filtered subset):
+  //
+  // - `isNegativeBar` (the BASELINE's sign) fixes where the ghost rect sits relative to the
+  //   axis, and therefore which of its edges is the axis-adjacent one: a non-negative bar
+  //   grows away from the axis upward/rightward, so its axis edge is its bottom/left one;
+  //   a negative bar grows downward/leftward, so its axis edge is its top/right one.
+  // - `isNegativeFill` (the FILTERED value's own sign) fixes which way the foreground grows
+  //   from that edge. Deriving it from the baseline instead drew a positive filtered value as
+  //   a negative bar whenever the two disagreed, because `filteredRatio` is then negative and
+  //   `Math.abs` erased the direction the sign carried.
+  //
+  // INVARIANT: the foreground is always anchored ON the baseline segment's axis-adjacent edge
+  // and extends |filteredRatio| × the segment's length in the direction `isNegativeFill` says.
   const isNegativeBar = allValue < 0;
+  const isNegativeFill = (filteredValue ?? 0) < 0;
 
   const sharedProps = {
     ...rest,
@@ -92,19 +103,20 @@ export function CrossFilterGhostBar(props: BarProps) {
   } as React.SVGProps<SVGRectElement>;
 
   if (layout === 'vertical') {
-    const fgHeight = height * filteredRatio;
-    // Only inset when filtered > full (bar extends above ghost) so the ghost remains visible.
+    const fgHeight = Math.abs(height * filteredRatio);
+    // Only inset when the filtered value exceeds the baseline IN THE SAME DIRECTION (ratio > 1,
+    // so the foreground would cover the ghost). Opposite signs put the foreground on the other
+    // side of the axis entirely, where it never hides the ghost.
     const needsInset = filteredRatio > 1;
     const inset = needsInset ? Math.max(1, width * 0.15) : 0;
     const fgWidth = Math.max(1, width - 2 * inset);
     // Anchor to THIS segment's axis-adjacent edge, not the chart origin (`yOrigin`).
     // For stacked bars each segment has its own y; using yOrigin would misplace
-    // the foreground on every segment except the bottom-most one. A non-negative
-    // bar grows upward, so its axis-adjacent edge is the bottom (y + height); a
-    // negative bar grows downward from the axis, so its axis-adjacent edge is the
-    // top (y) — anchoring at y + height - fgHeight for a negative bar would instead
-    // anchor the fill at the bar's far tip.
-    const fgY = isNegativeBar ? y : y + height - fgHeight;
+    // the foreground on every segment except the bottom-most one.
+    const axisEdgeY = isNegativeBar ? y : y + height;
+    // Grow away from that edge in the FILTERED value's own direction: downward (SVG +y) for a
+    // negative fill, upward for a non-negative one.
+    const fgY = isNegativeFill ? axisEdgeY : axisEdgeY - fgHeight;
 
     return (
       <React.Fragment>
@@ -124,7 +136,7 @@ export function CrossFilterGhostBar(props: BarProps) {
             x={x + inset}
             y={fgY}
             width={fgWidth}
-            height={Math.abs(fgHeight)}
+            height={fgHeight}
             fill={color}
             opacity={fadedOpacity * selectionMultiplier}
           />
@@ -133,15 +145,15 @@ export function CrossFilterGhostBar(props: BarProps) {
     );
   }
   // Horizontal layout: width encodes value, height encodes band position.
-  const fgWidth = width * filteredRatio;
+  const fgWidth = Math.abs(width * filteredRatio);
   const needsInset = filteredRatio > 1;
   const insetY = needsInset ? Math.max(1, height * 0.15) : 0;
   const fgHeight = height - 2 * insetY;
-  // A non-negative bar grows rightward from the axis, so its axis-adjacent edge is
-  // the left edge (x); a negative bar grows leftward from the axis, so its
-  // axis-adjacent edge is the right edge (x + width) — anchoring at x for a
-  // negative bar would instead anchor the fill at the bar's far tip.
-  const fgX = isNegativeBar ? x + width - Math.abs(fgWidth) : x;
+  // Mirror of the vertical branch: the baseline's sign picks the segment's axis-adjacent edge
+  // (left for a non-negative bar, right for a negative one) and the filtered value's own sign
+  // picks which way the fill extends from it.
+  const axisEdgeX = isNegativeBar ? x + width : x;
+  const fgX = isNegativeFill ? axisEdgeX - fgWidth : axisEdgeX;
 
   return (
     <React.Fragment>
@@ -159,7 +171,7 @@ export function CrossFilterGhostBar(props: BarProps) {
           {...sharedProps}
           x={fgX}
           y={y + insetY}
-          width={Math.abs(fgWidth)}
+          width={fgWidth}
           height={fgHeight}
           fill={color}
           opacity={fadedOpacity * selectionMultiplier}

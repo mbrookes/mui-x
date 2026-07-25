@@ -153,4 +153,91 @@ describe('CrossFilterGhostBar', () => {
       expect(Number(fg.getAttribute('width'))).toBeCloseTo(40);
     });
   });
+
+  // The baseline's sign and the filtered value's sign are independent: a cross-filter on a
+  // signed measure (net profit, a delta column) can select a subset whose aggregate has the
+  // opposite sign to the all-data aggregate. The baseline's sign still decides which edge of
+  // the ghost rect touches the axis; the filtered value's own sign must decide which way the
+  // foreground extends from it.
+  describe('foreground direction when baseline and filtered values disagree in sign', () => {
+    it('vertical: a positive filtered value over a negative baseline draws upward from the axis', () => {
+      const view = renderGhostBar({
+        allValue: -100,
+        filteredValue: 40,
+        layout: 'vertical',
+        geometry: { x: 0, y: 10, width: 20, height: 100 },
+      });
+      const fg = view[1];
+      // The negative baseline hangs below the axis at y=10, so the foreground grows UP from
+      // y=10: it spans 10-40 = -30 .. 10. Anchoring at y=10 and drawing downward instead
+      // would render a positive value as a negative bar.
+      expect(Number(fg.getAttribute('y'))).toBeCloseTo(-30);
+      expect(Number(fg.getAttribute('height'))).toBeCloseTo(40);
+    });
+
+    it('vertical: a negative filtered value over a positive baseline draws downward from the axis', () => {
+      const view = renderGhostBar({
+        allValue: 100,
+        filteredValue: -40,
+        layout: 'vertical',
+        geometry: { x: 0, y: 10, width: 20, height: 100 },
+      });
+      const fg = view[1];
+      // Positive baseline sits above the axis at y=110, so the foreground grows DOWN from 110.
+      expect(Number(fg.getAttribute('y'))).toBeCloseTo(110);
+      expect(Number(fg.getAttribute('height'))).toBeCloseTo(40);
+    });
+
+    it('horizontal: a positive filtered value over a negative baseline draws rightward from the axis', () => {
+      const view = renderGhostBar({
+        allValue: -100,
+        filteredValue: 40,
+        layout: 'horizontal',
+        geometry: { x: 10, y: 0, width: 100, height: 20 },
+      });
+      const fg = view[1];
+      // Negative baseline extends leftward from the axis at x=110, so a positive filtered
+      // value grows rightward from x=110.
+      expect(Number(fg.getAttribute('x'))).toBeCloseTo(110);
+      expect(Number(fg.getAttribute('width'))).toBeCloseTo(40);
+    });
+
+    it('horizontal: a negative filtered value over a positive baseline draws leftward from the axis', () => {
+      const view = renderGhostBar({
+        allValue: 100,
+        filteredValue: -40,
+        layout: 'horizontal',
+        geometry: { x: 10, y: 0, width: 100, height: 20 },
+      });
+      const fg = view[1];
+      // Positive baseline extends rightward from the axis at x=10, so a negative filtered
+      // value grows leftward: 10-40 = -30 .. 10.
+      expect(Number(fg.getAttribute('x'))).toBeCloseTo(-30);
+      expect(Number(fg.getAttribute('width'))).toBeCloseTo(40);
+    });
+
+    it('never emits a negative rect dimension for any sign combination', () => {
+      const combinations: Array<[number, number]> = [
+        [100, 40],
+        [100, -40],
+        [-100, 40],
+        [-100, -40],
+        [100, 140],
+        [-100, -140],
+      ];
+      for (const [allValue, filteredValue] of combinations) {
+        for (const layout of ['vertical', 'horizontal'] as const) {
+          const view = renderGhostBar({
+            allValue,
+            filteredValue,
+            layout,
+            geometry: { x: 10, y: 10, width: 100, height: 100 },
+          });
+          const fg = view[1];
+          expect(Number(fg.getAttribute('width'))).toBeGreaterThanOrEqual(0);
+          expect(Number(fg.getAttribute('height'))).toBeGreaterThanOrEqual(0);
+        }
+      }
+    });
+  });
 });

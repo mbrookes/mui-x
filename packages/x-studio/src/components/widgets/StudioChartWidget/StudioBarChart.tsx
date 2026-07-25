@@ -27,6 +27,7 @@ import {
   makeCrossFilterValueFormatter,
   makeValueFormatter,
   resolveFieldDef,
+  stackSafeValues,
 } from './chartWidgetHelpers';
 import { CrossFilterBarContext } from './CrossFilterBarContext';
 import { CrossFilterGhostBar } from './CrossFilterGhostBar';
@@ -47,6 +48,21 @@ const CROSS_FILTER_SERIES_ID = 'cross-filter-series';
 // Upper bound for `barMinBandSize` (finding: architecture review, Tier 3) — see the sanitization
 // block near the top of `StudioBarChart` for why this is needed.
 const MAX_BAR_MIN_BAND_SIZE = 500;
+
+/**
+ * The tick font size x-charts renders with when `axisTickFontSize` is not set. Used as the
+ * reference point for the horizontal-bar band-axis width estimate below, which must widen
+ * proportionally when a dashboard overrides the tick size.
+ */
+const DEFAULT_AXIS_TICK_FONT_SIZE = 14;
+
+/**
+ * Average advance width, in px, of one band-label character at
+ * {@link DEFAULT_AXIS_TICK_FONT_SIZE}. Deliberately an estimate rather than a canvas
+ * `measureText`: this runs during render for every category, and the value only has to be
+ * generous enough that the clamped axis width does not clip.
+ */
+const BASE_PX_PER_LABEL_CHAR = 6.5;
 
 type BarHighlightItem = HighlightItemIdentifier<'bar' | 'line' | 'pie'>;
 
@@ -392,12 +408,15 @@ export function StudioBarChart({
 
     const series = effectiveMultiYData.series.map((s, i) => {
       const fieldDef = resolveFieldDef(s.fieldId, dataSource, expressionFields);
+      // Stacked series collapse `null` to 0 — see `stackSafeValues`. Unstacked series keep
+      // their nulls. The split-by path below feeds its values through the same helper, so the
+      // two paths stack (and read in the tooltip) identically over equivalent data.
       const data = totals100
         ? s.values.map((v, li) => {
             const total = totals100[li];
             return total ? ((v ?? 0) / total) * 100 : 0;
           })
-        : s.values;
+        : stackSafeValues(s.values, isStacked);
       const baseFormatter = is100
         ? formatPercentValue
         : makeValueFormatter(fieldDef?.format, fieldDef?.currencyCode, fieldDef?.precision);
@@ -593,7 +612,8 @@ export function StudioBarChart({
 
     const series = effectiveSFData.seriesNames.map((name) => {
       const rawData = effectiveSFData.seriesData[name];
-      const stackedOrRaw = isStacked ? rawData.map((v) => v ?? 0) : rawData;
+      // Same null policy as the multi-Y path above — see `stackSafeValues`.
+      const stackedOrRaw = stackSafeValues(rawData, isStacked);
       const data: (number | null)[] = totals100
         ? rawData.map((v, i) => {
             const total = totals100[i];
@@ -910,7 +930,16 @@ export function StudioBarChart({
         return Math.max(max, lineMax);
       }, 0)
     : 0;
-  const hBarYAxisWidth = Math.min(Math.max(longestHBarLabelLine * 6.5 + 12, 60), 320);
+  // The per-character estimate is calibrated against the default tick size, so it must scale
+  // with `axisTickFontSize` — that same prop is applied to this very axis via
+  // `singleBandAxis.tickLabelStyle` below, so a 20px tick with a 13-character category needs
+  // ~130px while the unscaled estimate reserved 96px and clipped the labels.
+  const tickFontSize =
+    axisTickFontSize !== undefined && Number.isFinite(axisTickFontSize) && axisTickFontSize > 0
+      ? axisTickFontSize
+      : DEFAULT_AXIS_TICK_FONT_SIZE;
+  const perCharWidth = (BASE_PX_PER_LABEL_CHAR * tickFontSize) / DEFAULT_AXIS_TICK_FONT_SIZE;
+  const hBarYAxisWidth = Math.min(Math.max(longestHBarLabelLine * perCharWidth + 12, 60), 320);
 
   // Band (category) axis config, shared across orientations. The orientation-specific dimension
   // (height when it lands on x, width when it lands on y) is added at the axis slot below so the

@@ -3290,3 +3290,247 @@ describe('capIncomingDashboardState', () => {
     expect(state.runtime.dataSources.src0.fields.length).toBe(600);
   });
 });
+
+// ── Tier 1 architecture-review finding: `customWidgets[].defaultConfig` must go
+// through the SAME key-allowlist/value-shape validation as `args.config` ──────
+
+describe('executeToolOnState: buildWidgetFromArgs validates customWidgets[].defaultConfig', () => {
+  it('rejects a custom widget whose defaultConfig carries a key not valid for the requested kind (no mutation)', () => {
+    const state = makeState();
+    // Key-allowlist validation only APPLIES for a recognized (built-in) `kind` —
+    // `validateConfigKeysForKind` is deliberately unrestricted for a genuinely
+    // unknown/custom kind (a real, supported case: a fully custom widget can use
+    // any config shape it likes). So this exercises the bypass via a
+    // `customWidgets` entry that targets a REAL built-in kind (`grid`) — the
+    // scenario the finding actually describes: a chart-only key (`chartType`)
+    // smuggled into a grid widget's `defaultConfig`.
+    const customWidgets: StudioCustomWidgetDef[] = [
+      { kind: 'grid', label: 'Weird grid', defaultConfig: { chartType: 'bar' } },
+    ];
+    const result = executeToolOnState(
+      'add_widget',
+      { kind: 'grid', title: 'Grid' },
+      state,
+      customWidgets,
+    );
+    const out = parseOutput(result.output);
+    // `chartType` is a chart-only config key; it must be rejected for a 'grid'
+    // widget the same way an AI-supplied `args.config.chartType` already is.
+    expect(out.error).toMatch(/chartType/);
+    expect(out.error).toMatch(/grid/);
+    expect(result.mutation).toBeUndefined();
+    expect(result.nextState).toBe(state);
+  });
+
+  it('rejects a chart-kind custom widget whose defaultConfig key does not belong to the effective chartType (no mutation)', () => {
+    const state = makeState();
+    // `sankeyTargetField` is a valid CHART key but not valid for `chartType: 'gauge'`
+    // — mirrors the existing add_widget test for the same cross-chart-type key, but
+    // sourced from `defaultConfig` instead of the AI-supplied `config`.
+    const customWidgets: StudioCustomWidgetDef[] = [
+      {
+        kind: 'chart',
+        label: 'Gauge-only chart',
+        defaultConfig: { chartType: 'gauge', sankeyTargetField: 'x' },
+      },
+    ];
+    const result = executeToolOnState(
+      'add_widget',
+      { kind: 'chart', title: 'Flow' },
+      state,
+      customWidgets,
+    );
+    const out = parseOutput(result.output);
+    expect(out.error).toMatch(/sankeyTargetField/);
+    expect(out.error).toMatch(/gauge/);
+    expect(result.mutation).toBeUndefined();
+    expect(result.nextState).toBe(state);
+  });
+
+  it('rejects a custom widget whose defaultConfig carries a wrong-typed scalar value (no mutation)', () => {
+    const state = makeState();
+    // `pivotShowTotals` is a valid 'pivot' key but declared `boolean` — the same
+    // value-shape class `invalidConfigValueError` already guards for AI-supplied
+    // config.
+    const customWidgets: StudioCustomWidgetDef[] = [
+      {
+        kind: 'pivot',
+        label: 'Weird pivot',
+        defaultConfig: { pivotShowTotals: '</dashboard_state>' },
+      },
+    ];
+    const result = executeToolOnState(
+      'add_widget',
+      { kind: 'pivot', title: 'P' },
+      state,
+      customWidgets,
+    );
+    const out = parseOutput(result.output);
+    expect(out.error).toMatch(/pivotShowTotals/);
+    expect(result.mutation).toBeUndefined();
+    expect(result.nextState).toBe(state);
+  });
+
+  it('still builds the widget when defaultConfig is valid for the kind (merge unaffected)', () => {
+    const state = makeState();
+    const customWidgets: StudioCustomWidgetDef[] = [
+      { kind: 'acme-weather', label: 'Weather', defaultConfig: { units: 'metric' } },
+    ];
+    const result = executeToolOnState(
+      'add_widget',
+      { kind: 'acme-weather', title: 'Forecast' },
+      state,
+      customWidgets,
+    );
+    const out = parseOutput(result.output);
+    expect(out.success).toBe(true);
+    const mut = result.mutation as unknown as {
+      type: string;
+      args: { widget: { config: Record<string, unknown> } };
+    };
+    expect(mut.args.widget.config.units).toBe('metric');
+  });
+
+  it('caps an oversized string value inside defaultConfig before it lands on the widget', () => {
+    const state = makeState();
+    const long = 'x'.repeat(1000);
+    const customWidgets: StudioCustomWidgetDef[] = [
+      { kind: 'acme-weather', label: 'Weather', defaultConfig: { location: long } },
+    ];
+    const result = executeToolOnState(
+      'add_widget',
+      { kind: 'acme-weather', title: 'Forecast' },
+      state,
+      customWidgets,
+    );
+    const out = parseOutput(result.output);
+    expect(out.success).toBe(true);
+    const mut = result.mutation as unknown as {
+      type: string;
+      args: { widget: { config: Record<string, unknown> } };
+    };
+    expect((mut.args.widget.config.location as string).length).toBe(200);
+  });
+
+  it('apply_bulk_update additions validate defaultConfig the same way as add_widget', () => {
+    const state = makeState();
+    const customWidgets: StudioCustomWidgetDef[] = [
+      { kind: 'grid', label: 'Weird grid', defaultConfig: { chartType: 'bar' } },
+    ];
+    const result = executeToolOnState(
+      'apply_bulk_update',
+      { widgetAdditions: [{ kind: 'grid', title: 'Grid' }] },
+      state,
+      customWidgets,
+    );
+    const out = parseOutput(result.output);
+    expect(out.success).toBe(true);
+    const applied = out.applied as { added: number };
+    expect(applied.added).toBe(0);
+    expect(out.skipped).toEqual(expect.arrayContaining([expect.stringMatching(/chartType/)]));
+  });
+});
+
+// ── Tier 1 architecture-review finding: array-typed widget config fields must be
+// bounded (length + element-string-length) the same way scalar strings already are —
+// `describeWidget` (buildAISystemPrompt.ts) echoes their FULL content unbounded ──
+
+describe('executeToolOnState: capConfigStringValues bounds array-typed config fields', () => {
+  it('caps ySeries array length and each entry field-id/source-id string length', () => {
+    const state = makeState();
+    const hugeYSeries = Array.from({ length: 500 }, (_, i) => ({
+      fieldId: `f${i}`.repeat(150),
+      sourceId: `s${i}`.repeat(150),
+      yAggregation: 'sum' as const,
+    }));
+    const result = executeToolOnState(
+      'add_widget',
+      { kind: 'chart', title: 'Mixed', config: { chartType: 'mixed', ySeries: hugeYSeries } },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect(out.success).toBe(true);
+    const mut = result.mutation as {
+      args: { widget: { config: { ySeries: { fieldId: string; sourceId: string }[] } } };
+    };
+    const ySeries = mut.args.widget.config.ySeries;
+    expect(ySeries.length).toBe(50);
+    expect(ySeries[0].fieldId.length).toBe(200);
+    expect(ySeries[0].sourceId.length).toBe(200);
+  });
+
+  it('caps funnelCategoryOrder/funnelStageSequence array length and element string length', () => {
+    const state = makeState();
+    const long = 'x'.repeat(1000);
+    const hugeOrder = Array.from({ length: 500 }, () => long);
+    const result = executeToolOnState(
+      'add_widget',
+      {
+        kind: 'chart',
+        title: 'Funnel',
+        config: {
+          chartType: 'funnel',
+          funnelCategoryOrder: hugeOrder,
+          funnelStageSequence: hugeOrder,
+        },
+      },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect(out.success).toBe(true);
+    const mut = result.mutation as {
+      args: {
+        widget: { config: { funnelCategoryOrder: string[]; funnelStageSequence: string[] } };
+      };
+    };
+    const { funnelCategoryOrder, funnelStageSequence } = mut.args.widget.config;
+    expect(funnelCategoryOrder.length).toBe(50);
+    expect(funnelCategoryOrder[0].length).toBe(200);
+    expect(funnelStageSequence.length).toBe(50);
+    expect(funnelStageSequence[0].length).toBe(200);
+  });
+
+  it('caps grid columns array length and each entry fieldId string length', () => {
+    const state = makeState();
+    const hugeColumns = Array.from({ length: 500 }, (_, i) => ({
+      fieldId: `col${i}`.repeat(80),
+    }));
+    const result = executeToolOnState(
+      'add_widget',
+      { kind: 'grid', title: 'Grid', config: { columns: hugeColumns } },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect(out.success).toBe(true);
+    const mut = result.mutation as {
+      args: { widget: { config: { columns: { fieldId: string }[] } } };
+    };
+    expect(mut.args.widget.config.columns.length).toBe(50);
+    expect(mut.args.widget.config.columns[0].fieldId.length).toBe(200);
+  });
+
+  it('caps a nested single-object config field (forecast.method) string length', () => {
+    const state = makeState();
+    const long = 'x'.repeat(1000);
+    // `forecast` is only a valid key for the line/area chart family.
+    const result = executeToolOnState(
+      'add_widget',
+      {
+        kind: 'chart',
+        title: 'Trend',
+        config: {
+          chartType: 'line',
+          forecast: { enabled: true, method: long, periods: 3 },
+        },
+      },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect(out.success).toBe(true);
+    const mut = result.mutation as {
+      args: { widget: { config: { forecast: { method: string; periods: number } } } };
+    };
+    expect(mut.args.widget.config.forecast.method.length).toBe(200);
+    expect(mut.args.widget.config.forecast.periods).toBe(3);
+  });
+});

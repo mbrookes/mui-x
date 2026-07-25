@@ -12,10 +12,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   handleAIChat,
   CONTEXT_ENRICHER_TIMEOUT_MS,
+  capIncomingCustomWidgets,
+  capIncomingRichContext,
   type StudioAIHandlerOptions,
 } from './handleAIChat';
 import { createDefaultStudioState } from './models/studioTypes';
-import type { StudioDataSource } from './models/studioTypes';
+import type { StudioDataSource, StudioCustomWidgetDef } from './models/studioTypes';
 import type { StudioAISkill } from './models/aiTypes';
 import type { StudioAIRequest, StudioAISSEEvent } from './models/protocol';
 
@@ -1304,5 +1306,147 @@ describe('handleAIChat — Tier 1 resource-exhaustion caps (dataSources / richCo
     expect(errorEvent?.message).toMatch(/^MUI X Studio:/);
     expect(errorEvent?.message).toMatch(/dataSources\[.*bad.*\]/);
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+// Tier 1 architecture-review finding: `customWidgets[].kind` had no string-length
+// cap even though `label`/`description` did, and it is echoed into the FIRST
+// system prompt exactly like `label`. `capIncomingCustomWidgets` must now cap all
+// three consistently.
+describe('capIncomingCustomWidgets: kind length cap', () => {
+  it('caps an oversized kind to the same 200-char length already applied to label', () => {
+    const longKind = 'k'.repeat(1000);
+    const longLabel = 'l'.repeat(1000);
+    const customWidgets: StudioCustomWidgetDef[] = [{ kind: longKind, label: longLabel }];
+    const capped = capIncomingCustomWidgets(customWidgets)!;
+    expect(capped[0].kind.length).toBe(200);
+    expect(capped[0].label.length).toBe(200);
+  });
+
+  it('leaves a short kind untouched', () => {
+    const customWidgets: StudioCustomWidgetDef[] = [{ kind: 'acme-weather', label: 'Weather' }];
+    const capped = capIncomingCustomWidgets(customWidgets)!;
+    expect(capped[0].kind).toBe('acme-weather');
+  });
+
+  it('returns undefined unchanged', () => {
+    expect(capIncomingCustomWidgets(undefined)).toBeUndefined();
+  });
+});
+
+// Tier 1 architecture-review finding: `capIncomingRichContext` capped element
+// COUNTS (fieldStats keys, pageLayout rows/cells, crossFilters, …) but not the
+// LENGTH of individual string fields inside those elements — unlike the sibling
+// `recentMutations.label`, which already went through `capRequestString`. Every
+// string field enumerated in the finding must now be capped the same way.
+describe('capIncomingRichContext: per-string-field length caps', () => {
+  const long = 'x'.repeat(1000);
+
+  it('caps fieldStats entry values (min/max/mean/distinctCount/sampledRows/type)', () => {
+    const capped = capIncomingRichContext({
+      fieldStats: {
+        f1: {
+          type: long as never,
+          min: long as unknown as number,
+          max: long as unknown as number,
+          mean: long as unknown as number,
+          sampledRows: long as unknown as number,
+        },
+      },
+    })!;
+    const stat = capped.fieldStats!.f1 as unknown as Record<string, string>;
+    expect(stat.type.length).toBe(200);
+    expect(stat.min.length).toBe(200);
+    expect(stat.max.length).toBe(200);
+    expect(stat.mean.length).toBe(200);
+    expect(stat.sampledRows.length).toBe(200);
+  });
+
+  it('leaves well-formed numeric fieldStats values untouched', () => {
+    const capped = capIncomingRichContext({
+      fieldStats: { f1: { type: 'number', min: 0, max: 100, mean: 50, sampledRows: 10 } },
+    })!;
+    expect(capped.fieldStats!.f1).toEqual({
+      type: 'number',
+      min: 0,
+      max: 100,
+      mean: 50,
+      sampledRows: 10,
+    });
+  });
+
+  it('caps pageLayout.pageId length', () => {
+    const capped = capIncomingRichContext({
+      pageLayout: { pageId: long, rows: [], crossFilters: [] },
+    })!;
+    expect(capped.pageLayout!.pageId.length).toBe(200);
+  });
+
+  it('caps pageLayout.rows cell string fields (widgetId/kind/title/chartType/colSpan)', () => {
+    const capped = capIncomingRichContext({
+      pageLayout: {
+        pageId: 'p1',
+        rows: [
+          [
+            {
+              widgetId: long,
+              kind: long,
+              title: long,
+              chartType: long,
+              colSpan: long as unknown as number,
+            },
+          ],
+        ],
+        crossFilters: [],
+      },
+    })!;
+    const cell = capped.pageLayout!.rows[0][0] as unknown as Record<string, string>;
+    expect(cell.widgetId.length).toBe(200);
+    expect(cell.kind.length).toBe(200);
+    expect(cell.title.length).toBe(200);
+    expect(cell.chartType.length).toBe(200);
+    expect(cell.colSpan.length).toBe(200);
+  });
+
+  it('leaves a well-formed pageLayout.rows cell untouched', () => {
+    const capped = capIncomingRichContext({
+      pageLayout: {
+        pageId: 'p1',
+        rows: [[{ widgetId: 'w1', kind: 'chart', title: 'Revenue', chartType: 'bar', colSpan: 6 }]],
+        crossFilters: [],
+      },
+    })!;
+    expect(capped.pageLayout!.rows[0][0]).toEqual({
+      widgetId: 'w1',
+      kind: 'chart',
+      title: 'Revenue',
+      chartType: 'bar',
+      colSpan: 6,
+    });
+  });
+
+  it('caps pageLayout.crossFilters entry string fields (sourceWidgetId/field/scope)', () => {
+    const capped = capIncomingRichContext({
+      pageLayout: {
+        pageId: 'p1',
+        rows: [],
+        crossFilters: [{ sourceWidgetId: long, field: long, scope: long as never }],
+      },
+    })!;
+    const edge = capped.pageLayout!.crossFilters[0] as unknown as Record<string, string>;
+    expect(edge.sourceWidgetId.length).toBe(200);
+    expect(edge.field.length).toBe(200);
+    expect(edge.scope.length).toBe(200);
+  });
+
+  it('still caps recentMutations.label (existing behavior, unaffected by this fix)', () => {
+    const capped = capIncomingRichContext({
+      recentMutations: [{ label: long, at: '2024-01-01T00:00:00.000Z' }],
+    })!;
+    expect(capped.recentMutations![0].label.length).toBe(200);
+  });
+
+  it('returns undefined/non-object input unchanged', () => {
+    expect(capIncomingRichContext(undefined)).toBeUndefined();
   });
 });

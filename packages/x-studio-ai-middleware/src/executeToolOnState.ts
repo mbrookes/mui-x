@@ -245,22 +245,68 @@ function capSourceId(sourceId: string): string {
 }
 
 /**
+ * Max number of entries retained in an array-typed widget config field (e.g.
+ * `ySeries`, `annotations`, `funnelCategoryOrder`, `funnelStageSequence`, grid
+ * `columns`) before it is persisted (sibling to {@link capConfigStringValues}'s
+ * string cap — Tier 1 architecture-review finding). Reuses
+ * `MAX_FILTER_VALUE_ARRAY_LENGTH`'s 50-entry convention rather than inventing a
+ * new bound for the same class of unbounded array.
+ */
+const MAX_CONFIG_ARRAY_LENGTH = MAX_FILTER_VALUE_ARRAY_LENGTH;
+
+/**
+ * Caps a single "flat" config value one level deep (see
+ * {@link MAX_CONFIG_ARRAY_LENGTH}): a string (e.g. a `funnelCategoryOrder`/
+ * `funnelStageSequence` array entry) is length-capped directly; a plain object
+ * (e.g. a `ySeries`/`annotations`/grid `columns` array entry, OR a nested
+ * single-object config value like `forecast`) has every one of ITS string-typed
+ * properties (`fieldId`, `sourceId`, `label`, `method`, …) capped — config
+ * values/elements are flat records, never further nested, so one level is
+ * sufficient. Any other shape (number, boolean, nested array, `null`) is left
+ * as-is. Shared by {@link capConfigStringValues} for both array ELEMENTS and
+ * direct nested-object config VALUES.
+ */
+function capShallowConfigValue(value: unknown): unknown {
+  if (typeof value === 'string') {
+    return capString(value, MAX_FILTER_STRING_LENGTH);
+  }
+  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+    const capped: Record<string, unknown> = {};
+    for (const [key, prop] of Object.entries(value as Record<string, unknown>)) {
+      capped[key] = typeof prop === 'string' ? capString(prop, MAX_FILTER_STRING_LENGTH) : prop;
+    }
+    return capped;
+  }
+  return value;
+}
+
+/**
  * Cap every STRING-typed value in a model-supplied widget `config` object before
- * persisting it (Tier 2, iteration 22). Chart-config string fields such as
- * `xField`/`yField`/`seriesField` (and their per-chart-type siblings —
- * `ganttLabelField`, `sankeyTargetField`, `scatterColorField`, `heatYField`, …) are
- * free-form model-supplied field-id strings with no existing length bound, and
- * `buildAISystemPrompt.ts`'s `describeWidget` echoes every one of them into
- * `<dashboard_state>` on EVERY future request — the same persistent token-bomb class
- * `capTitle`/`capFilterValue` already guard against. Reuses `MAX_FILTER_STRING_LENGTH`
- * (the bound already applied to filter `field`/`sourceId`) rather than inventing a new
- * constant. Non-string values (numbers, booleans, arrays like `ySeries`/`annotations`,
- * nested objects like `forecast`) are left untouched — they are either already
- * value-checked elsewhere (`invalidConfigValueError`) or out of scope for this
- * shallow string cap. Accepts `unknown` (not just a record) so it can be applied
- * directly to an untrusted `args.config` at the write source; any non-plain-object
- * input (including `null`/arrays) is returned unchanged for the caller's own
- * shape validation to reject.
+ * persisting it (Tier 2, iteration 22), AND every ARRAY-typed value's length plus
+ * its elements' string content, AND every nested-OBJECT-typed value's own string
+ * properties (Tier 1 architecture-review finding). Chart-config string fields
+ * such as `xField`/`yField`/`seriesField` (and their per-chart-type siblings —
+ * `ganttLabelField`, `sankeyTargetField`, `scatterColorField`, `heatYField`, …)
+ * are free-form model-supplied field-id strings with no existing length bound,
+ * and `buildAISystemPrompt.ts`'s `describeWidget` echoes every one of them into
+ * `<dashboard_state>` on EVERY future request — the same persistent token-bomb
+ * class `capTitle`/`capFilterValue` already guard against. Array-typed config
+ * fields (`ySeries`, `annotations`, `funnelCategoryOrder`, `funnelStageSequence`,
+ * grid `columns`, …) and single nested-object fields (`forecast`, whose `method`
+ * is echoed via `describeWidget`'s `enabled (${method}, ${periods} periods)`) are
+ * exactly the same class of hazard: `describeWidget` echoes their FULL content
+ * (not just a count) into the same prompt block on every turn, so an unbounded
+ * array/object — or one containing unboundedly-long strings — is just as much a
+ * persistent token bomb as an oversized scalar string. Reuses
+ * `MAX_FILTER_STRING_LENGTH` (the bound already applied to filter
+ * `field`/`sourceId`) and `MAX_CONFIG_ARRAY_LENGTH` rather than inventing new
+ * constants. Other non-string/array/object values (numbers, booleans) are left
+ * untouched — they are either already value-checked elsewhere
+ * (`invalidConfigValueError`) or out of scope for this cap. Accepts `unknown`
+ * (not just a record) so it can be applied directly to an untrusted
+ * `args.config` (or a custom widget's `defaultConfig`) at the write source; any
+ * non-plain-object input (including `null`/arrays) is returned unchanged for the
+ * caller's own shape validation to reject.
  */
 function capConfigStringValues(config: unknown): unknown {
   if (config === null || typeof config !== 'object' || Array.isArray(config)) {
@@ -268,7 +314,15 @@ function capConfigStringValues(config: unknown): unknown {
   }
   const capped: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(config as Record<string, unknown>)) {
-    capped[key] = typeof value === 'string' ? capString(value, MAX_FILTER_STRING_LENGTH) : value;
+    if (typeof value === 'string') {
+      capped[key] = capString(value, MAX_FILTER_STRING_LENGTH);
+    } else if (Array.isArray(value)) {
+      capped[key] = value.slice(0, MAX_CONFIG_ARRAY_LENGTH).map(capShallowConfigValue);
+    } else if (value !== null && typeof value === 'object') {
+      capped[key] = capShallowConfigValue(value);
+    } else {
+      capped[key] = value;
+    }
   }
   return capped;
 }
@@ -841,12 +895,19 @@ void ALL_BUILTIN_KINDS_LISTED;
  * `apply_bulk_update`'s additions so the two paths cannot drift (they were
  * previously character-for-character duplicates, including a hand-copied id scheme).
  *
- * Validates only the untrusted `args.config` (not the merged config) against the
- * widget's `kind`: the factory defaults and any `customDef.defaultConfig` are
- * trusted-valid by construction, so validating the merge would just re-check
- * already-safe keys. Returns `{ error }` (no widget built) when the AI-supplied
- * config carries a key that belongs to a different widget kind — fail-closed, so
- * an invalid cross-kind key can never be committed to state.
+ * Validates the MERGE of `customDef.defaultConfig` and the untrusted `args.config`
+ * against the widget's `kind` (Tier 1 architecture-review finding). `customWidgets`
+ * — and therefore every `customWidgets[].defaultConfig` — is request-body content
+ * (`StudioCustomWidgetDef` is shaped directly by `body.customWidgets`, capped only
+ * for length/count by `capIncomingCustomWidgets` in `handleAIChat.ts`, never
+ * key/value validated), so it is exactly as untrusted as `args.config` and must go
+ * through the SAME fail-closed key-allowlist, value-shape, and length/array caps
+ * before it can land on a widget. `defaultConfig` is capped via
+ * `capConfigStringValues` (string-length + array-length/element caps) before the
+ * merge, same as `args.config`. Returns `{ error }` (no widget built) when the
+ * merged config carries a key that belongs to a different widget kind, or a
+ * wrong-typed scalar value — fail-closed, so neither an invalid cross-kind key nor
+ * a malformed `defaultConfig` value can ever be committed to state.
  */
 export function buildWidgetFromArgs(
   args: { kind?: unknown; title?: unknown; sourceId?: unknown; config?: unknown },
@@ -875,27 +936,40 @@ export function buildWidgetFromArgs(
       error: `unknown widget kind '${kind}'. Valid kinds: ${validKinds.join(', ')}.`,
     };
   }
-  const error = invalidConfigKeyError(kind, aiConfig as Record<string, unknown>);
+  // Cap `customDef.defaultConfig` with the SAME string/array cap applied to
+  // `args.config` above — it is request-body content, not a trusted server
+  // default (Tier 1 architecture-review finding: `customWidgets` is shaped by
+  // `body.customWidgets`).
+  const customDef = customWidgets?.find((d) => d.kind === kind);
+  const cappedDefaultConfig = capConfigStringValues(customDef?.defaultConfig ?? {}) as Record<
+    string,
+    unknown
+  >;
+  // Validate the MERGED config (defaultConfig + aiConfig, aiConfig taking
+  // precedence) rather than just `aiConfig` — a key/value carried ONLY by
+  // `defaultConfig` must be caught too, not just one the model itself supplied.
+  const mergedConfig = { ...cappedDefaultConfig, ...aiConfig } as Record<string, unknown>;
+  const error = invalidConfigKeyError(kind, mergedConfig);
   if (error) {
     return { error };
   }
-  const valueError = invalidConfigValueError(aiConfig as Record<string, unknown>);
+  const valueError = invalidConfigValueError(mergedConfig);
   if (valueError) {
     return { error: valueError };
   }
   if (kind === 'chart') {
-    // No existing widget yet — the effective chart type is purely
-    // `aiConfig.chartType ?? 'bar'`, so there is no fallback to pass.
-    const chartError = invalidChartConfigKeyError(aiConfig as Record<string, unknown>, undefined);
+    // No existing widget yet — the effective chart type comes purely from the
+    // merged config (`mergedConfig.chartType ?? 'bar'`), so there is no fallback
+    // to pass.
+    const chartError = invalidChartConfigKeyError(mergedConfig, undefined);
     if (chartError) {
       return { error: chartError };
     }
   }
-  const customDef = customWidgets?.find((d) => d.kind === kind);
   const base = createDefaultWidget(kind);
   const config = {
     ...base.config,
-    ...(customDef?.defaultConfig ?? {}),
+    ...cappedDefaultConfig,
     ...aiConfig,
   } as StudioWidget['config'];
   return {

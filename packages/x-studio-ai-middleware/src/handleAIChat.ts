@@ -481,6 +481,61 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * Cap every present string-typed field of a `richContext.fieldStats` entry
+ * (Tier 1 architecture-review finding, sibling to the array/count caps below).
+ * `min`/`max`/`mean`/`distinctCount`/`sampledRows`/`type` are nominally typed
+ * `number`/enum, but `richContext` is client-supplied JSON with no runtime type
+ * check, so a crafted body can smuggle an oversized string into any of them —
+ * `buildRichContextBlock` interpolates every one via `sanitizeForPrompt(String(v))`
+ * with no length bound of its own. Only fields actually present on the entry are
+ * touched, so an entry missing e.g. `min` does not gain a spurious `min: undefined`
+ * key. Non-string values (the well-formed common case) pass through
+ * `capRequestString` unchanged.
+ */
+function capFieldStatEntry(stat: Record<string, unknown>): Record<string, unknown> {
+  const capped: Record<string, unknown> = { ...stat };
+  for (const key of ['type', 'min', 'max', 'mean', 'distinctCount', 'sampledRows'] as const) {
+    if (Object.hasOwn(stat, key)) {
+      capped[key] = capRequestString(stat[key]);
+    }
+  }
+  return capped;
+}
+
+/**
+ * Cap every present string-typed field of a `richContext.pageLayout.rows` cell
+ * (a `StudioAILayoutWidget`) — see {@link capFieldStatEntry} for the same
+ * rationale. `widgetId`/`kind`/`title`/`chartType` are echoed verbatim into
+ * `<dashboard_context>`, and `colSpan` (nominally `number`) is echoed the same
+ * way (`buildAISystemPrompt.ts` already notes it can carry a smuggled string).
+ */
+function capLayoutWidgetCell(cell: Record<string, unknown>): Record<string, unknown> {
+  const capped: Record<string, unknown> = { ...cell };
+  for (const key of ['widgetId', 'kind', 'title', 'chartType', 'colSpan'] as const) {
+    if (Object.hasOwn(cell, key)) {
+      capped[key] = capRequestString(cell[key]);
+    }
+  }
+  return capped;
+}
+
+/**
+ * Cap every present string-typed field of a `richContext.pageLayout.crossFilters`
+ * entry (a `StudioAICrossFilterEdge`) — see {@link capFieldStatEntry}.
+ * `sourceWidgetId`/`field`/`scope` are all echoed verbatim into
+ * `<dashboard_context>`'s cross-filter graph listing.
+ */
+function capCrossFilterEdge(edge: Record<string, unknown>): Record<string, unknown> {
+  const capped: Record<string, unknown> = { ...edge };
+  for (const key of ['sourceWidgetId', 'field', 'scope'] as const) {
+    if (Object.hasOwn(edge, key)) {
+      capped[key] = capRequestString(edge[key]);
+    }
+  }
+  return capped;
+}
+
+/**
  * Cap a client-supplied `richContext` (Tier 1 resource-exhaustion finding,
  * sibling to `executeToolOnState.ts`'s `capIncomingDashboardState`) before it
  * is threaded into `buildAISystemPrompt`'s `<dashboard_context>` block.
@@ -489,8 +544,17 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
  * `isPlainObject`/`Array.isArray` checks and simply omits a malformed
  * section — so this cap mirrors those SAME shape guards and only bounds the
  * count/length of an otherwise-well-shaped section, leaving a malformed one
- * untouched for `buildRichContextBlock` to skip as it already does. Applied
- * once, at the same request-handling chokepoint as
+ * untouched for `buildRichContextBlock` to skip as it already does.
+ *
+ * Caps element/entry COUNTS as before, and additionally caps the LENGTH of
+ * every individual string field inside each retained element (Tier 1
+ * architecture-review finding): `fieldStats` entry values (via
+ * {@link capFieldStatEntry}), `pageLayout.pageId`, each `pageLayout.rows` cell
+ * (via {@link capLayoutWidgetCell}), and each `pageLayout.crossFilters` entry
+ * (via {@link capCrossFilterEdge}) — the same class of gap the sibling
+ * `recentMutations.label` cap already closed for its own section.
+ *
+ * Applied once, at the same request-handling chokepoint as
  * `capIncomingDashboardState`, before `richContext` reaches the context
  * enricher or the agentic loop. Returns the input unchanged when it is not a
  * plain object (including `undefined`); never mutates the input.
@@ -511,20 +575,33 @@ export function capIncomingRichContext(
 
   if (isPlainRecord(rc.fieldStats)) {
     capped.fieldStats = Object.fromEntries(
-      Object.entries(rc.fieldStats).slice(0, MAX_RICH_CONTEXT_FIELD_STATS),
+      Object.entries(rc.fieldStats)
+        .slice(0, MAX_RICH_CONTEXT_FIELD_STATS)
+        .map(([key, stat]) => [key, isPlainRecord(stat) ? capFieldStatEntry(stat) : stat]),
     );
   }
 
   if (isPlainRecord(rc.pageLayout)) {
-    const layout = rc.pageLayout as { rows?: unknown; crossFilters?: unknown };
+    const layout = rc.pageLayout as { pageId?: unknown; rows?: unknown; crossFilters?: unknown };
     const cappedLayout: Record<string, unknown> = { ...layout };
+    if (Object.hasOwn(layout, 'pageId')) {
+      cappedLayout.pageId = capRequestString(layout.pageId);
+    }
     if (Array.isArray(layout.rows)) {
       cappedLayout.rows = layout.rows
         .slice(0, MAX_RICH_CONTEXT_LAYOUT_ROWS)
-        .map((row) => (Array.isArray(row) ? row.slice(0, MAX_RICH_CONTEXT_ROW_CELLS) : row));
+        .map((row) =>
+          Array.isArray(row)
+            ? row
+                .slice(0, MAX_RICH_CONTEXT_ROW_CELLS)
+                .map((cell) => (isPlainRecord(cell) ? capLayoutWidgetCell(cell) : cell))
+            : row,
+        );
     }
     if (Array.isArray(layout.crossFilters)) {
-      cappedLayout.crossFilters = layout.crossFilters.slice(0, MAX_RICH_CONTEXT_CROSS_FILTERS);
+      cappedLayout.crossFilters = layout.crossFilters
+        .slice(0, MAX_RICH_CONTEXT_CROSS_FILTERS)
+        .map((edge) => (isPlainRecord(edge) ? capCrossFilterEdge(edge) : edge));
     }
     capped.pageLayout = cappedLayout;
   }
@@ -547,12 +624,21 @@ export function capIncomingRichContext(
  * finding, sibling to {@link capIncomingRichContext}) before it is threaded
  * into `buildAISystemPrompt`'s custom-widget listing loop and the agentic
  * loop's widget-creation tools. Caps the array length
- * ({@link MAX_REQUEST_CUSTOM_WIDGETS}) and, per entry, the `label`/
+ * ({@link MAX_REQUEST_CUSTOM_WIDGETS}) and, per entry, the `kind`/`label`/
  * `description` string length ({@link MAX_REQUEST_STRING_LENGTH}) and the
  * `defaultConfig` key count ({@link MAX_CUSTOM_WIDGET_CONFIG_KEYS}).
- * `validateStudioAIRequestBody` has already guaranteed each element is a
- * plain object with a string `kind` by the time this runs. Returns the input
- * unchanged when it is `undefined`; never mutates the input.
+ * `kind` is capped for the SAME reason `label`/`description` are: it is echoed
+ * straight into the first system prompt (both in the custom-widget listing and
+ * — for a widget actually created with that kind — into every subsequent
+ * `<dashboard_state>` via `describeWidget`'s `pushField('kind', widget.kind)`),
+ * so an unbounded `kind` is exactly the same persistent token-bomb class as an
+ * unbounded `label` (Tier 1 architecture-review finding). `defaultConfig`'s
+ * key/value VALIDATION (not just its key-count cap here) happens later, at the
+ * point a widget of that kind is actually built — see
+ * `executeToolOnState.ts`'s `buildWidgetFromArgs`. `validateStudioAIRequestBody`
+ * has already guaranteed each element is a plain object with a string `kind` by
+ * the time this runs. Returns the input unchanged when it is `undefined`; never
+ * mutates the input.
  */
 export function capIncomingCustomWidgets(
   customWidgets: StudioCustomWidgetDef[] | undefined,
@@ -562,6 +648,7 @@ export function capIncomingCustomWidgets(
   }
   return customWidgets.slice(0, MAX_REQUEST_CUSTOM_WIDGETS).map((cw) => ({
     ...cw,
+    kind: capRequestString(cw.kind) as string,
     label: capRequestString(cw.label) as string,
     ...(cw.description !== undefined
       ? { description: capRequestString(cw.description) as string }

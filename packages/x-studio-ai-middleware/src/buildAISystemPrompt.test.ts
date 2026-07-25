@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildAISystemPrompt, sanitizeForPrompt } from './buildAISystemPrompt';
+import { capIncomingDashboardState } from './executeToolOnState';
 import { createDefaultStudioState, getAllowedChartConfigKeys } from './models/studioTypes';
 import type {
   StudioDataSource,
@@ -1310,5 +1311,93 @@ describe('buildAISystemPrompt: filter operator allowlist', () => {
       // Word-boundary match so e.g. `starts_with` doesn't count as `not_starts_with`.
       expect(line).toMatch(new RegExp(`(^|[ ,:])${op}([ ,.]|$)`));
     }
+  });
+});
+
+// ── Tier 1 architecture-review finding: array-typed chart config fields must not
+// be echoed unbounded into `<dashboard_state>` ────────────────────────────────
+//
+// `describeWidget` prints the FULL content of `ySeries[].fieldId/sourceId`,
+// `funnelCategoryOrder`, and `funnelStageSequence` (not just a count), so an
+// unbounded array/string here is a persistent token bomb re-sent on every turn.
+// The fix caps these at the WRITE source (`capConfigStringValues`, exercised via
+// `capIncomingDashboardState` for a client-supplied initial dashboardState, and
+// via every AI-tool write path for a model-supplied one) rather than at the
+// prompt-render boundary, matching this codebase's established "cap at write
+// source" pattern (`capTitle`/`capFilterValue`/`capSourceId`). These tests
+// exercise the full pipeline end to end: an oversized array reaches
+// `capIncomingDashboardState` and the RESULTING prompt is bounded.
+describe('buildAISystemPrompt: array-typed chart config fields are bounded before reaching the prompt', () => {
+  it('caps an oversized ySeries array (length and each fieldId/sourceId length)', () => {
+    const hugeYSeries = Array.from({ length: 500 }, (_, i) => ({
+      fieldId: `f${i}`.repeat(150),
+      sourceId: `s${i}`.repeat(150),
+      yAggregation: 'sum' as const,
+    }));
+    const widget = makeWidget('w1', {
+      config: { chartType: 'mixed', xField: 'segment', ySeries: hugeYSeries } as any,
+    });
+    const state = makeState({
+      pages: { [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [['w1']] } },
+      widgets: { w1: widget },
+      dataSources: { src1: makeSource() },
+    });
+    const capped = capIncomingDashboardState(state);
+    const cappedYSeries = (
+      capped.doc.widgets.w1.config as {
+        ySeries: { fieldId: string; sourceId: string }[];
+      }
+    ).ySeries;
+    // Array length capped at the write source (500 → 50 entries).
+    expect(cappedYSeries.length).toBe(50);
+    // Each retained entry's fieldId/sourceId length capped (~750 chars → 200).
+    expect(cappedYSeries[0].fieldId.length).toBe(200);
+    expect(cappedYSeries[0].sourceId.length).toBe(200);
+
+    const prompt = buildAISystemPrompt(capped);
+    const widgetLine = prompt.split('\n').find((l) => l.includes('ySeries:'))!;
+    expect(widgetLine).toBeDefined();
+    // Bounded overall size: 50 entries × ~200 chars is nowhere near the
+    // uncapped 500 × ~300-char size this would otherwise have been.
+    expect(widgetLine.length).toBeLessThan(60_000);
+  });
+
+  it('caps an oversized funnelCategoryOrder/funnelStageSequence array before it reaches the prompt', () => {
+    const long = 'x'.repeat(1000);
+    const hugeOrder = Array.from({ length: 500 }, () => long);
+    const widget = makeWidget('w1', {
+      config: {
+        chartType: 'funnel',
+        xField: 'stage',
+        yField: 'dealId',
+        funnelCategoryOrder: hugeOrder,
+        funnelStageSequence: hugeOrder,
+      } as any,
+    });
+    const state = makeState({
+      pages: { [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [['w1']] } },
+      widgets: { w1: widget },
+      dataSources: { src1: makeSource() },
+    });
+    const capped = capIncomingDashboardState(state);
+    const prompt = buildAISystemPrompt(capped);
+    const cappedFunnelCategoryOrder = (
+      capped.doc.widgets.w1.config as { funnelCategoryOrder: string[] }
+    ).funnelCategoryOrder;
+    const cappedFunnelStageSequence = (
+      capped.doc.widgets.w1.config as { funnelStageSequence: string[] }
+    ).funnelStageSequence;
+    // Array length capped at the write source.
+    expect(cappedFunnelCategoryOrder.length).toBe(50);
+    expect(cappedFunnelStageSequence.length).toBe(50);
+    // Each retained element's string length capped.
+    expect(cappedFunnelCategoryOrder[0].length).toBe(200);
+    // The rendered prompt line reflects the capped (not the original 500-entry,
+    // 1000-char-each) array.
+    const funnelLine = prompt.split('\n').find((l) => l.includes('funnelCategoryOrder:'))!;
+    expect(funnelLine).toBeDefined();
+    // The line carries BOTH capped arrays (50 × 200 chars each, plus separators) —
+    // nowhere near the uncapped 500 × 1000-char-each size this would otherwise have.
+    expect(funnelLine.length).toBeLessThan(30_000);
   });
 });

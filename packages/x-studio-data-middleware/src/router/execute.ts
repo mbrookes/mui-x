@@ -14,12 +14,14 @@ import type {
   SecurityPolicyOptions,
 } from '../security/compileSecurityPolicy';
 import {
+  AGGREGATE_SQL_FUNCTIONS,
   toValidatedQueryPlan,
   type ColumnRef,
   type PlanOrderBy,
   type PlanProjectionColumn,
   type ValidatedQueryPlan,
 } from '../security/validateQueryPlan';
+import { qualifyAgainst } from '../shared/columnValidation';
 
 type RoutingTier = 'client' | 'server' | 'db';
 
@@ -251,8 +253,7 @@ export async function executeForTier(
   // Qualify an unqualified physical column with the primary table to prevent
   // "ambiguous column name" errors when JOINs are present (e.g. an ORDER BY on a
   // column that exists on both joined tables).
-  const qualify = (phys: ColumnRef): string =>
-    phys.includes('.') ? phys : `${queryPlan.table}.${phys}`;
+  const qualify = (phys: ColumnRef): string => qualifyAgainst(queryPlan.table, phys);
 
   // Project one resolved column: an expression field (physical differs from its
   // output id) SELECTs `physical AS outputAlias`; a direct column is qualified.
@@ -356,34 +357,22 @@ export async function executeForTier(
     // `validateAggregationAliases`, and `col` is either allowlisted or
     // Knex-escaped either way), but this keeps the aggregate clause on the same
     // binding-based footing as the rest of the query-building code (finding 2.2).
-    switch (agg.func) {
-      case 'sum':
-        query.sum({ [agg.alias]: col });
-        break;
-      case 'avg':
-        query.avg({ [agg.alias]: col });
-        break;
-      case 'count':
-        query.count({ [agg.alias]: col });
-        break;
-      case 'min':
-        query.min({ [agg.alias]: col });
-        break;
-      case 'max':
-        query.max({ [agg.alias]: col });
-        break;
-      default:
-        // `agg.func` is client-JSON-sourced and its TS type ('sum'|'avg'|'count'|
-        // 'min'|'max') is not a runtime guarantee. Reject fail-closed rather than
-        // silently omitting the aggregation from the query — a dropped measure
-        // column would otherwise surface as a confusing, silently-incomplete
-        // result instead of a clear error (finding 2.4).
-        throw new Error(
-          `MUI X Studio Server: Aggregation function "${agg.func}" is not supported. ` +
-            `Supported aggregation functions are: sum, avg, count, min, max. ` +
-            `Check the widget descriptor's "aggregations" entries for a typo or unsupported function.`,
-        );
+    //
+    // `agg.func` is client-JSON-sourced, so its TS type is not a runtime guarantee:
+    // gate on own-property membership of the shared `AGGREGATE_SQL_FUNCTIONS` table
+    // before dispatching, and fail closed on anything else. Silently omitting the
+    // aggregation would surface as a confusing, silently-incomplete result rather
+    // than a clear error. The table's five keys ARE the five Knex builder method
+    // names, so the dispatch reads straight off it — the same table `applyHaving`
+    // uses, so the two cannot drift.
+    if (!Object.prototype.hasOwnProperty.call(AGGREGATE_SQL_FUNCTIONS, agg.func)) {
+      throw new Error(
+        `MUI X Studio Server: Aggregation function "${agg.func}" is not supported. ` +
+          `Supported aggregation functions are: sum, avg, count, min, max. ` +
+          `Check the widget descriptor's "aggregations" entries for a typo or unsupported function.`,
+      );
     }
+    query[agg.func]({ [agg.alias]: col });
   }
 
   for (const ob of queryPlan.orderBy) {

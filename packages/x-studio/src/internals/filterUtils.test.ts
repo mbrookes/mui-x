@@ -1192,7 +1192,10 @@ describe('resolveRelativeDate — sub-day units', () => {
     vi.useRealTimers();
   });
 
-  it('resolves an hour-unit value to a full ISO instant, not a truncated day', () => {
+  // The instant is quantized to the START OF ITS OWN UNIT (here, the hour) rather than carried
+  // at millisecond precision — see `resolveRelativeDate`. The point of the original fix stands:
+  // it resolves to an hour-level cutoff, NOT to "start of today".
+  it('resolves an hour-unit value to an hour-boundary instant, not a truncated day', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2024-06-15T10:30:00.000Z'));
     const resolved = resolveRelativeDate({
@@ -1201,7 +1204,7 @@ describe('resolveRelativeDate — sub-day units', () => {
       unit: 'hour',
       direction: 'past',
     });
-    expect(resolved).toBe('2024-06-15T09:30:00.000Z');
+    expect(resolved).toBe('2024-06-15T09:00:00.000Z');
   });
 
   it('resolves a minute-unit value to a full ISO instant', () => {
@@ -1228,7 +1231,7 @@ describe('resolveRelativeDate — sub-day units', () => {
     expect(resolved).toBe('2024-06-15T10:30:00.000Z');
   });
 
-  it('resolves a sub-day "next" direction forward from now', () => {
+  it('resolves a sub-day "next" direction forward from now (quantized to the unit)', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2024-06-15T10:30:00.000Z'));
     const resolved = resolveRelativeDate({
@@ -1237,8 +1240,28 @@ describe('resolveRelativeDate — sub-day units', () => {
       unit: 'hour',
       direction: 'next',
     });
-    expect(resolved).toBe('2024-06-15T12:30:00.000Z');
+    expect(resolved).toBe('2024-06-15T12:00:00.000Z');
   });
+
+  // Regression: the resolved value must be BYTE-STABLE for the whole duration of its unit.
+  // A raw `toISOString()` produced a different string on every call, so the L3 row-cache
+  // fingerprint (which stringifies the resolved filter value) changed on every evaluation and
+  // sub-day relative filters missed the cache 100% of the time, re-running all downstream
+  // aggregation on every render.
+  it.each(['hour', 'minute', 'second'] as const)(
+    'returns an identical string across calls within the same %s',
+    (unit) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2024-06-15T10:30:30.123Z'));
+      const rel = { relative: true, amount: 1, unit, direction: 'past' } as const;
+      const first = resolveRelativeDate(rel);
+      // Advance by less than one unit — the resolved bound must not move.
+      vi.setSystemTime(new Date('2024-06-15T10:30:30.876Z'));
+      expect(resolveRelativeDate(rel)).toBe(first);
+      // …and it carries no millisecond remainder at all.
+      expect(first.endsWith('.000Z')).toBe(true);
+    },
+  );
 
   it('still resolves day/week/month/year units to a bare YYYY-MM-DD (no regression)', () => {
     vi.useFakeTimers();
@@ -1363,5 +1386,150 @@ describe('applyFilters — sub-day relative date filters', () => {
       }),
     ]);
     expect(result.map((r) => r.id)).toEqual(['threeDaysAgo', 'twoDaysAgo']);
+  });
+});
+
+// ── Filter-operator semantics: no loose `==`, and string ordering is real (finding M7) ───────
+
+describe('applyFilters — numeric equality does not cross-coerce', () => {
+  // A CSV whose blank numeric cells import as `''` used to make EVERY blank row compare equal
+  // to zero (`'' == 0` is `true`), so a "count of zero-discount orders" KPI counted every blank
+  // row as a genuine zero. `false == '0'` matched for the same reason.
+  const rows = [
+    { id: 1, discount: 0 },
+    { id: 2, discount: '' },
+    { id: 3, discount: '   ' },
+    { id: 4, discount: null },
+    { id: 5, discount: false },
+    { id: 6, discount: 5 },
+  ];
+
+  it('equals 0 matches only genuine zeros, not blank / whitespace / null / false cells', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'discount', operator: 'equals', value: 0, fieldType: 'number' }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([1]);
+  });
+
+  it("equals '0' (string filter value) still matches the numeric zero but nothing falsy", () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'discount', operator: 'equals', value: '0', fieldType: 'number' }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([1]);
+  });
+
+  it('not_equals 0 keeps the blank / null / false rows rather than silently dropping them', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'discount', operator: 'not_equals', value: 0, fieldType: 'number' }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([2, 3, 4, 5, 6]);
+  });
+
+  it('a blank numeric cell is not treated as 0 by the ordering operators either', () => {
+    const result = applyFilters(rows, [
+      makeFilter({
+        field: 'discount',
+        operator: 'greater_than_or_equal',
+        value: 0,
+        fieldType: 'number',
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([1, 6]);
+  });
+
+  it('a blank numeric cell is not treated as 0 by between either', () => {
+    const result = applyFilters(rows, [
+      makeFilter({
+        field: 'discount',
+        operator: 'between',
+        value: { from: 0, to: 10 },
+        fieldType: 'number',
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([1, 6]);
+  });
+});
+
+describe('applyFilters — in / not_in do not cross-coerce', () => {
+  const rows = [
+    { id: 1, code: 0 },
+    { id: 2, code: '' },
+    { id: 3, code: false },
+    { id: 4, code: 'A' },
+  ];
+
+  it('in [0] matches the numeric zero only', () => {
+    const result = applyFilters(rows, [makeFilter({ field: 'code', operator: 'in', value: [0] })]);
+    expect(result.map((r) => r.id)).toEqual([1]);
+  });
+
+  it('not_in [0] keeps every row that is not the numeric zero', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'code', operator: 'not_in', value: [0] }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([2, 3, 4]);
+  });
+
+  it('agrees with selection mode on which values match', () => {
+    const condition = applyFilters(rows, [
+      makeFilter({ field: 'code', operator: 'in', value: ['A'] }),
+    ]);
+    const selection = applyFilters(rows, [
+      makeFilter({ field: 'code', filterMode: 'selection', operator: 'in', value: ['A'] }),
+    ]);
+    expect(condition.map((r) => r.id)).toEqual(selection.map((r) => r.id));
+  });
+});
+
+describe('applyFilters — ordering operators on an explicit string field', () => {
+  // A host- or AI-authored `{ field, fieldType: 'string', operator: 'greater_than', value: 'M' }`
+  // passes `isFilterComplete` and compiles cleanly. Before `toComparable` grew a `'string'`
+  // branch it fell through to `Number(val)` → NaN, and every NaN comparison is `false`, so the
+  // filter returned ZERO rows with no error, warning, or any other diagnostic.
+  const rows = [
+    { id: 1, name: 'Apple' },
+    { id: 2, name: 'Mango' },
+    { id: 3, name: 'Zucchini' },
+    { id: 4, name: null },
+  ];
+
+  it('greater_than compares lexicographically instead of returning nothing', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'name', operator: 'greater_than', value: 'M', fieldType: 'string' }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([2, 3]);
+  });
+
+  it('less_than_or_equal compares lexicographically and excludes null values', () => {
+    const result = applyFilters(rows, [
+      makeFilter({
+        field: 'name',
+        operator: 'less_than_or_equal',
+        value: 'Mango',
+        fieldType: 'string',
+      }),
+    ]);
+    // The null row is EXCLUDED rather than normalized to `''` and sorted below everything,
+    // matching the number and date branches.
+    expect(result.map((r) => r.id)).toEqual([1, 2]);
+  });
+
+  it('between on a string field is a real lexicographic range, not a silent match-nothing', () => {
+    const result = applyFilters(rows, [
+      makeFilter({
+        field: 'name',
+        operator: 'between',
+        value: { from: 'B', to: 'N' },
+        fieldType: 'string',
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual([2]);
+  });
+
+  it('still fails closed for an UNTYPED non-orderable between bound', () => {
+    const result = applyFilters(rows, [
+      makeFilter({ field: 'name', operator: 'between', value: { from: 'B', to: 'N' } }),
+    ]);
+    expect(result).toEqual([]);
   });
 });

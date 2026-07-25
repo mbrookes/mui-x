@@ -95,6 +95,21 @@ export function isSubDayRelativeUnit(unit: RelativeDateUnit): boolean {
  * in this file, and the wire-serialization paths in `createBatchingAdapter.ts`/
  * `createSimpleAdapter.ts`) compare at full timestamp precision instead of day granularity.
  *
+ * QUANTIZATION: the sub-day instant is truncated to the START OF ITS OWN UNIT
+ * (`startOf('hour'|'minute'|'second')`) rather than returned at millisecond precision. This is
+ * the exact mirror of what `day`/`week`/`month`/`year` already do — those truncate to a stable
+ * calendar boundary (`YYYY-MM-DD`) instead of carrying the current time of day — and it is
+ * load-bearing for caching, not cosmetic: a raw `toISOString()` produced a DIFFERENT string on
+ * every single call, so the L3 row-cache fingerprint (which stringifies the resolved filter
+ * value) changed on every evaluation and a sub-day relative filter missed the cache 100% of the
+ * time, re-running every downstream aggregation on every render. Quantized, the resolved bound is
+ * byte-stable for the whole duration of its unit, so repeat evaluations hit the cache.
+ *
+ * The cost is that the bound anchors to the unit boundary rather than the exact instant — "1 hour
+ * ago" at 10:30 means "since 09:00", not "since 09:30". That is the same anchoring the
+ * day-or-coarser units have always applied ("1 day ago" is a whole calendar day, not this time
+ * yesterday), and it is what makes the value cacheable at all.
+ *
  * dayjs's `toISOString()` always renders in UTC regardless of the runtime's local timezone, so the
  * resolved instant is unambiguous — unlike the bare `YYYY-MM-DD` form (parsed as UTC midnight by
  * convention elsewhere in this file), a sub-day value carries its own explicit `Z` offset.
@@ -103,7 +118,9 @@ export function resolveRelativeDate(rel: RelativeDateValue): string {
   const now = dayjs();
   const result =
     rel.direction === 'past' ? now.subtract(rel.amount, rel.unit) : now.add(rel.amount, rel.unit);
-  return isSubDayRelativeUnit(rel.unit) ? result.toISOString() : result.format('YYYY-MM-DD');
+  return isSubDayRelativeUnit(rel.unit)
+    ? result.startOf(rel.unit).toISOString()
+    : result.format('YYYY-MM-DD');
 }
 
 function toComparable(
@@ -135,13 +152,54 @@ function toComparable(
     return String(val ?? '');
   }
   if (fieldType === 'number') {
-    return Number(val);
+    return toNumericValue(val);
+  }
+  if (fieldType === 'string') {
+    // Explicit `string` fields compare LEXICOGRAPHICALLY. Without this branch a string field
+    // fell through to `Number(val)` → `NaN`, and every relational comparison against `NaN` is
+    // `false` — so a host- or AI-authored `{ field: 'name', fieldType: 'string',
+    // operator: 'greater_than', value: 'M' }` passed `isFilterComplete`, compiled cleanly, and
+    // returned ZERO rows with no error or warning. Of the three possible resolutions (support
+    // it, throw, or keep silently returning nothing) the first is chosen because: the operator
+    // is reachable from the filter drawer and from the AI mutation surface, JS relational
+    // operators on strings are well-defined (UTF-16 code-unit order), and "0 rows, no
+    // diagnostic" is the one outcome a user can neither see nor debug.
+    //
+    // Both sides of every comparison route through here, so the filter constant and the row
+    // value always share the same representation. `?? ''` normalizes a nullish value to the
+    // empty string; the ordering operators additionally reject nullish ROW values outright (see
+    // the `rv != null` guards in `compileSingleCondition`) so a null never sorts below every
+    // bound.
+    return String(val ?? '');
   }
   // Fallback: detect ISO date strings by shape
   if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}/.test(val)) {
     return val;
   }
   return Number(val);
+}
+
+/**
+ * Numeric coercion for `number`-typed field comparisons.
+ *
+ * `Number(val)` alone is too permissive at the boundaries that matter for filtering:
+ * `Number('') === 0`, `Number(false) === 0`, `Number(null) === 0`, `Number([]) === 0`. A CSV whose
+ * blank numeric cells import as `''` therefore made every blank row compare EQUAL to zero — a
+ * "count of orders with zero discount" KPI counted every blank row as a zero-discount order — and
+ * `false` matched `'0'`. Only genuine numbers and numeric strings are coerced here; everything
+ * else (nullish, boolean, object, blank/whitespace-only string, non-numeric string) becomes `NaN`,
+ * which every comparison operator rejects. That matches the existing convention in this file that
+ * an ABSENT value is excluded from a numeric comparison rather than silently treated as `0`.
+ */
+function toNumericValue(val: unknown): number {
+  if (typeof val === 'number') {
+    return val;
+  }
+  if (typeof val === 'string') {
+    // `Number(' ')` is `0`; a whitespace-only cell is as absent as an empty one.
+    return val.trim() === '' ? NaN : Number(val);
+  }
+  return NaN;
 }
 
 /**
@@ -213,6 +271,21 @@ function compileDateBound(
 }
 
 /**
+ * Filter-side candidate index for condition-mode `in` / `not_in`, built ONCE per compiled filter.
+ *
+ * Keyed with the SAME `String(v ?? '')` policy selection mode uses (`compileRowTest`'s
+ * `selectedSet`) so an `in` authored through the multi-select drawer and one authored as a
+ * condition agree on which row values match.
+ */
+function buildCandidateSet(candidates: readonly unknown[]): Set<string> {
+  const set = new Set<string>();
+  for (const candidate of candidates) {
+    set.add(String(candidate ?? ''));
+  }
+  return set;
+}
+
+/**
  * Compiles a filter into a fast row-test function.
  *
  * Per-row work in matchesFilter was calling toComparable(filterVal, fieldType) on
@@ -280,21 +353,50 @@ function compileSingleCondition(
           return rv != null && toDayComparable(rv, fieldType) === cmpVal;
         };
       }
-      // eslint-disable-next-line eqeqeq
-      return (row) => row[field] == filterVal;
+      if (fieldType === 'number') {
+        // Numeric equality compares NUMBERS, not loose-`==` operands. The old
+        // `row[field] == filterVal` made `'' == 0` and `false == '0'` both true, so a CSV whose
+        // blank numeric cells import as `''` counted every blank row as a genuine zero (see
+        // `toNumericValue`). A numeric STRING row/filter value still coerces (`'20'` matches
+        // `20`) — that behaviour is relied on by callers that pass the raw text-input value.
+        const n = toNumericValue(filterVal);
+        return (row) => {
+          const rv = row[field];
+          return rv != null && toNumericValue(rv) === n;
+        };
+      }
+      // String / untyped fields: compare STRING representations rather than with loose `==`,
+      // mirroring the `boolean` branch above. Loose `==` cross-coerces (`'' == 0`, `0 == false`,
+      // `1 == true`) so unrelated falsy values matched each other; `String(...)` compares what the
+      // user actually sees. A nullish row value never equals a (necessarily non-nullish, per
+      // `isConditionComplete`) filter value.
+      {
+        const fStr = String(filterVal);
+        return (row) => {
+          const rv = row[field];
+          return rv != null && String(rv) === fStr;
+        };
+      }
     case 'in': {
       if (!Array.isArray(filterVal)) {
         return () => true;
       }
-      // eslint-disable-next-line eqeqeq
-      return (row) => filterVal.some((candidate) => row[field] == candidate);
+      // Build the candidate `Set` ONCE per filter rather than re-scanning the array per row.
+      // The per-row `filterVal.some(...)` scan was O(rows × candidates): a 2 000-value residual
+      // `not_in` over 200k rows meant 400M loose comparisons on every pipeline pass. This mirrors
+      // what selection mode already does at the top of `compileRowTest`, and uses the same
+      // `String(v ?? '')` key policy so the two modes agree on what "the same value" means
+      // (loose `==` also cross-coerced here: `0` matched `''` and `false`).
+      const candidates = buildCandidateSet(filterVal);
+      return (row) => candidates.has(String(row[field] ?? ''));
     }
     case 'not_in': {
       if (!Array.isArray(filterVal)) {
         return () => true;
       }
-      // eslint-disable-next-line eqeqeq
-      return (row) => !filterVal.some((candidate) => row[field] == candidate);
+      // Set-based mirror of `in` — see above for the O(rows × candidates) rationale.
+      const candidates = buildCandidateSet(filterVal);
+      return (row) => !candidates.has(String(row[field] ?? ''));
     }
     case 'not_equals':
       if (fieldType === 'boolean') {
@@ -311,8 +413,25 @@ function compileSingleCondition(
           return rv == null || toDayComparable(rv, fieldType) !== cmpVal;
         };
       }
-      // eslint-disable-next-line eqeqeq
-      return (row) => row[field] != filterVal;
+      if (fieldType === 'number') {
+        // Numeric mirror of `equals` (see there): a blank/whitespace cell or a boolean is NOT
+        // numerically equal to `0`, so it stays in a "not equal to 0" result instead of being
+        // silently dropped by loose `==`. A nullish row value is kept, matching every other
+        // `not_equals` branch and the historical raw `!=`.
+        const n = toNumericValue(filterVal);
+        return (row) => {
+          const rv = row[field];
+          return rv == null || toNumericValue(rv) !== n;
+        };
+      }
+      // String / untyped mirror of `equals` — see there for why loose `==` is not used.
+      {
+        const fStr = String(filterVal);
+        return (row) => {
+          const rv = row[field];
+          return rv == null || String(rv) !== fStr;
+        };
+      }
     case 'contains': {
       const needle = String(filterVal ?? '').toLowerCase();
       return (row) =>
@@ -375,14 +494,22 @@ function compileSingleCondition(
       const cmpVal = toComparable(filterVal, fieldType);
       if (fieldType === 'number') {
         const n = cmpVal as number;
-        // `rv != null` guard: without it `Number(null) === 0` silently treats a null field
-        // value as zero instead of excluding the row, inconsistent with the date branch above.
+        // `toNumericValue` (not `Number`) so a blank/whitespace cell or a boolean is NOT coerced
+        // to `0` and compared as a real zero — the same policy `equals` uses. Non-numeric row
+        // values become `NaN`, and every `NaN` comparison is `false`, so they are excluded from
+        // the ordering exactly like the explicitly-guarded nullish ones.
         return (row) => {
           const rv = row[field];
-          return rv != null && Number(rv) > n;
+          return rv != null && toNumericValue(rv) > n;
         };
       }
-      return (row) => toComparable(row[field], fieldType) > cmpVal;
+      // Generic branch — `string` fields (lexicographic, see `toComparable`) and untyped fields.
+      // The `rv != null` guard matches the date and number branches above: a missing value has no
+      // position in an ordering, so it is excluded rather than compared as `''`/`0`.
+      return (row) => {
+        const rv = row[field];
+        return rv != null && toComparable(rv, fieldType) > cmpVal;
+      };
     }
     case 'less_than': {
       if (fieldType === 'date' || fieldType === 'datetime') {
@@ -396,13 +523,17 @@ function compileSingleCondition(
       const cmpVal = toComparable(filterVal, fieldType);
       if (fieldType === 'number') {
         const n = cmpVal as number;
-        // `rv != null` guard — see `greater_than` above.
+        // `toNumericValue` + `rv != null` guard — see `greater_than` above.
         return (row) => {
           const rv = row[field];
-          return rv != null && Number(rv) < n;
+          return rv != null && toNumericValue(rv) < n;
         };
       }
-      return (row) => toComparable(row[field], fieldType) < cmpVal;
+      // Generic (string/untyped) branch — see `greater_than` above.
+      return (row) => {
+        const rv = row[field];
+        return rv != null && toComparable(rv, fieldType) < cmpVal;
+      };
     }
     case 'greater_than_or_equal': {
       if (fieldType === 'date' || fieldType === 'datetime') {
@@ -416,13 +547,17 @@ function compileSingleCondition(
       const cmpVal = toComparable(filterVal, fieldType);
       if (fieldType === 'number') {
         const n = cmpVal as number;
-        // `rv != null` guard — see `greater_than` above.
+        // `toNumericValue` + `rv != null` guard — see `greater_than` above.
         return (row) => {
           const rv = row[field];
-          return rv != null && Number(rv) >= n;
+          return rv != null && toNumericValue(rv) >= n;
         };
       }
-      return (row) => toComparable(row[field], fieldType) >= cmpVal;
+      // Generic (string/untyped) branch — see `greater_than` above.
+      return (row) => {
+        const rv = row[field];
+        return rv != null && toComparable(rv, fieldType) >= cmpVal;
+      };
     }
     case 'less_than_or_equal': {
       if (fieldType === 'date' || fieldType === 'datetime') {
@@ -438,13 +573,17 @@ function compileSingleCondition(
       const cmpVal = toComparable(filterVal, fieldType);
       if (fieldType === 'number') {
         const n = cmpVal as number;
-        // `rv != null` guard — see `greater_than` above.
+        // `toNumericValue` + `rv != null` guard — see `greater_than` above.
         return (row) => {
           const rv = row[field];
-          return rv != null && Number(rv) <= n;
+          return rv != null && toNumericValue(rv) <= n;
         };
       }
-      return (row) => toComparable(row[field], fieldType) <= cmpVal;
+      // Generic (string/untyped) branch — see `greater_than` above.
+      return (row) => {
+        const rv = row[field];
+        return rv != null && toComparable(rv, fieldType) <= cmpVal;
+      };
     }
     case 'between': {
       const range = filterVal as { from?: string; to?: string } | null;
@@ -487,7 +626,15 @@ function compileSingleCondition(
           if (rv == null) {
             return false;
           }
-          const cmp = Number(rv);
+          // `toNumericValue` (not `Number`) for the same reason as the ordering operators: a
+          // blank/whitespace cell or a boolean must not be coerced to a real `0`. It yields NaN
+          // for those, and NaN fails BOTH range checks below — which would silently KEEP the row
+          // (a `NaN < from` / `NaN > to` pair is `false, false`), so reject it explicitly. This
+          // is the same fail-closed policy the generic branch below applies.
+          const cmp = toNumericValue(rv);
+          if (Number.isNaN(cmp)) {
+            return false;
+          }
           if (numFrom !== null && cmp < numFrom) {
             return false;
           }
@@ -500,18 +647,32 @@ function compileSingleCondition(
       // Generic / non-date, non-number field types (e.g. a `between` filter authored on a
       // `string` field via a host-constructed StudioFilterState or an AI tool call — the UI's
       // per-field-type operator allowlist is not enforced at the mutation boundary). `between`
-      // is only meaningful for orderable comparables. `toComparable` coerces a non-ISO string
-      // to `Number(...)` → NaN, and every NaN comparison is `false`, so without these guards
-      // the range checks below would never fire and the filter would silently keep EVERY row —
-      // a no-op that matches everything (finding 2.14). Fail closed instead: an un-orderable
-      // bound (NaN) or row value cannot be "within" a range, so exclude rather than include it.
+      // is only meaningful for orderable comparables. `toComparable` coerces an UNTYPED non-ISO
+      // string to `Number(...)` → NaN, and every NaN comparison is `false`, so without these
+      // guards the range checks below would never fire and the filter would silently keep EVERY
+      // row — a no-op that matches everything (finding 2.14). Fail closed instead: an
+      // un-orderable bound (NaN) or row value cannot be "within" a range, so exclude it.
+      //
+      // An EXPLICITLY `string`-typed field is no longer un-orderable: `toComparable` now returns
+      // the string itself for `fieldType: 'string'`, so `between` on a string field compares
+      // lexicographically (matching `greater_than`/`less_than`/… on the same field) and never
+      // reaches the NaN fail-close. The guards below still cover the genuinely un-orderable
+      // cases — an untyped non-numeric bound, a boolean, an object.
       const fromInvalid = typeof from === 'number' && Number.isNaN(from);
       const toInvalid = typeof to === 'number' && Number.isNaN(to);
       if (fromInvalid || toInvalid) {
         return () => false;
       }
       return (row) => {
-        const cmp = toComparable(row[field], fieldType);
+        const rv = row[field];
+        // Nullish row values are excluded, matching the date and number branches above (and now
+        // the ordering operators): a missing value has no position in a range. Without this a
+        // `string`-typed row value of `null` would normalize to `''` and fall inside any range
+        // whose lower bound is `''`.
+        if (rv == null) {
+          return false;
+        }
+        const cmp = toComparable(rv, fieldType);
         if (typeof cmp === 'number' && Number.isNaN(cmp)) {
           return false;
         }

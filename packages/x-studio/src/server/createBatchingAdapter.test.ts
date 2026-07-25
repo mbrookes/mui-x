@@ -149,8 +149,9 @@ describe('createBatchingAdapter — shared endpoint config isolation', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     // Source A registers first, with its own calculated field.
+    const fetchFnA = makeOkFetch([{ id: 'w1', rows: [] }]);
     const adapterA = createBatchingAdapter(endpoint, {
-      fetchFn: makeOkFetch([]) as unknown as typeof fetch,
+      fetchFn: fetchFnA as unknown as typeof fetch,
       batchDelayMs: 0,
       expressionFields: [
         {
@@ -163,9 +164,10 @@ describe('createBatchingAdapter — shared endpoint config isolation', () => {
       ],
     });
 
-    // Source B registers afterwards at the SAME endpoint with no expressionFields of its
-    // own. Its fetchFn becomes the shared loader's live fetch (last-write-wins is intentional,
-    // finding 3.14) — so assertions below read from fetchFnB, not adapterA's original fetchFn.
+    // Source B registers afterwards at the SAME endpoint with no expressionFields of its own.
+    // It shares the loader (and therefore the merged expression-field list) but NOT the fetch:
+    // `fetchFn` travels per request now (finding H7), so adapterA's own fetch still serves
+    // adapterA's queries. `fetchFnB` must never be called for adapterA's descriptor.
     const fetchFnB = makeOkFetch([{ id: 'w1', rows: [] }]);
     createBatchingAdapter(endpoint, {
       fetchFn: fetchFnB as unknown as typeof fetch,
@@ -190,13 +192,135 @@ describe('createBatchingAdapter — shared endpoint config isolation', () => {
       }),
     );
 
-    expect(fetchFnB).toHaveBeenCalledTimes(1);
-    const body = JSON.parse((fetchFnB.mock.calls[0][1] as RequestInit).body as string) as {
+    // adapterA's request went out on adapterA's OWN fetch (finding H7) …
+    expect(fetchFnA).toHaveBeenCalledTimes(1);
+    expect(fetchFnB).not.toHaveBeenCalled();
+    // … and the merged expression-field list survived source B's registration (finding 9).
+    const body = JSON.parse((fetchFnA.mock.calls[0][1] as RequestInit).body as string) as {
       widgets: Array<{ filters?: unknown }>;
     };
     expect(body.widgets[0].filters).toBeUndefined();
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
+  });
+});
+
+// ── Per-source credentials on a shared endpoint (finding H7) ─────────────────
+//
+// The loader registry is keyed by endpoint alone, and DISTINCT sources legitimately share one
+// endpoint (see the "same-endpoint SQL JOIN generation" tests). `fetchFn` used to be a single
+// last-write-wins field on that shared entry, so whichever adapter was CONSTRUCTED last owned
+// the fetch for BOTH sources — and since adapters are built inside per-source `useMemo`s,
+// "constructed last" is render-order dependent. Tenant A's widgets could silently issue their
+// queries with tenant B's credentials.
+
+describe('createBatchingAdapter — per-source fetchFn on a shared endpoint', () => {
+  it('each adapter uses its OWN fetchFn, regardless of construction order', async () => {
+    const endpoint = uid();
+    const fetchA = makeOkFetch([{ id: 'wA', rows: [{ tenant: 'A' }] }]);
+    const fetchB = makeOkFetch([{ id: 'wB', rows: [{ tenant: 'B' }] }]);
+
+    const adapterA = createBatchingAdapter(endpoint, {
+      fetchFn: fetchA as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+    // Constructed AFTER A — it must not take over A's fetch.
+    const adapterB = createBatchingAdapter(endpoint, {
+      fetchFn: fetchB as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    await adapterA.getRows(makeDescriptor({ widgetId: 'wA', cacheKey: 'kA' }));
+    await adapterB.getRows(makeDescriptor({ widgetId: 'wB', cacheKey: 'kB' }));
+
+    expect(fetchA).toHaveBeenCalledTimes(1);
+    expect(fetchB).toHaveBeenCalledTimes(1);
+    const bodyA = JSON.parse((fetchA.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ id: string }>;
+    };
+    const bodyB = JSON.parse((fetchB.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ id: string }>;
+    };
+    expect(bodyA.widgets[0].id).toMatch(/^wA::/);
+    expect(bodyB.widgets[0].id).toMatch(/^wB::/);
+  });
+
+  it('does not coalesce concurrent requests whose fetchFn differs', async () => {
+    const endpoint = uid();
+    const fetchA = makeOkFetch([{ id: 'wA', rows: [{ tenant: 'A' }] }]);
+    const fetchB = makeOkFetch([{ id: 'wB', rows: [{ tenant: 'B' }] }]);
+
+    const adapterA = createBatchingAdapter(endpoint, {
+      fetchFn: fetchA as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+    const adapterB = createBatchingAdapter(endpoint, {
+      fetchFn: fetchB as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    // Both inside ONE batch window: they land in the same dispatch but must go out as two
+    // separate POSTs, one per credential — a single request can only carry one of them.
+    const [a, b] = await Promise.all([
+      adapterA.getRows(makeDescriptor({ widgetId: 'wA', cacheKey: 'kA' })),
+      adapterB.getRows(makeDescriptor({ widgetId: 'wB', cacheKey: 'kB' })),
+    ]);
+
+    expect(fetchA).toHaveBeenCalledTimes(1);
+    expect(fetchB).toHaveBeenCalledTimes(1);
+    expect(a.rows[0]).toMatchObject({ tenant: 'A' });
+    expect(b.rows[0]).toMatchObject({ tenant: 'B' });
+  });
+
+  it('still collapses same-endpoint requests that DO share a fetchFn into one POST', async () => {
+    const endpoint = uid();
+    const sharedFetch = makeOkFetch([
+      { id: 'w1', rows: [{ id: 1 }] },
+      { id: 'w2', rows: [{ id: 2 }] },
+    ]);
+
+    const adapter1 = createBatchingAdapter(endpoint, {
+      fetchFn: sharedFetch as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+    const adapter2 = createBatchingAdapter(endpoint, {
+      fetchFn: sharedFetch as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    await Promise.all([
+      adapter1.getRows(makeDescriptor({ widgetId: 'w1', cacheKey: 'k1' })),
+      adapter2.getRows(makeDescriptor({ widgetId: 'w2', cacheKey: 'k2' })),
+    ]);
+
+    expect(sharedFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse((sharedFetch.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ id: string }>;
+    };
+    expect(body.widgets).toHaveLength(2);
+  });
+
+  it("one group's transport failure does not fail another group's requests", async () => {
+    const endpoint = uid();
+    const failingFetch = makeErrorFetch(503, 'Service Unavailable');
+    const okFetch = makeOkFetch([{ id: 'wOk', rows: [{ id: 1 }] }]);
+
+    const failingAdapter = createBatchingAdapter(endpoint, {
+      fetchFn: failingFetch as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+    const okAdapter = createBatchingAdapter(endpoint, {
+      fetchFn: okFetch as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    const results = await Promise.allSettled([
+      failingAdapter.getRows(makeDescriptor({ widgetId: 'wFail', cacheKey: 'kF' })),
+      okAdapter.getRows(makeDescriptor({ widgetId: 'wOk', cacheKey: 'kO' })),
+    ]);
+
+    expect(results[0].status).toBe('rejected');
+    expect(results[1].status).toBe('fulfilled');
   });
 });
 
@@ -905,6 +1029,85 @@ describe('createBatchingAdapter — cross-endpoint join enrichment', () => {
     );
 
     expect(result.rows[0]).toMatchObject({ id: 101, 'customer-segment': 'Corporate' });
+  });
+
+  // ── Enrichment lookups are cached and column-narrowed (finding M14) ───────────
+  //
+  // The lookup map used to be created INSIDE `batchFn`, so its lifetime was a single dispatch:
+  // a 500k-row `customers` dimension meant an unfiltered `SELECT *` plus a 500k-entry client-side
+  // `Map` on EVERY 50ms batch — i.e. on every filter change, cross-filter click and widget edit.
+
+  it('fetches the join dimension ONCE across separate batch dispatches', async () => {
+    const ordersFetch = makeOkFetch([{ id: 'w1', rows: [{ id: 101, customerId: 1 }] }]);
+    const customersFetch = makeOkFetch([
+      { id: '_xjoin_source-customers', rows: [{ id: 1, segment: 'Corporate', country: 'US' }] },
+    ]);
+
+    const { mainAdapter } = buildHarness({
+      ordersFetch,
+      customersFetch,
+      relationships: defaultRelationships,
+      expressionFields: [
+        {
+          id: 'customer-segment',
+          label: 'Customer Segment',
+          sourceId: 'source-orders',
+          isMeasure: false,
+          expression: { joinSourceId: 'source-customers', fieldId: 'segment' },
+        },
+      ],
+    });
+
+    const descriptor = makeDescriptor({
+      sourceId: 'source-orders',
+      widgetId: 'w1',
+      select: ['id', 'customerId', 'customer-segment'],
+    });
+
+    // Two SEPARATE dispatches (each `await` closes the batch window before the next call).
+    await mainAdapter.getRows({ ...descriptor, cacheKey: 'k1' });
+    await mainAdapter.getRows({ ...descriptor, cacheKey: 'k2' });
+
+    expect(ordersFetch).toHaveBeenCalledTimes(2);
+    expect(customersFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('selects only the PK and the join fields this batch needs, not the whole dimension', async () => {
+    const ordersFetch = makeOkFetch([{ id: 'w1', rows: [{ id: 101, customerId: 1 }] }]);
+    const customersFetch = makeOkFetch([
+      { id: '_xjoin_source-customers', rows: [{ id: 1, segment: 'Corporate', country: 'US' }] },
+    ]);
+
+    const { mainAdapter } = buildHarness({
+      ordersFetch,
+      customersFetch,
+      relationships: defaultRelationships,
+      expressionFields: [
+        {
+          id: 'customer-segment',
+          label: 'Customer Segment',
+          sourceId: 'source-orders',
+          isMeasure: false,
+          expression: { joinSourceId: 'source-customers', fieldId: 'segment' },
+        },
+      ],
+    });
+
+    await mainAdapter.getRows(
+      makeDescriptor({
+        sourceId: 'source-orders',
+        widgetId: 'w1',
+        select: ['id', 'customerId', 'customer-segment'],
+      }),
+    );
+
+    const lookupBody = JSON.parse(
+      (customersFetch.mock.calls[0][1] as RequestInit).body as string,
+    ) as {
+      widgets: Array<{ columns: string[] }>;
+    };
+    // `id` (the join PK) + `segment` (the only field asked for) — NOT `country`.
+    expect(lookupBody.widgets[0].columns.slice().sort()).toEqual(['id', 'segment']);
   });
 });
 

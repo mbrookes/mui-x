@@ -4863,3 +4863,202 @@ describe('StudioController.applyExternalMutation — transient mutations are log
     expect(controller.getRecentMutations()).toEqual([]);
   });
 });
+
+// ── Chart-type repair is applied at EVERY widget-creation boundary (finding M1) ──────────────
+//
+// `addWidget`'s own comment claims to "mirror the validate-at-every-mutation-boundary
+// convention", but the convention had two holes: `insertWidgetAt` (public API, the compose
+// drawer's drop-at-position path) installed a hostile `chartType` verbatim, and
+// `duplicateWidget` then propagated it into the copy. The shared reducer's `addWidget` handler
+// validates record-ness and `kind`/`title` string-ness but deliberately knows nothing about
+// chart types, so the repair lives in the controller — and must run from all three entry points.
+
+describe('StudioController — chart-type repair at every creation boundary', () => {
+  const hostileConfig = {
+    chartType: '__proto__evil',
+    sankeyTargetField: 't',
+    xField: 'a',
+  } as unknown as StudioWidgetConfig;
+
+  it('insertWidgetAt repairs an invalid chartType instead of installing it verbatim', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const controller = new StudioController();
+    const pageId = controller.getState().doc.dashboard.activePageId;
+
+    controller.insertWidgetAt(
+      makeWidget('chart-insert', { kind: 'chart', config: hostileConfig }),
+      pageId,
+      [['chart-insert']],
+    );
+
+    const config = controller.getState().doc.widgets['chart-insert'].config as StudioWidgetConfig;
+    expect(config.chartType).toBe('bar');
+    // The keys authored for the bogus chart type go with it; `xField` is valid for 'bar'.
+    expect('sankeyTargetField' in config).toBe(false);
+    expect(config.xField).toBe('a');
+
+    warnSpy.mockRestore();
+  });
+
+  it('duplicateWidget repairs an invalid chartType rather than propagating it to the copy', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // Seed the invalid widget directly into the doc so it bypasses the guarded create paths —
+    // exactly how a persisted pre-guard dashboard would arrive.
+    const controller = new StudioController({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['src']] } },
+        widgets: {
+          src: makeWidget('src', { kind: 'chart', config: hostileConfig }),
+        },
+      },
+    });
+
+    controller.duplicateWidget('src');
+
+    const widgets = controller.getState().doc.widgets;
+    const cloneId = Object.keys(widgets).find((id) => id !== 'src')!;
+    const cloneConfig = widgets[cloneId].config as StudioWidgetConfig;
+    expect(cloneConfig.chartType).toBe('bar');
+    expect('sankeyTargetField' in cloneConfig).toBe(false);
+    // The source widget is untouched — duplication is not a repair of the original.
+    expect((widgets.src.config as StudioWidgetConfig).chartType).toBe('__proto__evil');
+
+    warnSpy.mockRestore();
+  });
+
+  it('leaves a valid chartType alone on insertWidgetAt (no spurious repair or warning)', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const controller = new StudioController();
+    const pageId = controller.getState().doc.dashboard.activePageId;
+
+    controller.insertWidgetAt(
+      makeWidget('chart-ok', {
+        kind: 'chart',
+        config: { chartType: 'gauge', yField: 'revenue', gaugeMax: 100 },
+      }),
+      pageId,
+      [['chart-ok']],
+    );
+
+    const config = controller.getState().doc.widgets['chart-ok'].config as StudioWidgetConfig;
+    expect(config.chartType).toBe('gauge');
+    expect(config.gaugeMax).toBe(100);
+    expect(warnSpy).not.toHaveBeenCalled();
+
+    warnSpy.mockRestore();
+  });
+});
+
+// ── Prototype-chain key lookups on doc / caller-authored ids (finding M5) ────────────────────
+//
+// `doc.pages`, `doc.widgets` and `runtime.dataSources` are plain-object `Record`s, so a bare
+// `map[id]` walks the prototype chain: `pages['constructor']` is the `Object` FUNCTION and is
+// TRUTHY, which defeats every `if (!page) return;` existence check. `Object.hasOwn` is the
+// convention `selectors.ts` and several controller methods already document; these cover the
+// siblings that did not.
+
+describe('StudioController — inherited-key ids never resolve as real entries', () => {
+  const PROTO_KEYS = ['constructor', 'toString', 'valueOf', 'hasOwnProperty'] as const;
+
+  function makeTwoPageController() {
+    return new StudioController({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] },
+          'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [] },
+        },
+      },
+    });
+  }
+
+  // The consequential one: `reorderPages` is on the public `StudioHandle`. Before the guard it
+  // COMMITTED `pages.constructor` (the `Object` function) into `doc.pages` as a real page, so
+  // every later `Object.values(doc.pages)` iterated a function and the page tabs rendered a
+  // bogus entry.
+  it.each(PROTO_KEYS)('reorderPages(["%s", ...]) never writes a prototype value into doc.pages', (protoKey) => {
+    const controller = makeTwoPageController();
+
+    controller.reorderPages([protoKey, 'page-2', 'page-1']);
+
+    const pages = controller.getState().doc.pages;
+    expect(Object.keys(pages)).toEqual(['page-2', 'page-1']);
+    expect(Object.values(pages).every((p) => typeof p === 'object')).toBe(true);
+  });
+
+  // A page legitimately NAMED `constructor` must not be dropped by the "append omitted pages"
+  // fallback, which read back a truthy inherited function from the fresh `{}` accumulator.
+  it('keeps a page whose id is itself an Object.prototype member name', () => {
+    const controller = new StudioController({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] },
+          constructor: { id: 'constructor', title: 'Odd', widgetRows: [] },
+        },
+      },
+    });
+
+    controller.reorderPages(['page-1']);
+
+    const pages = controller.getState().doc.pages;
+    expect(Object.keys(pages).sort()).toEqual(['constructor', 'page-1']);
+    expect(pages.constructor).toMatchObject({ id: 'constructor', title: 'Odd' });
+  });
+
+  it.each(PROTO_KEYS)('setActivePage("%s") does not navigate anywhere', (protoKey) => {
+    const controller = makeTwoPageController();
+
+    controller.setActivePage(protoKey);
+
+    expect(controller.getState().doc.dashboard.activePageId).toBe('page-1');
+  });
+
+  it.each(PROTO_KEYS)('duplicateWidget("%s") is a clean no-op', (protoKey) => {
+    const controller = new StudioController({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['w1']] } },
+        widgets: { w1: makeWidget('w1') },
+      },
+    });
+
+    expect(() => controller.duplicateWidget(protoKey)).not.toThrow();
+    expect(Object.keys(controller.getState().doc.widgets)).toEqual(['w1']);
+  });
+
+  it.each(PROTO_KEYS)('moveWidgetToPage(w1, "%s") does not move onto a nonexistent page', (protoKey) => {
+    const controller = new StudioController({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['w1']] },
+          'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [] },
+        },
+        widgets: { w1: makeWidget('w1') },
+      },
+    });
+
+    controller.moveWidgetToPage('w1', protoKey);
+
+    expect(controller.getState().doc.pages['page-1'].widgetRows).toEqual([['w1']]);
+    expect(controller.getState().doc.pages['page-2'].widgetRows).toEqual([]);
+  });
+
+  it.each(PROTO_KEYS)('data-source writers no-op for an inherited source id "%s"', (protoKey) => {
+    const controller = new StudioController();
+    const before = controller.getState().runtime.dataSources;
+
+    expect(() => {
+      controller.setDataSourceRows(protoKey, [{ a: 1 }]);
+      controller.setDataSourceAdapter(protoKey, { getRows: async () => ({ rows: [] }) });
+      controller.removeDataSource(protoKey);
+      controller.updateDataSourceField(protoKey, 'f1', { label: 'x' });
+    }).not.toThrow();
+
+    // Nothing was written, and no prototype member was promoted to an own key.
+    expect(controller.getState().runtime.dataSources).toBe(before);
+    expect(Object.hasOwn(controller.getState().runtime.dataSources, protoKey)).toBe(false);
+  });
+});

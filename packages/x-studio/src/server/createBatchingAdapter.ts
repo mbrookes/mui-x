@@ -11,6 +11,8 @@
  * Architecture:
  *   - One DataLoader per endpoint URL (not per StudioDataSource)
  *   - All sources targeting the same API endpoint share one loader instance
+ *   - Within a batch, entries are grouped by their adapter's own `fetchFn`: one POST per
+ *     distinct fetch, so same-endpoint sources with different credentials are never coalesced
  *   - Responses are routed back to each widget by the `id` field
  *   - DataLoader cache is disabled (Studio's StudioRequestCache handles caching)
  *
@@ -113,25 +115,51 @@ function createLoader<K, V>(
 }
 
 /**
+ * One entry the shared simple-mode loader batches: the widget's query descriptor PLUS the
+ * `fetchFn` of the adapter instance that issued it.
+ *
+ * `fetchFn` travels with the request rather than living in the shared per-endpoint config
+ * because DISTINCT data sources legitimately share ONE endpoint (see the module header and the
+ * "same-endpoint SQL JOIN generation" tests) while carrying DIFFERENT credentials:
+ *
+ *   createBatchingAdapter('/api/data', { fetchFn: withTenantAToken })
+ *   createBatchingAdapter('/api/data', { fetchFn: withTenantBToken })
+ *
+ * When `fetchFn` was a single last-write-wins field on the endpoint-keyed registry entry,
+ * whichever adapter happened to be CONSTRUCTED last owned the fetch for BOTH sources. Adapters
+ * are normally built inside per-source `useMemo`s, so "constructed last" is render-order
+ * dependent: tenant A's widgets could silently issue their queries with tenant B's credentials,
+ * non-deterministically and with no warning.
+ */
+interface BatchRequest {
+  descriptor: StudioQueryDescriptor;
+  fetchFn: typeof fetch;
+}
+
+/**
  * Mutable per-endpoint config the shared simple-mode loader reads on every batch dispatch.
- * Keeping `fetchFn` / `batchDelayMs` / `expressionFields` behind a live reference (rather than
- * baking them into the loader's closure at creation time) lets a recreated adapter refresh them —
- * e.g. a rotated auth token in a new `fetchFn` (finding 3.14), or a newly-added calculated column
- * in `expressionFields` (finding 3.6) — instead of silently pinning the FIRST adapter instance's
- * closure forever. A stale `expressionFields` list would leave the `groupByIsExpressionField`
- * guard evaluating against the old set, re-emitting the `ORDER BY <expression-id>` that guard
- * exists to prevent.
+ * Keeping `batchDelayMs` / `expressionFields` behind a live reference (rather than baking them
+ * into the loader's closure at creation time) lets a recreated adapter refresh them — e.g. a
+ * newly-added calculated column in `expressionFields` (finding 3.6) — instead of silently pinning
+ * the FIRST adapter instance's closure forever. A stale `expressionFields` list would leave the
+ * `groupByIsExpressionField` guard evaluating against the old set, re-emitting the
+ * `ORDER BY <expression-id>` that guard exists to prevent.
  *
  * IMPORTANT: `expressionFields` is merged (unioned by field id), never overwritten — see
  * `mergeExpressionFields` (finding 9). Multiple DISTINCT sources can legitimately share one
- * endpoint (same-endpoint SQL JOIN generation, above), each contributing its own expression
- * fields. `fetchFn` / `batchDelayMs` remain last-write-wins: they are single scalar values with
- * no per-source meaning, and finding 3.14 depends on the newest instance's `fetchFn` winning.
+ * endpoint, each contributing its own expression fields. `batchDelayMs` remains last-write-wins:
+ * it is a scalar timing knob with no per-source meaning and no correctness consequence — the
+ * batch window only decides how long requests wait to be coalesced.
+ *
+ * `fetchFn` is deliberately NOT here — it is per-request (see {@link BatchRequest}). This also
+ * subsumes what the old live-reference refresh existed for (finding 3.14, a rotated auth token in
+ * a recreated adapter): the new instance's requests carry the new token by construction, and the
+ * old instance's carry the token it was actually configured with instead of one belonging to a
+ * different source.
  */
 interface LoaderRegistryEntry {
-  loader: BatchLoader<StudioQueryDescriptor, StudioQueryResult>;
+  loader: BatchLoader<BatchRequest, StudioQueryResult>;
   config: {
-    fetchFn: typeof fetch;
     batchDelayMs: number;
     expressionFields: StudioExpressionField[] | undefined;
   };
@@ -172,6 +200,47 @@ function mergeExpressionFields(
 
 /** Registry of simple-mode loaders — one per endpoint URL, with a refreshable config. */
 const loaderRegistry = new Map<string, LoaderRegistryEntry>();
+
+/**
+ * How long a cross-endpoint enrichment (join-dimension) lookup stays reusable. Matches
+ * `StudioRequestCache`'s own 30s TTL so an enrichment dimension and the fact rows it decorates
+ * go stale on the same schedule.
+ */
+const ENRICHMENT_LOOKUP_TTL_MS = 30_000;
+
+interface EnrichmentLookupEntry {
+  /** pkValue → the join source's row. Shared by every batch that hits this entry. */
+  promise: Promise<Map<unknown, Record<string, unknown>>>;
+  fetchedAt: number;
+}
+
+/**
+ * Cross-endpoint enrichment lookups, cached ACROSS batch dispatches.
+ *
+ * This map used to be created INSIDE `batchFn`, so its whole lifetime was a single dispatch: a
+ * cross-DB join against a 500k-row `customers` dimension re-issued an unfiltered `getRows` and
+ * rebuilt a 500k-entry `Map` on EVERY 50ms batch — i.e. on every filter change, every cross-filter
+ * click, and every widget edit. It also called `joinSource.adapter.getRows` directly, bypassing
+ * `StudioRequestCache` entirely, which is why the constant `cacheKey: '_xjoin:<id>'` it passes
+ * bought nothing.
+ *
+ * Keyed first by the JOIN SOURCE'S ADAPTER (a `WeakMap`, so entries disappear with the adapter and
+ * two adapters that happen to share a source id can never serve each other's rows — the same
+ * per-instance-identity discipline `BatchRequest.fetchFn` applies), then by
+ * `joinSourceId|joinPkField|<selected fields>`. The selected-field list is part of the key because
+ * the lookup only SELECTs the columns the current batch asked for: reusing a narrower cached
+ * lookup for a wider request would silently enrich rows with `null`.
+ *
+ * Deliberately NOT limited or filtered: the lookup must cover every FK value present in the fact
+ * rows, and a `limit` would turn "row not in the truncated page" into a silent `null` enrichment
+ * rather than an error. A true semi-join (an `in` predicate over the batch's distinct FK values)
+ * would bound it further, but the FK set differs per batch, so it would defeat this cache — the
+ * column narrowing plus the TTL is the trade chosen here.
+ */
+const enrichmentLookupCache = new WeakMap<
+  StudioDataSourceAdapter,
+  Map<string, EnrichmentLookupEntry>
+>();
 
 /**
  * Private symbol used to tag a batching adapter with its endpoint URL.
@@ -328,17 +397,105 @@ export function createBatchingAdapter(
     mutationEndpoint,
   } = options;
 
-  // `getFetch` / `getExpressionFields` are read on every dispatch so a shared simple-mode loader
-  // always uses the LATEST adapter instance's fetch (finding 3.14) and expression-field list
-  // (finding 3.6). Relationship-aware mode passes its own instance values directly (dedicated
-  // loader — no staleness possible).
+  /**
+   * Resolve (and cache across batches) the join-dimension index for one cross-endpoint
+   * enrichment target. `selectFields` is the UNION of every join field the current batch needs
+   * from this dimension, plus its PK — never the source's whole field list, which turned each
+   * lookup into an unfiltered `SELECT *` over the dimension table.
+   *
+   * See `enrichmentLookupCache` for the caching contract and why the lookup stays unfiltered.
+   */
+  function getEnrichmentLookup(
+    joinSourceId: string,
+    joinPkField: string,
+    selectFields: string[],
+  ): Promise<Map<unknown, Record<string, unknown>>> {
+    const joinSource = dataSources?.[joinSourceId];
+    const joinAdapter = joinSource?.adapter;
+    if (!joinSource || !joinAdapter) {
+      return Promise.resolve(new Map());
+    }
+    const perAdapter =
+      enrichmentLookupCache.get(joinAdapter) ?? new Map<string, EnrichmentLookupEntry>();
+    enrichmentLookupCache.set(joinAdapter, perAdapter);
+    const select = Array.from(new Set([joinPkField, ...selectFields])).sort();
+    const cacheKey = `${joinSourceId}|${joinPkField}|${select.join(',')}`;
+    const cached = perAdapter.get(cacheKey);
+    if (cached && Date.now() - cached.fetchedAt <= ENRICHMENT_LOOKUP_TTL_MS) {
+      return cached.promise;
+    }
+
+    const lookupDescriptor: StudioQueryDescriptor = {
+      sourceId: joinSourceId,
+      tableName: joinSource.tableName ?? joinSourceId,
+      widgetId: `_xjoin_${joinSourceId}`,
+      select,
+      cacheKey: `_xjoin:${joinSourceId}:${select.join(',')}`,
+    };
+    // Explicit annotation: the `.catch` handler references `promise` (to avoid evicting a NEWER
+    // entry), which without it would be a self-referential type inference error.
+    const promise: Promise<Map<unknown, Record<string, unknown>>> = joinAdapter
+      .getRows(lookupDescriptor)
+      .then((result) => {
+        // Key the join index through the shared `normalizeJoinKey` policy (finding 2.20)
+        // so a numeric FK matches a string PK etc. — matching every other join path.
+        const lookup = new Map<unknown, Record<string, unknown>>();
+        for (const row of result.rows) {
+          const pkKey = normalizeJoinKey(row[joinPkField]);
+          if (pkKey !== null && !lookup.has(pkKey)) {
+            lookup.set(pkKey, row as Record<string, unknown>);
+          }
+        }
+        return lookup;
+      })
+      .catch(() => {
+        // Never cache a failure for the full TTL — drop the entry so the next batch retries
+        // instead of enriching every row with `null` for the next 30 seconds.
+        if (perAdapter.get(cacheKey)?.promise === promise) {
+          perAdapter.delete(cacheKey);
+        }
+        return new Map<unknown, Record<string, unknown>>();
+      });
+    perAdapter.set(cacheKey, { promise, fetchedAt: Date.now() });
+    return promise;
+  }
+
+  /**
+   * Per-batch union of the join fields each `(joinSourceId, joinPkField)` dimension must supply,
+   * so the dimension is fetched ONCE with exactly the columns this batch needs.
+   */
+  function collectEnrichmentSelects(built: BuiltBatchDescriptor[]): Map<string, string[]> {
+    const byTarget = new Map<string, Set<string>>();
+    for (const b of built) {
+      for (const enr of b.crossEndpointEnrichments) {
+        const key = `${enr.joinSourceId}|${enr.joinPkField}`;
+        let fields = byTarget.get(key);
+        if (!fields) {
+          fields = new Set();
+          byTarget.set(key, fields);
+        }
+        fields.add(enr.joinFieldId);
+      }
+    }
+    return new Map(Array.from(byTarget, ([key, fields]) => [key, Array.from(fields)]));
+  }
+
+  // `getExpressionFields` is read on every dispatch so a shared simple-mode loader always uses
+  // the latest expression-field list (finding 3.6). Relationship-aware mode passes its own
+  // instance value directly (dedicated loader — no staleness possible). `fetchFn` is NOT read
+  // from here: it travels per request (see `BatchRequest`), so same-endpoint adapters with
+  // different credentials never borrow each other's fetch.
   function createBatchFn(
-    getFetch: () => typeof fetch,
     getExpressionFields: () => StudioExpressionField[] | undefined,
-  ): BatchFn<StudioQueryDescriptor, StudioQueryResult> {
-    return async (descriptors) => {
+  ): BatchFn<BatchRequest, StudioQueryResult> {
+    /** Issue ONE POST for a set of descriptors that all share `groupFetch`. */
+    async function runBatchGroup(
+      groupFetch: typeof fetch,
+      descriptors: readonly StudioQueryDescriptor[],
+      currentExpressionFields: StudioExpressionField[] | undefined,
+    ): Promise<(StudioQueryResult | Error)[]> {
       const builtDescriptors = descriptors.map((d) =>
-        buildBatchWidgetDescriptor(d, dataSources, relationships, getExpressionFields()),
+        buildBatchWidgetDescriptor(d, dataSources, relationships, currentExpressionFields),
       );
 
       const body = {
@@ -346,7 +503,7 @@ export function createBatchingAdapter(
         widgets: builtDescriptors.map((b) => b.requestBody),
       };
 
-      const response = await getFetch()(endpoint, {
+      const response = await groupFetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -363,48 +520,9 @@ export function createBatchingAdapter(
         results: Array<{ id: string; rows: Record<string, unknown>[]; error?: string }>;
       };
 
-      // Build a lookup map of enrichment results: joinSourceId → (pkValue → joinFieldValues).
-      // We fetch each unique join source only once and share the lookup across all descriptors.
-      const enrichmentLookups = new Map<string, Promise<Map<unknown, Record<string, unknown>>>>();
-
-      function getEnrichmentLookup(
-        joinSourceId: string,
-        joinPkField: string,
-      ): Promise<Map<unknown, Record<string, unknown>>> {
-        const cacheKey = `${joinSourceId}:${joinPkField}`;
-        if (!enrichmentLookups.has(cacheKey)) {
-          const joinSource = dataSources?.[joinSourceId];
-          if (!joinSource?.adapter) {
-            enrichmentLookups.set(cacheKey, Promise.resolve(new Map()));
-          } else {
-            const tableName = joinSource.tableName ?? joinSourceId;
-            const lookupDescriptor: StudioQueryDescriptor = {
-              sourceId: joinSourceId,
-              tableName,
-              widgetId: `_xjoin_${joinSourceId}`,
-              select: joinSource.fields.map((f) => f.id),
-              cacheKey: `_xjoin:${joinSourceId}`,
-            };
-            const promise = joinSource.adapter
-              .getRows(lookupDescriptor)
-              .then((result) => {
-                // Key the join index through the shared `normalizeJoinKey` policy (finding 2.20)
-                // so a numeric FK matches a string PK etc. — matching every other join path.
-                const lookup = new Map<unknown, Record<string, unknown>>();
-                for (const row of result.rows) {
-                  const pkKey = normalizeJoinKey(row[joinPkField]);
-                  if (pkKey !== null && !lookup.has(pkKey)) {
-                    lookup.set(pkKey, row as Record<string, unknown>);
-                  }
-                }
-                return lookup;
-              })
-              .catch(() => new Map<unknown, Record<string, unknown>>());
-            enrichmentLookups.set(cacheKey, promise);
-          }
-        }
-        return enrichmentLookups.get(cacheKey)!;
-      }
+      // Union of the join fields this batch needs per dimension, so each dimension is fetched
+      // once with only those columns — and cached across dispatches (see `enrichmentLookupCache`).
+      const enrichmentSelects = collectEnrichmentSelects(builtDescriptors);
 
       // DataLoader invariant: results must be same length and same order as keys
       return Promise.all(
@@ -423,7 +541,11 @@ export function createBatchingAdapter(
           let rows = result.rows;
           for (const enr of crossEndpointEnrichments) {
             // eslint-disable-next-line no-await-in-loop
-            const lookup = await getEnrichmentLookup(enr.joinSourceId, enr.joinPkField);
+            const lookup = await getEnrichmentLookup(
+              enr.joinSourceId,
+              enr.joinPkField,
+              enrichmentSelects.get(`${enr.joinSourceId}|${enr.joinPkField}`) ?? [enr.joinFieldId],
+            );
             if (lookup.size === 0) {
               continue;
             }
@@ -452,6 +574,52 @@ export function createBatchingAdapter(
           return { rows };
         }),
       );
+    }
+
+    return async (requests) => {
+      // Snapshot the expression fields ONCE per dispatch so every group in this batch is built
+      // against the same list.
+      const currentExpressionFields = getExpressionFields();
+
+      // Partition the batch by `fetchFn` IDENTITY and issue one POST per distinct fetch. Entries
+      // whose `fetchFn` differs are never coalesced: they may carry different credentials (see
+      // `BatchRequest`), and a single request can only be sent with one of them. Requests sharing
+      // a fetch still collapse into one POST, so the common case (every source on this endpoint
+      // configured identically, including the default `globalThis.fetch`) is unchanged — a single
+      // group, a single request.
+      const groups = new Map<typeof fetch, number[]>();
+      for (let i = 0; i < requests.length; i += 1) {
+        const indices = groups.get(requests[i].fetchFn);
+        if (indices) {
+          indices.push(i);
+        } else {
+          groups.set(requests[i].fetchFn, [i]);
+        }
+      }
+
+      const results: (StudioQueryResult | Error)[] = new Array(requests.length);
+      await Promise.all(
+        Array.from(groups, async ([groupFetch, indices]) => {
+          let groupResults: (StudioQueryResult | Error)[];
+          try {
+            groupResults = await runBatchGroup(
+              groupFetch,
+              indices.map((i) => requests[i].descriptor),
+              currentExpressionFields,
+            );
+          } catch (err) {
+            // One group's transport failure must not reject the whole dispatch and fail the
+            // OTHER groups' unrelated requests — `createLoader`'s rejection path would reject
+            // every caller in the batch, including those served by a different, healthy fetch.
+            const error = err instanceof Error ? err : new Error(String(err));
+            groupResults = indices.map(() => error);
+          }
+          indices.forEach((requestIndex, groupIndex) => {
+            results[requestIndex] = groupResults[groupIndex];
+          });
+        }),
+      );
+      return results;
     };
   }
 
@@ -460,16 +628,13 @@ export function createBatchingAdapter(
     warnOnCrossEndpointRelationships(dataSources, relationships);
   }
 
-  let loader: BatchLoader<StudioQueryDescriptor, StudioQueryResult>;
+  let loader: BatchLoader<BatchRequest, StudioQueryResult>;
   if (dataSources) {
     // Relationship-aware mode: create a dedicated loader that captures the
     // dataSources/relationships closure. Don't use the shared registry because
     // the resolver is specific to this adapter instance's state snapshot.
     loader = createLoader(
-      createBatchFn(
-        () => fetchFn,
-        () => expressionFields,
-      ),
+      createBatchFn(() => expressionFields),
       (cb) => setTimeout(cb, batchDelayMs),
     );
   } else {
@@ -477,16 +642,15 @@ export function createBatchingAdapter(
     // at the same endpoint share one DataLoader (batching still works across instances).
     let entry = loaderRegistry.get(endpoint);
     if (!entry) {
-      const config = { fetchFn, batchDelayMs, expressionFields };
+      const config = { batchDelayMs, expressionFields };
       entry = {
         // Both the batch fn and the schedule fn read the live `config`, so a later adapter
-        // recreated at the same endpoint (e.g. rotated token or newly-added calculated column) is
-        // honoured (findings 3.14 / 3.6).
+        // recreated at the same endpoint (e.g. a newly-added calculated column) is honoured
+        // (finding 3.6). The per-request `fetchFn` covers the rotated-token case (finding 3.14)
+        // without letting one source's credentials leak into another's request (see
+        // `BatchRequest`).
         loader: createLoader(
-          createBatchFn(
-            () => config.fetchFn,
-            () => config.expressionFields,
-          ),
+          createBatchFn(() => config.expressionFields),
           (cb) => setTimeout(cb, config.batchDelayMs),
         ),
         config,
@@ -494,7 +658,6 @@ export function createBatchingAdapter(
       loaderRegistry.set(endpoint, entry);
     } else {
       // Refresh the shared loader's config instead of pinning the first instance's closure.
-      entry.config.fetchFn = fetchFn;
       entry.config.batchDelayMs = batchDelayMs;
       // Union by field id rather than overwrite (finding 9): distinct sources sharing this
       // endpoint each register their own expression fields, and a later instance with none of
@@ -509,7 +672,10 @@ export function createBatchingAdapter(
 
   const adapter: StudioDataSourceAdapter = {
     getRows(descriptor: StudioQueryDescriptor): Promise<StudioQueryResult> {
-      return loader.load(descriptor);
+      // The adapter's OWN `fetchFn` travels with the request — never read from the shared
+      // per-endpoint config — so a same-endpoint sibling adapter constructed later cannot take
+      // over this source's credentials (see `BatchRequest`).
+      return loader.load({ descriptor, fetchFn });
     },
   };
 

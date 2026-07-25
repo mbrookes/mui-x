@@ -544,10 +544,16 @@ export class StudioController {
    */
   private commitDataSourcePatch = (sourceId: string, patch: Partial<StudioDataSource>) => {
     const state = this.store.state;
-    const source = state.runtime.dataSources[sourceId];
-    if (!source) {
+    // `Object.hasOwn` rather than a bare bracket read: `sourceId` is caller-authored (host,
+    // AI tool call, or a doc-stored `widget.sourceId`), and a key like `constructor`/`toString`
+    // resolves a FUNCTION off `Object.prototype` on a plain-object `Record`. That truthy
+    // non-source value passes the `if (!source)` check and gets spread into `dataSources` as a
+    // real entry. Matches the convention already documented across `selectors.ts` and
+    // `commitWidgetMove` in this file.
+    if (!Object.hasOwn(state.runtime.dataSources, sourceId)) {
       return;
     }
+    const source = state.runtime.dataSources[sourceId];
     this.commitState(
       {
         ...state,
@@ -867,7 +873,12 @@ export class StudioController {
 
   upsertDataSource = (dataSource: StudioDataSource) => {
     const state = this.store.state;
-    const existing = state.runtime.dataSources[dataSource.id];
+    // Own-key read (see `commitDataSourcePatch`): a source id of `constructor`/`toString` would
+    // otherwise resolve a function off `Object.prototype`, whose truthy `?.adapter` (undefined)
+    // and non-matching identity make the branches below behave as if a real source existed.
+    const existing = Object.hasOwn(state.runtime.dataSources, dataSource.id)
+      ? state.runtime.dataSources[dataSource.id]
+      : undefined;
     // Preserve an adapter that was registered separately (via `setDataSourceAdapter` /
     // the `dataAdapters` prop) when the incoming source carries none. A config produced by
     // `serializeState()`/JSON never has an `adapter` field, so a config-swap reload
@@ -924,10 +935,11 @@ export class StudioController {
    * @param adapter - The adapter implementation, or `undefined` to remove it.
    */
   setDataSourceAdapter = (sourceId: string, adapter: StudioDataSourceAdapter | undefined) => {
-    const existing = this.store.state.runtime.dataSources[sourceId];
-    if (!existing) {
+    // Own-key guard — see `commitDataSourcePatch`.
+    if (!Object.hasOwn(this.store.state.runtime.dataSources, sourceId)) {
       return;
     }
+    const existing = this.store.state.runtime.dataSources[sourceId];
     // Same-adapter guard (1.2): re-registering the identical adapter reference must be a
     // clean no-op. `StudioDashboard` re-runs this for every entry whenever its `dataAdapters`
     // prop changes by identity (a host passing an inline `{ orders: adapter }` map is a new
@@ -951,7 +963,10 @@ export class StudioController {
    */
   removeDataSource = (sourceId: string) => {
     const state = this.store.state;
-    if (!state.runtime.dataSources[sourceId]) {
+    // Own-key guard — see `commitDataSourcePatch`. A bare truthiness check on an inherited key
+    // would pass, then `delete nextDataSources['constructor']` deletes nothing while the commit
+    // still invalidates the request cache and churns every subscriber.
+    if (!Object.hasOwn(state.runtime.dataSources, sourceId)) {
       return;
     }
     studioRequestCache.invalidateSource(sourceId);
@@ -983,10 +998,11 @@ export class StudioController {
     fieldId: string,
     updates: Partial<import('../models').StudioDataField>,
   ) => {
-    const source = this.store.state.runtime.dataSources[sourceId];
-    if (!source) {
+    // Own-key guard — see `commitDataSourcePatch`.
+    if (!Object.hasOwn(this.store.state.runtime.dataSources, sourceId)) {
       return;
     }
+    const source = this.store.state.runtime.dataSources[sourceId];
     // No-op guard (finding 4): `commitDataSourcePatch` always allocates a fresh
     // source/`dataSources` object, so an unknown `fieldId` or a value-identical
     // `updates` payload would otherwise still commit and churn every subscriber.
@@ -1163,58 +1179,103 @@ export class StudioController {
     return referenceCount;
   };
 
-  addWidget = (widget: StudioWidget) => {
-    const state = this.store.state;
-    // Write-side CHART-TYPE guard (defense-in-depth companion to `getDescriptor`'s
-    // `Object.hasOwn` guard in `chartTypeRegistry.ts`): a widget can reach this
-    // CREATE path with an invalid/hostile `chartType` (e.g. a client-built widget
-    // that skipped `createWidgetFromDescription.ts`'s own sanitization, or a future
-    // call site that doesn't sanitize). `updateWidgetConfig` already validates
-    // chart-type-appropriate keys on every UPDATE; mirror that "validate at every
-    // mutation boundary" convention here so a widget can never be CREATED with a
-    // chart type outside the closed `StudioChartType` union in the first place.
-    //
-    // Mirrors `parseStateMutation.ts`'s `hasInvalidChartTypeInConfig`: an ABSENT (or
-    // explicit `undefined`) `chartType` is sanctioned — it's the same "no discriminant
-    // yet == bar" default `resolveChartType`/the AI middleware's `buildWidgetFromArgs`
-    // apply — so only an OWN, non-undefined `chartType` that fails `isStudioChartType`
-    // is repaired here. This keeps the guard from touching the many widgets created
-    // with no `chartType` at all.
-    let effectiveWidget = widget;
-    if (widget.kind === 'chart') {
-      const configRecord = widget.config as Record<string, unknown>;
-      const hasOwnChartType =
-        Object.hasOwn(configRecord, 'chartType') && configRecord.chartType !== undefined;
-      if (hasOwnChartType) {
-        const rawChartType = configRecord.chartType;
-        const chartTypeIsValid =
-          typeof rawChartType === 'string' && isStudioChartType(rawChartType);
-        if (!chartTypeIsValid) {
-          if (process.env.NODE_ENV !== 'production') {
-            console.warn(
-              `MUI X Studio: Widget '${widget.id}' was created with an invalid chartType ` +
-                `'${String(rawChartType)}'. Falling back to 'bar'. Ensure the caller supplies a ` +
-                'valid StudioChartType (see isStudioChartType).',
-            );
-          }
-          // Repaired to 'bar', so also drop any config key that isn't valid for 'bar' —
-          // a hostile/invalid `chartType` is commonly paired with keys authored for that
-          // same bogus type.
-          const effectiveChartType: StudioChartType = 'bar';
-          const invalidChartKeys = validateChartConfigKeysForType(effectiveChartType, configRecord);
-          const stripped: Record<string, unknown> = {};
-          for (const [key, value] of Object.entries(configRecord)) {
-            if (!invalidChartKeys.includes(key)) {
-              stripped[key] = value;
-            }
-          }
-          effectiveWidget = {
-            ...widget,
-            config: { ...stripped, chartType: effectiveChartType } as StudioWidget['config'],
-          };
-        }
+  /**
+   * Own-key page lookup by id.
+   *
+   * `doc.pages` / `doc.widgets` are plain-object `Record`s and every id that indexes them is
+   * doc-authored or caller-authored (host, AI tool call, persisted doc, drag handler). A bare
+   * `pages[id]` therefore walks the prototype chain: `pages['constructor']` is the `Object`
+   * FUNCTION, `pages['toString']` a function, and both are truthy — so the ubiquitous
+   * `if (!page) return;` existence check passes and the caller proceeds to read `.widgetRows`
+   * (undefined) or, worse, write the inherited value back into `doc.pages` as a real page.
+   * `Object.hasOwn` is the convention the rest of this file and all of `selectors.ts` already
+   * document; these accessors make it the default rather than something each call site must
+   * remember.
+   */
+  private getPage = (pageId: string): StudioPage | undefined => {
+    const { pages } = this.store.state.doc;
+    return Object.hasOwn(pages, pageId) ? pages[pageId] : undefined;
+  };
+
+  /** Own-key lookup of the currently active page — see {@link getPage}. */
+  private getActivePage = (): StudioPage | undefined =>
+    this.getPage(this.store.state.doc.dashboard.activePageId);
+
+  /** Own-key widget lookup by id — see {@link getPage} for the rationale. */
+  private getWidget = (widgetId: string): StudioWidget | undefined => {
+    const { widgets } = this.store.state.doc;
+    return Object.hasOwn(widgets, widgetId) ? widgets[widgetId] : undefined;
+  };
+
+  /**
+   * Shared write-side CHART-TYPE guard for every widget CREATION boundary
+   * (defense-in-depth companion to `getDescriptor`'s `Object.hasOwn` guard in
+   * `chartTypeRegistry.ts`): a widget can reach a create path with an
+   * invalid/hostile `chartType` (e.g. a client-built widget that skipped
+   * `createWidgetFromDescription.ts`'s own sanitization, or a future call site
+   * that doesn't sanitize). `updateWidgetConfig`/`updateWidget` already validate
+   * chart-type-appropriate keys on every UPDATE; this mirrors that
+   * "validate at every mutation boundary" convention so a widget can never be
+   * CREATED with a chart type outside the closed `StudioChartType` union.
+   *
+   * Called from ALL THREE creation entry points — {@link addWidget},
+   * {@link insertWidgetAt} (public API, reached by the compose drawer's
+   * drop-at-position path) and {@link duplicateWidget}'s clone. Previously only
+   * `addWidget` ran it, so the convention its own comment claimed to uphold had
+   * two holes: `insertWidgetAt` installed a hostile `chartType` verbatim, and
+   * `duplicateWidget` then propagated it into the copy. The shared reducer's
+   * `addWidget` handler validates record-ness and `kind`/`title` string-ness but
+   * deliberately knows nothing about chart types, so this cannot move there.
+   *
+   * Mirrors `parseStateMutation.ts`'s `hasInvalidChartTypeInConfig`: an ABSENT (or
+   * explicit `undefined`) `chartType` is sanctioned — it's the same "no discriminant
+   * yet == bar" default `resolveChartType`/the AI middleware's `buildWidgetFromArgs`
+   * apply — so only an OWN, non-undefined `chartType` that fails `isStudioChartType`
+   * is repaired here. This keeps the guard from touching the many widgets created
+   * with no `chartType` at all. Returns `widget` UNCHANGED (same reference) when
+   * there is nothing to repair, so the no-op path allocates nothing.
+   */
+  private sanitizeWidgetForCreate = (widget: StudioWidget): StudioWidget => {
+    if (widget.kind !== 'chart') {
+      return widget;
+    }
+    const configRecord = widget.config as Record<string, unknown>;
+    const hasOwnChartType =
+      Object.hasOwn(configRecord, 'chartType') && configRecord.chartType !== undefined;
+    if (!hasOwnChartType) {
+      return widget;
+    }
+    const rawChartType = configRecord.chartType;
+    if (typeof rawChartType === 'string' && isStudioChartType(rawChartType)) {
+      return widget;
+    }
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn(
+        `MUI X Studio: Widget '${widget.id}' was created with an invalid chartType ` +
+          `'${String(rawChartType)}'. Falling back to 'bar'. Ensure the caller supplies a ` +
+          'valid StudioChartType (see isStudioChartType).',
+      );
+    }
+    // Repaired to 'bar', so also drop any config key that isn't valid for 'bar' —
+    // a hostile/invalid `chartType` is commonly paired with keys authored for that
+    // same bogus type.
+    const effectiveChartType: StudioChartType = 'bar';
+    const invalidChartKeys = validateChartConfigKeysForType(effectiveChartType, configRecord);
+    const stripped: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(configRecord)) {
+      if (!invalidChartKeys.includes(key)) {
+        stripped[key] = value;
       }
     }
+    return {
+      ...widget,
+      config: { ...stripped, chartType: effectiveChartType } as StudioWidget['config'],
+    };
+  };
+
+  addWidget = (widget: StudioWidget) => {
+    const state = this.store.state;
+    const effectiveWidget = this.sanitizeWidgetForCreate(widget);
     // Delegate the state-shape transform (new row on the target page) to the shared
     // reducer, stamping the active page explicitly (D6) so the constructed mutation
     // is self-describing rather than relying on the reducer's active-page fallback.
@@ -1260,11 +1321,16 @@ export class StudioController {
    * trailing row; `setWidgetLayout` then rewrites the page's rows into the caller's
    * exact desired arrangement (and runs `enforceLayoutColSpans` for span cleanup).
    * The client-only shell selection is layered on afterwards via `transform`.
+   *
+   * Runs the SAME `sanitizeWidgetForCreate` chart-type repair `addWidget` does — this
+   * is a public creation boundary, so it cannot be the one that installs a chart type
+   * outside the `StudioChartType` union verbatim.
    */
   insertWidgetAt = (widget: StudioWidget, pageId: string, rows: string[][]) => {
+    const effectiveWidget = this.sanitizeWidgetForCreate(widget);
     this.commitMutations(
       [
-        { type: 'addWidget', args: { widget, pageId } },
+        { type: 'addWidget', args: { widget: effectiveWidget, pageId } },
         { type: 'setWidgetLayout', args: { rows: rows.filter((r) => r.length > 0), pageId } },
       ],
       {
@@ -1298,8 +1364,7 @@ export class StudioController {
    * on the active page is omitted from `newRows`.
    */
   setWidgetLayout = (newRows: string[][]): void => {
-    const state = this.store.state;
-    const activePage = state.doc.pages[state.doc.dashboard.activePageId];
+    const activePage = this.getActivePage();
     if (!activePage) {
       return;
     }
@@ -1349,7 +1414,7 @@ export class StudioController {
    */
   setPageStackBreakpoint = (breakpoint: number | undefined): void => {
     const state = this.store.state;
-    const activePage = state.doc.pages[state.doc.dashboard.activePageId];
+    const activePage = this.getActivePage();
     if (!activePage) {
       return;
     }
@@ -1382,7 +1447,7 @@ export class StudioController {
     rightMinSpan: number = MIN_SPAN_COLS,
   ): void => {
     const state = this.store.state;
-    const activePage = state.doc.pages[state.doc.dashboard.activePageId];
+    const activePage = this.getActivePage();
     if (!activePage) {
       return;
     }
@@ -1527,7 +1592,7 @@ export class StudioController {
     // happens to pass `config: {...existingConfig, ...patch}`, so this wasn't yet
     // exploited, but the guard belongs at this boundary regardless of that.
     if (Object.hasOwn(definedChanges, 'config')) {
-      const existingWidget = this.store.state.doc.widgets[widgetId];
+      const existingWidget = this.getWidget(widgetId);
       if (existingWidget) {
         // If this same call also changes `kind`, validate against the NEW kind;
         // otherwise use the widget's current kind. Only fall back to the
@@ -1695,7 +1760,7 @@ export class StudioController {
     config: Partial<import('../models').StudioWidgetConfig>,
     options?: { undoable?: boolean },
   ) => {
-    const existingWidget = this.store.state.doc.widgets[widgetId];
+    const existingWidget = this.getWidget(widgetId);
     const effectiveConfig = existingWidget
       ? (this.sanitizeWidgetConfigForKind(
           existingWidget.kind,
@@ -1759,14 +1824,14 @@ export class StudioController {
 
   duplicateWidget = (widgetId: string) => {
     const state = this.store.state;
-    const existing = state.doc.widgets[widgetId];
+    const existing = this.getWidget(widgetId);
     if (!existing) {
       return;
     }
     // Sibling-standard active-page guard (1.8): the row-splice geometry below reads
     // `activePage.widgetRows`, so a missing active page must be a clean no-op rather
     // than a `TypeError` on `activePage.widgetRows`.
-    const activePage = state.doc.pages[state.doc.dashboard.activePageId];
+    const activePage = this.getActivePage();
     if (!activePage) {
       return;
     }
@@ -1809,12 +1874,18 @@ export class StudioController {
     // an auto-titled source widget would otherwise clone `titleMode: 'auto'`, and the next
     // title re-inference (`applyInferredTitles`) would recompute the auto title and silently
     // drop "(copy)".
-    const clone = {
+    //
+    // The clone runs through the SAME `sanitizeWidgetForCreate` chart-type repair as
+    // `addWidget`/`insertWidgetAt`: a duplicate is a widget CREATION, and without it a
+    // widget carrying an invalid `chartType` (installed before the guard existed, loaded
+    // from a persisted doc, or written by a call site that bypassed the guarded methods)
+    // propagated that chart type into every copy.
+    const clone = this.sanitizeWidgetForCreate({
       ...existing,
       id: newId,
       title: `${existing.title} (copy)`,
       titleMode: 'manual' as const,
-    };
+    });
     const clonedFilters = state.doc.filters
       .filter((f: StudioFilterState) => f.scope.kind === 'widget' && f.scope.widgetId === widgetId)
       .map((f: StudioFilterState) => ({
@@ -2401,7 +2472,7 @@ export class StudioController {
   updateActivePage = (changes: Partial<Omit<StudioPage, 'id'>>) => {
     const state = this.store.state;
     const pageId = state.doc.dashboard.activePageId;
-    const page = state.doc.pages[pageId];
+    const page = this.getActivePage();
     if (!page) {
       return;
     }
@@ -2427,7 +2498,10 @@ export class StudioController {
     // Keep the same-value early return: the reducer builds a fresh dashboard object
     // even when `activePageId` is unchanged, so without this guard a redundant
     // navigation would still notify subscribers.
-    if (!state.doc.pages[pageId] || state.doc.dashboard.activePageId === pageId) {
+    // Own-key existence check (see `getPage`): `pageId` is caller-authored, and a bare
+    // `pages['constructor']` read is a truthy inherited function, so an unknown page could
+    // navigate the dashboard to a page that does not exist.
+    if (!this.getPage(pageId) || state.doc.dashboard.activePageId === pageId) {
       return;
     }
     // D5: user-driven navigation stays non-undoable and unlogged (`label: null`) —
@@ -2498,14 +2572,25 @@ export class StudioController {
   reorderPages = (pageIds: string[]) => {
     const state = this.store.state;
     const reordered: Record<string, StudioPage> = {};
+    // BOTH record indexes below need `Object.hasOwn` (see `getPage`), for two different reasons:
+    //
+    // 1. `state.doc.pages[id]` — `pageIds` is caller-authored and `reorderPages` is on the public
+    //    `StudioHandle`. `reorderPages(['constructor', realPageId])` used to pass the truthiness
+    //    check (`pages.constructor` is the `Object` FUNCTION, inherited) and WRITE that function
+    //    into `reordered` as a page. The result was committed straight into `doc.pages`, so every
+    //    later `Object.values(doc.pages)` iterated a function and the page tabs rendered a bogus
+    //    entry — a prototype value persisted into the document.
+    // 2. `!reordered[id]` — `reordered` starts as a plain `{}`, so a genuine page legitimately
+    //    named `constructor`/`toString` read back as a truthy inherited function and was silently
+    //    SKIPPED by the "append omitted pages" fallback, i.e. dropped from the dashboard.
     pageIds.forEach((id) => {
-      if (state.doc.pages[id]) {
+      if (Object.hasOwn(state.doc.pages, id)) {
         reordered[id] = state.doc.pages[id];
       }
     });
     // Append any pages omitted from the list (safety fallback)
     Object.keys(state.doc.pages).forEach((id) => {
-      if (!reordered[id]) {
+      if (!Object.hasOwn(reordered, id)) {
         reordered[id] = state.doc.pages[id];
       }
     });
@@ -2694,7 +2779,6 @@ export class StudioController {
    * transforms to the shared {@link commitWidgetMove} core.
    */
   moveWidgetToPage = (widgetId: string, targetPageId: string) => {
-    const state = this.store.state;
     // Resolve the widget's ACTUAL current page rather than assuming `activePageId`
     // (finding 2): the widget may not live on the active page (not reachable from
     // the shipped context-menu UI today, but this is a public controller method).
@@ -2707,9 +2791,12 @@ export class StudioController {
     if (sourcePageId === targetPageId) {
       return;
     }
-    const sourcePage = state.doc.pages[sourcePageId];
-    const targetPage = state.doc.pages[targetPageId];
-    if (!sourcePage || !targetPage || !state.doc.widgets[widgetId]) {
+    // Own-key lookups (see `getPage`): both page ids and `widgetId` are caller-authored, and
+    // `commitWidgetMove` below already guards with `Object.hasOwn` — these must agree with it,
+    // otherwise a `constructor` page id passes here and is handed to a core that rejects it.
+    const sourcePage = this.getPage(sourcePageId);
+    const targetPage = this.getPage(targetPageId);
+    if (!sourcePage || !targetPage || !this.getWidget(widgetId)) {
       return;
     }
     // Append the widget as a new trailing row on the target page (unchanged landing spot).

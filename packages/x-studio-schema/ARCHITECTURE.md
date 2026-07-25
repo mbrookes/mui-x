@@ -1,90 +1,253 @@
-# Architecture
+# Architecture — `@mui/x-studio-schema`
 
-Internal reference for how `@mui/x-studio-schema` is put together.
+Internal reference for how the shared Studio schema package is put together: what the pieces
+are, how they fit, and which decisions are load-bearing.
+
+## Contents
+
+- [Overview](#overview)
+- [Directory layout](#directory-layout)
+- [Type modules](#type-modules)
+- [The widget and chart discriminated unions](#the-widget-and-chart-discriminated-unions)
+- [Cross-cutting invariants](#cross-cutting-invariants)
+- [Function modules](#function-modules)
+- [Consumers](#consumers)
+- [Testing conventions](#testing-conventions)
+- [Extension points](#extension-points)
 
 ## Overview
 
-`x-studio-schema` is the shared, dependency-free data model for MUI X Studio: every `StudioState`/widget/data-source/filter/expression/AI-protocol type, plus the handful of pure functions whose behavior both consuming packages must agree on bit-for-bit. It has **zero runtime dependencies** — no React, no Node built-ins — so it is importable from both a browser bundle (`@mui/x-studio`) and a server bundle (`@mui/x-studio-ai-middleware`). (It is not 100% type-isolated, though: `chatTypes.ts` has a single **type-only** `import type { ChatMessage }` from `@mui/x-chat-headless`, which compiles away to nothing at runtime — so it is not a runtime dependency, but it is the one type this package borrows rather than defines, and would break if that package renamed it. `@mui/x-chat-headless` is declared in this package's `package.json` under `devDependencies`, matching `@mui/x-studio-ai-middleware`'s identical type-only declaration: neither package has a `publishConfig`/build step today — both `main`/`exports` point straight at raw `.ts` source — so the only consumption path is pnpm workspace linking, which resolves `devDependencies` the same as `dependencies` for every in-repo consumer; a `devDependencies` declaration also correctly signals "not needed at runtime by an external consumer" for whenever a real standalone build/publish step is added, which a `dependencies` entry would not.) This is the single place a `StudioState` shape change is made; the two consuming packages re-export from here rather than maintaining independent copies, so they cannot drift.
+`x-studio-schema` is the shared data model for MUI X Studio: every
+`StudioState`/widget/data-source/filter/expression/AI-protocol type, plus the handful of pure
+functions both consuming packages must agree on bit-for-bit. This is the single place a
+`StudioState` shape change is made; `@mui/x-studio` and `@mui/x-studio-ai-middleware`
+re-export from here rather than keeping independent copies, so they cannot drift.
 
-The package's modules split into three kinds, and the split is deliberate:
+**Zero runtime dependencies** — no React, no Node built-ins — so it is importable from both a
+browser bundle and a server bundle. The one borrowed type is `chatTypes.ts`'s type-only
+`import type { ChatMessage } from '@mui/x-chat-headless'`, which compiles away to nothing.
+That package is declared under `devDependencies`, matching the AI middleware's identical
+type-only declaration: neither package has a build step today (`main`/`exports` point straight
+at raw `.ts`), so pnpm workspace linking resolves it either way, and `devDependencies`
+correctly signals "not needed at runtime by an external consumer" for whenever a real publish
+step is added.
 
-- **Type modules** (`baseTypes.ts`, `dataTypes.ts`, `widgetTypes.ts`, `expressionTypes.ts`, `stateTypes.ts`, plus the AI-protocol trio `mutationTypes.ts`/`richContextTypes.ts`/`chatTypes.ts` and their `aiTypes.ts` composition facade) — pure TypeScript types and interfaces, no runtime code. `index.ts` re-exports each with `export *`.
-- **Function modules** (`factories.ts`, `anomalyDetection.ts`, `unsafeKeys.ts`, `internalGuards.ts`, `applyMutation.ts`, `parseStateMutation.ts`, `widgetTypeGuards.ts`, `configKeyValidation.ts`, `temporalUtils.ts`, `statePersistence.ts`) — pure functions with no side effects (no uncontrolled `Date.now()`, no randomness beyond what's documented, no I/O). `index.ts` re-exports these **explicitly by name**, not via `export *`, so the package's runtime surface is always visible at a glance from `index.ts` alone. The exceptions are `unsafeKeys.ts` (`UNSAFE_KEYS`/`isSafeKey`) and `internalGuards.ts` (`isPlainRecord`/`stripUnsafeOwnKeys`/`repairFilterDependsOn`): both are **package-internal** and NOT re-exported from `index.ts` — their guards are consumed only within this package (`applyMutation.ts`, `parseStateMutation.ts`, `statePersistence.ts`), and no consuming package deep-imports them. (`normalizePersistedPages` and `pruneDependsOn`, both exported from `applyMutation.ts` solely for `statePersistence.ts`'s internal use, are likewise not in `index.ts` — load-boundary internals.)
-- **`aiToolRegistry.ts`** is a hybrid: it carries one runtime value (`STUDIO_AI_TOOL_REGISTRY`, the declarative facts table) alongside the `StudioAIToolFacts`/`StudioAIToolName` types derived from it. `index.ts` exports its value and `StudioAIToolFacts` explicitly (not via `export *`), because `StudioAIToolName` is already surfaced through `aiTypes.ts`'s `export type` and a second `export *` would conflict.
+### What belongs here
 
-Anything that is only a pure state-shape transform (mutation reducers, default-state/default-widget factories, anomaly math) belongs here. Anything that touches React, MUI components, the DOM, in-memory row data, or is a UI component prop rather than persisted state (e.g. feature-flag props) stays in the consuming package — `@mui/x-studio`'s `models/featureFlags.ts` is the example: those interfaces look like they'd belong here, but the AI middleware never references them, so they live client-side instead.
+| Belongs here                                                     | Stays in the consuming package                           |
+| :--------------------------------------------------------------- | :------------------------------------------------------- |
+| Pure state-shape transforms (mutation reducers, factories, math) | Anything touching React, MUI, the DOM, or in-memory rows |
+| Types both the client and the middleware read                    | UI-only prop types (e.g. `x-studio`'s `featureFlags.ts`) |
+
+`featureFlags.ts` is the canonical example of the second column: those interfaces look like
+they belong here, but the AI middleware never references them, so they live client-side.
+
+### Module kinds
+
+- **Type modules** — pure types, no runtime code. `index.ts` re-exports each with `export *`.
+- **Function modules** — pure functions, no side effects (no uncontrolled `Date.now()`, no
+  undocumented randomness, no I/O). `index.ts` re-exports these **explicitly by name**, so the
+  package's whole runtime surface is visible at a glance from `index.ts` alone.
+- **`aiToolRegistry.ts`** — a hybrid carrying one runtime value alongside the types derived
+  from it. Exported explicitly (not `export *`) because `StudioAIToolName` already surfaces
+  through `aiTypes.ts` and a second blanket re-export would conflict.
+
+Two function modules are deliberately **package-internal** and absent from `index.ts`:
+`unsafeKeys.ts` and `internalGuards.ts`. So are `normalizePersistedPages` and `pruneDependsOn`,
+exported from `applyMutation.ts` solely for `statePersistence.ts` — load-boundary internals, not
+public API.
 
 ## Directory layout
 
 ```text
 src/
-  baseTypes.ts            Widget-kind/mode/format/operator unions — the genuinely "base" primitives
-  dataTypes.ts             StudioDataSource, StudioDataField, StudioRelationship, query/mutation descriptors, adapter contract
-  widgetTypes.ts           StudioWidget discriminated union, per-kind + per-chart-family config interfaces, StudioPage
-  expressionTypes.ts       StudioExpression AST (function/value/field/join-field), StudioExpressionField
-  stateTypes.ts            StudioFilterState/scope, StudioDashboardState, StudioShellState, StudioDoc/Session/Runtime, StudioState, CURRENT_SCHEMA_VERSION
-  mutationTypes.ts         SerializableSkill, OptionalWidgetField, StateMutation union, MutationEnvelope
-  richContextTypes.ts      StudioAIFieldStat/LayoutWidget/CrossFilterEdge/PageLayout/RecentMutation, StudioAIRichContext
-  chatTypes.ts             StudioAIChatThread, StudioAIState (persisted conversation state)
-  aiTypes.ts               Composition facade: `export *` over the three AI-type modules + StudioAIToolName pass-through
-  aiToolRegistry.ts        STUDIO_AI_TOOL_REGISTRY facts table, StudioAIToolFacts, StudioAIToolName (source)
-  factories.ts             createWidgetId, createPageId, createPresetId, createFilterId, createMutationId, createMutationEnvelope, createDefaultWidget, createDefaultStudioState, normalizeGridColumn, normalizeChartSeries
-  anomalyDetection.ts       detectAnomaliesIQR (+ private median helper)
-  unsafeKeys.ts             UNSAFE_KEYS/isSafeKey — the single shared prototype-hazard key denylist
-  internalGuards.ts         isPlainRecord/stripUnsafeOwnKeys/repairFilterDependsOn — shared trust-boundary helpers, deduped across applyMutation.ts/parseStateMutation.ts/statePersistence.ts
-  applyMutation.ts          applyDocMutation / applyMutation / mutationLabel — the single mutation reducer; GRID_COLS/MIN_SPAN; normalizePersistedPages (load-boundary layout sweep) and pruneDependsOn (the shared filter-cascade prune), both consumed by statePersistence.ts
-  parseStateMutation.ts     parseStateMutation — runtime validation gate for wire-sourced mutations
-  widgetTypeGuards.ts       isWidgetOfKind (widget-kind narrowing); resolveChartType/isChartConfigOfType/isStudioChartType/STUDIO_CHART_TYPES (chart-type narrowing); isStudioFilterOperator/STUDIO_FILTER_OPERATORS (filter-operator narrowing)
-  configKeyValidation.ts    getAllowedConfigKeys/validateConfigKeysForKind (widget-kind) + getAllowedChartConfigKeys/validateChartConfigKeysForType (chart-type) — write-side key allow-lists
-  temporalUtils.ts          truncateToPeriod / isoWeek — date-bucketing helpers
-  statePersistence.ts       serializeDoc/serializeState/deserializeState/migrateState — the persistence boundary
-  index.ts                  Public export surface
+  baseTypes.ts            Widget-kind/mode/format/operator unions — the "base" primitives
+  dataTypes.ts            Data sources, fields, relationships, query/mutation descriptors, adapter contract
+  widgetTypes.ts          StudioWidget union, per-kind + per-chart-family config interfaces, StudioPage
+  expressionTypes.ts      StudioExpression AST + StudioExpressionField
+  stateTypes.ts           Filters/scopes, dashboard/shell state, StudioDoc/Session/Runtime, CURRENT_SCHEMA_VERSION
+  mutationTypes.ts        StateMutation union, MutationEnvelope, SerializableSkill, OptionalWidgetField
+  richContextTypes.ts     StudioAIRichContext and its constituents
+  chatTypes.ts            StudioAIChatThread / StudioAIState (persisted conversation state)
+  aiTypes.ts              Composition facade over the three AI-type modules
+  aiToolRegistry.ts       STUDIO_AI_TOOL_REGISTRY facts table + its derived types
+  factories.ts            Id factories, createDefaultWidget/StudioState, envelope + leaf-shape normalizers
+  anomalyDetection.ts     detectAnomaliesIQR (+ private median helper)
+  unsafeKeys.ts           The single shared prototype-hazard key denylist
+  internalGuards.ts       isPlainRecord/stripUnsafeOwnKeys/repairFilterDependsOn — shared boundary helpers
+  applyMutation.ts        The single mutation reducer; GRID_COLS/MIN_SPAN; two load-boundary internals
+  parseStateMutation.ts   The runtime validation gate for wire-sourced mutations
+  widgetTypeGuards.ts     Runtime narrowing + the three closed-union membership lists
+  configKeyValidation.ts  Write-side config-key allow-lists, kind level and chart-type level
+  temporalUtils.ts        truncateToPeriod / isoWeek — date-bucketing helpers
+  statePersistence.ts     serialize / deserialize / migrate — the persistence boundary
+  index.ts                Public export surface
 ```
 
-Every runtime module has a co-located `*.test.ts` except the pure type modules (`baseTypes.ts`, `dataTypes.ts`, `widgetTypes.ts`, `expressionTypes.ts`, `stateTypes.ts`, `mutationTypes.ts`, `richContextTypes.ts`, `chatTypes.ts`, `aiTypes.ts`), which carry no runtime behavior to test, and `aiToolRegistry.ts`, which is a declarative facts table whose invariants are enforced at compile time by the mapped types deriving from it. `widgetTypeGuards.ts` similarly has no dedicated test file: its functions are one-line wrappers (`?? 'bar'` defaulting, an equality check, an array membership test) exercised indirectly wherever call sites in this package and the two consuming packages narrow a widget/chart config in their own tests. `unsafeKeys.ts` also has no dedicated test file: `UNSAFE_KEYS` is a fixed three-literal `Set` and `isSafeKey` a one-line membership check, exercised indirectly by every `applyMutation.test.ts`/`parseStateMutation.test.ts`/`statePersistence.test.ts` case that pins the `'__proto__'`/`'constructor'`/`'prototype'` rejection behavior. `internalGuards.ts` had no dedicated test file for the same reason until Iteration 31: it began as a pure dedup of three helpers that were previously independently defined (and independently tested in place) inside `applyMutation.ts`, `parseStateMutation.ts`, and `statePersistence.ts` — the consolidation changed no behavior, so those three files' existing `addFilter`/`dependsOn`-repair, config-key-strip, and record-shape test cases exercised `isPlainRecord`/`stripUnsafeOwnKeys`/`repairFilterDependsOn` indirectly through their new shared home. `internalGuards.test.ts` was added alongside Iteration 31's `isPlainRecord` prototype tightening: once the predicate carries a rule of its OWN (reject an exotic object — a `Date`/`RegExp`/`Map`/`Set`/class instance — not merely `null`/an array/a primitive) rather than being a byte-for-byte relocation of three call sites' checks, it needs a test that pins that rule directly, since no call-site test naturally constructs a `Map` where a config is expected. The three call sites' own tests still cover the in-situ behavior. `STUDIO_CHART_TYPES`'s completeness is enforced at compile time by the `AssertAllChartTypesListed` error-tuple assertion (the `satisfies readonly (keyof StudioChartConfigByType)[]` clause only checks element validity, not exhaustiveness), and additionally pinned at runtime by a list-length assertion in `configKeyValidation.test.ts`. `STUDIO_FILTER_OPERATORS`/`isStudioFilterOperator` (the runtime membership list/guard for the closed `StudioFilterOperator` union, added to close architecture-review finding T2-1) follow the identical pattern one-for-one — the same `as const satisfies readonly StudioFilterOperator[]` shape, the same `AssertAllFilterOperatorsListed` compile-time completeness lock, and the same runtime list-length pin in `configKeyValidation.test.ts` — so the two closed-union guards in this file can never drift apart in rigor.
+Every runtime module has a co-located `*.test.ts` except `aiToolRegistry.ts` (a declarative
+facts table whose invariants are compile-time-enforced by the mapped types deriving from it)
+and `unsafeKeys.ts` (a fixed three-literal `Set` plus a one-line membership check, exercised
+indirectly by every prototype-hazard case in the three boundary suites). The pure type modules
+have no runtime behavior to test.
 
 ## Type modules
 
-- **`baseTypes.ts`** — `StudioMode`, `StudioDrawer`, `BuiltinStudioWidgetKind`/`StudioWidgetKind` (the latter widens to `string & {}` so consumer-defined custom widget kinds typecheck), `StudioFilterWidgetType`, `StudioCrossFilterMode`, `StudioChartType` (the 16-member CLOSED chart-type union), `StudioBarLayout`, `StudioNumberFormat`, `StudioKpiAggregation`, `StudioGridSummaryAggregation`, `StudioFilterOperator`. Intentionally small (\~85 lines) — every widget-config-shaped or data-model-shaped type lives in `widgetTypes.ts`/`dataTypes.ts` instead, not here.
+- **`baseTypes.ts`** — `StudioMode`, `StudioDrawer`, `BuiltinStudioWidgetKind`/`StudioWidgetKind`
+  (the latter widens to `string & {}` so consumer-defined custom kinds typecheck),
+  `StudioFilterWidgetType`, `StudioCrossFilterMode`, `StudioChartType` (16 members, CLOSED),
+  `StudioBarLayout`, `StudioNumberFormat`, `StudioKpiAggregation`,
+  `StudioGridSummaryAggregation`, `StudioFilterOperator`. Intentionally small (~90 lines):
+  every widget-config-shaped or data-model-shaped type lives in `widgetTypes.ts`/`dataTypes.ts`.
 
-- **`dataTypes.ts`** — `StudioDataField` (+ `FieldCapability`), `StudioFilterNode` (the wire-shape filter tree data adapters/middleware consume), `StudioQueryDescriptor`/`StudioQueryResult`, `ClientMutationDescriptor`/`ClientMutationResult`, `StudioDataSourceAdapter` (the contract a host implements to wire a data source to a remote backend, with an optional `submitMutation` write-back method), `StudioDataSource`, `StudioRelationship` (cross-source join definitions covering `many-to-one`/`one-to-one`/`many-to-many` — a data-model concept, not an expression concept, so it lives here rather than in `expressionTypes.ts`).
+- **`dataTypes.ts`** — `StudioDataField` (+ `FieldCapability`), `StudioFilterNode` (the wire
+  filter tree adapters/middleware consume), `StudioQueryDescriptor`/`StudioQueryResult`,
+  `ClientMutationDescriptor`/`ClientMutationResult`, `StudioDataSourceAdapter` (the contract a
+  host implements to wire a data source to a remote backend, with an optional `submitMutation`
+  write-back), `StudioDataSource`, and `StudioRelationship` (cross-source joins covering
+  `many-to-one`/`one-to-one`/`many-to-many` — a data-model concept, not an expression concept,
+  hence its home here).
 
-- **`widgetTypes.ts`** — the widget-config type surface. See "The widget and chart discriminated unions" below for the full treatment; the module contains:
-  - Building blocks used by chart/grid configs: `StudioConditionalFormatStyle`/`StudioConditionalFormat`, `StudioGridColumn`, `StudioChartSeries` (its render-kind field has a canonical spelling, `type`, and a deprecated alias, `seriesType` — `factories.ts`'s `normalizeChartSeries()` resolves the two into `type`-only, mirroring `normalizeGridColumn`'s string-vs-object normalization), `StudioChartAnnotation`, `StudioWidgetForecast`.
-  - Chart-config shared mixins: `StudioChartConfigBase` (the chart-family common ancestor — currently empty; `crossFilterMode` used to live here but moved to `StudioSharedWidgetConfig` because every widget kind's runtime reads it, not just charts) and `StudioChartSortConfig` (`chartSortBy`/`chartSortDirection`, shared by the cartesian families — bar, line/area, mixed — and by the pie/donut family too: pie/donut isn't cartesian, but its sort and date-group-by keys are read one layer ABOVE `renderPieDonut`, in the shared `useChartWidgetData` aggregation that builds every chart type's `chartData`, and the compose drawer's Sort/Group-by controls write those keys for pie/donut the same as for the cartesian families, so `StudioPieFamilyChartConfig` extends `StudioChartSortConfig` and also carries `xGroupBy?`. Funnel declares `chartSortBy` directly with no direction, and heatmap uses its own `heatSortBy`/`heatSortDirection` pair instead).
-  - The ten per-chart-family config interfaces and the `StudioChartWidgetConfig` union / `StudioChartConfigByType` map / flat `StudioChartConfig` recomposition (see below).
-  - Per-kind config interfaces: `StudioGridConfig`, `StudioKpiConfig`, `StudioTextConfig`, `StudioFilterWidgetConfig`, `StudioPivotConfig`, `StudioMapConfig`, and `StudioSharedWidgetConfig` (keys common across every kind, e.g. `titleFontSize`, `cardExpandTitle`, `crossFilterMode` — how the widget responds to incoming cross-filters, read by every kind's runtime (`'none'` only suppresses cross-filters contributed by OTHER widgets; an interactive filter-widget selection is a hard filter, not a cross-filter, and deliberately still applies even in `'none'` mode — `StudioCrossFilterMode`'s doc comment spells out this distinction, since `'none'` reads at a glance like "always show the unfiltered dataset," which it is not) — `measures`/`dimensions`, `customConfig`).
-  - The widget-kind union machinery: `StudioWidgetConfig` (flat), `StudioWidgetConfigByKind`, `StudioWidgetConfigForKind<K>`, `StudioWidgetOf<K>`, `StudioWidget`.
-  - `StudioPageTheme`, `StudioPage` (`id`, `title`, `widgetRows: string[][]` — a 2D layout grid of widget IDs — `widgetColSpans?`, `theme?`, `stackBreakpoint?`).
+- **`widgetTypes.ts`** — the widget-config type surface (see
+  [the unions section](#the-widget-and-chart-discriminated-unions) for the full treatment):
+  - Building blocks: `StudioConditionalFormatStyle`/`StudioConditionalFormat`,
+    `StudioGridColumn`, `StudioChartSeries`, `StudioChartAnnotation`, `StudioWidgetForecast`.
+    `StudioChartSeries`'s render-kind field has a canonical spelling (`type`) and a deprecated
+    alias (`seriesType`); `normalizeChartSeries` collapses the two.
+  - Chart mixins: `StudioChartConfigBase` (currently empty — `crossFilterMode` moved to
+    `StudioSharedWidgetConfig` because every kind's runtime reads it, not just charts) and
+    `StudioChartSortConfig` (`chartSortBy`/`chartSortDirection`). The cartesian families share
+    the sort mixin, and so does pie/donut: pie isn't cartesian, but its sort and date-group-by
+    keys are read one layer above `renderPieDonut`, in the shared `useChartWidgetData`
+    aggregation, and the compose drawer writes them the same way — hence
+    `StudioPieFamilyChartConfig` extends the mixin and also carries `xGroupBy?`. Funnel declares
+    `chartSortBy` alone with no direction; heatmap uses its own `heatSortBy`/`heatSortDirection`.
+  - The ten per-chart-family config interfaces plus the union/map/flat recomposition.
+  - Per-kind config interfaces (`StudioGridConfig`, `StudioKpiConfig`, `StudioTextConfig`,
+    `StudioFilterWidgetConfig`, `StudioPivotConfig`, `StudioMapConfig`) and
+    `StudioSharedWidgetConfig` (keys common to every kind: `titleFontSize`, `cardExpandTitle`,
+    `crossFilterMode`, `measures`/`dimensions`, `customConfig`).
+  - The widget-kind union machinery: `StudioWidgetConfig` (flat), `StudioWidgetConfigByKind`,
+    `StudioWidgetConfigForKind<K>`, `StudioWidgetOf<K>`, `StudioWidget`.
+  - `StudioPageTheme`, `StudioPage` (`id`, `title`, `widgetRows: string[][]` — a 2D layout grid
+    of widget ids — `widgetColSpans?`, `theme?`, `stackBreakpoint?`).
 
-- **`expressionTypes.ts`** — `StudioExpressionOperator`, `StudioFunctionExpression`/`StudioValueExpression`/`StudioFieldExpression`/`StudioJoinFieldExpression` (the `StudioExpression` AST node variants), `StudioExpressionField` (a user-authored calculated column/measure definition).
+  > `crossFilterMode: 'none'` suppresses cross-filters contributed by OTHER widgets only. An
+  > interactive filter-widget selection is a hard filter, not a cross-filter, and deliberately
+  > still applies. `StudioCrossFilterMode`'s doc comment spells this out, since `'none'` reads
+  > at a glance like "always show the unfiltered dataset", which it is not.
 
-- **`stateTypes.ts`** — `StudioFilterScope` (a discriminated union: `{kind:'page';pageId?}` / `{kind:'widget';widgetId}` / `{kind:'cross-filter';sourceWidgetId;pageId}` / `{kind:'interactive';sourceWidgetId;pageId}` / `{kind:'dashboard-date-range';sourceId;pageId}` — the sole scope descriptor, no separate boolean/ID fields to keep in sync), `StudioDateRangePreset` (11 presets), `StudioFilterState`, `StudioShellState` (transient UI state — `openDrawers: Record<StudioDrawer, boolean>`, `selectedWidgetId`/`selectedFieldId`/`selectedSourceId`), `StudioDashboardState` (`id`, `title`, `activePageId`, `defaultTheme?`, `globalCrossFilterMode?`, `crossFilterAllPages?`), `StudioFilterPreset`, `CURRENT_SCHEMA_VERSION`, and the **lifetime-partitioned** state shape.
+- **`expressionTypes.ts`** — `StudioExpressionOperator` (a closed 23-member union),
+  the four `StudioExpression` AST node variants
+  (`StudioFunctionExpression`/`StudioValueExpression`/`StudioFieldExpression`/`StudioJoinFieldExpression`),
+  and `StudioExpressionField` (a user-authored calculated column/measure).
 
-  `CURRENT_SCHEMA_VERSION` (an integer, currently `1`) is defined here — next to the `StudioDoc.schemaVersion` field that consumes its literal type — rather than in `statePersistence.ts`, because `factories.ts` needs it as a runtime value when stamping a fresh doc and importing it from `statePersistence` (which imports `factories`) would form a cycle. `statePersistence.ts` re-exports it, so every existing import site is unaffected.
+- **`stateTypes.ts`** — `StudioFilterScope`, `StudioDateRangePreset` (11 presets),
+  `StudioFilterState`, `StudioShellState`, `StudioDashboardState`, `StudioFilterPreset`,
+  `CURRENT_SCHEMA_VERSION`, and the lifetime-partitioned state shape (below).
 
-  `StudioState` is a three-way partition by lifetime, not a flat bag: `{ doc: StudioDoc; session: StudioSession; runtime: StudioRuntime }`.
-  - **`StudioDoc`** — the user-authored dashboard document, and the **only** partition that is persisted, undoable, and mutated by the shared reducer: `schemaVersion: typeof CURRENT_SCHEMA_VERSION`, `dashboard`, `pages`, `widgets`, `relationships`, `filters`, `expressionFields`, `filterPresets?`, `ai?` (AI chat thread state, `undefined` until the first message). Cross-filter- and interactive-scoped entries live in `doc.filters` (not `session`) precisely because the reducer manipulates them (`removeWidget`/`removePage`/`applyBulkUpdate` cleanup, and `applyCrossFilter` is deliberately undoable); they are stripped only at the persistence boundary (`serializeDoc`), never from the live doc. `addFilter` **rejects** (no-op returns the input `state`) an incoming scoped filter whose anchor widget names no widget in `state.widgets` (`Object.hasOwn` — the reducer's own notion of "existing widget"): the `cross-filter`/`interactive` scopes are checked against `scope.sourceWidgetId`, and the `widget` scope against `scope.widgetId` (T3-2). All three anchor a filter to a widget whose _only_ cleanup path fires when that widget is _removed_, so an orphan naming a never-present anchor could otherwise filter its page forever, and the wire/reducer and load boundaries would disagree about the same state — the load boundary drops the identical three orphan shapes on load. The identical rejection now also covers a **page**-anchored orphan — a `scope.kind: 'page'` filter whose explicit `pageId` names no page in `state.pages` — the page-anchor mirror of the widget-anchor check, closing the same wire/load disagreement for a page-scoped filter naming a page that never existed. The same page-anchor check also covers `scope.kind: 'dashboard-date-range'` and, as of Iteration 33, `cross-filter`/`interactive`: all three carry a REQUIRED `pageId` (unlike `page` scope's optional one), so each is required to be a STRING outright and to name a live page before the filter installs. The two session-flavoured kinds needed this most and had it least — `serializeDoc` STRIPS `cross-filter`/`interactive` entries at the persistence boundary, so unlike every other scope kind the load boundary can never repair one that got in, and `removePage`'s cleanup only fires for a page that was present and then removed; a filter anchored to a page the doc never had was therefore permanent, invisible, unclearable dead weight. This is a parser-bypass gap specifically: `executeToolOnState.ts` builds mutations straight from LLM tool arguments and never runs the wire validator, whose `FILTER_SCOPE_REQUIRED_IDS` has always listed `pageId` for both kinds. As of Iteration 27, every one of these anchor ids — `scope.widgetId`, `scope.sourceWidgetId`, and `scope.pageId` — is additionally required to be a STRING before its `Object.hasOwn` orphan check ever runs, mirroring the identical `typeof filter.id !== 'string'` guard Iteration 26 applied to the filter's own id one level up: `Object.hasOwn` coerces a numeric anchor id to match a string-keyed widget/page, but the cleanup that fires on that anchor's removal compares by strict `===`/`Set` membership and never coerces, so a numeric anchor id would previously have passed the orphan check and installed while remaining permanently unremovable by any cleanup path — the same coercion-desync class, closed one level deeper inside the scope payload.
-  - **`StudioSession`** — ephemeral UI state, never persisted / never undoable / never touched by the reducer: `mode` (`'edit'`/`'view'` — a view↔edit switch is not a dashboard edit, so Ctrl+Z must never flip it) and `shell`.
-  - **`StudioRuntime`** — host-app-injected state, never persisted / never undoable / never touched by the reducer: `dataSources` (an undo must never revert live data sources to stale rows).
+  `StudioFilterScope` is a discriminated union — `{kind:'page';pageId?}` /
+  `{kind:'widget';widgetId}` / `{kind:'cross-filter';sourceWidgetId;pageId}` /
+  `{kind:'interactive';sourceWidgetId;pageId}` / `{kind:'dashboard-date-range';sourceId;pageId}`
+  — and is the sole scope descriptor, with no parallel boolean/ID fields to keep in sync. Only
+  `page`'s `pageId` is optional (a legacy pageId-less filter applies on every page); the other
+  three that carry one require it.
 
-- **`mutationTypes.ts`** — the mutation/skill wire-protocol types:
-  - `SerializableSkill` (the client-safe subset of a skill definition, stripped of its non-JSON `execute` function before crossing the wire).
-  - `OptionalWidgetField` — a derived type resolving to exactly the OPTIONAL keys of `StudioWidget` (`{ [K in keyof StudioWidget]-?: undefined extends StudioWidget[K] ? K : never }[keyof StudioWidget]`). It types `updateWidget.args.unsetFields`, so a wire caller structurally cannot type a payload that voids a required field (`id`/`kind`/`title`/`config`); it stays correct automatically as `StudioWidget` gains or loses optional fields.
-  - `StateMutation` — the discriminated union covering all 14 mutation kinds (see `applyMutation.ts` below). Four variants carry an explicit, server-chosen targeting field so the reducer never has to guess "whichever page/thread is active on the applying side": `addWidget.args.pageId`, `setWidgetLayout.args.pageId`, `setWidgetColSpan.args.pageId`, and `renameAIThread.args.threadId` — all optional, falling back to the applying side's active page/thread for legacy payloads that predate the field. `updateWidget.args` carries a wire-safe field-clear affordance — `unsetFields` (`OptionalWidgetField[]`, top-level keys to delete) and `unsetConfigKeys` (config keys to delete) — because a `changes`/`config` entry with an `undefined` value cannot survive `JSON.stringify`, so a key **name** is the only way to void a field over the wire. `applyBulkUpdate.args` is a lost-update-safe **delta** shape: `removedWidgetIds` / `addedWidgets` / `updatedWidgets` (partial per-widget patches, `config` shallow-merged onto the live widget) applied on top of the receiver's _current_ `widgets` record, plus `widgetRows` / `widgetColSpans` / `activePageId` that replace the layout of the active page only. Because the deltas layer onto current state rather than a turn-start snapshot, a widget concurrently created or edited on any page while the agentic turn runs keeps its `widgets` record entry rather than being silently reverted — though the active page's `widgetRows` are replaced wholesale by the producer's layout, so a widget the user added to the ACTIVE page mid-turn is un-placed from that layout (it survives as an unplaced, recoverable widget record, not fully preserved in situ). `widgetRows`/`widgetColSpans` are typed as **optional** (`widgetRows?`/`widgetColSpans?`) — the current producer (`executeToolOnState.ts`) sends both together when it touches layout, but an updates-only bulk (no removal, addition, or layout change) omits both, and typing them required would force such a producer to attach a layout snapshot it doesn't have; both the wire validator and the reducer treat true absence of one or both the same way at runtime (a hand-built, parser-bypassing payload a future tool might construct without going through this type behaves identically): the layout-replacement step is skipped entirely rather than defaulting an absent field to `[]`/`{}`, which would silently wipe the active page's layout on a mere field omission (see `applyBulkUpdate` under `applyMutation.ts` below).
-  - `MutationEnvelope<T>` wraps a `StateMutation` for SSE transport with a collision-resistant `id` and a production timestamp `at` — envelope metadata distinct from any domain field the mutation itself persists (e.g. `renameAIThread.args.updatedAt`).
+  `CURRENT_SCHEMA_VERSION` (an integer, currently `1`) lives here, next to the
+  `StudioDoc.schemaVersion` field consuming its literal type, rather than in
+  `statePersistence.ts`: `factories.ts` needs it as a runtime value when stamping a fresh doc,
+  and importing it from `statePersistence` (which imports `factories`) would form a cycle.
+  `statePersistence.ts` re-exports it, so every existing import site is unaffected.
 
-- **`richContextTypes.ts`** — `StudioAIFieldStat`/`StudioAILayoutWidget`/`StudioAICrossFilterEdge`/`StudioAIPageLayout`/`StudioAIRecentMutation` (constituents of `StudioAIRichContext`, the purely-additive client-derived signal attached to each chat request — per-field summary stats, active-page layout + cross-filter graph, and recent user mutations, each section droppable to stay under a token budget with dropped names recorded in `omitted`, and never sent in `privateMode`).
+### The lifetime partition
 
-- **`chatTypes.ts`** — `StudioAIChatThread`/`StudioAIState` (persisted conversation state, serialized inside `doc.ai`). The sole `import type { ChatMessage } from '@mui/x-chat-headless'` lives here.
+`StudioState` is `{ doc; session; runtime }` — a three-way partition by lifetime, not a flat bag.
 
-- **`aiTypes.ts`** — a thin composition facade: it `export *`s `mutationTypes`, `richContextTypes`, and `chatTypes` (every name across the three is unique, so the blanket re-export is safe) and re-exports `StudioAIToolName` from `aiToolRegistry.ts`. Existing deep imports of `./aiTypes` (and the `@mui/x-studio-schema` package export) keep resolving unchanged. Server-only AI types (`StudioAISkill` with its `execute` function, `SkillExecuteResult`, `StudioAIDataConfig`, rate-limit/usage types) are **not** part of this package — they live in `@mui/x-studio-ai-middleware`'s own `models/aiTypes.ts`, since the client never needs them.
+| Partition       | Persisted | Undoable | Reducer touches it | Contents                                                                                                                  |
+| :-------------- | :-------- | :------- | :----------------- | :------------------------------------------------------------------------------------------------------------------------ |
+| `StudioDoc`     | yes       | yes      | yes                | `schemaVersion`, `dashboard`, `pages`, `widgets`, `relationships`, `filters`, `expressionFields`, `filterPresets?`, `ai?` |
+| `StudioSession` | no        | no       | no                 | `mode` (`edit`/`view`), `shell` (open drawers, selection)                                                                 |
+| `StudioRuntime` | no        | no       | no                 | `dataSources` (host-injected)                                                                                             |
 
-- **`aiToolRegistry.ts`** — `STUDIO_AI_TOOL_REGISTRY`, the single declarative source of truth for per-tool **facts** (not implementations, not JSON-schema parameter definitions): display `title`, `destructive`, MCP-only `mcpDestructiveOverride`, MCP `readOnly`/`idempotent`/`openWorld` hints, `privateModeExcluded`, and `mcpSupported`. A tool carrying `mcpDestructiveOverride` (e.g. `remove_page_filter`/`remove_widget_filter`) is destructive on MCP even though `destructive` is `false` for chat — MCP clients have no separate confirmation step — but that does NOT mean the operation is unguarded on chat: the composed default chat policy (`createEffectsAwareToolPolicy`) separately gates filter removals via its own `removedFilterIds` check, so they ARE chat-approval-gated too (a stale doc comment claiming otherwise was corrected in Iteration 26); the override exists solely to control the MCP `destructiveHint`, which has no chat-side equivalent to defer to. `StudioAIToolName = keyof typeof STUDIO_AI_TOOL_REGISTRY` is the canonical tool-name union (re-exported through `aiTypes.ts`), and `StudioAIToolFacts` is the per-entry shape (the table is `satisfies Record<string, StudioAIToolFacts>`). Living in this dependency-free package lets the client read tool facts without depending on `@mui/x-studio-ai-middleware`; every scattered per-tool artifact server-side (`STUDIO_AI_TOOLS`, `DESTRUCTIVE_TOOLS`, `TOOL_TITLES`/`TOOL_ANNOTATIONS`, `PRIVATE_MODE_EXCLUDED_TOOLS`, `MCP_UNSUPPORTED_TOOLS`, the `executeToolOnState` switch) is derived from this registry, so two of them cannot disagree.
+Three consequences worth stating plainly:
+
+- A view↔edit switch is not a dashboard edit, so `mode` is in `session` and Ctrl+Z must never
+  flip it.
+- An undo must never revert live data sources to stale rows, so `dataSources` is in `runtime`.
+- Cross-filter- and interactive-scoped entries live in **`doc.filters`**, not `session`,
+  precisely because the reducer manipulates them and `applyCrossFilter` is deliberately
+  undoable. They are stripped only at the persistence boundary (`serializeDoc`), never from
+  the live doc.
+
+`StudioController`'s undo/redo stacks snapshot `StudioDoc[]` only.
+
+### AI-protocol types
+
+- **`mutationTypes.ts`** — the mutation/skill wire protocol:
+  - `SerializableSkill` — the client-safe subset of a skill definition, stripped of its
+    non-JSON `execute` function before crossing the wire.
+  - `OptionalWidgetField` — a derived type resolving to exactly the OPTIONAL keys of
+    `StudioWidget`. It types `updateWidget.args.unsetFields`, so a wire caller structurally
+    cannot type a payload that voids a required field (`id`/`kind`/`title`/`config`), and it
+    stays correct automatically as `StudioWidget` gains or loses optional fields.
+  - `StateMutation` — the discriminated union over all 14 mutation kinds.
+  - `MutationEnvelope<T>` — wraps a mutation for SSE transport with a collision-resistant `id`
+    and a production timestamp `at`. Envelope metadata, distinct from any domain field the
+    mutation itself persists (e.g. `renameAIThread.args.updatedAt`).
+
+  Four variants carry an explicit, server-chosen targeting field so the reducer never has to
+  guess "whichever page/thread is active on the applying side": `addWidget.args.pageId`,
+  `setWidgetLayout.args.pageId`, `setWidgetColSpan.args.pageId`, `renameAIThread.args.threadId`.
+  All are optional, falling back to the applying side's active page/thread for legacy payloads.
+
+  `updateWidget.args` carries a wire-safe field-clear affordance — `unsetFields` and
+  `unsetConfigKeys` — because a `changes`/`config` entry with an `undefined` value cannot
+  survive `JSON.stringify`. A key **name** is the only way to void a field over the wire.
+
+  `applyBulkUpdate.args` is a lost-update-safe **delta**: `removedWidgetIds` / `addedWidgets` /
+  `updatedWidgets` layered on the receiver's _current_ `widgets` record, plus optional
+  `widgetRows` / `widgetColSpans` / `activePageId` for the active page's layout. Because the
+  deltas layer onto current state rather than a turn-start snapshot, a widget concurrently
+  created or edited while an agentic turn runs keeps its record entry instead of being silently
+  reverted. `widgetRows`/`widgetColSpans` are **optional** because an updates-only bulk has no
+  layout snapshot to attach; see [`applyBulkUpdate`](#applybulkupdate) for how the reducer stays
+  total over every partial shape.
+
+- **`richContextTypes.ts`** — `StudioAIFieldStat`/`StudioAILayoutWidget`/`StudioAICrossFilterEdge`/`StudioAIPageLayout`/`StudioAIRecentMutation`,
+  the constituents of `StudioAIRichContext`: the purely-additive client-derived signal attached
+  to each chat request. Each section is droppable to stay under a token budget (dropped names
+  recorded in `omitted`), and none is sent in `privateMode`.
+
+- **`chatTypes.ts`** — `StudioAIChatThread`/`StudioAIState`, the persisted conversation state
+  serialized inside `doc.ai`.
+
+- **`aiTypes.ts`** — a thin composition facade: `export *` over the three modules above (every
+  name is unique, so the blanket re-export is safe) plus a `StudioAIToolName` pass-through.
+  Server-only AI types (`StudioAISkill` with its `execute`, `SkillExecuteResult`,
+  `StudioAIDataConfig`, rate-limit/usage types) are **not** here — they live in the AI
+  middleware, since the client never needs them.
+
+- **`aiToolRegistry.ts`** — `STUDIO_AI_TOOL_REGISTRY`, the single declarative source of truth
+  for per-tool **facts** (not implementations, not JSON-schema parameters): display `title`,
+  `destructive`, `mcpDestructiveOverride`, the MCP `readOnly`/`idempotent`/`openWorld` hints,
+  `privateModeExcluded`, `mcpSupported`. `StudioAIToolName = keyof typeof STUDIO_AI_TOOL_REGISTRY`
+  is the canonical tool-name union; `StudioAIToolFacts` is the per-entry shape.
+
+  Living in a dependency-free package lets the client read tool facts without depending on the
+  AI middleware, and every scattered server-side per-tool artifact (`STUDIO_AI_TOOLS`,
+  `DESTRUCTIVE_TOOLS`, `TOOL_TITLES`/`TOOL_ANNOTATIONS`, `PRIVATE_MODE_EXCLUDED_TOOLS`,
+  `MCP_UNSUPPORTED_TOOLS`, the `executeToolOnState` switch) derives from it, so two of them
+  cannot disagree.
+
+  `mcpDestructiveOverride` controls the MCP `destructiveHint` only. A tool carrying it (e.g.
+  `remove_page_filter`) is destructive on MCP even though `destructive` is `false` for chat —
+  MCP clients have no separate confirmation step. That does **not** mean the operation is
+  unguarded on chat: the composed default chat policy gates filter removals through its own
+  `removedFilterIds` check.
 
 ## The widget and chart discriminated unions
 
-Two nested discriminated unions carry the widget-config type surface, and they behave differently in a way that is load-bearing for the rest of the package.
+Two nested unions carry the widget-config type surface, and they behave differently in a way
+that is load-bearing for the rest of the package.
 
 ### `StudioWidget` — the widget-kind union (OPEN)
 
@@ -94,15 +257,22 @@ export type StudioWidget =
   | StudioWidgetOf<string & {}>;
 ```
 
-Each `StudioWidgetOf<K>` is a widget whose `config` is narrowed to `StudioWidgetConfigForKind<K>` — the shared config chrome (`StudioSharedWidgetConfig`) plus that kind's own interface from `StudioWidgetConfigByKind` (or just the shared chrome + `customConfig` for a custom kind). `StudioWidgetConfigByKind` maps each built-in kind to its OWN config interface (`chart` maps to the `StudioChartWidgetConfig` union, one level finer); it is the single source of truth wiring a `widget.kind` discriminant to the precise config shape.
+Each `StudioWidgetOf<K>` narrows `config` to `StudioWidgetConfigForKind<K>` — the shared chrome
+(`StudioSharedWidgetConfig`) plus that kind's own interface from `StudioWidgetConfigByKind` (or
+just the chrome plus `customConfig` for a custom kind). `StudioWidgetConfigByKind` is the single
+source of truth wiring a `widget.kind` discriminant to its precise config shape; `chart` maps to
+the `StudioChartWidgetConfig` union, one level finer.
 
-The final `StudioWidgetOf<string & {}>` catch-all member makes consumer-defined **custom** widget kinds first-class. That member's `kind` is a non-literal `string`, which means `StudioWidget` is NOT a TypeScript discriminated union: a bare `if (widget.kind === 'chart')` does **not** narrow `widget.config`, because TS cannot rule out `string === 'chart'` for the custom-kind member. This is a real TS limitation, not an oversight — it is exactly why `widgetTypeGuards.ts`'s `isWidgetOfKind()` exists (see below).
-
-The flat, all-optional `StudioWidgetConfig` interface (`StudioSharedWidgetConfig, Partial<StudioGridConfig>, Partial<StudioChartConfig>, …`) is KEPT deliberately as the generic/patch type. Its keys are all optional because a widget can carry keys authored while it was a different kind — switching a widget's `kind` does not clear its `config`. The combined shape is structurally identical to what a single flat interface would produce; the per-kind split exists so a setup panel can reference a focused per-kind type (`StudioGridConfig`) instead of the 100+-key union. Code that must operate on config BEFORE the kind is known, or across kinds by design — the reducer, `StudioController.updateWidgetConfig`'s generic config-patch path, the AI tool-argument builder, cross-kind registries, and untrusted wire input before narrowing — uses this flat type.
+The trailing `StudioWidgetOf<string & {}>` member makes consumer-defined custom kinds
+first-class — and its non-literal `kind: string` means **`StudioWidget` is not a TypeScript
+discriminated union**. A bare `if (widget.kind === 'chart')` does not narrow `widget.config`,
+because TS cannot rule out `string === 'chart'` for that member. This is a real TS limitation,
+not an oversight; it is exactly why `isWidgetOfKind()` exists.
 
 ### `StudioChartConfig` — the chart-type union (CLOSED)
 
-One level finer than the kind-level split, a chart widget's `config` is itself a discriminated union over `chartType`. Ten per-family interfaces cover the 16 `StudioChartType` literals:
+One level finer, a chart widget's `config` is itself a union over `chartType`. Ten family
+interfaces cover the 16 `StudioChartType` literals:
 
 | family interface                  | `chartType` literals                       |
 | :-------------------------------- | :----------------------------------------- |
@@ -117,75 +287,403 @@ One level finer than the kind-level split, a chart widget's `config` is itself a
 | `StudioScatterChartConfig`        | `scatter`                                  |
 | `StudioGaugeChartConfig`          | `gauge`                                    |
 
-`StudioChartConfigByType` maps each literal to its family interface, locked complete by a compile-time `AssertChartTypesCovered` check (adding a `StudioChartType` literal without a `StudioChartConfigByType` entry is a build error). `StudioChartConfigOfType<T>` indexes it; `StudioChartWidgetConfig` is the union of all ten family interfaces and is the type of a chart widget's `config`.
+`StudioChartConfigByType` maps each literal to its family, locked complete by a compile-time
+`AssertChartTypesCovered` check. `StudioChartConfigOfType<T>` indexes it;
+`StudioChartWidgetConfig` is the union of all ten and is the type of a chart widget's `config`.
 
-`StudioChartType` is a **CLOSED** union — there is no consumer-extensible custom chart type, per `AGENTS.md`'s "x-studio custom charts" rule (custom charts are custom widgets, never new chart types). Because the union has no `string`-typed catch-all member (unlike `StudioWidget`), a bare `config.chartType === 'gauge'` check narrows `StudioChartWidgetConfig` **natively** — no runtime guard sweep is needed the way the widget-kind union needs `isWidgetOfKind()`. The discriminant is optional on the bar family only: an absent `chartType` means `'bar'`, which makes the empty config `{}` a valid bar config.
+`StudioChartType` is **CLOSED** — there is no consumer-extensible custom chart type, per
+`AGENTS.md`'s "x-studio custom charts" rule (custom charts are custom _widgets_, never new chart
+types). Because the union has no `string`-typed catch-all, a bare `config.chartType === 'gauge'`
+narrows **natively**; no runtime guard sweep is needed the way the kind union needs
+`isWidgetOfKind()`. The discriminant is optional on the bar family only: an absent `chartType`
+means `'bar'`, which makes the empty config `{}` a valid bar config.
 
-The flat `StudioChartConfig` (every chart's keys, all optional) is KEPT as the deliberate generic/patch type — used by the reducer, `updateWidgetConfig`, the AI tool-argument builder, cross-type registries, and the compose drawer's shared top controls. It is RECOMPOSED from the ten family interfaces via `Partial<Omit<Family, 'chartType'>>` intersections, so it can never structurally drift from them.
+### The flat patch types
 
-**Key retention across `chartType` switches is a deliberate, permanent feature, not a bug.** `applyMutation`'s merge (patch, not replace) semantics mean a widget toggled bar → gauge → bar keeps its `xField`/`ySeries` in stored config so the user's prior configuration isn't destroyed — nothing ever strips stale-for-current-type keys, and no schema migration exists to do so. Consequently, every reader of the narrow per-family types must gate on the resolved `chartType` rather than assume a stray other-family key (e.g. `sankeyTargetField` on a config whose `chartType` is now `'gauge'`) can't be present; for narrow-typed readers the type system enforces this structurally, and a stray key is expected, not corrupt.
+`StudioWidgetConfig` and `StudioChartConfig` — every key, all optional — are KEPT deliberately
+as the generic/patch types. `StudioChartConfig` is RECOMPOSED from the ten family interfaces via
+`Partial<Omit<Family, 'chartType'>>` intersections, so it can never structurally drift from them.
+
+Their keys are all optional because a widget can carry keys authored while it was a different
+kind — switching a widget's `kind` does not clear its `config`. Code that must operate on config
+BEFORE the kind is known, or across kinds by design, uses these: the reducer,
+`StudioController.updateWidgetConfig`'s generic patch path, the AI tool-argument builder,
+cross-kind registries, the compose drawer's shared top controls, and untrusted wire input before
+narrowing. The per-kind split exists so a setup panel can reference a focused type
+(`StudioGridConfig`) instead of the 100+-key union.
+
+### Key retention across `chartType` switches
+
+**This is a deliberate, permanent feature, not a bug.** `applyMutation`'s merge (patch, not
+replace) semantics mean a widget toggled bar → gauge → bar keeps its `xField`/`ySeries` so the
+user's prior configuration isn't destroyed. Nothing strips stale-for-current-type keys and no
+migration exists to do so.
+
+Consequently, every reader of the narrow per-family types must gate on the resolved `chartType`
+rather than assume a stray other-family key can't be present. For narrow-typed readers the type
+system enforces this structurally, and a stray key is expected, not corrupt.
+`stripForeignFamilyKeys` (see [`configKeyValidation.ts`](#configkeyvalidationts--write-side-config-key-guards-two-levels-deep)) is the
+sanctioned way to reduce a stored config to its effective family when one must cross a boundary
+that validates per-family.
+
+## Cross-cutting invariants
+
+These rules recur at nearly every call site in the package. They are stated once here; the
+per-module sections below reference them rather than re-arguing each one.
+
+### The three trust boundaries
+
+A `StudioDoc` can be reached by untrusted input at exactly three places, and each has its own
+guard layer:
+
+| Boundary               | Module                  | Input                                                                           |
+| :--------------------- | :---------------------- | :------------------------------------------------------------------------------ |
+| **Wire**               | `parseStateMutation.ts` | An SSE `state-mutation` event the client `JSON.parse`d                          |
+| **In-process reducer** | `applyMutation.ts`      | A server-built mutation from `executeToolOnState.ts`, which bypasses the parser |
+| **Persistence load**   | `statePersistence.ts`   | A `JSON.parse`d persisted, shared, or hand-edited doc                           |
+
+The governing rule is that **the three must agree on the same payload.** A shape the wire
+rejects but the reducer accepts becomes _deferred data loss_: the value installs, renders fine,
+and is silently discarded by the next `deserializeState`. A shape the reducer accepts but the
+load boundary drops is the same bug seen from the other side. Wherever the boundaries differ in
+_response_, the difference is deliberate and noted at the site.
+
+Repair convention, uniform across all three:
+
+- A **required** field with a bad value ⇒ drop the whole entry (`kind`, `title`, a filter's
+  `id`/`field`/`operator`, a thread's `id`).
+- An **optional** field with a bad value ⇒ strip just that key and let the field's default take
+  over (`subtitle`, `sourceId`, `titleMode`, `subtitleMode`, a stray config key).
+- A **display-only** field ⇒ coerce to a fallback rather than dropping (`page.title` →
+  `'Untitled Page'`, `dashboard.title` → `'Untitled Dashboard'`, `dashboard.id` →
+  `'dashboard-1'`, a thread's `name` → `'Untitled Thread'`, a preset's `name` →
+  `'Untitled Filter Preset'`).
+- A bad value never **throws** at a boundary; it no-ops, drops, or coerces. The one deliberate
+  exception is a doc claiming a newer `schemaVersion` (see
+  [`deserializeState`](#deserializestate)).
+
+### String ids: the coercion-desync class
+
+Every id-bearing handler requires `typeof id === 'string'` **before** any existence check runs.
+
+The reason is one specific asymmetry: `Object.hasOwn(record, key)` **coerces** its key to a
+string, while every other id comparison in the package (`===`, `Set.has`, `.includes`) does
+**not**. A numeric id like `42` therefore passes an `Object.hasOwn` existence check against a
+widget keyed `"42"` while every downstream cleanup silently misses it. Concretely, without the
+guards:
+
+- `removeWidget` deletes the widget but leaves it on its page and in its scoped filters.
+- `removePage` deletes the page but leaves its filters and a dangling `activePageId`.
+- `setActivePage` installs a number into the `string`-typed `dashboard.activePageId`.
+- `addFilter` installs a filter `removeFilter`'s strict `!==` can never match — unremovable
+  in-session.
+- `setWidgetColSpan` persists a dead span on the wrong page.
+
+The guard applies at three depths: the mutation's own ids, the ids inside `filter.scope`
+(`widgetId`/`sourceWidgetId`/`pageId`), and each entry of an id-bearing array
+(`removedWidgetIds`, `widgetRows` rows, `addedWidgets[].id`). Non-string ids **no-op** rather
+than throw, matching the skip-not-throw convention every sibling guard uses. The one place the
+package filters rather than rejects is `applyBulkUpdate`'s arrays, where "no-op the bad, keep
+the good" keeps a partially-junk payload usable.
+
+### Prototype-hazard keys
+
+`UNSAFE_KEYS` (`'__proto__'`, `'constructor'`, `'prototype'`) and `isSafeKey` live in their own
+module so the three boundaries can never drift into three independently-maintained literal
+lists. Two distinct hazards, guarded separately:
+
+1. **A record KEY written from untrusted input.** `record[key] = value` with `key === '__proto__'`
+   invokes the inherited setter and rewrites the record's prototype instead of adding an own key.
+   Every key-by-key `Record` rebuild in the package screens with `isSafeKey`, and the two
+   load-boundary `pages` rebuilds use `Object.fromEntries` over surviving entries rather than
+   bracket assignment for the same reason.
+2. **An own DATA property named one of the three.** `JSON.parse('{"__proto__":…}')` produces
+   exactly this. It round-trips through `serializeDoc` and then poisons a later
+   `Object.assign`/spread. `hasUnsafeOwnKeys` screens for it symmetrically at all three
+   boundaries, on the widget object, the filter object, the nested `filter.scope`, the page
+   object, and every config channel.
+
+Note the asymmetry in the response: `dashboard` and the `ai` container have their unsafe own
+keys **stripped** (keeping the rest); a widget, page, filter, relationship, expression field,
+thread, or preset-inner filter carrying one is **dropped whole**. The preset-inner-filter screen
+is the sharpest case — `applyFilterPreset` rematerializes preset filters into live `doc.filters`,
+so an unscreened one would land on a live filter the next load then drops entirely.
+
+Both `Object.hasOwn` (never `in`) and lookups through a `Set` are used for the same reason
+everywhere a table is indexed by untrusted input: `MUTATION_HANDLERS`, the validator table,
+`BUILTIN_WIDGET_DEFAULTS`, `getAllowedConfigKeys`, `CHART_TYPE_CONFIG_KEYS`,
+`MERGEABLE_WIDGET_CHANGE_KEYS`, `RELATIONSHIP_TYPES`.
+
+### `isPlainRecord` — the one "is this a usable bag" predicate
+
+Every trust boundary routes through `internalGuards.ts`'s `isPlainRecord`, so a tightening lands
+everywhere at once. It requires `typeof value === 'object'`, non-`null`, non-array, **and** a
+prototype of exactly `Object.prototype` or `null`.
+
+The prototype clause matters because the first three clauses are all true for an exotic object —
+a `Date`, `RegExp`, `Map`, `Set`, or class instance. Downstream every passing value is treated
+as a plain data bag (spread, key-screened, read by arbitrary string key), so an exotic object was
+silently **laundered** into an empty-looking record (`{ ...new Map([['a', 1]]) }` is `{}`),
+discarding whatever it carried with no error anywhere. The tightening changes nothing for the
+values the predicate was ever meant to accept: every object literal and every `JSON.parse` output
+already has `Object.prototype`, and an explicit `Object.create(null)` bag is accepted too.
+
+### Reference-equality no-op contract
+
+**Every** handler and helper returns its input reference unchanged when nothing changed. This is
+not just memoization: `StudioController`'s `commitDocPatch` pushes an undo-stack entry only when
+the doc reference changes, so a handler that skipped this check would make a re-delivered or
+already-satisfied mutation (an SSE retry of `set_active_page`, say) a visible no-op on the very
+next Ctrl+Z.
+
+Two comparison helpers exist because `enforceLayoutColSpans` mints a fresh object even when its
+contents are unchanged: `rowsEqual` and `spansEqual` (an `undefined`-tolerant wrapper over the
+same `shallowRecordEqual` core, so the two can never drift apart). `shallowRecordEqual` is
+key-count plus per-key `===`, so a re-supplied but reference-different nested value (a fresh
+`ySeries` array) still counts as a change.
+
+The two **merge**-shaped handlers — `updateWidget`'s `changes` and `applyBulkUpdate`'s
+`updatedWidgets` — extend this to "did this attempt a write" vs "did this actually change
+anything": each incoming field is compared against the widget's current value before the widget
+is rewrapped, so a `changes: { title: 'Same' }` on an already-`'Same'` widget returns the SAME
+state reference.
+
+### Cascade pruning is a per-CLASS invariant
+
+`StudioFilterState.dependsOn` lists the other filter ids a filter cascades from. Its own doc
+comment calls it "purely a UX hint", but the client's cascade drawer maps over it directly, so a
+dangling id silently gates option-narrowing on a filter that no longer exists — and `serializeDoc`
+re-persists the dangling reference forever with no self-heal.
+
+The rule: **every path that drops a filter prunes `dependsOn` against the survivors.**
+`pruneDependsOn(filters, survivingIds)` is the ONE implementation, exported from
+`applyMutation.ts` (not from `index.ts`) so the load boundary uses identical code. The
+file-private `pruneDependsOnAgainstSelf(filters)` wrapper covers the common "some filters were
+just dropped from this array" shape; the exported primitive keeps its explicit
+surviving-id-set signature for the load boundary, which computes the set itself.
+
+It drops the whole `dependsOn` array (never leaves `dependsOn: []`) when the prune empties it,
+mirroring `docTransforms.ts`'s convention for this exact field, and is reference-stable at both
+levels — the same array back when nothing needed pruning, and each untouched filter keeps its
+object identity.
+
+The prune began life INLINE in `removeFilter`, which is exactly why it covered one filter-dropping
+path and no other. Extracting it turned the invariant from something each handler had to remember
+into something the shared primitives enforce. The paths are: `removeFilter`,
+`dropWidgetScopedFilters` (via `removeWidget`/`applyBulkUpdate`), `removePage`'s page-anchor drop,
+`dropConflictingRankFilters`, and the whole load-boundary filter screen.
+
+### "At least one page always exists"
+
+A zero-page doc is unrecoverable. Every legacy pageId-less mutation
+(`addWidget`/`setWidgetLayout`/`setWidgetColSpan` without an explicit `pageId`) resolves its
+target through `Object.hasOwn(pages, dashboard.activePageId)`, which no id satisfies once the map
+is empty — so the dashboard renders nothing and silently no-ops every edit forever, with no error
+and no affordance to recover.
+
+All three producers of a doc uphold it, each in the way its own constraints allow:
+
+- **`removePage`** refuses to delete the last page. Synthesizing a replacement was rejected: a
+  fresh page needs a fresh id, and this reducer must stay DETERMINISTIC so the server-threaded
+  state and the client-applied state cannot diverge. A caller that wants an empty dashboard adds
+  the replacement page first.
+- **`deserializeState`** synthesizes the factory's default page when its sweep empties the map
+  (`normalizePersistedPages` legitimately drops pages for an unsafe key or a non-record value).
+  The loader has no determinism constraint and already mints replacement values for other missing
+  required fields, so the repair belongs here.
+- **`createDefaultStudioState`** falls back to the default page when a `doc.pages` override is
+  empty — reachable from the public `Studio initialState` prop.
+
+This makes `activePageId: ''` unreachable, and the `?? ''` arms of both fallbacks are retained as
+total fallbacks rather than swapped for non-null assertions.
+
+### Alias normalization on every live write
+
+`normalizeChartSeries` collapses the deprecated `seriesType` alias into the canonical `type`.
+`deserializeState` normalizes it at the load boundary; without a write-time pass too, a widget
+written with `seriesType` would carry the alias until the next reload. The file-private
+`normalizeConfigChartSeries(config)` therefore runs on **every** path that installs or merges a
+chart config: `addWidget`, `updateWidget`'s `config` patch and its `changes.config` wholesale
+replacement, and `applyBulkUpdate`'s `addedWidgets` inserts and `updatedWidgets[].config` merges.
+Reference-stable when every entry is already canonical.
 
 ## Function modules
 
 ### `factories.ts`
 
-- **`makeIdFactory(prefix)`** (file-private) — builds a collision-resistant id-minting function for a given prefix: `${prefix}-${Date.now()}-${sequence.toString(36)}-${Math.random().toString(36).slice(2, 6)}` (the random suffix is sliced to at most 4 base-36 chars), combining the millisecond timestamp with a per-factory monotonic `sequence` counter (deterministically unique within one process, even under a tight same-millisecond creation loop) and a random suffix (so ids minted independently by the client and the server don't collide). A millisecond-only scheme would collide whenever two ids were minted in the same millisecond — a collision that silently overwrites a `Record` entry keyed by that id (e.g. `{ ...state.widgets, [id]: widget }`) or, for a filter id, makes a genuinely-new filter look like a re-delivered one and get silently dropped as a no-op — which is why the counter and random suffix are both present. The five domain id factories below are thin `makeIdFactory(prefix)` calls (`createWidgetId = makeIdFactory('widget')`, etc.), so the scheme is implemented once and a tweak to it is made in one place instead of five hand-copies; each factory still owns its own independent counter (one `makeIdFactory` call per factory), so ids from different domains never share a sequence.
-- **`createWidgetId()`** — mints a collision-resistant `widget-`-prefixed id via `makeIdFactory('widget')`. Both consumers (the client UI and the AI middleware) mint widget ids through this one generator.
-- **`createPageId()`** / **`createPresetId()`** / **`createFilterId()`** — the same `makeIdFactory`-backed scheme, one generator per id-keyed record so each stays collision-safe independently: a page id is a `state.pages` map key (the same silent-overwrite risk a widget id has), and a filter id specifically guards `addFilter`'s idempotency check — a millisecond-resolution collision would make a genuinely-new filter look like a re-delivered one and get silently dropped as a no-op.
-- **`createDefaultWidget(kind, overrides?)`** — the single factory both the UI ("Add widget" drawer) and the AI (`addWidget` tool) call, so UI-created and AI-created widgets always start from identical defaults (and always get an id via `createWidgetId()`). Generic over the kind `K`, so `createDefaultWidget('grid')` returns a `StudioWidgetOf<'grid'>` whose `config` is already narrowed. It dispatches through `BUILTIN_WIDGET_DEFAULTS`, a `{ [K in BuiltinStudioWidgetKind]: () => { title: string; config: StudioWidgetConfigForKind<K> } }` table — a factory-function-per-kind (not a plain object table), typed against the per-kind config type, so that mutable defaults like `grid`'s `config.columns: []` get a fresh array on every call rather than being shared by reference across instances. A kind not present in the table (any custom kind) falls through to a generic default (`title` defaults to the kind string, `config` defaults to `{ customConfig: overrides?.customConfig ?? {} }`). Membership is tested with `Object.hasOwn` (not `kind in …`) so an untrusted kind like `'constructor'` — e.g. from an LLM tool call — is treated as custom rather than matching a prototype-chain member and invoking `Object.prototype.constructor` as a defaults factory. Because the table is a `Record` over `BuiltinStudioWidgetKind`, adding a new built-in kind without an entry is a compile error, not a silent fallthrough.
-- **`createMutationId()`** / **`createMutationEnvelope(mutation)`** — `createMutationId` mints a collision-resistant `mut-`-prefixed id via `makeIdFactory('mut')`, the same scheme as `createWidgetId`. `createMutationEnvelope` is the one place a `state-mutation` SSE event's `MutationEnvelope` is built (fresh `id` + `at: new Date().toISOString()`), so every producer (`agenticLoop.ts`'s three yield sites) stamps envelopes identically.
-- **`normalizeGridColumn(col)`** — normalizes a grid widget's `config.columns` entries (a column can be persisted as either a bare field-name string or a full `StudioGridColumn` object) into the full object shape, for forward-compatible column-shape handling during deserialization.
-- **`normalizeChartSeries(series)`** — the same persisted-shape-normalization pattern applied to a `StudioChartSeries`'s render-kind field: it may be persisted under the canonical `type` key or the deprecated `seriesType` alias (`type` wins when both are present). Returns the input by reference, unchanged, when it already carries only the canonical `type` (or neither key) — churning object identity on every read would defeat memoization in chart widgets that key off series identity — and otherwise returns a new object with `seriesType` stripped and, when a render kind actually resolved, `type` set to that value. A NULLISH `seriesType` (e.g. `seriesType: null`, reachable via the unvalidated config leaf) with no canonical `type` present resolves to nothing: the result OMITS `type` entirely rather than promoting the junk into a canonical `type: null` — the normalizer's contract is that the result expresses the render kind through `type`, and `null` is not a render kind.
-- **`createDefaultStudioState(overrides?)`** — builds the default `StudioState` (one page, no widgets, `doc.schemaVersion: CURRENT_SCHEMA_VERSION`, `session.mode: 'edit'`, `shell` with data/compose drawers open, empty `runtime.dataSources`). `overrides` is a `CreateDefaultStudioStateOverrides` bag partitioned by lifetime — `{ doc?: Partial<StudioDoc>; session?: Partial<StudioSession>; runtime?: Partial<StudioRuntime> }` — deliberately nested rather than flat so callers name the partition explicitly and a new `StudioDoc` field is never silently mis-routed (a flat bag would need a hand-maintained field-routing table, exactly the fragility the lifetime-partition split exists to eliminate). The merge is intentionally asymmetric: `doc.dashboard` and `session.shell` (including `shell.openDrawers`) are deep-merged onto their defaults so a partial override doesn't clobber sibling keys, while every other field replaces its default wholesale (a `doc.pages` override completely replaces the default single page). Because a `doc.pages` override replaces the page map wholesale, the factory reconciles a dangling `dashboard.activePageId` afterward: if the merged `activePageId` doesn't name a key of the merged `pages` (checked via `Object.hasOwn`), it is reassigned to the first page's id (or `''` if `pages` is empty) — the same fallback `removePage` uses when it deletes the active page — so a caller that overrides `pages` without also updating `activePageId` never mints a state whose active page doesn't exist.
+- **`makeIdFactory(prefix)`** (file-private) builds a collision-resistant id minter:
+  `${prefix}-${Date.now()}-${sequence.toString(36)}-${Math.random().toString(36).slice(2, 6)}`.
+  Three components, each load-bearing — the millisecond timestamp, a per-factory monotonic
+  `sequence` (deterministically unique within one process, even under a tight same-millisecond
+  loop), and a random suffix (so ids minted independently by client and server don't collide).
+
+  A millisecond-only scheme would collide whenever two ids were minted in the same millisecond,
+  and every id below becomes a `Record` map key: a collision silently overwrites a `state.widgets`
+  or `state.pages` entry, or — for a filter id — makes a genuinely-new filter look like a
+  re-delivery and get dropped as a no-op by `addFilter`'s idempotency check.
+
+- **`createWidgetId`/`createPageId`/`createPresetId`/`createFilterId`/`createMutationId`** are
+  thin `makeIdFactory(prefix)` calls, so the scheme is implemented once instead of five
+  hand-copies. Each owns an independent counter, so ids from different domains never share a
+  sequence.
+
+- **`createIdFactory(prefix)`** is the public generic escape hatch onto the same helper, for
+  ad-hoc client-side entities that don't warrant a dedicated named factory (a chart annotation, a
+  manually-created relationship). Mint one factory per entity type at module scope, exactly as
+  each named factory does. Prefer adding a dedicated `create<Entity>Id` when the entity becomes a
+  `Record` map key.
+
+- **`createMutationEnvelope(mutation)`** is the one place a `state-mutation` SSE event's envelope
+  is built (fresh `id` + `at: new Date().toISOString()`), so every producer stamps identically.
+
+- **`createDefaultWidget(kind, overrides?)`** — the single factory both the UI ("Add widget"
+  drawer) and the AI (`addWidget` tool) call, so UI-created and AI-created widgets start from
+  identical defaults and always get an id via `createWidgetId()`. Generic over `K`, so
+  `createDefaultWidget('grid')` returns a `StudioWidgetOf<'grid'>` with a narrowed `config`.
+
+  It dispatches through `BUILTIN_WIDGET_DEFAULTS`, a **factory-function-per-kind** table (not a
+  plain object table) typed against the per-kind config type, so a mutable default like `grid`'s
+  `config.columns: []` gets a fresh array on every call rather than being shared by reference.
+  Membership is tested with `Object.hasOwn`, so an untrusted kind like `'constructor'` is treated
+  as custom rather than invoking `Object.prototype.constructor` as a defaults factory. Because
+  the table is a `Record` over `BuiltinStudioWidgetKind`, a new built-in kind without an entry is
+  a compile error. `overrides.customConfig` is threaded into a built-in kind's config too, not
+  just the custom-kind branch.
+
+- **`normalizeGridColumn(col)`** — a persisted grid column may be a bare field-name string or a
+  full `StudioGridColumn`; this normalizes to the object shape.
+
+- **`normalizeChartSeries(series)`** — the same pattern for a series' render kind, which may be
+  persisted under the canonical `type` or the deprecated `seriesType` (`type` wins when both are
+  present). Total over junk: a `null`/non-object entry (reachable via the unvalidated config
+  leaf) is returned unchanged rather than throwing on the `.type` read. Reference-stable when the
+  series is already canonical, since churning identity on every read would defeat memoization in
+  chart widgets that key off series identity. A NULLISH `seriesType` with no canonical `type`
+  resolves to nothing and the result OMITS `type` — the contract is that the result expresses the
+  render kind through `type`, and `null` is not a render kind.
+
+- **`createDefaultStudioState(overrides?)`** — builds the default state: one page, no widgets,
+  `session.mode: 'edit'`, data/compose drawers open, empty `runtime.dataSources`.
+
+  `overrides` is a `CreateDefaultStudioStateOverrides` bag partitioned by lifetime
+  (`{ doc?; session?; runtime? }`), deliberately nested rather than flat so callers name the
+  partition explicitly. A flat bag would need a hand-maintained field-routing table — exactly the
+  fragility the lifetime partition exists to eliminate.
+
+  The merge is intentionally asymmetric: `doc.dashboard` and `session.shell` (including
+  `shell.openDrawers`) are deep-merged so a partial override doesn't clobber siblings; every
+  other field replaces its default wholesale. Because a `doc.pages` override replaces the page
+  map wholesale, the factory then (a) falls back to the default page when the override is empty
+  (see ["at least one page"](#at-least-one-page-always-exists)) and (b) reassigns a dangling
+  `dashboard.activePageId` to the first page id — the same fallback `removePage` uses.
 
 ### `anomalyDetection.ts`
 
-`detectAnomaliesIQR(values)` — Tukey IQR outlier detection (returns a `Set<number>` of anomalous _indices_ into `values`, not the values themselves), shared so the AI's anomaly-detection tool (`summarise_page`) and the chart widget's client-side detection agree. It first **filters to the finite values** (keeping each one's original index) before the quartile math (T3-4): a single `NaN`/`Infinity` — which row data reaching `summarise_page` can carry — would otherwise poison `toSorted`'s comparator, making `q1`/`q3`/`iqr` and every fence `NaN` so every comparison is `false` and the whole series silently reports no anomalies; excluding non-finite values scopes detection to the real numbers (a `NaN` is never itself flagged) while the returned `Set` still indexes into the caller's original `values`. Guards on fewer than 4 **finite** values (returns no anomalies — too few points for a meaningful quartile split). A zero-OR-NEAR-ZERO IQR (`iqr <= epsilon`, not just `iqr === 0`) no longer bails out to an empty `Set`: the fence formula degenerates to a single point (`lower === upper === q1`), which is still a meaningful comparison, so the function falls through to flagging every finite value that differs from that constant `q1`/`q3` value instead of reporting no anomalies at all — the previous empty-`Set` short-circuit was a false negative for a series like `[5, 5, 5, 5, 5, 5, 5, 1000]`, an obvious spike against an otherwise-constant baseline. That "differs from" comparison is EPSILON-RELATIVE, not a bare `value !== q1`: a small tolerance scaled to `q1`'s own magnitude (falling back to an absolute `1e-9` floor when `q1` is at or near zero, where a relative tolerance would itself collapse to 0 and stop tolerating anything) absorbs floating-point jitter in an otherwise-constant series — e.g. `[100, 100, 100, 100, 100.0000001]`, where a bare inequality would flag the last value as a false-positive anomaly purely from upstream sum/average rounding — while staying tight enough to still catch a genuine near-baseline deviation and the original `[5, 5, 5, 5, 5, 5, 5, 1000]` spike case. `median` (a sorted-input average-of-middle-two-or-one helper) is a file-private implementation detail, not exported — it has no consumer outside this file's own IQR calculation, and its pre-sorted-input contract is a footgun not worth exposing publicly.
+`detectAnomaliesIQR(values)` — Tukey IQR outlier detection, returning a `Set<number>` of
+anomalous _indices_ into `values`, shared so the AI's `summarise_page` tool and the chart
+widget's client-side detection agree.
+
+- **Non-finite values are filtered out first** (keeping each survivor's original index). A single
+  `NaN`/`Infinity` — which row data reaching `summarise_page` can carry — would poison
+  `toSorted`'s comparator, making `q1`/`q3`/`iqr` and every fence `NaN`, so every comparison is
+  `false` and the series silently reports no anomalies. The returned `Set` still indexes into the
+  caller's original array.
+- **Fewer than 4 finite values** ⇒ no anomalies (too few points for a meaningful quartile split).
+- **A degenerate spread** (`iqr <= epsilon`, not just `iqr === 0`) does not bail out. The fence
+  formula collapses to a single point, which is still a meaningful comparison, so the function
+  falls through to flagging every finite value that differs from the constant. Returning an empty
+  `Set` was a false negative for `[5, 5, 5, 5, 5, 5, 5, 1000]` — an obvious spike against a
+  constant baseline.
+- That "differs from" comparison is **epsilon-relative**: `Math.max(Math.abs(q1) * 1e-9, 1e-9)`,
+  a tolerance scaled to `q1`'s own magnitude with an absolute floor for a `q1` at or near zero
+  (where a relative tolerance would collapse to 0 and stop tolerating anything). A bare
+  `value !== q1` would flag the last value of `[100, 100, 100, 100, 100.0000001]` purely on
+  upstream floating-point jitter. The same `epsilon` gates both the branch selection and the
+  per-value comparison, so the two can't disagree.
+
+`median` (a sorted-input helper) stays file-private: it has no consumer outside this file, and
+its pre-sorted-input contract is a footgun not worth exposing.
 
 ### `temporalUtils.ts`
 
-Date-bucketing helpers shared by the client (`@mui/x-studio`, whose `internals/temporalUtils.ts`'s `truncateToGranularity` delegates here) and the AI middleware (`@mui/x-studio-ai-middleware`'s `mcp/dataTools.ts`, which imports `truncateToPeriod` directly for its `x-axis` grouping logic) — one implementation of ISO-week and period-truncation math consumed by both packages, so the client's chart date-bucketing and the AI's `summarise_page` grouping always agree on where a period boundary falls.
+Date-bucketing math shared by the client (`internals/temporalUtils.ts`'s
+`truncateToGranularity` delegates here) and the AI middleware (`mcp/dataTools.ts` imports
+`truncateToPeriod` for its `x-axis` grouping), so chart date-bucketing and `summarise_page`
+grouping always agree on where a period boundary falls.
 
-- **`isoWeek(d)`** — ISO week number (1–53) for a UTC `Date`, returning `{ year, week }`. Shifts to the Thursday of the same ISO week before computing the week number, so a date near a year boundary reports the ISO year its week actually belongs to (which can differ from the calendar year — e.g. Dec 31, 2024 is ISO week 1 of 2025). Both the Thursday-shifted date and the ISO year-start date are built via the private `utcDateFromYMD(year, month, day)` helper rather than `new Date(Date.UTC(year, month, day))` directly: `Date.UTC` (and the multi-arg `Date` constructor) silently reinterprets a `year` in `[0, 99]` as `1900 + year`, so a year-50 date would otherwise report its ISO year as 1950. `utcDateFromYMD` sidesteps this by constructing off a placeholder epoch and re-stamping the real components via `setUTCFullYear`, which takes the year literally at any magnitude.
-- **`truncateToPeriod(value, granularity)`** — truncates a date-like `value` to `'day' | 'week' | 'month' | 'quarter' | 'year'` and returns a sort-stable string key (`'2024-01-15'`, `'2024-W03'`, `'2024-01'`, `'2024-Q1'`, `'2024'`), or `null` if `value` can't be parsed as a date or `granularity` is unrecognized. Accepts `Date` instances, ISO date/datetime strings, other `Date`-parseable strings, and millisecond numeric timestamps. Internally (via the private `toUtcYMD` helper) it fast-paths canonical, OFFSET-FREE `YYYY-MM-DD`/`YYYY-MM-DDTHH:...` strings by slicing the components directly (range-checking them so a malformed `2024-13-40` falls through), and falls back to `new Date(value)` for offset-carrying strings and every other format — because slicing an offset-carrying string's written components would bucket the value into the wrong UTC day. "Offset-carrying" is decided by a regex ANCHORED to the end of the post-date tail, `/[+-]\d{2}:?\d{2}$/` (Iteration 31, Tier3): a real UTC offset (`+05:00`, `-0500`) always trails the time-of-day component with nothing after it, whereas the previous `!tail.includes('+') && !tail.includes('-')` guard treated a bare `-` ANYWHERE in the tail as an offset. That contradicted the helper's own documented "a non-offset garbage tail is ignored, only the leading `YYYY-MM-DD` is read" behavior: a value like `'2024-06-01Tgarbage-more'` carries a hyphen inside the garbage, not a timezone offset, so it fell through to the slow `new Date(...)` path — which cannot parse it either — and `truncateToPeriod` returned `null` instead of the documented best-effort `'2024-06-01'`. The anchored form keeps every genuine offset on the slow path (including one preceded by unrelated hyphens elsewhere in the string) while restoring the fast path for hyphenated garbage. The `week` branch builds its intermediate date via `utcDateFromYMD` rather than `Date.UTC`, for the same two-digit-year reason `isoWeek` does, and every emitted key zero-pads the year to at least 4 digits via the private `padYear` helper (e.g. `5` → `'0005'`) — matching the `MM`/`DD` padding the other components already got — so a year in `[0, 99]` bucketing through this function no longer collides with, or sorts incorrectly against, a 4-digit year.
+- **`isoWeek(d)`** — the ISO week number (1–53) for a UTC `Date`, as `{ year, week }`. It shifts
+  to the Thursday of the same ISO week first, so a date near a year boundary reports the ISO year
+  its week actually belongs to (Dec 31 2024 is ISO week 1 of 2025).
 
-### `unsafeKeys.ts`
+- **`truncateToPeriod(value, granularity)`** — truncates a date-like value to
+  `'day' | 'week' | 'month' | 'quarter' | 'year'`, returning a sort-stable key (`'2024-01-15'`,
+  `'2024-W03'`, `'2024-01'`, `'2024-Q1'`, `'2024'`) or `null` when the value can't be parsed or
+  the granularity is unrecognized. It accepts `Date` instances, ISO date/datetime strings, other
+  `Date`-parseable strings, and millisecond timestamps.
 
-`UNSAFE_KEYS` (a `Set` of the three prototype-polluting literals `'__proto__'`, `'constructor'`, `'prototype'`) and `isSafeKey(key)` are the single shared implementation of the prototype-hazard key denylist, imported by `applyMutation.ts` (its local `isSafePatchKey` alias — the defense-in-depth copy guarding mutations `executeToolOnState.ts` builds directly from LLM tool arguments, without going through the parser), `parseStateMutation.ts` (`isSafeId`'s underlying check, plus `hasUnsafeOwnKeys`'s own-key scan), and `statePersistence.ts` (screening the persisted `pages`/`widgets` record KEYS themselves at the `deserializeState`/`normalizePersistedPages` load boundary — a third trust boundary distinct from the wire and the in-process reducer, since a shared/hand-edited persisted doc is `JSON.parse`d and can carry an own `"__proto__"` page or widget key that never crosses either of the other two). All three call sites exist because a `record[key] = value` bracket assignment with `key === '__proto__'` invokes the inherited setter and rewrites the record's prototype instead of adding an own key — every place in this package that rebuilds a `Record` key-by-key from untrusted input (widget ids, `changes`/`config` patch keys, `widgetColSpans` keys, persisted `pages`/`widgets` keys) needs the same guard, and living in its own module means the wire boundary, the reducer's runtime backstop, and the persistence load boundary can never drift apart into three independently-maintained literal lists.
+Three sharp edges, all handled by private helpers:
 
-`hasUnsafeOwnKeys(record: object)` — the own-key scan half of the denylist — is now applied **symmetrically at all three trust boundaries** to the widget/page/filter OBJECT's own top-level keys, not only to record keys and to `config`/`changes` payload keys: the wire boundary screens the widget object (`validateWidget`) and the filter object (`validateFilter`), and the persistence load boundary screens each surviving widget and filter (`deserializeState`) and each surviving page (`normalizePersistedPages`). A `JSON.parse`d shared/hand-edited doc can materialize an own `"__proto__"`/`"constructor"`/`"prototype"` DATA property on a widget/page/filter object; such an object round-trips through `serializeDoc` and then poisons a later `Object.assign`/spread of it, so both boundaries drop the whole entry (matching the drop-invalid-entry convention) and the byte-identical wire and load payloads stay in agreement. The load-boundary own-key screen was subsequently **extended to the remaining persisted channels** (T2-4): the `dashboard` object and the `ai` container each have their unsafe own keys **stripped** (keeping the rest of the object and its threads), while a `relationships`/`expressionFields` entry, an `ai` thread, or a preset **inner** filter carrying one is **dropped whole** — matching the widgets/pages/filters convention. The preset-inner-filter screen is the sharpest asymmetry: `applyFilterPreset` rematerializes each preset filter into live `doc.filters`, so an own `__proto__` key would otherwise land on a live filter that the next load's filter screen then drops entirely. Separately, the reducer's shared file-private `stripUnsafeConfigKeys(config)` helper (gated by `isSafePatchKey`, reference-stable when the config carries no unsafe key) screens the two WHOLESALE/merge config channels the per-key `config`-patch loop never covered — `updateWidget`'s `changes.config` replace and `applyBulkUpdate`'s `updatedWidgets[].config` merge. It is now **also folded into `coerceWidgetConfig`** (T2-2), so the two ADD channels — `addWidget` and `applyBulkUpdate`'s `addedWidgets` — strip prototype-polluting own config keys too, closing the last gap the UPDATE channels already covered: previously only the UPDATE paths screened them, so a parser-bypassing server-built `addWidget`/`addedWidgets` (reachable for a host-registered custom widget kind, which `validateConfigKeysForKind` leaves unrestricted) could install a config carrying an own `__proto__` key verbatim, and the NEXT `deserializeState` load would then silently drop the entire widget — deferred data loss. All four config channels now converge on the same key screen. `addFilter` closes the analogous gap for the one ADD channel whose payload isn't a widget config: it now runs the identical `stripUnsafeConfigKeys` helper against the filter object itself before appending it to `state.filters` (see `addFilter` under `applyMutation.ts` below), so a filter installed with an own `__proto__` key no longer round-trips through `serializeDoc` and silently drops on the next load the way an unscreened `addWidget` config used to before T2-2. As of Iteration 30, this own-key screen closes its last remaining gap: `filter.scope` — a record nested one level inside the filter, distinct from the filter's own top-level keys already covered above — was the one nested record never screened for an unsafe own key. It is now screened at both the wire boundary (`parseStateMutation.ts`'s `validateFilterScope`) and the reducer's defense-in-depth `stripUnsafeFilterKeys` (see `applyMutation.ts` below); the persistence load boundary inherits the wire-side fix transitively through `isValidFilterScope`, which reuses `validateFilterScope` directly, so it needed no separate check of its own (see `statePersistence.ts` below).
+- **Two-digit years.** `Date.UTC` (and the multi-arg `Date` constructor) silently reinterprets a
+  `year` in `[0, 99]` as `1900 + year`, so a year-50 date would report its ISO year as 1950.
+  `utcDateFromYMD` sidesteps this by constructing off a placeholder epoch and re-stamping via
+  `setUTCFullYear`, which takes the year literally at any magnitude. Both `isoWeek` and the
+  `week` branch use it, and `padYear` zero-pads every emitted key's year to at least 4 digits so
+  a low year doesn't collide with or mis-sort against a 4-digit one.
+- **The fast path.** `toUtcYMD` slices canonical, offset-free `YYYY-MM-DD`/`YYYY-MM-DDTHH:…`
+  strings directly (range-checking the components so a malformed `2024-13-40` falls through), and
+  falls back to `new Date(value)` otherwise — slicing an offset-carrying string's _written_
+  components would bucket it into the wrong UTC day.
+- **Deciding "offset-carrying"** uses a regex ANCHORED to the end of the post-date tail,
+  `/[+-]\d{2}:?\d{2}$/`. A real UTC offset always trails the time-of-day with nothing after it.
+  A bare `.includes('-')` test treated a hyphen ANYWHERE in the tail as an offset, contradicting
+  the helper's own documented "a non-offset garbage tail is ignored" behavior: `'2024-06-01Tgarbage-more'`
+  fell through to the slow path, which can't parse it either, and the function returned `null`
+  instead of the documented best-effort `'2024-06-01'`.
+
+### `unsafeKeys.ts` and `internalGuards.ts`
+
+Both are package-internal (absent from `index.ts`) and exist purely so their guards have exactly
+one implementation across the three trust boundaries.
+
+- **`unsafeKeys.ts`** — `UNSAFE_KEYS`/`isSafeKey`. Imported by `applyMutation.ts` (as the local
+  `isSafePatchKey` alias), `parseStateMutation.ts` (behind `isSafeId` and `hasUnsafeOwnKeys`),
+  and `statePersistence.ts` (screening persisted `pages`/`widgets` record keys). See
+  [prototype-hazard keys](#prototype-hazard-keys).
+- **`internalGuards.ts`** — `isPlainRecord` (see
+  [above](#isplainrecord--the-one-is-this-a-usable-bag-predicate)), `stripUnsafeOwnKeys`, and
+  `repairFilterDependsOn`. It began as a pure dedup of three helpers previously defined
+  independently in `applyMutation.ts`, `parseStateMutation.ts`, and `statePersistence.ts`. It
+  earned its own test file once `isPlainRecord` gained a rule of its OWN (reject an exotic
+  object) rather than being a byte-for-byte relocation of three call sites' checks: no call-site
+  test naturally constructs a `Map` where a config is expected.
 
 ### `applyMutation.ts` — the single mutation reducer
 
-**Iteration 22 fixes.** `applyBulkUpdate`'s `validRowIds` computation excludes any id also present in the same payload's `removedWidgetIds` (see the `applyBulkUpdate` entry above for the current full rule, including the same-payload re-add exception added since). `mutationLabel`'s `addWidget`/`addFilter` label builders now guard `isPlainRecord` before reading nested fields, falling back to `'unknown'` instead of throwing on a malformed payload. `addPage`/`renamePage` now require a string `title`, and `addFilter` a record `scope` with a string `kind` — parser-bypass guards matching every sibling mutation and the wire boundary. `setWidgetLayout` now requires `typeof id === 'string'` before its `Object.hasOwn` lookup, closing an implicit numeric-key coercion. `resolveRankFilterPageId`/`hasConflictingRankFilter` are now exported for reuse at the persistence load boundary (see `statePersistence.ts` below).
+#### The two layers
 
-**Iteration 25 fixes.** `setDashboardTitle` and `renameAIThread` now require their string arguments (`title`; `name`+`updatedAt`) to actually be strings, no-opping otherwise — the same parser-bypass guard `addPage`/`renamePage` already applied, extended to the two mutations that had been missing it. `setWidgetColSpan` no-ops on a non-string `widgetId` and `applyBulkUpdate`'s `removedWidgetIds` now filters out non-string entries before use, rather than trusting them verbatim (see those two entries below for the coercion mismatch this closes). `applyBulkUpdate`'s active-page pre-strip also now prunes a removed widget's own `widgetColSpans` entry on the active page even when the widget survives doc-wide on another page (previously that span was only pruned when the widget was "genuinely gone" everywhere). Separately, the byte-for-byte-duplicated `isPlainRecord`/`stripUnsafeOwnKeys`/`repairFilterDependsOn` helpers — previously independently defined in this file, `parseStateMutation.ts`, and `statePersistence.ts` — are now consolidated in `internalGuards.ts` (see "Function modules" above); this file imports them under its established local names (`isPlainRecord`, `stripUnsafeConfigKeys`) so every call site below is unchanged.
+- **`applyDocMutation(doc: StudioDoc, mutation): StudioDoc`** is the semantic core. Confining it
+  to `doc` is a **compile-time access boundary**: a handler literally cannot reach `session` or
+  `runtime`, because those fields don't exist on `StudioDoc`. The "reducer only touches the
+  persisted/undoable partition" rule is enforced by the type system, not by convention. (Handler
+  bodies still name their parameter `state` for historical reasons; its type is `StudioDoc`.)
+- **`applyMutation(state: StudioState, mutation): StudioState`** is the thin wrapper: it applies
+  the core to `state.doc` and rewraps, leaving `session`/`runtime` untouched by construction, and
+  returns the SAME `state` reference when the doc is unchanged.
 
-**Iteration 26 fixes.** `removeWidget`, `removePage`, `setActivePage`, and `addFilter` now require a STRING id (`widgetId`, `pageId`, `pageId`, and `filter.id` respectively) before their `Object.hasOwn` existence check ever runs — closing the last four gaps in the `typeof id !== 'string'` guard already applied to `addPage`/`addWidget`/`setWidgetColSpan`/`applyBulkUpdate` (see those entries below). `Object.hasOwn` COERCES a numeric id to match a string-keyed record, but every downstream cleanup comparison (`Set.has`, strict `===`, `.includes`) does not, so a numeric id used to pass the existence check while the rest of the handler silently missed it: `removeWidget` deleted the widget from `state.widgets` but left it referenced on its page and in its scoped filters; `removePage` deleted the page but left its page-scoped filters and a dangling `activePageId` behind; `setActivePage` installed the numeric value verbatim into the string-typed `dashboard.activePageId` with nothing else in the handler to catch it; and `addFilter` would have installed a filter whose `id` could never satisfy `removeFilter`'s strict `!==` compare, making it unremovable in-session. All four now no-op on a non-string id, the same skip-not-throw convention every sibling guard uses. Separately, `updateWidget`'s `changes`-merge scalar guard — which already rejected a non-string `title`/`kind`/`subtitle`/`sourceId` — now also rejects a `titleMode`/`subtitleMode` that isn't `'auto' | 'manual'`, matching the wire boundary's `isOptionalTitleMode` gate and the load boundary's own strip of those two fields (see the `updateWidget` and `statePersistence.ts` entries below). `deserializeState`'s `activePageId` reconciliation was fixed the same way, for the same reason (see `statePersistence.ts` below).
+Both transports use it for the state-transformation step — the AI middleware's
+`executeToolOnState.ts` threads `nextState` across tool calls in a turn (and, for MCP, a whole
+session), and the client's `StudioController.applyExternalMutation` applies the identical
+function when a `state-mutation` SSE event arrives. Because it is the _one_ implementation of
+every mutation's effect, the server-threaded state and the client-applied state cannot disagree
+about what a tool call did.
 
-**Iteration 27 fixes.** The Iteration 26 "`Object.hasOwn` coerces but downstream `===` doesn't" coercion-desync class survived one level down, inside `addFilter`'s own `scope` payload: a `widget`-scope `scope.widgetId`, a `cross-filter`/`interactive`-scope `scope.sourceWidgetId`, and a `page`/`dashboard-date-range`-scope `scope.pageId` were each still compared only via the coercing `Object.hasOwn(state.widgets/pages, …)` orphan check below, with nothing requiring the anchor id itself to be a string first. `addFilter` now requires `typeof … === 'string'` for every scope anchor id before that orphan check ever runs — the exact guard Iteration 26 added for `filter.id` itself, applied one level deeper to the id living inside `filter.scope` — so a numeric anchor id is rejected outright instead of half-installing (passing the coercing existence check while `dropWidgetScopedFilters`/`removeWidgetIds`'s strict-`===` cleanup can never match it, leaving an orphan no removal path can reach). `parseStateMutation.ts`'s `validateFilterScope` closes the matching wire-boundary gap: the `page` kind's `pageId` is optional, so `FILTER_SCOPE_REQUIRED_IDS` lists no required id for it and it had gone completely untyped-checked — `validateFilterScope` now also runs it through `isOptionalString`. `statePersistence.ts`'s load-boundary page-anchor screen needed no code change, only a comment correction: it is safe transitively, because the shared `isValidFilterScope` predicate it already calls now rejects a non-string `pageId` before that screen's own `Object.hasOwn` lookup ever runs (see `statePersistence.ts` below). Separately, `hasConflictingRankFilter`'s existing-filter loop excluded only a `cross-filter`-scoped filter from rank-conflict consideration, not `interactive`/`dashboard-date-range`, despite `resolveRankFilterPageId`'s own doc comment already stating that only `page`/`widget` scopes are rank-eligible: a wire-valid `filterMode: 'rank'` filter on, say, a `dashboard-date-range` scope resolved via that function's catch-all to a `null` page context, which conflicts with — and is conflicted by — every other rank filter, silently poisoning every legitimate `page`/`widget` rank filter dashboard-wide from then on. The loop now excludes any scope kind other than `page`/`widget`, and `addFilter`'s own conflict gate (see below) now only runs the check at all when `scope.kind` is `page` or `widget`, so a rank-mode filter on any other scope installs without ever touching rank-uniqueness enforcement. The identical `page`/`widget` gate was added to the load-boundary rank dedup in `statePersistence.ts` (see below), so the reducer and the load boundary agree on which scope kinds are rank-eligible.
+Side effects a pure reducer cannot own — undo-stack management, title inference from live data
+sources, React shell selection — stay in `StudioController` on the client.
 
-**Iteration 28 fixes.** The two widget ADD channels — `addWidget` and `applyBulkUpdate`'s `addedWidgets` insert loop — now KEY-STRIP the four OPTIONAL widget scalars the wire boundary already validates but these paths never did, via the new file-private `screenOptionalWidgetScalars(widget)` helper run right after `coerceWidgetConfig` (before `normalizeConfigChartSeries`): a non-string `subtitle`/`sourceId` and a non-`'auto'|'manual'` `titleMode`/`subtitleMode` are dropped on write (Finding 1). This closes the same deferred-data-loss class finding T2-2 closed for config keys and Iteration 27 closed for `kind`/`title`: a parser-bypassing server-built `addWidget`/`addedWidgets` with e.g. `subtitle: 42` or `titleMode: 'weird'` previously installed the junk value VERBATIM, only for the very next `deserializeState` load's own `subtitle`/`sourceId`/`titleMode`/`subtitleMode` screen to silently discard it — a repair deferred to load rather than performed at write time. Because these four fields are OPTIONAL, the fix mirrors the load boundary's "strip the offending KEY, not the whole widget" convention (an invalid value degrades to the field's default, not a widget no-op), unlike `kind`/`title` whose absence sinks the entry; `screenOptionalWidgetScalars` is reference-stable when all four are valid or absent — the only shape the wire boundary itself ever lets through. `addFilter` gains the parser-bypass parity its widget siblings already had: it now no-ops when `filter.field` is not a string, or `filter.operator`/`filter.operator2` (the latter only when present) is not a member of the closed `StudioFilterOperator` union — reusing `widgetTypeGuards.ts`'s `isStudioFilterOperator`, the same membership check the wire boundary's `validateFilter` and the load boundary already apply to these fields (Finding 2). Without it, a server-built `addFilter` bypassing the parser with `field: 42` or a junk `operator` installed VERBATIM — and, since the client evaluator FAILS OPEN on an unrecognized operator, rendered an active-looking filter chip that filtered nothing until the next load's own filter screen dropped the WHOLE entry. `addFilter` also now requires a STRING `scope.pageId` OUTRIGHT for the `dashboard-date-range` scope, whose `pageId` is REQUIRED by the type (Finding 4): the previous `scope.pageId !== undefined` exemption — borrowed from `page` scope's genuinely OPTIONAL `pageId` — wrongly let a parser-bypassing `dashboard-date-range` filter with NO `pageId` through, where it then slipped past the orphan check below (also `!== undefined`-gated) and installed anchored to nothing; `page` scope keeps its "screen for string-ness only when present" gate. Two bracket-writes gained an explicit `isSafePatchKey` guard for uniformity with every other key-by-key rebuild in this reducer — `setWidgetColSpan`'s `newSpans[widgetId]` sole-sibling-shrink write and `applyBulkUpdate`'s `nextWidgets[update.widgetId]` merge write (Finding 5); the `Object.hasOwn` existence check each already runs rejects an unsafe id in practice (no widget carries such an own key post-`addWidget` screen), so these are defense-in-depth consistency guards, not newly-closed holes. Finally, `applyDocMutation` and `mutationLabel` each gained an `isPlainRecord(mutation)` totality gate BEFORE their `Object.hasOwn(MUTATION_HANDLERS, mutation.type)` read (Finding 6) — the mutation-level sibling of the existing `isPlainRecord(mutation.args)` gate: a non-record `mutation` (`null`/`undefined`/a primitive, reachable only via a parser-bypassing server-built value) would otherwise throw on the `mutation.type` read; both now return the documented no-op (`applyDocMutation` the unchanged `doc`, `mutationLabel` a static `'unknown'`).
+#### Dispatch shape
 
-**Iteration 29 fixes.** `applyBulkUpdate`'s `validRowIds` population (`isPlainRecord(widget) && isSafePatchKey(widget.id)`) and the `widgetRows` row-sanitization filter that consults it (`row.filter((id) => validRowIds.has(id))`) each screened a candidate widget id only through `isSafePatchKey` — the prototype-hazard denylist — never checking `typeof widget.id === 'string'`. A numeric `addedWidgets[].id` therefore survived into `validRowIds` and into the sanitized `widgetRows` row, while the separate widget-insertion loop (which already required a string id, since Iteration 26/27) skipped inserting it into `state.widgets` — leaving a dangling `widgetRows` reference to a widget id with no corresponding `state.widgets` entry. Both spots now require `typeof id === 'string'`, mirroring the same guard already used in `setWidgetLayout` (see the `applyBulkUpdate` entry below for the fixed behavior in full). Separately, `removeFilter` now guards `filterId` with the same `typeof filterId !== 'string'` early-return convention every other id-bearing handler in this file uses — previously harmless only because the comparison below never coerces, this brings the one remaining handler into line with the file's explicit-guard convention (see the `removeFilter` entry below). `applyBulkUpdate`'s `activePageId` is now also required to be a string before `Object.hasOwn(state.pages, activePageId)` is evaluated, closing the same coercion class other handlers already guard against — not independently exploitable here, since every downstream use of `activePageId` is itself gated on this same existence check and it is never persisted to `dashboard.activePageId`, but keeping the handler uniform with file convention.
-
-**Iteration 30 fixes.** Two independent architecture-review findings against the shared reducer/wire/persistence trust boundaries. First (Tier2), `filter.scope` — a record nested one level inside `filter` — was the one nested record this reducer's defense-in-depth screening never covered: `stripUnsafeFilterKeys` (the `addFilter` helper that strips an unsafe own key from the filter object before it is appended verbatim) only stripped the filter's OWN top-level keys, leaving a `scope` carrying its own `__proto__`/`constructor`/`prototype` key to install unscreened and later round-trip through `serializeDoc`. `stripUnsafeFilterKeys` now also descends into `scope` (when it is a plain record) and strips the same denylist from it, reusing the identical `stripUnsafeConfigKeys` implementation — reference-stable when `scope` is not a record or carries no unsafe key. `parseStateMutation.ts`'s `validateFilterScope` closes the matching wire-boundary gap by rejecting a scope carrying such a key outright (see `parseStateMutation.ts` below); because `statePersistence.ts`'s `isValidFilterScope` reuses that same predicate, the persistence load boundary inherits the fix transitively and needed no code change of its own (see `statePersistence.ts` below). Second (Tier3), `removeFilter` never cascaded its removal to the `dependsOn` field of any remaining filter that named the removed id: `StudioFilterState.dependsOn` (`stateTypes.ts`) lists other filter ids a filter cascades from — a UX hint the client's cascade drawer maps over directly — so a dangling reference to a just-removed filter id would point the UI at a filter that no longer exists. `removeFilter` now maps over the remaining filters after the removal and strips the removed id from any `dependsOn` array that references it, collapsing the array to `undefined` (never `[]`) when the prune empties it — mirroring `docTransforms.ts`'s own convention for this field, and `repairFilterDependsOn`'s "absent is the canonical empty state" treatment — and is reference-stable per filter entry when nothing changes (see the `removeFilter` entry below for the full behavior).
-
-**Iteration 31 fixes.** Five architecture-review findings across the reducer, the wire boundary, the shared guards, and the temporal helpers. First (Tier1, and the only behavior change a user could observe), `applyBulkUpdate`'s pre-strip step now calls `stripWidgetIdsFromPages(state.pages, new Set(idsToPreStrip))` across EVERY page's rows instead of rebuilding only the active page's entry. `removedWidgetIds` names widgets to remove doc-wide, but the pre-strip cleared them from the active page alone, so a widget that had moved to a DIFFERENT page mid-turn — dragged there by the user while an agentic bulk update computed against an earlier snapshot was still in flight — was reported as "still referenced" by `removeWidgetIds`'s cross-page scan and silently survived the removal: no error, no signal, the removal simply dropped. Stripping all pages first mirrors `removeWidget`'s own all-pages `stripWidgetIdsFromPages` call, so a single-widget removal and a batch removal now carry the identical cross-page guarantee (see the `applyBulkUpdate` entry below for the full rule, including how the finding-3.3 active-page span prune folds into the all-pages pass). The `reAddedWidgetIds` exemption is unchanged — a remove-and-re-add of the same id in one payload is still a "replace" and is still excluded from the pre-strip on every page. Second (Tier2), `internalGuards.ts`'s `isPlainRecord` now requires the value's prototype to be `Object.prototype` or `null`, so an exotic object (`Date`/`RegExp`/`Map`/`Set`/class instance) is treated as ABSENT the way the predicate's contract always claimed, instead of being laundered into an empty `{}` by a downstream spread — see the `isPlainRecord` paragraph above for why this is a strict tightening that changes nothing for object literals or `JSON.parse` output, and "Function modules" for the new `internalGuards.test.ts` this rule earned. Third (Tier2), `parseStateMutation.ts` gained wire-boundary SIZE caps (`MAX_ARRAY_LENGTH` = 500, `MAX_STRING_LENGTH` = 10,000) on top of its shape checks — previously a single well-formed mutation could drive unbounded reducer work and a full-doc `structuredClone`/`JSON.stringify` on autosave (see `parseStateMutation.ts` below). Fourth (Tier2), `deserializeState`'s `normalizedAi` block now screens thread ids, de-dups threads by `id`, and reconciles a dangling `activeThreadId` (see `statePersistence.ts` below). Fifth (Tier3), `temporalUtils.ts`'s `toUtcYMD` offset guard is now an anchored `/[+-]\d{2}:?\d{2}$/` test rather than a bare `.includes('+')`/`.includes('-')` pair, so a non-offset garbage tail containing a hyphen fast-paths off its leading `YYYY-MM-DD` instead of falling through and returning `null` (see `temporalUtils.ts` above).
-
-The reducer is exposed as two layered functions, both pure:
-
-- **`applyDocMutation(doc: StudioDoc, mutation: StateMutation): StudioDoc`** is the semantic core — every handler reads and returns a `StudioDoc`, never the full `StudioState`. Confining the reducer to `doc` is a compile-time access boundary: a handler literally cannot reach `session` (mode/shell) or `runtime` (dataSources), because those fields don't exist on `StudioDoc`, so the "reducer only touches the persisted/undoable partition" rule is enforced by the type system, not by convention. (Handler bodies still name their parameter `state` for historical reasons; its type is `StudioDoc`.)
-- **`applyMutation(state: StudioState, mutation: StateMutation): StudioState`** is the thin whole-state wrapper: it applies `applyDocMutation` to `state.doc` and rewraps, leaving `session`/`runtime` untouched by construction. It preserves the reference-equality no-op contract at the state level — when the doc is unchanged it returns the **same** `state` reference, so `StudioController`'s no-op detection and the middleware's `executeToolOnState` short-circuit unchanged commits.
-
-Both transports use it for the state-transformation step:
-
-- The AI middleware server (`executeToolOnState.ts` in `@mui/x-studio-ai-middleware`) computes `nextState = applyMutation(state, mutation)`, threading it across tool calls in the same turn and, for MCP, across a whole session.
-- The client (`StudioController.applyExternalMutation` in `@mui/x-studio`) applies the identical function when a `state-mutation` SSE event arrives.
-
-Because it is the _one_ implementation of every mutation's effect, the server-threaded state and the client-applied state cannot disagree about what a tool call did (page-targeting, config-merge order, and similar edge cases are handled once, not hand-synced across two implementations).
-
-**Dispatch shape.** Rather than two parallel `switch` statements (one computing the state transition, one computing a human-readable label), the reducer is a single dispatch table:
+Rather than two parallel `switch` statements (one for the state transition, one for a
+human-readable label), the reducer is a single dispatch table:
 
 ```ts
 type MutationHandler<M extends StateMutation> = {
@@ -198,151 +696,1001 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
 };
 ```
 
-Each of the 14 mutation kinds (`addPage`, `setDashboardTitle`, `addWidget`, `updateWidget`, `removeWidget`, `setWidgetLayout`, `setWidgetColSpan`, `renamePage`, `removePage`, `setActivePage`, `addFilter`, `removeFilter`, `applyBulkUpdate`, `renameAIThread`) has one table entry co-locating its `apply` and `label` logic, so the two can never drift apart the way two independently-maintained switches could. The mapped type over `StateMutation` requires an entry for every variant — a new `StateMutation` kind added without a table entry is a compile-time error (`Property '<kind>' is missing`), not a silent runtime fallback. At the dispatch boundary, an unrecognized `mutation.type` — a malformed payload or one from a forward-incompatible client — is a graceful no-op (`applyDocMutation` returns `doc` unchanged; `mutationLabel` returns the stringified type) rather than a throw, since a value arriving over the wire isn't guaranteed to match what TypeScript can prove about compile-time-known variants. Both dispatchers guard the lookup with `Object.hasOwn(MUTATION_HANDLERS, mutation.type)` before the bracket read, matching the `Object.hasOwn` discipline every other table lookup in this package uses (`parseStateMutation`'s validator table, `getAllowedConfigKeys`, the reducer's per-widget guards) — `MUTATION_HANDLERS` is an ordinary object with no null prototype, so a bare `MUTATION_HANDLERS[mutation.type]` would otherwise resolve a `type` naming an `Object.prototype` member (`'constructor'`, `'toString'`, `'__proto__'`) UP the prototype chain instead of to `undefined`, defeating the `handler ? … : doc` guard (`type: 'constructor'` would call `Object.apply(doc, args)` and replace the whole doc with a bogus `{}`; `'__proto__'`/`'valueOf'` would throw mid-apply). The `Object.hasOwn` gate restores the documented graceful no-op for every unrecognized `type`, prototype-chain names included, not just ordinary garbage strings. The dispatch boundary is additionally **total over a non-record `args`** (T2-3): every handler's first field read (`args.rows`, `args.widget`, `args.filter`, …) would throw on a `undefined`/primitive `args`, so `applyDocMutation` gates `mutation.args` through `isPlainRecord` once at the boundary (and `mutationLabel` falls back to the type), returning the no-op `doc` reference. That fallback is `String(mutation.type)`, not the value itself: `mutation.type` is only KNOWN to be a string for a RECOGNIZED type, and this is by definition the unrecognized branch, so a parser-bypassing `type: 42`/`null`/an object used to be returned RAW — violating `mutationLabel`'s own `: string` contract for the callers that use the result as a log line, a React child, or a `.slice()` target. As of Iteration 28 the identical `isPlainRecord` gate is applied one level UP to `mutation` ITSELF, BEFORE the `Object.hasOwn(MUTATION_HANDLERS, mutation.type)` read (Finding 6): a non-record `mutation` (`null`/`undefined`/a primitive) would otherwise throw on that `mutation.type` read the `args` gate sits just past — `applyDocMutation` now returns the unchanged `doc` and `mutationLabel` a static `'unknown'` (mirroring the per-handler `'unknown'` fallbacks). This matters only for a parser-bypassing server-built mutation (the `executeToolOnState` path); the wire boundary already guarantees a record `args`.
+Each of the 14 kinds (`addPage`, `setDashboardTitle`, `addWidget`, `updateWidget`,
+`removeWidget`, `setWidgetLayout`, `setWidgetColSpan`, `renamePage`, `removePage`,
+`setActivePage`, `addFilter`, `removeFilter`, `applyBulkUpdate`, `renameAIThread`) has one entry
+co-locating `apply` and `label`, so the two can never drift the way two switches could. The
+mapped type over `StateMutation` makes a new variant without an entry a compile error.
 
-**Shared removal primitives.** Several handlers converge on a few file-private helpers: `dropWidgetScopedFilters` (drop `widget`/`interactive`/`cross-filter`-scoped filters anchored to any removed widget), `pruneDependsOn(filters, survivingIds)` (drop every `dependsOn` id that no longer names a surviving filter — see "Cascade pruning" below), `removeSpanEntries` (prune `widgetColSpans` entries, collapsing an emptied map to `undefined`), `enforceLayoutColSpans` (the SOLE implementation of the col-span layout invariants — 2→1 collapse, row-overflow drop, orphaned-span drop — reached by every layout path), `dedupeLayoutRows` (the SOLE implementation of the layout-matrix dedup invariant — first occurrence wins across the whole matrix, dropping any row an id-removal leaves empty — shared by `setWidgetLayout` and `applyBulkUpdate`, and by the load-boundary sweep described under `statePersistence.ts` below), `stripWidgetIdsFromPages` (strip a set of ids from every page's `widgetRows`, dropping a row the removal leaves empty and clearing a surviving row-mate's now-stale span when the removal collapses that row from two-or-more widgets down to exactly one — generalizes the single-id row-edit `removeWidget` used to inline, so it and `applyBulkUpdate`'s `removedWidgetIds` — a batch, not just one id — share one implementation instead of two hand-copies), and `removeWidgetIds` (given `pages` already carrying the caller's row edits — i.e., already run through `stripWidgetIdsFromPages` or an equivalent edit — compute which candidate ids are _genuinely gone_ — no longer referenced on ANY surviving page — then delete them from `widgets`, drop their scoped filters — cascading that drop into every surviving filter's `dependsOn` via `pruneDependsOn` — and prune their stale spans everywhere; a candidate still referenced on another page is fully preserved). That "genuinely gone" step is load-bearing for `removePage` ALONE: it hands in `pages` with the removed page deleted but every surviving page's rows untouched, so a widget that also lives elsewhere must keep its entry, filters, and spans. The other two callers (`removeWidget`, `applyBulkUpdate`) pre-strip the candidate ids from ALL pages' rows first, so for them the step is inert by construction — deliberately, since both delete the widget from `doc.widgets` outright and leaving it on another page's rows would strand a dangling row reference. The step is kept rather than pruned as two-thirds-dead code precisely because it IS the whole contract for `removePage`, and is the correct default for any future caller that does not pre-strip. `removeWidgetIds` rebuilds the `widgets` record only when at least one removed id is an **own key** of `widgets` (T2-1): a re-delivered removal bulk (SSE at-least-once) whose `removedWidgetIds` names an already-gone widget classifies it as "genuinely removed" (no surviving page references it), yet a `{ ...widgets }` + no-op `delete` would mint a fresh, content-identical record — flipping the caller's `widgetsChanged` gate and pushing a spurious undo entry. Returning the ORIGINAL `widgets` reference when nothing was actually deleted preserves the no-op contract. These helpers all return their input references unchanged on a no-op, preserving the reference-stable contract. Prototype-hazard keys (`__proto__`/`constructor`/`prototype`) are rejected via the shared `isSafePatchKey` guard and `Object.hasOwn` existence checks wherever the reducer writes a record key from untrusted input — the defense-in-depth backstop for server-built mutations that bypass `parseStateMutation`. Both `normalizePersistedPages` (the load-boundary sweep) and `removeWidgetIds`' own per-page span-pruning pass rebuild the `pages` map via `Object.fromEntries` over the surviving `[pageId, page]` entries rather than a `nextPages[pid] = …` bracket assignment — the bracket form would invoke the inherited setter and re-prototype the map if a stray unsafe page key ever reached it, so both rebuilds use the same `Object.fromEntries` form for uniformity.
+The dispatch boundary is **total over malformed input**, in three layers:
 
-**Cascade pruning is a per-CLASS invariant, not a per-handler courtesy** (Iteration 33). `StudioFilterState.dependsOn` (`stateTypes.ts`) lists the OTHER filter ids a filter cascades from — "purely a UX hint" per its own doc comment, but the client's cascade drawer maps over it directly, so a dangling id silently gates option-narrowing on a filter that no longer exists, and `serializeDoc` re-persists the dangling reference forever with no self-heal. The rule is therefore: **every path that drops a filter prunes `dependsOn` against the survivors.** `pruneDependsOn(filters, survivingIds)` is the ONE implementation of that prune, exported from this module (not from `index.ts` — it is a package internal, like `normalizePersistedPages`) so the load boundary uses the identical code; the file-private `pruneDependsOnAgainstSelf(filters)` wrapper covers the common "some filters were just dropped from this array" shape, while the exported primitive keeps its explicit surviving-id-set signature for the load boundary, which prunes against a set it computes itself. It drops the whole `dependsOn` array (never leaves `dependsOn: []`) when the prune empties it, mirroring `docTransforms.ts`'s `remappedDependsOn.length > 0 ? … : undefined` convention for this exact field and `repairFilterDependsOn`'s "absent is the canonical empty state" treatment, and is reference-stable at BOTH levels — the same array back when nothing needed pruning, and each untouched filter keeps its object identity. The prune began life INLINE in `removeFilter`, which is exactly why it covered one of the several filter-dropping paths and no other: `dropWidgetScopedFilters` (via `removeWidget`/`applyBulkUpdate`), `removePage`'s page-anchor drop, and the whole load-boundary filter screen all left dangling references behind. Extracting it turned the invariant from something each handler had to remember into something the shared primitives enforce.
+1. `isPlainRecord(mutation)` — a `null`/primitive `mutation` would throw on the `mutation.type`
+   read below.
+2. `Object.hasOwn(MUTATION_HANDLERS, mutation.type)` before the bracket read. `MUTATION_HANDLERS`
+   has an ordinary prototype, so a bare bracket read of `type: 'constructor'` would resolve
+   `Object.prototype.constructor` and call `Object.apply(doc, args)`, replacing the whole doc with
+   a bogus `{}`; `'__proto__'`/`'valueOf'` would throw mid-apply.
+3. `isPlainRecord(mutation.args)` — every handler's first field read (`args.rows`, `args.widget`,
+   …) would throw on a non-record `args`.
 
-**Alias normalization on every live write.** The file-private `normalizeConfigChartSeries(config)` resolves a config's `ySeries` entries through `factories.ts`'s `normalizeChartSeries` (the deprecated `seriesType` field collapsed to the canonical `type`), reference-stable when every entry is already canonical. `deserializeState` only normalizes this alias at the load boundary, so without a write-time pass too, a widget written with `seriesType` would carry the alias until the next reload. Every path that installs or merges a chart config runs it: `addWidget`, `updateWidget`'s `config` patch and its `changes.config` wholesale replacement, and `applyBulkUpdate`'s `addedWidgets` inserts and `updatedWidgets[].config` merges — so the alias never survives ANY live write, not just the ones a user-facing form happens to touch. `normalizeConfigChartSeries` itself tolerates a non-record `config` (returning it unchanged rather than throwing on a `.ySeries` read off `null`) — defense-in-depth for a server-built mutation that bypasses `parseStateMutation` with a `config: null` — but tolerating it is only enough to keep the IMMEDIATE add from throwing; it does not, by itself, stop a `config: null` widget from being installed into `state.widgets` verbatim. Both ADD sites (`addWidget` and `applyBulkUpdate`'s `addedWidgets` loop) additionally run the file-private `coerceWidgetConfig(widget)` BEFORE `normalizeConfigChartSeries`, coercing a non-record `config` to `{}` — reference-stable when `config` is already a record — mirroring `deserializeState`'s load-boundary coercion. Without it, a widget installed with `config: null` loads and renders fine until the next config-touching mutation, where `shallowRecordEqual(existing.config, …)`/`Object.keys(existing.config)` on a `null` config throws `Cannot convert undefined or null to object` — a deferred landmine, not a closed gap.
+All three fall through to the documented graceful no-op: `applyDocMutation` returns the unchanged
+`doc`, and `mutationLabel` returns `'unknown'` (for a non-record mutation) or
+`String(mutation.type)`. The `String(...)` matters: `mutation.type` is only KNOWN to be a string
+for a RECOGNIZED type, and this is by definition the unrecognized branch, so a `type: 42`/`null`
+would otherwise be returned raw and violate `mutationLabel`'s own `: string` contract for callers
+that use the result as a log line, a React child, or a `.slice()` target.
 
-The shared `isPlainRecord(value)` predicate (imported from `internalGuards.ts`) is the single "is this a usable config" test `coerceWidgetConfig` and every config-accepting reducer channel use. As of Iteration 31 it requires the value's PROTOTYPE to be exactly `Object.prototype` or `null`, on top of the original `typeof value === 'object' && value !== null && !Array.isArray(value)` check (Tier2). The original three clauses are all TRUE for an exotic object — a `Date`, `RegExp`, `Map`, `Set`, or any class instance is a non-null, non-array `typeof … === 'object'` value — so `coerceWidgetConfig`'s `!isPlainRecord(config)` guard never fired for one, and the live exotic instance was installed VERBATIM as `widget.config` (a field typed `Record<string, unknown>`) instead of being coerced to `{}` the way a `null`/array config already was. Downstream every passing value is treated as a plain data bag — spread (`{ ...config }`), key-screened, or read by arbitrary string key — so an exotic object was silently LAUNDERED into an empty-looking record (`{ ...new Map([['a', 1]]) }` is `{}`), discarding whatever it actually carried with no error anywhere. Requiring an `Object.prototype`/`null` prototype is a strict tightening with no behavior change for the values the predicate was ever meant to accept: every object literal and every `JSON.parse` output (the wire and persistence boundaries' actual input shape) already has `Object.prototype`, and an explicit `Object.create(null)` bag — which a caller may legitimately use to avoid prototype pollution outright — is accepted too. Because this is the ONE predicate every trust boundary in the package routes through, the tightening lands simultaneously in the reducer's config channels, `parseStateMutation.ts`'s `isRecord` alias, and `statePersistence.ts`'s load-boundary screens. Before architecture-review finding T2-2, the three UPDATE-shaped channels — `updateWidget`'s `config` patch, `updateWidget`'s `changes.config` wholesale replacement, and `applyBulkUpdate`'s `updatedWidgets[].config` merge — each used a narrower ad-hoc check instead of this predicate (`config !== null && typeof config === 'object'` on the first two, bare truthiness `if (update.config)` on the third), so an **array** passed all three, and a truthy **primitive** (e.g. a string) additionally passed the bulk-update one. A passing array or string then either merged its index keys (`"0"`, `"1"`, …) into the live config via `Object.entries`/object-spread, or — on the `changes.config` replacement path — was installed AS the widget's `config` verbatim. All three sites now gate on `isPlainRecord`, treating a non-record `config` (`null`, an array, or a primitive) as ABSENT/skipped, matching the ADD-site (`coerceWidgetConfig`) and wire-boundary (`parseStateMutation`'s `isRecord`) contract uniformly. The same predicate also gates the `changes` bag itself, one level up from its `config` leaf: `updateWidget`'s merge step (see below) used to test `changes` with bare truthiness, so a truthy non-record `changes` (an array or string from a parser-bypassing server-built mutation) reached `Object.entries` and merged index-keyed junk properties (`"0"`, `"1"`, …) onto the widget — the identical failure mode `config` had before T2-2. `changes` now gates on `isPlainRecord` too, treating a non-record value as ABSENT.
+`MUTATION_TYPES` (the table's keys) is exported so a runtime test can pin that
+`parseStateMutation`'s validator table covers exactly the reducer's variant list — the mapped
+types already guarantee it at compile time, but this turns it into an observable assertion.
 
-**Every handler honors the reference-equality no-op contract**, not just the ones whose no-op is idempotency-driven (`addPage`/`addWidget`/`addFilter` above): `setActivePage` (activating the already-active page), `setDashboardTitle` and `renamePage` (writing the identical title), `setWidgetColSpan` and `setWidgetLayout` (a span/layout write that doesn't change any row or span by value — compared via the file-private `rowsEqual`/`spansEqual` helpers, since `enforceLayoutColSpans` mints a fresh object even when its contents are unchanged; `spansEqual` is an `undefined`-tolerant wrapper over the same `shallowRecordEqual` core described below, so the two comparisons can never drift apart), `renameAIThread` (an unresolvable `threadId`, or a matched thread whose `name`/`updatedAt` are already identical), and `applyBulkUpdate` (nothing removed, added, updated, or laid out differently) all return the SAME `state` reference rather than a fresh, content-identical doc. This matters beyond memoization: `StudioController`'s `commitDocPatch` pushes an undo-stack entry only when the doc reference changes, so a handler that skipped this check would make a re-delivered or already-satisfied mutation (e.g. an SSE retry of `set_active_page`) a visible no-op on the very next Ctrl+Z.
+#### Shared removal and layout primitives
 
-This no-op discipline extends to the two handlers whose input is itself a **merge** rather than a full replacement — `updateWidget`'s `changes` and `applyBulkUpdate`'s `updatedWidgets` — where "did this attempt a write" and "did this actually change anything" are different questions. Both compare each incoming field against the widget's current value (`Object.hasOwn(existing, key) && existing[key] === value` for scalars) and, for a wholesale `config` replacement or merge, delegate to the file-private `shallowRecordEqual(a, b)` helper (key-count plus per-key `===`, so a re-supplied but reference-different nested value such as a fresh `ySeries` array still counts as a change) rather than rewrapping on every attempted write. A `changes: { title: 'Same' }` on a widget already titled `'Same'`, or an `updatedWidgets` entry that is field-less or value-identical, returns the SAME `state` reference — re-delivery-safe, matching every other handler's contract.
+Several handlers converge on file-private helpers. All return their input references unchanged on
+a no-op.
 
-**Notable semantics baked into specific handlers:**
+| Helper                                         | Responsibility                                                                                                                                  |
+| :--------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dropWidgetScopedFilters`                      | Drop `widget`/`interactive`/`cross-filter` filters anchored to any removed widget                                                               |
+| `pruneDependsOn` / `pruneDependsOnAgainstSelf` | The SOLE `dependsOn` cascade prune (see [cascade pruning](#cascade-pruning-is-a-per-class-invariant))                                           |
+| `removeSpanEntries`                            | Prune `widgetColSpans` entries, collapsing an emptied map to `undefined`                                                                        |
+| `stripWidgetIdsFromPages`                      | Strip a set of ids from every page's rows, dropping an emptied row and clearing a surviving row-mate's stale span when the row collapses 2+ → 1 |
+| `dedupeLayoutRows`                             | The SOLE layout-matrix dedup — first occurrence wins across the whole matrix, dropping any row it empties                                       |
+| `enforceLayoutColSpans`                        | The SOLE col-span invariant pass (2→1 collapse, row-overflow drop, orphaned-span drop)                                                          |
+| `rebalanceRowSpans`                            | Fit ONE row's spans inside `GRID_COLS` around the widths a mutation explicitly asked for                                                        |
+| `removeWidgetIds`                              | The "genuinely gone" removal primitive (below)                                                                                                  |
+| `dropConflictingRankFilters`                   | Per-page rank-filter uniqueness sweep over a whole filter array                                                                                 |
+| `normalizePersistedPages`                      | The load-boundary layout sweep (documented under [`statePersistence.ts`](#statepersistencets--the-persistence-boundary))                        |
 
-- **`addPage`** requires a STRING `id` (T2-3): a parser-bypassing payload with `id` absent would otherwise mint a page keyed `"undefined"` and simultaneously set `dashboard.activePageId` to `undefined` — strictly worse than a no-op — so a non-string `id` returns `state` unchanged. It is idempotent: re-delivering an `addPage` event for a `pages[id]` that already exists does not reset that page's `widgetRows: []` (which would silently orphan its widgets) — it only re-activates the page (sets `dashboard.activePageId`), and is a same-reference no-op if that page is already active. (`addWidget`/`setWidgetLayout`/`addFilter` likewise presence-check their own required arg — a missing/non-record `widget`/`filter`, or a missing/non-array `rows` — and no-op rather than throwing on the field read, mirroring their wire-boundary validators.) Both `addPage` and `addWidget` screen their incoming id with `isSafePatchKey` before their literal `{ ...pages, [id]: … }` / `{ ...widgets, [widget.id]: … }` insert — the literal form uses define-semantics, so an unsafe id (`'__proto__'`) can't actually re-prototype the record, but it would create a real own entry that then silently vanishes on the very next load (the persistence-boundary key screen drops it), a transient-data-loss footgun the guard closes; this is uniform with `applyBulkUpdate.addedWidgets`, which already checked it. `addWidget` and `applyBulkUpdate.addedWidgets` now additionally require that id to be a STRING before the `isSafePatchKey` screen ever runs, mirroring `addPage`'s own `typeof id !== 'string'` guard above: `isSafeKey` only rejects the three string denylist members, so a non-string id (e.g. `widget.id: 42`, reachable via a parser-bypassing server-built mutation) previously fell through and installed under the STRINGIFIED key (`"42"`) while `widget.id` itself stayed numeric — the identical kind of map-key/field desync the `addPage` id guard already existed to prevent. The same `typeof id !== 'string'` requirement now also gates `removeWidget`'s `widgetId`, `removePage`/`setActivePage`'s `pageId`, and `addFilter`'s `filter.id` (Iteration 26 — see those entries below): each of those handlers' own downstream logic compares an id by strict `===`/`Set` membership rather than `Object.hasOwn`'s coercing lookup, so a numeric id used to pass the initial existence check while the rest of the handler silently disagreed with it. Iteration 27 extends the identical requirement one level deeper still, to the anchor ids living INSIDE `addFilter`'s own `filter.scope` (`scope.widgetId`/`scope.sourceWidgetId`/`scope.pageId` — see the `addFilter` entry below) — closing the last instance of this bug class inside the filter's scope payload, not just at the mutation's top-level ids.
+**`removeWidgetIds(pages, widgets, filters, candidateIds)`** takes `pages` already carrying the
+caller's row edits, computes which candidates are _genuinely gone_ — no longer referenced on ANY
+surviving page — then deletes them from `widgets`, drops their scoped filters (cascading into
+`dependsOn`), and prunes their stale spans everywhere. A candidate still referenced on another
+page is fully preserved.
 
-- **`setDashboardTitle`** first requires a STRING `title` (finding 2.2, the same parser-bypass guard `addPage`/`renamePage` already apply), no-opping otherwise — a non-string `title` would otherwise install verbatim with no immediate throw but violate `StudioDoc['dashboard'].title: string` until something downstream (the page-header renderer, a `serializeDoc` round-trip) trips over it. It is then a reference-equality no-op when re-writing the identical title (see above).
+That "genuinely gone" step is load-bearing for **`removePage` alone**: it hands in `pages` with
+the removed page deleted but every surviving page's rows untouched, so a widget that also lives
+elsewhere must keep its entry, filters, and spans. The other two callers pre-strip the candidate
+ids from ALL pages first, so for them the step is inert by construction — deliberately, since
+both delete the widget from `doc.widgets` outright and leaving it on another page's rows would
+strand a dangling reference. The step is kept rather than pruned as two-thirds-dead code because
+it IS the whole contract for `removePage`, and is the correct default for any future caller that
+does not pre-strip.
 
-- **`addWidget`**, **`setWidgetLayout`**, and **`setWidgetColSpan`** each take an explicit, server-chosen target `pageId` in `mutation.args` (falling back to the applying side's active page only for legacy payloads without one) — guarantees the widget/layout/span change lands on the same page the model was told about, even if the client has since navigated elsewhere.
+It also rebuilds the `widgets` record **only when at least one removed id is an own key**. A
+re-delivered removal bulk (SSE is at-least-once) whose `removedWidgetIds` names an already-gone
+widget classifies it as genuinely removed, yet a `{ ...widgets }` + no-op `delete` would mint a
+fresh, content-identical record — flipping the caller's `widgetsChanged` gate and pushing a
+spurious undo entry.
 
-- **`setWidgetLayout`** sanitizes the incoming `rows` against `state.widgets` before installing them: each row entry is first required to itself be an array (`Array.isArray`) — mirroring the identical row-array guard `normalizePersistedPages`/`applyBulkUpdate` already apply — so a parser-bypassing payload supplying a non-array row (e.g. `rows: ['w1']` or `rows: [null]`) is dropped rather than throwing when the per-id `.filter` below runs on it; any row entry naming a widget id that doesn't exist is dropped, and the file-private `dedupeLayoutRows` helper then drops any id that appears more than once — in one row or spread across rows — keeping only its first occurrence (a row left empty by either pass is dropped too). Without the dedupe pass a duplicated id would render the same widget twice (a duplicate React key in `StudioCanvas`) and double-count its span in `enforceLayoutColSpans`'s overflow sum. It then reconciles `widgetColSpans` against the sanitized, deduped rows via `enforceLayoutColSpans`, the same invariant-enforcement every layout path shares.
+#### The column-span unit system
 
-- **`addWidget`** is also idempotent: existence anywhere in the flat `state.widgets` record means the event was already applied, so a re-delivery (SSE at-least-once retry, or an AI retry loop re-issuing `add_widget`) is a no-op — keyed off the flat record, not the target page's rows, so re-appending a `[widget.id]` row can't render a since-moved widget twice. `addWidget` and `applyBulkUpdate`'s `addedWidgets` insert loop each now additionally require `typeof widget.kind === 'string' && typeof widget.title === 'string'` before installing (Iteration 27), no-opping/skipping the entry otherwise — the ADD-channel sibling of `updateWidget`'s `changes.kind`/`changes.title` guard and `applyBulkUpdate`'s `updatedWidgets` `title` guard, and mirroring the wire boundary's own `isString(widget.kind)`/`isString(widget.title)` checks in `validateWidget`. Both ADD channels already guarded `widget.id` (`isSafePatchKey`) and coerced a non-record `config` (`coerceWidgetConfig`), but neither had checked `kind`/`title`, so a parser-bypassing widget with e.g. `kind: 42` previously installed VERBATIM and rendered fine in the interim, only for `deserializeState`'s widget screen to silently drop the ENTIRE widget whole on the very next load — deferred silent data loss rather than a rejection at write time, closed the same way the ADD channels' `config`-shape gaps were in T2-2. Iteration 28 extends the same write-time repair to the four OPTIONAL widget scalars via the file-private `screenOptionalWidgetScalars` helper (run right after `coerceWidgetConfig`, before `normalizeConfigChartSeries`): a non-string `subtitle`/`sourceId` and a non-`'auto'|'manual'` `titleMode`/`subtitleMode` are KEY-STRIPPED on write, closing the last deferred-data-loss gap on both ADD channels — unlike `kind`/`title`, these fields are optional, so the fix drops just the offending key (the value degrades to the field's default) rather than no-opping the whole add, matching the load boundary's own `subtitle`/`sourceId`/`titleMode`/`subtitleMode` screen (see `statePersistence.ts` below).
+`GRID_COLS = 24` and `MIN_SPAN = Math.round(GRID_COLS / 4)` (= 6) are the **single source of
+truth** for widget widths, and they live here because the dependency arrow runs `x-studio` →
+`x-studio-schema`. `canvasGridConstants.ts` (what the canvas drag-resize handle renders against)
+and `StudioController` both **import** these exact values rather than re-declaring them, and a
+round-trip test in `@mui/x-studio` pins that a drag-resize and an AI resize agree on the units.
 
-- **`updateWidget`** layers five independent changes in a documented, load-bearing order: (1) a `config` patch (keys with an explicit `undefined` value are deleted from the widget's config; a non-record `config` — per the shared `isPlainRecord` guard described below, e.g. `config: null` or `config: [...]` from a server-built mutation that bypassed `parseStateMutation` — is treated as ABSENT rather than applied, mirroring the sibling `changes.config` guard below so the two branches can no longer disagree on a non-record config), (2) a shallow `changes` merge onto the widget — gated by the shared `isPlainRecord` guard (not bare truthiness), so a truthy non-record `changes` is treated as ABSENT rather than merged, matching every other config-carrying channel's `isPlainRecord` gate (see above) — so if `changes` itself carries a `config` key, that wholesale-replaces the already-patched config rather than merging with it; the merge is **fail-closed on the key itself** (Iteration 33), not merely on the value: only a member of `MERGEABLE_WIDGET_CHANGE_KEYS` (`kind`, `title`, `titleMode`, `subtitle`, `subtitleMode`, `sourceId`, `config` — every non-`id` field of `StudioWidgetOf`, held in a `Set` so an untrusted key can never resolve up a prototype chain) may land on the widget, and any other key is skipped. Previously the loop denied `id`, prototype-hazard keys, and `undefined` values, type-checked those known fields, and merged anything ELSE verbatim: a `changes: { evil: { a: 1 }, widgetRows: 'x' }` produced a widget carrying `evil`/`widgetRows` that then round-tripped through `serializeDoc` forever, since the wire boundary tolerates unknown keys BY POLICY (forward compatibility with a newer server's additive field) and `deserializeState` never screens unknown widget keys either. Note the asymmetry this closes: the sibling `config` channel one level DOWN has always been fail-closed via `validateConfigKeysForKind`, so a stray key was rejected inside `config` and accepted beside it. The allow-list is deliberately scoped to this PATCH channel — the full-widget CREATE channels (`addWidget`/`applyBulkUpdate.addedWidgets`) install a whole `StudioWidget` and KEEP their unknown-key tolerance, which is where the forward-compatibility argument actually applies (an older client receiving a newer server's widget must not silently strip a field it doesn't yet know); a patch bag has no such round-trip to preserve. Within this merge, a `title`/`kind`/`subtitle`/`sourceId` value is rejected (skipped) unless it is a STRING, mirroring the wire boundary's own `isString(changes.title)`/`isString(changes.kind)`/`isOptionalString(changes.subtitle)`/`isOptionalString(changes.sourceId)` checks as a defense-in-depth backstop for a parser-bypassing server-built mutation. A `titleMode`/`subtitleMode` value is similarly rejected (skipped) unless it is exactly `'auto'` or `'manual'` (Iteration 26), mirroring the wire boundary's own `isOptionalTitleMode` check: these two fields had no equivalent in-process guard until now, so a value like `titleMode: 42` would have merged verbatim and steered the client's auto-title logic until the load boundary's own `titleMode`/`subtitleMode` strip (see `statePersistence.ts` below) next ran. `title`/`kind` are load-bearing with no fallback (the widget factory/renderer key off `kind`, the canvas card renders `title`), and `deserializeState` drops the ENTIRE widget on the very next load if either is non-string, so merging a bad value in-process would install fine now only to silently vanish later. `subtitle` and `sourceId` fail differently, not just more gently: `subtitle` is rendered directly as text by `StudioWidgetEditDialog` with no fallback (a non-string value crashes that render immediately, not just on the next load), and `sourceId` drives the widget-to-data-source lookup, silently breaking it with no self-heal. Unlike `title`/`kind`, the load boundary's response to a non-string `subtitle`/`sourceId` is to strip just that KEY (`deserializeState` deletes it and falls back to "no subtitle"/"no explicit source"), not drop the whole widget — see `statePersistence.ts` below — so this in-process guard and that load-time key-strip are the two matching halves of the same defense, one per trust boundary. (3) a kind-coherence reconciliation, run only when that merge actually changed `kind` (e.g. chart → grid): it strips any config key not in the NEW kind's allow-list, reusing `configKeyValidation.ts`'s `getAllowedConfigKeys` (the same per-kind list `validateConfigKeysForKind` is built from) — closing a gap where a `changes.kind` flip previously left the config exactly as steps (1)/(2) produced it, which could still carry the OLD kind's keys (e.g. a grid widget left holding a leftover chart-only `xField`) with nothing downstream to reconcile the resulting kind/config mismatch; a custom/consumer-defined kind (`getAllowedConfigKeys` returning `null`, no built-in restriction) leaves the config untouched, (4) `unsetConfigKeys` (delete the named keys from the post-merge, post-reconciliation config), (5) `unsetFields` (delete the named top-level widget keys). Both are gated by `isStringArray` (a real `string[]`) rather than bare truthiness, mirroring the wire validator's own `isStringArray(args.unsetConfigKeys)`/`isStringArray(args.unsetFields)` checks: a truthy non-array string (e.g. a parser-bypassing `unsetConfigKeys: 'title'`) is also truthy-with-`.length`, so the old `unsetConfigKeys && unsetConfigKeys.length > 0`-style guard iterated it char-by-char and deleted single-character keys instead of the intended key name, and a truthy array-like record (`{ 0: 'a', length: 1 }`) threw as non-iterable; `isStringArray` treats both as absent instead. Unsets are applied **last** so an explicit clear always wins over a set of the same key in the same mutation. The four REQUIRED widget fields are never deletable via `unsetFields`: the runtime denylist rejects `id` (also the `state.widgets` map key), `kind` and `title` (load-bearing for rendering and the factory), and `config` (clearable via `unsetConfigKeys` only) — this runtime backstop is load-bearing for untrusted wire input even though `OptionalWidgetField` already excludes them at compile time. Within `changes` itself, a key whose value is explicitly `undefined` is skipped rather than applied, so an in-process caller can't accidentally void a required field via the merge — the wire-safe way to void a field is `unsetFields`/`unsetConfigKeys`, whose key **names** survive JSON where an `undefined` value never does. A `changes.id` is rejected the same way (skipped by the merge, and already rejected earlier at the wire boundary by `parseStateMutation`) because `id` is also the `state.widgets` map key — writing it through `changes` would desync `widget.id` from its key and split every id-keyed invariant (cross-filters, span lookups, layout rows). A wholesale `changes.config` must itself pass `isPlainRecord` (a non-record value is ignored rather than applied) before it is normalized for the deprecated `seriesType` alias the same way the `config`-patch branch is (see `normalizeConfigChartSeries` below), then compared against the already-patched config via `shallowRecordEqual` before being included. Each of the three rewrap-triggering branches — the `config` patch, the `changes` merge, and `unsetConfigKeys` — tracks whether it actually changed a key (not just attempted to) and only rewraps the widget when it did, so a patch that turns out to be a true no-op (e.g. a config patch left empty after a chart-type guard stripped every key before it reached the reducer, or a `changes` merge whose fields all match the widget's current values) leaves the widget reference unchanged; the handler then returns the **same** `state` reference, so no undo entry is pushed for an effect-free `updateWidget`.
+`clampSpan` clamps to `MIN_SPAN`–`GRID_COLS`, rounding non-integer input and guarding non-finite
+input (`NaN`/`Infinity` from a malformed payload clamps to `MIN_SPAN` rather than surviving to
+serialize as `null`).
 
-- **`setWidgetColSpan`** first requires a STRING `widgetId` (finding 2.1), no-opping otherwise: every downstream check — `Object.hasOwn(state.widgets, widgetId)` and the target page's `row.includes(widgetId)` membership test — treats the id differently, the former coercing its key to a string, the latter comparing by strict `===` (rows only ever hold strings, never coerced). A numeric `widgetId` (e.g. `42`) would therefore fail every `row.includes(42)` row-membership check while still passing `Object.hasOwn(state.widgets, 42)` whenever a widget literally keyed `"42"` exists — exactly the condition the on-another-page orphan-span guard below relies on `currentRow` correctly reflecting, so an unguarded numeric id would bypass it and persist a dead `widgetColSpans["42"]` entry on the wrong page. As of Iteration 28 the handler also runs `isSafePatchKey(widgetId)` before its own `newSpans[widgetId] = clamped` bracket-write (Finding 5), for uniformity with every other key-by-key rebuild in the reducer — the `Object.hasOwn(state.widgets, widgetId)` check just below already rejects a `'__proto__'` id in practice (no widget carries such an own key post-`addWidget` screen), so this is a defense-in-depth consistency guard, not a newly-closed hole. It then no-ops on a `widgetId` absent from `state.widgets` (mirroring `updateWidget`/`removeWidget`'s unknown-id guard) — a span write for a widget id that exists nowhere would otherwise persist an orphan `widgetColSpans` entry with no widget to ever prune it. It also no-ops when the widget exists but is not on the **target** page's rows while it IS on some OTHER page's rows: writing the span in that case would persist a dead `widgetColSpans` entry on the wrong page (a legacy payload applied without `pageId` while the user has navigated elsewhere, or a server-stamped `pageId` racing a concurrent user move of the widget to another page mid-turn). A widget that is on NO page at all is the documented not-yet-placed case and keeps the `args.rowWidgetIds` fallback below rather than being rejected by this guard — and when that fallback is itself absent, OR present but a truthy NON-array value (a parser-bypassing payload built without going through `parseStateMutation`, e.g. a bare string), the row defaults one step further to `[widgetId]` rather than throwing on the `.filter` call below, mirroring the producer's own `currentRow ?? [widgetId]` default (`executeToolOnState.ts`'s `set_widget_width`). Otherwise, it clamps the requested span to `MIN_SPAN`–`GRID_COLS` (6–24) columns via the private `clampSpan` helper, rounding non-integer input and guarding non-finite input (`NaN`/`Infinity` — a malformed wire payload — clamps to `MIN_SPAN` rather than surviving to serialize as `null`). `GRID_COLS = 24` and `MIN_SPAN = Math.round(GRID_COLS / 4)` (= 6) are the **single source of truth** for the widget column-span unit system, and they live here — the dependency arrow runs `@mui/x-studio` → `@mui/x-studio-schema`, so the schema package is the correct home. `@mui/x-studio`'s `canvasGridConstants.ts` (what `StudioCanvas`'s drag-resize handle renders against) and `StudioController` both **import** these exact values from this package rather than re-declaring them; a round-trip test in `@mui/x-studio` pins that a drag-resize (canvas) and an AI resize (this handler) agree on the same units. When the clamped span plus the row's other widgets' spans exceeds `GRID_COLS`, the handler either shrinks the sole other widget in the row (deleting its span entirely if the remainder would be under `MIN_SPAN`) or clears every other widget's span if there are two or more. The row's membership is derived from the target page's **current** `widgetRows` (which row actually holds `widgetId` now), not the wire-supplied `args.rowWidgetIds` (which the producer computed from a turn-start snapshot and which goes stale if the user drags widgets between rows mid-turn); `args.rowWidgetIds` is used only as a fallback when the widget isn't in any row yet. The single-sibling shrink branch gates its bracket assignment with `Object.hasOwn(state.widgets, otherId) && isSafePatchKey(otherId)` before writing `newSpans[otherId]` — this is the one id-keyed write in the file whose target can come solely from the fallback `args.rowWidgetIds` (every other row-membership path is derived from real ids already in `state.widgets`), so a phantom or prototype-polluting row-mate id (`'__proto__'`/`'constructor'`) is skipped rather than persisted as an orphan span or reaching the setter. `parseStateMutation` backstops the same case at the wire boundary with a per-entry `isSafeId` check on `setWidgetColSpan.args.rowWidgetIds`.
+**`rebalanceRowSpans(spans, rowIds, anchorIds, canWriteSpan)`** fits one row inside `GRID_COLS`
+around the spans a mutation explicitly asked for. `anchorIds` are the members whose width this
+mutation is setting; every other member is an ABSORBER whose stored span may be reduced or
+cleared. Resolution order:
 
-- **`setActivePage`** first requires a STRING `pageId` (Iteration 26) before its `Object.hasOwn(state.pages, pageId)` existence check ever runs. Unlike `removeWidget`/`removePage`, this handler's ONLY invariant check is that coercing `Object.hasOwn` one — a numeric `pageId` matching a string page key of the same digits would otherwise install verbatim into the string-typed `dashboard.activePageId`, with nothing else in the handler to catch the type violation. Before Iteration 26 also fixed `deserializeState`'s own reconciliation (see `statePersistence.ts` below) the same way, such a value would have round-tripped through serialize/deserialize forever instead of self-healing; now both the reducer and the load boundary reject a non-string `activePageId` uniformly, so a numeric value reaching `dashboard.activePageId` by any other path (e.g. a hand-edited persisted doc) is repaired on the very next load. It is otherwise a reference-equality no-op when activating the already-active page (see above), and a plain `Object.hasOwn` no-op for an unrecognized page id.
+1. **Anchors overflow on their own** — grant each anchor, in row order, as much of the budget as
+   remains, and clear the span of any anchor that cannot be granted at least `MIN_SPAN`.
+2. **Exactly one absorber** — it takes the remainder, or loses its span entirely when the
+   remainder is below `MIN_SPAN` (a sub-minimum span is not a legal width).
+3. **Two or more absorbers** — there is no non-arbitrary way to split the remainder, so all their
+   spans are cleared and the row falls back to equal flex.
 
-- **`removeWidget`** first requires a STRING `widgetId` (Iteration 26), no-opping otherwise: the `Object.hasOwn(state.widgets, widgetId)` existence check below COERCES a numeric id to match a string-keyed entry, but the row/span/filter cleanup that follows compares by strict `Set`/`===` membership, which never coerces — a numeric `widgetId` would previously have passed the existence check and been deleted from `state.widgets` while every downstream cleanup silently missed it, orphaning the page reference, its scoped filters, and its spans (a half-applied removal). It then drops the widget from its page's `widgetRows` (removing the row if it's now empty), and — only for the specific row the widget was removed from — clears a surviving sibling's span if the removal collapses that row from two-or-more widgets down to exactly one (a lone widget always fills the row, so the leftover multi-widget-era span would otherwise render it at the wrong width). This scoping is deliberate: a single-widget row can legitimately carry its own stored span, so a pre-existing singleton-row span — on the affected page or any other page — is never touched by an unrelated removal. This row-edit is the single-id case of the shared `stripWidgetIdsFromPages` helper — `applyBulkUpdate`'s `removedWidgetIds` handler (below) applies the identical logic to a whole batch of ids at once, so a single removal and a bulk removal edit `widgetRows` identically rather than via two independently-maintained implementations. It then finishes via the shared `removeWidgetIds` primitive, which drops the widget's own entry from `widgets`, prunes its stale `widgetColSpans` entries on every page, and drops filters that only made sense while the widget existed (its own `widget`-scope filters and the `interactive`/`cross-filter`-scope filters it emitted — leaving a source widget's cross-filter behind would filter the page with no surviving affordance to clear it).
+`canWriteSpan` is a named `CanWriteSpan` type rather than an inline signature so its own parameter
+is documented on the callback. A span is only ever written for an id it accepts, so a row-mate
+that is not a real widget (or carries a prototype-hazard key) can never receive a persisted span.
 
-- **`removePage`** first requires a STRING `pageId` (Iteration 26), no-opping otherwise: the cleanup below compares by strict `===` (`f.scope.pageId !== pageId`, `dashboard.activePageId === pageId`), which never coerces, while the initial `Object.hasOwn(state.pages, pageId)` existence check does — a numeric `pageId` matching a string page key of the same digits would previously have passed that check and gotten the page deleted while its page-scoped filters survived as orphans and a dangling `activePageId` was never reassigned. It then **refuses to remove the LAST page** (Iteration 33), no-opping when `Object.keys(state.pages).length <= 1`: "at least one page always exists" is a real invariant of this doc shape — `createDefaultStudioState` always seeds one, and every legacy pageId-less mutation (`addWidget`/`setWidgetLayout`/`setWidgetColSpan` without an explicit `pageId`) resolves its target through `Object.hasOwn(state.pages, dashboard.activePageId)`. Removing the final page used to leave `activePageId: ''`, an id that satisfies no such guard, so the doc entered a state where every one of those mutations silently no-op'd forever with no error and no affordance to recover (the canvas renders nothing, and `deserializeState` faithfully reconciles back to the same `''`). Synthesizing a replacement page instead was rejected: a fresh page needs a fresh id, and this reducer must stay DETERMINISTIC so the server-threaded state (`executeToolOnState`) and the client-applied state (`StudioController.applyExternalMutation`) cannot diverge — a caller that really wants an empty dashboard adds the replacement page first, then removes this one. The no-op returns the input `state` reference, the dominant convention here for a mutation that cannot be applied. It then performs full cleanup mirroring `StudioController.removePage`: drops the page, removes every widget that lived only on it (a widget still referenced on a surviving page keeps its entry, filters, and spans — the cross-page guard), drops filters that no longer have a home — page-scoped filters targeting it and any `cross-filter`/`interactive` filter whose `scope.pageId` is the removed page, plus (via `removeWidgetIds`) `widget`/`interactive`/`cross-filter`-scope filters anchored to a genuinely-removed widget — and reassigns `dashboard.activePageId` to another remaining page when the removed page was active. The page-anchor drop cascades into the surviving filters' `dependsOn` via `pruneDependsOnAgainstSelf`, applied HERE rather than left to `removeWidgetIds` below, because that primitive short-circuits and returns its input `filters` untouched when the page held no exclusively-owned widget; this was one of the sibling filter-removal paths that never pruned. The `?? ''` fallback in the `activePageId` reassignment is now unreachable — the last-page guard above guarantees a survivor — and is retained as a total fallback rather than swapped for a non-null assertion.
+Sharing this between `setWidgetColSpan` and `applyBulkUpdate`'s span merge is what makes an AI
+`set_widget_width` and an `apply_bulk_update` carrying the same width resolve an overflowing row
+identically. Without it the bulk path fell through to `enforceLayoutColSpans`' drop-EVERY-span
+rule, so setting one widget's width through the bulk tool erased its neighbour's.
 
-- **`addFilter`** first requires a STRING `filter.id` (Iteration 26), no-opping otherwise: `removeFilter`'s cleanup compares by strict `!==`, which never coerces, so a numeric id would previously have installed fine but could never be removed in-session by `removeFilter` — only the load boundary's non-string-id filter screen (`statePersistence.ts`) would eventually have dropped it silently on the next load. As of Iteration 28 it also no-ops on a non-string `filter.field`, or a `filter.operator`/`filter.operator2` (the latter only when present) that is not a member of the closed `StudioFilterOperator` union — reusing `isStudioFilterOperator`, parser-bypass parity with the wire boundary's `validateFilter` and the load boundary, both of which membership-check these same fields (Finding 2). Without it, a server-built `addFilter` with `field: 42` or a junk `operator` installed VERBATIM — and, since the client evaluator FAILS OPEN on an unrecognized operator, rendered an active-looking filter chip that filtered nothing until the next load's filter screen dropped the whole entry. It is idempotent (re-delivery of the same `filter.id` is a no-op rather than a duplicate append). Before appending, it strips any unsafe own key (`__proto__`/`constructor`/`prototype`, reusing the shared `stripUnsafeConfigKeys` implementation against the filter object itself, and — as of Iteration 30 — against its nested `scope` too, the one nested record this strip previously missed) and repairs a malformed `dependsOn` (a non-`string[]` value is dropped from the filter rather than sinking the whole append, via the same `isStringArray` check and repair `statePersistence.ts`'s `repairFilterDependsOn` applies at the load boundary) — matching the treatment the widget ADD channels (`addWidget`, `applyBulkUpdate.addedWidgets`) already give their own payloads, since `addFilter` is likewise reachable from a server-built mutation that bypasses `parseStateMutation`; without this, an own `__proto__` key or a malformed `dependsOn` would install verbatim and poison a later spread of the filter or crash `StudioFiltersDrawer`'s `dependsOn.map(...)`. Both repairs are reference-stable when the filter is already clean, so the common, wire-validated case still appends the SAME object. It otherwise applies the filter as-is, without re-stamping its scope to the applying side's active page — the filter already carries its target page/widget, chosen server-side. Before any of the orphan checks below ever run, it also requires each scope anchor id that IS present — `scope.widgetId` (`widget` scope), `scope.sourceWidgetId` (`cross-filter`/`interactive`), and `scope.pageId` (`page`/`dashboard-date-range`, screened only when present since `page`'s `pageId` is optional) — to be a STRING (Iteration 27), mirroring the `typeof filter.id !== 'string'` guard above one level down inside the filter's own `scope`: the orphan checks that follow use the coercing `Object.hasOwn(state.widgets/pages, …)`, so an unguarded numeric anchor id could pass that existence check and install while `dropWidgetScopedFilters`/`removeWidgetIds`'s strict-`===` cleanup never matches it, leaving an orphan no removal path can ever reach. It rejects an **orphan** scoped filter whose anchor widget names no widget in `state.widgets` — now covering all three widget-anchored scopes: `cross-filter`/`interactive` (via `scope.sourceWidgetId`) and `widget` (via `scope.widgetId`, T3-2) — since the reducer's only cleanup path for such a filter fires on that widget's removal (see the `StudioDoc` section above). It similarly rejects an orphan **page**-anchored filter: a `scope.kind: 'page'` entry whose explicit `pageId` names no page in `state.pages` (a legacy pageId-less `page`-scope filter, which applies on every page, is not an anchor and is left alone) — mirroring `deserializeState`'s identical page-anchor screen at the load boundary, so a page-scoped filter that would be dropped on the very next load is rejected at write time too instead of accepted as dead weight in the meantime. The same check also covers a `scope.kind: 'dashboard-date-range'` entry, whose `pageId` is required rather than optional: `deserializeState` already screened this scope kind's orphan case at the load boundary, but `addFilter` itself did not, so a `dashboard-date-range` filter naming a nonexistent page previously installed at write time and lingered until the next reload silently dropped it — the write and load boundaries now agree for this scope kind too. Iteration 28 tightens the string-ness gate one step further for this scope: its `pageId` is now required to be a STRING OUTRIGHT before any orphan check runs (Finding 4), rather than exempted via the shared `scope.pageId !== undefined` check borrowed from `page` scope's genuinely OPTIONAL `pageId`. That shared exemption wrongly let a parser-bypassing `dashboard-date-range` filter with NO `pageId` through — where it then slipped past the `!== undefined`-gated orphan check too and installed anchored to nothing; because a `dashboard-date-range` scope's `pageId` is REQUIRED by the type, a missing or non-string one is now rejected directly, while `page` scope keeps the when-present-only screen its optional `pageId` warrants. It also rejects a second `rank`-mode filter targeting the same page context: the one-rank-filter-per-page invariant used to be enforced only by `StudioController`'s five call sites in `@mui/x-studio` — a UI-layer convenience, not a contract boundary — so a caller that bypassed the controller (or a future call site that forgot the check) could install two rank filters on one page. The reducer enforces it directly, via the `resolveRankFilterPageId`/`hasConflictingRankFilter` helpers exported from this module and re-exported through `index.ts`: the client's `internals/rankFilterScope.ts` re-exports these same two functions from `@mui/x-studio-schema` rather than maintaining its own hand-synced copy (the dependency arrow runs `x-studio` → `x-studio-schema`, so the client can depend on this package's canonical implementation, never the reverse) — see "Consumers" below. Rank uniqueness is resolved per page context, and `resolveRankFilterPageId`'s answer is deliberately THREE-state (Iteration 33) — a `string`, `null`, and `undefined` mean three different things and are not interchangeable: a `page`-scope filter resolves to its explicit `pageId`, or to `null` — "applies EVERYWHERE" — for a legacy pageId-less filter, which is active on every page and so conflicts with (and is conflicted by) any other rank filter everywhere; a `widget`-scope filter resolves to whichever page's `widgetRows` currently contain that widget, or to `undefined` — "UNRESOLVABLE", there is no page context to compare against — when the widget sits on no page's rows at all; and every non-rank-eligible scope kind is likewise `undefined`, never a wildcard. `hasConflictingRankFilter` treats the two sentinels as OPPOSITES: an unresolvable TARGET conflicts with nothing (the add is always allowed) and an unresolvable OTHER filter blocks nothing. Conflating them was a real bug: `null` used to mean both, so a single unplaced-widget rank filter — which nothing removes, since `dropWidgetScopedFilters` only fires on widget REMOVAL — read as "conflicts with everything" and silently rejected every subsequent rank `addFilter` on EVERY page; worse, the load-boundary dedup in `statePersistence.ts` runs the same predicate in array order, so whenever the unplaced-widget entry came first it DROPPED the user's legitimate rank filter and the next `serializeDoc` persisted that loss permanently. This three-state contract matches the fact that page filters gate on `pageId === activePageId` and widget rank filters are inherently per-widget. The conflict gate itself now only runs when `scope.kind` is `page` or `widget` (Iteration 27): the wire boundary never restricts `filterMode` to a scope kind, so a wire-valid `rank`-mode filter on any OTHER scope (e.g. `dashboard-date-range`) previously reached `hasConflictingRankFilter` too, where `resolveRankFilterPageId`'s catch-all resolved it to a `null` page context — and a `null` page context conflicts with, and is conflicted by, every other rank filter, so that one filter would silently reject every legitimate `page`/`widget` rank filter dashboard-wide from then on. `hasConflictingRankFilter`'s own existing-filter loop mirrors this restriction from the other side, excluding any scope kind other than `page`/`widget` (previously it excluded only `cross-filter`) — so a non-`page`/`widget`-scoped rank filter already sitting in `state.filters` is skipped too, not just kept out of triggering the gate. Both sides now agree with `resolveRankFilterPageId`'s own doc comment, which has always stated that only `page`/`widget` scopes are rank-eligible.
+`enforceLayoutColSpans(oldRows, newRows, spans)` is the invariant pass every layout path reaches:
 
-- **`removeFilter`** now also requires a STRING `filterId` (Iteration 29) before comparing it against each filter's `id`, matching the `typeof id !== 'string'` early-return convention every other id-bearing handler in this file uses. This is a defense-in-depth consistency guard, not a newly-closed exploitable gap: the comparison below is a strict `f.id !== filterId`, which never coerces, so a non-string `filterId` (e.g. `42`) already failed to match any filter's `id` and was already a harmless no-op — but this was the one handler in the file relying on that incidental behavior instead of guarding explicitly, and it now no-ops the same documented way its siblings do. As of Iteration 30 (Tier3 finding), a successful removal also cascades to every REMAINING filter's `dependsOn`: `StudioFilterState.dependsOn` lists other filter ids a filter cascades from — a UX hint the client's cascade drawer (`StudioFiltersDrawer`) maps over directly — and until this fix, removing a filter left its id dangling in any dependent filter's `dependsOn` array. The handler no longer owns that prune: it delegates to the shared `pruneDependsOn` helper (see "Cascade pruning" above), which is precisely why the invariant used to hold here and nowhere else. Semantics are unchanged — the array collapses to `undefined` (never an empty `[]`) when the prune empties it, and a filter entry with no dangling reference keeps its exact existing object reference (no rewrap).
+- **2→1 collapse** — a widget left alone in a row it previously shared has a stale
+  multi-widget-era span, so the span is cleared. A widget that was _already_ a lone occupant keeps
+  its intentional span (e.g. an AI `set_widget_width` narrowing). This is why `oldRows` is a
+  parameter rather than derived.
+- **Row overflow** — a row summing past `GRID_COLS` with no explicit anchor to rebalance around
+  has every span dropped, falling back to equal flex.
+- **Orphaned span** — a span for a widget no longer in this page's rows is dead weight.
 
-- **`applyBulkUpdate`** applies its widget deltas on top of the receiver's **current** `state.widgets` (never a turn-start snapshot). `removedWidgetIds` is first required to be a genuine `Array.isArray` value — not merely truthy — before anything reads it: `new Set(...)` iterates a STRING char-by-char, so a parser-bypassing `removedWidgetIds: 'w1'` would otherwise silently delete widgets literally named `'w'` and `'1'` instead of the intended `'w1'`; a non-array (or absent) value is treated the same as an empty list rather than iterated. Beyond the array-shape check, each surviving ENTRY is also required to be a STRING (finding 2.1): every downstream consumer of this array — `removeWidgetIds`'s `stillReferenced` `Set<string>` membership check, `stripWidgetIdsFromPages`'s per-row `Set<string>.has`, and the `Object.hasOwn` lookups on `widgets`/`widgetColSpans` — either compares by strict `===` (never coercing) or coerces its key to a STRING (`Object.hasOwn`), so a numeric candidate like `42` would never match a `Set<string>` built from string row ids yet WOULD match a widget/span keyed `"42"` via `Object.hasOwn`'s coercion — silently bypassing the "genuinely gone" cross-page guard and deleting a widget/span/filter still referenced (as a string) on another page's rows. Filtering to `typeof id === 'string'` (rather than rejecting the whole array the way a stricter `isStringArray` check would) keeps every well-formed id in a partially-junk payload usable, matching this handler's own "no-op the bad, keep the good" convention for `addedWidgets`/`updatedWidgets` entries below. `addedWidgets`/`updatedWidgets` get the identical class of array-shape guard: each is first required to be a genuine `Array.isArray` value — a truthy non-array (e.g. a parser-bypassing `addedWidgets: {}` or `updatedWidgets: 'junk'`) is treated as an empty list rather than handed to a `for...of`, which would otherwise throw `TypeError: … is not iterable` instead of the graceful no-op every sibling malformed-shape guard in this handler provides — and each SURVIVING entry is additionally required to be a plain record (`isPlainRecord`) before its fields are read, so a `null`/primitive entry sitting among otherwise well-formed entries is skipped rather than throwing on `.id`/`.widgetId`. With that guard in place, it deletes only `removedWidgetIds`, inserts `addedWidgets` (each id-checked with `isSafePatchKey` before the bracket assignment and — as of Iteration 28 — run through the same `screenOptionalWidgetScalars` key-strip `addWidget` uses, so a non-string `subtitle`/`sourceId` or non-`'auto'|'manual'` `titleMode`/`subtitleMode` on a bulk-added widget is dropped on write rather than deferred to the next load, Finding 1), and shallow-merges each `updatedWidgets` patch onto the live widget looked up via `Object.hasOwn` — not a truthy bracket lookup, so a target id of `'constructor'`/`'__proto__'` is a clean "target not found" skip rather than resolving to a prototype-chain member (Iteration 28 also guards the `nextWidgets[update.widgetId]` merge write itself with `isSafePatchKey`, for uniformity with the sibling ADD-loop and `setWidgetColSpan` bracket-writes, Finding 5) — (skipping a patch whose target no longer exists rather than resurrecting a partial widget). A `removedWidgetId` is only genuinely deleted if it doesn't still appear on some other page's rows (guarding the rare cross-page id collision). It mirrors `removeWidget`'s per-widget cleanup for each genuinely-removed widget (via `removeWidgetIds`), while `widgetRows`/`widgetColSpans` replace the layout of the `activePageId` page only (as of Iteration 29, `activePageId` must itself be a STRING before that page-existence check runs: `Object.hasOwn` coerces a non-string `activePageId` to its stringified property key, which could coincidentally match an existing page keyed with the same digits — not independently exploitable, since every downstream use of `activePageId` is itself gated on this same existence check and it is never persisted to `dashboard.activePageId`, but requiring the type up front keeps this handler uniform with the file's other `typeof id !== 'string'` guards rather than relying on incidental coercion behavior). The widget deltas are applied **independently** of that layout replacement: when `activePageId` names a page that no longer exists (deleted mid-turn, or never a string to begin with), only the page-scoped `widgetRows`/`widgetColSpans` replacement is skipped — `addedWidgets`/`updatedWidgets`, which are genuinely page-independent by design (the lost-update-safe delta shape exists precisely to apply them on top of the receiver's current `widgets` regardless of layout), are still applied rather than the whole mutation silently no-opping. `removedWidgetIds` is now genuinely page-independent too: before `removeWidgetIds`'s own "still referenced" check ever runs, EVERY page's rows are stripped of every id in `removedWidgetIds` via the shared `stripWidgetIdsFromPages` helper (the same one `removeWidget` uses for its single-id case, above) — unconditionally, not only when the bulk also happens to supply a `widgetRows` replacement, and across ALL pages rather than the active page alone (Iteration 31, Tier1 — see that changelog note above for the mid-turn cross-page drag this closes). Previously that strip never happened on its own: `removeWidgetIds` only genuinely deletes an id that no **surviving** page's rows still reference, and only an incoming `widgetRows` replacement ever dropped those references, so an updates/removals-only bulk — the common case, with no layout change at all — left a widget this same mutation explicitly asked to remove still referenced on the very page the removal targeted, and the removal silently no-opped. This same pre-strip step now also prunes each pre-stripped id's OWN `widgetColSpans` entry on the active page (finding 3.3, via the shared `removeSpanEntries` helper, reference-stable when nothing matched): `stripWidgetIdsFromPages` only ever clears a SURVIVING row-mate's now-stale span (the "orphaned sole occupant" case), leaving the removed id's OWN span entry to `removeWidgetIds`'s cross-page "genuinely gone" cleanup further below. Now that the pre-strip clears every page's rows, an id in `idsToPreStrip` IS genuinely gone doc-wide, so that cleanup does fire and prunes its span on every OTHER page — but the active page's own already-rebuilt object (rebuilt by `stripWidgetIdsFromPages` in the pass just above) still needs the same pruning applied to it directly, exactly as before, so the `pageExists`-gated `removeSpanEntries` step remains. The pre-strip is deliberately NOT scoped to the active page (Iteration 31, Tier1): `removedWidgetIds` names widgets to remove DOC-WIDE, and mirroring `removeWidget`'s own all-pages `stripWidgetIdsFromPages(state.pages, …)` call is what makes a single-widget removal and a batch removal carry the identical cross-page guarantee. Scoping it to the active page used to be justified as preserving `removeWidgetIds`'s cross-page-collision guard, but that guard exists to protect an id NOT named for removal from being deleted because a colliding id elsewhere was — it was never meant to veto an explicit, named removal. Pre-stripping only the active page instead let a widget that had moved pages mid-turn (dragged by the user while an agentic bulk update computed against an earlier snapshot was still in flight) be reported as still-referenced on its new page and silently survive the removal, with no error and no signal that the removal had been dropped. This unconditional pre-strip is itself exempted for a remove-and-re-add of the SAME widget id within one payload — a "replace," not a genuine removal: an id also named in this same bulk's own `addedWidgets` is excluded from the pre-strip via the shared `reAddedWidgetIds` set (computed once, up front, from `removedWidgetIds ∩ addedWidgets` ids), the identical set the layout block's `validRowIds` computation below already excludes from its own removal sweep. Before this exemption was unified across both call sites, a "replace" bulk that omitted `widgetRows` had its row silently stripped here as a phantom, before the re-add ever took effect — losing the widget's placement, cross-filters, and spans exactly as a genuine removal would, unlike the `widgetRows`-present branch (which preserved them). See the `addedWidgets` insert loop below for the matching other half of this unification: the loop now overwrites, rather than skips, an already-present entry whose id is in `reAddedWidgetIds`, so the widget's definition (title/config) updates to the new value on top of the placement/filters/spans this pre-strip exemption preserves — the same "replace" behavior now holds regardless of whether the bulk supplies `widgetRows`. `args.widgetRows`/`args.widgetColSpans` are typed as **optional** (see `mutationTypes.ts` above), and the reducer stays total over an omitted or parser-bypassing partial payload the same way the three widget-delta fields already are, handling all three partial-omission shapes without ever wiping the active page's layout on a mere field omission: **(1) both absent** — the whole layout-replacement block is skipped, layout preserved untouched (an updates-only bulk); **(2) `widgetRows` present, `widgetColSpans` absent** — the supplied rows install and the page's **existing** `widgetColSpans` are MERGED forward rather than replaced, exactly as `setWidgetLayout` does for the same reorder; **(3) `widgetColSpans` present, `widgetRows` absent** — the span update reconciles against the page's **existing** `widgetRows` rather than an empty `[]`, so a spans-only bulk changes only widths and leaves row placement intact; its span entries are **merged** onto the page's existing `widgetColSpans` (incoming keys win, untouched keys survive) rather than wholesale-replacing the map, so a concurrent client drag-resize of a widget the bulk doesn't name is not silently reverted (the T2-2 residual-lost-update rule). Shape (3) is load-bearing: defaulting an absent `widgetRows` to `[]` would un-place every widget on the active page AND orphan the very spans the bulk carries, blanking the page on a mutation that only meant to change a width. Shape (2) is load-bearing for the mirror-image reason, and the rule is now stated once for both (Iteration 33): the wire spans REPLACE the page's map only when the producer shipped rows AND spans together (then they genuinely are the intended full map for the new placement); every other combination MERGES. Keying the decision on `rowsProvided` alone — as it used to — made a rows-only bulk coerce the absent `widgetColSpans` to `{}` and replace the page's whole span map with nothing, so `applyBulkUpdate { widgetRows: [['w2','w1']] }` WIPED the widths that `setWidgetLayout { rows: [['w2','w1']] }` kept: two mutations expressing the same reorder disagreed on every widget's width. This is the same replace-vs-merge class the T1-1/T2-2 rules close one field over, and the reducer must not depend on caller discipline (a producer that always ships a full span snapshot) to avoid it. Both presence decisions run off ONE predicate per field — `rowsProvided`/`spansProvided` — so a present-but-junk value (`null`, an array, a primitive from a hand-built payload) counts as ABSENT everywhere and can neither be read nor flip the merge-vs-replace choice. When at least one layout field IS present, a `widgetRows` that is present but not an array (hand-built junk, e.g. `null`) is treated as **ABSENT** — reconciled against the page's existing rows via the same predicate as shape (3), so placement is preserved AND its spans are merged, never coerced to `[]` (which would un-place every widget, the exact blank-page outcome shape (3) guards against) — while a non-array row **within** a provided `widgetRows` is dropped and a non-record `widgetColSpans` is coerced to `{}`, so the block stays total rather than throwing on `.map`/`Object.keys` for hand-built junk.
+#### Rank-filter uniqueness
 
-  Each `updatedWidgets` entry is applied field-by-field, not as a blind overwrite: `title` — also required to be a STRING, mirroring `updateWidget`'s `changes.title` guard above (a parser-bypassing non-string `title` would otherwise merge fine now and cost the whole widget on the next `deserializeState` load) — is assigned only when it differs from the existing widget's value. `sourceId` gets the identical differs-from-existing gate, but ALSO requires `typeof update.sourceId === 'string'` — the `sourceId` sibling of the `title` guard, mirroring `updateWidget`'s `changes.sourceId` guard above: unlike `title`, a junk `sourceId` is not caught by dropping the whole widget at the load boundary (`deserializeState` strips just the offending key), so without this guard it would install verbatim here and silently break the widget-to-data-source lookup with no self-heal. And `config` — gated by the same `isPlainRecord` guard as the other two UPDATE-shaped config channels, replacing a former bare `if (update.config)` truthiness check that let an array or a truthy string through and spread its index keys into the merge — is shallow-merged onto the live config and compared via `shallowRecordEqual`, so a field-less entry (`{ widgetId }`), a non-record `config`, or a value-identical one leaves that widget's reference untouched — the same idempotency guard `updateWidget`'s `changes` merge applies, needed because a re-delivered bulk envelope (SSE at-least-once) must not churn the doc.
+Only one `filterMode: 'rank'` (Top-N) filter may occupy a page context. This used to be enforced
+only by `StudioController`'s five call sites — a UI-layer convenience, not a contract boundary —
+so a caller bypassing the controller could install two. The reducer enforces it directly, through
+two exported helpers that the client's `internals/rankFilterScope.ts` re-exports rather than
+hand-syncing, and that `statePersistence.ts` reuses at the load boundary.
 
-  The active-page `widgetRows`/`widgetColSpans` are sanitized before installing, mirroring `setWidgetLayout`'s phantom-widget guard (and its `dedupeLayoutRows` dedup pass) but widened for this handler's own inserts: rows are filtered against a `validRowIds` set built from `state.widgets` **union** this bulk's own `addedWidgets` ids that are STRINGS and pass `isSafePatchKey` (rows may legitimately reference an added widget that is only inserted later in the same handler, so filtering against `state.widgets` alone would wrongly drop them; a genuinely-phantom id — neither an existing widget nor a safe, string-typed added id — is dropped, and an emptied row with it). Both the `validRowIds` population and the `row.filter` step that consults it require `typeof id === 'string'` (Iteration 29, closing a dangling-widget-reference bug): `isSafePatchKey` only screens the prototype-hazard denylist and never checked the candidate id's type, so a numeric `addedWidgets[].id` previously survived into `validRowIds` and then into the sanitized `widgetRows` row, while the separate widget-insertion loop below (which already required a string id, since Iteration 26/27) skipped inserting it into `state.widgets` — leaving a `widgetRows` entry naming a widget id with no corresponding `state.widgets` entry, a dangling reference no cleanup path could reach. Requiring the string type at both the population step and the consuming `row.filter` closes this gap at its source rather than relying on either check alone. `validRowIds` then excludes any id this same payload's `removedWidgetIds` names — an explicit widget removal must not be silently defeated by a `widgetRows` entry that still names the removed id in the same bulk-update call, and the reducer must not depend on the producer having already stripped it — **except** an id that is ALSO named in this payload's `addedWidgets`, per the same shared `reAddedWidgetIds` set the pre-strip step above now excludes from ITS OWN removal sweep too (unifying what used to be two independently-computed notions of "re-added" — one here, one in the pre-strip): a bulk that removes and re-adds the SAME widget id in one payload (a reorder/replace) is not "genuinely gone" — the widget survives the mutation under the same id, so deleting its row entry here as a phantom, before the re-add takes effect, would lose the widget's placement to the bottom-row default-placement fallback described below instead of preserving it in place. The same `dedupeLayoutRows` helper then drops any id repeated within a row or across rows (first occurrence wins) so a duplicated id can never render twice or double-count its span the same way it can't via `setWidgetLayout`, and `widgetColSpans` keys are first filtered through `isSafePatchKey` then clamped to the `MIN_SPAN`–`GRID_COLS` range before `enforceLayoutColSpans` runs. Its `oldRows` argument follows the same rows-and-spans-together rule as the merge-vs-replace decision above: normally `[]`, so the 2→1 collapse never fires (a producer shipping rows AND spans together meant the singleton spans it sent), but a rows-ONLY bulk is semantically a `setWidgetLayout` — the surviving spans are the page's own — so it passes the page's real previous `widgetRows` and a widget the re-placement leaves alone in a row it used to share has its stale multi-widget-era span cleared, exactly as `setWidgetLayout` does by diffing against those same previous rows. Row-overflow/orphaned-span/empty→undefined apply either way. This delta shape, plus the sanitization, is what makes a concurrent edit or deletion on any page survive an agentic turn without ever persisting a row or span pointing at a widget that doesn't exist.
+**`resolveRankFilterPageId(filter, pages)` is deliberately THREE-state**, and the three are not
+interchangeable:
 
-  An `addedWidgets` entry the bulk's own `widgetRows` doesn't already place somewhere is no longer left as a permanent orphan. After the layout portion above runs (or, when `hasLayoutUpdate` is `false`, leaves the active page's rows untouched), the handler collects every id still referenced across all pages' (post-removal) `widgetRows` and appends a single-widget row to the active page for each newly-inserted widget id that isn't among them — scoped to `pageExists`, the same guard the layout portion uses, so a widget added while its target page was deleted mid-turn stays unplaced in `nextWidgets` rather than the handler guessing a page for it. Previously, a bulk that supplied `addedWidgets` without also supplying a `widgetRows` naming them — an updates/adds-only batch, the common case when a producer isn't touching layout, where `hasLayoutUpdate` is `false` and the entire layout-replacement block is skipped — inserted the widget into `state.widgets` but never appended it to any page's rows: it existed but rendered nowhere until some later, unrelated mutation happened to place it. A bulk that supplies both `addedWidgets` and a `widgetRows` that already places them is unaffected by this default — only ids no page's rows reference after the layout step get the fallback placement, so a widget the producer explicitly laid out is never placed twice.
+| Result      | Meaning                                                                                                           |
+| :---------- | :---------------------------------------------------------------------------------------------------------------- |
+| `string`    | A `page`-scope filter's explicit `pageId`, or the page whose rows currently hold a `widget`-scope filter's widget |
+| `null`      | **Applies EVERYWHERE** — a legacy pageId-less `page` filter, active on every page                                 |
+| `undefined` | **UNRESOLVABLE** — a `widget`-scope filter whose widget sits on no page's rows, or any non-rank-eligible scope    |
 
-  The insert loop's own existence guard (`Object.hasOwn(nextWidgets, widget.id)`, ordinarily a clean skip — an idempotent re-delivery of an already-applied add must not overwrite a widget a concurrent edit may since have changed) carries one exception: when the already-present id is also in `reAddedWidgetIds` (the same shared "removed-and-re-added in this payload" set the pre-strip and layout steps above consult), the loop OVERWRITES the existing entry with the new definition (title/config) instead of skipping it. This is the other half of the remove+re-add ("replace") unification: the pre-strip/layout steps deliberately leave that id's row — and hence its filters and spans — untouched so its placement survives, but the widget's entry already sitting in `nextWidgets` is still the OLD definition, so it must be overwritten with the new one rather than skipped. Before this was unified, the two branches disagreed: a "replace" bulk that supplied `widgetRows` preserved placement but silently discarded the new title/config (the insert loop skipped it as "already present"), while one that omitted `widgetRows` genuinely deleted-then-reinserted the widget, losing its placement/filters/spans instead. All three steps — the pre-strip, the layout block's `validRowIds` exclusion, and this insert-loop overwrite — now consult the one `reAddedWidgetIds` set computed up front, so a remove+re-add of the same widget id behaves identically (placement/filters/spans preserved, definition updated to the new value) regardless of whether the bulk also supplies `widgetRows`.
+`hasConflictingRankFilter` treats the two sentinels as **opposites**: an unresolvable TARGET
+conflicts with nothing (the add is always allowed) and an unresolvable OTHER filter blocks
+nothing. Conflating them was a real bug — when `null` meant both, a single unplaced-widget rank
+filter (which nothing removes, since `dropWidgetScopedFilters` only fires on widget _removal_)
+read as "conflicts with everything" and silently rejected every subsequent rank `addFilter` on
+every page. Worse, the load-boundary dedup runs the same predicate in array order, so whenever
+the unplaced entry came first it DROPPED the user's legitimate rank filter and the next
+`serializeDoc` persisted the loss permanently.
 
-- **`renameAIThread`** first requires STRING `name`/`updatedAt` (finding 2.2, parser-bypass parity with `addPage`/`renamePage`'s `typeof title !== 'string'` guards and the wire boundary's own `isString` checks), no-opping otherwise — a non-string value would install onto the thread with no immediate throw but corrupt the `name: string`/`updatedAt: string` shape the chat panel's thread selector renders directly with no fallback. It takes a producer-supplied `args.updatedAt` timestamp rather than calling `new Date()` inside the reducer — the one place a naive implementation would otherwise break purity. The sole producer, `executeToolOnState.ts`'s `rename_thread` tool handler, stamps `updatedAt` once so the server-computed and client-applied results agree byte-for-byte. It also takes an explicit, server-chosen `args.threadId` (falling back to the applying side's active thread for legacy payloads), the same targeting pattern as `addWidget.pageId`, so a rename can't land on the wrong thread if the user switches threads while the model is running. It is a no-op when `doc.ai` (or a resolvable target thread) is absent.
+Only `page`/`widget` scopes are rank-eligible. `filterMode: 'rank'` on a `dashboard-date-range`
+or `interactive` scope is wire-valid (the wire boundary never restricts `filterMode` by scope
+kind) but is not a rank window over a page, and treating it as one made a single such filter
+reject every legitimate rank filter dashboard-wide. Both sides enforce the restriction:
+`addFilter` skips the gate entirely for those scopes, and `hasConflictingRankFilter`'s
+existing-filter loop excludes them too.
 
-Side effects a pure reducer cannot own — undo-stack management, title inference from live data sources, React shell selection — are intentionally **not** performed here; they stay in `StudioController` on the client.
+**`dropConflictingRankFilters(filters, pages)`** enforces uniqueness across a whole array, keeping
+the FIRST rank filter per page context in array order. It exists because `addFilter` can only gate
+the filter it is installing, against the context that filter resolves to AT THAT MOMENT — a later
+PLACEMENT can create a conflict after the fact. Three handlers run it:
 
-`mutationLabel(mutation)` produces a compact human-readable label (e.g. `addWidget:chart:widget-123`, `removeFilter:filter-9`) via the same dispatch table's `label` function, used for the AI recent-mutation log (client-side undo/redo history + MCP's `get_recent_changes` tool).
+- **`setWidgetLayout`** and **`applyBulkUpdate`** — placing a widget whose rank filter previously
+  resolved to UNRESOLVABLE can drop it onto a page that already has one.
+- **`removePage`** — a widget placed on both `p1` and `p2` resolves to `p1` while `p1` exists and
+  to `p2` once it does not. `removeWidgetIds` does not cover this: the widget survives on `p2`, so
+  its filter survives too, carrying the stale resolution with it.
 
-`MUTATION_TYPES` (the `MUTATION_HANDLERS` table's keys, cast to `StateMutation['type'][]`) is exported so a runtime test can pin that `parseStateMutation`'s validator table covers exactly the reducer's variant list — the two mapped types already guarantee this at compile time, but the exported key array turns it into an observable assertion.
+All three use the SAME predicate and the SAME array-order tie-break as the load-boundary dedup, so
+the reducer and the load boundary agree at **commit** time. Without them the doc was live-valid
+and load-invalid: `deserializeState` silently deleted the user's filter and the next autosave
+persisted the loss.
+
+#### Notable per-handler semantics
+
+Every handler applies the [string-id](#string-ids-the-coercion-desync-class),
+[prototype-hazard](#prototype-hazard-keys), and [no-op](#reference-equality-no-op-contract) rules
+above; only what is specific to each is listed here.
+
+- **`addPage`** is idempotent: re-delivering an event for an existing `pages[id]` does not reset
+  that page's `widgetRows: []` (which would orphan its widgets) — it only re-activates the page. A
+  missing/non-string `id` no-ops rather than minting a page keyed `"undefined"` while
+  simultaneously setting `activePageId` to `undefined`, which is strictly worse than a no-op.
+
+- **`setDashboardTitle`** and **`renamePage`** require a STRING `title`. A non-string installs with
+  no immediate throw but violates the `title: string` shape until something downstream (the
+  page-header renderer, a `serializeDoc` round-trip) trips over it.
+
+- **`addWidget`** is idempotent, keyed off the flat `state.widgets` record rather than the target
+  page's rows — so a re-delivery can't render a since-moved widget twice. Its explicit
+  server-chosen `pageId` (falling back to the active page for legacy payloads) lands the widget on
+  the page the model was told about, even if the client has since navigated elsewhere.
+
+  Both widget ADD channels (this and `applyBulkUpdate`'s `addedWidgets`) run the same screening
+  pipeline, in order: `coerceWidgetConfig` (a non-record `config` → `{}`),
+  `screenOptionalWidgetScalars`, then `normalizeConfigChartSeries`. A non-string `kind`/`title`
+  skips the entry whole; a non-string `subtitle`/`sourceId` or a non-`'auto'|'manual'`
+  `titleMode`/`subtitleMode` has just its key stripped. That matches the load boundary's screens
+  exactly — see [the boundary-agreement rule](#the-three-trust-boundaries).
+
+  `coerceWidgetConfig` closes a deferred landmine rather than an immediate crash: a `config: null`
+  widget renders fine until the next config-touching mutation, where
+  `shallowRecordEqual`/`Object.keys` on it throws `Cannot convert undefined or null to object`.
+
+- **`updateWidget`** layers five changes in a documented, load-bearing order:
+  1. **A `config` patch** — keys with an explicit `undefined` value are deleted; a non-record
+     `config` is treated as ABSENT.
+  2. **A shallow `changes` merge onto the widget**, `isPlainRecord`-gated. A `config` key inside
+     `changes` **wholesale-replaces** the already-patched config rather than merging with it.
+  3. **A kind-coherence reconciliation**, run only when the merge actually changed `kind`: it
+     strips any config key not in the NEW kind's allow-list, reusing `getAllowedConfigKeys`.
+     Without it a `changes.kind` flip left the config exactly as steps 1–2 produced it — a grid
+     widget still holding a chart-only `xField`, with nothing downstream to reconcile the mismatch.
+     A custom kind (allow-list `null`) is left untouched.
+  4. **`unsetConfigKeys`** — delete the named keys from the post-merge config.
+  5. **`unsetFields`** — delete the named top-level widget keys.
+
+  The `changes` merge is **fail-closed on the key itself**: only a member of
+  `MERGEABLE_WIDGET_CHANGE_KEYS` (`kind`, `title`, `titleMode`, `subtitle`, `subtitleMode`,
+  `sourceId`, `config` — every non-`id` field of `StudioWidgetOf`, held in a `Set`) may land on the
+  widget. The allow-list is scoped to this PATCH channel; the full-widget CREATE channels KEEP
+  their unknown-key tolerance, which is where the forward-compatibility argument actually applies
+  (an older client receiving a newer server's widget must not strip a field it doesn't yet know).
+  A patch bag has no such round-trip to preserve, and without the allow-list a
+  `changes: { evil: {…} }` round-tripped through `serializeDoc` forever — the wire boundary
+  tolerates unknown keys by policy and `deserializeState` never screens them either. It also
+  closes an asymmetry: the `config` channel one level DOWN has always been fail-closed via
+  `validateConfigKeysForKind`, so a stray key was rejected _inside_ `config` and accepted
+  _beside_ it.
+
+  Within the merge, `title`/`kind`/`subtitle`/`sourceId` must be strings and
+  `titleMode`/`subtitleMode` exactly `'auto'`/`'manual'`. All four are guarded because they fail in
+  three different ways: `title`/`kind` have no fallback (the factory keys off `kind`, the canvas
+  card renders `title`) and cost the WHOLE widget at the next load; `subtitle` is rendered as text
+  by `StudioWidgetEditDialog` and crashes that render immediately; `sourceId` drives the
+  widget-to-data-source lookup and breaks it silently with no self-heal. `changes.id` is rejected
+  because `id` is also the `state.widgets` map key — writing it would desync `widget.id` from its
+  key and split every id-keyed invariant.
+
+  Unsets are applied **last** so an explicit clear always wins over a set of the same key in the
+  same mutation, and both arrays are `isStringArray`-gated rather than truthy-gated: a non-array
+  string is also truthy-with-`.length`, so a naive guard iterated it char-by-char and deleted
+  single-character keys, while an array-like record threw as non-iterable. The four REQUIRED
+  fields are never deletable — the runtime denylist rejects `id`, `kind`, `title`, and `config`
+  (clearable via `unsetConfigKeys` only), a backstop that is load-bearing for untrusted input even
+  though `OptionalWidgetField` already excludes them at compile time.
+
+  Each of the three rewrap-triggering branches tracks whether it actually changed a key, so an
+  effect-free `updateWidget` leaves the widget reference unchanged and pushes no undo entry.
+
+- **`setWidgetLayout`** sanitizes incoming `rows` in one pass — each row must itself be an array
+  (`rows: ['w1']` or `rows: [null]` would throw on the per-id `.filter`), each id must be a string
+  before the coercing `Object.hasOwn(state.widgets, id)` membership check, and phantom ids are
+  dropped. `dedupeLayoutRows` then drops repeats: a duplicated id renders the widget twice
+  (duplicate React key in `StudioCanvas`) and double-counts its span in the overflow sum. It
+  reconciles spans via `enforceLayoutColSpans`, then re-runs `dropConflictingRankFilters`.
+
+- **`setWidgetColSpan`** derives the row's membership from the target page's **current**
+  `widgetRows`, never from `args.rowWidgetIds` — the producer computed that from a turn-start
+  snapshot, and it goes stale if the user drags widgets between rows mid-turn. The field is
+  consequently no longer consulted at all (it remains on the wire type, still validated per-entry
+  by `parseStateMutation`, for compatibility with existing producers).
+
+  A `currentRow` of `undefined` is a **no-op**, covering both ways it happens for the same reason:
+  the widget lives on ANOTHER page (writing here persists a dead entry on the wrong page), or it is
+  on NO page at all (a span for an unplaced widget is an orphan by the same rule
+  `enforceLayoutColSpans` and `normalizePersistedPages` enforce, so the next layout mutation or
+  load deletes it — an AI-set width that silently reverts on reload). Collapsing the
+  not-yet-placed and wrong-page cases into one rule makes this handler agree with the two sites
+  that already enforced it.
+
+  It also no-ops on a `widgetId` absent from `state.widgets`, then clamps the requested span and
+  calls `rebalanceRowSpans` with the target as the sole anchor.
+
+- **`removeWidget`** drops the widget from its page's rows (removing an emptied row) and — only for
+  the specific row it was removed from — clears a surviving sibling's span when the removal
+  collapses that row from 2+ widgets to exactly one (a lone widget fills the row, so a leftover
+  multi-widget-era span would render it at the wrong width). The scoping is deliberate: a
+  single-widget row can legitimately carry its own stored span, so a pre-existing singleton-row
+  span is never touched by an unrelated removal. This is the single-id case of
+  `stripWidgetIdsFromPages`. It finishes via `removeWidgetIds`, which drops the widget's entry,
+  prunes its spans everywhere, and drops the filters that only made sense while it existed — its
+  own `widget`-scope filters and the `interactive`/`cross-filter` filters it emitted (a source
+  widget's cross-filter left behind would filter the page with no affordance to clear it).
+
+- **`removePage`** refuses to remove the last page (see
+  ["at least one page"](#at-least-one-page-always-exists)), then performs full cleanup mirroring
+  `StudioController.removePage`: drop the page; remove every widget that lived only on it (one
+  still referenced on a surviving page keeps its entry, filters, and spans); drop the filters that
+  no longer have a home — page-scoped filters targeting it and any `cross-filter`/`interactive`
+  filter whose `scope.pageId` is the removed page, plus (via `removeWidgetIds`) the widget-anchored
+  filters of a genuinely-removed widget; re-run `dropConflictingRankFilters` over the pruned pages;
+  and reassign `activePageId` when the removed page was active.
+
+  The page-anchor drop cascades into surviving filters' `dependsOn` HERE rather than being left to
+  `removeWidgetIds`, because that primitive short-circuits and returns its input `filters`
+  untouched when the page held no exclusively-owned widget.
+
+- **`addFilter`** is idempotent on `filter.id`. Before appending it screens the payload the way the
+  widget ADD channels screen theirs, since both are reachable from a parser-bypassing server-built
+  mutation: `field` must be a string and `operator`/`operator2` members of the closed
+  `StudioFilterOperator` union (via the shared `isStudioFilterOperator`); an unsafe own key is
+  stripped from both the filter and its nested `scope`; a malformed `dependsOn` is repaired to
+  absent rather than sinking the append. Both repairs are reference-stable, so the common
+  wire-validated case appends the SAME object.
+
+  The `operator` membership check matters more than it looks: the client's evaluator **fails open**
+  on an unrecognized operator (`default: return () => true;`), so a plausible-but-wrong string like
+  `'equal'` renders an active-looking filter chip that filters nothing until the next load drops
+  the whole entry.
+
+  It applies the filter as-is, without re-stamping its scope to the applying side's active page —
+  the filter already carries its server-chosen target.
+
+  It then rejects **orphans**, because the reducer's only cleanup path for a scoped filter fires
+  when its anchor is _removed_: a filter anchored to something that never existed is never removed,
+  so it filters its page forever with no clearing affordance. Two mirrored checks —
+  `scope.widgetId`/`scope.sourceWidgetId` must name a live widget, and an explicit `scope.pageId`
+  must name a live page (for `page`, `dashboard-date-range`, `cross-filter`, and `interactive`; a
+  legacy pageId-less `page` filter applies everywhere, is not an anchor, and is left alone, while
+  the other three require their `pageId` outright because the type does).
+
+  The two session-flavoured kinds needed this most and had it least: `serializeDoc` STRIPS
+  `cross-filter`/`interactive` entries, so unlike every other scope kind the load boundary can
+  never repair one that got in, and `removePage`'s cleanup only fires for a page that was present
+  and then removed. A filter anchored to a page the doc never had was permanent, invisible,
+  unclearable dead weight. This is specifically a parser-bypass gap — `executeToolOnState.ts`
+  builds mutations straight from LLM tool arguments and never runs the wire validator, whose
+  `FILTER_SCOPE_REQUIRED_IDS` has always listed `pageId` for both kinds.
+
+  Finally it rejects a second `rank`-mode filter on the same page context (see
+  [rank-filter uniqueness](#rank-filter-uniqueness)), running the gate only for `page`/`widget`.
+
+- **`removeFilter`** removes by strict `!==` compare, then cascades into every remaining filter's
+  `dependsOn` via the shared `pruneDependsOn`. The handler no longer owns that prune, which is
+  precisely why the invariant used to hold here and nowhere else.
+
+- <a id="applybulkupdate"></a>**`applyBulkUpdate`** applies its widget deltas on top of the
+  receiver's **current** `state.widgets`, never a turn-start snapshot.
+
+  **Array-shape guards first.** `removedWidgetIds`, `addedWidgets`, and `updatedWidgets` must each
+  be a genuine `Array.isArray` value — not merely truthy — before anything reads them. `new Set(…)`
+  iterates a STRING char-by-char, so `removedWidgetIds: 'w1'` would delete widgets named `'w'` and
+  `'1'`; a truthy non-array handed to `for...of` throws `is not iterable` instead of the graceful
+  no-op every sibling guard provides. Each surviving entry is then screened individually (a string,
+  or a plain record), so a junk entry among well-formed ones is skipped, not fatal.
+
+  **Removals are page-independent.** Before `removeWidgetIds`' "still referenced" check runs, every
+  page's rows are stripped of every id in `removedWidgetIds` via `stripWidgetIdsFromPages` —
+  unconditionally, not only when the bulk also supplies a `widgetRows` replacement, and across ALL
+  pages rather than the active page alone. Both scopings closed a silent bug:
+  - Without the unconditional strip, an updates/removals-only bulk (the common case) left the
+    widget still referenced on the very page the removal targeted, so `removeWidgetIds` classified
+    it as still-in-use and the removal simply dropped.
+  - Without the all-pages scope, a widget the user dragged to another page mid-turn was reported as
+    still-referenced there and survived the removal. `removedWidgetIds` names widgets to remove
+    DOC-WIDE, and mirroring `removeWidget`'s own all-pages call is what makes single and batch
+    removal carry the identical cross-page guarantee. `removeWidgetIds`' cross-page guard exists to
+    protect an id NOT named for removal from being deleted because a colliding id elsewhere was —
+    it was never meant to veto an explicit, named removal.
+
+  The pre-strip also prunes each stripped id's own `widgetColSpans` entry on the active page, since
+  `stripWidgetIdsFromPages` only ever clears a _surviving_ row-mate's stale span.
+
+  **Remove-and-re-add of the same id in one payload is a "replace", not a removal.** The
+  `reAddedWidgetIds` set (`removedWidgetIds ∩ addedWidgets` ids) is computed once up front and
+  consulted at all three steps that would otherwise disagree: the pre-strip skips those ids (so the
+  row, and hence the filters and spans, survives); the layout block's `validRowIds` exclusion skips
+  them (so a row naming the id isn't dropped as a phantom); and the insert loop OVERWRITES rather
+  than skips an already-present entry with such an id (so the definition updates on top of the
+  preserved placement). Before this was unified the two branches disagreed: a replace bulk
+  supplying `widgetRows` preserved placement but discarded the new title/config, while one omitting
+  `widgetRows` genuinely deleted-then-reinserted the widget, losing its placement/filters/spans.
+
+  **Layout replacement is scoped to the `activePageId` page and skipped independently of the
+  deltas.** When `activePageId` names a page that no longer exists (deleted mid-turn), only the
+  page-scoped layout replacement is skipped; `addedWidgets`/`updatedWidgets` are page-independent
+  by design and are still applied, rather than the whole mutation no-opping.
+
+  **Partial layout payloads.** `widgetRows`/`widgetColSpans` are optional, and both presence
+  decisions run off ONE predicate per field (`rowsProvided`/`spansProvided`), so a present-but-junk
+  value counts as ABSENT everywhere and can neither be read nor flip a branch. Both absent ⇒ the
+  whole layout block is skipped. `widgetRows` only ⇒ the rows install and the page's **existing**
+  spans merge forward, as `setWidgetLayout` does. `widgetColSpans` only ⇒ the spans reconcile
+  against the page's **existing** rows and merge onto its existing map. Defaulting an absent field
+  to `[]`/`{}` would wipe the page on a mere field omission — an absent `widgetRows` coerced to
+  `[]` un-places every widget AND orphans the very spans the bulk carries.
+
+  **Replace vs merge for the span map.** The wire spans REPLACE the page's map only when the
+  producer shipped rows AND spans together (then they genuinely are the intended full map for the
+  new placement); **every other combination MERGES** (incoming keys win, untouched keys survive).
+  Keying the decision on `rowsProvided` alone made a rows-only bulk coerce the absent spans to `{}`
+  and replace the whole map with nothing, so `applyBulkUpdate { widgetRows: [['w2','w1']] }` WIPED
+  the widths `setWidgetLayout { rows: [['w2','w1']] }` kept — two mutations expressing the same
+  reorder disagreeing on every width. Merging also protects a concurrent client drag-resize of a
+  widget the bulk never named.
+
+  On the **merge** branch only (`spansProvided && !rowsProvided`), each row containing an incoming
+  entry runs through `rebalanceRowSpans` with the incoming keys as anchors, because a merged row
+  can sum past `GRID_COLS` even though every individual span is in range. It is deliberately NOT
+  applied on the replace branch: every span there came from the one payload, so there is no
+  pre-existing width to protect and no non-arbitrary anchor, and an internally-inconsistent full
+  snapshot keeps the documented drop-to-flex resolution. `oldRows` for `enforceLayoutColSpans`
+  follows the same rule — normally `[]` so the 2→1 collapse never fires (a producer shipping rows
+  AND spans meant the singleton spans it sent), but a rows-ONLY bulk is semantically a
+  `setWidgetLayout`, so it passes the page's real previous rows.
+
+  **Row sanitization** mirrors `setWidgetLayout`'s, widened for this handler's own inserts:
+  `validRowIds` is `state.widgets` **union** this bulk's `addedWidgets` ids that are strings and
+  pass `isSafePatchKey` (rows may legitimately reference a widget inserted later in the same
+  handler), minus `removedWidgetIds` (minus `reAddedWidgetIds`). Both the population step and the
+  consuming `row.filter` require `typeof id === 'string'`: `isSafePatchKey` only screens the
+  denylist, so a numeric `addedWidgets[].id` otherwise survived into the sanitized rows while the
+  insertion loop skipped inserting it — a dangling row reference no cleanup path could reach.
+  `dedupeLayoutRows` then applies, and span keys are `isSafePatchKey`-filtered and clamped.
+
+  **Unplaced added widgets get a fallback placement.** After the layout portion runs, the handler
+  collects every id still referenced across all pages' post-removal rows and appends a
+  single-widget row to the active page for each newly-inserted widget not among them — scoped to
+  the same `pageExists` guard, so a widget added while its target page was deleted mid-turn stays
+  unplaced rather than the handler guessing a page. Previously an adds-only batch inserted the
+  widget but never placed it: it existed and rendered nowhere until some later unrelated mutation
+  happened to place it. A widget the producer explicitly laid out is never placed twice.
+
+  **`updatedWidgets` entries are applied field-by-field**, not as a blind overwrite. `title` and
+  `sourceId` each require a string and are assigned only when they differ from the existing value;
+  `config` is `isPlainRecord`-gated, shallow-merged, and compared via `shallowRecordEqual`. A
+  field-less entry (`{ widgetId }`), a non-record `config`, or a value-identical one leaves that
+  widget's reference untouched — a re-delivered bulk envelope must not churn the doc. The target is
+  looked up via `Object.hasOwn`, not a truthy bracket read, so a `widgetId` of `'constructor'` is a
+  clean "target not found" skip rather than resolving up the prototype chain.
+
+- **`renameAIThread`** takes a producer-supplied `args.updatedAt` rather than calling `new Date()`
+  inside the reducer — the one place a naive implementation would break purity. The sole producer
+  stamps it once so the server-computed and client-applied results agree byte-for-byte. Its
+  explicit `args.threadId` (falling back to the active thread for legacy payloads) is the same
+  targeting pattern as `addWidget.pageId`, so a rename can't land on the wrong thread if the user
+  switches threads while the model is running. `name`/`updatedAt` must be strings — the chat
+  panel's thread selector renders both directly with no fallback. It no-ops when `doc.ai` or a
+  resolvable target thread is absent.
+
+`mutationLabel(mutation)` produces a compact label (`addWidget:chart:widget-123`,
+`removeFilter:filter-9`) via the same dispatch table's `label` function, used for the AI
+recent-mutation log (client undo/redo history + MCP's `get_recent_changes`).
 
 ### `parseStateMutation.ts` — the runtime validation boundary
 
-`parseStateMutation(value: unknown): ParseStateMutationResult` is the single place a value _claiming_ to be a `StateMutation` is validated before it is handed to `applyMutation`. It exists because `applyMutation`'s handlers destructure `mutation.args` trusting the compile-time `StateMutation` shape, which TypeScript cannot enforce on a value that crossed a wire boundary (an SSE payload that was `JSON.parse`'d). There is exactly **one** such trust boundary in the whole system: the client's SSE `state-mutation` event handler (`@mui/x-studio`'s `StudioBackendAdapter` → `applyStateMutation`). Every `StateMutation` that reaches `applyMutation` server-side is constructed by the server itself (`executeToolOnState.ts`) and never deserialized from client input, so it does not go through here. The "one shared implementation, not independently-drifting inline checks" principle mirrors `resolveAlias` in `@mui/x-studio-data-middleware`'s `shared/columnValidation.ts`.
+`parseStateMutation(value: unknown): ParseStateMutationResult` is the single place a value
+_claiming_ to be a `StateMutation` is validated before it is handed to `applyMutation`. It exists
+because the reducer's handlers destructure `mutation.args` trusting the compile-time
+`StateMutation` shape, which TypeScript cannot enforce on a value that crossed a wire boundary.
 
-It returns `{ ok: true; mutation }` (the input value unchanged — a pure gate, never a clone/normalizer) or `{ ok: false; error }` with a descriptive string naming the offending field, so a dropped event has a loggable reason where the reducer's dispatch would otherwise silently no-op.
+There is exactly **one** such boundary in the whole system: the client's SSE `state-mutation`
+handler (`StudioBackendAdapter` → `applyStateMutation`). Every mutation that reaches
+`applyMutation` server-side is constructed by the server itself and never deserialized from client
+input, so it does not go through here — which is why the reducer carries the defense-in-depth
+guards documented above.
 
-- **Structure.** `value` must be a plain object; `value.type` must be a string that is an **own** key (`Object.hasOwn`, never a prototype-chain lookup — an untrusted `type: 'constructor'`/`'__proto__'` must not resolve to a validator) of the validator table; `value.args` must be a plain object. Per-variant argument checks live in a `MUTATION_ARG_VALIDATORS` table typed with the **same mapped-type exhaustiveness trick** as `MUTATION_HANDLERS` (`{ [M in StateMutation as M['type']]: (args) => string | null }`), so a new `StateMutation` variant added without a matching validator entry is a compile-time error here, not a silently-unvalidated gap.
-- **`isSafeId`.** The load-bearing predicate: every id that the reducer uses as a `Record` key via a bare bracket assignment (widget `id`, `updatedWidgets[].widgetId`, `addPage.id`, `applyBulkUpdate.activePageId`, `removedWidgetIds` entries, etc.) is checked to reject `'__proto__'`, `'constructor'`, and `'prototype'`. This closes a concrete prototype-injection bug: the reducer inserts widgets with `nextWidgets[widget.id] = widget`, and a `[[Set]]` of `nextWidgets['__proto__'] = widgetObject` invokes the inherited `__proto__` setter and rewrites the record's prototype rather than adding an own key. The parallel `hasUnsafeOwnKeys` check rejects a `config`/`changes`/`widgetColSpans` payload that carries `__proto__` etc. as a real own key (as `JSON.parse('{"__proto__":…}')` produces), since the reducer rebuilds those records key-by-key.
-- **`validateWidget` field checks.** Used for both `addWidget.args.widget` and each `applyBulkUpdate.args.addedWidgets` entry, so a full-widget payload is checked identically regardless of which mutation carries it. `id` must be a safe id (`isSafeId`), `kind`/`title` must be strings, and the same scalar/mode checks `updateWidget.args.changes` applies are applied here too: `subtitle`/`sourceId` must be strings when present (`isOptionalString`) and `titleMode`/`subtitleMode` must be `'auto' | 'manual'` when present (`isOptionalTitleMode`) — so a junk value like `titleMode: 42` is rejected on the `addWidget`/bulk-insert path exactly as it already was on the `changes`-merge path, keeping the two sibling entry points symmetric. `config` must be a plain record and, mirroring every other config-carrying arg in this file, is checked with `hasUnsafeOwnKeys` even when the widget's `kind` is a custom kind (where `validateConfigKeysForKind` itself imposes no key restriction) — a full-widget `config` can never carry an own `__proto__`/`constructor`/`prototype` key.
-- **Config-key validation wiring.** `validateWidget` also runs the write-side config-key validators from `configKeyValidation.ts`: the kind-level `validateConfigKeysForKind` **always** (a Chart-only key on a Grid widget is rejected; custom kinds are unrestricted), and the finer chart-type-level `validateChartConfigKeysForType` **always** for a chart widget, resolving the effective chart type as `config.chartType ?? 'bar'` — the same fallback `resolveChartType`/the middleware's `invalidChartConfigKeyError` apply — before running the check (also rejecting an explicit `chartType` that is not a real `StudioChartType`). This is STATELESS by design, but statelessness here means "resolved only from the incoming config's own `chartType`, never from a stored widget" — it does NOT mean "skipped when `chartType` is omitted": `validateWidget` only ever sees full-widget CREATE payloads (`addWidget`/`applyBulkUpdate.addedWidgets`), where there is no existing widget to omit a discriminant relative to in the first place, so an omitted `chartType` is simply the `'bar'` case. The genuinely stateless gap is the separate `updateWidget` config-PATCH channels (`args.config`/`args.changes.config`/`applyBulkUpdate.args.updatedWidgets[].config`): those carry no `kind`/`chartType` of their own and cannot be chart-family-validated here (that path is covered in-process by the controller and, for the AI tool boundary, by the middleware) — they instead get a narrower, stateless `chartType`-membership-only check (a present `chartType` must still be a real `StudioChartType`).
-- **`updateWidget.args.changes` field checks.** Unlike the `config`/`unsetConfigKeys` channels (whose interior stays an unchecked leaf, since both only ever patch or delete config keys), `changes` is a wholesale merge onto the widget itself, so its own top-level fields are checked here: an own `id` key is rejected outright (it is the `state.widgets` map key — a `changes.id` would desync `widget.id` from its key and split every id-keyed invariant, cross-filters/span lookups/layout rows included), `changes.title`/`changes.subtitle`/`changes.sourceId`/`changes.kind` must be strings when present, `changes.titleMode`/`changes.subtitleMode` must be `'auto' | 'manual'` when present (checked via the private `isOptionalTitleMode`, a stricter check than the plain-string `isOptionalString` — these are the only other `StudioWidget` fields a wholesale `changes` merge can carry, and an unchecked junk value like `titleMode: 42` would otherwise persist into a field the client's auto-title logic branches on), and `changes.config` must be a plain record (checked with `hasUnsafeOwnKeys`, same as the top-level `config` patch) when present.
-- **`validateFilter` field checks (`addFilter.args.filter`).** The filter object's own top-level keys are first screened with `hasUnsafeOwnKeys` (closing the parity gap with `validateWidget`'s widget-object screen, and mirrored on load by `deserializeState`'s persisted-filter screen — the reducer's `addFilter` appends the filter verbatim, so an own `__proto__`/`constructor`/`prototype` key would otherwise round-trip and poison a later spread of it). As of Iteration 30 (Tier2 finding), the nested `scope` object gets the identical own-key screen too — `validateFilterScope` (below) now rejects a `scope` carrying such a key via the same `hasUnsafeOwnKeys` predicate, the one nested record this screening had missed until now; because `statePersistence.ts`'s `isValidFilterScope` reuses `validateFilterScope` directly, this closes the persistence-load boundary's identical gap transitively, without a separate check there (see `statePersistence.ts` below). Then `id` must be a safe id (`isSafeId`), `scope` must be a valid `StudioFilterScope`, `field` must be a string, and `operator` (plus a PRESENT `operator2`) must be a MEMBER of the closed `StudioFilterOperator` union — checked via `isStudioFilterOperator`/`STUDIO_FILTER_OPERATORS` (`widgetTypeGuards.ts`), not just `isString`. A present `dependsOn` (`StudioFilterState.dependsOn?: string[]`, the ids of other filters this one cascades from) must be a `string[]`, checked with the same `isStringArray` helper as `unsetFields`/`unsetConfigKeys`/`removedWidgetIds`/`rowWidgetIds` — previously the only `StudioFilterState` field left entirely unvalidated, so a malformed shape (a bare string, or an array with non-string elements) reached the x-studio-side consumer (`docTransforms.ts`), which does an unguarded `.filter()`/`.map()` over it and would throw downstream instead of the payload being rejected here at the wire boundary. `field`/`operator` are read downstream (`mutationLabel` interpolates `filter.field`; the client pipeline's `isFilterComplete` and the data middleware both branch on them), so a junk value like `field: 42` or an unrecognized `operator` string would install an active-but-unevaluable filter that silently renders every widget in its scope empty rather than being rejected at the wire boundary. `operator` specifically needs a MEMBERSHIP check, not merely `isString`: the client's evaluator FAILS OPEN on an unrecognized value (`filterUtils.ts`'s `default: return () => true;`), so a plausible-but-wrong string like `'equal'` would install a filter chip that renders as ACTIVE while filtering nothing. Before architecture-review finding T2-1, this wire boundary checked `operator` with `isString` only while the AI-tool boundary (`executeToolOnState.ts`) already membership-checked the identical value off its own hand-copied `VALID_FILTER_OPERATORS` list — the two boundaries could silently disagree on an identical payload. `STUDIO_FILTER_OPERATORS`/`isStudioFilterOperator` (see `widgetTypeGuards.ts` above) is now the one shared list both boundaries check against. The sibling closed-union leaf fields on `StudioFilterState` — `filterMode`, `conjunction`, `rankDirection`, `dateRangePreset` — are deliberately left unchecked here: unlike `operator`, the evaluator degrades SAFELY for each rather than failing open (a junk `filterMode` falls through to condition mode, a junk `conjunction` behaves as `'and'`, a junk `rankDirection` behaves as `'top'`, and `dateRangePreset` is an 11-member display-only annotation the evaluator never branches on), so none can produce the active-chip-that-filters-nothing failure and the wire boundary tolerates them for forward compatibility. The filter's `value`/`value2` (and other condition/rank leaf payload) is left UNINTERPRETED — the reducer appends the filter verbatim and only keys off `id`/`field`/`operator`/`scope`, so what those leaves mean is not this validator's business — but uninterpreted is not unbounded: both now run through `isBoundedValue` (see "Size caps" below), since `addFilter` was otherwise the exact same `JSON.stringify`-blows-the-stack vector as an unbounded widget `config`.
-- **Size caps (`MAX_ARRAY_LENGTH` / `MAX_STRING_LENGTH` / `MAX_DEPTH`).** Everything above validates SHAPE; as of Iteration 31 (Tier2) it also validates SIZE. Two module-level constants — `MAX_ARRAY_LENGTH = 500` and `MAX_STRING_LENGTH = 10_000` — are enforced inside the shared leaf predicates, so every field that already routes through one of them is capped uniformly with no per-field bookkeeping: `isString`/`isOptionalString` (every string field — widget `title`, filter `field`, page `title`, …), `isSafeId` (every id, checked for length before the denylist test), `isStringArray` (`dependsOn`, `unsetFields`, `unsetConfigKeys`, `rowWidgetIds`, `removedWidgetIds` — capped on both entry count and per-entry length), `isStringMatrix` (the `rows`/`widgetRows` layout matrix, capped on outer row count, with each inner row capped transitively by `isStringArray`), and `isFiniteNumberRecord` (`widgetColSpans`, capped on own-key count and per-key length). The two record-ARRAY collections validated by a per-entry loop rather than one of those shared predicates — `applyBulkUpdate.args.addedWidgets` and `.updatedWidgets` — carry their own explicit length checks, with a field-naming error message (`applyBulkUpdate.args.addedWidgets must not contain more than 500 entries`) to match the file's convention. Before this, a payload could be perfectly well-formed and still unbounded: 500,000 individually-shape-valid `addedWidgets`, or a multi-megabyte widget `title`. This file's own module doc calls it the ONE place a value claiming to be a `StateMutation` is checked coming from OUTSIDE the process, and everything past it — the reducer's per-entry loops, the client's React render tree, `serializeState`'s full-doc `JSON.stringify` on autosave, and `migrateState`'s `structuredClone` — assumes a bounded, dashboard-sized document, so an unbounded payload hangs or OOMs a consumer long before any shape check would have rejected it. The caps are deliberately generous — far past anything a real dashboard-editing UI or AI tool call approaches — not limits tuned to an exact legitimate maximum; they are a denial-of-service backstop, not a business rule. Those two caps were BREADTH-only, and reached only the fields routed through a shared leaf predicate — which left exactly the leaves this boundary DELIBERATELY does not interpret unbounded, and both were reachable with a payload of a few kilobytes. There was no DEPTH bound at all: `hasUnsafeOwnKeys` inspects only TOP-LEVEL keys, so an `addWidget` with `config: { chartType: 'bar', customConfig: <10,000-deep nested array> }` passed every check (`customConfig` is an allowed shared config key, and no length cap fires on a small payload), installed into `doc.widgets`, and then made the host's autosave `JSON.stringify(serializeState(state))` throw `RangeError: Maximum call stack size exceeded` — every save failing for the rest of the session while the dashboard still looked fine, and `migrateState`'s `structuredClone` hitting the same limit on the next schema bump, making the doc unloadable. `filter.value`/`value2` were the identical vector via `addFilter`, with no bound of any kind. **`isBoundedValue(value)`** (Iteration 33) closes both with ONE shared predicate rather than an open-coded check per site: no deeper than `MAX_DEPTH` = 32 levels, no array over `MAX_ARRAY_LENGTH`, no record with more than `MAX_RECORD_KEYS` (= `MAX_ARRAY_LENGTH`, mirroring `isFiniteNumberRecord`'s existing key-count cap — a wide-but-shallow record is the same payload by another shape) own keys, and no string, VALUE or KEY, over `MAX_STRING_LENGTH`. It is deliberately shape-AGNOSTIC: it makes no claim about what the leaf MEANS, only that a consumer can `JSON.stringify`/`structuredClone`/render it without blowing a stack or a memory budget — which is exactly the property these leaves need, since "not interpreted here" must not mean "not bounded". It runs at every unchecked leaf that crosses this boundary — `addWidget`/`addedWidgets` `widget.config`, `updateWidget.args.config`, `updateWidget.args.changes.config`, `updatedWidgets[].config`, and `filter.value`/`filter.value2` — and every call site reports a rejection through the shared `unboundedValueError(path)` string, so a new call site cannot invent a divergent message.
-- **Depth of interpretation.** Validation is deliberately shallow at the leaves: it checks what other code keys/iterates on (ids, `string[]`/`string[][]` layouts via real `Array.isArray` element checks so the string `"abc"` can never masquerade as `['a','b','c']`, `Record<string, number>` col-spans, filter `scope.kind` against the five `StudioFilterScope` kinds and their required id fields — `validateFilterScope` also runs the `page` kind's own `pageId` through `isOptionalString` even though `FILTER_SCOPE_REQUIRED_IDS` lists no required id for `page` (Iteration 27): that `pageId` is optional, not absent-from-validation, and had been the one scope anchor id left completely untype-checked, letting a numeric value install/round-trip via the reducer's and load boundary's coercing `Object.hasOwn` lookups — filter `field`/`operator` as strings) but leaves the per-kind widget `config` interior and filter `value`/`value2` UNINTERPRETED — deep-validating those would drift on every config change for no safety gain. Uninterpreted is not unvalidated, though: as of Iteration 33 every one of those leaves is still SIZE-bounded by the shared `isBoundedValue` predicate (see "Size caps" above), so the boundary makes no claim about what a leaf means while still guaranteeing a consumer can `JSON.stringify`/`structuredClone`/render it. Unknown extra keys inside `args` are tolerated (forward compatibility for an older client receiving a newer server's additive field). One id-bearing array gets a per-entry check beyond the ordinary `string[]` shape test: `setWidgetColSpan.args.rowWidgetIds`, each entry additionally required to be a safe id (`isSafeId`) — the reducer's sibling-rebalance branch can, on its fallback path, use this wire-supplied array directly as a bracket-assignment target (see `setWidgetColSpan` above), so a prototype-polluting entry is rejected here too, not just backstopped in the reducer.
+It returns `{ ok: true; mutation }` or `{ ok: false; error }` with a descriptive string naming the
+offending field, so a dropped event has a loggable reason where the reducer's dispatch would
+silently no-op. It is very nearly a pure gate; the one exception is `validateWidget`'s
+`stripForeignFamilyKeys` normalization, which assigns back to `widget.config` in place (below).
 
-`PARSEABLE_MUTATION_TYPES` (the validator table's keys) is exported alongside `MUTATION_TYPES` purely for the table-sync test.
+- **Structure.** `value` must be a plain object; `value.type` must be a string that is an **own**
+  key of the validator table; `value.args` must be a plain object. Per-variant checks live in a
+  `MUTATION_ARG_VALIDATORS` table typed with the **same mapped-type exhaustiveness trick** as
+  `MUTATION_HANDLERS`, so a new variant without a validator is a compile error, not a silently
+  unvalidated gap. `PARSEABLE_MUTATION_TYPES` is exported alongside `MUTATION_TYPES` purely for
+  the table-sync test.
 
-### `widgetTypeGuards.ts` — runtime narrowing for the two discriminated unions
+- **`isSafeId`.** Every id the reducer uses as a `Record` key rejects the three denylist members
+  and is length-capped. `hasUnsafeOwnKeys` is the parallel own-key scan for
+  `config`/`changes`/`widgetColSpans` payloads.
 
-Runtime narrowing helpers for `StudioWidget` (by `kind`) and `StudioChartWidgetConfig` (by `chartType`) — kept in one file because both exist for the same underlying reason: a union needs a runtime helper only where TypeScript can't narrow it unaided.
+- **`validateWidget`** — used for both `addWidget.args.widget` and each `addedWidgets` entry, so a
+  full-widget payload is checked identically regardless of which mutation carries it. `id` safe,
+  `kind`/`title` strings, `subtitle`/`sourceId` optional strings, `titleMode`/`subtitleMode`
+  optional `'auto'|'manual'`, `config` a plain record with no unsafe own key (checked even for a
+  custom kind, where `validateConfigKeysForKind` imposes no restriction).
 
-- **`isWidgetOfKind(widget, kind)`** — MANDATORY at any cross-kind call site: `StudioWidget`'s consumer-defined custom-kind catch-all member has a non-literal `kind: string`, so a bare `widget.kind === 'chart'` check does not narrow `widget.config` (TypeScript can't rule out `string === 'chart'` for that member). The guard performs the same runtime check but ASSERTS the precise `StudioWidgetOf<K>` result type. Single-kind components should instead type their prop directly as `StudioWidgetOf<'chart'>` — no guard needed.
-- **`resolveChartType(config)`** — returns `config.chartType ?? 'bar'`, the one place the runtime default is spelled out (`bar` is the only chart family whose discriminant is optional, per the empty-config-is-a-valid-bar-config rule).
-- **`isChartConfigOfType(config, type)`** — narrows a value still typed as the flat `StudioChartConfig` (whose keys are all present, so a bare `===` does not narrow it to a family) to `StudioChartConfigOfType<T>`, applying the same `?? 'bar'` default as `resolveChartType`. NOT needed against the closed `StudioChartWidgetConfig` union itself, which already narrows natively on `config.chartType === 'x'`.
-- **`STUDIO_CHART_TYPES`/`isStudioChartType(value)`** — the full chart-type membership list (`as const satisfies readonly (keyof StudioChartConfigByType)[]` checks every element is a valid chart type; the separate `AssertAllChartTypesListed` error-tuple lock fail-closes COMPLETENESS, so neither a stray nor a missing entry compiles) and a runtime membership test. Unlike an unrecognized widget kind (a legitimate "custom kind, no restriction" case), there are no custom chart types, so an unrecognized `chartType` string is a hard error at validation boundaries, not a permissive pass-through.
-- **`STUDIO_FILTER_OPERATORS`/`isStudioFilterOperator(value)`** — the identical pattern one level over: the full `StudioFilterOperator` membership list (`as const satisfies readonly StudioFilterOperator[]`, completeness fail-closed by its own `AssertAllFilterOperatorsListed` error-tuple lock) and a runtime membership test, `unknown`-typed (not `string`-typed like `isStudioChartType`) since it also has to reject a non-string `operator`. Added to close architecture-review finding T2-1: before this list existed, the schema exported only the `StudioFilterOperator` TYPE, so `parseStateMutation.ts`'s wire-boundary `validateFilter` checked `operator` with a plain `isString`, while the AI-tool boundary (`@mui/x-studio-ai-middleware`'s `executeToolOnState.ts`) had to hand-copy its own `VALID_FILTER_OPERATORS` record as its "authoritative source of truth" — the two boundaries could silently disagree on an identical payload. Both now import and membership-check against this one shared list (see `validateFilter` under `parseStateMutation.ts` below for why `operator` specifically needs a membership check, not just `field`/`operator`-are-strings).
+  It then runs both config-key layers from `configKeyValidation.ts`: `validateConfigKeysForKind`
+  always, and for a chart widget `stripForeignFamilyKeys` against the effective chart type
+  (`config.chartType ?? 'bar'`, the same fallback `resolveChartType` and the middleware apply).
+  An explicit `chartType` that is not a real `StudioChartType` is fatal — there are no custom
+  chart types.
+
+  Foreign-family keys are **stripped, not rejected**, which is what makes
+  [key retention](#key-retention-across-charttype-switches) survive a round trip through this
+  boundary: a stored, user-authored config legitimately retains other-family keys, so
+  re-submitting a stored widget (duplicating it, moving it across dashboards) used to fail
+  wholesale. The strip assigns back only when a key was actually dropped, so a clean config keeps
+  its object identity — the reducer's reference-equality contract depends on value-identical
+  configs staying value-identical. Genuinely unknown keys remain fatal.
+
+- **`validateFilter`** — the filter object's own keys are screened with `hasUnsafeOwnKeys`
+  (mirrored on load), `id` must be a safe id, `scope` a valid `StudioFilterScope` (own-key-screened
+  too, via `validateFilterScope`), `field` a string, `operator` and a present `operator2` members
+  of the closed union via `isStudioFilterOperator`, and a present `dependsOn` a real `string[]`.
+
+  The sibling closed-union leaf fields — `filterMode`, `conjunction`, `rankDirection`,
+  `dateRangePreset` — are deliberately left unchecked, and the asymmetry is the point: unlike
+  `operator`, the evaluator degrades SAFELY for each (a junk `filterMode` falls through to
+  condition mode, a junk `conjunction` behaves as `'and'`, a junk `rankDirection` as `'top'`, and
+  `dateRangePreset` is a display-only annotation the evaluator never branches on), so none can
+  produce the active-chip-that-filters-nothing failure, and the boundary tolerates them for
+  forward compatibility.
+
+- **`updateWidget.args.changes`** is checked field-by-field, unlike the `config`/`unsetConfigKeys`
+  channels whose interiors stay unchecked leaves: `changes` is a wholesale merge onto the widget
+  itself. An own `id` key is rejected outright; `title`/`subtitle`/`sourceId`/`kind` must be
+  strings when present; `titleMode`/`subtitleMode` `'auto'|'manual'`; `changes.config` a plain,
+  own-key-screened record.
+
+- **Config-key validation is STATELESS**, and statelessness means "resolved only from the incoming
+  config's own `chartType`, never from a stored widget" — it does NOT mean "skipped when
+  `chartType` is omitted". `validateWidget` only ever sees full-widget CREATE payloads, where
+  there is no existing widget to omit a discriminant relative to, so an omitted `chartType` is
+  simply the `'bar'` case. The genuinely stateless gap is the config-PATCH channels
+  (`updateWidget.args.config`, `.changes.config`, `updatedWidgets[].config`), which carry no
+  `kind`/`chartType` of their own and cannot be family-validated here; they get a narrower
+  membership-only check (a present `chartType` must be a real `StudioChartType`), and the full
+  check is covered in-process by the controller and by the middleware.
+
+- **Depth of interpretation.** Validation is deliberately shallow at the leaves: it checks what
+  other code keys or iterates on (ids; `string[]`/`string[][]` layouts via real `Array.isArray`
+  element checks, so the string `"abc"` can never masquerade as `['a','b','c']`;
+  `Record<string, number>` col-spans; `scope.kind` against the five kinds and their required id
+  fields; filter `field`/`operator`) but leaves the per-kind widget `config` interior and filter
+  `value`/`value2` UNINTERPRETED — deep-validating those would drift on every config change for
+  no safety gain. Unknown extra keys inside `args` are tolerated for forward compatibility.
+
+  `setWidgetColSpan.args.rowWidgetIds` gets a per-entry `isSafeId` check beyond the ordinary
+  `string[]` shape test, backstopping any producer that still supplies it.
+
+- **Size caps.** Everything above validates SHAPE; this validates SIZE. Uninterpreted must not
+  mean unbounded: everything past this boundary — the reducer's per-entry loops, the client's
+  render tree, `serializeState`'s full-doc `JSON.stringify` on autosave, `migrateState`'s
+  `structuredClone` — assumes a bounded, dashboard-sized document, and an unbounded payload hangs
+  or OOMs a consumer long before any shape check would have rejected it.
+
+  Four module-level constants: `MAX_ARRAY_LENGTH = 500`, `MAX_STRING_LENGTH = 10_000`,
+  `MAX_DEPTH = 32`, `MAX_RECORD_KEYS = MAX_ARRAY_LENGTH` (a wide-but-shallow record is the same
+  payload by another shape). Breadth caps are enforced inside the shared leaf predicates
+  (`isString`, `isOptionalString`, `isSafeId`, `isStringArray`, `isStringMatrix`,
+  `isFiniteNumberRecord`), so every field routed through one is capped with no per-field
+  bookkeeping; `addedWidgets`/`updatedWidgets`, validated by an explicit per-entry loop, carry
+  their own length checks with field-naming error messages.
+
+  **`isBoundedValue(value)`** adds the depth bound, and is deliberately shape-AGNOSTIC: it makes
+  no claim about what a leaf MEANS, only that a consumer can `JSON.stringify`/`structuredClone`/
+  render it without blowing a stack or a memory budget. It runs on the whole `widget` record, the
+  whole `filter`, and the whole `filter.scope` — not merely the named leaves — because those three
+  are installed **verbatim** by the reducer while unknown extra keys are tolerated by policy, so
+  an unnamed key is the one place arbitrary payload can still cross. Roughly 40 KB of nesting
+  under an unnamed key was enough to make every subsequent autosave throw
+  `RangeError: Maximum call stack size exceeded` while the dashboard still looked fine, and to
+  make the doc unloadable at the next migration.
+
+  `updateWidget.changes` and `updatedWidgets` need no whole-record bound, because the reducer's
+  `MERGEABLE_WIDGET_CHANGE_KEYS` allow-list drops extras before installation. That asymmetry is
+  pinned by a test so it reads as deliberate.
+
+  Every rejection reports through the shared `unboundedValueError(path)` string, so a new call
+  site cannot invent a divergent message. The caps are deliberately generous — far past anything a
+  real dashboard or AI tool call approaches. They are a denial-of-service backstop, not a business
+  rule.
+
+### `widgetTypeGuards.ts` — runtime narrowing and closed-union lists
+
+Two responsibilities in one file, because both exist for the same underlying reason: a union needs
+a runtime helper only where TypeScript can't narrow it unaided, or where a closed union has no
+runtime representation to check against.
+
+- **`isWidgetOfKind(widget, kind)`** — MANDATORY at any cross-kind call site, for the reason given
+  under [the OPEN widget union](#studiowidget--the-widget-kind-union-open). It performs the same
+  runtime check as a bare `===` but ASSERTS the precise `StudioWidgetOf<K>` result type.
+  Single-kind components should instead type their prop directly as `StudioWidgetOf<'chart'>` —
+  no guard needed.
+- **`resolveChartType(config)`** — `config.chartType ?? 'bar'`, the one place the runtime default
+  is spelled out.
+- **`isChartConfigOfType(config, type)`** — narrows a value still typed as the _flat_
+  `StudioChartConfig` (whose keys are all present, so a bare `===` does not narrow it to a family).
+  NOT needed against the closed `StudioChartWidgetConfig`, which narrows natively.
+
+Three closed unions publish a runtime membership list plus a predicate, and all three follow one
+pattern: `as const satisfies readonly Union[]` (which checks element validity), plus a separate
+`AssertAll…Listed` error-tuple lock that fail-closes **completeness** (which `satisfies` alone
+cannot), plus a runtime list-length pin in the tests.
+
+| List                          | Predicate                    | Gates                                                      |
+| :---------------------------- | :--------------------------- | :--------------------------------------------------------- |
+| `STUDIO_CHART_TYPES`          | `isStudioChartType`          | Every `addWidget`/`add_widget` boundary                    |
+| `STUDIO_FILTER_OPERATORS`     | `isStudioFilterOperator`     | `validateFilter`, `addFilter`, the load-boundary screen    |
+| `STUDIO_EXPRESSION_OPERATORS` | `isStudioExpressionOperator` | `isValidExpressionNode` at the persisted-doc load boundary |
+
+Publishing the list, not just the type, is the whole point. Each of these was at some stage
+type-only, which forced its consumers to hand-maintain a parallel copy: the AI middleware's
+`VALID_FILTER_OPERATORS` record, and `ExpressionNodeEditor`'s 22-entry option table alongside the
+evaluator's arity/kind tables. A hand-copy is exactly the per-package drift this package exists to
+eliminate — an operator added here but missed in a copy makes the editor and the load boundary
+disagree about which operators exist, and an expression the editor cannot offer silently
+evaluates to `null` after a reload.
+
+`isStudioFilterOperator` and `isStudioExpressionOperator` are `unknown`-typed (not `string`-typed
+like `isStudioChartType`) since they must also reject a non-string value.
+
+Unlike an unrecognized widget kind — a legitimate "custom kind, no restriction" case — there are
+no custom chart types, so an unrecognized `chartType` is a hard error at validation boundaries,
+not a permissive pass-through.
 
 ### `configKeyValidation.ts` — write-side config-key guards, two levels deep
 
-`StudioWidgetConfigForKind<K>`/`StudioChartConfigOfType<T>` only constrain code that READS `widget.config` after narrowing on `kind`/`chartType`. Neither `StudioController.updateWidgetConfig` nor an AI tool call is type-checked against a specific widget at runtime, so a wrong-kind or wrong-chart-type key can still be WRITTEN over those boundaries. This file closes that gap with two parallel layers, one per union:
+`StudioWidgetConfigForKind<K>`/`StudioChartConfigOfType<T>` only constrain code that READS
+`widget.config` after narrowing. Neither `StudioController.updateWidgetConfig` nor an AI tool call
+is type-checked against a specific widget at runtime, so a wrong-kind or wrong-chart-type key can
+still be WRITTEN over those boundaries. This file closes that gap with two parallel layers, one
+per union.
 
-- **`getAllowedConfigKeys(kind)`/`validateConfigKeysForKind(kind, config)`** — the widget-KIND layer. Returns `null` (no restriction) for a consumer-defined custom kind; otherwise a `Set` of the shared config keys plus that kind's own keys. Uses `Object.hasOwn` so an untrusted kind like `'constructor'` is treated as custom rather than matching a prototype member. Each kind's key list is hand-maintained (a default widget instance under-reports the real allow-list, since a factory only seeds the couple of keys it needs — the interface, not the default, is the real allow-list, and TS interfaces don't exist at runtime) but locked to the real interface by a per-list `AssertKeysCovered` compile-time check plus a `satisfies readonly (keyof Interface)[]` clause, so an interface key added or removed without updating its list fails to compile rather than silently under-validating.
-- **`getAllowedChartConfigKeys(chartType)`/`validateChartConfigKeysForType(chartType, config)`** — the CHART-TYPE layer, one level finer. Because `StudioChartType` is closed, this is TOTAL over every chart type and never returns `null` — there is no "custom chart type, anything goes" case. `CHART_TYPE_CONFIG_KEYS` maps each of the 16 chart-type literals to its family's key tuple (families sharing an interface — e.g. `bar`/`bar-stacked`/`bar-100` — share one tuple), each tuple listing its family's own keys plus the sort keys it inherits; `getAllowedChartConfigKeys` unions in `SHARED_CONFIG_KEYS` (which now carries `crossFilterMode` and the other card-chrome keys) so shared keys are valid on a chart config too. The kind-level `chart` entry consumed by `getAllowedConfigKeys` is DERIVED as the union of all ten family tuples (`CHART_CONFIG_KEYS`), so the two levels can't drift apart, and that union is itself `AssertKeysCovered`-locked against the recomposed flat `StudioChartConfig`. `getAllowedChartConfigKeys` uses the same `Object.hasOwn` guard as the sibling kind-level `getAllowedConfigKeys`: a `chartType` that is not an own key of `CHART_TYPE_CONFIG_KEYS` — an ordinary unrecognized string, or one naming an `Object.prototype` member (`'constructor'`, `'toString'`, `'hasOwnProperty'`, …) — returns an empty `Set` rather than resolving the bracket lookup up the prototype chain and passing a function/object to `new Set(...)` (which would throw `TypeError: ... is not iterable`). So a caller holding an untrusted chart-type string does not need to pre-gate it with `isStudioChartType`: the empty allow-list falls out of the guard itself, flags every key, and matches the intended fail-closed behavior for both an unrecognized type and a prototype-chain name — not a permissive pass-through, and not a crash. (`stripForeignFamilyKeys`, below, inherits the same guard via its call to `getAllowedChartConfigKeys`.)
+- **`getAllowedConfigKeys(kind)` / `validateConfigKeysForKind(kind, config)`** — the widget-KIND
+  layer. Returns `null` (no restriction) for a custom kind; otherwise a `Set` of the shared config
+  keys plus that kind's own. Each kind's key list is hand-maintained — a default widget instance
+  under-reports the real allow-list, since a factory only seeds the couple of keys it needs, and
+  TS interfaces don't exist at runtime — but locked to the real interface by a per-list
+  `AssertKeysCovered` compile-time check plus a `satisfies readonly (keyof Interface)[]` clause,
+  so an interface key added or removed without updating its list fails to compile rather than
+  silently under-validating.
 
-Both validators are shallow, key-PRESENCE-only checks (no value-type/deep validation), matching the rest of this package's write-/wire-side validation style. Both layers are consumed at three boundaries: `parseStateMutation.ts`'s wire-boundary `validateWidget` (kind-level always; chart-type-level always too, resolving an omitted `config.chartType` to the `'bar'` fallback before checking — mirroring the middleware's own effective-type resolution, since a full-widget create payload has no existing widget to omit a discriminant relative to), the AI middleware's in-process tool-call boundary, and the client's `StudioController.updateWidgetConfig` write path — see those two packages' own `ARCHITECTURE.md` for how each wires the layers in (fail-closed at AI/wire boundaries, warn-and-strip in the UI controller).
+- **`getAllowedChartConfigKeys(chartType)` / `validateChartConfigKeysForType(chartType, config)`**
+  — the CHART-TYPE layer, one level finer. Because `StudioChartType` is closed, this is TOTAL and
+  never returns `null`; there is no "custom chart type, anything goes" case.
+  `CHART_TYPE_CONFIG_KEYS` maps each of the 16 literals to its family's key tuple (families
+  sharing an interface share one tuple), and `getAllowedChartConfigKeys` unions in
+  `SHARED_CONFIG_KEYS`. The kind-level `chart` entry the sibling layer consumes is DERIVED as the
+  union of all ten family tuples, so the two levels can't drift, and that union is itself
+  `AssertKeysCovered`-locked against the recomposed flat `StudioChartConfig`.
 
-`validateWidget`'s chart-type check is STATELESS: it validates only against the family implied by the widget's own `config.chartType`, with no notion of "this config used to belong to a different chart type." That is correct for the payloads it sees today (both middleware paths build added widgets fresh), but it means a _stored_ config that legitimately retains a stale other-family key (per the retention-across-`chartType`-switch feature described above) would fail this check if it were ever round-tripped verbatim through `addWidget`/`applyBulkUpdate.addedWidgets` — e.g. duplicating a widget or moving it across dashboards. **`stripForeignFamilyKeys(config, chartType)`** is the sanctioned helper for that case: it returns a copy of `config` retaining only the keys `getAllowedChartConfigKeys(chartType)` allows, dropping any leftover other-family keys, so a future producer that needs to round-trip a stored widget through one of those wire variants can strip it to its effective family first rather than shipping a config the boundary will reject.
+Both use `Object.hasOwn` for their table lookups, which means a caller holding an untrusted
+chart-type string does not need to pre-gate it with `isStudioChartType`: an unrecognized type — or
+one naming an `Object.prototype` member — returns an **empty `Set`**, so every key is flagged.
+That falls out of the guard itself and is the intended fail-closed behavior; a bare bracket lookup
+would instead resolve a function up the prototype chain and pass it to `new Set(...)`, throwing
+`is not iterable`.
+
+Both validators are shallow, key-PRESENCE-only checks, matching the rest of this package's
+write-side validation style, and are consumed at three boundaries: the wire boundary's
+`validateWidget`, the AI middleware's in-process tool-call boundary, and the client's
+`StudioController.updateWidgetConfig` (fail-closed at the first two, warn-and-strip in the UI
+controller — see those packages' own `ARCHITECTURE.md`).
+
+**`stripForeignFamilyKeys(config, chartType)`** returns a copy retaining only the keys the chart
+type allows. It is the sanctioned way to reconcile
+[deliberate key retention](#key-retention-across-charttype-switches) with a per-family check, and
+`validateWidget` uses it directly. It inherits the same `Object.hasOwn` fail-closed guard through
+its call to `getAllowedChartConfigKeys`.
 
 ### `statePersistence.ts` — the persistence boundary
 
-**Iteration 22 fixes.** A filter's `dependsOn` field is now screened (and repaired to `undefined`, not dropped-whole) at the load boundary — both `deserializeState`'s top-level filter screen and `isPresetFilterSafe`/`screenFilterPresets`'s preset-inner-filter screen — via the newly-exported `isStringArray` (`parseStateMutation.ts`), matching the array-shape check a live `addFilter` mutation already gets at the wire boundary; previously a persisted/preset doc with a malformed `dependsOn` (e.g. a string) loaded verbatim and crashed `StudioFiltersDrawer.tsx`'s `.map()` on it. `findMissingRequiredField` no longer hard-fails the WHOLE doc load for a non-record widget or non-record `widget.config` — `deserializeState`'s widget-normalization loop already repairs both per-entry gracefully, so a single malformed widget no longer sinks an otherwise-loadable dashboard. Rank-filter (Top-N) per-page uniqueness — enforced on every live `addFilter`/`duplicateWidget`/cross-page-move via the reducer's `hasConflictingRankFilter` — is now re-checked at `deserializeState`'s load boundary too (reusing the same exported check), dropping a later conflicting rank filter on the same page rather than letting a hand-edited/foreign doc load two.
+The serialization layer between the live `StudioState` and on-disk JSON. Only the `doc` partition
+round-trips. `CURRENT_SCHEMA_VERSION` is re-exported here; its source of truth is `stateTypes.ts`.
 
-**Iteration 27 fixes.** The load-boundary rank dedup loop above gained the identical `page`/`widget` scope gate the reducer's `addFilter` and `hasConflictingRankFilter` now apply (see the "Iteration 27 fixes" paragraph under `applyMutation.ts` above): without it, a hand-edited/foreign doc's `filterMode: 'rank'` filter on a non-`page`/`widget` scope (e.g. `dashboard-date-range`) would resolve to a `null` page context via `resolveRankFilterPageId`'s catch-all and could, depending on array order, cause a legitimate `page`/`widget`-scoped rank filter to be dropped on load instead of being consistently left alone. Separately, the page-anchor screen just below required no code change, only a comment correction: it is now safe from the numeric-`pageId`-coerces-to-a-matching-string-key class of bug transitively, since the shared `isValidFilterScope` predicate it calls (`validateFilterScope` in `parseStateMutation.ts`) now type-checks the `page` kind's optional `pageId` with `isOptionalString` too — the one scope-anchor id that check had previously skipped — so a non-string `pageId` is rejected by that gate and never reaches this screen's own `Object.hasOwn` lookup at all.
+`SerializedStudioState`/`SerializedStudioSnapshot`/`SerializedStudioSession` describe the on-disk
+shapes. A `SerializedStudioSnapshot` still carries a `mode` for backward compatibility, but since
+`mode` moved into the non-undoable `session`, every snapshot in a saved session carries the same
+mode and `restoreSession` no longer varies it across undo/redo history.
 
-**Iteration 28 fixes.** `deserializeState`'s filter pass now DEDUPES duplicate filter `id`s — first occurrence wins, mirroring `dedupeLayoutRows`'s convention in `applyMutation.ts` — via a `seenFilterIds` set populated AFTER the existing string-id screen (so a non-string id never poisons the set) and BEFORE the rank-uniqueness dedup pass (Finding 3). A hand-edited/foreign doc with two filters sharing an `id` previously loaded BOTH, and — worse — DEFEATED the rank dedup: `hasConflictingRankFilter(filter.id, …)` self-excludes the very entry whose id it is checking (`filter.id === filterId` in `applyMutation.ts`), so a duplicate-id rank filter never registered as conflicting with the already-kept copy of the SAME id, and both survived. Dropping duplicate ids here, ahead of that pass, closes both the raw duplicate and the rank-dedup escape at once.
+#### `serializeDoc` / `serializeState`
 
-**Iteration 29 fixes.** Two changes make the load path degrade more gracefully over a malformed persisted doc. First, `migrateState`'s `findMissingRequiredField` no longer hard-fails the WHOLE dashboard load over a single page's non-array `widgetRows` or a single filter's malformed `scope` (a non-record `scope`, or one whose `kind` is not a string). Both defects are already repaired gracefully and per-entry at the load boundary — `normalizePersistedPages` coerces a junk `widgetRows` to `[]`, and `deserializeState`'s `isValidFilterScope` screen DROPS a bad-scope filter — and both handlers run BEFORE any no-optional-chaining downstream read (`normalizePersistedPages`'s row sweep, `serializeDoc`/the reducer's `f.scope.kind`) can crash on them, so hard-failing the entire doc over one repairable per-entry defect was strictly worse than loading everything else with just that entry coerced/dropped. This extends to the `pages[*].widgetRows` and `filters[*].scope` paths the SAME graceful-degradation line the Iteration 22 widgets relaxation drew (a non-record widget / non-record `config` is likewise left to the widget-normalization loop rather than hard-failed), the same choice this file already makes for `relationships`/`expressionFields`/`filterPresets`/`ai.threads` per-entry junk. `findMissingRequiredField` still hard-fails on the two shapes a downstream read would crash on BEFORE the load boundary could act — a non-record `pages[*]` value and a non-record `filters[*]` entry — so those stay named migration failures. Second, `deserializeState` (a public, directly-callable export) is now TOTAL over a malformed TOP-LEVEL `SerializedStudioState`, not merely over nested corruption of an otherwise top-level-well-formed one: a caller passing `{}`, or a doc missing one of the four top-level containers, previously threw an uncaught `TypeError` (`Object.entries(undefined)` on `widgets`/`pages`, `.map` on a missing `filters`, `Object.keys(undefined)` inside `stripUnsafeOwnKeys` on `dashboard`). Each absent/malformed container now coerces to its empty default up front — the record containers (`widgets`/`pages`/`dashboard`) to `{}`, the array container (`filters`) to `[]`, mirroring the non-array→`[]` coercion already applied to the optional collections below — bringing `deserializeState` in line with `migrateState`'s existing never-throw contract. (Iteration 33 carved out the single deliberate exception to that totality — a doc claiming a NEWER `schemaVersion` throws rather than silently downgrade; see the `deserializeState` bullet below. Totality here means "repairs corruption instead of crashing", not "loads anything", and a newer-version doc is not corruption.) (A missing `dashboard` then heals the rest of the way through the existing title/`activePageId` reconciliation: `title` falls back to `'Untitled Dashboard'` and `activePageId` to `''`.)
+**`serializeDoc(doc)`** is the doc-only inner logic, shared by `serializeState` and by
+`StudioController`'s undo/redo snapshotting. It **spreads** every `doc` field — so a newly-added
+`StudioDoc` field is carried automatically, with no hand-picked field list to forget it from —
+then makes exactly two adjustments:
 
-**Iteration 30 fixes.** `isValidFilterScope` (this file's boolean wrapper around `parseStateMutation.ts`'s `validateFilterScope`, consulted by `deserializeState`'s filter screen below) now also rejects a scope carrying an unsafe own key (`__proto__`/`constructor`/`prototype`) as a Tier2 architecture-review finding: `scope` was the one nested record embedded in a persisted filter that had never been screened for the prototype-hazard denylist, unlike the filter's own top-level keys, a widget, or a widget's config. Because this file reuses `validateFilterScope` rather than duplicating its logic, the fix — made in `parseStateMutation.ts` — closes the load-boundary gap transitively; no logic change was needed here, only a comment correction next to the `isValidFilterScope` call site (see the `applyMutation.ts` Iteration 30 note and `parseStateMutation.ts`'s `validateFilterScope` above for the full fix).
+1. It strips `cross-filter`- AND `interactive`-scoped filters. Both are session-scoped, but with
+   DIFFERENT undo semantics: cross-filters are undoable and time-travel with the doc, so
+   `StudioController` does NOT carry them across undo/redo, while interactive entries ARE carried
+   by `carryTransientDocState`. Either way neither belongs on disk. This is the one place those
+   entries — which live in `doc.filters` so the reducer can manipulate them — are dropped.
+2. It omits the empties-are-undefined fields (`relationships`/`expressionFields`/`filterPresets`/`ai`
+   all collapse to `undefined` when empty), so every optional collection is symmetric on the wire.
 
-**Iteration 31 fixes.** `deserializeState`'s `normalizedAi` block brings `ai.threads[].id`/`ai.activeThreadId` up to the load-boundary rigor `dashboard.activePageId` and `filters[].id` already had (Tier2 finding). Until now the `ai` container got only a container-level `Array.isArray(threads)` check plus a per-entry record/unsafe-own-key screen and a `messages`/`name` leaf repair — the thread's `id`, its identity data, was never checked at all. Three gaps closed in one pass: a thread whose `id` is not a non-empty string is DROPPED (`renameAIThread`'s `t.id === threadId` lookup compares against a string and never coerces, so a numeric or empty id round-tripped forever as permanent dead weight in the thread selector, unselectable and unrenamable); threads are DE-DUPED by `id`, first occurrence wins, exactly mirroring the `filters[].id` dedup added in Iteration 28 (two threads sharing an id desync that same single-thread-by-id lookup from whichever copy the selector rendered); and a dangling `activeThreadId` — naming a thread that never existed in a hand-edited/foreign doc, OR one the id/dedup screen just dropped — is reconciled to `undefined`, the treatment every other id-shaped field in this file already self-heals with. The reconciliation falls back to `undefined` rather than the first surviving thread, deliberately unlike `activePageId`'s first-page fallback: a page must always render, so `''` is worse than a guess, whereas `activeThreadId?: string` already encodes "no thread selected" as a normal, handled state. The pre-existing `threadsChanged` flag was widened to `aiChanged` so it tracks the id screen, the dedup, and the `activeThreadId` reconciliation alongside the original drops/repairs — a well-formed `ai` still returns by reference with no churn, and the rebuilt object `delete`s `activeThreadId` rather than writing an explicit `undefined`, keeping the serialized shape identical to a doc that never had one.
+**`serializeState(state)`** reads exclusively from `state.doc` and delegates, so session state,
+runtime data sources, and the session-scoped filters are all excluded by construction.
 
-The serialization layer that turns the live `StudioState` into on-disk JSON and back. Only the `doc` partition round-trips — `session` (mode/shell) and `runtime` (dataSources) are never persisted. `CURRENT_SCHEMA_VERSION` is re-exported here (its source of truth is `stateTypes.ts`).
+#### `deserializeState`
 
-- **`serializeDoc(doc: StudioDoc): SerializedStudioState`** — the doc-only inner logic, shared by `serializeState` and by `StudioController`'s undo/redo session snapshotting. It **spreads** every `doc` field (so a newly-added `StudioDoc` field is carried automatically — no hand-picked field list to forget it from), then makes exactly two adjustments: it strips the ephemeral `cross-filter`- AND `interactive`-scoped filters (both are session-scoped, but with DIFFERENT undo semantics — cross-filters are undoable and time-travel with the doc, so `StudioController` does NOT carry them across undo/redo; interactive entries ARE carried across undo/redo by `StudioController.carryTransientDocState` — either way neither belongs on disk), and it omits the empties-are-undefined fields (`relationships`/`expressionFields`/`filterPresets`/`ai` all collapse to `undefined` when empty, so every optional collection is symmetric on the wire — none of them is written as an empty array/object). This is the one place those scoped filter entries — which live in `doc.filters` so the reducer can manipulate them — are dropped, at the persistence boundary only.
-- **`serializeState(state: StudioState): SerializedStudioState`** — reads exclusively from `state.doc` and delegates to `serializeDoc`, so transient session state, runtime data sources, and cross-filter/interactive entries are all excluded.
-- **`deserializeState(serialized, dataSources, shellOverrides?): StudioState`** — rebuilds the full partitioned state. It first reads the claimed `serialized.schemaVersion` and THROWS when that is a number GREATER than `CURRENT_SCHEMA_VERSION` (Iteration 33). This is the one case this otherwise-total function fails loudly, and the distinction is deliberate: everything else it meets is WITHIN-version corruption it can repair per-entry (drop the junk widget, coerce the junk title, reconcile the dangling id) without losing anything the caller could still want, whereas a doc from a NEWER Studio is different in kind — this build cannot know what its unknown fields MEAN, so "repairing" it means reading only the fields this version happens to know, silently discarding every newer one, and stamping `schemaVersion: CURRENT_SCHEMA_VERSION` back onto the result; the host's next save writes that downgraded doc, migrations never re-run against it, and the newer data is gone permanently. `migrateState` has always refused a newer version (`fromVersion > CURRENT_SCHEMA_VERSION`), but the guard lived ONLY there — and `deserializeState` is itself a public export a host can call directly on `JSON.parse(localStorage.getItem(k))`, bypassing it entirely — so it now fails with the same message rather than downgrade. Only a NUMBER above the current version is rejected: an absent version is a legacy pre-versioning doc (v0), and any other non-number is junk this function's within-version repair convention ignores; both are `migrateState`'s business, not a reason to refuse to load. Past that gate, the persisted fields become `doc` (stamping `schemaVersion: CURRENT_SCHEMA_VERSION`; screening `serialized.widgets`' own KEYS against the shared `isSafeKey` denylist and dropping any non-record entry — a `JSON.parse`d doc can carry an own `"__proto__"` widget key or a `null`/foreign widget value, either of which is filtered out before the map below ever runs, mirroring the wire boundary's own-key screening rather than letting the entry survive `Object.fromEntries` or crash on `widget.config`; for each SURVIVING widget entry, first screening the widget OBJECT's own top-level keys with `hasUnsafeOwnKeys` and dropping the whole widget on a hit (symmetric with the wire boundary's `hasUnsafeOwnKeys(widget)` rejection in `validateWidget` — distinct from the record-KEY screen above, since a `widgets: { "w-a": { "__proto__": … } }` doc has a safe key but an unsafe own key on the value), then dropping the whole widget when its `kind`/`title` is missing or not a string — the load-boundary mirror of the wire boundary's `isString(widget.kind)`/`isString(widget.title)` gate in `validateWidget`, closing a parity gap where a hand-edited/foreign doc could previously load a `kind: 42` or title-less widget that the byte-identical wire payload is already rejected for (both fields are read downstream with no fallback: the widget factory/renderer key off `kind`, the canvas card renders `title`) — then reconciling `widget.id` with its record KEY and coercing a non-record `config` to `{}` BEFORE any other normalization runs — the reducer's every id-keyed lookup/delete/cross-filter-cleanup keys off the record KEY, and both the wire boundary and the reducer reject a `changes.id` precisely to keep `widget.id` in sync with its key, but a hand-edited/shared doc where that desync ALREADY exists (`widgets: { "w-a": { "id": "w-b", … } }`) previously loaded verbatim and silently no-oped every subsequent edit/delete/cross-filter-cleanup of that widget (each passes back `widget.id`, which no `Object.hasOwn(widgets, id)` guard then matches); the KEY is the source of truth, so the widget's `id` is re-stamped to match it (preserving the widget rather than dropping it, matching the `activePageId` reconciliation style below) — and separately, since `deserializeState` is a public, directly-callable API that is now "total over a malformed `SerializedStudioState`" — both its top-level containers (each absent/malformed one coerced to its empty default at the very top of the function, Iteration 29) AND their nested entries — a widget whose `config` is not a record (e.g. a hand-edited `config: null`) is coerced to `config: {}` rather than installed verbatim, which previously survived this screen (the reads below use optional chaining) and crashed the canvas at first `config.chartType` read; screening each surviving widget's `titleMode`/`subtitleMode` against `'auto'|'manual'` and DROPPING a non-conforming value (mirroring the `chartType` key-drop below and the wire boundary's `isOptionalTitleMode` gate — fourteenth review, finding T3-1), so a hand-edited/foreign `titleMode: 42` no longer loads verbatim into the client's auto-title branch while the byte-identical wire payload is rejected; screening each surviving widget's OPTIONAL `subtitle`/`sourceId` and DELETING just that key (not the whole widget) when present but not a string, symmetric with the wire boundary's `isOptionalString(widget.subtitle)`/`isOptionalString(widget.sourceId)` gates in `validateWidget` — both fields are read by the record-widget `.filter` above but were never themselves checked, so a hand-edited/shared `subtitle: 42` (crashes `StudioWidgetEditDialog`, which renders it as text with no fallback) or `sourceId: 42` (silently breaks the widget-to-data-source lookup) previously loaded verbatim while the byte-identical wire payload was already rejected; dropping the key lets the widget load with the "no subtitle"/"no explicit source" fallback instead, reference-stable when both fields are already valid or absent; normalizing legacy leaf shapes at the load boundary for the surviving widgets — each grid widget's `config.columns` via `normalizeGridColumn` and each chart widget's `config.ySeries` via `normalizeChartSeries`, rebuilding a widget's `config` only when `Array.isArray(columns) && columns.length > 0` or the same for `ySeries` — a real `Array.isArray` check with a non-empty guard, not mere truthiness, so an empty `columns: []`/`ySeries: []` (the grid/chart factory defaults) is left untouched for reference stability, and a hand-corrupted non-array value (`columns: "junk"`) is left for `migrateState`'s named-field validation rather than crashing on `.map`; running `pages` through `applyMutation.ts`'s exported `normalizePersistedPages(pages, widgets)` — see below; reconciling a dangling `dashboard.activePageId` AFTER that page sweep, to the first key of the (post-sweep) `pages` (or `''` if none remain), via a validity check that requires `dashboard.activePageId` to be a STRING before ever trusting `Object.hasOwn`'s match (Iteration 26 / Finding 1b: `Object.hasOwn` itself COERCES a numeric `activePageId` to match a string-keyed page entry — e.g. `42` matching key `"42"` — so without the `typeof … === 'string'` guard, such a value would be treated as "valid" and round-trip through this reconciliation forever instead of ever being healed to a real string page id; this is the persistence-boundary half of the same fix `setActivePage`'s reducer-side guard closes above, for the case where a numeric `activePageId` reaches a persisted doc by some other path, e.g. hand-editing) — mirroring the exact fallback `createDefaultStudioState`/`removePage` already use, so "the active page exists" is enforced at the load boundary too, not just everywhere else: this covers both a hand-edited `activePageId` and one orphaned when the sweep above legitimately dropped its (corrupt) page, either of which would otherwise render a blank canvas and silently no-op every legacy mutation that falls back to the active page — the same reconciliation step also coerces a missing or non-string `dashboard.title` to the `'Untitled Dashboard'` fallback the factory uses, the dashboard-title sibling of `normalizePersistedPages`'s page-title coercion: `migrateState`'s `findMissingRequiredField` does not validate `dashboard.title`, and `setDashboardTitle` already requires a string `title` at the wire/reducer boundary, so a junk value can only reach here via a doc loaded directly, and left uncoerced it crashes the first component that renders `dashboard.title` as text — and, in the same step, gives `dashboard.id` the identical fallback treatment (to the factory's `'dashboard-1'`, mirroring `title`'s fallback to the factory's `'Untitled Dashboard'`), which it had never had: `id` is REQUIRED by `StudioDashboardState`, but `findMissingRequiredField` only checks that `dashboard` is a record, so a persisted `dashboard: {}` loaded with `doc.dashboard.id === undefined` — a type violation the rest of the system reads as a string (it keys saved-view/telemetry records and is interpolated into ids) and which `serializeDoc` then re-persisted forever; filtering `serialized.filters` to drop any `cross-filter`/`interactive`-scoped entry, symmetric with `serializeDoc`'s strip below — a hand-edited or foreign doc carrying one of those session-flavoured scopes must not install it into live `doc.filters`, since an orphaned cross-filter naming a widget the doc doesn't contain would otherwise permanently filter its page with no surviving affordance to clear it, as the reducer's cleanup for such filters only fires on widget _removal_ — dropping, in the same pass, a `page`-scope filter with an explicit `pageId` or a `dashboard-date-range`-scope filter (whose `pageId` is required) naming a page `normalizedPages` no longer contains — the PAGE-anchor mirror of the widget-anchor orphan check just below, needed for the identical reason: the reducer's own page-anchor cleanup (`removePage`'s `filtersAfterPageDrop`) only fires for a LIVE `removePage` mutation, never for a doc that already lacks the page on load (a hand-edited/foreign doc, or a page the sweep above itself just dropped for carrying an unsafe key); a legacy pageId-less `page`-scope filter, which applies on every page, is left alone — AND, in the same filter pass, dropping any filter object carrying an unsafe own top-level key (`hasUnsafeOwnKeys(f)`, symmetric with the wire boundary's `validateFilter` screen) and any entry that is not a record with a record `scope` (a `null`, primitive, or scope-less entry): `migrateState` already rejects such junk up front via `findMissingRequiredField` (below), but `deserializeState` is itself a public API callable directly on a `SerializedStudioState` (its documented "total over a malformed `SerializedStudioState`" surface — top-level containers coerced up front, nested entries screened here), so without this the entry would install into live `doc.filters` and then throw a `TypeError` in `serializeDoc` (the autosave AND undo-snapshot path) and in the reducer's `f.scope.kind`/`f.id` reads on the very next commit; deduping duplicate filter `id`s first-occurrence-wins (Iteration 28 / Finding 3, via a `seenFilterIds` set applied after the string-id screen and before the rank-uniqueness dedup pass — see the Iteration 28 note above for why an un-deduped duplicate id also DEFEATED that rank pass); then, ONCE at the end of the whole filter pipeline, cascading every drop it made into the surviving filters' `dependsOn` via the SAME `pruneDependsOn` helper the reducer's removal paths use (Iteration 33) — until this ran here, the load boundary was the LARGEST of the un-pruned filter-removal sites, dropping entries for a non-string/duplicate `id`, an invalid scope, an orphan page/widget anchor, a bad `field`/`operator`, a stripped `cross-filter`/`interactive` entry, AND a rank conflict, every one of which could leave a surviving filter's `dependsOn` pointing at an id no longer in the doc, with no self-heal (the next `serializeDoc` re-persisted the dangling reference forever); applying it once, at the end, against the final surviving id set covers every drop above uniformly, and it is reference-stable, so a well-formed doc keeps the screened array's identity; validating `doc.ai` at THREE levels — kept only when it is a record whose `threads` is an array (dropped to `undefined` otherwise, since `renameAIThread`'s `(state.ai.threads ?? []).map(…)` only guards a nullish `threads`, not a truthy non-array like `threads: 'junk'`, which would otherwise throw `.map is not a function` and, absent this guard, round-trip indefinitely — `serializeDoc`'s `.length > 0` check re-persists the junk verbatim), AND, for a surviving array, screening each thread ENTRY too: a container-level `Array.isArray` check alone lets `threads: [null, {…}]` load verbatim, since `renameAIThread` reads `t.id` off each entry with no optional chaining — `t.id` on a `null` entry throws on the very first rename, a crash deferred past the load boundary rather than prevented by it. Non-record entries are filtered out the same way the sibling `filters` per-entry screen below drops a non-record filter, reference-stable when every entry already survives the filter; each SURVIVING thread additionally has its `messages`/`name` leaf shapes REPAIRED, not merely screened for record-ness — a non-array `messages` (e.g. a string) degrades to `[]`, a message ENTRY that is not a record is dropped while the rest of the thread's history is kept (repair-in-place, not a reset: `<ChatBox messages={…}>` maps each entry and reads `m.role`/`m.content` with no optional chaining, so a `messages: [null]` that survived the container-only check threw on the first render of that thread — the same per-entry gap the sibling `filters`/`relationships`/`ai.threads` screens already closed one level up), and a non-string `name` falls back to `'Untitled Thread'` — since `useChatThreads.ts`'s `activeThread?.messages ?? []` only guards a nullish `messages`, not a wrong-type one, and a non-string `name` crashes as an invalid React child the first time the thread selector renders it; repair-in-place (coerce) rather than drop the whole thread mirrors the `page.title`/`dashboard.title` fallback-over-drop treatment below, since neither field is identity data — `id` IS, so it is screened rather than repaired, at the third level described next — and is reference-stable when both fields already have the correct shape; screening each thread's `id` and reconciling `activeThreadId` (Iteration 31, Tier2 — the `ai` sibling of the treatment `dashboard.activePageId` and `filters[].id` already received): a thread whose `id` is not a NON-EMPTY string is DROPPED (identity data has no safe fallback to coerce to, and `renameAIThread`'s `t.id === threadId` lookup compares against a string, so a numeric id would load as a permanently unselectable, unrenamable thread with no error), threads are then DE-DUPED by `id` first-occurrence-wins (mirroring the `filters[].id` dedup below — two threads sharing an id desync `renameAIThread`'s single-thread-by-id lookup from whichever copy the thread selector happened to render), and finally a dangling `activeThreadId` naming no SURVIVING thread is reconciled to `undefined` — covering both a hand-edited/foreign id that never existed and one orphaned when the id/dedup screen just above dropped its thread. Unlike `activePageId`, the fallback is `undefined` rather than the first surviving entry: a page must always be rendered (so a blank `''` canvas is the worse outcome), whereas `activeThreadId?: string` already means "no thread selected", an ordinary state the chat panel handles, so clearing it is safer than guessing which thread the user meant. A single `aiChanged` flag tracks every drop/repair/reconciliation across all three levels, so a well-formed `ai` (the common case) is returned by REFERENCE with no churn; and coercing `relationships`/`expressionFields`/`filterPresets` to `[]` when the persisted value is present but not an array (`?? []` only defaults an ABSENT value, so e.g. `relationships: "junk"` would otherwise install verbatim and then break client code iterating it) — the shared `screenRecordArray` helper behind the first two now also takes a per-entry REQUIRED-LEAF predicate, because record-ness alone was never the property its own doc comment justified it by: an `expressionFields: [{ id, label, sourceId, isMeasure }]` entry with no `expression` at all loaded with `success: true`, and the first widget referencing it hit `x-studio`'s `expressionEvaluator.ts` `return 'joinSourceId' in expr;` and threw `TypeError: Cannot use 'in' operator to search for 'joinSourceId' in undefined`, taking down the whole pipeline with no self-heal (`serializeDoc` re-persisted the junk forever). `isExpressionFieldSafe` requires a string `id`/`sourceId` and a record `expression`; `isRelationshipSafe` requires all four endpoint ids/fields to be strings and `type` to be a member of the closed `StudioRelationship['type']` union (held in a `Set`, so an untrusted `type` can never resolve up a prototype chain) — an unknown `type` FAILS OPEN into the `many-to-one` branch of every join builder and silently produces wrong joined rows, the same fail-open class the filter `operator` membership check closes one level up. Each predicate receives an already-record, already-own-key-screened entry, so it only checks the leaves consumers dereference unguarded; the remaining fields stay optional/defaulted/display-only and follow this file's fallback-over-drop convention. Each surviving `filterPresets` entry's own `name` is likewise coerced to `'Untitled Filter Preset'` when not a string (`screenFilterPresets`), the identical fallback-over-drop pattern, since `StudioFiltersDrawer` renders a preset's `name` verbatim as a Chip `label` with no fallback of its own, and each preset INNER filter now gets the string-`id` check the top-level `doc.filters` screen already had (`isPresetFilterSafe` screened `field`/`operator`/`operator2` but skipped the one field it shares with that screen): `applyFilterPreset`'s id-remap loop does `idMap.set(f.id, fresh)` and the drawer keys its rows off the preset filter id, so a non-string `id` yielded a preset row that could never be matched or removed — exactly the state the sibling screen rejects for the byte-identical payload — `session` is reset to `{ mode: 'edit', shell: default ⊕ shellOverrides }`, and `runtime.dataSources` is the host-injected argument (never persisted, so it must be passed in). The load-boundary normalizers run across kinds by design, so they read through the flat cross-kind `StudioWidgetConfig` patch type.
-- **`normalizePersistedPages(pages, widgets)`** (in `applyMutation.ts`, imported here) — a defensive load-time layout sweep, NOT a schema migration (the doc shape is unchanged, so it never bumps `CURRENT_SCHEMA_VERSION`). Every LIVE mutation path maintains the layout invariants (rows reference real widgets, no duplicate ids, spans in range and orphan-free), but `deserializeState` previously installed a persisted `pages` map verbatim, so a corrupted or hand-edited doc's phantom `widgetRows` ids, duplicate ids, or out-of-range/orphaned `widgetColSpans` would render blank cards or wrong widths until the next layout mutation happened to prune them. The sweep is TOTAL over a corrupted/hand-edited doc, not merely defensive for well-formed junk: a prototype-hazard page KEY (`"__proto__"`/`"constructor"`/`"prototype"`), a page OBJECT carrying an unsafe own top-level key (`hasUnsafeOwnKeys(page)`, symmetric with the widget/filter object screens at the wire and load boundaries), or a non-record page value is dropped outright; a non-array `widgetRows` is coerced to `[]` rather than crashing on `.map`; non-array rows and non-string ids inside a row are filtered out before the `Object.hasOwn(widgets, id)` membership check runs; and a non-record `widgetColSpans` is treated as absent. Per surviving page it filters rows against `widgets`, runs the result through the shared `dedupeLayoutRows` helper (the same first-occurrence-wins dedup `setWidgetLayout`/`applyBulkUpdate` apply), and rebuilds `widgetColSpans` keeping only `isSafePatchKey`-safe keys still present in the sanitized rows, each clamped to `MIN_SPAN`–`GRID_COLS`. It also reconciles each surviving page's own `id` field with its record KEY, re-stamping `id: pid` (preserving the page's data, not dropping it) whenever the two disagree — the page analogue of `deserializeState`'s widget `id`↔key reconciliation above, and needed for the identical reason: every reducer path that targets a page keys off the record KEY (`state.pages[pageId]`), so a hand-edited/shared doc where a page's own `id` already disagrees with its key (`pages: { "p-a": { "id": "p-b", … } }`) would otherwise load verbatim and silently no-op any affordance that carries `page.id` forward. It coerces a missing or non-string `page.title` to the same `'Untitled Page'` fallback `createDefaultWidget`'s sibling page factory uses, rather than installing it verbatim: `migrateState`'s `findMissingRequiredField` does not validate a page's `title`, and `addPage`/`renamePage` already require a string `title` at the wire/reducer boundary, so a junk `page.title` (`null`, a number, an object) can only reach here via a persisted doc loaded directly, bypassing those mutations — every consumer of `page.title` (e.g. `StudioWidgetCardActionsOverlay`) renders it as text with no fallback of its own, so left uncoerced it crashed React on the first render of the page picker. A page needing only this `id` re-stamp or `title` coercion (rows/spans otherwise unchanged) still triggers a rebuild of that page's entry, same as any other detected fix. The rebuild is done via `Object.fromEntries` over the surviving `[pageId, page]` entries (never a `nextPages[pid] = …` bracket assignment), so a stray unsafe page key can never invoke the inherited prototype accessor and re-prototype the pages map. It returns the SAME `pages` object (and the same per-page objects) when nothing needed fixing, so a well-formed persisted doc loads without reference churn.
-- **`migrateState(state): MigrationResult`** — runs the `migrations` registry sequentially from the stored `schemaVersion` up to `CURRENT_SCHEMA_VERSION`, on a `structuredClone` deep copy of the caller's object taken ONCE and shared by BOTH paths — the migration loop and the already-current fast path — so the function offers a SINGLE isolation guarantee (Iteration 33): **the returned state never aliases the caller's object.** The fast path used to return `state` by reference while only the migration path cloned, and since `CURRENT_SCHEMA_VERSION` is 1 the fast path is the overwhelmingly common case, so in practice the live doc ALIASED the caller's persisted object (`deserializeState` is reference-stable by design, so `loadedDoc.widgets.w1 === persisted.widgets.w1` and `loadedDoc.relationships === persisted.relationships` both held, and both `loadSerializedState` and `restoreSession` retain the object they were handed): a host that mutated its own persisted object thereby mutated live state and every undo snapshot sharing those sub-objects. Latent today, but two entry paths with different isolation guarantees is exactly the trap the next migration walks into, since a migration may — and this registry's own examples encourage it to — mutate nested state in place, which a shallow spread would leak straight back to the caller. It derives the source version fail-CLOSED: `schemaVersion` absent is treated as legacy v0, an integer is used as the source version, and anything else — `NaN`, a fractional value like `0.5`, or a non-number — is rejected outright with a named `"schemaVersion"` error rather than silently passed through un-migrated (`typeof NaN === 'number'` combined with `NaN === CURRENT`/`NaN > CURRENT` both being false and the migration loop's `version < CURRENT_SCHEMA_VERSION` guard never running would otherwise let a `schemaVersion: NaN` doc through with `success: true` and no migration applied). Beyond that it is fail-closed at several more points: the `structuredClone` call is wrapped in a `try`/`catch` that returns a failed `MigrationResult` (naming the clone failure) instead of letting an uncaught `DataCloneError` escape when a caller mistakenly passes a live object carrying a non-cloneable value (e.g. a function on an attached `dataSources.adapter`) — `migrateState(state: unknown)` is a public API whose every other failure mode already returns `{ success: false, errors }`, so this makes the clone step total in that same style, rather than remaining the one step in the function that can still throw, and now uniformly on both paths rather than only on the migration one; it refuses a version newer than current, checked BEFORE the clone so a doc this build can never understand costs nothing to reject; a **gap** in the registry (a version step with no registered migration) is a HARD failure, never a silent version bump that would ship un-transformed state under a newer number — so every step in `0 … CURRENT_SCHEMA_VERSION − 1` needs an explicit entry (an identity migration when no transform is required, as the `0 → 1` entry demonstrates). **That `0 → 1` identity is deliberate, not an oversight, and `CURRENT_SCHEMA_VERSION` deliberately stays at 1.** v0 is a PRE-RELEASE version: `@mui/x-studio` has never shipped a released state format, so no persisted doc anywhere is at v0 and there is nothing for the step to transform. In particular the reshape `StudioFilterScope`'s `dashboard-date-range` doc comment refers to (`{ isDashboardDateRange: true, filterSourceId }` → `{ kind: 'dashboard-date-range', sourceId, pageId }`) happened while the schema was still in development — `git log -S isDashboardDateRange` shows the field introduced and removed entirely inside the unreleased window, before this package existed — so it needs no migration entry and MUST NOT get a version bump: bumping to v2 for a shape no persisted doc can contain would only add a migration step that can never fire, plus a fixture test asserting a transform of data that does not exist. The moment the state format DOES ship, the registry's stated policy applies in full — any breaking `StudioDoc` reshape gets a `CURRENT_SCHEMA_VERSION` bump, a real migration keyed by the OLD version, and a v(N) fixture test. Beyond the registry, it validates the post-migration (and already-current) result with `findMissingRequiredField` so a persisted doc that would CRASH a downstream no-optional-chaining read is rejected here with a named field rather than crashing later in `deserializeState` — `findMissingRequiredField` checks that the four top-level fields (`dashboard`/`pages`/`widgets`/`filters`) are present and of the right container type, and one level down that every `pages[*]` entry is a record and every `filters[*]` entry is a record (the two nested shapes a no-optional-chaining read — `normalizePersistedPages`'s per-page access, `serializeDoc`/the reducer's `f.id`/`f.scope.kind` — would crash on before the load boundary could repair them), so a junk shape like a `null` page value or a `filters: [null]`/primitive entry is rejected here — by name. It deliberately does NOT hard-fail one level down for the shapes a load-boundary handler ALREADY repairs gracefully and per-entry BEFORE any such crash-prone read runs — a non-array `pages[*].widgetRows` (coerced to `[]` by `normalizePersistedPages`), a malformed `filters[*].scope` (a non-record `scope`, or one whose `kind` is not a string — dropped per-entry by `deserializeState`'s `isValidFilterScope` screen), and a non-record widget or non-record `widget.config` (dropped/coerced by the widget-normalization loop); sinking the WHOLE dashboard over one such per-entry defect is strictly worse than loading everything else with just that entry repaired, the same graceful-repair-over-hard-fail choice this file makes for `relationships`/`expressionFields`/`filterPresets`/`ai.threads` per-entry junk (Iteration 22 drew this line for the widgets path; Iteration 29 extended it to `pages[*].widgetRows` and `filters[*].scope`). The already-current fast path runs the same `findMissingRequiredField` check and returns the deep copy described above — not the caller's reference.
+`deserializeState(serialized, dataSources, shellOverrides?)` rebuilds the full partitioned state.
+It is a public export a host may call directly on `JSON.parse(localStorage.getItem(k))`, so it is
+**TOTAL over a malformed `SerializedStudioState`** — both its top-level containers (each
+absent/malformed one coerced to its empty default up front: record containers to `{}`, `filters`
+to `[]`) and their nested entries. Totality means "repairs corruption instead of crashing", not
+"loads anything".
 
-`SerializedStudioState`/`SerializedStudioSnapshot`/`SerializedStudioSession` describe the on-disk shapes; a `SerializedStudioSnapshot` still carries a `mode` for on-disk backward compatibility, but since `mode` moved into the non-undoable `session`, every snapshot in a saved session carries the same mode and `restoreSession` no longer varies it across undo/redo history. `REGISTERED_MIGRATION_VERSIONS` (the migration registry's keys) is exported so a completeness test can pin that every version step has an entry. The `migrations` registry doc comment is the authoritative "how to add a migration" reference, including the naming policy (never suffix a field with a version number — migrate the stored shape to the clean target name instead).
+**The one deliberate exception:** it THROWS when `serialized.schemaVersion` is a number GREATER
+than `CURRENT_SCHEMA_VERSION`. Everything else it meets is _within-version_ corruption it can
+repair per-entry; a doc from a NEWER Studio is different in kind. This build cannot know what its
+unknown fields MEAN, so "repairing" it means reading only the fields this version knows,
+discarding every newer one, and stamping the current `schemaVersion` back on — the host's next
+save writes that downgraded doc, migrations never re-run against it, and the newer data is gone
+permanently. `migrateState` has always refused a newer version, but the guard lived only there and
+this function bypasses it. Only a NUMBER above the current version is rejected: an absent version
+is a legacy pre-versioning doc (v0), and any other non-number is junk the repair convention
+ignores. Both are `migrateState`'s business.
+
+Past that gate the persisted fields become `doc` (stamping the current `schemaVersion`). The
+screens, in the order they run:
+
+- **`widgets`** — the record's own KEYS are screened against `isSafeKey` and non-record entries
+  dropped before anything maps over them. Then per surviving entry:
+  - The widget OBJECT's own top-level keys are screened with `hasUnsafeOwnKeys` and the whole
+    widget dropped on a hit. Distinct from the record-KEY screen: `{ "w-a": { "__proto__": … } }`
+    has a safe key but an unsafe own key on the value.
+  - A missing or non-string `kind`/`title` drops the whole widget.
+  - **`widget.id` is reconciled with its record KEY**, preserving the widget rather than dropping
+    it. The KEY is the source of truth — every reducer lookup keys off it, and both the wire
+    boundary and the reducer reject a `changes.id` precisely to keep the two in sync — but a
+    hand-edited doc where the desync ALREADY exists (`{ "w-a": { "id": "w-b" } }`) loaded verbatim
+    and then silently no-op'd every subsequent edit of that widget, since each passes back
+    `widget.id`, which no `Object.hasOwn` guard then matches.
+  - A non-record `config` is coerced to `{}` before any other normalization.
+  - `titleMode`/`subtitleMode` outside `'auto'|'manual'`, and a non-string `subtitle`/`sourceId`,
+    have just that key deleted.
+  - Legacy leaf shapes are normalized — `config.columns` via `normalizeGridColumn`,
+    `config.ySeries` via `normalizeChartSeries` — rebuilding the config only when
+    `Array.isArray(x) && x.length > 0`. The non-empty guard keeps the factory-default `[]`
+    reference-stable, and the real array check leaves a hand-corrupted `columns: "junk"` to
+    `migrateState`'s named-field validation rather than crashing on `.map`.
+- **`pages`** — run through `normalizePersistedPages` (below), then the
+  ["at least one page"](#at-least-one-page-always-exists) synthesis.
+- **`dashboard`** — unsafe own keys stripped (keeping the rest); `activePageId` reconciled to the
+  first surviving page key when it is not a string or names no page; `title` and `id` coerced to
+  the factory's `'Untitled Dashboard'`/`'dashboard-1'`. `migrateState` only checks that `dashboard`
+  is a record, so a persisted `dashboard: {}` loaded with `id === undefined` — a type violation the
+  rest of the system reads as a string (it keys saved-view and telemetry records and is
+  interpolated into ids) and which `serializeDoc` then re-persisted forever.
+- **`filters`** — a pipeline whose order matters:
+  1. Drop any entry that is not a record with a record `scope`, or that carries an unsafe own key.
+  2. Drop a non-string `id`, then **de-dup by `id`, first occurrence wins**. The dedup must run
+     BEFORE the rank pass: `hasConflictingRankFilter` self-excludes the entry whose id it is
+     checking, so two filters sharing an id never registered as conflicting and BOTH survived it.
+  3. Drop `cross-filter`/`interactive` entries, symmetric with `serializeDoc`'s strip. An orphaned
+     cross-filter naming a widget the doc doesn't contain would permanently filter its page, since
+     the reducer's cleanup for such filters only fires on widget _removal_.
+  4. Drop a `page`-scope filter with an explicit `pageId`, or a `dashboard-date-range` filter,
+     naming a page that no longer exists — the page-anchor mirror of the widget-anchor check,
+     needed because `removePage`'s cleanup only fires for a LIVE removal, never for a doc that
+     already lacks the page. A legacy pageId-less `page` filter is left alone.
+  5. Re-check rank uniqueness with the same `hasConflictingRankFilter` and `page`/`widget` gate the
+     reducer uses.
+  6. **Once at the end**, cascade every drop above into the survivors' `dependsOn` via the shared
+     `pruneDependsOn`. This was the LARGEST un-pruned filter-removal site; applying the prune once
+     against the final surviving id set covers all six drops uniformly.
+
+  `isValidFilterScope` is this file's boolean wrapper around `parseStateMutation.ts`'s
+  `validateFilterScope`. Reusing the wire predicate rather than duplicating it is why the load
+  boundary inherits its own-key screen, its `pageId` string check, and its size bound transitively.
+
+- **`ai`** — validated at three levels. The container is kept only when it is a record whose
+  `threads` is an array (`renameAIThread` guards only a _nullish_ `threads`, so `threads: 'junk'`
+  would throw `.map is not a function` and round-trip indefinitely). Each thread entry must be a
+  record (`renameAIThread` reads `t.id` unguarded, so a `null` entry throws on the first rename).
+  Then per thread:
+  - **`id` is identity data, so it is SCREENED, not repaired** — a non-empty-string `id` is
+    required and the thread is dropped otherwise. `renameAIThread`'s `t.id === threadId` never
+    coerces, so a numeric id round-tripped forever as permanent dead weight in the thread selector:
+    unselectable and unrenamable.
+  - Threads are **de-duped by `id`**, first occurrence wins, mirroring the `filters` dedup — two
+    threads sharing an id desync that same lookup from whichever copy the selector rendered.
+  - `messages`/`name` are **repaired in place, not screened**: a non-array `messages` degrades to
+    `[]` and a non-record message entry is dropped while the rest of the history is kept; a
+    non-string `name` falls back to `'Untitled Thread'`. `activeThread?.messages ?? []` guards only
+    a nullish value, `<ChatBox>` reads `m.role`/`m.content` unguarded, and a non-string `name`
+    crashes as an invalid React child.
+  - A dangling `activeThreadId` is reconciled to **`undefined`**, deliberately unlike
+    `activePageId`'s first-entry fallback: a page must always render, so `''` is worse than a
+    guess, whereas `activeThreadId?: string` already encodes "no thread selected" as a handled
+    state. The rebuilt object `delete`s the key rather than writing an explicit `undefined`, so the
+    serialized shape stays identical to a doc that never had one.
+
+  A single `aiChanged` flag tracks every drop, repair, and reconciliation across all three levels,
+  so a well-formed `ai` returns by reference with no churn.
+
+- **`relationships` / `expressionFields` / `filterPresets`** — coerced to `[]` when present but not
+  an array (`?? []` only defaults an ABSENT value, so `relationships: "junk"` would install
+  verbatim and break client code iterating it). The shared `screenRecordArray` helper behind the
+  first two takes a per-entry **required-leaf** predicate, because record-ness alone was never the
+  property it claimed to guarantee:
+  - **`isExpressionFieldSafe`** requires a string `id`/`sourceId`/`label`, an optional boolean
+    `isMeasure`, and an `expression` validated **all the way down** by `isValidExpressionNode`.
+    Record-ness was insufficient on three counts. An entry with no `expression` loaded
+    `success: true` and the first widget referencing it threw
+    `Cannot use 'in' operator to search for 'joinSourceId' in undefined`, taking down the pipeline
+    with no self-heal. `StudioExpression` is a recursive tree with unbounded nesting (a stack
+    overflow in the unbounded consumer walkers), so validation is depth-bounded at
+    `MAX_EXPRESSION_DEPTH = 32` — the package's uniform bound for untrusted JSON, generous next to
+    the expression builder's ~4-level deepest template. And `StudioExpressionOperator` is a closed
+    union whose unknown members **fail open**: every evaluator walker falls through to `default:`
+    and the whole computed column silently evaluates to `null`. `isMeasure` earns the same
+    treatment — a truthy junk value (`isMeasure: 'no'`) loads a calculated column as a measure and
+    reports a wrong number everywhere it appears.
+
+    `isValidExpressionNode` tests the function branch FIRST, because `operator` is the only key
+    that introduces recursion: any node carrying it must be a well-formed function node (known
+    operator, ARRAY `inputs`, every input valid) regardless of which member a consumer's guard
+    precedence would resolve it to. The remaining three branches follow the order
+    `evaluateExpression` discriminates them in, so a node this screen accepts is the same member
+    the evaluator resolves it to.
+
+  - **`isRelationshipSafe`** requires all four endpoint ids/fields to be strings and `type` to be a
+    member of the closed `StudioRelationship['type']` union (held in a `Set`). An unknown `type`
+    FAILS OPEN into the `many-to-one` branch of every join builder and silently produces wrong
+    joined rows — the same fail-open class the filter `operator` check closes one level up.
+
+  Each predicate receives an already-record, already-own-key-screened entry, so it only checks the
+  leaves consumers dereference unguarded; the rest stay optional/defaulted/display-only and follow
+  the fallback-over-drop convention. `screenFilterPresets` coerces a preset's `name` (rendered
+  verbatim as a Chip `label`) and screens each preset INNER filter for a string `id` alongside
+  `field`/`operator`/`operator2` — `applyFilterPreset`'s id-remap does `idMap.set(f.id, fresh)` and
+  the drawer keys its rows off that id, so a non-string one yields a preset row that can never be
+  matched or removed.
+
+Finally, `session` is reset to `{ mode: 'edit', shell: default ⊕ shellOverrides }`, and
+`runtime.dataSources` is the host-injected argument. The load-boundary normalizers run across kinds
+by design, so they read through the flat cross-kind `StudioWidgetConfig` patch type.
+
+#### `normalizePersistedPages(pages, widgets)`
+
+Defined in `applyMutation.ts`, imported here. A defensive load-time layout sweep, **not a schema
+migration** — the doc shape is unchanged, so it never bumps `CURRENT_SCHEMA_VERSION`. Every LIVE
+mutation path maintains the layout invariants, but `deserializeState` previously installed a
+persisted `pages` map verbatim, so a corrupted or hand-edited doc's phantom row ids, duplicate
+ids, or out-of-range/orphaned spans rendered blank cards and wrong widths until some later layout
+mutation happened to prune them.
+
+It is TOTAL over a corrupted doc, not merely defensive for well-formed junk: a prototype-hazard
+page KEY, a page object with an unsafe own key, or a non-record page value is dropped; a non-array
+`widgetRows` is coerced to `[]`; non-array rows and non-string ids inside a row are filtered out
+before the membership check; a non-record `widgetColSpans` is treated as absent.
+
+Per surviving page it filters rows against `widgets`, runs `dedupeLayoutRows`, and rebuilds
+`widgetColSpans` keeping only safe keys still present in the sanitized rows, each clamped to
+`MIN_SPAN`–`GRID_COLS`. It also:
+
+- **Reconciles each page's own `id` with its record KEY**, re-stamping rather than dropping — the
+  page analogue of the widget id↔key reconciliation, for the identical reason (every reducer path
+  targets a page by record key, so a `{ "p-a": { "id": "p-b" } }` doc silently no-ops any
+  affordance carrying `page.id` forward).
+- **Coerces a missing or non-string `page.title`** to `'Untitled Page'`. `findMissingRequiredField`
+  does not validate it, and `addPage`/`renamePage` already require a string, so junk can only
+  arrive via a directly-loaded doc — where every consumer renders it as text with no fallback and
+  crashes React on the first render of the page picker.
+
+The rebuild uses `Object.fromEntries` over surviving entries, never bracket assignment. It returns
+the SAME `pages` object (and the same page objects) when nothing needed fixing.
+
+#### `migrateState(state)`
+
+Runs the `migrations` registry sequentially from the stored `schemaVersion` up to
+`CURRENT_SCHEMA_VERSION`, on a `structuredClone` deep copy taken ONCE and shared by BOTH paths —
+the migration loop and the already-current fast path — so the function offers a SINGLE isolation
+guarantee: **the returned state never aliases the caller's object.**
+
+Sharing one clone across both paths is the point. Cloning only on the migration path left the
+overwhelmingly common fast path (`CURRENT_SCHEMA_VERSION` is 1) returning the caller's own object
+by reference, and since `deserializeState` is reference-stable by design the live doc then aliased
+the caller's persisted sub-objects — a host that mutated its own persisted object thereby mutated
+live state and every undo snapshot sharing them. Two entry paths with different isolation
+guarantees is exactly the trap the next migration walks into, since a migration may (and this
+registry's own examples encourage it to) mutate nested state in place.
+
+It is fail-closed at every step:
+
+- **Source version.** Absent ⇒ legacy v0. An integer ⇒ the source version. Anything else — `NaN`,
+  a fractional `0.5`, a non-number — is rejected with a named `"schemaVersion"` error rather than
+  silently passed through un-migrated. (`typeof NaN === 'number'`, and `NaN === CURRENT` /
+  `NaN > CURRENT` are both false while the loop's `version < CURRENT` guard never runs, so a
+  `schemaVersion: NaN` doc would otherwise return `success: true` with no migration applied.)
+- **A newer version** is refused, checked BEFORE the clone so a doc this build can never
+  understand costs nothing to reject.
+- **The clone** is wrapped in `try`/`catch` returning a failed `MigrationResult`, so a caller who
+  mistakenly passes a live object carrying a non-cloneable value (a function on an attached
+  adapter) gets this function's ordinary `{ success: false, errors }` shape rather than an
+  uncaught `DataCloneError`.
+- **A gap in the registry** — a version step with no registered migration — is a HARD failure,
+  never a silent version bump shipping un-transformed state under a newer number. Every step in
+  `0 … CURRENT_SCHEMA_VERSION − 1` needs an explicit entry (an identity migration when no
+  transform is required).
+- **`findMissingRequiredField`** validates the post-migration (and already-current) result, so a
+  doc that would CRASH a downstream no-optional-chaining read is rejected by name here rather than
+  crashing later.
+
+**The `0 → 1` identity migration is deliberate, and `CURRENT_SCHEMA_VERSION` deliberately stays at 1.** v0 is a PRE-RELEASE version: `@mui/x-studio` has never shipped a released state format, so no
+persisted doc anywhere is at v0. In particular the reshape `StudioFilterScope`'s
+`dashboard-date-range` doc comment refers to (`{ isDashboardDateRange, filterSourceId }` →
+`{ kind, sourceId, pageId }`) happened entirely inside the unreleased window, before this package
+existed — bumping to v2 for a shape no persisted doc can contain would only add a migration step
+that can never fire, plus a fixture test asserting a transform of data that does not exist. The
+moment the format DOES ship, the registry's stated policy applies in full.
+
+**What `findMissingRequiredField` hard-fails on, and what it deliberately doesn't**, is the same
+graceful-repair-over-hard-fail line drawn everywhere else in this file. It hard-fails on the four
+top-level containers and, one level down, on a non-record `pages[*]` value or `filters[*]` entry —
+the two nested shapes a no-optional-chaining read (`normalizePersistedPages`' per-page access,
+`serializeDoc`/the reducer's `f.scope.kind`) would crash on _before_ the load boundary could act.
+It does NOT hard-fail on a shape a load-boundary handler already repairs per-entry BEFORE any such
+read runs: a non-array `pages[*].widgetRows` (coerced to `[]`), a malformed `filters[*].scope`
+(dropped per-entry), a non-record widget or `widget.config` (dropped/coerced). Sinking the WHOLE
+dashboard over one repairable per-entry defect is strictly worse than loading everything else with
+just that entry repaired.
+
+`REGISTERED_MIGRATION_VERSIONS` is exported so a completeness test can pin that every version step
+has an entry. The `migrations` registry doc comment is the authoritative "how to add a migration"
+reference, including the naming policy: never suffix a field with a version number — migrate the
+stored shape to the clean target name instead.
 
 ## Consumers
 
-- **`@mui/x-studio`** — `src/models/index.ts` re-exports this package (`export * from '@mui/x-studio-schema'`) alongside the package's own React-dependent `customWidgetTypes.ts` (custom-widget registration types referencing `React.ReactNode`/`React.ComponentType`, which can't live in a dependency-free package) and `featureFlags.ts` (UI-only `<Studio>`/`<StudioProvider>` prop types — not part of this schema since the AI middleware never touches them). `StudioController`'s `applyExternalMutation` calls `applyMutation` directly, its undo/redo snapshotting calls `serializeDoc`, its `carryTransientDocState` carries cross-filter/interactive filters forward across undo/redo, and `canvasGridConstants.ts` + `StudioController` both **import** `GRID_COLS`/`MIN_SPAN` from this package (the schema package is their single source of truth — the dependency runs `x-studio` → `x-studio-schema`, never the reverse). `internals/rankFilterScope.ts` is the identical pattern applied to the rank-filter-per-page helpers: it now just `export`s `resolveRankFilterPageId`/`hasConflictingRankFilter` from `@mui/x-studio-schema` rather than carrying its own hand-synced copy of the reducer's `addFilter` rank-uniqueness logic, so the filters-drawer rows and the reducer's own guard can never silently drift apart again. `utils/fieldCapabilities` re-exports `FieldCapability`.
-- **`@mui/x-studio-ai-middleware`** — `src/models/studioTypes.ts` thinly re-exports this package's state/widget/data types plus the server-local `StudioCustomWidgetDef`; `src/widgetFactory.ts` re-exports `createDefaultWidget` via that module (a shim preserving a pre-existing internal import path); `src/models/aiTypes.ts` re-exports the shared AI-protocol types alongside its own server-only additions; `src/executeToolOnState.ts` is the sole producer of the `pageId`/`threadId`-targeted and `updatedAt`-stamped mutations described above and calls `createDefaultStudioState({ runtime: { dataSources } })` / `applyMutation` to thread turn state; its `STUDIO_AI_TOOLS` and MCP metadata are all derived from `STUDIO_AI_TOOL_REGISTRY`; `src/mcp/dataTools.ts` imports `truncateToPeriod`/`detectAnomaliesIQR` directly from `@mui/x-studio-schema` for its data-grouping and anomaly-summary MCP tools.
+- **`@mui/x-studio`** — `src/models/index.ts` re-exports this package wholesale, alongside the
+  package's own React-dependent `customWidgetTypes.ts` and UI-only `featureFlags.ts`.
+  `StudioController.applyExternalMutation` calls `applyMutation` directly; its undo/redo
+  snapshotting calls `serializeDoc`; `carryTransientDocState` carries interactive filters forward
+  across undo/redo. `canvasGridConstants.ts` and `StudioController` both **import** `GRID_COLS`/
+  `MIN_SPAN` from here, and `internals/rankFilterScope.ts` re-exports `resolveRankFilterPageId`/
+  `hasConflictingRankFilter` rather than hand-syncing a copy — the dependency arrow runs
+  `x-studio` → `x-studio-schema`, never the reverse. `utils/fieldCapabilities` re-exports
+  `FieldCapability`.
+- **`@mui/x-studio-ai-middleware`** — `src/models/studioTypes.ts` thinly re-exports the
+  state/widget/data types plus the server-local `StudioCustomWidgetDef`; `src/widgetFactory.ts`
+  re-exports `createDefaultWidget` through it (a shim preserving a pre-existing import path);
+  `src/models/aiTypes.ts` re-exports the shared AI-protocol types alongside its server-only
+  additions. `src/executeToolOnState.ts` is the sole producer of the `pageId`/`threadId`-targeted
+  and `updatedAt`-stamped mutations, and calls `createDefaultStudioState`/`applyMutation` to thread
+  turn state; its `STUDIO_AI_TOOLS` and MCP metadata all derive from `STUDIO_AI_TOOL_REGISTRY`;
+  `src/mcp/dataTools.ts` imports `truncateToPeriod`/`detectAnomaliesIQR` directly.
 
-Application code should import from `@mui/x-studio`'s or `@mui/x-studio-ai-middleware`'s public surface (or their internal `models` barrels) rather than from `@mui/x-studio-schema` directly — this package is an implementation detail the two happen to share, not a place app code is expected to import from.
+Application code should import from `@mui/x-studio`'s or `@mui/x-studio-ai-middleware`'s public
+surface (or their internal `models` barrels) rather than from `@mui/x-studio-schema` directly —
+this package is an implementation detail the two happen to share, not a place app code is expected
+to import from.
 
 ## Testing conventions
 
-`vitest.config.node.mts` runs this package's suite in a plain Node environment (no DOM), reflecting that nothing here touches React or the browser. Eight test files:
+`vitest.config.node.mts` runs the suite in a plain Node environment (no DOM), reflecting that
+nothing here touches React or the browser. Nine test files, one per runtime module:
 
-- **`applyMutation.test.ts`** — one or more `it` per mutation kind (plus a top-level purity check that `applyMutation` never mutates its input), covering both the happy path and every documented edge case: unknown-ID no-ops, `addPage`/`addWidget`/`addFilter` idempotency, the explicit-`pageId`-vs-active-page-fallback branch for `addWidget`/`setWidgetLayout`/`setWidgetColSpan`, the explicit-`threadId`-vs-active-thread-fallback branch for `renameAIThread`, the `setWidgetColSpan` clamp/rounding/`NaN`-guard/overflow branches (single-other-widget shrink-or-delete vs. two-or-more-clear-all, a regression pinning that an unsafe or phantom sibling id on the fallback `rowWidgetIds` path never receives a persisted span, and a regression pinning that a widget living on ANOTHER page than the target is a no-op rather than persisting an orphan span on the target page), `setWidgetLayout`'s and `applyBulkUpdate`'s `dedupeLayoutRows` dedup (a within-row duplicate, a duplicate spread across rows, and a regression pinning that a within-row duplicate no longer double-counts into a false `enforceLayoutColSpans` overflow), `removeWidget`'s widget/interactive/cross-filter-scope filter cleanup and its removal-scoped sole-occupant span collapse (including a regression case pinning that pre-existing singleton-row spans on the affected page and on unrelated pages are left untouched), `removePage`'s widget/filter cleanup and `activePageId` reassignment (including the last-page-removed → `''` case), a regression pinning that `setWidgetColSpan` sets the span of a not-yet-placed widget rather than throwing when `rowWidgetIds` is omitted entirely (finding 2.5, the parser-bypass case one step past the documented fallback), `updateWidget`'s config-patch → changes-merge → `unsetConfigKeys` → `unsetFields` order (unsets win, required fields never unset), its `undefined`-value-skipping in both the config patch and `changes`, a regression pinning that a top-level `config: null` is a clean no-op rather than a throw (finishing the `changes.config: null` guard pair), and a regression pinning that a value-identical `changes` merge (including a value-identical `changes.config`) returns the SAME doc reference rather than churning it, a regression pinning that `addWidget` with a `null` config does not throw and that both `addWidget` and `addPage` are a same-reference no-op (with `Object.prototype` left unpolluted) on a prototype-hazard id, a T2-2 regression pinning that an `addWidget`/`applyBulkUpdate.addedWidgets` widget installed with a non-record `config` is coerced to `config: {}` (not merely tolerated at add-time) and that a SUBSEQUENT `updateWidget`/bulk `updatedWidgets` config touch on that same widget no longer throws, `applyBulkUpdate`'s current-state delta application (removed/added/updated-widget deltas layered on live `widgets`, cross-page-id-collision preservation, per-removed-widget filter/span cleanup, active-page-only rows/spans replacement, a regression pinning that a field-less or value-identical `updatedWidgets` entry is a no-op, a regression pinning that a phantom `widgetRows` id — neither an existing widget nor a safe `addedWidgets` id — is dropped rather than persisted, and a regression pinning that a stale `activePageId` still applies the page-independent widget deltas rather than dropping the whole mutation, skipping only the page-scoped layout replacement), a regression suite for the layout-omission totality across all three partial-payload shapes (both `widgetRows` and `widgetColSpans` absent leaves the active page's existing layout untouched rather than throwing or wiping it; `widgetRows` present/`widgetColSpans` absent installs the rows with spans coerced to `{}`; and a T1-1 regression pinning that `widgetColSpans` present/`widgetRows` absent reconciles the spans against the page's EXISTING rows rather than defaulting to `[]` and wiping the layout), a finding-2.1 pair pinning that a NUMERIC `setWidgetColSpan.args.widgetId` and a numeric `applyBulkUpdate.args.removedWidgetIds` entry are each dropped rather than coerced into the STRING-keyed widget/span/filter of the same digits via `Object.hasOwn`'s key coercion, a finding-2.2 trio pinning that `setDashboardTitle`/`renameAIThread` (`name` and, separately, `updatedAt`) each no-op on a non-string argument rather than installing it, a finding-3.3 / Iteration-31 Tier1 trio pinning the all-pages pre-strip — a widget named in `removedWidgetIds` is removed DOC-WIDE (gone from `state.widgets`, from every page's `widgetRows`, and from its filters/spans) even when it currently sits on a page the bulk's `activePageId` never names, whether the bulk supplies `widgetRows` or omits it, with the removed id's own stale span pruned on every page it appeared on rather than left orphaned, and the unrecognized-mutation-type no-op for both `applyMutation` and `mutationLabel`, including a T2-1 regression pinning that a prototype-member `type` (`'constructor'`/`'toString'`/`'__proto__'`) is a graceful no-op/raw-type-string rather than replacing the doc with `{}` or throwing, a Finding-6 regression pinning that a non-record `mutation` (`null`/primitive) is a graceful no-op / `'unknown'` label rather than a throw for both `applyMutation` and `mutationLabel`, a Finding-1 suite pinning that both ADD channels (`addWidget` and `applyBulkUpdate.addedWidgets`) key-strip a non-string `subtitle`/`sourceId` and a non-`'auto'|'manual'` `titleMode`/`subtitleMode` while keeping valid optional scalars, a Finding-2 suite pinning that `addFilter` no-ops a non-string `field`, an invalid `operator`, and an invalid `operator2`-when-present while accepting a valid trio, and a Finding-4 pair pinning that `addFilter` no-ops a `dashboard-date-range` scope with a missing `pageId` while accepting one with a valid string `pageId`.
-- **`parseStateMutation.test.ts`** — one valid payload per `StateMutation` variant, each round-tripped through `JSON.parse(JSON.stringify(...))` (mimicking a real wire payload) and asserted to both parse and then apply correctly through `applyMutation`; malformed top-level shapes (`undefined`/`null`/number/string/array/`{}`, unknown type, prototype-chain type `'constructor'`, missing/non-object `args`); malformed per-variant args (mixed-depth `rows`, a `string` where a `string[]` is required, missing nested widget/filter fields, unknown filter `scope.kind`, a non-string/missing `addFilter` `filter.field`/`filter.operator`, wrong-kind/wrong-chart-family config keys, a non-`'auto'|'manual'` `changes.titleMode`/`changes.subtitleMode`); the parallel `addWidget`/`applyBulkUpdate.addedWidgets` full-widget checks (valid and invalid `titleMode`/`subtitleMode`/`subtitle`/`sourceId`, and an own `__proto__` config key rejected for both a known and a custom widget kind); id-hygiene regressions (a widget id of `'__proto__'`/`'constructor'`/`'prototype'` is rejected, an unsafe `setWidgetColSpan.args.rowWidgetIds` entry is rejected, and running every accepted payload through `parseStateMutation` + `applyMutation` leaves `Object.prototype` unpolluted); a finding-2.2 suite pinning that `updateWidget.args.config.chartType`, `updateWidget.args.changes.config.chartType`, and `applyBulkUpdate.args.updatedWidgets[].config.chartType` are each membership-checked (a non-member string and a non-string both rejected on all three channels; a known chart type accepted on each); a finding-2.3 suite pinning that an `addWidget`/`applyBulkUpdate.addedWidgets` chart config with NO `chartType` and only bar-family keys is accepted (the omitted discriminant resolves to the `'bar'` fallback) while the same shape with a cross-family key (e.g. `sankeyTargetField`) is now rejected — previously the family check was skipped outright whenever `chartType` was absent; the forward-compatible extra-`args`-key case; an Iteration-31 size-cap suite pinning both caps at their boundary on every predicate family — a 501-entry `removedWidgetIds`/`addedWidgets`/`updatedWidgets`/`widgetRows` rejected (the latter two by a message naming the field) while exactly 500 is accepted, a 501-entry inner `setWidgetLayout.args.rows` row and a 501-key `widgetColSpans` rejected, and a widget `title` of 10,001 characters rejected while exactly 10,000 is accepted; and a table-sync pin comparing `PARSEABLE_MUTATION_TYPES` against `MUTATION_TYPES`.
-- **`internalGuards.test.ts`** — added in Iteration 31 alongside `isPlainRecord`'s prototype tightening (see "Function modules" above for why the module went from indirectly-covered to needing its own file). Pins the predicate's full contract in one place: an object literal, `JSON.parse` output (the wire/persistence boundaries' real input shape), and an explicit `Object.create(null)` bag are ACCEPTED; `null`, an array, and every primitive are rejected as before; and — the newly-closed case — a `Date`, `RegExp`, `Map`, `Set`, and an arbitrary class instance are each rejected, every one of which the old three-clause check accepted.
-- **`anomalyDetection.test.ts`** — `detectAnomaliesIQR` edge cases (too few points, zero IQR, negative/positive outliers); `median`'s even/odd-length averaging is pinned indirectly through these rather than tested in isolation, since it's file-private.
-- **`configKeyValidation.test.ts`** — `getAllowedConfigKeys`/`validateConfigKeysForKind` per built-in kind (own keys valid, a different kind's key flagged, the custom-kind `null`/no-restriction case) and `getAllowedChartConfigKeys`/`validateChartConfigKeysForType` per chart type (own family's keys valid — including the shared base/sort keys every tuple includes — a different family's key flagged, e.g. `sankeyTargetField` on `gauge`, and the total-over-`StudioChartType`/no-null-case behavior), plus a T2-1 regression suite pinning that `getAllowedChartConfigKeys`, `validateChartConfigKeysForType`, and `stripForeignFamilyKeys` each fail closed (empty `Set` / every key flagged / every key stripped) rather than throwing for a prototype-chain `chartType` (`'constructor'`/`'toString'`/`'hasOwnProperty'`), matching the fail-closed result of an ordinary unrecognized chart-type string.
-- **`factories.test.ts`** — one assertion per built-in kind's default config (values hand-transcribed from `BUILTIN_WIDGET_DEFAULTS` in a comment at the top of the file, since the table is file-private — update these assertions if that table changes), the custom-kind fallback, `overrides.title`/`customConfig`, a regression pin that two `createDefaultWidget('grid', ...)` calls don't share the same `config.columns` array reference, `createWidgetId`'s uniqueness across a tight 1000-call loop and its `widget-` prefix, a regression pinning that all five `makeIdFactory`-backed id factories interleaved across 200 iterations each produce unique ids while keeping their own prefix (each factory's counter stays independent, so sharing the underlying helper can never make two factories collide with each other), `normalizeChartSeries`'s alias-resolution/precedence/reference-stability cases (including a regression pinning that a nullish `seriesType` alias with no canonical `type` OMITS `type` rather than promoting it to `type: null`), and `createDefaultStudioState`'s per-partition deep-merge-vs-replace override semantics plus a regression pinning that a `doc.pages` override reconciles a dangling `activePageId` to the first page id (and that an explicitly-supplied, still-valid `activePageId` is left untouched).
-- **`temporalUtils.test.ts`** — `truncateToPeriod` per-granularity bucketing (day/week/month/quarter/year), the canonical-ISO-string fast path, offset-carrying-string fallback, millisecond-numeric-timestamp fallback, unparseable/invalid-input rejection (`null`/`undefined`/non-date objects/invalid `Date`), and ISO-week year-boundary edge cases (an early-January date rolling back into the prior ISO year, a late-December date rolling forward into the next); an Iteration-31 Tier3 pair pinning the anchored offset guard — a non-offset garbage tail carrying a literal hyphen (`'2024-06-01Tgarbage-more'`) still fast-paths to `'2024-06-01'`/`'2024-06'` instead of returning `null`, while a REAL trailing offset (`'2024-12-31T23:00:00-05:00'`) still takes the slow `new Date` path and converts to UTC (`'2025-01-01'`) rather than being short-circuited; `isoWeek` pinned directly for a mid-year date and both boundary cases.
-- **`statePersistence.test.ts`** — `serializeState`/`deserializeState` round-trips reading only from `doc` (session/runtime excluded), the strip of BOTH cross-filter and interactive scoped filters on serialize AND, symmetrically, on load (a regression pinning that a hand-carried cross-filter/interactive entry in `serialized.filters` never installs into live `doc.filters`), the empties-are-omitted (`relationships`/`expressionFields`/`filterPresets`/`ai`) normalization and their re-defaulting on deserialize, grid-column and chart-`ySeries` normalization through `deserializeState` (including a regression pinning that an empty `columns: []`/`ySeries: []` is left reference-stable rather than rebuilt, and that a non-array legacy value is left for `migrateState`'s validation rather than crashing), `normalizePersistedPages`'s load-time layout sweep through `deserializeState` (a phantom `widgetRows` id is dropped, a duplicate id across a row is deduped, an out-of-range span is clamped and an orphan span dropped, and a regression pinning that a well-formed persisted page object is carried through by reference with no churn), a direct-`deserializeState`-call regression suite pinning that the load boundary is TOTAL over a nested-corrupt doc rather than throwing (a non-array `widgetRows` is coerced to `[]`, a `null` page value is dropped, a `null` widget value is dropped, a `null` or scope-less `filters` entry is dropped and the surviving doc still round-trips through `serializeDoc` without throwing), a regression pinning that a `JSON.parse`-produced own `"__proto__"` key in either `pages` or `widgets` is dropped without re-prototyping the map (`Object.getPrototypeOf(...) === Object.prototype`, the entry absent from `Object.hasOwn`), a finding-2.1 id↔key reconciliation suite (a widget, and separately a page, whose own `id` field disagrees with its record key is re-stamped to match the key; a widget/page whose `id` already matches its key is left reference-stable; the reconciled widget still round-trips through `serializeState` without throwing), a finding-2.4 suite pinning that a widget whose `config` is `null` or another non-record primitive is coerced to `config: {}` rather than installed verbatim (and the coerced widget still round-trips without throwing), a dangling-`activePageId` reconciliation suite (a hand-edited id naming no page falls back to the first page id; re-pointing when the page sweep itself drops the id's corrupt page; a still-valid id left untouched; falling back to `''` when `pages` is empty), a `doc.ai` shape-validation suite (a non-array `threads` and a primitive `ai` are both dropped to `undefined` and the surviving doc still serializes without throwing; a well-formed `ai` is kept; a T2-3 regression pinning that a `threads` array containing a `null`/primitive entry alongside a well-formed thread loads with only the well-formed entry surviving, rather than loading verbatim and throwing on the first `renameAIThread`; and an Iteration-31 Tier2 quartet pinning the thread-identity screen — a thread with a numeric or empty-string `id` is dropped, threads sharing an `id` collapse to the first occurrence with `activeThreadId` left pointing at it, a dangling `activeThreadId` naming no surviving thread is cleared to `undefined`, and an `activeThreadId` naming a thread that DID survive the screen is left untouched), a regression pinning that a non-array `relationships`/`expressionFields`/`filterPresets` is coerced to `[]`, `migrateState`'s already-current-fast-path / newer-than-current-refusal / registry-gap-hard-failure / missing-required-field fail-closed / sequential-migration behavior plus a regression pinning that non-cloneable input on the migration path returns a failed `MigrationResult` (naming the clone failure) rather than throwing an uncaught `DataCloneError`, a nested-per-entry `findMissingRequiredField` regression suite (a non-array `pages[*].widgetRows`, a `null` page/widget value, a non-record `widgets[*].config`, a `null`/primitive/scope-null `filters[*]` entry — each naming the offending field — plus a well-formed-nested-doc control that still succeeds), a fail-closed `schemaVersion` regression suite (`NaN` and a fractional `0.5` both rejected by name, `undefined` still treated as legacy v0), a Finding-3 filter-id dedup pair pinning that two filters sharing an `id` load down to the first occurrence, and that two identical-id RANK filters likewise collapse to the first at load (the rank-dedup escape, where `hasConflictingRankFilter`'s self-exclusion previously let both survive), and a `REGISTERED_MIGRATION_VERSIONS` completeness pin over `0 … CURRENT_SCHEMA_VERSION − 1`.
+- **`applyMutation.test.ts`** — one or more `it` per mutation kind plus a top-level purity check,
+  covering idempotency, explicit-`pageId`/`threadId` targeting vs. the active fallback, the span
+  clamp/overflow/rebalance branches, layout dedup, per-handler cleanup and `activePageId`
+  reassignment, the `updateWidget` ordering contract, the `applyBulkUpdate`
+  delta/partial-layout/replace matrix, and reference-equality no-op regressions throughout.
+- **`parseStateMutation.test.ts`** — one valid payload per variant, each round-tripped through
+  `JSON.parse(JSON.stringify(...))` and then applied through `applyMutation`; malformed top-level
+  and per-variant shapes; the size caps at their boundary; id-hygiene regressions asserting
+  `Object.prototype` stays unpolluted; a `PARSEABLE_MUTATION_TYPES`/`MUTATION_TYPES` table-sync pin.
+- **`statePersistence.test.ts`** — round-trips reading only from `doc`; the symmetric
+  cross-filter/interactive strip on serialize and load; the empties-are-omitted normalization;
+  every load-boundary screen and reconciliation (id↔key, `activePageId`, `activeThreadId`, filter
+  dedup, rank dedup, expression-tree validation); `migrateState`'s
+  fast-path/newer-version/registry-gap/clone-failure behavior; a `REGISTERED_MIGRATION_VERSIONS`
+  completeness pin.
+- **`factories.test.ts`** — one assertion per built-in kind's default config (hand-transcribed in a
+  header comment, since `BUILTIN_WIDGET_DEFAULTS` is file-private — update them if the table
+  changes); the custom-kind fallback; fresh-array-per-call; id uniqueness across a tight loop and
+  across interleaved factories; `normalizeChartSeries` precedence and reference stability; the
+  per-partition merge semantics and page/`activePageId` reconciliation.
+- **`configKeyValidation.test.ts`** — both layers per kind and per chart type, the custom-kind
+  `null` case, the total-over-`StudioChartType` behavior, and the fail-closed
+  prototype-chain-`chartType` regressions.
+- **`widgetTypeGuards.test.ts`** — each closed-union list against its predicate plus near-miss
+  rejections. Completeness cannot be asserted at runtime (a TS union has no runtime
+  representation), which is why the compile-time locks exist.
+- **`internalGuards.test.ts`** — `isPlainRecord`'s full contract: object literals, `JSON.parse`
+  output, and `Object.create(null)` accepted; `null`/arrays/primitives rejected; and
+  `Date`/`RegExp`/`Map`/`Set`/class instances rejected, every one of which the pre-prototype-clause
+  check accepted.
+- **`anomalyDetection.test.ts`** — `detectAnomaliesIQR` edge cases (too few points, degenerate IQR,
+  negative/positive outliers). `median` is pinned indirectly, since it is file-private.
+- **`temporalUtils.test.ts`** — per-granularity bucketing, the canonical-ISO fast path, the
+  offset-carrying and numeric-timestamp fallbacks, unparseable input, the anchored-offset-guard
+  pair, and `isoWeek`'s year-boundary cases.
 
 ## Extension points
 
-- **New persisted (doc) field**: add it to `StudioDoc` (`stateTypes.ts`) — `serializeDoc` spreads it automatically, `deserializeState` needs a line only if it must default when omitted, and `statePersistence.test.ts`'s round-trip gate catches a missing persistence path. A field for widget config goes on `widgetTypes.ts` instead. A field that must **not** persist or be undoable goes on `StudioSession`/`StudioRuntime`, not `StudioDoc`.
-- **New built-in widget kind**: add the kind string to `BuiltinStudioWidgetKind` (`baseTypes.ts`), add a per-kind config interface to `widgetTypes.ts` (or extend an existing one), fold it into `StudioWidgetConfig`'s `extends` list and `StudioWidgetConfigByKind`, add a key tuple + `AssertKeysCovered` entry in `configKeyValidation.ts`'s `BUILTIN_OWN_CONFIG_KEYS`, and add an entry to `factories.ts`'s `BUILTIN_WIDGET_DEFAULTS` table — the `Record<BuiltinStudioWidgetKind, …>` typings make a missing entry a compile error in each place.
-- **New chart type**: add the literal to `StudioChartType` (`baseTypes.ts`), a family interface (or extend an existing family for a chart type that shares its shape with siblings) in `widgetTypes.ts`, an entry to `StudioChartConfigByType` (its `AssertChartTypesCovered` check fails to compile until every `StudioChartType` literal is covered), the family into `StudioChartWidgetConfig` and `StudioChartConfig`'s `Partial<Omit<Family, 'chartType'>>` `extends` list, an entry in `STUDIO_CHART_TYPES` (`widgetTypeGuards.ts`, `satisfies`-locked), and a key tuple + `AssertKeysCovered` entry in `configKeyValidation.ts`'s `CHART_TYPE_CONFIG_KEYS` + the derived `CHART_CONFIG_KEYS` union — all fail-closed at compile time. `@mui/x-studio`'s `chartTypeDefs.tsx` (`CHART_TYPE_DEFS`, itself `satisfies Record<StudioChartType, ChartTypeDef>`) also needs an entry, compile-enforced the same way; `@mui/x-studio-ai-middleware`'s `widgetConfigMeta.ts` (`CHART_TYPE_DOCS`) needs a docs line too, but that one is a plain array with only a comment reminder — nothing fails to compile if it's forgotten. See those packages' `ARCHITECTURE.md`.
-- **New AI mutation kind**: add the variant to `StateMutation` (`mutationTypes.ts`), an entry to `applyMutation.ts`'s `MUTATION_HANDLERS` table (co-locating `apply` and `label`), and an entry to `parseStateMutation.ts`'s `MUTATION_ARG_VALIDATORS` table — all three mapped types make a missing entry a compile error in both consuming packages.
-- **New AI tool**: add an entry to `STUDIO_AI_TOOL_REGISTRY` (`aiToolRegistry.ts`) with its facts — the name widens `StudioAIToolName` automatically, and every derived server-side artifact (tool list, MCP metadata, private-mode/destructive/unsupported sets) picks it up from the registry.
-- **Schema migration**: increment `CURRENT_SCHEMA_VERSION` (`stateTypes.ts`), add a `migrations` entry (`statePersistence.ts`) keyed by the **previous** version that rewrites the persisted shape to the new one, and add a v(N) fixture test in `statePersistence.test.ts`. A gap in the registry is a hard `migrateState` failure, so every version step needs an entry (an identity migration when no transform is required).
+- **New persisted (doc) field** — add it to `StudioDoc` (`stateTypes.ts`). `serializeDoc` spreads
+  it automatically; `deserializeState` needs a line only if it must default when omitted; the
+  round-trip test catches a missing persistence path. A widget-config field goes on
+  `widgetTypes.ts` instead. A field that must **not** persist or be undoable goes on
+  `StudioSession`/`StudioRuntime`.
+- **New built-in widget kind** — add the string to `BuiltinStudioWidgetKind` (`baseTypes.ts`), a
+  per-kind config interface in `widgetTypes.ts`, fold it into `StudioWidgetConfig`'s `extends`
+  list and `StudioWidgetConfigByKind`, add a key tuple + `AssertKeysCovered` entry to
+  `BUILTIN_OWN_CONFIG_KEYS`, and add a `BUILTIN_WIDGET_DEFAULTS` entry. The `Record<…>` typings
+  make a missing entry a compile error in each place.
+- **New chart type** — add the literal to `StudioChartType`, a family interface (or extend an
+  existing family), an entry in `StudioChartConfigByType`, the family into
+  `StudioChartWidgetConfig` and `StudioChartConfig`'s `extends` list, an entry in
+  `STUDIO_CHART_TYPES`, and a key tuple + `AssertKeysCovered` entry in `CHART_TYPE_CONFIG_KEYS`
+  (plus the derived `CHART_CONFIG_KEYS` union) — all fail-closed at compile time.
+  `@mui/x-studio`'s `chartTypeDefs.tsx` also needs an entry, compile-enforced the same way;
+  `@mui/x-studio-ai-middleware`'s `widgetConfigMeta.ts` needs a docs line, but that one is a plain
+  array with only a comment reminder — nothing fails to compile if it's forgotten.
+- **New expression operator** — add the literal to `StudioExpressionOperator`
+  (`expressionTypes.ts`) and an entry to `STUDIO_EXPRESSION_OPERATORS` (`widgetTypeGuards.ts`);
+  the `AssertAllExpressionOperatorsListed` lock fails the build until you do. The client's editor
+  and evaluator read the exported list, so nothing else needs a hand-copy.
+- **New AI mutation kind** — add the variant to `StateMutation` (`mutationTypes.ts`), an entry to
+  `MUTATION_HANDLERS` (co-locating `apply` and `label`), and an entry to
+  `MUTATION_ARG_VALIDATORS`. All three mapped types make a missing entry a compile error.
+- **New AI tool** — add an entry to `STUDIO_AI_TOOL_REGISTRY` with its facts. The name widens
+  `StudioAIToolName` automatically, and every derived server-side artifact picks it up.
+- **Schema migration** — increment `CURRENT_SCHEMA_VERSION` (`stateTypes.ts`), add a `migrations`
+  entry keyed by the **previous** version, and add a v(N) fixture test. A registry gap is a hard
+  `migrateState` failure, so every version step needs an entry.

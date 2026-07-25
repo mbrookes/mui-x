@@ -1768,7 +1768,7 @@ export class StudioController {
   updateWidgetConfig = (
     widgetId: string,
     config: Partial<import('../models').StudioWidgetConfig>,
-    options?: { undoable?: boolean },
+    options?: { undoable?: boolean; logAsUserEdit?: boolean },
   ) => {
     const existingWidget = this.getWidget(widgetId);
     const effectiveConfig = existingWidget
@@ -1793,8 +1793,8 @@ export class StudioController {
     // otherwise merely rendering the panel could push an unauthored undo entry and,
     // if re-triggered after an undo, clear the redo stack.
     //
-    // `{ undoable: false }` is ALSO the self-repair signal (finding 4): every call site
-    // that passes it is a system-initiated fixup (e.g. `KpiSetupPanel`'s render-time
+    // `{ undoable: false }` is ALSO the self-repair signal (finding 4): almost every call
+    // site that passes it is a system-initiated fixup (e.g. `KpiSetupPanel`'s render-time
     // repair of an invalid stored `kpiAggregation`), not a user-driven edit. `commitState`
     // writes a recent-mutation-log line whenever the doc changed, REGARDLESS of
     // `undoable` — so without suppressing the label here, a self-repair commit still
@@ -1802,13 +1802,22 @@ export class StudioController {
     // `MAX_MUTATION_LOG`, it could evict a genuine user-initiated entry. Suppress the
     // label ONLY for the self-repair (`undoable === false`) case; a genuine user-initiated
     // call (default/explicit `undoable: true`) keeps its normal reducer-default label.
+    //
+    // `logAsUserEdit` separates the two meanings for the one caller that needs BOTH: an edit
+    // can be non-undoable for coalescing reasons and still be the user's own. `StudioGridWidget`'s
+    // edit-mode header sort is that case — DataGridPremium's asc/desc/none cycle fires three
+    // commits per gesture, so undoable would bury the author's previous real edit, but the sort
+    // IS an authored change that survives a save. Without this flag it wrote no mutation-log
+    // line, so `getRecentMutations()` hid an author's sort from the assistant — the same blind
+    // spot the `updateWidget`/`duplicateWidget` labels fixed, reached through the other meaning
+    // of this one flag.
     this.commitMutation(
       {
         type: 'updateWidget',
         args: { widgetId, config: effectiveConfig as StudioWidget['config'] },
       },
       {
-        label: options?.undoable === false ? null : undefined,
+        label: options?.undoable === false && !options?.logAsUserEdit ? null : undefined,
         undoable: options?.undoable,
         transform: (next) => {
           // Guard on the widget's actual presence (1.3) — see `updateWidget`. The

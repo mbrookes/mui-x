@@ -468,8 +468,14 @@ export function useWidgetRows(
   //
   // include:
   //   'all'            → page + widget + cross-filter + interactive
-  //   'no-cross'       → page + widget only
+  //   'no-cross'       → page + widget
   //   'no-chart-cross' → page + widget + interactive (no chart-click cross-filters)
+  //
+  // Every one of the three ALSO carries the dashboard date range: `selectFiltersForWidget`
+  // gates its `dashboard-date-range` branch on neither `include` value, deliberately, because
+  // that range is the dashboard's own period rather than a cross-filter anyone can opt out of.
+  // `useBlendedSeriesRows` depends on exactly that — it asks for `'no-cross'` to get "page +
+  // dashboard-date-range for this source".
   const computeFilteredRows = React.useCallback(
     (include: 'all' | 'no-cross' | 'no-chart-cross'): Row[] => {
       if (hasAdapter) {

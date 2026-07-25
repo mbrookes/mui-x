@@ -874,7 +874,10 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
           gridSortField: first?.field,
           gridSortDirection: first?.sort ?? undefined,
         },
-        { undoable: false },
+        // Non-undoable for the coalescing reason above, but `logAsUserEdit` keeps the
+        // mutation-log line: this is the author's own change, and `getRecentMutations()`
+        // is how the assistant learns what the user just did.
+        { undoable: false, logAsUserEdit: true },
       );
     },
     [controller, widget.id, mode],

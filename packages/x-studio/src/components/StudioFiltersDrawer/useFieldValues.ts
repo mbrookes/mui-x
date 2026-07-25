@@ -92,8 +92,9 @@ export const FIELD_VALUES_CAP = 1000;
  * offered for any field, and the engine's `in`/`not_in` compare `String(row[field] ?? '')`
  * against the stored candidates — so a numeric or boolean field yields a perfectly usable
  * value list, exactly as `StudioFilterWidget`'s own `distinctValues` already computes it.
- * `fieldType` is retained in the signature (and the memo deps) because it identifies which
- * field is being read when two sources share an id.
+ * Because the declared type no longer changes what is collected, this hook does not take one:
+ * `filterSourceId` is what disambiguates two sources sharing a field id, and a `fieldType`
+ * parameter only added a memo dependency that recomputed an identical list.
  *
  * When `filterSourceId` is provided, the lookup is scoped to that source only (finding
  * 2.15) — a bare field-id scan across every source pollutes the list when two sources share

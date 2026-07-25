@@ -702,7 +702,7 @@ function useKpiSparkline(params: {
   relationships: StudioRelationship[];
   expressionFields: StudioExpressionField[];
   enabled: boolean;
-}): { sparklineData: number[] | null; sparklineTimeField: string | null } {
+}): { sparklineData: (number | null)[] | null; sparklineTimeField: string | null } {
   const {
     config,
     widget,
@@ -727,7 +727,7 @@ function useKpiSparkline(params: {
     }
 
     const rows = currentRows;
-    let kpiSparklineData: number[] | null = null;
+    let kpiSparklineData: (number | null)[] | null = null;
     let kpiSparklineTimeField: string | null = null;
 
     // Scope the filters through the SAME authority the trend path uses

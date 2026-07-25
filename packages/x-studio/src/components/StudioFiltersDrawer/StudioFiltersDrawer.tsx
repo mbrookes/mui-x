@@ -224,29 +224,53 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
     });
   }, [selectedWidget, dataSources]);
 
-  const pageFilters = (filters as StudioFilterState[]).filter(
-    (f: StudioFilterState) =>
-      f.scope.kind === 'page' && (!f.scope.pageId || f.scope.pageId === activePageId),
+  // M11: memoized, not re-`.filter()`ed on every render. `pageFilters` in particular is handed
+  // down as `allFilters` → `PageFilterRow`'s `allPageFilters`, where it keys the `parentFilters`
+  // memo that feeds `useFieldValues`. A fresh array identity on every drawer render (e.g. one
+  // per keystroke in the search box above) invalidated that memo and made every cascading
+  // selection filter re-scan its entire data source — allocating a filtered row copy, a `Set`,
+  // and a `sort` — synchronously during render.
+  const pageFilters = React.useMemo(
+    () =>
+      (filters as StudioFilterState[]).filter(
+        (f: StudioFilterState) =>
+          f.scope.kind === 'page' && (!f.scope.pageId || f.scope.pageId === activePageId),
+      ),
+    [filters, activePageId],
   );
-  const widgetFilters = (filters as StudioFilterState[]).filter(
-    (f: StudioFilterState) =>
-      f.scope.kind === 'widget' &&
-      f.scope.widgetId === selectedWidgetId &&
-      // 2.4: the `widget-date-range-*` filter is managed exclusively via the KPI setup panel
-      // (see `StudioController.setWidgetDateRange`'s doc) — hide it here the same way
-      // `WidgetFiltersPanel.tsx` does, so the drawer doesn't expose a phantom card whose edits
-      // are silently discarded (its `value` is recomputed from `dateRangePreset` at query time).
-      f.dateRangePreset === undefined,
+  const widgetFilters = React.useMemo(
+    () =>
+      (filters as StudioFilterState[]).filter(
+        (f: StudioFilterState) =>
+          f.scope.kind === 'widget' &&
+          f.scope.widgetId === selectedWidgetId &&
+          // 2.4: the `widget-date-range-*` filter is managed exclusively via the KPI setup panel
+          // (see `StudioController.setWidgetDateRange`'s doc) — hide it here the same way
+          // `WidgetFiltersPanel.tsx` does, so the drawer doesn't expose a phantom card whose
+          // edits are silently discarded (its `value` is recomputed from `dateRangePreset` at
+          // query time).
+          f.dateRangePreset === undefined,
+      ),
+    [filters, selectedWidgetId],
   );
-  const crossFilters = (filters as StudioFilterState[]).filter(
-    (f: StudioFilterState) =>
-      f.scope.kind === 'cross-filter' && (crossFilterAllPages || f.scope.pageId === activePageId),
+  const crossFilters = React.useMemo(
+    () =>
+      (filters as StudioFilterState[]).filter(
+        (f: StudioFilterState) =>
+          f.scope.kind === 'cross-filter' &&
+          (crossFilterAllPages || f.scope.pageId === activePageId),
+      ),
+    [filters, crossFilterAllPages, activePageId],
   );
-  const interactiveFilters = (filters as StudioFilterState[]).filter(
-    // Scope to the active page, exactly as the filter engine does (`filterScoping.ts`'s
-    // `interactive` case) — otherwise the drawer lists "active" interactive filters from other
-    // pages that affect nothing on the current one (Tier 3 drawer/engine mismatch).
-    (f: StudioFilterState) => f.scope.kind === 'interactive' && f.scope.pageId === activePageId,
+  const interactiveFilters = React.useMemo(
+    () =>
+      (filters as StudioFilterState[]).filter(
+        // Scope to the active page, exactly as the filter engine does (`filterScoping.ts`'s
+        // `interactive` case) — otherwise the drawer lists "active" interactive filters from
+        // other pages that affect nothing on the current one (Tier 3 drawer/engine mismatch).
+        (f: StudioFilterState) => f.scope.kind === 'interactive' && f.scope.pageId === activePageId,
+      ),
+    [filters, activePageId],
   );
 
   // 3.10: derive the active saved-view from the doc rather than tracking it as component
@@ -270,19 +294,29 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
 
   const searchLower = filterSearch.toLowerCase();
 
-  function matchesSearch(filter: StudioFilterState): boolean {
-    if (!searchLower) {
-      return true;
-    }
-    const fieldLabel = fieldLabelMap.get(filter.field) ?? filter.field ?? '';
-    const summary = summarizeFilter(filter, localeText);
-    return (
-      fieldLabel.toLowerCase().includes(searchLower) || summary.toLowerCase().includes(searchLower)
-    );
-  }
+  const matchesSearch = React.useCallback(
+    (filter: StudioFilterState): boolean => {
+      if (!searchLower) {
+        return true;
+      }
+      const fieldLabel = fieldLabelMap.get(filter.field) ?? filter.field ?? '';
+      const summary = summarizeFilter(filter, localeText);
+      return (
+        fieldLabel.toLowerCase().includes(searchLower) ||
+        summary.toLowerCase().includes(searchLower)
+      );
+    },
+    [searchLower, fieldLabelMap, localeText],
+  );
 
-  const visiblePageFilters = pageFilters.filter(matchesSearch);
-  const visibleWidgetFilters = widgetFilters.filter(matchesSearch);
+  const visiblePageFilters = React.useMemo(
+    () => pageFilters.filter(matchesSearch),
+    [pageFilters, matchesSearch],
+  );
+  const visibleWidgetFilters = React.useMemo(
+    () => widgetFilters.filter(matchesSearch),
+    [widgetFilters, matchesSearch],
+  );
 
   const handleAddPageFilter = () => {
     if (allFields.length === 0) {

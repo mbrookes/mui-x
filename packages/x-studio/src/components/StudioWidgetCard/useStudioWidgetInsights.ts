@@ -2,7 +2,7 @@
 import * as React from 'react';
 import type { StudioWidget } from '../../models';
 import type { StudioChartAnnotation } from '../../models/widgetTypes';
-import { useStudioUIConfig } from '../../internals/StudioUIConfigContext';
+import { useStudioUIConfig, useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 import {
   buildInsightPrompt,
   buildAnomalyExplainPrompt,
@@ -47,15 +47,18 @@ export function useStudioWidgetInsights({
   // `createWidgetFromDescription`, and `useTextWidgetAI`.
   const { aiConfig } = useStudioUIConfig();
   const privateMode = aiConfig?.privateMode === true;
+  // These prompts are posted as the user's own chat message, so they come from `localeText`
+  // rather than English literals baked into `widgetInsightPrompts`.
+  const localeText = useStudioLocaleText();
 
   const handleInsightRequest = React.useCallback(
     (type: StudioWidgetInsightType) => {
       if (!onInsightRequest || !widget) {
         return;
       }
-      onInsightRequest(widgetId, buildInsightPrompt(type, widget.title || widget.kind));
+      onInsightRequest(widgetId, buildInsightPrompt(type, widget.title || widget.kind, localeText));
     },
-    [onInsightRequest, widget, widgetId],
+    [onInsightRequest, widget, widgetId, localeText],
   );
 
   const [anomalyEnabled, setAnomalyEnabled] = React.useState(false);
@@ -76,9 +79,14 @@ export function useStudioWidgetInsights({
     }
     onInsightRequest(
       widgetId,
-      buildAnomalyExplainPrompt(widget.title || widget.kind, anomalyAnnotations, privateMode),
+      buildAnomalyExplainPrompt(
+        widget.title || widget.kind,
+        anomalyAnnotations,
+        localeText,
+        privateMode,
+      ),
     );
-  }, [onInsightRequest, anomalyAnnotations, widget, widgetId, privateMode]);
+  }, [onInsightRequest, anomalyAnnotations, widget, widgetId, privateMode, localeText]);
 
   return {
     handleInsightRequest,

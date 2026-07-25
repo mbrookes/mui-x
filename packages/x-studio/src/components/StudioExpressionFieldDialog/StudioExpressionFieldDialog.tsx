@@ -76,6 +76,27 @@ function createNewExpressionFieldId(): string {
   return `expr-${Date.now()}-${newExpressionFieldIdCounter}`;
 }
 
+interface ExpressionFieldFormState {
+  label: string;
+  description: string;
+  isMeasure: boolean;
+  expression: StudioExpression;
+  precision: string;
+}
+
+/** The buffered form state a given `existingField` (or `undefined` = create mode) starts from. */
+function buildFormState(
+  existingField: StudioExpressionField | undefined,
+): ExpressionFieldFormState {
+  return {
+    label: existingField?.label ?? '',
+    description: existingField?.description ?? '',
+    isMeasure: existingField?.isMeasure ?? false,
+    expression: (existingField?.expression ?? makeDefaultExpression()) as StudioExpression,
+    precision: existingField?.precision != null ? String(existingField.precision) : '2',
+  };
+}
+
 export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogProps) {
   const {
     open,
@@ -91,13 +112,9 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
 
   const isEdit = !!existingField;
 
-  const [form, setForm] = React.useState({
-    label: existingField?.label ?? '',
-    description: existingField?.description ?? '',
-    isMeasure: existingField?.isMeasure ?? false,
-    expression: (existingField?.expression ?? makeDefaultExpression()) as StudioExpression,
-    precision: existingField?.precision != null ? String(existingField.precision) : '2',
-  });
+  const [form, setForm] = React.useState<ExpressionFieldFormState>(() =>
+    buildFormState(existingField),
+  );
   const { label, description, isMeasure, expression, precision } = form;
 
   // Stable across re-renders (finding 3.11): the previous `expr-${Date.now()}` was
@@ -110,6 +127,32 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
     newFieldIdRef.current = createNewExpressionFieldId();
   }
   const fieldId = existingField?.id ?? newFieldIdRef.current;
+
+  // H6: resync the buffered form whenever the dialog is (re-)opened or the field being
+  // edited changes. MUI's `Dialog` keeps its subtree MOUNTED across `open` toggles, so
+  // without this the `React.useState` initializer above only ever runs once per mount and
+  // the form keeps showing — and, on save, WRITES — the first field it was opened with:
+  // edit "Margin %", cancel, open "Revenue Growth", and `handleSave` would call
+  // `updateExpressionField('rev-growth', {…Margin %'s label/description/isMeasure/expression})`.
+  // Every in-repo caller happened to paper over this with a `key=` remount, but this is a
+  // public export (`index.ts`) documented without any such requirement, so the contract must
+  // hold inside the component. Mirrors the sibling `RelationshipDialog`'s resync effect.
+  // `newFieldIdRef` is reset alongside so two consecutive creates can't share one id.
+  // The last-synced inputs are tracked explicitly rather than left to the dependency array
+  // alone, so the effect is a no-op both on mount (the `useState` initializer already
+  // produced exactly this state — re-running it would cost every caller an extra render and
+  // a needlessly churned `fieldId`) and on StrictMode's double-invoke.
+  const syncedRef = React.useRef({ existingField, open });
+  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change, react-doctor/no-derived-state-effect -- form is intentionally buffered locally and synced when the dialog re-opens or the edited field changes
+  React.useEffect(() => {
+    if (syncedRef.current.existingField === existingField && syncedRef.current.open === open) {
+      return;
+    }
+    syncedRef.current = { existingField, open };
+    newFieldIdRef.current = createNewExpressionFieldId();
+    // react-doctor-disable-next-line react-doctor/no-derived-state -- locally buffered form; sync on external change is intentional
+    setForm(buildFormState(existingField));
+  }, [existingField, open]);
 
   // BL-180: expression fields offered as operands in the builder, scoped to those
   // reachable from the configuring widget. The unfiltered `expressionFields` is still

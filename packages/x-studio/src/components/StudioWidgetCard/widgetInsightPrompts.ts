@@ -1,4 +1,5 @@
 import type { StudioChartAnnotation } from '../../models/widgetTypes';
+import type { StudioLocaleText } from '../../internals/localeText';
 
 export type StudioWidgetInsightType = 'summary' | 'analysis' | 'forecast' | 'correlation';
 
@@ -8,19 +9,26 @@ export type StudioWidgetInsightType = 'summary' | 'analysis' | 'forecast' | 'cor
  * `handleInsightRequest`, which had grown the card past 800 lines with inline prompt
  * strings — this is the single implementation, kept pure so it can be unit tested
  * without mounting the card.
+ *
+ * The prompt text comes from `localeText`, not from literals here: the result is posted
+ * verbatim as the USER's own chat message, so under a translated locale a hardcoded English
+ * sentence would appear in the transcript as something the user themselves typed.
  */
-export function buildInsightPrompt(type: StudioWidgetInsightType, widgetTitle: string): string {
+export function buildInsightPrompt(
+  type: StudioWidgetInsightType,
+  widgetTitle: string,
+  localeText: StudioLocaleText,
+): string {
   switch (type) {
     case 'summary':
-      return `Give me a 2–3 sentence high-level summary of the "${widgetTitle}" widget — what it shows and the single most important takeaway. Be brief, no bullet points.`;
-    case 'analysis':
-      return `Analyse the "${widgetTitle}" widget — identify key trends, patterns, and notable values`;
+      return localeText.aiInsightSummaryPrompt(widgetTitle);
     case 'forecast':
-      return `Forecast the "${widgetTitle}" widget — what trend do you expect over the next few periods?`;
+      return localeText.aiInsightForecastPrompt(widgetTitle);
     case 'correlation':
-      return `Show a correlation analysis for the "${widgetTitle}" widget`;
+      return localeText.aiInsightCorrelationPrompt(widgetTitle);
+    case 'analysis':
     default:
-      return `Analyse the "${widgetTitle}" widget`;
+      return localeText.aiInsightAnalysisPrompt(widgetTitle);
   }
 }
 
@@ -39,19 +47,20 @@ export function buildInsightPrompt(type: StudioWidgetInsightType, widgetTitle: s
 export function buildAnomalyExplainPrompt(
   widgetTitle: string,
   annotations: StudioChartAnnotation[],
+  localeText: StudioLocaleText,
   privateMode = false,
 ): string {
   if (privateMode) {
-    const count = annotations.length;
-    const noun = count === 1 ? 'anomaly' : 'anomalies';
-    return `Explain the ${count} ${noun} detected in the "${widgetTitle}" widget. The underlying data values are withheld (private mode); reason about likely causes in general terms.`;
+    return localeText.aiAnomalyExplainPrivatePrompt(widgetTitle, annotations.length);
   }
   const annotationDetails = annotations
-    .map((annotation) => {
-      const axisLabel = annotation.axis === 'x' ? 'X-axis' : 'Y-axis';
-      const labelPart = annotation.label ? ` (${annotation.label})` : '';
-      return `- ${axisLabel} anomaly at ${JSON.stringify(annotation.value)}${labelPart}`;
-    })
+    .map((annotation) =>
+      localeText.aiAnomalyDetailLine(
+        annotation.axis === 'x' ? localeText.aiAnomalyAxisX : localeText.aiAnomalyAxisY,
+        JSON.stringify(annotation.value),
+        annotation.label ?? '',
+      ),
+    )
     .join('\n');
-  return `Explain the anomalies detected in the "${widgetTitle}" widget:\n${annotationDetails}`;
+  return localeText.aiAnomalyExplainPrompt(widgetTitle, annotationDetails);
 }

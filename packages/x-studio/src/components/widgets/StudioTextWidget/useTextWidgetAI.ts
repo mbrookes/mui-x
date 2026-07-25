@@ -255,7 +255,14 @@ export function useTextWidgetAI(
 
     if (refreshState.seq === 0) {
       const cached = readCache(cacheKey);
-      if (cached) {
+      // An empty completion used to be written to the cache as `''`, which this
+      // truthiness check then read back as a MISS — so the widget rendered blank and
+      // re-fetched on every single mount, forever, never able to escape the entry it had
+      // just written. Empty responses are no longer cached at all (see the `if (!content)`
+      // branch below, which surfaces them as an error); the explicit `''` test here keeps
+      // entries already sitting in a user's `localStorage` from silently re-blanking the
+      // widget, and they get replaced the first time a real response comes back.
+      if (cached !== null && cached !== '') {
         setMarkdown(cached);
         setLoading(false);
         setError(null);
@@ -327,6 +334,17 @@ export function useTextWidgetAI(
         });
 
         if (abort.signal.aborted) {
+          return;
+        }
+
+        if (!content) {
+          // An empty completion is a failure, not an answer: the stream finished without a
+          // single `text-delta`. Caching it would poison this cache key (see the read guard
+          // above), and rendering it would leave a silently blank widget with no indication
+          // anything went wrong. Surface it through the same error path as a transport
+          // failure, and leave the cache untouched so a later attempt can still succeed.
+          setLoading(false);
+          setError(localeText.aiTextWidgetGenerationError);
           return;
         }
 

@@ -14,6 +14,18 @@ import {
   TYPE_LABELS,
 } from './edgeGeometry';
 
+/**
+ * Locale-text key holding the human-readable name of each relationship type. The visible
+ * badge deliberately keeps the compact, language-neutral `TYPE_LABELS` glyphs (`N:1`, `1:1`,
+ * `N:M`), but the accessible name and the detail popover need real words — and translated
+ * ones. Reuses the keys the relationship panel/dialog already ship in every locale.
+ */
+const REL_TYPE_LOCALE_KEYS = {
+  'many-to-one': 'relationshipTypeManyToOne',
+  'one-to-one': 'relationshipTypeOneToOne',
+  'many-to-many': 'relationshipTypeManyToMany',
+} as const;
+
 interface EdgeLabelProps {
   rel: StudioRelationship;
   srcNode: NodeLayout;
@@ -76,9 +88,18 @@ export function EdgeLabel({ rel, srcNode, tgtNode, sources, color, hoverColor }:
   const tgtFieldLabel =
     tgtSource?.fields?.find((f) => f.id === rel.targetField)?.label ?? rel.targetField;
 
-  const edgeAriaLabel = `${srcSource?.label ?? rel.sourceId} to ${
-    tgtSource?.label ?? rel.targetId
-  }, ${rel.type}`;
+  const srcLabel = srcSource?.label ?? rel.sourceId;
+  const tgtLabel = tgtSource?.label ?? rel.targetId;
+  // `rel.type` is doc-authored: guard the lookup against inherited `Object.prototype` keys,
+  // and fall back to the raw value for a type the UI doesn't know about.
+  const relTypeLabel = Object.hasOwn(REL_TYPE_LOCALE_KEYS, rel.type)
+    ? localeText[REL_TYPE_LOCALE_KEYS[rel.type as keyof typeof REL_TYPE_LOCALE_KEYS]]
+    : rel.type;
+  // Built entirely from locale text: the connector used to be a hardcoded English " to " and
+  // the type a raw enum value (`many-to-one`), so a screen reader in any non-English locale
+  // announced this control half-untranslated. The arrow is language-neutral and matches the
+  // heading the popover below already renders.
+  const edgeAriaLabel = `${srcLabel} → ${tgtLabel}, ${localeText.lineageTypePrefix(relTypeLabel)}`;
 
   return (
     <g>
@@ -151,10 +172,10 @@ export function EdgeLabel({ rel, srcNode, tgtNode, sources, color, hoverColor }:
           >
             <Box sx={{ p: 1.5, minWidth: 200 }}>
               <Typography variant="caption" sx={{ fontWeight: 600, display: 'block', mb: 0.5 }}>
-                {srcSource?.label ?? rel.sourceId} → {tgtSource?.label ?? rel.targetId}
+                {srcLabel} → {tgtLabel}
               </Typography>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                {localeText.lineageTypePrefix(rel.type)}
+                {localeText.lineageTypePrefix(relTypeLabel)}
               </Typography>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                 {localeText.lineageJoinDetail(

@@ -182,6 +182,109 @@ describe('StudioExpressionFieldDialog', () => {
     expect(firstId).not.toBe(secondId);
   });
 
+  // ── H6: resync without a `key` remount ──────────────────────────────────────
+  //
+  // This dialog is a public export (`index.ts`) documented without any remount contract,
+  // yet its form state was derived from `existingField` exactly once, in the `useState`
+  // initializer. A host rendering it as documented — no `key` — kept the component mounted
+  // across `open` toggles, so editing "Margin %", cancelling, then opening "Revenue Growth"
+  // showed Margin %'s label/description/isMeasure/expression and SAVED them under Revenue
+  // Growth's id. Every in-repo caller silently compensated with `key=`; the contract now
+  // holds inside the component (mirroring the sibling `RelationshipDialog`).
+  describe('resync (H6)', () => {
+    const MARGIN: StudioExpressionField = {
+      id: 'expr-margin',
+      label: 'Margin %',
+      description: 'Margin description',
+      sourceId: 'orders',
+      isMeasure: true,
+      expression: EXPRESSION,
+    };
+    const GROWTH: StudioExpressionField = {
+      id: 'expr-growth',
+      label: 'Revenue Growth',
+      sourceId: 'orders',
+      isMeasure: false,
+      expression: EXPRESSION,
+    };
+
+    function renderUnkeyed(existingField: StudioExpressionField | undefined) {
+      const { controller, wrapper } = createStudioHarness();
+      const updateSpy = vi.spyOn(controller, 'updateExpressionField');
+      const addSpy = vi.spyOn(controller, 'addExpressionField');
+      const view = render(
+        <StudioExpressionFieldDialog
+          open
+          onClose={() => {}}
+          dataSource={DATA_SOURCE}
+          expressionFields={[MARGIN, GROWTH]}
+          existingField={existingField}
+        />,
+        { wrapper },
+      );
+      return { ...view, updateSpy, addSpy };
+    }
+
+    it('shows the newly-opened field, not the previously-edited one', () => {
+      const { setProps } = renderUnkeyed(MARGIN);
+      expect(screen.getByRole('textbox', { name: 'Name' })).toHaveProperty('value', 'Margin %');
+
+      // The host closes the dialog (cancel) and reopens it on a different field. No `key`.
+      setProps({ open: false });
+      setProps({ open: true, existingField: GROWTH });
+
+      expect(screen.getByRole('textbox', { name: 'Name' })).toHaveProperty(
+        'value',
+        'Revenue Growth',
+      );
+      expect(screen.getByRole('textbox', { name: 'Description' })).toHaveProperty('value', '');
+      expect(screen.getByRole('checkbox')).toHaveProperty('checked', false);
+    });
+
+    it("saves the newly-opened field's own definition", async () => {
+      const { setProps, updateSpy, user } = renderUnkeyed(MARGIN);
+      setProps({ open: false });
+      setProps({ open: true, existingField: GROWTH });
+
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      expect(updateSpy).toHaveBeenCalledWith(
+        'expr-growth',
+        expect.objectContaining({
+          label: 'Revenue Growth',
+          description: undefined,
+          isMeasure: false,
+        }),
+      );
+    });
+
+    it('resets to a blank draft when switching from edit mode back to create mode', () => {
+      const { setProps } = renderUnkeyed(MARGIN);
+      setProps({ open: false });
+      setProps({ open: true, existingField: undefined });
+
+      expect(screen.getByRole('textbox', { name: 'Name' })).toHaveProperty('value', '');
+      expect(screen.getByText('New Calculated Field')).not.toBe(null);
+    });
+
+    it('mints a fresh id for a second create in the same mount', async () => {
+      const { setProps, addSpy, user } = renderUnkeyed(undefined);
+
+      await user.type(screen.getByRole('textbox', { name: 'Name' }), 'First');
+      await user.click(screen.getByRole('button', { name: 'Add Field' }));
+
+      // Reopen for another create without remounting.
+      setProps({ open: false });
+      setProps({ open: true });
+
+      await user.type(screen.getByRole('textbox', { name: 'Name' }), 'Second');
+      await user.click(screen.getByRole('button', { name: 'Add Field' }));
+
+      expect(addSpy).toHaveBeenCalledTimes(2);
+      expect(addSpy.mock.calls[0][0].id).not.toBe(addSpy.mock.calls[1][0].id);
+    });
+  });
+
   // Regression coverage for architecture-review finding 2.2: the "Output type:" caption
   // used to be hardcoded English even though the rest of this dialog resolves strings
   // through `useStudioLocaleText`.

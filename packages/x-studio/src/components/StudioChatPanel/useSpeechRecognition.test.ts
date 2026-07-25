@@ -6,6 +6,9 @@ import { useSpeechRecognition } from './useSpeechRecognition';
 
 // Captures the last-created instance so tests can drive events.
 let mockInstance: MockSpeechRecognition;
+// Every instance created during a test, oldest first. The stale-handler regression tests
+// need to drive events on a SUPERSEDED instance, which `mockInstance` no longer points at.
+const mockInstances: MockSpeechRecognition[] = [];
 
 class MockSpeechRecognition {
   continuous = false;
@@ -28,6 +31,7 @@ class MockSpeechRecognition {
     // Capture the instance so tests can drive recognition events on the active mock.
     // eslint-disable-next-line consistent-this -- intentional: expose `this` to the test scope
     mockInstance = this;
+    mockInstances.push(this);
   }
 
   start() {
@@ -64,6 +68,7 @@ type MockSpeechRecognitionEvent = {
 // ── Test setup ────────────────────────────────────────────────────────────────
 
 beforeEach(() => {
+  mockInstances.length = 0;
   (window as unknown as { SpeechRecognition: unknown }).SpeechRecognition = MockSpeechRecognition;
 });
 
@@ -188,6 +193,114 @@ describe('useSpeechRecognition', () => {
     });
     unmount();
     expect(mockInstance.stopSpy).toHaveBeenCalled();
+  });
+
+  // ── Stale-handler / device-leak regressions (H7) ────────────────────────────
+  //
+  // `recognition.stop()` is asynchronous, so toggling the mic off then on again (or
+  // typing, which `useChatVoiceInput` turns into a `stopVoice()`) leaves instance A
+  // winding down while instance B is already recording. A's handlers used to mutate the
+  // shared hook state unconditionally, so A's late `onend` cleared the ref and flipped
+  // `isListening` to false while B was still live — after which `stop()` (including the
+  // unmount cleanup) no-op'd forever and the microphone stayed hot until page unload.
+  describe('superseded instances', () => {
+    function startStopStart() {
+      const rendered = renderHook(() => useSpeechRecognition());
+      act(() => {
+        rendered.result.current.start();
+      });
+      act(() => {
+        rendered.result.current.stop();
+      });
+      act(() => {
+        rendered.result.current.start();
+      });
+      return rendered;
+    }
+
+    it("ignores a superseded instance's late onend", () => {
+      const { result } = startStopStart();
+      expect(mockInstances).toHaveLength(2);
+      const [instanceA] = mockInstances;
+
+      act(() => {
+        instanceA.emitEnd();
+      });
+
+      // B is still recording, so the hook must still report listening.
+      expect(result.current.isListening).toBe(true);
+    });
+
+    it("ignores a superseded instance's late onerror", () => {
+      const { result } = startStopStart();
+      act(() => {
+        mockInstances[0].emitError();
+      });
+      expect(result.current.isListening).toBe(true);
+    });
+
+    it("ignores a superseded instance's late onresult", () => {
+      const { result } = startStopStart();
+      act(() => {
+        mockInstances[1].emitResult('from B');
+      });
+      act(() => {
+        mockInstances[0].emitResult('from A');
+      });
+      expect(result.current.transcript).toBe('from B');
+    });
+
+    it('can still stop the live instance after a superseded one ends', () => {
+      const { result } = startStopStart();
+      const [instanceA, instanceB] = mockInstances;
+      act(() => {
+        instanceA.emitEnd();
+      });
+
+      act(() => {
+        result.current.stop();
+      });
+
+      expect(instanceB.stopSpy).toHaveBeenCalled();
+      expect(result.current.isListening).toBe(false);
+    });
+
+    it('stops every still-live instance on unmount, not just the current one', () => {
+      const { result, unmount } = renderHook(() => useSpeechRecognition());
+      act(() => {
+        result.current.start();
+      });
+      act(() => {
+        result.current.stop();
+      });
+      act(() => {
+        result.current.start();
+      });
+      const [instanceA, instanceB] = mockInstances;
+      // A was asked to stop but its `onend` never arrived — the browser still holds the mic.
+      instanceA.stopSpy.mockClear();
+
+      unmount();
+
+      expect(instanceA.stopSpy).toHaveBeenCalled();
+      expect(instanceB.stopSpy).toHaveBeenCalled();
+    });
+
+    it('does not re-stop an instance that already reported onend', () => {
+      const { result, unmount } = renderHook(() => useSpeechRecognition());
+      act(() => {
+        result.current.start();
+      });
+      act(() => {
+        mockInstance.emitEnd();
+      });
+      const [instanceA] = mockInstances;
+      instanceA.stopSpy.mockClear();
+
+      unmount();
+
+      expect(instanceA.stopSpy).not.toHaveBeenCalled();
+    });
   });
 
   // Regression coverage for finding 3.15: `recognition.lang` was never set, so

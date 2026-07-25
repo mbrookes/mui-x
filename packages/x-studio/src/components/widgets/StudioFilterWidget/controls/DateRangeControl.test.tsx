@@ -143,6 +143,28 @@ describe('DateRangeControl', () => {
     expect(within(fromField).getByRole('spinbutton', { name: 'Year' }).textContent).toBe('YYYY');
   });
 
+  // The blur resync above must not fight this control's OWN pending 300ms commit:
+  // `currentValue` still holds the pre-edit value until the debounce fires, so resyncing on
+  // blur reverted the field the user had just typed, only for the commit to land moments
+  // later and fill it back in — a visible empty→filled flicker on every tab-out.
+  it('does not revert its own in-flight edit when blurred before the commit fires', async () => {
+    const { user } = setup({ currentValue: null });
+
+    const fromField = getDateField(localeText.filterWidgetDateFromLabel);
+    const monthSection = within(fromField).getByRole('spinbutton', { name: 'Month' });
+    await user.click(monthSection);
+    // A single keystroke schedules the debounced commit; kept minimal so real typing time
+    // can't approach the 300ms window before the blur below (same rationale as the
+    // "cancels a pending debounced apply" test).
+    await user.keyboard('1');
+    expect(monthSection.textContent).toBe('01');
+
+    // Blur while the commit is still pending — `currentValue` is still `null`.
+    await user.click(document.body);
+
+    expect(monthSection.textContent).toBe('01');
+  });
+
   describe('applying a new "from" date (debounced)', () => {
     // The control debounces `onApply` by 300ms so that typing into the date field doesn't
     // trigger a pipeline re-render per keystroke. Real timers (with an awaited delay) are used

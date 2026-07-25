@@ -201,6 +201,32 @@ export function DataSourceFieldSelect({
     return computedFields.find((f) => f.id === value) ?? null;
   }, [computedFields, value, valueSourceId]);
 
+  // M11: a stored field id that no source resolves (the field was removed/renamed, or its
+  // source was unloaded) used to render a completely blank `required` Autocomplete —
+  // pixel-identical to "never configured" — while the canvas showed the widget's
+  // unsupported/no-field overlay, so nothing in the UI said WHICH field went missing. Mirror
+  // `GridConditionalFormatSection`'s schema-drift `MenuItem` and `GridSetupPanel`'s
+  // `fieldInfo?.label ?? col.fieldId` fallback by surfacing the raw id as a distinct
+  // "unavailable" entry. It is appended to `options` too, so MUI's Autocomplete finds a
+  // matching option for the controlled value instead of warning and rendering empty.
+  const unresolvedOption = React.useMemo<DataSourceFieldEntry | null>(() => {
+    if (!value || selectedOption) {
+      return null;
+    }
+    return {
+      id: value,
+      label: localeText.dataSourceFieldUnavailableOption(value),
+      type: 'string',
+      sourceId: valueSourceId ?? '',
+      sourceLabel: localeText.dataSourceFieldUnavailableGroupLabel,
+    };
+  }, [value, selectedOption, valueSourceId, localeText]);
+
+  const options = React.useMemo(
+    () => (unresolvedOption ? [...computedFields, unresolvedOption] : computedFields),
+    [computedFields, unresolvedOption],
+  );
+
   // Only qualify a field's label with its source when two sources genuinely share
   // a field label — e.g. two "Country" fields. Qualifying every field whenever
   // multiple sources are merely present (regardless of collision) made the
@@ -217,9 +243,15 @@ export function DataSourceFieldSelect({
   }, [computedFields]);
 
   const getOptionLabel = React.useCallback(
-    (option: DataSourceFieldEntry) =>
-      hasAmbiguousLabels ? `${option.sourceLabel} · ${option.label}` : option.label,
-    [hasAmbiguousLabels],
+    (option: DataSourceFieldEntry) => {
+      // The unresolved placeholder already spells out the raw id and its state — qualifying
+      // it with the synthetic "Unavailable" group heading would only duplicate that.
+      if (option === unresolvedOption) {
+        return option.label;
+      }
+      return hasAmbiguousLabels ? `${option.sourceLabel} · ${option.label}` : option.label;
+    },
+    [hasAmbiguousLabels, unresolvedOption],
   );
 
   // BL-179: persistent "Add calculated field…" footer inside the Autocomplete popper.
@@ -256,7 +288,7 @@ export function DataSourceFieldSelect({
       <Autocomplete
         size={size}
         fullWidth={fullWidth}
-        options={computedFields}
+        options={options}
         groupBy={(option) => option.sourceLabel}
         getOptionLabel={getOptionLabel}
         clearText={localeText.dataSourceClearFieldAriaLabel}
@@ -271,7 +303,7 @@ export function DataSourceFieldSelect({
         slots={calcFieldPaperSlot ? { paper: calcFieldPaperSlot } : undefined}
         getOptionDisabled={getOptionDisabled}
         disabled={disabled}
-        value={selectedOption}
+        value={selectedOption ?? unresolvedOption}
         onChange={(_e, newValue) => {
           onChange(newValue?.id ?? '', newValue?.sourceId ?? '');
         }}
@@ -280,7 +312,12 @@ export function DataSourceFieldSelect({
             {...params}
             label={label}
             required={required}
-            helperText={helperText}
+            error={unresolvedOption !== null}
+            helperText={
+              unresolvedOption
+                ? localeText.dataSourceFieldUnavailableHelperText(unresolvedOption.id)
+                : helperText
+            }
             slotProps={{
               ...params.slotProps,
               htmlInput: {

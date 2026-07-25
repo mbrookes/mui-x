@@ -11,6 +11,11 @@ import type { StudioDataSource } from '../../models';
 const DS_PREVIEW_ROWS = 5;
 const DS_PREVIEW_COLS = 4;
 
+/** `document.activeElement`, guarded for SSR/jsdom teardown. */
+function getActiveElement(): Element | null {
+  return typeof document === 'undefined' ? null : document.activeElement;
+}
+
 export default function DataSourcePreviewTooltip({
   source,
   onOpenPreview,
@@ -22,6 +27,9 @@ export default function DataSourcePreviewTooltip({
 }) {
   const [tooltipOpen, setTooltipOpen] = React.useState(false);
   const localeText = useStudioLocaleText();
+  // The tooltip's popper element — used to tell "focus is inside the tooltip" (keep it open)
+  // apart from "focus is merely on the trigger" (a mouseleave may close it).
+  const popperRef = React.useRef<HTMLElement>(null);
 
   const handleOpenPreviewClick = React.useCallback(() => {
     setTooltipOpen(false);
@@ -151,17 +159,58 @@ export default function DataSourcePreviewTooltip({
     </Stack>
   );
 
+  // M11: the "View source" button lives INSIDE the tooltip, and with a single data source the
+  // preview dialog has no other entry point ("View lineage" in `StudioDataDrawer` is gated on
+  // `sourceList.length >= 2`), so the whole feature used to be mouse-only: the tooltip was
+  // portaled to the end of `<body>` (so Tab from the trigger never reached the button) and
+  // MUI's own focus-out handler closed it the moment focus moved anyway.
+  //
+  // Three changes make it keyboard-reachable without altering the hover behaviour:
+  //   1. `disablePortal` renders the popper as a sibling of the trigger, so it sits next in
+  //      DOM order and Tab from the trigger lands on the "View source" button.
+  //   2. The wrapper opens on focus-in. MUI's own focus handling is gated on
+  //      `:focus-visible`, which is exactly right for a purely informational tooltip but
+  //      leaves an interactive one unreachable.
+  //   3. The wrapper's focus-out (React `onBlur` = the bubbling `focusout`) owns closing on
+  //      focus loss, so the tooltip survives focus moving from the trigger into it. MUI's own
+  //      blur-driven `onClose` is therefore ignored; every other close reason (mouseleave,
+  //      Escape) still closes — except a `mouseleave` while focus is inside the POPPER, which
+  //      would yank the focused button out from under a keyboard user. The narrower
+  //      popper-only test (rather than the whole wrapper) matters: after a plain mouse click
+  //      the trigger keeps focus, and a wrapper-wide test would leave the tooltip stuck open
+  //      once the pointer moved away.
   return (
-    <Tooltip
-      title={title}
-      placement="right"
-      arrow
-      open={tooltipOpen}
-      onOpen={() => setTooltipOpen(true)}
-      onClose={() => setTooltipOpen(false)}
-      slotProps={{ tooltip: { sx: { maxWidth: 340 } } }}
+    <Box
+      onFocus={() => setTooltipOpen(true)}
+      onBlur={(event: React.FocusEvent<HTMLDivElement>) => {
+        if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          return;
+        }
+        setTooltipOpen(false);
+      }}
     >
-      {children}
-    </Tooltip>
+      <Tooltip
+        title={title}
+        placement="right"
+        arrow
+        open={tooltipOpen}
+        onOpen={() => setTooltipOpen(true)}
+        onClose={(event) => {
+          if (event.type === 'blur' || event.type === 'focusout') {
+            return;
+          }
+          if (event.type === 'mouseleave' && popperRef.current?.contains(getActiveElement())) {
+            return;
+          }
+          setTooltipOpen(false);
+        }}
+        slotProps={{
+          popper: { disablePortal: true, ref: popperRef },
+          tooltip: { sx: { maxWidth: 340 } },
+        }}
+      >
+        {children}
+      </Tooltip>
+    </Box>
   );
 }

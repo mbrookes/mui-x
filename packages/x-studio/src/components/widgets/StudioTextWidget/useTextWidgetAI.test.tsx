@@ -233,6 +233,45 @@ describe('useTextWidgetAI', () => {
     expect(entry.markdown).toBe('Hello');
   });
 
+  // ── Empty completion handling ───────────────────────────────────────────────
+  //
+  // A stream that finished without a single `text-delta` used to be written to the cache as
+  // `''`, which the read path's `if (cached)` truthiness check then treated as a MISS. The
+  // widget rendered blank and re-fetched on every mount, forever — unable to escape the very
+  // entry it had just written. An empty completion is now surfaced as an error and never
+  // cached, and the read path distinguishes "no entry" from a stored value.
+  it('surfaces an empty completion as an error instead of a blank widget', async () => {
+    mockFetch(makeSseBody([{ type: 'finish' }]));
+    const wrapper = setup();
+
+    const { result } = renderHook(() => useTextWidgetAI('text-1', 'page-1', 'Say hello'), {
+      wrapper,
+    });
+
+    await waitFor(() => {
+      expect(result.current.error).not.toBe(null);
+    });
+    expect(result.current.loading).toBe(false);
+    expect(result.current.markdown).toBe(null);
+  });
+
+  it('does not cache an empty completion', async () => {
+    mockFetch(makeSseBody([{ type: 'finish' }]));
+    const wrapper = setup();
+
+    const { result } = renderHook(() => useTextWidgetAI('text-1', 'page-1', 'Say hello'), {
+      wrapper,
+    });
+
+    await waitFor(() => {
+      expect(result.current.error).not.toBe(null);
+    });
+
+    expect(Object.keys(localStorage).filter((k) => k.startsWith('studio:textAI:v1:'))).toHaveLength(
+      0,
+    );
+  });
+
   it('evicts the oldest entries once the cache exceeds its entry cap, instead of growing unbounded', async () => {
     // Pre-seed 60 stale entries under the same namespace the hook writes to,
     // each with a distinct, increasing `createdAt` so eviction order is

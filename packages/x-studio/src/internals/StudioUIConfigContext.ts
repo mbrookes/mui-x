@@ -136,14 +136,20 @@ export function useCustomWidgetMap(): CustomWidgetMap {
  */
 export function useStudioGeographies(): Record<string, StudioMapGeographyDefinition> {
   const { geographies } = useStudioUIConfig();
-  // Serialize the override keys so the merged map is only rebuilt when the set of
-  // consumer-provided geographies changes (a simple-expression dep keeps both
-  // exhaustive-deps and use-memo happy without disabling them).
-  const geographyKeysKey = JSON.stringify(Object.keys(geographies ?? {}));
+  // Depend on `geographies` itself, not on a derived key list. A prior version keyed this
+  // memo on `JSON.stringify(Object.keys(geographies ?? {}))` — a proxy that only tracked the
+  // SET of registered geography keys. That went stale whenever a consumer updated a
+  // definition's actual content (a corrected `normalizer`, an updated `loader`, a renamed
+  // `label`) without adding or removing a key: the key list was unchanged, so the memo never
+  // recomputed and every caller kept the old definition for the lifetime of the mount. This
+  // is the same fix, for the same reason, as the sibling `useWidgetDefMap` in
+  // `builtinWidgetDefs.ts` — see the long comment there. Keying on the object reference
+  // directly recomputes whenever the caller passes a new `geographies` value, which is the
+  // correct signal for content changes (a consumer that mutates a definition in place without
+  // producing a new object reference is already outside React's change-detection contract).
   return React.useMemo(
     () => ({ ...BUILT_IN_GEOGRAPHY_DEFINITIONS, ...geographies }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- geographyKeysKey is a deep-equality proxy for geographies
-    [geographyKeysKey],
+    [geographies],
   );
 }
 

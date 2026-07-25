@@ -100,10 +100,18 @@ export function FilterValueInput(props: {
   // switch within the 150ms window would otherwise let a stale commit fire `onChange` with
   // the OLD scalar text against the NEW operator's value shape (e.g. landing a scalar string
   // onto a `between` object filter, or vice versa).
+  //
+  // M4: dropping the pending commit is only half the job — `localText` must be re-synced to
+  // the value that is actually committed, exactly as the value branch above does. Without it,
+  // typing `bar` into an `Equals: foo` filter and switching the operator within 150ms (via the
+  // dropdown, or via `PageFilterRow`'s self-repair effect firing after a data-source load
+  // race) left the input rendering `bar` while the card summary and the query both used `foo`,
+  // with nothing that would ever reconcile the two.
   const prevOperatorRef = React.useRef(operator);
   if (prevOperatorRef.current !== operator) {
     prevOperatorRef.current = operator;
     clearTimeout(debounceTimer.current);
+    setLocalText(String(value ?? ''));
   }
 
   // 2.12: flush nothing but clear the timer on unmount so a debounced commit can't fire

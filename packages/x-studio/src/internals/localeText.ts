@@ -874,6 +874,12 @@ export interface StudioLocaleText {
   // ── Data source field select ──────────────────────────────────────────────
   dataSourceClearFieldAriaLabel: string;
   dataSourceAddCalculatedField: string;
+  /** Label of the placeholder option shown for a stored field id that no source resolves. */
+  dataSourceFieldUnavailableOption: (fieldId: string) => string;
+  /** Helper text shown under the picker when the stored field id can no longer be resolved. */
+  dataSourceFieldUnavailableHelperText: (fieldId: string) => string;
+  /** Group heading the unresolved-field placeholder option is listed under. */
+  dataSourceFieldUnavailableGroupLabel: string;
 
   // ── Widget filter row ─────────────────────────────────────────────────────
   widgetFilterFieldHelperText: string;
@@ -1005,12 +1011,36 @@ export interface StudioLocaleText {
   aiSuggestionAddPagePrompt: string;
   aiSuggestionSummarisePagePrompt: string;
   aiSuggestionWhatDataAvailablePrompt: string;
+  // ── Widget AI-insight prompts ──────────────────────────────────────────────
+  // These are posted verbatim as the USER's own chat message from the widget card's
+  // insight menu, so they are user-visible text and must be translatable — a French user
+  // clicking "Summary" should not see an English sentence appear as something they said.
+  /** Submitted prompt for a widget's "summary" insight action. */
+  aiInsightSummaryPrompt: (widgetTitle: string) => string;
+  /** Submitted prompt for a widget's "analysis" insight action. Also the fallback prompt. */
+  aiInsightAnalysisPrompt: (widgetTitle: string) => string;
+  /** Submitted prompt for a widget's "forecast" insight action. */
+  aiInsightForecastPrompt: (widgetTitle: string) => string;
+  /** Submitted prompt for a widget's "correlation" insight action. */
+  aiInsightCorrelationPrompt: (widgetTitle: string) => string;
+  /** Submitted prompt for "explain anomalies" when private mode withholds the values. */
+  aiAnomalyExplainPrivatePrompt: (widgetTitle: string, count: number) => string;
+  /** Submitted prompt for "explain anomalies"; `details` is the joined per-anomaly lines. */
+  aiAnomalyExplainPrompt: (widgetTitle: string, details: string) => string;
+  /** One "explain anomalies" detail line. `value` is already JSON-stringified. */
+  aiAnomalyDetailLine: (axisLabel: string, value: string, annotationLabel: string) => string;
+  /** Axis name used in an anomaly detail line for an x-axis anomaly. */
+  aiAnomalyAxisX: string;
+  /** Axis name used in an anomaly detail line for a y-axis anomaly. */
+  aiAnomalyAxisY: string;
   /** Default name for a new AI chat thread */
   chatNewConversationName: string;
   /** Tooltip on the thread-switcher button */
   chatSwitchConversationTooltip: string;
   /** Label shown in the thread-switcher menu when there are no conversations yet */
   chatNoConversationsLabel: string;
+  /** Display name shown on the current user's own chat messages */
+  chatUserDisplayName: string;
   /** Placeholder text for the chat composer input */
   chatComposerPlaceholder: string;
   /** Title shown in the empty chat thread state */
@@ -2089,6 +2119,10 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   // Data source field select
   dataSourceClearFieldAriaLabel: 'Clear field',
   dataSourceAddCalculatedField: 'Add calculated field…',
+  dataSourceFieldUnavailableOption: (fieldId) => `${fieldId} (unavailable)`,
+  dataSourceFieldUnavailableHelperText: (fieldId) =>
+    `“${fieldId}” is no longer available in the data. Pick another field.`,
+  dataSourceFieldUnavailableGroupLabel: 'Unavailable',
 
   // Widget filter row
   widgetFilterFieldHelperText: 'Field this filter applies to',
@@ -2184,6 +2218,23 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chatNewConversationName: 'New conversation',
   chatSwitchConversationTooltip: 'Switch conversation',
   chatNoConversationsLabel: 'No conversations yet',
+  aiInsightSummaryPrompt: (widgetTitle) =>
+    `Give me a 2–3 sentence high-level summary of the "${widgetTitle}" widget — what it shows and the single most important takeaway. Be brief, no bullet points.`,
+  aiInsightAnalysisPrompt: (widgetTitle) =>
+    `Analyse the "${widgetTitle}" widget — identify key trends, patterns, and notable values`,
+  aiInsightForecastPrompt: (widgetTitle) =>
+    `Forecast the "${widgetTitle}" widget — what trend do you expect over the next few periods?`,
+  aiInsightCorrelationPrompt: (widgetTitle) =>
+    `Show a correlation analysis for the "${widgetTitle}" widget`,
+  aiAnomalyExplainPrivatePrompt: (widgetTitle, count) =>
+    `Explain the ${count} ${count === 1 ? 'anomaly' : 'anomalies'} detected in the "${widgetTitle}" widget. The underlying data values are withheld (private mode); reason about likely causes in general terms.`,
+  aiAnomalyExplainPrompt: (widgetTitle, details) =>
+    `Explain the anomalies detected in the "${widgetTitle}" widget:\n${details}`,
+  aiAnomalyDetailLine: (axisLabel, value, annotationLabel) =>
+    `- ${axisLabel} anomaly at ${value}${annotationLabel ? ` (${annotationLabel})` : ''}`,
+  aiAnomalyAxisX: 'X-axis',
+  aiAnomalyAxisY: 'Y-axis',
+  chatUserDisplayName: 'You',
   chatComposerPlaceholder: 'How can I help?',
   chatEmptyStateTitle: 'Ask me anything about your dashboard',
   chatEmptyStateSubtitle: 'I can add widgets, analyse your data, and more',

@@ -223,9 +223,12 @@ describe('DataSourceFieldSelect — selected-option resolution (finding 5)', () 
       />,
     );
 
-    // Must NOT silently display either colliding field's label.
+    // Must NOT display either colliding field's label — and (M11) must not be blank either,
+    // which is indistinguishable from "never configured". The raw id is surfaced instead.
     const input = screen.getByLabelText('Value field') as HTMLInputElement;
-    expect(input.value).toBe('');
+    expect(input.value).not.toBe('Orders Total');
+    expect(input.value).not.toBe('Invoices Total');
+    expect(input.value).toContain('total');
   });
 
   it('falls back to the bare-id lookup only when no valueSourceId is supplied at all', () => {
@@ -242,5 +245,71 @@ describe('DataSourceFieldSelect — selected-option resolution (finding 5)', () 
     // preserving the pre-existing (documented) behavior for callers that don't have a
     // sourceId in scope.
     expect(screen.getByLabelText('Value field').getAttribute('value')).toBe('Orders Total');
+  });
+});
+
+// ── M11: an unresolvable stored field id must not look like "never configured" ──
+//
+// A `required` picker holding a dangling field id used to render completely blank —
+// visually identical to an unset field — while the canvas showed the widget's unsupported
+// overlay, so nothing in the UI said WHICH field went missing. `GridConditionalFormatSection`
+// (schema-drift `MenuItem`) and `GridSetupPanel` (`fieldInfo?.label ?? col.fieldId`) already
+// handled this correctly; the shared picker now mirrors them.
+describe('DataSourceFieldSelect — unresolvable stored field (M11)', () => {
+  beforeEach(() => {
+    configureStudioContextMock({ getState: () => ({}), controller });
+  });
+
+  it('surfaces the raw field id and an explanatory error instead of rendering blank', () => {
+    render(
+      <DataSourceFieldSelect
+        value="removed_field"
+        onChange={() => {}}
+        fields={numericFields}
+        label="Value field"
+        required
+      />,
+    );
+
+    const input = screen.getByLabelText('Value field') as HTMLInputElement;
+    expect(input.value).toContain('removed_field');
+    expect(screen.getByText(/removed_field/)).not.toBe(null);
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+  });
+
+  it('renders blank (not an error) when no field is configured at all', () => {
+    render(
+      <DataSourceFieldSelect
+        value=""
+        onChange={() => {}}
+        fields={numericFields}
+        label="Value field"
+        required
+      />,
+    );
+
+    const input = screen.getByLabelText('Value field') as HTMLInputElement;
+    expect(input.value).toBe('');
+    // A legitimately-unset required field is not a mistake — no error styling.
+    expect(input.getAttribute('aria-invalid')).not.toBe('true');
+  });
+
+  it('stops flagging the field once its source resolves again', () => {
+    const { setProps } = render(
+      <DataSourceFieldSelect
+        value="total"
+        valueSourceId="orders"
+        onChange={() => {}}
+        fields={[]}
+        label="Value field"
+      />,
+    );
+    expect((screen.getByLabelText('Value field') as HTMLInputElement).value).toContain('total');
+
+    // The data source finishes loading and the field becomes resolvable.
+    setProps({ fields: numericFields });
+
+    expect((screen.getByLabelText('Value field') as HTMLInputElement).value).toBe('Total');
+    expect(screen.getByLabelText('Value field').getAttribute('aria-invalid')).not.toBe('true');
   });
 });

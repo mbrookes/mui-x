@@ -40,8 +40,12 @@ const REL: StudioRelationship = {
   type: 'many-to-one',
 };
 
-function setup(rel: StudioRelationship, sources: Record<string, StudioDataSource> = DATA_SOURCES) {
-  const { wrapper } = createStudioHarness();
+function setup(
+  rel: StudioRelationship,
+  sources: Record<string, StudioDataSource> = DATA_SOURCES,
+  harnessOptions?: Parameters<typeof createStudioHarness>[0],
+) {
+  const { wrapper } = createStudioHarness(harnessOptions);
   return render(
     <svg>
       <EdgeLabel
@@ -104,5 +108,42 @@ describe('EdgeLabel', () => {
     await user.click(screen.getAllByRole('button')[0]);
     // The junction source falls back to being rendered as its own ID string, never as a function.
     expect(screen.getByText(/constructor/)).not.toBe(null);
+  });
+
+  // ── Accessible name localisation ────────────────────────────────────────────
+  //
+  // The edge badge's accessible name used to be built as `` `${src} to ${tgt}, ${rel.type}` ``:
+  // a hardcoded English connector plus the raw enum value, so a screen reader under any other
+  // locale announced this control half-untranslated. It is now composed entirely from locale
+  // text that every bundled locale already ships.
+  describe('accessible name', () => {
+    it('uses the human-readable relationship type, not the raw enum value', () => {
+      setup(REL);
+
+      const badge = screen.getAllByRole('button')[0];
+      const label = badge.getAttribute('aria-label') ?? '';
+      expect(label).toContain('Orders');
+      expect(label).toContain('Customers');
+      expect(label).toContain('Many-to-one');
+      expect(label).not.toContain('many-to-one');
+      // The English-only connector is gone.
+      expect(label).not.toContain(' to ');
+    });
+
+    it('translates the accessible name under a non-English locale', async () => {
+      const { frLocaleText } = await import('../../locales/fr');
+      setup(REL, DATA_SOURCES, { providerProps: { localeText: frLocaleText } });
+
+      const label = screen.getAllByRole('button')[0].getAttribute('aria-label') ?? '';
+      expect(label).toContain(frLocaleText.relationshipTypeManyToOne!);
+      expect(label).not.toContain('many-to-one');
+    });
+
+    it('falls back to the raw type for an unknown relationship type', () => {
+      const unknownRel = { ...REL, type: 'weird-type' } as unknown as StudioRelationship;
+      setup(unknownRel);
+
+      expect(screen.getAllByRole('button')[0].getAttribute('aria-label')).toContain('weird-type');
+    });
   });
 });

@@ -141,6 +141,15 @@ export function DateRangeControl(props: StudioFilterDateRangeControlProps) {
                 // arrived while this field was focused, the sync effect above suppressed
                 // it. Without this, the stale displayed date would persist indefinitely
                 // even after the user tabs/clicks away.
+                //
+                // …but NOT while this component's own 300ms commit is still pending:
+                // `currentValue` then still holds the pre-edit value, so resyncing would
+                // visibly revert the field the user just typed, only for the debounce to
+                // fire moments later and fill it back in — an empty→filled flicker on
+                // every tab-out. The sync effect resyncs anyway once the commit lands.
+                if (pendingApply.current !== null) {
+                  return;
+                }
                 setFrom(currentValue?.from ? dayjs(currentValue.from) : null);
               },
             },
@@ -161,6 +170,9 @@ export function DateRangeControl(props: StudioFilterDateRangeControlProps) {
               onBlur: () => {
                 toFocusedRef.current = false;
                 // See comment on the "From" field's onBlur above.
+                if (pendingApply.current !== null) {
+                  return;
+                }
                 setTo(currentValue?.to ? dayjs(currentValue.to) : null);
               },
             },

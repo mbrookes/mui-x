@@ -583,7 +583,10 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
             initialComposerValue={slotProps?.chatBox?.initialComposerValue}
             suggestions={threadMessages.length === 0 ? suggestions : undefined}
             suggestionsAutoSubmit
-            currentUser={{ id: 'user', displayName: 'You', role: 'user' }}
+            // `displayName` is rendered on every one of the user's own messages, so it has to
+            // come from `localeText` like every other visible string — it was hardcoded to the
+            // English "You" even under a fully translated locale.
+            currentUser={{ id: 'user', displayName: localeText.chatUserDisplayName, role: 'user' }}
             features={{
               // Consumer can configure optional features …
               ...slotProps?.chatBox?.features,

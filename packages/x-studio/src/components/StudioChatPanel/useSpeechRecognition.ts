@@ -76,7 +76,15 @@ export function useSpeechRecognition(lang?: string): UseSpeechRecognitionReturn 
   const Ctor = React.useMemo(() => getSpeechRecognitionCtor(), []);
   const isSupported = Ctor !== null;
 
+  // The instance that currently OWNS the hook's state. Any other instance (one that has
+  // been asked to stop but whose async `onend` has not arrived yet) must not write to
+  // `isListening`/`transcript` — see `start()`.
   const recognitionRef = React.useRef<SpeechRecognitionInstance | null>(null);
+  // Every instance created that has not yet reported `onend`/`onerror`. `stop()` is
+  // asynchronous, so an instance keeps the microphone hot for a while after the handle is
+  // released from `recognitionRef`; tracking them here means unmount can still stop
+  // whatever is left running instead of leaking the device until page unload (finding H7).
+  const liveInstancesRef = React.useRef<Set<SpeechRecognitionInstance>>(new Set());
   const [isListening, setIsListening] = React.useState(false);
   const [transcript, setTranscript] = React.useState('');
 
@@ -98,7 +106,19 @@ export function useSpeechRecognition(lang?: string): UseSpeechRecognitionReturn 
       recognition.lang = langRef.current;
     }
 
+    liveInstancesRef.current.add(recognition);
+
+    // Every handler is scoped to ITS OWN instance and no-ops once superseded. `stop()` is
+    // asynchronous: toggling the mic off then on again (or typing, which `useChatVoiceInput`
+    // turns into a `stopVoice()`) starts instance B while instance A is still winding down.
+    // Unconditional handlers meant A's late `onend` cleared `recognitionRef` and flipped
+    // `isListening` to false while B was still recording — after which the transcript-sync
+    // effect bailed, the button showed "start", and `stop()` (including the unmount cleanup)
+    // no-op'd forever, leaving the microphone on until page unload.
     recognition.onresult = (event: SpeechRecognitionEventLocal) => {
+      if (recognitionRef.current !== recognition) {
+        return;
+      }
       let full = '';
       for (let i = 0; i < event.results.length; i += 1) {
         full += event.results[i][0].transcript;
@@ -106,15 +126,17 @@ export function useSpeechRecognition(lang?: string): UseSpeechRecognitionReturn 
       setTranscript(full);
     };
 
-    recognition.onerror = () => {
+    const handleEnd = () => {
+      liveInstancesRef.current.delete(recognition);
+      if (recognitionRef.current !== recognition) {
+        return;
+      }
       recognitionRef.current = null;
       setIsListening(false);
     };
 
-    recognition.onend = () => {
-      recognitionRef.current = null;
-      setIsListening(false);
-    };
+    recognition.onerror = handleEnd;
+    recognition.onend = handleEnd;
 
     recognitionRef.current = recognition;
     recognition.start();
@@ -122,21 +144,35 @@ export function useSpeechRecognition(lang?: string): UseSpeechRecognitionReturn 
   }, [Ctor]);
 
   const stop = React.useCallback(() => {
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
-      recognitionRef.current = null;
-    }
+    const recognition = recognitionRef.current;
+    // Release ownership BEFORE asking the instance to stop, so a synchronous `onend` (test
+    // doubles) and an asynchronous one (real browsers) take the same "already superseded"
+    // path. The instance itself stays in `liveInstancesRef` until its `onend` actually
+    // arrives, so unmount can still stop it if the browser never delivers one.
+    recognitionRef.current = null;
     setIsListening(false);
+    recognition?.stop();
   }, []);
 
   const resetTranscript = React.useCallback(() => {
     setTranscript('');
   }, []);
 
-  // Cleanup on unmount.
+  // Cleanup on unmount: stop EVERY instance that has not reported `onend` yet, not just the
+  // currently-owning one. A superseded instance still holds the microphone, and after unmount
+  // nothing else can ever release it.
   React.useEffect(() => {
+    const liveInstances = liveInstancesRef.current;
     return () => {
-      recognitionRef.current?.stop();
+      recognitionRef.current = null;
+      liveInstances.forEach((instance) => {
+        try {
+          instance.stop();
+        } catch {
+          // Already stopped/never started — nothing left to release.
+        }
+      });
+      liveInstances.clear();
     };
   }, []);
 

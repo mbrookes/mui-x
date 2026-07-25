@@ -70,6 +70,22 @@ export function TabbedSidebar({ panels, side = 'left' }: TabbedSidebarProps) {
   const [focusedIndex, setFocusedIndex] = React.useState(0);
   const tabRefs = React.useRef<Array<HTMLElement | null>>([]);
 
+  // M9: `panels` shrinks at runtime — switching to view mode drops the edit-only panels — but
+  // `focusedIndex` was only ever written by the sync effect below (which bails while no panel
+  // is open) and by `moveFocus`. Opening Filters (index 2 of 3), closing it (`activeIndex`
+  // → -1, `focusedIndex` stays 2) and then switching to view mode left `focusedIndex` past the
+  // end of a now-single-panel rail: EVERY tab rendered `tabIndex={-1}` and the whole rail
+  // dropped out of the keyboard tab order with no way back in. Clamp on read so the rail is
+  // reachable in the very commit the list shrinks in, not one effect later.
+  const rovingIndex = panels.length > 0 ? Math.min(focusedIndex, panels.length - 1) : 0;
+
+  // Persist the clamp and drop refs to tabs that no longer exist, so a stale entry can never
+  // be focused by `moveFocus`.
+  React.useEffect(() => {
+    tabRefs.current.length = panels.length;
+    setFocusedIndex((prev) => Math.min(prev, Math.max(panels.length - 1, 0)));
+  }, [panels.length]);
+
   // Keep the roving tabindex in sync with whichever panel is actually open, so
   // e.g. re-entering the rail with Tab always lands on the active tab first.
   React.useEffect(() => {
@@ -187,7 +203,7 @@ export function TabbedSidebar({ panels, side = 'left' }: TabbedSidebarProps) {
             }}
             panel={panel}
             isActive={panel.drawer === activeDrawer}
-            tabIndex={index === focusedIndex ? 0 : -1}
+            tabIndex={index === rovingIndex ? 0 : -1}
             id={getTabId(panel.drawer)}
             aria-controls={getPanelId(panel.drawer)}
             onClick={() => handleTabClick(panel.drawer)}

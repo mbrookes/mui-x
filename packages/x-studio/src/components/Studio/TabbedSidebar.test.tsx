@@ -233,4 +233,45 @@ describe('TabbedSidebar', () => {
     fireEvent.keyDown(tabs[tabs.length - 1], { key: 'Home' });
     expect(tabs[0]).toHaveFocus();
   });
+
+  // ── M9: the rail must never leave the keyboard tab order ────────────────────
+  //
+  // `focusedIndex` was only written by the open-panel sync effect (which bails while no
+  // panel is open) and by arrow-key navigation, so it could survive `panels` shrinking:
+  // open Filters (index 2 of 3), close it (`activeIndex` → -1, `focusedIndex` stays 2),
+  // then switch to view mode so only one panel remains. Every tab then rendered
+  // `tabIndex={-1}` and the rail became unreachable with Tab, with no way back in.
+  describe('roving tabindex clamping (M9)', () => {
+    it('keeps a tab in the Tab sequence after the panel list shrinks past the focused index', () => {
+      const { setProps } = renderSidebar();
+
+      // Move roving focus to the last tab (index 2), then drop back to a single panel —
+      // the same transition as closing Filters and switching to view mode.
+      const tabs = screen.getAllByRole('tab');
+      tabs[0].focus();
+      fireEvent.keyDown(tabs[0], { key: 'End' });
+      expect(tabs[2].getAttribute('tabindex')).toBe('0');
+
+      setProps({
+        panels: [{ drawer: 'filters', label: 'Filters', children: <div>Filters content</div> }],
+      });
+
+      const remaining = screen.getAllByRole('tab');
+      expect(remaining).toHaveLength(1);
+      expect(remaining[0].getAttribute('tabindex')).toBe('0');
+    });
+
+    it('still exposes exactly one tabbable tab after shrinking to two panels', () => {
+      const { setProps } = renderSidebar();
+
+      const tabs = screen.getAllByRole('tab');
+      tabs[0].focus();
+      fireEvent.keyDown(tabs[0], { key: 'End' });
+
+      setProps({ panels: PANELS.slice(0, 2) });
+
+      const remaining = screen.getAllByRole('tab');
+      expect(remaining.filter((tab) => tab.getAttribute('tabindex') === '0')).toHaveLength(1);
+    });
+  });
 });

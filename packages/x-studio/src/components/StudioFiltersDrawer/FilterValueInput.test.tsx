@@ -113,6 +113,65 @@ describe('FilterValueInput', () => {
     expect(container.firstChild).toBe(null);
   });
 
+  // ── M4: operator change must not strand an uncommitted edit ─────────────────
+  //
+  // The operator branch used to `clearTimeout` the pending 150ms debounce and stop there, so
+  // the in-flight keystrokes were dropped from the store but LEFT in the input. The field
+  // then showed text that the card summary and the query knew nothing about, permanently.
+  describe('operator change with a pending edit (M4)', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('resyncs the displayed text to the committed value when the operator changes', () => {
+      vi.useFakeTimers();
+      const onChange = vi.fn();
+      const { rerender } = render(
+        <FilterValueInput fieldType="string" operator="equals" value="foo" onChange={onChange} />,
+      );
+
+      const input = screen.getByRole('textbox') as HTMLInputElement;
+      fireEvent.change(input, { target: { value: 'bar' } });
+      expect(input.value).toBe('bar');
+
+      // The operator changes inside the 150ms window — via the dropdown, or via
+      // `PageFilterRow`'s self-repair effect after a data-source load race. The stored
+      // value is still `foo`.
+      rerender(
+        <FilterValueInput fieldType="string" operator="contains" value="foo" onChange={onChange} />,
+      );
+
+      act(() => {
+        vi.advanceTimersByTime(300);
+      });
+
+      // The stale commit is still cancelled …
+      expect(onChange).not.toHaveBeenCalled();
+      // … and the input no longer disagrees with what is actually stored.
+      expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('foo');
+    });
+
+    it('clears the input when the operator changes and the committed value is empty', () => {
+      vi.useFakeTimers();
+      const onChange = vi.fn();
+      const { rerender } = render(
+        <FilterValueInput fieldType="string" operator="equals" value="" onChange={onChange} />,
+      );
+
+      fireEvent.change(screen.getByRole('textbox'), { target: { value: 'partial' } });
+      rerender(
+        <FilterValueInput fieldType="string" operator="contains" value="" onChange={onChange} />,
+      );
+
+      act(() => {
+        vi.advanceTimersByTime(300);
+      });
+
+      expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('');
+      expect(onChange).not.toHaveBeenCalled();
+    });
+  });
+
   describe('Autocomplete reset echo (finding 2.16)', () => {
     afterEach(() => {
       vi.useRealTimers();

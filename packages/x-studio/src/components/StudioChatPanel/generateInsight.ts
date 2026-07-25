@@ -315,6 +315,12 @@ function buildKpiWidgetSummary(
   }
 
   const value = computeAggregate(filteredRows, valueField ?? '', agg as StudioKpiAggregation);
+  // `null` means "no data" (every row's value was null/non-numeric for avg/min/max),
+  // which is distinct from a real 0. Emitting "Value: 0" here would state a measured
+  // result the data does not support, and the trend maths below would divide by it.
+  if (value === null) {
+    return '';
+  }
   // Look up through the own-source + own-source-expression-fields merge (not just
   // `source.fields`) so a calculated-field (expression field) KPI value shows its
   // configured display label instead of its raw field id/expression (finding 2.x) —
@@ -389,9 +395,11 @@ function buildKpiWidgetSummary(
       const prevValue = computeAggregate(prevRows, valueField, agg as StudioKpiAggregation);
       const label = comparisonMode === 'year-over-year' ? 'YoY' : 'vs previous period';
       lines.push(
-        `Previous period (${formatDate(prevRange.start)} – ${formatDate(prevRange.end)}): ${cfg.kpiPrefix ?? ''}${prevValue}${cfg.kpiSuffix ?? ''}`,
+        `Previous period (${formatDate(prevRange.start)} – ${formatDate(prevRange.end)}): ${cfg.kpiPrefix ?? ''}${prevValue ?? '—'}${cfg.kpiSuffix ?? ''}`,
       );
-      if (prevValue !== 0) {
+      // A `null` previous period has no measured value to compare against, so there is
+      // no trend to state — same reason 0 is excluded (it would divide by zero).
+      if (prevValue !== null && prevValue !== 0) {
         const delta = (value - prevValue) / Math.abs(prevValue);
         lines.push(`Trend: ${delta >= 0 ? '+' : ''}${Math.round(delta * 100)}% ${label}`);
       }

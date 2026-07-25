@@ -461,7 +461,7 @@ export function computeAggregate(
   rows: Record<string, unknown>[],
   field: string,
   aggregation: StudioKpiAggregation,
-): number {
+): number | null {
   if (aggregation === 'count') {
     return rows.length;
   }

@@ -591,9 +591,9 @@ describe('handleGenerateTitle / handleCreateWidget: provider error disclosure (f
     });
     const onError = vi.fn();
 
-    const thrown = await handleGenerateTitle('hi', { ...OPTIONS, onError }).catch(
+    const thrown = (await handleGenerateTitle('hi', { ...OPTIONS, onError }).catch(
       (err: Error) => err,
-    );
+    )) as Error;
 
     expect(thrown.message).toMatch(/HTTP 401 ERR/);
     expect(thrown.message).not.toContain('sk-proj-LEAKED');

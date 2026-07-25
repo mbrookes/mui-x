@@ -153,9 +153,14 @@ function computePeriodValue(
       undefined,
       widgetFilters,
     );
-    return computeAggregate(anchoredRows, valueField, aggregation);
+    // `computeAggregate` returns `null` for an all-null avg/min/max period. Same policy
+    // as the measure branch above: this value only ever feeds a trend SUBTRACTION, so a
+    // period with no valid result contributes 0 rather than propagating `null` through
+    // the comparison. The headline KPI value does not come through here, so this does
+    // not resurrect "no data renders as a real 0" at the display layer.
+    return computeAggregate(anchoredRows, valueField, aggregation) ?? 0;
   }
-  return computeAggregate(periodRows, valueField, aggregation);
+  return computeAggregate(periodRows, valueField, aggregation) ?? 0;
 }
 
 type KpiConfig = StudioWidgetConfigForKind<'kpi'>;

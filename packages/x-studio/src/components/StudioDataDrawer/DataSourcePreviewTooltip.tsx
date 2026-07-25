@@ -205,7 +205,13 @@ export default function DataSourcePreviewTooltip({
           setTooltipOpen(false);
         }}
         slotProps={{
-          popper: { disablePortal: true, ref: popperRef },
+          // MUI types the popper slot's `ref` against the `Popper` component instance,
+          // but at runtime `disablePortal` renders a plain element and the ref receives
+          // the DOM node — which is what the `contains()` focus check above needs.
+          popper: {
+            disablePortal: true,
+            ref: popperRef as unknown as React.Ref<HTMLElement>,
+          },
           tooltip: { sx: { maxWidth: 340 } },
         }}
       >

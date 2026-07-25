@@ -352,10 +352,7 @@ function evaluateFunctionExpression(
         return 0;
       }
       const [first, ...rest] = inputs;
-      return rest.reduce(
-        (acc, inp) => acc - toNumber(evalNode(inp)),
-        toNumber(evalNode(first)),
-      );
+      return rest.reduce((acc, inp) => acc - toNumber(evalNode(inp)), toNumber(evalNode(first)));
     }
     case 'multiply':
       return inputs.reduce((acc, inp) => acc * toNumber(evalNode(inp)), 1);
@@ -660,10 +657,7 @@ function evalMeasureExpression(
 
   switch (operator as StudioExpressionOperator) {
     case 'add':
-      return inputs.reduce(
-        (acc, inp) => acc + (evalMeasureNode(inp) ?? 0),
-        0,
-      );
+      return inputs.reduce((acc, inp) => acc + (evalMeasureNode(inp) ?? 0), 0);
     case 'subtract': {
       if (inputs.length === 0) {
         return 0;
@@ -675,10 +669,7 @@ function evalMeasureExpression(
       );
     }
     case 'multiply':
-      return inputs.reduce(
-        (acc, inp) => acc * (evalMeasureNode(inp) ?? 0),
-        1,
-      );
+      return inputs.reduce((acc, inp) => acc * (evalMeasureNode(inp) ?? 0), 1);
     case 'divide': {
       const n = evalIn(0);
       const d = evalIn(1);
@@ -742,7 +733,7 @@ function evalMeasureExpression(
 // Thin alias over the shared reducer so measure aggregation shares the one
 // null-skip / boolean-coercion policy (finding 2.1). `StudioKpiAggregation` is the
 // same union as the shared `AggregateFn`.
-function aggregate(values: number[], aggregation: StudioKpiAggregation): number {
+function aggregate(values: number[], aggregation: StudioKpiAggregation): number | null {
   return aggregateNumbers(values, aggregation);
 }
 

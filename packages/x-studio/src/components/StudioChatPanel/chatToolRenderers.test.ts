@@ -35,8 +35,8 @@ describe('chat tool-card maps reject prototype-chain tool names', () => {
     it(`"${key}" is not an own key of either map and resolves to undefined`, () => {
       expect(Object.hasOwn(STUDIO_TOOL_LABEL_KEYS, key)).toBe(false);
       expect(Object.hasOwn(STUDIO_TOOL_ICONS, key)).toBe(false);
-      expect(lookup(STUDIO_TOOL_LABEL_KEYS, key)).toBeUndefined();
-      expect(lookup(STUDIO_TOOL_ICONS, key)).toBeUndefined();
+      expect(lookup(STUDIO_TOOL_LABEL_KEYS as Record<string, unknown>, key)).toBeUndefined();
+      expect(lookup(STUDIO_TOOL_ICONS as Record<string, unknown>, key)).toBeUndefined();
       // The bug: the bare index resolves a truthy inherited function instead.
       expect(typeof (STUDIO_TOOL_LABEL_KEYS as Record<string, unknown>)[key]).toBe('function');
     });

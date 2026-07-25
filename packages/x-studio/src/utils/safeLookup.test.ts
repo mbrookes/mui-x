@@ -31,7 +31,9 @@ describe('lookup', () => {
 
   it('still returns an OWN value that shadows a prototype member', () => {
     const shadowing: Record<string, number> = { toString: 7 };
-    expect(lookup(shadowing, 'toString')).toBe(7);
+    // Explicit type args: inferring `K` from the literal key would narrow it to
+    // `'toString'`, which a `Record<string, number>` argument does not satisfy.
+    expect(lookup<string, number>(shadowing, 'toString')).toBe(7);
   });
 
   it('returns undefined for a nullish record or key', () => {

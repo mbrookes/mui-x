@@ -66,7 +66,9 @@ describe('migrateState', () => {
     expect((migrated.widgets as Record<string, unknown>).w1).not.toBe(
       (state.widgets as Record<string, unknown>).w1,
     );
-    expect(migrated.relationships).not.toBe(state.relationships);
+    expect(migrated.relationships).not.toBe(
+      (state as unknown as Record<string, unknown>).relationships,
+    );
   });
 
   it('returns failure for null', () => {

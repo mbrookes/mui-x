@@ -1,4 +1,5 @@
 'use client';
+import * as React from 'react';
 import FormatAlignLeftIcon from '@mui/icons-material/FormatAlignLeft';
 import FormatAlignCenterIcon from '@mui/icons-material/FormatAlignCenter';
 import FormatAlignRightIcon from '@mui/icons-material/FormatAlignRight';
@@ -51,13 +52,20 @@ export function TextSectionFormat(props: TextSectionFormatProps) {
     onAlignChange,
   } = props;
   const localeText = useStudioLocaleText();
+  // MUI's `Select` only emits `aria-labelledby` when handed an explicit `labelId`, and
+  // `InputLabel` does not derive an `id`/`htmlFor` from `FormControl` context (its `label`
+  // prop only sizes the outline notch), so an unpaired combobox has no accessible name.
+  // Unique per mount so several mounted sections never emit duplicate DOM ids.
+  const fontFamilyLabelId = React.useId();
+  const fontSizeLabelId = React.useId();
 
   return (
     <CollapsibleSection title={label}>
       <Stack spacing={1.5} sx={{ pb: 1.5 }}>
         <FormControl size="small" fullWidth>
-          <InputLabel>{localeText.textFormatFontFamilyLabel}</InputLabel>
+          <InputLabel id={fontFamilyLabelId}>{localeText.textFormatFontFamilyLabel}</InputLabel>
           <Select
+            labelId={fontFamilyLabelId}
             label={localeText.textFormatFontFamilyLabel}
             value={fontFamily ?? ''}
             onChange={(event) => {
@@ -77,8 +85,9 @@ export function TextSectionFormat(props: TextSectionFormatProps) {
         </FormControl>
 
         <FormControl size="small" fullWidth>
-          <InputLabel>{localeText.textFormatFontSizeLabel}</InputLabel>
+          <InputLabel id={fontSizeLabelId}>{localeText.textFormatFontSizeLabel}</InputLabel>
           <Select
+            labelId={fontSizeLabelId}
             label={localeText.textFormatFontSizeLabel}
             value={fontSize ?? 0}
             onChange={(event) => {

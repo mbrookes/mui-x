@@ -255,6 +255,20 @@ export function GridSetupPanel(props: { widgetId: string }) {
     [allSelectableFields, configColumns],
   );
 
+  // Measures owned by this grid's source. They are deliberately absent from
+  // `allSelectableFields` (`buildSourceFieldEntries(..., { expression: 'non-measure' })`)
+  // because a measure aggregates the whole dataset and has no per-row value, so it can never
+  // be a table column. They are listed — disabled — in the "Add column" menu so a measure
+  // created from the calculated-column dialog is visibly accounted for (finding 3).
+  const measureFieldsForSource = React.useMemo(() => {
+    if (!widget?.sourceId) {
+      return [];
+    }
+    return expressionFields.filter(
+      (ef) => !ef.hidden && ef.isMeasure && ef.sourceId === widget.sourceId,
+    );
+  }, [expressionFields, widget?.sourceId]);
+
   const addableFieldsBySource = React.useMemo(() => {
     const groups = new Map<
       string,
@@ -290,6 +304,26 @@ export function GridSetupPanel(props: { widgetId: string }) {
   const [addMenuAnchor, setAddMenuAnchor] = React.useState<HTMLElement | null>(null);
   // Calculated column dialog
   const [calcDialogOpen, setCalcDialogOpen] = React.useState(false);
+  // The expression dialog can only be rendered once the grid has a source to compute over.
+  // In `implicit` mode the columns block (and so the "Add column" menu) renders BEFORE a
+  // source exists, so this gate and the menu entry disagree unless both consult it.
+  const canAddCalculatedColumn = Boolean(source && widget?.sourceId);
+  // Finding 4: `calcDialogOpen` must never outlive the gate. Setting it while ungated used to
+  // latch — nothing rendered, the flag stayed `true`, and the dialog then appeared unprompted
+  // mid-gesture as soon as a normal column adoption supplied a source. The menu entry is
+  // disabled while ungated (below), and this clears the flag if the gate closes underneath an
+  // open dialog (e.g. the source is removed).
+  React.useEffect(() => {
+    if (!canAddCalculatedColumn) {
+      setCalcDialogOpen(false);
+    }
+  }, [canAddCalculatedColumn]);
+  // Doc snapshot taken when the expression dialog opens, so the two commits the save gesture
+  // needs (`addExpressionField` inside the dialog, then the column write below) collapse to a
+  // single undo entry. See `StudioController.foldUndoHistorySince`.
+  const calcGestureBaselineDocRef = React.useRef<
+    ReturnType<typeof controller.getState>['doc'] | null
+  >(null);
   // Drag-and-drop column reorder state
   const [dragIndex, setDragIndex] = React.useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = React.useState<number | null>(null);
@@ -384,6 +418,43 @@ export function GridSetupPanel(props: { widgetId: string }) {
       controller.updateWidgetConfig(widgetId, { columns: [...configColumns, newCol] });
     }
     setAddMenuAnchor(null);
+  };
+
+  /**
+   * Finding 3: "Add column ▸ Calculated column…" is launched from a menu titled "Add column",
+   * so saving the dialog must actually produce a column. The dialog only creates the
+   * expression field and reports its id — without this callback nothing was ever written to
+   * `config.columns` and the user had to reopen the menu and hunt for the new field.
+   *
+   * A MEASURE is deliberately not added: L2 enrichment (`enrichRowsWithExpressions`) computes
+   * per-row values for non-measure expression fields only, so a measure has no value on a row
+   * and cannot be a table column. It is still created and usable from a KPI/chart, and the
+   * "Add column" menu lists this source's measures as disabled entries (below) so the work is
+   * visibly accounted for instead of silently vanishing.
+   */
+  const handleCalculatedColumnSaved = (fieldId: string) => {
+    const baselineDoc = calcGestureBaselineDocRef.current;
+    calcGestureBaselineDocRef.current = null;
+    const created = controller.getState().doc.expressionFields.find((ef) => ef.id === fieldId);
+    if (!created || created.isMeasure || !source) {
+      return;
+    }
+    handleColumnAdd({
+      fieldId,
+      label: created.label,
+      type: created.type ?? 'number',
+      generated: true,
+      sourceId: source.id,
+      sourceLabel: source.label,
+      isPrimary: true,
+    });
+    // One gesture, one undo entry: the dialog already committed `addExpressionField`, and
+    // `handleColumnAdd` just committed the column. Collapse both into the single entry that
+    // reverts to the pre-dialog doc — otherwise the first Ctrl+Z lands on "field created but
+    // not assigned", a state the user never saw.
+    if (baselineDoc) {
+      controller.foldUndoHistorySince(baselineDoc);
+    }
   };
 
   // Keyed by the SAME composite convention as `colKey` below (bare `fieldId` for a
@@ -695,7 +766,13 @@ export function GridSetupPanel(props: { widgetId: string }) {
           >
             {features.calculatedFields !== false && features.gridCalculatedFields !== false && (
               <MenuItem
+                // Finding 4: in `implicit` mode this menu renders before the grid has a
+                // source, but the dialog below cannot (it needs a source to compute over).
+                // Disable the entry rather than letting the click set a flag that renders
+                // nothing now and pops the dialog open later, unprompted.
+                disabled={!canAddCalculatedColumn}
                 onClick={() => {
+                  calcGestureBaselineDocRef.current = controller.getState().doc;
                   setCalcDialogOpen(true);
                   setAddMenuAnchor(null);
                 }}
@@ -729,6 +806,34 @@ export function GridSetupPanel(props: { widgetId: string }) {
             ))}
             {addableFields.length === 0 && (
               <MenuItem disabled>{localeText.gridSetupAllColumnsAdded}</MenuItem>
+            )}
+            {/* Finding 3: measures created on this source are surfaced here, disabled. A
+                measure aggregates the whole dataset, so it has no per-row value and can
+                never be a table column — but before this it was excluded from every list in
+                the grid panel, so ticking "measure" in the calculated-column dialog made the
+                user's work disappear with nothing explaining where it went. */}
+            {measureFieldsForSource.length > 0 && <Divider />}
+            {measureFieldsForSource.length > 0 && (
+              <ListSubheader sx={{ lineHeight: '32px' }}>
+                {localeText.gridSetupMeasuresSubheader}
+              </ListSubheader>
+            )}
+            {measureFieldsForSource.map((field) => (
+              <MenuItem key={field.id} disabled>
+                <ListItemIcon>
+                  <FunctionsIcon fontSize="small" />
+                </ListItemIcon>
+                {field.label}
+              </MenuItem>
+            ))}
+            {measureFieldsForSource.length > 0 && (
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: 'block', px: 2, pb: 1, maxWidth: 280, whiteSpace: 'normal' }}
+              >
+                {localeText.gridSetupMeasureNotColumnHelper}
+              </Typography>
             )}
           </Menu>
 
@@ -837,6 +942,8 @@ export function GridSetupPanel(props: { widgetId: string }) {
           expressionFields={expressionFields}
           // BL-180: scope operand fields to sources reachable from this grid's source.
           reachableSourceIds={getReachableSourceIds(widget.sourceId, relationships)}
+          // Finding 3: without this the "Add column" gesture created a field but no column.
+          onSaved={handleCalculatedColumnSaved}
         />
       )}
     </Stack>

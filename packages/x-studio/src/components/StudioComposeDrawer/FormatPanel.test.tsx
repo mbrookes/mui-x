@@ -261,3 +261,99 @@ describe('FormatPanel', () => {
     expect(screen.queryByText('Legend alignment')).toBeNull();
   });
 });
+
+// ─── Finding 5: an external change must not discard an in-progress edit ────────
+//
+// Title, subtitle and grid height share one `formState` object, and the resync effect used
+// to overwrite the WHOLE object while ignoring the dirty flags it maintains. The compose
+// drawer and the AI chat panel are usable at the same time and the AI tool surface includes
+// `update_widget`, so an external write to one field (or a host `setState`) landed mid-typing
+// and silently threw away the uncommitted edit to another.
+describe('FormatPanel — per-field dirty-aware resync (finding 5)', () => {
+  beforeEach(() => {
+    mockState.doc.widgets['widget-1'] = {
+      id: 'widget-1',
+      kind: 'kpi',
+      sourceId: 'orders',
+      title: 'Revenue',
+      subtitle: undefined,
+      config: { kpiField: 'total', kpiAggregation: 'sum', kpiCompact: true } as StudioWidgetConfig,
+    };
+    controller.updateWidgetConfig.mockClear();
+    controller.updateWidget.mockClear();
+    configureStudioContextMock({ getState: () => mockState, controller });
+  });
+
+  // `nonce` only exists to force the re-render the real store would have triggered.
+  function Wrapper(props: { nonce: number }) {
+    return (
+      <div data-nonce={props.nonce}>
+        <FormatPanel widgetId="widget-1" />
+      </div>
+    );
+  }
+
+  it('keeps an uncommitted title edit when an external write changes the subtitle', async () => {
+    const { user, setProps } = render(<Wrapper nonce={0} />);
+
+    const titleInput = screen.getByLabelText('Widget title') as HTMLInputElement;
+    await user.clear(titleInput);
+    await user.type(titleInput, 'Draft title');
+    expect(titleInput.value).toBe('Draft title');
+
+    // An external write (AI `update_widget` / host `setState`) touches ONLY the subtitle.
+    mockState.doc.widgets['widget-1'] = {
+      ...mockState.doc.widgets['widget-1'],
+      subtitle: 'From the assistant',
+    };
+    setProps({ nonce: 1 });
+
+    // The dirty title buffer survives...
+    expect((screen.getByLabelText('Widget title') as HTMLInputElement).value).toBe('Draft title');
+    // ...while the clean subtitle field still tracks the store.
+    expect((screen.getByLabelText('Subtitle') as HTMLInputElement).value).toBe(
+      'From the assistant',
+    );
+  });
+
+  it('still resyncs a clean field when the store changes it (undo/redo, external edit)', async () => {
+    const { setProps } = render(<Wrapper nonce={0} />);
+
+    expect((screen.getByLabelText('Widget title') as HTMLInputElement).value).toBe('Revenue');
+
+    mockState.doc.widgets['widget-1'] = {
+      ...mockState.doc.widgets['widget-1'],
+      title: 'Total revenue',
+    };
+    setProps({ nonce: 1 });
+
+    expect((screen.getByLabelText('Widget title') as HTMLInputElement).value).toBe(
+      'Total revenue',
+    );
+  });
+});
+
+// ─── Finding 2: the legend comboboxes must have a programmatic name ────────────
+describe('FormatPanel — legend combobox accessible names (finding 2)', () => {
+  beforeEach(() => {
+    mockState.doc.widgets['widget-1'] = {
+      id: 'widget-1',
+      kind: 'map',
+      sourceId: 'orders',
+      title: 'Orders map',
+      subtitle: undefined,
+      config: { mapLegendPosition: 'bottom' } as StudioWidgetConfig,
+    };
+    configureStudioContextMock({ getState: () => mockState, controller });
+  });
+
+  it('names the legend position/alignment selects after their visible labels', () => {
+    render(<FormatPanel widgetId="widget-1" />);
+
+    // Previously neither `<Select>` carried `aria-labelledby`, so the only announced text was
+    // the value itself ("Bottom"/"Center") — `combobox` is not a name-from-content role, so
+    // strictly there was no accessible name at all.
+    expect(screen.getByRole('combobox', { name: 'Legend position' })).toBeVisible();
+    expect(screen.getByRole('combobox', { name: 'Legend alignment' })).toBeVisible();
+  });
+});

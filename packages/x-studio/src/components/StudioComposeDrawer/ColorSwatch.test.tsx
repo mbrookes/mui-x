@@ -22,7 +22,7 @@ const { render } = createRenderer();
 describe('ColorSwatch (finding 2.9)', () => {
   it('does not call onChange for intermediate drag frames (native "input" events)', () => {
     const onChange = vi.fn();
-    render(<ColorSwatch value="#ff0000" onChange={onChange} />);
+    render(<ColorSwatch value="#ff0000" onChange={onChange} label="Color picker" />);
     const input = screen.getByLabelText('Color picker') as HTMLInputElement;
 
     fireEvent.input(input, { target: { value: '#ff1100' } });
@@ -34,7 +34,7 @@ describe('ColorSwatch (finding 2.9)', () => {
 
   it('calls onChange exactly once with the final value on the native "change" event (drag end / picker close)', () => {
     const onChange = vi.fn();
-    render(<ColorSwatch value="#ff0000" onChange={onChange} />);
+    render(<ColorSwatch value="#ff0000" onChange={onChange} label="Color picker" />);
     const input = screen.getByLabelText('Color picker') as HTMLInputElement;
 
     // Several live drag frames…
@@ -49,7 +49,9 @@ describe('ColorSwatch (finding 2.9)', () => {
 
   it('resyncs the buffered value when the external value prop changes (undo/redo)', () => {
     const onChange = vi.fn();
-    const { setProps } = render(<ColorSwatch value="#ff0000" onChange={onChange} />);
+    const { setProps } = render(
+      <ColorSwatch value="#ff0000" onChange={onChange} label="Color picker" />,
+    );
     const getInput = () => screen.getByLabelText('Color picker') as HTMLInputElement;
 
     fireEvent.input(getInput(), { target: { value: '#123456' } });

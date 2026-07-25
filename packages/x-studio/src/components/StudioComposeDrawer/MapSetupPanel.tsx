@@ -43,6 +43,14 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
   const relationships = useStudioSelector(selectRelationships);
   const allGeographies = useStudioGeographies();
   const localeText = useStudioLocaleText();
+  // MUI's `Select` only emits `aria-labelledby` when handed an explicit `labelId`, and
+  // `InputLabel` does not derive an `id`/`htmlFor` from `FormControl` context (its `label`
+  // prop only sizes the outline notch), so an unpaired combobox has no accessible name
+  // (`combobox` is not a name-from-content role). Unique per mount so two mounted
+  // `<Studio>` instances never emit duplicate DOM ids.
+  const mapTypeLabelId = React.useId();
+  const aggregationLabelId = React.useId();
+  const colourSchemeLabelId = React.useId();
   const widget = widgets[widgetId];
   // `widget` comes from a broad selector, so its `config` is the cross-kind union.
   // Narrow to the map config shape for reading map-specific keys.
@@ -266,8 +274,9 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
   return (
     <Stack spacing={2} sx={{ p: 1.5 }}>
       <FormControl size="small" fullWidth>
-        <InputLabel>{localeText.mapSetupMapTypeLabel}</InputLabel>
+        <InputLabel id={mapTypeLabelId}>{localeText.mapSetupMapTypeLabel}</InputLabel>
         <Select
+          labelId={mapTypeLabelId}
           label={localeText.mapSetupMapTypeLabel}
           value={mapGeography}
           onChange={(event) => update({ mapGeography: event.target.value as typeof mapGeography })}
@@ -331,8 +340,9 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
       )}
 
       <FormControl size="small" fullWidth disabled={!config.mapValueField}>
-        <InputLabel>{localeText.chartSetupAggregationLabel}</InputLabel>
+        <InputLabel id={aggregationLabelId}>{localeText.chartSetupAggregationLabel}</InputLabel>
         <Select
+          labelId={aggregationLabelId}
           label={localeText.chartSetupAggregationLabel}
           value={config.mapValueField ? aggFn : 'count'}
           onChange={(event) => update({ mapAggregation: event.target.value as typeof aggFn })}
@@ -349,8 +359,9 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
       </FormControl>
 
       <FormControl size="small" fullWidth>
-        <InputLabel>{localeText.mapSetupColourSchemeLabel}</InputLabel>
+        <InputLabel id={colourSchemeLabelId}>{localeText.mapSetupColourSchemeLabel}</InputLabel>
         <Select
+          labelId={colourSchemeLabelId}
           label={localeText.mapSetupColourSchemeLabel}
           value={colorScheme}
           onChange={(event) => update({ mapColorScheme: event.target.value as typeof colorScheme })}

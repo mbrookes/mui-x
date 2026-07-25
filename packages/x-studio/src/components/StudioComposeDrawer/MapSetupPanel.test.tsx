@@ -422,3 +422,24 @@ describe('MapSetupPanel', () => {
     });
   });
 });
+
+// ─── Finding 2: the map comboboxes must have a programmatic name ───────────────
+//
+// MUI's `Select` only emits `aria-labelledby` when handed an explicit `labelId`, and
+// `InputLabel` does not derive an `id`/`htmlFor` from `FormControl` context (its `label`
+// prop only sizes the outline notch). These comboboxes therefore announced just their own
+// display text ("World", "Sum") — and since `combobox` is not a name-from-content role,
+// strictly they had no accessible name at all.
+describe('MapSetupPanel — combobox accessible names (finding 2)', () => {
+  beforeEach(() => {
+    configureStudioContextMock({ getState: () => mockState, controller });
+  });
+
+  it('names the map type, aggregation and colour scheme selects after their visible labels', () => {
+    render(<MapSetupPanel widgetId="widget-1" />);
+
+    expect(screen.getByRole('combobox', { name: 'Map type' })).toBeVisible();
+    expect(screen.getByRole('combobox', { name: 'Aggregation' })).toBeVisible();
+    expect(screen.getByRole('combobox', { name: 'Color scheme' })).toBeVisible();
+  });
+});

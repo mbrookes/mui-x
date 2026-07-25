@@ -313,3 +313,59 @@ describe('GridConditionalFormatSection stale fieldId fallback (Tier3)', () => {
     expect(fieldSelect.textContent).toContain('removedField');
   });
 });
+
+// ─── Finding 9: no no-op commit when the text is edited back to its original ───
+//
+// `dirty` only records that the buffer was TYPED IN, not that it differs from what is
+// stored. Typing `5` over the stored `10` and deleting back to `10` before tabbing away left
+// `dirty` set, so blurring pushed an undoable commit with identical content — and a later
+// Ctrl+Z then appeared to do nothing at all.
+describe('GridConditionalFormatSection — no-op commit guard (finding 9)', () => {
+  beforeEach(() => {
+    mockState.doc.widgets['widget-1'] = {
+      id: 'widget-1',
+      kind: 'grid',
+      sourceId: 'orders',
+      title: 'Orders',
+      config: { gridConditionalFormats: [makeRule()] } as StudioWidgetConfig,
+    };
+    controller.updateWidgetConfig.mockClear();
+    configureStudioContextMock({ getState: () => mockState, controller });
+  });
+
+  it('commits nothing when a numeric value is typed and restored to its stored value', () => {
+    render(<GridConditionalFormatSection widgetId="widget-1" />);
+
+    const valueInput = screen.getByLabelText('Condition value');
+    fireEvent.change(valueInput, { target: { value: '5' } });
+    fireEvent.change(valueInput, { target: { value: '10' } });
+    fireEvent.blur(valueInput);
+
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+  });
+
+  it('still commits a genuine numeric change', () => {
+    render(<GridConditionalFormatSection widgetId="widget-1" />);
+
+    const valueInput = screen.getByLabelText('Condition value');
+    fireEvent.change(valueInput, { target: { value: '42' } });
+    fireEvent.blur(valueInput);
+
+    expect(controller.updateWidgetConfig).toHaveBeenCalledTimes(1);
+  });
+
+  it('commits nothing when a string value is typed and restored to its stored value', () => {
+    mockState.doc.widgets['widget-1'].config = {
+      gridConditionalFormats: [makeRule({ fieldId: 'id', operator: 'contains', value: 'abc' })],
+    } as StudioWidgetConfig;
+
+    render(<GridConditionalFormatSection widgetId="widget-1" />);
+
+    const valueInput = screen.getByLabelText('Condition value');
+    fireEvent.change(valueInput, { target: { value: 'abcd' } });
+    fireEvent.change(valueInput, { target: { value: 'abc' } });
+    fireEvent.blur(valueInput);
+
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+  });
+});

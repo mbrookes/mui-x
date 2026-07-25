@@ -1,6 +1,12 @@
 import { createRenderer, screen } from '@mui/internal-test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { StudioDataSource, StudioExpressionField } from '../../models';
+import type {
+  StudioDataSource,
+  StudioExpressionField,
+  StudioWidget,
+  StudioWidgetConfig,
+} from '../../models';
+import { StudioController } from '../../store/StudioController';
 import {
   mockUseStudioSelector,
   mockUseStudioController,
@@ -16,6 +22,10 @@ import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';
 const controller = {
   addExpressionField: vi.fn(),
   updateExpressionField: vi.fn(),
+  // The picker snapshots `getState().doc` when the calculated-field dialog opens so the
+  // create + assign pair can be folded into one undo entry (finding 6).
+  getState: vi.fn(() => ({ doc: {} })),
+  foldUndoHistorySince: vi.fn(),
 };
 
 // Shared context mock (see test/studioContextMock.ts) — required because the repo runs
@@ -316,5 +326,74 @@ describe('DataSourceFieldSelect — unresolvable stored field (M11)', () => {
 
     expect((screen.getByLabelText('Value field') as HTMLInputElement).value).toBe('Total');
     expect(screen.getByLabelText('Value field').getAttribute('aria-invalid')).not.toBe('true');
+  });
+});
+
+// ─── Finding 6: creating a calculated field from the picker is ONE undo step ───
+//
+// The gesture necessarily spans two commits — `StudioExpressionFieldDialog` commits
+// `addExpressionField` itself, then calls `onSaved` so the picker's `onChange` can write the
+// config key that selects the new field. Left unfolded, one gesture cost two Ctrl+Z presses,
+// the first landing on "field created but not assigned" — a state the user never saw. Every
+// source-adopting setup panel already folds its multi-mutation gestures into one commit; this
+// runs against a REAL `StudioController` so the actual undo stack is observed.
+describe('DataSourceFieldSelect — calculated-field creation folds to one undo step (finding 6)', () => {
+  it('reverts both the new field and its assignment with a single undo', async () => {
+    const realController = new StudioController({
+      doc: {
+        widgets: {
+          'widget-1': {
+            id: 'widget-1',
+            kind: 'kpi',
+            title: 'Revenue',
+            sourceId: 'orders',
+            config: { kpiValueField: 'total', kpiAggregation: 'sum' },
+          } as StudioWidget,
+        },
+      },
+      runtime: { dataSources: { orders: ordersSource } },
+    });
+    configureStudioContextMock({
+      getState: () => realController.getState(),
+      controller: realController,
+    });
+
+    const { user } = render(
+      <DataSourceFieldSelect
+        value="total"
+        onChange={(fieldId) =>
+          realController.updateWidgetConfig('widget-1', { kpiValueField: fieldId })
+        }
+        fields={numericFields}
+        label="Measure"
+        calculatedField={{ dataSource: ordersSource, expressionFields: [] }}
+      />,
+    );
+
+    await user.click(screen.getByLabelText('Measure'));
+    await user.click(screen.getByRole('button', { name: /Add calculated field/i }));
+    // `required` makes MUI append an aria-hidden asterisk inside the <label>, so an exact
+    // `getByLabelText('Name')` would miss — the accessible name skips it.
+    await user.type(screen.getByRole('textbox', { name: 'Name' }), 'Margin');
+    await user.click(screen.getByRole('button', { name: 'Add Field' }));
+
+    // The gesture reached the intended state: field created AND selected.
+    const created = realController.getState().doc.expressionFields[0];
+    expect(created?.label).toBe('Margin');
+    expect(
+      (realController.getState().doc.widgets['widget-1'].config as StudioWidgetConfig)
+        .kpiValueField,
+    ).toBe(created.id);
+
+    // Exactly ONE undo entry: the single undo reverts BOTH commits together...
+    expect(realController.canUndo()).toBe(true);
+    realController.undo();
+    expect(realController.getState().doc.expressionFields).toEqual([]);
+    expect(
+      (realController.getState().doc.widgets['widget-1'].config as StudioWidgetConfig)
+        .kpiValueField,
+    ).toBe('total');
+    // ...and nothing remains to undo, proving the gesture pushed only one entry.
+    expect(realController.canUndo()).toBe(false);
   });
 });

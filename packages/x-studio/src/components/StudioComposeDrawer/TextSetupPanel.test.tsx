@@ -141,3 +141,78 @@ describe('TextSetupPanel blur commit guard', () => {
     expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
   });
 });
+
+// ─── Finding 5: an external change must not discard an in-progress edit ────────
+//
+// Title, subtitle and body share one `form` object and the resync effect had no dirty
+// tracking at all, so it overwrote the WHOLE object on any external change. The compose
+// drawer and the AI chat panel are usable at the same time and the AI tool surface includes
+// `update_widget`, so a write to `textBody` landed mid-typing and silently discarded the
+// uncommitted title.
+describe('TextSetupPanel — per-field dirty-aware resync (finding 5)', () => {
+  beforeEach(() => {
+    controller.updateWidgetConfig.mockReset();
+    controller.updateWidget.mockReset();
+    mockState.doc.widgets['widget-1'] = {
+      id: 'widget-1',
+      kind: 'text',
+      title: 'Notes',
+      config: {} as StudioWidgetConfig,
+    };
+    configureStudioContextMock({ getState: () => mockState, controller });
+  });
+
+  // `nonce` only exists to force the re-render the real store would have triggered.
+  function Wrapper(props: { nonce: number }) {
+    return (
+      <div data-nonce={props.nonce}>
+        <TextSetupPanel widgetId="widget-1" />
+      </div>
+    );
+  }
+
+  it('keeps an uncommitted title edit when an external write changes the body', async () => {
+    const { user, setProps } = render(<Wrapper nonce={0} />);
+
+    const titleInput = screen.getByLabelText('Title') as HTMLInputElement;
+    await user.clear(titleInput);
+    await user.type(titleInput, 'Draft title');
+    expect(titleInput.value).toBe('Draft title');
+
+    // An external write (AI `update_widget` / host `setState`) touches ONLY the body.
+    mockState.doc.widgets['widget-1'] = {
+      ...mockState.doc.widgets['widget-1'],
+      config: { textBody: 'Written by the assistant' } as StudioWidgetConfig,
+    };
+    setProps({ nonce: 1 });
+
+    // The dirty title buffer survives...
+    expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('Draft title');
+    // ...while the clean body field still tracks the store.
+    expect((screen.getByLabelText('Body') as HTMLInputElement).value).toBe(
+      'Written by the assistant',
+    );
+  });
+
+  it('still resyncs a clean field when the store changes it (undo/redo, external edit)', () => {
+    const { setProps } = render(<Wrapper nonce={0} />);
+
+    expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('Notes');
+
+    mockState.doc.widgets['widget-1'] = {
+      ...mockState.doc.widgets['widget-1'],
+      title: 'Release notes',
+    };
+    setProps({ nonce: 1 });
+
+    expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('Release notes');
+  });
+
+  it('commits nothing when the title is blurred without an edit', () => {
+    render(<TextSetupPanel widgetId="widget-1" />);
+
+    fireEvent.blur(screen.getByLabelText('Title'));
+
+    expect(controller.updateWidget).not.toHaveBeenCalled();
+  });
+});

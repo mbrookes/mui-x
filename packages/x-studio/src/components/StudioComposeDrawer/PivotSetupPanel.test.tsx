@@ -94,7 +94,11 @@ describe('PivotSetupPanel', () => {
     expect(screen.getByLabelText('Column field', { exact: false }).getAttribute('value')).toBe(
       'Region',
     );
-    expect(screen.getAllByText('Aggregation').length).toBeGreaterThan(0);
+    // Finding 2: the aggregation `<Select>` is paired with its `<InputLabel>` via
+    // `labelId`/`aria-labelledby`, so it has a real accessible name. Before that it
+    // announced only its own display text ("Sum") — `combobox` is not a name-from-content
+    // role, so strictly it had no accessible name at all.
+    expect(screen.getByRole('combobox', { name: 'Aggregation' })).toBeVisible();
     expect(screen.getByLabelText('Value field', { exact: false }).getAttribute('value')).toBe(
       'Total',
     );
@@ -103,7 +107,7 @@ describe('PivotSetupPanel', () => {
   it('updates the aggregation via the aggregation select', async () => {
     const { user } = render(<PivotSetupPanel widgetId="widget-1" />);
 
-    await user.click(screen.getByText('Sum'));
+    await user.click(screen.getByRole('combobox', { name: 'Aggregation' }));
     const avgOption = await screen.findByRole('option', { name: 'Average' });
     await user.click(avgOption);
 
@@ -123,6 +127,15 @@ describe('PivotSetupPanel', () => {
   });
 
   it('hides the value field picker when aggregation is count', () => {
+    // The picker is `required`, so MUI appends an `aria-hidden` asterisk inside the
+    // `<label>` and its label content is "Value field *". An EXACT `'Value field'` query
+    // therefore returns `null` whether or not the control renders — an assertion that
+    // cannot fail. Match with `exact: false`, and prove the query matches something in the
+    // non-count branch first so its `null` here actually means "not rendered".
+    const { unmount } = render(<PivotSetupPanel widgetId="widget-1" />);
+    expect(screen.queryByLabelText('Value field', { exact: false })).not.toBeNull();
+    unmount();
+
     mockState.doc.widgets['widget-1'].config = {
       ...mockState.doc.widgets['widget-1'].config,
       pivotAggregation: 'count',
@@ -130,7 +143,7 @@ describe('PivotSetupPanel', () => {
 
     render(<PivotSetupPanel widgetId="widget-1" />);
 
-    expect(screen.queryByLabelText('Value field')).toBeNull();
+    expect(screen.queryByLabelText('Value field', { exact: false })).toBeNull();
   });
 
   it('adopts the field source when a row field is picked before a source exists', async () => {

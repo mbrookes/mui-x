@@ -1,5 +1,5 @@
 import { act, createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StudioWidget, StudioWidgetConfig } from '../../models';
 import {
   mockUseStudioSelector,
@@ -549,5 +549,166 @@ describe('FilterSetupPanel — slider bound cross-validation', () => {
     } finally {
       restore();
     }
+  });
+});
+
+// ─── Finding 8: expression fields must be selectable in a filter widget ────────
+//
+// The picker used to be fed the raw `dataSources` record, and `DataSourceFieldSelect`'s
+// `dataSources` branch folds `src.fields` only — so a calculated field could never be chosen
+// as a filter-widget field, with nothing in the UI explaining the absence. Every other setup
+// panel goes through `buildFieldCatalog`/`buildSourceFieldEntries`.
+describe('FilterSetupPanel — calculated fields are selectable (finding 8)', () => {
+  const previousExpressionFields = mockState.doc.expressionFields;
+
+  beforeEach(() => {
+    controller.updateWidgetConfig.mockClear();
+    mockState.doc.widgets['widget-1'] = {
+      id: 'widget-1',
+      kind: 'filter',
+      sourceId: 'orders',
+      config: {
+        filterWidgetType: 'multi-select',
+        filterWidgetField: 'status',
+      } as StudioWidgetConfig,
+    };
+    mockState.doc.expressionFields = [
+      {
+        id: 'expr-tier',
+        label: 'Customer Tier',
+        sourceId: 'orders',
+        type: 'string',
+        isMeasure: false,
+        expression: { type: 'string', value: 'gold' },
+      },
+    ] as unknown as typeof previousExpressionFields;
+    configureStudioContextMock({ getState: () => mockState, controller });
+  });
+
+  afterEach(() => {
+    mockState.doc.expressionFields = previousExpressionFields;
+  });
+
+  it('offers a calculated field as a filter-widget field', async () => {
+    const { user } = render(<FilterSetupPanel widgetId="widget-1" />);
+
+    await user.click(screen.getByLabelText('Field', { exact: false, selector: 'input' }));
+
+    expect(await screen.findByRole('option', { name: /Customer Tier$/ })).toBeVisible();
+  });
+
+  it('still applies the control-type capability filter to the catalog', async () => {
+    mockState.doc.widgets['widget-1'].config = {
+      filterWidgetType: 'date-range',
+      filterWidgetField: 'placedAt',
+    } as StudioWidgetConfig;
+
+    const { user } = render(<FilterSetupPanel widgetId="widget-1" />);
+
+    await user.click(screen.getByLabelText('Field', { exact: false, selector: 'input' }));
+
+    // A date-range control only accepts temporal fields — the string calculated field and the
+    // numeric physical field are both excluded, exactly as the old `filterCapability` did.
+    expect(await screen.findByRole('option', { name: /Placed At$/ })).toBeVisible();
+    expect(screen.queryByRole('option', { name: /Customer Tier$/ })).toBeNull();
+    expect(screen.queryByRole('option', { name: /Amount$/ })).toBeNull();
+  });
+});
+
+// ─── Finding 7: the stored filter source id must disambiguate the picker ───────
+//
+// `config.filterWidgetSourceId` is already read by `handleTypeChange`, but it was not passed
+// to the picker — so the picker resolved the stored id by a bare-id lookup across every
+// source and could display a same-id field from a DIFFERENT source (wrong label, group and
+// field-type icon) as if it were the configured value.
+describe('FilterSetupPanel — field-source disambiguation (finding 7)', () => {
+  const previousSources = mockState.runtime.dataSources;
+  const previousWidget = mockState.doc.widgets['widget-1'];
+
+  beforeEach(() => {
+    controller.updateWidgetConfig.mockClear();
+    mockState.runtime.dataSources = {
+      // "Aaa" sorts first in `buildFieldCatalog`'s source-label ordering, so a bare-id lookup
+      // resolves THIS colliding field.
+      aaa: {
+        id: 'aaa',
+        label: 'Aaa',
+        fields: [{ id: 'shared', label: 'Aaa Shared', type: 'string' }],
+        rows: [],
+      },
+      orders: {
+        id: 'orders',
+        label: 'Orders',
+        fields: [{ id: 'shared', label: 'Orders Shared', type: 'string' }],
+        rows: [],
+      },
+    } as typeof previousSources;
+    mockState.doc.widgets['widget-1'] = {
+      ...previousWidget,
+      sourceId: 'orders',
+      config: {
+        filterWidgetType: 'multi-select',
+        filterWidgetField: 'shared',
+      } as StudioWidgetConfig,
+    };
+    configureStudioContextMock({ getState: () => mockState, controller });
+  });
+
+  afterEach(() => {
+    mockState.runtime.dataSources = previousSources;
+    mockState.doc.widgets['widget-1'] = previousWidget;
+  });
+
+  it("falls back to the widget's own source when no explicit filterWidgetSourceId is stored", () => {
+    render(<FilterSetupPanel widgetId="widget-1" />);
+
+    const input = screen.getByLabelText('Field', {
+      exact: false,
+      selector: 'input',
+    }) as HTMLInputElement;
+    expect(input.value).toContain('Orders Shared');
+    expect(input.value).not.toContain('Aaa Shared');
+  });
+
+  it('honours an explicit filterWidgetSourceId pointing at another source', () => {
+    mockState.doc.widgets['widget-1'].config = {
+      filterWidgetType: 'multi-select',
+      filterWidgetField: 'shared',
+      filterWidgetSourceId: 'aaa',
+    } as StudioWidgetConfig;
+
+    render(<FilterSetupPanel widgetId="widget-1" />);
+
+    const input = screen.getByLabelText('Field', {
+      exact: false,
+      selector: 'input',
+    }) as HTMLInputElement;
+    expect(input.value).toContain('Aaa Shared');
+    expect(input.value).not.toContain('Orders Shared');
+  });
+});
+
+// ─── Finding 2: the control-type combobox must have a programmatic name ────────
+describe('FilterSetupPanel — combobox accessible name (finding 2)', () => {
+  beforeEach(() => {
+    mockState.doc.widgets['widget-1'] = {
+      id: 'widget-1',
+      kind: 'filter',
+      sourceId: 'orders',
+      config: {
+        filterWidgetType: 'multi-select',
+        filterWidgetField: 'status',
+      } as StudioWidgetConfig,
+    };
+    configureStudioContextMock({ getState: () => mockState, controller });
+  });
+
+  it('names the control-type select after its visible label', () => {
+    render(<FilterSetupPanel widgetId="widget-1" />);
+
+    // Previously the `<Select>` carried no `aria-labelledby`, so its only announced text was
+    // its own value ("Multi-select") — `combobox` is not a name-from-content role, so
+    // strictly it had no accessible name at all.
+    expect(screen.getByRole('combobox', { name: 'Control type' })).toBeVisible();
   });
 });

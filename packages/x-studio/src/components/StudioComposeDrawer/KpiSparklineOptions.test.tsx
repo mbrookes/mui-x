@@ -297,3 +297,95 @@ describe('KpiSparklineOptions hostile widget sourceId', () => {
     ).not.toThrow();
   });
 });
+
+// ─── Finding 7: the stored sparkline source id must disambiguate the picker ────
+//
+// The time-field list spans the primary source AND every relationship neighbour in both
+// directions, so two sources sharing a field id (here `createdAt`) is likely. Without
+// `valueSourceId` the picker resolved the stored id by a bare-id lookup in
+// `Object.values(dataSources)` order and could display a DIFFERENT source's field — with its
+// label, group and field-type icon — as if it were the configured value, so "confirming"
+// what was shown silently re-pointed the sparkline at another source's field.
+describe('KpiSparklineOptions time-field source disambiguation (finding 7)', () => {
+  const previousSources = mockState.runtime.dataSources;
+
+  beforeEach(() => {
+    controller.updateWidgetConfig.mockClear();
+    mockState.runtime.dataSources = {
+      // Inserted first, so a bare-id lookup over insertion order resolves THIS one.
+      orders: {
+        id: 'orders',
+        label: 'Orders',
+        fields: [{ id: 'createdAt', label: 'Order Date', type: 'date' }],
+        rows: [],
+      },
+      customers: {
+        id: 'customers',
+        label: 'Customers',
+        fields: [{ id: 'createdAt', label: 'Signup Date', type: 'date' }],
+        rows: [],
+      },
+    } as typeof previousSources;
+    mockState.doc.relationships = [
+      { id: 'rel-1', type: 'many-to-one', sourceId: 'orders', targetId: 'customers' },
+    ] as unknown as typeof mockState.doc.relationships;
+    configureStudioContextMock({ getState: () => mockState, controller });
+  });
+
+  afterEach(() => {
+    mockState.runtime.dataSources = previousSources;
+    mockState.doc.relationships = [];
+  });
+
+  it('displays the field from the source recorded in kpiSparklineSourceId, not the first same-id match', () => {
+    const config = {
+      kpiSparklineField: 'createdAt',
+      kpiSparklineSourceId: 'customers',
+    } as StudioWidgetConfig;
+    mockState.doc.widgets['widget-1'] = {
+      id: 'widget-1',
+      kind: 'kpi',
+      sourceId: 'orders',
+      title: 'Orders',
+      config,
+    };
+
+    render(<KpiSparklineOptions widgetId="widget-1" config={config} />);
+
+    const input = screen.getByLabelText('Time field') as HTMLInputElement;
+    // Both labels are qualified with their source ("Customers · Signup Date") because the
+    // two sources collide on the label-uniqueness check — the point is WHICH one is shown.
+    expect(input.value).toContain('Signup Date');
+    expect(input.value).not.toContain('Order Date');
+  });
+});
+
+// ─── Finding 2: the sparkline comboboxes must have a programmatic name ─────────
+//
+// MUI's `Select` only emits `aria-labelledby` when handed an explicit `labelId`, and
+// `InputLabel` does not derive an `id`/`htmlFor` from `FormControl` context — so these
+// comboboxes previously announced only their own display text ("Line"), with nothing saying
+// which setting that value belongs to. `combobox` is not a name-from-content role, so
+// strictly there was no accessible name at all.
+describe('KpiSparklineOptions combobox accessible names (finding 2)', () => {
+  beforeEach(() => {
+    controller.updateWidgetConfig.mockClear();
+    mockState.doc.widgets['widget-1'] = {
+      id: 'widget-1',
+      kind: 'kpi',
+      sourceId: 'orders',
+      title: 'Orders',
+      config: { kpiSparklinePlotType: 'line' } as StudioWidgetConfig,
+    };
+    configureStudioContextMock({ getState: () => mockState, controller });
+  });
+
+  it('names the granularity and plot-type selects after their visible labels', () => {
+    render(
+      <KpiSparklineOptions widgetId="widget-1" config={mockState.doc.widgets['widget-1'].config} />,
+    );
+
+    expect(screen.getByRole('combobox', { name: 'Granularity' })).toBeVisible();
+    expect(screen.getByRole('combobox', { name: 'Plot type' })).toBeVisible();
+  });
+});

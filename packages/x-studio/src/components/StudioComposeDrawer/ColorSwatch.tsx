@@ -25,7 +25,12 @@ export function ColorSwatch({
 }: {
   value: string;
   onChange: (v: string) => void;
-  label?: string;
+  /**
+   * Accessible name for the native color input. REQUIRED, and deliberately has no default:
+   * this is a public export, so a hardcoded English fallback would ship untranslated UI to
+   * any consumer who omitted it. Callers pass a `localeText` value.
+   */
+  label: string;
   size?: number;
 }) {
   // Finding 2.9: a native `<input type="color">`'s React `onChange` (mapped to the
@@ -92,7 +97,7 @@ export function ColorSwatch({
           '&::-webkit-color-swatch-wrapper': { padding: 0 },
           '&::-webkit-color-swatch': { borderRadius: '50%', border: 'none' },
         }}
-        aria-label={label ?? 'Color picker'}
+        aria-label={label}
       />
       <CreateIcon
         sx={{

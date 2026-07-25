@@ -100,10 +100,11 @@ describe('KpiSetupPanel', () => {
     controller.updateWidgetConfig.mockClear();
     const { user } = render(<KpiSetupPanel widgetId="widget-1" />);
 
-    // The Aggregation <Select> isn't linked to its <InputLabel> via aria-labelledby, so its
-    // accessible name is its own display text ("Sum") rather than "Aggregation" — locate it
-    // by that displayed value instead.
-    await user.click(screen.getByText('Sum', { selector: '[role="combobox"]' }));
+    // Finding 2: the Aggregation <Select> is now paired with its <InputLabel> via
+    // `labelId`/`aria-labelledby`, so it can be located by its real accessible name. It
+    // previously announced only its own display text ("Sum"), and since `combobox` is not a
+    // name-from-content role it strictly had no accessible name at all.
+    await user.click(screen.getByRole('combobox', { name: 'Aggregation' }));
     const averageOption = await screen.findByRole('option', { name: 'Average' });
     await user.click(averageOption);
 

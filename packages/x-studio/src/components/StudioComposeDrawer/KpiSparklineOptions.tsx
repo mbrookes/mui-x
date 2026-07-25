@@ -48,6 +48,13 @@ export function KpiSparklineOptions(props: { widgetId: string; config: StudioWid
   const controller = useStudioController();
   const localeText = useStudioLocaleText();
   const granularities = getKpiGranularities(localeText);
+  // MUI's `Select` only emits `aria-labelledby` when handed an explicit `labelId`, and
+  // `InputLabel` does not derive an `id`/`htmlFor` from `FormControl` context (its `label`
+  // prop only sizes the outline notch), so an unpaired combobox has no accessible name
+  // (`combobox` is not a name-from-content role). Unique per mount so two mounted
+  // `<Studio>` instances never emit duplicate DOM ids.
+  const granularityLabelId = React.useId();
+  const plotTypeLabelId = React.useId();
   const dataSources = useStudioSelector(selectDataSources);
   const expressionFields = useStudioSelector(selectExpressionFields);
   const filters = useStudioSelector(selectFilters);
@@ -206,6 +213,13 @@ export function KpiSparklineOptions(props: { widgetId: string; config: StudioWid
         ) : (
           <DataSourceFieldSelect
             value={config.kpiSparklineField ?? ''}
+            // Finding 7: the picker's option list spans the primary source AND every
+            // relationship neighbour in both directions, so a shared field id (e.g. two
+            // sources with a `createdAt` date) is likely. `config.kpiSparklineSourceId` is
+            // written right below and records which source the stored field belongs to —
+            // pass it so the picker resolves strictly against that source instead of
+            // displaying the first same-id match in `Object.values(dataSources)` order.
+            valueSourceId={config.kpiSparklineSourceId ?? sourceId}
             onChange={(fieldId, fSourceId) => {
               controller.updateWidgetConfig(widgetId, {
                 kpiSparklineField: fieldId || undefined,
@@ -219,8 +233,9 @@ export function KpiSparklineOptions(props: { widgetId: string; config: StudioWid
 
       {!isGauge && (
         <FormControl size="small" fullWidth>
-          <InputLabel>{localeText.kpiSetupGranularityLabel}</InputLabel>
+          <InputLabel id={granularityLabelId}>{localeText.kpiSetupGranularityLabel}</InputLabel>
           <Select
+            labelId={granularityLabelId}
             label={localeText.kpiSetupGranularityLabel}
             value={config.kpiSparklineGranularity ?? ''}
             onChange={(event) =>
@@ -244,8 +259,9 @@ export function KpiSparklineOptions(props: { widgetId: string; config: StudioWid
       )}
 
       <FormControl size="small" fullWidth>
-        <InputLabel>{localeText.kpiSetupPlotTypeLabel}</InputLabel>
+        <InputLabel id={plotTypeLabelId}>{localeText.kpiSetupPlotTypeLabel}</InputLabel>
         <Select
+          labelId={plotTypeLabelId}
           label={localeText.kpiSetupPlotTypeLabel}
           value={plotType}
           onChange={(event) =>

@@ -49,11 +49,19 @@ function LegendPositionSection(props: {
 }) {
   const { legendPosition, legendAlign, onPositionChange, onAlignChange, localeText } = props;
   const isVerticalLegend = legendPosition === 'left' || legendPosition === 'right';
+  // MUI's `Select` only emits `aria-labelledby` when it is handed an explicit `labelId`, and
+  // `InputLabel` does not derive an `id`/`htmlFor` from `FormControl` context — the `label`
+  // prop merely sizes the outline notch. Without this pairing the combobox has NO accessible
+  // name at all (`combobox` is not a name-from-content role). Pair every `InputLabel`/`Select`
+  // with a `React.useId()` value, as `FieldDetailView` already does.
+  const positionLabelId = React.useId();
+  const alignLabelId = React.useId();
   return (
     <React.Fragment>
       <FormControl size="small" fullWidth>
-        <InputLabel>{localeText.mapSetupLegendPositionLabel}</InputLabel>
+        <InputLabel id={positionLabelId}>{localeText.mapSetupLegendPositionLabel}</InputLabel>
         <Select
+          labelId={positionLabelId}
           label={localeText.mapSetupLegendPositionLabel}
           value={legendPosition}
           onChange={(event) => onPositionChange(event.target.value as LegendPosition)}
@@ -67,8 +75,9 @@ function LegendPositionSection(props: {
       </FormControl>
       {legendPosition !== 'hidden' && (
         <FormControl size="small" fullWidth>
-          <InputLabel>{localeText.mapSetupLegendAlignLabel}</InputLabel>
+          <InputLabel id={alignLabelId}>{localeText.mapSetupLegendAlignLabel}</InputLabel>
           <Select
+            labelId={alignLabelId}
             label={localeText.mapSetupLegendAlignLabel}
             value={legendAlign}
             onChange={(event) => onAlignChange(event.target.value as LegendAlign)}
@@ -142,16 +151,48 @@ export function FormatPanel(props: { widgetId: string }) {
     return null;
   }, [widget, isAutoSubtitle, allFilters, activePageId, crossFilterAllPages, localeText]);
 
+  // Tracks which widget the buffer was last synced FOR, so a widget switch can be told apart
+  // from an external edit to the widget already being edited. Only the former is allowed to
+  // discard dirty buffers (see the effect below).
+  const syncedWidgetIdRef = React.useRef(widgetId);
+
+  // Resync is PER FIELD and DIRTY-AWARE. Title, subtitle and gridHeight share one state
+  // object, but they are three independent buffers: the compose drawer and the AI chat panel
+  // are usable at the same time, and the AI tool surface includes `update_widget`, so an
+  // external write to (say) `subtitle` fires this effect while the user is mid-way through
+  // typing a new title. Overwriting the WHOLE object then silently discarded that uncommitted
+  // title. A field whose buffer is dirty keeps its in-progress text; clean fields still track
+  // the store, so undo/redo and external edits are reflected as before.
+  //
+  // A widget switch is the one case that resets everything including the dirty flags — an
+  // uncommitted edit must never leak onto a different widget. (`StudioComposeDrawer` also
+  // keys its config view on the selected widget id, remounting this subtree; this is the
+  // in-component guarantee for the other contexts the panel is rendered in.)
   // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- form state is intentionally reset when widget/page changes
   React.useEffect(() => {
+    const widgetChanged = syncedWidgetIdRef.current !== widgetId;
+    syncedWidgetIdRef.current = widgetId;
     // react-doctor-disable-next-line react-doctor/no-derived-state -- locally buffered editable fields; saved on blur
-    setFormState({
-      title: widget?.title ?? '',
-      subtitle: widget?.subtitle ?? '',
-      titleDirty: false,
-      subtitleDirty: false,
-      gridHeight: String(config?.gridHeight ?? 400),
-      gridHeightDirty: false,
+    setFormState((prev) => {
+      const fromStore = {
+        title: widget?.title ?? '',
+        subtitle: widget?.subtitle ?? '',
+        gridHeight: String(config?.gridHeight ?? 400),
+      };
+      if (widgetChanged) {
+        return {
+          ...fromStore,
+          titleDirty: false,
+          subtitleDirty: false,
+          gridHeightDirty: false,
+        };
+      }
+      return {
+        ...prev,
+        ...(prev.titleDirty ? {} : { title: fromStore.title }),
+        ...(prev.subtitleDirty ? {} : { subtitle: fromStore.subtitle }),
+        ...(prev.gridHeightDirty ? {} : { gridHeight: fromStore.gridHeight }),
+      };
     });
   }, [widget?.title, widget?.subtitle, widgetId, config?.gridHeight]);
 

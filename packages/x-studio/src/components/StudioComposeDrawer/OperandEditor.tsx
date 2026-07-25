@@ -1,4 +1,5 @@
 'use client';
+import * as React from 'react';
 import {
   FormControl,
   InputLabel,
@@ -25,6 +26,11 @@ export function OperandEditor({
   fields: FieldOption[];
 }) {
   const localeText = useStudioLocaleText();
+  // MUI's `Select` only emits `aria-labelledby` when handed an explicit `labelId`, and
+  // `InputLabel` does not derive an `id`/`htmlFor` from `FormControl` context (its `label`
+  // prop only sizes the outline notch), so an unpaired combobox has no accessible name.
+  // Unique per mount: a formula bar renders several operand editors side by side.
+  const fieldLabelId = React.useId();
   return (
     <Stack spacing={0.5}>
       <ToggleButtonGroup
@@ -51,8 +57,11 @@ export function OperandEditor({
 
       {value.type === 'field' ? (
         <FormControl size="small" fullWidth>
-          <InputLabel sx={{ fontSize: '0.8rem' }}>{label}</InputLabel>
+          <InputLabel id={fieldLabelId} sx={{ fontSize: '0.8rem' }}>
+            {label}
+          </InputLabel>
           <Select
+            labelId={fieldLabelId}
             label={label}
             value={value.fieldId}
             onChange={(event) => onChange({ ...value, fieldId: event.target.value })}

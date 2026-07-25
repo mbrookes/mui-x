@@ -50,7 +50,15 @@ function ConditionalFormatValueInput(props: {
     const raw = text.trim();
     const parsed = raw === '' ? NaN : Number(raw);
     const next = Number.isNaN(parsed) ? undefined : parsed;
-    onCommit(next);
+    // "Dirty" only means the buffer was TYPED IN, not that its parsed value differs from
+    // what is stored: typing `5` over a stored `10` and deleting back to `10` before
+    // tabbing away leaves `dirty` set with an identical value. Committing that pushes an
+    // undoable entry whose content matches its predecessor, so a later Ctrl+Z appears to do
+    // nothing at all. Commit only a genuine change — the same guard `TextSetupPanel` and
+    // `SliderBoundInput` already apply.
+    if (next !== value) {
+      onCommit(next);
+    }
     setText(next !== undefined ? String(next) : '');
     setDirty(false);
   };
@@ -112,7 +120,14 @@ function ConditionalFormatStringValueInput(props: {
     if (!dirty) {
       return;
     }
-    onCommit(text);
+    // Same no-op guard as `ConditionalFormatValueInput` above: a buffer that was typed in
+    // and then restored to the stored value must not push an undo entry with identical
+    // content. Compared against `initialText` (not the raw `value`) so an absent/`undefined`
+    // stored value and an empty buffer count as unchanged, rather than writing `''` into a
+    // rule that never had the key.
+    if (text !== initialText) {
+      onCommit(text);
+    }
     setDirty(false);
   };
 

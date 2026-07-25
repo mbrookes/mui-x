@@ -26,6 +26,7 @@ import type {
   StudioWidgetConfigForKind,
 } from '../../models';
 import { buildFieldCatalog } from '../../internals/fieldCatalog';
+import { fieldHasCapability } from '../../utils/fieldCapabilities';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
 import { collectStaleWidgetFilterIds } from './collectStaleWidgetFilterIds';
 
@@ -108,6 +109,12 @@ export function FilterSetupPanel(props: { widgetId: string }) {
   const relationships = useStudioSelector(selectRelationships);
   const expressionFields = useStudioSelector(selectExpressionFields);
   const localeText = useStudioLocaleText();
+  // MUI's `Select` only emits `aria-labelledby` when handed an explicit `labelId`, and
+  // `InputLabel` does not derive an `id`/`htmlFor` from `FormControl` context (its `label`
+  // prop only sizes the outline notch), so an unpaired combobox has no accessible name
+  // (`combobox` is not a name-from-content role). Unique per mount so two mounted
+  // `<Studio>` instances never emit duplicate DOM ids.
+  const controlTypeLabelId = React.useId();
 
   const fieldCatalog = React.useMemo(
     () => buildFieldCatalog(dataSources, expressionFields),
@@ -170,6 +177,21 @@ export function FilterSetupPanel(props: { widgetId: string }) {
   // Capability constraint for the field picker based on filter type
   // (slider supports both numeric and temporal — filtered via getOptionDisabled)
   const fieldCapability = filterType === 'date-range' ? 'temporal' : undefined;
+
+  // Finding 8: the picker is fed the FULL field catalog (physical + expression fields)
+  // rather than the raw `dataSources` record. `DataSourceFieldSelect`'s `dataSources`
+  // branch folds `src.fields` only, so a calculated field could never be chosen as a
+  // filter-widget field — with nothing in the UI explaining the absence — even though
+  // every other setup panel routes through `buildFieldCatalog`/`buildSourceFieldEntries`.
+  // The capability filter that `dataSources` + `filterCapability` used to apply is
+  // re-applied here, since `filterCapability` is only honoured on the `dataSources` branch.
+  const pickerFields = React.useMemo(
+    () =>
+      fieldCapability
+        ? fieldCatalog.filter((f) => fieldHasCapability(f, fieldCapability))
+        : fieldCatalog,
+    [fieldCatalog, fieldCapability],
+  );
 
   const sliderGetOptionDisabled =
     filterType === 'slider'
@@ -282,8 +304,9 @@ export function FilterSetupPanel(props: { widgetId: string }) {
     <Stack spacing={2}>
       {/* Filter type */}
       <FormControl size="small" fullWidth>
-        <InputLabel>{localeText.filterSetupControlTypeLabel}</InputLabel>
+        <InputLabel id={controlTypeLabelId}>{localeText.filterSetupControlTypeLabel}</InputLabel>
         <Select
+          labelId={controlTypeLabelId}
           value={filterType}
           label={localeText.filterSetupControlTypeLabel}
           onChange={(evt) => handleTypeChange(evt.target.value as StudioFilterWidgetType)}
@@ -304,9 +327,14 @@ export function FilterSetupPanel(props: { widgetId: string }) {
       {/* Combined data source + field picker */}
       <DataSourceFieldSelect
         value={fieldId}
+        // Finding 7: the panel already stores which source the configured field belongs to
+        // (`config.filterWidgetSourceId`, read by `handleTypeChange` above), so hand it to the
+        // picker. Without it the picker resolves the stored id by a bare-id lookup across every
+        // source and can display a same-id field from a DIFFERENT source (wrong label, group,
+        // and type icon) as if it were the configured value.
+        valueSourceId={config.filterWidgetSourceId ?? widget.sourceId}
         onChange={handleFieldChange}
-        dataSources={dataSources}
-        filterCapability={fieldCapability}
+        fields={pickerFields}
         getOptionDisabled={sliderGetOptionDisabled}
         label={localeText.filterFieldLabel}
         required

@@ -120,6 +120,16 @@ export function KpiSetupPanel(props: { widgetId: string }) {
   const relationships = useStudioSelector(selectRelationships);
   const config = (widget?.config ?? {}) as StudioWidgetConfigForKind<'kpi'>;
   const aggregations = getKpiAggregations(localeText);
+  // MUI's `Select` only emits `aria-labelledby` when handed an explicit `labelId`, and
+  // `InputLabel` does not derive an `id`/`htmlFor` from `FormControl` context (its `label`
+  // prop only sizes the outline notch), so an unpaired combobox has no accessible name
+  // (`combobox` is not a name-from-content role — it announced its own display text, e.g.
+  // "Sum", with nothing saying which setting that value belongs to). Unique per mount so two
+  // mounted `<Studio>` instances never emit duplicate DOM ids.
+  const aggregationLabelId = React.useId();
+  const fixedWindowLabelId = React.useId();
+  const compPeriodLabelId = React.useId();
+  const datePresetLabelId = React.useId();
 
   // Source picker options. The value-field select also anchors the source as a side
   // effect, but a count KPI has no value field — without this explicit picker such a
@@ -423,8 +433,9 @@ export function KpiSetupPanel(props: { widgetId: string }) {
       />
 
       <FormControl size="small" fullWidth disabled={onlyOneAgg}>
-        <InputLabel>{localeText.chartSetupAggregationLabel}</InputLabel>
+        <InputLabel id={aggregationLabelId}>{localeText.chartSetupAggregationLabel}</InputLabel>
         <Select
+          labelId={aggregationLabelId}
           label={localeText.chartSetupAggregationLabel}
           value={selectedAgg}
           onChange={(event) =>
@@ -461,8 +472,9 @@ export function KpiSetupPanel(props: { widgetId: string }) {
           onToggle={(next) => controller.updateWidgetConfig(widgetId, { kpiTrend: next })}
         >
           <FormControl size="small" fullWidth>
-            <InputLabel>{localeText.kpiSetupFixedWindowLabel}</InputLabel>
+            <InputLabel id={fixedWindowLabelId}>{localeText.kpiSetupFixedWindowLabel}</InputLabel>
             <Select
+              labelId={fixedWindowLabelId}
               label={localeText.kpiSetupFixedWindowLabel}
               value={config.kpiTrendFixedPeriod ?? ''}
               onChange={(event) =>
@@ -482,8 +494,9 @@ export function KpiSetupPanel(props: { widgetId: string }) {
             </Select>
           </FormControl>
           <FormControl size="small" fullWidth>
-            <InputLabel>{localeText.kpiSetupCompPeriodLabel}</InputLabel>
+            <InputLabel id={compPeriodLabelId}>{localeText.kpiSetupCompPeriodLabel}</InputLabel>
             <Select
+              labelId={compPeriodLabelId}
               label={localeText.kpiSetupCompPeriodLabel}
               value={config.kpiTrendComparison ?? 'previous-period'}
               onChange={(event) =>
@@ -555,8 +568,11 @@ export function KpiSetupPanel(props: { widgetId: string }) {
             label={localeText.kpiSetupDateRangeFieldLabel}
           />
           <FormControl size="small" fullWidth>
-            <InputLabel>{localeText.kpiSetupDateRangePresetLabel}</InputLabel>
+            <InputLabel id={datePresetLabelId}>
+              {localeText.kpiSetupDateRangePresetLabel}
+            </InputLabel>
             <Select
+              labelId={datePresetLabelId}
               label={localeText.kpiSetupDateRangePresetLabel}
               value={activeDatePreset}
               onChange={(event) => {

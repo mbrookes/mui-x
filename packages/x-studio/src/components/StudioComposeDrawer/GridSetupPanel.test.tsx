@@ -1,11 +1,17 @@
+import * as React from 'react';
 import { createRenderer, screen, waitFor } from '@mui/internal-test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { StudioRelationship, StudioWidgetConfig } from '../../models';
+import type { StudioRelationship, StudioWidget, StudioWidgetConfig } from '../../models';
 import {
   mockUseStudioSelector,
   mockUseStudioController,
   configureStudioContextMock,
 } from '../../../test/studioContextMock';
+import { StudioController } from '../../store/StudioController';
+import {
+  StudioUIConfigContext,
+  DEFAULT_STUDIO_LOCALE_TEXT,
+} from '../../internals/StudioUIConfigContext';
 import { GridSetupPanel } from './GridSetupPanel';
 
 const controller = {
@@ -360,5 +366,180 @@ describe('GridSetupPanel', () => {
       mockState.doc.widgets['widget-1'] = previousWidget;
       mockState.runtime.dataSources.orders = previousOrders;
     }
+  });
+});
+
+// ─── "Calculated column…" actually produces a column (finding 3) ──────────────
+//
+// The entry lives in a menu titled "Add column", but the dialog only created the
+// expression field: `GridSetupPanel` passed no `onSaved`, so nothing was ever written to
+// `config.columns` and the user had to reopen the menu and hunt for the new field. And the
+// two commits the gesture needs (create the field, then select it as a column) must collapse
+// to ONE undo entry — the intermediate "field created but not assigned" state is one the
+// user never saw. This runs against a REAL `StudioController` so both the committed doc and
+// the actual undo stack are observed.
+describe('GridSetupPanel — calculated column (findings 3 & 4)', () => {
+  function makeController() {
+    return new StudioController({
+      doc: {
+        widgets: {
+          'widget-1': {
+            id: 'widget-1',
+            kind: 'grid',
+            title: 'Orders table',
+            sourceId: 'orders',
+            config: { columns: [{ fieldId: 'id' }, { fieldId: 'total' }] },
+          } as StudioWidget,
+        },
+      },
+      runtime: {
+        dataSources: {
+          orders: {
+            id: 'orders',
+            label: 'Orders',
+            fields: [
+              { id: 'id', label: 'Order ID', type: 'string' },
+              { id: 'total', label: 'Total', type: 'number' },
+            ],
+            rows: [],
+          },
+        },
+      },
+    });
+  }
+
+  function useRealController(realController: StudioController) {
+    configureStudioContextMock({
+      getState: () => realController.getState(),
+      controller: realController,
+    });
+  }
+
+  async function createCalculatedField(
+    user: ReturnType<typeof render>['user'],
+    name: string,
+    options?: { measure?: boolean },
+  ) {
+    await user.click(screen.getByRole('button', { name: 'Add column' }));
+    await user.click(await screen.findByRole('menuitem', { name: /Calculated column/ }));
+    // `required` makes MUI append an aria-hidden asterisk inside the <label>, so an exact
+    // `getByLabelText('Name')` would miss — the accessible name skips it.
+    await user.type(screen.getByRole('textbox', { name: 'Name' }), name);
+    if (options?.measure) {
+      await user.click(screen.getByRole('switch', { name: /Measure/ }));
+    }
+    await user.click(screen.getByRole('button', { name: 'Add Field' }));
+  }
+
+  it('adds the new calculated field as a column, in a single undoable step', async () => {
+    const realController = makeController();
+    useRealController(realController);
+
+    const { user } = render(<GridSetupPanel widgetId="widget-1" />);
+    await createCalculatedField(user, 'Margin');
+
+    const created = realController.getState().doc.expressionFields[0];
+    expect(created).not.toBe(undefined);
+    expect(created.label).toBe('Margin');
+    // The gesture launched from "Add column" produced a column.
+    const config = realController.getState().doc.widgets['widget-1'].config as StudioWidgetConfig;
+    expect(config.columns).toEqual([
+      { fieldId: 'id' },
+      { fieldId: 'total' },
+      { fieldId: created.id },
+    ]);
+
+    // ...and exactly ONE undo entry: a single Ctrl+Z reverts the field AND the column
+    // together, never landing on "field created but not assigned".
+    expect(realController.canUndo()).toBe(true);
+    realController.undo();
+    expect(realController.getState().doc.expressionFields).toEqual([]);
+    expect(
+      (realController.getState().doc.widgets['widget-1'].config as StudioWidgetConfig).columns,
+    ).toEqual([{ fieldId: 'id' }, { fieldId: 'total' }]);
+    expect(realController.canUndo()).toBe(false);
+  });
+
+  it('does not add a measure as a column, but surfaces it in the Add column menu so the work is accounted for', async () => {
+    const realController = makeController();
+    useRealController(realController);
+
+    const { user } = render(<GridSetupPanel widgetId="widget-1" />);
+    await createCalculatedField(user, 'Total revenue', { measure: true });
+
+    const created = realController.getState().doc.expressionFields[0];
+    expect(created.isMeasure).toBe(true);
+    // A measure aggregates the whole dataset and has no per-row value, so it cannot be a
+    // table column — `config.columns` is untouched.
+    expect(
+      (realController.getState().doc.widgets['widget-1'].config as StudioWidgetConfig).columns,
+    ).toEqual([{ fieldId: 'id' }, { fieldId: 'total' }]);
+
+    // But it is no longer invisible: the Add column menu lists it (disabled) with an
+    // explanation, instead of the field silently vanishing from the grid panel.
+    await user.click(screen.getByRole('button', { name: 'Add column' }));
+    const measureItem = await screen.findByRole('menuitem', { name: /Total revenue/ });
+    expect(measureItem).toBeVisible();
+    expect(measureItem.getAttribute('aria-disabled')).toBe('true');
+    expect(
+      screen.getByText(DEFAULT_STUDIO_LOCALE_TEXT.gridSetupMeasureNotColumnHelper),
+    ).toBeVisible();
+  });
+
+  // ─── Finding 4: the dialog flag must never latch ────────────────────────────
+  //
+  // With `tableSourceMode: 'implicit'` a fresh grid has no `sourceId`, yet the columns block
+  // (and so the Add column menu) still renders. Clicking "Calculated column…" used to set
+  // `calcDialogOpen = true` while the dialog itself was gated on a source, so nothing
+  // appeared and the flag stayed set — the dialog then popped open unprompted as soon as
+  // adding a normal column adopted a source.
+  it('disables the "Calculated column…" entry while the grid has no source (implicit mode)', async () => {
+    const realController = new StudioController({
+      doc: {
+        widgets: {
+          'widget-1': {
+            id: 'widget-1',
+            kind: 'grid',
+            title: 'Orders table',
+            config: {},
+          } as StudioWidget,
+        },
+      },
+      runtime: {
+        dataSources: {
+          orders: {
+            id: 'orders',
+            label: 'Orders',
+            fields: [{ id: 'id', label: 'Order ID', type: 'string' }],
+            rows: [],
+          },
+        },
+      },
+    });
+    useRealController(realController);
+
+    const { user } = render(
+      <StudioUIConfigContext.Provider
+        value={{
+          tableSourceMode: 'implicit',
+          featureFlags: {},
+          localeText: DEFAULT_STUDIO_LOCALE_TEXT,
+        }}
+      >
+        <GridSetupPanel widgetId="widget-1" />
+      </StudioUIConfigContext.Provider>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Add column' }));
+    const calcItem = await screen.findByRole('menuitem', { name: /Calculated column/ });
+    expect(calcItem.getAttribute('aria-disabled')).toBe('true');
+
+    // Adopting a source afterwards must NOT surface the dialog: nothing latched.
+    await user.keyboard('{Escape}');
+    await user.click(screen.getByRole('button', { name: 'Add column' }));
+    await user.click(await screen.findByRole('menuitem', { name: /Order ID$/ }));
+
+    expect(realController.getState().doc.widgets['widget-1'].sourceId).toBe('orders');
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });

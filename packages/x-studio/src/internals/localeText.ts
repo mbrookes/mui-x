@@ -741,6 +741,10 @@ export interface StudioLocaleText {
   gridSetupColumnSetAggTooltip: string;
   gridSetupAddColumn: string;
   gridSetupCalculatedColumn: string;
+  /** Subheader above the disabled measure entries in the grid's "Add column" menu. */
+  gridSetupMeasuresSubheader: string;
+  /** Explains why the measures listed in the "Add column" menu cannot be added as columns. */
+  gridSetupMeasureNotColumnHelper: string;
   gridSetupAddRule: string;
   gridSetupCFContains: string;
   gridSetupCFIsEmpty: string;
@@ -2015,6 +2019,9 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   gridSetupColumnSetAggTooltip: 'Set aggregation',
   gridSetupAddColumn: 'Add column',
   gridSetupCalculatedColumn: 'Calculated column…',
+  gridSetupMeasuresSubheader: 'Measures',
+  gridSetupMeasureNotColumnHelper:
+    'Measures aggregate the whole dataset, so they have no per-row value and cannot be table columns. Use them in a KPI or chart.',
   gridSetupAddRule: 'Add rule',
   gridSetupCFContains: 'contains',
   gridSetupCFIsEmpty: 'is empty',

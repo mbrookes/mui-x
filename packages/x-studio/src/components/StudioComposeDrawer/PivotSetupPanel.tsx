@@ -46,6 +46,11 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
 
   const aggFn = config.pivotAggregation ?? 'sum';
   const showTotals = config.pivotShowTotals ?? true;
+  // MUI's `Select` only emits `aria-labelledby` when handed an explicit `labelId`, and
+  // `InputLabel` does not derive an `id`/`htmlFor` from `FormControl` context (its `label`
+  // prop only sizes the outline notch), so an unpaired combobox has no accessible name.
+  // Unique per mount so two mounted `<Studio>` instances never emit duplicate DOM ids.
+  const aggregationLabelId = React.useId();
 
   // When the widget has a sourceId: show same-source fields only (+ same-source
   // expression fields — cross-source fields are intentionally excluded: pivot has no
@@ -169,8 +174,9 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
       <Divider />
 
       <FormControl size="small" fullWidth>
-        <InputLabel>{localeText.pivotSetupAggregationLabel}</InputLabel>
+        <InputLabel id={aggregationLabelId}>{localeText.pivotSetupAggregationLabel}</InputLabel>
         <Select
+          labelId={aggregationLabelId}
           label={localeText.pivotSetupAggregationLabel}
           value={aggFn}
           onChange={(evt) =>

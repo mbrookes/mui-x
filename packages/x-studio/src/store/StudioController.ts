@@ -2813,6 +2813,51 @@ export class StudioController {
 
   subscribe = (listener: (state: StudioState) => void) => this.store.subscribe(listener);
 
+  /**
+   * Collapses every undo entry pushed since `baselineDoc` into a SINGLE entry, so one user
+   * gesture that necessarily spans several mutation calls costs exactly one Ctrl+Z.
+   *
+   * Why it exists: most multi-mutation gestures fold themselves through the private
+   * `commitMutations` batch (e.g. a setup panel's source adoption = `sourceId` + config +
+   * stale-filter removal in one commit). That is only possible when ONE call site owns every
+   * mutation. Creating a calculated field from a field picker does not fit that shape: the
+   * shared `StudioExpressionFieldDialog` commits `addExpressionField` itself and only THEN
+   * calls back (`onSaved`) so the picker can write the config key that selects the new field.
+   * Two commits, one gesture — and the intermediate state ("field created but not assigned")
+   * is one the user never saw, yet a lone Ctrl+Z landed on it.
+   *
+   * Contract: capture `controller.getState().doc` BEFORE the first commit of the gesture (for
+   * a modal dialog, when it opens — a modal is a natural gesture boundary), then call this
+   * once the last commit has landed. The undo stack holds each commit's PRE-commit doc, so
+   * `baselineDoc` is the entry that reverts the whole gesture; everything pushed after it is
+   * an intra-gesture step and is dropped. Looked up with `lastIndexOf` because an undo→redo
+   * round trip can legitimately re-push the same doc reference, and the gesture's own entry
+   * is always the most recent occurrence.
+   *
+   * No-ops when `baselineDoc` is not on the undo stack — the gesture committed nothing
+   * undoable (or its entries were already evicted by `MAX_UNDO_HISTORY`), so there is nothing
+   * to collapse and, in particular, no unrelated earlier entry can be swallowed.
+   *
+   * Recent-mutation log: the surviving entry inherits the LAST log line among those folded,
+   * so a subsequent `undo()` retracts the line describing the gesture's net effect. Earlier
+   * intra-gesture lines (if any) stay in the log — they did happen.
+   *
+   * @param {StudioDoc} baselineDoc The `doc` reference captured before the gesture's first commit.
+   */
+  foldUndoHistorySince = (baselineDoc: StudioDoc) => {
+    const baseIndex = this.undoStack.lastIndexOf(baselineDoc);
+    if (baseIndex === -1 || baseIndex === this.undoStack.length - 1) {
+      return;
+    }
+    const foldedLogEntries = this.undoMutationLog.slice(baseIndex + 1);
+    this.undoStack.length = baseIndex + 1;
+    this.undoMutationLog.length = baseIndex + 1;
+    const lastLogEntry = foldedLogEntries.filter((entry) => entry !== null).pop() ?? null;
+    if (lastLogEntry) {
+      this.undoMutationLog[baseIndex] = lastLogEntry;
+    }
+  };
+
   canUndo = () => this.undoStack.length > 0;
 
   undo = () => {

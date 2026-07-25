@@ -139,3 +139,35 @@ describe('ColorInput identity resync (M2)', () => {
     expect((screen.getByLabelText('Color') as HTMLInputElement).value).toBe('#ff0000');
   });
 });
+
+// ─── Finding 9: no no-op commit when the text is edited back to its original ───
+//
+// `dirty` only records that the buffer was TYPED IN, not that it differs from the committed
+// value. Editing `#ff0000` and undoing the edit by hand before blurring left `dirty` set, so
+// blurring pushed an undoable `updateWidgetConfig` with identical content — and a later
+// Ctrl+Z then appeared to do nothing at all.
+describe('ColorInput — no-op commit guard (finding 9)', () => {
+  it('commits nothing when the text is typed and restored to the committed value', () => {
+    const onChange = vi.fn();
+    render(<ColorInput label="Color" value="#ff0000" onChange={onChange} />);
+    const input = screen.getByLabelText('Color') as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: '#ff000' } });
+    fireEvent.change(input, { target: { value: '#ff0000' } });
+    fireEvent.blur(input);
+
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('still commits a genuine change', () => {
+    const onChange = vi.fn();
+    render(<ColorInput label="Color" value="#ff0000" onChange={onChange} />);
+    const input = screen.getByLabelText('Color') as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: '#00ff00' } });
+    fireEvent.blur(input);
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith('#00ff00');
+  });
+});

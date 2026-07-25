@@ -58,7 +58,14 @@ export function ColorInput({
     if (!dirty) {
       return;
     }
-    onChange(text);
+    // "Dirty" only means the buffer was TYPED IN, not that it differs from the committed
+    // value: editing `#ff0000` and undoing the edit by hand before blurring leaves `dirty`
+    // set with an identical value. `onChange` is an undoable `updateWidgetConfig` at every
+    // call site, so committing that would push an undo entry whose content matches its
+    // predecessor and a later Ctrl+Z would appear to do nothing.
+    if (text !== value) {
+      onChange(text);
+    }
     setDirty(false);
   };
 

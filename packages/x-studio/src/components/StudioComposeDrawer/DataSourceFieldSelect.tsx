@@ -15,6 +15,7 @@ import { FieldTypeIcon, type FieldType } from '../../internals/FieldTypeIcon';
 import type { StudioDataSource, StudioDataField, StudioExpressionField } from '../../models';
 import { fieldHasCapability, type FieldCapability } from '../../utils/fieldCapabilities';
 import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
+import { useStudioController } from '../../context';
 import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';
 
 interface CalcFieldPaperProps extends PaperProps {
@@ -104,7 +105,12 @@ interface DataSourceFieldSelectProps {
   getOptionDisabled?: (option: DataSourceFieldEntry) => boolean;
   /** Disable the entire control. */
   disabled?: boolean;
-  label?: string;
+  /**
+   * Visible field label, also the picker's accessible name. REQUIRED, and deliberately has
+   * no default: this is a public export, so a hardcoded English fallback (`'Field'`) would
+   * ship untranslated UI to any consumer who omitted it. Callers pass a `localeText` value.
+   */
+  label: string;
   helperText?: string;
   size?: 'small' | 'medium';
   fullWidth?: boolean;
@@ -143,7 +149,7 @@ export function DataSourceFieldSelect({
   filterCapability,
   getOptionDisabled,
   disabled,
-  label = 'Field',
+  label,
   helperText,
   size = 'small',
   fullWidth = true,
@@ -151,6 +157,7 @@ export function DataSourceFieldSelect({
   required = false,
 }: DataSourceFieldSelectProps) {
   const localeText = useStudioLocaleText();
+  const controller = useStudioController();
   const [calcDialogOpen, setCalcDialogOpen] = React.useState(false);
   const computedFields = React.useMemo<DataSourceFieldEntry[]>(() => {
     if (fieldsProp) {
@@ -258,7 +265,21 @@ export function DataSourceFieldSelect({
   // Rendered via a custom Paper (not as an option) so it stays out of groupBy /
   // getOptionLabel / option-equality, and existing option-based tests are unaffected.
   // onMouseDown preventDefault keeps the click from blurring + closing the popper first.
-  const handleOpenCalcDialog = React.useCallback(() => setCalcDialogOpen(true), []);
+  // Finding 6: creating a calculated field from the picker is ONE gesture that necessarily
+  // costs two commits — the dialog commits `addExpressionField` itself, then calls `onSaved`
+  // so we can write the config key that selects the new field. Snapshot the doc as the dialog
+  // opens (a modal is a clean gesture boundary: nothing else can be edited while it is up) and
+  // hand it to `controller.foldUndoHistorySince` after the second commit, so a single Ctrl+Z
+  // reverts the whole thing instead of landing on "field created but not assigned" — a state
+  // the user never saw. Every source-adopting setup panel already folds its own multi-mutation
+  // gestures into one commit; this is the same invariant for a gesture split across a dialog.
+  const gestureBaselineDocRef = React.useRef<ReturnType<typeof controller.getState>['doc'] | null>(
+    null,
+  );
+  const handleOpenCalcDialog = React.useCallback(() => {
+    gestureBaselineDocRef.current = controller.getState().doc;
+    setCalcDialogOpen(true);
+  }, [controller]);
   const CalcFieldPaperWrapper = React.useCallback(
     (paperProps: PaperProps) => (
       <CalcFieldPaper
@@ -279,7 +300,14 @@ export function DataSourceFieldSelect({
       dataSource={calculatedField.dataSource}
       expressionFields={calculatedField.expressionFields}
       reachableSourceIds={calculatedField.reachableSourceIds}
-      onSaved={(fieldId) => onChange(fieldId, calculatedField.dataSource.id)}
+      onSaved={(fieldId) => {
+        onChange(fieldId, calculatedField.dataSource.id);
+        const baselineDoc = gestureBaselineDocRef.current;
+        gestureBaselineDocRef.current = null;
+        if (baselineDoc) {
+          controller.foldUndoHistorySince(baselineDoc);
+        }
+      }}
     />
   ) : null;
 

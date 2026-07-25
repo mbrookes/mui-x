@@ -7,6 +7,7 @@ import { Box, useTheme } from '@mui/material';
 import { aggregateByField } from '../../../internals/chartAggregation';
 import type { AggregatedData } from '../../../internals/chartAggregation';
 import { applyXGroupBy, isEmptyXValue, toXValue } from '../../../internals/chartValues';
+import { formatPercent } from '../../../internals/numberFormat';
 import { sortLabels } from '../../../internals/temporalUtils';
 import type { StudioChartConfig } from '../../../models';
 import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
@@ -23,6 +24,13 @@ import {
 } from './chartA11y';
 
 const CROSS_FILTER_SERIES_ID = 'cross-filter-series';
+
+/**
+ * Rendered wherever a category's aggregate is `null` — "nothing was measured for this
+ * category", which is a different fact from a measured 0. Same glyph the pivot table's empty
+ * cells use, so one dashboard reads consistently.
+ */
+const NO_VALUE_LABEL = '—';
 
 /**
  * Dimming state for the grouped concentric-ring pie's slices, keyed by
@@ -490,7 +498,9 @@ export function StudioPieChart({
       if (pieArcLabelCfg === 'value') {
         ringArcLabel = (item) => valueFormatter(item.value);
       } else if (pieArcLabelCfg === 'percent' && ringTotal > 0) {
-        ringArcLabel = (item) => `${((item.value / ringTotal) * 100).toFixed(1)}%`;
+        // `formatPercent` (not `toFixed`) so the decimal separator and the `%` placement follow
+        // the same `Intl` locale every other number in this widget is formatted with.
+        ringArcLabel = (item) => formatPercent((item.value / ringTotal) * 100);
       }
 
       return {
@@ -528,36 +538,86 @@ export function StudioPieChart({
       };
     });
 
+    // A ring arc identifies an (x-category, split-by) PAIR, but this widget cross-filters on the
+    // x-field only — so the value emitted for an arc is its RING's category, which is what the
+    // orchestrator's `handleItemClick` expects. The ring id encodes that category, and x-charts
+    // reports the arc's `seriesId` on both click and keyboard focus, so it is the lookup key.
+    const ringLabelBySeriesId = new Map<string, string | number>(
+      rings.map((ring) => [ring.id, ring.label]),
+    );
+    const handleRingClick = (
+      event: { shiftKey?: boolean } | null,
+      params: { seriesId: string | number; dataIndex: number },
+    ) => {
+      const label = ringLabelBySeriesId.get(String(params.seriesId));
+      if (label === undefined) {
+        return;
+      }
+      onItemClick(label, Boolean(event?.shiftKey));
+    };
+    // Enter / Space on the keyboard-focused arc emits the same cross-filter as a pointer click,
+    // so switching a pie widget to a split-by never silently drops it out of the keyboard path.
+    // The shared `chartKeyboardActivationProps` can't be reused here: it resolves the label by
+    // `dataIndex`, which in a ring pie indexes the SLICE within a ring, not the ring itself.
+    const ringKeyboardProps = {
+      onKeyDown: (event: React.KeyboardEvent) => {
+        if (event.key !== 'Enter' && event.key !== ' ') {
+          return;
+        }
+        const focused = chartFocusRef.current;
+        const label =
+          focused && 'seriesId' in focused
+            ? ringLabelBySeriesId.get(String(focused.seriesId))
+            : undefined;
+        if (label === undefined) {
+          return;
+        }
+        // Swallow the key only once it is known to be handled, so an unhandled Space still
+        // scrolls the dashboard as usual.
+        event.preventDefault();
+        onItemClick(label, event.shiftKey);
+      },
+    };
+
     return (
       <PieRingDimContext.Provider value={ringDimMap}>
-        <PieChart
-          title={ariaTitle}
-          // Rings and their split-by categories are otherwise distinguished by hue alone —
-          // enumerate the rings so the description names each one (finding M10).
-          desc={buildChartDescription(
-            rings.map((ring) => String(ring.label)),
-            localeText.filterSummaryAndMore,
-          )}
-          {...slotProps}
-          height={twoRingPieH}
-          skipAnimation={skipAnimation}
-          series={pieSeries}
-          colors={pieColors}
-          slots={RING_PIE_SLOTS}
-          {...(pieLegendBelow && {
-            slotProps: {
-              legend: {
-                direction: 'vertical' as const,
-                position: { vertical: 'bottom' as const, horizontal: 'center' as const },
+        {/* `display: contents` so the keydown wrapper adds no box of its own. The keydown is
+            DELEGATED: it originates on x-charts' focusable keyboard-navigation proxy inside the
+            chart and bubbles up here, so this wrapper is deliberately not itself a tab stop. */}
+        <div style={{ display: 'contents' }} {...ringKeyboardProps}>
+          <PieChart
+            {...CHART_KEYBOARD_NAV_PROPS}
+            title={ariaTitle}
+            // Rings and their split-by categories are otherwise distinguished by hue alone —
+            // enumerate the rings so the description names each one (finding M10).
+            desc={buildChartDescription(
+              rings.map((ring) => String(ring.label)),
+              localeText.filterSummaryAndMore,
+            )}
+            {...slotProps}
+            height={twoRingPieH}
+            skipAnimation={skipAnimation}
+            series={pieSeries}
+            colors={pieColors}
+            slots={RING_PIE_SLOTS}
+            {...(pieLegendBelow && {
+              slotProps: {
+                legend: {
+                  direction: 'vertical' as const,
+                  position: { vertical: 'bottom' as const, horizontal: 'center' as const },
+                },
               },
-            },
-          })}
-          margin={{ top: twoRingTopM, right: 16, bottom: twoRingBottomM, left: 16 }}
-          highlightedItem={controlledHighlightedItem}
-          onHighlightChange={(item) =>
-            onHoverChange(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
-          }
-        />
+            })}
+            margin={{ top: twoRingTopM, right: 16, bottom: twoRingBottomM, left: 16 }}
+            highlightedItem={controlledHighlightedItem}
+            onHighlightChange={(item) =>
+              onHoverChange(item ? { seriesId: item.seriesId, dataIndex: item.dataIndex } : null)
+            }
+            onItemClick={handleRingClick}
+          >
+            <ChartFocusTracker focusRef={chartFocusRef} />
+          </PieChart>
+        </div>
       </PieRingDimContext.Provider>
     );
   }
@@ -594,21 +654,33 @@ export function StudioPieChart({
   // Trigger when we have >= pieMaxSlices items (>= so N items collapses the last one).
   // Also absorb any top-N item whose share is < 1% of total into the "Other" group.
   let displayLabels = pieBaseData.labels;
-  // A `null` aggregate means "no data measured" for that category. x-charts has no
-  // null slice, and rendering it as 0 would be the fabrication the aggregation layer
-  // was just fixed to stop — so it degrades to `undefined` (an absent slice) instead.
-  let displayValues: (number | undefined)[] = pieBaseData.values.map((v) => v ?? undefined);
+  // A `null` aggregate means "nothing was measured" for that category, which is NOT a measured
+  // zero. It is carried through as `null` all the way to the render: the category keeps its
+  // legend row and its entry in the chart description (both rendered as `NO_VALUE_LABEL`), and
+  // it contributes NO arc at all — the pie's equivalent of the bar chart drawing no bar. See
+  // `internals/aggregators.ts` for why the aggregation layer emits `null` rather than 0.
+  let displayValues: (number | null)[] = pieBaseData.values;
   // True once the "Other" slice is a grouping bucket (an appended synthetic bucket, or a real
   // "Other" category that also absorbed the folded remainder). Used to guard clicks on it.
   let otherIsSynthetic = false;
   if (pieMaxSlices && displayLabels.length >= pieMaxSlices) {
-    const rawTotal = displayValues.reduce<number>((s, v) => s + (v ?? 0), 0);
+    // Only MEASURED categories take part in the ranking and the "Other" fold: an unmeasured
+    // category has no value to rank by and nothing to contribute to the bucket's sum, and
+    // folding it in as 0 would re-introduce the fabricated zero this pipeline avoids. They are
+    // appended unchanged, so they keep their (slice-less) legend row.
+    const measured: { label: string | number; value: number }[] = [];
+    const unmeasured: (string | number)[] = [];
+    displayLabels.forEach((label, i) => {
+      const value = displayValues[i];
+      if (value == null) {
+        unmeasured.push(label);
+      } else {
+        measured.push({ label, value });
+      }
+    });
+    const rawTotal = measured.reduce<number>((s, p) => s + p.value, 0);
     const minPct = rawTotal > 0 ? rawTotal * 0.01 : 0; // 1% threshold
-    const pairs = displayLabels.map((label, i) => ({
-      label,
-      value: displayValues[i] ?? 0,
-    }));
-    pairs.sort((a, b) => b.value - a.value);
+    const pairs = [...measured].sort((a, b) => b.value - a.value);
     // Keep up to topN items that individually exceed the 1% threshold
     const topN = pieMaxSlices - 1;
     const kept: typeof pairs = [];
@@ -622,21 +694,39 @@ export function StudioPieChart({
     }
     const otherValue = grouped.reduce((sum, p) => sum + p.value, 0);
     if (otherValue > 0 || grouped.length > 0) {
+      const unmeasuredValues = unmeasured.map(() => null);
       const existingOtherIdx = kept.findIndex((p) => p.label === otherBucketLabel);
       if (existingOtherIdx >= 0) {
         kept[existingOtherIdx] = {
           label: otherBucketLabel,
           value: kept[existingOtherIdx].value + otherValue,
         };
-        displayLabels = kept.map((p) => p.label);
-        displayValues = kept.map((p) => p.value);
+        displayLabels = [...kept.map((p) => p.label), ...unmeasured];
+        displayValues = [...kept.map((p) => p.value), ...unmeasuredValues];
       } else {
-        displayLabels = [...kept.map((p) => p.label), otherBucketLabel];
-        displayValues = [...kept.map((p) => p.value), otherValue];
+        displayLabels = [...kept.map((p) => p.label), otherBucketLabel, ...unmeasured];
+        displayValues = [...kept.map((p) => p.value), otherValue, ...unmeasuredValues];
       }
       otherIsSynthetic = true;
     }
   }
+
+  // Only measured categories become arcs: `PieValueType.value` is a plain `number`, so an
+  // unmeasured category has no representable slice — emitting one at 0 would draw a zero-width
+  // arc that still claims a share of the total and reads as a genuine measurement in the
+  // tooltip. `arcToDisplayIndex` maps each rendered arc back to its `displayLabels` index so
+  // clicks, keyboard activation, the selection highlight and the ghost ratio map (all keyed by
+  // the arc's `dataIndex`) stay aligned with the display arrays.
+  const arcToDisplayIndex: number[] = [];
+  displayValues.forEach((value, i) => {
+    if (value != null) {
+      arcToDisplayIndex.push(i);
+    }
+  });
+  const arcLabels = arcToDisplayIndex.map((i) => displayLabels[i]);
+  const displayToArcIndex = new Map<number, number>(
+    arcToDisplayIndex.map((displayIndex, arcIndex) => [displayIndex, arcIndex]),
+  );
 
   // Clicking the synthetic "Other" bucket would emit a cross-filter that matches no single
   // category, so ignore it. A real "Other" category (no grouping active) still cross-filters.
@@ -644,7 +734,8 @@ export function StudioPieChart({
     event: { shiftKey?: boolean } | null,
     params: { dataIndex: number },
   ) => {
-    const label = displayLabels[params.dataIndex];
+    // `dataIndex` indexes the RENDERED arcs, which skip unmeasured categories.
+    const label = arcLabels[params.dataIndex];
     if (label === undefined) {
       return;
     }
@@ -657,19 +748,24 @@ export function StudioPieChart({
   // Keyboard cross-filtering: Enter / Space on the arc x-charts' keyboard navigation has
   // focused emits the same cross-filter as a pointer click, with the same synthetic-"Other"
   // guard `handleSliceClick` applies (finding M10).
+  // The focused item's `dataIndex` addresses the rendered arcs, so activation resolves against
+  // `arcLabels` (not `displayLabels`, which also carries the slice-less unmeasured categories).
   const pieKeyboardProps = chartKeyboardActivationProps(
     chartFocusRef,
-    displayLabels,
+    arcLabels,
     onItemClick,
     (label) => otherIsSynthetic && String(label) === otherBucketLabel,
   );
 
   // Text alternative for the single-series pie: slices are distinguished by hue alone once arc
-  // labels are off, so name every slice in the chart's description (finding M10).
+  // labels are off, so name every slice in the chart's description (finding M10). Unmeasured
+  // categories announce the same `NO_VALUE_LABEL` the visible legend shows for them, so the
+  // description and the legend never disagree about whether a category was measured.
   const pieAriaDescription = buildChartDescription(
-    displayLabels.map(
-      (label, i) => `${formatLabel(label)}: ${valueFormatter(displayValues[i] ?? null)}`,
-    ),
+    displayLabels.map((label, i) => {
+      const value = displayValues[i];
+      return `${formatLabel(label)}: ${value == null ? NO_VALUE_LABEL : valueFormatter(value)}`;
+    }),
     localeText.filterSummaryAndMore,
   );
 
@@ -750,15 +846,15 @@ export function StudioPieChart({
       singleArcLabel = (item) => {
         const idx = (item as { id?: number; value: number }).id ?? 0;
         const fv = localFilteredDisplayValues[idx] ?? 0;
-        const filtPct = `${((fv / fTotal) * 100).toFixed(1)}%`;
-        const basePct = `${((item.value / total) * 100).toFixed(1)}%`;
+        const filtPct = formatPercent((fv / fTotal) * 100);
+        const basePct = formatPercent((item.value / total) * 100);
         if (fv === item.value) {
           return basePct;
         }
         return `${filtPct} / ${basePct}`;
       };
     } else {
-      singleArcLabel = (item) => `${((item.value / total) * 100).toFixed(1)}%`;
+      singleArcLabel = (item) => formatPercent((item.value / total) * 100);
     }
   }
 
@@ -782,10 +878,16 @@ export function StudioPieChart({
               : {}),
           }
         : {}),
-      data: displayLabels.map((label, i) => ({
-        id: i,
-        label: formatLabel(label),
-        value: displayValues[i] ?? 0,
+      // One entry per MEASURED category. `id` stays the DISPLAY index, which is what the
+      // `arcLabel`/`valueFormatter` closures below use to reach `filteredDisplayValues`.
+      data: arcToDisplayIndex.map((displayIndex) => ({
+        id: displayIndex,
+        label: formatLabel(displayLabels[displayIndex]),
+        value: displayValues[displayIndex] as number,
+        // Pin the palette entry by DISPLAY index so a category's colour doesn't shift when an
+        // unmeasured neighbour contributes no arc, and so the custom legend's swatch (also
+        // display-indexed) always names the slice it is coloured after.
+        color: pieColors[displayIndex % pieColors.length],
       })),
       highlightScope: { highlight: 'item' as const, fade: 'global' as const },
       ...(filteredDisplayValues
@@ -808,26 +910,32 @@ export function StudioPieChart({
   // always brightens it even when the pie is also receiving a cross-highlight from
   // another chart. isPieHighlightActive suppresses stale hover; otherwise fall back to hover.
   const pieHoverFallback = isPieHighlightActive ? null : controlledHighlightedItem;
+  // `highlightedItem.dataIndex` addresses the rendered arcs, so translate the selected display
+  // index. A selected category that was never measured has no arc and simply can't be
+  // highlighted (it is not a slice), so the hover fallback applies.
+  const selectedArcIndex =
+    selectedDataIndices.length > 0 ? displayToArcIndex.get(selectedDataIndices[0]) : undefined;
   const pieHighlightedItem =
-    selectedDataIndices.length > 0
-      ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedDataIndices[0] }
+    selectedArcIndex !== undefined
+      ? { seriesId: CROSS_FILTER_SERIES_ID, dataIndex: selectedArcIndex }
       : pieHoverFallback;
 
   // Ratio map for CrossHighlightPieArc, keyed by the RENDERED arc index.
   // The top-level pieRatioByIndex is keyed by allChartData's original order, but
   // displayLabels are re-sorted and "Other"-grouped when pieMaxSlices is set, so the
   // arc dataIndex no longer matches. Rebuild from displayValues / filteredDisplayValues,
-  // which are both already aligned to displayLabels (incl. the "Other" bucket).
+  // which are both already aligned to displayLabels (incl. the "Other" bucket), walking them
+  // through `arcToDisplayIndex` so the map is keyed by the ARC index the slot receives.
   const pieDisplayCtxValue = isPieHighlightActive
     ? // eslint-disable-next-line react/jsx-no-constructed-context-values
       {
         ratioByIndex: new Map<number, number>(
-          displayValues.map((bv, i) => {
-            const allValue = bv ?? 0;
+          arcToDisplayIndex.map((displayIndex, arcIndex) => {
+            const allValue = displayValues[displayIndex] ?? 0;
             const filteredValue = filteredDisplayValues
-              ? (filteredDisplayValues[i] ?? 0)
+              ? (filteredDisplayValues[displayIndex] ?? 0)
               : allValue;
-            return [i, allValue > 0 ? filteredValue / allValue : 1] as const;
+            return [arcIndex, allValue > 0 ? filteredValue / allValue : 1] as const;
           }),
         ),
         isActive: isPieHighlightActive,
@@ -870,15 +978,28 @@ export function StudioPieChart({
             {/* Custom legend: color swatch + left-aligned label + right-aligned percentage */}
             <Box sx={{ px: 1.5, pb: 1 }}>
               {displayLabels.map((label, i) => {
-                const value = displayValues[i] ?? 0;
-                const basePct =
-                  singlePieTotal > 0 ? `${((value / singlePieTotal) * 100).toFixed(1)}%` : '';
-                const filteredPct =
-                  filteredDisplayValues && filteredPieTotal > 0
-                    ? `${(((filteredDisplayValues[i] ?? 0) / filteredPieTotal) * 100).toFixed(1)}%`
-                    : null;
-                const pct =
-                  filteredPct && filteredPct !== basePct ? `${filteredPct} / ${basePct}` : basePct;
+                const value = displayValues[i];
+                // An unmeasured category has no share of the total to report: it renders the
+                // same `NO_VALUE_LABEL` the chart description announces for it, never the
+                // "0.0%" a `?? 0` would fabricate for a category that has no slice at all.
+                let pct: string;
+                if (value == null) {
+                  pct = NO_VALUE_LABEL;
+                } else if (singlePieTotal > 0) {
+                  const basePct = formatPercent((value / singlePieTotal) * 100);
+                  const filteredPct =
+                    filteredDisplayValues && filteredPieTotal > 0
+                      ? formatPercent(((filteredDisplayValues[i] ?? 0) / filteredPieTotal) * 100)
+                      : null;
+                  pct =
+                    filteredPct && filteredPct !== basePct
+                      ? `${filteredPct} / ${basePct}`
+                      : basePct;
+                } else {
+                  // Every category measured, but they sum to zero — there is no percentage to
+                  // report, and this is not the "unmeasured" case either.
+                  pct = '';
+                }
                 const color = pieColors[i % pieColors.length];
                 return (
                   <Box

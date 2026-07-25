@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { createRenderer } from '@mui/internal-test-utils';
+import { createRenderer, fireEvent } from '@mui/internal-test-utils';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AggregatedData } from '../../../internals/chartAggregation';
@@ -16,14 +16,29 @@ let capturedCtx: { ratioByIndex: Map<number, number>; isActive: boolean } | null
 // Counts mount/unmount of the mocked PieChart so a test can prove arcs are not remounted.
 let pieMountCount = 0;
 
+// The item x-charts' keyboard navigation currently focuses. Mocked because the real hook reads
+// the chart's own store, which the mocked `PieChart` below does not provide — `ChartFocusTracker`
+// (rendered as a child of the chart) mirrors whatever this returns into the widget's focus ref.
+let focusedItem: unknown = null;
+vi.mock('@mui/x-charts/hooks', () => ({
+  useFocusedItem: () => focusedItem,
+}));
+
 vi.mock('@mui/x-charts/PieChart', () => ({
-  PieChart: (props: unknown) => {
+  PieChart: (props: { children?: React.ReactNode }) => {
     pieSpy(props);
     capturedCtx = React.useContext(PieHighlightContext);
     React.useEffect(() => {
       pieMountCount += 1;
     }, []);
-    return <div data-testid="pie-chart" />;
+    // Children are rendered so `ChartFocusTracker` runs, exactly as it does inside a real chart.
+    // Focusable like x-charts' own keyboard-navigation proxy, so a keydown can be targeted at it
+    // and bubble to the widget's wrapper.
+    return (
+      <div data-testid="pie-chart" tabIndex={-1}>
+        {props.children}
+      </div>
+    );
   },
 }));
 
@@ -45,7 +60,12 @@ type PieCallProps = {
   highlightedItem?: { seriesId: string; dataIndex: number } | null;
   colors?: string[];
   slots?: Record<string, unknown>;
-  onItemClick?: (event: { shiftKey?: boolean } | null, params: { dataIndex: number }) => void;
+  onItemClick?: (
+    event: { shiftKey?: boolean } | null,
+    params: { seriesId?: string | number; dataIndex: number },
+  ) => void;
+  desc?: string;
+  disableKeyboardNavigation?: boolean;
 };
 
 function lastPieProps(): PieCallProps {
@@ -117,6 +137,7 @@ describe('StudioPieChart', () => {
     pieSpy.mockClear();
     capturedCtx = null;
     pieMountCount = 0;
+    focusedItem = null;
   });
 
   it('renders a single-series pie with one arc per label', () => {
@@ -720,6 +741,169 @@ describe('StudioPieChart', () => {
       renderPie(baseProps());
       const props = lastPieProps() as unknown as { disableKeyboardNavigation?: boolean };
       expect(props.disableKeyboardNavigation).toBe(false);
+    });
+  });
+
+  // ── Unmeasured (null) categories ──────────────────────────────────────────
+  // `aggregateByField` yields `null` for a category whose every contributing row had no
+  // numeric measure (an "Average temperature by city" donut where Oslo's column is all null).
+  // A synthetic 0 there is indistinguishable from a genuine zero measurement, so a null
+  // category must never become a slice, a share of the total, or a "0.0%" legend row.
+  describe('null (unmeasured) categories', () => {
+    const nullData: AggregatedData = { labels: ['Oslo', 'Rome'], values: [null, -4] };
+
+    it('renders no slice for an all-null category', () => {
+      renderPie(baseProps({ chartData: nullData }));
+      const props = lastPieProps();
+      expect(props.series[0].data.map((d) => d.label)).toEqual(['Rome']);
+      // Specifically: no fabricated zero-value arc.
+      expect(props.series[0].data.map((d) => d.value)).not.toContain(0);
+    });
+
+    it('shows "—" (not "0.0%") for the unmeasured category in the custom legend', () => {
+      const { container } = renderPie(
+        baseProps({
+          chartData: { labels: ['Oslo', 'Rome', 'Paris'], values: [null, 25, 75] },
+          pieLegendBelow: true,
+        }),
+      );
+      // The unmeasured category is still listed — the reader learns it exists and was not
+      // measured — but it claims no share of the total, and the shares of the measured
+      // categories are computed without it.
+      expect(container.textContent).toBe('Oslo—Rome25.0%Paris75.0%');
+      expect(container.textContent).not.toContain('0.0%');
+    });
+
+    it('describes the unmeasured category the same way the visible legend does', () => {
+      renderPie(baseProps({ chartData: nullData, ariaTitle: 'Average temperature by city' }));
+      // Previously the description said "Oslo: " (blank) while the legend claimed "0.0%".
+      expect(lastPieProps().desc).toBe('Oslo: —, Rome: -4');
+    });
+
+    it('maps a click on the first rendered arc to the first MEASURED category', () => {
+      const onItemClick = vi.fn();
+      renderPie(baseProps({ chartData: nullData, onItemClick }));
+      lastPieProps().onItemClick!({ shiftKey: false }, { dataIndex: 0 });
+      expect(onItemClick).toHaveBeenCalledWith('Rome', false);
+    });
+
+    it('highlights the selected arc by its rendered index, not its display index', () => {
+      // 'Rome' is display index 1 but arc index 0 once Oslo contributes no slice.
+      renderPie(
+        baseProps({
+          chartData: nullData,
+          getSelectedDataIndices: (labels) => {
+            const i = labels.indexOf('Rome');
+            return i >= 0 ? [i] : [];
+          },
+        }),
+      );
+      expect(lastPieProps().highlightedItem).toEqual({
+        seriesId: 'cross-filter-series',
+        dataIndex: 0,
+      });
+    });
+
+    it('keeps an unmeasured category out of the "Other" bucket sum', () => {
+      const chartData: AggregatedData = {
+        labels: ['a', 'b', 'c', 'd', 'unmeasured'],
+        values: [100, 80, 60, 40, null],
+      };
+      renderPie(baseProps({ chartData, pieMaxSlices: 3, pieLegendBelow: true }));
+      const props = lastPieProps();
+      // 'unmeasured' contributes no slice at all and nothing to the bucket's value.
+      expect(props.series[0].data.map((d) => d.label)).toEqual(['a', 'b', 'Other']);
+      expect(props.series[0].data.find((d) => d.label === 'Other')?.value).toBe(60 + 40);
+      // …but it keeps its legend row, marked as having no value.
+      expect(props.desc).toContain('unmeasured: —');
+    });
+  });
+
+  // ── Grouped rings: cross-filtering and keyboard access ─────────────────────
+  // The ring branch used to render with no `onItemClick`, no keyboard navigation and no focus
+  // tracker, so switching a pie widget from "no split-by" to a `seriesField` split silently
+  // dropped both click-to-cross-filter and the entire keyboard path.
+  describe('grouped rings are interactive', () => {
+    const ringRows = [
+      { region: 'North', segment: 'SMB', total: 5 },
+      { region: 'North', segment: 'Enterprise', total: 7 },
+      { region: 'South', segment: 'SMB', total: 3 },
+    ];
+    const ringProps = (overrides: Partial<StudioPieChartProps> = {}) =>
+      baseProps({
+        seriesField: 'segment',
+        xField: 'region',
+        yField: 'total',
+        enrichedRows: ringRows,
+        allEnrichedRows: ringRows,
+        chartData: { labels: ['North', 'South'], values: [12, 3] },
+        ...overrides,
+      });
+
+    it("emits the RING's x-category (not the slice) when an arc is clicked", () => {
+      const onItemClick = vi.fn();
+      renderPie(ringProps({ onItemClick }));
+      const props = lastPieProps();
+      // Second ring = the 'South' category; its id encodes the category.
+      const southRingId = props.series[1].id!;
+      props.onItemClick!({ shiftKey: false }, { seriesId: southRingId, dataIndex: 0 });
+      expect(onItemClick).toHaveBeenCalledWith('South', false);
+    });
+
+    it('forwards shift for multi-select, mirroring the single-series pie', () => {
+      const onItemClick = vi.fn();
+      renderPie(ringProps({ onItemClick }));
+      const props = lastPieProps();
+      props.onItemClick!({ shiftKey: true }, { seriesId: props.series[0].id!, dataIndex: 1 });
+      expect(onItemClick).toHaveBeenCalledWith('North', true);
+    });
+
+    it('opts into keyboard navigation and enumerates the rings in its description', () => {
+      renderPie(ringProps({ ariaTitle: 'Revenue by region and segment' }));
+      const props = lastPieProps();
+      expect(props.disableKeyboardNavigation).toBe(false);
+      expect(props.desc).toBe('North, South');
+    });
+
+    // The keydown originates on the chart's own focus proxy and bubbles to the widget's
+    // wrapper, exactly as it does in a real chart.
+    const pressKeyOnChart = (container: HTMLElement, key: string, shiftKey = false) => {
+      const chart = container.querySelector('[data-testid="pie-chart"]') as HTMLElement;
+      chart.focus();
+      fireEvent.keyDown(chart, { key, shiftKey });
+    };
+
+    it('cross-filters the focused ring on Enter, like a pointer click', () => {
+      const onItemClick = vi.fn();
+      // `ring-<category>` is the id the ring branch assigns to each ring series.
+      focusedItem = { type: 'pie', seriesId: 'ring-South', dataIndex: 0 };
+      const { container } = renderPie(ringProps({ onItemClick }));
+      pressKeyOnChart(container, 'Enter');
+      expect(onItemClick).toHaveBeenCalledWith('South', false);
+    });
+
+    it('forwards shift on Space for multi-select', () => {
+      const onItemClick = vi.fn();
+      focusedItem = { type: 'pie', seriesId: 'ring-North', dataIndex: 1 };
+      const { container } = renderPie(ringProps({ onItemClick }));
+      pressKeyOnChart(container, ' ', true);
+      expect(onItemClick).toHaveBeenCalledWith('North', true);
+    });
+
+    it('leaves keys it does not handle alone', () => {
+      const onItemClick = vi.fn();
+      focusedItem = { type: 'pie', seriesId: 'ring-South', dataIndex: 0 };
+      const { container } = renderPie(ringProps({ onItemClick }));
+      pressKeyOnChart(container, 'ArrowRight');
+      expect(onItemClick).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when no ring arc is focused', () => {
+      const onItemClick = vi.fn();
+      focusedItem = null;
+      const { container } = renderPie(ringProps({ onItemClick }));
+      pressKeyOnChart(container, ' ');
+      expect(onItemClick).not.toHaveBeenCalled();
     });
   });
 });

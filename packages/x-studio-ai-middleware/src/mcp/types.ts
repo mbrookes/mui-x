@@ -222,16 +222,42 @@ export interface StudioMcpOptions {
    * `toolPolicy` (via `Policy.all`), mirroring `AgenticLoopOptions.rateLimit` on the
    * chat transport.
    *
-   * - `maxMutationsPerSession`: once this many committed mutations are reached, any
-   *   further mutating `tools/call` is denied with a clear reason. Read-only calls
-   *   never count against it.
-   * - `maxToolCallsPerSession`: once this many total `tools/call` invocations (mutating
-   *   OR read-only) are reached, EVERY further call is denied — this is what actually
-   *   bounds a session that dispatches an unbounded number of read-only calls (e.g.
-   *   hundreds of `query_data_source` live DB queries), which `maxMutationsPerSession`
-   *   alone does not cap. Omit for no cap (current behavior).
+   * NOT A RATE, DESPITE THE NAME: these are cumulative COUNTERS with no time
+   * window. They live in the closure of the `Server` `buildStudioMcpServer`
+   * returns — one counter pair per built server, incremented for the whole
+   * lifetime of that MCP connection and never reset or decayed. A host that reads
+   * `rateLimit` as "N per minute" would configure a budget that, in a working
+   * session lasting hours, denies every call after the first N; conversely there
+   * is no per-minute burst protection here at all. The identity scoped is the
+   * BUILT SERVER, not the user or the tenant — under the documented
+   * server-per-connection wiring that means each reconnect starts a fresh full
+   * budget, so a per-user or per-tenant cap has to come from the host's own
+   * `toolPolicy`.
    *
-   * `onLimitReached(reason, count)` fires once per breach, per budget.
+   * - `maxMutationsPerSession`: once this many mutations have been COMMITTED to
+   *   `stateBox.current`, any further mutating `tools/call` is denied with a clear
+   *   reason. Read-only calls never count against it. `0` denies every mutating
+   *   call outright.
+   * - `maxToolCallsPerSession`: once this many total `tools/call` invocations
+   *   (mutating OR read-only) have been dispatched, EVERY further call is denied —
+   *   this is what actually bounds a session that dispatches an unbounded number of
+   *   read-only calls (e.g. hundreds of `query_data_source` live DB queries), which
+   *   `maxMutationsPerSession` alone does not cap.
+   *
+   * @default both budgets are `undefined`, i.e. NO CAP — deliberately, and unlike
+   *   the chat transport, which defaults `maxToolCallsPerRequest` to 50. See the
+   *   "DELIBERATE ASYMMETRY WITH THE CHAT TRANSPORT" note in `mcp.ts`: any
+   *   session-scoped default would wedge a normal long-lived working session
+   *   partway through. Combined with the allow-all default `toolPolicy`, a
+   *   default-configured MCP session has no bound on live DB queries or committed
+   *   mutations, so set both explicitly in production.
+   *
+   * `onLimitReached(reason, count)` fires at most ONCE PER BUDGET for the whole
+   * session (each budget latches internally) — not once per denied call — so it
+   * suits an alert, not a per-denial audit log. `count` is the counter's value at
+   * that first denial: mutations already committed, or tool calls already
+   * dispatched (which INCLUDES the call being denied, since the counter is bumped
+   * before the policy is consulted).
    */
   rateLimit?: {
     maxMutationsPerSession?: number;

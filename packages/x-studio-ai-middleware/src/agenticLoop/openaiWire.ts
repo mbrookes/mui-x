@@ -7,6 +7,7 @@
  * `agenticLoop.ts` verbatim.
  */
 import type { ChatMessage } from '@mui/x-chat-headless';
+import { markPackageAuthored } from '../internal/packageError';
 
 // ── OpenAI message types ──────────────────────────────────────────────────────
 
@@ -261,12 +262,17 @@ export function accumulateToolCallDeltas(deltas: ToolCallDelta[], acc: ToolCallA
       // `argsBuffer`/turn-text-buffer caps this mirrors, instead of a slow,
       // unbounded memory leak plus unbounded per-entry dispatch-loop work.
       if (Object.keys(acc.reqToolCalls).length >= MAX_TOOL_CALLS_PER_TURN) {
-        throw new Error(
-          `MUI X Studio: A single turn's streamed tool calls exceeded the maximum count ` +
-            `(${MAX_TOOL_CALLS_PER_TURN}). This can happen when a misbehaving gateway streams ` +
-            'tool-call deltas for an unbounded number of distinct indices, which would otherwise ' +
-            "let a single request grow this process's memory (and per-call dispatch work) without " +
-            'bound. Aborting this request.',
+        // Branded for the same reason as the buffer cap in `parseSSE`: this is OUR limit
+        // firing on a provider that is responding, so relaying it verbatim is what keeps
+        // the browser from being told the provider was unreachable.
+        throw markPackageAuthored(
+          new Error(
+            `MUI X Studio: A single turn's streamed tool calls exceeded the maximum count ` +
+              `(${MAX_TOOL_CALLS_PER_TURN}). This can happen when a misbehaving gateway streams ` +
+              'tool-call deltas for an unbounded number of distinct indices, which would otherwise ' +
+              "let a single request grow this process's memory (and per-call dispatch work) without " +
+              'bound. Aborting this request.',
+          ),
         );
       }
       acc.reqToolCalls[idx] = { id: tc.id ?? '', name: '', argsBuffer: '' };
@@ -309,11 +315,14 @@ export function accumulateToolCallDeltas(deltas: ToolCallDelta[], acc: ToolCallA
       // clean `{ type: 'error' }` SSE event, exactly like the idle-timeout and
       // turn-text-buffer caps this mirrors, instead of a slow, unbounded memory leak.
       if (nextArgsBuffer.length > MAX_TOOL_CALL_ARGS_BUFFER_CHARS) {
-        throw new Error(
-          `MUI X Studio: A streamed tool call's arguments exceeded the maximum buffered size ` +
-            `(${MAX_TOOL_CALL_ARGS_BUFFER_CHARS} chars). This can happen when a misbehaving gateway ` +
-            "streams a tool call's argument deltas without ever completing the call, which would " +
-            "otherwise let a single request grow this process's memory without bound. Aborting this request.",
+        // Branded — same reason as the tool-call count cap above.
+        throw markPackageAuthored(
+          new Error(
+            `MUI X Studio: A streamed tool call's arguments exceeded the maximum buffered size ` +
+              `(${MAX_TOOL_CALL_ARGS_BUFFER_CHARS} chars). This can happen when a misbehaving gateway ` +
+              "streams a tool call's argument deltas without ever completing the call, which would " +
+              "otherwise let a single request grow this process's memory without bound. Aborting this request.",
+          ),
         );
       }
       acc.reqToolCalls[idx].argsBuffer = nextArgsBuffer;

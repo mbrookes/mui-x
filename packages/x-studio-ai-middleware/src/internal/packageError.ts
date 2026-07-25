@@ -48,6 +48,29 @@ export class StudioTimeoutError extends Error {
 }
 
 /**
+ * Brand `err` as package-authored, so the redaction helpers relay its message verbatim
+ * instead of withholding it behind a correlation id.
+ *
+ * Lives here rather than beside any one thrower because every self-imposed cap in this
+ * package needs it: the stream buffer cap (`parseSSE`), the tool-call count and
+ * argument-buffer caps (`agenticLoop/openaiWire`), and the turn-text cap
+ * (`agenticLoop`). When one of those trips it is OUR limit firing, not the provider
+ * failing — an unbranded throw reaches `reportProviderFetchError`'s redacting arm and
+ * the browser is told "the LLM provider was unreachable or the request timed out",
+ * which is false and sends the operator to check network egress rules for a gateway
+ * that was, in fact, reachable and streaming.
+ *
+ * Only ever apply it to messages built purely from server-authored prose and
+ * compile-time constants — there is nothing untrusted in those to leak. The brand is an
+ * OWN property keyed by a `Symbol.for` registry symbol (never an `instanceof` check),
+ * so it survives a duplicated copy of this module in the dependency graph.
+ */
+export function markPackageAuthored(err: Error): Error {
+  (err as unknown as Record<symbol, unknown>)[PACKAGE_AUTHORED_ERROR] = true;
+  return err;
+}
+
+/**
  * Whether `err` was authored by this package and therefore carries no untrusted
  * content — the single predicate every redaction site consults before deciding
  * whether to withhold the message.

@@ -1,4 +1,5 @@
 import { withTimeout } from './mcp/helpers';
+import { markPackageAuthored } from './internal/packageError';
 
 /**
  * Default idle-timeout (ms): the max time the read loop will wait for the
@@ -123,12 +124,18 @@ export async function* parseSSE(
       // Checked BEFORE the split below so this trips even though the split itself
       // would otherwise (harmlessly) still run every iteration.
       if (buffer.length > maxBufferChars) {
-        throw new Error(
-          `MUI X Studio: LLM response stream exceeded the maximum buffered size ` +
-            `(${maxBufferChars} chars) without a complete line. This can happen when a ` +
-            'misbehaving gateway streams data without ever line-delimiting it, which would ' +
-            "otherwise let a single request grow this process's memory without bound. " +
-            'Aborting this request.',
+        // Branded: this is OUR cap firing on a gateway that is reachable and streaming,
+        // so the unbranded arm of `reportProviderFetchError` — which tells the browser
+        // "the LLM provider was unreachable or the request timed out" and sends the
+        // operator to check egress rules — describes the opposite of what happened.
+        throw markPackageAuthored(
+          new Error(
+            `MUI X Studio: LLM response stream exceeded the maximum buffered size ` +
+              `(${maxBufferChars} chars) without a complete line. This can happen when a ` +
+              'misbehaving gateway streams data without ever line-delimiting it, which would ' +
+              "otherwise let a single request grow this process's memory without bound. " +
+              'Aborting this request.',
+          ),
         );
       }
       // Split on LF or CRLF explicitly so a `\r` terminator is stripped by the split

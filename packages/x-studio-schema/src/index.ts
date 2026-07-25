@@ -67,6 +67,16 @@ export {
   STUDIO_CHART_TYPES,
   isStudioFilterOperator,
   STUDIO_FILTER_OPERATORS,
+  // The third closed union's runtime list, exported for the same reason as its two
+  // siblings above: `@mui/x-studio`'s expression editor and evaluator both branch on
+  // `StudioExpressionOperator`, and with only the TYPE public each was forced to
+  // hand-copy the operator list (`ExpressionNodeEditor`'s option table, the evaluator's
+  // arity/kind tables). That is exactly the per-package hand-copy this package exists to
+  // eliminate — a new operator added here but missed in a copy makes the editor and the
+  // load boundary disagree about which operators exist, and an expression the editor
+  // cannot offer silently evaluates to `null` after a reload.
+  isStudioExpressionOperator,
+  STUDIO_EXPRESSION_OPERATORS,
 } from './widgetTypeGuards';
 export { isoWeek, truncateToPeriod } from './temporalUtils';
 // `CURRENT_SCHEMA_VERSION` is re-exported via `stateTypes.ts` above (its source

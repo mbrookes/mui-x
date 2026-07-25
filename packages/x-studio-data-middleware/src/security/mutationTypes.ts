@@ -121,12 +121,27 @@ export interface HandleMutationOptions {
    */
   securityColumns?: SecurityColumnsConfig;
   /**
-   * Cache provider for post-mutation invalidation.
+   * Which cache post-mutation invalidation evicts.
    *
-   * When provided, a successful mutation calls `cacheProvider.deleteByTag(table)`
-   * to evict all cached query results for the affected table. This keeps the
-   * data cache coherent with the DB state without requiring the host app to
-   * call `/api/invalidate` manually.
+   * INVALIDATION IS NOT OPT-IN. A successful mutation ALWAYS calls
+   * `deleteByTag(table)` for the table it wrote; omitting this option falls back to
+   * the SAME process-wide default provider `handleBatchQuery` uses when it is given
+   * none, so a zero-config host's read path is still coherent without any
+   * `/api/invalidate` call. This option only chooses WHICH cache is evicted — so
+   * pass the same instance you pass to `HandleBatchQueryOptions.cacheProvider`
+   * (or leave both unset). Passing it on only one of the two paths evicts a cache
+   * nobody reads and leaves the one that IS read serving pre-mutation rows for a
+   * full TTL.
+   *
+   * EVICTION NEVER FAILS THE WRITE. The rows are already committed by the time it
+   * runs, so a cache-backend error is logged and the mutation still reports
+   * `ok: true` — reporting a committed write as failed would invite a retry that
+   * duplicates the row. Reads stay stale for at most the entry's TTL.
+   *
+   * Under `atomic: true` eviction runs once per DISTINCT table AFTER the commit,
+   * and is skipped entirely unless every mutation in the batch succeeded: a
+   * rolled-back batch changed nothing in the database, so there is nothing to
+   * evict.
    */
   cacheProvider?: import('../cache/types').CacheProvider;
 }

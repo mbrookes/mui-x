@@ -23,6 +23,12 @@ import { capText } from './promptCaps';
 import { isPackageAuthoredError } from './packageError';
 
 /**
+ * The prefix every message this package surfaces to a client must carry (AGENTS.md).
+ * Named here because the branded relay below has to TEST for it, not just prepend it.
+ */
+const PACKAGE_PREFIX = 'MUI X Studio: ';
+
+/**
  * Max chars of a provider error body retained for the SERVER-SIDE log. Bounds the
  * hostile-gateway "100 MB error body" case even on the logging path — the body is
  * never relayed to the client at any length.
@@ -73,22 +79,39 @@ export function reportProviderHttpError(
  * LLM provider. `err.message` goes to `detail` only — it routinely names internal
  * hosts, ports, and IP addresses.
  *
- * The exception is a PACKAGE-AUTHORED error — currently only a `withTimeout`
- * deadline, whose message is `"LLM provider request timed out after <constant>ms"`.
- * That names a server-authored label and a compile-time constant, discloses nothing
- * about the network, and is the one thing that tells an operator (and the user
- * watching the stream) that the provider went silent rather than refused. It is
- * relayed verbatim.
+ * The exception is a PACKAGE-AUTHORED error: a `withTimeout` deadline, and every
+ * self-imposed cap that can trip mid-stream (`parseSSE`'s buffer cap, `openaiWire`'s
+ * tool-call count and argument-buffer caps, `agenticLoop`'s turn-text cap). Each is
+ * built from a server-authored sentence and a compile-time constant, discloses nothing
+ * about the network, and is the one thing that tells an operator — and the user
+ * watching the stream — WHICH of "the provider went silent", "the provider refused"
+ * and "our own limit fired" actually happened. Relaying them verbatim is what keeps
+ * the generic sentence below from asserting the opposite: a cap trips precisely when
+ * the provider is reachable and streaming.
  */
 export function reportProviderFetchError(context: string, err: unknown): ProviderErrorReport {
   const correlationId = randomUUID();
   const raw = err instanceof Error ? err.message : String(err);
   if (isPackageAuthoredError(err)) {
+    // Most branded messages already open with the package prefix; `withTimeout`'s does
+    // not, because it composes a bare label with a duration. Prepending unconditionally
+    // would render "MUI X Studio: MUI X Studio: …" for the former, so add the prefix
+    // only when it is actually missing rather than requiring every thrower to guess
+    // which arm it will be relayed through.
     const message = capText(raw, MAX_PROVIDER_ERROR_DETAIL_CHARS);
+    const withPrefix = message.startsWith(PACKAGE_PREFIX) ? message : `${PACKAGE_PREFIX}${message}`;
+    // `withTimeout` ends its message with a bare duration, the caps end theirs with a
+    // full stop; terminate here so the sentence that follows never runs on.
+    const prefixed = withPrefix.endsWith('.') ? withPrefix : `${withPrefix}.`;
     return {
       correlationId,
-      detail: `MUI X Studio: ${message} [correlationId: ${correlationId}]`,
-      clientMessage: `MUI X Studio: ${message}. This ends the current request. Check that the LLM provider endpoint is reachable and responding within the configured deadline.`,
+      detail: `${prefixed} [correlationId: ${correlationId}]`,
+      // Deliberately vaguer than the old "reachable and responding within the configured
+      // deadline": this arm now also carries the self-imposed caps (stream buffer,
+      // tool-call count, argument buffer), which trip on a provider that IS reachable and
+      // IS responding. Each branded message states its own cause, so the tail only has to
+      // say where to look next without contradicting it.
+      clientMessage: `${prefixed} This ends the current request. The full text above is the server's own diagnosis — check the LLM provider endpoint and the gateway's streaming behaviour.`,
     };
   }
   return {

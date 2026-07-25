@@ -165,9 +165,13 @@ export class StudioController {
       resetHistory?: boolean;
       /**
        * Short semantic label (e.g. `"addFilter:revenue"`) recorded in the
-       * recent-mutation log surfaced to the AI assistant. Only labeled,
-       * undoable commits are logged — internal/transient commits are skipped
-       * so the log stays compact and meaningful.
+       * recent-mutation log surfaced to the AI assistant. Every labeled commit that
+       * changes the `doc` is logged — including a NON-undoable one (see the 2.11
+       * comment below), since a wire-driven navigation/rename is still an
+       * authored-visible change the model must see. Omitting the label is the ONLY
+       * way to keep a doc-changing commit out of the log, and is reserved for
+       * system-initiated self-repair and user-driven navigation; a genuine user
+       * edit always carries one.
        */
       label?: string;
     },
@@ -1622,8 +1626,15 @@ export class StudioController {
     // exactly matching the historical `'title' in changes || 'subtitle' in changes`
     // guard. Live-data title inference is a client-only effect the pure reducer does
     // not own, so it is layered on afterwards via `transform` (mirrors
-    // `updateWidgetConfig`). `label: null` preserves the hand-written method's
-    // behaviour of NOT writing a recent-mutation-log line.
+    // `updateWidgetConfig`). The commit takes the reducer's default
+    // `updateWidget:${widgetId}` label: this method carries the BROADER edit of the two
+    // (title, subtitle, kind, sourceId, plus the stale-filter removals folded into the
+    // same batch), yet it was the one suppressing its log line — inherited verbatim from
+    // the pre-reducer hand-written method, while `updateWidgetConfig` was later moved onto
+    // the reducer default (D1). The same mutation arriving over the wire is logged too
+    // (`applyExternalMutation` passes `mutationLabel(mutation)`), so suppressing it here
+    // made `getRecentMutations()` — whose whole job is telling the model what the USER
+    // just changed — report the assistant's widget edits while hiding the user's.
     const isExplicitTitleChange = 'title' in changes || 'subtitle' in changes;
     // Fold the widget update and any stale-filter removals into ONE `commitMutations`
     // batch so the whole source switch is a single undoable step (finding 1.5). A
@@ -1647,7 +1658,6 @@ export class StudioController {
         ...removeFilterMutations,
       ],
       {
-        label: null,
         transform: isExplicitTitleChange
           ? undefined
           : (next) => {
@@ -1929,8 +1939,15 @@ export class StudioController {
     // One composed commit (2.1): `addWidget` + `setWidgetLayout` (which runs the
     // reducer's `enforceLayoutColSpans` — closing the old hand-assembly's
     // no-col-span-handling gap) + one `addFilter` per cloned filter, folded into a
-    // single undo step. `transform` layers the client-only shell selection; `label:
-    // null` preserves the historical no-mutation-log-line behaviour.
+    // single undo step. `transform` layers the client-only shell selection.
+    //
+    // Labeled with `insertWidgetAt`'s exact `addWidget:<kind>:<id>` shape rather than the
+    // fold's default join (`addWidget:… + setWidgetLayout:… + addFilter:…` — the internal
+    // composition, not the user's action). A duplicate IS a widget creation, and it was
+    // the only creation path writing no log line at all: `getRecentMutations()` showed the
+    // assistant a dashboard with a widget it had never seen appear, which is exactly the
+    // blind spot the log exists to close. The previous `label: null` only preserved the
+    // pre-`commitMutations` hand-assembly's behaviour.
     this.commitMutations(
       [
         { type: 'addWidget', args: { widget: clone, pageId: activePage.id } },
@@ -1940,7 +1957,7 @@ export class StudioController {
         ),
       ],
       {
-        label: null,
+        label: `addWidget:${clone.kind}:${newId}`,
         transform: (next) => ({
           ...next,
           session: {

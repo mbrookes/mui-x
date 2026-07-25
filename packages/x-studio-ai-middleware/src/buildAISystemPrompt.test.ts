@@ -700,12 +700,16 @@ describe('buildAISystemPrompt: prototype-member id lookups (finding T2-1)', () =
     // A crafted body `activePageId: "__proto__"` would otherwise make
     // `pages[dashboard.activePageId]` resolve `Object.prototype` (truthy) and render a
     // phantom `## Active page: "undefined"` block with "No widgets on this page yet.".
-    const state = createDefaultStudioState({
+    // `pages` is emptied after the factory call: the factory now substitutes its default
+    // page for an empty `pages` override, so it can no longer produce the zero-page doc
+    // this assertion needs. The prompt builder still has to survive one, since it
+    // renders whatever `StudioState` the host hands it.
+    const base = createDefaultStudioState({
       doc: {
         dashboard: { id: 'd1', title: 'Test Dashboard', activePageId: '__proto__' },
-        pages: {},
       },
     });
+    const state = { ...base, doc: { ...base.doc, pages: {} } };
     const prompt = buildAISystemPrompt(state);
     expect(prompt).not.toContain('## Active page');
     // With no pages at all, the correct message is the "no pages" fallback.

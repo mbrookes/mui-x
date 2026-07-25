@@ -3530,6 +3530,54 @@ describe('StudioController.removeFilter — no-op does not touch history/log (D4
   });
 });
 
+// The rule the mutation-log labelling follows: a commit that changes the authored `doc`
+// on the user's behalf is labeled, and suppression is reserved for system-initiated
+// self-repair (`{ undoable: false }`) and user-driven navigation (`setActivePage`).
+// `updateWidget` used to break it with an inherited `label: null`, so the log recorded a
+// config tweak but hid the larger edit (retitle / re-source / kind switch) — and hid the
+// USER's widget edit while `applyExternalMutation` logged the assistant's identical one.
+describe('StudioController.updateWidget — labelling rule', () => {
+  it('logs a user-driven widget edit under the reducer default `updateWidget:<id>` label', () => {
+    const controller = new StudioController({
+      doc: { widgets: { w1: makeWidget('w1') } },
+    });
+
+    controller.updateWidget('w1', { title: 'Renamed' });
+
+    expect(controller.getRecentMutations().map((m) => m.label)).toEqual(['updateWidget:w1']);
+  });
+
+  it('logs the same label whether the edit came from the user or over the AI wire', () => {
+    const userDriven = new StudioController({ doc: { widgets: { w1: makeWidget('w1') } } });
+    const wireDriven = new StudioController({ doc: { widgets: { w1: makeWidget('w1') } } });
+
+    userDriven.updateWidget('w1', { title: 'Renamed' });
+    wireDriven.applyExternalMutation({
+      type: 'updateWidget',
+      args: { widgetId: 'w1', changes: { title: 'Renamed' } },
+    });
+
+    expect(userDriven.getRecentMutations().map((m) => m.label)).toEqual(
+      wireDriven.getRecentMutations().map((m) => m.label),
+    );
+  });
+
+  it('folds the stale-filter removals into the same batch label', () => {
+    const controller = new StudioController({
+      doc: {
+        widgets: { w1: makeWidget('w1') },
+        filters: [makeFilter({ id: 'f1', field: 'amount' })],
+      },
+    });
+
+    controller.updateWidget('w1', { sourceId: 'other' }, { removeFilterIds: ['f1'] });
+
+    expect(controller.getRecentMutations().map((m) => m.label)).toEqual([
+      'updateWidget:w1 + removeFilter:f1',
+    ]);
+  });
+});
+
 describe('StudioController.updateWidgetConfig — reducer default label (D1)', () => {
   it('logs under the reducer default `updateWidget:<id>` label (was `updateWidgetConfig:<id>`)', () => {
     const controller = new StudioController({
@@ -4406,12 +4454,19 @@ describe('StudioController.duplicateWidget — rewrite (2.1 + 1.8)', () => {
     expect(copyDateFilters[0].dateRangePreset).toBe('this_month');
   });
 
-  it('writes no mutation-log line (parity pin, label: null)', () => {
+  it('logs under the addWidget label shape, like every other creation path', () => {
     const controller = new StudioController();
     controller.addWidget(makeWidget('w1'));
-    const logBefore = controller.getRecentMutations().length;
     controller.duplicateWidget('w1');
-    expect(controller.getRecentMutations().length).toBe(logBefore);
+
+    const labels = controller.getRecentMutations().map((m) => m.label);
+    expect(labels).toHaveLength(2);
+    expect(labels[0]).toBe('addWidget:kpi:w1');
+    // The copy's id is minted inside `duplicateWidget`, so match the shape, not the id.
+    expect(labels[1]).toMatch(/^addWidget:kpi:widget-/);
+    // Not the fold's default join — the log records the user's action, not the internal
+    // `addWidget + setWidgetLayout + addFilter` composition it is implemented with.
+    expect(labels[1]).not.toContain('setWidgetLayout');
   });
 
   it('runs the reducer col-span normalization (row spans stay within GRID_COLS)', () => {

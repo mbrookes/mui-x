@@ -18,6 +18,7 @@ import {
   getConfiguredStudioState,
 } from '../../../../test/studioContextMock';
 import { selectFiltersForWidget } from '../../../internals/filterScoping';
+import { shouldApplyWidgetRankAtL3 } from '../../../internals/StudioPipeline';
 import {
   StudioUIConfigContext,
   DEFAULT_STUDIO_LOCALE_TEXT,
@@ -1842,6 +1843,40 @@ describe('<StudioKpiWidget /> Top-N rank filter scoping for fixed-period trend, 
     // 100). Post-fix: the rank filter keeps only the top-1-priority tag link ('electronics'),
     // matching the headline's own Top-N scope — the bucket reflects the order's amount once.
     expect(sparkline?.data).toEqual([50]);
+  });
+
+  it('derives the rank scoping from the shared L3 rule rather than a per-call-site constant', () => {
+    // The four `selectFiltersForWidget` calls in `StudioKpiWidget.tsx` (previous-period trend,
+    // sparkline, trend badge, "filters applied" tooltip) each used to hardcode
+    // `includeWidgetRank: true`. The literal was correct, but nothing tied it to
+    // `shouldApplyWidgetRankAtL3` — the helper `useWidgetRows` resolves the SAME flag from when
+    // it produces the headline rows. Whoever gave the KPI a post-aggregation rank path (as the xy
+    // chart families already have) would flip the helper and leave four stale `true`s behind,
+    // double-reducing the trend/sparkline/tooltip against a headline that reduced once. This
+    // asserts the composed rule the four call sites now share: for a KPI the helper says "apply
+    // at L3", and under that answer a widget-scoped rank filter must SURVIVE the scoping pass —
+    // which is precisely what the two behavioural tests above depend on.
+    const kpiWidget = makeWidget({ kpiValueField: 'revenue' }, 'orders');
+    expect(shouldApplyWidgetRankAtL3(kpiWidget)).toBe(true);
+
+    const rankFilter = {
+      id: 'f-rank',
+      field: 'region',
+      fieldType: 'string',
+      scope: { kind: 'widget', widgetId: 'kpi-1' },
+      filterMode: 'rank',
+      rankDirection: 'top',
+      rankByField: 'revenue',
+      value: 1,
+    } as unknown as StudioFilterState;
+    const scoped = selectFiltersForWidget([rankFilter], {
+      widgetId: kpiWidget.id,
+      widgetSourceId: kpiWidget.sourceId,
+      activePageId: 'page-1',
+      include: 'all',
+      includeWidgetRank: shouldApplyWidgetRankAtL3(kpiWidget),
+    });
+    expect(scoped.map((f) => f.id)).toEqual(['f-rank']);
   });
 });
 

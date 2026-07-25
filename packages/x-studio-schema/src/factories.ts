@@ -220,6 +220,8 @@ const defaultPageId = 'page-1';
  * `dashboard` (in `doc`) and `shell`/`shell.openDrawers` (in `session`) are
  * deep-merged onto their defaults; every other field replaces its default
  * wholesale (e.g. a `doc.pages` override replaces the default page map entirely).
+ * The one exception is an EMPTY `doc.pages` override, which falls back to the
+ * default page — see the "at least one page" guard in the body.
  */
 export interface CreateDefaultStudioStateOverrides {
   doc?: Partial<StudioDoc>;
@@ -278,12 +280,26 @@ export function createDefaultStudioState(
       ...docOverrides?.dashboard,
     },
   };
+  // "At least one page always exists" is an invariant of this doc shape, and a `doc.pages`
+  // override replaces the default page map WHOLESALE, so `{ doc: { pages: {} } }` — reachable
+  // from the public `Studio initialState` prop via `new StudioController(initialState)` — used
+  // to mint a zero-page doc with `activePageId: ''`. Nothing recovers from that state: every
+  // legacy pageId-less mutation (`addWidget`/`setWidgetLayout`/`setWidgetColSpan`) resolves its
+  // target through `Object.hasOwn(pages, activePageId)`, which no id satisfies once the map is
+  // empty, so the dashboard renders nothing and silently no-ops every edit forever. `removePage`
+  // refuses to delete the final page and `deserializeState` synthesizes the default page when its
+  // sweep empties the map; this is the third and last producer of a doc, so it upholds the
+  // invariant the same way rather than leaving the factory as the one hole.
+  if (Object.keys(mergedDoc.pages).length === 0) {
+    mergedDoc.pages = baseDoc.pages;
+  }
   // Reconcile a dangling `activePageId`: a `doc.pages` override replaces the default page
   // map WHOLESALE (the documented merge contract), so a caller that supplies `pages`
   // without also updating `dashboard.activePageId` would mint a state whose active page
   // names a page that no longer exists — a blank canvas until the user switches pages.
-  // Fall back to the first page id (or `''` when the map is empty), mirroring the exact
-  // fallback `removePage` uses when it deletes the active page.
+  // Fall back to the first page id, mirroring the exact fallback `removePage` uses when it
+  // deletes the active page. The empty-map arm of that fallback is now unreachable (the
+  // guard above guarantees a page), so `activePageId` is always a real page id.
   if (!Object.hasOwn(mergedDoc.pages, mergedDoc.dashboard.activePageId)) {
     mergedDoc.dashboard = {
       ...mergedDoc.dashboard,

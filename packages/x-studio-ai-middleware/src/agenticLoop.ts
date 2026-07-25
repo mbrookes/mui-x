@@ -42,7 +42,7 @@ import {
 import { capToolOutput } from './internal/capToolOutput';
 import { linkAbortSignal, readBodyWithTimeout } from './internal/llmFetch';
 import { reportProviderFetchError, reportProviderHttpError } from './internal/providerError';
-import { PACKAGE_AUTHORED_ERROR } from './internal/packageError';
+import { markPackageAuthored } from './internal/packageError';
 
 /**
  * Timeout (ms) for the LLM provider's HTTP request. Without this, a hung/overloaded
@@ -104,22 +104,6 @@ const DEFAULT_MAX_TOOL_CALLS_PER_REQUEST = 50;
  * exact cap rather than a hardcoded duplicate of this constant.
  */
 export const MAX_TURN_TEXT_BUFFER_CHARS = 2_000_000;
-
-/**
- * Brands an error this file authored, so the redaction split in the SSE read-loop
- * catch relays its message verbatim rather than withholding it behind a correlation
- * id. The brand is an OWN property (never an `instanceof` check) — see
- * `internal/packageError.ts` for why — and `StudioTimeoutError` carries the same one.
- *
- * Only ever applied to messages built purely from server-authored prose and
- * compile-time constants: there is nothing untrusted in them to leak, and they are
- * what tells an operator the stream was aborted deliberately rather than by the
- * provider.
- */
-function markPackageAuthored(err: Error): Error {
-  (err as unknown as Record<symbol, unknown>)[PACKAGE_AUTHORED_ERROR] = true;
-  return err;
-}
 
 // ── Loop options ──────────────────────────────────────────────────────────────
 

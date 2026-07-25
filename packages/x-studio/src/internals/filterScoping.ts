@@ -5,13 +5,24 @@ import type { StudioFilterState } from '../models';
  * Returns the subset of `filters` that applies to a specific widget.
  *
  * Single source of truth for all three data paths (async adapter, sync in-memory,
- * non-React pipeline). Filters without `scope` are silently skipped — all
- * filter-creation sites in `StudioController` now emit `scope`.
+ * non-React pipeline). Filters without `scope` are silently skipped; `scope` is a
+ * REQUIRED field of `StudioFilterState` and `deserializeState` drops any persisted
+ * entry whose scope fails `isValidFilterScope`, so this guard only ever fires on a
+ * hand-constructed or otherwise untyped filter.
  *
  * @param include
- *   'all' (default) — page + widget + cross-filter + interactive
- *   'no-cross'      — page + widget only (filteredRowsNoCross)
- *   'no-chart-cross'— page + widget + interactive, no scope:'cross-filter' (filteredRowsNoChartCross)
+ *   Gates ONLY the two interaction-driven scope kinds. `page`, `widget` and
+ *   `dashboard-date-range` are authored filters and are considered for every value:
+ *
+ *   'all' (default) — page + widget + dashboard-date-range + cross-filter + interactive
+ *   'no-cross'      — page + widget + dashboard-date-range (filteredRowsNoCross)
+ *   'no-chart-cross'— the above plus interactive, no scope:'cross-filter'
+ *                     (filteredRowsNoChartCross)
+ *
+ *   The `dashboard-date-range` term used to be missing from this list, which read as
+ *   "'no-cross' = page + widget only" — `useBlendedSeriesRows` relies on the opposite
+ *   (it passes 'no-cross' precisely to get the page + dashboard-date-range set for a
+ *   foreign series' source), so the omission described a behaviour no caller wanted.
  *
  * @param activePageId
  *   When undefined, there is no active-page scoping restriction AT ALL — every scope kind that

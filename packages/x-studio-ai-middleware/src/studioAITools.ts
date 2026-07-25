@@ -230,7 +230,18 @@ export const STUDIO_AI_TOOLS = [
     type: 'function',
     function: {
       name: 'set_active_page',
-      description: 'Switches the visible (active) page of the dashboard.',
+      // Every page-scoped tool resolves its target from `dashboard.activePageId`
+      // server-side and REJECTS a widget/filter that lives elsewhere, telling the
+      // model to "call set_active_page first" (see `executeToolOnState.ts`). Naming
+      // that prerequisite here saves the model a wasted error round-trip per
+      // cross-page edit; the `add_page` note prevents the opposite waste — a
+      // redundant activation of a page that is already active.
+      description:
+        'Switches the visible (active) page of the dashboard. ' +
+        'add_widget, set_widget_layout, set_widget_width, add_page_filter and apply_bulk_update ' +
+        'only ever act on the active page and reject targets that live on another page, ' +
+        'so call this first when the page you want to change is not the active one. ' +
+        'add_page already activates the page it creates. Use list_pages to find page IDs.',
       parameters: {
         type: 'object',
         properties: {

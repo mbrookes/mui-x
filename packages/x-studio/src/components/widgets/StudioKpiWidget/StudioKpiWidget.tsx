@@ -25,6 +25,7 @@ import { selectFiltersForWidget } from '../../../internals/filterScoping';
 import { collectSelectFields } from '../../../internals/queryDescriptor';
 import { buildFieldLabelMap } from '../../../internals/fieldCatalog';
 import { usePageChartColors } from '../../../internals/usePageChartColors';
+import { shouldApplyWidgetRankAtL3 } from '../../../internals/StudioPipeline';
 import { useWidgetRows } from '../../../internals/useWidgetRows';
 import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
 import {
@@ -282,23 +283,26 @@ function computeFilterBasedTrend(params: {
   //   'none' → currentRows = filteredRowsNoCross → page + widget only ('no-cross')
   //   else   → currentRows = effectiveRows        → all active scopes ('all')
   //
-  // `includeWidgetRank: true` is REQUIRED here for the same reason `useWidgetRows`
-  // passes it when producing `currentRows` (see its `includeWidgetRank` derivation):
-  // `selectFiltersForWidget` excludes a widget-scoped `filterMode: 'rank'` filter by
-  // default (it assumes the chart post-aggregation re-rank path). A KPI has no such
-  // path, so omitting this flag here silently dropped the Top-N/Bottom-N rank filter
-  // from `scopedFilters` — the current-period headline (via `currentRows`) stayed
-  // correctly rank-filtered while the previous-period value derived below from
-  // `prevFilters` (built from this `scopedFilters`) was computed against the FULL,
-  // unranked row set. Comparing a ranked current total against an unranked previous
-  // total produced a bogus trend delta (finding 1).
+  // `includeWidgetRank` is resolved through `shouldApplyWidgetRankAtL3` — the SAME single
+  // source of truth `useWidgetRows` resolves it from when producing `currentRows` — rather
+  // than a local `true`. `selectFiltersForWidget` excludes a widget-scoped
+  // `filterMode: 'rank'` filter by default (it assumes the chart post-aggregation re-rank
+  // path). A KPI has no such path, so losing the flag here silently drops the Top-N/Bottom-N
+  // rank filter from `scopedFilters` — the current-period headline (via `currentRows`) stays
+  // correctly rank-filtered while the previous-period value derived below from `prevFilters`
+  // (built from this `scopedFilters`) is computed against the FULL, unranked row set.
+  // Comparing a ranked current total against an unranked previous total produced a bogus
+  // trend delta (finding 1). Deriving the flag instead of hardcoding it means the rule can
+  // only ever change in the helper, which moves this call site and its three siblings in
+  // this file together — a KPI that later grew a post-aggregation rank path (as charts have)
+  // would otherwise keep a stale `true` here and double-reduce the previous period.
   const scopedFilters = selectFiltersForWidget(filters, {
     widgetId: widget.id,
     widgetSourceId: widget.sourceId,
     activePageId: pageId,
     include: crossFilterMode === 'none' ? 'no-cross' : 'all',
     crossFilterAllPages,
-    includeWidgetRank: true,
+    includeWidgetRank: shouldApplyWidgetRankAtL3(widget),
   });
   const dateFilter = findDateFilter(scopedFilters, widget.id, dataSource);
   if (!dateFilter) {
@@ -737,18 +741,18 @@ function useKpiSparkline(params: {
     // silently drive the sparkline's time field and auto-granularity on a multi-page
     // dashboard (finding 2.5 — the same bug already fixed for the trend path in
     // finding 2.17). `include` mirrors the row-scope `currentRows` actually uses.
-    // `includeWidgetRank: true` is REQUIRED here for the same reason `currentRows` (via
-    // `useWidgetRows`) and the filter-based trend path above pass it: `selectFiltersForWidget`
-    // excludes a widget-scoped `filterMode: 'rank'` filter by default, so omitting the flag
-    // here would join the sparkline against an unranked row set (e.g. all regions) while the
-    // headline stays correctly Top-N/Bottom-N filtered (finding 3).
+    // `includeWidgetRank` is resolved through `shouldApplyWidgetRankAtL3`, the same helper
+    // `currentRows` (via `useWidgetRows`) and the filter-based trend path above resolve it
+    // from: `selectFiltersForWidget` excludes a widget-scoped `filterMode: 'rank'` filter by
+    // default, so losing the flag here joins the sparkline against an unranked row set (e.g.
+    // all regions) while the headline stays correctly Top-N/Bottom-N filtered (finding 3).
     const scopedFilters = selectFiltersForWidget(filters, {
       widgetId: widget.id,
       widgetSourceId: widget.sourceId,
       activePageId: pageId,
       include: crossFilterMode === 'none' ? 'no-cross' : 'all',
       crossFilterAllPages,
-      includeWidgetRank: true,
+      includeWidgetRank: shouldApplyWidgetRankAtL3(widget),
     });
     const dateFilter = findDateFilter(scopedFilters, widget.id, dataSource);
     // Only use the date filter's field as the time axis when the filter applies to the
@@ -917,19 +921,19 @@ function useKpiTrend(params: {
     // current period (shown as a warning badge when missing). Scope the lookup through
     // the same authority the trend computation uses so the "needs a date filter" hint
     // stays consistent with whether a date filter is actually in scope (finding 2.17).
-    // `includeWidgetRank: true` is REQUIRED here for the same reason the filter-based trend
-    // path above passes it: `scopedFiltersForBadge` also feeds `periodValueParams.widgetFilters`
-    // and (below) `nonDateScopedFilters`, so omitting the flag would silently drop the widget's
-    // own Top-N/Bottom-N rank filter from both the fixed-period trend and the "needs a date
-    // filter" check, leaving the headline correctly rank-filtered while the trend/badge are
-    // computed against the full, unranked row set (finding 3).
+    // `includeWidgetRank` is resolved through `shouldApplyWidgetRankAtL3`, the same helper the
+    // filter-based trend path above resolves it from: `scopedFiltersForBadge` also feeds
+    // `periodValueParams.widgetFilters` and (below) `nonDateScopedFilters`, so losing the flag
+    // silently drops the widget's own Top-N/Bottom-N rank filter from both the fixed-period
+    // trend and the "needs a date filter" check, leaving the headline correctly rank-filtered
+    // while the trend/badge are computed against the full, unranked row set (finding 3).
     const scopedFiltersForBadge = selectFiltersForWidget(filters, {
       widgetId: widget.id,
       widgetSourceId: widget.sourceId,
       activePageId: pageId,
       include: crossFilterMode === 'none' ? 'no-cross' : 'all',
       crossFilterAllPages,
-      includeWidgetRank: true,
+      includeWidgetRank: shouldApplyWidgetRankAtL3(widget),
     });
     const needsDateFilter =
       !hasFixedPeriodTrend &&
@@ -1307,6 +1311,11 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   // grain-anchored value field owned by a related source (finding 3.1).
   const fieldDef = valueFieldDef;
 
+  // Hoisted out of the memo below so the memo can depend on the resolved BOOLEAN rather than on
+  // the `widget` object: `widget`'s identity changes on every config edit, so listing it as a
+  // dependency would rebuild the tooltip string on edits that cannot affect it.
+  const includeWidgetRank = shouldApplyWidgetRankAtL3(widget);
+
   const filterSubtitle = React.useMemo(() => {
     if (!dataSource) {
       return '';
@@ -1319,18 +1328,21 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     // this file (:265-271, :614-620, :787-793, :1009-1015) — otherwise, with the
     // dashboard-level all-pages toggle on, the headline is narrowed by a cross-page
     // cross-filter (via `useWidgetRows`) while this hover summary silently omits it.
-    // `includeWidgetRank: true` is REQUIRED here too, for the same reason every sibling
-    // `selectFiltersForWidget` call in this file passes it: `selectFiltersForWidget` excludes
-    // a widget-scoped `filterMode: 'rank'` filter by default, so omitting the flag would leave
-    // this "filters applied" summary silently omitting the widget's own Top-N/Bottom-N rank
-    // filter even though it's actually scoping the headline (finding 3).
+    // `includeWidgetRank` is resolved through `shouldApplyWidgetRankAtL3` (hoisted above), the
+    // same helper every sibling `selectFiltersForWidget` call in this file resolves it from:
+    // `selectFiltersForWidget` excludes a widget-scoped `filterMode: 'rank'` filter by default,
+    // so losing the flag leaves this "filters applied" summary silently omitting the widget's
+    // own Top-N/Bottom-N rank filter even though it's actually scoping the headline (finding 3).
+    // Sharing the helper is what keeps the tooltip listing EXACTLY the filters the headline was
+    // computed under — a hardcoded copy here could outlive a change to the rule and start
+    // advertising a rank filter the rows no longer honour (or hiding one they do).
     const relevant = selectFiltersForWidget(filters, {
       widgetId: widget.id,
       widgetSourceId: widget.sourceId,
       activePageId: pageId,
       include: crossFilterMode === 'none' ? 'no-cross' : 'all',
       crossFilterAllPages,
-      includeWidgetRank: true,
+      includeWidgetRank,
     });
     if (relevant.length === 0) {
       return '';
@@ -1352,6 +1364,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     pageId,
     crossFilterMode,
     crossFilterAllPages,
+    includeWidgetRank,
     localeText,
   ]);
 

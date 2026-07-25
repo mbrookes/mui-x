@@ -1155,13 +1155,20 @@ describe('executeToolOnState: add_page_filter', () => {
 
   it('returns an error (not success) when there is no active page, and does not mutate', () => {
     // activePageId points at a page that does not exist in `pages`.
-    const state = createDefaultStudioState({
+    //
+    // Built by emptying `pages` AFTER the factory rather than passing `pages: {}` into it:
+    // the factory now upholds the "at least one page" invariant and substitutes its default
+    // page for an empty override, so it is no longer a way to fabricate this state. The
+    // branch under test is still reachable — `executeToolOnState` takes a `StudioState` the
+    // HOST supplies, which need not have passed through the factory or the load boundary —
+    // so the guard must stay and must stay tested.
+    const base = createDefaultStudioState({
       doc: {
         dashboard: { id: 'd1', title: 'Dashboard', activePageId: 'gone' },
-        pages: {},
         widgets: {},
       },
     });
+    const state = { ...base, doc: { ...base.doc, pages: {} } };
     const result = executeToolOnState(
       'add_page_filter',
       { field: 'revenue', sourceId: 'src1', operator: 'equals', value: 1 },

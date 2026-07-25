@@ -346,9 +346,23 @@ describe('createDefaultStudioState', () => {
     expect(state.doc.dashboard.activePageId).toBe('second-page');
   });
 
-  it('falls back to an empty activePageId when a doc.pages override is empty', () => {
+  it('synthesizes the default page when a doc.pages override is empty', () => {
     const state = createDefaultStudioState({ doc: { pages: {} } });
-    // Mirrors `removePage`'s `remainingPageIds[0] ?? ''` when no page survives.
-    expect(state.doc.dashboard.activePageId).toBe('');
+    // A zero-page doc is unrecoverable: `activePageId` would be `''`, which no
+    // `Object.hasOwn(pages, activePageId)` guard satisfies, so every pageId-less
+    // mutation silently no-ops forever. `removePage` refuses to delete the final page
+    // and `deserializeState` re-synthesizes one; the factory now does the same.
+    expect(Object.keys(state.doc.pages)).toEqual(['page-1']);
+    expect(state.doc.dashboard.activePageId).toBe('page-1');
+  });
+
+  it('synthesizes the default page even when the empty override supplies its own activePageId', () => {
+    const state = createDefaultStudioState({
+      doc: { pages: {}, dashboard: { activePageId: 'ghost-page' } as any },
+    });
+    // The supplied id names no page, so it must still be reconciled onto the
+    // synthesized page rather than left dangling.
+    expect(Object.keys(state.doc.pages)).toEqual(['page-1']);
+    expect(state.doc.dashboard.activePageId).toBe('page-1');
   });
 });

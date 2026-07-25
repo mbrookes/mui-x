@@ -681,3 +681,89 @@ describe('renderHeatmap label formatting', () => {
     expect((view.props as { formatLabel?: unknown }).formatLabel).toBe(ctx.formatLabel);
   });
 });
+
+// These five families wire no `onItemClick` (see `ChartRenderContext.onItemClick`, forwarded only
+// by `renderBar` / `renderPieDonut` / `renderLineArea`), so clicking them never reaches
+// `StudioController.applyCrossFilter` — which makes them the set an author might assume the
+// "Interactions" (`crossFilterMode`) control does nothing for, and the set a reviewer is tempted
+// to hide that control from. It would be the wrong call: `crossFilterMode` is also the RECEIVE
+// side of the setting, and these families implement it. `useWidgetRows` bakes the mode into
+// `effectiveRows`, which arrives here as `ctx.enrichedRows`; `ctx.filteredRows` is the raw
+// include:'all' row set that ignores the mode entirely. Aggregating `filteredRows` is exactly the
+// regression finding 2.5 fixed — a `'none'`-mode gauge that still moved when a sibling chart was
+// clicked. Pinning the row source per family is what stops the control being removed as
+// "unimplemented" or these renderers being switched back to the mode-blind array.
+describe('families that emit no cross-filter still honour crossFilterMode on the receive side', () => {
+  // The hoisted spies are declared with a zero-argument signature (they only stub return
+  // values), so their recorded `calls` are typed as empty tuples — read the row argument
+  // through this widening accessor rather than adding a fake signature to the shared spies.
+  function lastRowsArg(spy: { mock: { calls: unknown[][] } }): unknown {
+    return spy.mock.calls.at(-1)?.[0];
+  }
+
+  // Every family gets its OWN row literals: `cachedCompute` keys on the rows array reference,
+  // so a shared array would let one family's cache entry answer for another and hide a wrong read.
+  it('heatmap aggregates the crossFilterMode-aware rows', () => {
+    const modeAware = [{ category: 'a', region: 'b', amount: 1 }];
+    const ctx = makeCtx<'heatmap'>(
+      {
+        chartType: 'heatmap',
+        xField: 'category',
+        heatYField: 'region',
+        yField: 'amount',
+      } as StudioWidgetConfig,
+      [{ category: 'z', region: 'z', amount: 99 }],
+    );
+    CHART_TYPE_DEFS.heatmap.render({ ...ctx, enrichedRows: modeAware });
+    expect(lastRowsArg(aggregateHeatmapSpy)).toBe(modeAware);
+  });
+
+  it('funnel aggregates the crossFilterMode-aware rows', () => {
+    const modeAware = [{ category: 'a', amount: 1 }];
+    const ctx = makeCtx<'funnel'>(
+      { chartType: 'funnel', xField: 'category', yField: 'amount' } as StudioWidgetConfig,
+      [{ category: 'z', amount: 99 }],
+    );
+    CHART_TYPE_DEFS.funnel.render({ ...ctx, enrichedRows: modeAware });
+    expect(lastRowsArg(buildFunnelStagesSpy)).toBe(modeAware);
+  });
+
+  it('sankey aggregates the crossFilterMode-aware rows', () => {
+    const modeAware = [{ category: 'a', region: 'b', amount: 1 }];
+    const ctx = makeCtx<'sankey'>(
+      {
+        chartType: 'sankey',
+        xField: 'category',
+        sankeyTargetField: 'region',
+        yField: 'amount',
+      } as StudioWidgetConfig,
+      [{ category: 'z', region: 'z', amount: 99 }],
+    );
+    CHART_TYPE_DEFS.sankey.render({ ...ctx, enrichedRows: modeAware });
+    expect(lastRowsArg(aggregateSankeySpy)).toBe(modeAware);
+  });
+
+  it('gantt builds its items from the crossFilterMode-aware rows', () => {
+    const modeAware = [{ label: 'a', start: '2024-01-01', end: '2024-01-02' }];
+    const ctx = makeCtx<'gantt'>(
+      {
+        chartType: 'gantt',
+        ganttLabelField: 'label',
+        ganttStartField: 'start',
+        ganttEndField: 'end',
+      } as StudioWidgetConfig,
+      [{ label: 'z', start: '2020-01-01', end: '2020-01-02' }],
+    );
+    CHART_TYPE_DEFS.gantt.render({ ...ctx, enrichedRows: modeAware });
+    expect(lastRowsArg(buildGanttItemsSpy)).toBe(modeAware);
+  });
+
+  it('gauge aggregates the crossFilterMode-aware rows', () => {
+    const modeAware = [{ amount: 1 }];
+    const ctx = makeCtx<'gauge'>({ chartType: 'gauge', yField: 'amount' } as StudioWidgetConfig, [
+      { amount: 99 },
+    ]);
+    CHART_TYPE_DEFS.gauge.render({ ...ctx, enrichedRows: modeAware });
+    expect(lastRowsArg(computeAggregateSpy)).toBe(modeAware);
+  });
+});

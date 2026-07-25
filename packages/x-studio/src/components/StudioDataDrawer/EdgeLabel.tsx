@@ -66,12 +66,15 @@ export function EdgeLabel({ rel, srcNode, tgtNode, sources, color, hoverColor }:
   const open = Boolean(anchorEl);
 
   const path = buildEdgePath(srcNode, tgtNode);
-  const srcSource = sources[rel.sourceId];
-  const tgtSource = sources[rel.targetId];
+  // `rel.sourceId`/`rel.targetId` are doc-authored (host/AI-writable): guard the record index
+  // against inherited keys ("toString"/"constructor"/…) so a bare bracket lookup can't resolve a
+  // function off `Object.prototype` instead of `undefined` (prototype-chain key lookup fix).
+  const srcSource = Object.hasOwn(sources, rel.sourceId) ? sources[rel.sourceId] : undefined;
+  const tgtSource = Object.hasOwn(sources, rel.targetId) ? sources[rel.targetId] : undefined;
   const srcFieldLabel =
-    srcSource?.fields.find((f) => f.id === rel.sourceField)?.label ?? rel.sourceField;
+    srcSource?.fields?.find((f) => f.id === rel.sourceField)?.label ?? rel.sourceField;
   const tgtFieldLabel =
-    tgtSource?.fields.find((f) => f.id === rel.targetField)?.label ?? rel.targetField;
+    tgtSource?.fields?.find((f) => f.id === rel.targetField)?.label ?? rel.targetField;
 
   const edgeAriaLabel = `${srcSource?.label ?? rel.sourceId} to ${
     tgtSource?.label ?? rel.targetId
@@ -130,7 +133,9 @@ export function EdgeLabel({ rel, srcNode, tgtNode, sources, color, hoverColor }:
           fontFamily="inherit"
           style={{ pointerEvents: 'none', userSelect: 'none' }}
         >
-          {TYPE_LABELS[rel.type] ?? rel.type}
+          {/* `rel.type` is doc-authored: guard against inherited `Object.prototype` keys
+          (e.g. "constructor") so we never render a function as an SVG text child. */}
+          {Object.hasOwn(TYPE_LABELS, rel.type) ? TYPE_LABELS[rel.type] : rel.type}
         </text>
       </g>
 
@@ -162,7 +167,10 @@ export function EdgeLabel({ rel, srcNode, tgtNode, sources, color, hoverColor }:
               {rel.type === 'many-to-many' && rel.junctionSourceId && (
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                   {localeText.lineageViaDetail(
-                    sources[rel.junctionSourceId]?.label ?? rel.junctionSourceId,
+                    (Object.hasOwn(sources, rel.junctionSourceId)
+                      ? sources[rel.junctionSourceId]
+                      : undefined
+                    )?.label ?? rel.junctionSourceId,
                   )}
                 </Typography>
               )}

@@ -73,4 +73,44 @@ describe('RelationshipPanel', () => {
     fireEvent.click(screen.getByTestId('EditIcon').closest('button')!);
     expect(screen.getByText('Edit relationship')).not.toBe(null);
   });
+
+  // Prototype-chain lookup bugs: `dataSources[rel.sourceId]` and `relationshipTypeLabels[rel.type]`
+  // are plain object bracket lookups. A doc-authored `rel.sourceId`/`rel.type` equal to an
+  // inherited `Object.prototype` member name (e.g. "constructor") resolves the inherited function
+  // instead of `undefined` — which previously survived `?? rel.sourceId` (truthy) and crashed
+  // `<Chip label>` rendering with "Functions are not valid as a React child."
+  it.each(['constructor', 'toString', 'valueOf', 'hasOwnProperty'])(
+    'renders without throwing when rel.sourceId is the prototype key %s',
+    (key) => {
+      expect(() => setup([{ ...REL, sourceId: key }])).not.toThrow();
+      expect(screen.getByText(new RegExp(`${key}.*Customers`))).not.toBe(null);
+    },
+  );
+
+  it.each(['constructor', 'toString', 'valueOf', 'hasOwnProperty'])(
+    'renders without throwing when rel.targetId is the prototype key %s',
+    (key) => {
+      expect(() => setup([{ ...REL, targetId: key }])).not.toThrow();
+      expect(screen.getByText(new RegExp(`Orders.*${key}`))).not.toBe(null);
+    },
+  );
+
+  it.each(['constructor', 'toString', 'valueOf', 'hasOwnProperty'])(
+    'renders without throwing when rel.type is the prototype key %s',
+    (key) => {
+      const hostileRel = { ...REL, type: key } as unknown as StudioRelationship;
+      expect(() => setup([hostileRel])).not.toThrow();
+      // The malformed type falls back to being rendered as its own string, never as a function.
+      expect(screen.getByText(key)).not.toBe(null);
+    },
+  );
+
+  it('renders without throwing when rel.junctionSourceId is a prototype key', () => {
+    const hostileRel: StudioRelationship = {
+      ...REL,
+      type: 'many-to-many',
+      junctionSourceId: 'constructor',
+    };
+    expect(() => setup([hostileRel])).not.toThrow();
+  });
 });

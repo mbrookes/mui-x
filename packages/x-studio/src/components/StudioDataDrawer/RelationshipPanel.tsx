@@ -113,12 +113,26 @@ export function RelationshipPanel(props: {
 
       <Stack spacing={0.5}>
         {relationships.map((rel) => {
-          const srcLabel = dataSources[rel.sourceId]?.label ?? rel.sourceId;
-          const tgtLabel = dataSources[rel.targetId]?.label ?? rel.targetId;
+          // `rel.sourceId`/`rel.targetId`/`rel.junctionSourceId`/`rel.type` are doc-authored
+          // (host/AI-writable): guard every record index against inherited `Object.prototype`
+          // keys ("toString"/"constructor"/…) so a bare bracket lookup can't resolve a function
+          // off the prototype (truthy, survives `??`) instead of `undefined` — which would
+          // otherwise crash `<Chip label>` rendering (prototype-chain key lookup fix).
+          const srcLabel =
+            (Object.hasOwn(dataSources, rel.sourceId) ? dataSources[rel.sourceId] : undefined)
+              ?.label ?? rel.sourceId;
+          const tgtLabel =
+            (Object.hasOwn(dataSources, rel.targetId) ? dataSources[rel.targetId] : undefined)
+              ?.label ?? rel.targetId;
           const jctLabel = rel.junctionSourceId
-            ? (dataSources[rel.junctionSourceId]?.label ?? rel.junctionSourceId)
+            ? ((Object.hasOwn(dataSources, rel.junctionSourceId)
+                ? dataSources[rel.junctionSourceId]
+                : undefined
+              )?.label ?? rel.junctionSourceId)
             : null;
-          const typeLabel = relationshipTypeLabels[rel.type] ?? rel.type;
+          const typeLabel = Object.hasOwn(relationshipTypeLabels, rel.type)
+            ? relationshipTypeLabels[rel.type]
+            : rel.type;
           return (
             <Stack
               key={rel.id}

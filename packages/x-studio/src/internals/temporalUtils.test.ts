@@ -255,6 +255,70 @@ describe('normalizeDataSourceRows', () => {
     expect(normalizeDataSourceRows(source)).toBe(source);
   });
 
+  // ─── Canonicality is decided per FIELD, over every cell ──────────────────────
+
+  it('normalizes later rows of a MIXED-format date column (canonical first row is not evidence)', () => {
+    // A host merging a JSON-revived batch with a CSV batch: row 0 is already canonical,
+    // rows 1..N are `Date` objects. Deciding from row 0 alone left the rest raw, so one
+    // calendar day rendered as two axis buckets and the filter path could day-shift it.
+    const result = normalizeDataSourceRows(
+      makeNormSource([
+        { id: 1, date: '2024-01-15' },
+        { id: 2, date: new Date(2024, 0, 16) }, // local midnight
+        { id: 3, date: new Date(2024, 0, 17) },
+      ]),
+    );
+
+    expect(result.rows!.map((r) => r.date)).toEqual(['2024-01-15', '2024-01-16', '2024-01-17']);
+  });
+
+  it('keeps the already-canonical rows of a mixed column by reference', () => {
+    // Every row of a mixed column goes through the conversion pass, but only the rows whose
+    // values actually change are cloned.
+    const canonical = { id: 1, date: '2024-01-15' };
+    const source = makeNormSource([canonical, { id: 2, date: new Date(2024, 0, 16) }]);
+    const result = normalizeDataSourceRows(source);
+
+    expect(result.rows![0]).toBe(canonical);
+    expect(result.rows![1].date).toBe('2024-01-16');
+  });
+
+  it('normalizes a MIXED-format datetime column', () => {
+    const d = new Date('2024-03-15T12:00:00Z');
+    const result = normalizeDataSourceRows(
+      makeNormSource([
+        { id: 1, ts: '2024-03-14T08:00:00.000Z' },
+        { id: 2, ts: d },
+      ]),
+    );
+
+    expect(result.rows!.map((r) => r.ts)).toEqual([
+      '2024-03-14T08:00:00.000Z',
+      '2024-03-15T12:00:00.000Z',
+    ]);
+  });
+
+  it('canonicalizes a ZONE-LESS datetime instead of trusting it', () => {
+    // `'2024-01-15T23:30:00'` (MySQL/SQLite shape) denotes no definite instant: the filter
+    // path parses it as LOCAL while `truncateToPeriod` reads its UTC components, splitting one
+    // timestamp across two buckets. It must be resolved to an explicit UTC instant.
+    const zoneless = '2024-01-15T23:30:00';
+    const result = normalizeDataSourceRows(makeNormSource([{ id: 1, ts: zoneless }]));
+
+    expect(result.rows![0].ts).toBe(new Date(zoneless).toISOString());
+    expect(result.rows![0].ts).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+  });
+
+  it('canonicalizes an offset-zoned datetime to the UTC spelling', () => {
+    // Unambiguous, but not the canonical spelling — two spellings of one instant would
+    // compare unequal in any string-keyed grouping.
+    const result = normalizeDataSourceRows(
+      makeNormSource([{ id: 1, ts: '2024-01-15T23:30:00+02:00' }]),
+    );
+
+    expect(result.rows![0].ts).toBe('2024-01-15T21:30:00.000Z');
+  });
+
   it('builds fieldDistinctValues for string fields even when no date fields require normalization', () => {
     const source: StudioDataSource = {
       id: 's1',

@@ -125,6 +125,54 @@ export function normalizeToDate(value: unknown): Date | null {
   return null;
 }
 
+/** Canonical `date` cell: exactly `YYYY-MM-DD`. */
+const CANONICAL_DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Canonical `datetime` cell: exactly what `Date.prototype.toISOString()` emits,
+ * `YYYY-MM-DDTHH:mm:ss.sssZ`.
+ *
+ * The explicit-zone requirement is the load-bearing part. A zone-less
+ * `'2024-01-15T23:30:00'` — the shape MySQL/SQLite drivers routinely hand back — denotes no
+ * definite instant: `new Date()` reads it as LOCAL time on the filter path while
+ * `truncateToPeriod` reads its UTC components on the chart-grouping path, so one timestamp
+ * lands in two different buckets. Treating it as already-canonical left that split in place;
+ * it must be normalized to a real UTC instant instead. Offset forms (`+02:00`) are
+ * unambiguous but still not the canonical spelling, so they are normalized too — otherwise
+ * two spellings of the same instant compare unequal in any string-keyed grouping.
+ */
+const CANONICAL_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+/**
+ * Whether EVERY non-null cell of `fieldId` across `rows` already matches `canonical`.
+ *
+ * Scans rather than sampling one cell: a single column can legitimately mix formats — a host
+ * merging a JSON-revived batch with a CSV batch, or an adapter response spliced onto seeded
+ * rows — so a canonical row 0 says nothing about rows 1..N. Deciding from the sample alone
+ * left those later `Date` objects raw, which rendered one calendar day as two axis buckets
+ * and let the filter path day-shift it for a non-UTC viewer.
+ *
+ * The loop short-circuits on the first non-canonical cell, so a column that DOES need
+ * normalizing costs a handful of regex tests before falling through to the row pass, while an
+ * already-canonical column pays one cheap regex per row and skips N `Date` constructions.
+ */
+function isFieldAlreadyCanonical(
+  rows: readonly Record<string, unknown>[],
+  fieldId: string,
+  canonical: RegExp,
+): boolean {
+  for (const row of rows) {
+    const value = row[fieldId];
+    if (value == null) {
+      continue;
+    }
+    if (typeof value !== 'string' || !canonical.test(value)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /**
  * Normalise all date/datetime field values in a data source's rows to canonical
  * ISO strings on ingestion, so the rest of the system can assume a single format.
@@ -133,11 +181,11 @@ export function normalizeToDate(value: unknown): Date | null {
  * - `datetime` fields → `"YYYY-MM-DDTHH:mm:ss.sssZ"` (full ISO-8601 UTC)
  *
  * Accepts JS `Date` objects, millisecond timestamps (numbers), and any string
- * that `new Date()` can parse. The format is inferred once from the first
- * non-null value of each field; if it's already canonical every row is skipped
- * without per-cell regex checks.
- */
-/**
+ * that `new Date()` can parse. A field is skipped entirely only when EVERY one of its
+ * non-null cells is already canonical (see {@link isFieldAlreadyCanonical}); otherwise every
+ * cell of that field is converted. Rows whose cells all come back byte-identical are returned
+ * by reference, so a mostly-canonical column does not clone the row array.
+ *
  * Returns a normalized copy of `dataSource`.
  *
  * When `usedFieldIds` is provided, only the fields in that set are processed:
@@ -174,20 +222,15 @@ export function normalizeDataSourceRows(
   if (dateFieldIds.length > 0 || datetimeFieldIds.length > 0) {
     const { rows: originalRows } = dataSource;
 
-    // Infer once per field: find the first non-null value and decide whether
-    // normalization is needed at all. Fields already in canonical form are excluded.
-    const dateIdsToNormalize = dateFieldIds.filter((id) => {
-      const sample = originalRows.find((r) => r[id] != null)?.[id];
-      return (
-        sample !== undefined && !(typeof sample === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(sample))
-      );
-    });
-    const datetimeIdsToNormalize = datetimeFieldIds.filter((id) => {
-      const sample = originalRows.find((r) => r[id] != null)?.[id];
-      return (
-        sample !== undefined && !(typeof sample === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(sample))
-      );
-    });
+    // Decide per field, over ALL of its cells: a field is excluded from the row pass only
+    // when it holds nothing but canonical values. One canonical cell is not evidence about
+    // the others (see `isFieldAlreadyCanonical`).
+    const dateIdsToNormalize = dateFieldIds.filter(
+      (id) => !isFieldAlreadyCanonical(originalRows, id, CANONICAL_DATE_ONLY),
+    );
+    const datetimeIdsToNormalize = datetimeFieldIds.filter(
+      (id) => !isFieldAlreadyCanonical(originalRows, id, CANONICAL_DATETIME),
+    );
 
     if (dateIdsToNormalize.length > 0 || datetimeIdsToNormalize.length > 0) {
       rows = originalRows.map((row) => {
@@ -200,7 +243,10 @@ export function normalizeDataSourceRows(
             continue;
           }
           const normalized = normalizeToDateOnlyString(raw);
-          if (normalized != null) {
+          // Compare before assigning: a mixed-format column puts EVERY row through this pass,
+          // but the rows that were already canonical must still be returned by reference so
+          // callers relying on row identity (and the row-array clone cost) are unaffected.
+          if (normalized != null && normalized !== raw) {
             next[id] = normalized;
             changed = true;
           }
@@ -212,8 +258,9 @@ export function normalizeDataSourceRows(
             continue;
           }
           const d = normalizeToDate(raw);
-          if (d) {
-            next[id] = d.toISOString();
+          const normalized = d?.toISOString();
+          if (normalized != null && normalized !== raw) {
+            next[id] = normalized;
             changed = true;
           }
         }

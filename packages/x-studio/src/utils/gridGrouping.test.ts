@@ -370,4 +370,137 @@ describe('buildGroupedGridRows', () => {
     );
     expect(result[0].bonus).toBe(300);
   });
+
+  // ─── Related-source rows are L1-normalized before indexing ─────────────────────
+  //
+  // Every cross-source reader routes the related source's rows through
+  // `getCachedNormalizedDataSource` first. Reading `dataSources[id].rows` raw left `Date`
+  // objects in place, so a `count_distinct` over a related `date` column counted OBJECT
+  // references instead of calendar days.
+
+  it('count_distinct over a related-source date column counts calendar days, not Date instances', () => {
+    const orderItems = [
+      { id: 'i1', customerId: 'c1', category: 'Electronics' },
+      { id: 'i2', customerId: 'c2', category: 'Electronics' },
+      { id: 'i3', customerId: 'c3', category: 'Electronics' },
+    ];
+    const dataSources: Record<string, StudioDataSource> = {
+      order_items: {
+        id: 'order_items',
+        label: 'Order Items',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'customerId', label: 'Customer', type: 'string' },
+          { id: 'category', label: 'Category', type: 'string' },
+        ],
+      },
+      customers: {
+        id: 'customers',
+        label: 'Customers',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'signupDate', label: 'Signup', type: 'date' },
+        ],
+        rows: [
+          // Two DISTINCT Date instances for the same calendar day, plus a third day.
+          // Local-midnight construction keeps the calendar day timezone-independent.
+          { id: 'c1', signupDate: new Date(2024, 0, 15) },
+          { id: 'c2', signupDate: new Date(2024, 0, 15) },
+          { id: 'c3', signupDate: new Date(2024, 1, 20) },
+        ],
+      },
+    };
+    const relationships: StudioRelationship[] = [
+      {
+        id: 'rel1',
+        type: 'many-to-one',
+        sourceId: 'order_items',
+        sourceField: 'customerId',
+        targetId: 'customers',
+        targetField: 'id',
+      },
+    ];
+
+    const result = buildGroupedGridRows(
+      orderItems,
+      'category',
+      ['category', 'signupDate'],
+      { signupDate: 'count_distinct' },
+      'widget-1',
+      [{ fieldId: 'category' }, { fieldId: 'signupDate', sourceId: 'customers' }],
+      dataSources,
+      relationships,
+      'order_items',
+    );
+
+    // Raw `Date` objects would give 3 (one Set entry per object reference); normalized
+    // `'YYYY-MM-DD'` strings collapse the two same-day signups to 2 distinct days — the same
+    // value the cells beside this total already render.
+    expect(result[0].signupDate).toBe(2);
+  });
+
+  it('L2-enriches a related-source calculated column over NORMALIZED dates', () => {
+    // The related expression reads the date column; it must see the canonical string the
+    // display path sees, not a raw `Date`. Same rows/enrichment inputs as
+    // `crossSourceEnrichment`, so both share one `enrichedRowsCache` slot.
+    const orderItems = [{ id: 'i1', customerId: 'c1', category: 'Electronics' }];
+    const dataSources: Record<string, StudioDataSource> = {
+      order_items: {
+        id: 'order_items',
+        label: 'Order Items',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'customerId', label: 'Customer', type: 'string' },
+          { id: 'category', label: 'Category', type: 'string' },
+        ],
+      },
+      customers: {
+        id: 'customers',
+        label: 'Customers',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'signupDate', label: 'Signup', type: 'date' },
+        ],
+        rows: [{ id: 'c1', signupDate: new Date(2024, 0, 15) }], // local midnight
+      },
+    };
+    const relationships: StudioRelationship[] = [
+      {
+        id: 'rel1',
+        type: 'many-to-one',
+        sourceId: 'order_items',
+        sourceField: 'customerId',
+        targetId: 'customers',
+        targetField: 'id',
+      },
+    ];
+    // isJan15 = signupDate == '2024-01-15' — a calculated column owned by the CUSTOMERS
+    // source that compares the date against its CANONICAL string form. A raw `Date` stringifies
+    // to `'Mon Jan 15 2024 …'` and never matches; the normalized `'2024-01-15'` does.
+    const isJan15: StudioExpressionField = {
+      id: 'isJan15',
+      label: 'Signed up Jan 15',
+      sourceId: 'customers',
+      isMeasure: false,
+      expression: {
+        operator: 'equals',
+        inputs: [{ id: 'signupDate' }, { type: 'string', value: '2024-01-15' }],
+      },
+    } as unknown as StudioExpressionField;
+
+    const result = buildGroupedGridRows(
+      orderItems,
+      'category',
+      ['category', 'isJan15'],
+      { isJan15: 'sum' }, // booleans coerce to 0/1
+      'widget-1',
+      [{ fieldId: 'category' }, { fieldId: 'isJan15', sourceId: 'customers' }],
+      dataSources,
+      relationships,
+      'order_items',
+      [isJan15],
+    );
+
+    expect(result[0].isJan15).toBe(1);
+  });
 });

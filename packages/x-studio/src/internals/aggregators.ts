@@ -58,6 +58,87 @@ export interface MultiYSeriesData {
   }>;
 }
 
+/** Which end of the ranking survives: `'top'` keeps the highest scores, `'bottom'` the lowest. */
+type RankDirection = 'top' | 'bottom';
+
+/**
+ * Reduce one candidate's cells to a single rank score, skipping the `null`s.
+ *
+ * `null` cells are ABSENT measurements, not zeros (see {@link AggregatedData.values}), so they
+ * contribute nothing: they neither add 0 to a sum, nor pull an average toward 0, nor win a
+ * `min`/`max` against a real value. When every cell is null the candidate has no data at all
+ * and the score is `null` — which {@link selectRankedIndices} sorts to the losing end.
+ *
+ * Uses an explicit loop rather than `Math.min(...values)`: the spread form throws
+ * `RangeError: Maximum call stack size exceeded` past ~125k elements (matching
+ * `internals/aggregate.ts` and `utils/gridGrouping.ts`).
+ */
+function reduceRankScore(
+  values: readonly (number | null | undefined)[],
+  fn: 'sum' | 'avg' | 'min' | 'max',
+): number | null {
+  let acc: number | null = null;
+  let count = 0;
+  for (const value of values) {
+    if (value == null) {
+      continue;
+    }
+    count += 1;
+    if (acc === null) {
+      acc = value;
+    } else if (fn === 'min') {
+      acc = value < acc ? value : acc;
+    } else if (fn === 'max') {
+      acc = value > acc ? value : acc;
+    } else {
+      acc += value;
+    }
+  }
+  if (acc === null) {
+    return null;
+  }
+  return fn === 'avg' ? acc / count : acc;
+}
+
+/**
+ * Pick the indices of the `n` best-ranked candidates out of `count`, scoring each through
+ * `rawScoreOf`. The one place the rank ordering policy lives, shared by all three
+ * `applyRankTo*` entry points so a Top-N behaves identically whatever shape the data has.
+ *
+ * A `null` raw score means "no data", not "zero" — such a candidate must never win a slot in
+ * a Top-N or a Bottom-N, so it sorts LAST in EITHER direction rather than being coerced to a
+ * 0 that outranks every negative value (or undercuts every positive one), or to a ±Infinity
+ * that beats every real measurement (H4).
+ *
+ * The comparator tests equality first, so two no-data candidates (both the same ±Infinity)
+ * compare as 0 instead of yielding `Infinity - Infinity === NaN`. A NaN comparator is not a
+ * consistent ordering, which makes the surviving set engine-dependent.
+ *
+ * Returns the winning indices as a Set; every caller then filters its own arrays with a
+ * keep-mask, so surviving candidates stay in their ORIGINAL input order. Ranking selects
+ * WHICH candidates survive; the caller's `orderLabels`/`chartSortBy` choice remains the
+ * single authority on their order.
+ */
+function selectRankedIndices(
+  count: number,
+  rawScoreOf: (index: number) => number | null | undefined,
+  dir: RankDirection,
+  n: number,
+): Set<number> {
+  const noDataScore = dir === 'top' ? -Infinity : Infinity;
+  const scoreOf = (index: number): number => rawScoreOf(index) ?? noDataScore;
+  const indices = Array.from({ length: count }, (_, i) => i);
+  indices.sort((a, b) => {
+    const sa = scoreOf(a);
+    const sb = scoreOf(b);
+    if (sa === sb) {
+      return 0;
+    }
+    return dir === 'top' ? sb - sa : sa - sb;
+  });
+  return new Set(indices.slice(0, n));
+}
+
 /**
  * Apply a rank filter to already-aggregated chart data.
  * Ranks by the aggregated value (the bar/slice height) and keeps top/bottom N — unless
@@ -108,35 +189,23 @@ export function applyRankToAggregated(
     rawScoreOf = (i) => data.values[i];
   }
 
-  // A `null` score means "no data", not "zero" — such a label must never win a slot in a
-  // Top-N or a Bottom-N, so it sorts last in EITHER direction rather than being coerced
-  // to a 0 that outranks every negative value (or undercuts every positive one) (H4).
-  const scoreOf = (i: number): number => {
-    const raw = rawScoreOf(i);
-    if (raw === null) {
-      return dir === 'top' ? -Infinity : Infinity;
-    }
-    return raw;
-  };
-
-  const indices = data.labels.map((_, i) => i);
-  // Compare for equality first so two no-data labels (both ±Infinity) yield 0 rather than
-  // a `NaN` comparator result.
-  indices.sort((a, b) => {
-    const sa = scoreOf(a);
-    const sb = scoreOf(b);
-    if (sa === sb) {
-      return 0;
-    }
-    return dir === 'top' ? sb - sa : sa - sb;
-  });
-  const keepIndices = new Set(indices.slice(0, n));
+  // Null-score ("no data") and comparator policy lives in `selectRankedIndices`, shared with
+  // the two sibling `applyRankTo*` functions.
+  const keepIndices = selectRankedIndices(data.labels.length, rawScoreOf, dir, n);
   const keepMask = data.labels.map((_, i) => keepIndices.has(i));
   return {
     labels: data.labels.filter((_, i) => keepMask[i]),
     values: data.values.filter((_, i) => keepMask[i]),
   };
 }
+
+/** `rankMultiSeriesBy` sentinels → the cross-series reduction they select. */
+const MULTI_SERIES_RANK_FNS = {
+  __sum: 'sum',
+  __avg: 'avg',
+  __min: 'min',
+  __max: 'max',
+} as const;
 
 /**
  * Apply a rank filter to multi-series aggregated data.
@@ -146,6 +215,12 @@ export function applyRankToAggregated(
  * - `'__max'`: maximum value across all series
  * - `'__min'`: minimum value across all series
  * - `<fieldId>`: use only the series with that fieldId
+ *
+ * Every reduction runs over the label's NON-NULL cells only, and a label whose every series
+ * is null scores `null` — "no data", which loses in both directions (see
+ * {@link selectRankedIndices}). Filling nulls in per-reduction (`?? 0` for sum/avg,
+ * `?? ±Infinity` for min/max) is what let a category with no rows at all win a `'__min'`
+ * top-1 outright, displacing the only category that had data (H4).
  */
 export function applyRankToMultiSeries(
   data: MultiYSeriesData,
@@ -161,37 +236,31 @@ export function applyRankToMultiSeries(
   const dir = rankFilter.rankDirection ?? 'top';
   const rankBy = rankFilter.rankMultiSeriesBy ?? '__sum';
 
-  const scores = data.labels.map((_, i) => {
-    if (rankBy === '__sum') {
-      return data.series.reduce((acc, s) => acc + (s.values[i] ?? 0), 0);
-    }
-    if (rankBy === '__avg') {
-      const count = data.series.length;
-      if (count === 0) {
-        return 0;
-      }
-      return data.series.reduce((acc, s) => acc + (s.values[i] ?? 0), 0) / count;
-    }
-    if (rankBy === '__max') {
-      return Math.max(...data.series.map((s) => s.values[i] ?? -Infinity));
-    }
-    if (rankBy === '__min') {
-      return Math.min(...data.series.map((s) => s.values[i] ?? Infinity));
-    }
-    // rank by a specific series fieldId.
-    // NOTE: matches on `fieldId` alone and takes the FIRST match. For blended mixed charts two
-    // series can legitimately share a `fieldId` while originating from different sources (see
-    // `MultiYSeriesData.series[].sourceId`), so this conflates them — the first source's values
-    // drive the rank score for both. `rankMultiSeriesBy` is a bare fieldId with no source
-    // component, so a full fix needs a `(fieldId, sourceId)` rank-target model extension; until
-    // then the first-match behavior is intentional and documented (finding 3.4).
-    const series = data.series.find((s) => s.fieldId === rankBy);
-    return series ? (series.values[i] ?? 0) : 0;
-  });
+  const reduction: 'sum' | 'avg' | 'min' | 'max' | undefined =
+    rankBy in MULTI_SERIES_RANK_FNS
+      ? MULTI_SERIES_RANK_FNS[rankBy as keyof typeof MULTI_SERIES_RANK_FNS]
+      : undefined;
+  // rank by a specific series fieldId when `rankBy` is not one of the sentinels.
+  // NOTE: matches on `fieldId` alone and takes the FIRST match. For blended mixed charts two
+  // series can legitimately share a `fieldId` while originating from different sources (see
+  // `MultiYSeriesData.series[].sourceId`), so this conflates them — the first source's values
+  // drive the rank score for both. `rankMultiSeriesBy` is a bare fieldId with no source
+  // component, so a full fix needs a `(fieldId, sourceId)` rank-target model extension; until
+  // then the first-match behavior is intentional and documented (finding 3.4).
+  const rankSeries = reduction ? undefined : data.series.find((s) => s.fieldId === rankBy);
 
-  const indices = data.labels.map((_, i) => i);
-  indices.sort((a, b) => (dir === 'top' ? scores[b] - scores[a] : scores[a] - scores[b]));
-  const keepIndices = new Set(indices.slice(0, n));
+  const rawScoreOf = (i: number): number | null => {
+    if (reduction) {
+      return reduceRankScore(
+        data.series.map((s) => s.values[i]),
+        reduction,
+      );
+    }
+    // An unknown fieldId (or a null cell in the named series) is absence of a score, not 0.
+    return rankSeries ? (rankSeries.values[i] ?? null) : null;
+  };
+
+  const keepIndices = selectRankedIndices(data.labels.length, rawScoreOf, dir, n);
   const keepMask = data.labels.map((_, i) => keepIndices.has(i));
   return {
     labels: data.labels.filter((_, i) => keepMask[i]),
@@ -206,6 +275,11 @@ export function applyRankToMultiSeries(
  * Apply a rank filter to seriesField aggregated data (MultiSeriesData).
  * Ranks the series dimension (e.g. countries) by their total value across all x-labels,
  * and keeps the top/bottom N series.
+ *
+ * The total skips null cells rather than adding 0 for them, and a series that is null at every
+ * label scores `null` — "no data", which loses in both directions (see
+ * {@link selectRankedIndices}). Summing nulls as 0 gave an empty series a 0 total that
+ * outranked a genuinely negative one in a bottom-N (H4).
  */
 export function applyRankToSeriesFieldData(
   data: MultiSeriesData,
@@ -219,17 +293,21 @@ export function applyRankToSeriesFieldData(
     return data;
   }
   const dir = rankFilter.rankDirection ?? 'top';
-  const scored = data.seriesNames.map((name) => ({
-    name,
-    score: (data.seriesData[name] ?? []).reduce<number>((acc, v) => acc + (v ?? 0), 0),
-  }));
-  scored.sort((a, b) => (dir === 'top' ? b.score - a.score : a.score - b.score));
+  const { seriesNames } = data;
+  const keepIndices = selectRankedIndices(
+    seriesNames.length,
+    (i) => reduceRankScore(data.seriesData[seriesNames[i]] ?? [], 'sum'),
+    dir,
+    n,
+  );
   // `seriesNames` may hold genuine numbers (numeric split-by values survive as numbers
   // through `toXValue`), but `Object.entries(seriesData)` keys are always strings. Coerce
   // both sides to a string before the membership test so a numeric `2024` matches its
   // string `"2024"` `seriesData` key — otherwise the series' data column is dropped and the
   // renderers crash reading `undefined` (finding 1.13).
-  const keepNames = new Set(scored.slice(0, n).map((s) => String(s.name)));
+  const keepNames = new Set(
+    seriesNames.filter((_, i) => keepIndices.has(i)).map((name) => String(name)),
+  );
   return {
     labels: data.labels,
     seriesNames: data.seriesNames.filter((name) => keepNames.has(String(name))),

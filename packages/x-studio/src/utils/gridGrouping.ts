@@ -7,6 +7,7 @@ import type {
 } from '../models';
 import { buildManyToOneRelationshipIndex } from '../internals/dataSourceGraph';
 import { getCachedEnrichedRows } from '../internals/enrichedRowsCache';
+import { getCachedNormalizedDataSource } from '../internals/normalizedRowsCache';
 import { indexRowsByKey, normalizeJoinKey } from '../internals/joinKeys';
 import { coerceAggregateValue, countDistinct } from '../internals/aggregate';
 
@@ -162,6 +163,20 @@ export function buildGroupedGridRows(
       if (!relatedSource?.rows) {
         continue;
       }
+      // L1-normalize the related source's rows before anything reads them, exactly as
+      // `crossSourceEnrichment.enrichWithCrossSourceFields` does for the display path. Raw
+      // rows carry `Date` objects and non-canonical date strings, so a `count_distinct` over
+      // a related `date` column built a Set of distinct OBJECT references — two customers who
+      // signed up on the same day counted as two — while the cells rendered beside that total
+      // came through the normalized path as `'2024-01-15'` strings and collapsed correctly.
+      //
+      // Passing NO `usedFieldIds` is deliberate: it selects the same ('*') cache slot as the
+      // enrichment path, so both hand the identical rows array to `getCachedEnrichedRows` and
+      // therefore share one `enrichedRowsCache` entry. Keying a different slot let a related
+      // source's calculated column evaluate against un-normalized dates in the group aggregate
+      // and normalized dates in the display — two values for one column.
+      const normalizedRelatedRows = (getCachedNormalizedDataSource(relatedSource).rows ??
+        []) as Record<string, unknown>[];
       // A cross-source column that is the related source's calculated column has no value
       // on the raw related rows — route them through the shared L2 cache (scoped to just
       // this field id) first, matching the display/export enrichment path (finding 2.3).
@@ -171,14 +186,14 @@ export function buildGroupedGridRows(
       const relatedRows =
         isRelatedExpression && expressionFields
           ? (getCachedEnrichedRows(
-              relatedSource.rows as Record<string, unknown>[],
+              normalizedRelatedRows,
               col.sourceId,
               expressionFields,
               dataSources,
               relationships,
               new Set([col.fieldId]),
             ) as Record<string, unknown>[])
-          : (relatedSource.rows as Record<string, unknown>[]);
+          : normalizedRelatedRows;
       // Index related rows by their PK for fast look-up, using the shared join-key
       // policy (internals/joinKeys.ts) so a numeric PK matches a string FK etc.
       const relatedRowMap = indexRowsByKey(relatedRows, rel.targetField);

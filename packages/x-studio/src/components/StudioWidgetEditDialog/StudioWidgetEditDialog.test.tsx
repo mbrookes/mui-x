@@ -36,6 +36,44 @@ const CUSTOM_WIDGET_DEF: StudioCustomWidgetDef = {
   ),
 };
 
+function throwingPreviewWidget(overrides: Partial<StudioWidget> = {}): StudioWidget {
+  return {
+    id: 'w1',
+    kind: 'acme-throw-preview',
+    title: 'Bad Preview Widget',
+    config: {} as StudioWidgetConfig,
+    ...overrides,
+  };
+}
+
+const THROWING_PREVIEW_WIDGET_DEF: StudioCustomWidgetDef = {
+  kind: 'acme-throw-preview',
+  label: 'Throws in preview',
+  component: () => {
+    throw new Error('widget preview exploded');
+  },
+  setupPanel: () => <div data-testid="setup-panel-ok">Setup ok</div>,
+};
+
+function throwingSetupWidget(overrides: Partial<StudioWidget> = {}): StudioWidget {
+  return {
+    id: 'w1',
+    kind: 'acme-throw-setup',
+    title: 'Bad Setup Widget',
+    config: {} as StudioWidgetConfig,
+    ...overrides,
+  };
+}
+
+const THROWING_SETUP_WIDGET_DEF: StudioCustomWidgetDef = {
+  kind: 'acme-throw-setup',
+  label: 'Throws in setup',
+  component: () => <div data-testid="preview-ok">Preview ok</div>,
+  setupPanel: () => {
+    throw new Error('setup panel exploded');
+  },
+};
+
 function chartWidget(overrides: Partial<StudioWidget> = {}): StudioWidget {
   return {
     id: 'w1',
@@ -165,5 +203,50 @@ describe('StudioWidgetEditDialog', () => {
     await user.click(screen.getByRole('tab', { name: 'Format' }));
     expect(screen.getByRole('tab', { name: 'Format' })).toHaveProperty('ariaSelected', 'true');
     expect(screen.getByRole('tab', { name: 'Setup' })).toHaveProperty('ariaSelected', 'false');
+  });
+});
+
+// Tier1 whole-dashboard-crash fix: this dialog renders `BuiltinWidgetPreview` (which
+// itself renders `def.component` — the same widget renderer the canvas card wraps in
+// `StudioWidgetErrorBoundary`) and `def.setupPanel`/`WidgetFiltersPanel`/`FormatPanel`/
+// `TextFormatPanel` (the same class of content `StudioComposeDrawer`'s `WidgetConfigView`
+// wraps in `StudioDrawerErrorBoundary`), but previously had no boundary of its own. A
+// render throw in either (a not-yet-hardened chart edge case, or any third-party
+// `customWidgets` component) unmounted the whole `<Studio>` tree instead of being contained
+// to the dialog.
+describe('StudioWidgetEditDialog error boundaries (Tier1 whole-dashboard-crash fix)', () => {
+  it('contains a render throw from the widget preview instead of crashing the whole render tree', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    setup({
+      widgets: { w1: throwingPreviewWidget() },
+      customWidgets: [THROWING_PREVIEW_WIDGET_DEF],
+      withoutChildren: true,
+    });
+
+    // The Setup tab (a sibling surface within the same dialog) still renders fine —
+    // the throw is contained to the preview panel, not the whole dialog.
+    expect(screen.getByTestId('setup-panel-ok')).not.toBe(null);
+    // `StudioWidgetErrorBoundary` renders the thrown error's own message.
+    expect(screen.getByText('widget preview exploded')).not.toBe(null);
+
+    errorSpy.mockRestore();
+  });
+
+  it('contains a render throw from a widget setup panel instead of crashing the whole render tree', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    setup({
+      widgets: { w1: throwingSetupWidget() },
+      customWidgets: [THROWING_SETUP_WIDGET_DEF],
+    });
+
+    // The preview panel (rendered via the `children` override in this test's `setup()`)
+    // still renders fine — the throw is contained to the Setup tab, not the whole dialog.
+    expect(screen.getByTestId('preview')).not.toBe(null);
+    // `StudioDrawerErrorBoundary` renders the thrown error's own message.
+    expect(screen.getByText('setup panel exploded')).not.toBe(null);
+
+    errorSpy.mockRestore();
   });
 });

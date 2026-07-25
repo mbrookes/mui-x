@@ -64,4 +64,51 @@ describe('StudioWidgetExpandDialog', () => {
     expect(call[0]).toBe(w);
     expect(call[2]).toBe(createTheme().palette.background.default);
   });
+
+  // Tier1 whole-dashboard-crash fix: this fullscreen "expand" view renders `def.component`
+  // unprotected — the same widget renderer the canvas card wraps in
+  // `StudioWidgetErrorBoundary` — but previously had no boundary of its own. A render throw
+  // here (e.g. a not-yet-hardened chart edge case) unmounted the whole `<Studio>` tree
+  // instead of being contained to the dialog.
+  it('contains a render throw from the widget renderer instead of crashing the whole render tree', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const w = widget();
+    const { wrapper } = createStudioHarness({
+      initialState: { doc: { widgets: { [w.id]: w } } },
+    });
+    const throwingDef = {
+      component: () => {
+        throw new Error('expanded chart exploded');
+      },
+      capabilities: { export: 'png', expand: true },
+    } as unknown as StudioWidgetDef;
+
+    expect(() =>
+      render(
+        <div>
+          <div data-testid="sibling">Canary content outside the dialog</div>
+          <StudioWidgetExpandDialog
+            open
+            onClose={() => {}}
+            widget={w}
+            def={throwingDef}
+            dataSource={undefined}
+            pageId="page-1"
+            effectiveSubtitle=""
+          />
+        </div>,
+        { wrapper },
+      ),
+    ).not.toThrow();
+
+    // The sibling survives — without the boundary, React would have unmounted the whole
+    // render tree (nothing in it would catch the throw), taking the sibling down with it.
+    expect(screen.getByTestId('sibling')).not.toBe(null);
+    // The dialog's own title still renders — only the widget content is contained.
+    expect(screen.getByText('Sales')).not.toBe(null);
+    // `StudioWidgetErrorBoundary` renders the thrown error's own message.
+    expect(screen.getByText('expanded chart exploded')).not.toBe(null);
+
+    errorSpy.mockRestore();
+  });
 });

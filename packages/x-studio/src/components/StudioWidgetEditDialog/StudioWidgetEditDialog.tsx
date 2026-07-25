@@ -5,6 +5,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import { useStudioSelector, selectWidgets } from '../../context';
 import { useStudioFeatures, useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 import { useWidgetDefMap } from '../../internals/builtinWidgetDefs';
+import { StudioDrawerErrorBoundary } from '../../internals/StudioDrawerErrorBoundary';
 import { useWidgetKindLabels } from '../StudioComposeDrawer/StudioComposeDrawerLabels';
 import { FormatPanel } from '../StudioComposeDrawer/FormatPanel';
 import { TextFormatPanel } from '../StudioComposeDrawer/TextFormatPanel';
@@ -196,23 +197,35 @@ export function StudioWidgetEditDialog(props: StudioWidgetEditDialogProps) {
 
         {/* Tab panels — scrollable. Setup-panel dispatch is a single lookup into the unified
             widget-kind registry, so custom widgets get their `setupPanel` rendered here too
-            (previously this tab had no custom-widget handling at all and rendered blank). */}
+            (previously this tab had no custom-widget handling at all and rendered blank).
+            Each panel is the same class of content `StudioComposeDrawer`'s `WidgetConfigView`
+            wraps in `StudioDrawerErrorBoundary` (setup panel / filters / format), but this
+            dialog had no boundary of its own (Tier1 whole-dashboard-crash fix) — a render
+            throw here previously unmounted the whole `<Studio>` tree. `resetKey` is the
+            widget id, so switching to (or reopening for) a different widget clears a latched
+            fallback instead of leaving it stuck. */}
         <TabPanel value={tab} index={0}>
-          {def?.setupPanel && <def.setupPanel widgetId={widgetId} />}
+          <StudioDrawerErrorBoundary resetKey={widgetId}>
+            {def?.setupPanel && <def.setupPanel widgetId={widgetId} />}
+          </StudioDrawerErrorBoundary>
         </TabPanel>
 
         {showFiltersTab && (
           <TabPanel value={tab} index={1}>
-            <WidgetFiltersPanel widgetId={widgetId} />
+            <StudioDrawerErrorBoundary resetKey={widgetId}>
+              <WidgetFiltersPanel widgetId={widgetId} />
+            </StudioDrawerErrorBoundary>
           </TabPanel>
         )}
 
         <TabPanel value={tab} index={showFiltersTab ? 2 : 1}>
-          {widget.kind === 'text' ? (
-            <TextFormatPanel widgetId={widgetId} />
-          ) : (
-            <FormatPanel widgetId={widgetId} />
-          )}
+          <StudioDrawerErrorBoundary resetKey={widgetId}>
+            {widget.kind === 'text' ? (
+              <TextFormatPanel widgetId={widgetId} />
+            ) : (
+              <FormatPanel widgetId={widgetId} />
+            )}
+          </StudioDrawerErrorBoundary>
         </TabPanel>
       </Box>
     </Dialog>

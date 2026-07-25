@@ -29,6 +29,7 @@ import { RelationshipPanel } from './RelationshipPanel';
 import { DataLineageGraph } from './DataLineageGraph';
 import { DataSourcePreview } from './DataSourcePreview';
 import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
+import { StudioDrawerErrorBoundary } from '../../internals/StudioDrawerErrorBoundary';
 
 // ─── Drawer ───────────────────────────────────────────────────────────────────
 
@@ -90,77 +91,137 @@ export function StudioDataDrawer({ sx }: StudioDataDrawerProps = {}) {
       } ${localeText.dataDrawerFieldsLabel}`
     : null;
 
+  // Defense-in-depth (this drawer had no error boundary at all, unlike
+  // `StudioComposeDrawer`/`StudioFiltersDrawer`, which self-wrap their own content in
+  // `StudioDrawerErrorBoundary`): a render throw from any section below (the data-source
+  // list, relationship panel, or lineage graph — e.g. reached through a hostile/malformed
+  // doc-authored source or relationship) previously had no boundary to stop at and
+  // unmounted the entire `<Studio>` tree. `resetKey` tracks the current set of source ids,
+  // so removing/editing the data source that caused the crash clears the fallback instead
+  // of latching it.
+  const resetKey = sourceList.map((source) => source.id).join('|');
+
   return (
-    <Stack spacing={0} sx={sx}>
-      {sourceList.map((source) => (
-        <DataSourceSection
-          key={source.id}
-          source={source}
-          expressionFields={expressionFields}
-          dataSources={dataSources}
-          relationships={relationships}
-          isEditMode={mode === 'edit'}
-          onOpenPreview={setPreviewSourceId}
-        />
-      ))}
-      {mode === 'edit' && sourceList.length >= 2 && features.relationships !== false && (
-        <React.Fragment>
-          <Divider />
-          <RelationshipPanel relationships={relationships} dataSources={dataSources} />
-        </React.Fragment>
-      )}
-      {sourceList.length >= 2 && (
-        <React.Fragment>
-          <Divider />
-          <Box sx={{ px: 2, py: 1.5 }}>
-            <Button
-              variant="outlined"
-              size="small"
-              startIcon={<AccountTreeIcon fontSize="small" />}
-              onClick={() => setLineageOpen(true)}
+    <StudioDrawerErrorBoundary resetKey={resetKey}>
+      <Stack spacing={0} sx={sx}>
+        {sourceList.map((source) => (
+          <DataSourceSection
+            key={source.id}
+            source={source}
+            expressionFields={expressionFields}
+            dataSources={dataSources}
+            relationships={relationships}
+            isEditMode={mode === 'edit'}
+            onOpenPreview={setPreviewSourceId}
+          />
+        ))}
+        {mode === 'edit' && sourceList.length >= 2 && features.relationships !== false && (
+          <React.Fragment>
+            <Divider />
+            <RelationshipPanel relationships={relationships} dataSources={dataSources} />
+          </React.Fragment>
+        )}
+        {sourceList.length >= 2 && (
+          <React.Fragment>
+            <Divider />
+            <Box sx={{ px: 2, py: 1.5 }}>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<AccountTreeIcon fontSize="small" />}
+                onClick={() => setLineageOpen(true)}
+                fullWidth
+              >
+                {localeText.dataDrawerViewLineage}
+              </Button>
+            </Box>
+            <Dialog
+              open={lineageOpen}
+              onClose={handleLineageClose}
+              maxWidth="lg"
               fullWidth
+              slotProps={{ paper: { sx: { height: '80vh' } } }}
             >
-              {localeText.dataDrawerViewLineage}
-            </Button>
-          </Box>
+              <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, pr: 6 }}>
+                {selectedSource ? (
+                  <IconButton
+                    size="small"
+                    aria-label={localeText.dataDrawerBackAriaLabel}
+                    onClick={() => setLineageSourceId(null)}
+                    sx={{ mr: 0.5 }}
+                  >
+                    <ArrowBackIcon fontSize="small" />
+                  </IconButton>
+                ) : (
+                  <AccountTreeIcon fontSize="small" />
+                )}
+                {selectedSource ? (
+                  <React.Fragment>
+                    <span>{selectedSource.label}</span>
+                    <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
+                      {selectedSourceCounts}
+                    </Typography>
+                  </React.Fragment>
+                ) : (
+                  <React.Fragment>
+                    {localeText.dataDrawerLineageTitle}
+                    <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
+                      {localeText.dataDrawerLineageHelper}
+                    </Typography>
+                  </React.Fragment>
+                )}
+                <IconButton
+                  aria-label={localeText.dataDrawerCloseAriaLabel}
+                  onClick={handleLineageClose}
+                  sx={{ position: 'absolute', right: 8, top: 8 }}
+                >
+                  <CloseIcon fontSize="small" />
+                </IconButton>
+              </DialogTitle>
+              <DialogContent
+                dividers
+                sx={{
+                  display: 'flex',
+                  alignItems: selectedSource ? 'stretch' : 'center',
+                  justifyContent: selectedSource ? 'stretch' : 'center',
+                  overflow: 'auto',
+                  p: selectedSource ? 0 : undefined,
+                }}
+              >
+                {selectedSource ? (
+                  <DataSourcePreview
+                    source={selectedSource}
+                    expressionFields={expressionFields}
+                    dataSources={dataSources}
+                    relationships={relationships}
+                  />
+                ) : (
+                  <DataLineageGraph
+                    sources={dataSources}
+                    relationships={relationships}
+                    onNodeClick={setLineageSourceId}
+                  />
+                )}
+              </DialogContent>
+            </Dialog>
+          </React.Fragment>
+        )}
+        {previewSource && (
           <Dialog
-            open={lineageOpen}
-            onClose={handleLineageClose}
+            open={Boolean(previewSource)}
+            onClose={handlePreviewClose}
             maxWidth="lg"
             fullWidth
             slotProps={{ paper: { sx: { height: '80vh' } } }}
           >
             <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, pr: 6 }}>
-              {selectedSource ? (
-                <IconButton
-                  size="small"
-                  aria-label={localeText.dataDrawerBackAriaLabel}
-                  onClick={() => setLineageSourceId(null)}
-                  sx={{ mr: 0.5 }}
-                >
-                  <ArrowBackIcon fontSize="small" />
-                </IconButton>
-              ) : (
-                <AccountTreeIcon fontSize="small" />
-              )}
-              {selectedSource ? (
-                <React.Fragment>
-                  <span>{selectedSource.label}</span>
-                  <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
-                    {selectedSourceCounts}
-                  </Typography>
-                </React.Fragment>
-              ) : (
-                <React.Fragment>
-                  {localeText.dataDrawerLineageTitle}
-                  <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
-                    {localeText.dataDrawerLineageHelper}
-                  </Typography>
-                </React.Fragment>
-              )}
+              <span>{previewSource.label}</span>
+              <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
+                {previewSourceCounts}
+              </Typography>
               <IconButton
                 aria-label={localeText.dataDrawerCloseAriaLabel}
-                onClick={handleLineageClose}
+                onClick={handlePreviewClose}
                 sx={{ position: 'absolute', right: 8, top: 8 }}
               >
                 <CloseIcon fontSize="small" />
@@ -170,70 +231,22 @@ export function StudioDataDrawer({ sx }: StudioDataDrawerProps = {}) {
               dividers
               sx={{
                 display: 'flex',
-                alignItems: selectedSource ? 'stretch' : 'center',
-                justifyContent: selectedSource ? 'stretch' : 'center',
+                alignItems: 'stretch',
+                justifyContent: 'stretch',
                 overflow: 'auto',
-                p: selectedSource ? 0 : undefined,
+                p: 0,
               }}
             >
-              {selectedSource ? (
-                <DataSourcePreview
-                  source={selectedSource}
-                  expressionFields={expressionFields}
-                  dataSources={dataSources}
-                  relationships={relationships}
-                />
-              ) : (
-                <DataLineageGraph
-                  sources={dataSources}
-                  relationships={relationships}
-                  onNodeClick={setLineageSourceId}
-                />
-              )}
+              <DataSourcePreview
+                source={previewSource}
+                expressionFields={expressionFields}
+                dataSources={dataSources}
+                relationships={relationships}
+              />
             </DialogContent>
           </Dialog>
-        </React.Fragment>
-      )}
-      {previewSource && (
-        <Dialog
-          open={Boolean(previewSource)}
-          onClose={handlePreviewClose}
-          maxWidth="lg"
-          fullWidth
-          slotProps={{ paper: { sx: { height: '80vh' } } }}
-        >
-          <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, pr: 6 }}>
-            <span>{previewSource.label}</span>
-            <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
-              {previewSourceCounts}
-            </Typography>
-            <IconButton
-              aria-label={localeText.dataDrawerCloseAriaLabel}
-              onClick={handlePreviewClose}
-              sx={{ position: 'absolute', right: 8, top: 8 }}
-            >
-              <CloseIcon fontSize="small" />
-            </IconButton>
-          </DialogTitle>
-          <DialogContent
-            dividers
-            sx={{
-              display: 'flex',
-              alignItems: 'stretch',
-              justifyContent: 'stretch',
-              overflow: 'auto',
-              p: 0,
-            }}
-          >
-            <DataSourcePreview
-              source={previewSource}
-              expressionFields={expressionFields}
-              dataSources={dataSources}
-              relationships={relationships}
-            />
-          </DialogContent>
-        </Dialog>
-      )}
-    </Stack>
+        )}
+      </Stack>
+    </StudioDrawerErrorBoundary>
   );
 }

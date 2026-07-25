@@ -17,6 +17,7 @@ import DownloadIcon from '@mui/icons-material/Download';
 import { useStudioLocaleText } from '../../context';
 import type { StudioWidgetDef } from '../../internals/StudioUIConfigContext';
 import { exportChartToPng } from '../../internals/widgetUtils';
+import { StudioWidgetErrorBoundary } from '../../internals/StudioWidgetErrorBoundary';
 import type { StudioDataSource, StudioWidget } from '../../models';
 
 export interface StudioWidgetExpandDialogProps {
@@ -82,13 +83,21 @@ export function StudioWidgetExpandDialog(props: StudioWidgetExpandDialogProps) {
         </IconButton>
       </DialogTitle>
       <DialogContent sx={{ p: 2, pt: 0 }}>
-        <def.component
-          widget={widget}
-          dataSource={dataSource}
-          pageId={pageId}
-          height={500}
-          chartContainerRef={chartExpandContainerRef}
-        />
+        {/* Tier1 whole-dashboard-crash fix: this fullscreen "expand" view renders the same
+            `def.component` the canvas card wraps in `StudioWidgetErrorBoundary`, but this
+            dialog had no boundary of its own — a render throw here previously propagated
+            all the way up and unmounted the whole `<Studio>` tree. `resetKey` mirrors the
+            canvas card's own key so editing the widget's config after a transient error
+            clears the fallback instead of latching it. */}
+        <StudioWidgetErrorBoundary resetKey={JSON.stringify(widget.config)}>
+          <def.component
+            widget={widget}
+            dataSource={dataSource}
+            pageId={pageId}
+            height={500}
+            chartContainerRef={chartExpandContainerRef}
+          />
+        </StudioWidgetErrorBoundary>
       </DialogContent>
       <DialogActions sx={{ px: 2, pb: 1.5 }}>
         <Tooltip title={localeText.widgetExportPngTooltip}>

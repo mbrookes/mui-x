@@ -460,6 +460,47 @@ const MAX_STATE_LAYOUT_ROW_CELLS = 50;
  */
 const MAX_STATE_WIDGET_COL_SPANS = MAX_STATE_WIDGETS;
 
+/**
+ * Max number of `capabilities` entries retained per incoming data-source field
+ * (finding H1d). `serializeFieldForAI` renders `f.capabilities.join('+')` into
+ * every field's tag list with no cap of its own, so an unbounded array is the same
+ * first-request token bomb as an unbounded `label`. A real field declares one or
+ * two capabilities.
+ */
+const MAX_STATE_FIELD_CAPABILITIES = 20;
+
+/**
+ * Max number of `fieldDistinctValues` map entries retained per incoming data
+ * source (finding H1c). Bounded to the same count as the source's own field list,
+ * since a well-formed map never carries more entries than there are fields.
+ */
+const MAX_STATE_FIELD_DISTINCT_VALUE_KEYS = MAX_STATE_DATA_SOURCE_FIELDS;
+
+/**
+ * Max length of a single `fieldDistinctValues` value retained (finding H1c).
+ * `serializeFieldForAI` renders every value IN FULL when a field has ≤8 of them,
+ * so one 50 MB value passed straight into the first system prompt —
+ * `MAX_DISTINCT_VALUES_IN_STATE_OUTPUT` already existed for the
+ * `get_dashboard_state` output path but was never applied to this read path.
+ * Reuses {@link MAX_FILTER_STRING_LENGTH}: a distinct value is the same class of
+ * short data string as a filter value, which is already bounded by it.
+ */
+const MAX_STATE_DISTINCT_VALUE_LENGTH = MAX_FILTER_STRING_LENGTH;
+
+/**
+ * Max number of distinct values retained per field on the incoming READ path
+ * (finding H1c).
+ *
+ * Deliberately NOT `MAX_DISTINCT_VALUES_IN_STATE_OUTPUT` (20), which bounds the
+ * `get_dashboard_state` OUTPUT path: `serializeFieldForAI` renders the values in
+ * full at ≤8, renders a bare `"N values"` count at ≤30, and omits them entirely
+ * above 30. Truncating to 20 here would rewrite a 10,000-value high-cardinality
+ * field into a plausible-looking `"20 values"` cardinality hint and mislead the
+ * model's chart/filter-type choices. 50 sits above every rendering threshold, so
+ * each field renders EXACTLY as it did before while the retained array is bounded.
+ */
+const MAX_STATE_DISTINCT_VALUES_PER_FIELD = 50;
+
 /** Cap a model-supplied entity id to {@link MAX_ENTITY_ID_LENGTH}. */
 function capEntityId(id: string): string {
   return capString(id, MAX_ENTITY_ID_LENGTH);
@@ -476,16 +517,81 @@ function capEntityId(id: string): string {
  * defensive way (`serializeFieldForAI` interpolates it verbatim).
  */
 function capDataSourceField(field: StudioDataField): StudioDataField {
+  // Finding M3: `dashboardState` is unvalidated client JSON, so a `fields: [null]`
+  // entry reached `field.label` here and threw a raw, unprefixed `TypeError`.
+  // `validateStudioAIRequestBody` now rejects that shape up front; this stays as
+  // defense-in-depth for the other (non-`handleAIChat`) callers of this cap pass.
+  const f = (field ?? {}) as StudioDataField;
   return {
-    ...field,
-    label: capTitle(String(field.label ?? '')),
-    ...(field.format !== undefined
-      ? { format: capString(String(field.format), MAX_TITLE_LENGTH) as StudioDataField['format'] }
+    ...f,
+    // Finding H1d — `id` is echoed into EVERY field rendering
+    // (`serializeFieldForAI`'s `sanitizeForPrompt(f.id)`) on every request, exactly
+    // like the source/page/widget ids `capEntityId` already bounds; only
+    // `label`/`format`/`aiDescription` were capped before.
+    id: capEntityId(String(f.id ?? '')),
+    label: capTitle(String(f.label ?? '')),
+    ...(f.format !== undefined
+      ? { format: capString(String(f.format), MAX_TITLE_LENGTH) as StudioDataField['format'] }
       : {}),
-    ...(field.aiDescription !== undefined
-      ? { aiDescription: capTitle(String(field.aiDescription)) }
+    // Finding H1d — rendered as `capabilities.join('+')`, unbounded in both entry
+    // count and per-entry length.
+    ...(Array.isArray(f.capabilities)
+      ? {
+          capabilities: f.capabilities
+            .slice(0, MAX_STATE_FIELD_CAPABILITIES)
+            .map((c) =>
+              capString(String(c ?? ''), MAX_FILTER_STRING_LENGTH),
+            ) as StudioDataField['capabilities'],
+        }
       : {}),
+    // Finding H1d — rendered as `default:<value>` in the field's tag list.
+    ...(f.defaultAggregationFn !== undefined
+      ? {
+          defaultAggregationFn: capString(
+            String(f.defaultAggregationFn),
+            MAX_FILTER_STRING_LENGTH,
+          ) as StudioDataField['defaultAggregationFn'],
+        }
+      : {}),
+    ...(f.aiDescription !== undefined ? { aiDescription: capTitle(String(f.aiDescription)) } : {}),
   };
+}
+
+/**
+ * Cap an incoming `source.fieldDistinctValues` map (finding H1c).
+ *
+ * `serializeFieldForAI` renders every value IN FULL when a field has ≤8 of them,
+ * so a single oversized value landed verbatim in the first system prompt.
+ * `capDataSource` never touched this map before, even though
+ * `MAX_DISTINCT_VALUES_IN_STATE_OUTPUT` already existed for the
+ * `get_dashboard_state` OUTPUT path — this applies the same bound to the incoming
+ * READ path, plus a per-value length cap and a map-key count/length cap.
+ */
+function capFieldDistinctValues(
+  fieldDistinctValues: Record<string, string[]> | undefined,
+): Record<string, string[]> | undefined {
+  if (fieldDistinctValues === undefined || fieldDistinctValues === null) {
+    return undefined;
+  }
+  // `Object.create(null)` (finding L1): the keys are client-supplied field ids, and
+  // a `__proto__`/`constructor` key must address an ordinary own slot rather than
+  // being silently dropped or routed into the prototype.
+  const capped: Record<string, string[]> = Object.create(null);
+  for (const [fieldId, values] of Object.entries(fieldDistinctValues).slice(
+    0,
+    MAX_STATE_FIELD_DISTINCT_VALUE_KEYS,
+  )) {
+    // A malformed (non-array) entry is DROPPED rather than coerced to `[]`: an empty
+    // array would render as a `0: ` cardinality hint, inventing a fact about the
+    // field. Dropping it renders exactly as "no distinct values known" (finding M1's
+    // sibling — the read site also `Array.isArray`-guards this).
+    if (Array.isArray(values)) {
+      capped[capEntityId(String(fieldId))] = values
+        .slice(0, MAX_STATE_DISTINCT_VALUES_PER_FIELD)
+        .map((v) => capString(String(v ?? ''), MAX_STATE_DISTINCT_VALUE_LENGTH));
+    }
+  }
+  return capped;
 }
 
 /**
@@ -498,6 +604,7 @@ function capDataSourceField(field: StudioDataField): StudioDataField {
  * why the `id`, a field separate from the map key, must be length-capped too).
  */
 function capDataSource(source: StudioDataSource): StudioDataSource {
+  const cappedDistinct = capFieldDistinctValues(source.fieldDistinctValues);
   return {
     ...source,
     id: capEntityId(String(source.id ?? '')),
@@ -505,7 +612,12 @@ function capDataSource(source: StudioDataSource): StudioDataSource {
     ...(source.aiDescription !== undefined
       ? { aiDescription: capTitle(String(source.aiDescription)) }
       : {}),
-    fields: (source.fields ?? []).slice(0, MAX_STATE_DATA_SOURCE_FIELDS).map(capDataSourceField),
+    fields: (Array.isArray(source.fields) ? source.fields : [])
+      .slice(0, MAX_STATE_DATA_SOURCE_FIELDS)
+      .map(capDataSourceField),
+    // Finding H1c — this map was never capped, even though every value in it is
+    // rendered verbatim into the first system prompt for a ≤8-value field.
+    ...(cappedDistinct !== undefined ? { fieldDistinctValues: cappedDistinct } : {}),
   };
 }
 
@@ -525,14 +637,22 @@ function capDataSource(source: StudioDataSource): StudioDataSource {
 function capPageWidgetRows(
   widgetRows: string[][] | undefined,
 ): { widgetRows: string[][] } | Record<string, never> {
-  if (!widgetRows) {
+  // Finding M3: `widgetRows` is unvalidated client JSON — a `"abc"` (string) or
+  // `["abc"]` (array of strings) value previously reached `.slice(…).map(…)` on a
+  // non-array row and threw a raw `TypeError: row.slice is not a function`.
+  // `validateStudioAIRequestBody` now rejects those shapes up front; this stays as
+  // defense-in-depth for the other callers, normalising a malformed row to empty
+  // rather than throwing.
+  if (!Array.isArray(widgetRows)) {
     return {};
   }
   return {
     widgetRows: widgetRows
       .slice(0, MAX_STATE_LAYOUT_ROWS)
       .map((row) =>
-        row.slice(0, MAX_STATE_LAYOUT_ROW_CELLS).map((id) => capEntityId(String(id ?? ''))),
+        (Array.isArray(row) ? row : [])
+          .slice(0, MAX_STATE_LAYOUT_ROW_CELLS)
+          .map((id) => capEntityId(String(id ?? ''))),
       ),
   };
 }
@@ -546,9 +666,19 @@ function capPageWidgetRows(
 function capDataSources(
   dataSources: Record<string, StudioDataSource>,
 ): Record<string, StudioDataSource> {
-  const capped: Record<string, StudioDataSource> = {};
+  // `Object.create(null)`, not `{}` (finding L1): these keys come straight from the
+  // client body, and a source keyed `__proto__` would otherwise be silently dropped
+  // from the prompt (an assignment to `{}`'s `__proto__` with an object value
+  // rewrites the prototype instead of creating an entry). A null-prototype map has
+  // no such member, so every key round-trips as an ordinary own property. Every
+  // downstream read of this map already goes through an `Object.hasOwn` guard.
+  const capped: Record<string, StudioDataSource> = Object.create(null);
   for (const [id, source] of Object.entries(dataSources).slice(0, MAX_STATE_DATA_SOURCES)) {
-    capped[id] = capDataSource(source);
+    // Finding H1g — the map KEY is echoed into the prompt independently of the
+    // entry's own `.id` field (`Object.entries` in `projectStateForAI`, and the
+    // key is what every `sourceId` reference resolves against), so it needs the
+    // same length bound `.id` already gets.
+    capped[capEntityId(String(id))] = capDataSource(source);
   }
   return capped;
 }
@@ -585,42 +715,66 @@ export function capIncomingDashboardState(state: StudioState): StudioState {
     title: capTitle(String(doc.dashboard.title ?? '')),
   };
 
-  const cappedWidgets: Record<string, StudioWidget> = {};
+  // `Object.create(null)` for both maps (finding L1) and a capped map KEY for every
+  // entry (finding H1g) — see `capDataSources` above for both rationales. The key is
+  // a SEPARATE string from the entry's own `.id`: `buildAISystemPrompt.ts` echoes the
+  // key wherever a layout row or `focusedWidgetId` names it, so capping only `.id`
+  // left the key unbounded.
+  const cappedWidgets: Record<string, StudioWidget> = Object.create(null);
   for (const [id, widget] of Object.entries(doc.widgets).slice(0, MAX_STATE_WIDGETS)) {
-    cappedWidgets[id] = {
+    cappedWidgets[capEntityId(String(id))] = {
       ...widget,
-      id: capEntityId(String(widget.id ?? '')),
-      title: capTitle(String(widget.title ?? '')),
-      ...(widget.subtitle !== undefined
+      // `widget?.` throughout (finding M3): a `doc.widgets: { w1: null }` body
+      // previously threw a raw `TypeError: Cannot read properties of null (reading
+      // 'id')` right here. The validator now rejects that shape; these guards keep
+      // the other callers of this cap pass crash-free too.
+      id: capEntityId(String(widget?.id ?? '')),
+      title: capTitle(String(widget?.title ?? '')),
+      ...(widget?.subtitle !== undefined
         ? { subtitle: capString(String(widget.subtitle), MAX_TITLE_LENGTH) }
         : {}),
-      ...(widget.sourceId !== undefined ? { sourceId: capSourceId(String(widget.sourceId)) } : {}),
-      config: capConfigStringValues(widget.config) as StudioWidget['config'],
+      ...(widget?.sourceId !== undefined ? { sourceId: capSourceId(String(widget.sourceId)) } : {}),
+      // Finding M3 — default a missing `config` to `{}`. Every widget-describing
+      // branch in `buildAISystemPrompt.ts` dereferences it (`resolveChartType(cfg)`,
+      // `kpiCfg.kpiValueField`, …), so a config-less widget on the active page threw
+      // an opaque `TypeError: Cannot read properties of undefined (reading
+      // 'chartType')` and killed every chat request for that dashboard.
+      config: capConfigStringValues(widget?.config ?? {}) as StudioWidget['config'],
     } as StudioWidget;
   }
 
-  const cappedPages: Record<string, StudioPage> = {};
+  const cappedPages: Record<string, StudioPage> = Object.create(null);
   for (const [id, page] of Object.entries(doc.pages).slice(0, MAX_STATE_PAGES)) {
-    const cappedColSpans = page.widgetColSpans
-      ? Object.fromEntries(Object.entries(page.widgetColSpans).slice(0, MAX_STATE_WIDGET_COL_SPANS))
-      : undefined;
-    cappedPages[id] = {
+    // `page?.` throughout (finding M3): a `doc.pages: { p1: null }` body previously
+    // threw a raw `TypeError: Cannot read properties of null (reading
+    // 'widgetColSpans')` right here.
+    const cappedColSpans =
+      page?.widgetColSpans && typeof page.widgetColSpans === 'object'
+        ? Object.fromEntries(
+            Object.entries(page.widgetColSpans)
+              .slice(0, MAX_STATE_WIDGET_COL_SPANS)
+              .map(([spanId, span]) => [capEntityId(String(spanId)), span]),
+          )
+        : undefined;
+    cappedPages[capEntityId(String(id))] = {
       ...page,
-      id: capEntityId(String(page.id ?? '')),
-      title: capTitle(String(page.title ?? '')),
-      ...capPageWidgetRows(page.widgetRows),
+      id: capEntityId(String(page?.id ?? '')),
+      title: capTitle(String(page?.title ?? '')),
+      ...capPageWidgetRows(page?.widgetRows),
       ...(cappedColSpans !== undefined ? { widgetColSpans: cappedColSpans } : {}),
     };
   }
 
+  // `f?.` throughout (finding M3): a `doc.filters: [null]` body previously threw a
+  // raw `TypeError: Cannot read properties of null (reading 'field')` here.
   const cappedFilters: StudioFilterState[] = doc.filters.slice(0, MAX_STATE_FILTERS).map((f) => ({
     ...f,
-    field: capString(String(f.field ?? ''), MAX_FILTER_STRING_LENGTH),
-    ...(f.filterSourceId !== undefined
+    field: capString(String(f?.field ?? ''), MAX_FILTER_STRING_LENGTH),
+    ...(f?.filterSourceId !== undefined
       ? { filterSourceId: capString(String(f.filterSourceId), MAX_FILTER_STRING_LENGTH) }
       : {}),
-    value: capFilterValue(f.value),
-    ...(f.value2 !== undefined ? { value2: capFilterValue(f.value2) } : {}),
+    value: capFilterValue(f?.value),
+    ...(f?.value2 !== undefined ? { value2: capFilterValue(f.value2) } : {}),
   }));
 
   return {

@@ -30,6 +30,21 @@ export type {
   StudioAIContextEnricher,
   StudioAIContextEnricherArgs,
 } from './handleAIChat';
+// Request validation + input caps (finding L5). `runAgenticLoop` is exported below
+// "for consumers who want to build custom loops", but until now NONE of the input
+// validation/size-capping `handleAIChat` performs was reachable from that path — so
+// a custom loop had no way to bound a client-supplied `dashboardState`,
+// `richContext`, `customWidgets`, `skills`, or `pageSnapshot`, or to reject a
+// malformed body with an actionable error. Run `validateStudioAIRequestBody` first,
+// then the `capIncoming*` helpers, before calling `runAgenticLoop`.
+export {
+  validateStudioAIRequestBody,
+  capIncomingRichContext,
+  capIncomingCustomWidgets,
+  capIncomingSkills,
+  capIncomingPageSnapshot,
+} from './handleAIChat';
+export { capIncomingDashboardState } from './executeToolOnState';
 export { handleGenerateTitle, handleCreateWidget } from './handleGenerateInsight';
 export type {
   GenerateInsightOptions,
@@ -57,10 +72,22 @@ export type {
   StudioAIPageLayout,
   StudioAIRecentMutation,
   StudioAIEnrichedContext,
+  // The element type of `StudioDataQueryParams['having']` (finding L5). A host
+  // implementing `queryDataSource` receives these predicates but previously had no
+  // way to NAME the type without a forbidden deep import.
+  StudioDataHavingPredicate,
 } from './models/aiTypes';
 
 // Prompt builder and tool definitions — consumed by the server
-export { buildAISystemPrompt, serializeFieldForAI, sanitizeForPrompt } from './buildAISystemPrompt';
+export {
+  buildAISystemPrompt,
+  serializeFieldForAI,
+  sanitizeForPrompt,
+  // The single-line variant every prompt value rendered on ONE line must use — see
+  // its doc comment for why escaping `<`/`>` alone is not enough.
+  sanitizeForPromptLine,
+  MAX_SYSTEM_PROMPT_CHARS,
+} from './buildAISystemPrompt';
 export type { BuildAISystemPromptOptions } from './buildAISystemPrompt';
 export { buildPageLayoutContext } from './buildPageLayoutContext';
 export { STUDIO_AI_TOOLS, WIDGET_CONFIG_DESCRIPTION } from './studioAITools';

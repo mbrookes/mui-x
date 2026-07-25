@@ -39,6 +39,9 @@ import {
   type ToolDispatchContext,
   type ToolDispatchOutcome,
 } from './agenticLoop/toolDispatch';
+import { capToolOutput } from './internal/capToolOutput';
+import { linkAbortSignal, readBodyWithTimeout } from './internal/llmFetch';
+import { reportProviderFetchError, reportProviderHttpError } from './internal/providerError';
 
 /**
  * Timeout (ms) for the LLM provider's HTTP request. Without this, a hung/overloaded
@@ -462,20 +465,21 @@ export async function* runAgenticLoop(
     }
 
     let response: Response;
+    // Finding M5 — a REAL abort signal for this fetch. `withTimeout` only races the
+    // promise; it never aborts the in-flight request, so a timed-out turn previously
+    // left the upstream completion running (and billed) with its body unread. The
+    // linked signal fires on `LLM_FETCH_TIMEOUT_MS` OR on the caller's own abort, so
+    // the socket is released either way. `dispose()` clears the timer and unsubscribes.
+    const fetchAbort = linkAbortSignal(signal, LLM_FETCH_TIMEOUT_MS);
     try {
       // Bounded by `LLM_FETCH_TIMEOUT_MS` (finding: this call previously had no
       // timeout at all) — a hung/overloaded gateway that never resolves would
       // otherwise block this turn, and therefore the whole SSE stream, forever.
-      // `withTimeout` only races the promise (it does not itself abort the
-      // in-flight request), so on a timeout the underlying `fetch` may keep running
-      // in the background; the loop below abandons it and surfaces a clear error
-      // either way, matching the same trade-off `mcp/summarisePage.ts` already
-      // accepts for its own `withTimeout`-wrapped queries.
       // eslint-disable-next-line no-await-in-loop -- sequential LLM calls; each depends on previous result
       response = await withTimeout(
         fetch(endpoint, {
           method: 'POST',
-          signal,
+          signal: fetchAbort.signal,
           headers: {
             'Content-Type': 'application/json',
             ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
@@ -494,27 +498,54 @@ export async function* runAgenticLoop(
         'LLM provider request',
       );
     } catch (err) {
+      fetchAbort.dispose();
       if (signal?.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
         return;
       }
-      yield { type: 'error', message: err instanceof Error ? err.message : String(err) };
+      // Finding H4 — a transport error's `message` routinely names internal hosts,
+      // ports, and IPs (`connect ECONNREFUSED 10.0.3.11:5432`). Log the detail
+      // server-side and give the untrusted client only a correlation id.
+      const report = reportProviderFetchError('LLM provider request', err);
+      onToolError?.('llm-provider', new Error(report.detail));
+      yield { type: 'error', message: report.clientMessage };
       return;
     }
+
+    // The response headers have arrived, so the fetch-level DEADLINE no longer
+    // applies — `parseSSE`'s idle timeout bounds the stream from here on, and the
+    // timer must not fire mid-stream and kill a healthy long response. The link to
+    // the caller's own `signal` deliberately stays alive (`clearTimer`, not
+    // `dispose`) so an external abort still tears the response body down.
+    fetchAbort.clearTimer();
 
     if (!response.ok) {
       // Bounded by `LLM_FETCH_TIMEOUT_MS` (finding 2, iteration 24) — the fetch-level
       // timeout above only bounds the wait for HEADERS to arrive; a gateway that
       // returns a non-2xx status then stalls the body would otherwise hang this read
-      // forever. Reuses the same `withTimeout` mechanism as the fetch call itself; the
-      // trailing `.catch` still covers both a genuine read error AND this timeout,
-      // falling back to `statusText` either way.
+      // forever. `readBodyWithTimeout` additionally CANCELS the body on a timeout
+      // (finding M5) instead of leaving the socket pinned with an unread body.
       // eslint-disable-next-line no-await-in-loop -- single error-path read; cannot be parallelized
-      const errText = await withTimeout(
-        response.text(),
+      const errText = await readBodyWithTimeout(
+        response,
+        () => response.text(),
         LLM_FETCH_TIMEOUT_MS,
         'LLM provider error response body',
-      ).catch(() => response.statusText);
-      yield { type: 'error', message: `HTTP ${response.status}: ${errText}` };
+      ).catch(() => undefined);
+      // Finding H4 — the provider's error BODY is never relayed to the client: an
+      // OpenAI 401 body carries the partially-masked key and org, and Azure/APIM and
+      // self-hosted gateways echo deployment paths, internal hostnames, and even the
+      // received `Authorization` header. A hostile gateway can also return a 100 MB
+      // body, which was previously buffered whole into this one SSE event. The body
+      // goes to the server log (bounded); the client gets status + correlation id.
+      const report = reportProviderHttpError(
+        'LLM provider request',
+        response.status,
+        response.statusText,
+        errText,
+      );
+      onToolError?.('llm-provider', new Error(report.detail));
+      fetchAbort.dispose();
+      yield { type: 'error', message: report.clientMessage };
       return;
     }
 
@@ -625,12 +656,19 @@ export async function* runAgenticLoop(
       // Mirrors the fetch-level catch above: end the stream silently on an external
       // abort, otherwise surface a clear `{ type: 'error' }` event (this is what
       // `parseSSE`'s idle-timeout rejection — a mid-stream stall — surfaces as).
+      fetchAbort.dispose();
       if (signal?.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
         return;
       }
+      // These errors are this package's OWN (`MUI X Studio:`-prefixed buffer caps,
+      // `parseSSE`'s idle timeout) rather than provider-authored text, so they are
+      // safe to relay verbatim — unlike the provider error body above (finding H4).
       yield { type: 'error', message: err instanceof Error ? err.message : String(err) };
       return;
     }
+    // The response is fully consumed — release the external-abort subscription so a
+    // long-lived host signal doesn't accumulate one listener per turn.
+    fetchAbort.dispose();
 
     // Fold this turn's usage into the cumulative per-request total ONCE (finding T3-4b).
     usage.inputTokens += turnInputTokens;
@@ -781,11 +819,22 @@ export async function* runAgenticLoop(
         currentState = outcome.nextState;
       }
 
+      // Finding H2 — every INPUT to a tool is bounded, but the OUTPUT was not, and a
+      // tool result is not a one-shot cost: it is appended to `currentMessages` below
+      // and re-sent on EVERY remaining turn (O(turns × size)), as well as forwarded to
+      // the browser in the `tool-activity` event just below. `capToolOutput` is applied
+      // HERE, at the single `ToolDispatchOutcome` boundary every producer funnels
+      // through, so it covers `query_data_source`, `describe_data_source`,
+      // `get_field_values`, `summarise_page`, `get_dashboard_state` and any future tool
+      // uniformly, regardless of which file emits the result. Results within budget are
+      // returned byte-identical.
+      const cappedOutput = capToolOutput(outcome.output);
+
       toolResults.push({
         toolCallId: tc.id,
         toolName: tc.name,
         input: toolInput,
-        output: outcome.output,
+        output: cappedOutput,
       });
       yield {
         type: 'tool-activity',
@@ -793,7 +842,7 @@ export async function* runAgenticLoop(
         toolName: tc.name,
         phase: 'complete',
         input: toolInput,
-        output: outcome.output,
+        output: cappedOutput,
       };
     }
 

@@ -59,8 +59,10 @@ import type { PendingApproval } from './agenticLoop/toolDispatch';
 import type { ToolPolicy } from './toolPolicy';
 import { withTimeout } from './mcp/helpers';
 import { capIncomingDashboardState } from './executeToolOnState';
+import { capMaybeText, capText } from './internal/promptCaps';
 import type { StudioAIRequest, StudioAISSEEvent } from './models/protocol';
 import type {
+  SerializableSkill,
   StudioAISkill,
   StudioAIDataConfig,
   StudioAIRateLimit,
@@ -468,11 +470,61 @@ const MAX_REQUEST_CUSTOM_WIDGETS = 200;
  */
 const MAX_CUSTOM_WIDGET_CONFIG_KEYS = 200;
 
+/**
+ * Max number of `body.skills` entries retained (finding H1a). Nothing capped
+ * `skills` AT ALL before: `validateStudioAIRequestBody` only checked that each
+ * entry's `name` is a string, and every retained entry's `promptFragment` (and, for
+ * `server-tool` mode, its tool `description`/`parameters`) is interpolated into the
+ * system prompt — which is then re-sent on EVERY one of up to 10 turns.
+ */
+const MAX_REQUEST_SKILLS = 100;
+
+/**
+ * Max length of a skill's `promptFragment` (finding H1a). This is deliberately far
+ * larger than {@link MAX_REQUEST_STRING_LENGTH} — a fragment is real instruction
+ * prose, not a label — but it must still be bounded: a single
+ * `promptFragment: 'A'.repeat(50e6)` produced a 50 MB system prompt, re-sent every
+ * turn, before any token budget (checked only AFTER a turn completes) could apply.
+ */
+const MAX_SKILL_PROMPT_FRAGMENT_CHARS = 20_000;
+
+/** Max length of a `server-tool` skill's tool `description` (see {@link MAX_SKILL_PROMPT_FRAGMENT_CHARS}). */
+const MAX_SKILL_TOOL_DESCRIPTION_CHARS = 4_000;
+
+/**
+ * Max serialized size of a `server-tool` skill's JSON-Schema `parameters` object
+ * (finding H1a). Sent verbatim in the `tools` array of every LLM request. A schema
+ * over this size is rejected — replaced with an empty object schema — rather than
+ * truncated, since a half-truncated JSON Schema is not a valid schema.
+ */
+const MAX_SKILL_TOOL_PARAMETERS_CHARS = 20_000;
+
+/**
+ * Max length of `body.pageSnapshot` (finding H1b). Validated as a string but never
+ * length-capped: its mere presence advertises `summarise_page`, whose output is the
+ * snapshot VERBATIM — which is then appended to `currentMessages` and re-sent on
+ * every remaining turn. Sized to a generous page-summary CSV (~25K tokens).
+ */
+const MAX_PAGE_SNAPSHOT_CHARS = 100_000;
+
+/**
+ * How many SSE frames may sit in the returned stream's internal queue before the
+ * producer waits for the consumer (finding L2). Small enough that a client which
+ * stops reading cannot accumulate a whole response in memory, large enough that a
+ * healthy stream never pays a scheduling round-trip per text delta.
+ */
+const SSE_QUEUE_HIGH_WATER_MARK = 64;
+
+/**
+ * How long (ms) the producer waits before re-checking `desiredSize` while the SSE
+ * queue is full (finding L2). Only ever reached when a consumer has stopped
+ * draining, so the polling cost is paid exclusively by a stalled client.
+ */
+const SSE_DRAIN_POLL_MS = 25;
+
 /** Cap a value to {@link MAX_REQUEST_STRING_LENGTH} when it is a string; pass through otherwise. */
 function capRequestString(value: unknown): unknown {
-  return typeof value === 'string' && value.length > MAX_REQUEST_STRING_LENGTH
-    ? value.slice(0, MAX_REQUEST_STRING_LENGTH)
-    : value;
+  return capMaybeText(value, MAX_REQUEST_STRING_LENGTH);
 }
 
 /** Plain-object guard mirroring `buildAISystemPrompt.ts`'s own defensive shape checks. */
@@ -666,11 +718,96 @@ export function capIncomingCustomWidgets(
     ...(isPlainRecord(cw.defaultConfig)
       ? {
           defaultConfig: Object.fromEntries(
-            Object.entries(cw.defaultConfig).slice(0, MAX_CUSTOM_WIDGET_CONFIG_KEYS),
+            Object.entries(cw.defaultConfig)
+              .slice(0, MAX_CUSTOM_WIDGET_CONFIG_KEYS)
+              // Finding H1f: only the key COUNT was capped, never the key STRING —
+              // and `buildAISystemPrompt.ts` echoes `Object.keys(cw.defaultConfig)`
+              // verbatim into the custom-widget listing. The identical gap was
+              // already closed for `richContext.fieldStats` keys above; this sibling
+              // was missed. `capRequestString` only touches strings (a no-op guard,
+              // since `Object.entries` keys are always strings), so the cast is safe.
+              .map(([key, value]) => [capRequestString(key) as string, value]),
           ),
         }
       : {}),
   }));
+}
+
+/**
+ * Cap a client-supplied `skills` array (finding H1a) before its content reaches the
+ * system prompt (`buildAISystemPrompt.ts`'s `buildSkillSection`) and the advertised
+ * `tools` array (`agenticLoop.ts`'s `skillToolDefs`).
+ *
+ * `skills` had NO cap of any kind — not entry count, not `promptFragment` length,
+ * not tool `description`/`parameters` size — while being interpolated into the
+ * HIGHER-TRUST system region and re-sent on every one of up to 10 turns. A single
+ * `skills: [{ name: 'x', mode: 'instruction-only', promptFragment: 'A'.repeat(50e6) }]`
+ * produced a 50 MB system prompt per turn, and the per-turn token budget cannot
+ * help: it is checked only AFTER a turn completes (and is a documented no-op when a
+ * gateway omits usage chunks).
+ *
+ * Note this is a SIZE cap only. It is not, and cannot be, a trust boundary — the
+ * server-side lever for untrusted skill CONTENT is `options.allowedSkills`, which
+ * substitutes host-authored definitions by name.
+ *
+ * `validateStudioAIRequestBody` has already guaranteed each element is an object
+ * with a string `name` by the time this runs. Returns the input unchanged when it is
+ * `undefined`; never mutates the input.
+ */
+export function capIncomingSkills(
+  skills: SerializableSkill[] | undefined,
+): SerializableSkill[] | undefined {
+  if (!skills) {
+    return skills;
+  }
+  return skills.slice(0, MAX_REQUEST_SKILLS).map((skill) => {
+    const tool: unknown = (skill as { tool?: unknown }).tool;
+    let cappedTool: SerializableSkill['tool'];
+    if (isPlainRecord(tool)) {
+      let parameters = tool.parameters;
+      // A JSON Schema cannot be truncated and stay a schema, so an oversized one is
+      // REPLACED with a permissive empty object schema. The tool stays callable; the
+      // model just loses the (hostile-sized) argument hints.
+      let serializedLength: number;
+      try {
+        serializedLength = JSON.stringify(parameters ?? null).length;
+      } catch {
+        // Cyclic/unserializable — treat as over budget; it could not be sent anyway.
+        serializedLength = Number.POSITIVE_INFINITY;
+      }
+      if (serializedLength > MAX_SKILL_TOOL_PARAMETERS_CHARS) {
+        parameters = { type: 'object', properties: {} };
+      }
+      cappedTool = {
+        ...tool,
+        name: capText(tool.name, MAX_REQUEST_STRING_LENGTH),
+        description: capText(tool.description, MAX_SKILL_TOOL_DESCRIPTION_CHARS),
+        parameters: (parameters ?? {}) as object,
+      };
+    }
+    return {
+      ...skill,
+      name: capText(skill.name, MAX_REQUEST_STRING_LENGTH),
+      mode: capText(skill.mode, MAX_REQUEST_STRING_LENGTH) as SerializableSkill['mode'],
+      promptFragment: capText(skill.promptFragment, MAX_SKILL_PROMPT_FRAGMENT_CHARS),
+      ...(cappedTool !== undefined ? { tool: cappedTool } : {}),
+    };
+  });
+}
+
+/**
+ * Cap a client-supplied `pageSnapshot` (finding H1b) to
+ * {@link MAX_PAGE_SNAPSHOT_CHARS}.
+ *
+ * Applied at the same request-handling chokepoint as the other caps, BEFORE the
+ * value reaches the agentic loop — where its presence advertises `summarise_page`
+ * and its content becomes that tool's output verbatim, appended to the conversation
+ * and re-sent on every remaining turn.
+ */
+export function capIncomingPageSnapshot(pageSnapshot: string | undefined): string | undefined {
+  return typeof pageSnapshot === 'string'
+    ? capText(pageSnapshot, MAX_PAGE_SNAPSHOT_CHARS)
+    : pageSnapshot;
 }
 
 /**
@@ -719,8 +856,16 @@ function isObject(value: unknown): value is Record<string, unknown> {
  *
  * Deliberately shallow: this only guards against the shapes that would otherwise crash
  * with a raw `TypeError`, not full schema validation of every optional field.
+ *
+ * Exported (finding L5) so a consumer driving `runAgenticLoop` directly — the
+ * documented "build your own loop" path — can run the same request validation
+ * `handleAIChat` does, instead of having no reachable input validation at all.
+ *
+ * @param body - The parsed request body to validate.
+ * @returns An actionable `MUI X Studio:`-prefixed message, or `undefined` when the
+ *   body is well-formed enough to proceed.
  */
-function validateStudioAIRequestBody(body: unknown): string | undefined {
+export function validateStudioAIRequestBody(body: unknown): string | undefined {
   if (!isObject(body)) {
     return (
       'MUI X Studio: handleAIChat was called with a missing or non-object request body. ' +
@@ -845,6 +990,63 @@ function validateStudioAIRequestBody(body: unknown): string | undefined {
       'rather than a partial or hand-built object.'
     );
   }
+  // Finding M3: the check above validates that `widgets`/`pages`/`filters` are the
+  // right CONTAINER shape, but not the shape of any individual ENTRY — the exact
+  // class of gap this validator exists to prevent, and the one it was already
+  // closing for `runtime.dataSources` (below), `messages[]`, and `customWidgets[]`.
+  // Verified raw `TypeError`s from a crafted body: `doc.widgets: { w1: null }` →
+  // "Cannot read properties of null (reading 'id')" in `capIncomingDashboardState`;
+  // `doc.pages: { p1: null }` → "…(reading 'widgetColSpans')"; `doc.filters: [null]`
+  // → "…(reading 'field')"; `page.widgetRows: 'abc'` → ".map is not a function". All
+  // surfaced as opaque, unprefixed `TypeError` text in an SSE `error` frame — a
+  // per-request denial of service that also violates this project's error-message
+  // convention.
+  for (const [widgetId, widget] of Object.entries(doc.widgets)) {
+    if (!isObject(widget)) {
+      return (
+        `MUI X Studio: \`dashboardState.doc.widgets[${JSON.stringify(widgetId)}]\` is not an ` +
+        'object (`StudioWidget`). This prevents the agentic loop from reading the widget when ' +
+        "capping the incoming state and building the system prompt's `<dashboard_state>` block. " +
+        'Ensure every entry in `doc.widgets` is a complete `StudioWidget` — e.g. ' +
+        '`{ id, kind, title, config }` — not `null` or a bare value.'
+      );
+    }
+  }
+  for (const [pageId, page] of Object.entries(doc.pages)) {
+    if (!isObject(page)) {
+      return (
+        `MUI X Studio: \`dashboardState.doc.pages[${JSON.stringify(pageId)}]\` is not an object ` +
+        '(`StudioPage`). This prevents the agentic loop from resolving the page layout when ' +
+        'capping the incoming state and building the system prompt. Ensure every entry in ' +
+        '`doc.pages` is a complete `StudioPage` — e.g. `{ id, title, widgetRows }` — not `null` ' +
+        'or a bare value.'
+      );
+    }
+    const { widgetRows } = page as { widgetRows?: unknown };
+    if (
+      widgetRows !== undefined &&
+      (!Array.isArray(widgetRows) || !widgetRows.every((row) => Array.isArray(row)))
+    ) {
+      return (
+        `MUI X Studio: \`dashboardState.doc.pages[${JSON.stringify(pageId)}].widgetRows\` must be ` +
+        'an array of arrays of widget-id strings (`StudioPage.widgetRows`). This prevents a crash ' +
+        'while capping the layout and rendering the `## Layout` section of the system prompt ' +
+        '(`row.slice(...)` on a non-array row). Omit `widgetRows` for an empty page, or pass e.g. ' +
+        "`[['widget-1', 'widget-2'], ['widget-3']]`."
+      );
+    }
+  }
+  for (let i = 0; i < doc.filters.length; i += 1) {
+    if (!isObject(doc.filters[i])) {
+      return (
+        `MUI X Studio: \`dashboardState.doc.filters[${i}]\` is not an object ` +
+        '(`StudioFilterState`). This prevents the agentic loop from reading the filter when ' +
+        "capping the incoming state and rendering the system prompt's active-filter list. Ensure " +
+        'every entry in `doc.filters` is a complete `StudioFilterState` — e.g. ' +
+        '`{ id, scope, field, operator, value }` — not `null` or a bare value.'
+      );
+    }
+  }
   // Finding F2 (Tier 3): `doc` is not the only partition dereferenced downstream —
   // `buildAISystemPrompt`'s `buildDashboardState` destructures `state.session.mode`
   // and `state.runtime.dataSources`, and `executeToolOnState.ts`'s
@@ -894,6 +1096,20 @@ function validateStudioAIRequestBody(body: unknown): string | undefined {
         'dataSources` is a complete `StudioDataSource` — e.g. ' +
         '`{ id, label, fields: StudioDataField[], ... }` — not a partial or hand-built object.'
       );
+    }
+    // Finding M3: the check above validates that `fields` is an array, not that its
+    // ENTRIES are objects — a `fields: [null]` threw a raw `TypeError` reading
+    // `field.label` in `capDataSourceField`.
+    for (let i = 0; i < source.fields.length; i += 1) {
+      if (!isObject(source.fields[i])) {
+        return (
+          `MUI X Studio: \`dashboardState.runtime.dataSources[${JSON.stringify(sourceId)}].fields[${i}]\` ` +
+          'is not an object (`StudioDataField`). This prevents the agentic loop from reading the ' +
+          "field when capping the incoming state and rendering the system prompt's data-source " +
+          "list. Ensure every entry in a source's `fields` is a `StudioDataField` — e.g. " +
+          '`{ id, type, label }` — not `null` or a bare value.'
+        );
+      }
     }
   }
   // Finding F2 (Tier 3), related smaller gap: a non-array `allowedTools` reaches
@@ -1039,189 +1255,263 @@ export function handleAIChat(
     }
   };
 
-  return new ReadableStream<string>({
-    async start(controller) {
-      try {
-        // Validate the request body shape BEFORE any downstream use (finding: a
-        // malformed `dashboardState` previously only surfaced once the agentic loop
-        // dereferenced a missing field, as an opaque native `TypeError`). Checked here,
-        // inside the existing error-surfacing path, rather than thrown synchronously out
-        // of `handleAIChat` itself, so this keeps the same "always returns a stream, never
-        // throws" contract as every other failure mode below (transport errors, rate
-        // limits, aborts) and the host gets one uniform `{ type: 'error' }` frame to handle.
-        const validationError = validateStudioAIRequestBody(body);
-        if (validationError) {
-          controller.enqueue(encodeSSE({ type: 'error', message: validationError }));
-          return;
-        }
+  // ── Backpressure (finding L2) ───────────────────────────────────────────────
+  //
+  // Events are PUSHED from `start()`, so nothing throttled the producer: a client
+  // that stops reading (a backgrounded tab, a dead TCP peer that hasn't reset yet)
+  // accumulated the whole response in the stream's internal queue — bounded only by
+  // `MAX_TURN_TEXT_BUFFER_CHARS` × turns plus every tool result.
+  //
+  // This waits on `controller.desiredSize` (which rises the moment the consumer
+  // dequeues a chunk) rather than on the `pull()` callback: per the Streams spec
+  // `pull` is not invoked until `start()`'s promise settles, and `start()` here runs
+  // for the whole request — so a `pull`-based wait would deadlock immediately.
+  const waitForDrain = async (
+    controller: ReadableStreamDefaultController<string>,
+  ): Promise<void> => {
+    // `desiredSize` is `null` for an errored stream (nothing to wait for) and `<= 0`
+    // once the queue is full.
+    while (
+      !abortController.signal.aborted &&
+      controller.desiredSize !== null &&
+      controller.desiredSize <= 0
+    ) {
+      // eslint-disable-next-line no-await-in-loop -- waiting for the consumer to drain
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, SSE_DRAIN_POLL_MS);
+      });
+    }
+  };
 
-        // Finding F2 (Tier 2): cap the client-supplied `dashboardState` BEFORE it is used
-        // anywhere — for context enrichment or interpolated into the system prompt via the
-        // agentic loop. The per-tool `cap*` helpers only run when an AI tool MUTATES state,
-        // so without this the very first request's titles/filter values/widget counts reach
-        // `<dashboard_state>` completely unbounded (see `capIncomingDashboardState`). The
-        // validator above has already guaranteed the `doc`/`session`/`runtime` shape this
-        // relies on. This capped snapshot is what the loop threads forward as its starting
-        // `currentState`, so subsequent mutations build on the bounded state too.
-        const cappedDashboardState = capIncomingDashboardState(dashboardState);
+  return new ReadableStream<string>(
+    {
+      async start(controller) {
+        try {
+          // Validate the request body shape BEFORE any downstream use (finding: a
+          // malformed `dashboardState` previously only surfaced once the agentic loop
+          // dereferenced a missing field, as an opaque native `TypeError`). Checked here,
+          // inside the existing error-surfacing path, rather than thrown synchronously out
+          // of `handleAIChat` itself, so this keeps the same "always returns a stream, never
+          // throws" contract as every other failure mode below (transport errors, rate
+          // limits, aborts) and the host gets one uniform `{ type: 'error' }` frame to handle.
+          const validationError = validateStudioAIRequestBody(body);
+          if (validationError) {
+            controller.enqueue(encodeSSE({ type: 'error', message: validationError }));
+            return;
+          }
 
-        // Tier 1 resource-exhaustion finding, sibling gap to the above: `richContext`
-        // and `customWidgets` are ALSO client-supplied and interpolated into the very
-        // first system prompt (`buildAISystemPrompt.ts`'s `buildRichContextBlock` and
-        // its custom-widget listing loop) with only `sanitizeForPrompt`'s angle-bracket
-        // escaping — no count/length bound of its own. Capped here, at the same
-        // request-handling chokepoint as `cappedDashboardState` above, BEFORE either
-        // reaches the context enricher or the agentic loop.
-        const cappedRichContext = capIncomingRichContext(richContext);
-        const cappedCustomWidgets = capIncomingCustomWidgets(customWidgets);
+          // Finding F2 (Tier 2): cap the client-supplied `dashboardState` BEFORE it is used
+          // anywhere — for context enrichment or interpolated into the system prompt via the
+          // agentic loop. The per-tool `cap*` helpers only run when an AI tool MUTATES state,
+          // so without this the very first request's titles/filter values/widget counts reach
+          // `<dashboard_state>` completely unbounded (see `capIncomingDashboardState`). The
+          // validator above has already guaranteed the `doc`/`session`/`runtime` shape this
+          // relies on. This capped snapshot is what the loop threads forward as its starting
+          // `currentState`, so subsequent mutations build on the bounded state too.
+          const cappedDashboardState = capIncomingDashboardState(dashboardState);
 
-        // Server-side allowlist / private-mode enforcement (invariant 10: the client
-        // asserts these in the body; a host that needs a hard guarantee overrides them
-        // here). The effective tool set is the INTERSECTION of the server allowlist and
-        // the body's — a body omitting `allowedTools` allows all, so intersecting yields
-        // the server list. Effective private mode is `server || body`: the client may opt
-        // in but never out of a server-mandated private mode. When both server options are
-        // omitted, both values are bit-identical to the raw body values (current behavior).
-        //
-        // Finding F1 (Tier 2): computed HERE, after `validateStudioAIRequestBody` has
-        // already rejected a malformed `body.allowedTools` (a truthy non-array, whose
-        // `.includes(...)` is undefined) and INSIDE `start()` — not at the top of
-        // `handleAIChat` as before. Previously the intersection ran before validation and
-        // before the stream existed, so a truthy non-array `body.allowedTools` threw a
-        // synchronous `TypeError` straight out of `handleAIChat`, violating its "always
-        // returns a stream, never throws" contract (the same bug class the `effectiveSkills`
-        // relocation fixed). Now a malformed value is always caught by validation first and
-        // surfaces as a normal `{ type: 'error' }` SSE frame.
-        let effectiveAllowedTools: string[] | undefined;
-        if (!options.allowedTools) {
-          // No server allowlist — trust the body's list (or its absence = all tools).
-          effectiveAllowedTools = bodyAllowedTools;
-        } else if (bodyAllowedTools) {
-          // Both present — intersect (server can only ever narrow the client's list).
-          effectiveAllowedTools = options.allowedTools.filter((t) => bodyAllowedTools.includes(t));
-        } else {
-          // Body omits its list (allows all) — the server list is the effective set.
-          effectiveAllowedTools = options.allowedTools;
-        }
-        const effectivePrivateMode = Boolean(options.privateMode || bodyPrivateMode);
+          // Tier 1 resource-exhaustion finding, sibling gap to the above: `richContext`
+          // and `customWidgets` are ALSO client-supplied and interpolated into the very
+          // first system prompt (`buildAISystemPrompt.ts`'s `buildRichContextBlock` and
+          // its custom-widget listing loop) with only `sanitizeForPrompt`'s angle-bracket
+          // escaping — no count/length bound of its own. Capped here, at the same
+          // request-handling chokepoint as `cappedDashboardState` above, BEFORE either
+          // reaches the context enricher or the agentic loop.
+          const cappedRichContext = capIncomingRichContext(richContext);
+          const cappedCustomWidgets = capIncomingCustomWidgets(customWidgets);
+          // Finding H1a/H1b/H1g — the three remaining client-supplied prompt inputs
+          // that reached the system prompt (and, for `pageSnapshot`, the conversation
+          // itself) with no size bound at all. Capped at the SAME chokepoint as the
+          // three above so there is one place to look for "what bounds request input".
+          const cappedSkills = capIncomingSkills(skills);
+          const cappedPageSnapshot = capIncomingPageSnapshot(pageSnapshot);
+          // `focusedWidgetId` is echoed VERBATIM into the `## Per-widget focus` block
+          // (`buildAISystemPrompt.ts`) whenever it names a real widget — and it is a
+          // widget MAP KEY, which `capIncomingDashboardState` bounds but which is a
+          // separate string from the `widget.id` field that was already capped.
+          const cappedFocusedWidgetId =
+            typeof focusedWidgetId === 'string'
+              ? capText(focusedWidgetId, MAX_REQUEST_STRING_LENGTH)
+              : focusedWidgetId;
 
-        // Server-side skill allow-list enforcement (finding 2.1, hardened for T1-1).
-        // A client-asserted `body.skills` entry's `promptFragment` (and, for
-        // `server-tool` mode, its tool `description`/`parameters`) lands in the
-        // higher-trust system region. Filtering by `name` alone is NOT sufficient —
-        // a body can assert an allowlisted `name` paired with its own hostile
-        // `promptFragment`, and the name check alone would let that fragment through
-        // unchanged. So when the host supplies `allowedSkills`, a body skill's
-        // `name` is used only to SELECT a definition — never to admit the body's own
-        // content: each allowlisted name is looked up in `options.skillHandlers`
-        // (the same host-registered registry the agentic loop uses to execute
-        // `server-tool` skills) and that server-authored definition is what's
-        // actually used. A name with no matching `skillHandlers` entry is dropped
-        // rather than falling back to the body's (unvetted) object. Omitting
-        // `allowedSkills` preserves the current behavior (`body.skills` trusted
-        // as-is, content included).
-        //
-        // Finding F1 (Tier 2): computed HERE, after `validateStudioAIRequestBody`
-        // has already rejected a malformed `body.skills` (truthy non-array, or an
-        // array with a non-object/nameless entry) and INSIDE `start()` (i.e. after
-        // the `ReadableStream` is already under construction) — not at the top of
-        // `handleAIChat` as before. Previously this ran before validation and before
-        // the stream existed, so a malformed `skills` threw a synchronous `TypeError`
-        // straight out of `handleAIChat`, violating its "always returns a stream,
-        // never throws" contract. Now a malformed value is always caught by
-        // validation first and surfaces as a normal `{ type: 'error' }` SSE frame.
-        const effectiveSkills = options.allowedSkills
-          ? (skills ?? [])
-              .filter((s) => options.allowedSkills!.includes(s.name))
-              .map((s) => options.skillHandlers?.find((h) => h.name === s.name))
-              .filter((s): s is StudioAISkill => Boolean(s))
-          : skills;
+          // Server-side allowlist / private-mode enforcement (invariant 10: the client
+          // asserts these in the body; a host that needs a hard guarantee overrides them
+          // here). The effective tool set is the INTERSECTION of the server allowlist and
+          // the body's — a body omitting `allowedTools` allows all, so intersecting yields
+          // the server list. Effective private mode is `server || body`: the client may opt
+          // in but never out of a server-mandated private mode. When both server options are
+          // omitted, both values are bit-identical to the raw body values (current behavior).
+          //
+          // Finding F1 (Tier 2): computed HERE, after `validateStudioAIRequestBody` has
+          // already rejected a malformed `body.allowedTools` (a truthy non-array, whose
+          // `.includes(...)` is undefined) and INSIDE `start()` — not at the top of
+          // `handleAIChat` as before. Previously the intersection ran before validation and
+          // before the stream existed, so a truthy non-array `body.allowedTools` threw a
+          // synchronous `TypeError` straight out of `handleAIChat`, violating its "always
+          // returns a stream, never throws" contract (the same bug class the `effectiveSkills`
+          // relocation fixed). Now a malformed value is always caught by validation first and
+          // surfaces as a normal `{ type: 'error' }` SSE frame.
+          let effectiveAllowedTools: string[] | undefined;
+          if (!options.allowedTools) {
+            // No server allowlist — trust the body's list (or its absence = all tools).
+            effectiveAllowedTools = bodyAllowedTools;
+          } else if (bodyAllowedTools) {
+            // Both present — intersect (server can only ever narrow the client's list).
+            effectiveAllowedTools = options.allowedTools.filter((t) =>
+              bodyAllowedTools.includes(t),
+            );
+          } else {
+            // Body omits its list (allows all) — the server list is the effective set.
+            effectiveAllowedTools = options.allowedTools;
+          }
+          const effectivePrivateMode = Boolean(options.privateMode || bodyPrivateMode);
 
-        // Best-effort server-side context enrichment. Failures never abort the chat.
-        // Bounded by `CONTEXT_ENRICHER_TIMEOUT_MS` (finding T2-2) — without this, a
-        // hung `contextEnricher` (e.g. a stalled DB query) would block this `await`
-        // indefinitely, stalling the entire SSE stream before the first LLM call is
-        // even made. A timeout degrades the same way a thrown error already does:
-        // logged via `onToolError` and the chat proceeds without enrichment.
-        let enrichedContext: StudioAIEnrichedContext | undefined;
-        if (options.contextEnricher && !effectivePrivateMode) {
+          // Server-side skill allow-list enforcement (finding 2.1, hardened for T1-1).
+          // A client-asserted `body.skills` entry's `promptFragment` (and, for
+          // `server-tool` mode, its tool `description`/`parameters`) lands in the
+          // higher-trust system region. Filtering by `name` alone is NOT sufficient —
+          // a body can assert an allowlisted `name` paired with its own hostile
+          // `promptFragment`, and the name check alone would let that fragment through
+          // unchanged. So when the host supplies `allowedSkills`, a body skill's
+          // `name` is used only to SELECT a definition — never to admit the body's own
+          // content: each allowlisted name is looked up in `options.skillHandlers`
+          // (the same host-registered registry the agentic loop uses to execute
+          // `server-tool` skills) and that server-authored definition is what's
+          // actually used. A name with no matching `skillHandlers` entry is dropped
+          // rather than falling back to the body's (unvetted) object. Omitting
+          // `allowedSkills` preserves the current behavior (`body.skills` trusted
+          // as-is, content included).
+          //
+          // Finding F1 (Tier 2): computed HERE, after `validateStudioAIRequestBody`
+          // has already rejected a malformed `body.skills` (truthy non-array, or an
+          // array with a non-object/nameless entry) and INSIDE `start()` (i.e. after
+          // the `ReadableStream` is already under construction) — not at the top of
+          // `handleAIChat` as before. Previously this ran before validation and before
+          // the stream existed, so a malformed `skills` threw a synchronous `TypeError`
+          // straight out of `handleAIChat`, violating its "always returns a stream,
+          // never throws" contract. Now a malformed value is always caught by
+          // validation first and surfaces as a normal `{ type: 'error' }` SSE frame.
+          //
+          // Note the two branches differ in WHERE the content comes from, and only the
+          // pass-through branch needs the size cap: with `allowedSkills` configured the
+          // body's object is discarded entirely in favour of the host-authored
+          // `skillHandlers` entry, so `cappedSkills` (finding H1a) applies to the
+          // trusted-as-is branch.
+          const effectiveSkills = options.allowedSkills
+            ? (skills ?? [])
+                .filter((s) => options.allowedSkills!.includes(s.name))
+                .map((s) => options.skillHandlers?.find((h) => h.name === s.name))
+                .filter((s): s is StudioAISkill => Boolean(s))
+            : cappedSkills;
+
+          // Best-effort server-side context enrichment. Failures never abort the chat.
+          // Bounded by `CONTEXT_ENRICHER_TIMEOUT_MS` (finding T2-2) — without this, a
+          // hung `contextEnricher` (e.g. a stalled DB query) would block this `await`
+          // indefinitely, stalling the entire SSE stream before the first LLM call is
+          // even made. A timeout degrades the same way a thrown error already does:
+          // logged via `onToolError` and the chat proceeds without enrichment.
+          let enrichedContext: StudioAIEnrichedContext | undefined;
+          if (options.contextEnricher && !effectivePrivateMode) {
+            try {
+              enrichedContext = await withTimeout(
+                Promise.resolve(
+                  options.contextEnricher({
+                    dashboardState: cappedDashboardState,
+                    richContext: cappedRichContext,
+                    signal: abortController.signal,
+                  }),
+                ),
+                CONTEXT_ENRICHER_TIMEOUT_MS,
+                'contextEnricher',
+              );
+            } catch (err) {
+              options.onToolError?.(
+                'contextEnricher',
+                err instanceof Error ? err : new Error(String(err)),
+              );
+            }
+          }
+
+          const loop = runAgenticLoop(
+            messages,
+            cappedDashboardState,
+            cappedCustomWidgets,
+            cappedFocusedWidgetId,
+            effectiveAllowedTools,
+            effectiveSkills,
+            {
+              endpoint: options.endpoint,
+              apiKey: options.apiKey,
+              model: options.model,
+              headers: options.headers,
+              signal: abortController.signal,
+              onToolError: options.onToolError,
+              skillHandlers: options.skillHandlers,
+              data: options.data,
+              privateMode: effectivePrivateMode,
+              rateLimit: options.rateLimit,
+              toolPolicy: options.toolPolicy,
+              approvalPending: options.approvalPending,
+              approvalFallback: options.approvalFallback,
+              approvalTimeoutMs: options.approvalTimeoutMs,
+              pageSnapshot: cappedPageSnapshot,
+              richContext: cappedRichContext,
+              enrichedContext,
+            },
+          );
+
+          for await (const event of loop) {
+            // Finding L2 — respect backpressure. Events are pushed from `start()`, so
+            // without this a client that stops reading (a paused/backgrounded tab, a
+            // dead TCP peer that hasn't reset yet) accumulates the ENTIRE response in
+            // the stream's internal queue, bounded only by `MAX_TURN_TEXT_BUFFER_CHARS`
+            // × turns plus every tool result. Waiting while `desiredSize` is
+            // exhausted makes the producer run at the consumer's pace.
+            // eslint-disable-next-line no-await-in-loop -- backpressure is inherently sequential
+            await waitForDrain(controller);
+            controller.enqueue(encodeSSE(event));
+            if (event.type === 'finish' || event.type === 'error') {
+              break;
+            }
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          // Guard the enqueue: if the stream was already cancelled/closed (e.g. the
+          // consumer called `reader.cancel()`), enqueueing throws — swallow it so the
+          // error path itself doesn't blow up.
           try {
-            enrichedContext = await withTimeout(
-              Promise.resolve(
-                options.contextEnricher({
-                  dashboardState: cappedDashboardState,
-                  richContext: cappedRichContext,
-                  signal: abortController.signal,
-                }),
-              ),
-              CONTEXT_ENRICHER_TIMEOUT_MS,
-              'contextEnricher',
-            );
-          } catch (err) {
-            options.onToolError?.(
-              'contextEnricher',
-              err instanceof Error ? err : new Error(String(err)),
-            );
+            controller.enqueue(encodeSSE({ type: 'error', message }));
+          } catch {
+            // Stream already cancelled/closed — nothing to surface the error to.
+          }
+        } finally {
+          cleanupExternalAbortListener();
+          // Finding M5 — abort the request's own controller. This is what actually
+          // stops any still-in-flight LLM `fetch` (and releases its socket) once the
+          // stream is done: `withTimeout` alone only makes the loop stop WAITING, so a
+          // turn that timed out at `LLM_FETCH_TIMEOUT_MS` previously left the upstream
+          // completion running to completion — fully billed, body never read.
+          abortController.abort();
+          try {
+            controller.close();
+          } catch {
+            // Stream already closed/cancelled.
           }
         }
-
-        const loop = runAgenticLoop(
-          messages,
-          cappedDashboardState,
-          cappedCustomWidgets,
-          focusedWidgetId,
-          effectiveAllowedTools,
-          effectiveSkills,
-          {
-            endpoint: options.endpoint,
-            apiKey: options.apiKey,
-            model: options.model,
-            headers: options.headers,
-            signal: abortController.signal,
-            onToolError: options.onToolError,
-            skillHandlers: options.skillHandlers,
-            data: options.data,
-            privateMode: effectivePrivateMode,
-            rateLimit: options.rateLimit,
-            toolPolicy: options.toolPolicy,
-            approvalPending: options.approvalPending,
-            approvalFallback: options.approvalFallback,
-            approvalTimeoutMs: options.approvalTimeoutMs,
-            pageSnapshot,
-            richContext: cappedRichContext,
-            enrichedContext,
-          },
-        );
-
-        for await (const event of loop) {
-          controller.enqueue(encodeSSE(event));
-          if (event.type === 'finish' || event.type === 'error') {
-            break;
-          }
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        // Guard the enqueue: if the stream was already cancelled/closed (e.g. the
-        // consumer called `reader.cancel()`), enqueueing throws — swallow it so the
-        // error path itself doesn't blow up.
-        try {
-          controller.enqueue(encodeSSE({ type: 'error', message }));
-        } catch {
-          // Stream already cancelled/closed — nothing to surface the error to.
-        }
-      } finally {
+      },
+      cancel() {
+        // Consumer stopped reading — propagate cancellation into the loop. A producer
+        // parked in `waitForDrain` observes this abort and stops waiting.
         cleanupExternalAbortListener();
-        try {
-          controller.close();
-        } catch {
-          // Stream already closed/cancelled.
-        }
-      }
+        abortController.abort();
+      },
     },
-    cancel() {
-      // Consumer stopped reading — propagate cancellation into the loop.
-      cleanupExternalAbortListener();
-      abortController.abort();
-    },
-  });
+    // Finding L2 — an explicit queuing strategy. The default (`highWaterMark: 1`)
+    // would park the producer after literally every event, adding a
+    // microtask-scheduling round-trip per SSE frame to an otherwise-healthy stream.
+    // A small buffer keeps normal streaming smooth while still bounding what a
+    // non-reading consumer can accumulate. Chunk-COUNT based (no `size`), which is
+    // the default for a non-byte stream.
+    { highWaterMark: SSE_QUEUE_HIGH_WATER_MARK },
+  );
 }

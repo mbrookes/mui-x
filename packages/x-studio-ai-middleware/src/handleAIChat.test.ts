@@ -14,6 +14,8 @@ import {
   CONTEXT_ENRICHER_TIMEOUT_MS,
   capIncomingCustomWidgets,
   capIncomingRichContext,
+  capIncomingSkills,
+  capIncomingPageSnapshot,
   type StudioAIHandlerOptions,
 } from './handleAIChat';
 import { createDefaultStudioState } from './models/studioTypes';
@@ -1467,5 +1469,214 @@ describe('capIncomingRichContext: per-string-field length caps', () => {
 
   it('returns undefined/non-object input unchanged', () => {
     expect(capIncomingRichContext(undefined)).toBeUndefined();
+  });
+});
+
+// ── Finding H1a: `skills` had NO cap of any kind ─────────────────────────────
+describe('capIncomingSkills (finding H1a)', () => {
+  it('caps an oversized promptFragment', () => {
+    const capped = capIncomingSkills([
+      { name: 'x', mode: 'instruction-only', promptFragment: 'A'.repeat(1_000_000) },
+    ])!;
+    // 50 MB of prompt fragment was previously re-sent on EVERY one of up to 10 turns,
+    // and the per-turn token budget cannot help — it is checked only AFTER a turn.
+    expect(capped[0].promptFragment.length).toBe(20_000);
+  });
+
+  it('caps the entry count', () => {
+    const many = Array.from({ length: 5_000 }, (_, i) => ({
+      name: `s${i}`,
+      mode: 'instruction-only' as const,
+      promptFragment: 'do a thing',
+    }));
+    expect(capIncomingSkills(many)!.length).toBe(100);
+  });
+
+  it('caps a server-tool description and replaces an oversized parameters schema', () => {
+    const hugeSchema = {
+      type: 'object',
+      properties: Object.fromEntries(
+        Array.from({ length: 5_000 }, (_, i) => [
+          `p${i}`,
+          { type: 'string', description: 'x'.repeat(100) },
+        ]),
+      ),
+    };
+    const capped = capIncomingSkills([
+      {
+        name: 'x',
+        mode: 'server-tool',
+        promptFragment: 'f',
+        tool: { name: 'n'.repeat(1_000), description: 'd'.repeat(100_000), parameters: hugeSchema },
+      },
+    ])!;
+
+    expect(capped[0].tool!.name.length).toBe(200);
+    expect(capped[0].tool!.description.length).toBe(4_000);
+    // A JSON Schema cannot be truncated and stay a schema, so it is REPLACED.
+    expect(capped[0].tool!.parameters).toEqual({ type: 'object', properties: {} });
+  });
+
+  it('leaves a normal skill byte-for-byte unchanged', () => {
+    const skill = {
+      name: 'narrator',
+      mode: 'instruction-only' as const,
+      promptFragment: 'Summarise the dashboard.',
+    };
+    expect(capIncomingSkills([skill])![0]).toEqual(skill);
+  });
+
+  it('returns undefined input unchanged', () => {
+    expect(capIncomingSkills(undefined)).toBeUndefined();
+  });
+});
+
+// ── Finding H1b: `pageSnapshot` was validated but never length-capped ────────
+describe('capIncomingPageSnapshot (finding H1b)', () => {
+  it('caps an oversized snapshot', () => {
+    // Its presence advertises `summarise_page`, whose output is the snapshot
+    // VERBATIM — appended to the conversation and re-sent every remaining turn.
+    expect(capIncomingPageSnapshot('s'.repeat(5_000_000))!.length).toBe(100_000);
+  });
+
+  it('passes a normal snapshot and `undefined` through unchanged', () => {
+    expect(capIncomingPageSnapshot('a,b\n1,2')).toBe('a,b\n1,2');
+    expect(capIncomingPageSnapshot(undefined)).toBeUndefined();
+  });
+});
+
+// ── Finding H1f: `customWidgets[].defaultConfig` KEY strings ─────────────────
+describe('capIncomingCustomWidgets: defaultConfig keys (finding H1f)', () => {
+  it('caps the key string, not just the key count', () => {
+    const long = 'k'.repeat(5_000);
+    const capped = capIncomingCustomWidgets([
+      { kind: 'gauge', label: 'Gauge', defaultConfig: { [long]: 1 } } as StudioCustomWidgetDef,
+    ])!;
+    // `buildAISystemPrompt.ts` echoes `Object.keys(cw.defaultConfig)` verbatim; the
+    // identical gap was already closed for `richContext.fieldStats` keys.
+    expect(Object.keys(capped[0].defaultConfig!)[0].length).toBe(200);
+  });
+});
+
+// ── Finding M3: malformed sub-entity shapes → actionable errors, not TypeErrors ──
+describe('handleAIChat: malformed dashboardState sub-entities (finding M3)', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  async function errorMessageFor(dashboardState: unknown): Promise<string> {
+    const events = parseEvents(
+      await readAll(
+        handleAIChat(makeBody({ dashboardState } as Partial<StudioAIRequest>), OPTIONS),
+      ),
+    );
+    const err = events.find((e) => e.type === 'error') as { message: string } | undefined;
+    return err?.message ?? '';
+  }
+
+  function stateWith(docOverrides: Record<string, unknown>) {
+    const state = createDefaultStudioState();
+    return { ...state, doc: { ...state.doc, ...docOverrides } };
+  }
+
+  it('rejects a null widget entry with an actionable MUI X Studio error', async () => {
+    const message = await errorMessageFor(stateWith({ widgets: { w1: null } }));
+    expect(message).toMatch(/^MUI X Studio:/);
+    expect(message).toContain('doc.widgets["w1"]');
+  });
+
+  it('rejects a null page entry', async () => {
+    const message = await errorMessageFor(stateWith({ pages: { p1: null } }));
+    expect(message).toMatch(/^MUI X Studio:/);
+    expect(message).toContain('doc.pages["p1"]');
+  });
+
+  it('rejects a null filter entry', async () => {
+    const message = await errorMessageFor(stateWith({ filters: [null] }));
+    expect(message).toMatch(/^MUI X Studio:/);
+    expect(message).toContain('doc.filters[0]');
+  });
+
+  it('rejects a non-array `widgetRows`', async () => {
+    const message = await errorMessageFor(
+      stateWith({ pages: { p1: { id: 'p1', title: 'P', widgetRows: 'abc' } } }),
+    );
+    expect(message).toMatch(/^MUI X Studio:/);
+    expect(message).toContain('widgetRows');
+  });
+
+  it('rejects a row that is not an array', async () => {
+    const message = await errorMessageFor(
+      stateWith({ pages: { p1: { id: 'p1', title: 'P', widgetRows: ['abc'] } } }),
+    );
+    expect(message).toMatch(/^MUI X Studio:/);
+    expect(message).toContain('widgetRows');
+  });
+
+  it('rejects a null data-source field entry', async () => {
+    const state = createDefaultStudioState();
+    const message = await errorMessageFor({
+      ...state,
+      runtime: { dataSources: { src1: { id: 'src1', label: 'S', fields: [null] } } },
+    });
+    expect(message).toMatch(/^MUI X Studio:/);
+    expect(message).toContain('fields[0]');
+  });
+});
+
+// ── Finding M5: the request's own fetches must be aborted when the stream ends ──
+describe('handleAIChat: abort on completion (finding M5)', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("aborts the request's own controller once the stream finishes", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(textResponse('Hello'));
+
+    // `contextEnricher` receives the very `abortController.signal` the agentic loop
+    // (and therefore every LLM fetch) runs under, so it is the observable handle on
+    // this behavior.
+    let requestSignal: AbortSignal | undefined;
+    await readAll(
+      handleAIChat(makeBody(), {
+        ...OPTIONS,
+        contextEnricher: ({ signal }) => {
+          requestSignal = signal;
+          return {};
+        },
+      }),
+    );
+
+    // Previously the `finally` only removed the external listener and closed the
+    // stream — an in-flight (e.g. timed-out) provider request was left running to
+    // completion, fully billed, with its body never read.
+    expect(requestSignal).toBeDefined();
+    expect(requestSignal!.aborted).toBe(true);
+  });
+
+  it('propagates consumer cancellation into the request controller', async () => {
+    vi.mocked(fetch).mockResolvedValue(textResponse('Hello'));
+
+    let requestSignal: AbortSignal | undefined;
+    const stream = handleAIChat(makeBody(), {
+      ...OPTIONS,
+      contextEnricher: ({ signal }) => {
+        requestSignal = signal;
+        return {};
+      },
+    });
+    const reader = stream.getReader();
+    await reader.read();
+    await reader.cancel();
+
+    expect(requestSignal!.aborted).toBe(true);
   });
 });

@@ -68,7 +68,7 @@ describe('handleGenerateTitle', () => {
   it('throws on a non-OK response', async () => {
     stubFetch('', { ok: false, status: 500 });
     await expect(handleGenerateTitle('hi', OPTIONS)).rejects.toThrow(
-      /Title generation failed: 500/,
+      /Title generation request failed \(HTTP 500 ERR\)/,
     );
   });
 
@@ -272,7 +272,7 @@ describe('handleCreateWidget', () => {
   it('throws on a non-OK response', async () => {
     stubFetch('', { ok: false, status: 400 });
     await expect(handleCreateWidget(request, OPTIONS)).rejects.toThrow(
-      /Widget creation failed: 400/,
+      /Widget creation request failed \(HTTP 400 ERR\)/,
     );
   });
 
@@ -551,5 +551,55 @@ describe('handleCreateWidget', () => {
         new RegExp(`Widget creation response body timed out after ${LLM_FETCH_TIMEOUT_MS}ms`),
       );
     });
+  });
+});
+
+// ── Finding H1h: the client-facing free-text inputs had no cap ────────────────
+//
+// The sibling `sources` array in the same request already got a full
+// `capCreateWidgetSources` treatment; these two strings were passed straight
+// through as LLM message `content`.
+describe('handleGenerateTitle / handleCreateWidget: input size caps (finding H1h)', () => {
+  it('caps an oversized firstMessage before sending it', async () => {
+    const fn = stubFetch(JSON.stringify({ title: 'T', description: 'D' }));
+    await handleGenerateTitle('a'.repeat(5_000_000), OPTIONS);
+    const userContent = requestBody(fn).messages[1].content as string;
+    expect(userContent.length).toBe(10_000);
+  });
+
+  it('caps an oversized widget description before sending it', async () => {
+    const fn = stubFetch(JSON.stringify({ kind: 'text', title: 't' }));
+    await handleCreateWidget({ description: 'd'.repeat(5_000_000), sources: [] }, OPTIONS);
+    const userContent = requestBody(fn).messages[1].content as string;
+    expect(userContent.length).toBe(10_000);
+  });
+
+  it('leaves a normal message/description byte-for-byte unchanged', async () => {
+    const fn = stubFetch(JSON.stringify({ title: 'T', description: 'D' }));
+    await handleGenerateTitle('show me sales by region', OPTIONS);
+    expect(requestBody(fn).messages[1].content).toBe('show me sales by region');
+  });
+});
+
+// ── Finding H4: never relay the provider's error body ────────────────────────
+describe('handleGenerateTitle / handleCreateWidget: provider error disclosure (finding H4)', () => {
+  it('keeps the provider body out of the thrown error and routes it to onError', async () => {
+    stubFetch('', {
+      ok: false,
+      status: 401,
+      text: 'Incorrect API key sk-proj-LEAKED (org-secret)',
+    });
+    const onError = vi.fn();
+
+    const thrown = await handleGenerateTitle('hi', { ...OPTIONS, onError }).catch(
+      (err: Error) => err,
+    );
+
+    expect(thrown.message).toMatch(/HTTP 401 ERR/);
+    expect(thrown.message).not.toContain('sk-proj-LEAKED');
+    expect(thrown.message).toMatch(/correlation id/i);
+
+    const [, loggedError] = onError.mock.calls[0] as [string, Error];
+    expect(loggedError.message).toContain('sk-proj-LEAKED');
   });
 });

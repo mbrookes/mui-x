@@ -129,6 +129,26 @@ export interface ToolCallDelta {
 }
 
 /**
+ * True only for a value that is genuinely usable as a tool-call slot key.
+ *
+ * `ToolCallDelta.index` is TYPED `number`, but it is raw JSON straight off the
+ * provider's wire — this package's threat model explicitly includes a
+ * hostile/compromised OpenAI-compatible gateway (the same actor
+ * {@link MAX_TOOL_CALL_ARGS_BUFFER_CHARS}, {@link MAX_TOOL_CALLS_PER_TURN} and
+ * `parseSSE`'s buffer cap already defend against). A delta carrying
+ * `index: "__proto__"` previously flowed straight into `acc.reqToolCalls[idx]`:
+ * the lookup resolved to `Object.prototype` (truthy, so the slot-count cap never
+ * tripped) and the subsequent `.id`/`.name`/`.argsBuffer` writes landed on
+ * `Object.prototype` itself — permanent, process-wide prototype pollution
+ * affecting every object in the host app, with the tool call silently dropped on
+ * top. Rejecting a non-integer `index` here makes the delta fall through to the
+ * id-based / positional path, which mints a safe synthetic index instead.
+ */
+function isUsableToolCallIndex(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value);
+}
+
+/**
  * Seed for synthetic indices assigned to id-only tool-call deltas.
  *
  * Providers key streamed tool-call fragments either by a numeric `index` or by an
@@ -183,8 +203,24 @@ export const MAX_TOOL_CALL_ARGS_BUFFER_CHARS = 1_000_000;
  */
 export const MAX_TOOL_CALLS_PER_TURN = 1_000;
 
+/**
+ * Both maps are `Object.create(null)` (NOT `{}`) because every key written into
+ * them is derived from provider-supplied wire data: `reqToolCalls` is keyed by
+ * `tool_calls[].index` and `idToIdx` by `tool_calls[].id`. With an ordinary object
+ * literal, a key of `"__proto__"`/`"constructor"` resolves through the prototype
+ * chain — the lookup returns a truthy inherited value, the "mint a new slot" branch
+ * (and therefore {@link MAX_TOOL_CALLS_PER_TURN}) is skipped, and the writes below
+ * land on `Object.prototype`/`Object` instead of the accumulator. A null-prototype
+ * map has no inherited members at all, so such a key can only ever address its own
+ * ordinary slot. This is defense-in-depth alongside {@link isUsableToolCallIndex},
+ * which already rejects a non-integer `index` up front.
+ */
 export function createToolCallAccumulator(): ToolCallAccumulator {
-  return { reqToolCalls: {}, idToIdx: {}, nextAutoIdx: SYNTHETIC_INDEX_BASE };
+  return {
+    reqToolCalls: Object.create(null) as Record<number, AccumulatedToolCall>,
+    idToIdx: Object.create(null) as Record<string, number>,
+    nextAutoIdx: SYNTHETIC_INDEX_BASE,
+  };
 }
 
 /**
@@ -196,7 +232,11 @@ export function accumulateToolCallDeltas(deltas: ToolCallDelta[], acc: ToolCallA
   for (const [i, tc] of deltas.entries()) {
     let idx: number;
     const tcIndex = tc.index;
-    if (tcIndex !== undefined) {
+    // Only a genuine integer `index` may be used as a slot key (see
+    // `isUsableToolCallIndex`). Anything else — `"__proto__"`, `"constructor"`, a
+    // float, `NaN`, an object — falls through to the id-based / positional path
+    // below, which mints a safe synthetic index.
+    if (isUsableToolCallIndex(tcIndex)) {
       idx = tcIndex;
     } else if (tc.id) {
       if (acc.idToIdx[tc.id] !== undefined) {

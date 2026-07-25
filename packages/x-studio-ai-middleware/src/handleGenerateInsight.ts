@@ -5,10 +5,13 @@
  */
 
 import { WIDGET_CONFIG_DESCRIPTION } from './studioAITools';
-import { sanitizeForPrompt } from './buildAISystemPrompt';
+import { sanitizeForPromptLine } from './buildAISystemPrompt';
 import { buildWidgetFromArgs, MAX_FILTER_STRING_LENGTH } from './executeToolOnState';
 import { withTimeout } from './mcp/helpers';
 import { LLM_FETCH_TIMEOUT_MS } from './agenticLoop';
+import { capText } from './internal/promptCaps';
+import { linkAbortSignal, readBodyWithTimeout } from './internal/llmFetch';
+import { reportProviderHttpError } from './internal/providerError';
 
 export interface GenerateInsightOptions {
   /** LLM endpoint (OpenAI-compatible, e.g. `https://api.openai.com/v1/chat/completions`) */
@@ -25,7 +28,45 @@ export interface GenerateInsightOptions {
    * `handleCreateWidget`).
    */
   maxTokens?: number;
+  /**
+   * Optional `AbortSignal` for request cancellation (finding M5).
+   *
+   * These handlers previously passed NO signal at all — unlike
+   * `AgenticLoopOptions.signal` — so a caller that gave up (client disconnected,
+   * request timed out) left the upstream completion running to completion and
+   * fully billed, with its socket pinned. The signal is linked with an internal
+   * `LLM_FETCH_TIMEOUT_MS` deadline, so the request is aborted on whichever fires
+   * first.
+   */
+  signal?: AbortSignal;
+  /**
+   * Called with full server-side detail when the LLM provider returns an error
+   * (finding H4).
+   *
+   * The thrown error deliberately carries only the HTTP status and a correlation
+   * id: a provider's error BODY can echo the (partially masked) API key, the
+   * organisation, the deployment path, or an internal hostname, and these handlers'
+   * results are commonly surfaced to end users. Wire this to your logger to see the
+   * body, matched by correlation id.
+   *
+   * @param {string} context - Which request failed.
+   * @param {Error} error - The full-detail error. Log it; do not relay it.
+   */
+  onError?: (context: string, error: Error) => void;
 }
+
+/**
+ * Max length of the client-supplied free text these handlers send to the LLM
+ * (`handleGenerateTitle`'s `firstMessage`, `handleCreateWidget`'s `description`) —
+ * finding H1h.
+ *
+ * Both are public, client-facing entry points with none of `handleAIChat`'s request
+ * caps: the sibling `sources` array in the same request got a full
+ * `capCreateWidgetSources` treatment, but these two strings were passed straight
+ * through as message `content`. Sized generously (a real widget description or first
+ * chat message is a sentence or two) so only a runaway/hostile payload trips it.
+ */
+const MAX_INSIGHT_TEXT_CHARS = 10_000;
 
 /** Hard cap on a generated chat-session title, matching `rename_thread`'s server-side cap. */
 const MAX_GENERATED_TITLE_LENGTH = 40;
@@ -79,48 +120,78 @@ export async function handleGenerateTitle(
 ): Promise<{ title: string; description: string }> {
   const { endpoint, apiKey, model = 'gpt-4o', headers: extraHeaders, maxTokens = 100 } = options;
 
+  // Finding H1h — cap the client-supplied message BEFORE it becomes LLM input. All
+  // downstream uses (including the `firstMessage.slice(0, 40)` fallbacks) read this
+  // capped value.
+  const cappedFirstMessage = capText(firstMessage, MAX_INSIGHT_TEXT_CHARS);
+
   // Bounded by `LLM_FETCH_TIMEOUT_MS` (finding: this call previously had no timeout
   // at all, unlike the main chat loop) — a hung/overloaded gateway that never
-  // resolves would otherwise hang this call indefinitely. Reuses the SAME
-  // `withTimeout` mechanism and constant `agenticLoop.ts` applies to its own LLM
-  // fetch, rather than reimplementing a second timeout scheme.
-  const response = await withTimeout(
-    fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-        ...extraHeaders,
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          {
-            role: 'system',
-            content:
-              'Generate a short title (max 6 words) and a one-sentence description for a ' +
-              "dashboard analytics chat session based on the user's first message. " +
-              'Respond ONLY with valid JSON: {"title": "...", "description": "..."}',
-          },
-          { role: 'user', content: firstMessage },
-        ],
-        max_tokens: maxTokens,
-        temperature: 0.3,
+  // resolves would otherwise hang this call indefinitely. `linkAbortSignal`
+  // additionally ABORTS the request on timeout or on the caller's own signal
+  // (finding M5); `withTimeout` alone only stopped this function waiting.
+  const fetchAbort = linkAbortSignal(options.signal, LLM_FETCH_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await withTimeout(
+      fetch(endpoint, {
+        method: 'POST',
+        signal: fetchAbort.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+          ...extraHeaders,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            {
+              role: 'system',
+              content:
+                'Generate a short title (max 6 words) and a one-sentence description for a ' +
+                "dashboard analytics chat session based on the user's first message. " +
+                'Respond ONLY with valid JSON: {"title": "...", "description": "..."}',
+            },
+            { role: 'user', content: cappedFirstMessage },
+          ],
+          max_tokens: maxTokens,
+          temperature: 0.3,
+        }),
       }),
-    }),
-    LLM_FETCH_TIMEOUT_MS,
-    'MUI X Studio: Title generation request',
-  );
+      LLM_FETCH_TIMEOUT_MS,
+      'MUI X Studio: Title generation request',
+    );
+  } finally {
+    fetchAbort.dispose();
+  }
 
   if (!response.ok) {
-    throw new Error(`Title generation failed: ${response.status}`);
+    // Finding H4 — status only, never the provider's body (see `reportProviderHttpError`).
+    // This handler already relayed status-only; the report adds a correlation id and
+    // routes the body to `onError` so an operator can still diagnose it.
+    const errText = await readBodyWithTimeout(
+      response,
+      () => response.text(),
+      LLM_FETCH_TIMEOUT_MS,
+      'MUI X Studio: Title generation error response body',
+    ).catch(() => undefined);
+    const report = reportProviderHttpError(
+      'Title generation request',
+      response.status,
+      response.statusText,
+      errText,
+    );
+    options.onError?.('handleGenerateTitle', new Error(report.detail));
+    throw new Error(report.clientMessage);
   }
 
   // Bounded by `LLM_FETCH_TIMEOUT_MS` (finding 2, iteration 24) — the fetch-level
   // timeout above only bounds the wait for HEADERS to arrive; a gateway that returns
-  // 2xx headers then stalls the body would otherwise hang this call forever.
-  const data = (await withTimeout(
-    response.json(),
+  // 2xx headers then stalls the body would otherwise hang this call forever. The body
+  // is CANCELLED on a timeout (finding M5) rather than left unread on a live socket.
+  const data = (await readBodyWithTimeout(
+    response,
+    () => response.json(),
     LLM_FETCH_TIMEOUT_MS,
     'MUI X Studio: Title generation response body',
   )) as {
@@ -134,14 +205,14 @@ export async function handleGenerateTitle(
   // here does.
   const content = data.choices?.[0]?.message?.content;
   if (content === undefined) {
-    return { title: firstMessage.slice(0, 40), description: '' };
+    return { title: cappedFirstMessage.slice(0, 40), description: '' };
   }
 
   try {
     const parsed: unknown = JSON.parse(content);
-    return normalizeGeneratedTitle(parsed, firstMessage);
+    return normalizeGeneratedTitle(parsed, cappedFirstMessage);
   } catch {
-    return { title: firstMessage.slice(0, 40), description: '' };
+    return { title: cappedFirstMessage.slice(0, 40), description: '' };
   }
 }
 
@@ -191,8 +262,7 @@ const MAX_CREATE_WIDGET_SOURCE_FIELDS = 500;
  * constant for the same class of short string.
  */
 function capCreateWidgetString(value: unknown): string {
-  const str = String(value ?? '');
-  return str.length > MAX_FILTER_STRING_LENGTH ? str.slice(0, MAX_FILTER_STRING_LENGTH) : str;
+  return capText(value, MAX_FILTER_STRING_LENGTH);
 }
 
 /**
@@ -289,7 +359,10 @@ export async function handleCreateWidget(
   request: CreateWidgetRequest,
   options: GenerateInsightOptions,
 ): Promise<CreateWidgetResponse> {
-  const { description } = request;
+  // Finding H1h — cap the client-supplied description BEFORE it becomes LLM input.
+  // The sibling `sources` array in this same request already had a full
+  // `capCreateWidgetSources` treatment; this string did not.
+  const description = capText(request?.description, MAX_INSIGHT_TEXT_CHARS);
   const { endpoint, apiKey, model = 'gpt-4o', headers: extraHeaders, maxTokens = 500 } = options;
 
   // Cap `sources` BEFORE building the prompt (Tier 1 architecture-review finding):
@@ -300,19 +373,24 @@ export async function handleCreateWidget(
 
   // Source labels/ids and field ids/types/labels are state-derived and
   // attacker-influenceable (they can carry data read back from a poisoned source),
-  // so route every interpolated value through `sanitizeForPrompt` — the same choke
-  // point `buildAISystemPrompt.ts` uses — and wrap the catalogue in a tagged
+  // so route every interpolated value through `sanitizeForPromptLine` — the same
+  // choke point `buildAISystemPrompt.ts` uses — and wrap the catalogue in a tagged
   // `<data_sources>` region with a "treat as data" instruction, so a hostile value
   // can neither close the block early nor be read as an instruction.
+  //
+  // The LINE variant (finding M2): each source is one newline-terminated line with
+  // quoted field labels, so a value carrying a newline could forge an extra source
+  // line and a value carrying `"` could forge a sibling field — neither of which
+  // angle-bracket escaping alone prevents.
   const sourceLines = sources
     .map((s) => {
       const fields = s.fields
         .map(
           (f) =>
-            `${sanitizeForPrompt(f.id)} (${sanitizeForPrompt(f.type)}${f.label ? `, "${sanitizeForPrompt(f.label)}"` : ''})`,
+            `${sanitizeForPromptLine(f.id)} (${sanitizeForPromptLine(f.type)}${f.label ? `, "${sanitizeForPromptLine(f.label)}"` : ''})`,
         )
         .join(', ');
-      return `  - ${sanitizeForPrompt(s.label)} [id: ${sanitizeForPrompt(s.id)}]: ${fields}`;
+      return `  - ${sanitizeForPromptLine(s.label)} [id: ${sanitizeForPromptLine(s.id)}]: ${fields}`;
     })
     .join('\n');
 
@@ -328,40 +406,64 @@ export async function handleCreateWidget(
 
   // Bounded by `LLM_FETCH_TIMEOUT_MS` (finding: this call previously had no timeout
   // at all, unlike the main chat loop) — a hung/overloaded gateway that never
-  // resolves would otherwise hang this call indefinitely. Reuses the SAME
-  // `withTimeout` mechanism and constant `agenticLoop.ts` applies to its own LLM
-  // fetch, rather than reimplementing a second timeout scheme.
-  const response = await withTimeout(
-    fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-        ...extraHeaders,
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: description },
-        ],
-        max_tokens: maxTokens,
-        temperature: 0.2,
+  // resolves would otherwise hang this call indefinitely. `linkAbortSignal`
+  // additionally ABORTS the request on timeout or on the caller's own signal
+  // (finding M5); `withTimeout` alone only stopped this function waiting.
+  const fetchAbort = linkAbortSignal(options.signal, LLM_FETCH_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await withTimeout(
+      fetch(endpoint, {
+        method: 'POST',
+        signal: fetchAbort.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+          ...extraHeaders,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: description },
+          ],
+          max_tokens: maxTokens,
+          temperature: 0.2,
+        }),
       }),
-    }),
-    LLM_FETCH_TIMEOUT_MS,
-    'MUI X Studio: Widget creation request',
-  );
+      LLM_FETCH_TIMEOUT_MS,
+      'MUI X Studio: Widget creation request',
+    );
+  } finally {
+    fetchAbort.dispose();
+  }
 
   if (!response.ok) {
-    throw new Error(`Widget creation failed: ${response.status}`);
+    // Finding H4 — status + correlation id only; the provider's body goes to
+    // `onError` (see `reportProviderHttpError`).
+    const errText = await readBodyWithTimeout(
+      response,
+      () => response.text(),
+      LLM_FETCH_TIMEOUT_MS,
+      'MUI X Studio: Widget creation error response body',
+    ).catch(() => undefined);
+    const report = reportProviderHttpError(
+      'Widget creation request',
+      response.status,
+      response.statusText,
+      errText,
+    );
+    options.onError?.('handleCreateWidget', new Error(report.detail));
+    throw new Error(report.clientMessage);
   }
 
   // Bounded by `LLM_FETCH_TIMEOUT_MS` (finding 2, iteration 24) — the fetch-level
   // timeout above only bounds the wait for HEADERS to arrive; a gateway that returns
-  // 2xx headers then stalls the body would otherwise hang this call forever.
-  const data = (await withTimeout(
-    response.json(),
+  // 2xx headers then stalls the body would otherwise hang this call forever. The body
+  // is CANCELLED on a timeout (finding M5) rather than left unread on a live socket.
+  const data = (await readBodyWithTimeout(
+    response,
+    () => response.json(),
     LLM_FETCH_TIMEOUT_MS,
     'MUI X Studio: Widget creation response body',
   )) as {

@@ -101,4 +101,57 @@ describe('buildPageLayoutContext', () => {
     });
     expect(buildPageLayoutContext(state)?.crossFilters).toEqual([]);
   });
+
+  // Finding M1: `page.widgetColSpans?.[widgetId]` was an unguarded prototype-chain
+  // lookup — the sibling of the `pages`/`widgets` guards already in this file.
+  it('does not resolve widgetColSpans through the prototype for a `constructor` widget id', () => {
+    const state = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd', title: 'D', activePageId: 'p1' },
+        pages: { p1: { id: 'p1', title: 'P1', widgetRows: [['constructor']], widgetColSpans: {} } },
+        widgets: {
+          // An OWN `constructor` key, so the widget itself resolves legitimately and
+          // the span lookup is the only thing left that could walk the prototype.
+          constructor: { id: 'constructor', kind: 'grid', title: 'G', config: {} } as StudioWidget,
+        },
+      },
+    });
+
+    const layout = buildPageLayoutContext(state);
+    // Previously `colSpan` was the `Object` constructor function itself.
+    expect(layout?.rows[0][0]).toMatchObject({ widgetId: 'constructor', kind: 'grid' });
+    expect(layout?.rows[0][0].colSpan).toBeUndefined();
+  });
+
+  // Finding M3: `filters` is unvalidated client JSON — a scope-less entry threw a
+  // raw `TypeError` reading `f.scope.kind`.
+  it('skips a filter with no `scope` instead of throwing', () => {
+    const state = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd', title: 'D', activePageId: 'p1' },
+        pages: { p1: { id: 'p1', title: 'P1', widgetRows: [['w1']] } },
+        widgets: {
+          w1: { id: 'w1', kind: 'grid', title: 'Grid', config: {} } as StudioWidget,
+        },
+        filters: [
+          { id: 'f1', field: 'region', operator: 'equals', value: 'US' } as StudioFilterState,
+        ],
+      },
+    });
+    expect(() => buildPageLayoutContext(state)).not.toThrow();
+    expect(buildPageLayoutContext(state)?.crossFilters).toEqual([]);
+  });
+
+  // Finding M3: a non-array `widgetRows` (or row) must not reach `.map`/`.flatMap`.
+  it('tolerates a malformed widgetRows shape', () => {
+    const state = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd', title: 'D', activePageId: 'p1' },
+        pages: {
+          p1: { id: 'p1', title: 'P1', widgetRows: 'abc' as unknown as string[][] },
+        },
+      },
+    });
+    expect(() => buildPageLayoutContext(state)).not.toThrow();
+  });
 });

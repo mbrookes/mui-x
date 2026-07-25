@@ -3779,3 +3779,192 @@ describe('executeToolOnState: capShallowConfigValue recurses into nested config 
     }
   });
 });
+
+// ── Finding H1c/H1d: data-source field sub-fields that no cap ever touched ────
+describe('capIncomingDashboardState: data-source field caps (findings H1c/H1d)', () => {
+  const long = 'x'.repeat(5_000);
+
+  it('caps a field `id`, `capabilities`, and `defaultAggregationFn`', () => {
+    const state = createDefaultStudioState({
+      runtime: {
+        dataSources: {
+          src1: {
+            id: 'src1',
+            label: 'Sales',
+            fields: [
+              {
+                id: long,
+                label: 'Revenue',
+                type: 'number' as const,
+                capabilities: Array.from({ length: 100 }, () => long) as never,
+                defaultAggregationFn: long as never,
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    const field = capIncomingDashboardState(state).runtime.dataSources.src1.fields[0];
+    // Every one of these is echoed into EVERY field rendering, on every request —
+    // `serializeFieldForAI` interpolates `f.id`, `capabilities.join('+')`, and
+    // `default:<defaultAggregationFn>`; only `label`/`format`/`aiDescription` were
+    // capped before.
+    expect(field.id.length).toBe(200);
+    expect(field.capabilities!.length).toBe(20);
+    expect((field.capabilities![0] as string).length).toBe(200);
+    expect((field.defaultAggregationFn as unknown as string).length).toBe(200);
+  });
+
+  it('caps `fieldDistinctValues` values, which `capDataSource` never touched', () => {
+    const state = createDefaultStudioState({
+      runtime: {
+        dataSources: {
+          src1: {
+            id: 'src1',
+            label: 'Sales',
+            fields: [{ id: 'status', label: 'Status', type: 'string' as const }],
+            // ≤ 8 values render IN FULL in the system prompt, so one huge value
+            // passed straight through unbounded.
+            fieldDistinctValues: { status: ['ok', long] },
+          },
+        },
+      },
+    });
+
+    const capped = capIncomingDashboardState(state).runtime.dataSources.src1;
+    expect(capped.fieldDistinctValues!.status[1].length).toBe(200);
+    // The input is not mutated.
+    expect(state.runtime.dataSources.src1.fieldDistinctValues!.status[1].length).toBe(5_000);
+  });
+
+  it('preserves the >30-value rendering semantics while bounding the retained array', () => {
+    const many = Array.from({ length: 5_000 }, (_, i) => `v${i}`);
+    const state = createDefaultStudioState({
+      runtime: {
+        dataSources: {
+          src1: {
+            id: 'src1',
+            label: 'Sales',
+            fields: [{ id: 'status', label: 'Status', type: 'string' as const }],
+            fieldDistinctValues: { status: many },
+          },
+        },
+      },
+    });
+
+    const capped = capIncomingDashboardState(state).runtime.dataSources.src1;
+    // Bounded, but still ABOVE the 30-value "omit as high-cardinality" threshold, so
+    // the field renders exactly as it did before the cap (rather than being rewritten
+    // into a plausible-but-false "20 values" cardinality hint).
+    expect(capped.fieldDistinctValues!.status.length).toBe(50);
+  });
+
+  it('drops a malformed (non-array) distinct-values entry rather than inventing `0` values', () => {
+    const state = createDefaultStudioState({
+      runtime: {
+        dataSources: {
+          src1: {
+            id: 'src1',
+            label: 'Sales',
+            fields: [{ id: 'status', label: 'Status', type: 'string' as const }],
+            fieldDistinctValues: { status: 'nope' as unknown as string[] },
+          },
+        },
+      },
+    });
+    const capped = capIncomingDashboardState(state).runtime.dataSources.src1;
+    expect(capped.fieldDistinctValues!.status).toBeUndefined();
+  });
+});
+
+// ── Finding L1: `__proto__`-keyed entries were silently dropped ───────────────
+describe('capIncomingDashboardState: prototype-named map keys (finding L1)', () => {
+  /**
+   * Build a map with an OWN, enumerable `__proto__` key — what `JSON.parse` yields
+   * for a request body containing one. An object LITERAL cannot express this:
+   * `{ __proto__: v }` sets the prototype instead of creating a property.
+   */
+  function withProtoKey<T>(value: T): Record<string, T> {
+    const map: Record<string, T> = {};
+    Object.defineProperty(map, '__proto__', {
+      value,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+    return map;
+  }
+
+  it('retains a widget/page/data-source keyed `__proto__` instead of dropping it', () => {
+    const state = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: '__proto__' },
+        pages: withProtoKey({ id: '__proto__', title: 'Page', widgetRows: [['__proto__']] }),
+        widgets: withProtoKey({ id: '__proto__', kind: 'kpi', title: 'W', config: {} } as never),
+      },
+      runtime: {
+        dataSources: withProtoKey({ id: '__proto__', label: 'Sales', fields: [] }),
+      },
+    });
+
+    const capped = capIncomingDashboardState(state);
+
+    // With a plain `{}` accumulator these assignments were swallowed by the
+    // prototype setter, so the entities silently vanished from the prompt.
+    expect(Object.hasOwn(capped.doc.widgets, '__proto__')).toBe(true);
+    expect(Object.hasOwn(capped.doc.pages, '__proto__')).toBe(true);
+    expect(Object.hasOwn(capped.runtime.dataSources, '__proto__')).toBe(true);
+    // …and nothing leaked onto the real prototype.
+    expect(({} as Record<string, unknown>).title).toBeUndefined();
+  });
+
+  it('caps an oversized map KEY, not just the entity `.id` field', () => {
+    const long = 'x'.repeat(5_000);
+    const state = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'p1' },
+        pages: { p1: { id: 'p1', title: 'Page', widgetRows: [] } },
+        widgets: { [long]: { id: 'w1', kind: 'kpi', title: 'W', config: {} } },
+      },
+    });
+
+    const capped = capIncomingDashboardState(state);
+    expect(Object.keys(capped.doc.widgets)[0].length).toBe(200);
+  });
+});
+
+// ── Finding M3: malformed sub-entity shapes must not throw raw TypeErrors ─────
+describe('capIncomingDashboardState: malformed sub-entities (finding M3)', () => {
+  it('does not throw on null widget/page/filter entries or a malformed widgetRows', () => {
+    const state = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'p1' },
+        pages: {
+          p1: { id: 'p1', title: 'P', widgetRows: 'abc' as unknown as string[][] },
+          p2: null as never,
+        },
+        widgets: { w1: null as never },
+        filters: [null as never],
+      },
+      runtime: {
+        dataSources: {
+          src1: { id: 'src1', label: 'S', fields: [null as never] },
+        },
+      },
+    });
+
+    expect(() => capIncomingDashboardState(state)).not.toThrow();
+  });
+
+  it('defaults a missing widget `config` to an empty object', () => {
+    const state = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'p1' },
+        pages: { p1: { id: 'p1', title: 'P', widgetRows: [['w1']] } },
+        widgets: { w1: { id: 'w1', kind: 'chart', title: 'W' } as never },
+      },
+    });
+    expect(capIncomingDashboardState(state).doc.widgets.w1.config).toEqual({});
+  });
+});

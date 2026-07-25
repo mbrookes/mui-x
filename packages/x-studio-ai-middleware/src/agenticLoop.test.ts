@@ -5,6 +5,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { runAgenticLoop, MAX_TURN_TEXT_BUFFER_CHARS } from './agenticLoop';
+import { MAX_TOOL_OUTPUT_CHARS } from './internal/capToolOutput';
 import type { PendingApproval } from './agenticLoop/toolDispatch';
 import { createEffectsAwareToolPolicy, type ToolPolicy } from './toolPolicy';
 import { createDefaultStudioState } from './models/studioTypes';
@@ -652,7 +653,158 @@ describe('runAgenticLoop — non-OK response body-read timeout', () => {
       | { message?: string }
       | undefined;
     expect(errorEvent).toBeDefined();
-    expect(errorEvent!.message).toBe('HTTP 503: Service Unavailable');
+    // Finding H4: the client-facing frame carries the status/statusText and a
+    // correlation id — never the provider's body (which here never arrived at all).
+    expect(errorEvent!.message).toMatch(/HTTP 503 Service Unavailable/);
+    expect(errorEvent!.message).toMatch(/correlation id/i);
+  });
+});
+
+// Regression for finding H4: a provider's error BODY was relayed verbatim and
+// unbounded to the untrusted client (`HTTP ${status}: ${errText}`). OpenAI's 401
+// body carries the partially-masked API key and organisation; Azure/APIM and
+// self-hosted gateways echo deployment paths, internal hostnames, and even the
+// received `Authorization` header — and a hostile gateway can return a 100 MB body,
+// which was buffered whole into a single SSE event.
+describe('runAgenticLoop — provider error disclosure', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('never relays the provider error body to the client, and logs it via onToolError', async () => {
+    const secretBody = JSON.stringify({
+      error: { message: 'Incorrect API key provided: sk-proj-****ABCD in org org-secret123' },
+    });
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      statusText: 'Unauthorized',
+      text: async () => secretBody,
+    } as unknown as Response);
+
+    const onToolError = vi.fn();
+    const events = await collectEvents(
+      runAgenticLoop([userMsg('hi')], INITIAL_STATE, undefined, undefined, undefined, undefined, {
+        ...BASE_OPTIONS,
+        onToolError,
+      }),
+    );
+
+    const errorEvent = events.find((ev) => (ev as { type: string }).type === 'error') as {
+      message: string;
+    };
+    expect(errorEvent.message).toMatch(/HTTP 401 Unauthorized/);
+    expect(errorEvent.message).not.toContain('sk-proj-');
+    expect(errorEvent.message).not.toContain('org-secret123');
+
+    // The detail IS available server-side, matched to the client frame by id.
+    expect(onToolError).toHaveBeenCalled();
+    const [context, loggedError] = onToolError.mock.calls[0] as [string, Error];
+    expect(context).toBe('llm-provider');
+    expect(loggedError.message).toContain('sk-proj-');
+    const correlationId = /correlation id (\S+)/i.exec(errorEvent.message)?.[1];
+    expect(correlationId).toBeTruthy();
+    expect(loggedError.message).toContain(correlationId!);
+  });
+
+  it('bounds an enormous provider error body before it is even logged', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      statusText: 'Internal Server Error',
+      text: async () => 'x'.repeat(5_000_000),
+    } as unknown as Response);
+
+    const onToolError = vi.fn();
+    const events = await collectEvents(
+      runAgenticLoop([userMsg('hi')], INITIAL_STATE, undefined, undefined, undefined, undefined, {
+        ...BASE_OPTIONS,
+        onToolError,
+      }),
+    );
+
+    const errorEvent = events.find((ev) => (ev as { type: string }).type === 'error') as {
+      message: string;
+    };
+    expect(errorEvent.message.length).toBeLessThan(1_000);
+    const [, loggedError] = onToolError.mock.calls[0] as [string, Error];
+    expect(loggedError.message.length).toBeLessThan(5_000);
+  });
+
+  it('does not relay a transport error message (internal hosts/ports) to the client', async () => {
+    vi.mocked(fetch).mockRejectedValueOnce(new Error('connect ECONNREFUSED 10.0.3.11:5432'));
+
+    const onToolError = vi.fn();
+    const events = await collectEvents(
+      runAgenticLoop([userMsg('hi')], INITIAL_STATE, undefined, undefined, undefined, undefined, {
+        ...BASE_OPTIONS,
+        onToolError,
+      }),
+    );
+
+    const errorEvent = events.find((ev) => (ev as { type: string }).type === 'error') as {
+      message: string;
+    };
+    expect(errorEvent.message).not.toContain('10.0.3.11');
+    expect(errorEvent.message).toMatch(/unreachable or the request timed out/i);
+    const [, loggedError] = onToolError.mock.calls[0] as [string, Error];
+    expect(loggedError.message).toContain('10.0.3.11:5432');
+  });
+});
+
+// Regression for finding H2: a tool's OUTPUT was unbounded, and it is appended to
+// `currentMessages` and re-sent on every remaining turn (O(turns × size)) as well as
+// forwarded to the browser in the `tool-activity` event.
+describe('runAgenticLoop — tool output cap', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('caps an oversized tool result before it reaches the client or the next turn', async () => {
+    // `get_dashboard_state` on a state carrying one enormous field value: the tool's
+    // own JSON output blows past the per-call output budget.
+    const hugeState = createDefaultStudioState({
+      runtime: {
+        dataSources: {
+          src1: {
+            id: 'src1',
+            label: 'Source 1',
+            tableName: 'src1_table',
+            fields: [
+              { id: 'notes', label: 'x'.repeat(300_000), type: 'string' as const },
+              { id: 'notes2', label: 'y'.repeat(300_000), type: 'string' as const },
+            ],
+          },
+        },
+      },
+    });
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('get_dashboard_state', {}))
+      .mockResolvedValueOnce(textResponse('done', 1, 1));
+
+    const events = await collectEvents(
+      runAgenticLoop([userMsg('hi')], hugeState, undefined, undefined, undefined, undefined, {
+        ...BASE_OPTIONS,
+      }),
+    );
+
+    const complete = events.find(
+      (ev) =>
+        (ev as { type: string; phase?: string }).type === 'tool-activity' &&
+        (ev as { phase?: string }).phase === 'complete',
+    ) as { output: string };
+
+    expect(complete.output.length).toBeLessThanOrEqual(MAX_TOOL_OUTPUT_CHARS + 500);
+    expect(complete.output).toContain('truncated');
   });
 });
 

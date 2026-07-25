@@ -34,6 +34,28 @@ function getWidget(
 }
 
 /**
+ * `Object.hasOwn`-guarded column-span lookup (finding M1, sibling of the guards
+ * above and of `buildAISystemPrompt.ts`'s `getDistinctValues`).
+ *
+ * `widgetColSpans` is a plain object keyed by client-controlled widget ids, so a
+ * bare `widgetColSpans[widgetId]` walked the prototype chain: a widget id of
+ * `"constructor"` resolved to the `Object` constructor — non-null, so it was
+ * emitted as this widget's `colSpan` and rendered into `<dashboard_context>` as a
+ * phantom span. `buildAISystemPrompt.ts`'s own layout block already guards this
+ * exact map; this mirror of it did not.
+ */
+function getColSpan(
+  widgetColSpans: Record<string, number> | undefined,
+  widgetId: string,
+): number | undefined {
+  if (!widgetColSpans || !Object.hasOwn(widgetColSpans, widgetId)) {
+    return undefined;
+  }
+  const span = widgetColSpans[widgetId];
+  return typeof span === 'number' ? span : undefined;
+}
+
+/**
  * @param {StudioState} state - The dashboard state to read the active page from.
  * @returns {StudioAIPageLayout | undefined} The active page's layout and
  *   cross-filter graph, or `undefined` when the page has no widgets and no
@@ -46,8 +68,10 @@ export function buildPageLayoutContext(state: StudioState): StudioAIPageLayout |
     return undefined;
   }
 
-  const rows: StudioAILayoutWidget[][] = (page.widgetRows ?? []).map((row) =>
-    row.flatMap((widgetId) => {
+  const rows: StudioAILayoutWidget[][] = (
+    Array.isArray(page.widgetRows) ? page.widgetRows : []
+  ).map((row) =>
+    (Array.isArray(row) ? row : []).flatMap((widgetId) => {
       const w = getWidget(state, widgetId);
       if (!w) {
         return [];
@@ -57,7 +81,8 @@ export function buildPageLayoutContext(state: StudioState): StudioAIPageLayout |
       if (chartType) {
         entry.chartType = chartType;
       }
-      const colSpan = page.widgetColSpans?.[widgetId];
+      // `Object.hasOwn`-guarded (finding M1) — see `getColSpan`.
+      const colSpan = getColSpan(page.widgetColSpans, widgetId);
       if (colSpan != null) {
         entry.colSpan = colSpan;
       }
@@ -66,8 +91,11 @@ export function buildPageLayoutContext(state: StudioState): StudioAIPageLayout |
   );
 
   const crossFilters: StudioAICrossFilterEdge[] = state.doc.filters.flatMap((f) => {
+    // `f?.scope?.` (finding M3): `filters` is unvalidated client JSON, and a
+    // scope-less (or `null`) entry threw a raw `TypeError` here — the same hole the
+    // sibling filter loop in `buildAISystemPrompt.ts` had.
     if (
-      (f.scope.kind === 'cross-filter' || f.scope.kind === 'interactive') &&
+      (f?.scope?.kind === 'cross-filter' || f?.scope?.kind === 'interactive') &&
       f.scope.pageId === pageId
     ) {
       return [{ sourceWidgetId: f.scope.sourceWidgetId, field: f.field, scope: f.scope.kind }];

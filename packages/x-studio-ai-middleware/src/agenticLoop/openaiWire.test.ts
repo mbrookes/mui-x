@@ -4,7 +4,7 @@
  * These cover the message serialiser and the streamed tool-call delta accumulator
  * directly, independent of the agentic loop that consumes them.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import type { ChatMessage } from '@mui/x-chat-headless';
 import {
   toOpenAIMessages,
@@ -357,5 +357,127 @@ describe('accumulateToolCallDeltas', () => {
       expect(() => accumulateToolCallDeltas(deltas, acc)).not.toThrow();
       expect(Object.keys(acc.reqToolCalls)).toHaveLength(MAX_TOOL_CALLS_PER_TURN - 1);
     });
+  });
+});
+
+// ── Prototype-pollution hardening (finding C1) ────────────────────────────────
+//
+// `ToolCallDelta.index`/`id` are TYPED but arrive as raw JSON from the provider —
+// a hostile/compromised OpenAI-compatible gateway is explicitly in this package's
+// threat model (the same actor `MAX_TOOL_CALL_ARGS_BUFFER_CHARS`,
+// `MAX_TOOL_CALLS_PER_TURN` and `parseSSE`'s buffer cap already exist for).
+//
+// Before the fix, a delta with `index: "__proto__"` resolved
+// `acc.reqToolCalls["__proto__"]` to `Object.prototype` (truthy, so the slot-count
+// cap never tripped) and then wrote `.id`/`.name`/`.argsBuffer` onto
+// `Object.prototype` itself — permanent, process-wide pollution affecting every
+// object in the host app, with the tool call silently dropped on top.
+describe('accumulateToolCallDeltas — prototype pollution', () => {
+  afterEach(() => {
+    // Clean up (and make a leak obvious) if any assertion above ever fails open.
+    for (const key of ['name', 'id', 'argsBuffer', 'extra_content'] as const) {
+      delete (Object.prototype as unknown as Record<string, unknown>)[key];
+    }
+  });
+
+  it('never writes to Object.prototype for a `__proto__` index', () => {
+    const acc = createToolCallAccumulator();
+    accumulateToolCallDeltas(
+      [
+        {
+          index: '__proto__' as unknown as number,
+          function: { name: 'remove_page', arguments: '{"pageId":"p1"}' },
+        },
+      ],
+      acc,
+    );
+
+    expect(Object.hasOwn(Object.prototype, 'name')).toBe(false);
+    expect(Object.hasOwn(Object.prototype, 'argsBuffer')).toBe(false);
+    expect(({ a: 1 } as Record<string, unknown>).name).toBeUndefined();
+  });
+
+  it('still accumulates a `__proto__`-indexed tool call into a real slot', () => {
+    const acc = createToolCallAccumulator();
+    accumulateToolCallDeltas(
+      [
+        {
+          index: '__proto__' as unknown as number,
+          id: 'tc_evil',
+          function: { name: 'remove_page', arguments: '{"pageId":"p1"}' },
+        },
+      ],
+      acc,
+    );
+
+    // The call is NOT silently dropped — it lands in an ordinary (id-derived) slot,
+    // so the model still gets a result and the per-turn slot cap still counts it.
+    const entries = Object.values(acc.reqToolCalls);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      id: 'tc_evil',
+      name: 'remove_page',
+      argsBuffer: '{"pageId":"p1"}',
+    });
+  });
+
+  it('does not merge two distinct calls whose ids are prototype member names', () => {
+    const acc = createToolCallAccumulator();
+    accumulateToolCallDeltas(
+      [
+        { id: '__proto__', function: { name: 'list_pages', arguments: '{}' } },
+        { id: 'constructor', function: { name: 'get_dashboard_state', arguments: '{}' } },
+      ],
+      acc,
+    );
+
+    const entries = Object.values(acc.reqToolCalls);
+    expect(entries).toHaveLength(2);
+    expect(entries.map((e) => e.name).sort()).toEqual(['get_dashboard_state', 'list_pages']);
+    // `idToIdx` must not resolve through the prototype either — a truthy inherited
+    // lookup would have merged both fragments into one `"[object Object]"` slot.
+    expect(Object.values(acc.idToIdx)).toHaveLength(2);
+  });
+
+  it('still enforces the per-turn slot cap for `__proto__`-indexed deltas', () => {
+    const acc = createToolCallAccumulator();
+    const deltas: ToolCallDelta[] = Array.from({ length: MAX_TOOL_CALLS_PER_TURN }, (_, idx) => ({
+      index: idx,
+      id: `tc_${idx}`,
+      function: { name: 't', arguments: '{}' },
+    }));
+    accumulateToolCallDeltas(deltas, acc);
+
+    // Previously this slipped past the cap entirely, because the `Object.prototype`
+    // lookup made the "mint a new slot" branch (which carries the check) unreachable.
+    expect(() =>
+      accumulateToolCallDeltas(
+        [{ index: '__proto__' as unknown as number, function: { name: 't', arguments: '{}' } }],
+        acc,
+      ),
+    ).toThrow(new RegExp(`exceeded the maximum count \\(${MAX_TOOL_CALLS_PER_TURN}\\)`));
+  });
+
+  it.each([
+    ['a float', 1.5],
+    ['NaN', Number.NaN],
+    ['a numeric string', '0'],
+    ['an object', {}],
+  ])('routes %s index to the safe positional path', (_label, badIndex) => {
+    const acc = createToolCallAccumulator();
+    accumulateToolCallDeltas(
+      [{ index: badIndex as unknown as number, function: { name: 't', arguments: '{}' } }],
+      acc,
+    );
+
+    // No key was minted from the malformed index; the positional fallback (offset by
+    // `POSITIONAL_INDEX_BASE`) owns the slot instead.
+    expect(Object.keys(acc.reqToolCalls)).toEqual([String(POSITIONAL_INDEX_BASE)]);
+  });
+
+  it('creates both accumulator maps with a null prototype', () => {
+    const acc = createToolCallAccumulator();
+    expect(Object.getPrototypeOf(acc.reqToolCalls)).toBeNull();
+    expect(Object.getPrototypeOf(acc.idToIdx)).toBeNull();
   });
 });

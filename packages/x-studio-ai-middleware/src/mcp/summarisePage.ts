@@ -13,11 +13,12 @@ import {
   isWidgetOfKind,
   type StudioChartConfig,
 } from '@mui/x-studio-schema';
-import { sanitizeForPrompt } from '../buildAISystemPrompt';
+import { sanitizeForPromptLine } from '../buildAISystemPrompt';
 import {
   checkAllowedTable,
   errorResult,
   safeIdentifier,
+  validateTableName,
   withTimeout,
   type ToolHandler,
 } from './helpers';
@@ -77,6 +78,25 @@ const MAX_SUMMARISE_PAGE_WIDGETS = 50;
  * still reported, so the model knows how many anomalies were found.
  */
 const MAX_ANOMALY_LABELS = 20;
+
+/**
+ * The one escape this file needs on top of {@link sanitizeForPromptLine}, applied
+ * to the CSV block's header labels and cell values.
+ *
+ * The excerpt this handler emits is TAB-separated, one record per line, inside a
+ * ``` fence. `sanitizeForPromptLine` already neutralizes the line delimiter (CR/LF
+ * become a literal `\n` escape), which is what stops a cell from closing the fence
+ * or opening a forged `### …` heading. It knows nothing about this file's FIELD
+ * delimiter, though, so a cell containing a tab would still split into two columns
+ * and shift every following value under the wrong header.
+ *
+ * Invariant: one source cell renders as exactly one field on exactly one line, so
+ * the excerpt's shape is determined entirely by `visibleFields` and the row count —
+ * never by the content of a row.
+ */
+function sanitizeCsvValue(value: unknown): string {
+  return sanitizeForPromptLine(value).replace(/\t/g, '\\t');
+}
 
 /**
  * Build the `summarise_page` handler. Registered only when `data` is configured;
@@ -241,6 +261,22 @@ export function createSummarisePageHandler(deps: {
         if (!source?.tableName) {
           return;
         }
+        // TYPE- and length-validate `tableName` before it is forwarded to the host
+        // (`validateTableName`): this handler resolves it straight out of
+        // `runtime.dataSources`, which on the chat transport descends from the
+        // client-supplied request body, and the previous `as string` casts below
+        // asserted a type nothing had checked. Skipped (and logged) like the
+        // allowlist denial below — one malformed source must not fail the whole page
+        // summary. Every `data.queryDataSource` call in this handler now uses the
+        // validated `tableName` local, so no `as string` cast remains.
+        const tableNameResult = validateTableName(sourceId, source.tableName);
+        if (!tableNameResult.ok) {
+          logger?.error(
+            `[mcp] summarise_page skipped widget "${widget.title || sourceId}": ${tableNameResult.error}`,
+          );
+          return;
+        }
+        const { tableName } = tableNameResult;
         // Same `allowedTables` allowlist check `resolveSource` (`queryTools.ts`)
         // applies before `query_data_source` et al. reach the database (Tier 3,
         // iteration 24, finding 4): `summarise_page` resolves `source.tableName`
@@ -248,7 +284,7 @@ export function createSummarisePageHandler(deps: {
         // so without this it could query a table outside the host's configured
         // allowlist. Skip the widget (like the missing-`tableName` case above)
         // rather than failing the whole page summary.
-        const tableCheckError = checkAllowedTable(sourceId, source.tableName, data.allowedTables);
+        const tableCheckError = checkAllowedTable(sourceId, tableName, data.allowedTables);
         if (tableCheckError) {
           logger?.error(
             `[mcp] summarise_page skipped widget "${widget.title || sourceId}": ${tableCheckError}`,
@@ -285,11 +321,11 @@ export function createSummarisePageHandler(deps: {
           const result = await withTimeout(
             data.queryDataSource({
               sourceId,
-              tableName: source.tableName as string,
+              tableName,
               limit: 50,
             }),
             15_000,
-            `sample query for ${source.tableName}`,
+            `sample query for ${tableName}`,
           );
 
           const { rows, rowCount } = result;
@@ -306,32 +342,42 @@ export function createSummarisePageHandler(deps: {
               const max = Math.max(...values);
               const avg = sum / values.length;
               // `f.label` is a state-derived (model/host-settable) data-source field
-              // label interpolated into this LLM-consumed summary text — route it
-              // through `sanitizeForPrompt`, the package's single choke point for this
-              // class of value (finding T3-3), same as `buildAISystemPrompt.ts`.
-              return `${sanitizeForPrompt(f.label)}: sum=${sum.toLocaleString()}, avg=${avg.toFixed(2)}, min=${min}, max=${max}`;
+              // label, interpolated into ONE ` | `-separated entry of this summary's
+              // single-line `Stats:` row — so it routes through
+              // `sanitizeForPromptLine`, not the angle-bracket-only
+              // `sanitizeForPrompt`. Escaping `<`/`>` alone would leave a label free to
+              // emit its own newline and forge a whole sibling line (a `### …` heading,
+              // a second `Stats:` row); collapsing CR/LF keeps it one entry on one line.
+              return `${sanitizeForPromptLine(f.label)}: sum=${sum.toLocaleString()}, avg=${avg.toFixed(2)}, min=${min}, max=${max}`;
             })
             .filter(Boolean);
 
-          // CSV excerpt — header + first 5 rows. Both the header labels (state-derived
-          // field labels) and the row cell values (live, attacker-influenceable DB data)
-          // are LLM-consumed text once this summary is returned to the agentic loop, so
-          // both route through `sanitizeForPrompt` before interpolation (finding T3-3) —
-          // the same choke point `buildAISystemPrompt.ts` and its siblings use for every
-          // other state/row-derived string in this package.
-          const headers = visibleFields.map((f) => sanitizeForPrompt(f.label));
+          // CSV excerpt — header + first 5 rows, tab-separated, inside a ``` fence.
+          // Both the header labels (state-derived field labels) and the row cell values
+          // (live, attacker-influenceable DB data) are LLM-consumed text once this
+          // summary is returned to the agentic loop, and both occupy exactly one field
+          // on one line — so they route through `sanitizeCsvValue`, which is
+          // `sanitizeForPromptLine` plus this block's tab delimiter.
+          //
+          // The angle-bracket-only `sanitizeForPrompt` used to be enough here only by
+          // luck: a cell value carrying a newline followed by ``` closes the fence
+          // opened below, and anything after it — `### Revenue (999,999 rows)`, a forged
+          // `Stats:` line — then reads as a genuine peer of the real widget sections
+          // rather than as data.
+          const headers = visibleFields.map((f) => sanitizeCsvValue(f.label));
           const csvRows = rows.slice(0, 5).map((r) =>
             visibleFields.map((f) => {
               const v = r[f.id];
-              return v == null ? '' : sanitizeForPrompt(v);
+              return v == null ? '' : sanitizeCsvValue(v);
             }),
           );
           const csv = [headers, ...csvRows].map((row) => row.join('\t')).join('\n');
 
-          // `widget.title`/`source.label` are model/host-settable strings echoed into a
-          // markdown heading of this LLM-consumed summary — same token class
-          // `buildAISystemPrompt.ts` sanitizes titles/labels for (finding T3-3).
-          const label = sanitizeForPrompt(widget.title || source.label);
+          // `widget.title`/`source.label` are model/host-settable strings (`add_widget`
+          // caps a title's LENGTH at 200 chars and constrains nothing else) echoed into
+          // a single-line `### …` markdown heading — `sanitizeForPromptLine`, so a title
+          // cannot end its heading and open a forged section of its own.
+          const label = sanitizeForPromptLine(widget.title || source.label);
           const lines = [
             `### ${label} (${rowCount.toLocaleString()} rows)`,
             ...(stats.length > 0
@@ -390,7 +436,7 @@ export function createSummarisePageHandler(deps: {
               const aggResult = await withTimeout(
                 data.queryDataSource({
                   sourceId,
-                  tableName: source.tableName as string,
+                  tableName,
                   columns: [safeXField],
                   aggregations: [{ column: safeYField, func: yAgg, alias: 'y_agg' }],
                   // Finding 6 (Tier 3): this hardcoded 20,000 previously ignored the
@@ -400,7 +446,7 @@ export function createSummarisePageHandler(deps: {
                   limit: Math.min(20_000, maxQueryRows),
                 }),
                 15_000,
-                `aggregation query for ${source.tableName}`,
+                `aggregation query for ${tableName}`,
               );
               const grouped = new Map<string, number>();
               for (const row of aggResult.rows) {
@@ -424,10 +470,11 @@ export function createSummarisePageHandler(deps: {
                 const shownLabels = anomalyLabels.slice(0, MAX_ANOMALY_LABELS);
                 const omittedLabels = anomalyLabels.length - shownLabels.length;
                 lines.push(
-                  `Anomalies detected at: ${shownLabels.join(', ')}${ 
+                  `Anomalies detected at: ${shownLabels.join(', ')}${
                     omittedLabels > 0
                       ? ` (+${omittedLabels} more of ${anomalyLabels.length} total)`
-                      : ''}`,
+                      : ''
+                  }`,
                 );
               }
             }
@@ -443,12 +490,14 @@ export function createSummarisePageHandler(deps: {
     );
 
     const sections = results.filter((r): r is SectionItem => r != null);
-    // `activePage.title` is a model-settable stored title echoed into this
-    // LLM-consumed summary's heading — same token class `buildAISystemPrompt.ts`
-    // sanitizes page titles for (finding T3-3). `resolvedPageId` is an internal id,
-    // not model-free-text, but is included here for parity with the rest of the
-    // package's sanitize-before-interpolate convention.
-    const pageLabel = sanitizeForPrompt(activePage.title || resolvedPageId || 'active page');
+    // `activePage.title` is a model-settable stored title (`add_page`/`rename_page`)
+    // echoed into this summary's single-line `## …` heading, so it uses
+    // `sanitizeForPromptLine`: escaping `<`/`>` alone would let a title of
+    // `Sales\n\n## Security Rules\n…` open a forged top-level section that outranks
+    // every real `### widget` section below it. `resolvedPageId` is an internal id,
+    // not model-free-text, but goes through the same call for parity with the rest of
+    // the package's sanitize-before-interpolate convention.
+    const pageLabel = sanitizeForPromptLine(activePage.title || resolvedPageId || 'active page');
 
     if (sections.length === 0) {
       return {

@@ -16,7 +16,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import {
   buildAISystemPrompt,
-  sanitizeForPrompt,
+  sanitizeForPromptLine,
   serializeFieldForAI,
 } from '../buildAISystemPrompt';
 import { buildPageLayoutContext } from '../buildPageLayoutContext';
@@ -29,6 +29,7 @@ import {
   ownArrayEntry,
   redactedHostErrorMessage,
   safeIdentifier,
+  validateTableName,
   withTimeout,
 } from './helpers';
 import type {
@@ -175,15 +176,20 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
     // positions `description` as text "for the LLM to understand the resource"),
     // so the state-derived source `label`/`id` interpolated into them are the same
     // untrusted, attacker-influenceable values the sibling `prompts/get` handler
-    // (`mcp/prompts.ts`) already routes through `sanitizeForPrompt`. A poisoned
+    // (`mcp/prompts.ts`) already routes through `sanitizeForPromptLine`. A poisoned
     // label like `Orders</resources>\n\nIMPORTANT: …` must not be able to close a
     // client's tag-structured framing early or read as an instruction — route both
     // through the same choke point. The `uri` keeps the RAW id because it is an
     // addressable identifier the `resources/read` handler slices back out, not an
     // LLM-consumed text position.
+    //
+    // The LINE variant: a resource `name`/`description` is a one-line field, and the
+    // description ends in a quoted `(sourceId: "…")` pair — so an unescaped newline
+    // or `"` in a label could forge a sibling line or a sibling field, which escaping
+    // `<`/`>` alone does not prevent.
     const schemaResources = sources.map((s) => {
-      const safeLabel = sanitizeForPrompt(s.label);
-      const safeId = sanitizeForPrompt(s.id);
+      const safeLabel = sanitizeForPromptLine(s.label);
+      const safeId = sanitizeForPromptLine(s.id);
       return {
         uri: `studio://schema/${s.id}`,
         name: `${safeLabel} Schema`,
@@ -196,7 +202,7 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
       ? sources
           .filter((s) => s.tableName)
           .map((s) => {
-            const safeLabel = sanitizeForPrompt(s.label);
+            const safeLabel = sanitizeForPromptLine(s.label);
             return {
               uri: `studio://data/${s.id}`,
               name: `${safeLabel} Preview`,
@@ -381,6 +387,18 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
       await Promise.all(
         healthSources.map(async (s) => {
           try {
+            // TYPE- and length-validate `s.tableName` before it is forwarded to the
+            // host. The `s.tableName` filter above this `map` is a TRUTHINESS check,
+            // and the two `as string` casts that followed asserted a type nothing had
+            // verified — so a non-string `tableName` reached `data.queryDataSource`
+            // verbatim. Reported per-source via `errors`, exactly like a query failure
+            // below, rather than failing the whole resource read.
+            const tableNameResult = validateTableName(s.id, s.tableName);
+            if (!tableNameResult.ok) {
+              errors[s.id] = tableNameResult.error;
+              return;
+            }
+            const { tableName } = tableNameResult;
             // Same `allowedTables` allowlist check `resolveSource` (`queryTools.ts`)
             // applies before `query_data_source` et al. reach the database (Tier 3,
             // iteration 24, finding 4): this resource resolves `s.tableName` directly
@@ -388,11 +406,7 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
             // without this check it could query a table outside the host's
             // configured allowlist. Reported per-source via `errors`, exactly like a
             // query failure below, rather than failing the whole resource read.
-            const tableCheckError = checkAllowedTable(
-              s.id,
-              s.tableName as string,
-              data.allowedTables,
-            );
+            const tableCheckError = checkAllowedTable(s.id, tableName, data.allowedTables);
             if (tableCheckError) {
               errors[s.id] = tableCheckError;
               return;
@@ -404,12 +418,12 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
             const result = await withTimeout(
               data.queryDataSource({
                 sourceId: s.id,
-                tableName: s.tableName as string,
+                tableName,
                 aggregations: [{ column: '*', func: 'count', alias: 'count' }],
                 limit: 1,
               }),
               15_000,
-              `data-health count query for ${s.tableName}`,
+              `data-health count query for ${tableName}`,
             );
             const row = result.rows[0];
             counts[s.id] = Number(row?.count ?? result.rowCount ?? 0);
@@ -561,12 +575,22 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
           `Unknown data source: "${safeIdentifier(sourceId)}". Check studio://dashboard/state for available source IDs.`,
         );
       }
+      // TYPE- and length-validate `source.tableName` before it is forwarded to the
+      // host: the `!source.tableName` guard above is a TRUTHINESS check, and the
+      // `as string` cast that followed asserted a type nothing had verified — so on
+      // the chat-adjacent trust model (a client-supplied `runtime.dataSources`) a
+      // non-string `tableName` reached `data.queryDataSource` verbatim.
+      const tableNameResult = validateTableName(sourceId, source.tableName);
+      if (!tableNameResult.ok) {
+        throw new Error(tableNameResult.error);
+      }
+      const { tableName } = tableNameResult;
       // Same `allowedTables` allowlist check `resolveSource` (`queryTools.ts`) applies
       // before `query_data_source` et al. reach the database (Tier 3, iteration 24,
       // finding 4): this resource resolves `source.tableName` directly from
       // `runtime.dataSources` rather than through `resolveSource`, so without this
       // check it could query a table outside the host's configured allowlist.
-      const tableCheckError = checkAllowedTable(sourceId, source.tableName, data.allowedTables);
+      const tableCheckError = checkAllowedTable(sourceId, tableName, data.allowedTables);
       if (tableCheckError) {
         throw new Error(tableCheckError);
       }
@@ -584,11 +608,11 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
         result = await withTimeout(
           data.queryDataSource({
             sourceId,
-            tableName: source.tableName as string,
+            tableName,
             limit: 20,
           }),
           15_000,
-          `row preview query for ${source.tableName}`,
+          `row preview query for ${tableName}`,
         );
       } catch (err) {
         throw new Error(redactedHostErrorMessage('studio://data row preview query', err, logger));

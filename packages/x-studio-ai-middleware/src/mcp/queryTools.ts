@@ -17,6 +17,7 @@ import {
   jsonResult,
   ownArrayEntry,
   redactedHostErrorResult,
+  validateTableName,
   withTimeout,
   type ToolHandler,
 } from './helpers';
@@ -282,11 +283,15 @@ type ResolveSourceResult =
  * driver error (or worse, querying an unintended table) instead of a clear,
  * actionable message.
  *
- * The message is deliberately transport-neutral (no `studio://` resource hint):
- * these handlers are reachable both from MCP `tools/call` and from the chat
- * transport's agentic loop (`agenticLoop.ts`), where an MCP resource URI means
- * nothing. `get_dashboard_state` is a tool available on both transports, so it
- * is named instead as the discovery path.
+ * The message names NO discovery tool or resource, deliberately. These handlers are
+ * reachable from MCP `tools/call` and from the chat transport's agentic loop
+ * (`agenticLoop.ts`), and on neither is the advertised tool set fixed: `allowedTools`
+ * can exclude `get_dashboard_state` on both, and `mcp.ts`'s `isToolAllowed` rejects a
+ * call to anything absent from it as unknown. A remediation that says
+ * "Call get_dashboard_state" therefore costs the model a turn on an `Unknown tool`
+ * error whenever the host has restricted it. The invariant a valid `sourceId` must
+ * satisfy — it is a key of the dashboard's configured data-source catalogue — is
+ * stated directly instead, which is true in every mode.
  *
  * SECURITY NOTE: this only validates that `sourceId` is a KEY the catalog knows
  * about — it does NOT by itself prove the resulting `tableName` is a table the
@@ -327,7 +332,7 @@ export function resolveSource(
       error: errorResult(
         `sourceId must be a non-empty string, received ${
           Array.isArray(sourceId) ? 'array' : typeof sourceId
-        }. Call get_dashboard_state or read studio://dashboard/state for available source IDs.`,
+        }. Pass the id of one of the data sources configured on this dashboard.`,
       ),
     };
   }
@@ -350,18 +355,33 @@ export function resolveSource(
     return {
       ok: false,
       error: errorResult(
-        `Unknown data source: "${cappedSourceId}". Call get_dashboard_state or read studio://dashboard/state for available source IDs.`,
+        `Unknown data source: "${cappedSourceId}". Only the data sources configured on this ` +
+          'dashboard can be queried; pass the id of one of them.',
       ),
     };
   }
-  const tableCheckError = checkAllowedTable(cappedSourceId, source.tableName, allowedTables);
+  // TYPE- and length-validate `tableName` before anything downstream forwards it to
+  // the host (finding: it was checked for TRUTHINESS only and then cast `as string`
+  // at every consumer). On the chat transport `runtime.dataSources` descends from the
+  // client-supplied request body, so `{ tableName: { orders: 'secrets' } }` used to
+  // reach `data.queryDataSource` as an object — which a Knex host reads as an alias
+  // map, querying whichever table the caller named. `checkAllowedTable` does not
+  // catch it: `'*'` short-circuits, and `includes` on a non-string never matches.
+  // Validated HERE, at the single chokepoint all four data-query tools funnel
+  // through, alongside the `sourceId` cap above.
+  const tableNameResult = validateTableName(cappedSourceId, source.tableName);
+  if (!tableNameResult.ok) {
+    return { ok: false, error: errorResult(tableNameResult.error) };
+  }
+  const { tableName } = tableNameResult;
+  const tableCheckError = checkAllowedTable(cappedSourceId, tableName, allowedTables);
   if (tableCheckError) {
     return { ok: false, error: errorResult(tableCheckError) };
   }
   return {
     ok: true,
     source: source as ResolvedSource,
-    tableName: source.tableName,
+    tableName,
     sourceId: cappedSourceId,
   };
 }

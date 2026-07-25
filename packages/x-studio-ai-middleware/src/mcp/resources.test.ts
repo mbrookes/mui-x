@@ -353,6 +353,54 @@ describe('resources/read allowedTables enforcement (Tier 3, iteration 24, findin
   });
 });
 
+// Both resource families resolve `source.tableName` straight out of
+// `runtime.dataSources`, checked it for TRUTHINESS only, and then cast it
+// `as string` on the way to `data.queryDataSource`. The allowlist does not cover
+// the gap: `'*'` short-circuits it, and `includes` on a non-string never matches.
+describe('resources/read tableName type validation', () => {
+  function stateBoxWithTableName(tableName: unknown): StudioStateBox {
+    const box = makeStateBox();
+    box.current.runtime.dataSources['source-orders'] = makeSource({
+      tableName: tableName as string,
+    });
+    return box;
+  }
+
+  it('refuses studio://data/{id} with a non-string tableName, without querying', async () => {
+    const data = makeData();
+    const server = buildStudioMcpServer(stateBoxWithTableName({ orders: 'secrets' }), {
+      data: { ...data, allowedTables: '*' },
+    });
+    await expect(readResource(server, 'studio://data/source-orders')).rejects.toThrow(
+      /must be a non-empty string/,
+    );
+    expect(data.queryDataSource).not.toHaveBeenCalled();
+  });
+
+  it('refuses studio://data/{id} with an over-long tableName rather than truncating it', async () => {
+    const data = makeData();
+    const server = buildStudioMcpServer(stateBoxWithTableName('t'.repeat(1_000)), {
+      data: { ...data, allowedTables: '*' },
+    });
+    await expect(readResource(server, 'studio://data/source-orders')).rejects.toThrow(
+      /exceeds the limit/,
+    );
+    expect(data.queryDataSource).not.toHaveBeenCalled();
+  });
+
+  it('reports a non-string tableName per-source on data-health rather than querying it', async () => {
+    const data = makeData();
+    const server = buildStudioMcpServer(stateBoxWithTableName({ orders: 'secrets' }), {
+      data: { ...data, allowedTables: '*' },
+    });
+    const health = await readResource(server, 'studio://dashboard/data-health');
+    const payload = JSON.parse(health.contents[0].text);
+    expect(payload.counts['source-orders']).toBeUndefined();
+    expect(payload.errors['source-orders']).toMatch(/must be a non-empty string/);
+    expect(data.queryDataSource).not.toHaveBeenCalled();
+  });
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Tier 3, iteration 22 — data-query resource reads must not hang forever
 // ─────────────────────────────────────────────────────────────────────────────

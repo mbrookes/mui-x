@@ -876,6 +876,20 @@ describe('executeToolOnState: set_widget_layout', () => {
     expect(result.nextState).toBe(state);
   });
 
+  // `set_widget_layout` is advertised in private mode; `get_dashboard_state` is
+  // `privateModeExcluded` and is not. A remediation naming it therefore cost the model
+  // a turn on an `Unknown tool` error before it could retry. The message must state
+  // where a valid widget id comes from instead of naming a tool that may be filtered.
+  it('states the id constraint without sending the model at a possibly-unavailable tool', () => {
+    const state = makeState();
+    const out = parseOutput(
+      executeToolOnState('set_widget_layout', { rows: [['ghost']] }, state).output,
+    );
+    expect(out.error).not.toMatch(/get_dashboard_state/);
+    expect(out.error).toMatch(/cannot create one/);
+    expect(out.error).toMatch(/add_widget returned/);
+  });
+
   // Regression for T2-A: the emitted `setWidgetLayout` mutation targets the ACTIVE page and
   // the reducer does no cross-page cleanup, so placing widget-2 (which lives on page-2) into
   // the active page's layout would duplicate that widget across BOTH pages (one config,
@@ -2504,6 +2518,52 @@ describe('executeToolOnState: summarise_page', () => {
     );
     expect(result.output).toBe('SNAPSHOT-DATA');
   });
+
+  // The wrong-page guard states the CONTRACT (this transport covers the snapshot's
+  // page and nothing else) and names the one action that can succeed in this turn.
+  // It must not read as an invitation to retry: no argument and no tool call makes
+  // another page's rows available before the next request, so a retry is a wasted turn.
+  it('tells the model the snapshot-page-only contract instead of inviting a retry', () => {
+    const state = makeState(); // active page is 'page-1'
+    const result = executeToolOnState(
+      'summarise_page',
+      { pageId: 'page-2' },
+      state,
+      undefined,
+      'SNAPSHOT-DATA',
+    );
+    const out = parseOutput(result.output);
+    expect(out.error).toMatch(/only summarise page "page-1"/);
+    expect(out.error).toMatch(/no tool call can load them/i);
+    expect(out.error).toMatch(/omit "pageId"/i);
+    expect(out.error).not.toMatch(/set_active_page/);
+    expect(out.error).not.toMatch(/get_dashboard_state/);
+  });
+
+  it('length-caps a model-supplied pageId before echoing it back', () => {
+    const state = makeState();
+    const long = 'p'.repeat(5_000);
+    const result = executeToolOnState(
+      'summarise_page',
+      { pageId: long },
+      state,
+      undefined,
+      'SNAPSHOT-DATA',
+    );
+    const out = parseOutput(result.output);
+    expect(out.error).not.toContain(long);
+    expect(out.error).toContain('p'.repeat(200));
+  });
+
+  // `summarise_page` can be advertised without a snapshot when a host lists it in
+  // `allowedTools` — and that same `allowedTools` may exclude `get_dashboard_state`,
+  // so the no-snapshot remediation must not send the model at it.
+  it('names no discovery tool in the no-snapshot error', () => {
+    const state = makeState();
+    const out = parseOutput(executeToolOnState('summarise_page', {}, state).output);
+    expect(out.error).toMatch(/only available client-side/);
+    expect(out.error).not.toMatch(/get_dashboard_state/);
+  });
 });
 
 // ── Unknown tool ──────────────────────────────────────────────────────────────
@@ -3883,6 +3943,58 @@ describe('capIncomingDashboardState: data-source field caps (findings H1c/H1d)',
     });
     const capped = capIncomingDashboardState(state).runtime.dataSources.src1;
     expect(capped.fieldDistinctValues!.status).toBeUndefined();
+  });
+});
+
+// `tableName` is the only field on an incoming data source that is forwarded to the
+// host's `queryDataSource` rather than merely rendered into the prompt. It used to
+// ride through `capDataSource`'s `...source` spread untouched, so a client body could
+// hand the host a value that is not a table name at all.
+describe('capIncomingDashboardState: data-source `tableName` normalization', () => {
+  function sourceWithTableName(tableName: unknown) {
+    return createDefaultStudioState({
+      runtime: {
+        dataSources: {
+          src1: {
+            id: 'src1',
+            label: 'Sales',
+            tableName: tableName as string,
+            fields: [{ id: 'status', label: 'Status', type: 'string' as const }],
+          },
+        },
+      },
+    });
+  }
+
+  it('drops an object `tableName` instead of forwarding it to the host', () => {
+    // A Knex host doing `db(params.tableName)` reads an object as an ALIAS MAP and
+    // queries whichever table the caller named, so this must never survive.
+    const capped = capIncomingDashboardState(sourceWithTableName({ orders: 'secrets' })).runtime
+      .dataSources.src1;
+    expect(capped.tableName).toBeUndefined();
+  });
+
+  it.each([
+    ['array', ['orders']],
+    ['number', 42],
+    ['empty string', ''],
+  ])('drops a %s `tableName`', (_label, value) => {
+    const capped = capIncomingDashboardState(sourceWithTableName(value)).runtime.dataSources.src1;
+    expect(capped.tableName).toBeUndefined();
+  });
+
+  it('drops — never truncates — an over-long `tableName`', () => {
+    // Truncating would name a DIFFERENT table than the one configured; dropping makes
+    // the source unqueryable, which every resolver already reports cleanly.
+    const capped = capIncomingDashboardState(sourceWithTableName('t'.repeat(5_000))).runtime
+      .dataSources.src1;
+    expect(capped.tableName).toBeUndefined();
+  });
+
+  it('passes an ordinary string `tableName` through untouched', () => {
+    const capped = capIncomingDashboardState(sourceWithTableName('orders')).runtime.dataSources
+      .src1;
+    expect(capped.tableName).toBe('orders');
   });
 });
 

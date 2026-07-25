@@ -602,13 +602,30 @@ function capFieldDistinctValues(
  * (via {@link capDataSourceField}), plus the source's own `label`/
  * `aiDescription`/`id` ({@link MAX_ENTITY_ID_LENGTH} — see its doc comment for
  * why the `id`, a field separate from the map key, must be length-capped too).
+ *
+ * `tableName` is normalized rather than capped, because it is the one field here
+ * that leaves the process: it is forwarded to the host's `queryDataSource` (and,
+ * for a Knex host, straight into `db(tableName)`) instead of merely being rendered
+ * into the prompt. The `...source` spread used to pass it through untouched, so a
+ * request body asserting `tableName: { orders: 'secrets' }` reached the host as an
+ * object — which Knex reads as an alias map, querying a table the caller chose.
+ * A non-string or over-long value is therefore DROPPED, not coerced or truncated:
+ * `String({…})` would invent the table name `"[object Object]"` and a truncated
+ * name would address a DIFFERENT table, whereas dropping it leaves the source
+ * without a `tableName`, which every resolver already reports as an unknown /
+ * unqueryable data source.
  */
 function capDataSource(source: StudioDataSource): StudioDataSource {
   const cappedDistinct = capFieldDistinctValues(source.fieldDistinctValues);
+  const usableTableName =
+    typeof source.tableName === 'string' &&
+    source.tableName.length > 0 &&
+    source.tableName.length <= MAX_FILTER_STRING_LENGTH;
   return {
     ...source,
     id: capEntityId(String(source.id ?? '')),
     label: capTitle(String(source.label ?? '')),
+    ...(source.tableName !== undefined && !usableTableName ? { tableName: undefined } : {}),
     ...(source.aiDescription !== undefined
       ? { aiDescription: capTitle(String(source.aiDescription)) }
       : {}),
@@ -1612,11 +1629,21 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         (id) => !hasOwnEntity(state.doc.widgets, id),
       );
       if (unknownIds.length > 0) {
+        // The remediation states the CONSTRAINT and names no discovery tool. The
+        // obvious hint here — "call get_dashboard_state" — is wrong in private mode:
+        // `get_dashboard_state` is `privateModeExcluded` (see `STUDIO_AI_TOOL_REGISTRY`)
+        // and so is never advertised there, while `set_widget_layout` still is, so the
+        // model would spend a turn on an `Unknown tool` error before it could retry.
+        // The same applies whenever a host narrows `allowedTools`. What is true in
+        // EVERY mode is where a valid id comes from, so say that instead.
         return {
           output: JSON.stringify({
             error:
               `set_widget_layout received unknown widget IDs: ${joinIdsForError(unknownIds)}. ` +
-              'Call get_dashboard_state to get the current widget IDs.',
+              'A layout only arranges widgets that already exist — it cannot create one, so an ' +
+              'ID that names no widget would be stored as a blank card. Use the IDs that ' +
+              'add_widget returned earlier in this conversation, or the ones already present in ' +
+              'the layout you were given.',
           }),
           nextState: state,
         };
@@ -1920,16 +1947,26 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // be rebuilt for another page within the turn — that needs a fresh request — so we
       // do NOT tell the model to call `set_active_page`. Fall back to the threaded active
       // page only for legacy callers that don't thread `snapshotPageId`.
-      const requestedPageId = args.pageId ? String(args.pageId) : undefined;
+      //
+      // The error states the contract — on this transport `summarise_page` covers the
+      // SNAPSHOT'S page and nothing else — and names the one action that can succeed in
+      // this turn (omit `pageId`). It deliberately does not read as "retry": there is no
+      // argument, and no other tool call, that makes another page's rows available
+      // before the next request, so any retry is a wasted turn. `requestedPageId` is
+      // model-supplied and unbounded, so it is length-capped like every other id this
+      // file echoes back.
+      const requestedPageId = args.pageId ? capEntityId(String(args.pageId)) : undefined;
       const coveredPageId = snapshotPageId ?? state.doc.dashboard.activePageId;
       if (requestedPageId && requestedPageId !== coveredPageId) {
         return {
           output: JSON.stringify({
             error:
-              `summarise_page cannot summarise page "${requestedPageId}" here. The data ` +
-              `snapshot for this request covers page "${coveredPageId}", and it cannot be ` +
-              'rebuilt for a different page within this turn. Send a new message to summarise ' +
-              `page "${requestedPageId}", or omit pageId to summarise the snapshot's page.`,
+              `summarise_page can only summarise page "${coveredPageId}" in this conversation ` +
+              'turn. The row data it reads is a snapshot captured once per request, for the page ' +
+              `that was active when the request arrived; page "${requestedPageId}" has no rows ` +
+              'available here and no tool call can load them. Omit "pageId" to summarise page ' +
+              `"${coveredPageId}", and ask the user to open page "${requestedPageId}" if they ` +
+              'want that one summarised.',
           }),
           nextState: state,
         };
@@ -1943,12 +1980,19 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
           nextState: state,
         };
       }
-      // No snapshot available — explain the limitation so the model can degrade gracefully.
+      // No snapshot available — explain the limitation so the model can degrade
+      // gracefully. Like the guard above, this names no discovery tool: this branch is
+      // reached only when a host advertised `summarise_page` through `allowedTools`
+      // without a snapshot, and the same `allowedTools` may well have excluded
+      // `get_dashboard_state`, in which case following that advice costs a turn on an
+      // `Unknown tool` error. Answer from the dashboard structure already in context.
       return {
         output: JSON.stringify({
           error:
-            'summarise_page requires live row data that is only available client-side. ' +
-            'Use get_dashboard_state for structural information instead.',
+            'summarise_page requires live row data, which is only available client-side and was ' +
+            'not sent with this request. No tool call can load it here. Answer from the ' +
+            'dashboard structure you already have, and say that the underlying figures were not ' +
+            'available.',
         }),
         nextState: state,
       };

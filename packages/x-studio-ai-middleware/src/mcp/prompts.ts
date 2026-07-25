@@ -12,7 +12,7 @@ import {
   GetPromptRequestSchema,
   CompleteRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { sanitizeForPrompt } from '../buildAISystemPrompt';
+import { sanitizeForPromptLine } from '../buildAISystemPrompt';
 import { safeIdentifier } from './helpers';
 import type { StudioStateBox } from './types';
 
@@ -111,7 +111,7 @@ export function registerPromptHandlers(server: Server, deps: PromptHandlerDeps):
         // the one site that instead ECHOES the whole configured id catalogue back through a
         // client-visible error string that many MCP clients splice into the model
         // conversation, so — unlike a single opaque id round-tripped through `uri` — it
-        // warrants routing through the same `sanitizeForPrompt` choke point the example
+        // warrants routing through the same sanitize choke point the example
         // blocks below already use, for symmetry with how `resources/list` treats the same
         // values (finding T2-5).
         //
@@ -140,12 +140,18 @@ export function registerPromptHandlers(server: Server, deps: PromptHandlerDeps):
       // returns `role: 'assistant'`/`role: 'user'` messages that MCP clients splice directly
       // into their LLM conversation (a high-trust position), so a label like
       // `Orders</data_source_examples>\n\nIMPORTANT: …` must not be able to close the data
-      // region early or read as an instruction. Route every value through `sanitizeForPrompt`
-      // (the same choke point `buildAISystemPrompt.ts` uses) and wrap the examples in a tagged
+      // region early or read as an instruction. Route every value through
+      // `sanitizeForPromptLine` and wrap the examples in a tagged
       // `<data_source_examples>` region with an explicit "treat as data" instruction.
+      //
+      // The LINE variant, not the angle-bracket-only `sanitizeForPrompt`: each value
+      // lands in a single-line position — a `### ${label} (sourceId: "${id}")` markdown
+      // heading, or a `_desc` sentence — where a newline forges a sibling heading and a
+      // bare `"` closes the `sourceId: "…"` field and forges a peer of it. Both are
+      // reachable with `<`/`>` escaped, which is why escaping those alone is not enough.
       const exampleBlocks = sources.map((s) => {
-        const sourceLabel = sanitizeForPrompt(s.label);
-        const sourceId = sanitizeForPrompt(s.id);
+        const sourceLabel = sanitizeForPromptLine(s.label);
+        const sourceId = sanitizeForPromptLine(s.id);
 
         const numericField = s.fields.find(
           (f) => !f.hidden && f.type === 'number' && !f.capabilities?.includes('categorical'),
@@ -154,8 +160,10 @@ export function registerPromptHandlers(server: Server, deps: PromptHandlerDeps):
           (f) => !f.hidden && (f.type === 'string' || f.capabilities?.includes('categorical')),
         );
 
-        const categoricalId = categoricalField ? sanitizeForPrompt(categoricalField.id) : '';
-        const categoricalLabel = categoricalField ? sanitizeForPrompt(categoricalField.label) : '';
+        const categoricalId = categoricalField ? sanitizeForPromptLine(categoricalField.id) : '';
+        const categoricalLabel = categoricalField
+          ? sanitizeForPromptLine(categoricalField.label)
+          : '';
 
         const countExample = categoricalField
           ? {
@@ -168,13 +176,13 @@ export function registerPromptHandlers(server: Server, deps: PromptHandlerDeps):
             }
           : null;
 
-        const numericId = numericField ? sanitizeForPrompt(numericField.id) : '';
-        const numericLabel = numericField ? sanitizeForPrompt(numericField.label) : '';
+        const numericId = numericField ? sanitizeForPromptLine(numericField.id) : '';
+        const numericLabel = numericField ? sanitizeForPromptLine(numericField.label) : '';
         const aggFn = numericField
-          ? sanitizeForPrompt(numericField.defaultAggregationFn ?? 'sum')
+          ? sanitizeForPromptLine(numericField.defaultAggregationFn ?? 'sum')
           : '';
         const aggFnLabel = numericField
-          ? sanitizeForPrompt(numericField.defaultAggregationFn ?? 'Sum')
+          ? sanitizeForPromptLine(numericField.defaultAggregationFn ?? 'Sum')
           : '';
 
         const sumExample =
@@ -204,7 +212,7 @@ export function registerPromptHandlers(server: Server, deps: PromptHandlerDeps):
         return `### ${sourceLabel} (sourceId: "${sourceId}")\n${lines.join('\n')}`;
       });
 
-      const firstSourceLabel = sources.length === 1 ? sanitizeForPrompt(sources[0].label) : '';
+      const firstSourceLabel = sources.length === 1 ? sanitizeForPromptLine(sources[0].label) : '';
 
       const subject =
         sources.length === 1

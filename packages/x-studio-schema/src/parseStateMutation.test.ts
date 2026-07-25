@@ -1096,6 +1096,103 @@ describe('parseStateMutation — id hygiene (prototype-injection defense)', () =
   });
 });
 
+// Tier2 finding: this file validated SHAPE only, with no cap on array length or
+// string length, despite being (per this file's own module doc) "the ONE place a
+// value CLAIMING to be a `StateMutation` is checked" from outside the process. A
+// payload with a well-formed-but-enormous collection previously passed every check
+// below unmodified.
+describe('parseStateMutation — wire trust-boundary size caps (Tier2)', () => {
+  it('rejects a removedWidgetIds array over the length cap', () => {
+    const tooMany = Array.from({ length: 501 }, (_, i) => `w${i}`);
+    const parsed = parseStateMutation({
+      type: 'applyBulkUpdate',
+      args: { ...validBulkArgs(), removedWidgetIds: tooMany },
+    });
+    expect(parsed.ok).toBe(false);
+  });
+
+  it('accepts a removedWidgetIds array right at the length cap', () => {
+    const exactlyMax = Array.from({ length: 500 }, (_, i) => `w${i}`);
+    const parsed = parseStateMutation({
+      type: 'applyBulkUpdate',
+      args: { ...validBulkArgs(), removedWidgetIds: exactlyMax },
+    });
+    expect(parsed.ok).toBe(true);
+  });
+
+  it('rejects a removedWidgetIds entry over the string-length cap', () => {
+    const parsed = parseStateMutation({
+      type: 'applyBulkUpdate',
+      args: { ...validBulkArgs(), removedWidgetIds: ['w1'.repeat(6000)] },
+    });
+    expect(parsed.ok).toBe(false);
+  });
+
+  it('rejects an addedWidgets array over the length cap', () => {
+    const tooMany = Array.from({ length: 501 }, (_, i) => chartWidget(`w${i}`));
+    const parsed = parseStateMutation({
+      type: 'applyBulkUpdate',
+      args: { ...validBulkArgs(), addedWidgets: tooMany },
+    });
+    expect(parsed).toMatchObject({ ok: false, error: expect.stringContaining('addedWidgets') });
+  });
+
+  it('rejects an updatedWidgets array over the length cap', () => {
+    const tooMany = Array.from({ length: 501 }, (_, i) => ({ widgetId: `w${i}`, title: 'T' }));
+    const parsed = parseStateMutation({
+      type: 'applyBulkUpdate',
+      args: { ...validBulkArgs(), updatedWidgets: tooMany },
+    });
+    expect(parsed).toMatchObject({ ok: false, error: expect.stringContaining('updatedWidgets') });
+  });
+
+  it('rejects a widgetRows layout matrix over the row-count cap', () => {
+    const tooManyRows = Array.from({ length: 501 }, (_, i) => [`w${i}`]);
+    const parsed = parseStateMutation({
+      type: 'applyBulkUpdate',
+      args: { ...validBulkArgs(), widgetRows: tooManyRows },
+    });
+    expect(parsed.ok).toBe(false);
+  });
+
+  it('rejects a setWidgetLayout rows matrix whose row has too many entries', () => {
+    const hugeRow = Array.from({ length: 501 }, (_, i) => `w${i}`);
+    const parsed = parseStateMutation({
+      type: 'setWidgetLayout',
+      args: { rows: [hugeRow] },
+    });
+    expect(parsed.ok).toBe(false);
+  });
+
+  it('rejects a widgetColSpans record over the key-count cap', () => {
+    const tooManySpans: Record<string, number> = {};
+    for (let i = 0; i < 501; i += 1) {
+      tooManySpans[`w${i}`] = 6;
+    }
+    const parsed = parseStateMutation({
+      type: 'applyBulkUpdate',
+      args: { ...validBulkArgs(), widgetColSpans: tooManySpans },
+    });
+    expect(parsed.ok).toBe(false);
+  });
+
+  it('rejects an addWidget title over the string-length cap', () => {
+    const parsed = parseStateMutation({
+      type: 'addWidget',
+      args: { widget: chartWidget('w1', 'x'.repeat(10_001)) },
+    });
+    expect(parsed.ok).toBe(false);
+  });
+
+  it('accepts an addWidget title right at the string-length cap', () => {
+    const parsed = parseStateMutation({
+      type: 'addWidget',
+      args: { widget: chartWidget('w1', 'x'.repeat(10_000)) },
+    });
+    expect(parsed.ok).toBe(true);
+  });
+});
+
 // T2-4 (parser half): `applyBulkUpdate.args.widgetRows`/`widgetColSpans` used to be
 // required, forcing an updates-only bulk call (no removals/additions/layout op/
 // colSpans) to carry a full turn-start layout snapshot that could silently revert a

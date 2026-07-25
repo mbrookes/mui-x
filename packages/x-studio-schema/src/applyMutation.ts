@@ -2026,18 +2026,21 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // than relying on incidental coercion behavior.
       const pageExists =
         typeof activePageId === 'string' && Object.hasOwn(state.pages, activePageId);
-      // Strip `removedWidgetIds` from the ACTIVE page's rows FIRST, unconditionally —
-      // not only when the producer also supplied `widgetRows` (finding: a bulk that
-      // removes widgets but omits `widgetRows` — the common updates/removals-only case,
-      // with no layout change at all — left the active page's OWN rows still naming a
-      // widget THIS SAME mutation explicitly asked to remove; the "stillReferenced" check
-      // `removeWidgetIds` runs below then saw it as still-live on the very page the
-      // removal targeted and silently no-op'd the whole removal). Scoped to ONLY the
-      // active page: a genuinely DIFFERENT page this bulk never touches that still
-      // references the id is a deliberate cross-page-collision guard (`removeWidgetIds`'s
-      // own "stillReferenced" check, exercised by the "does NOT remove a widget … that
-      // still lives on another page" test) and must NOT be stripped here — only the page
-      // this bulk actually targets gets its rows edited.
+      // Strip `removedWidgetIds` from EVERY page's rows FIRST, unconditionally — not
+      // only when the producer also supplied `widgetRows` (finding: a bulk that removes
+      // widgets but omits `widgetRows` — the common updates/removals-only case, with no
+      // layout change at all — left every page's OWN rows still naming a widget THIS
+      // SAME mutation explicitly asked to remove; the "stillReferenced" check
+      // `removeWidgetIds` runs below then saw it as still-live and silently no-op'd the
+      // whole removal). Scoped to ALL pages, not just the active one (T1 finding): the
+      // bulk-update's `removedWidgetIds` names widgets to remove doc-wide, and a widget
+      // can be dragged to a DIFFERENT page mid-turn while an agentic bulk update — computed
+      // against an earlier snapshot — is still in flight. Pre-strip used to touch only the
+      // active page, so a removal target that had moved to another page by the time this
+      // mutation applied was still "stillReferenced" there and silently survived with no
+      // error or signal. Mirrors `removeWidget`'s own `stripWidgetIdsFromPages(state.pages,
+      // …)` call (every page, not just one) — a single-widget removal and a batch removal
+      // must apply the identical cross-page guarantee.
       //
       // EXCEPT an id also named in `reAddedWidgetIds` (F4 finding): stripping it here
       // UNCONDITIONALLY — regardless of `widgetRows` presence — is exactly the divergence
@@ -2052,28 +2055,34 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // for a re-added id keeps both branches agreeing: placement/filters/spans survive.
       let layoutPages: StudioDoc['pages'] = state.pages;
       const idsToPreStrip = removedWidgetIds.filter((id) => !reAddedWidgetIds.has(id));
-      if (pageExists && idsToPreStrip.length > 0) {
-        const strippedActivePage = stripWidgetIdsFromPages(
-          { [activePageId]: state.pages[activePageId] },
-          new Set(idsToPreStrip),
-        )[activePageId];
-        // Finding 3.3: also prune each pre-stripped id's OWN `widgetColSpans` entry on
-        // the active page. `stripWidgetIdsFromPages` only clears a SURVIVING row-mate's
-        // now-stale span (the "orphaned sole occupant" case) — pruning the removed id's
-        // OWN span entry is normally left to `removeWidgetIds`'s cross-page "genuinely
-        // gone" check further below. But an id still referenced on ANOTHER page is NOT
-        // genuinely gone, so that check never fires for it — leaving the id's own span
-        // entry orphaned on THIS page, which it has already left (its row entry was
-        // just stripped above), regardless of whether it survives doc-wide. Reuses
-        // `removeSpanEntries` (reference-stable when nothing matched), so a bulk that
-        // never actually touched this page's spans still returns the SAME page object.
-        const spansPruned = removeSpanEntries(strippedActivePage.widgetColSpans, idsToPreStrip);
-        const finalActivePage =
-          spansPruned === strippedActivePage.widgetColSpans
-            ? strippedActivePage
-            : { ...strippedActivePage, widgetColSpans: spansPruned };
-        if (finalActivePage !== state.pages[activePageId]) {
-          layoutPages = { ...state.pages, [activePageId]: finalActivePage };
+      if (idsToPreStrip.length > 0) {
+        // Strip every page's rows in one pass — `stripWidgetIdsFromPages` already
+        // iterates the whole `pages` record and is reference-stable (returns the SAME
+        // object) when no page actually held any of `idsToPreStrip`, so a bulk whose
+        // targets never appear on any page's rows churns nothing here.
+        layoutPages = stripWidgetIdsFromPages(state.pages, new Set(idsToPreStrip));
+        if (pageExists) {
+          // Finding 3.3: also prune each pre-stripped id's OWN `widgetColSpans` entry on
+          // the active page. `stripWidgetIdsFromPages` only clears a SURVIVING row-mate's
+          // now-stale span (the "orphaned sole occupant" case) — pruning the removed id's
+          // OWN span entry is normally left to `removeWidgetIds`'s cross-page "genuinely
+          // gone" check further below. Now that every page's rows are stripped above, an
+          // id in `idsToPreStrip` is genuinely gone doc-wide (nothing still references
+          // it), so that check WILL fire and prune its span on every OTHER page — but the
+          // active page's own already-rebuilt object (built above by
+          // `stripWidgetIdsFromPages`) needs the same pruning applied to it directly, same
+          // as before. Reuses `removeSpanEntries` (reference-stable when nothing
+          // matched), so a bulk that never actually touched this page's spans still
+          // returns the SAME page object.
+          const strippedActivePage = layoutPages[activePageId];
+          const spansPruned = removeSpanEntries(strippedActivePage.widgetColSpans, idsToPreStrip);
+          const finalActivePage =
+            spansPruned === strippedActivePage.widgetColSpans
+              ? strippedActivePage
+              : { ...strippedActivePage, widgetColSpans: spansPruned };
+          if (finalActivePage !== strippedActivePage) {
+            layoutPages = { ...layoutPages, [activePageId]: finalActivePage };
+          }
         }
       }
       if (pageExists && hasLayoutUpdate) {

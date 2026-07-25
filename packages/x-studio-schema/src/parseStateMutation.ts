@@ -40,6 +40,31 @@ export type ParseStateMutationResult =
   | { ok: true; mutation: StateMutation }
   | { ok: false; error: string };
 
+// ── Wire trust-boundary size caps (Tier2 finding) ───────────────────────────────
+//
+// Everything above validated SHAPE only — an array or string field of unbounded
+// length still passed as long as its elements were individually shape-valid: an
+// `addedWidgets` array with 500,000 entries, or a widget `title` several megabytes
+// long, both satisfied every check below this comment before this fix. This file's
+// own module doc calls it out as "the ONE place a value CLAIMING to be a
+// `StateMutation` is checked" from OUTSIDE the process — the reducer, the client's
+// React render tree, and `serializeState`'s JSON payload all assume a bounded,
+// dashboard-sized document, so an unbounded payload can hang/OOM a consumer well
+// before any shape check would reject it.
+//
+// These are deliberately generous, conservative caps — far beyond anything a real
+// dashboard-editing UI or AI tool call would ever approach — not tight limits tuned
+// to an exact legitimate maximum. Applied inside the shared leaf predicates
+// (`isString`-family, `isStringArray`, `isStringMatrix`, `isFiniteNumberRecord`) so
+// every field that already routes through them (ids, titles, `dependsOn`,
+// `unsetFields`/`unsetConfigKeys`, `rowWidgetIds`, `removedWidgetIds`, the
+// `rows`/`widgetRows` layout matrix, `widgetColSpans`) is capped uniformly, plus
+// explicit checks with a more specific message at the two record-array collections
+// (`addedWidgets`/`updatedWidgets`) that are validated by a per-entry loop rather
+// than one of the shared array predicates.
+const MAX_ARRAY_LENGTH = 500;
+const MAX_STRING_LENGTH = 10_000;
+
 // ── Shared leaf predicates ──────────────────────────────────────────────────────
 
 // `isRecord` (a plain object — not `null`, not an array — that everything the wire
@@ -47,14 +72,18 @@ export type ParseStateMutationResult =
 // `isPlainRecord` from `internalGuards.ts` (finding 3.2), aliased to this file's
 // established local name so every existing call site below is unchanged.
 
+// Caps every string leaf at `MAX_STRING_LENGTH` (Tier2 finding): a value can be
+// shape-valid (a real string) yet still be an unbounded-length denial-of-service
+// payload — a widget `title`/filter `field`/page `title` etc. has no legitimate
+// reason to approach this cap.
 function isString(value: unknown): value is string {
-  return typeof value === 'string';
+  return typeof value === 'string' && value.length <= MAX_STRING_LENGTH;
 }
 
 /** Absent (`undefined`) is fine; if present it must be a string. Used for every
  *  optional string field so a missing optional field never rejects a valid payload. */
 function isOptionalString(value: unknown): value is string | undefined {
-  return value === undefined || typeof value === 'string';
+  return value === undefined || (typeof value === 'string' && value.length <= MAX_STRING_LENGTH);
 }
 
 /** Absent, or one of the `'auto' | 'manual'` literals. Used for `titleMode`/
@@ -78,24 +107,36 @@ function isOptionalTitleMode(value: unknown): value is 'auto' | 'manual' | undef
  * (widget ids, `updatedWidgets[].widgetId`, `addPage.id`, `activePageId`, etc.).
  */
 function isSafeId(value: unknown): value is string {
-  return typeof value === 'string' && isSafeKey(value);
+  return typeof value === 'string' && value.length <= MAX_STRING_LENGTH && isSafeKey(value);
 }
 
 /** A real `string[]` — `Array.isArray` first, so the string `"abc"` (which is
- *  iterable char-by-char) can never masquerade as `['a','b','c']`. Exported so
+ *  iterable char-by-char) can never masquerade as `['a','b','c']`. Also capped at
+ *  `MAX_ARRAY_LENGTH` entries, each no longer than `MAX_STRING_LENGTH` (Tier2
+ *  finding): every field routed through this predicate (`dependsOn`, `unsetFields`,
+ *  `unsetConfigKeys`, `rowWidgetIds`, `removedWidgetIds`) is a producer-controlled
+ *  list with no legitimate reason to approach either cap. Exported so
  *  `statePersistence.ts`'s load-boundary screen can apply the SAME array-shape check
  *  to persisted `filters[].dependsOn` that this file already applies to a live
  *  `addFilter` mutation (T2 finding) — the wire boundary and the load boundary must
  *  agree on what counts as a well-formed `dependsOn`. */
 export function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === 'string');
+  return (
+    Array.isArray(value) &&
+    value.length <= MAX_ARRAY_LENGTH &&
+    value.every((item) => typeof item === 'string' && item.length <= MAX_STRING_LENGTH)
+  );
 }
 
 /** A `string[][]` (used by `setWidgetLayout.rows`/`applyBulkUpdate.widgetRows`).
  *  Every element must itself be a real `string[]`, so a mixed-depth value such as
- *  `[['a'], 'b']` is rejected rather than the `'b'` slipping through. */
+ *  `[['a'], 'b']` is rejected rather than the `'b'` slipping through. Capped at
+ *  `MAX_ARRAY_LENGTH` outer rows (each inner row already capped, transitively, by
+ *  `isStringArray`'s own `MAX_ARRAY_LENGTH`/`MAX_STRING_LENGTH` checks — Tier2
+ *  finding): a layout with more rows than a dashboard could ever render is rejected
+ *  here rather than allocated. */
 function isStringMatrix(value: unknown): value is string[][] {
-  return Array.isArray(value) && value.every((row) => isStringArray(row));
+  return Array.isArray(value) && value.length <= MAX_ARRAY_LENGTH && value.every(isStringArray);
 }
 
 function isFiniteNumber(value: unknown): value is number {
@@ -103,9 +144,20 @@ function isFiniteNumber(value: unknown): value is number {
 }
 
 /** A `Record<string, number>` with every value a finite number
- *  (used by `applyBulkUpdate.widgetColSpans`). */
+ *  (used by `applyBulkUpdate.widgetColSpans`). Capped at `MAX_ARRAY_LENGTH` own
+ *  keys, each no longer than `MAX_STRING_LENGTH` (Tier2 finding): a span map keyed
+ *  by widget id has no legitimate reason to carry more entries, or longer keys,
+ *  than any other id-collection in this file. */
 function isFiniteNumberRecord(value: unknown): value is Record<string, number> {
-  return isRecord(value) && Object.values(value).every((v) => isFiniteNumber(v));
+  if (!isRecord(value)) {
+    return false;
+  }
+  const keys = Object.keys(value);
+  return (
+    keys.length <= MAX_ARRAY_LENGTH &&
+    keys.every((key) => key.length <= MAX_STRING_LENGTH) &&
+    Object.values(value).every((v) => isFiniteNumber(v))
+  );
 }
 
 /**
@@ -634,6 +686,13 @@ const MUTATION_ARG_VALIDATORS: { [M in StateMutation as M['type']]: MutationArgV
     if (!Array.isArray(args.addedWidgets)) {
       return 'applyBulkUpdate.args.addedWidgets must be an array';
     }
+    // Tier2 finding: `addedWidgets`/`updatedWidgets` are validated by a per-entry
+    // loop rather than one of the shared array predicates above, so they need their
+    // own explicit length cap — otherwise a bulk update carrying an unbounded number
+    // of widget entries passes every per-entry shape check individually.
+    if (args.addedWidgets.length > MAX_ARRAY_LENGTH) {
+      return `applyBulkUpdate.args.addedWidgets must not contain more than ${MAX_ARRAY_LENGTH} entries`;
+    }
     for (let i = 0; i < args.addedWidgets.length; i += 1) {
       const widgetError = validateWidget(
         args.addedWidgets[i],
@@ -645,6 +704,9 @@ const MUTATION_ARG_VALIDATORS: { [M in StateMutation as M['type']]: MutationArgV
     }
     if (!Array.isArray(args.updatedWidgets)) {
       return 'applyBulkUpdate.args.updatedWidgets must be an array';
+    }
+    if (args.updatedWidgets.length > MAX_ARRAY_LENGTH) {
+      return `applyBulkUpdate.args.updatedWidgets must not contain more than ${MAX_ARRAY_LENGTH} entries`;
     }
     for (let i = 0; i < args.updatedWidgets.length; i += 1) {
       const update = args.updatedWidgets[i];

@@ -991,24 +991,72 @@ export function deserializeState(
     // Drop non-record / unsafe-own-key entries first (existing screen), THEN repair
     // each SURVIVING thread's `messages`/`name` leaf shapes (F1 finding) — the
     // container/record-ness screen alone let a `messages: 'junk'` or `name: 42` thread
-    // through verbatim. `changed` tracks BOTH the drop and the repair so a well-formed
-    // `ai.threads` (the common case) keeps its reference identity.
-    let threadsChanged = false;
+    // through verbatim. `aiChanged` tracks every drop/repair below (entries, ids, dedup,
+    // AND the `activeThreadId` reconciliation further down) so a well-formed `ai` (the
+    // common case) keeps its reference identity.
+    let aiChanged = false;
     const recordThreads = ai.threads.filter((thread) => {
       if (!isRecord(thread) || hasUnsafeOwnKeys(thread)) {
-        threadsChanged = true;
+        aiChanged = true;
         return false;
       }
       return true;
     });
-    const safeThreads = recordThreads.map((thread) => {
+    // Drop a thread whose `id` is not a non-empty string (Tier2 finding — the `ai.threads`
+    // sibling of the `filters` load-boundary `typeof f.id !== 'string'` screen above): `id`
+    // is identity data, and `renameAIThread`'s `t.id === threadId` lookup (and the
+    // `activeThreadId` reconciliation just below) compares against a STRING, so a non-string
+    // `id` would load as a permanently-unselectable, unrenamable thread with no error. Also
+    // de-dup by `id`, first occurrence wins (mirroring the `filters` load-boundary dedup,
+    // Finding 3): a hand-edited/foreign doc with two threads sharing an `id` previously
+    // loaded BOTH, desyncing `renameAIThread`'s single-thread-by-id lookup from whichever
+    // copy the thread selector happened to render.
+    const seenThreadIds = new Set<string>();
+    const idScreenedThreads = recordThreads.filter((thread) => {
+      const id = (thread as { id?: unknown }).id;
+      if (typeof id !== 'string' || id.length === 0) {
+        aiChanged = true;
+        return false;
+      }
+      if (seenThreadIds.has(id)) {
+        aiChanged = true;
+        return false;
+      }
+      seenThreadIds.add(id);
+      return true;
+    });
+    const safeThreads = idScreenedThreads.map((thread) => {
       const repaired = repairThreadLeafShapes(thread);
       if (repaired !== thread) {
-        threadsChanged = true;
+        aiChanged = true;
       }
       return repaired;
     });
-    normalizedAi = threadsChanged ? { ...ai, threads: safeThreads } : ai;
+    // Reconcile a dangling `activeThreadId` (Tier2 finding), mirroring the
+    // `dashboard.activePageId` reconciliation above: a hand-edited doc, or one orphaned
+    // when the id/dedup screen just above dropped its thread, would otherwise leave the
+    // chat panel pointed at a thread that no longer exists in `threads` — with no
+    // self-heal, unlike every other id-shaped reconciliation in this file. Falls back to
+    // `undefined` (no thread selected), NOT the first surviving thread: unlike
+    // `activePageId` (a page must always be rendered, so `''`/blank-canvas is worse),
+    // `activeThreadId` is already optional or UI state (`activeThreadId?: string` means
+    // "no thread selected"), so clearing it is a safe, already-handled state rather than
+    // guessing which thread the user meant.
+    const activeThreadIdValid =
+      typeof ai.activeThreadId === 'string' &&
+      safeThreads.some((t) => (t as { id: string }).id === ai.activeThreadId);
+    if (!activeThreadIdValid && ai.activeThreadId !== undefined) {
+      aiChanged = true;
+    }
+    if (aiChanged) {
+      const rebuilt: StudioAIState = { ...ai, threads: safeThreads };
+      if (!activeThreadIdValid) {
+        delete rebuilt.activeThreadId;
+      }
+      normalizedAi = rebuilt;
+    } else {
+      normalizedAi = ai;
+    }
   }
 
   // Repair a malformed `dependsOn` (T2 finding) BEFORE the structural filter screen below:

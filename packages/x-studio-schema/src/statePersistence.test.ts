@@ -748,6 +748,95 @@ describe('deserializeState', () => {
     expect(restored.doc.ai!.threads[0]).toBe(thread);
   });
 
+  // Tier2 finding: unlike `dashboard.activePageId` (reconciled against `normalizedPages`
+  // just above in the file) and `filters[].id` (deduped just below), a dangling
+  // `ai.activeThreadId` was never validated against the final surviving `threads` array —
+  // a hand-edited/foreign doc, or one orphaned when a thread was dropped, loaded with the
+  // chat panel silently pointed at a thread that no longer exists.
+  it('clears a dangling activeThreadId that names no surviving thread (Tier2)', () => {
+    const thread = {
+      id: 'thread-1',
+      name: 'Kept',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      messages: [],
+    };
+    const serialized = {
+      ...minimalSerialized,
+      ai: { threads: [thread], activeThreadId: 'ghost-thread' },
+    } as unknown as typeof minimalSerialized;
+    const restored = deserializeState(serialized, {});
+    expect(restored.doc.ai!.threads).toHaveLength(1);
+    expect(restored.doc.ai!.activeThreadId).toBeUndefined();
+  });
+
+  // Same finding, the "thread was dropped out from under it" flavor: `activeThreadId`
+  // named a thread that WAS present in the raw payload but got screened out (here, a
+  // non-string `id` — see the next test) before this reconciliation runs, so it must be
+  // treated exactly like a never-existed id, not left dangling.
+  it('clears activeThreadId when the thread it named was itself dropped for an invalid id (Tier2)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      ai: {
+        threads: [
+          { id: 42, name: 'Bad id', createdAt: '2026-01-01T00:00:00.000Z', messages: [] },
+          { id: 'thread-2', name: 'Good', createdAt: '2026-01-01T00:00:00.000Z', messages: [] },
+        ],
+        activeThreadId: 'thread-2',
+      },
+    } as unknown as typeof minimalSerialized;
+    const restored = deserializeState(serialized, {});
+    expect(restored.doc.ai!.threads.map((t) => t.id)).toEqual(['thread-2']);
+    // thread-2 is a real surviving thread, so activeThreadId is left alone.
+    expect(restored.doc.ai!.activeThreadId).toBe('thread-2');
+  });
+
+  // Tier2 finding: a thread with a non-string (or empty-string) `id` was never screened —
+  // `renameAIThread`'s `t.id === threadId` lookup compares against a STRING, so a numeric
+  // id could never be targeted for rename, and it would round-trip as permanent dead
+  // weight in the thread selector.
+  it('drops a thread with a non-string id (Tier2)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      ai: {
+        threads: [
+          { id: 42, name: 'Numeric id', createdAt: '2026-01-01T00:00:00.000Z', messages: [] },
+          { id: '', name: 'Empty id', createdAt: '2026-01-01T00:00:00.000Z', messages: [] },
+          { id: 'thread-1', name: 'Good', createdAt: '2026-01-01T00:00:00.000Z', messages: [] },
+        ],
+        activeThreadId: 'thread-1',
+      },
+    } as unknown as typeof minimalSerialized;
+    const restored = deserializeState(serialized, {});
+    expect(restored.doc.ai!.threads).toHaveLength(1);
+    expect(restored.doc.ai!.threads[0].id).toBe('thread-1');
+  });
+
+  // Tier2 finding: two threads sharing the same `id` — mirroring the `filters[].id`
+  // load-boundary dedup (Finding 3) — must collapse to the first occurrence, not load
+  // both. Duplicate thread ids would desync `renameAIThread`'s single-thread-by-id lookup
+  // from whichever copy the thread selector happened to render.
+  it('de-dups threads sharing the same id, keeping the first occurrence (Tier2)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      ai: {
+        threads: [
+          { id: 't1', name: 'First', createdAt: '2026-01-01T00:00:00.000Z', messages: [] },
+          {
+            id: 't1',
+            name: 'Second (duplicate)',
+            createdAt: '2026-01-02T00:00:00.000Z',
+            messages: [],
+          },
+        ],
+        activeThreadId: 't1',
+      },
+    } as unknown as typeof minimalSerialized;
+    const restored = deserializeState(serialized, {});
+    expect(restored.doc.ai!.threads).toHaveLength(1);
+    expect(restored.doc.ai!.threads[0].name).toBe('First');
+    expect(restored.doc.ai!.activeThreadId).toBe('t1');
+  });
+
   // 2.4: the restored doc is stamped at CURRENT_SCHEMA_VERSION (deserialize only runs
   // on migrated state), even if the serialized object carried no schemaVersion.
   it('stamps doc.schemaVersion as CURRENT_SCHEMA_VERSION', () => {

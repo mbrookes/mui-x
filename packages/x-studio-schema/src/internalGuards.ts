@@ -23,13 +23,35 @@
 import { isSafeKey, UNSAFE_KEYS } from './unsafeKeys';
 
 /**
- * A plain object (not `null`, not an array, not a primitive). The single shared
- * "is this a usable record" predicate for every trust boundary in this package: a
- * non-record value (`null`, an array, or a truthy primitive like a string) is treated
- * as ABSENT, never as a record to merge, install, or read fields off of.
+ * A plain object (not `null`, not an array, not a primitive, and not an exotic object
+ * like a `Date`/`RegExp`/`Map`/`Set`/class instance). The single shared "is this a usable
+ * record" predicate for every trust boundary in this package: a non-record value (`null`,
+ * an array, a truthy primitive like a string, or an exotic object) is treated as ABSENT,
+ * never as a record to merge, install, or read fields off of.
+ *
+ * The prototype check (Tier2 finding) is what excludes the exotic-object case: `typeof
+ * value === 'object' && value !== null && !Array.isArray(value)` alone is true for a
+ * `Date`, `RegExp`, `Map`, `Set`, or any class instance, since all of those ARE
+ * `typeof … === 'object'` non-array non-null values. Every call site treats a passing
+ * value as a plain data bag — spreading it (`{ ...value }`), reading arbitrary string
+ * keys off it, or installing it verbatim as a widget/filter config — so an exotic object
+ * silently "laundered" through as `{}`-like (e.g. `{ ...new Map([['a', 1]]) }` produces
+ * `{}`, discarding the Map's entries with no error) rather than being rejected as the
+ * malformed input it is. Requiring the prototype to be exactly `Object.prototype` (a
+ * literal `{}`/object-literal shape) or `null` (an explicit `Object.create(null)` bag,
+ * which callers may legitimately use to avoid prototype pollution entirely) is a strict
+ * tightening: every object literal and every `JSON.parse` output (the wire/persistence
+ * boundaries' actual input shape) already has `Object.prototype` as its prototype, so
+ * this changes no behavior for the values this predicate was ever meant to accept —
+ * arrays were already excluded above via `!Array.isArray`.
  */
 export function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)
+  );
 }
 
 /**

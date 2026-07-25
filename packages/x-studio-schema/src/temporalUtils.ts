@@ -53,9 +53,16 @@ function toUtcYMD(value: unknown): { y: number; m: number; day: number } | null 
   if (typeof value === 'string' && value.length >= 10 && value[4] === '-' && value[7] === '-') {
     // Take the fast path only when there is no explicit UTC offset in the tail after
     // the date: a bare date (nothing after position 10) or a time ending in `Z`/no
-    // offset. A `+`/`-` in the tail signals an offset that must be converted via `Date`.
+    // offset. A REAL offset (`+05:00`, `-0500`, …) always trails the time-of-day
+    // component with nothing after it, so it is anchored to the END of the tail —
+    // `/[+-]\d{2}:?\d{2}$/`. Checking for a bare `+`/`-` ANYWHERE in the tail (as a
+    // plain `.includes` would) contradicts the "non-offset garbage tail is ignored"
+    // behavior documented below: a malformed-but-canonical-prefixed value like
+    // `2024-06-01Tgarbage-more` carries a `-` inside the garbage, not a timezone
+    // offset, and must still fast-path off the leading `YYYY-MM-DD` rather than fall
+    // through to `new Date(...)` (which can't parse it either, returning `null`).
     const tail = value.slice(10);
-    if (!tail.includes('+') && !tail.includes('-')) {
+    if (!/[+-]\d{2}:?\d{2}$/.test(tail)) {
       const y = Number(value.slice(0, 4));
       const m = Number(value.slice(5, 7)) - 1;
       const day = Number(value.slice(8, 10));

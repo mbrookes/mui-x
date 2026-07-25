@@ -194,6 +194,43 @@ describe('applyMutation', () => {
     expect((next.widgets.w1.config as { chartType?: string }).chartType).toBe('line');
   });
 
+  // Tier2 finding (`isPlainRecord` exotic-object tightening): before the fix, `typeof
+  // value === 'object' && value !== null && !Array.isArray(value)` was TRUE for a `Date`/
+  // `Map`/`RegExp`/class instance — none of those are arrays, but all are non-null
+  // objects — so `coerceWidgetConfig`'s `!isPlainRecord(config)` guard never fired for
+  // one, and the live exotic instance was stored verbatim as `widget.config` (a field
+  // typed `Record<string, unknown>`) rather than being coerced to `{}` the same way
+  // `null`/an array config already is above. `isPlainRecord` now checks the value's
+  // prototype is exactly `Object.prototype` (or `null`), so a `Date`/`Map` config is
+  // rejected exactly like `null` is.
+  it('addWidget coerces a Date/Map config to `{}` instead of storing the exotic object verbatim (Tier2)', () => {
+    const dateWidget = {
+      id: 'w1',
+      kind: 'chart',
+      title: 'W',
+      config: new Date('2026-01-01T00:00:00.000Z'),
+    } as unknown as StudioWidgetOf<'chart'>;
+    const withDate = applyDocMutation(twoPageState('page-1'), {
+      type: 'addWidget',
+      args: { widget: dateWidget, pageId: 'page-1' },
+    });
+    expect(withDate.widgets.w1.config).toEqual({});
+    expect(withDate.widgets.w1.config instanceof Date).toBe(false);
+
+    const mapWidget = {
+      id: 'w2',
+      kind: 'chart',
+      title: 'W2',
+      config: new Map([['chartType', 'line']]),
+    } as unknown as StudioWidgetOf<'chart'>;
+    const withMap = applyDocMutation(twoPageState('page-1'), {
+      type: 'addWidget',
+      args: { widget: mapWidget, pageId: 'page-1' },
+    });
+    expect(withMap.widgets.w2.config).toEqual({});
+    expect(withMap.widgets.w2.config instanceof Map).toBe(false);
+  });
+
   it('addWidget with a prototype-hazard id is a no-op (Tier 3)', () => {
     // A `'__proto__'` id would create a real own entry that silently vanishes on the next
     // load (the load-boundary key screen drops it) — so reject it up front, uniform with
@@ -3278,10 +3315,17 @@ describe('applyMutation', () => {
       expect(next.pages['page-2'].widgetColSpans).toEqual({ w2: 6 });
     });
 
-    it('does NOT remove a widget dropped from the map that still lives on another page (cross-page rejection)', () => {
-      // old2 is dropped from the replacement widgets map but is still referenced in
-      // page-2's rows — a dangling cross-page reference, not a removal. Its filter
-      // and span must be preserved (not purged).
+    it('removes a widget named in removedWidgetIds even when it currently lives on another page (T1 cross-page fix)', () => {
+      // old2 is dropped from the replacement widgets map AND is currently referenced
+      // in page-2's rows — e.g. the user dragged it there mid-turn while an agentic
+      // bulk update computed against an earlier snapshot was still in flight. The
+      // mutation still explicitly names old2 in `removedWidgetIds`, so it must be
+      // removed doc-wide: stripped from EVERY page's rows (not just the active one)
+      // before the "still referenced" check runs, mirroring `removeWidget`'s own
+      // all-pages `stripWidgetIdsFromPages` call. Previously the pre-strip only
+      // touched the active page, so `removeWidgetIds` saw old2 as still-live on
+      // page-2 and silently left it (and its filter/span) untouched — no error, no
+      // signal that the removal was dropped.
       const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: {
@@ -3307,9 +3351,8 @@ describe('applyMutation', () => {
       const next = applyDocMutation(state, {
         type: 'applyBulkUpdate',
         args: {
-          // Both old1 (genuinely gone) and old2 (still referenced on page-2) are
-          // listed as removed — the reducer must tell them apart via `stillReferenced`
-          // rather than purging cleanup for a widget another page still shows.
+          // Both old1 (never referenced elsewhere) and old2 (now living on page-2)
+          // are named as removed — both must actually be removed.
           removedWidgetIds: ['old1', 'old2'],
           addedWidgets: [chartWidget('new1')],
           updatedWidgets: [],
@@ -3318,11 +3361,12 @@ describe('applyMutation', () => {
           activePageId: 'page-1',
         },
       });
-      // old2 is still on page-2, so its filter and span are untouched.
-      expect(next.filters.map((f) => f.id)).toEqual(['f2']);
-      expect(next.pages['page-2'].widgetColSpans).toEqual({ old2: 6 });
-      // old2 itself also survives in the global widgets record (never truly removed).
-      expect(next.widgets.old2).toEqual(chartWidget('old2'));
+      // old2's row is stripped from page-2, and its filter/span are dropped too.
+      expect(next.pages['page-2'].widgetRows).toEqual([]);
+      expect(next.filters.map((f) => f.id)).toEqual([]);
+      expect(next.pages['page-2'].widgetColSpans).toBeUndefined();
+      // old2 no longer exists in the global widgets record — genuinely removed.
+      expect(next.widgets.old2).toBeUndefined();
     });
 
     // 2.2: applyBulkUpdate must follow the file's own prototype-hygiene convention
@@ -3795,12 +3839,12 @@ describe('applyMutation', () => {
       expect(next.widgets.w2).toEqual(chartWidget('w2'));
     });
 
-    // Finding 3.3: a removed widget still referenced on ANOTHER page is not "genuinely
-    // gone" (it survives in `state.widgets`, its filters, and its span on the OTHER page),
-    // so `removeWidgetIds`'s cross-page prune never fires for it — but it HAS already left
-    // the ACTIVE page's own rows (the pre-strip above removed it there), so its own span
-    // entry on the ACTIVE page is now dead weight. This must not linger as an orphan.
-    it("prunes a removed widget's own span on the active page even though it survives (cross-page) elsewhere (Finding 3.3)", () => {
+    // Finding 3.3 / T1 cross-page fix: the pre-strip step now clears `removedWidgetIds`
+    // from EVERY page's rows (not just the active one) before the "genuinely gone" check
+    // runs, so a widget requested for removal is removed doc-wide even when it currently
+    // sits on a page the bulk update's `activePageId` never names — its span entry is
+    // pruned everywhere it appeared, not left dangling on whichever page it wasn't on.
+    it('removes a removed widget doc-wide, pruning its span on every page it appeared on (Finding 3.3 / T1)', () => {
       const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: {
@@ -3827,11 +3871,10 @@ describe('applyMutation', () => {
           activePageId: 'page-1',
         },
       } as StateMutation);
-      // w1 survives doc-wide (still referenced on page-2) — not genuinely removed.
-      expect(next.widgets.w1).toEqual(chartWidget('w1'));
-      expect(next.pages['page-2'].widgetRows).toEqual([['w1']]);
-      // …but it left page-1's rows, so page-1's OWN span entry for it is pruned rather
-      // than left as an orphan.
+      // w1 is removed doc-wide: gone from `state.widgets` and from every page's rows.
+      expect(next.widgets.w1).toBeUndefined();
+      expect(next.pages['page-2'].widgetRows).toEqual([]);
+      // …and its stale span on page-1 is pruned too (not left as an orphan).
       expect(next.pages['page-1'].widgetRows).toEqual([['w2']]);
       expect(next.pages['page-1'].widgetColSpans).toBeUndefined();
     });
@@ -3981,7 +4024,7 @@ describe('applyMutation', () => {
       expect(next.widgets.w1.title).toBe('New title');
     });
 
-    it('still respects a genuine cross-page reference when widgetRows is omitted (does not remove a widget another page shows)', () => {
+    it('removes a widget from every page when removedWidgetIds names it, even with widgetRows omitted (T1 cross-page fix)', () => {
       const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: {
@@ -3999,11 +4042,11 @@ describe('applyMutation', () => {
           activePageId: 'page-1',
         },
       } as StateMutation);
-      // Stripped from page-1 (the bulk's active page)…
+      // Stripped from BOTH pages, not only the bulk's active page…
       expect(next.pages['page-1'].widgetRows).toEqual([]);
-      // …but page-2 still shows it, so it is NOT genuinely removed.
-      expect(next.pages['page-2'].widgetRows).toEqual([['shared']]);
-      expect(next.widgets.shared).toEqual(chartWidget('shared'));
+      expect(next.pages['page-2'].widgetRows).toEqual([]);
+      // …so it is genuinely removed doc-wide.
+      expect(next.widgets.shared).toBeUndefined();
     });
 
     // Iteration-20 finding: an added widget landed in the flat `widgets` record but was

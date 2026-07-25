@@ -107,6 +107,24 @@ describe('truncateToPeriod', () => {
       expect(truncateToPeriod('2024-13-40', 'day')).toBeNull();
       expect(truncateToPeriod('2024-99-01', 'day')).toBeNull();
     });
+
+    // Tier3 finding: a non-offset garbage tail must be ignored (only the leading
+    // `YYYY-MM-DD` is read), even when that garbage happens to contain a literal `-`
+    // that is not a timezone offset. The offset guard now anchors to the END of the
+    // tail (`/[+-]\d{2}:?\d{2}$/`) instead of a bare `.includes('-')`, which previously
+    // mistook a `-` anywhere in the garbage for an offset and fell through to
+    // `new Date(...)` — returning `null` instead of the documented best-effort date.
+    it('ignores a non-offset garbage tail containing a literal hyphen (Tier3)', () => {
+      expect(truncateToPeriod('2024-06-01Tgarbage-more', 'day')).toBe('2024-06-01');
+      expect(truncateToPeriod('2024-06-01Tgarbage-more', 'month')).toBe('2024-06');
+    });
+
+    it('still converts a REAL offset even when preceded by unrelated hyphenated text', () => {
+      // The offset itself is a real `-05:00` at the end of the tail — must still
+      // trigger the slow (`new Date`) path and convert to UTC, not be short-circuited
+      // by the presence of other hyphens.
+      expect(truncateToPeriod('2024-12-31T23:00:00-05:00', 'day')).toBe('2025-01-01');
+    });
   });
 
   // Iteration-20 finding: a year in [0, 99] hit the `Date.UTC`/multi-arg-`Date`

@@ -6,7 +6,7 @@
 
 import { WIDGET_CONFIG_DESCRIPTION } from './studioAITools';
 import { sanitizeForPrompt } from './buildAISystemPrompt';
-import { buildWidgetFromArgs } from './executeToolOnState';
+import { buildWidgetFromArgs, MAX_FILTER_STRING_LENGTH } from './executeToolOnState';
 import { withTimeout } from './mcp/helpers';
 import { LLM_FETCH_TIMEOUT_MS } from './agenticLoop';
 
@@ -166,6 +166,60 @@ export interface CreateWidgetResponse {
 }
 
 /**
+ * Max number of `sources` entries retained from a `handleCreateWidget` request
+ * before they are interpolated into the widget-creation system prompt (Tier 1
+ * architecture-review finding, sibling to `handleAIChat.ts`'s
+ * `capIncomingRichContext`/`capIncomingCustomWidgets`). `handleCreateWidget` is
+ * a separate, client-facing request handler from `handleAIChat` and had NONE of
+ * its request-size caps: `CreateWidgetRequest.sources` is fully client-controlled
+ * and the `sourceLines` build below had no count cap of its own.
+ */
+const MAX_CREATE_WIDGET_SOURCES = 200;
+
+/**
+ * Max number of `fields` entries retained per `sources` entry (see
+ * {@link MAX_CREATE_WIDGET_SOURCES}). Each source's `fields` array is looped
+ * over unbounded when building `sourceLines`.
+ */
+const MAX_CREATE_WIDGET_SOURCE_FIELDS = 500;
+
+/**
+ * Cap a `handleCreateWidget` string field (`sources[].id`/`label`,
+ * `fields[].id`/`type`/`label`) to `MAX_FILTER_STRING_LENGTH` — reusing the
+ * identifier-string bound `executeToolOnState.ts` already applies to a
+ * persisted widget/filter `sourceId`/`field`, rather than inventing a new
+ * constant for the same class of short string.
+ */
+function capCreateWidgetString(value: unknown): string {
+  const str = String(value ?? '');
+  return str.length > MAX_FILTER_STRING_LENGTH ? str.slice(0, MAX_FILTER_STRING_LENGTH) : str;
+}
+
+/**
+ * Cap a client-supplied `CreateWidgetRequest.sources` array before it is
+ * interpolated into the widget-creation system prompt (Tier 1
+ * architecture-review finding). `handleCreateWidget` is a separate,
+ * client-facing request handler from `handleAIChat` and had none of
+ * `capIncomingRichContext`/`capIncomingCustomWidgets`'s caps applied to it —
+ * bounds source count ({@link MAX_CREATE_WIDGET_SOURCES}), per-source field
+ * count ({@link MAX_CREATE_WIDGET_SOURCE_FIELDS}), and every `id`/`label`/`type`
+ * string length.
+ */
+function capCreateWidgetSources(
+  sources: CreateWidgetRequest['sources'],
+): CreateWidgetRequest['sources'] {
+  return (sources ?? []).slice(0, MAX_CREATE_WIDGET_SOURCES).map((s) => ({
+    id: capCreateWidgetString(s.id),
+    label: capCreateWidgetString(s.label),
+    fields: (s.fields ?? []).slice(0, MAX_CREATE_WIDGET_SOURCE_FIELDS).map((f) => ({
+      id: capCreateWidgetString(f.id),
+      type: capCreateWidgetString(f.type),
+      ...(f.label !== undefined ? { label: capCreateWidgetString(f.label) } : {}),
+    })),
+  }));
+}
+
+/**
  * Validate the shape of a `CreateWidgetResponse` parsed from the LLM's raw JSON
  * output. `JSON.parse` only guarantees syntactically valid JSON — it says nothing
  * about whether the LLM actually returned the fields callers depend on. Without
@@ -235,8 +289,14 @@ export async function handleCreateWidget(
   request: CreateWidgetRequest,
   options: GenerateInsightOptions,
 ): Promise<CreateWidgetResponse> {
-  const { description, sources } = request;
+  const { description } = request;
   const { endpoint, apiKey, model = 'gpt-4o', headers: extraHeaders, maxTokens = 500 } = options;
+
+  // Cap `sources` BEFORE building the prompt (Tier 1 architecture-review finding):
+  // `handleCreateWidget` is a separate, client-facing request handler from
+  // `handleAIChat` and previously had none of `handleAIChat.ts`'s request-size caps
+  // applied to this fully client-controlled array — see `capCreateWidgetSources`.
+  const sources = capCreateWidgetSources(request.sources);
 
   // Source labels/ids and field ids/types/labels are state-derived and
   // attacker-influenceable (they can carry data read back from a poisoned source),

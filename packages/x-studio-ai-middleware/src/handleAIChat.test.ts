@@ -1362,6 +1362,25 @@ describe('capIncomingRichContext: per-string-field length caps', () => {
     expect(stat.sampledRows.length).toBe(200);
   });
 
+  // Tier 2 finding: `fieldStats` capped entry COUNT and every entry's VALUES, but
+  // never the entry KEY (the field name itself) — `buildRichContextBlock` echoes the
+  // raw key with no length bound of its own.
+  it('caps an oversized fieldStats entry KEY (field name), not just its values', () => {
+    const capped = capIncomingRichContext({
+      fieldStats: { [long]: { type: 'number', min: 0, max: 1, mean: 0.5, sampledRows: 10 } },
+    })!;
+    const keys = Object.keys(capped.fieldStats!);
+    expect(keys).toHaveLength(1);
+    expect(keys[0].length).toBe(200);
+  });
+
+  it('leaves a well-formed, short fieldStats key unchanged', () => {
+    const capped = capIncomingRichContext({
+      fieldStats: { revenue: { type: 'number', min: 0, max: 1, mean: 0.5, sampledRows: 10 } },
+    })!;
+    expect(Object.keys(capped.fieldStats!)).toEqual(['revenue']);
+  });
+
   it('leaves well-formed numeric fieldStats values untouched', () => {
     const capped = capIncomingRichContext({
       fieldStats: { f1: { type: 'number', min: 0, max: 100, mean: 50, sampledRows: 10 } },

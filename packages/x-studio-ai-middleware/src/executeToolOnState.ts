@@ -255,25 +255,58 @@ function capSourceId(sourceId: string): string {
 const MAX_CONFIG_ARRAY_LENGTH = MAX_FILTER_VALUE_ARRAY_LENGTH;
 
 /**
- * Caps a single "flat" config value one level deep (see
- * {@link MAX_CONFIG_ARRAY_LENGTH}): a string (e.g. a `funnelCategoryOrder`/
- * `funnelStageSequence` array entry) is length-capped directly; a plain object
- * (e.g. a `ySeries`/`annotations`/grid `columns` array entry, OR a nested
- * single-object config value like `forecast`) has every one of ITS string-typed
- * properties (`fieldId`, `sourceId`, `label`, `method`, …) capped — config
- * values/elements are flat records, never further nested, so one level is
- * sufficient. Any other shape (number, boolean, nested array, `null`) is left
- * as-is. Shared by {@link capConfigStringValues} for both array ELEMENTS and
- * direct nested-object config VALUES.
+ * Max recursion depth {@link capShallowConfigValue} will descend into a nested
+ * widget-config value (Tier 1 architecture-review finding). Mirrors
+ * `capFilterValue`'s {@link MAX_FILTER_VALUE_DEPTH} pattern: config values were
+ * previously capped only ONE level deep, which missed two real nested config
+ * shapes — `StudioSharedWidgetConfig.customConfig` (arbitrary consumer JSON,
+ * valid on every widget kind) and `StudioGridConfig.gridConditionalFormats[].style`
+ * (whose `backgroundColor`/`color` strings sit one level past what the old
+ * one-level cap inspected). Both are echoed into `<dashboard_state>` verbatim by
+ * `buildAISystemPrompt.ts` on every future request, so an uncapped string
+ * nested past the first level is exactly the same persistent token-bomb class
+ * `capTitle`/`capFilterValue` already guard against. Values beyond this depth
+ * are left as-is (bounded work, not infinite recursion on a pathologically deep
+ * structure), same trade-off `capFilterValue` makes.
  */
-function capShallowConfigValue(value: unknown): unknown {
+const MAX_CONFIG_VALUE_DEPTH = 4;
+
+/**
+ * Caps a single config value, recursing up to {@link MAX_CONFIG_VALUE_DEPTH}
+ * levels deep (Tier 1 architecture-review finding — see
+ * {@link MAX_CONFIG_VALUE_DEPTH} for why one level was not enough): a string
+ * (e.g. a `funnelCategoryOrder`/`funnelStageSequence` array entry) is
+ * length-capped directly; an array (e.g. a nested array inside `customConfig`)
+ * has its length bounded to {@link MAX_CONFIG_ARRAY_LENGTH} and each element
+ * recursively capped; a plain object (e.g. a `ySeries`/`annotations`/grid
+ * `columns` array entry, a nested single-object config value like `forecast`,
+ * or an arbitrarily-shaped `customConfig`/`gridConditionalFormats[].style`) has
+ * its key COUNT bounded to `MAX_FILTER_VALUE_OBJECT_KEYS` and every value
+ * recursively capped. Any other shape (number, boolean, `null`) is left as-is.
+ * Shared by {@link capConfigStringValues} for both array ELEMENTS and direct
+ * nested-object config VALUES.
+ */
+function capShallowConfigValue(value: unknown, depth = 0): unknown {
   if (typeof value === 'string') {
     return capString(value, MAX_FILTER_STRING_LENGTH);
   }
-  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+  if (depth >= MAX_CONFIG_VALUE_DEPTH) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    const bounded =
+      value.length > MAX_CONFIG_ARRAY_LENGTH ? value.slice(0, MAX_CONFIG_ARRAY_LENGTH) : value;
+    return bounded.map((entry) => capShallowConfigValue(entry, depth + 1));
+  }
+  if (value !== null && typeof value === 'object') {
     const capped: Record<string, unknown> = {};
-    for (const [key, prop] of Object.entries(value as Record<string, unknown>)) {
-      capped[key] = typeof prop === 'string' ? capString(prop, MAX_FILTER_STRING_LENGTH) : prop;
+    const entries = Object.entries(value as Record<string, unknown>);
+    const boundedEntries =
+      entries.length > MAX_FILTER_VALUE_OBJECT_KEYS
+        ? entries.slice(0, MAX_FILTER_VALUE_OBJECT_KEYS)
+        : entries;
+    for (const [key, prop] of boundedEntries) {
+      capped[key] = capShallowConfigValue(prop, depth + 1);
     }
     return capped;
   }
@@ -283,8 +316,12 @@ function capShallowConfigValue(value: unknown): unknown {
 /**
  * Cap every STRING-typed value in a model-supplied widget `config` object before
  * persisting it (Tier 2, iteration 22), AND every ARRAY-typed value's length plus
- * its elements' string content, AND every nested-OBJECT-typed value's own string
- * properties (Tier 1 architecture-review finding). Chart-config string fields
+ * its elements' string content, AND every nested-OBJECT-typed value's string
+ * properties RECURSIVELY up to {@link MAX_CONFIG_VALUE_DEPTH} levels deep (Tier 1
+ * architecture-review finding — the recursion closes a real gap: a plain
+ * one-level cap missed `customConfig`'s arbitrarily-nested consumer JSON and
+ * `gridConditionalFormats[].style.backgroundColor`/`color`, both of which sit
+ * past the first level). Chart-config string fields
  * such as `xField`/`yField`/`seriesField` (and their per-chart-type siblings —
  * `ganttLabelField`, `sankeyTargetField`, `scatterColorField`, `heatYField`, …)
  * are free-form model-supplied field-id strings with no existing length bound,
@@ -317,7 +354,15 @@ function capConfigStringValues(config: unknown): unknown {
     if (typeof value === 'string') {
       capped[key] = capString(value, MAX_FILTER_STRING_LENGTH);
     } else if (Array.isArray(value)) {
-      capped[key] = value.slice(0, MAX_CONFIG_ARRAY_LENGTH).map(capShallowConfigValue);
+      // NOT `.map(capShallowConfigValue)`: `Array.prototype.map` invokes its callback
+      // with `(element, index, array)`, and `capShallowConfigValue`'s SECOND parameter
+      // is now the recursion `depth` (Tier 1 architecture-review finding) — passing the
+      // callback directly would silently feed the array INDEX in as `depth`, corrupting
+      // the depth budget for every element past index 0. Wrap it so each element always
+      // starts its own recursion fresh at `depth = 0`.
+      capped[key] = value
+        .slice(0, MAX_CONFIG_ARRAY_LENGTH)
+        .map((entry) => capShallowConfigValue(entry));
     } else if (value !== null && typeof value === 'object') {
       capped[key] = capShallowConfigValue(value);
     } else {
@@ -376,6 +421,51 @@ const MAX_STATE_DATA_SOURCES = 500;
 const MAX_STATE_DATA_SOURCE_FIELDS = 500;
 
 /**
+ * Max length of a model-supplied entity `.id` (widget/page/data-source) retained
+ * from an incoming, client-supplied `dashboardState` (Tier 1 architecture-review
+ * finding). Unlike a `title`/`label`, an entity's `.id` is a SEPARATE field from
+ * its map key — `buildAISystemPrompt.ts` echoes it verbatim regardless
+ * (`pushField('id', widget.id)`, `sanitizeForPrompt(page.id)`,
+ * `sanitizeForPrompt(source.id)`) on EVERY future request, and
+ * `sanitizeForPrompt` only escapes `<`/`>` — it never bounds length. So an
+ * oversized `.id` is the same persistent token-bomb class `capTitle` already
+ * guards the title fields against. Reuses `MAX_FILTER_STRING_LENGTH` (the
+ * identifier-string bound already applied to `sourceId`/filter `field`) rather
+ * than inventing a new constant for the same class of short id string.
+ */
+const MAX_ENTITY_ID_LENGTH = MAX_FILTER_STRING_LENGTH;
+
+/**
+ * Max number of rows retained in an incoming, client-supplied `page.widgetRows`
+ * layout matrix (Tier 1 architecture-review finding). Mirrors
+ * {@link MAX_LAYOUT_ROWS} — the bound already applied to the model-authored
+ * `set_widget_layout` write path — for the INCOMING request-body read path:
+ * `buildAISystemPrompt.ts`'s "## Layout" block iterates the active page's
+ * `widgetRows` with no cap of its own on the very first request.
+ */
+const MAX_STATE_LAYOUT_ROWS = MAX_LAYOUT_ROWS;
+
+/**
+ * Max number of widget-id cells retained per incoming `page.widgetRows` row (see
+ * {@link MAX_STATE_LAYOUT_ROWS}). A single pathological row (e.g. one widget id
+ * repeated a million times) is just as unbounded as too many rows.
+ */
+const MAX_STATE_LAYOUT_ROW_CELLS = 50;
+
+/**
+ * Max number of entries retained in an incoming `page.widgetColSpans` map (see
+ * {@link MAX_STATE_LAYOUT_ROWS}). A well-formed `widgetColSpans` map never
+ * legitimately carries more entries than there are widgets, so it is bounded to
+ * the same count as {@link MAX_STATE_WIDGETS}.
+ */
+const MAX_STATE_WIDGET_COL_SPANS = MAX_STATE_WIDGETS;
+
+/** Cap a model-supplied entity id to {@link MAX_ENTITY_ID_LENGTH}. */
+function capEntityId(id: string): string {
+  return capString(id, MAX_ENTITY_ID_LENGTH);
+}
+
+/**
  * Cap a model-supplied `StudioDataField`'s free-text strings before it is
  * persisted onto an incoming data source (see {@link MAX_STATE_DATA_SOURCES}).
  * `label`/`aiDescription` reuse {@link MAX_TITLE_LENGTH} — the same bound
@@ -404,19 +494,46 @@ function capDataSourceField(field: StudioDataField): StudioDataField {
  * {@link MAX_STATE_DATA_SOURCES}). Caps the `fields` count
  * ({@link MAX_STATE_DATA_SOURCE_FIELDS}) and every field's free-text strings
  * (via {@link capDataSourceField}), plus the source's own `label`/
- * `aiDescription`. Mirrors `capIncomingDashboardState`'s widget/page title
- * caps — the source `id` itself is left untouched (like widget/page `id`s),
- * since it is a structural identifier other request fields (`widget.sourceId`)
- * reference by exact value, not free text.
+ * `aiDescription`/`id` ({@link MAX_ENTITY_ID_LENGTH} — see its doc comment for
+ * why the `id`, a field separate from the map key, must be length-capped too).
  */
 function capDataSource(source: StudioDataSource): StudioDataSource {
   return {
     ...source,
+    id: capEntityId(String(source.id ?? '')),
     label: capTitle(String(source.label ?? '')),
     ...(source.aiDescription !== undefined
       ? { aiDescription: capTitle(String(source.aiDescription)) }
       : {}),
     fields: (source.fields ?? []).slice(0, MAX_STATE_DATA_SOURCE_FIELDS).map(capDataSourceField),
+  };
+}
+
+/**
+ * Cap a client-supplied `page.widgetRows` layout matrix and `widgetColSpans` map
+ * before it is interpolated into `<dashboard_state>`'s "## Layout" block (Tier 1
+ * architecture-review finding, sibling to `capDataSources`). Bounds the ROW
+ * count and the CELL count per row ({@link MAX_STATE_LAYOUT_ROWS}/
+ * {@link MAX_STATE_LAYOUT_ROW_CELLS} — mirroring `set_widget_layout`'s own
+ * {@link MAX_LAYOUT_ROWS} write-path cap, which this incoming-state read path had
+ * no equivalent of), each retained cell id's length
+ * ({@link MAX_ENTITY_ID_LENGTH}), and the `widgetColSpans` entry count
+ * ({@link MAX_STATE_WIDGET_COL_SPANS}). Truncates rather than rejects — this
+ * runs on the READ path (the very first request's `dashboardState`), which has
+ * no caller to report a validation error back to.
+ */
+function capPageWidgetRows(
+  widgetRows: string[][] | undefined,
+): { widgetRows: string[][] } | Record<string, never> {
+  if (!widgetRows) {
+    return {};
+  }
+  return {
+    widgetRows: widgetRows
+      .slice(0, MAX_STATE_LAYOUT_ROWS)
+      .map((row) =>
+        row.slice(0, MAX_STATE_LAYOUT_ROW_CELLS).map((id) => capEntityId(String(id ?? ''))),
+      ),
   };
 }
 
@@ -440,8 +557,10 @@ function capDataSources(
  * Cap a client-supplied `dashboardState` (finding F2, Tier 2) by running its
  * dashboard title, pages, widgets, and filters through the SAME caps the AI-tool
  * mutation paths already apply at their write sources — `capTitle` for dashboard/
- * page/widget titles, `capSourceId` for widget `sourceId`, `capConfigStringValues`
- * for each widget `config`, `capFilterValue` for each filter `value`/`value2`, and
+ * page/widget titles, `capEntityId` for each widget/page/data-source `id`,
+ * `capSourceId` for widget `sourceId`, `capConfigStringValues` for each widget
+ * `config`, `capPageWidgetRows` for each page's `widgetRows`/`widgetColSpans`
+ * layout, `capFilterValue` for each filter `value`/`value2`, and
  * `MAX_FILTER_STRING_LENGTH` for filter `field`/`filterSourceId` — plus a count cap
  * on each of pages/widgets/filters ({@link MAX_STATE_PAGES}/{@link MAX_STATE_WIDGETS}/
  * {@link MAX_STATE_FILTERS}).
@@ -470,6 +589,7 @@ export function capIncomingDashboardState(state: StudioState): StudioState {
   for (const [id, widget] of Object.entries(doc.widgets).slice(0, MAX_STATE_WIDGETS)) {
     cappedWidgets[id] = {
       ...widget,
+      id: capEntityId(String(widget.id ?? '')),
       title: capTitle(String(widget.title ?? '')),
       ...(widget.subtitle !== undefined
         ? { subtitle: capString(String(widget.subtitle), MAX_TITLE_LENGTH) }
@@ -481,7 +601,16 @@ export function capIncomingDashboardState(state: StudioState): StudioState {
 
   const cappedPages: Record<string, StudioPage> = {};
   for (const [id, page] of Object.entries(doc.pages).slice(0, MAX_STATE_PAGES)) {
-    cappedPages[id] = { ...page, title: capTitle(String(page.title ?? '')) };
+    const cappedColSpans = page.widgetColSpans
+      ? Object.fromEntries(Object.entries(page.widgetColSpans).slice(0, MAX_STATE_WIDGET_COL_SPANS))
+      : undefined;
+    cappedPages[id] = {
+      ...page,
+      id: capEntityId(String(page.id ?? '')),
+      title: capTitle(String(page.title ?? '')),
+      ...capPageWidgetRows(page.widgetRows),
+      ...(cappedColSpans !== undefined ? { widgetColSpans: cappedColSpans } : {}),
+    };
   }
 
   const cappedFilters: StudioFilterState[] = doc.filters.slice(0, MAX_STATE_FILTERS).map((f) => ({

@@ -388,6 +388,74 @@ describe('handleCreateWidget', () => {
     });
   });
 
+  // Tier 1 architecture-review finding: `handleCreateWidget` is a separate,
+  // client-facing request handler from `handleAIChat` and had NONE of
+  // `handleAIChat.ts`'s request-size caps (`capIncomingRichContext`/
+  // `capIncomingCustomWidgets`) applied to its fully client-controlled `sources`
+  // array — no count cap on `sources.length`/`fields.length`, and no length cap
+  // on any string, before `sourceLines` was built.
+  describe('sources request-size caps (Tier 1 architecture-review finding)', () => {
+    it('caps the number of sources retained before building the system prompt', async () => {
+      const hugeSources = Array.from({ length: 300 }, (_, i) => ({
+        id: `src-${i}`,
+        label: `Source ${i}`,
+        fields: [{ id: 'f', type: 'number' }],
+      }));
+      const fn = stubFetch(JSON.stringify({ kind: 'chart', title: 't' }));
+      await handleCreateWidget({ description: 'a chart', sources: hugeSources }, OPTIONS);
+      const systemPrompt = requestBody(fn).messages[0].content as string;
+      expect(systemPrompt).toContain('Source 0');
+      expect(systemPrompt).not.toContain('Source 299');
+    });
+
+    it('caps the number of fields retained per source before building the system prompt', async () => {
+      const hugeFields = Array.from({ length: 600 }, (_, i) => ({ id: `f${i}`, type: 'number' }));
+      const fn = stubFetch(JSON.stringify({ kind: 'chart', title: 't' }));
+      await handleCreateWidget(
+        { description: 'a chart', sources: [{ id: 'src', label: 'Src', fields: hugeFields }] },
+        OPTIONS,
+      );
+      const systemPrompt = requestBody(fn).messages[0].content as string;
+      expect(systemPrompt).toContain('f0 (number)');
+      expect(systemPrompt).not.toContain('f599 (number)');
+    });
+
+    it('caps oversized source id/label and field id/type/label strings', async () => {
+      const long = 'x'.repeat(1000);
+      const fn = stubFetch(JSON.stringify({ kind: 'chart', title: 't' }));
+      await handleCreateWidget(
+        {
+          description: 'a chart',
+          sources: [
+            {
+              id: long,
+              label: long,
+              fields: [{ id: long, type: long, label: long }],
+            },
+          ],
+        },
+        OPTIONS,
+      );
+      const systemPrompt = requestBody(fn).messages[0].content as string;
+      // A run of 200 repeated 'x' chars is present (the capped strings), but the
+      // full 1000-char string never appears verbatim anywhere in the prompt.
+      expect(systemPrompt).not.toContain(long);
+      expect(systemPrompt).toContain('x'.repeat(200));
+    });
+
+    it('still creates a well-formed widget from a request within the caps', async () => {
+      stubFetch(
+        JSON.stringify({ kind: 'chart', title: 'Revenue by Region', sourceId: 'src-sales' }),
+      );
+      await expect(handleCreateWidget(request, OPTIONS)).resolves.toEqual({
+        kind: 'chart',
+        title: 'Revenue by Region',
+        sourceId: 'src-sales',
+        config: { chartType: 'bar' },
+      });
+    });
+  });
+
   // Regression for T2-1: source labels/ids and field ids/types/labels are state-derived
   // and attacker-influenceable, so they must be sanitized before landing in the system
   // prompt and be wrapped in a tagged data region — mirroring the chat prompt builder.

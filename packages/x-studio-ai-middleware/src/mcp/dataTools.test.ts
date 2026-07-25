@@ -1023,6 +1023,52 @@ describe('resolveSource', () => {
     const result = resolveSource(stateBox, 'source-orders');
     expect(result.ok).toBe(true);
   });
+
+  // Tier 1 architecture-review finding: `sourceId` was the one arg never type/length
+  // validated in this file — every sibling arg (`field`, `columns[]`, `filters[]`, …)
+  // already is. Only a falsy check happened upstream, so a non-string truthy value (an
+  // object, a number) reached the `Object.hasOwn` lookup verbatim, and an unbounded
+  // string sailed into the "Unknown data source" error echoed back to the model.
+  describe('sourceId type/length validation', () => {
+    it('rejects a non-string sourceId (object) with an actionable error, never reaching the lookup', () => {
+      const stateBox = { current: makeState() };
+      const result = resolveSource(stateBox, { evil: true } as unknown as string);
+      expect(result.ok).toBe(false);
+      const errorResult = result as Extract<typeof result, { ok: false }>;
+      const message = JSON.parse((errorResult.error.content[0] as { text: string }).text).error;
+      expect(message).toMatch(/sourceId must be a non-empty string/);
+      expect(message).toMatch(/received object/);
+    });
+
+    it('rejects a non-string sourceId (number)', () => {
+      const stateBox = { current: makeState() };
+      const result = resolveSource(stateBox, 42 as unknown as string);
+      expect(result.ok).toBe(false);
+      const errorResult = result as Extract<typeof result, { ok: false }>;
+      const message = JSON.parse((errorResult.error.content[0] as { text: string }).text).error;
+      expect(message).toMatch(/sourceId must be a non-empty string/);
+      expect(message).toMatch(/received number/);
+    });
+
+    it('rejects an empty-string sourceId', () => {
+      const stateBox = { current: makeState() };
+      const result = resolveSource(stateBox, '');
+      expect(result.ok).toBe(false);
+    });
+
+    it('caps an oversized sourceId before it is echoed into the "Unknown data source" error', () => {
+      const stateBox = { current: makeState() };
+      const long = 'x'.repeat(1000);
+      const result = resolveSource(stateBox, long);
+      expect(result.ok).toBe(false);
+      const errorResult = result as Extract<typeof result, { ok: false }>;
+      const message = JSON.parse((errorResult.error.content[0] as { text: string }).text).error;
+      // The error must not echo the full 1000-char id verbatim.
+      expect(message).not.toContain(long);
+      const quoted = message.match(/Unknown data source: "([^"]*)"/)?.[1] ?? '';
+      expect(quoted.length).toBe(200);
+    });
+  });
 });
 
 describe('createSummarisePageHandler', () => {

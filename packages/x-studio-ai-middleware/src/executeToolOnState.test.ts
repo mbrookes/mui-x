@@ -3278,7 +3278,8 @@ describe('capIncomingDashboardState', () => {
     // Free-text strings capped.
     expect(src0.label.length).toBe(200);
     expect(src0.aiDescription!.length).toBe(200);
-    // The id (structural identifier) is left untouched.
+    // A short, well-formed id is left byte-for-byte unchanged (only an
+    // OVERSIZED id is truncated — see the dedicated `.id` length-cap tests below).
     expect(src0.id).toBe('src0');
     // Field count per source capped.
     expect(src0.fields.length).toBe(500);
@@ -3288,6 +3289,114 @@ describe('capIncomingDashboardState', () => {
     // The input is not mutated.
     expect(state.runtime.dataSources.src0.label.length).toBe(1000);
     expect(state.runtime.dataSources.src0.fields.length).toBe(600);
+  });
+});
+
+// ── Tier 1 architecture-review finding: `capIncomingDashboardState` never capped a
+// widget's/page's/data-source's own `.id` field (a field SEPARATE from its map key),
+// nor `page.widgetRows`/`page.widgetColSpans` — both are echoed verbatim into
+// `<dashboard_state>` by `buildAISystemPrompt.ts` with no length/count bound of its own.
+describe('capIncomingDashboardState: entity id and layout caps', () => {
+  it('caps an oversized widget.id, page.id, and runtime data-source.id', () => {
+    const long = 'x'.repeat(1000);
+    const state = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'p1' },
+        pages: { p1: { id: long, title: 'Page', widgetRows: [['w1']] } },
+        widgets: {
+          w1: { id: long, kind: 'kpi', title: 'W', config: {} },
+        },
+      },
+      runtime: {
+        dataSources: {
+          src1: { id: long, label: 'Sales', fields: [] },
+        },
+      },
+    });
+
+    const capped = capIncomingDashboardState(state);
+
+    expect(capped.doc.pages.p1.id.length).toBe(200);
+    expect(capped.doc.widgets.w1.id.length).toBe(200);
+    expect(capped.runtime.dataSources.src1.id.length).toBe(200);
+    // The input is not mutated.
+    expect(state.doc.pages.p1.id.length).toBe(1000);
+  });
+
+  it('leaves short, well-formed ids byte-for-byte unchanged', () => {
+    const state = makeState();
+    const capped = capIncomingDashboardState(state);
+    expect(capped.doc.pages['page-1'].id).toBe('page-1');
+    expect(capped.doc.widgets['widget-1'].id).toBe('widget-1');
+    expect(capped.runtime.dataSources.src1.id).toBe('src1');
+  });
+
+  it('caps the number of rows and cells-per-row in an oversized page.widgetRows layout matrix', () => {
+    const hugeRows = Array.from({ length: 500 }, (_, i) => [`row${i}-cell`]);
+    const hugeRow = Array.from({ length: 500 }, (_, i) => `cell${i}`);
+    const state = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'p1' },
+        pages: {
+          p1: { id: 'p1', title: 'Page', widgetRows: [...hugeRows, hugeRow] },
+        },
+      },
+    });
+
+    const capped = capIncomingDashboardState(state);
+
+    const cappedRows = capped.doc.pages.p1.widgetRows;
+    // Row count capped to MAX_LAYOUT_ROWS (200).
+    expect(cappedRows.length).toBe(200);
+    // The input is not mutated.
+    expect(state.doc.pages.p1.widgetRows.length).toBe(501);
+  });
+
+  it('caps the number of cells retained in a single pathological widgetRows row', () => {
+    const hugeRow = Array.from({ length: 500 }, (_, i) => `cell${i}`);
+    const state = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'p1' },
+        pages: { p1: { id: 'p1', title: 'Page', widgetRows: [hugeRow] } },
+      },
+    });
+
+    const capped = capIncomingDashboardState(state);
+
+    expect(capped.doc.pages.p1.widgetRows[0].length).toBe(50);
+  });
+
+  it('caps oversized widget-id cell strings inside widgetRows', () => {
+    const long = 'w'.repeat(1000);
+    const state = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'p1' },
+        pages: { p1: { id: 'p1', title: 'Page', widgetRows: [[long]] } },
+      },
+    });
+
+    const capped = capIncomingDashboardState(state);
+
+    expect(capped.doc.pages.p1.widgetRows[0][0].length).toBe(200);
+  });
+
+  it('caps the number of entries retained in an oversized page.widgetColSpans map', () => {
+    const widgetColSpans: Record<string, number> = {};
+    for (let i = 0; i < 1100; i += 1) {
+      widgetColSpans[`w${i}`] = 12;
+    }
+    const state = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'p1' },
+        pages: { p1: { id: 'p1', title: 'Page', widgetRows: [], widgetColSpans } },
+      },
+    });
+
+    const capped = capIncomingDashboardState(state);
+
+    expect(Object.keys(capped.doc.pages.p1.widgetColSpans!).length).toBe(1000);
+    // The input is not mutated.
+    expect(Object.keys(state.doc.pages.p1.widgetColSpans!).length).toBe(1100);
   });
 });
 
@@ -3532,5 +3641,141 @@ describe('executeToolOnState: capConfigStringValues bounds array-typed config fi
     };
     expect(mut.args.widget.config.forecast.method.length).toBe(200);
     expect(mut.args.widget.config.forecast.periods).toBe(3);
+  });
+});
+
+// ── Tier 1 architecture-review finding: `capConfigStringValues`/`capShallowConfigValue`
+// only capped ONE level deep, missing two real nested config fields —
+// `StudioSharedWidgetConfig.customConfig` (arbitrary JSON, valid on every widget kind)
+// and `StudioGridConfig.gridConditionalFormats[].style.backgroundColor`/`color` (nested
+// one level past what the old one-level cap inspected). `capShallowConfigValue` now
+// recurses up to `MAX_CONFIG_VALUE_DEPTH` levels deep.
+describe('executeToolOnState: capShallowConfigValue recurses into nested config values', () => {
+  it('caps a deeply-nested string inside customConfig (valid on every widget kind)', () => {
+    const state = makeState();
+    const long = 'x'.repeat(1000);
+    const result = executeToolOnState(
+      'add_widget',
+      {
+        kind: 'kpi',
+        title: 'KPI',
+        config: { customConfig: { level1: { level2: long, arr: [long, long] } } },
+      },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect(out.success).toBe(true);
+    const mut = result.mutation as unknown as {
+      args: {
+        widget: {
+          config: { customConfig: { level1: { level2: string; arr: string[] } } };
+        };
+      };
+    };
+    const { level1 } = mut.args.widget.config.customConfig;
+    expect(level1.level2.length).toBe(200);
+    expect(level1.arr[0].length).toBe(200);
+    expect(level1.arr[1].length).toBe(200);
+  });
+
+  it('caps customConfig array-length and object-key-count the same way top-level config does', () => {
+    const state = makeState();
+    const hugeArray = Array.from({ length: 500 }, (_, i) => `v${i}`);
+    const hugeObject: Record<string, number> = {};
+    for (let i = 0; i < 500; i += 1) {
+      hugeObject[`k${i}`] = i;
+    }
+    const result = executeToolOnState(
+      'add_widget',
+      {
+        kind: 'kpi',
+        title: 'KPI',
+        config: { customConfig: { hugeArray, hugeObject } },
+      },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect(out.success).toBe(true);
+    const mut = result.mutation as unknown as {
+      args: {
+        widget: {
+          config: { customConfig: { hugeArray: string[]; hugeObject: Record<string, number> } };
+        };
+      };
+    };
+    expect(mut.args.widget.config.customConfig.hugeArray.length).toBe(50);
+    expect(Object.keys(mut.args.widget.config.customConfig.hugeObject).length).toBe(50);
+  });
+
+  it('caps nested gridConditionalFormats[].style.backgroundColor/color string length', () => {
+    const state = makeState();
+    const long = 'x'.repeat(1000);
+    const result = executeToolOnState(
+      'add_widget',
+      {
+        kind: 'grid',
+        title: 'Grid',
+        config: {
+          gridConditionalFormats: [
+            {
+              fieldId: 'revenue',
+              operator: 'equals',
+              value: long,
+              style: { backgroundColor: long, color: long, fontWeight: 'bold' },
+            },
+          ],
+        },
+      },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect(out.success).toBe(true);
+    const mut = result.mutation as {
+      args: {
+        widget: {
+          config: {
+            gridConditionalFormats: Array<{
+              value: string;
+              style: { backgroundColor: string; color: string; fontWeight: string };
+            }>;
+          };
+        };
+      };
+    };
+    const format = mut.args.widget.config.gridConditionalFormats[0];
+    expect(format.value.length).toBe(200);
+    expect(format.style.backgroundColor.length).toBe(200);
+    expect(format.style.color.length).toBe(200);
+    // Well-formed non-string sibling left untouched.
+    expect(format.style.fontWeight).toBe('bold');
+  });
+
+  it('caps multiple gridConditionalFormats array elements independently (map index must not leak into recursion depth)', () => {
+    const state = makeState();
+    const long = 'x'.repeat(1000);
+    const formats = Array.from({ length: 5 }, (_, i) => ({
+      fieldId: `f${i}`,
+      operator: 'equals' as const,
+      style: { backgroundColor: long },
+    }));
+    const result = executeToolOnState(
+      'add_widget',
+      { kind: 'grid', title: 'Grid', config: { gridConditionalFormats: formats } },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect(out.success).toBe(true);
+    const mut = result.mutation as {
+      args: {
+        widget: {
+          config: { gridConditionalFormats: Array<{ style: { backgroundColor: string } }> };
+        };
+      };
+    };
+    // Every element (not just index 0) must have its nested style string capped —
+    // regression guard for the `.map(capShallowConfigValue)` index/depth mix-up.
+    for (const format of mut.args.widget.config.gridConditionalFormats) {
+      expect(format.style.backgroundColor.length).toBe(200);
+    }
   });
 });

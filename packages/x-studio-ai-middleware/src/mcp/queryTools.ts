@@ -279,28 +279,56 @@ type ResolveSourceResult =
  * function is only ever reached from the chat transport with an array allowlist or the
  * explicit permissive `'*'`. Trusted MCP/server-held callers may still pass `undefined`
  * (no restriction), which `checkAllowedTable` permits.
+ *
+ * `sourceId` is typed `unknown` (Tier 1 architecture-review finding): every caller only
+ * did a bare truthiness check (`!sourceId`) before passing it in — a truthy non-string
+ * (an object, a number) sailed past that check and reached the `Object.hasOwn` lookup
+ * below verbatim, and an unbounded string sailed into the `Unknown data source: "…"`
+ * error message that is echoed straight back to the model. Every sibling arg in this
+ * file (`field`, `filters[].field`, `columns[]`, …) is both type- and length-validated;
+ * `sourceId` was the one exception. Validated and length-capped HERE, at the single
+ * chokepoint all four data-query tools already funnel through, rather than duplicating
+ * the check at each of the four call sites.
  */
 export function resolveSource(
   stateBox: StudioStateBox,
-  sourceId: string,
+  sourceId: unknown,
   allowedTables?: string[] | '*',
 ): ResolveSourceResult {
+  if (typeof sourceId !== 'string' || sourceId.length === 0) {
+    return {
+      ok: false,
+      error: errorResult(
+        `sourceId must be a non-empty string, received ${
+          Array.isArray(sourceId) ? 'array' : typeof sourceId
+        }. Call get_dashboard_state or read studio://dashboard/state for available source IDs.`,
+      ),
+    };
+  }
+  // Cap BEFORE the lookup/error message — the same bound `capSourceId`
+  // (`executeToolOnState.ts`) applies to a persisted widget `sourceId`, so an
+  // oversized value is truncated rather than echoed verbatim into the
+  // `Unknown data source: "…"` error below.
+  const cappedSourceId =
+    sourceId.length > MAX_FILTER_STRING_LENGTH
+      ? sourceId.slice(0, MAX_FILTER_STRING_LENGTH)
+      : sourceId;
   // `Object.hasOwn`-guarded lookup (finding T2-1): a prototype-member sourceId
   // (`"constructor"`, `"__proto__"`) would otherwise resolve a truthy inherited value
   // via the prototype chain. Today the `!source.tableName` check below saves this by
   // accident (no prototype member has a `tableName`); the guard makes it explicit and
   // robust rather than incidental.
   const sources = stateBox.current.runtime.dataSources;
-  const source = Object.hasOwn(sources, sourceId) ? sources[sourceId] : undefined;
+  const source = Object.hasOwn(sources, cappedSourceId) ? sources[cappedSourceId] : undefined;
   if (!source || !source.tableName) {
     return {
       ok: false,
       error: errorResult(
-        `Unknown data source: "${sourceId}". Call get_dashboard_state or read studio://dashboard/state for available source IDs.`,
+        `Unknown data source: "${cappedSourceId}". Call get_dashboard_state or read studio://dashboard/state for available source IDs.`,
       ),
     };
   }
-  const tableCheckError = checkAllowedTable(sourceId, source.tableName, allowedTables);
+  const tableCheckError = checkAllowedTable(cappedSourceId, source.tableName, allowedTables);
   if (tableCheckError) {
     return { ok: false, error: errorResult(tableCheckError) };
   }

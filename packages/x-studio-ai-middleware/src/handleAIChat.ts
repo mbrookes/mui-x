@@ -577,7 +577,17 @@ export function capIncomingRichContext(
     capped.fieldStats = Object.fromEntries(
       Object.entries(rc.fieldStats)
         .slice(0, MAX_RICH_CONTEXT_FIELD_STATS)
-        .map(([key, stat]) => [key, isPlainRecord(stat) ? capFieldStatEntry(stat) : stat]),
+        // Finding (Tier 2): the entry KEY (the field name itself) was never
+        // length-capped — only the entry COUNT and each entry's VALUES were.
+        // `buildRichContextBlock` echoes the raw key verbatim with no length bound
+        // of its own, so an oversized key is the same token-bomb class every
+        // capped value here already guards against. `capRequestString` only
+        // touches strings (a no-op guard, since `Object.entries` keys are always
+        // strings) so the cast is safe.
+        .map(([key, stat]) => [
+          capRequestString(key) as string,
+          isPlainRecord(stat) ? capFieldStatEntry(stat) : stat,
+        ]),
     );
   }
 

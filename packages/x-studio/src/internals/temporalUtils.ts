@@ -236,17 +236,24 @@ export function normalizeDataSourceRows(
   let fieldDistinctValues: Record<string, string[]> | undefined;
 
   if (categoricalFields.length > 0) {
-    fieldDistinctValues = {};
-    for (const f of categoricalFields) {
-      const seen = new Set<string>();
-      for (const row of rows) {
-        const v = row[f.id];
+    // One pass over `rows`, accumulating every field's distinct set simultaneously.
+    // Previously this ran a FULL row scan per field, so a 40-column × 500k-row source
+    // walked the (large) rows array 40 separate times on ingestion — the same 20M cell
+    // reads, but with 40× the memory traffic over `rows` and no locality between them.
+    const fieldIds = categoricalFields.map((f) => f.id);
+    const seenByField = fieldIds.map(() => new Set<string>());
+    for (const row of rows) {
+      for (let i = 0; i < fieldIds.length; i += 1) {
+        const v = row[fieldIds[i]];
         if (v != null && String(v) !== '') {
-          seen.add(String(v));
+          seenByField[i].add(String(v));
         }
       }
-      if (seen.size > 0) {
-        fieldDistinctValues[f.id] = Array.from(seen).sort();
+    }
+    fieldDistinctValues = {};
+    for (let i = 0; i < fieldIds.length; i += 1) {
+      if (seenByField[i].size > 0) {
+        fieldDistinctValues[fieldIds[i]] = Array.from(seenByField[i]).sort();
       }
     }
   }
@@ -278,15 +285,29 @@ export function truncateToGranularity(value: unknown, granularity: XGroupBy): st
 }
 
 /**
+ * The 12 short month names for the runtime locale, computed once on first use.
+ *
+ * `Intl.DateTimeFormat` construction is the expensive part (locale data resolution), and
+ * `formatPeriodLabel` is called once per axis tick on every chart re-render — so building
+ * a fresh formatter per label made month/day axes pay that cost N times per frame. The
+ * runtime locale cannot change mid-session, so a module-level cache is safe.
+ */
+let shortMonthNames: string[] | null = null;
+
+/**
  * Locale-aware short month name (e.g. 'Jan', 'janv.', 'Ene') via `Intl.DateTimeFormat`,
  * mirroring the `toLocaleDateString(undefined, …)` pattern already used by
  * `formatTemporalAxisLabel`'s non-grouped branch below — `undefined` resolves to the
  * runtime's active locale instead of hardcoding English month abbreviations.
  */
 function getShortMonthName(monthIndex: number): string {
-  return new Intl.DateTimeFormat(undefined, { month: 'short', timeZone: 'UTC' }).format(
-    new Date(Date.UTC(2000, monthIndex, 1)),
-  );
+  if (!shortMonthNames) {
+    const formatter = new Intl.DateTimeFormat(undefined, { month: 'short', timeZone: 'UTC' });
+    shortMonthNames = Array.from({ length: 12 }, (_, index) =>
+      formatter.format(new Date(Date.UTC(2000, index, 1))),
+    );
+  }
+  return shortMonthNames[monthIndex];
 }
 
 /**
@@ -426,6 +447,19 @@ function serializeTemporalLabel(date: Date, kind: TemporalLabelKind, sampleLabel
   return truncateToGranularity(date.toISOString(), kind) ?? sampleLabel;
 }
 
+/**
+ * Hard cap on the number of labels {@link fillTemporalLabelGaps} will synthesize.
+ *
+ * The endpoints are DATA-DERIVED, so a single bad cell defines the range: one
+ * `order_date: '1900-01-05'` typo in an otherwise-2024 dataset grouped by `'day'` asks
+ * for ~45 600 labels, each costing a `toISOString()` plus a full `truncateToGranularity`
+ * re-parse — then a 45 600-entry Map and value array PER SERIES downstream. The tab
+ * locks up (M9). Past this cap the densified axis is unreadable anyway (a chart cannot
+ * usefully show 2000 categories), so the only useful behaviour is to stop and hand back
+ * the original labels ungapped.
+ */
+const MAX_FILLED_TEMPORAL_LABELS = 2000;
+
 export function fillTemporalLabelGaps(labels: (string | number)[]): (string | number)[] {
   if (labels.length < 2 || !labels.every((label) => typeof label === 'string')) {
     return labels;
@@ -450,6 +484,13 @@ export function fillTemporalLabelGaps(labels: (string | number)[]): (string | nu
   // Use a single Date object mutated in place to avoid one allocation per step.
   const cursor = new Date(start);
   while (cursor <= end) {
+    if (filled.length >= MAX_FILLED_TEMPORAL_LABELS) {
+      // Bail out rather than run the sequence to its data-derived end (M9). Returning the
+      // input unchanged is safe for every caller: gap filling is a presentation nicety,
+      // and `densifyAggregated`/`densifyMultiSeries`/`densifyMultiY` all short-circuit on
+      // reference equality when no gaps were filled.
+      return labels;
+    }
     filled.push(serializeTemporalLabel(cursor, kind, stringLabels[0]));
     stepTemporalDateInPlace(cursor, kind);
   }

@@ -64,13 +64,14 @@ export function coerceAggregateValue(value: unknown): number | null {
  *
  * - `count` returns the element count of `values`;
  * - `count_distinct` returns the number of distinct values;
- * - `sum`/`avg`/`min`/`max` return 0 for an empty set.
+ * - `sum` returns 0 for an empty set;
+ * - `avg`/`min`/`max` return `null` for an empty set.
  *
  * Note: `count` over a row set that should include null rows must be computed by
  * the caller from `rows.length` (see `computeAggregate`), not by passing a
  * null-filtered value array here.
  */
-export function aggregateNumbers(values: number[], fn: AggregateFn): number {
+export function aggregateNumbers(values: number[], fn: AggregateFn): number | null {
   if (fn === 'count') {
     return values.length;
   }
@@ -78,7 +79,19 @@ export function aggregateNumbers(values: number[], fn: AggregateFn): number {
     return new Set(values).size;
   }
   if (values.length === 0) {
-    return 0;
+    // The empty-set policy, decided deliberately and shared with `gridGrouping.ts`'s
+    // `aggregateValues` (H4):
+    // - `sum` → 0. Summing nothing is the additive identity; 0 is the honest answer and
+    //   the one every SQL engine and spreadsheet gives.
+    // - `avg`/`min`/`max` → `null`. There is no average/minimum/maximum of nothing, so a
+    //   0 here INVENTS a data point: an all-null "Oslo" temperature bucket plotted at
+    //   0 °C, sorting above a real −4 °C "Rome" under `chartSortBy: 'value'` or a Top-N.
+    //   Returning 0 also made this reducer disagree with both of its siblings —
+    //   `finalizeAccumulator` below and `gridGrouping.ts`'s `aggregateValues` return
+    //   `null` for identical input — so a KPI displayed "0" where the grid showed
+    //   nothing, breaking the documented "a KPI over a raw field and over a measure
+    //   expression return the same number" invariant.
+    return fn === 'sum' ? 0 : null;
   }
   switch (fn) {
     case 'avg':
@@ -150,6 +163,15 @@ export function accumulateValue(acc: AggregateAccumulator, value: number): void 
  * Resolve a streaming accumulator to its aggregate value, or `null` for an empty
  * accumulator (so callers can distinguish "no data" from a real 0 — line/area
  * charts render gaps rather than collapsing to zero).
+ *
+ * Note the deliberate divergence from {@link aggregateNumbers} for `sum`: this returns
+ * `null` for an empty accumulator where `aggregateNumbers` returns 0. The two answer
+ * different questions. `aggregateNumbers` reduces a WHOLE value set the caller chose to
+ * aggregate (a KPI, a grid summary), where "the sum of no rows" is meaningfully 0. This
+ * resolves ONE CELL of a grid/series that the caller will plot positionally, where the
+ * cell must be able to say "no row ever landed here" — a bar/point rendered at 0 is
+ * indistinguishable from a genuine zero measurement, and a line collapsing to the axis
+ * is a fabricated trend. Both `null`s are then rendered as gaps by the chart layer.
  */
 export function finalizeAccumulator(
   acc: AggregateAccumulator | undefined,

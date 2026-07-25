@@ -1,4 +1,5 @@
 import { coerceAggregateValue } from '../aggregate';
+import { detectAggregationType } from '../aggregators';
 
 type Row = Record<string, unknown>;
 
@@ -160,18 +161,14 @@ export function buildFunnelStages(
   categoryOrderOverride: string[] | undefined,
   fieldOrderedValues: string[] | undefined,
 ): FunnelStagesResult {
-  const useCount =
-    yAggregation === 'count' ||
-    (() => {
-      // Auto-detect: if the value field is non-numeric, fall back to count
-      for (const row of rows) {
-        const v = row[valueField];
-        if (v !== null && v !== undefined) {
-          return Number.isNaN(Number(v));
-        }
-      }
-      return false;
-    })();
+  // Auto-detect: fall back to counting rows only when the value field has values but NONE
+  // of them is numeric. Delegated to the shared `detectAggregationType` rather than
+  // hand-rolled, which fixes two divergences from the rest of the package: it sampled
+  // exactly ONE row (the first non-null), so a leading "N/A"/"—" sentinel ahead of real
+  // numbers downgraded a genuine sum to a row count; and its `Number(v)` test scored an
+  // empty-string cell as a numeric `0` (`Number('') === 0`), where `coerceAggregateValue`
+  // correctly treats `''` as non-numeric.
+  const useCount = yAggregation === 'count' || detectAggregationType(rows, valueField) === 'count';
   // Aggregate: sum value (or count rows) per stage category
   const stageMap = new Map<string, number>();
   for (const row of rows) {

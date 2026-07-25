@@ -5,6 +5,7 @@ import {
   sortLabels,
 } from '../../../internals/temporalUtils';
 import { formatNumber } from '../../../internals/numberFormat';
+import type { StudioLocaleText } from '../../../internals/localeText';
 import type {
   AggregatedData,
   MultiSeriesData,
@@ -420,6 +421,14 @@ export function createLineXAxisConfig(
   xGroupBy: StudioChartConfig['xGroupBy'],
   formatLabel: (label: string | number) => string,
   axisId?: string,
+  /**
+   * Locale text bundle forwarded to `formatTemporalAxisLabel`. Omitting it made a temporal
+   * axis fall back to `DEFAULT_STUDIO_LOCALE_TEXT`, so a French dashboard rendered
+   * "Week 3 2024" on its x axis even though `frLocaleText.timeGranWeek` exists and every
+   * other surface (the time-granularity picker, tooltips) was translated. Optional so
+   * call sites that have not threaded locale text through yet keep compiling.
+   */
+  localeText?: StudioLocaleText,
 ) {
   const temporalData = getTemporalAxisData(labels);
   if (temporalData) {
@@ -429,7 +438,8 @@ export function createLineXAxisConfig(
         data: temporalData,
         scaleType: 'utc' as const,
         height: 'auto' as const,
-        valueFormatter: (value: Date | number) => formatTemporalAxisLabel(value, xGroupBy),
+        valueFormatter: (value: Date | number) =>
+          formatTemporalAxisLabel(value, xGroupBy, localeText),
       },
     ];
   }

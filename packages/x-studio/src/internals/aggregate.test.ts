@@ -61,11 +61,18 @@ describe('aggregateNumbers', () => {
     expect(aggregateNumbers([1, 1, 2], 'count_distinct')).toBe(2);
   });
 
-  it('returns 0 for empty sum/avg/min/max but 0 count / 0 distinct too', () => {
+  // Regression (H4). `avg`/`min`/`max` used to return 0 for an empty set, which invents a
+  // data point ("Oslo, 0 °C") and disagreed with both siblings that reduce the same input:
+  // `finalizeAccumulator` below and `gridGrouping.ts`'s `aggregateValues` (see its
+  // "avg over an all-null/non-numeric group returns null" test) — so a KPI showed "0"
+  // where the grid over the same field showed nothing.
+  it('returns null for an empty avg/min/max, but 0 for an empty sum/count', () => {
+    expect(aggregateNumbers([], 'avg')).toBe(null);
+    expect(aggregateNumbers([], 'min')).toBe(null);
+    expect(aggregateNumbers([], 'max')).toBe(null);
+    // `sum` over nothing is the additive identity — 0 is the honest answer, and it matches
+    // `gridGrouping.ts`'s `aggregateValues`.
     expect(aggregateNumbers([], 'sum')).toBe(0);
-    expect(aggregateNumbers([], 'avg')).toBe(0);
-    expect(aggregateNumbers([], 'min')).toBe(0);
-    expect(aggregateNumbers([], 'max')).toBe(0);
     expect(aggregateNumbers([], 'count')).toBe(0);
     expect(aggregateNumbers([], 'count_distinct')).toBe(0);
   });

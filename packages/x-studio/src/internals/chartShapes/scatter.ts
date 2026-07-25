@@ -1,3 +1,4 @@
+import { coerceAggregateValue } from '../aggregate';
 import { emptyBucketLabel } from '../chartValues';
 import type { StudioLocaleText } from '../localeText';
 
@@ -11,7 +12,48 @@ export interface ScatterDataPoint {
 }
 
 /**
- * Prepare data for scatter charts
+ * Builds one scatter point from a row, or `null` when the row has no plottable
+ * coordinate — i.e. either axis value is null/undefined/empty/non-numeric.
+ *
+ * Such a row must be DROPPED, not defaulted to the origin. `Number(row[field] ?? 0)`
+ * fabricated a real data point at 0: a "Revenue vs Cost" scatter with 30% null costs
+ * rendered a solid vertical stack on `y = 0`, distorting the very correlation the chart
+ * exists to show, and a `'N/A'` cell passed a raw `NaN` straight into `@mui/x-charts`
+ * (M13). Dropping matches every other chart family, which discards empty x values via
+ * `isEmptyXValue` — a disagreement `chartShapes/heatmap.ts` already called out by name
+ * (T3.2b) and fixed on its side.
+ *
+ * `sizeValue` deliberately still falls back to 0 rather than dropping the point: a
+ * missing bubble size is a missing *decoration*, and the x/y coordinate it carries is
+ * real data that must stay on the plot. It routes through `coerceAggregateValue` too, so
+ * a non-numeric size yields 0 instead of a `NaN` radius.
+ */
+function toScatterPoint(
+  row: Row,
+  index: number,
+  xField: string,
+  yField: string,
+  sizeField?: string,
+): ScatterDataPoint | null {
+  const x = coerceAggregateValue(row[xField]);
+  const y = coerceAggregateValue(row[yField]);
+  if (x === null || y === null) {
+    return null;
+  }
+  return {
+    x,
+    y,
+    id: index,
+    sizeValue: sizeField != null ? (coerceAggregateValue(row[sizeField]) ?? 0) : undefined,
+  };
+}
+
+/**
+ * Prepare data for scatter charts.
+ *
+ * Rows without a plottable x/y coordinate are dropped (see {@link toScatterPoint}); the
+ * surviving points keep their ORIGINAL row index as `id`, so ids stay traceable back to
+ * `rows` and are simply non-contiguous where rows were skipped.
  */
 export function prepareScatterData(
   rows: Row[],
@@ -19,12 +61,10 @@ export function prepareScatterData(
   yField: string,
   sizeField?: string,
 ): ScatterDataPoint[] {
-  return rows.map((row, index) => ({
-    x: Number(row[xField] ?? 0),
-    y: Number(row[yField] ?? 0),
-    id: index,
-    sizeValue: sizeField != null ? Number(row[sizeField] ?? 0) : undefined,
-  }));
+  return rows.flatMap((row, index) => {
+    const point = toScatterPoint(row, index, xField, yField, sizeField);
+    return point ? [point] : [];
+  });
 }
 
 export interface ScatterSeriesData {
@@ -57,17 +97,19 @@ export function prepareScatterDataGrouped(
   // Build a map from category → points for the current (filtered) rows
   const grouped = new Map<string, ScatterDataPoint[]>(stableCategories.map((cat) => [cat, []]));
   rows.forEach((row, index) => {
+    // Same drop-don't-fabricate rule as the ungrouped path (M13) — applied BEFORE the
+    // category is registered, so a category whose every row lacks a coordinate produces
+    // no empty series rather than a stack of points at the origin.
+    const point = toScatterPoint(row, index, xField, yField, sizeField);
+    if (!point) {
+      return;
+    }
     const raw = row[colorField];
     const cat = raw == null || raw === '' ? emptyBucketLabel(localeText) : String(raw);
     if (!grouped.has(cat)) {
       grouped.set(cat, []);
     }
-    grouped.get(cat)!.push({
-      x: Number(row[xField] ?? 0),
-      y: Number(row[yField] ?? 0),
-      id: index,
-      sizeValue: sizeField != null ? Number(row[sizeField] ?? 0) : undefined,
-    });
+    grouped.get(cat)!.push(point);
   });
   // Only include categories that have data (skip empty series)
   return stableCategories.flatMap((cat) => {

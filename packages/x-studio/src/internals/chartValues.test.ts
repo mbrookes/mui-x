@@ -36,13 +36,12 @@ describe('isEmptyXValue', () => {
     expect(isEmptyXValue(0)).toBe(false);
   });
 
-  it('recognizes the (already-converted) default empty bucket label', () => {
-    expect(isEmptyXValue('(empty)')).toBe(true);
-  });
-
-  it('recognizes a locale-specific empty bucket label when localeText is supplied', () => {
-    expect(isEmptyXValue(frLocaleText.chartEmptyCategoryLabel, frLocaleText)).toBe(true);
-    // Without the matching localeText, the French label isn't recognized as empty.
+  // Regression (M8). This previously returned `true`, on the theory that the input might be
+  // an already-converted `toXValue` output. No caller ever does that — `aggregators.ts`,
+  // `chartShapes/heatmap.ts` and `StudioPieChart.tsx` all pass RAW row values — so the
+  // clause could only ever fire as a false positive, silently deleting a real category.
+  it('does NOT treat a real value that happens to equal the empty bucket label as empty', () => {
+    expect(isEmptyXValue('(empty)')).toBe(false);
     expect(isEmptyXValue(frLocaleText.chartEmptyCategoryLabel)).toBe(false);
   });
 });

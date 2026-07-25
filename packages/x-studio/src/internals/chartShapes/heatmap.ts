@@ -23,6 +23,13 @@ export interface HeatmapData {
    * distinct from a cell no row ever touched (finding 5).
    */
   cells: Map<string, number>;
+  /**
+   * Colour-scale domain over the cells that produced a REAL aggregate. A cell whose
+   * measures were all null is emitted as 0 in `cells` (so it stays on the grid) but is
+   * excluded from this domain — otherwise its placeholder 0 stretched the ramp and
+   * compressed the variation among the cells that do have data. Both are 0 when no cell
+   * has a value.
+   */
   minValue: number;
   maxValue: number;
 }
@@ -110,13 +117,31 @@ export function aggregateHeatmap(
   // Every cell that occurred (by row count) gets a value: `'count'` reads the unconditional
   // row count; sum/avg/min/max read the accumulator (a cell with only null measures finalises
   // to `null` → shown as 0 rather than disappearing).
+  //
+  // The min/max color domain is computed HERE, from the finalized values, and deliberately
+  // skips those synthetic 0s. An all-null cell is "no data", not a measurement, so letting
+  // its placeholder 0 into the scan compressed every real cell's colour: a heatmap over
+  // 80–95 °C readings with one empty cell got a [0, 95] domain, collapsing the entire real
+  // 15-degree spread into the top ~15% of the ramp.
   const cellMap = new Map<string, number>();
+  let minValue = Infinity;
+  let maxValue = -Infinity;
   for (const [key, rowCount] of cellRowCount) {
-    if (yAggregation === 'count') {
-      cellMap.set(key, rowCount);
-    } else {
-      cellMap.set(key, finalizeAccumulator(cellAcc.get(key), yAggregation) ?? 0);
+    const value =
+      yAggregation === 'count' ? rowCount : finalizeAccumulator(cellAcc.get(key), yAggregation);
+    cellMap.set(key, value ?? 0);
+    if (value !== null) {
+      if (value < minValue) {
+        minValue = value;
+      }
+      if (value > maxValue) {
+        maxValue = value;
+      }
     }
+  }
+  if (minValue === Infinity) {
+    minValue = 0;
+    maxValue = 0;
   }
 
   // Build x-axis labels: orderedValues > explicit sort > default (alphabetical).
@@ -141,21 +166,6 @@ export function aggregateHeatmap(
     yLabels = sortDirection === 'desc' ? sorted.toReversed() : sorted;
   } else {
     yLabels = [...ySet];
-  }
-
-  let minValue = Infinity;
-  let maxValue = -Infinity;
-  for (const v of cellMap.values()) {
-    if (v < minValue) {
-      minValue = v;
-    }
-    if (v > maxValue) {
-      maxValue = v;
-    }
-  }
-  if (minValue === Infinity) {
-    minValue = 0;
-    maxValue = 0;
   }
 
   return { xLabels, yLabels, cells: cellMap, minValue, maxValue };

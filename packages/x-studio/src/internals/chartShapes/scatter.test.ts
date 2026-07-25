@@ -17,6 +17,28 @@ describe('prepareScatterData', () => {
       { x: 3, y: 4, id: 1, sizeValue: undefined },
     ]);
   });
+
+  // Regression (M13). The surviving points keep their ORIGINAL row index as `id`, so the
+  // ids stay traceable back to `rows` and are simply non-contiguous across a dropped row.
+  it('keeps the original row index as id when unplottable rows are dropped', () => {
+    const rows = [
+      { x: 1, y: 2 },
+      { x: null, y: 4 }, // dropped
+      { x: 5, y: 6 },
+    ];
+    expect(prepareScatterData(rows, 'x', 'y').map((p) => p.id)).toEqual([0, 2]);
+  });
+
+  // A missing bubble SIZE is a missing decoration, not a missing measurement — the point's
+  // real x/y coordinate must stay on the plot, so size falls back to 0 rather than dropping
+  // the row (and coerces via the shared policy so a non-numeric size is never a NaN radius).
+  it('keeps a point whose size field is null/non-numeric, defaulting its size to 0', () => {
+    const rows = [
+      { x: 1, y: 2, size: null },
+      { x: 3, y: 4, size: 'N/A' },
+    ];
+    expect(prepareScatterData(rows, 'x', 'y', 'size').map((p) => p.sizeValue)).toEqual([0, 0]);
+  });
 });
 
 describe('prepareScatterDataGrouped', () => {
@@ -27,6 +49,20 @@ describe('prepareScatterDataGrouped', () => {
     ];
     const result = prepareScatterDataGrouped(rows, 'x', 'y', 'cat', ['a', 'b']);
     expect(result.map((s) => s.id)).toEqual(['a']);
+  });
+
+  // Regression (M13): the grouped path shares the ungrouped path's drop rule, so a category
+  // whose every row lacks a plottable coordinate yields no series at all rather than a
+  // stack of fabricated points at the origin.
+  it('drops rows without a plottable x/y, and the categories left empty by that', () => {
+    const rows = [
+      { x: 1, y: 2, cat: 'a' },
+      { x: null, y: 4, cat: 'b' },
+      { x: 5, y: 'N/A', cat: 'b' },
+    ];
+    const result = prepareScatterDataGrouped(rows, 'x', 'y', 'cat', ['a', 'b']);
+    expect(result.map((s) => s.id)).toEqual(['a']);
+    expect(result[0].data).toEqual([{ x: 1, y: 2, id: 0, sizeValue: undefined }]);
   });
 
   // Regression for finding 4: the null/blank colorField bucket used to hardcode the English

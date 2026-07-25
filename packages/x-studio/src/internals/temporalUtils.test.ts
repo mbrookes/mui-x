@@ -308,6 +308,33 @@ describe('fillTemporalLabelGaps — perf: in-place Date mutation', () => {
     const result = fillTemporalLabelGaps(['2024-Q1', '2024-Q3']);
     expect(result).toEqual(['2024-Q1', '2024-Q2', '2024-Q3']);
   });
+
+  // Regression (M9): the endpoints are DATA-DERIVED, so one `order_date: '1900-01-05'`
+  // typo in an otherwise-2024 dataset grouped by 'day' asked for ~45 600 labels — each
+  // costing a `toISOString()` plus a full `truncateToGranularity` re-parse, then a
+  // 45 600-entry Map and value array per series downstream. The tab locked up. Past the
+  // cap the function bails out and hands back the original labels, ungapped.
+  it('bails out (returns the input) when a stray outlier would explode the label count', () => {
+    const labels = ['1900-01-05', '2024-01-01', '2024-01-02'];
+    const result = fillTemporalLabelGaps(labels);
+    expect(result).toBe(labels);
+  });
+
+  it('bails out for a week-granularity range far past the cap', () => {
+    // ~6470 ISO weeks between 1900 and 2024.
+    const labels = ['1900-W01', '2024-W01'];
+    expect(fillTemporalLabelGaps(labels)).toBe(labels);
+  });
+
+  it('still fills a large but reasonable range under the cap', () => {
+    // ~3 years of daily buckets (~1096 labels) is under the 2000 cap and must still fill.
+    const labels = ['2021-01-01', '2023-12-31'];
+    const result = fillTemporalLabelGaps(labels);
+    expect(result.length).toBeGreaterThan(1000);
+    expect(result.length).toBeLessThanOrEqual(2000);
+    expect(result[0]).toBe('2021-01-01');
+    expect(result[result.length - 1]).toBe('2023-12-31');
+  });
 });
 
 // ─── Performance: Batch 3 — normalizeDataSourceRows fieldDistinctValues ───────

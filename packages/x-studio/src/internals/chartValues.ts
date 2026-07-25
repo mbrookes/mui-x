@@ -52,6 +52,19 @@ export function toXValue(raw: unknown, localeText?: Partial<StudioLocaleText>): 
   return raw as string | number;
 }
 
-export function isEmptyXValue(raw: unknown, localeText?: Partial<StudioLocaleText>): boolean {
-  return raw === null || raw === undefined || raw === '' || raw === emptyBucketLabel(localeText);
+/**
+ * Whether a RAW row value should be dropped from a chart's x axis: `null`, `undefined`
+ * or the empty string.
+ *
+ * Deliberately does NOT treat the empty-bucket label (`emptyBucketLabel`) as empty, and
+ * therefore takes no `localeText`. Every call site passes a raw row value, never an
+ * already-converted `toXValue` output, so that clause could only ever fire as a FALSE
+ * POSITIVE: a `tickets.csv` whose `assignee` column literally contains the string
+ * `(empty)` had those rows silently dropped from "count by assignee" — the bars summed
+ * to less than the row count, with no indication anything was missing — and a French
+ * dashboard did the same for `frLocaleText.chartEmptyCategoryLabel` (M8). A real
+ * category must never be deleted because it collides with a display label.
+ */
+export function isEmptyXValue(raw: unknown): boolean {
+  return raw === null || raw === undefined || raw === '';
 }

@@ -17,7 +17,17 @@ type ChartAggFn = 'sum' | 'count' | 'avg' | 'min' | 'max';
 
 export interface AggregatedData {
   labels: (string | number)[];
-  values: number[];
+  /**
+   * One aggregated value per label, or `null` where the label's bucket produced NO
+   * aggregate at all (every contributing row's measure was null/non-numeric, or —
+   * for a blended series — the source has no row in that category).
+   *
+   * `null`, not 0: a synthetic 0 is indistinguishable from a genuine zero measurement,
+   * so an all-null Oslo temperature bucket plotted at 0 °C above a real −4 °C Rome, and
+   * a `chartSortBy: 'value'` sort or a Top-N rank promoted it to first place (H4).
+   * Matches the sibling {@link MultiSeriesData}, which was already `(number | null)[]`.
+   */
+  values: (number | null)[];
 }
 
 /**
@@ -40,7 +50,12 @@ export interface MultiYSeriesData {
    * different sources. Non-blended aggregation (`aggregateMultipleSeries`) never sets it,
    * since its series are already de-duplicated by `fieldId` within a single source.
    */
-  series: Array<{ fieldId: string; sourceId?: string; values: number[] }>;
+  series: Array<{
+    fieldId: string;
+    sourceId?: string;
+    /** See {@link AggregatedData.values} — `null` marks a label the series has no data for. */
+    values: (number | null)[];
+  }>;
 }
 
 /**
@@ -82,19 +97,39 @@ export function applyRankToAggregated(
   }
   const dir = rankFilter.rankDirection ?? 'top';
 
-  let scoreOf: (i: number) => number;
+  let rawScoreOf: (i: number) => number | null;
   if (rankFilter.rankByField && rankByFieldData) {
-    const scoreByLabel = new Map<string | number, number>();
+    const scoreByLabel = new Map<string | number, number | null>();
     rankByFieldData.labels.forEach((label, i) => {
       scoreByLabel.set(label, rankByFieldData.values[i]);
     });
-    scoreOf = (i) => scoreByLabel.get(data.labels[i]) ?? 0;
+    rawScoreOf = (i) => scoreByLabel.get(data.labels[i]) ?? null;
   } else {
-    scoreOf = (i) => data.values[i];
+    rawScoreOf = (i) => data.values[i];
   }
 
+  // A `null` score means "no data", not "zero" — such a label must never win a slot in a
+  // Top-N or a Bottom-N, so it sorts last in EITHER direction rather than being coerced
+  // to a 0 that outranks every negative value (or undercuts every positive one) (H4).
+  const scoreOf = (i: number): number => {
+    const raw = rawScoreOf(i);
+    if (raw === null) {
+      return dir === 'top' ? -Infinity : Infinity;
+    }
+    return raw;
+  };
+
   const indices = data.labels.map((_, i) => i);
-  indices.sort((a, b) => (dir === 'top' ? scoreOf(b) - scoreOf(a) : scoreOf(a) - scoreOf(b)));
+  // Compare for equality first so two no-data labels (both ±Infinity) yield 0 rather than
+  // a `NaN` comparator result.
+  indices.sort((a, b) => {
+    const sa = scoreOf(a);
+    const sb = scoreOf(b);
+    if (sa === sb) {
+      return 0;
+    }
+    return dir === 'top' ? sb - sa : sa - sb;
+  });
   const keepIndices = new Set(indices.slice(0, n));
   const keepMask = data.labels.map((_, i) => keepIndices.has(i));
   return {
@@ -213,7 +248,9 @@ export function applyRankToSeriesFieldData(
  * Always returns a new array; never mutates the input.
  *
  * - `'value'` — sort by `valueOf(label)`; ascending when `sortDirection === 'asc'`,
- *   otherwise descending (the default for value sorts).
+ *   otherwise descending (the default for value sorts). A `null` value ("no data") sorts
+ *   LAST in either direction — treating it as 0 let an all-null bucket lead a descending
+ *   sort over real negative values, or a bucket with nothing in it lead an ascending one (H4).
  * - `categoryOrder` — labels present in `categoryOrder` come first in that order,
  *   remaining labels appended alphabetically; the whole list is reversed for `'desc'`.
  * - otherwise — natural order, reversed only when `sortDirection === 'desc'`.
@@ -224,7 +261,7 @@ function orderLabels(
     sortBy?: 'category' | 'value' | 'natural';
     sortDirection?: 'asc' | 'desc';
     categoryOrder?: string[];
-    valueOf?: (label: string | number) => number;
+    valueOf?: (label: string | number) => number | null;
   },
 ): (string | number)[] {
   const { sortBy, sortDirection, categoryOrder, valueOf } = opts;
@@ -233,7 +270,15 @@ function orderLabels(
     const dir = sortDirection === 'asc' ? 1 : -1;
     return labels
       .map((label) => ({ label, value: valueOf(label) }))
-      .sort((a, b) => (a.value - b.value) * dir)
+      .sort((a, b) => {
+        if (a.value === null || b.value === null) {
+          if (a.value === b.value) {
+            return 0;
+          }
+          return a.value === null ? 1 : -1;
+        }
+        return (a.value - b.value) * dir;
+      })
       .map((p) => p.label);
   }
 
@@ -335,8 +380,10 @@ export function aggregateByField(
   categoryOrder?: string[],
   /**
    * Locale text bundle used to resolve the translated empty-category bucket label
-   * (`chartEmptyCategoryLabel`) — threaded through to `toXValue`/`isEmptyXValue` so a
-   * non-English locale doesn't fall back to the English `'(empty)'` literal (T3.2).
+   * (`chartEmptyCategoryLabel`) — threaded through to `toXValue` so a non-English locale
+   * doesn't fall back to the English `'(empty)'` literal (T3.2). Note `isEmptyXValue`
+   * deliberately takes no locale: it inspects RAW row values, where matching the bucket
+   * label could only ever be a false positive (M8).
    */
   localeText?: Partial<StudioLocaleText>,
   /**
@@ -357,7 +404,7 @@ export function aggregateByField(
     forcedAggregation ?? detectAggregationType(rows, yField, yAggregation);
 
   for (const row of rows) {
-    if (isEmptyXValue(row[xField], localeText)) {
+    if (isEmptyXValue(row[xField])) {
       continue;
     }
     const raw = toXValue(row[xField], localeText);
@@ -375,15 +422,20 @@ export function aggregateByField(
     }
   }
 
-  const valueFor = (label: string | number): number => {
+  const valueFor = (label: string | number): number | null => {
     if (effectiveAggregation === 'count') {
       return counts.get(label) ?? 0;
     }
-    return finalizeCell(accumulators.get(label), effectiveAggregation) ?? 0;
+    // `null`, not `?? 0`: a bucket whose measures are ALL null/non-numeric has no
+    // aggregate. Coercing it to 0 plotted an all-null Oslo temperature at 0 °C above a
+    // real −4 °C Rome, and promoted it to first place under `chartSortBy: 'value'` or a
+    // Top-N rank (H4). Callers render `null` as a gap.
+    return finalizeCell(accumulators.get(label), effectiveAggregation);
   };
 
   // Labels come from every x-value that had at least one (non-empty-x) row, so an
-  // x-value whose measure is entirely null still renders (as 0), matching prior behaviour.
+  // x-value whose measure is entirely null still appears on the axis — carrying a `null`
+  // value (a visible gap) rather than a fabricated 0.
   const labels = orderLabels(sortLabels(Array.from(counts.keys())), {
     sortBy,
     sortDirection,
@@ -446,7 +498,7 @@ export function aggregateByTwoFields(
   }
 
   for (const row of rows) {
-    if (isEmptyXValue(row[xField], localeText)) {
+    if (isEmptyXValue(row[xField])) {
       continue;
     }
     const raw = toXValue(row[xField], localeText);
@@ -560,7 +612,7 @@ export function aggregateMultipleSeries(
   const dataMap = new Map<string | number, Map<string, CellAcc>>();
 
   for (const row of rows) {
-    if (isEmptyXValue(row[xField], localeText)) {
+    if (isEmptyXValue(row[xField])) {
       continue;
     }
     const raw = toXValue(row[xField], localeText);
@@ -585,14 +637,19 @@ export function aggregateMultipleSeries(
     }
   }
 
-  const cellValue = (label: string | number, fieldId: string): number =>
-    finalizeCell(dataMap.get(label)?.get(fieldId), fieldAggregation(fieldId)) ?? 0;
+  // `null` when the (label, field) cell has no data — a y-field that is absent from every
+  // row at this label, or whose values are all null/non-numeric. Previously `?? 0`, which
+  // drew a real bar/point at zero for a measure that simply doesn't exist there (H4).
+  const cellValue = (label: string | number, fieldId: string): number | null =>
+    finalizeCell(dataMap.get(label)?.get(fieldId), fieldAggregation(fieldId));
 
   const sortedLabels = orderLabels(sortLabels(labelOrder), {
     sortBy,
     sortDirection,
     categoryOrder,
-    valueOf: (label) => yFields.reduce((sum, fId) => sum + cellValue(label, fId), 0),
+    // A 'value' sort ranks by the label's cross-series TOTAL, where a no-data cell
+    // contributes nothing — so `?? 0` is the correct identity for this sum specifically.
+    valueOf: (label) => yFields.reduce((sum, fId) => sum + (cellValue(label, fId) ?? 0), 0),
   });
 
   const series = yFields.map((fieldId) => ({
@@ -629,8 +686,9 @@ export interface BlendedSeriesInput {
  * Aggregate several series that may originate from DIFFERENT data sources onto a
  * single shared categorical x-axis ("data blending"). Each series is aggregated
  * independently within its own `rows` by `xField`, then all series are aligned on
- * the union of category labels (outer join). Missing category/series combinations
- * are filled with 0, matching {@link aggregateMultipleSeries}.
+ * the union of category labels (outer join). Missing category/series combinations are
+ * filled with `null` — "this source has no row in this category" is absence of data, not
+ * a measured zero — matching {@link aggregateMultipleSeries} (H4).
  *
  * Unlike {@link aggregateMultipleSeries}, the returned `series` preserve the input
  * order and count 1:1 (no de-duplication by `fieldId`), so two series sharing a
@@ -665,7 +723,7 @@ export function aggregateBlendedSeries(
   const seen = new Set<string | number>();
   const union: (string | number)[] = [];
   const valueMaps = perSeries.map((agg) => {
-    const m = new Map<string | number, number>();
+    const m = new Map<string | number, number | null>();
     agg.labels.forEach((label, i) => {
       m.set(label, agg.values[i]);
       if (!seen.has(label)) {
@@ -681,6 +739,8 @@ export function aggregateBlendedSeries(
     sortBy,
     sortDirection,
     categoryOrder,
+    // As in `aggregateMultipleSeries`, a 'value' sort ranks by the cross-series total, so
+    // a no-data cell contributes nothing to that particular sum.
     valueOf: (label) => valueMaps.reduce((sum, m) => sum + (m.get(label) ?? 0), 0),
   });
 
@@ -689,7 +749,10 @@ export function aggregateBlendedSeries(
     series: series.map((s, i) => ({
       fieldId: s.fieldId,
       sourceId: s.sourceId,
-      values: sortedLabels.map((label) => valueMaps[i].get(label) ?? 0),
+      // `?? null` — an outer-joined label this series' source has no row for is missing
+      // data, not a zero. `Map.get` already returns `undefined` for an absent label; the
+      // coalesce normalises it to the `null` the type promises (H4).
+      values: sortedLabels.map((label) => valueMaps[i].get(label) ?? null),
     })),
   };
 }

@@ -391,6 +391,117 @@ describe('aggregateByField null handling (finding 1.4)', () => {
   });
 });
 
+// ─── Real categories colliding with the empty-bucket label (M8) ──────────────
+
+describe('categories that literally equal the empty-bucket label (M8)', () => {
+  // A `tickets.csv` whose `assignee` column literally contains the string `(empty)`.
+  const tickets = [
+    { assignee: '(empty)', hours: 3 },
+    { assignee: '(empty)', hours: 2 },
+    { assignee: 'Ada', hours: 5 },
+  ];
+
+  it('keeps rows whose x value equals the default empty-bucket label', () => {
+    const result = aggregateByField(tickets, 'assignee', 'hours', undefined, 'count');
+    expect([...result.labels].sort()).toEqual(['(empty)', 'Ada']);
+    // The bars must account for every row — previously the `(empty)` rows vanished and the
+    // chart silently summed to less than the row count.
+    expect(result.values.reduce<number>((sum, v) => sum + (v ?? 0), 0)).toBe(tickets.length);
+  });
+
+  it('keeps rows whose x value equals a TRANSLATED empty-bucket label', () => {
+    const frLabel = frLocaleText.chartEmptyCategoryLabel!;
+    const rows = [
+      { assignee: frLabel, hours: 3 },
+      { assignee: 'Ada', hours: 5 },
+    ];
+    const result = aggregateByField(
+      rows,
+      'assignee',
+      'hours',
+      undefined,
+      'count',
+      undefined,
+      undefined,
+      undefined,
+      frLocaleText,
+    );
+    expect(result.labels).toContain(frLabel);
+  });
+
+  it('still drops null/undefined/empty-string x values', () => {
+    const rows = [
+      { assignee: 'Ada', hours: 5 },
+      { assignee: null, hours: 1 },
+      { assignee: undefined, hours: 1 },
+      { assignee: '', hours: 1 },
+    ];
+    const result = aggregateByField(rows, 'assignee', 'hours', undefined, 'count');
+    expect(result.labels).toEqual(['Ada']);
+  });
+
+  it('keeps a heatmap column whose x value equals the empty-bucket label', () => {
+    const rows = [
+      { x: '(empty)', y: 'EU', v: 10 },
+      { x: 'Jan', y: 'EU', v: 5 },
+    ];
+    const data = aggregateHeatmap(rows, 'x', 'y', 'v', undefined, 'sum');
+    expect(data.xLabels).toContain('(empty)');
+    expect(data.cells.get('(empty)\x00EU')).toBe(10);
+  });
+});
+
+// ─── All-null buckets are null, never a real 0 (H4) ──────────────────────────
+
+describe('aggregateByField all-null buckets (H4)', () => {
+  // The verified reproduction: Oslo has no readings at all; Rome is below freezing.
+  const temps = [
+    { city: 'Oslo', temp: null },
+    { city: 'Oslo', temp: null },
+    { city: 'Rome', temp: -4 },
+    { city: 'Rome', temp: 2 },
+  ];
+
+  it('returns null (not 0) for a bucket whose measures are all null', () => {
+    for (const fn of ['min', 'max', 'avg', 'sum'] as const) {
+      const result = aggregateByField(temps, 'city', 'temp', undefined, fn);
+      expect(result.labels).toEqual(['Oslo', 'Rome']);
+      // Previously `[0, -4]` for 'min' — Oslo plotted at 0 °C, ABOVE a real −4 °C Rome.
+      expect(result.values[result.labels.indexOf('Oslo')]).toBe(null);
+    }
+  });
+
+  it('keeps the all-null label on the axis (it is a gap, not a dropped category)', () => {
+    const result = aggregateByField(temps, 'city', 'temp', undefined, 'min');
+    expect(result.labels).toContain('Oslo');
+    expect(result.values[result.labels.indexOf('Rome')]).toBe(-4);
+  });
+
+  it("sorts an all-null bucket LAST under chartSortBy: 'value', in both directions", () => {
+    const desc = aggregateByField(temps, 'city', 'temp', undefined, 'min', 'value', 'desc');
+    expect(desc.labels).toEqual(['Rome', 'Oslo']);
+    // Ascending too: "no data" is not the smallest value, it is no value.
+    const asc = aggregateByField(temps, 'city', 'temp', undefined, 'min', 'value', 'asc');
+    expect(asc.labels).toEqual(['Rome', 'Oslo']);
+  });
+
+  it('never lets an all-null bucket win a Top-N rank over a real negative value', () => {
+    const data = aggregateByField(temps, 'city', 'temp', undefined, 'min');
+    const ranked = applyRankToAggregated(
+      data,
+      makeFilter({ filterMode: 'rank', value: 1, rankDirection: 'top' }),
+    );
+    expect(ranked.labels).toEqual(['Rome']);
+
+    // And it is not merely "smallest", either — a Bottom-1 also picks the real value.
+    const bottom = applyRankToAggregated(
+      data,
+      makeFilter({ filterMode: 'rank', value: 1, rankDirection: 'bottom' }),
+    );
+    expect(bottom.labels).toEqual(['Rome']);
+  });
+});
+
 // ─── numeric-string measures (finding 1.6) ───────────────────────────────────
 // CSV/JSON sources have no native number type, so measures often arrive as
 // strings ("10"). The pre-detect used `Number.isNaN(Number(v))` (which treats
@@ -521,7 +632,10 @@ describe('detectAggregationType / aggregateByField forcedAggregation (finding 3)
       undefined,
       baselineType,
     );
-    expect(filteredForced.values[filteredForced.labels.indexOf('A')]).toBe(0); // summed (0, no numeric values)
+    // Summed, not counted: `null` (no numeric value to sum) rather than the row count 1.
+    // The `0` this used to assert was the H4 `?? 0`; this test's point is sum-vs-count, and
+    // `null` still makes it — a `null` is unambiguously not a row count.
+    expect(filteredForced.values[filteredForced.labels.indexOf('A')]).toBe(null);
 
     const baseline = aggregateByField(
       baselineRows,
@@ -2393,13 +2507,16 @@ describe('aggregateMultipleSeries', () => {
     expect(revSeries.values[janIdx]).toBe(150); // 100 + 50
   });
 
-  it('fills 0 for a missing y value', () => {
+  // Regression (H4): this used to assert `0`. A y-field absent from every row at a label
+  // has NO value there — plotting it as a real 0-height bar/point is a fabricated
+  // measurement. `null` lets the renderer draw a gap instead.
+  it('fills null (not 0) for a missing y value', () => {
     const sparse = [
       { month: '2024-01', revenue: 100 }, // no 'cost' field
     ];
     const result = aggregateMultipleSeries(sparse, 'month', ['revenue', 'cost']);
     const costSeries = result.series.find((s) => s.fieldId === 'cost')!;
-    expect(costSeries.values[0]).toBe(0);
+    expect(costSeries.values[0]).toBe(null);
   });
 
   it('returns empty series when yFields is empty', () => {
@@ -2613,7 +2730,10 @@ describe('aggregateBlendedSeries', () => {
     expect(revenue.values[ent]).toBe(1000); // from orders
   });
 
-  it('outer-joins labels across sources, filling 0 for missing combinations', () => {
+  // Regression (H4): this used to assert `0` for the missing combinations. "This source has
+  // no row in this category" is absence of data, not a measured zero — matching
+  // `aggregateMultipleSeries`, whose fill this one is documented to follow.
+  it('outer-joins labels across sources, filling null for missing combinations', () => {
     const result = aggregateBlendedSeries(
       [
         { fieldId: 'pipeline', rows: deals },
@@ -2625,8 +2745,8 @@ describe('aggregateBlendedSeries', () => {
     expect([...result.labels].sort()).toEqual(['Enterprise', 'Mid-Market', 'SMB']);
     const smb = result.labels.indexOf('SMB');
     const mid = result.labels.indexOf('Mid-Market');
-    expect(result.series[1].values[smb]).toBe(0); // no revenue for SMB
-    expect(result.series[0].values[mid]).toBe(0); // no pipeline for Mid-Market
+    expect(result.series[1].values[smb]).toBe(null); // no revenue for SMB
+    expect(result.series[0].values[mid]).toBe(null); // no pipeline for Mid-Market
   });
 
   it('preserves series order and count 1:1 even with a shared field id', () => {
@@ -2693,9 +2813,26 @@ describe('prepareScatterData', () => {
     ]);
   });
 
-  it('defaults null/undefined x and y to 0', () => {
-    const result = prepareScatterData([{ sales: null, profit: undefined }], 'sales', 'profit');
-    expect(result[0]).toEqual({ x: 0, y: 0, id: 0 });
+  // Regression (M13): this used to assert the row was defaulted to `{ x: 0, y: 0 }`. That
+  // fabricated a real point at the origin — a "Revenue vs Cost" scatter with 30% null costs
+  // rendered a solid vertical stack on y = 0, distorting the correlation the chart exists to
+  // show. Dropping matches every other chart family (`isEmptyXValue`) and `heatmap.ts`'s
+  // T3.2b fix.
+  it('drops a row whose x or y is null/undefined instead of plotting it at the origin', () => {
+    expect(prepareScatterData([{ sales: null, profit: undefined }], 'sales', 'profit')).toEqual([]);
+    expect(prepareScatterData([{ sales: 10, profit: null }], 'sales', 'profit')).toEqual([]);
+    expect(prepareScatterData([{ sales: null, profit: 3 }], 'sales', 'profit')).toEqual([]);
+  });
+
+  it('drops a row whose x or y is non-numeric instead of passing NaN to the chart', () => {
+    expect(prepareScatterData([{ sales: 'N/A', profit: 3 }], 'sales', 'profit')).toEqual([]);
+    // An empty string is not a zero measurement either (`Number('')` would have been 0).
+    expect(prepareScatterData([{ sales: '', profit: 3 }], 'sales', 'profit')).toEqual([]);
+  });
+
+  it('keeps a genuine 0 coordinate', () => {
+    const result = prepareScatterData([{ sales: 0, profit: 0 }], 'sales', 'profit');
+    expect(result).toEqual([{ x: 0, y: 0, id: 0 }]);
   });
 
   it('coerces string numbers to numeric values', () => {
@@ -3326,6 +3463,35 @@ describe('aggregateHeatmap aggregation policy', () => {
     const data = aggregateHeatmap(rows, 'x', 'y', 'v', undefined, 'sum');
     expect(data.xLabels).toEqual(['Jan']);
   });
+
+  // Regression: an all-null cell is still emitted as 0 so it does not vanish from the grid,
+  // but that placeholder must NOT stretch the colour domain — letting it in gave a heatmap
+  // over 80-95 °C readings a [0, 95] ramp, compressing the whole real 15-degree spread.
+  it('excludes an all-null cell from the min/max colour domain', () => {
+    const rows = [
+      { x: 'Jan', y: 'EU', v: 80 },
+      { x: 'Feb', y: 'EU', v: 95 },
+      { x: 'Mar', y: 'EU', v: null }, // no aggregate at all
+    ];
+    const data = aggregateHeatmap(rows, 'x', 'y', 'v', undefined, 'sum');
+    expect(data.minValue).toBe(80);
+    expect(data.maxValue).toBe(95);
+    // The cell itself is still present (at its placeholder 0) so the grid stays complete.
+    expect(data.cells.get('Mar\x00EU')).toBe(0);
+  });
+
+  it('still reports a 0/0 colour domain when no cell has any data', () => {
+    const data = aggregateHeatmap(
+      [{ x: 'Jan', y: 'EU', v: null }],
+      'x',
+      'y',
+      'v',
+      undefined,
+      'sum',
+    );
+    expect(data.minValue).toBe(0);
+    expect(data.maxValue).toBe(0);
+  });
 });
 
 // ─── Funnel aggregation policy (finding 2.17) ─────────────────────────────────
@@ -3361,5 +3527,49 @@ describe('buildFunnelStages aggregation policy', () => {
       undefined,
     );
     expect(stages.find((s) => s.label === 'Lead')?.value).toBe(0);
+  });
+
+  // Regression: the numeric auto-detect sampled exactly ONE row (the first non-null), so a
+  // leading "N/A" sentinel ahead of real numbers downgraded a genuine sum to a row count.
+  // It now delegates to the shared `detectAggregationType`, which scans until it finds a
+  // numeric value.
+  it('does not downgrade a numeric measure to a count because of a leading sentinel', () => {
+    const rows = [
+      { stage: 'Lead', v: 'N/A' },
+      { stage: 'Lead', v: 100 },
+      { stage: 'Lead', v: 50 },
+    ];
+    const { stages } = buildFunnelStages(
+      rows,
+      'stage',
+      'v',
+      undefined,
+      'natural',
+      undefined,
+      undefined,
+    );
+    // Summed (150), not counted (3).
+    expect(stages.find((s) => s.label === 'Lead')?.value).toBe(150);
+  });
+
+  // Regression: `Number('')` is `0`, so the old detect scored an empty-string-only measure
+  // as numeric and "summed" it to a meaningless 0. `coerceAggregateValue` treats `''` as
+  // non-numeric, so the field is correctly recognised as having no numeric values and the
+  // stage falls back to a row count.
+  it('treats an empty-string-only measure as non-numeric and counts rows instead', () => {
+    const rows = [
+      { stage: 'Lead', v: '' },
+      { stage: 'Lead', v: '' },
+    ];
+    const { stages } = buildFunnelStages(
+      rows,
+      'stage',
+      'v',
+      undefined,
+      'natural',
+      undefined,
+      undefined,
+    );
+    expect(stages.find((s) => s.label === 'Lead')?.value).toBe(2);
   });
 });

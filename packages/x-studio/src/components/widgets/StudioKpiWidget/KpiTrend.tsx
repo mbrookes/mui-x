@@ -80,16 +80,18 @@ export function KpiTrend(props: KpiTrendProps) {
     // rather than assert: fall back to an empty period string (still a coherent,
     // non-crashing render — just an unlabeled "vs." caption) when neither a
     // `comparisonLabel` nor a complete `previousStart`/`previousEnd` pair is present.
-    const periodShort = trendResult.comparisonLabel
-      ? trendResult.comparisonLabel
-      : trendResult.previousStart && trendResult.previousEnd
-        ? formatPeriodShort(trendResult.previousStart, trendResult.previousEnd)
-        : '';
-    const trendTooltip = trendResult.comparisonLabel
-      ? localeText.kpiTrendTargetTooltip(trendResult.previousValue)
-      : trendResult.previousStart && trendResult.previousEnd
-        ? formatDateRangeLong(trendResult.previousStart, trendResult.previousEnd)
-        : '';
+    let periodShort: string;
+    let trendTooltip: string;
+    if (trendResult.comparisonLabel) {
+      periodShort = trendResult.comparisonLabel;
+      trendTooltip = localeText.kpiTrendTargetTooltip(trendResult.previousValue);
+    } else if (trendResult.previousStart && trendResult.previousEnd) {
+      periodShort = formatPeriodShort(trendResult.previousStart, trendResult.previousEnd);
+      trendTooltip = formatDateRangeLong(trendResult.previousStart, trendResult.previousEnd);
+    } else {
+      periodShort = '';
+      trendTooltip = '';
+    }
 
     return (
       <Tooltip

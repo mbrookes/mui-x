@@ -39,17 +39,28 @@ describe('resolveRankFilterPageId', () => {
     expect(resolveRankFilterPageId(filter, pages)).toBe('page-2');
   });
 
-  it('returns null when the widget is not placed on any page', () => {
+  // Previously pinned as `toBe(null)`, which encoded the bug rather than a deliberate
+  // client-side divergence: `null` is the "applies EVERYWHERE" wildcard, so an unplaced
+  // widget's rank filter conflicted with every rank filter on every page. It is now the
+  // distinct UNRESOLVABLE sentinel (`undefined`) — see `resolveRankFilterPageId`'s doc
+  // comment in `@mui/x-studio-schema`'s `applyMutation.ts`.
+  it('returns undefined (UNRESOLVABLE) when the widget is not placed on any page', () => {
     const filter = makeFilter({ scope: { kind: 'widget', widgetId: 'ghost' } });
     const pages = { 'page-1': makePage('page-1', [['w1']]) };
-    expect(resolveRankFilterPageId(filter, pages)).toBe(null);
+    expect(resolveRankFilterPageId(filter, pages)).toBe(undefined);
   });
 
-  it('returns null for other scope kinds', () => {
+  // Same story: a non-rank-eligible scope is unresolvable, never a wildcard.
+  it('returns undefined (UNRESOLVABLE) for other scope kinds', () => {
     const filter = makeFilter({
       scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'page-1' },
     });
-    expect(resolveRankFilterPageId(filter, {})).toBe(null);
+    expect(resolveRankFilterPageId(filter, {})).toBe(undefined);
+
+    const dateRangeFilter = makeFilter({
+      scope: { kind: 'dashboard-date-range', sourceId: 's1', pageId: 'page-1' },
+    });
+    expect(resolveRankFilterPageId(dateRangeFilter, {})).toBe(undefined);
   });
 });
 
@@ -94,6 +105,49 @@ describe('hasConflictingRankFilter', () => {
       makeFilter({ id: 'c', filterMode: 'condition', scope: { kind: 'page', pageId: 'page-1' } }),
     ];
     expect(hasConflictingRankFilter('t', target, filters, pages)).toBe(false);
+  });
+
+  // Regression: an unplaced widget (present in `doc.widgets` but on no page's `widgetRows`,
+  // e.g. after a `setWidgetLayout`) resolves to UNRESOLVABLE, not the `null` wildcard. Before
+  // the sentinel existed, ONE such filter reported a conflict against every rank filter on
+  // every page, lighting up the drawer's conflict badge everywhere.
+  it('an unplaced widget rank filter does not block a rank filter on another page', () => {
+    const unplaced = makeFilter({
+      id: 'r-ghost',
+      filterMode: 'rank',
+      scope: { kind: 'widget', widgetId: 'ghost' },
+    });
+
+    // As the OTHER filter: it must not block a legitimate rank filter on any page.
+    const onPage1 = makeFilter({ id: 't', scope: { kind: 'page', pageId: 'page-1' } });
+    expect(hasConflictingRankFilter('t', onPage1, [unplaced], pages)).toBe(false);
+    const onPage2 = makeFilter({ id: 't', scope: { kind: 'page', pageId: 'page-2' } });
+    expect(hasConflictingRankFilter('t', onPage2, [unplaced], pages)).toBe(false);
+
+    // As the TARGET: it collides with nothing, not even a pageId-less wildcard.
+    const everywhere = makeFilter({ id: 'r1', filterMode: 'rank', scope: { kind: 'page' } });
+    expect(hasConflictingRankFilter('r-ghost', unplaced, [everywhere], pages)).toBe(false);
+  });
+
+  // The other half of the sentinel split: `null` must KEEP its wildcard semantics.
+  it('a legacy pageId-less page filter still conflicts in both directions', () => {
+    const everywhere = makeFilter({ id: 'r-all', filterMode: 'rank', scope: { kind: 'page' } });
+    const onPage1 = makeFilter({
+      id: 'r-p1',
+      filterMode: 'rank',
+      scope: { kind: 'page', pageId: 'page-1' },
+    });
+
+    expect(hasConflictingRankFilter('r-p1', onPage1, [everywhere], pages)).toBe(true);
+    expect(hasConflictingRankFilter('r-all', everywhere, [onPage1], pages)).toBe(true);
+
+    // ...and against a widget-scoped rank filter that IS placed, on either page.
+    const onWidget2 = makeFilter({
+      id: 'r-w2',
+      filterMode: 'rank',
+      scope: { kind: 'widget', widgetId: 'w2' },
+    });
+    expect(hasConflictingRankFilter('r-all', everywhere, [onWidget2], pages)).toBe(true);
   });
 
   it('a pageId-less (null) target conflicts with any rank filter', () => {

@@ -57,8 +57,8 @@
 import { runAgenticLoop } from './agenticLoop';
 import type { PendingApproval } from './agenticLoop/toolDispatch';
 import type { ToolPolicy } from './toolPolicy';
-import { withTimeout } from './mcp/helpers';
-import { capIncomingDashboardState } from './executeToolOnState';
+import { redactedHostErrorMessage, withTimeout } from './mcp/helpers';
+import { capIncomingDashboardState, MAX_FILTER_STRING_LENGTH } from './executeToolOnState';
 import { capMaybeText, capText } from './internal/promptCaps';
 import type { StudioAIRequest, StudioAISSEEvent } from './models/protocol';
 import type {
@@ -1097,6 +1097,35 @@ export function validateStudioAIRequestBody(body: unknown): string | undefined {
         '`{ id, label, fields: StudioDataField[], ... }` — not a partial or hand-built object.'
       );
     }
+    // `tableName` is the one field on this entry that leaves the package: `resolveSource`
+    // (`mcp/queryTools.ts`) resolves a model-supplied `sourceId` to it and the value is
+    // forwarded to the host's `queryDataSource` as `params.tableName`. On THIS transport
+    // `runtime.dataSources` descends from the client-supplied request body, and every
+    // consumer checks truthiness only before casting it `as string` — so an object
+    // (`{ orders: 'secrets' }`) reached a Knex host as `db(params.tableName)`, where an
+    // object is an ALIAS MAP and silently selects a table the caller chose, and an
+    // unbounded string flowed straight through. The `allowedTables: '*'` sentinel
+    // short-circuits the allowlist check before either could be caught. Require a string
+    // and cap it at `MAX_FILTER_STRING_LENGTH` — the same bound the package already
+    // applies to every other untrusted identifier it forwards (filter fields, sourceIds,
+    // column names). Absent is still fine: a source with no `tableName` simply can't be
+    // queried.
+    const { tableName } = source as { tableName?: unknown };
+    if (
+      tableName !== undefined &&
+      (typeof tableName !== 'string' || tableName.length > MAX_FILTER_STRING_LENGTH)
+    ) {
+      return (
+        `MUI X Studio: \`dashboardState.runtime.dataSources[${JSON.stringify(sourceId)}].tableName\` ` +
+        `must be a string of at most ${MAX_FILTER_STRING_LENGTH} characters when provided ` +
+        "(`StudioDataSource.tableName`). This value is forwarded verbatim to the server's " +
+        '`data.queryDataSource` implementation as `params.tableName`, where a non-string is ' +
+        'reinterpreted by query builders (an object is an alias map in Knex, selecting a ' +
+        'different table than intended) and an unbounded string is passed straight to the ' +
+        'database. Pass the physical table name as a plain string, or omit `tableName` for a ' +
+        'source that is not queryable.'
+      );
+    }
     // Finding M3: the check above validates that `fields` is an array, not that its
     // ENTRIES are objects — a `fields: [null]` threw a raw `TypeError` reading
     // `field.label` in `capDataSourceField`.
@@ -1467,7 +1496,7 @@ export function handleAIChat(
             // the stream's internal queue, bounded only by `MAX_TURN_TEXT_BUFFER_CHARS`
             // × turns plus every tool result. Waiting while `desiredSize` is
             // exhausted makes the producer run at the consumer's pace.
-             
+
             await waitForDrain(controller);
             controller.enqueue(encodeSSE(event));
             if (event.type === 'finish' || event.type === 'error') {
@@ -1475,7 +1504,27 @@ export function handleAIChat(
             }
           }
         } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
+          // Everything that reaches this outer catch escaped `runAgenticLoop`, which
+          // means it came from code outside this package — a host `toolPolicy`,
+          // `contextEnricher` or skill throwing — or from an internal defect. Its
+          // message routinely carries credentials, SQL fragments, and internal
+          // hostnames, and this `enqueue` writes straight to an untrusted browser, so
+          // relaying it verbatim broke the invariant the rest of the package upholds
+          // ("error text that crossed the host boundary is never relayed to the model or
+          // the browser", ARCHITECTURE.md). Same split as `reportProviderFetchError`
+          // uses for the provider path: full detail to the host's server-side
+          // `onToolError` channel under a correlation reference, only the generic
+          // sentence carrying that reference to the client. Package-authored errors (a
+          // `withTimeout` deadline) are still relayed verbatim by the helper.
+          const message = redactedHostErrorMessage('the AI chat request', err, {
+            log: () => {},
+            error: (...args: unknown[]) => {
+              options.onToolError?.(
+                'handleAIChat',
+                /* minify-error-disabled */ new Error(args.map((a) => String(a)).join(' ')),
+              );
+            },
+          });
           // Guard the enqueue: if the stream was already cancelled/closed (e.g. the
           // consumer called `reader.cancel()`), enqueueing throws — swallow it so the
           // error path itself doesn't blow up.

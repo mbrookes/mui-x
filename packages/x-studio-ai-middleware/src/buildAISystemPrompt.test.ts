@@ -1584,3 +1584,55 @@ describe('buildAISystemPrompt: total size cap (finding H1e)', () => {
     expect(prompt).not.toContain('this system prompt was truncated');
   });
 });
+
+// ── "Other Pages" hint is gated on the advertised tool set ───────────────────────
+
+/**
+ * The hint under `## Other Pages` names tools for the model to call. Naming one that
+ * was never advertised costs a turn, a tool-call budget unit, and a full conversation
+ * re-send to discover the dispatcher's `Unknown tool` rejection — `summarise_page` is
+ * advertised only when a client-built `pageSnapshot` was supplied or the host
+ * allow-lists it, so the unconditional mention was wrong in the common case.
+ */
+describe('buildAISystemPrompt: Other Pages tool hint', () => {
+  const multiPageState = makeState({
+    pages: {
+      [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [] },
+      'page-2': { id: 'page-2', title: 'Sales', widgetRows: [] },
+    },
+  });
+
+  it('omits the summarise_page hint when it is not advertised', () => {
+    const prompt = buildAISystemPrompt(multiPageState, undefined, undefined, undefined, {
+      advertisedToolNames: new Set(['list_pages']),
+    });
+    expect(prompt).toContain('## Other Pages');
+    expect(prompt).toContain('list_pages');
+    expect(prompt).not.toContain('summarise_page');
+  });
+
+  it('omits the list_pages hint when it is not advertised', () => {
+    const prompt = buildAISystemPrompt(multiPageState, undefined, undefined, undefined, {
+      advertisedToolNames: new Set(['summarise_page']),
+    });
+    expect(prompt).toContain('## Other Pages');
+    expect(prompt).toContain('summarise_page');
+    expect(prompt).not.toContain('Use list_pages');
+  });
+
+  it('describes summarise_page as snapshot-page-only, never as cross-page access', () => {
+    const prompt = buildAISystemPrompt(multiPageState, undefined, undefined, undefined, {
+      advertisedToolNames: new Set(['list_pages', 'summarise_page']),
+    });
+    // The implementation hard-rejects any pageId other than the snapshot's, so the
+    // prompt must not promise the opposite.
+    expect(prompt).not.toContain('without switching to it');
+    expect(prompt).toContain('only covers the page this request captured a data snapshot for');
+  });
+
+  it('names both tools when the caller supplies no advertised set (back-compat)', () => {
+    const prompt = buildAISystemPrompt(multiPageState);
+    expect(prompt).toContain('list_pages');
+    expect(prompt).toContain('summarise_page');
+  });
+});

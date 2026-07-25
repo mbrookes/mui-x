@@ -335,7 +335,7 @@ describe('dispatchToolCall', () => {
     expect((outcome as { kind: string }).kind).toBe('result');
   });
 
-  it('surfaces a skill execute() throw as an error result and fires onToolError', async () => {
+  it('redacts a skill execute() throw before relaying it, and fires onToolError with the detail', async () => {
     const onToolError = vi.fn();
     const execute = vi.fn(async () => {
       throw new Error('boom');
@@ -354,8 +354,13 @@ describe('dispatchToolCall', () => {
     const { outcome } = await runDispatch(
       dispatchToolCall(tc('bad_skill'), {}, false, INITIAL_STATE, ctx),
     );
+    // Full detail to the server-side channel...
     expect(onToolError).toHaveBeenCalledOnce();
-    expect(outcome).toEqual({ kind: 'result', output: JSON.stringify({ error: 'boom' }) });
+    expect((onToolError.mock.calls[0][1] as Error).message).toMatch(/boom/);
+    // ...nothing of it to the model or the browser.
+    const relayed = JSON.parse((outcome as { output: string }).output) as { error: string };
+    expect(relayed.error).not.toMatch(/boom/);
+    expect(relayed.error).toMatch(/reference "/);
   });
 
   it('returns an informative error for query_data_source when no data config is set', async () => {
@@ -914,6 +919,217 @@ describe('dispatchToolCall', () => {
       const done = await pendingStep;
       expect(execute).not.toHaveBeenCalled();
       expect(done.value).toEqual({ kind: 'aborted' });
+    });
+  });
+});
+
+// ── Throwing host policy ─────────────────────────────────────────────────────────
+
+/**
+ * A host `toolPolicy` is arbitrary host code — the documented use case is consulting
+ * a per-tenant rules table, i.e. a live DB call — so it can REJECT, not merely deny.
+ * `Policy.all` awaits it with no try/catch, so before this fix the rejection escaped
+ * `dispatchToolCall`, escaped the `while (true) { await dispatch.next() }` driver in
+ * `agenticLoop.ts` (whose enclosing try covers only the SSE read loop, already exited
+ * by then), escaped `runAgenticLoop` entirely, and was caught only by `handleAIChat`'s
+ * outer catch — which relayed the raw host message to the browser AND killed the
+ * stream, instead of surfacing the recoverable tool result the contract promises.
+ *
+ * Every branch must therefore fail CLOSED and REDACTED: the call is refused, the host
+ * detail goes to `onToolError` only, and the model gets a bounded correlation
+ * reference it can report.
+ */
+describe('dispatchToolCall — a throwing host toolPolicy', () => {
+  const throwingPolicy: ToolPolicy = () => {
+    throw new Error('password authentication failed for user "studio_ro"');
+  };
+
+  /** Asserts the outcome is a recoverable, redacted tool result. */
+  function expectRedactedResult(outcome: unknown, onToolError: ReturnType<typeof vi.fn>) {
+    expect((outcome as { kind: string }).kind).toBe('result');
+    const parsed = JSON.parse((outcome as { output: string }).output) as { error: string };
+    expect(parsed.error).not.toMatch(/studio_ro/);
+    expect(parsed.error).not.toMatch(/password/);
+    expect(parsed.error).toMatch(/reference "/);
+    // The operator still gets the real thing, server-side.
+    expect(onToolError).toHaveBeenCalled();
+    expect((onToolError.mock.calls[0][1] as Error).message).toMatch(/studio_ro/);
+  }
+
+  it('turns a policy throw on the built-in tool path into a redacted tool result', async () => {
+    const onToolError = vi.fn();
+    const ctx = makeCtx({
+      advertisedToolNames: new Set(['set_dashboard_title']),
+      toolPolicy: throwingPolicy,
+      onToolError,
+    });
+    const { outcome } = await runDispatch(
+      dispatchToolCall(
+        tc('set_dashboard_title', JSON.stringify({ title: 'X' })),
+        { title: 'X' },
+        false,
+        INITIAL_STATE,
+        ctx,
+      ),
+    );
+    expectRedactedResult(outcome, onToolError);
+  });
+
+  it('turns a policy throw on the server-tool skill consult into a redacted deny, and never runs the skill', async () => {
+    const onToolError = vi.fn();
+    const execute = vi.fn(async () => ({ output: 'ran', nextState: INITIAL_STATE }));
+    const skill: StudioAISkill = {
+      name: 'gated_skill',
+      mode: 'server-tool',
+      promptFragment: '',
+      tool: { name: 'gated_skill', description: 'd', parameters: {}, execute },
+    };
+    const ctx = makeCtx({
+      advertisedToolNames: new Set(['gated_skill']),
+      skillHandlers: [skill],
+      toolPolicy: throwingPolicy,
+      onToolError,
+    });
+    const { outcome } = await runDispatch(
+      dispatchToolCall(tc('gated_skill'), {}, false, INITIAL_STATE, ctx),
+    );
+    // Fail closed: an unauthorized side effect must not fire because the authorizer broke.
+    expect(execute).not.toHaveBeenCalled();
+    expectRedactedResult(outcome, onToolError);
+  });
+
+  it('turns a policy throw on the query_data_source consult into a redacted deny, and never queries', async () => {
+    const onToolError = vi.fn();
+    const queryDataSource = vi.fn(async () => ({ rows: [{ secret: 1 }], rowCount: 1 }));
+    const state = createDefaultStudioState({
+      runtime: {
+        dataSources: {
+          src1: { id: 'src1', label: 'Source 1', tableName: 'src1_table', fields: [] },
+        },
+      },
+    });
+    const ctx = makeCtx({
+      advertisedToolNames: new Set(['query_data_source']),
+      data: { queryDataSource, allowedTables: ['src1_table'] },
+      toolPolicy: throwingPolicy,
+      onToolError,
+    });
+    const { outcome } = await runDispatch(
+      dispatchToolCall(
+        tc('query_data_source', JSON.stringify({ sourceId: 'src1' })),
+        { sourceId: 'src1' },
+        false,
+        state,
+        ctx,
+      ),
+    );
+    expect(queryDataSource).not.toHaveBeenCalled();
+    expectRedactedResult(outcome, onToolError);
+  });
+});
+
+// ── Host-policy invocation contract ──────────────────────────────────────────────
+
+describe('dispatchToolCall — host policy invocation contract', () => {
+  /**
+   * The exact shape `ToolPolicyContext.phase`'s own doc describes as a plausible host
+   * policy: gate side-effectful calls by inspecting the proposed effects, and refuse
+   * anything with no `proposed` to inspect. The pre-check used to consult the FULLY
+   * COMPOSED policy with `proposed: undefined` and short-circuit on its `deny`, so this
+   * policy denied every built-in tool — including read-only ones — before the dry-run
+   * that would have supplied `proposed` ever ran. It failed closed, so it was never a
+   * security hole; it silently bricked a documented extension point.
+   */
+  const denyWithoutProposed: ToolPolicy = (policyCtx) =>
+    policyCtx.proposed
+      ? { action: 'allow' }
+      : { action: 'deny', reason: 'side-effectful calls not permitted' };
+
+  it('allows a mutating built-in tool for a host policy that keys off ctx.proposed', async () => {
+    const ctx = makeCtx({
+      advertisedToolNames: new Set(['set_dashboard_title']),
+      toolPolicy: denyWithoutProposed,
+    });
+    const { events, outcome } = await runDispatch(
+      dispatchToolCall(
+        tc('set_dashboard_title', JSON.stringify({ title: 'Renamed' })),
+        { title: 'Renamed' },
+        false,
+        INITIAL_STATE,
+        ctx,
+      ),
+    );
+    expect((outcome as { kind: string }).kind).toBe('result');
+    expect(events.some((ev) => (ev as { type: string }).type === 'state-mutation')).toBe(true);
+  });
+
+  it('never consults the host policy in the pre-check phase', async () => {
+    // The root cause: the pre-check ran the FULLY COMPOSED policy with
+    // `proposed: undefined`. A read-only tool legitimately still reaches the host with
+    // `proposed: undefined` — it proposes no mutation — but that is a `'final'` consult
+    // the host decides with full information, which is exactly what `phase` exists to
+    // distinguish. What must never happen again is a decision taken on the pre-check's
+    // false premise.
+    const policy = vi.fn<ToolPolicy>(() => ({ action: 'allow' }));
+    const ctx = makeCtx({
+      advertisedToolNames: new Set(['list_pages']),
+      toolPolicy: policy,
+      // Present, and deliberately the same function, to prove the pre-check hook is
+      // wired: only the caller-nominated budget policy may see this phase.
+      budgetPolicy: (policyCtx) => {
+        expect(policyCtx.phase).toBe('pre-check');
+        return { action: 'allow' };
+      },
+    });
+    await runDispatch(dispatchToolCall(tc('list_pages'), {}, false, INITIAL_STATE, ctx));
+    expect(policy).toHaveBeenCalledOnce();
+    expect(policy.mock.calls[0][0].phase).toBe('final');
+  });
+
+  it('consults the host policy exactly once per built-in tool call', async () => {
+    // `ToolPolicy` carries no idempotency requirement, so a policy that audits, meters
+    // against an external rate limiter, or writes an access-log row must not be
+    // double-counted. Only the caller-supplied `budgetPolicy` may be consulted twice.
+    const policy = vi.fn<ToolPolicy>(() => ({ action: 'allow' }));
+    const ctx = makeCtx({
+      advertisedToolNames: new Set(['set_dashboard_title']),
+      toolPolicy: policy,
+    });
+    await runDispatch(
+      dispatchToolCall(
+        tc('set_dashboard_title', JSON.stringify({ title: 'X' })),
+        { title: 'X' },
+        false,
+        INITIAL_STATE,
+        ctx,
+      ),
+    );
+    expect(policy).toHaveBeenCalledOnce();
+    expect(policy.mock.calls[0][0].phase).toBe('final');
+  });
+
+  it('still short-circuits the dry-run when the separate budgetPolicy denies', async () => {
+    // The pre-check optimization survives — it just runs the budget chain instead of the
+    // composed policy. A `deny` there must skip `executeToolOnState` entirely.
+    const budgetPolicy: ToolPolicy = () => ({ action: 'deny', reason: 'budget exhausted' });
+    const ctx = makeCtx({
+      advertisedToolNames: new Set(['set_dashboard_title']),
+      toolPolicy: budgetPolicy,
+      budgetPolicy,
+    });
+    const { events, outcome } = await runDispatch(
+      dispatchToolCall(
+        tc('set_dashboard_title', JSON.stringify({ title: 'X' })),
+        { title: 'X' },
+        false,
+        INITIAL_STATE,
+        ctx,
+      ),
+    );
+    expect(events).toEqual([]);
+    expect(outcome).toEqual({
+      kind: 'result',
+      output: JSON.stringify({ error: 'budget exhausted' }),
     });
   });
 });

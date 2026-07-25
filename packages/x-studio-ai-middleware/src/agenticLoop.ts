@@ -42,6 +42,7 @@ import {
 import { capToolOutput } from './internal/capToolOutput';
 import { linkAbortSignal, readBodyWithTimeout } from './internal/llmFetch';
 import { reportProviderFetchError, reportProviderHttpError } from './internal/providerError';
+import { PACKAGE_AUTHORED_ERROR } from './internal/packageError';
 
 /**
  * Timeout (ms) for the LLM provider's HTTP request. Without this, a hung/overloaded
@@ -103,6 +104,22 @@ const DEFAULT_MAX_TOOL_CALLS_PER_REQUEST = 50;
  * exact cap rather than a hardcoded duplicate of this constant.
  */
 export const MAX_TURN_TEXT_BUFFER_CHARS = 2_000_000;
+
+/**
+ * Brands an error this file authored, so the redaction split in the SSE read-loop
+ * catch relays its message verbatim rather than withholding it behind a correlation
+ * id. The brand is an OWN property (never an `instanceof` check) — see
+ * `internal/packageError.ts` for why — and `StudioTimeoutError` carries the same one.
+ *
+ * Only ever applied to messages built purely from server-authored prose and
+ * compile-time constants: there is nothing untrusted in them to leak, and they are
+ * what tells an operator the stream was aborted deliberately rather than by the
+ * provider.
+ */
+function markPackageAuthored(err: Error): Error {
+  (err as unknown as Record<symbol, unknown>)[PACKAGE_AUTHORED_ERROR] = true;
+  return err;
+}
 
 // ── Loop options ──────────────────────────────────────────────────────────────
 
@@ -295,7 +312,15 @@ export async function* runAgenticLoop(
   // model as a `{ error }` tool result and the loop continues (still bounded by
   // `maxTurnsPerRequest`). `onLimitReached('toolCalls', …)` fires once per breach.
   const maxToolCalls = rateLimit?.maxToolCallsPerRequest ?? DEFAULT_MAX_TOOL_CALLS_PER_REQUEST;
-  const toolPolicy: ToolPolicy = Policy.all(
+  // The budget chain, built SEPARATELY from `hostToolPolicy` so it can be handed to
+  // `executeToolWithPolicy` as its `preCheckPolicy` (the cheap consult that skips an
+  // expensive dry-run for a call the budgets will reject anyway) without dragging the
+  // host policy into that phase. Budget policies are decidable from the tool name and
+  // the usage counters alone and are idempotent — `onExceeded` is latched inside each
+  // combinator — which is exactly what `preCheckPolicy` requires and a host policy does
+  // not guarantee. The same two instances are reused in `toolPolicy` below, so the
+  // latches and counters stay shared between the two phases.
+  const budgetPolicy: ToolPolicy = Policy.all(
     Policy.mutationBudget({
       max: maxMutations,
       getCommitted: (ctx) => ctx.usage.committedMutations,
@@ -314,8 +339,11 @@ export async function* runAgenticLoop(
         `${max} tool call${max === 1 ? '' : 's'} (already dispatched ${calls}). ` +
         'This call was not executed.',
     }),
-    hostToolPolicy,
   );
+  // The policy that actually decides each call: budgets first (so an exhausted budget
+  // denies without ever consulting the host), then the host's own. Consulted exactly
+  // once per tool call — see the invocation contract on `ToolPolicy`.
+  const toolPolicy: ToolPolicy = Policy.all(budgetPolicy, hostToolPolicy);
 
   // A `server-tool` whose tool name collides with a built-in `STUDIO_AI_TOOLS`
   // name is ignored — the built-in handler always wins for a built-in name. This
@@ -341,18 +369,6 @@ export async function* runAgenticLoop(
     entry.mode === 'server-tool' && Boolean(entry.tool) && builtInToolNameSet.has(entry.tool!.name);
   const effectiveSkills = (skills ?? []).filter((s) => !collidesWithBuiltIn(s));
   const effectiveSkillHandlers = skillHandlers.filter((s) => !collidesWithBuiltIn(s));
-
-  const systemPrompt = buildAISystemPrompt(
-    initialState,
-    customWidgets,
-    focusedWidgetId,
-    effectiveSkills,
-    {
-      privateMode,
-      richContext,
-      enrichedContext,
-    },
-  );
 
   // T1-2 — state-reading tools whose output would defeat `privateMode`. In
   // private mode the `<dashboard_state>` block is withheld from the system prompt
@@ -424,6 +440,24 @@ export async function* runAgenticLoop(
   // enforced at execution time, not merely at advertisement time.
   const advertisedToolNames = new Set(effectiveTools.map((t) => t.function.name));
 
+  // Built AFTER the effective tool set, not before it: prompt prose that tells the model
+  // to call a specific tool is only correct if that tool is actually advertised, and
+  // `allowedTools`/`privateMode`/`data`/`pageSnapshot` all narrow the set. Threading
+  // `advertisedToolNames` in lets `buildAISystemPrompt` gate those hints instead of
+  // assuming the full built-in surface.
+  const systemPrompt = buildAISystemPrompt(
+    initialState,
+    customWidgets,
+    focusedWidgetId,
+    effectiveSkills,
+    {
+      privateMode,
+      advertisedToolNames,
+      richContext,
+      enrichedContext,
+    },
+  );
+
   // Static per-request context shared by every tool dispatch.
   const dispatchCtx: ToolDispatchContext = {
     skillHandlers: effectiveSkillHandlers,
@@ -448,6 +482,7 @@ export async function* runAgenticLoop(
     onToolError,
     advertisedToolNames,
     toolPolicy,
+    budgetPolicy,
     usage: toolUsage,
   };
 
@@ -639,11 +674,18 @@ export async function* runAgenticLoop(
           // surfaces as a clean `{ type: 'error' }` event rather than an uncaught
           // rejection.
           if (turnTextBuffer.length > MAX_TURN_TEXT_BUFFER_CHARS) {
-            throw new Error(
-              `MUI X Studio: LLM response exceeded the maximum buffered text size for a single turn ` +
-                `(${MAX_TURN_TEXT_BUFFER_CHARS} chars). This can happen when a misbehaving gateway ` +
-                'streams text indefinitely without ever completing the response, which would otherwise ' +
-                "let a single request grow this process's memory without bound. Aborting this request.",
+            // Branded package-authored (see `markPackageAuthored`) so the redaction split
+            // in the catch below relays this message verbatim instead of withholding it
+            // behind a correlation id — it names only a server-authored sentence and a
+            // compile-time constant. The `MUI X Studio:` prefix is added by that split,
+            // so it is deliberately absent here.
+            throw markPackageAuthored(
+              new Error(
+                `LLM response exceeded the maximum buffered text size for a single turn ` +
+                  `(${MAX_TURN_TEXT_BUFFER_CHARS} chars). This can happen when a misbehaving gateway ` +
+                  'streams text indefinitely without ever completing the response, which would otherwise ' +
+                  "let a single request grow this process's memory without bound. Aborting this request.",
+              ),
             );
           }
         }
@@ -660,10 +702,18 @@ export async function* runAgenticLoop(
       if (signal?.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
         return;
       }
-      // These errors are this package's OWN (`MUI X Studio:`-prefixed buffer caps,
-      // `parseSSE`'s idle timeout) rather than provider-authored text, so they are
-      // safe to relay verbatim — unlike the provider error body above (finding H4).
-      yield { type: 'error', message: err instanceof Error ? err.message : String(err) };
+      // Not every error reaching here is package-authored: `parseSSE` awaits
+      // `reader.read()`, which rejects with a TRANSPORT error when the connection drops
+      // mid-stream (`fetch failed`, `terminated`, `read ECONNRESET 10.0.3.11:443`) — the
+      // same class of provider-authored text the pre-headers catch above already routes
+      // through `reportProviderFetchError`. So this catch uses the identical split: full
+      // detail to the server's `onToolError` channel under a correlation id, only the
+      // generic sentence to the browser. Package-authored errors (`parseSSE`'s branded
+      // idle timeout, the buffer cap above) are relayed verbatim by that helper, so the
+      // "the stream stalled" vs "the connection dropped" distinction survives.
+      const report = reportProviderFetchError('LLM response stream', err);
+      onToolError?.('llm-provider', new Error(report.detail));
+      yield { type: 'error', message: report.clientMessage };
       return;
     }
     // The response is fully consumed — release the external-abort subscription so a

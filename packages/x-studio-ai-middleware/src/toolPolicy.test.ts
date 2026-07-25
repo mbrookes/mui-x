@@ -452,23 +452,25 @@ describe('executeToolWithPolicy', () => {
   // e.g. `projectStateForAI` + `JSON.stringify` of the whole state for
   // `get_dashboard_state`) used to run BEFORE the cheap, args-only
   // `Policy.toolCallBudget` check, so a call the budget was always going to reject
-  // still paid the full dry-run cost. `executeToolWithPolicy` must now consult a
-  // budget-style policy — one that can decide without `ctx.proposed` — BEFORE
-  // calling `executeToolOnState` at all.
+  // still paid the full dry-run cost. `executeToolWithPolicy` skips the dry run when
+  // the caller-supplied `preCheckPolicy` — a budget-style policy that can decide
+  // without `ctx.proposed` — denies. The host's own `opts.policy` is deliberately NOT
+  // consulted in that phase.
   describe('cheap budget pre-check short-circuits the dry run (finding T2-1)', () => {
     it('does not call the dry run when the tool-call budget already denies', async () => {
       const spy = vi.spyOn(executeToolOnStateModule, 'executeToolOnState');
       const state = makeTwoWidgetState();
       // Already over budget before this call is even counted.
       const usage = { committedMutations: 0, toolCalls: 10 };
-      const policy = Policy.toolCallBudget({
+      const budget = Policy.toolCallBudget({
         max: 3,
         getCalls: (ctx) => ctx.usage.toolCalls,
         reason: (calls, max) => `budget exceeded: ${calls} > ${max}`,
       });
 
       const outcome = await executeToolWithPolicy('get_dashboard_state', {}, state, {
-        policy,
+        policy: budget,
+        preCheckPolicy: budget,
         transport: 'chat',
         usage,
       });
@@ -485,14 +487,15 @@ describe('executeToolWithPolicy', () => {
       const spy = vi.spyOn(executeToolOnStateModule, 'executeToolOnState');
       const state = makeTwoWidgetState();
       const usage = { committedMutations: 0, toolCalls: 0 };
-      const policy = Policy.toolCallBudget({
+      const budget = Policy.toolCallBudget({
         max: 10,
         getCalls: (ctx) => ctx.usage.toolCalls,
         reason: (calls, max) => `budget exceeded: ${calls} > ${max}`,
       });
 
       const outcome = await executeToolWithPolicy('get_dashboard_state', {}, state, {
-        policy,
+        policy: budget,
+        preCheckPolicy: budget,
         transport: 'chat',
         usage,
       });
@@ -510,15 +513,60 @@ describe('executeToolWithPolicy', () => {
 
       spy.mockRestore();
     });
+
+    it('runs the dry run when no preCheckPolicy is supplied, even for an exhausted budget', async () => {
+      // The pre-check is an optimization, not a gate: omitting the hook must change
+      // nothing but cost. The budget still denies — at the `'final'` consult.
+      const spy = vi.spyOn(executeToolOnStateModule, 'executeToolOnState');
+      const state = makeTwoWidgetState();
+      const usage = { committedMutations: 0, toolCalls: 10 };
+      const budget = Policy.toolCallBudget({
+        max: 3,
+        getCalls: (ctx) => ctx.usage.toolCalls,
+        reason: (calls, max) => `budget exceeded: ${calls} > ${max}`,
+      });
+
+      const outcome = await executeToolWithPolicy('get_dashboard_state', {}, state, {
+        policy: budget,
+        transport: 'chat',
+        usage,
+      });
+
+      expect(outcome).toEqual({ kind: 'denied', reason: 'budget exceeded: 11 > 3' });
+      expect(spy).toHaveBeenCalledTimes(1);
+
+      spy.mockRestore();
+    });
+
+    // The regression this separation exists to prevent: consulting the composed policy
+    // at pre-check meant the HOST policy was invoked twice per built-in tool call — and
+    // nothing in `ToolPolicy`'s type or docs makes a policy that audits, rate-limits
+    // externally, or logs safe to double-count.
+    it('consults the host policy exactly once, in the final phase, even with a preCheckPolicy', async () => {
+      const state = makeTwoWidgetState();
+      const policy = vi.fn<ToolPolicy>(() => ({ action: 'allow' }));
+      const preCheckPolicy = vi.fn<ToolPolicy>(() => ({ action: 'allow' }));
+
+      await executeToolWithPolicy('set_dashboard_title', { title: 'X' }, state, {
+        policy,
+        preCheckPolicy,
+        transport: 'chat',
+        usage: EMPTY_USAGE(),
+      });
+
+      expect(preCheckPolicy).toHaveBeenCalledOnce();
+      expect(preCheckPolicy.mock.calls[0][0].phase).toBe('pre-check');
+      expect(policy).toHaveBeenCalledOnce();
+      expect(policy.mock.calls[0][0].phase).toBe('final');
+    });
   });
 
-  // Finding 1 (Tier 3): the pre-check consult and a genuine args-only consult both
-  // present `proposed: undefined`, so a host policy keying `deny` off `!ctx.proposed`
-  // alone can't distinguish them. `phase` is the discriminator: `'pre-check'` for the
-  // cheap consult above, `'final'` for every consult whose decision is actually acted
-  // on (the real execute-then-gate consult AND `consultToolPolicyArgsOnly`).
-  describe('phase discriminator (finding 1)', () => {
-    it('tags the pre-check consult "pre-check" and the real consult "final"', async () => {
+  // `phase` discriminates the two consult shapes that both present
+  // `proposed: undefined`. The host's `opts.policy` only ever sees `'final'` — the real
+  // execute-then-gate consult AND `consultToolPolicyArgsOnly`; `'pre-check'` is reserved
+  // for the caller-nominated `preCheckPolicy`.
+  describe('phase discriminator', () => {
+    it('tags the host consult "final" for a read-only tool', async () => {
       const state = makeTwoWidgetState();
       const seenPhases: Array<{ phase: string; proposed: boolean }> = [];
       const policy: ToolPolicy = (ctx) => {
@@ -526,23 +574,19 @@ describe('executeToolWithPolicy', () => {
         return { action: 'allow' };
       };
 
-      // A read-only tool: the pre-check consult (`proposed: undefined`, `phase:
-      // 'pre-check'`) runs first, then the real consult after the dry run — for a
-      // non-mutating tool that real consult ALSO has `proposed: undefined`, but is
-      // tagged `phase: 'final'`.
+      // For a non-mutating tool the real consult also has `proposed: undefined` — but it
+      // is tagged `'final'`, so the host knows the dry run has already happened and this
+      // shape is the truth about the call, not a premature guess.
       await executeToolWithPolicy('list_pages', {}, state, {
         policy,
         transport: 'chat',
         usage: EMPTY_USAGE(),
       });
 
-      expect(seenPhases).toEqual([
-        { phase: 'pre-check', proposed: false },
-        { phase: 'final', proposed: false },
-      ]);
+      expect(seenPhases).toEqual([{ phase: 'final', proposed: false }]);
     });
 
-    it('tags the real consult "final" with proposed set for a mutating tool', async () => {
+    it('tags the host consult "final" with proposed set for a mutating tool', async () => {
       const state = makeTwoWidgetState();
       const seenPhases: Array<{ phase: string; proposed: boolean }> = [];
       const policy: ToolPolicy = (ctx) => {
@@ -556,32 +600,20 @@ describe('executeToolWithPolicy', () => {
         usage: EMPTY_USAGE(),
       });
 
-      expect(seenPhases).toEqual([
-        { phase: 'pre-check', proposed: false },
-        { phase: 'final', proposed: true },
-      ]);
+      expect(seenPhases).toEqual([{ phase: 'final', proposed: true }]);
     });
 
-    it('lets a phase-aware "deny args-only" catch-all target genuine args-only calls without over-denying the pre-check', async () => {
-      // Simulates the exact hazard finding 1 describes: a host policy implementing
-      // "deny every args-only/side-effectful call" as `!ctx.proposed` alone can't
-      // tell the cheap pre-check consult (`proposed: undefined`, made for EVERY
-      // built-in tool call, including mutating ones) apart from a genuine args-only
-      // consult (`query_data_source`, server-tool skills). Without `phase`, this
-      // policy would over-deny every built-in tool call at the pre-check step,
-      // before the dry run ever gets to prove the call actually mutates. Gating on
-      // `phase === 'final'` too — the only phase whose decision is meant to be
-      // acted on for an args-only shape — fixes that.
-      const policy: ToolPolicy = (ctx) => {
-        if (ctx.phase === 'final' && !ctx.proposed) {
-          return { action: 'deny', reason: 'args-only calls are denied' };
-        }
-        return { action: 'allow' };
-      };
+    it('lets a "deny args-only" catch-all target genuine args-only calls without over-denying a mutating built-in', async () => {
+      // The hazard: a host policy implementing "deny every side-effectful call" as
+      // `!ctx.proposed`. When the pre-check consulted the composed policy, this denied
+      // EVERY built-in tool before the dry run could prove the call actually mutates —
+      // read-only ones included. Now the host is consulted once, after the dry run, so
+      // `ctx.proposed` reflects the real shape of the call. No `phase` check needed.
+      const policy: ToolPolicy = (ctx) =>
+        ctx.proposed
+          ? { action: 'allow' }
+          : { action: 'deny', reason: 'args-only calls are denied' };
 
-      // A mutating built-in tool: its pre-check consult is `proposed: undefined` +
-      // `phase: 'pre-check'` — NOT caught by the policy above — so the call proceeds
-      // to the real dry run and is allowed (this tool isn't in DESTRUCTIVE_TOOLS).
       const state = makeTwoWidgetState();
       const mutatingOutcome = await executeToolWithPolicy(
         'set_dashboard_title',

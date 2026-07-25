@@ -296,8 +296,29 @@ export function buildStudioMcpServer(
   // does not bound a session that dispatches an unbounded number of read-only calls
   // (e.g. hundreds of `query_data_source` live DB queries). `onLimitReached('toolCalls', …)`
   // fires once per breach.
+  //
+  // DELIBERATE ASYMMETRY WITH THE CHAT TRANSPORT: `agenticLoop.ts` defaults
+  // `maxToolCallsPerRequest` to `DEFAULT_MAX_TOOL_CALLS_PER_REQUEST` (50) when the host
+  // omits `rateLimit`; MCP defaults BOTH budgets to `undefined`, i.e. no cap. That is
+  // intentional and not an oversight. A chat request is a single bounded turn-taking
+  // exchange, so a per-request ceiling has an obvious right order of magnitude. An MCP
+  // session is a long-lived connection an operator drives interactively for as long as
+  // they like — any session-scoped default would simply wedge the connection partway
+  // through a normal working session, and it would break existing integrations the same
+  // way defaulting `hostToolPolicy` to require-approval would (see the allow-all default
+  // above). So the default here stays "no cap", and hosts that need one set
+  // `rateLimit.maxToolCallsPerSession` / `maxMutationsPerSession` explicitly. Combined
+  // with the allow-all `hostToolPolicy` default, a default-configured MCP session has no
+  // bound on live DB queries or committed mutations — which is the whole reason this is
+  // spelled out here rather than left implicit in two `?? undefined` reads.
   const maxSessionToolCalls = rateLimit?.maxToolCallsPerSession;
-  const sessionToolPolicy: ToolPolicy = Policy.all(
+  // Budget chain, built separately from `hostToolPolicy` so it can also serve as
+  // `executeToolWithPolicy`'s `preCheckPolicy` — see that option. A host policy must
+  // never be consulted in the `'pre-check'` phase: that consult presents
+  // `proposed: undefined` on a call that may well be mutating, which is a false premise
+  // for a host policy (and would invoke it twice per call). A budget is decidable from
+  // the tool name and the usage counters alone, and is idempotent.
+  const sessionBudgetPolicy: ToolPolicy = Policy.all(
     Policy.mutationBudget({
       max: maxSessionMutations,
       getCommitted: () => sessionUsage.committedMutations,
@@ -316,8 +337,11 @@ export function buildStudioMcpServer(
         `${max} tool call${max === 1 ? '' : 's'} (already dispatched ${calls}). ` +
         'This call was not executed.',
     }),
-    hostToolPolicy,
   );
+  // The policy that actually decides each call: budgets first (so an exhausted budget
+  // denies without ever consulting the host), then the host's own. Consulted exactly
+  // once per tool call — see the invocation contract on `ToolPolicy`.
+  const sessionToolPolicy: ToolPolicy = Policy.all(sessionBudgetPolicy, hostToolPolicy);
 
   // Session-scoped log of recent state mutations (oldest first), surfaced via the
   // `get_recent_changes` tool. Only captures changes made through this MCP
@@ -557,6 +581,7 @@ export function buildStudioMcpServer(
     try {
       const outcome = await executeToolWithPolicy(toolName, args ?? {}, stateBox.current, {
         policy: sessionToolPolicy,
+        preCheckPolicy: sessionBudgetPolicy,
         customWidgets,
         transport: 'mcp',
         usage: sessionUsage,
@@ -799,6 +824,7 @@ export function buildStudioMcpServer(
           // box until the policy allows/approves the commit.
           const outcome = await executeToolWithPolicy(toolName, args ?? {}, stateBox.current, {
             policy: sessionToolPolicy,
+            preCheckPolicy: sessionBudgetPolicy,
             customWidgets,
             transport: 'mcp',
             usage: sessionUsage,

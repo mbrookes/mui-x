@@ -623,6 +623,7 @@ function buildDashboardState(
   state: StudioState,
   customWidgets?: StudioCustomWidgetDef[],
   focusedWidgetId?: string,
+  advertisedToolNames?: ReadonlySet<string>,
 ): string {
   const { dashboard, pages, widgets, filters } = state.doc;
   const { dataSources } = state.runtime;
@@ -759,9 +760,30 @@ function buildDashboardState(
         `- ${sanitizeForPromptLine(page.title)} [id: ${sanitizeForPromptLine(page.id)}]: ${widgetSummary}`,
       );
     }
-    lines.push(
-      "Use list_pages for structured access or summarise_page(pageId) to see a page's data without switching to it.",
-    );
+    // Only name a tool the model is actually being offered. `summarise_page` is
+    // advertised only when a client-built `pageSnapshot` was supplied or the host
+    // allow-lists it (`agenticLoop.ts`), and `list_pages` can be excluded via
+    // `allowedTools`/`privateMode` — so an unconditional hint burns a turn, a tool-call
+    // budget unit, and a full conversation re-send on an `Unknown tool` rejection.
+    // `advertisedToolNames` undefined means the caller did not compute an effective tool
+    // set (e.g. the MCP `studio://dashboard/system-prompt` resource, whose surface is
+    // registered elsewhere); both tools are named then, as before.
+    const canList = advertisedToolNames === undefined || advertisedToolNames.has('list_pages');
+    const canSummarise =
+      advertisedToolNames === undefined || advertisedToolNames.has('summarise_page');
+    if (canList) {
+      lines.push('Use list_pages for structured access to any page listed above.');
+    }
+    if (canSummarise) {
+      // Deliberately NOT "without switching to it": on this transport `summarise_page`
+      // reads the request-time data snapshot, which covers ONE page, and rejects any
+      // other `pageId` outright (`executeToolOnState.ts`). Promising cross-page data
+      // access is what makes the model spend a turn discovering the rejection.
+      lines.push(
+        'summarise_page only covers the page this request captured a data snapshot for ' +
+          '(the active page); summarising another page needs a new message.',
+      );
+    }
     lines.push('');
   }
 
@@ -929,6 +951,19 @@ export interface BuildAISystemPromptOptions {
    * @default undefined (section omitted)
    */
   availableDataTools?: string[];
+  /**
+   * The EXACT set of tool names advertised to the model for this request — the same
+   * set the dispatcher enforces at execution time (`ToolDispatchContext.advertisedToolNames`).
+   *
+   * Prompt prose that tells the model to call a specific tool is only correct if that
+   * tool is in the effective set, which `allowedTools`, `privateMode`, the `data` config,
+   * and the `pageSnapshot` gate all narrow. Supplying it lets those hints be gated
+   * instead of assumed; a named-but-unadvertised tool costs the model a turn, a tool-call
+   * budget unit, and a full conversation re-send to discover an `Unknown tool` rejection.
+   *
+   * @default undefined (hints are emitted unconditionally, as before)
+   */
+  advertisedToolNames?: ReadonlySet<string>;
   /**
    * Extra client-derived context (per-field statistics, active-page layout and
    * cross-filter graph, recent user mutations). Rendered as a `<dashboard_context>`
@@ -1139,7 +1174,13 @@ export function buildAISystemPrompt(
   skills?: SerializableSkill[],
   options?: BuildAISystemPromptOptions,
 ): string {
-  const { privateMode = false, availableDataTools, richContext, enrichedContext } = options ?? {};
+  const {
+    privateMode = false,
+    availableDataTools,
+    advertisedToolNames,
+    richContext,
+    enrichedContext,
+  } = options ?? {};
   const dataToolSection =
     availableDataTools && availableDataTools.length > 0
       ? `\n\n## Available data tools\n${availableDataTools.map((t) => `- \`${t}\``).join('\n')}\nUse these to answer data questions. Call describe_data_source first if you need to understand a source's schema and statistics.`
@@ -1148,7 +1189,9 @@ export function buildAISystemPrompt(
     STUDIO_AI_INSTRUCTIONS +
     buildSkillSection(skills) +
     dataToolSection +
-    (privateMode ? '' : `\n\n${buildDashboardState(state, customWidgets, focusedWidgetId)}`) +
+    (privateMode
+      ? ''
+      : `\n\n${buildDashboardState(state, customWidgets, focusedWidgetId, advertisedToolNames)}`) +
     (privateMode ? '' : buildRichContextBlock(richContext, enrichedContext));
 
   // Finding H1e — the aggregate backstop. Truncated (not thrown) because this runs

@@ -66,23 +66,24 @@ export interface ToolPolicyContext {
     effects: ToolEffectSummary;
   };
   /**
-   * Discriminates the two consult shapes that both present `proposed: undefined`,
-   * so a host policy that keys `deny` off `!ctx.proposed` (a plausible "deny all
-   * args-only/side-effectful calls" catch-all) can tell them apart instead of
-   * over-denying one of them:
+   * Discriminates the two consult shapes that both present `proposed: undefined`:
    *
-   *  - `'pre-check'` — the cheap, budget-only consult `executeToolWithPolicy` makes
-   *    BEFORE the expensive pure dry-run of a built-in tool (see the pre-check
-   *    comment further down this file). This is NOT a genuine args-only
-   *    authorization request — the real dry-run, and a second `'final'`-phase
-   *    consult with the real `proposed` value, always follow. A host policy should
-   *    treat `'pre-check'` as budget-only and avoid denying it for reasons that only
-   *    make sense once the real shape of the call is known.
+   *  - `'pre-check'` — the cheap consult `executeToolWithPolicy` makes BEFORE the
+   *    expensive pure dry-run of a built-in tool, and ONLY when the caller supplied
+   *    an explicit `preCheckPolicy` (see that option). A host policy passed as
+   *    `opts.policy` is NEVER consulted in this phase: it is consulted exactly once
+   *    per call, in `'final'`. A policy that DOES receive this phase is one the
+   *    caller nominated as budget-style — decidable from the tool name and the usage
+   *    counters alone, without knowing whether this call proposes a mutation.
    *  - `'final'` — the consult whose decision is actually acted on: either the real
    *    execute-then-gate consult (`proposed` set when the tool mutates) or a genuine
    *    args-only consult via `consultToolPolicyArgsOnly` (`proposed: undefined`
    *    because the tool is inherently side-effectful and must be authorized before
    *    it runs, e.g. `query_data_source`, server-tool skills).
+   *
+   * So a host policy that keys `deny` off `!ctx.proposed` (a plausible "deny all
+   * side-effectful calls" catch-all) sees only genuine args-only consults, and can
+   * never be tripped by the pre-check optimization.
    */
   phase: 'pre-check' | 'final';
   /**
@@ -105,6 +106,18 @@ export type ToolPolicyDecision =
   | { action: 'deny'; reason: string }
   | { action: 'require-approval'; reason?: string };
 
+/**
+ * The host-supplied authorization decision function.
+ *
+ * INVOCATION CONTRACT — a policy passed as `executeToolWithPolicy`/
+ * `consultToolPolicyArgsOnly`'s `opts.policy` is consulted EXACTLY ONCE per tool
+ * call, always with `phase: 'final'`. It therefore does not need to be idempotent:
+ * a policy that audits, meters against an external rate limiter, or writes an
+ * access-log row can do that work inline without double-counting. The separate
+ * `preCheckPolicy` hook (see `executeToolWithPolicy`) is the only thing consulted
+ * twice, and it is caller-supplied rather than host-supplied precisely so this
+ * contract holds.
+ */
 export type ToolPolicy = (
   ctx: ToolPolicyContext,
 ) => ToolPolicyDecision | Promise<ToolPolicyDecision>;
@@ -433,6 +446,29 @@ export async function executeToolWithPolicy(
   state: StudioState,
   opts: {
     policy: ToolPolicy;
+    /**
+     * OPTIONAL budget-only policy consulted BEFORE the pure dry-run, purely as a cost
+     * optimization: `executeToolOnState` can be arbitrarily expensive for built-in read
+     * tools that project/stringify the whole state (e.g. `get_dashboard_state`), and a
+     * call a budget is going to reject anyway gets none of that value back. Only a
+     * `deny` is acted on (short-circuiting the dry-run); `allow`/`require-approval` fall
+     * through to the unchanged path below, since only the real dry-run can supply the
+     * `result`/`effects` those outcomes must carry.
+     *
+     * MUST be decidable from the tool name and the usage counters alone — it is called
+     * with `proposed: undefined` and `phase: 'pre-check'` on a call that may well turn
+     * out to be mutating, so a policy that keys `deny` off `!ctx.proposed` would deny
+     * every built-in tool, including read-only ones, before the dry-run ever ran. It is
+     * also called IN ADDITION to `opts.policy`'s single `'final'` consult, so it must be
+     * idempotent (no auditing, no external metering).
+     *
+     * `opts.policy` — the host's own policy, composed or not — must therefore never be
+     * passed here. Callers build the budget chain (`Policy.mutationBudget` /
+     * `Policy.toolCallBudget`, which satisfy both requirements) separately and pass that.
+     * Omit it entirely to skip the pre-check: the only cost is the wasted dry-run on a
+     * call the budgets would have rejected.
+     */
+    preCheckPolicy?: ToolPolicy;
     customWidgets?: StudioCustomWidgetDef[];
     pageSnapshot?: string;
     /** Page the `pageSnapshot` covers (request-time active page) — see `ToolPlanContext`. */
@@ -443,34 +479,25 @@ export async function executeToolWithPolicy(
 ): Promise<ExecuteToolWithPolicyResult> {
   opts.usage.toolCalls += 1;
 
-  // Finding T2-1 (Tier 2, iteration 25) — cheap pre-check BEFORE the pure dry-run
-  // below. `executeToolOnState` can be arbitrarily expensive for built-in read
-  // tools that project/stringify the whole state (e.g. `get_dashboard_state`), yet
-  // a call the rate-limit budgets are going to reject anyway gets none of that
-  // value back — today the dry-run (and `computeToolEffects`) always ran first,
-  // so a rejected call still paid its full cost. `Policy.toolCallBudget` (and
-  // `Policy.mutationBudget` for a call that isn't itself mutating/`mayMutate`) can
-  // be decided without knowing whether THIS call proposes a mutation, so consult
-  // `opts.policy` once here with `proposed: undefined` — a `deny` from that consult
-  // can only have come from a budget-style check that doesn't need `proposed` (the
-  // effects-aware/name-based host policies never deny — see the PURITY INVARIANT /
-  // `createDefaultToolPolicy` above), so short-circuiting on it costs nothing and
-  // changes no allowed-call behavior. `allow`/`require-approval` from this pre-check
-  // are NOT acted on here: only the real dry-run can supply the `result`/`effects`
-  // those outcomes must carry, so execution falls through to the unchanged path
-  // below, which re-consults the policy with the real `proposed` value exactly as
-  // before.
-  const preDecision = await opts.policy({
-    transport: opts.transport,
-    toolName,
-    input,
-    state,
-    proposed: undefined,
-    phase: 'pre-check',
-    usage: opts.usage,
-  });
-  if (preDecision.action === 'deny') {
-    return { kind: 'denied', reason: preDecision.reason };
+  // Cheap budget-only pre-check BEFORE the pure dry-run — see `opts.preCheckPolicy`.
+  // Deliberately NOT `opts.policy`: the composed policy includes the host's own, and a
+  // host policy is entitled to key its decision off `ctx.proposed` (the `phase` doc on
+  // `ToolPolicyContext` describes exactly that shape), which is `undefined` here on a
+  // call that may well be mutating. Consulting it on that false premise silently bricked
+  // every built-in tool for such a host, and double-invoked every host policy per call.
+  if (opts.preCheckPolicy) {
+    const preDecision = await opts.preCheckPolicy({
+      transport: opts.transport,
+      toolName,
+      input,
+      state,
+      proposed: undefined,
+      phase: 'pre-check',
+      usage: opts.usage,
+    });
+    if (preDecision.action === 'deny') {
+      return { kind: 'denied', reason: preDecision.reason };
+    }
   }
 
   const result = executeToolOnState(

@@ -1314,6 +1314,89 @@ describe('handleAIChat — Tier 1 resource-exhaustion caps (dataSources / richCo
     expect(errorEvent?.message).toMatch(/dataSources\[.*bad.*\]/);
     expect(fetch).not.toHaveBeenCalled();
   });
+
+  // `tableName` is the one field on this entry that LEAVES the package: `resolveSource`
+  // maps a model-supplied `sourceId` onto it and forwards it to the host's
+  // `queryDataSource` as `params.tableName`. On the chat transport `runtime.dataSources`
+  // descends from the client-supplied body, and every consumer checked truthiness only
+  // before casting `as string` — so a non-string reached a Knex host as
+  // `db(params.tableName)`, where an object is an ALIAS MAP that selects whatever table
+  // the caller named. `allowedTables: '*'` short-circuits the allowlist before that could
+  // ever be caught, so the shape has to be rejected at the request boundary.
+  it('rejects a non-string runtime.dataSources[].tableName', async () => {
+    const state = createDefaultStudioState();
+    const body = makeBody({
+      dashboardState: {
+        ...state,
+        runtime: {
+          ...state.runtime,
+          dataSources: {
+            s1: {
+              id: 's1',
+              label: 'x',
+              fields: [],
+              tableName: { orders: 'secrets' },
+            } as unknown as StudioDataSource,
+          },
+        },
+      },
+    });
+
+    const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+    const errorEvent = events.find(
+      (event): event is { type: 'error'; message: string } => event.type === 'error',
+    );
+    expect(errorEvent?.message).toMatch(/^MUI X Studio:/);
+    expect(errorEvent?.message).toMatch(/tableName/);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('rejects an over-long runtime.dataSources[].tableName', async () => {
+    const state = createDefaultStudioState();
+    const body = makeBody({
+      dashboardState: {
+        ...state,
+        runtime: {
+          ...state.runtime,
+          dataSources: {
+            s1: {
+              id: 's1',
+              label: 'x',
+              fields: [],
+              tableName: 't'.repeat(201),
+            } as unknown as StudioDataSource,
+          },
+        },
+      },
+    });
+
+    const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+    const errorEvent = events.find(
+      (event): event is { type: 'error'; message: string } => event.type === 'error',
+    );
+    expect(errorEvent?.message).toMatch(/tableName/);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('accepts a plain-string tableName, and an entry with none at all', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(textResponse('ok'));
+    const state = createDefaultStudioState();
+    const body = makeBody({
+      dashboardState: {
+        ...state,
+        runtime: {
+          ...state.runtime,
+          dataSources: {
+            s1: { id: 's1', label: 'x', fields: [], tableName: 'orders' } as StudioDataSource,
+            s2: { id: 's2', label: 'y', fields: [] } as StudioDataSource,
+          },
+        },
+      },
+    });
+
+    const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+    expect(events.find((event) => event.type === 'error')).toBeUndefined();
+  });
 });
 
 // Tier 1 architecture-review finding: `customWidgets[].kind` had no string-length

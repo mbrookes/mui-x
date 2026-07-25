@@ -13,10 +13,11 @@ import {
   executeToolWithPolicy,
   type ToolPolicy,
   type ToolEffectSummary,
+  type ConsultToolPolicyArgsOnlyResult,
 } from '../toolPolicy';
 import type { StudioAISSEEvent, ApprovalEffectsSummary } from '../models/protocol';
 import { createDataToolHandlers } from '../mcp/dataTools';
-import { withTimeout } from '../mcp/helpers';
+import { redactedHostErrorMessage, safeIdentifier, withTimeout } from '../mcp/helpers';
 import type { AccumulatedToolCall } from './openaiWire';
 
 /** Default cap on rows `query_data_source` may request, mirroring `mcp.ts`'s default. */
@@ -197,6 +198,15 @@ export interface ToolDispatchContext {
    */
   toolPolicy: ToolPolicy;
   /**
+   * The budget half of `toolPolicy` (mutation + tool-call budgets) WITHOUT the host
+   * policy, forwarded as `executeToolWithPolicy`'s `preCheckPolicy` so a call the
+   * budgets will reject skips the expensive pure dry-run. Kept separate because that
+   * pre-check consult presents `proposed: undefined` on a call that may well be
+   * mutating — a false premise for a host policy, but not for a budget. Optional: omit
+   * to skip the pre-check entirely (correct, just less efficient).
+   */
+  budgetPolicy?: ToolPolicy;
+  /**
    * Mutable per-request usage counters, threaded into the policy context and
    * incremented as tools run/commit. `committedMutations` is bumped only when a
    * mutation is actually committed (never for a denied/timed-out/aborted approval).
@@ -213,8 +223,94 @@ export type ToolDispatchOutcome =
   | { kind: 'aborted' }
   | { kind: 'result'; output: string; nextState?: StudioState };
 
-function toError(err: unknown): Error {
-  return err instanceof Error ? err : /* minify-error-disabled */ new Error(String(err));
+/**
+ * Turns a failure that crossed the HOST boundary into a model- and browser-safe
+ * message.
+ *
+ * Every failure this dispatcher can catch comes from code outside this package: a
+ * host `toolPolicy` (which the docs invite hosts to back with a per-tenant rules
+ * table — i.e. a live DB call), a host-registered server-tool skill's `execute`, or
+ * the host's `queryDataSource`. Their messages routinely carry credentials
+ * (`password authentication failed for user "studio_ro"`), the failing SQL with its
+ * bindings, and internal hostnames — and on THIS transport a tool result is not a
+ * one-shot value: `agenticLoop.ts` appends it to `currentMessages` and re-sends it
+ * to the provider on every remaining turn, and forwards it to the browser inside the
+ * `tool-activity` SSE event. Relaying it verbatim breaks the invariant
+ * `ARCHITECTURE.md` states for the MCP transport ("error text that crossed the host
+ * boundary is never relayed to the model or the browser"); this is that invariant's
+ * chat-transport half.
+ *
+ * `redactedHostErrorMessage` is the single chokepoint that upholds it: the full
+ * detail goes to the logger sink under a short correlation reference, and only a
+ * generic, bounded sentence carrying that reference is returned. Errors this package
+ * authored — currently a `withTimeout` deadline, branded via
+ * `internal/packageError.ts` — are relayed verbatim by that helper, so "the call
+ * hung" stays distinguishable from "the host rejected it".
+ *
+ * `ctx.onToolError` is the one server-side error channel the chat transport has, so
+ * it doubles as the logger sink — the same wiring the `query_data_source` branch
+ * below already uses for `createDataToolHandlers`. `toolName` is routed through
+ * `safeIdentifier` before being interpolated into the returned prose because the
+ * advertised tool set can include client-declared server-tool skill names.
+ */
+function redactedHostError(
+  toolName: string,
+  context: string,
+  err: unknown,
+  ctx: ToolDispatchContext,
+): string {
+  return redactedHostErrorMessage(context, err, {
+    log: () => {},
+    error: (...args: unknown[]) => {
+      ctx.onToolError?.(
+        toolName,
+        /* minify-error-disabled */ new Error(args.map((a) => String(a)).join(' ')),
+      );
+    },
+  });
+}
+
+/**
+ * Runs the args-only policy consult for a side-effectful tool, converting a THROW
+ * from the host policy into a `denied` outcome instead of letting it escape.
+ *
+ * `Policy.all` awaits the host policy with no try/catch, so a host policy that
+ * throws (its per-tenant rules table is behind a dropped DB connection) used to
+ * reject out of `dispatchToolCall`, out of the `while (true) { await dispatch.next()
+ * }` driver in `agenticLoop.ts` — whose enclosing try covers only the SSE read loop,
+ * which has already exited by then — out of `runAgenticLoop` entirely, and was
+ * caught only by `handleAIChat`'s outer catch, which relayed the raw host message
+ * AND terminated the whole stream. Both halves were wrong: the documented contract
+ * is that a policy failure surfaces as a RECOVERABLE tool result, and host error
+ * text is never relayed. Failing closed (denied, redacted) upholds both — the model
+ * gets a correlation id it can report, the operator gets the detail, and the loop
+ * continues.
+ */
+async function consultToolPolicyArgsOnlyGuarded(
+  toolName: string,
+  toolInput: unknown,
+  currentState: StudioState,
+  ctx: ToolDispatchContext,
+  mayMutate: boolean,
+): Promise<ConsultToolPolicyArgsOnlyResult> {
+  try {
+    return await consultToolPolicyArgsOnly(toolName, toolInput, currentState, {
+      policy: ctx.toolPolicy,
+      transport: 'chat',
+      usage: ctx.usage,
+      ...(mayMutate ? { mayMutate: true } : {}),
+    });
+  } catch (policyErr) {
+    return {
+      kind: 'denied',
+      reason: redactedHostError(
+        toolName,
+        `the tool policy check for "${safeIdentifier(toolName)}"`,
+        policyErr,
+        ctx,
+      ),
+    };
+  }
 }
 
 /**
@@ -516,13 +612,10 @@ export async function* dispatchToolCall(
     // policy must be consulted args-only (`proposed: undefined`) BEFORE it runs —
     // never as a post-hoc dry-run. See the purity invariant in `toolPolicy.ts`.
     // `mayMutate: true` — a skill's `execute` may return a mutation, so it counts
-    // against the mutation budget exactly like a built-in mutating tool.
-    const gate = await consultToolPolicyArgsOnly(name, toolInput, currentState, {
-      policy: ctx.toolPolicy,
-      transport: 'chat',
-      usage: ctx.usage,
-      mayMutate: true,
-    });
+    // against the mutation budget exactly like a built-in mutating tool. A throw from
+    // the host policy becomes a redacted `denied` rather than escaping the loop; see
+    // `consultToolPolicyArgsOnlyGuarded`.
+    const gate = await consultToolPolicyArgsOnlyGuarded(name, toolInput, currentState, ctx, true);
     if (gate.kind === 'denied') {
       return { kind: 'result', output: JSON.stringify({ error: gate.reason }) };
     }
@@ -559,9 +652,21 @@ export async function* dispatchToolCall(
       }
       return { kind: 'result', output: result.output, nextState: result.nextState };
     } catch (skillErr) {
-      const skillError = toError(skillErr);
-      ctx.onToolError?.(name, skillError);
-      return { kind: 'result', output: JSON.stringify({ error: skillError.message }) };
+      // A server-tool skill's `execute` is HOST code: its throw is exactly as likely
+      // to carry credentials, SQL, and internal hostnames as a driver error, so it is
+      // redacted rather than relayed. The `withTimeout` deadline above is
+      // package-authored and still reaches the model verbatim.
+      return {
+        kind: 'result',
+        output: JSON.stringify({
+          error: redactedHostError(
+            name,
+            `the server-tool skill "${safeIdentifier(name)}"`,
+            skillErr,
+            ctx,
+          ),
+        }),
+      };
     }
   }
 
@@ -584,19 +689,22 @@ export async function* dispatchToolCall(
   // This branch is therefore FAIL-CLOSED by default (finding F1): when the host has
   // not configured `StudioAIDataConfig.allowedTables`, it refuses to resolve any
   // source rather than trusting the client-supplied catalog. A host opts in with an
-  // explicit `allowedTables` array (validated inside `resolveSource`), or with the
-  // literal `'*'` sentinel to explicitly allow all tables (e.g. when its own
-  // `queryDataSource` implementation independently re-derives the physical table and
-  // ignores `params.tableName`).
+  // explicit `allowedTables` array (validated inside `resolveSource`).
+  //
+  // The literal `'*'` sentinel skips that check entirely, and means exactly ONE thing:
+  // the host's `queryDataSource` implementation independently re-derives the physical
+  // table from its own server-held mapping and IGNORES `params.tableName`. It is not a
+  // "this deployment is trusted" switch — the untrusted input here is the request body,
+  // not the operator — so a host that sets `'*'` while still passing `params.tableName`
+  // to its query builder has removed the only check standing between a hostile body and
+  // an arbitrary table its DB connection can reach.
   if (name === 'query_data_source') {
     // `query_data_source` is SIDE-EFFECTFUL (runs a live query) but never mutates
     // dashboard state, so the policy is consulted args-only BEFORE it runs
-    // (`mayMutate` omitted), never as a post-hoc dry-run.
-    const gate = await consultToolPolicyArgsOnly(name, toolInput, currentState, {
-      policy: ctx.toolPolicy,
-      transport: 'chat',
-      usage: ctx.usage,
-    });
+    // (`mayMutate` omitted), never as a post-hoc dry-run. A throw from the host policy
+    // becomes a redacted `denied` rather than escaping the loop; see
+    // `consultToolPolicyArgsOnlyGuarded`.
+    const gate = await consultToolPolicyArgsOnlyGuarded(name, toolInput, currentState, ctx, false);
     if (gate.kind === 'denied') {
       return { kind: 'result', output: JSON.stringify({ error: gate.reason }) };
     }
@@ -634,16 +742,16 @@ export async function* dispatchToolCall(
         // innocuous `sourceId` at any table the DB connection can reach and have the
         // model query it. Refuse to resolve ANY source until the host declares its
         // intent — an explicit `allowedTables` array, or the literal `'*'` opt-out for a
-        // trusted setup / a `queryDataSource` that re-derives the physical table itself.
-        // The MCP transport (server-held state) is unaffected: it never routes through
-        // this dispatch branch.
+        // `queryDataSource` that re-derives the physical table itself. The MCP transport
+        // (server-held state) is unaffected: it never routes through this dispatch branch.
         output = JSON.stringify({
           error:
             'query_data_source is disabled: this server has not configured a table allowlist. ' +
             'On the chat transport the data-source catalog comes from the client-supplied request, ' +
             'so tables cannot be resolved safely without one. The host must set ' +
-            '`StudioAIDataConfig.allowedTables` to the tables the assistant may query (or to the ' +
-            "literal '*' to explicitly allow all tables in a trusted setup).",
+            '`StudioAIDataConfig.allowedTables` to the tables the assistant may query, or to the ' +
+            "literal '*' — which is only safe when its `queryDataSource` implementation re-derives " +
+            'the physical table from server-held configuration and ignores `params.tableName`.',
         });
       } else {
         // `createDataToolHandlers` redacts a host/DB failure (finding H4): it writes the
@@ -682,9 +790,13 @@ export async function* dispatchToolCall(
         }
       }
     } catch (queryErr) {
-      const queryError = toError(queryErr);
-      ctx.onToolError?.(name, queryError);
-      output = JSON.stringify({ error: queryError.message });
+      // Anything escaping the handler above crossed the host boundary (a rejected
+      // `data.queryDataSource`, a driver error) or is the package-authored
+      // `withTimeout` deadline. `redactedHostError` withholds the former behind a
+      // correlation reference and relays the latter verbatim.
+      output = JSON.stringify({
+        error: redactedHostError(name, 'query_data_source', queryErr, ctx),
+      });
     }
     return { kind: 'result', output };
   }
@@ -718,6 +830,7 @@ export async function* dispatchToolCall(
   try {
     outcome = await executeToolWithPolicy(name, toolInput, currentState, {
       policy: ctx.toolPolicy,
+      preCheckPolicy: ctx.budgetPolicy,
       customWidgets: ctx.customWidgets,
       pageSnapshot: ctx.pageSnapshot,
       snapshotPageId: ctx.snapshotPageId,
@@ -725,9 +838,18 @@ export async function* dispatchToolCall(
       usage: ctx.usage,
     });
   } catch (err) {
-    const toolErr = toError(err);
-    ctx.onToolError?.(name, toolErr);
-    return { kind: 'result', output: JSON.stringify({ error: toolErr.message }) };
+    // `executeToolOnState` is pure and never throws by design, so anything caught here
+    // is either a throw from the HOST `toolPolicy` (`Policy.all` awaits it with no
+    // try/catch) or an internal defect. Neither is safe to relay: the first is host
+    // code whose message leaks exactly like a driver error, and the second is a raw
+    // stack-bearing `TypeError`. Both are redacted, and the call still surfaces to the
+    // model as a recoverable tool result rather than killing the stream.
+    return {
+      kind: 'result',
+      output: JSON.stringify({
+        error: redactedHostError(name, `the tool "${safeIdentifier(name)}"`, err, ctx),
+      }),
+    };
   }
 
   if (outcome.kind === 'denied') {

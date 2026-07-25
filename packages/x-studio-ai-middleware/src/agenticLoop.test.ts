@@ -1591,8 +1591,10 @@ describe('runAgenticLoop — server-tool skill execution', () => {
       ),
     );
 
+    // A skill's `execute` is HOST code: the full detail goes to the server-side
+    // `onToolError` channel...
     expect(onToolError).toHaveBeenCalledExactlyOnceWith('greet_user', expect.any(Error));
-    expect((onToolError.mock.calls[0][1] as Error).message).toBe('skill blew up');
+    expect((onToolError.mock.calls[0][1] as Error).message).toMatch(/skill blew up/);
 
     // No mutation was applied — the loop didn't crash on the throw.
     expect(events.some((ev) => (ev as { type: string }).type === 'state-mutation')).toBe(false);
@@ -1604,7 +1606,12 @@ describe('runAgenticLoop — server-tool skill execution', () => {
         (ev as { phase?: string }).phase === 'complete',
     ) as { output?: string } | undefined;
     expect(complete).toBeDefined();
-    expect(JSON.parse(complete!.output!)).toEqual({ error: 'skill blew up' });
+    // ...and the message the model and the browser see carries only a correlation
+    // reference, never the host's own error text (ARCHITECTURE.md: "error text that
+    // crossed the host boundary is never relayed to the model or the browser").
+    const skillError = (JSON.parse(complete!.output!) as { error: string }).error;
+    expect(skillError).not.toMatch(/skill blew up/);
+    expect(skillError).toMatch(/reference "/);
 
     // The generator did not crash: it fed the error back to the model and finished.
     expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
@@ -2571,5 +2578,74 @@ describe('runAgenticLoop — tool policy chokepoint', () => {
     expect(completes.some((ev) => /budget exceeded/i.test(String(ev.output)))).toBe(true);
 
     expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
+  });
+
+  // A host `toolPolicy` can REJECT, not just deny — the documented use case is a
+  // per-tenant rules table, and DB connections drop. `Policy.all` awaits the host
+  // policy with no try/catch, so on the two args-only consult sites
+  // (`query_data_source`, server-tool skills) the rejection used to escape
+  // `dispatchToolCall`, escape the `while (true) { await dispatch.next() }` driver
+  // below (the enclosing try around the SSE read loop has already exited by then),
+  // escape `runAgenticLoop` entirely, and be caught only by `handleAIChat`'s outer
+  // catch — killing the whole stream and relaying the host's raw message to the
+  // browser. This is the end-to-end proof that neither happens any more.
+  it('keeps the stream alive and redacts the message when the host toolPolicy throws', async () => {
+    const queryDataSource = vi.fn(async () => ({ rows: [{ a: 1 }], rowCount: 1 }));
+    const onToolError = vi.fn();
+    const throwingPolicy: ToolPolicy = () => {
+      throw new Error('password authentication failed for user "studio_ro"');
+    };
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('query_data_source', { sourceId: 'src1' }))
+      .mockResolvedValueOnce(textResponse('recovered', 10, 5));
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Run a query')],
+        STATE_WITH_SOURCE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          ...BASE_OPTIONS,
+          data: { queryDataSource, allowedTables: '*' },
+          toolPolicy: throwingPolicy,
+          onToolError,
+        },
+      ),
+    );
+
+    // Fail closed: the authorizer broke, so the live query never ran.
+    expect(queryDataSource).not.toHaveBeenCalled();
+
+    // The loop recovered — a policy failure is a tool result, not the end of the stream.
+    expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
+    expect(events.some((ev) => (ev as { type: string }).type === 'error')).toBe(false);
+
+    const complete = events.find(
+      (ev) =>
+        (ev as { type: string }).type === 'tool-activity' &&
+        (ev as { phase?: string }).phase === 'complete',
+    ) as { output?: string } | undefined;
+    expect(complete).toBeDefined();
+    const relayed = (JSON.parse(complete!.output!) as { error: string }).error;
+    expect(relayed).not.toMatch(/studio_ro/);
+    expect(relayed).toMatch(/reference "/);
+
+    // The same redacted text — never the host's own — is what gets re-sent to the
+    // provider on the next turn.
+    const secondBody = JSON.parse(vi.mocked(fetch).mock.calls[1][1]!.body as string) as {
+      messages: { role: string; content: string }[];
+    };
+    const toolMsg = secondBody.messages.find((m) => m.role === 'tool');
+    expect(toolMsg?.content).not.toMatch(/studio_ro/);
+
+    // The operator still gets the real detail, server-side.
+    expect(onToolError).toHaveBeenCalled();
+    expect(
+      onToolError.mock.calls.some((call) => /studio_ro/.test((call[1] as Error).message)),
+    ).toBe(true);
   });
 });

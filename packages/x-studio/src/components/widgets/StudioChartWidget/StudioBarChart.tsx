@@ -146,6 +146,20 @@ export function StudioBarChart({
 }: StudioBarChartProps) {
   const isHorizontalBarLayout = barLayout === 'horizontal';
 
+  // Series hidden via legend clicks (`toggleVisibilityOnClick` on the legend slot).
+  // Held here rather than in the widget's persisted config so it stays a transient
+  // view-time interaction, like hover/highlight — reloading the dashboard shows every
+  // series again. Controlled (rather than left to the chart's internal state) because
+  // the 100% variants must recompute their percentage basis from the visible series
+  // only; see `totals100` below.
+  const [hiddenItems, setHiddenItems] = React.useState<NonNullable<BarChartProps['hiddenItems']>>(
+    [],
+  );
+  const hiddenSeriesIds = React.useMemo(
+    () => new Set(hiddenItems.map((item) => item.seriesId)),
+    [hiddenItems],
+  );
+
   // Densified (temporal-gap-filled) bar data. Computed as memos so they only run when a bar
   // chart actually mounts (the orchestrator used to compute these unconditionally for every
   // chart type).
@@ -350,7 +364,10 @@ export function StudioBarChart({
     const totals100 = is100
       ? effectiveMultiYData.labels.map((_, li) =>
           effectiveMultiYData.series.reduce<number>(
-            (sum, ms) => sum + ((ms.values[li] ?? 0) as number),
+            (sum, ms, si) =>
+              hiddenSeriesIds.has(`${ms.fieldId}-${si}`)
+                ? sum
+                : sum + ((ms.values[li] ?? 0) as number),
             0,
           ),
         )
@@ -510,9 +527,12 @@ export function StudioBarChart({
               }
             }}
             sx={{ cursor: 'default' }}
+            hiddenItems={hiddenItems}
+            onHiddenItemsChange={setHiddenItems}
             slots={multiYBarContext ? { bar: CrossFilterGhostBar } : undefined}
             slotProps={{
               legend: {
+                toggleVisibilityOnClick: true,
                 sx: {
                   overflowY: 'auto',
                   flexWrap: 'nowrap',
@@ -549,7 +569,10 @@ export function StudioBarChart({
     const totals100 = is100
       ? effectiveSFData.labels.map((_, i) =>
           effectiveSFData.seriesNames.reduce<number>(
-            (sum, name) => sum + ((effectiveSFData.seriesData[name][i] ?? 0) as number),
+            (sum, name) =>
+              hiddenSeriesIds.has(String(name))
+                ? sum
+                : sum + ((effectiveSFData.seriesData[name][i] ?? 0) as number),
             0,
           ),
         )
@@ -700,9 +723,12 @@ export function StudioBarChart({
               }
             }}
             sx={{ cursor: 'default' }}
+            hiddenItems={hiddenItems}
+            onHiddenItemsChange={setHiddenItems}
             slots={sfBarContext ? { bar: CrossFilterGhostBar } : undefined}
             slotProps={{
               legend: {
+                toggleVisibilityOnClick: true,
                 sx: {
                   overflowY: 'auto',
                   flexWrap: 'nowrap',
@@ -908,6 +934,7 @@ export function StudioBarChart({
             slots={singleBarSlots}
             slotProps={{
               legend: {
+                toggleVisibilityOnClick: true,
                 sx: {
                   overflowY: 'auto',
                   flexWrap: 'nowrap',

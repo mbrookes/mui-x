@@ -140,6 +140,7 @@ export function StudioScatterChart({
         yAxis={[{ label: yAxisLabel }]}
         slotProps={{
           legend: {
+            toggleVisibilityOnClick: true,
             sx: {
               overflowY: 'auto',
               flexWrap: 'nowrap',

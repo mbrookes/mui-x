@@ -137,6 +137,17 @@ export function StudioLineAreaChart({
   const createLineXAxis = (labels: (string | number)[], axisId?: string) =>
     createLineXAxisConfig(labels, xGroupBy, formatLabel, axisId);
 
+  // Series hidden via legend clicks — transient view state, not persisted config (same
+  // rationale as StudioBarChart). Controlled so `area-100` can recompute its percentage
+  // basis from the visible series only; see `totals100` below.
+  const [hiddenItems, setHiddenItems] = React.useState<NonNullable<LineChartProps['hiddenItems']>>(
+    [],
+  );
+  const hiddenSeriesIds = React.useMemo(
+    () => new Set(hiddenItems.map((item) => item.seriesId)),
+    [hiddenItems],
+  );
+
   // Highlightable series ids: the split-by names, the multi-Y series ids, or the single
   // cross-filter series. Computed locally since this component owns the series shape and
   // gates hover highlighting itself (rather than receiving a pre-gated item).
@@ -191,7 +202,10 @@ export function StudioLineAreaChart({
     const totals100 = is100
       ? seriesFieldData.labels.map((_, i) =>
           seriesFieldData.seriesNames.reduce<number>(
-            (sum, name) => sum + ((seriesFieldData.seriesData[name][i] ?? 0) as number),
+            (sum, name) =>
+              hiddenSeriesIds.has(String(name))
+                ? sum
+                : sum + ((seriesFieldData.seriesData[name][i] ?? 0) as number),
             0,
           ),
         )
@@ -280,8 +294,11 @@ export function StudioLineAreaChart({
             }
           }}
           sx={{ cursor: 'default' }}
+          hiddenItems={hiddenItems}
+          onHiddenItemsChange={setHiddenItems}
           slotProps={{
             legend: {
+              toggleVisibilityOnClick: true,
               sx: {
                 overflowY: 'auto',
                 flexWrap: 'nowrap',
@@ -418,6 +435,7 @@ export function StudioLineAreaChart({
           sx={{ cursor: 'default' }}
           slotProps={{
             legend: {
+              toggleVisibilityOnClick: true,
               sx: {
                 overflowY: 'auto',
                 flexWrap: 'nowrap',
@@ -573,6 +591,7 @@ export function StudioLineAreaChart({
         sx={{ cursor: 'default' }}
         slotProps={{
           legend: {
+            toggleVisibilityOnClick: true,
             sx: {
               overflowY: 'auto',
               flexWrap: 'nowrap',

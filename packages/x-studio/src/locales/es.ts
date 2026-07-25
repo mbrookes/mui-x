@@ -405,6 +405,26 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   exprInputLabelGeneric: (index) => `Entrada ${index}`,
   exprAddInputButton: 'Agregar entrada',
   exprOutputTypeLabel: 'Tipo de salida:',
+  exprRootNodeLabel: 'Expresión',
+  exprLiteralValueAriaLabel: 'Valor literal',
+  exprUnnamedFieldLabel: 'Sin nombre',
+  exprPreviewNullLabel: 'null',
+
+  // Expression validation errors
+  exprErrorMissingId: 'El campo calculado debe tener un identificador.',
+  exprErrorMissingLabel: 'El campo calculado debe tener un nombre.',
+  exprErrorMissingSourceId: 'El campo calculado debe estar asociado a una fuente de datos.',
+  exprErrorMaxDepth: (maxDepth) => `La expresión está anidada más de ${maxDepth} niveles.`,
+  exprErrorUnknownField: (fieldId) =>
+    `No se encontró el campo «${fieldId}» ni en los campos de la fuente ni en los campos calculados.`,
+  exprErrorUnreachableField: (fieldId, fieldSourceId) =>
+    `El campo «${fieldId}» pertenece a la fuente de datos «${fieldSourceId}», que no está relacionada con la fuente de datos de este campo.`,
+  exprErrorMalformedNode:
+    'Nodo de expresión no válido: se esperaba un nodo de operador (con un array `inputs`), un valor literal, una referencia a un campo o una referencia a un campo de unión.',
+  exprErrorInsufficientArity: (operator, required, actual) =>
+    `El operador «${operator}» requiere al menos ${required} entrada(s); se recibieron ${actual}.`,
+  exprErrorCircularDependency: (fieldId) =>
+    `El campo calculado «${fieldId}» crea una dependencia circular.`,
 
   // Shared aggregation function labels
   aggFnSum: 'Suma',

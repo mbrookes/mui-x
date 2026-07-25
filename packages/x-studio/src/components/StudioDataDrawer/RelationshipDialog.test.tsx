@@ -186,6 +186,36 @@ describe('RelationshipDialog', () => {
     expect(junctionSourceSelect.textContent?.replace(/\u200B/g, '')).toBe('');
   });
 
+  // The Target Select omits whatever Source currently is. Changing Source to the data source
+  // that is already the Target left `form.targetId` pointing at an option that no longer
+  // existed, so the control blanked itself (with an out-of-range warning) even though the
+  // value was still in form state. It now keeps the selected value listed, exactly like the
+  // junction Select, and `isValid` is what blocks the save.
+  it('keeps the Target select rendering its value when Source is changed to the current Target', async () => {
+    const { user } = setup({ initial: VALID_FORM });
+    expect(screen.getByRole('button', { name: 'Update' })).toHaveProperty('disabled', false);
+
+    // combobox order: type(0), source(1), sourceField(2), target(3), targetField(4).
+    const sourceSelect = screen.getAllByRole('combobox')[1];
+    await user.click(sourceSelect);
+    await user.click(within(screen.getByRole('listbox')).getByText('Customers'));
+
+    const targetSelect = screen.getAllByRole('combobox')[3];
+    expect(targetSelect.textContent?.replace(/\u200B/g, '')).toBe('Customers');
+    // The degenerate self-join still can't be saved.
+    expect(screen.getByRole('button', { name: 'Update' })).toHaveProperty('disabled', true);
+  });
+
+  it('still omits the source from the Target options when they differ', async () => {
+    const { user } = setup({ initial: VALID_FORM });
+
+    const targetSelect = screen.getAllByRole('combobox')[3];
+    await user.click(targetSelect);
+    const listbox = screen.getByRole('listbox');
+    expect(within(listbox).queryByText('Orders')).toBe(null);
+    expect(within(listbox).getByText('Products')).not.toBe(null);
+  });
+
   it('clears the junction trio when the target is changed to collide with it', async () => {
     const { user } = setup({ initial: VALID_M2M_FORM });
     expect(screen.getByRole('button', { name: 'Update' })).toHaveProperty('disabled', false);

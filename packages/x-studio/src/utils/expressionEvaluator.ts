@@ -863,10 +863,62 @@ function inferExpressionTypeInternal(
 
 // ─── Validation ───────────────────────────────────────────────────────────────
 
-interface ExpressionValidationError {
+/** Machine-readable identity of every error this module can report. */
+export type ExpressionValidationErrorCode =
+  | 'missingId'
+  | 'missingLabel'
+  | 'missingSourceId'
+  | 'maxDepth'
+  | 'unknownField'
+  | 'unreachableField'
+  | 'malformedNode'
+  | 'insufficientArity'
+  | 'circularDependency';
+
+interface ExpressionValidationErrorBase {
+  /**
+   * English fallback text. Kept on every error so non-UI callers (tests, host integrations,
+   * logs) still get a readable message, but the DIALOG must render the `code`-derived
+   * `localeText` string instead — this field is the one place in the expression editor that
+   * would otherwise bypass localization.
+   */
   message: string;
   /** Expression path for nested errors, e.g. ['inputs', '0', 'inputs', '1'] */
   path?: string[];
+}
+
+/**
+ * A validation failure, carrying both a stable `code` (+ its interpolation operands as named
+ * fields) and an English `message`. The code/operand split is what lets the UI localize the
+ * banner: `StudioExpressionFieldDialog` switches on `code` to pick a `StudioLocaleText`
+ * template and feeds it the same operands used to build `message`.
+ */
+export type ExpressionValidationError = ExpressionValidationErrorBase &
+  (
+    | { code: 'missingId' | 'missingLabel' | 'missingSourceId' | 'malformedNode' }
+    | { code: 'maxDepth'; maxDepth: number }
+    | { code: 'unknownField'; fieldId: string }
+    | { code: 'unreachableField'; fieldId: string; fieldSourceId: string }
+    | { code: 'insufficientArity'; operator: string; required: number; actual: number }
+    | { code: 'circularDependency'; fieldId: string }
+  );
+
+export interface ValidateExpressionFieldOptions {
+  /**
+   * The set of data source IDs reachable from `exprField.sourceId` (itself included) via
+   * declared relationships — normally `getReachableSourceIds(sourceId, relationships)`.
+   *
+   * When provided, a reference to an expression field owned by a source OUTSIDE this set is
+   * rejected: at evaluation time such a field runs against the *referencing* source's rows,
+   * which don't carry its columns, so it silently computes `null`/`NaN` for every row. The
+   * operand picker already hides those fields; this is the same rule applied to expressions
+   * that never went through the picker (persisted docs, AI-authored fields, hosts calling the
+   * controller directly).
+   *
+   * When omitted the check does not run, so callers with no relationship graph on hand keep
+   * the previous behavior.
+   */
+  reachableSourceIds?: ReadonlySet<string>;
 }
 
 /**
@@ -877,17 +929,18 @@ export function validateExpressionField(
   exprField: StudioExpressionField,
   allExpressionFields: StudioExpressionField[],
   sourceFields: StudioDataField[],
+  options: ValidateExpressionFieldOptions = {},
 ): ExpressionValidationError[] {
   const errors: ExpressionValidationError[] = [];
 
   if (!exprField.id) {
-    errors.push({ message: 'Expression field must have an id.' });
+    errors.push({ code: 'missingId', message: 'Expression field must have an id.' });
   }
   if (!exprField.label) {
-    errors.push({ message: 'Expression field must have a label.' });
+    errors.push({ code: 'missingLabel', message: 'Expression field must have a label.' });
   }
   if (!exprField.sourceId) {
-    errors.push({ message: 'Expression field must have a sourceId.' });
+    errors.push({ code: 'missingSourceId', message: 'Expression field must have a sourceId.' });
   }
 
   const cycleErrors = detectCycles(exprField, allExpressionFields);
@@ -899,6 +952,7 @@ export function validateExpressionField(
     sourceFields,
     [],
     0,
+    options.reachableSourceIds,
   );
   errors.push(...exprErrors);
 
@@ -911,6 +965,7 @@ function validateExpression(
   sourceFields: StudioDataField[],
   path: string[],
   depth: number,
+  reachableSourceIds: ReadonlySet<string> | undefined,
 ): ExpressionValidationError[] {
   const errors: ExpressionValidationError[] = [];
 
@@ -919,6 +974,8 @@ function validateExpression(
   // should be rejected outright, and recursing further would overflow the stack.
   if (depth > MAX_EXPRESSION_DEPTH) {
     errors.push({
+      code: 'maxDepth',
+      maxDepth: MAX_EXPRESSION_DEPTH,
       message: `Expression is nested more than ${MAX_EXPRESSION_DEPTH} levels deep.`,
       path,
     });
@@ -934,7 +991,29 @@ function validateExpression(
     const computed = expressionFields.find((ef) => ef.id === expr.id);
     if (!physical && !computed) {
       errors.push({
+        code: 'unknownField',
+        fieldId: expr.id,
         message: `Field "${expr.id}" not found in source fields or expression fields.`,
+        path,
+      });
+    } else if (
+      !physical &&
+      computed &&
+      reachableSourceIds &&
+      !reachableSourceIds.has(computed.sourceId)
+    ) {
+      // The reference resolves, but only to an expression field owned by an unrelated data
+      // source. `evaluateExpression` would evaluate that field's own definition against the
+      // referencing source's rows — rows that don't carry its columns — so every value comes
+      // out `null`/`NaN` and the failure is indistinguishable from empty data. Reject it here
+      // so the dialog can't save it and a persisted/AI-authored one is reported on open.
+      errors.push({
+        code: 'unreachableField',
+        fieldId: expr.id,
+        fieldSourceId: computed.sourceId,
+        message:
+          `Field "${expr.id}" belongs to data source "${computed.sourceId}", which is not ` +
+          `related to this field's data source.`,
         path,
       });
     }
@@ -948,6 +1027,7 @@ function validateExpression(
 
   if (!isFunctionExpression(expr)) {
     errors.push({
+      code: 'malformedNode',
       message:
         'Expression node is malformed: expected an operator node (with an `inputs` array), a ' +
         'literal value, a field reference, or a join-field reference.',
@@ -988,6 +1068,10 @@ function validateExpression(
   const required = minArity[operator] ?? 1;
   if (inputs.length < required) {
     errors.push({
+      code: 'insufficientArity',
+      operator,
+      required,
+      actual: inputs.length,
       message: `Operator "${operator}" requires at least ${required} input(s), got ${inputs.length}.`,
       path,
     });
@@ -1001,6 +1085,7 @@ function validateExpression(
       sourceFields,
       [...path, 'inputs', String(i)],
       depth + 1,
+      reachableSourceIds,
     );
     errors.push(...childErrors);
   }
@@ -1067,6 +1152,8 @@ function detectCycles(
   if (dfs(startField.id)) {
     return [
       {
+        code: 'circularDependency',
+        fieldId: startField.id,
         message: `Expression field "${startField.id}" creates a circular dependency.`,
       },
     ];

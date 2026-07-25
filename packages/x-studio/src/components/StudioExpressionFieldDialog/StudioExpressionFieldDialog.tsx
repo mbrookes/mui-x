@@ -23,7 +23,11 @@ import type {
   StudioFunctionExpression,
 } from '../../models';
 import { useStudioController, useStudioLocaleText } from '../../context';
-import { validateExpressionField, inferExpressionType } from '../../utils/expressionEvaluator';
+import {
+  validateExpressionField,
+  inferExpressionType,
+  type ExpressionValidationError,
+} from '../../utils/expressionEvaluator';
 import { StudioDrawerErrorBoundary } from '../../internals/StudioDrawerErrorBoundary';
 import { ExpressionBuilder } from './ExpressionNodeEditor';
 import { ExpressionPreview } from './ExpressionPreview';
@@ -46,14 +50,61 @@ export interface StudioExpressionFieldDialogProps {
    */
   onSaved?: (fieldId: string) => void;
   /**
-   * BL-180: When opened from a specific widget, the set of source IDs reachable from
-   * that widget (its primary source + related sources via declared relationships).
-   * Expression fields owned by sources outside this set are hidden from the operand
-   * picker, since referencing them would produce invalid joins. Validation is not
-   * affected — only the selectable operands are scoped. When omitted (e.g. the data
-   * drawer "add calculated field" on a source), all expression fields stay selectable.
+   * BL-180: The set of source IDs reachable from the source being configured (itself +
+   * related sources via declared relationships) — normally
+   * `getReachableSourceIds(sourceId, relationships)`.
+   *
+   * Expression fields owned by sources outside this set are both hidden from the operand
+   * picker AND rejected by validation, because such a reference can never compute: at
+   * evaluation time the referenced field runs against THIS source's rows, which don't carry
+   * its columns, so every value comes out `null`/`NaN`. Validating on the same set is what
+   * catches the case for expressions that never went through the picker (persisted docs,
+   * AI-authored fields).
+   *
+   * Every in-repo caller passes it. When omitted, all expression fields stay selectable and
+   * the reachability check does not run — a host with no relationship graph on hand keeps
+   * the unscoped behavior.
    */
   reachableSourceIds?: ReadonlySet<string>;
+}
+
+/**
+ * Renders a validation error in the active locale.
+ *
+ * `ExpressionValidationError` carries a stable `code` plus its interpolation operands
+ * precisely so this boundary can pick a `StudioLocaleText` template instead of printing the
+ * evaluator's English `message`. That `message` remains the fallback for a code this build's
+ * locale bundle doesn't cover, so the banner always says something.
+ */
+function localizeValidationError(
+  error: ExpressionValidationError,
+  localeText: ReturnType<typeof useStudioLocaleText>,
+): string {
+  switch (error.code) {
+    case 'missingId':
+      return localeText.exprErrorMissingId;
+    case 'missingLabel':
+      return localeText.exprErrorMissingLabel;
+    case 'missingSourceId':
+      return localeText.exprErrorMissingSourceId;
+    case 'maxDepth':
+      return localeText.exprErrorMaxDepth(error.maxDepth);
+    case 'unknownField':
+      return localeText.exprErrorUnknownField(error.fieldId);
+    case 'unreachableField':
+      return localeText.exprErrorUnreachableField(error.fieldId, error.fieldSourceId);
+    case 'malformedNode':
+      return localeText.exprErrorMalformedNode;
+    case 'insufficientArity':
+      return localeText.exprErrorInsufficientArity(error.operator, error.required, error.actual);
+    case 'circularDependency':
+      return localeText.exprErrorCircularDependency(error.fieldId);
+    default:
+      // Unreachable while every code above is handled (TypeScript narrows this to `never`),
+      // but kept so a code added to the evaluator without a matching locale key degrades to
+      // the English fallback instead of rendering nothing.
+      return (error as ExpressionValidationError).message;
+  }
 }
 
 function makeDefaultExpression(): StudioExpression {
@@ -188,22 +239,41 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
   const draftField = React.useMemo<StudioExpressionField>(
     () => ({
       id: fieldId,
-      label: label || 'Unnamed',
+      // The draft is validated on every keystroke, including before a name has been typed.
+      // `label` must stay non-empty so the "must have a label" error doesn't drown out the
+      // real expression errors — the Save button's own `!label.trim()` guard is what keeps an
+      // unnamed field from being saved. The stand-in is localized because it can be
+      // interpolated into a user-visible validation message.
+      label: label || localeText.exprUnnamedFieldLabel,
       sourceId: dataSource.id,
       isMeasure,
       expression,
       type: inferredType,
       precision: parsedPrecision,
     }),
-    [fieldId, label, dataSource.id, isMeasure, expression, inferredType, parsedPrecision],
+    [
+      fieldId,
+      label,
+      localeText.exprUnnamedFieldLabel,
+      dataSource.id,
+      isMeasure,
+      expression,
+      inferredType,
+      parsedPrecision,
+    ],
   );
 
   const validationErrors = React.useMemo(() => {
     const allFields = isEdit
       ? expressionFields.map((ef) => (ef.id === fieldId ? draftField : ef))
       : [...expressionFields, draftField];
-    return validateExpressionField(draftField, allFields, dataSource.fields);
-  }, [draftField, expressionFields, dataSource.fields, isEdit, fieldId]);
+    // Validation sees the UNFILTERED field list (so id-uniqueness and cycle detection stay
+    // correct) but the same reachability scope as the operand picker, so an operand the
+    // picker would never offer can't be saved either.
+    return validateExpressionField(draftField, allFields, dataSource.fields, {
+      reachableSourceIds,
+    });
+  }, [draftField, expressionFields, dataSource.fields, isEdit, fieldId, reachableSourceIds]);
 
   const handleSave = () => {
     if (validationErrors.length > 0) {
@@ -369,7 +439,7 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
                   {validationErrors.map((err, i) => (
                     // react-doctor-disable-next-line react-doctor/no-array-index-as-key, react-doctor/no-array-index-key -- error list is ephemeral display, no reorder
                     <Typography key={`error-${i}`} variant="caption" component="div">
-                      {err.message}
+                      {localizeValidationError(err, localeText)}
                     </Typography>
                   ))}
                 </Stack>

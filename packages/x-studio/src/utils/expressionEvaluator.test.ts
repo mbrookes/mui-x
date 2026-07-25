@@ -1372,6 +1372,199 @@ describe('validateExpressionField', () => {
   });
 });
 
+// ─── Validation: reachability scope ──────────────────────────────────────────
+//
+// An expression field owned by an unrelated data source used to be accepted as an operand:
+// it resolves by id across ALL expression fields, so validation passed, the field saved, and
+// at evaluation time it ran against the referencing source's rows — which don't carry its
+// columns — producing `null`/`NaN` for every row with no error anywhere. The operand picker
+// already scopes its options to reachable sources; validation now applies the same rule so
+// persisted and AI-authored expressions are caught too.
+describe('validateExpressionField reachability scope', () => {
+  const sourceFields = [{ id: 'revenue', label: 'Revenue', type: 'number' as const }];
+
+  const remote: StudioExpressionField = {
+    id: 'ltv',
+    label: 'Lifetime value',
+    sourceId: 'customers',
+    isMeasure: false,
+    expression: numVal(1),
+  };
+  const referencing: StudioExpressionField = {
+    id: 'x',
+    label: 'X',
+    sourceId: 'orders',
+    isMeasure: false,
+    expression: fn('add', field('ltv'), numVal(1)),
+  };
+
+  it('does not run the check when no reachable set is supplied', () => {
+    expect(validateExpressionField(referencing, [referencing, remote], sourceFields)).toHaveLength(
+      0,
+    );
+  });
+
+  it('rejects an operand owned by a source outside the reachable set', () => {
+    const errors = validateExpressionField(referencing, [referencing, remote], sourceFields, {
+      reachableSourceIds: new Set(['orders']),
+    });
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({
+      code: 'unreachableField',
+      fieldId: 'ltv',
+      fieldSourceId: 'customers',
+      path: ['inputs', '0'],
+    });
+  });
+
+  it('accepts the same operand once its owning source is reachable', () => {
+    expect(
+      validateExpressionField(referencing, [referencing, remote], sourceFields, {
+        reachableSourceIds: new Set(['orders', 'customers']),
+      }),
+    ).toHaveLength(0);
+  });
+
+  it('accepts a reference to an expression field owned by the same source', () => {
+    const sibling: StudioExpressionField = { ...remote, id: 'margin', sourceId: 'orders' };
+    const ef: StudioExpressionField = {
+      ...referencing,
+      expression: fn('add', field('margin'), numVal(1)),
+    };
+    expect(
+      validateExpressionField(ef, [ef, sibling], sourceFields, {
+        reachableSourceIds: new Set(['orders']),
+      }),
+    ).toHaveLength(0);
+  });
+
+  it('never flags a physical source field, even when an unreachable expression field shares its id', () => {
+    const shadow: StudioExpressionField = { ...remote, id: 'revenue' };
+    const ef: StudioExpressionField = {
+      ...referencing,
+      expression: fn('add', field('revenue'), numVal(1)),
+    };
+    expect(
+      validateExpressionField(ef, [ef, shadow], sourceFields, {
+        reachableSourceIds: new Set(['orders']),
+      }),
+    ).toHaveLength(0);
+  });
+
+  it('still reports a genuinely unknown field rather than an unreachable one', () => {
+    const ef: StudioExpressionField = {
+      ...referencing,
+      expression: fn('add', field('nope'), numVal(1)),
+    };
+    const errors = validateExpressionField(ef, [ef, remote], sourceFields, {
+      reachableSourceIds: new Set(['orders']),
+    });
+    expect(errors.map((err) => err.code)).toEqual(['unknownField']);
+  });
+});
+
+// ─── Validation: error codes ─────────────────────────────────────────────────
+//
+// The dialog renders these errors in a `role="alert"` banner. Rendering `message` verbatim
+// was the one user-facing English string in an otherwise fully-localized dialog, so every
+// error carries a machine-readable `code` plus its interpolation operands as named fields;
+// the dialog maps the code onto a `StudioLocaleText` template. `message` stays as the
+// English fallback for non-UI callers.
+describe('validation error codes', () => {
+  const sourceFields = [{ id: 'revenue', label: 'Revenue', type: 'number' as const }];
+
+  it('tags a missing id / label / sourceId', () => {
+    const ef = {
+      id: '',
+      label: '',
+      sourceId: '',
+      isMeasure: false,
+      expression: numVal(1),
+    } as StudioExpressionField;
+    expect(validateExpressionField(ef, [ef], sourceFields).map((err) => err.code)).toEqual([
+      'missingId',
+      'missingLabel',
+      'missingSourceId',
+    ]);
+  });
+
+  it('tags an unknown field reference with the referenced id', () => {
+    const ef: StudioExpressionField = {
+      id: 'x',
+      label: 'X',
+      sourceId: 'sales',
+      isMeasure: false,
+      expression: fn('add', field('revenue'), field('nonexistent')),
+    };
+    expect(validateExpressionField(ef, [ef], sourceFields)[0]).toMatchObject({
+      code: 'unknownField',
+      fieldId: 'nonexistent',
+    });
+  });
+
+  it('tags insufficient arity with the operator and both counts', () => {
+    const ef: StudioExpressionField = {
+      id: 'x',
+      label: 'X',
+      sourceId: 'sales',
+      isMeasure: false,
+      expression: fn('add', numVal(1)),
+    };
+    expect(validateExpressionField(ef, [ef], sourceFields)[0]).toMatchObject({
+      code: 'insufficientArity',
+      operator: 'add',
+      required: 2,
+      actual: 1,
+    });
+  });
+
+  it('tags a circular dependency with the offending field id', () => {
+    const ef: StudioExpressionField = {
+      id: 'loop',
+      label: 'Loop',
+      sourceId: 'sales',
+      isMeasure: false,
+      expression: fn('add', field('loop'), numVal(1)),
+    };
+    expect(validateExpressionField(ef, [ef], sourceFields)[0]).toMatchObject({
+      code: 'circularDependency',
+      fieldId: 'loop',
+    });
+  });
+
+  it('tags a malformed node', () => {
+    const ef = {
+      id: 'x',
+      label: 'X',
+      sourceId: 'sales',
+      isMeasure: false,
+      expression: '1 + 1',
+    } as unknown as StudioExpressionField;
+    expect(validateExpressionField(ef, [ef], sourceFields)[0]).toMatchObject({
+      code: 'malformedNode',
+    });
+  });
+
+  it('tags an over-deep tree with the depth bound it exceeded', () => {
+    let expr: StudioExpression = numVal(1);
+    for (let i = 0; i < MAX_EXPRESSION_DEPTH + 5; i += 1) {
+      expr = fn('negate', expr);
+    }
+    const ef: StudioExpressionField = {
+      id: 'deep',
+      label: 'Deep',
+      sourceId: 'sales',
+      isMeasure: false,
+      expression: expr,
+    };
+    const errors = validateExpressionField(ef, [ef], sourceFields);
+    expect(errors.some((err) => err.code === 'maxDepth')).toBe(true);
+    expect(errors.find((err) => err.code === 'maxDepth')).toMatchObject({
+      maxDepth: MAX_EXPRESSION_DEPTH,
+    });
+  });
+});
+
 // ─── Malformed / hostile persisted expressions ───────────────────────────────
 //
 // H1 — the load boundary (`@mui/x-studio-schema`'s `loadSerializedState`) only screens each

@@ -3,16 +3,7 @@ import * as React from 'react';
 import { Box, Popover, Typography } from '@mui/material';
 import { useStudioLocaleText } from '../../context';
 import type { StudioDataSource, StudioRelationship } from '../../models';
-import {
-  type NodeLayout,
-  buildEdgePath,
-  bezierMidpoint,
-  rightMid,
-  leftMid,
-  bottomMid,
-  topMid,
-  TYPE_LABELS,
-} from './edgeGeometry';
+import { type NodeLayout, buildEdgeGeometry, bezierMidpoint, TYPE_LABELS } from './edgeGeometry';
 
 /**
  * Locale-text key holding the human-readable name of each relationship type. The visible
@@ -39,45 +30,11 @@ export function EdgeLabel({ rel, srcNode, tgtNode, sources, color, hoverColor }:
   const [anchorEl, setAnchorEl] = React.useState<SVGElement | null>(null);
   const localeText = useStudioLocaleText();
 
-  const srcIsLeft = srcNode.x + srcNode.width <= tgtNode.x;
-  const srcIsRight = srcNode.x >= tgtNode.x + tgtNode.width;
-  const srcIsAbove = srcNode.y + srcNode.height <= tgtNode.y;
-
-  let s = rightMid(srcNode);
-  let t = leftMid(tgtNode);
-  let cp1 = s;
-  let cp2 = t;
-
-  if (srcIsLeft) {
-    s = rightMid(srcNode);
-    t = leftMid(tgtNode);
-    const dx = (t.x - s.x) * 0.5;
-    cp1 = { x: s.x + dx, y: s.y };
-    cp2 = { x: t.x - dx, y: t.y };
-  } else if (srcIsRight) {
-    s = leftMid(srcNode);
-    t = rightMid(tgtNode);
-    const dx = (s.x - t.x) * 0.5;
-    cp1 = { x: s.x - dx, y: s.y };
-    cp2 = { x: t.x + dx, y: t.y };
-  } else if (srcIsAbove) {
-    s = bottomMid(srcNode);
-    t = topMid(tgtNode);
-    const dy = (t.y - s.y) * 0.5;
-    cp1 = { x: s.x, y: s.y + dy };
-    cp2 = { x: t.x, y: t.y - dy };
-  } else {
-    s = topMid(srcNode);
-    t = bottomMid(tgtNode);
-    const dy = (s.y - t.y) * 0.5;
-    cp1 = { x: s.x, y: s.y - dy };
-    cp2 = { x: t.x, y: t.y + dy };
-  }
-
+  // The rendered path and the badge position come from ONE geometry computation, so the badge
+  // (and its click/keyboard target) always sits on the curve it labels.
+  const { d: path, s, cp1, cp2, t } = buildEdgeGeometry(srcNode, tgtNode);
   const mid = bezierMidpoint(s.x, s.y, cp1.x, cp1.y, cp2.x, cp2.y, t.x, t.y);
   const open = Boolean(anchorEl);
-
-  const path = buildEdgePath(srcNode, tgtNode);
   // `rel.sourceId`/`rel.targetId` are doc-authored (host/AI-writable): guard the record index
   // against inherited keys ("toString"/"constructor"/…) so a bare bracket lookup can't resolve a
   // function off `Object.prototype` instead of `undefined` (prototype-chain key lookup fix).

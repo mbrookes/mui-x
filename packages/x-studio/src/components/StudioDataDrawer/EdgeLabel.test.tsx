@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { StudioDataSource, StudioRelationship } from '../../models';
 import { createStudioHarness } from '../../internals/test-utils';
 import { EdgeLabel } from './EdgeLabel';
-import type { NodeLayout } from './edgeGeometry';
+import { bezierMidpoint, buildEdgeGeometry, type NodeLayout } from './edgeGeometry';
 
 const { render } = createRenderer();
 
@@ -108,6 +108,59 @@ describe('EdgeLabel', () => {
     await user.click(screen.getAllByRole('button')[0]);
     // The junction source falls back to being rendered as its own ID string, never as a function.
     expect(screen.getByText(/constructor/)).not.toBe(null);
+  });
+
+  // The badge used to be positioned from a private copy of `buildEdgePath`'s branch
+  // selection. Both now come from one `buildEdgeGeometry` call, so the badge and its
+  // click/keyboard target always sit on the rendered curve.
+  describe('badge placement', () => {
+    it.each([
+      ['source left of target', { x: 200, y: 0 }],
+      ['source right of target', { x: -400, y: 0 }],
+      ['source above target', { x: 0, y: 200 }],
+      ['source below target (fallback)', { x: 0, y: -200 }],
+    ] as Array<[string, { x: number; y: number }]>)(
+      'places the badge on the rendered path (%s)',
+      (_label, tgtPosition) => {
+        const tgtNode: NodeLayout = { ...TGT_NODE, ...tgtPosition };
+        const { wrapper } = createStudioHarness();
+        const { container } = render(
+          <svg>
+            <EdgeLabel
+              rel={REL}
+              srcNode={SRC_NODE}
+              tgtNode={tgtNode}
+              sources={DATA_SOURCES}
+              color="black"
+              hoverColor="blue"
+            />
+          </svg>,
+          { wrapper },
+        );
+
+        const geometry = buildEdgeGeometry(SRC_NODE, tgtNode);
+        const mid = bezierMidpoint(
+          geometry.s.x,
+          geometry.s.y,
+          geometry.cp1.x,
+          geometry.cp1.y,
+          geometry.cp2.x,
+          geometry.cp2.y,
+          geometry.t.x,
+          geometry.t.y,
+        );
+
+        // The visible edge is the geometry's own path …
+        const paths = Array.from(container.querySelectorAll('path'));
+        expect(paths.length).toBeGreaterThan(0);
+        paths.forEach((p) => expect(p.getAttribute('d')).toBe(geometry.d));
+
+        // … and the badge sits at that same curve's midpoint.
+        const text = screen.getByText('N:1');
+        expect(Number(text.getAttribute('x'))).toBeCloseTo(mid.x);
+        expect(Number(text.getAttribute('y'))).toBeCloseTo(mid.y + 4);
+      },
+    );
   });
 
   // ── Accessible name localisation ────────────────────────────────────────────

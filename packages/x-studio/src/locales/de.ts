@@ -406,6 +406,27 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   exprInputLabelGeneric: (index) => `Eingabe ${index}`,
   exprAddInputButton: 'Eingabe hinzufügen',
   exprOutputTypeLabel: 'Ausgabetyp:',
+  exprRootNodeLabel: 'Ausdruck',
+  exprLiteralValueAriaLabel: 'Literalwert',
+  exprUnnamedFieldLabel: 'Unbenannt',
+  exprPreviewNullLabel: 'null',
+
+  // Expression validation errors
+  exprErrorMissingId: 'Das berechnete Feld muss eine ID haben.',
+  exprErrorMissingLabel: 'Das berechnete Feld muss einen Namen haben.',
+  exprErrorMissingSourceId: 'Das berechnete Feld muss einer Datenquelle zugeordnet sein.',
+  exprErrorMaxDepth: (maxDepth) =>
+    `Der Ausdruck ist mehr als ${maxDepth} Ebenen tief verschachtelt.`,
+  exprErrorUnknownField: (fieldId) =>
+    `Das Feld „${fieldId}“ wurde weder in den Quellfeldern noch in den berechneten Feldern gefunden.`,
+  exprErrorUnreachableField: (fieldId, fieldSourceId) =>
+    `Das Feld „${fieldId}“ gehört zur Datenquelle „${fieldSourceId}“, die nicht mit der Datenquelle dieses Feldes verknüpft ist.`,
+  exprErrorMalformedNode:
+    'Ungültiger Ausdrucksknoten: Erwartet wird ein Operatorknoten (mit einem `inputs`-Array), ein Literalwert, eine Feldreferenz oder eine Join-Feldreferenz.',
+  exprErrorInsufficientArity: (operator, required, actual) =>
+    `Der Operator „${operator}“ benötigt mindestens ${required} Eingabe(n), erhalten: ${actual}.`,
+  exprErrorCircularDependency: (fieldId) =>
+    `Das berechnete Feld „${fieldId}“ erzeugt eine zirkuläre Abhängigkeit.`,
 
   // Shared aggregation function labels
   aggFnSum: 'Summe',

@@ -6,6 +6,7 @@ import {
   bottomMid,
   topMid,
   buildEdgePath,
+  buildEdgeGeometry,
   bezierMidpoint,
   type NodeLayout,
 } from './edgeGeometry';
@@ -50,6 +51,37 @@ describe('buildEdgePath', () => {
     // s = topMid(src) {5,100}, t = bottomMid(tgt) {5,10}
     expect(path.startsWith('M 5 100 C')).toBe(true);
     expect(path.endsWith('5 10')).toBe(true);
+  });
+});
+
+// `EdgeLabel` renders the path from this module and places its badge at the curve's midpoint.
+// Both must come from ONE branch selection, so the badge (and its click target) can never
+// drift off the curve it labels.
+describe('buildEdgeGeometry', () => {
+  const cases: Array<[string, NodeLayout, NodeLayout]> = [
+    ['source left of target', node(0, 0), node(100, 0)],
+    ['source right of target', node(100, 0), node(0, 0)],
+    ['source above target', node(0, 0), node(0, 100)],
+    ['source below target (fallback)', node(0, 100), node(0, 0)],
+  ];
+
+  it.each(cases)('returns anchors and control points that compose its own path (%s)', (_, a, b) => {
+    const g = buildEdgeGeometry(a, b);
+    expect(g.d).toBe(
+      `M ${g.s.x} ${g.s.y} C ${g.cp1.x} ${g.cp1.y}, ${g.cp2.x} ${g.cp2.y}, ${g.t.x} ${g.t.y}`,
+    );
+  });
+
+  it.each(cases)('is the single source of buildEdgePath (%s)', (_, a, b) => {
+    expect(buildEdgePath(a, b)).toBe(buildEdgeGeometry(a, b).d);
+  });
+
+  it('anchors right→left when the source is to the left of the target', () => {
+    const g = buildEdgeGeometry(node(0, 0), node(100, 0));
+    expect(g.s).toEqual({ x: 10, y: 5 });
+    expect(g.t).toEqual({ x: 100, y: 5 });
+    expect(g.cp1).toEqual({ x: 55, y: 5 });
+    expect(g.cp2).toEqual({ x: 55, y: 5 });
   });
 });
 

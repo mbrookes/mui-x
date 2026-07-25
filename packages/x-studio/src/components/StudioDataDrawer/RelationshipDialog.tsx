@@ -183,7 +183,13 @@ export function RelationshipDialog(props: {
                 onChange={(event) => setTargetId(event.target.value)}
               >
                 {sourceList.flatMap((s) =>
-                  s.id !== form.sourceId
+                  // Omit the source endpoint so a NEW target can't be picked as a degenerate
+                  // self-join, but keep the currently-selected target in the list even when it
+                  // collides with the source (changing Source to what is already the Target
+                  // leaves `form.targetId` pointing at it) so the Select renders it instead of
+                  // blanking with an out-of-range warning — `isValid` keeps Update disabled
+                  // until it's corrected. Same rule as the junction Select below.
+                  s.id !== form.sourceId || s.id === form.targetId
                     ? [
                         <MenuItem key={s.id} value={s.id}>
                           {s.label}

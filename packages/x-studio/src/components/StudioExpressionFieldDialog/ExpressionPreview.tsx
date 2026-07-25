@@ -92,7 +92,7 @@ export function ExpressionPreview({
             key={`preview-${i}`}
             label={(() => {
               if (v == null) {
-                return 'null';
+                return localeText.exprPreviewNullLabel;
               }
               if (typeof v === 'number') {
                 return formatNumber(v, undefined, undefined, undefined, precision);

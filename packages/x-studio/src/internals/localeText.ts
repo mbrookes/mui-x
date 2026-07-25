@@ -478,6 +478,36 @@ export interface StudioLocaleText {
   exprAddInputButton: string;
   /** Caption label preceding the inferred output-type chip in the expression dialog */
   exprOutputTypeLabel: string;
+  /** Label shown for the root node when the expression is a bare field/literal, not a function */
+  exprRootNodeLabel: string;
+  /** Accessible name for the literal value editor next to the literal-type select */
+  exprLiteralValueAriaLabel: string;
+  /** Stand-in label used while validating a calculated field that has no name yet */
+  exprUnnamedFieldLabel: string;
+  /** Chip label for a preview row whose expression evaluated to no value */
+  exprPreviewNullLabel: string;
+
+  // ── Expression validation errors ───────────────────────────────────────────
+  // Rendered in the expression dialog's error banner. Each maps 1:1 to an
+  // `ExpressionValidationError` code from `utils/expressionEvaluator`.
+  /** The calculated field has no id */
+  exprErrorMissingId: string;
+  /** The calculated field has no name */
+  exprErrorMissingLabel: string;
+  /** The calculated field is not attached to a data source */
+  exprErrorMissingSourceId: string;
+  /** The expression tree is nested deeper than the supported limit */
+  exprErrorMaxDepth: (maxDepth: number) => string;
+  /** The expression references a field id that exists in neither the source nor the calculated fields */
+  exprErrorUnknownField: (fieldId: string) => string;
+  /** The expression references a calculated field owned by an unrelated data source */
+  exprErrorUnreachableField: (fieldId: string, fieldSourceId: string) => string;
+  /** The expression contains a node that is not an operator, literal, field, or join reference */
+  exprErrorMalformedNode: string;
+  /** The operator was given fewer inputs than it requires */
+  exprErrorInsufficientArity: (operator: string, required: number, actual: number) => string;
+  /** The calculated field references itself, directly or through another field */
+  exprErrorCircularDependency: (fieldId: string) => string;
 
   // ── Shared aggregation function labels ─────────────────────────────────────
   aggFnSum: string;
@@ -1718,6 +1748,26 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   exprInputLabelGeneric: (index) => `Input ${index}`,
   exprAddInputButton: 'Add input',
   exprOutputTypeLabel: 'Output type:',
+  exprRootNodeLabel: 'Expression',
+  exprLiteralValueAriaLabel: 'Literal value',
+  exprUnnamedFieldLabel: 'Unnamed',
+  exprPreviewNullLabel: 'null',
+
+  // Expression validation errors
+  exprErrorMissingId: 'Expression field must have an id.',
+  exprErrorMissingLabel: 'Expression field must have a label.',
+  exprErrorMissingSourceId: 'Expression field must have a sourceId.',
+  exprErrorMaxDepth: (maxDepth) => `Expression is nested more than ${maxDepth} levels deep.`,
+  exprErrorUnknownField: (fieldId) =>
+    `Field "${fieldId}" not found in source fields or expression fields.`,
+  exprErrorUnreachableField: (fieldId, fieldSourceId) =>
+    `Field "${fieldId}" belongs to data source "${fieldSourceId}", which is not related to this field's data source.`,
+  exprErrorMalformedNode:
+    'Expression node is malformed: expected an operator node (with an `inputs` array), a literal value, a field reference, or a join-field reference.',
+  exprErrorInsufficientArity: (operator, required, actual) =>
+    `Operator "${operator}" requires at least ${required} input(s), got ${actual}.`,
+  exprErrorCircularDependency: (fieldId) =>
+    `Expression field "${fieldId}" creates a circular dependency.`,
 
   // Shared aggregation function labels
   aggFnSum: 'Sum',

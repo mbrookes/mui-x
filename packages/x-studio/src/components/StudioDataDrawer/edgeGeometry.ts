@@ -29,15 +29,42 @@ export function topMid(n: NodeLayout) {
   return { x: n.x + n.width / 2, y: n.y };
 }
 
-export function buildEdgePath(src: NodeLayout, tgt: NodeLayout): string {
+export interface Point {
+  x: number;
+  y: number;
+}
+
+export interface EdgeGeometry {
+  /** The SVG `d` attribute for the edge curve. */
+  d: string;
+  /** Curve start anchor. */
+  s: Point;
+  /** First cubic control point. */
+  cp1: Point;
+  /** Second cubic control point. */
+  cp2: Point;
+  /** Curve end anchor. */
+  t: Point;
+}
+
+/**
+ * The single source of truth for an edge's shape: which node sides it anchors to, its two
+ * control points, and the resulting path.
+ *
+ * Callers that need a position ON the curve (e.g. `EdgeLabel`'s badge, placed at
+ * `bezierMidpoint(...)`) must derive it from the same anchors/control points returned here.
+ * A second copy of the branch selection would drift the moment either is edited, leaving the
+ * badge and its click target floating off the curve it labels.
+ */
+export function buildEdgeGeometry(src: NodeLayout, tgt: NodeLayout): EdgeGeometry {
   const srcIsLeft = src.x + src.width <= tgt.x;
   const srcIsRight = src.x >= tgt.x + tgt.width;
   const srcIsAbove = src.y + src.height <= tgt.y;
 
-  let s: { x: number; y: number };
-  let t: { x: number; y: number };
-  let cp1: { x: number; y: number };
-  let cp2: { x: number; y: number };
+  let s: Point;
+  let t: Point;
+  let cp1: Point;
+  let cp2: Point;
 
   if (srcIsLeft) {
     s = rightMid(src);
@@ -65,7 +92,18 @@ export function buildEdgePath(src: NodeLayout, tgt: NodeLayout): string {
     cp2 = { x: t.x, y: t.y + dy };
   }
 
-  return `M ${s.x} ${s.y} C ${cp1.x} ${cp1.y}, ${cp2.x} ${cp2.y}, ${t.x} ${t.y}`;
+  return {
+    d: `M ${s.x} ${s.y} C ${cp1.x} ${cp1.y}, ${cp2.x} ${cp2.y}, ${t.x} ${t.y}`,
+    s,
+    cp1,
+    cp2,
+    t,
+  };
+}
+
+/** The `d` attribute of `buildEdgeGeometry`, for callers that only render the path. */
+export function buildEdgePath(src: NodeLayout, tgt: NodeLayout): string {
+  return buildEdgeGeometry(src, tgt).d;
 }
 
 export function bezierMidpoint(

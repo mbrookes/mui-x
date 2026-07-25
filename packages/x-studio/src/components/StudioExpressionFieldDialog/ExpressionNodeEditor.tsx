@@ -175,15 +175,25 @@ function makeDefaultFunctionExpr(): StudioFunctionExpression {
   return { operator: 'add', inputs: [makeDefaultExpr(), makeDefaultExpr()] };
 }
 
-// Type guards for clear, maintainable expression classification
+// Type guards for clear, maintainable expression classification.
+//
+// They are declared over `StudioExpression` but are reached with values only *typed* as one:
+// a persisted/AI-authored `expression` is never structurally screened at the load boundary,
+// so it can be a string, a number, `null`, or a function node whose `inputs` isn't an array.
+// `isRecord` first (applying `in` to a primitive throws a raw `TypeError`), and — matching
+// `expressionEvaluator`'s `isFunctionExpression` — a function node must carry an `inputs`
+// ARRAY, since every consumer below immediately iterates it.
+function isRecord(expr: StudioExpression): expr is Record<string, unknown> & StudioExpression {
+  return typeof expr === 'object' && expr !== null && !Array.isArray(expr);
+}
 function isFieldExpr(expr: StudioExpression): expr is StudioFieldExpression {
-  return 'id' in expr && !('operator' in expr);
+  return isRecord(expr) && 'id' in expr && !('operator' in expr);
 }
 function isValueExpr(expr: StudioExpression): expr is StudioValueExpression {
-  return 'type' in expr && 'value' in expr;
+  return isRecord(expr) && 'type' in expr && 'value' in expr;
 }
 function isFunctionExpr(expr: StudioExpression): expr is StudioFunctionExpression {
-  return 'operator' in expr;
+  return isRecord(expr) && 'operator' in expr && Array.isArray(expr.inputs);
 }
 
 type InputKind = 'field' | 'literal' | 'function';
@@ -206,8 +216,12 @@ function getInputKind(expr: StudioExpression): InputKind {
  * Buffer the displayed text locally and only parse/commit on blur, mirroring
  * `FormatPanel.tsx`'s grid-height input.
  */
-function LiteralNumberInput(props: { value: number; onChange: (next: number) => void }) {
-  const { value, onChange } = props;
+function LiteralNumberInput(props: {
+  value: number;
+  onChange: (next: number) => void;
+  ariaLabel: string;
+}) {
+  const { value, onChange, ariaLabel } = props;
   const [text, setText] = React.useState(String(value));
   const [dirty, setDirty] = React.useState(false);
 
@@ -238,6 +252,10 @@ function LiteralNumberInput(props: { value: number; onChange: (next: number) => 
       size="small"
       type="number"
       value={text}
+      // The literal-TYPE select sitting immediately to the left is labelled
+      // (`exprLiteralTypeAriaLabel`); without this the value box next to it is announced as a
+      // bare edit box. Both halves of the pair carry an accessible name.
+      slotProps={{ htmlInput: { 'aria-label': ariaLabel } }}
       onChange={(event) => {
         setText(event.target.value);
         setDirty(true);
@@ -281,6 +299,7 @@ function LiteralValueEditor(props: {
       <LiteralNumberInput
         value={typeof expr.value === 'number' ? expr.value : 0}
         onChange={(next) => onChange({ ...expr, value: next })}
+        ariaLabel={localeText.exprLiteralValueAriaLabel}
       />
     );
   }
@@ -289,6 +308,9 @@ function LiteralValueEditor(props: {
       size="small"
       type="text"
       value={String(expr.value ?? '')}
+      // Same pairing as the number branch: the literal-type select to the left is labelled,
+      // so this value box carries an accessible name too.
+      slotProps={{ htmlInput: { 'aria-label': localeText.exprLiteralValueAriaLabel } }}
       onChange={(event) => {
         onChange({ ...expr, value: event.target.value });
       }}
@@ -319,10 +341,18 @@ function InputNode({
     }),
   ];
 
+  // A source with no fields (and no selectable expression fields) has nothing to reference, so
+  // "Field" is disabled rather than silently emitting a literal — which made the Select snap
+  // straight back to "Literal" with no explanation.
+  const hasFieldOptions = allFieldOptions.length > 0;
+
   const handleKindChange = (next: InputKind) => {
     if (next === 'field') {
       const firstField = allFieldOptions[0];
-      onChange(firstField ? { id: firstField.id } : makeDefaultExpr());
+      if (!firstField) {
+        return;
+      }
+      onChange({ id: firstField.id });
     } else if (next === 'literal') {
       onChange({ type: 'number', value: 0 });
     } else {
@@ -347,7 +377,9 @@ function InputNode({
           aria-label={localeText.exprNodeKindAriaLabel}
           sx={{ minWidth: 90, fontSize: '0.75rem' }}
         >
-          <MenuItem value="field">{localeText.exprNodeTypeField}</MenuItem>
+          <MenuItem value="field" disabled={!hasFieldOptions}>
+            {localeText.exprNodeTypeField}
+          </MenuItem>
           <MenuItem value="literal">{localeText.exprNodeTypeLiteral}</MenuItem>
           <MenuItem value="function">{localeText.exprNodeTypeFunction}</MenuItem>
         </Select>
@@ -504,8 +536,7 @@ export function ExpressionBuilder({
   onChange,
 }: ExpressionBuilderProps) {
   const localeText = useStudioLocaleText();
-  const isFn = 'operator' in expression;
-  const fnExpr = isFn ? (expression as StudioFunctionExpression) : null;
+  const fnExpr = isFunctionExpr(expression) ? expression : null;
 
   const operator = fnExpr?.operator ?? 'add';
   const inputs: StudioExpression[] = fnExpr?.inputs ?? [];
@@ -534,6 +565,25 @@ export function ExpressionBuilder({
     keys: inputs.map((_, i) => `operand-${i + 1}`),
     seq: inputs.length,
   }));
+
+  // A root expression that isn't a function node (a bare field reference or literal — both are
+  // valid `StudioExpression`s and both are reachable from a persisted or AI-authored field) is
+  // rendered by `InputNode`, which handles all three kinds. Rendering the operator picker for
+  // it instead would show a fabricated "Add (+)" with zero operands — the real definition
+  // nowhere on screen — and one click on "Add input" would overwrite it with that fabrication.
+  if (!fnExpr) {
+    return (
+      <InputNode
+        expr={expression}
+        label={localeText.exprRootNodeLabel}
+        sourceFields={sourceFields}
+        expressionFields={expressionFields}
+        isMeasure={isMeasure}
+        onChange={onChange}
+      />
+    );
+  }
+
   let inputKeys = keyState.keys;
   if (inputKeys.length !== inputs.length) {
     // Reconcile during render (rather than in an effect) so this pass already renders with

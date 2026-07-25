@@ -13,6 +13,7 @@ import {
 import type { StudioDataSource, StudioExpressionField, StudioRelationship } from '../../models';
 import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';
 import { enrichRowsWithExpressions, evaluateMeasure } from '../../utils/expressionEvaluator';
+import { getReachableSourceIds } from '../../internals/dataSourceGraph';
 import DataSourcePreviewTooltip from './DataSourcePreviewTooltip';
 import PhysicalFieldRow from './PhysicalFieldRow';
 import ExpressionFieldRow from './ExpressionFieldRow';
@@ -52,6 +53,16 @@ export function DataSourceSection(props: {
       relationships,
     );
   }, [source.rows, source.id, expressionFields, dataSources, relationships]);
+
+  // Scopes both the dialog's operand picker and its validation to sources that can actually
+  // be joined to this one, mirroring the compose-drawer callers. Without it the picker offered
+  // expression fields owned by unrelated sources: they pass validation, save, and then
+  // evaluate against THIS source's rows — which lack their columns — so every value is
+  // null/NaN.
+  const reachableSourceIds = React.useMemo(
+    () => getReachableSourceIds(source.id, relationships),
+    [source.id, relationships],
+  );
 
   const handleAddExpressionField = () => {
     setEditingField(undefined);
@@ -159,6 +170,7 @@ export function DataSourceSection(props: {
         dataSource={source}
         expressionFields={expressionFields}
         existingField={editingField}
+        reachableSourceIds={reachableSourceIds}
       />
     </div>
   );

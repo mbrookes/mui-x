@@ -252,6 +252,150 @@ describe('<ExpressionBuilder /> prototype-chain operator', () => {
 });
 
 /**
+ * The literal editor is a pair of controls: a type `Select` and a value input. Only the
+ * Select carried an accessible name, so a screen-reader user reached an unlabeled edit box
+ * for the value half.
+ */
+describe('<ExpressionBuilder /> literal value accessible name', () => {
+  function renderLiteral(
+    literal: StudioExpression,
+    harnessOptions?: Parameters<typeof createStudioHarness>[0],
+  ) {
+    const expression = { operator: 'negate', inputs: [literal] } as unknown as StudioExpression;
+    const { wrapper } = createStudioHarness(harnessOptions);
+    return render(
+      <ExpressionBuilder
+        expression={expression}
+        sourceFields={SOURCE_FIELDS}
+        expressionFields={[]}
+        isMeasure={false}
+        onChange={() => {}}
+      />,
+      { wrapper },
+    );
+  }
+
+  it('names the numeric literal input', () => {
+    renderLiteral({ type: 'number', value: 3 } as StudioExpression);
+    expect(screen.getByRole('spinbutton', { name: 'Literal value' })).not.toBe(null);
+  });
+
+  it('names the string literal input', () => {
+    renderLiteral({ type: 'string', value: 'abc' } as StudioExpression);
+    expect(screen.getByRole('textbox', { name: 'Literal value' })).not.toBe(null);
+  });
+
+  it('translates the name under a non-English locale', async () => {
+    const { frLocaleText } = await import('../../locales/fr');
+    renderLiteral({ type: 'number', value: 3 } as StudioExpression, {
+      providerProps: { localeText: frLocaleText },
+    });
+    expect(screen.getByRole('spinbutton', { name: 'Valeur littérale' })).not.toBe(null);
+  });
+});
+
+/**
+ * A root expression that isn't a function node — a bare field reference or literal, both of
+ * which a persisted or AI-authored field can carry — used to be rendered as an `add` node
+ * with zero operands: the real definition appeared nowhere, and one click on "Add input"
+ * replaced it with that fabrication.
+ */
+describe('<ExpressionBuilder /> non-function root', () => {
+  function renderRoot(expression: StudioExpression, onChange = () => {}) {
+    const { wrapper } = createStudioHarness();
+    return render(
+      <ExpressionBuilder
+        expression={expression}
+        sourceFields={SOURCE_FIELDS}
+        expressionFields={[]}
+        isMeasure={false}
+        onChange={onChange}
+      />,
+      { wrapper },
+    );
+  }
+
+  it('shows a bare field-reference root as a field operand, not a fabricated add node', () => {
+    renderRoot({ id: 'amount' } as StudioExpression);
+
+    const fieldSelect = screen.getByRole('combobox', { name: 'Field' });
+    expect(fieldSelect.textContent).toContain('Amount');
+    // No operator picker claiming the expression is an `add` …
+    expect(screen.queryByText('Add (+)')).toBeNull();
+    // … and therefore no "Add input" button that would overwrite the root.
+    expect(screen.queryByRole('button', { name: 'Add input' })).toBeNull();
+  });
+
+  it('shows a bare literal root as a literal operand', () => {
+    renderRoot({ type: 'number', value: 42 } as StudioExpression);
+
+    expect(screen.getByRole('spinbutton', { name: 'Literal value' })).toHaveProperty('value', '42');
+    expect(screen.queryByRole('button', { name: 'Add input' })).toBeNull();
+  });
+
+  it('converts the root to a function node only when the user asks for one', async () => {
+    const onChange = vi.fn();
+    const { user } = renderRoot({ id: 'amount' } as StudioExpression, onChange);
+
+    await user.click(screen.getByRole('combobox', { name: 'Input type' }));
+    await user.click(within(screen.getByRole('listbox')).getByRole('option', { name: 'Function' }));
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange.mock.calls[0][0]).toMatchObject({ operator: 'add' });
+  });
+});
+
+/**
+ * Selecting "Field" with nothing to reference used to emit a *literal*, so the kind Select
+ * snapped straight back to "Literal" with no explanation.
+ */
+describe('<ExpressionBuilder /> input kind with no field options', () => {
+  it('disables the Field option when the source has no referenceable fields', async () => {
+    const expression = {
+      operator: 'negate',
+      inputs: [{ type: 'number', value: 0 }],
+    } as unknown as StudioExpression;
+    const { wrapper } = createStudioHarness();
+    const { user } = render(
+      <ExpressionBuilder
+        expression={expression}
+        sourceFields={[]}
+        expressionFields={[]}
+        isMeasure={false}
+        onChange={() => {}}
+      />,
+      { wrapper },
+    );
+
+    await user.click(screen.getByRole('combobox', { name: 'Input type' }));
+    const option = within(screen.getByRole('listbox')).getByRole('option', { name: 'Field' });
+    expect(option.getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('keeps the Field option enabled when the source has fields', async () => {
+    const expression = {
+      operator: 'negate',
+      inputs: [{ type: 'number', value: 0 }],
+    } as unknown as StudioExpression;
+    const { wrapper } = createStudioHarness();
+    const { user } = render(
+      <ExpressionBuilder
+        expression={expression}
+        sourceFields={SOURCE_FIELDS}
+        expressionFields={[]}
+        isMeasure={false}
+        onChange={() => {}}
+      />,
+      { wrapper },
+    );
+
+    await user.click(screen.getByRole('combobox', { name: 'Input type' }));
+    const option = within(screen.getByRole('listbox')).getByRole('option', { name: 'Field' });
+    expect(option.getAttribute('aria-disabled')).toBe(null);
+  });
+});
+
+/**
  * A field referenced by an expression can be dropped from its data source. Without a
  * matching `MenuItem` the `Select` value is out of range: MUI logs a warning and the
  * control renders blank, hiding the fact that the stale id is still stored.

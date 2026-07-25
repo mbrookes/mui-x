@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { createRenderer, screen } from '@mui/internal-test-utils';
+import { createRenderer, screen, within } from '@mui/internal-test-utils';
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import type { StudioDataSource, StudioExpression, StudioExpressionField } from '../../models';
 import { createStudioHarness } from '../../internals/test-utils';
@@ -308,6 +308,112 @@ describe('StudioExpressionFieldDialog', () => {
 
     expect(screen.getByText('Type de sortie :')).not.toBe(null);
     expect(screen.queryByText('Output type:')).toBe(null);
+  });
+
+  // An expression field owned by an unrelated data source can be referenced by id, and used
+  // to pass validation: it saved, then evaluated against THIS source's rows — which don't
+  // carry its columns — so every value came out null/NaN with no error surfaced anywhere.
+  // `reachableSourceIds` now scopes validation as well as the operand picker.
+  describe('unreachable operand (BL-180)', () => {
+    const REMOTE_FIELD: StudioExpressionField = {
+      id: 'ltv',
+      label: 'Lifetime value',
+      sourceId: 'customers',
+      isMeasure: false,
+      expression: { type: 'number', value: 1 } as StudioExpression,
+    };
+    const REFERENCING_FIELD: StudioExpressionField = {
+      id: 'expr-ref',
+      label: 'Referencing',
+      sourceId: 'orders',
+      isMeasure: false,
+      expression: {
+        operator: 'add',
+        inputs: [{ id: 'ltv' }, { type: 'number', value: 0 }],
+      } as StudioExpression,
+    };
+
+    it('blocks saving and explains why when the operand source is not reachable', () => {
+      setup({
+        existingField: REFERENCING_FIELD,
+        expressionFields: [REMOTE_FIELD, REFERENCING_FIELD],
+        reachableSourceIds: new Set(['orders']),
+      });
+
+      expect(screen.getByRole('alert').textContent).toContain('ltv');
+      expect(screen.getByRole('alert').textContent).toContain('customers');
+      expect(screen.getByRole('button', { name: 'Save' })).toHaveProperty('disabled', true);
+    });
+
+    it('accepts the same operand once its source is reachable', () => {
+      setup({
+        existingField: REFERENCING_FIELD,
+        expressionFields: [REMOTE_FIELD, REFERENCING_FIELD],
+        reachableSourceIds: new Set(['orders', 'customers']),
+      });
+
+      expect(screen.queryByRole('alert')).toBe(null);
+      expect(screen.getByRole('button', { name: 'Save' })).toHaveProperty('disabled', false);
+    });
+
+    it('hides an unreachable expression field from the operand picker', async () => {
+      const { user } = setup({
+        existingField: REFERENCING_FIELD,
+        expressionFields: [REMOTE_FIELD, REFERENCING_FIELD],
+        reachableSourceIds: new Set(['orders']),
+      });
+
+      await user.click(screen.getAllByRole('combobox', { name: 'Field' })[0]);
+      const listbox = screen.getByRole('listbox');
+      expect(within(listbox).getByText('Amount')).not.toBe(null);
+      expect(within(listbox).queryByText('Lifetime value')).toBe(null);
+    });
+  });
+
+  // The validation banner was the one user-facing English string left in this dialog: it
+  // rendered the evaluator's raw `message`. Errors now carry a `code` + operands that the
+  // dialog maps onto `localeText`.
+  describe('validation error localization', () => {
+    const BROKEN_FIELD: StudioExpressionField = {
+      id: 'expr-broken',
+      label: 'Broken',
+      sourceId: 'orders',
+      isMeasure: false,
+      expression: { operator: 'add', inputs: [{ id: 'missing' }] } as StudioExpression,
+    };
+
+    it('renders the English defaults for an unknown field and a short operand list', () => {
+      setup({ existingField: BROKEN_FIELD, expressionFields: [BROKEN_FIELD] });
+
+      const alert = screen.getByRole('alert');
+      expect(alert.textContent).toContain(
+        'Field "missing" not found in source fields or expression fields.',
+      );
+      expect(alert.textContent).toContain('Operator "add" requires at least 2 input(s), got 1.');
+    });
+
+    it('renders them translated under a non-English locale', async () => {
+      const { frLocaleText } = await import('../../locales/fr');
+      const { wrapper } = createStudioHarness({
+        providerProps: { localeText: frLocaleText },
+      });
+      render(
+        <StudioExpressionFieldDialog
+          open
+          onClose={() => {}}
+          dataSource={DATA_SOURCE}
+          expressionFields={[BROKEN_FIELD]}
+          existingField={BROKEN_FIELD}
+        />,
+        { wrapper },
+      );
+
+      const alert = screen.getByRole('alert');
+      expect(alert.textContent).toContain('Le champ « missing » est introuvable');
+      expect(alert.textContent).toContain("L'opérateur « add » requiert au moins 2 entrée(s)");
+      expect(alert.textContent).not.toContain('not found in source fields');
+      expect(alert.textContent).not.toContain('requires at least');
+    });
   });
 
   describe('error boundary (Tier2 fix)', () => {

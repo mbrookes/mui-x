@@ -407,6 +407,26 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   exprInputLabelGeneric: (index) => `Entrée ${index}`,
   exprAddInputButton: 'Ajouter une entrée',
   exprOutputTypeLabel: 'Type de sortie :',
+  exprRootNodeLabel: 'Expression',
+  exprLiteralValueAriaLabel: 'Valeur littérale',
+  exprUnnamedFieldLabel: 'Sans nom',
+  exprPreviewNullLabel: 'null',
+
+  // Expression validation errors
+  exprErrorMissingId: 'Le champ calculé doit avoir un identifiant.',
+  exprErrorMissingLabel: 'Le champ calculé doit avoir un nom.',
+  exprErrorMissingSourceId: 'Le champ calculé doit être rattaché à une source de données.',
+  exprErrorMaxDepth: (maxDepth) => `L'expression est imbriquée sur plus de ${maxDepth} niveaux.`,
+  exprErrorUnknownField: (fieldId) =>
+    `Le champ « ${fieldId} » est introuvable parmi les champs de la source et les champs calculés.`,
+  exprErrorUnreachableField: (fieldId, fieldSourceId) =>
+    `Le champ « ${fieldId} » appartient à la source de données « ${fieldSourceId} », qui n'est pas liée à la source de données de ce champ.`,
+  exprErrorMalformedNode:
+    "Nœud d'expression incorrect : un nœud opérateur (avec un tableau `inputs`), une valeur littérale, une référence de champ ou une référence de champ joint est attendu.",
+  exprErrorInsufficientArity: (operator, required, actual) =>
+    `L'opérateur « ${operator} » requiert au moins ${required} entrée(s), ${actual} fournie(s).`,
+  exprErrorCircularDependency: (fieldId) =>
+    `Le champ calculé « ${fieldId} » crée une dépendance circulaire.`,
 
   // Shared aggregation function labels
   aggFnSum: 'Somme',

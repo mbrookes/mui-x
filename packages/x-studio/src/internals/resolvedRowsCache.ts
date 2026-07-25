@@ -1,6 +1,8 @@
 import { resolveRows } from './dataSourceGraph';
 import { isRelativeDateValue, resolveRelativeDate } from './filterUtils';
+import { getLruEntry, getOrCreateBucket, setLruEntry } from './rowCacheLru';
 import { stableStringify } from './stableStringify';
+import type { RelativeDateUnit, RelativeDateValue } from './filterTypes';
 import type {
   StudioDataSource,
   StudioFilterState,
@@ -32,12 +34,15 @@ type Row = Record<string, unknown>;
 //                          `collectJoinedSourceIds` out-param; if any of their
 //                          rows refs change the entry is invalidated.
 //   relationships          full array ref (rarely changes; OK to be broad here)
-//   relevantExprFields     object refs of the non-measure expression fields owned
-//                          by any source this result depends on (the widget source
-//                          plus every joined source). Editing a formula produces a
-//                          new object ref → invalidation. Without this, a HIT here
-//                          returns rows baked with the OLD formula even though
-//                          enrichedRowsCache would have recomputed on a MISS.
+//   relevantExprFields     object refs of the expression fields owned by any source
+//                          this result depends on (the widget source plus every joined
+//                          source): every calculated column, plus any MEASURE the caller
+//                          named in `usedFieldIds` (a measure is a dependency edge into
+//                          the columns it reads — see `collectRelevantExprFields`).
+//                          Editing a formula produces a new object ref → invalidation.
+//                          Without this, a HIT here returns rows baked with the OLD
+//                          formula even though enrichedRowsCache would have recomputed
+//                          on a MISS.
 
 interface ResolvedCacheEntry {
   /**
@@ -49,7 +54,7 @@ interface ResolvedCacheEntry {
    */
   crossFilterSourceRows: Map<string, Row[] | null>;
   relationships: StudioRelationship[];
-  /** Source IDs whose non-measure expression fields this result depends on. */
+  /** Source IDs whose expression fields this result depends on. */
   relevantExprSourceIds: Set<string>;
   /** The relevant expression-field objects at cache time (reference identity). */
   relevantExprFields: StudioExpressionField[];
@@ -58,13 +63,40 @@ interface ResolvedCacheEntry {
 
 const rowCache = new WeakMap<Row[], Map<string, ResolvedCacheEntry>>();
 
+// The inner map is capped/evicted through the shared insertion-order LRU in
+// `rowCacheLru.ts` (`MAX_ENTRIES_PER_ROWS`), which `normalizedRowsCache` and
+// `enrichedRowsCache` also use: interactive / cross-filter churn produces a stream of
+// value-distinct fingerprints, and without a cap the inner Map would grow unbounded for the
+// lifetime of that rows array.
+
 /**
- * Upper bound on distinct filter fingerprints kept per widgetRows array. Interactive /
- * cross-filter churn produces a stream of value-distinct fingerprints; without a cap the
- * inner Map would grow unbounded for the lifetime of that rows array. Map insertion order
- * gives a free LRU — the oldest key is `keys().next().value`.
+ * Truncation length (in ISO-8601 characters) that quantizes a resolved sub-day relative date
+ * to its own unit boundary: `YYYY-MM-DDTHH` / `…THH:mm` / `…THH:mm:ss`.
+ *
+ * `resolveRelativeDate` returns a MILLISECOND-precision `toISOString()` for `second`/`minute`/
+ * `hour` (only `day`/`week`/`month`/`year` get a stable `YYYY-MM-DD`), and all three sub-day
+ * units are user-selectable in `RelativeDateInput`. Folding that raw value into the fingerprint
+ * made the L3 cache key change on EVERY call — a 100% miss rate — so two widgets on the same
+ * source never shared a result, the fresh `Row[]` identity missed every `computedCache` entry
+ * (a WeakMap keyed on the rows array) forcing all chart/KPI aggregation to re-run, and the
+ * bounded LRU degenerated into a churning ring of retained full result arrays.
+ *
+ * The deeper root cause is `filterUtils.resolveRelativeDate` returning ms precision at all;
+ * quantizing here fixes the cache-key half of it without changing filter semantics (the
+ * comparison path still uses the full instant).
  */
-const MAX_ENTRIES_PER_ROWS = 20;
+const RELATIVE_UNIT_KEY_PRECISION: Partial<Record<RelativeDateUnit, number>> = {
+  hour: 'YYYY-MM-DDTHH'.length,
+  minute: 'YYYY-MM-DDTHH:mm'.length,
+  second: 'YYYY-MM-DDTHH:mm:ss'.length,
+};
+
+/** Resolves `rel` and truncates it to its own unit boundary (a no-op for day+ units). */
+function quantizedRelativeDate(rel: RelativeDateValue): string {
+  const resolved = resolveRelativeDate(rel);
+  const precision = RELATIVE_UNIT_KEY_PRECISION[rel.unit];
+  return precision === undefined ? resolved : resolved.slice(0, precision);
+}
 
 /**
  * Resolves the day-boundary component of a value that carries a relative date, so the cache key
@@ -78,16 +110,20 @@ const MAX_ENTRIES_PER_ROWS = 20;
  * unchanged across a midnight crossing even though the resolved window shifted, serving a STALE
  * date window for the remainder of a long-lived session (finding 5).
  *
+ * Every resolved bound is quantized to its own unit boundary (`quantizedRelativeDate`) so a
+ * sub-day unit contributes a value that is STABLE within the unit instead of changing on every
+ * call — see `RELATIVE_UNIT_KEY_PRECISION`.
+ *
  * Returns `null` when `value` carries no relative date anywhere.
  */
 function relativeDayComponent(value: unknown): string | null {
   if (isRelativeDateValue(value)) {
-    return resolveRelativeDate(value);
+    return quantizedRelativeDate(value);
   }
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     const range = value as { from?: unknown; to?: unknown };
-    const fromDay = isRelativeDateValue(range.from) ? resolveRelativeDate(range.from) : null;
-    const toDay = isRelativeDateValue(range.to) ? resolveRelativeDate(range.to) : null;
+    const fromDay = isRelativeDateValue(range.from) ? quantizedRelativeDate(range.from) : null;
+    const toDay = isRelativeDateValue(range.to) ? quantizedRelativeDate(range.to) : null;
     if (fromDay !== null || toDay !== null) {
       return `${fromDay ?? ''}..${toDay ?? ''}`;
     }
@@ -134,12 +170,28 @@ export function filterFingerprint(f: StudioFilterState): string {
   ]);
 }
 
-/** Non-measure expression fields owned by any of `sourceIds`, in declaration order. */
+/**
+ * Expression fields owned by any of `sourceIds` that this result depends on, in declaration
+ * order: every non-measure (calculated column) field, PLUS any measure the caller explicitly
+ * requested via `usedFieldIds`.
+ *
+ * A measure has no per-row value, so it looks irrelevant to a row set — but it is a dependency
+ * EDGE: `getCachedEnrichedRows` expands a requested measure to the calculated columns it reads,
+ * so re-pointing `sum(profit)` at `sum(margin)` changes which columns the enriched rows carry
+ * while leaving the measure's ID (and therefore this entry's cache key) untouched. Ignoring
+ * requested measures here served the previously-enriched array by reference, so the re-pointed
+ * measure aggregated a column that was never computed and read 0 — the same class of bug as the
+ * measure-free dependency expansion in `enrichedRowsCache`. Measures NOT in `usedFieldIds` stay
+ * excluded so authoring an unrelated measure never invalidates anything.
+ */
 function collectRelevantExprFields(
   expressionFields: StudioExpressionField[],
   sourceIds: ReadonlySet<string>,
+  usedFieldIds?: ReadonlySet<string>,
 ): StudioExpressionField[] {
-  return expressionFields.filter((ef) => !ef.isMeasure && sourceIds.has(ef.sourceId));
+  return expressionFields.filter(
+    (ef) => sourceIds.has(ef.sourceId) && (!ef.isMeasure || (usedFieldIds?.has(ef.id) ?? false)),
+  );
 }
 
 function isEntryValid(
@@ -147,6 +199,7 @@ function isEntryValid(
   dataSources: Record<string, StudioDataSource>,
   relationships: StudioRelationship[],
   expressionFields: StudioExpressionField[],
+  usedFieldIds?: ReadonlySet<string>,
 ): boolean {
   if (entry.relationships !== relationships) {
     return false;
@@ -161,10 +214,13 @@ function isEntryValid(
   }
   // Expression fields relevant to this result must be the same objects (formula edits
   // replace the object). Recompute the relevant set from the stored source IDs so an
-  // added/removed field on a relevant source is caught too.
+  // added/removed field on a relevant source is caught too. `usedFieldIds` is safe to take
+  // from the CURRENT call rather than the entry: its sorted contents are part of the cache
+  // key, so an entry is only ever looked up with an equal set.
   const currentExprFields = collectRelevantExprFields(
     expressionFields,
     entry.relevantExprSourceIds,
+    usedFieldIds,
   );
   if (currentExprFields.length !== entry.relevantExprFields.length) {
     return false;
@@ -221,22 +277,41 @@ export function resolveRowsCached(
     );
   }
 
-  const filterKey =
-    resolvedFilters.length === 0 ? '' : resolvedFilters.map(filterFingerprint).sort().join('|');
-  const fieldSetSegment = usedFieldIds ? [...usedFieldIds].toSorted().join(',') : '';
+  // Non-rank filters are AND-ed row predicates, so their order is immaterial and sorting
+  // their fingerprints lets two widgets that received the same filter set in different
+  // orders share one entry. Rank filters are NOT commutative — `applyFilters` runs them
+  // SEQUENTIALLY as dataset-level reductions, so "top 5 by revenue then top 3 by units" and
+  // its reverse generally select different rows. Sorting them together collapsed both
+  // orderings onto a single cache entry, serving whichever computed first for both. Keep the
+  // rank fingerprints in application order, in their own key segment.
+  const nonRankFingerprints: string[] = [];
+  const rankFingerprints: string[] = [];
+  for (const f of resolvedFilters) {
+    const fingerprint = filterFingerprint(f);
+    if ((f.filterMode ?? 'condition') === 'rank') {
+      rankFingerprints.push(fingerprint);
+    } else {
+      nonRankFingerprints.push(fingerprint);
+    }
+  }
+  const filterKey = `${nonRankFingerprints.sort().join('|')}#${rankFingerprints.join('|')}`;
+  // `'*'` (not `''`) for "no field set given", mirroring `normalizedRowsCache`: an ABSENT
+  // `usedFieldIds` means "enrich every field for the source" while an EMPTY set means "enrich
+  // none" (`enrichedRowsCache`), and both used to join to `''` — so whichever of
+  // `createStudioPipeline` (always undefined) and `useWidgetRows` (can pass an empty set)
+  // computed first won the shared slot for both.
+  const fieldSetSegment = usedFieldIds ? [...usedFieldIds].toSorted().join(',') : '*';
   const cacheKey = `${widgetSourceId}::${filterKey}::${fieldSetSegment}`;
 
-  let byKey = rowCache.get(widgetRows);
-  if (!byKey) {
-    byKey = new Map();
-    rowCache.set(widgetRows, byKey);
-  }
+  const byKey = getOrCreateBucket(rowCache, widgetRows);
 
-  const existing = byKey.get(cacheKey);
-  if (existing && isEntryValid(existing, dataSources, relationships, expressionFields)) {
-    // Refresh LRU recency: delete + re-insert moves this key to the newest position.
-    byKey.delete(cacheKey);
-    byKey.set(cacheKey, existing);
+  // `getLruEntry` refreshes recency on read (delete + re-insert moves the key to the newest
+  // position).
+  const existing = getLruEntry(byKey, cacheKey);
+  if (
+    existing &&
+    isEntryValid(existing, dataSources, relationships, expressionFields, usedFieldIds)
+  ) {
     return existing.result;
   }
 
@@ -277,18 +352,14 @@ export function resolveRowsCached(
       relevantExprSourceIds.add(f.filterSourceId);
     }
   }
-  const relevantExprFields = collectRelevantExprFields(expressionFields, relevantExprSourceIds);
+  const relevantExprFields = collectRelevantExprFields(
+    expressionFields,
+    relevantExprSourceIds,
+    usedFieldIds,
+  );
 
-  // Evict the least-recently-used entry before inserting when at capacity. A stale key
-  // (already re-mapped above, so absent) won't count toward the cap.
-  if (!byKey.has(cacheKey) && byKey.size >= MAX_ENTRIES_PER_ROWS) {
-    const oldest = byKey.keys().next().value;
-    if (oldest !== undefined) {
-      byKey.delete(oldest);
-    }
-  }
-
-  byKey.set(cacheKey, {
+  // `setLruEntry` evicts the least-recently-used entries before inserting when at capacity.
+  setLruEntry(byKey, cacheKey, {
     crossFilterSourceRows,
     relationships,
     relevantExprSourceIds,

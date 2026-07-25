@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { getCachedEnrichedRows } from './enrichedRowsCache';
-import type { StudioDataSource, StudioExpressionField, StudioRelationship } from '../models';
+import { MAX_ENTRIES_PER_ROWS } from './rowCacheLru';
+import { evaluateMeasure } from '../utils/expressionEvaluator';
+import type {
+  StudioDataField,
+  StudioDataSource,
+  StudioExpressionField,
+  StudioRelationship,
+} from '../models';
 
 type Row = Record<string, unknown>;
 
@@ -624,6 +631,358 @@ describe('getCachedEnrichedRows', () => {
 
     const first = getCachedEnrichedRows(shared, 'orders', [expr], ds, NO_RELATIONSHIPS);
     const second = getCachedEnrichedRows(shared, 'orders', [expr], ds, NO_RELATIONSHIPS);
+    expect(second).toBe(first);
+  });
+
+  // ─── Inner-map LRU cap (M2) ────────────────────────────────────────────────
+
+  it('caps the per-rows field-set map and evicts the least-recently-used entry', () => {
+    // `usedFieldIds` derives from widget config + reachable filter fields, so adding grid
+    // columns one at a time mints a new fieldSetKey per column. Without a cap, every
+    // historical field set retained a full enriched clone of the rows array for as long as
+    // that rows array lived — and the outer WeakMap key IS that rows array, so it never helped.
+    const rows = makeRows(4);
+    const dataSources = makeDataSources(rows);
+    // One expression field per distinct slot, so each usedFieldIds set produces its own key.
+    const exprFields = Array.from(
+      { length: MAX_ENTRIES_PER_ROWS + 2 },
+      (_, i) =>
+        ({
+          id: `expr-${i}`,
+          label: `Expr ${i}`,
+          sourceId: 'orders',
+          isMeasure: false,
+          expression: { operator: 'add', inputs: [{ id: 'value' }, { type: 'number', value: i }] },
+        }) as unknown as StudioExpressionField,
+    );
+
+    const first = getCachedEnrichedRows(
+      rows,
+      'orders',
+      exprFields,
+      dataSources,
+      NO_RELATIONSHIPS,
+      new Set(['expr-0']),
+    );
+
+    // Fill past capacity with distinct field sets.
+    for (let i = 1; i < exprFields.length; i += 1) {
+      getCachedEnrichedRows(
+        rows,
+        'orders',
+        exprFields,
+        dataSources,
+        NO_RELATIONSHIPS,
+        new Set([`expr-${i}`]),
+      );
+    }
+
+    // The oldest slot was evicted → recomputed (new reference) rather than served.
+    const firstAgain = getCachedEnrichedRows(
+      rows,
+      'orders',
+      exprFields,
+      dataSources,
+      NO_RELATIONSHIPS,
+      new Set(['expr-0']),
+    );
+    expect(firstAgain).not.toBe(first);
+    // ...but it is still correct.
+    expect(firstAgain[1]['expr-0']).toBe(10);
+  });
+
+  it('keeps a repeatedly-used field set warm while others churn (read refreshes recency)', () => {
+    const rows = makeRows(4);
+    const dataSources = makeDataSources(rows);
+    const hotField = makeOrdersExprField(); // id: 'expr-double'
+    // Comfortably past the cap so evictions genuinely happen during the loop.
+    const churnFields = Array.from(
+      { length: MAX_ENTRIES_PER_ROWS * 2 },
+      (_, i) =>
+        ({
+          id: `churn-${i}`,
+          label: `Churn ${i}`,
+          sourceId: 'orders',
+          isMeasure: false,
+          expression: { operator: 'add', inputs: [{ id: 'value' }, { type: 'number', value: i }] },
+        }) as unknown as StudioExpressionField,
+    );
+    const allFields = [hotField, ...churnFields];
+    const hotIds = new Set(['expr-double']);
+
+    const hot = getCachedEnrichedRows(
+      rows,
+      'orders',
+      allFields,
+      dataSources,
+      NO_RELATIONSHIPS,
+      hotIds,
+    );
+
+    for (let i = 0; i < churnFields.length; i += 1) {
+      getCachedEnrichedRows(
+        rows,
+        'orders',
+        allFields,
+        dataSources,
+        NO_RELATIONSHIPS,
+        new Set([`churn-${i}`]),
+      );
+      // Re-read the hot slot between churn inserts — this must move it back to newest.
+      expect(
+        getCachedEnrichedRows(rows, 'orders', allFields, dataSources, NO_RELATIONSHIPS, hotIds),
+      ).toBe(hot);
+    }
+  });
+});
+
+// ─── Measure dependency expansion (C1) ────────────────────────────────────────
+//
+// A widget's `usedFieldIds` is `collectSelectFields(widget)`, which for a KPI is the
+// MEASURE's id. Expansion used to run against a map built from `!ef.isMeasure` fields only,
+// so `fieldById.get(measureId)` missed, the transitive walk returned immediately,
+// `relevantFields` came back empty and `getCachedEnrichedRows` handed back the RAW rows. The
+// measure then aggregated a calculated column that was never computed and read 0 — on the
+// canvas — while the data drawer's source-scoped preview of the SAME measure read the right
+// number.
+
+describe('getCachedEnrichedRows — measure dependency expansion (C1)', () => {
+  const revenueField: StudioDataField = { id: 'revenue', label: 'Revenue', type: 'number' };
+  const costField: StudioDataField = { id: 'cost', label: 'Cost', type: 'number' };
+
+  function makeSalesRows(): Row[] {
+    return [
+      { revenue: 100, cost: 60 },
+      { revenue: 200, cost: 120 },
+    ];
+  }
+
+  function makeSalesSources(rows: Row[]): Record<string, StudioDataSource> {
+    return {
+      sales: { id: 'sales', label: 'Sales', rows, fields: [revenueField, costField] },
+    };
+  }
+
+  /** Calculated column: `revenue - cost`. */
+  const profitColumn: StudioExpressionField = {
+    id: 'profit',
+    label: 'Profit',
+    sourceId: 'sales',
+    isMeasure: false,
+    expression: { operator: 'subtract', inputs: [{ id: 'revenue' }, { id: 'cost' }] },
+  } as unknown as StudioExpressionField;
+
+  /** Measure: `sum(profit)` — references the calculated column above. */
+  const totalProfitMeasure: StudioExpressionField = {
+    id: 'm-total-profit',
+    label: 'Total profit',
+    sourceId: 'sales',
+    isMeasure: true,
+    expression: { id: 'profit', aggregation: 'sum' },
+  } as unknown as StudioExpressionField;
+
+  const salesFields = [profitColumn, totalProfitMeasure];
+
+  it('enriches the calculated column a requested MEASURE depends on', () => {
+    const rows = makeSalesRows();
+    const enriched = getCachedEnrichedRows(
+      rows,
+      'sales',
+      salesFields,
+      makeSalesSources(rows),
+      NO_RELATIONSHIPS,
+      new Set(['m-total-profit']), // the widget only names the measure
+    );
+
+    // Before the fix this was the RAW rows array, with no `profit` key at all.
+    expect(enriched).not.toBe(rows);
+    expect(enriched[0].profit).toBe(40);
+    expect(enriched[1].profit).toBe(80);
+  });
+
+  it('produces the same measure value on the widget path and the source path', () => {
+    // Distinct (structurally identical) rows arrays so the two paths compute independently
+    // instead of one serving the other's cache entry.
+    const widgetRows = makeSalesRows();
+    const sourceRows = makeSalesRows();
+
+    const widgetEnriched = getCachedEnrichedRows(
+      widgetRows,
+      'sales',
+      salesFields,
+      makeSalesSources(widgetRows),
+      NO_RELATIONSHIPS,
+      new Set(['m-total-profit']), // widget path (KPI tile on the canvas)
+    );
+    const sourceEnriched = getCachedEnrichedRows(
+      sourceRows,
+      'sales',
+      salesFields,
+      makeSalesSources(sourceRows),
+      NO_RELATIONSHIPS,
+      // source path (data-drawer preview) — no usedFieldIds
+    );
+
+    const widgetValue = evaluateMeasure(totalProfitMeasure, widgetEnriched, salesFields);
+    const sourceValue = evaluateMeasure(totalProfitMeasure, sourceEnriched, salesFields);
+
+    // Before the fix: widgetValue === 0, sourceValue === 120.
+    expect(widgetValue).toBe(120);
+    expect(sourceValue).toBe(120);
+    expect(widgetValue).toBe(sourceValue);
+  });
+
+  it('never writes the measure itself onto a row', () => {
+    const rows = makeSalesRows();
+    const enriched = getCachedEnrichedRows(
+      rows,
+      'sales',
+      salesFields,
+      makeSalesSources(rows),
+      NO_RELATIONSHIPS,
+      new Set(['m-total-profit']),
+    );
+    // Measures are dropped AFTER the closure — they have no per-row value.
+    expect('m-total-profit' in enriched[0]).toBe(false);
+  });
+
+  it('expands transitively through a chain of calculated columns behind a measure', () => {
+    const rows = makeSalesRows();
+    // margin = profit * 2; measure = sum(margin) → must pull in BOTH margin and profit.
+    const marginColumn: StudioExpressionField = {
+      id: 'margin',
+      label: 'Margin',
+      sourceId: 'sales',
+      isMeasure: false,
+      expression: {
+        operator: 'multiply',
+        inputs: [{ id: 'profit' }, { type: 'number', value: 2 }],
+      },
+    } as unknown as StudioExpressionField;
+    const marginMeasure: StudioExpressionField = {
+      id: 'm-total-margin',
+      label: 'Total margin',
+      sourceId: 'sales',
+      isMeasure: true,
+      expression: { id: 'margin', aggregation: 'sum' },
+    } as unknown as StudioExpressionField;
+    const fields = [profitColumn, marginColumn, marginMeasure];
+
+    const enriched = getCachedEnrichedRows(
+      rows,
+      'sales',
+      fields,
+      makeSalesSources(rows),
+      NO_RELATIONSHIPS,
+      new Set(['m-total-margin']),
+    );
+
+    expect(enriched[0].profit).toBe(40);
+    expect(enriched[0].margin).toBe(80);
+    expect(evaluateMeasure(marginMeasure, enriched, fields)).toBe(240);
+  });
+
+  it('still enriches nothing when the requested set names only unrelated fields', () => {
+    // Guard against over-widening: a widget that uses no expression field at all must still
+    // short-circuit to the raw rows.
+    const rows = makeSalesRows();
+    const enriched = getCachedEnrichedRows(
+      rows,
+      'sales',
+      salesFields,
+      makeSalesSources(rows),
+      NO_RELATIONSHIPS,
+      new Set(['revenue']), // a physical column
+    );
+    expect(enriched).toBe(rows);
+  });
+});
+
+// ─── Joined-source `fields` tracking (M3) ─────────────────────────────────────
+
+describe('getCachedEnrichedRows — joined source fields dependency (M3)', () => {
+  it('invalidates when a JOINED source retypes a field without replacing its rows', () => {
+    // The join reads the foreign source through `getCachedNormalizedDataSource`, which is
+    // keyed on rows AND fields. `updateDataSourceField` patches `fields` only, keeping the
+    // same `rows` reference — so tracking rows alone returned the stale enriched array by
+    // reference, carrying the raw `Date` instead of the canonical 'YYYY-MM-DD'.
+    const ordersRows: Row[] = [{ id: 0, customerId: 0 }];
+    const customersRows: Row[] = [{ id: 0, signupDate: new Date('2024-01-15T12:00:00.000Z') }];
+
+    const idField: StudioDataField = { id: 'id', label: 'ID', type: 'number' };
+    const signupAsString: StudioDataField = { id: 'signupDate', label: 'Signup', type: 'string' };
+    const signupAsDate: StudioDataField = { id: 'signupDate', label: 'Signup', type: 'date' };
+
+    const makeSources = (customerFields: StudioDataField[]): Record<string, StudioDataSource> => ({
+      orders: { id: 'orders', label: 'Orders', rows: ordersRows, fields: [idField] },
+      // SAME rows reference in both variants — only `fields` differs.
+      customers: {
+        id: 'customers',
+        label: 'Customers',
+        rows: customersRows,
+        fields: customerFields,
+      },
+    });
+
+    const joinField: StudioExpressionField = {
+      id: 'expr-signup',
+      label: 'Signup',
+      sourceId: 'orders',
+      isMeasure: false,
+      expression: { joinSourceId: 'customers', fieldId: 'signupDate' },
+    } as unknown as StudioExpressionField;
+    const rel: StudioRelationship = {
+      id: 'rel-1',
+      sourceId: 'orders',
+      targetId: 'customers',
+      sourceField: 'customerId',
+      targetField: 'id',
+    } as StudioRelationship;
+
+    const before = getCachedEnrichedRows(
+      ordersRows,
+      'orders',
+      [joinField],
+      makeSources([idField, signupAsString]),
+      [rel],
+    );
+    const after = getCachedEnrichedRows(
+      ordersRows,
+      'orders',
+      [joinField],
+      makeSources([idField, signupAsDate]),
+      [rel],
+    );
+
+    // Before the fix these were the SAME array (fields were not part of the validity check).
+    expect(after).not.toBe(before);
+    // The retyped foreign column now arrives L1-normalized instead of as a raw Date.
+    expect(before[0]['expr-signup']).toBeInstanceOf(Date);
+    expect(after[0]['expr-signup']).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('still hits the cache when an UNRELATED source retypes a field', () => {
+    const ordersRows = makeRows(3);
+    const dataSources1 = makeDataSources(ordersRows, makeRows(2));
+    const expr = makeOrdersExprField(); // arithmetic — joins nothing
+
+    const first = getCachedEnrichedRows(
+      ordersRows,
+      'orders',
+      [expr],
+      dataSources1,
+      NO_RELATIONSHIPS,
+    );
+    // Rebuild `customers` with a brand new fields array — orders joins nothing, so no effect.
+    const dataSources2 = makeDataSources(ordersRows, dataSources1.customers.rows as Row[]);
+    const second = getCachedEnrichedRows(
+      ordersRows,
+      'orders',
+      [expr],
+      dataSources2,
+      NO_RELATIONSHIPS,
+    );
+
     expect(second).toBe(first);
   });
 });

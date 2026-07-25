@@ -13,7 +13,7 @@ import { ensureRowIdentity } from './rowIdentity';
 type Row = Record<string, unknown>;
 
 /** Minimal field reference used by enrichWithCrossSourceFields. */
-interface CrossSourceFieldRef {
+export interface CrossSourceFieldRef {
   fieldId: string;
   sourceId: string;
 }

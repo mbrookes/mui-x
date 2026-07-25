@@ -26,8 +26,16 @@ import { selectFiltersForWidget } from './filterScoping';
 import { getCachedNormalizedDataSource } from './normalizedRowsCache';
 import { useAdapterRows } from './useAdapterRows';
 import { enrichWithCrossSourceFields } from './crossSourceEnrichment';
+import type { CrossSourceFieldRef } from './crossSourceEnrichment';
 
 type Row = Record<string, unknown>;
+
+/**
+ * Reference-stable empty cross-source field list. Returning a fresh `[]` from the
+ * `mapCrossSourceFields` memo for every non-map widget would invalidate every downstream
+ * enrichment memo on each render.
+ */
+const EMPTY_CROSS_SOURCE_FIELD_REFS: CrossSourceFieldRef[] = [];
 
 /**
  * Chart types that re-apply a widget-scoped rank (Top-N) filter POST-aggregation in
@@ -234,7 +242,13 @@ export function useWidgetRows(
 
   // Descriptor building, request-cache seeding/dedup, and async loading/error state are
   // encapsulated in useAdapterRows (behavior-preserving extraction).
-  const { adapterRows, isLoading, isError, errorMessage } = useAdapterRows(
+  const {
+    adapterRows,
+    isPlaceholder: adapterRowsArePlaceholder,
+    isLoading,
+    isError,
+    errorMessage,
+  } = useAdapterRows(
     widget,
     dataSource,
     pageId,
@@ -500,6 +514,45 @@ export function useWidgetRows(
         if (!widget.sourceId) {
           return enrichedAdapterRows;
         }
+        if (adapterRowsArePlaceholder) {
+          // COLD-CACHE PLACEHOLDER: these rows are `dataSource.rows` shown so the widget
+          // doesn't flash empty — they never went to the server, so the premise the residual
+          // pass below rests on ("page/widget filters were already baked into
+          // descriptor.filter") is false for them. Applying only the rank/cross/interactive
+          // residual rendered the FULL dataset — and KPI totals computed from it — on every
+          // page load of a dashboard with e.g. a "last 30 days" range, until the fetch
+          // resolved. Run the complete local filter chain instead, exactly as the sync path
+          // does; the first real response flips `isPlaceholder` false and restores the
+          // residual-only pass.
+          const scopedLocal = selectFiltersForWidget(
+            [
+              ...deferredPartitioned.page,
+              ...(deferredPartitioned.byWidgetId.get(widget.id) ?? []),
+              ...deferredPartitioned.cross,
+              ...deferredPartitioned.interactive,
+            ],
+            {
+              widgetId: widget.id,
+              widgetSourceId: widget.sourceId,
+              activePageId: pageId,
+              include,
+              crossFilterAllPages,
+              includeWidgetRank,
+            },
+          );
+          if (scopedLocal.length === 0) {
+            return enrichedAdapterRows;
+          }
+          return resolveRowsCached(
+            enrichedAdapterRows,
+            widget.sourceId,
+            scopedLocal,
+            dataSources,
+            relationships,
+            expressionFields,
+            usedFieldIds,
+          );
+        }
         // Page-scoped rank filters (top/bottom-N) are stripped from the server descriptor
         // (`buildQueryDescriptor`) because the wire protocol can't express a rank reduction —
         // so they must be re-applied here, client-side, exactly as the sync path does via
@@ -580,6 +633,7 @@ export function useWidgetRows(
     },
     [
       hasAdapter,
+      adapterRowsArePlaceholder,
       enrichedAdapterRows,
       normalizedDataSource,
       deferredPartitioned,
@@ -634,13 +688,24 @@ export function useWidgetRows(
   );
 
   // For map widgets, collect cross-source field refs from mapCountryField / mapValueField.
-  const mapCrossSourceFields = React.useMemo(() => {
-    if (!isWidgetOfKind(widget, 'map')) {
-      return [];
+  // Deps are the four config values actually read (plus the kind), NOT the whole `widget`
+  // object — mirroring `crossSourceColumns` just above. Depending on `widget` meant every
+  // widget mutation (a resize drag emits one per pointer frame) produced a fresh `[]` for the
+  // non-map case, busting `allCrossSourceFieldRefs` → `enrichIfNeeded` → all three `enriched*`
+  // memos. That matters more here than elsewhere because `enrichWithCrossSourceFields` is the
+  // one pipeline stage with no content-addressed cache, so the join re-ran per frame.
+  const isMapWidget = isWidgetOfKind(widget, 'map');
+  const mapConfig = widget.config as StudioWidgetConfig | undefined;
+  const mapCountryField = mapConfig?.mapCountryField;
+  const mapCountrySourceId = mapConfig?.mapCountrySourceId;
+  const mapValueField = mapConfig?.mapValueField;
+  const mapValueSourceId = mapConfig?.mapValueSourceId;
+  const mapCrossSourceFields = React.useMemo((): CrossSourceFieldRef[] => {
+    if (!isMapWidget) {
+      // Shared module-level constant, so the non-map case is reference-stable across renders.
+      return EMPTY_CROSS_SOURCE_FIELD_REFS;
     }
-    const refs = [];
-    const { mapCountryField, mapCountrySourceId, mapValueField, mapValueSourceId } =
-      widget.config ?? {};
+    const refs: CrossSourceFieldRef[] = [];
     if (mapCountryField && mapCountrySourceId && mapCountrySourceId !== widget.sourceId) {
       refs.push({ fieldId: mapCountryField, sourceId: mapCountrySourceId });
     }
@@ -648,7 +713,14 @@ export function useWidgetRows(
       refs.push({ fieldId: mapValueField, sourceId: mapValueSourceId });
     }
     return refs;
-  }, [widget]);
+  }, [
+    isMapWidget,
+    mapCountryField,
+    mapCountrySourceId,
+    mapValueField,
+    mapValueSourceId,
+    widget.sourceId,
+  ]);
 
   const hasCrossSourceColumns = crossSourceColumns.length > 0 || mapCrossSourceFields.length > 0;
 

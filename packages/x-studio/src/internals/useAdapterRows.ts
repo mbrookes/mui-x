@@ -18,6 +18,20 @@ export interface UseAdapterRowsResult {
   /** Rows fetched from the adapter (physical columns only — enrichment happens in useWidgetRows). */
   adapterRows: Row[];
   /**
+   * True while `adapterRows` are the cold-cache PLACEHOLDER seeded from `dataSource.rows`
+   * rather than a response the adapter actually produced for the current descriptor.
+   *
+   * Callers must not assume the descriptor's server-side filters were applied to placeholder
+   * rows — they never went to the server. `useWidgetRows` re-applies the FULL local filter
+   * chain to them instead of only the rank/cross/interactive residual, so a dashboard with a
+   * "last 30 days" range doesn't render the entire dataset (and KPI totals computed from it)
+   * on every page load until the first fetch resolves.
+   *
+   * Always false once any real response (cached or fetched) lands, and always false for a
+   * source with no adapter.
+   */
+  isPlaceholder: boolean;
+  /**
    * True while an async adapter fetch is in progress.
    * Always false for sources without an adapter (sync path).
    */
@@ -77,10 +91,12 @@ export function useAdapterRows(
     crossFilterAllPages,
   ]);
 
-  // Async state: rows fetched from adapter.
-  const [adapterRows, setAdapterRows] = React.useState<Row[]>(() => {
+  // Async state: rows fetched from adapter, plus whether they are the cold-cache placeholder.
+  // Both live in ONE state object so the two can never disagree (a placeholder flag lagging a
+  // row update by a render would be exactly the unfiltered-rows bug it exists to prevent).
+  const [rowsState, setRowsState] = React.useState<{ rows: Row[]; isPlaceholder: boolean }>(() => {
     if (!hasAdapter) {
-      return [];
+      return { rows: [], isPlaceholder: false };
     }
     // Seed from cache synchronously on mount. Pass the live adapter so this instance only
     // ever reads entries written by its OWN adapter (two `<Studio>` instances sharing a
@@ -89,17 +105,31 @@ export function useAdapterRows(
       ? studioRequestCache.get(descriptor.cacheKey, dataSource?.adapter)
       : undefined;
     if (cached) {
-      return cached.rows;
+      return { rows: cached.rows, isPlaceholder: false };
     }
     // Fall back to source.rows as a display placeholder so the widget doesn't
     // flash empty while the adapter re-fetches on a cold cache (e.g. after page
-    // navigation when source.rows was pre-populated by setDataSourceRows).
-    return (dataSource?.rows as Row[] | undefined) ?? [];
+    // navigation when source.rows was pre-populated by setDataSourceRows). These rows never
+    // went through the server, so nothing in `descriptor.filter` has been applied to them —
+    // flagged so the caller can apply the whole filter chain locally instead.
+    return { rows: (dataSource?.rows as Row[] | undefined) ?? [], isPlaceholder: true };
   });
+
   // react-doctor-disable-next-line react-doctor/rendering-usetransition-loading -- isLoading guards an async data fetch (adapter.getRows), not a state transition
   const [isLoading, setIsLoading] = React.useState(false);
   const [isError, setIsError] = React.useState(false);
   const [errorMessage, setErrorMessage] = React.useState('');
+
+  /**
+   * Records rows that came from a real adapter response (cached or freshly fetched). Returns
+   * the previous state unchanged when nothing actually changed, preserving the setState bail-out
+   * the repeated-cache-hit path relies on to avoid an extra render.
+   */
+  const setResolvedRows = React.useCallback((rows: Row[]) => {
+    setRowsState((prev) =>
+      prev.rows === rows && !prev.isPlaceholder ? prev : { rows, isPlaceholder: false },
+    );
+  }, []);
 
   // react-doctor-disable-next-line react-doctor/no-cascading-set-state -- multiple setState calls are intentional: they atomically update related async fetch state
   React.useEffect(() => {
@@ -123,7 +153,7 @@ export function useAdapterRows(
 
     if (cached) {
       // Cache hit — serve synchronously, no loading state.
-      setAdapterRows(cached.rows);
+      setResolvedRows(cached.rows);
       // Must clear isLoading here too: if a previous descriptor (A) missed the cache
       // and set isLoading=true, then the descriptor switched to B (this cache hit)
       // before A resolved, A's cleanup marks it cancelled and its `.then` never runs —
@@ -174,7 +204,7 @@ export function useAdapterRows(
     promise.then(
       (result) => {
         if (!cancelled) {
-          setAdapterRows(result.rows);
+          setResolvedRows(result.rows);
           setIsLoading(false);
           setIsError(false);
           setErrorMessage('');
@@ -193,7 +223,13 @@ export function useAdapterRows(
     return () => {
       cancelled = true;
     };
-  }, [descriptor, dataSource, localeText.widgetLoadError]);
+  }, [descriptor, dataSource, localeText.widgetLoadError, setResolvedRows]);
 
-  return { adapterRows, isLoading, isError, errorMessage };
+  return {
+    adapterRows: rowsState.rows,
+    isPlaceholder: rowsState.isPlaceholder,
+    isLoading,
+    isError,
+    errorMessage,
+  };
 }

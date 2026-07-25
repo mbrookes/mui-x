@@ -1173,3 +1173,398 @@ describe('filterFingerprint — relative date detection (finding 5)', () => {
     expect(fingerprintDay1).toBe(fingerprintDay2);
   });
 });
+
+// ─── filterFingerprint — sub-day relative units (H3) ──────────────────────────
+//
+// `filterUtils.resolveRelativeDate` returns a MILLISECOND-precision `toISOString()` for the
+// `second`/`minute`/`hour` units (only `day`/`week`/`month`/`year` get a stable `YYYY-MM-DD`),
+// and all three sub-day units are user-selectable in `RelativeDateInput`. Folding that raw
+// value into the fingerprint made the L3 cache key change on EVERY call — a 100% miss rate.
+// The consequences compound: a fresh `Row[]` identity each time also misses every
+// `computedCache` entry (a WeakMap keyed on the rows array) so all chart/KPI aggregation
+// re-runs, two widgets on the same source stop sharing a result, and the bounded LRU
+// degenerates into a churning ring of retained full result arrays.
+//
+// The deeper root cause is in `filterUtils.resolveRelativeDate`; this quantizes the cache key
+// to the filter's own unit boundary, which is all the cache needs.
+describe('filterFingerprint — sub-day relative units (H3)', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function relativeFilter(unit: 'second' | 'minute' | 'hour' | 'day'): StudioFilterState {
+    return {
+      id: 'f1',
+      field: 'orderDate',
+      fieldType: 'datetime',
+      operator: 'greater_than_or_equal',
+      value: { relative: true, amount: 1, unit, direction: 'past' },
+      scope: { kind: 'page' as const },
+    } as StudioFilterState;
+  }
+
+  it.each(['second', 'minute', 'hour'] as const)(
+    'is stable across two calls milliseconds apart for unit=%s',
+    (unit) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2024-06-15T12:30:30.000Z'));
+      const first = filterFingerprint(relativeFilter(unit));
+
+      // Two renders a few milliseconds apart — the raw resolved ISO instant differs, the
+      // quantized cache key must not.
+      vi.setSystemTime(new Date('2024-06-15T12:30:30.007Z'));
+      const second = filterFingerprint(relativeFilter(unit));
+
+      expect(second).toBe(first);
+    },
+  );
+
+  it('still changes when the hour boundary is actually crossed', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-06-15T12:30:00.000Z'));
+    const before = filterFingerprint(relativeFilter('hour'));
+
+    vi.setSystemTime(new Date('2024-06-15T13:30:00.000Z'));
+    const after = filterFingerprint(relativeFilter('hour'));
+
+    expect(after).not.toBe(before);
+  });
+
+  it('still changes when the minute boundary is actually crossed', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-06-15T12:30:00.000Z'));
+    const before = filterFingerprint(relativeFilter('minute'));
+
+    vi.setSystemTime(new Date('2024-06-15T12:31:00.000Z'));
+    const after = filterFingerprint(relativeFilter('minute'));
+
+    expect(after).not.toBe(before);
+  });
+
+  it('leaves day-granular units untouched (regression guard)', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-06-15T12:00:00.000Z'));
+    const morning = filterFingerprint(relativeFilter('day'));
+
+    vi.setSystemTime(new Date('2024-06-15T18:00:00.000Z'));
+    expect(filterFingerprint(relativeFilter('day'))).toBe(morning);
+
+    vi.setSystemTime(new Date('2024-06-17T12:00:00.000Z'));
+    expect(filterFingerprint(relativeFilter('day'))).not.toBe(morning);
+  });
+
+  it('is stable for a sub-day relative bound nested inside a `between` value', () => {
+    const between = (): StudioFilterState =>
+      ({
+        id: 'f1',
+        field: 'orderDate',
+        fieldType: 'datetime',
+        operator: 'between',
+        value: {
+          from: { relative: true, amount: 6, unit: 'hour', direction: 'past' },
+          to: { relative: true, amount: 0, unit: 'hour', direction: 'past' },
+        },
+        scope: { kind: 'page' as const },
+      }) as StudioFilterState;
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-06-15T12:30:30.000Z'));
+    const first = filterFingerprint(between());
+    vi.setSystemTime(new Date('2024-06-15T12:30:30.009Z'));
+    expect(filterFingerprint(between())).toBe(first);
+  });
+
+  it('a sub-day relative filter yields the SAME Row[] reference on back-to-back calls', () => {
+    // The end-to-end consequence: a stable rows identity is what keeps `computedCache`
+    // (a WeakMap keyed on the rows array) warm and lets two widgets share one result.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-06-15T12:30:30.000Z'));
+
+    const ownRows = [
+      { id: '1', orderDate: '2024-06-15T12:00:00.000Z' },
+      { id: '2', orderDate: '2024-06-10T12:00:00.000Z' },
+    ];
+    const dataSources = makeDataSources(ownRows);
+    const filters = [
+      makeFilter({
+        id: 'f-relative',
+        field: 'orderDate',
+        fieldType: 'datetime',
+        operator: 'greater_than_or_equal',
+        value: { relative: true, amount: 1, unit: 'hour', direction: 'past' },
+      }),
+    ];
+
+    const first = resolveRowsCached(
+      ownRows,
+      'orders',
+      filters,
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+    vi.setSystemTime(new Date('2024-06-15T12:30:30.011Z'));
+    const second = resolveRowsCached(
+      ownRows,
+      'orders',
+      filters,
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+
+    // Before the fix this was a brand new array on every single call.
+    expect(second).toBe(first);
+  });
+});
+
+// ─── Cache-key segments (LOW) ────────────────────────────────────────────────
+
+describe('resolveRowsCached — cache key segments', () => {
+  it('separates an ABSENT usedFieldIds from an EMPTY one', () => {
+    // `undefined` means "enrich every expression field for the source"; an empty Set means
+    // "enrich none" (see `enrichedRowsCache`). Both used to join to '' and collide, so
+    // whichever of `createStudioPipeline` (always undefined) and `useWidgetRows` (can pass an
+    // empty set) computed first won the slot for both.
+    const ownRows = [
+      { id: '1', region: 'EU', amount: 100 },
+      { id: '2', region: 'US', amount: 200 },
+    ];
+    const dataSources = makeDataSources(ownRows);
+    const doubleExpr = {
+      id: 'expr-double',
+      label: 'Double',
+      sourceId: 'orders',
+      isMeasure: false,
+      expression: {
+        operator: 'multiply',
+        inputs: [{ id: 'amount' }, { type: 'number', value: 2 }],
+      },
+    } as unknown as StudioExpressionField;
+
+    const sourceScoped = resolveRowsCached(
+      ownRows,
+      'orders',
+      [],
+      dataSources,
+      relationships,
+      [doubleExpr],
+      undefined, // enrich everything
+    );
+    const widgetScoped = resolveRowsCached(
+      ownRows,
+      'orders',
+      [],
+      dataSources,
+      relationships,
+      [doubleExpr],
+      new Set<string>(), // enrich nothing
+    );
+
+    expect(widgetScoped).not.toBe(sourceScoped);
+    expect(sourceScoped[0]['expr-double']).toBe(200);
+    expect(widgetScoped[0]['expr-double']).toBeUndefined();
+  });
+
+  it('does not collapse two orderings of the same RANK filter set onto one entry', () => {
+    // `applyFilters` runs rank filters SEQUENTIALLY as dataset-level reductions, so they are
+    // not commutative. Sorting their fingerprints made both orderings share one cache entry,
+    // serving whichever computed first for both.
+    const ownRows = [
+      { id: 'a', revenue: 10, units: 1 },
+      { id: 'b', revenue: 9, units: 2 },
+      { id: 'c', revenue: 1, units: 10 },
+      { id: 'd', revenue: 2, units: 9 },
+    ];
+    const dataSources = makeDataSources(ownRows);
+
+    const topByRevenue = makeFilter({
+      id: 'rank-revenue',
+      filterMode: 'rank',
+      field: 'id',
+      operator: 'equals',
+      value: 2,
+      rankDirection: 'top',
+      rankByField: 'revenue',
+    });
+    const topByUnits = makeFilter({
+      id: 'rank-units',
+      filterMode: 'rank',
+      field: 'id',
+      operator: 'equals',
+      value: 2,
+      rankDirection: 'top',
+      rankByField: 'units',
+    });
+
+    const revenueFirst = resolveRowsCached(
+      ownRows,
+      'orders',
+      [topByRevenue, topByUnits],
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+    const unitsFirst = resolveRowsCached(
+      ownRows,
+      'orders',
+      [topByUnits, topByRevenue],
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+
+    // "top-2 by revenue, then top-2 by units" keeps a+b; the reverse keeps c+d. Sharing one
+    // cache entry across both orderings served one of these two answers for both.
+    expect(revenueFirst.map((r) => r.id)).toEqual(['a', 'b']);
+    expect(unitsFirst.map((r) => r.id)).toEqual(['c', 'd']);
+  });
+
+  it('still shares one entry for two orderings of the same NON-rank filter set', () => {
+    // Non-rank filters are AND-ed row predicates — order is immaterial, so sorting them keeps
+    // two widgets that received them in different orders on a single entry.
+    const ownRows = [...rows];
+    const dataSources = makeDataSources(ownRows);
+    const euFilter = makeFilter({ id: 'f-eu', field: 'region', operator: 'equals', value: 'EU' });
+    const bigFilter = makeFilter({
+      id: 'f-big',
+      field: 'amount',
+      operator: 'greater_than',
+      value: 150,
+    });
+
+    const first = resolveRowsCached(
+      ownRows,
+      'orders',
+      [euFilter, bigFilter],
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+    const second = resolveRowsCached(
+      ownRows,
+      'orders',
+      [bigFilter, euFilter],
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+
+    expect(second).toBe(first);
+  });
+});
+
+// ─── Requested-measure dependency tracking (C1 sibling) ──────────────────────
+//
+// A measure has no per-row value, so it looked irrelevant to a row set and was excluded from
+// the entry's expression-field dependency list. But `getCachedEnrichedRows` expands a
+// requested measure to the calculated columns it reads, so re-pointing `sum(profit)` at
+// `sum(margin)` changes which columns the enriched rows carry while leaving the measure's ID
+// — and therefore this entry's cache key — untouched. The entry was then served by reference,
+// with the newly-referenced column missing and the measure reading 0.
+
+describe('resolveRowsCached — requested-measure dependency (C1 sibling)', () => {
+  const profitColumn = {
+    id: 'profit',
+    label: 'Profit',
+    sourceId: 'orders',
+    isMeasure: false,
+    expression: { operator: 'subtract', inputs: [{ id: 'revenue' }, { id: 'cost' }] },
+  } as unknown as StudioExpressionField;
+  const marginColumn = {
+    id: 'margin',
+    label: 'Margin',
+    sourceId: 'orders',
+    isMeasure: false,
+    expression: { operator: 'subtract', inputs: [{ id: 'revenue' }, { type: 'number', value: 1 }] },
+  } as unknown as StudioExpressionField;
+
+  it('invalidates when the requested measure is re-pointed at a different calculated column', () => {
+    const ownRows = [{ id: '1', revenue: 100, cost: 60 }];
+    const dataSources = makeDataSources(ownRows);
+    const usedFieldIds = new Set(['m-total']);
+
+    const measureOnProfit = {
+      id: 'm-total',
+      label: 'Total',
+      sourceId: 'orders',
+      isMeasure: true,
+      expression: { id: 'profit', aggregation: 'sum' },
+    } as unknown as StudioExpressionField;
+    const measureOnMargin = {
+      id: 'm-total',
+      label: 'Total',
+      sourceId: 'orders',
+      isMeasure: true,
+      expression: { id: 'margin', aggregation: 'sum' },
+    } as unknown as StudioExpressionField;
+
+    const before = resolveRowsCached(
+      ownRows,
+      'orders',
+      [],
+      dataSources,
+      relationships,
+      [profitColumn, marginColumn, measureOnProfit],
+      usedFieldIds,
+    );
+    expect(before[0].profit).toBe(40);
+
+    const after = resolveRowsCached(
+      ownRows,
+      'orders',
+      [],
+      dataSources,
+      relationships,
+      [profitColumn, marginColumn, measureOnMargin],
+      usedFieldIds,
+    );
+
+    // Before the fix: `after === before`, so `margin` was missing and the measure read 0.
+    expect(after).not.toBe(before);
+    expect(after[0].margin).toBe(99);
+  });
+
+  it('does NOT invalidate when an UNREQUESTED measure changes', () => {
+    const ownRows = [{ id: '1', revenue: 100, cost: 60 }];
+    const dataSources = makeDataSources(ownRows);
+    const usedFieldIds = new Set(['profit']);
+
+    const otherMeasureV1 = {
+      id: 'm-other',
+      label: 'Other',
+      sourceId: 'orders',
+      isMeasure: true,
+      expression: { id: 'profit', aggregation: 'sum' },
+    } as unknown as StudioExpressionField;
+    const otherMeasureV2 = {
+      id: 'm-other',
+      label: 'Other',
+      sourceId: 'orders',
+      isMeasure: true,
+      expression: { id: 'margin', aggregation: 'avg' },
+    } as unknown as StudioExpressionField;
+
+    const before = resolveRowsCached(
+      ownRows,
+      'orders',
+      [],
+      dataSources,
+      relationships,
+      [profitColumn, marginColumn, otherMeasureV1],
+      usedFieldIds,
+    );
+    const after = resolveRowsCached(
+      ownRows,
+      'orders',
+      [],
+      dataSources,
+      relationships,
+      [profitColumn, marginColumn, otherMeasureV2],
+      usedFieldIds,
+    );
+
+    // Authoring an unrelated measure must stay free.
+    expect(after).toBe(before);
+  });
+});

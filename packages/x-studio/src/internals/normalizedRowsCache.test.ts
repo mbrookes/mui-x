@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { getCachedNormalizedDataSource } from './normalizedRowsCache';
+import { MAX_ENTRIES_PER_ROWS } from './rowCacheLru';
 import type { StudioDataField, StudioDataSource } from '../models';
 
 type Row = Record<string, unknown>;
@@ -191,5 +192,48 @@ describe('getCachedNormalizedDataSource', () => {
     // Widget requests only 'date' — date should be normalized, region unchanged
     const result = getCachedNormalizedDataSource(source, new Set(['date']));
     expect(result.rows![0].date).toBe('2024-03-15');
+  });
+
+  // ─── Inner-map LRU cap (M2) ─────────────────────────────────────────────────
+  //
+  // The outer WeakMap key is `dataSource.rows` — which is exactly what stays alive while
+  // field sets churn — so it does nothing to bound the inner map. Each entry retains a full
+  // clone of the row array plus per-field distinct-value maps, so an uncapped map pinned one
+  // 200k-row clone per HISTORICAL field set (adding grid columns one at a time mints one key
+  // per column).
+
+  it('caps the per-rows field-set map and evicts the least-recently-used entry', () => {
+    const rows: Row[] = [{ id: 1, region: 'EU', category: 'A' }];
+    const fields = [stringField, stringField2];
+    const source = makeSource(rows, fields);
+
+    const first = getCachedNormalizedDataSource(source, new Set(['region']));
+
+    // Churn well past the cap with distinct field sets (an unknown field id is still a
+    // distinct cache key, which is exactly the churn shape the real caller produces).
+    for (let i = 0; i < MAX_ENTRIES_PER_ROWS + 1; i += 1) {
+      getCachedNormalizedDataSource(source, new Set([`col-${i}`]));
+    }
+
+    const firstAgain = getCachedNormalizedDataSource(source, new Set(['region']));
+    // Evicted → recomputed rather than served from an unbounded map.
+    expect(firstAgain).not.toBe(first);
+    // ...and still correct.
+    expect(firstAgain.fieldDistinctValues?.region).toEqual(['EU']);
+  });
+
+  it('keeps a repeatedly-used field set warm while others churn (read refreshes recency)', () => {
+    const rows: Row[] = [{ id: 1, region: 'EU', category: 'A' }];
+    const source = makeSource(rows, [stringField, stringField2]);
+    const hotIds = new Set(['region']);
+
+    const hot = getCachedNormalizedDataSource(source, hotIds);
+
+    for (let i = 0; i < MAX_ENTRIES_PER_ROWS * 2; i += 1) {
+      getCachedNormalizedDataSource(source, new Set([`col-${i}`]));
+      // Re-reading the hot slot moves it back to the newest position, so it is never the
+      // eviction candidate.
+      expect(getCachedNormalizedDataSource(source, hotIds)).toBe(hot);
+    }
   });
 });

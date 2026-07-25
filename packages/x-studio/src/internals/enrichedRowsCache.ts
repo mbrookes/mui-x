@@ -1,6 +1,12 @@
 import { enrichRowsWithExpressions } from '../utils/expressionEvaluator';
-import type { StudioDataSource, StudioExpressionField, StudioRelationship } from '../models';
+import type {
+  StudioDataField,
+  StudioDataSource,
+  StudioExpressionField,
+  StudioRelationship,
+} from '../models';
 import { collectExpressionRefs, collectJoinSourceIds } from './expressionRefs';
+import { getLruEntry, getOrCreateBucket, setLruEntry } from './rowCacheLru';
 
 type Row = Record<string, unknown>;
 
@@ -21,16 +27,36 @@ type Row = Record<string, unknown>;
 // Each entry tracks only ITS OWN dependencies:
 //   rows            the rows array at cache time (== outer key; kept for clarity)
 //   fieldRefs       the specific StudioExpressionField objects for this source
-//   joinedSourceRows  for each JoinFieldExpression: the joined source's rows ref
+//   joinedSourceDeps  for each JoinFieldExpression: the joined source's rows AND fields refs
 //   relRefs         the specific StudioRelationship objects where sourceId === X
 //
 // This means changing customers data (or a customers expression field, or an
 // unrelated relationship) has zero effect on the orders cache entry.
+//
+// The inner map is capped/evicted through the shared insertion-order LRU in
+// `rowCacheLru.ts` — `usedFieldIds` derives from widget config plus reachable filter
+// fields, so adding grid columns one at a time mints a new `fieldSetKey` per column and
+// an uncapped map would retain one full enriched clone per HISTORICAL field set for as
+// long as the rows array lives.
+
+interface JoinedSourceDep {
+  /** The joined source's rows ref at cache time (`undefined` when it had no rows). */
+  rows: Row[] | undefined;
+  /**
+   * The joined source's `fields` ref at cache time. The join reads the joined source
+   * through `getCachedNormalizedDataSource`, which is keyed on rows AND fields — so a
+   * `fields`-only patch (e.g. `updateDataSourceField` retyping `signupDate` from
+   * `'string'` to `'date'`, which keeps the same rows ref) changes the joined VALUES
+   * without changing the rows ref. Tracking rows alone returned the stale enriched array
+   * by reference: the raw `Date` object instead of the canonical `'2024-01-15'`.
+   */
+  fields: StudioDataField[] | undefined;
+}
 
 interface EnrichCacheEntry {
   rows: Row[];
   fieldRefs: StudioExpressionField[];
-  joinedSourceRows: Map<string, Row[]>;
+  joinedSourceDeps: Map<string, JoinedSourceDep>;
   relRefs: StudioRelationship[];
   result: Row[];
 }
@@ -61,9 +87,13 @@ function isEntryValid(
     }
   }
 
-  // 3. Joined source rows unchanged (only the sources this entry actually joins to)
+  // 3. Joined source rows AND fields unchanged (only the sources this entry actually
+  //    joins to). `fields` matters because the join reads the joined source through
+  //    `getCachedNormalizedDataSource`, whose output depends on both.
   for (const jId of joinedSourceIds) {
-    if (entry.joinedSourceRows.get(jId) !== dataSources[jId]?.rows) {
+    const dep = entry.joinedSourceDeps.get(jId);
+    const joined = dataSources[jId];
+    if (dep?.rows !== joined?.rows || dep?.fields !== joined?.fields) {
       return false;
     }
   }
@@ -87,6 +117,17 @@ function isEntryValid(
  * Given a set of requested field IDs and the full list of expression fields for a source,
  * returns the subset of expression fields that are needed — including transitive
  * dependencies (expression A references expression B → B is included too).
+ *
+ * `allSourceFields` MUST be the source's FULL expression-field list, measures included:
+ * a widget's `usedFieldIds` routinely names a MEASURE (a KPI's `kpiValueField` is the
+ * measure id), and a measure's own refs are exactly how the calculated columns it reads
+ * enter enrichment scope. Filtering measures out BEFORE expansion makes
+ * `fieldById.get(measureId)` miss, so the walk returns immediately, `relevantFields` is
+ * empty, and `getCachedEnrichedRows` hands back the RAW rows — the measure then aggregates
+ * a column that was never computed and evaluates to 0 in every widget. Measures are dropped
+ * from the returned set by the caller instead, AFTER the transitive closure (mirrors
+ * `queryDescriptor.expandToNativeFields`, which has always expanded against the unfiltered
+ * list).
  */
 function expandWithDependencies(
   requestedIds: ReadonlySet<string>,
@@ -133,8 +174,11 @@ function expandWithDependencies(
  * - Adding an unused expression for the same source → zero cost (different cache slot).
  * - Each widget gets an independent cache entry → no cross-widget cache invalidation.
  * - Expressions for **unrelated sources** → zero cost (filtered out immediately).
- * - **Measure expressions** (`isMeasure: true`) are excluded from row-level
- *   enrichment entirely and never affect this cache.
+ * - **Measure expressions** (`isMeasure: true`) are never themselves enriched onto a row,
+ *   but they ARE walked during dependency expansion: a widget whose `usedFieldIds` names a
+ *   measure (a KPI's value field is the measure id) pulls in the calculated columns that
+ *   measure reads. Editing a measure's formula therefore changes the enriched field set —
+ *   which is exactly what makes the measure aggregate real values instead of `undefined`.
  *
  * If you add many unused expressions for an active source, there is no performance
  * penalty for any existing widget (only new widgets that actually use them will compute).
@@ -159,15 +203,19 @@ export function getCachedEnrichedRows(
     return rows;
   }
 
-  // Collect all non-measure expression fields for this source.
-  const allSourceFields = expressionFields.filter(
-    (ef) => ef.sourceId === sourceId && !ef.isMeasure,
-  );
+  // Collect ALL expression fields for this source — measures included. Measures are not
+  // themselves row-level columns, but they are the DEPENDENCY EDGE that pulls a calculated
+  // column into scope (`sum(profit)` → `profit`), and a widget's `usedFieldIds` frequently
+  // names only the measure. Expanding against a measure-free map silently produced an empty
+  // field set, so the widget rendered raw rows and the measure aggregated a missing column.
+  const allSourceFields = expressionFields.filter((ef) => ef.sourceId === sourceId);
 
-  // If usedFieldIds is provided, filter to only those fields (plus transitive deps).
-  const relevantFields = usedFieldIds
-    ? expandWithDependencies(usedFieldIds, allSourceFields)
-    : allSourceFields;
+  // If usedFieldIds is provided, filter to only those fields (plus transitive deps). Measures
+  // are dropped only AFTER the closure — they have no per-row value to enrich, but their refs
+  // must have been walked first.
+  const relevantFields = (
+    usedFieldIds ? expandWithDependencies(usedFieldIds, allSourceFields) : allSourceFields
+  ).filter((ef) => !ef.isMeasure);
 
   if (relevantFields.length === 0) {
     return rows;
@@ -197,13 +245,11 @@ export function getCachedEnrichedRows(
   );
 
   // Look up the 2-level cache: rows array → fieldSetKey → entry.
-  let byFieldSet = cache.get(rows);
-  if (!byFieldSet) {
-    byFieldSet = new Map();
-    cache.set(rows, byFieldSet);
-  }
+  const byFieldSet = getOrCreateBucket(cache, rows);
 
-  const existing = byFieldSet.get(fieldSetKey);
+  // `getLruEntry` refreshes recency on read so a repeatedly-used field set is never the
+  // eviction candidate.
+  const existing = getLruEntry(byFieldSet, fieldSetKey);
   if (
     existing &&
     isEntryValid(
@@ -228,18 +274,19 @@ export function getCachedEnrichedRows(
     relationships,
   );
 
-  const joinedSourceRows = new Map<string, Row[]>();
+  // Record BOTH the rows and the fields ref of every joined source. Recording a source that
+  // is currently absent (both `undefined`) is deliberate: it invalidates the entry the moment
+  // that source loads.
+  const joinedSourceDeps = new Map<string, JoinedSourceDep>();
   for (const jId of joinedSourceIds) {
-    const jRows = dataSources[jId]?.rows;
-    if (jRows) {
-      joinedSourceRows.set(jId, jRows);
-    }
+    const joined = dataSources[jId];
+    joinedSourceDeps.set(jId, { rows: joined?.rows, fields: joined?.fields });
   }
 
-  byFieldSet.set(fieldSetKey, {
+  setLruEntry(byFieldSet, fieldSetKey, {
     rows,
     fieldRefs: relevantFields,
-    joinedSourceRows,
+    joinedSourceDeps,
     relRefs: relevantRelationships,
     result,
   });

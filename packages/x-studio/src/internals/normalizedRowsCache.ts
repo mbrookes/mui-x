@@ -1,4 +1,5 @@
 import { normalizeDataSourceRows } from './temporalUtils';
+import { getLruEntry, getOrCreateBucket, setLruEntry } from './rowCacheLru';
 import type { StudioDataField, StudioDataSource } from '../models';
 
 type Row = Record<string, unknown>;
@@ -19,6 +20,13 @@ type Row = Record<string, unknown>;
 //
 // Result: the normalized StudioDataSource (with canonical date strings and
 //   pre-built fieldDistinctValues for the requested field subset).
+//
+// The inner map is capped by the shared insertion-order LRU (`rowCacheLru.ts`). Each
+// entry retains a FULL clone of the row array plus per-field distinct-value maps, and
+// `usedFieldIds` churns with widget config (adding grid columns one at a time mints one
+// key per column), so an uncapped map pinned one 200k-row clone per historical field set
+// for as long as `dataSource.rows` stayed alive — the outer WeakMap key is exactly what
+// keeps it alive, so it cannot help here.
 
 interface NormCacheEntry {
   fields: StudioDataField[];
@@ -54,18 +62,16 @@ export function getCachedNormalizedDataSource(
 
   const fieldSetKey = usedFieldIds ? [...usedFieldIds].toSorted().join(',') : '*';
 
-  let byFieldSet = cache.get(rows);
-  if (!byFieldSet) {
-    byFieldSet = new Map();
-    cache.set(rows, byFieldSet);
-  }
+  const byFieldSet = getOrCreateBucket(cache, rows);
 
-  const entry = byFieldSet.get(fieldSetKey);
+  // `getLruEntry` refreshes recency on read so a field set a widget keeps asking for is
+  // never the eviction candidate.
+  const entry = getLruEntry(byFieldSet, fieldSetKey);
   if (entry && entry.fields === dataSource.fields) {
     return entry.result;
   }
 
   const result = normalizeDataSourceRows(dataSource, usedFieldIds);
-  byFieldSet.set(fieldSetKey, { fields: dataSource.fields, result });
+  setLruEntry(byFieldSet, fieldSetKey, { fields: dataSource.fields, result });
   return result;
 }

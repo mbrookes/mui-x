@@ -462,6 +462,105 @@ describe('async adapter path', () => {
     expect(result.current.filteredRows[0]).toMatchObject({ id: 99 });
   });
 
+  // ── Cold-cache placeholder rows (M11) ─────────────────────────────────────
+  //
+  // On a cold request cache `useAdapterRows` seeds `adapterRows` from `dataSource.rows` so the
+  // widget doesn't flash empty. Those rows never went to the server, so the premise the
+  // adapter branch normally rests on — "page/widget filters were baked into
+  // `descriptor.filter`" — is false for them. Re-applying only the rank/cross/interactive
+  // residual rendered the FULL dataset (and KPI totals computed from it) on every page load of
+  // a dashboard with e.g. a "last 30 days" range, until the fetch resolved.
+
+  it('applies the FULL local filter chain to cold-cache placeholder rows', async () => {
+    mockState = createState({
+      filters: [
+        makeFilter({
+          id: 'f-page',
+          scope: { kind: 'page' },
+          field: 'region',
+          operator: 'equals',
+          value: 'EU',
+          filterMode: 'condition',
+        }),
+      ],
+    });
+    const widget = makeWidget();
+
+    let resolveAdapter!: (result: StudioQueryResult) => void;
+    const adapterPromise = new Promise<StudioQueryResult>((res) => {
+      resolveAdapter = res;
+    });
+    const adapter: StudioDataSourceAdapter = {
+      getRows: vi.fn().mockReturnValue(adapterPromise),
+    };
+    // `rows` pre-populated (e.g. by a prior `setDataSourceRows`) → seeded as the placeholder.
+    const dataSource = makeDataSource(rows, { adapter });
+
+    const { result } = renderHook(() => useWidgetRows(widget, dataSource, 'page-1'));
+
+    expect(result.current.isLoading).toBe(true);
+    // Before the fix: 3 — the whole dataset, page filter ignored.
+    expect(result.current.filteredRows).toHaveLength(2);
+    expect(result.current.filteredRows.every((r) => r.region === 'EU')).toBe(true);
+
+    await act(async () => {
+      resolveAdapter({
+        rows: [
+          { id: 9, region: 'EU', amount: 10 },
+          { id: 10, region: 'US', amount: 20 },
+        ],
+      });
+      await adapterPromise;
+    });
+
+    // Once a REAL response lands the placeholder flag clears and the residual-only pass is
+    // restored: the server already enforced the page filter, so it is not re-applied locally
+    // (both returned rows survive, including the US one).
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.filteredRows).toHaveLength(2);
+    expect(result.current.filteredRows.map((r) => r.id)).toEqual([9, 10]);
+  });
+
+  it('does not double-apply page filters to rows served from the request cache', async () => {
+    // A cache hit is a REAL response — never a placeholder — so the page filter that was baked
+    // into the descriptor must not be re-applied client-side.
+    mockState = createState({
+      filters: [
+        makeFilter({
+          id: 'f-page',
+          scope: { kind: 'page' },
+          field: 'region',
+          operator: 'equals',
+          value: 'EU',
+          filterMode: 'condition',
+        }),
+      ],
+    });
+    const widget = makeWidget();
+    const adapter: StudioDataSourceAdapter = { getRows: vi.fn() };
+    const dataSource = makeDataSource(rows, { adapter });
+
+    // Server-filtered response: only EU rows would come back, but we seed a US row too to
+    // prove the client does not re-filter them.
+    const serverRows: Row[] = [
+      { id: 7, region: 'EU', amount: 1 },
+      { id: 8, region: 'US', amount: 2 },
+    ];
+    const { buildWidgetQueryDescriptor } = await import('./queryDescriptor');
+    const descriptor = buildWidgetQueryDescriptor(widget, 'page-1', undefined, {
+      filters: mockState.doc.filters,
+      expressionFields: [],
+      relationships: [],
+      crossFilterAllPages: false,
+    });
+    studioRequestCache.set(descriptor.cacheKey, { rows: serverRows }, undefined, adapter);
+
+    const { result } = renderHook(() => useWidgetRows(widget, dataSource, 'page-1'));
+
+    expect(adapter.getRows).not.toHaveBeenCalled();
+    expect(result.current.filteredRows.map((r) => r.id)).toEqual([7, 8]);
+  });
+
   it('calls adapter with a QueryDescriptor containing the active page id', async () => {
     mockState = createState();
     const widget = makeWidget({ sourceId: 'src1' });

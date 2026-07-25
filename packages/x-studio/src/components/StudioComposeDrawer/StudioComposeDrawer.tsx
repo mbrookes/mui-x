@@ -113,9 +113,22 @@ export function StudioComposeDrawer(props: StudioComposeDrawerProps = {}) {
 
   let content: React.ReactNode = <AddWidgetView />;
   if (selectedWidgetId) {
-    content = <WidgetConfigView widgetId={selectedWidgetId} />;
+    // M2 — the `key` is load-bearing, not decoration. Without it React reconciles the
+    // whole setup-panel subtree ACROSS a widget switch, so every piece of component-local
+    // state below survives: buffered text inputs (`ColorInput`, `AnnotationsEditorSection`,
+    // …) whose `useEffect` resync is keyed on `value` alone never fire when the two widgets
+    // happen to hold the SAME value, and the next blur/Enter commits widget A's dirty
+    // buffer to widget B; likewise stale `menuAnchor`/`dragIndex` state leaves a MUI popover
+    // anchored to a node detached by the switch. `StudioDrawerErrorBoundary`'s `resetKey`
+    // does NOT remount children, so it cannot stand in for this.
+    //
+    // Mouse-driven selection happens to be safe (blur precedes the click), but AI chat tool
+    // calls and keyboard-driven selection move `selectedWidgetId` with focus still inside a
+    // dirty field — remounting on identity is the only fix that covers every entry point.
+    content = <WidgetConfigView key={selectedWidgetId} widgetId={selectedWidgetId} />;
   } else if (selectedFieldId) {
-    content = <FieldDetailView />;
+    // Same reasoning for the field detail view, which reads its own id from the store.
+    content = <FieldDetailView key={selectedFieldId} />;
   }
 
   // Defense-in-depth (this drawer had no error boundary at all): a render throw from any

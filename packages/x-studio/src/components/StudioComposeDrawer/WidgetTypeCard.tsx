@@ -67,6 +67,13 @@ export function WidgetTypeCard({ wt, canAdd, onSelect }: WidgetTypeCardProps) {
       }}
       tabIndex={0}
       role="button"
+      // A `role="button"` gets none of a native `<button>`'s disabled semantics for free.
+      // Both handlers already no-op when `!canAdd` and the card is dimmed to 50%, but a
+      // screen-reader user was told nothing: the card announced as a plain, actionable
+      // button that then silently did nothing when activated. `aria-disabled` (not
+      // `tabIndex={-1}`) is the APG-correct signal — the card stays reachable so its state
+      // is discoverable, it just announces as unavailable.
+      aria-disabled={!canAdd}
       aria-label={localeText.addWidgetGroupAriaLabel(wt.label)}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {

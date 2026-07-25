@@ -27,6 +27,7 @@ export function TextFormatPanel(props: { widgetId: string }) {
     <Stack spacing={1.5}>
       <TextSectionFormat
         label={localeText.textSetupTitleLabel}
+        identity={`${widgetId}:title`}
         fontFamily={config.textTitleFontFamily}
         fontSize={config.textTitleFontSize}
         color={config.textTitleColor}
@@ -39,6 +40,7 @@ export function TextFormatPanel(props: { widgetId: string }) {
       {!config.textAiEnabled && (
         <TextSectionFormat
           label={localeText.textSetupSubtitleLabel}
+          identity={`${widgetId}:subtitle`}
           fontFamily={config.textSubtitleFontFamily}
           fontSize={config.textSubtitleFontSize}
           color={config.textSubtitleColor}
@@ -51,6 +53,7 @@ export function TextFormatPanel(props: { widgetId: string }) {
       )}
       <TextSectionFormat
         label={localeText.textSetupBodyLabel}
+        identity={`${widgetId}:body`}
         fontFamily={config.textBodyFontFamily}
         fontSize={config.textBodyFontSize}
         color={config.textBodyColor}

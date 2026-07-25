@@ -1,6 +1,6 @@
 'use client';
 import * as React from 'react';
-import { Box, Tooltip, Typography, useTheme } from '@mui/material';
+import { Box, Tooltip, Typography, alpha, useTheme } from '@mui/material';
 import { useStudioLocaleText } from '../../context';
 import type { StudioChartType, StudioBarLayout } from '../../models';
 import { AreaIcon } from '../../icons/charts/AreaIcon';
@@ -128,13 +128,19 @@ export function ChartTypePicker({
                   borderRadius: 1,
                   border: 1,
                   borderColor: selected ? 'primary.main' : 'divider',
-                  bgcolor: selected ? 'primary.main18' : 'transparent',
+                  // `primary.main18` / `primary.main10` are not real palette tokens — they
+                  // exist in neither MUI's palette nor this repo's theme, so `bgcolor`
+                  // silently resolved to `undefined` and the selected cell was signalled by
+                  // a 1px border alone. Derive the tints from the real `primary.main`.
+                  bgcolor: selected
+                    ? (t) => alpha(t.palette.primary.main, 0.18)
+                    : 'transparent',
                   cursor: 'default',
                   transition: 'all 0.15s',
                   color: selected ? 'primary.main' : 'text.secondary',
                   '&:hover': {
                     borderColor: 'primary.main',
-                    bgcolor: 'primary.main10',
+                    bgcolor: (t) => alpha(t.palette.primary.main, 0.1),
                     color: 'primary.main',
                   },
                   '&:focus-visible': {

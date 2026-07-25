@@ -169,6 +169,23 @@ export function ChartSetupPanel(props: { widgetId: string }) {
     [config.ySeries, config.yField],
   );
 
+  // Stable, collision-free React keys for the Y-series rows. Keying on `fieldId` alone
+  // collided on a blended mixed chart, where two series legitimately reference the SAME
+  // field id from two DIFFERENT sources (`StudioChartSeries.sourceId`): React then treated
+  // the two rows as one, so removing the first row left the second rendering the removed
+  // row's buffered picker state. Qualify by source, and disambiguate any remaining exact
+  // duplicate (a doc/AI-authored config can carry one even though the picker's
+  // `usedYFieldIds` guard prevents creating one in the UI) with an occurrence counter.
+  const ySeriesKeys = React.useMemo(() => {
+    const seen = new Map<string, number>();
+    return ySeries.map((s, index) => {
+      const base = `${s.sourceId ?? ''}::${s.fieldId || `series-${index}`}`;
+      const occurrence = seen.get(base) ?? 0;
+      seen.set(base, occurrence + 1);
+      return occurrence === 0 ? base : `${base}#${occurrence}`;
+    });
+  }, [ySeries]);
+
   // finding 2.9: blended mixed charts carry foreign-source series
   // (`StudioChartSeries.sourceId`). The renderer resolves those separately
   // (`useChartWidgetData.ts` `activeYFields`) and validates only native-source fields
@@ -302,17 +319,29 @@ export function ChartSetupPanel(props: { widgetId: string }) {
       scatterSizeField?: string | undefined;
       extraFields?: (string | undefined)[];
     }) =>
+      // H4: every optional-string override MUST be merged with a KEY-PRESENCE check, not
+      // `??`. These overrides are all `string | undefined`, so `??` collapses "explicitly
+      // cleared" into "not supplied" and silently re-injects the current config value —
+      // defeating the one thing the caller asked for. The X-field picker's unrelated-source
+      // branch below passes `seriesField: undefined` precisely so the candidate is validated
+      // ALONE against the source it would adopt; with `??` the widget's existing split-by
+      // field was re-anchored on the new source, reported `field_not_found_or_not_direct`,
+      // and disabled EVERY unrelated-source X option — permanently locking a chart (which
+      // has no separate source picker) to its current source, with no explanation shown.
+      // `yFields`/`extraFields` are arrays, so `[]` is already distinguishable from absent.
       analyzeChartSupport(
+        // `sourceId` is exempt: there is no "no anchor" override semantics — an absent
+        // anchor always falls back to the widget's own source.
         overrides.sourceId ?? widgetSourceId ?? supportSourceId,
-        overrides.xField ?? config.xField,
+        'xField' in overrides ? overrides.xField : config.xField,
         overrides.yFields ?? nativeYFieldIds,
-        overrides.seriesField ?? config.seriesField,
+        'seriesField' in overrides ? overrides.seriesField : config.seriesField,
         chartType,
         dataSources,
         relationships,
         expressionFields,
-        overrides.scatterColorField ?? config.scatterColorField,
-        overrides.scatterSizeField ?? config.scatterSizeField,
+        'scatterColorField' in overrides ? overrides.scatterColorField : config.scatterColorField,
+        'scatterSizeField' in overrides ? overrides.scatterSizeField : config.scatterSizeField,
         overrides.extraFields ?? chartTypeExtraFields,
       ),
     [
@@ -633,6 +662,11 @@ export function ChartSetupPanel(props: { widgetId: string }) {
               // panel's own adoption path forever (finding 2.9). The candidate's X field is
               // validated alone; the post-adoption Y/split-by validity surfaces via the
               // panel's support warning, where the user re-points those fields.
+              //
+              // H4: EVERY other field must be explicitly cleared here, `scatterColorField`
+              // and `scatterSizeField` included — any one of them left anchored on the old
+              // source reports `field_not_found_or_not_direct` and disables the candidate,
+              // which is exactly the adoption path this branch exists to keep open.
               const currentAnchor = widgetSourceId ?? supportSourceId;
               if (option.sourceId !== currentAnchor) {
                 return !analyzeCombination({
@@ -640,6 +674,8 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                   xField: option.id,
                   yFields: [],
                   seriesField: undefined,
+                  scatterColorField: undefined,
+                  scatterSizeField: undefined,
                   extraFields: [],
                 }).supported;
               }
@@ -806,7 +842,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
               </Stack>
               <Stack spacing={1}>
                 {ySeries.map((s, index) => (
-                  <React.Fragment key={s.fieldId || `series-${index}`}>
+                  <React.Fragment key={ySeriesKeys[index]}>
                     <Stack direction="row" spacing={0.5} sx={{ alignItems: 'flex-start' }}>
                       <DataSourceFieldSelect
                         value={s.fieldId ?? ''}
@@ -1000,6 +1036,12 @@ export function ChartSetupPanel(props: { widgetId: string }) {
           // bypassed the reachable-source filter entirely, offering every field from every
           // source regardless of the widget's already-adopted source.
           allFields={reachableFields}
+          // …but the stale-filter computation needs the FULL catalog: it asks "does this
+          // filter's field resolve against the NEW source?", and `reachableFields` is
+          // narrowed to the OLD anchor's reachability set, so every field of the source
+          // being adopted would look non-existent and its filters would be over-deleted
+          // inside the same undoable commit.
+          fieldCatalog={allFields}
           dateFields={dateFields}
           categoryFields={categoryFields}
           widgetSourceId={widgetSourceId}

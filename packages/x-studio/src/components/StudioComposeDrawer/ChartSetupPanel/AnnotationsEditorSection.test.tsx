@@ -135,3 +135,50 @@ describe('AnnotationsEditorSection label input (finding 2.3)', () => {
     expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * M2 — the two buffered annotation inputs resynced on `value` alone. `key={ann.id}` looks
+ * like it covers the switch, but `duplicateWidget` clones `config` BY REFERENCE, so a
+ * duplicated widget carries identical annotation ids *and* identical values: the key stays
+ * the same, the effect stays quiet, and a dirty buffer from the original widget commits
+ * onto the duplicate. The inputs now also resync on `identity` (`${widgetId}:${ann.id}`),
+ * which changes even when both the id and the value are shared.
+ */
+describe('AnnotationsEditorSection identity resync (M2)', () => {
+  beforeEach(() => {
+    controller.updateWidgetConfig.mockClear();
+    configureStudioContextMock({ getState: () => mockState, controller });
+  });
+
+  const annotations: StudioChartAnnotation[] = [{ id: 'ann-1', axis: 'y', value: 10, label: '' }];
+
+  it('discards a dirty label buffer when the edited widget changes under an identical annotation', () => {
+    // `widgetId` is the only thing that differs — same annotation id, same values, exactly
+    // the shape `duplicateWidget` produces.
+    const { setProps } = render(
+      <AnnotationsEditorSection widgetId="widget-1" config={{ annotations }} />,
+    );
+    const input = screen.getByLabelText('Label') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'Target' } });
+
+    setProps({ widgetId: 'widget-2' });
+
+    expect((screen.getByLabelText('Label') as HTMLInputElement).value).toBe('');
+    fireEvent.blur(screen.getByLabelText('Label'));
+    // Nothing dirty is left, so the original widget's edit cannot land on the duplicate.
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+  });
+
+  it('discards a dirty value buffer the same way', () => {
+    const { setProps } = render(
+      <AnnotationsEditorSection widgetId="widget-1" config={{ annotations }} />,
+    );
+    fireEvent.change(screen.getByLabelText('Value'), { target: { value: '42' } });
+
+    setProps({ widgetId: 'widget-2' });
+
+    expect((screen.getByLabelText('Value') as HTMLInputElement).value).toBe('10');
+    fireEvent.blur(screen.getByLabelText('Value'));
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+  });
+});

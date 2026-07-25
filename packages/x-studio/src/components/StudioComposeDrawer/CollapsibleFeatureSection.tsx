@@ -113,11 +113,21 @@ export function CollapsibleFeatureSection({
         />
       </Box>
 
-      {/* Collapsible content */}
+      {/* Collapsible content.
+
+          M11: a disabled feature's controls were dimmed with `opacity` and blocked with
+          `pointerEvents: 'none'` — which stops the MOUSE only. `Collapse` keeps its children
+          mounted (and the header chevron can expand the section while the switch is off), so
+          a keyboard user tabbed straight into the controls of a switched-off feature and
+          committed config for it. `inert` is the correct primitive: it removes the whole
+          subtree from the tab order, from hit-testing AND from the accessibility tree, so
+          every input modality agrees with what the dimming already communicates visually.
+          `pointerEvents` is kept as a belt-and-braces fallback for engines without `inert`. */}
       <Collapse in={isOpen}>
         <Stack
           id={regionId}
           spacing={1.5}
+          {...(enabled ? {} : { inert: true })}
           sx={{
             px: 1.5,
             pb: 1.5,

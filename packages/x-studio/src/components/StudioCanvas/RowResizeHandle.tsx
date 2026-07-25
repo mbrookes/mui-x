@@ -46,35 +46,57 @@ export function RowResizeHandle({
     totalSpan: number;
   } | null>(null);
   const [active, setActive] = React.useState(false);
+  // Uncommitted span of an in-progress KEYBOARD resize. `null` = no keyboard session.
+  // A pointer drag pushes exactly ONE undoable mutation for the whole gesture; the
+  // keyboard path used to push one PER ARROW KEYPRESS, so nudging a widget five columns
+  // buried five entries on the undo stack and forced five Ctrl+Z to undo one intent.
+  // Mirror the pointer model instead: each keypress only previews (`onDragMove`), and
+  // the session commits once when it ends (blur, or Enter), or rolls back on Escape.
+  const [pendingLeft, setPendingLeft] = React.useState<number | null>(null);
 
   const minLeft = leftMinSpan;
   const maxLeft = totalSpan - rightMinSpan;
+  // What the handle currently represents — the uncommitted keyboard value while a
+  // keyboard session is open, otherwise the committed span.
+  const effectiveLeft = pendingLeft ?? leftSpan;
 
-  // Keyboard resize: commit a new left span (clamped) via the same callbacks the
-  // pointer drag uses, so the handle is operable without a mouse (APG splitter).
-  const commitSpan = React.useCallback(
+  // Keyboard step: preview only. Never calls `onDragEnd`, so nothing reaches the undo stack
+  // until the session is flushed below.
+  const stepSpan = React.useCallback(
     (nextLeft: number) => {
       const clamped = Math.max(minLeft, Math.min(maxLeft, nextLeft));
-      if (clamped === leftSpan) {
+      if (clamped === effectiveLeft) {
         return;
       }
+      setPendingLeft(clamped);
       onDragMove(leftId, rightId, clamped);
-      onDragEnd(leftId, rightId, clamped, totalSpan - clamped);
       announce(localeText.canvasResizeAnnouncement(clamped, totalSpan));
     },
-    [
-      minLeft,
-      maxLeft,
-      leftSpan,
-      leftId,
-      rightId,
-      totalSpan,
-      onDragMove,
-      onDragEnd,
-      announce,
-      localeText,
-    ],
+    [minLeft, maxLeft, effectiveLeft, leftId, rightId, totalSpan, onDragMove, announce, localeText],
   );
+
+  // End a keyboard session: commit the accumulated span as ONE mutation, or roll back if it
+  // ended up back where it started (committing an identical span would push an undo entry
+  // for a no-op).
+  const flushKeyboard = React.useCallback(() => {
+    if (pendingLeft === null) {
+      return;
+    }
+    setPendingLeft(null);
+    if (pendingLeft === leftSpan) {
+      onDragCancel(leftId, rightId);
+      return;
+    }
+    onDragEnd(leftId, rightId, pendingLeft, totalSpan - pendingLeft);
+  }, [pendingLeft, leftSpan, leftId, rightId, totalSpan, onDragEnd, onDragCancel]);
+
+  const cancelKeyboard = React.useCallback(() => {
+    if (pendingLeft === null) {
+      return;
+    }
+    setPendingLeft(null);
+    onDragCancel(leftId, rightId);
+  }, [pendingLeft, leftId, rightId, onDragCancel]);
 
   const handleKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -82,26 +104,34 @@ export function RowResizeHandle({
         case 'ArrowLeft':
         case 'ArrowDown':
           event.preventDefault();
-          commitSpan(leftSpan - 1);
+          stepSpan(effectiveLeft - 1);
           break;
         case 'ArrowRight':
         case 'ArrowUp':
           event.preventDefault();
-          commitSpan(leftSpan + 1);
+          stepSpan(effectiveLeft + 1);
           break;
         case 'Home':
           event.preventDefault();
-          commitSpan(minLeft);
+          stepSpan(minLeft);
           break;
         case 'End':
           event.preventDefault();
-          commitSpan(maxLeft);
+          stepSpan(maxLeft);
+          break;
+        case 'Enter':
+          event.preventDefault();
+          flushKeyboard();
+          break;
+        case 'Escape':
+          event.preventDefault();
+          cancelKeyboard();
           break;
         default:
           break;
       }
     },
-    [commitSpan, leftSpan, minLeft, maxLeft],
+    [stepSpan, flushKeyboard, cancelKeyboard, effectiveLeft, minLeft, maxLeft],
   );
 
   const handlePointerDown = React.useCallback(
@@ -121,9 +151,24 @@ export function RowResizeHandle({
       }
       const leftRect = leftBox.getBoundingClientRect();
       const rightRect = rightBox.getBoundingClientRect();
+      const combinedWidth = rightRect.right - leftRect.left;
+      // Guard the divisor. Both boxes measure 0 wide whenever the row is laid out but not
+      // painted — a `display: none` ancestor, a not-yet-measured virtualised row, or a
+      // zero-width container — and every span computation below divides by this. A 0 (or
+      // non-finite) width makes `fraction` NaN/±Infinity, `Math.round(NaN)` NaN, and both
+      // `Math.min`/`Math.max` propagate it, so `onDragEnd` would commit `NaN` spans straight
+      // into the doc: the row's flex-grow values become NaN and the whole row collapses,
+      // undoably but invisibly. Refuse to start the gesture instead.
+      if (!Number.isFinite(combinedWidth) || combinedWidth <= 0) {
+        return;
+      }
+      // A pointer gesture supersedes any half-finished keyboard session: drop the pending
+      // value (uncommitted, so nothing to roll back on the doc) and let this drag's own
+      // geometry decide the final spans.
+      setPendingLeft(null);
       dragRef.current = {
         combinedLeft: leftRect.left,
-        combinedWidth: rightRect.right - leftRect.left,
+        combinedWidth,
         totalSpan,
       };
       setActive(true);
@@ -197,9 +242,14 @@ export function RowResizeHandle({
       aria-label={localeText.canvasResizeColumnsAriaLabel}
       aria-valuemin={minLeft}
       aria-valuemax={maxLeft}
-      aria-valuenow={leftSpan}
+      // Reflects the uncommitted keyboard value while a keyboard session is open, so a
+      // screen reader tracks the preview rather than the last committed span.
+      aria-valuenow={effectiveLeft}
       tabIndex={0}
       onKeyDown={handleKeyDown}
+      // Leaving the handle ends any open keyboard session — a Tab away must not strand an
+      // uncommitted preview (the canvas would keep rendering `liveDrag` forever).
+      onBlur={flushKeyboard}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}

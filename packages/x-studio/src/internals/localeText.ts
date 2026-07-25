@@ -809,6 +809,9 @@ export interface StudioLocaleText {
   filterSetupStepLabel: string;
   filterSetupSelectFieldAlert: string;
   filterSetupSliderRangeHelperText: string;
+  filterSetupMinAboveMaxError: string;
+  filterSetupStepNotPositiveError: string;
+  filterSetupStepExceedsRangeError: string;
 
   // ── Text setup panel ──────────────────────────────────────────────────────
   textSetupTitleLabel: string;
@@ -2025,6 +2028,9 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   filterSetupStepLabel: 'Step',
   filterSetupSelectFieldAlert: 'Select a field to configure the filter control.',
   filterSetupSliderRangeHelperText: 'Slider range (leave blank to auto-detect from data)',
+  filterSetupMinAboveMaxError: 'Min must be below Max — the widget swaps them otherwise.',
+  filterSetupStepNotPositiveError: 'Step must be above 0 — the widget ignores it otherwise.',
+  filterSetupStepExceedsRangeError: 'Step is wider than the Min–Max range.',
 
   // Text setup panel
   textSetupTitleLabel: 'Title',

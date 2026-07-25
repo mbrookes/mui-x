@@ -115,17 +115,20 @@ export function DrawerPanel(props: DrawerPanelProps) {
             {title}
           </Typography>
         )}
-        <IconButton
-          size="small"
-          onClick={(event) => {
-            event.stopPropagation();
-            controller.setDrawerOpen(drawer, true);
-          }}
-          aria-label={localeText.drawerPanelOpenAriaLabel(title)}
-          tabIndex={-1}
+        {/* Decorative affordance only — NOT a second control. The collapsed rail is already
+            one `role="button"` covering its whole area, and this used to be a real
+            `<button>` nested inside it carrying the SAME accessible name: nesting
+            interactive elements is invalid HTML, and a screen reader announced two
+            identically-named "open <title>" buttons for one target. `tabIndex={-1}` hid it
+            from the tab order but not from the accessibility tree or from a screen reader's
+            element rotor. Rendering a plain icon leaves exactly one control with one name,
+            and the rail's own `onClick` still handles a click here. */}
+        <Box
+          aria-hidden
+          sx={{ display: 'flex', color: 'action.active', p: 0.5, pointerEvents: 'none' }}
         >
           <ChevronDownIcon fontSize="small" />
-        </IconButton>
+        </Box>
       </Box>
     );
   }

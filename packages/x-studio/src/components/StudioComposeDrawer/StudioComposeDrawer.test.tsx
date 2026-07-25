@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { createRenderer, screen } from '@mui/internal-test-utils';
+import { act, createRenderer, screen } from '@mui/internal-test-utils';
 import { describe, expect, it, vi } from 'vitest';
 import { createStudioHarness } from '../../internals/test-utils';
 import { createDefaultWidget } from '../../internals/widgetUtils';
@@ -60,5 +60,97 @@ describe('<StudioComposeDrawer /> error boundary (Tier1 whole-dashboard-crash fi
     expect(screen.getByText('setup panel exploded')).not.toBe(null);
 
     errorSpy.mockRestore();
+  });
+});
+
+// ── M2: the widget-config subtree must remount on a widget switch ─────────────
+
+let setupPanelMounts = 0;
+
+/**
+ * Stands in for every buffered input in the compose drawer (`ColorInput`,
+ * `AnnotationsEditorSection`, `GridSetupPanel`'s `menuAnchor`/`dragIndex`, …): local
+ * state seeded from the selected widget, held uncommitted until blur.
+ */
+function BufferingSetupPanel(): React.ReactElement {
+  const [buffer, setBuffer] = React.useState('');
+  React.useEffect(() => {
+    setupPanelMounts += 1;
+  }, []);
+  return (
+    <input aria-label="buffer" value={buffer} onChange={(event) => setBuffer(event.target.value)} />
+  );
+}
+
+const bufferingWidgetDef: StudioCustomWidgetDef = {
+  kind: 'acme-buffer',
+  label: 'Buffers',
+  component: DummyWidgetComponent,
+  setupPanel: BufferingSetupPanel,
+};
+
+/**
+ * `WidgetConfigView` was rendered with no `key`, so React reconciled the entire setup-panel
+ * subtree across a widget switch and every piece of component-local state below survived
+ * it. For the buffered inputs whose resync effect keys on `value` alone, two widgets
+ * holding the SAME value (typically `''` — neither has the property set) meant the effect
+ * never fired, the dirty buffer survived, and the next Enter/blur committed widget A's
+ * edit onto widget B.
+ *
+ * Mouse-driven selection happens to be safe (blur precedes the click); AI chat tool calls
+ * and keyboard-driven selection move the selection with focus still inside the dirty field.
+ * `StudioDrawerErrorBoundary`'s `resetKey` does not remount children, so it never covered
+ * this.
+ */
+describe('<StudioComposeDrawer /> widget-switch state isolation (M2)', () => {
+  it('remounts the widget config view when the selected widget changes, discarding dirty buffers', async () => {
+    setupPanelMounts = 0;
+    const widgetA = createDefaultWidget('acme-buffer', { title: 'Widget A' });
+    const widgetB = createDefaultWidget('acme-buffer', { title: 'Widget B' });
+    const { controller, wrapper } = createStudioHarness({
+      initialState: {
+        doc: { widgets: { [widgetA.id]: widgetA, [widgetB.id]: widgetB } },
+        session: { shell: { selectedWidgetId: widgetA.id } } as never,
+      },
+      providerProps: { customWidgets: [bufferingWidgetDef] },
+    });
+
+    const { user } = render(<StudioComposeDrawer />, { wrapper });
+    expect(setupPanelMounts).to.equal(1);
+
+    // Type into the panel without blurring — exactly the dirty-buffer state an AI tool call
+    // or a keyboard selection change lands in.
+    await user.type(screen.getByLabelText('buffer'), '#ff0000');
+    expect((screen.getByLabelText('buffer') as HTMLInputElement).value).to.equal('#ff0000');
+
+    // Selection moves with focus still inside the field (no blur).
+    await act(async () => {
+      controller.setSelectedWidget(widgetB.id);
+    });
+
+    // The subtree remounted, so the buffer is gone and cannot be committed onto widget B.
+    expect(setupPanelMounts).to.equal(2);
+    expect((screen.getByLabelText('buffer') as HTMLInputElement).value).to.equal('');
+  });
+
+  it('does not remount while the same widget stays selected', async () => {
+    setupPanelMounts = 0;
+    const widgetA = createDefaultWidget('acme-buffer', { title: 'Widget A' });
+    const { controller, wrapper } = createStudioHarness({
+      initialState: {
+        doc: { widgets: { [widgetA.id]: widgetA } },
+        session: { shell: { selectedWidgetId: widgetA.id } } as never,
+      },
+      providerProps: { customWidgets: [bufferingWidgetDef] },
+    });
+
+    render(<StudioComposeDrawer />, { wrapper });
+    await act(async () => {
+      controller.updateWidget(widgetA.id, { title: 'Renamed' });
+    });
+
+    // The key is the widget id, not a fresh value per render — an unrelated store update
+    // must not blow away the user's in-progress edit.
+    expect(setupPanelMounts).to.equal(1);
   });
 });

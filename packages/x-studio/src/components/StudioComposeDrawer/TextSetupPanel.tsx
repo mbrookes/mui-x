@@ -8,7 +8,7 @@ import {
   useStudioLocaleText,
 } from '../../context';
 import { useStudioUIConfig } from '../../internals/StudioUIConfigContext';
-import type { StudioWidgetConfigForKind } from '../../models';
+import type { StudioWidgetConfig, StudioWidgetConfigForKind } from '../../models';
 
 export function TextSetupPanel(props: { widgetId: string }) {
   const { widgetId } = props;
@@ -41,11 +41,24 @@ export function TextSetupPanel(props: { widgetId: string }) {
     }
   };
 
+  // Commit only what actually changed. The unguarded version committed BOTH keys on every
+  // blur, so two things went wrong: merely tabbing through the panel pushed undo entries
+  // that change nothing (a later Ctrl+Z then appears to do nothing at all), and a config
+  // with no `textSubtitle`/`textBody` key at all had `''` written into it — turning "unset,
+  // inherit the default" into "explicitly empty", which persists into the doc and survives
+  // export. The title field above already guards this way; this is the same guard.
   const handleTextFieldBlur = () => {
-    controller.updateWidgetConfig(widgetId, {
-      textSubtitle: form.subtitle,
-      textBody: form.body,
-    });
+    const changes: Partial<StudioWidgetConfig> = {};
+    if (form.subtitle !== (config?.textSubtitle ?? '')) {
+      changes.textSubtitle = form.subtitle;
+    }
+    if (form.body !== (config?.textBody ?? '')) {
+      changes.textBody = form.body;
+    }
+    if (Object.keys(changes).length === 0) {
+      return;
+    }
+    controller.updateWidgetConfig(widgetId, changes);
   };
 
   const handleAiToggle = () => {

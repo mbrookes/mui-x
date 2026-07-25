@@ -1223,3 +1223,140 @@ describe('ChartSetupPanel — X-field source adoption folds to a single undo ste
     expect(realController.canUndo()).toBe(false);
   });
 });
+
+/**
+ * H4 — `analyzeCombination`'s override merge used `??`, which cannot tell "explicitly
+ * cleared" from "not supplied". The X-field picker's unrelated-source branch clears
+ * `seriesField` (and now the scatter aux fields) precisely so an unrelated-source
+ * candidate is validated ALONE against the source it would adopt; `??` silently put the
+ * old source's fields back, every candidate came back `field_not_found_or_not_direct`,
+ * and — since a chart has no separate source picker — the widget could never be
+ * re-pointed at another source at all, with nothing on screen explaining why.
+ */
+describe('ChartSetupPanel — X-field adoption survives other configured fields (H4)', () => {
+  beforeEach(() => {
+    configureStudioContextMock({ getState: () => mockState, controller });
+  });
+
+  it('keeps an unrelated-source X option enabled while a split-by field is configured', async () => {
+    const previousWidget = mockState.doc.widgets['widget-1'];
+    const previousOrdersFields = mockState.runtime.dataSources.orders.fields;
+
+    try {
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
+        fields: [
+          { id: 'id', label: 'Order ID', type: 'string' },
+          { id: 'region', label: 'Region', type: 'string' },
+        ],
+      };
+      // No declared relationship references this source — it is unrelated to `orders`.
+      (mockState.runtime.dataSources as Record<string, unknown>).tickets = {
+        id: 'tickets',
+        label: 'Tickets',
+        fields: [{ id: 'zone', label: 'Zone', type: 'string' }],
+        rows: [],
+      };
+      mockState.doc.widgets['widget-1'] = {
+        ...previousWidget,
+        sourceId: 'orders',
+        // The split-by that used to be re-injected into the candidate's validation.
+        config: { chartType: 'bar', xField: 'id', seriesField: 'region' },
+      };
+
+      const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
+      await user.click(screen.getByLabelText('X / Category field', { exact: false }));
+
+      const zoneOption = await screen.findByRole('option', { name: /Zone$/ });
+      // Validated alone against `tickets`, `zone` is a valid direct field → enabled. With
+      // the `??` merge, `region` (an `orders` field) was validated against `tickets` too,
+      // so the whole source was greyed out and adoption was impossible.
+      expect(zoneOption.getAttribute('aria-disabled')).toBe('false');
+    } finally {
+      mockState.doc.widgets['widget-1'] = previousWidget;
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
+        fields: previousOrdersFields,
+      };
+      delete (mockState.runtime.dataSources as Record<string, unknown>).tickets;
+    }
+  });
+
+  it('keeps an unrelated-source X option enabled while scatter colour/size fields are configured', async () => {
+    const previousWidget = mockState.doc.widgets['widget-1'];
+    const previousOrdersFields = mockState.runtime.dataSources.orders.fields;
+
+    try {
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
+        fields: [
+          { id: 'amount', label: 'Amount', type: 'number' },
+          { id: 'weight', label: 'Weight', type: 'number' },
+          { id: 'grade', label: 'Grade', type: 'string' },
+        ],
+      };
+      (mockState.runtime.dataSources as Record<string, unknown>).tickets = {
+        id: 'tickets',
+        label: 'Tickets',
+        // Scatter's X picker offers numeric fields only.
+        fields: [{ id: 'score', label: 'Score', type: 'number' }],
+        rows: [],
+      };
+      mockState.doc.widgets['widget-1'] = {
+        ...previousWidget,
+        sourceId: 'orders',
+        config: {
+          chartType: 'scatter',
+          xField: 'amount',
+          // These two were not overridden AT ALL by the picker's unrelated-source branch,
+          // so they kept anchoring the candidate's validation on `orders`.
+          scatterColorField: 'grade',
+          scatterSizeField: 'weight',
+        },
+      };
+
+      const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
+      await user.click(screen.getByLabelText('X / Category field', { exact: false }));
+
+      const scoreOption = await screen.findByRole('option', { name: /Score$/ });
+      expect(scoreOption.getAttribute('aria-disabled')).toBe('false');
+    } finally {
+      mockState.doc.widgets['widget-1'] = previousWidget;
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
+        fields: previousOrdersFields,
+      };
+      delete (mockState.runtime.dataSources as Record<string, unknown>).tickets;
+    }
+  });
+
+  // The `in`-based merge must not change the ordinary path: a key that is ABSENT from the
+  // overrides still falls back to the committed config, so an own-source candidate is
+  // still validated against the widget's current anchor.
+  it('still validates an own-source X option against the current anchor', async () => {
+    const previousWidget = mockState.doc.widgets['widget-1'];
+
+    try {
+      (mockState.runtime.dataSources as Record<string, unknown>).tickets = {
+        id: 'tickets',
+        label: 'Tickets',
+        fields: [{ id: 'zone', label: 'Zone', type: 'string' }],
+        rows: [],
+      };
+      mockState.doc.widgets['widget-1'] = {
+        ...previousWidget,
+        sourceId: 'orders',
+        config: { chartType: 'bar', xField: 'id', seriesField: 'country' },
+      };
+
+      const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
+      await user.click(screen.getByLabelText('X / Category field', { exact: false }));
+
+      const ownOption = await screen.findByRole('option', { name: /Order ID$/ });
+      expect(ownOption.getAttribute('aria-disabled')).toBe('false');
+    } finally {
+      mockState.doc.widgets['widget-1'] = previousWidget;
+      delete (mockState.runtime.dataSources as Record<string, unknown>).tickets;
+    }
+  });
+});

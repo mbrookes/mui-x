@@ -41,9 +41,17 @@ function SliderBoundInput(props: {
   widgetId: string;
   value: number | undefined;
   label: string;
+  /**
+   * Cross-field validation message. The three bounds are only meaningful RELATIVE to each
+   * other, so no single field can validate itself — the parent computes the message and
+   * hands it down. Purely advisory: the value is still committed (the user may be halfway
+   * through raising Max after raising Min), but the panel now says what the widget will do
+   * with it instead of silently overriding it.
+   */
+  error?: string;
   onCommit: (next: number | undefined) => void;
 }) {
-  const { widgetId, value, label, onCommit } = props;
+  const { widgetId, value, label, error, onCommit } = props;
   const initialText = value !== undefined ? String(value) : '';
   const [text, setText] = React.useState(initialText);
   const [dirty, setDirty] = React.useState(false);
@@ -75,6 +83,8 @@ function SliderBoundInput(props: {
       label={label}
       type="number"
       value={text}
+      error={error !== undefined}
+      helperText={error}
       onChange={(evt) => {
         setText(evt.target.value);
         setDirty(true);
@@ -131,6 +141,31 @@ export function FilterSetupPanel(props: { widgetId: string }) {
 
   const filterType: StudioFilterWidgetType = config.filterWidgetType ?? 'multi-select';
   const fieldId = config.filterWidgetField ?? '';
+
+  // Cross-validate the slider bounds against each other. `StudioFilterWidget` sanitizes
+  // this triple at render time — it SWAPS an inverted min/max, replaces a zero-width range
+  // with a hard-coded 0-100, and discards a non-positive step in favour of its auto step —
+  // all silently, on the canvas, with nothing said here. So the author sees a slider that
+  // simply ignores what they typed. Surface the conflict at the point of authoring instead;
+  // the values are still committed (a half-finished edit is legitimate), only now explained.
+  const sliderMin = config.filterWidgetMin;
+  const sliderMax = config.filterWidgetMax;
+  const sliderStep = config.filterWidgetStep;
+  const boundsBothSet = sliderMin !== undefined && sliderMax !== undefined;
+  // `>=` (not `>`): the widget treats a zero-width range as unusable too, replacing it
+  // wholesale with 0-100.
+  const boundsConflict = boundsBothSet && sliderMin >= sliderMax;
+  let stepError: string | undefined;
+  if (sliderStep !== undefined && !(Number.isFinite(sliderStep) && sliderStep > 0)) {
+    stepError = localeText.filterSetupStepNotPositiveError;
+  } else if (
+    sliderStep !== undefined &&
+    boundsBothSet &&
+    !boundsConflict &&
+    sliderStep > sliderMax - sliderMin
+  ) {
+    stepError = localeText.filterSetupStepExceedsRangeError;
+  }
 
   // Capability constraint for the field picker based on filter type
   // (slider supports both numeric and temporal — filtered via getOptionDisabled)
@@ -290,6 +325,7 @@ export function FilterSetupPanel(props: { widgetId: string }) {
               widgetId={widgetId}
               value={config.filterWidgetMin}
               label={localeText.filterSetupMinLabel}
+              error={boundsConflict ? localeText.filterSetupMinAboveMaxError : undefined}
               onCommit={(next) =>
                 controller.updateWidgetConfig(widgetId, { filterWidgetMin: next })
               }
@@ -298,6 +334,7 @@ export function FilterSetupPanel(props: { widgetId: string }) {
               widgetId={widgetId}
               value={config.filterWidgetMax}
               label={localeText.filterSetupMaxLabel}
+              error={boundsConflict ? localeText.filterSetupMinAboveMaxError : undefined}
               onCommit={(next) =>
                 controller.updateWidgetConfig(widgetId, { filterWidgetMax: next })
               }
@@ -306,6 +343,7 @@ export function FilterSetupPanel(props: { widgetId: string }) {
               widgetId={widgetId}
               value={config.filterWidgetStep}
               label={localeText.filterSetupStepLabel}
+              error={stepError}
               onCommit={(next) =>
                 controller.updateWidgetConfig(widgetId, { filterWidgetStep: next })
               }

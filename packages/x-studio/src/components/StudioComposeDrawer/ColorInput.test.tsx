@@ -94,3 +94,48 @@ describe('ColorInput (finding 2.9)', () => {
     expect((screen.getByLabelText('Color') as HTMLInputElement).value).toBe('#abcdef');
   });
 });
+
+/**
+ * M2 — a buffered input whose resync effect depends on `value` alone cannot tell "nothing
+ * changed" from "same value, different entity". Re-pointing this input at another widget
+ * that holds the same colour (typically `''` — neither has one set) left the previous
+ * widget's dirty buffer in place, and the next blur/Enter committed it onto the new widget.
+ * The primary fix remounts the subtree (`StudioComposeDrawer` keys `WidgetConfigView` on the
+ * selected widget id); `identity` covers the other contexts this reusable input is used in.
+ */
+describe('ColorInput identity resync (M2)', () => {
+  it('discards a dirty buffer when `identity` changes even though `value` does not', () => {
+    const onChange = vi.fn();
+    const { setProps } = render(
+      <ColorInput label="Color" value="" identity="widget-a:title" onChange={onChange} />,
+    );
+    const input = screen.getByLabelText('Color') as HTMLInputElement;
+
+    // Widget A has no colour set; the user types one without blurring.
+    fireEvent.change(input, { target: { value: '#ff0000' } });
+
+    // Selection moves to widget B, which also has no colour set — `value` is `''` both
+    // before and after, so a `[value]`-only effect never fires.
+    setProps({ identity: 'widget-b:title' });
+
+    expect((screen.getByLabelText('Color') as HTMLInputElement).value).toBe('');
+
+    // …and the now-clean buffer has nothing to commit onto widget B.
+    fireEvent.blur(screen.getByLabelText('Color'));
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('leaves the buffer alone while `identity` is unchanged', () => {
+    const onChange = vi.fn();
+    const { setProps } = render(
+      <ColorInput label="Color" value="" identity="widget-a:title" onChange={onChange} />,
+    );
+    const input = screen.getByLabelText('Color') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '#ff0000' } });
+
+    // An unrelated re-render of the same entity must not discard an in-progress edit.
+    setProps({ label: 'Color' });
+
+    expect((screen.getByLabelText('Color') as HTMLInputElement).value).toBe('#ff0000');
+  });
+});

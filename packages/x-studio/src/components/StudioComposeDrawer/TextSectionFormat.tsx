@@ -18,6 +18,12 @@ import { ColorInput } from './ColorInput';
 
 interface TextSectionFormatProps {
   label: string;
+  /**
+   * Identifies the entity this section edits (e.g. `` `${widgetId}:title` ``), forwarded to
+   * the buffered `ColorInput` so an uncommitted colour edit is discarded rather than leaked
+   * onto a different widget/section holding the same value. See M2 in `ColorInput.tsx`.
+   */
+  identity?: string;
   /** A named keyword or a literal CSS font-family stack. */
   fontFamily?: string;
   fontSize?: number;
@@ -34,6 +40,7 @@ const NAMED_FONTS = ['sans-serif', 'serif', 'monospace'];
 export function TextSectionFormat(props: TextSectionFormatProps) {
   const {
     label,
+    identity,
     fontFamily,
     fontSize,
     color,
@@ -93,6 +100,7 @@ export function TextSectionFormat(props: TextSectionFormatProps) {
 
         <ColorInput
           label={localeText.textFormatColorLabel}
+          identity={identity}
           value={color ?? ''}
           onChange={(v) => onColorChange(v || undefined)}
           placeholder={localeText.textFormatColorPlaceholder}

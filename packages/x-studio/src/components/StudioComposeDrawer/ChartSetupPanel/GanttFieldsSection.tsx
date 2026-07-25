@@ -14,7 +14,18 @@ import { collectStaleWidgetFilterIds } from '../collectStaleWidgetFilterIds';
 export interface GanttFieldsSectionProps {
   widgetId: string;
   config: StudioChartConfigOfType<'gantt'>;
+  /** Fields OFFERED by the label picker — already narrowed to the reachable sources. */
   allFields: DataSourceFieldEntry[];
+  /**
+   * The FULL, unfiltered field catalog (`buildFieldCatalog`). `collectStaleWidgetFilterIds`
+   * contractually takes every known field: it decides which widget-scoped filters still
+   * resolve against the NEW source, so feeding it a catalog narrowed to the OLD source's
+   * reachability set makes every field of the new (previously unreachable) source look
+   * non-existent and over-deletes still-valid filters — inside an undoable commit, so the
+   * loss is only visible after the fact. Defaults to `allFields` for callers that pass an
+   * already-unfiltered list.
+   */
+  fieldCatalog?: DataSourceFieldEntry[];
   dateFields: DataSourceFieldEntry[];
   categoryFields: DataSourceFieldEntry[];
   /** The widget's current source id, used to detect a cross-source field pick. */
@@ -30,6 +41,7 @@ export function GanttFieldsSection({
   widgetId,
   config,
   allFields,
+  fieldCatalog,
   dateFields,
   categoryFields,
   widgetSourceId,
@@ -60,7 +72,9 @@ export function GanttFieldsSection({
             allFilters,
             widgetId,
             sourceId,
-            allFields,
+            // The FULL catalog, never the reachability-narrowed picker list — see the
+            // `fieldCatalog` prop doc.
+            fieldCatalog ?? allFields,
             relationships ?? [],
           ),
         },

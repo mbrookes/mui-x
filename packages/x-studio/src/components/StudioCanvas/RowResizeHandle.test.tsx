@@ -123,40 +123,105 @@ function pressKey(handle: HTMLElement, key: string) {
   fireEvent.keyDown(handle, { key });
 }
 
+/**
+ * A keyboard resize is a SESSION, not a series of commits (finding: one undoable mutation
+ * per arrow keypress, where a whole pointer drag pushes exactly one). Each key only
+ * previews via `onDragMove`; the session commits once via `onDragEnd` when it ends — blur
+ * or Enter — and rolls back via `onDragCancel` on Escape.
+ */
 describe('RowResizeHandle — keyboard splitter protocol', () => {
-  it('ArrowRight/ArrowUp grows the left span by one column and commits', () => {
+  it('ArrowRight/ArrowUp previews a one-column growth without committing', () => {
     const { handle, onDragMove, onDragEnd } = setup({ leftSpan: 12, rightSpan: 12 });
     pressKey(handle, 'ArrowRight');
     expect(onDragMove).toHaveBeenCalledWith('a', 'b', 13);
-    expect(onDragEnd).toHaveBeenCalledWith('a', 'b', 13, 11);
+    expect(onDragEnd).not.toHaveBeenCalled();
 
     onDragMove.mockClear();
-    onDragEnd.mockClear();
+    // The pending value is the session's own accumulator, so a second key steps from 13.
     pressKey(handle, 'ArrowUp');
-    expect(onDragMove).toHaveBeenCalledWith('a', 'b', 13);
-    expect(onDragEnd).toHaveBeenCalledWith('a', 'b', 13, 11);
+    expect(onDragMove).toHaveBeenCalledWith('a', 'b', 14);
+    expect(onDragEnd).not.toHaveBeenCalled();
   });
 
-  it('ArrowLeft/ArrowDown shrinks the left span by one column and commits', () => {
+  it('ArrowLeft/ArrowDown previews a one-column shrink without committing', () => {
     const { handle, onDragMove, onDragEnd } = setup({ leftSpan: 12, rightSpan: 12 });
     pressKey(handle, 'ArrowLeft');
     expect(onDragMove).toHaveBeenCalledWith('a', 'b', 11);
-    expect(onDragEnd).toHaveBeenCalledWith('a', 'b', 11, 13);
+    expect(onDragEnd).not.toHaveBeenCalled();
 
     onDragMove.mockClear();
-    onDragEnd.mockClear();
     pressKey(handle, 'ArrowDown');
-    expect(onDragMove).toHaveBeenCalledWith('a', 'b', 11);
-    expect(onDragEnd).toHaveBeenCalledWith('a', 'b', 11, 13);
+    expect(onDragMove).toHaveBeenCalledWith('a', 'b', 10);
+    expect(onDragEnd).not.toHaveBeenCalled();
   });
 
-  it('Home commits the minimum left span; End commits the maximum', () => {
+  // The regression this whole protocol exists for: five nudges used to be five undoable
+  // mutations, so undoing one intent took five Ctrl+Z.
+  it('commits a multi-keypress session as exactly ONE mutation on blur', () => {
+    const { handle, onDragMove, onDragEnd } = setup({ leftSpan: 12, rightSpan: 12 });
+    pressKey(handle, 'ArrowRight');
+    pressKey(handle, 'ArrowRight');
+    pressKey(handle, 'ArrowRight');
+    expect(onDragMove).toHaveBeenCalledTimes(3);
+    expect(onDragEnd).not.toHaveBeenCalled();
+
+    fireEvent.blur(handle);
+    expect(onDragEnd).toHaveBeenCalledTimes(1);
+    expect(onDragEnd).toHaveBeenCalledWith('a', 'b', 15, 9);
+  });
+
+  it('commits the session on Enter as well as blur, and only once', () => {
     const { handle, onDragEnd } = setup({ leftSpan: 12, rightSpan: 12 });
+    pressKey(handle, 'ArrowRight');
+    pressKey(handle, 'Enter');
+    expect(onDragEnd).toHaveBeenCalledTimes(1);
+    expect(onDragEnd).toHaveBeenCalledWith('a', 'b', 13, 11);
+
+    // The session is closed — a following blur must not commit a second time.
+    fireEvent.blur(handle);
+    expect(onDragEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it('Escape rolls the session back without committing', () => {
+    const { handle, onDragEnd, onDragCancel } = setup({ leftSpan: 12, rightSpan: 12 });
+    pressKey(handle, 'ArrowRight');
+    pressKey(handle, 'ArrowRight');
+    pressKey(handle, 'Escape');
+    expect(onDragCancel).toHaveBeenCalledWith('a', 'b');
+    expect(onDragEnd).not.toHaveBeenCalled();
+
+    // And the rolled-back session leaves nothing behind for a later blur to commit.
+    fireEvent.blur(handle);
+    expect(onDragEnd).not.toHaveBeenCalled();
+  });
+
+  it('a session that ends back at the starting span rolls back instead of committing a no-op', () => {
+    const { handle, onDragEnd, onDragCancel } = setup({ leftSpan: 12, rightSpan: 12 });
+    pressKey(handle, 'ArrowRight');
+    pressKey(handle, 'ArrowLeft');
+    fireEvent.blur(handle);
+    // Committing an identical span would still push an undo entry for a no-op.
+    expect(onDragEnd).not.toHaveBeenCalled();
+    expect(onDragCancel).toHaveBeenCalledWith('a', 'b');
+  });
+
+  it('a blur with no keyboard session fires nothing', () => {
+    const { handle, onDragEnd, onDragCancel } = setup({ leftSpan: 12, rightSpan: 12 });
+    fireEvent.blur(handle);
+    expect(onDragEnd).not.toHaveBeenCalled();
+    expect(onDragCancel).not.toHaveBeenCalled();
+  });
+
+  it('Home previews the minimum left span; End previews the maximum, each committed on blur', () => {
+    const { handle, onDragMove, onDragEnd } = setup({ leftSpan: 12, rightSpan: 12 });
     pressKey(handle, 'Home');
+    expect(onDragMove).toHaveBeenCalledWith('a', 'b', 6);
+    fireEvent.blur(handle);
     expect(onDragEnd).toHaveBeenCalledWith('a', 'b', 6, 18);
 
     onDragEnd.mockClear();
     pressKey(handle, 'End');
+    fireEvent.blur(handle);
     expect(onDragEnd).toHaveBeenCalledWith('a', 'b', 18, 6);
   });
 
@@ -164,6 +229,7 @@ describe('RowResizeHandle — keyboard splitter protocol', () => {
     const { handle, onDragMove, onDragEnd } = setup({ leftSpan: 6, rightSpan: 18 });
     pressKey(handle, 'ArrowLeft');
     pressKey(handle, 'Home');
+    fireEvent.blur(handle);
     expect(onDragMove).not.toHaveBeenCalled();
     expect(onDragEnd).not.toHaveBeenCalled();
   });
@@ -172,6 +238,7 @@ describe('RowResizeHandle — keyboard splitter protocol', () => {
     const { handle, onDragMove, onDragEnd } = setup({ leftSpan: 18, rightSpan: 6 });
     pressKey(handle, 'ArrowRight');
     pressKey(handle, 'End');
+    fireEvent.blur(handle);
     expect(onDragMove).not.toHaveBeenCalled();
     expect(onDragEnd).not.toHaveBeenCalled();
   });
@@ -184,10 +251,12 @@ describe('RowResizeHandle — keyboard splitter protocol', () => {
       rightMinSpan: 4,
     });
     pressKey(handle, 'Home');
+    fireEvent.blur(handle);
     expect(onDragEnd).toHaveBeenCalledWith('a', 'b', 4, 20);
 
     onDragEnd.mockClear();
     pressKey(handle, 'End');
+    fireEvent.blur(handle);
     expect(onDragEnd).toHaveBeenCalledWith('a', 'b', 20, 4);
   });
 
@@ -199,6 +268,14 @@ describe('RowResizeHandle — keyboard splitter protocol', () => {
     expect(handle.getAttribute('aria-valuenow')).toBe('12');
     expect(handle.getAttribute('aria-orientation')).toBe('vertical');
     expect(handle.getAttribute('tabindex')).toBe('0');
+  });
+
+  it('tracks the uncommitted keyboard preview in aria-valuenow', () => {
+    const { handle } = setup({ leftSpan: 12, rightSpan: 12 });
+    pressKey(handle, 'ArrowRight');
+    // A screen reader must follow the preview, not the last committed span — otherwise the
+    // announced value contradicts what the canvas is showing for the whole session.
+    expect(handle.getAttribute('aria-valuenow')).toBe('13');
   });
 });
 
@@ -293,5 +370,61 @@ describe('RowResizeHandle — pointercancel / lostpointercapture (finding 1.9)',
     fireEvent.lostPointerCapture(handle, { pointerId: 1 });
 
     expect(onDragCancel).not.toHaveBeenCalled();
+  });
+});
+
+
+/**
+ * Every span computation divides by the combined width of the two flanking boxes. That
+ * width is 0 whenever the row is laid out but unpainted (a `display: none` ancestor, a
+ * not-yet-measured row, a zero-width container) — and `x / 0` propagates NaN/±Infinity
+ * through `Math.round`, `Math.min` and `Math.max` all the way into `onDragEnd`, which
+ * commits the NaN spans into the doc and collapses the row, undoably but invisibly.
+ */
+describe('RowResizeHandle — zero-width row guard', () => {
+  function setupZeroWidth() {
+    const onDragMove = vi.fn();
+    const onDragEnd = vi.fn();
+    const onDragCancel = vi.fn();
+    const view = render(
+      <Harness
+        leftSpan={12}
+        rightSpan={12}
+        onDragMove={onDragMove}
+        onDragEnd={onDragEnd}
+        onDragCancel={onDragCancel}
+      />,
+    );
+    // Both boxes collapsed onto the same x → combined width 0.
+    screen.getByTestId('left-box').getBoundingClientRect = () => makeRect({ left: 0, right: 0 });
+    screen.getByTestId('right-box').getBoundingClientRect = () => makeRect({ left: 0, right: 0 });
+    return { ...view, handle: screen.getByRole('separator'), onDragMove, onDragEnd, onDragCancel };
+  }
+
+  it('refuses to start a drag when the two boxes have no combined width', () => {
+    const { handle, onDragMove, onDragEnd } = setupZeroWidth();
+
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 0 });
+    // No gesture started, so the handle never enters its active state...
+    expect(handle.hasAttribute('data-active')).toBe(false);
+
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 10 });
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 10 });
+
+    // ...and nothing — least of all a NaN span — reaches the doc.
+    expect(onDragMove).not.toHaveBeenCalled();
+    expect(onDragEnd).not.toHaveBeenCalled();
+  });
+
+  it('never emits a NaN span from any pointer callback', () => {
+    const { handle, onDragMove, onDragEnd } = setupZeroWidth();
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 0 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 0 });
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 0 });
+
+    const emitted = [...onDragMove.mock.calls, ...onDragEnd.mock.calls].flatMap((args) =>
+      args.filter((arg) => typeof arg === 'number'),
+    );
+    expect(emitted.every((n) => Number.isFinite(n))).toBe(true);
   });
 });

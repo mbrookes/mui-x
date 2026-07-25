@@ -30,21 +30,29 @@ const generateAnnotationId = createIdFactory('ann');
  * input. `value` may be a non-numeric string (an x-axis annotation on a band-scale
  * chart references an axis label, not a number) — an unparseable commit falls back
  * to the raw string, same as the original per-keystroke behavior.
+ *
+ * M2: the resync effect must also depend on `identity` (`${widgetId}:${ann.id}`). `value`
+ * alone cannot distinguish "no change" from "same value, different annotation" — and
+ * `key={ann.id}` is not enough either, because `duplicateWidget` clones `config` by
+ * REFERENCE, so a duplicated widget carries identical annotation ids AND identical values.
+ * Both the key and the effect then stay quiet across the switch and a dirty buffer from the
+ * original widget commits onto the duplicate.
  */
 function AnnotationValueInput(props: {
   value: number | string;
   label: string;
+  identity: string;
   onCommit: (next: number | string) => void;
 }) {
-  const { value, label, onCommit } = props;
+  const { value, label, identity, onCommit } = props;
   const [text, setText] = React.useState(String(value));
   const [dirty, setDirty] = React.useState(false);
 
-  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed annotation value; resync on external change (undo/redo)
+  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed annotation value; resync on external change (undo/redo) AND on `identity` (see M2 above)
   React.useEffect(() => {
     setText(String(value));
     setDirty(false);
-  }, [value]);
+  }, [value, identity]);
 
   const commit = () => {
     if (!dirty) {
@@ -93,21 +101,24 @@ function AnnotationValueInput(props: {
  * `controller.updateWidgetConfig` on every keystroke — each an undoable commit plus
  * a mutation-log line plus a full pipeline recompute. Buffer the displayed text
  * locally and only commit on blur/Enter, mirroring `AnnotationValueInput` above.
+ *
+ * M2: `identity` is in the resync deps for the same reason as `AnnotationValueInput`.
  */
 function AnnotationLabelInput(props: {
   value: string;
   label: string;
+  identity: string;
   onCommit: (next: string) => void;
 }) {
-  const { value, label, onCommit } = props;
+  const { value, label, identity, onCommit } = props;
   const [text, setText] = React.useState(value);
   const [dirty, setDirty] = React.useState(false);
 
-  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed label; resync on external change (undo/redo)
+  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed label; resync on external change (undo/redo) AND on `identity` (see M2 above)
   React.useEffect(() => {
     setText(value);
     setDirty(false);
-  }, [value]);
+  }, [value, identity]);
 
   const commit = () => {
     if (!dirty) {
@@ -203,6 +214,7 @@ export function AnnotationsEditorSection({ widgetId, config }: AnnotationsEditor
             </FormControl>
             <AnnotationValueInput
               value={ann.value}
+              identity={`${widgetId}:${ann.id}`}
               label={localeText.chartSetupReferenceLineValueLabel}
               onCommit={(next) => {
                 controller.updateWidgetConfig(widgetId, {
@@ -214,6 +226,7 @@ export function AnnotationsEditorSection({ widgetId, config }: AnnotationsEditor
             />
             <AnnotationLabelInput
               value={ann.label ?? ''}
+              identity={`${widgetId}:${ann.id}`}
               label={localeText.chartSetupReferenceLineLabelLabel}
               onCommit={(next) => {
                 controller.updateWidgetConfig(widgetId, {

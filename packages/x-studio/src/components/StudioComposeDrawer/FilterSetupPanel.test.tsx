@@ -452,3 +452,102 @@ describe('FilterSetupPanel — cross-source field pick folds to a single undo st
     expect(realController.canUndo()).toBe(false);
   });
 });
+
+/**
+ * The three slider bounds were never cross-validated here, while `StudioFilterWidget`
+ * silently sanitizes them at render time — it swaps an inverted min/max, replaces a
+ * zero-width range with a hard-coded 0-100, and discards a non-positive step. The author
+ * saw a slider that simply ignored what they typed, with nothing said in the panel.
+ */
+describe('FilterSetupPanel — slider bound cross-validation', () => {
+  beforeEach(() => {
+    controller.updateWidgetConfig.mockClear();
+    configureStudioContextMock({ getState: () => mockState, controller });
+  });
+
+  function renderWithSliderConfig(extra: Record<string, unknown>) {
+    const previousConfig = mockState.doc.widgets['widget-1'].config;
+    mockState.doc.widgets['widget-1'].config = {
+      filterWidgetType: 'slider',
+      filterWidgetField: 'amount',
+      ...extra,
+    } as StudioWidgetConfig;
+    const view = render(<FilterSetupPanel widgetId="widget-1" />);
+    return {
+      ...view,
+      restore: () => {
+        mockState.doc.widgets['widget-1'].config = previousConfig;
+      },
+    };
+  }
+
+  it('flags an inverted min/max on both bound inputs', () => {
+    const { restore } = renderWithSliderConfig({ filterWidgetMin: 100, filterWidgetMax: 10 });
+    try {
+      // The widget would silently swap these; say so instead.
+      const messages = screen.getAllByText(/Min must be below Max/);
+      expect(messages.length).toBe(2);
+    } finally {
+      restore();
+    }
+  });
+
+  it('flags a zero-width range (the widget replaces it wholesale with 0-100)', () => {
+    const { restore } = renderWithSliderConfig({ filterWidgetMin: 50, filterWidgetMax: 50 });
+    try {
+      expect(screen.getAllByText(/Min must be below Max/).length).toBe(2);
+    } finally {
+      restore();
+    }
+  });
+
+  it('flags a non-positive step', () => {
+    const { restore } = renderWithSliderConfig({
+      filterWidgetMin: 0,
+      filterWidgetMax: 100,
+      filterWidgetStep: 0,
+    });
+    try {
+      expect(screen.getByText(/Step must be above 0/)).not.toBe(null);
+    } finally {
+      restore();
+    }
+  });
+
+  it('flags a step wider than the configured range', () => {
+    const { restore } = renderWithSliderConfig({
+      filterWidgetMin: 0,
+      filterWidgetMax: 10,
+      filterWidgetStep: 50,
+    });
+    try {
+      expect(screen.getByText(/Step is wider than/)).not.toBe(null);
+    } finally {
+      restore();
+    }
+  });
+
+  it('says nothing for a consistent min/max/step triple', () => {
+    const { restore } = renderWithSliderConfig({
+      filterWidgetMin: 0,
+      filterWidgetMax: 100,
+      filterWidgetStep: 5,
+    });
+    try {
+      expect(screen.queryByText(/Min must be below Max/)).toBe(null);
+      expect(screen.queryByText(/Step must be above 0/)).toBe(null);
+      expect(screen.queryByText(/Step is wider than/)).toBe(null);
+    } finally {
+      restore();
+    }
+  });
+
+  it('says nothing while only one bound is set (a half-finished edit is legitimate)', () => {
+    const { restore } = renderWithSliderConfig({ filterWidgetMin: 100 });
+    try {
+      expect(screen.queryByText(/Min must be below Max/)).toBe(null);
+    } finally {
+      restore();
+    }
+  });
+});

@@ -34,8 +34,39 @@ describe('migrateState', () => {
     expect(result.fromVersion).toBe(CURRENT_SCHEMA_VERSION);
     expect(result.toVersion).toBe(CURRENT_SCHEMA_VERSION);
     expect(result.errors).toHaveLength(0);
-    // Fast path: the already-current success path returns the SAME reference.
-    expect(result.state).toBe(state);
+    // The already-current path now DEEP-COPIES like the migration path, so both entry
+    // paths offer one isolation guarantee: the returned state never aliases the caller's
+    // object. It used to return the SAME reference here — and since
+    // `CURRENT_SCHEMA_VERSION` is 1 that fast path is the overwhelmingly common case, so
+    // the live, undoable doc aliased the host's retained persisted object.
+    expect(result.state).not.toBe(state);
+    expect(result.state).toEqual(state);
+  });
+
+  it('the already-current path does not alias the caller-provided object (M12)', () => {
+    const state = completeSerialized({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      widgets: { w1: { id: 'w1', kind: 'chart', title: 'A', config: { chartType: 'bar' } } },
+      relationships: [
+        {
+          id: 'r1',
+          sourceId: 'a',
+          sourceField: 'x',
+          targetId: 'b',
+          targetField: 'y',
+          type: 'many-to-one',
+        },
+      ],
+    });
+    const result = migrateState(state);
+    expect(result.success).toBe(true);
+    const migrated = result.state as unknown as Record<string, unknown>;
+    // Nested sub-objects are copies too — a host mutating its own persisted object must
+    // not reach into live state (or any undo snapshot sharing those sub-objects).
+    expect((migrated.widgets as Record<string, unknown>).w1).not.toBe(
+      (state.widgets as Record<string, unknown>).w1,
+    );
+    expect(migrated.relationships).not.toBe(state.relationships);
   });
 
   it('returns failure for null', () => {
@@ -1239,8 +1270,8 @@ describe('deserializeState', () => {
       const serialized = {
         ...minimalSerialized,
         relationships: JSON.parse(
-          `[{"id":"r1","sourceId":"a","targetId":"b"},` +
-            `{"id":"r2","sourceId":"c","targetId":"d","${key}":{"polluted":true}}]`,
+          `[{"id":"r1","sourceId":"a","sourceField":"x","targetId":"b","targetField":"y","type":"many-to-one"},` +
+            `{"id":"r2","sourceId":"c","sourceField":"x","targetId":"d","targetField":"y","type":"many-to-one","${key}":{"polluted":true}}]`,
         ),
       } as unknown as typeof minimalSerialized;
       const state = deserializeState(serialized, {});
@@ -1255,8 +1286,8 @@ describe('deserializeState', () => {
       const serialized = {
         ...minimalSerialized,
         expressionFields: JSON.parse(
-          `[{"id":"ef1","name":"A","sourceId":"a"},` +
-            `{"id":"ef2","name":"B","sourceId":"b","${key}":{"polluted":true}}]`,
+          `[{"id":"ef1","label":"A","sourceId":"a","isMeasure":false,"expression":{"id":"amount"}},` +
+            `{"id":"ef2","label":"B","sourceId":"b","isMeasure":false,"expression":{"id":"amount"},"${key}":{"polluted":true}}]`,
         ),
       } as unknown as typeof minimalSerialized;
       const state = deserializeState(serialized, {});
@@ -1580,7 +1611,15 @@ describe('deserializeState', () => {
       dashboard: { id: 'd', title: 'T', activePageId: 'page-1' },
       pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
       widgets: { w1: { id: 'w1', kind: 'chart', title: 'C', config: { chartType: 'bar' } } },
-      expressionFields: [{ id: 'ef1', sourceId: 's1', name: 'total', expression: '1 + 1' }],
+      expressionFields: [
+        {
+          id: 'ef1',
+          sourceId: 's1',
+          label: 'total',
+          isMeasure: false,
+          expression: { operator: 'add', inputs: [{ id: 'a' }, { id: 'b' }] },
+        },
+      ],
       filters: [
         // The sole defect: a well-formed-but-incomplete scope (missing `widgetId`).
         { id: 'bad', field: 'x', operator: 'equals', value: '', scope: { kind: 'widget' } },
@@ -1731,8 +1770,21 @@ describe('deserializeState', () => {
   // The prior code coerced only the CONTAINER, so a junk ENTRY (`[null]`) installed
   // verbatim, crashed the client on first use, and round-tripped through every autosave.
   it('drops non-record relationships / expressionFields entries on load (Finding 1)', () => {
-    const goodRel = { id: 'r1', sourceId: 'a', targetId: 'b' };
-    const goodEf = { id: 'ef1', name: 'Rev', sourceId: 'a' };
+    const goodRel = {
+      id: 'r1',
+      sourceId: 'a',
+      sourceField: 'x',
+      targetId: 'b',
+      targetField: 'y',
+      type: 'many-to-one',
+    };
+    const goodEf = {
+      id: 'ef1',
+      label: 'Rev',
+      sourceId: 'a',
+      isMeasure: false,
+      expression: { id: 'amount' },
+    };
     const serialized = {
       ...minimalSerialized,
       relationships: [null, goodRel, 'junk'],
@@ -1793,7 +1845,16 @@ describe('deserializeState', () => {
   });
 
   it('leaves well-formed relationships / filterPresets reference-stable (Finding 1)', () => {
-    const relationships = [{ id: 'r1', sourceId: 'a', targetId: 'b' }];
+    const relationships = [
+      {
+        id: 'r1',
+        sourceId: 'a',
+        sourceField: 'x',
+        targetId: 'b',
+        targetField: 'y',
+        type: 'many-to-one',
+      },
+    ];
     const filterPresets = [
       {
         id: 'p1',
@@ -2700,5 +2761,281 @@ describe('serializeState / deserializeState — doc completeness', () => {
     const serialized = serializeState(state);
     expect(serialized.filters.map((f) => f.id)).toEqual(['pf', 'wf']);
     expect(serialized.filters.some((f) => f.scope.kind === 'cross-filter')).toBe(false);
+  });
+});
+
+// ─── M1: required-leaf screens at the load boundary ──────────────────────────
+// The screens validated record-ness but not the leaves consumers dereference unguarded, so
+// e.g. an `expressionFields` entry with no `expression` loaded with `success: true` and
+// then crashed `expressionEvaluator`'s `'joinSourceId' in expr` on first use — with no
+// self-heal, since `serializeDoc` re-persisted the junk forever.
+describe('deserializeState required-leaf screens (M1)', () => {
+  const minimal = serializeState(createDefaultStudioState());
+  const goodEf = {
+    id: 'ef1',
+    label: 'Margin',
+    sourceId: 's1',
+    isMeasure: false,
+    expression: { operator: 'subtract', inputs: [{ id: 'revenue' }, { id: 'cost' }] },
+  };
+  const goodRel = {
+    id: 'r1',
+    sourceId: 'orders',
+    sourceField: 'customerId',
+    targetId: 'customers',
+    targetField: 'id',
+    type: 'many-to-one',
+  };
+
+  it('drops an expressionFields entry with a missing/non-record expression', () => {
+    const serialized = {
+      ...minimal,
+      expressionFields: [
+        goodEf,
+        // The exact reported shape: everything but `expression`.
+        { id: 'e1', label: 'Margin', sourceId: 's1', isMeasure: false },
+        { ...goodEf, id: 'ef3', expression: '1 + 1' },
+      ],
+    } as unknown as typeof minimal;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.expressionFields.map((ef) => ef.id)).toEqual(['ef1']);
+    // Self-heals: the junk is not re-persisted.
+    expect(serializeState(state).expressionFields).toEqual([goodEf]);
+  });
+
+  it('drops an expressionFields entry with a non-string id/sourceId', () => {
+    const serialized = {
+      ...minimal,
+      expressionFields: [goodEf, { ...goodEf, id: 42 }, { ...goodEf, id: 'ef3', sourceId: null }],
+    } as unknown as typeof minimal;
+    expect(deserializeState(serialized, {}).doc.expressionFields.map((ef) => ef.id)).toEqual([
+      'ef1',
+    ]);
+  });
+
+  it('drops a relationships entry missing an endpoint field or carrying an unknown type', () => {
+    const serialized = {
+      ...minimal,
+      relationships: [
+        goodRel,
+        { ...goodRel, id: 'r2', targetField: undefined },
+        { ...goodRel, id: 'r3', type: 'many-to-many-ish' },
+      ],
+    } as unknown as typeof minimal;
+    expect(deserializeState(serialized, {}).doc.relationships.map((r) => r.id)).toEqual(['r1']);
+  });
+
+  it.each(['many-to-one', 'one-to-one', 'many-to-many'])(
+    'keeps a relationship whose type is the known member "%s"',
+    (type) => {
+      const serialized = {
+        ...minimal,
+        relationships: [{ ...goodRel, type }],
+      } as unknown as typeof minimal;
+      expect(deserializeState(serialized, {}).doc.relationships).toHaveLength(1);
+    },
+  );
+
+  it('screens ai.threads[*].messages entries, keeping the well-formed ones', () => {
+    const serialized = {
+      ...minimal,
+      ai: {
+        activeThreadId: 't1',
+        threads: [
+          {
+            id: 't1',
+            name: 'T',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            messages: [{ role: 'user', content: 'hi' }, null, 'junk'],
+          },
+        ],
+      },
+    } as unknown as typeof minimal;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.ai?.threads[0].messages).toEqual([{ role: 'user', content: 'hi' }]);
+  });
+
+  it('drops a preset inner filter whose id is not a string', () => {
+    const serialized = {
+      ...minimal,
+      filterPresets: [
+        {
+          id: 'p1',
+          name: 'P',
+          filters: [
+            { id: 'pf-ok', field: 'x', operator: 'equals', value: '', scope: { kind: 'page' } },
+            { id: 42, field: 'x', operator: 'equals', value: '', scope: { kind: 'page' } },
+          ],
+        },
+      ],
+    } as unknown as typeof minimal;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.filterPresets?.[0].filters.map((f) => f.id)).toEqual(['pf-ok']);
+  });
+});
+
+// ─── M4: deserializeState must refuse a NEWER schemaVersion ──────────────────
+// `migrateState` has always rejected `fromVersion > CURRENT_SCHEMA_VERSION`, but
+// `deserializeState` is a public export a host can call directly on
+// `JSON.parse(localStorage.getItem(k))`. It used to read only the fields this version
+// knows, drop every newer one, and stamp `schemaVersion: CURRENT_SCHEMA_VERSION` back —
+// the host's next save then wrote the downgraded doc, permanently losing the newer data.
+describe('deserializeState schemaVersion gate (M4)', () => {
+  const minimal = serializeState(createDefaultStudioState());
+
+  it('throws for a doc written by a NEWER Studio instead of silently downgrading', () => {
+    const newer = {
+      ...minimal,
+      schemaVersion: CURRENT_SCHEMA_VERSION + 1,
+    } as unknown as typeof minimal;
+    expect(() => deserializeState(newer, {})).toThrow(/newer version of X Studio/);
+    expect(() => deserializeState(newer, {})).toThrow(
+      new RegExp(`schema version ${CURRENT_SCHEMA_VERSION + 1} to ${CURRENT_SCHEMA_VERSION}`),
+    );
+  });
+
+  it('still loads the current version, an absent version, and a non-number version', () => {
+    expect(() => deserializeState(minimal, {})).not.toThrow();
+    const { schemaVersion: ignored, ...withoutVersion } = minimal;
+    expect(() => deserializeState(withoutVersion as typeof minimal, {})).not.toThrow();
+    // A junk (non-number) version is `migrateState`'s business, not a reason to refuse.
+    expect(() =>
+      deserializeState({ ...minimal, schemaVersion: 'v2' } as unknown as typeof minimal, {}),
+    ).not.toThrow();
+  });
+});
+
+// ─── L3 / H2 at the load boundary ────────────────────────────────────────────
+describe('deserializeState dashboard.id fallback and dependsOn prune', () => {
+  const minimal = serializeState(createDefaultStudioState());
+
+  it('coerces a missing/non-string dashboard.id to the factory default (L3)', () => {
+    const noId = {
+      ...minimal,
+      dashboard: { title: 'T', activePageId: Object.keys(minimal.pages)[0] },
+    } as unknown as typeof minimal;
+    expect(deserializeState(noId, {}).doc.dashboard.id).toBe('dashboard-1');
+    const junkId = {
+      ...minimal,
+      dashboard: { ...minimal.dashboard, id: 42 },
+    } as unknown as typeof minimal;
+    expect(deserializeState(junkId, {}).doc.dashboard.id).toBe('dashboard-1');
+  });
+
+  it('leaves a well-formed dashboard reference-stable (no churn)', () => {
+    const state = deserializeState(minimal, {});
+    expect(state.doc.dashboard).toBe(minimal.dashboard);
+  });
+
+  it('prunes a dependsOn pointing at a filter the load-boundary screen dropped (H2)', () => {
+    const pageId = Object.keys(minimal.pages)[0];
+    const serialized = {
+      ...minimal,
+      filters: [
+        // Dropped: its `operator` is not a member of the closed union.
+        { id: 'f-bad', field: 'country', operator: 'equal', value: 'FR', scope: { kind: 'page' } },
+        {
+          id: 'f-city',
+          field: 'city',
+          operator: 'equals',
+          value: 'Paris',
+          dependsOn: ['f-bad'],
+          scope: { kind: 'page', pageId },
+        },
+      ],
+    } as unknown as typeof minimal;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.filters.map((f) => f.id)).toEqual(['f-city']);
+    expect(state.doc.filters[0].dependsOn).toBeUndefined();
+  });
+
+  it('leaves a satisfiable dependsOn intact, keeping each entry object identity', () => {
+    const pageId = Object.keys(minimal.pages)[0];
+    const filters = [
+      {
+        id: 'f-country',
+        field: 'country',
+        operator: 'equals',
+        value: 'FR',
+        scope: { kind: 'page', pageId },
+      },
+      {
+        id: 'f-city',
+        field: 'city',
+        operator: 'equals',
+        value: 'Paris',
+        dependsOn: ['f-country'],
+        scope: { kind: 'page', pageId },
+      },
+    ];
+    const serialized = { ...minimal, filters } as unknown as typeof minimal;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.filters.map((f) => f.id)).toEqual(['f-country', 'f-city']);
+    // Nothing was pruned, so `pruneDependsOn` returned each entry unchanged by identity.
+    expect(state.doc.filters[1]).toBe(filters[1]);
+    expect(state.doc.filters[1].dependsOn).toEqual(['f-country']);
+  });
+});
+
+// ─── H1 at the load boundary: the rank dedup must stop dropping good filters ─
+// `deserializeState` runs `hasConflictingRankFilter` in ARRAY ORDER, so when an
+// unplaced-widget rank filter came FIRST its `null`-resolved page context "conflicted"
+// with the user's legitimate rank filter and DROPPED it — and the next `serializeDoc`
+// persisted the loss permanently.
+describe('deserializeState rank-filter dedup with an unplaced widget (H1)', () => {
+  const base = serializeState(
+    createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+        widgets: {
+          'w-unplaced': {
+            id: 'w-unplaced',
+            kind: 'chart',
+            title: 'W',
+            config: { chartType: 'bar' },
+          },
+        },
+      },
+    }),
+  );
+
+  it('keeps a legitimate page rank filter listed AFTER an unplaced-widget rank filter', () => {
+    const serialized = {
+      ...base,
+      filters: [
+        {
+          id: 'r-unplaced',
+          field: 'country',
+          operator: 'equals',
+          value: null,
+          filterMode: 'rank',
+          scope: { kind: 'widget', widgetId: 'w-unplaced' },
+        },
+        {
+          id: 'r-page-1',
+          field: 'country',
+          operator: 'equals',
+          value: null,
+          filterMode: 'rank',
+          scope: { kind: 'page', pageId: 'page-1' },
+        },
+      ],
+    } as unknown as typeof base;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.filters.map((f) => f.id)).toEqual(['r-unplaced', 'r-page-1']);
+  });
+
+  it('still drops a genuine second rank filter on the same page', () => {
+    const rank = (id: string) => ({
+      id,
+      field: 'country',
+      operator: 'equals',
+      value: null,
+      filterMode: 'rank',
+      scope: { kind: 'page', pageId: 'page-1' },
+    });
+    const serialized = { ...base, filters: [rank('r1'), rank('r2')] } as unknown as typeof base;
+    expect(deserializeState(serialized, {}).doc.filters.map((f) => f.id)).toEqual(['r1']);
   });
 });

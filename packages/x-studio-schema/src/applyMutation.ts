@@ -342,6 +342,93 @@ function dropWidgetScopedFilters(
 }
 
 /**
+ * The `StudioWidget` fields an `updateWidget.args.changes` bag may merge onto a widget —
+ * every non-`id` field of `StudioWidgetOf` (`widgetTypes.ts`).
+ *
+ * The merge loop denied `id`, prototype-hazard keys and `undefined` values, and
+ * type-checked these six known fields — but anything ELSE was merged verbatim and then
+ * round-tripped through `serializeDoc` forever, e.g.
+ * `updateWidget { widgetId: 'w1', changes: { evil: { a: 1 }, widgetRows: 'x' } }`
+ * producing `{ id, kind, title, config, evil: { a: 1 }, widgetRows: 'x' }`. Nothing
+ * downstream strips it: the wire boundary tolerates unknown keys BY POLICY (forward
+ * compatibility with a newer server's additive field), and `deserializeState` never
+ * screens unknown widget keys either. Note the asymmetry this closes — the sibling
+ * `config` channel one level down has always been fail-closed via
+ * `validateConfigKeysForKind`, so a stray key was rejected inside `config` but accepted
+ * beside it.
+ *
+ * Deliberately scoped to the PATCH channel. The full-widget CREATE channels
+ * (`addWidget`/`applyBulkUpdate.addedWidgets`) install a whole `StudioWidget` and keep
+ * their unknown-key tolerance, which is where the forward-compatibility argument actually
+ * applies: an older client receiving a newer server's widget must not silently strip a
+ * field it does not yet know about. A patch bag has no such round-trip to preserve.
+ *
+ * A `Set` (not an array/object literal) so an untrusted key can never resolve up a
+ * prototype chain.
+ */
+const MERGEABLE_WIDGET_CHANGE_KEYS: ReadonlySet<string> = new Set([
+  'kind',
+  'title',
+  'titleMode',
+  'subtitle',
+  'subtitleMode',
+  'sourceId',
+  'config',
+]);
+
+/**
+ * Drop every `dependsOn` id that no longer names a surviving filter.
+ *
+ * `StudioFilterState.dependsOn` (`stateTypes.ts`) lists OTHER filter ids this filter
+ * cascades from — "purely a UX hint" per its own doc comment, but the client's cascade
+ * drawer maps over it directly, so a dangling id left pointing at a filter that is gone
+ * silently gates option-narrowing on a filter that no longer exists.
+ *
+ * This cascade prune used to live INLINE in the `removeFilter` handler, so it covered
+ * exactly ONE of the several paths that drop filters — every sibling path
+ * (`dropWidgetScopedFilters` via `removeWidget`/`applyBulkUpdate`, `removePage`'s
+ * page-anchor drop, and `deserializeState`'s load-boundary filter screen/rank dedup) left
+ * the dangling references behind. Extracted here as the ONE implementation so the
+ * referential-integrity invariant is enforced per-CLASS rather than per-instance;
+ * `statePersistence.ts` imports it for the load boundary.
+ *
+ * Drops the whole `dependsOn` array (rather than leaving `dependsOn: []`) when the prune
+ * empties it, mirroring `docTransforms.ts`'s own `remappedDependsOn.length > 0 ? … :
+ * undefined` convention for this exact field and `repairFilterDependsOn`'s "absent is the
+ * canonical empty state" treatment. Reference-stable at BOTH levels: the SAME array is
+ * returned when nothing needed pruning, and a filter with no dangling reference keeps its
+ * existing object identity.
+ */
+export function pruneDependsOn(
+  filters: StudioFilterState[],
+  survivingIds: ReadonlySet<string>,
+): StudioFilterState[] {
+  let changed = false;
+  const next = filters.map((f) => {
+    if (!f.dependsOn?.some((id) => !survivingIds.has(id))) {
+      return f;
+    }
+    changed = true;
+    const remainingDependsOn = f.dependsOn.filter((id) => survivingIds.has(id));
+    return {
+      ...f,
+      dependsOn: remainingDependsOn.length > 0 ? remainingDependsOn : undefined,
+    };
+  });
+  return changed ? next : filters;
+}
+
+/**
+ * {@link pruneDependsOn} against the ids `filters` itself still carries — the shape every
+ * "some filters were just dropped from this array" call site wants. Kept as a separate
+ * tiny wrapper so the exported primitive keeps its explicit surviving-id-set signature
+ * (which the load boundary needs, since it prunes against a set it computes itself).
+ */
+function pruneDependsOnAgainstSelf(filters: StudioFilterState[]): StudioFilterState[] {
+  return pruneDependsOn(filters, new Set(filters.map((f) => f.id)));
+}
+
+/**
  * Strip every id in `idsToRemove` from every page's `widgetRows`, dropping any row
  * left empty and clearing the stale span of a former row-mate a removal leaves as
  * the SOLE occupant of a row it used to share (that survivor's stored span is a
@@ -396,12 +483,27 @@ function stripWidgetIdsFromPages(
 
 /**
  * Resolves the page a rank-eligible filter applies to, for the per-page
- * rank-uniqueness guard (finding: `addFilter` didn't enforce it):
- *  - `page` scope → its explicit `pageId`, or `null` for a legacy pageId-less page
- *    filter (which applies on EVERY page, so it must conflict everywhere).
- *  - `widget` scope → the id of the page whose `widgetRows` contain the widget, or
- *    `null` when the widget is not placed on any page.
- *  - other scope kinds are never rank filters and are excluded by the caller.
+ * rank-uniqueness guard (finding: `addFilter` didn't enforce it). The return value is a
+ * THREE-state answer, and the distinction between the two non-string states is the whole
+ * point of this helper (see the failure it closes below):
+ *  - a `string` → the concrete page this filter's rank window applies to.
+ *  - `null` → "applies EVERYWHERE": the legacy pageId-less `page` scope, which is active
+ *    on every page, so it must conflict with (and be conflicted by) every rank filter.
+ *  - `undefined` → "UNRESOLVABLE": there is no page context to compare against. Returned
+ *    for a `widget` scope whose widget sits on no page's `widgetRows` (a widget left in
+ *    `doc.widgets` but unplaced — e.g. after a `setWidgetLayout`, or an `applyBulkUpdate`
+ *    whose `activePageId` no longer exists), and for every non-rank-eligible scope kind.
+ *
+ * Conflating those two was a real bug (fixed here): `null` used to mean BOTH, so a single
+ * unplaced-widget rank filter — which nothing removes, since `dropWidgetScopedFilters`
+ * only fires on widget REMOVAL — resolved to `null` and therefore "conflicted" with every
+ * subsequent rank `addFilter` on EVERY page, silently rejecting each one. Worse, the
+ * load-boundary dedup sweep in `statePersistence.ts` runs the same predicate in array
+ * order, so it DROPPED the user's legitimate rank filter whenever the unplaced-widget one
+ * happened to come first — and the next `serializeDoc` persisted that loss permanently.
+ * The `dashboard-date-range` instance of this same class was closed earlier by gating the
+ * callers on scope kind; the `widget`-scope instance needed the sentinel. Only the legacy
+ * pageId-less `page` scope keeps wildcard semantics.
  *
  * Duplicated (not imported) from `@mui/x-studio`'s `internals/rankFilterScope.ts`:
  * the dependency arrow runs `x-studio` → `x-studio-schema`, never the reverse, so
@@ -420,7 +522,7 @@ function stripWidgetIdsFromPages(
 export function resolveRankFilterPageId(
   filter: StudioFilterState,
   pages: StudioDoc['pages'],
-): string | null {
+): string | null | undefined {
   const { scope } = filter;
   if (scope.kind === 'page') {
     return scope.pageId ?? null;
@@ -431,9 +533,12 @@ export function resolveRankFilterPageId(
         return page.id;
       }
     }
-    return null;
+    // UNRESOLVABLE, not "everywhere": an unplaced widget's rank filter has no page
+    // context, so it must neither conflict with nor be conflicted by anything.
+    return undefined;
   }
-  return null;
+  // Not rank-eligible at all — also unresolvable, never a wildcard.
+  return undefined;
 }
 
 /**
@@ -442,6 +547,15 @@ export function resolveRankFilterPageId(
  * because page filters gate on `pageId === activePageId` and widget rank filters
  * are per-widget. A `null` resolved page (a pageId-less page filter, applied
  * everywhere) conflicts with — and is conflicted by — any other rank filter.
+ *
+ * An `undefined` resolved page ({@link resolveRankFilterPageId}'s UNRESOLVABLE sentinel)
+ * is the opposite of the `null` wildcard and is handled accordingly:
+ *  - an unresolvable TARGET conflicts with NOTHING (there is no page context to collide
+ *    on, so the add is always allowed), and
+ *  - an unresolvable OTHER filter is NON-conflicting (it cannot block anything).
+ * Before the sentinel existed both cases resolved to `null` and were therefore treated as
+ * "conflicts with everything", so one unplaced-widget rank filter poisoned every rank
+ * `addFilter` on every page — and made the load-boundary dedup drop legitimate filters.
  *
  * Only `page`/`widget` scopes are rank-eligible (matching {@link resolveRankFilterPageId}'s
  * doc comment: "other scope kinds are never rank filters and are excluded by the
@@ -466,6 +580,10 @@ export function hasConflictingRankFilter(
   pages: StudioDoc['pages'],
 ): boolean {
   const targetPageId = resolveRankFilterPageId(target, pages);
+  // An unresolvable target has no page context to collide on — it conflicts with nothing.
+  if (targetPageId === undefined) {
+    return false;
+  }
   return filters.some((filter) => {
     if (
       filter.id === filterId ||
@@ -475,6 +593,11 @@ export function hasConflictingRankFilter(
       return false;
     }
     const otherPageId = resolveRankFilterPageId(filter, pages);
+    // An unresolvable OTHER filter (an unplaced widget's rank filter) can never block a
+    // legitimate one — this is the check whose absence poisoned every later rank add.
+    if (otherPageId === undefined) {
+      return false;
+    }
     return targetPageId === null || otherPageId === null || otherPageId === targetPageId;
   });
 }
@@ -722,13 +845,25 @@ export function normalizePersistedPages(
  * every removal path shares: it computes which of `candidateIds` are *genuinely gone*
  * (no longer referenced on ANY surviving page's rows), then
  *   - deletes those ids from `widgets`,
- *   - drops their widget/interactive/cross-filter-scoped filters, and
+ *   - drops their widget/interactive/cross-filter-scoped filters (and cascades that drop
+ *     into every surviving filter's `dependsOn`), and
  *   - prunes their stale `widgetColSpans` entries from every page.
- * A candidate still referenced on some other page is preserved (its widget entry,
- * filters, and spans all survive) — this is the cross-page guard `removeWidget`,
- * `removePage`, and `applyBulkUpdate` all need. Returns the SAME `pages`/`widgets`/
- * `filters` references when nothing was genuinely removed, preserving the callers'
- * reference-stable no-op contract.
+ *
+ * The "genuinely gone" step (`stillReferenced`) is load-bearing for `removePage` ONLY.
+ * That caller hands in `pages` with the removed page DELETED but every surviving page's
+ * rows untouched, so a widget that also lives on another page must keep its `widgets`
+ * entry, its widget-anchored filters, and its spans — that is the cross-page guard.
+ * The other two callers (`removeWidget` and `applyBulkUpdate`) both pre-strip the
+ * candidate ids from ALL pages' rows before calling in, so for them `stillReferenced` can
+ * never contain a candidate and the step is a no-op. That is deliberate on both sides:
+ * those two callers remove the widget from `doc.widgets` outright, so leaving it on
+ * another page's rows would strand a dangling row reference — the all-pages pre-strip is
+ * the fix, not a bug. The step is kept (rather than deleted as dead code for two of three
+ * callers) precisely because it IS the whole contract for `removePage`, and because it is
+ * the correct default for any future caller that does not pre-strip.
+ *
+ * Returns the SAME `pages`/`widgets`/`filters` references when nothing was genuinely
+ * removed, preserving the callers' reference-stable no-op contract.
  */
 function removeWidgetIds(
   pages: StudioDoc['pages'],
@@ -781,8 +916,16 @@ function removeWidgetIds(
       delete nextWidgets[id];
     }
   }
-  // (d) drop widget/interactive/cross-filter-scoped filters anchored to a removed id.
-  const nextFilters = dropWidgetScopedFilters(filters, (id) => removedIds.has(id));
+  // (d) drop widget/interactive/cross-filter-scoped filters anchored to a removed id, then
+  // cascade that drop into every SURVIVING filter's `dependsOn` (the shared
+  // `pruneDependsOn` invariant). Without the prune, e.g. a page filter `f-city` with
+  // `dependsOn: ['f-country']` keeps pointing at `f-country` after `removeWidget('w1')`
+  // dropped that widget-scoped filter, and the cascade drawer gates option-narrowing on a
+  // filter that no longer exists. Both helpers are reference-stable, so a removal that
+  // drops no filter (and a doc with no `dependsOn` at all) still returns the SAME array.
+  const nextFilters = pruneDependsOnAgainstSelf(
+    dropWidgetScopedFilters(filters, (id) => removedIds.has(id)),
+  );
   // (e) prune each removed id's stale span entry from every page (reference-stable).
   // Rebuilt via `Object.fromEntries` (not a `nextPages[pid] = …` bracket assignment) so a
   // stray unsafe page key can never invoke the inherited prototype accessor — matching the
@@ -1104,6 +1247,15 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
           // the defense-in-depth copy for a server-built mutation bypassing the parser,
           // mirroring the `unsetFields` `id` denylist.
           if (key === 'id' || !isSafePatchKey(key) || value === undefined) {
+            continue;
+          }
+          // Fail-closed allow-list: only a real, mergeable `StudioWidget` field may land on
+          // the widget. See `MERGEABLE_WIDGET_CHANGE_KEYS` — without this, any unknown key
+          // in the bag (`changes: { evil: {…}, widgetRows: 'x' }`) merged verbatim and
+          // round-tripped through every subsequent save forever, with no boundary anywhere
+          // that would ever strip it. `id` is already denied above (it is the map key), so
+          // it is deliberately absent from the allow-list rather than filtered twice.
+          if (!MERGEABLE_WIDGET_CHANGE_KEYS.has(key)) {
             continue;
           }
           if (key === 'config') {
@@ -1619,6 +1771,26 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       if (!Object.hasOwn(state.pages, pageId)) {
         return state;
       }
+      // Refuse to remove the LAST page. "At least one page always exists" is a real
+      // invariant of this doc shape: `createDefaultStudioState` always seeds one page, and
+      // every legacy pageId-less mutation (`addWidget`/`setWidgetLayout`/`setWidgetColSpan`
+      // without an explicit `pageId`) resolves its target through
+      // `Object.hasOwn(state.pages, dashboard.activePageId)`. Removing the final page used
+      // to leave `activePageId: ''`, which satisfies no such guard, so the doc entered a
+      // state where every one of those mutations silently no-op'd forever with no error and
+      // no affordance to recover (the canvas renders nothing, and `deserializeState`
+      // faithfully reconciles back to the same `''`).
+      //
+      // No-op-return the input `state` reference — the dominant convention in this reducer
+      // for a mutation that cannot be applied (`removeWidget`/`setActivePage`/`updateWidget`
+      // unknown-id cases). Synthesizing a replacement page instead was rejected: a fresh
+      // page needs a fresh id, and this reducer must stay DETERMINISTIC so the
+      // server-threaded state (`executeToolOnState`) and the client-applied state
+      // (`StudioController.applyExternalMutation`) cannot diverge. A caller that really
+      // wants an empty dashboard adds the replacement page first, then removes this one.
+      if (Object.keys(state.pages).length <= 1) {
+        return state;
+      }
       const page = state.pages[pageId];
       // Full cleanup, matching StudioController.removePage:
       //   drop the page, remove widgets that lived ONLY on it, drop page-scoped
@@ -1636,10 +1808,21 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // carries no `pageId`, and a cross-filter/interactive scope pinned to a DIFFERENT
       // page is handled by `removeWidgetIds` below — but only if its source widget is
       // genuinely removed.
-      const filtersAfterPageDrop = state.filters.filter((f: StudioFilterState) => {
+      const droppedPageFilters = state.filters.filter((f: StudioFilterState) => {
         const p = 'pageId' in f.scope ? f.scope.pageId : undefined;
         return p !== pageId;
       });
+      // Cascade that drop into every surviving filter's `dependsOn` (the shared
+      // `pruneDependsOn` invariant — this was one of the sibling filter-removal paths that
+      // did NOT prune, leaving the cascade drawer pointed at a filter the page removal just
+      // took away). Applied HERE, not left to `removeWidgetIds` below, because that
+      // primitive short-circuits and returns its input `filters` untouched when the page
+      // held no exclusively-owned widget. Reference-stable, so a page with no filters (or
+      // no `dependsOn` anywhere) still returns the SAME array.
+      const filtersAfterPageDrop =
+        droppedPageFilters.length === state.filters.length
+          ? state.filters
+          : pruneDependsOnAgainstSelf(droppedPageFilters);
 
       // Remove the page's widgets, but only those NOT still referenced on a surviving
       // page: a widget shared across pages keeps its `widgets` entry AND its
@@ -1653,6 +1836,8 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       } = removeWidgetIds(nextPages, state.widgets, filtersAfterPageDrop, widgetIdsOnPage);
 
       const remainingPageIds = Object.keys(prunedPages);
+      // `?? ''` is now unreachable — the last-page guard above guarantees at least one page
+      // survives — but is retained as a total fallback rather than a non-null assertion.
       const nextActivePageId =
         state.dashboard.activePageId === pageId
           ? (remainingPageIds[0] ?? '')
@@ -1785,6 +1970,22 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       ) {
         return state;
       }
+      // Both kinds ALSO carry a REQUIRED `pageId` (`FILTER_SCOPE_REQUIRED_IDS` in
+      // `parseStateMutation.ts` lists it for each), which this reducer previously never
+      // screened — a parser-bypass parity gap, since the `executeToolOnState` path builds
+      // mutations straight from LLM tool arguments and never runs the parser. A
+      // server-built `{ kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 42 }` installed
+      // verbatim, and then could never be cleared: `removePage`'s cleanup compares with a
+      // strict `===` that never coerces, so the numeric `pageId` survived every page
+      // removal, and `serializeDoc` strips cross-filter/interactive entries so a reload
+      // never repaired it either — a permanently stuck cross-filter with no clearing
+      // affordance. Screen it here, mirroring the `dashboard-date-range` treatment below.
+      if (
+        (scope.kind === 'cross-filter' || scope.kind === 'interactive') &&
+        typeof scope.pageId !== 'string'
+      ) {
+        return state;
+      }
       // `dashboard-date-range` scope's `pageId` is REQUIRED by the type
       // (`FILTER_SCOPE_REQUIRED_IDS` in `stateTypes.ts` lists `pageId` for it), so it must
       // be a STRING outright — reject a missing/non-string one (Finding 4). The previous
@@ -1828,8 +2029,19 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // weight until reload — screen it here so the wire/reducer boundary and the load
       // boundary agree. `Object.hasOwn` so an untrusted `pageId` can't match a prototype
       // member.
+      //
+      // `cross-filter`/`interactive` are included too (parser-bypass parity, same finding as
+      // the `pageId` string screen above): their `pageId` is required, they are the two
+      // kinds `serializeDoc` strips at the persistence boundary — so, unlike the other
+      // kinds, the load boundary can NEVER repair one that got in — and `removePage`'s
+      // cleanup only fires for a page that was present and got removed. A filter anchored
+      // to a page the doc never had would therefore be permanent, invisible, unclearable
+      // dead weight.
       if (
-        (scope.kind === 'page' || scope.kind === 'dashboard-date-range') &&
+        (scope.kind === 'page' ||
+          scope.kind === 'dashboard-date-range' ||
+          scope.kind === 'cross-filter' ||
+          scope.kind === 'interactive') &&
         scope.pageId !== undefined &&
         !Object.hasOwn(state.pages, scope.pageId)
       ) {
@@ -1902,26 +2114,12 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       if (nextFilters.length === state.filters.length) {
         return state;
       }
-      // Cascade the removal to every remaining filter's `dependsOn` (Tier3 finding):
-      // `StudioFilterState.dependsOn` (`stateTypes.ts`) lists OTHER filter ids this filter
-      // cascades from — "purely a UX hint" per its own doc comment, but the client's cascade
-      // drawer maps over it directly, so a dangling id left pointing at a just-removed filter
-      // would silently point the UI at a filter that no longer exists. Drop the whole array
-      // (rather than leave `dependsOn: []`) when the prune empties it, mirroring
-      // `docTransforms.ts`'s own `remappedDependsOn.length > 0 ? … : undefined` convention for
-      // this exact field, and `repairFilterDependsOn`'s "absent is the canonical empty state"
-      // treatment. Reference-stable per-entry: a filter with no reference to the removed id
-      // keeps its existing object identity.
-      const prunedFilters = nextFilters.map((f) => {
-        if (!f.dependsOn?.includes(filterId)) {
-          return f;
-        }
-        const remainingDependsOn = f.dependsOn.filter((id) => id !== filterId);
-        return {
-          ...f,
-          dependsOn: remainingDependsOn.length > 0 ? remainingDependsOn : undefined,
-        };
-      });
+      // Cascade the removal to every remaining filter's `dependsOn` via the SHARED
+      // `pruneDependsOn` helper (Tier3 finding, generalized): this handler used to inline
+      // the prune, which is why it was the only one of the several filter-dropping paths
+      // that maintained the invariant. Same semantics as before — drop the whole array
+      // rather than leave `dependsOn: []`, and keep each untouched filter's object identity.
+      const prunedFilters = pruneDependsOnAgainstSelf(nextFilters);
       return { ...state, filters: prunedFilters };
     },
     label: (args) => `removeFilter:${args.filterId}`,
@@ -2187,12 +2385,15 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         // means a span for a dropped phantom id is pruned as an orphan.
         // Coerce a non-record `widgetColSpans` (absent when only `widgetRows` was supplied,
         // or junk from a hand-built payload) to `{}` so `Object.keys` can't throw (finding 2.5).
-        const safeSpans: Record<string, number> =
+        // ONE presence predicate for `widgetColSpans`, mirroring `rowsProvided` above: a
+        // present-but-junk value (`null`, an array, a primitive from a hand-built payload)
+        // counts as ABSENT everywhere, so it can neither be read nor flip the merge-vs-replace
+        // decision below.
+        const spansProvided =
           widgetColSpans !== null &&
           typeof widgetColSpans === 'object' &&
-          !Array.isArray(widgetColSpans)
-            ? widgetColSpans
-            : {};
+          !Array.isArray(widgetColSpans);
+        const safeSpans: Record<string, number> = spansProvided ? widgetColSpans : {};
         const clampedSpans: Record<string, number> = {};
         for (const key of Object.keys(safeSpans)) {
           if (!isSafePatchKey(key)) {
@@ -2213,13 +2414,38 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         // current full-snapshot producer — a superset merge ≡ replace for the keys it
         // carries — while preserving any client-side span the snapshot doesn't know about.
         // Bulk `colSpans` entries are numbers 6–24 and cannot clear a span, so merge
-        // semantics lose nothing. When rows ARE provided the producer genuinely re-placed
-        // rows and ships rows+spans together, so the wire spans ARE the intended full map for
-        // the new placement and must replace, not merge.
-        const spansToEnforce: Record<string, number> = rowsProvided
-          ? clampedSpans
-          : { ...(page.widgetColSpans ?? {}), ...clampedSpans };
-        const normalizedActiveSpans = enforceLayoutColSpans([], sanitizedRows, spansToEnforce);
+        // semantics lose nothing. Replace applies ONLY when the producer shipped rows AND
+        // spans together — then the wire spans genuinely ARE the intended full map for the
+        // new placement.
+        //
+        // `widgetRows` and `widgetColSpans` are INDEPENDENTLY optional on the wire type and
+        // are validated independently, so "rows only" is a legitimate payload — and it used
+        // to key on `rowsProvided` alone, which made an absent `widgetColSpans` coerce to
+        // `{}` and REPLACE the page's whole span map with nothing:
+        //   page p1 spans { w1: 16, w2: 8 }
+        //   applyBulkUpdate { widgetRows: [['w2','w1']], activePageId: 'p1' } → spans WIPED
+        //   setWidgetLayout  { rows:       [['w2','w1']], pageId:      'p1' } → spans KEPT
+        // Two mutations expressing the same reorder disagreed on every widget's width. This
+        // is the same replace-vs-merge class the T1-1/T2-2 comments close one field over, and
+        // the reducer must not depend on caller discipline (a producer that always ships a
+        // full span snapshot) to avoid it. A rows-only bulk now merges onto the page's
+        // existing spans; `enforceLayoutColSpans` below prunes anything the new rows orphan.
+        const spansToEnforce: Record<string, number> =
+          rowsProvided && spansProvided
+            ? clampedSpans
+            : { ...(page.widgetColSpans ?? {}), ...clampedSpans };
+        // `oldRows` for the col-span invariants. Normally `[]` so the 2→1 collapse never
+        // fires — a producer shipping rows AND spans together meant the singleton spans it
+        // sent. But a rows-ONLY bulk is semantically a `setWidgetLayout`: the surviving spans
+        // are the page's own, so a widget this re-placement leaves alone in a row it used to
+        // share has a stale multi-widget-era span that must be cleared, exactly as
+        // `setWidgetLayout` does by diffing against the page's real previous rows.
+        const oldRowsForSpans = rowsProvided && !spansProvided ? (page.widgetRows ?? []) : [];
+        const normalizedActiveSpans = enforceLayoutColSpans(
+          oldRowsForSpans,
+          sanitizedRows,
+          spansToEnforce,
+        );
 
         // Reference-equality no-op tracking: only rebuild the active page when its rows or
         // spans actually changed (by value), so a re-delivered bulk carrying the current
@@ -2239,13 +2465,20 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         }
       }
 
-      // Remove every genuinely-gone widget via the shared primitive: a widget named in
-      // `removedWidgetIds` is only truly removed if it doesn't still appear on some
-      // OTHER page's rows (a pre-existing cross-page id collision must not delete a
-      // widget the other page still renders — the guard the pre-strip above deliberately
-      // leaves intact for every page except the active one). The primitive deletes
-      // genuinely-removed ids from `state.widgets`, drops their widget/interactive/
-      // cross-filter-scoped filters, and prunes their stale col-spans on every page.
+      // Remove every genuinely-gone widget via the shared primitive: it deletes the ids
+      // from `state.widgets`, drops their widget/interactive/cross-filter-scoped filters
+      // (cascading into surviving filters' `dependsOn`), and prunes their stale col-spans
+      // on every page.
+      //
+      // The primitive's own "still referenced on some OTHER page's rows" guard is INERT
+      // here, and that is intentional: the pre-strip above removes every non-re-added id
+      // from EVERY page's rows (not just the active one), exactly as `removeWidget` does,
+      // so nothing can still reference them. Both handlers delete the widget from
+      // `doc.widgets` entirely, so leaving it on another page's rows would strand a
+      // dangling row reference — narrowing the pre-strip back to the active page would
+      // reintroduce that bug. The guard stays in the primitive for `removePage`, the one
+      // caller that genuinely needs it (it drops a page without touching the surviving
+      // pages' rows); see `removeWidgetIds`'s doc comment.
       const {
         pages: nextPages,
         widgets: prunedWidgets,
@@ -2650,8 +2883,14 @@ export function mutationLabel(mutation: StateMutation): string {
   // A non-record `args` (a parser-bypassing server-built mutation) would throw in the label
   // builders that reach into it (`addWidget:${args.widget.kind}`, `addFilter:${args.filter.field}`);
   // fall back to the raw type string, matching the unrecognized-`type` contract (T2-3).
+  //
+  // `String(...)` because `mutation.type` is only known to be a string for a RECOGNIZED
+  // type: this is the unrecognized branch, reached exactly when the value isn't one of the
+  // handler keys, so a parser-bypassing `type: 42` (or `null`, or an object) used to be
+  // returned RAW — violating this function's own `: string` contract for the callers that
+  // use the result as a log line, a React child, or a `.slice()` target.
   if (!handler || !isPlainRecord(mutation.args)) {
-    return (mutation as { type: string }).type;
+    return String((mutation as { type: unknown }).type);
   }
   return handler.label(mutation.args);
 }

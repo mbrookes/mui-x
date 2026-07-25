@@ -1,5 +1,5 @@
 import { createDefaultStudioState, normalizeGridColumn, normalizeChartSeries } from './factories';
-import { normalizePersistedPages, hasConflictingRankFilter } from './applyMutation';
+import { normalizePersistedPages, hasConflictingRankFilter, pruneDependsOn } from './applyMutation';
 import { isSafeKey } from './unsafeKeys';
 import { isValidFilterScope, hasUnsafeOwnKeys } from './parseStateMutation';
 import {
@@ -160,6 +160,21 @@ const migrations: Record<number, MigrationFn> = {
   // v0 → v1: first versioned schema. No structural changes needed; just stamp version.
   // An explicit identity migration — registering it (rather than relying on a silent
   // bump) is exactly the pattern every future no-op version bump must follow.
+  //
+  // THE IDENTITY IS DELIBERATE, NOT AN OVERSIGHT. v0 is a PRE-RELEASE version: `@mui/x-studio`
+  // has never shipped a released state format, so no persisted doc anywhere is at v0 and there
+  // is nothing for this step to transform. In particular, the reshape `StudioFilterScope`'s
+  // `dashboard-date-range` doc comment refers to (`{ isDashboardDateRange: true,
+  // filterSourceId }` → `{ kind: 'dashboard-date-range', sourceId, pageId }`) happened while
+  // the schema was still in development — `git log -S isDashboardDateRange` shows the field
+  // introduced and removed entirely within the unreleased window, before this package existed
+  // — so it needs NO migration entry and MUST NOT get a version bump: bumping to v2 for a shape
+  // no persisted doc can contain would only add a migration step that can never fire, plus a
+  // fixture test asserting a transform of data that does not exist.
+  //
+  // The moment the state format DOES ship, the policy in this registry's doc comment applies
+  // in full: any breaking `StudioDoc` reshape gets a `CURRENT_SCHEMA_VERSION` bump, a real
+  // migration keyed by the OLD version, and a v(N) fixture test.
   0: (state) => ({ ...state, schemaVersion: 1 }),
 };
 
@@ -193,8 +208,22 @@ function validateStateStructure(state: unknown): state is Record<string, unknown
  * non-array coerces to `[]` (symmetric with the prior container-only coercion).
  * Reference-STABLE: returns the SAME array when every entry survives, so a well-formed
  * doc keeps its identity for cross-load memoization.
+ *
+ * `isValidEntry` is the REQUIRED-LEAF screen (finding: this helper validated record-ness
+ * and nothing else, while its own doc comment justified its existence by pointing at the
+ * unguarded derefs the leaves feed). Record-ness alone let e.g. `expressionFields: [{ id:
+ * 'e1', label: 'Margin', sourceId: 's1', isMeasure: false }]` — no `expression` at all —
+ * load with `success: true`, and the first widget referencing `e1` then hit
+ * `x-studio`'s `expressionEvaluator.ts` `return 'joinSourceId' in expr;` and threw
+ * `TypeError: Cannot use 'in' operator to search for 'joinSourceId' in undefined`, taking
+ * down the whole pipeline — with NO self-heal, since `serializeDoc` re-persisted the junk
+ * forever. It receives an already-record, already-own-key-screened entry, so it only has
+ * to check the leaves consumers dereference unguarded.
  */
-const screenRecordArray = <T>(value: unknown): T[] => {
+const screenRecordArray = <T>(
+  value: unknown,
+  isValidEntry?: (entry: Record<string, unknown>) => boolean,
+): T[] => {
   if (!Array.isArray(value)) {
     return [];
   }
@@ -203,9 +232,47 @@ const screenRecordArray = <T>(value: unknown): T[] => {
   // so an own `"__proto__"`/`"constructor"`/`"prototype"` DATA key (as `JSON.parse` materializes
   // it on a shared/hand-edited doc) is a pollution hazard the wire boundary would reject — drop
   // the whole entry, matching the widgets/filters own-key screen. Reuses the SAME predicate.
-  const safe = value.filter((entry) => isRecord(entry) && !hasUnsafeOwnKeys(entry));
+  const safe = value.filter(
+    (entry) =>
+      isRecord(entry) &&
+      !hasUnsafeOwnKeys(entry) &&
+      (isValidEntry === undefined || isValidEntry(entry)),
+  );
   return (safe.length === value.length ? value : safe) as T[];
 };
+
+/**
+ * Required-leaf screen for a persisted `expressionFields` entry. `id`/`sourceId` are
+ * identity data every consumer compares as strings, and `expression` is the tree
+ * `x-studio`'s `expressionEvaluator` walks with an unguarded `'joinSourceId' in expr` —
+ * a missing/non-record `expression` is the crash described on {@link screenRecordArray}.
+ * The remaining fields are optional, defaulted, or display-only, so they follow this
+ * file's fallback-over-drop convention and are not screened here.
+ */
+const isExpressionFieldSafe = (entry: Record<string, unknown>): boolean =>
+  typeof entry.id === 'string' && typeof entry.sourceId === 'string' && isRecord(entry.expression);
+
+/**
+ * The closed `StudioRelationship['type']` union (`dataTypes.ts`), as a `Set` so an
+ * untrusted `type` can never resolve up a prototype chain.
+ */
+const RELATIONSHIP_TYPES = new Set(['many-to-one', 'one-to-one', 'many-to-many']);
+
+/**
+ * Required-leaf screen for a persisted `relationships` entry — the sibling of
+ * {@link isExpressionFieldSafe}. All four endpoint ids/fields are read as strings by the
+ * join-path resolver with no optional chaining, and `type` is the discriminant every join
+ * builder switches on: an unknown value fails open into the `many-to-one` branch and
+ * silently produces wrong joined rows, the same fail-open class the filter `operator`
+ * membership check closes one level up.
+ */
+const isRelationshipSafe = (entry: Record<string, unknown>): boolean =>
+  typeof entry.sourceId === 'string' &&
+  typeof entry.targetId === 'string' &&
+  typeof entry.sourceField === 'string' &&
+  typeof entry.targetField === 'string' &&
+  typeof entry.type === 'string' &&
+  RELATIONSHIP_TYPES.has(entry.type);
 
 /**
  * Repair a thread's `messages`/`name` leaf shapes at the load boundary (F1 finding):
@@ -225,7 +292,17 @@ const repairThreadLeafShapes = <T>(thread: T): T => {
   if (!isRecord(thread)) {
     return thread;
   }
-  const messagesOk = Array.isArray((thread as { messages?: unknown }).messages);
+  // Screen the message ENTRIES, not just the container (finding: this helper coerced
+  // `messages` to an array but never looked inside it, so `messages: [null]` survived).
+  // `<ChatBox messages={…}>` maps each entry and reads `m.role`/`m.content` with no
+  // optional chaining, so a `null`/primitive entry throws on first render of the thread —
+  // the same per-entry gap the sibling `filters`/`relationships`/`ai.threads` screens
+  // already close one level up. Drop just the junk entries (repair-in-place), consistent
+  // with this helper's fallback-over-drop treatment of the rest of the thread.
+  const rawMessages = (thread as { messages?: unknown }).messages;
+  const messagesIsArray = Array.isArray(rawMessages);
+  const safeMessages = messagesIsArray ? rawMessages.filter((m) => isRecord(m)) : [];
+  const messagesOk = messagesIsArray && safeMessages.length === rawMessages.length;
   const nameOk = typeof (thread as { name?: unknown }).name === 'string';
   // `createdAt` is REQUIRED by `StudioAIChatThread`, and both timestamps are consumed as strings
   // by the chat panel's thread sort (`bTime.localeCompare(aTime)` in `useChatThreads`). A hostile
@@ -244,7 +321,9 @@ const repairThreadLeafShapes = <T>(thread: T): T => {
   }
   const repaired = {
     ...thread,
-    ...(messagesOk ? {} : { messages: [] }),
+    // Keep the surviving messages rather than resetting to `[]`: only the junk entries are
+    // dropped (a non-array `messages` still degrades to the empty array via `safeMessages`).
+    ...(messagesOk ? {} : { messages: safeMessages }),
     ...(nameOk ? {} : { name: 'Untitled Thread' }),
     ...(createdAtOk ? {} : { createdAt: new Date(0).toISOString() }),
   } as T & { updatedAt?: unknown };
@@ -277,6 +356,15 @@ const isPresetFilterSafe = (entry: unknown): boolean => {
   // land on a LIVE filter, and the NEXT load's filter own-key screen then silently drops that
   // whole filter. Screen it here so the two boundaries agree. Reuses the SAME predicate.
   if (hasUnsafeOwnKeys(entry)) {
+    return false;
+  }
+  // `id` must be a string, matching the top-level `doc.filters` screen's identical check
+  // (finding: this predicate screened `field`/`operator`/`operator2` but skipped `id`, the
+  // one field it shares with that screen). `applyFilterPreset`'s id-remap loop does
+  // `idMap.set(f.id, fresh)` and the drawer keys its rows off the preset filter id, so a
+  // non-string `id` yields a preset row that can never be matched or removed — exactly the
+  // state the sibling screen rejects for the byte-identical payload.
+  if (typeof entry.id !== 'string') {
     return false;
   }
   if (typeof entry.field !== 'string') {
@@ -521,30 +609,8 @@ export function migrateState(state: unknown): MigrationResult {
   }
   const fromVersion = typeof rawVersion === 'number' ? rawVersion : 0;
 
-  // Already at current version — still validate structure fail-closed, so a partial
-  // persisted doc is rejected here (with a named field) rather than crashing later in
-  // `deserializeState`. On success return the SAME reference (the fast path).
-  if (fromVersion === CURRENT_SCHEMA_VERSION) {
-    const missing = findMissingRequiredField(state);
-    if (missing) {
-      return {
-        success: false,
-        state: null,
-        fromVersion,
-        toVersion: CURRENT_SCHEMA_VERSION,
-        errors: [`Invalid persisted state: missing required field "${missing}".`],
-      };
-    }
-    return {
-      success: true,
-      state: state as unknown as SerializedStudioState,
-      fromVersion,
-      toVersion: CURRENT_SCHEMA_VERSION,
-      errors: [],
-    };
-  }
-
-  // Cannot migrate from a newer version
+  // Cannot migrate from a newer version. Checked BEFORE the clone below so a doc this
+  // build can never understand costs nothing to reject.
   if (fromVersion > CURRENT_SCHEMA_VERSION) {
     return {
       success: false,
@@ -558,17 +624,29 @@ export function migrateState(state: unknown): MigrationResult {
     };
   }
 
-  // Apply migrations sequentially, on a DEEP copy of the caller's object: a migration
-  // may (and the registry examples encourage it to) mutate nested state in place, so a
-  // shallow spread would leak those edits back to the caller. `StudioController`'s
-  // `restoreSession`/`loadSerializedState` both retain the object they pass in.
+  // Deep-copy the caller's object ONCE, for BOTH paths (the already-current fast path and
+  // the migration loop), so `migrateState` offers a SINGLE isolation guarantee: the
+  // returned state never aliases the caller's object.
+  //
+  // The fast path used to return `state` by reference while only the migration path
+  // cloned. Since `CURRENT_SCHEMA_VERSION` is 1, the fast path is the overwhelmingly
+  // common case, so in practice the live doc ALIASED the caller's persisted object —
+  // `deserializeState` is reference-stable by design, so `loadedDoc.widgets.w1 ===
+  // persisted.widgets.w1` and `loadedDoc.relationships === persisted.relationships` both
+  // held, and both `loadSerializedState` and `restoreSession` retain the object they were
+  // handed. A host that mutated its own persisted object therefore mutated live state and
+  // every undo snapshot sharing those sub-objects. Latent today, but two entry paths with
+  // different isolation guarantees is exactly the trap the next migration walks into (a
+  // migration may — and this registry's own examples encourage it to — mutate nested state
+  // in place, which a shallow spread would leak straight back to the caller).
+  //
   // Persisted state is JSON, so `structuredClone` (Node ≥ 17, met by the toolchain) is
   // safe and total for real persisted input. But `migrateState(state: unknown)` is a
   // public API whose every OTHER failure mode returns a failed `MigrationResult`; a
   // caller that mistakenly passes a live object carrying a non-cloneable value (e.g. a
   // function on an attached `dataSources.adapter`) would otherwise get an uncaught
-  // `DataCloneError` on the migration path only. Catch it and fail closed in the same
-  // error style, so the function is total.
+  // `DataCloneError`. Catch it and fail closed in the same error style, so the function
+  // stays total — now uniformly on both paths, rather than only on the migration one.
   let currentState: Record<string, unknown>;
   try {
     currentState = structuredClone(state) as Record<string, unknown>;
@@ -585,6 +663,31 @@ export function migrateState(state: unknown): MigrationResult {
       ],
     };
   }
+
+  // Already at current version — still validate structure fail-closed, so a partial
+  // persisted doc is rejected here (with a named field) rather than crashing later in
+  // `deserializeState`.
+  if (fromVersion === CURRENT_SCHEMA_VERSION) {
+    const missing = findMissingRequiredField(currentState);
+    if (missing) {
+      return {
+        success: false,
+        state: null,
+        fromVersion,
+        toVersion: CURRENT_SCHEMA_VERSION,
+        errors: [`Invalid persisted state: missing required field "${missing}".`],
+      };
+    }
+    return {
+      success: true,
+      state: currentState as unknown as SerializedStudioState,
+      fromVersion,
+      toVersion: CURRENT_SCHEMA_VERSION,
+      errors: [],
+    };
+  }
+
+  // Apply migrations sequentially, on the deep copy taken above.
   for (let version = fromVersion; version < CURRENT_SCHEMA_VERSION; version += 1) {
     const migrateFn = migrations[version];
     if (!migrateFn) {
@@ -688,12 +791,42 @@ export function serializeState(state: StudioState): SerializedStudioState {
  * Deserializes and restores a persisted state.
  * Returns the full StudioState with default shell state.
  * @param dataSources - The host app's data sources; not persisted so must be passed in.
+ *
+ * @throws when `serialized.schemaVersion` is NEWER than {@link CURRENT_SCHEMA_VERSION}.
+ * This is the ONE case this otherwise-total function fails loudly, and the distinction is
+ * deliberate: everything else it meets is WITHIN-version corruption it can repair per-entry
+ * (drop the junk widget, coerce the junk title, reconcile the dangling id) without losing
+ * anything the caller could still want. A doc from a NEWER Studio is different in kind —
+ * this build cannot know what its unknown fields mean, so "repairing" it means reading only
+ * the fields this version happens to know, silently discarding every newer one, and then
+ * stamping `schemaVersion: CURRENT_SCHEMA_VERSION` back onto the result. The host's next
+ * save writes that downgraded doc, migrations never re-run against it, and the newer data is
+ * gone permanently. `migrateState` has always refused this (`fromVersion >
+ * CURRENT_SCHEMA_VERSION`), but the guard lived only there — and `deserializeState` is
+ * itself a public export a host can call directly on `JSON.parse(localStorage.getItem(k))`,
+ * bypassing it entirely. Fail with the same message rather than downgrade.
  */
 export function deserializeState(
   serialized: SerializedStudioState,
   dataSources: StudioRuntime['dataSources'],
   shellOverrides?: Partial<StudioSession['shell']>,
 ): StudioState {
+  // Read the claimed version BEFORE anything else. Only a NUMBER greater than the current
+  // version is rejected: an absent version is a legacy pre-versioning doc (v0), and any
+  // other non-number is junk this function's within-version repair convention ignores —
+  // both are `migrateState`'s business, not a reason to refuse to load.
+  const claimedVersion = (serialized as unknown as Record<string, unknown> | null | undefined)
+    ?.schemaVersion;
+  if (typeof claimedVersion === 'number' && claimedVersion > CURRENT_SCHEMA_VERSION) {
+    throw new Error(
+      `MUI X Studio: Cannot migrate from schema version ${claimedVersion} to ${CURRENT_SCHEMA_VERSION}. ` +
+        'The state was created with a newer version of X Studio. ' +
+        'Loading it here would read only the fields this version knows, drop the rest, and re-save the ' +
+        'result at the older version, permanently losing the newer data. ' +
+        'Upgrade @mui/x-studio to a version that understands this schema.',
+    );
+  }
+
   const defaultState = createDefaultStudioState();
 
   // Coerce each absent/malformed TOP-LEVEL container to its empty default up front, so this
@@ -950,6 +1083,14 @@ export function deserializeState(
   // that renders `dashboard.title` as text.
   const safeDashboardTitle =
     typeof dashboard.title === 'string' ? dashboard.title : 'Untitled Dashboard';
+  // Same fallback treatment for `dashboard.id` (finding: it got none). `id` is REQUIRED by
+  // `StudioDashboardState`, but `findMissingRequiredField` only checks that `dashboard` is a
+  // record, so a persisted `dashboard: {}` loaded with `doc.dashboard.id === undefined` — a
+  // type violation the rest of the system reads as a string (it keys saved-view/telemetry
+  // records and is interpolated into ids) and which `serializeDoc` then re-persisted forever.
+  // Fall back to the same `'dashboard-1'` the factory (`createDefaultStudioState`) stamps,
+  // mirroring how `title` falls back to the factory's `'Untitled Dashboard'`.
+  const safeDashboardId = typeof dashboard.id === 'string' ? dashboard.id : 'dashboard-1';
   // `typeof … === 'string'` guards `Object.hasOwn` against its own key-coercion: a
   // numeric `activePageId` (e.g. reachable via `setActivePage`'s reducer-side bug, now
   // fixed, or a hand-edited persisted doc) would otherwise COERCE to match a
@@ -960,10 +1101,11 @@ export function deserializeState(
     typeof dashboard.activePageId === 'string' &&
     Object.hasOwn(normalizedPages, dashboard.activePageId);
   const reconciledDashboard =
-    activePageIdValid && safeDashboardTitle === dashboard.title
+    activePageIdValid && safeDashboardTitle === dashboard.title && safeDashboardId === dashboard.id
       ? dashboard
       : {
           ...dashboard,
+          id: safeDashboardId,
           title: safeDashboardTitle,
           activePageId: activePageIdValid
             ? dashboard.activePageId
@@ -1237,7 +1379,22 @@ export function deserializeState(
     }
     dedupedFilters.push(filter);
   }
-  const finalFilters = rankFiltersChanged ? dedupedFilters : screenedFilters;
+  const rankScreenedFilters = rankFiltersChanged ? dedupedFilters : screenedFilters;
+
+  // Cascade every drop this whole filter pipeline made into the surviving filters'
+  // `dependsOn`, via the SAME `pruneDependsOn` helper the reducer's removal paths use.
+  // Until this ran here, the load boundary was the largest of the un-pruned filter-removal
+  // sites: it drops entries for a non-string/duplicate `id`, an invalid scope, an orphan
+  // page/widget anchor, a bad `field`/`operator`, a stripped cross-filter/interactive entry,
+  // AND a rank conflict — every one of which could leave a surviving filter's `dependsOn`
+  // pointing at an id that is no longer in the doc, with no self-heal (the next
+  // `serializeDoc` re-persisted the dangling reference forever). Applied ONCE, at the end,
+  // against the final surviving id set, so it covers every drop above uniformly.
+  // Reference-stable, so a well-formed doc keeps `screenedFilters`' identity.
+  const finalFilters = pruneDependsOn(
+    rankScreenedFilters,
+    new Set(rankScreenedFilters.map((f) => f.id)),
+  );
 
   return {
     doc: {
@@ -1267,10 +1424,18 @@ export function deserializeState(
       // reference-stable when every entry survives. `filterPresets` additionally requires
       // each entry to carry an array `filters` and screens that nested array too — a
       // well-formed preset with a `null` inner filter crashes `applyFilterPreset` the same way.
+      // Both also get a REQUIRED-LEAF screen (see `screenRecordArray`'s `isValidEntry`
+      // parameter): record-ness alone let an entry missing the very field the unguarded
+      // deref reads (`ef.expression`, `r.type`) load with `success: true` and then crash
+      // (or silently mis-join) on first use, with `serializeDoc` re-persisting it forever.
       relationships: screenRecordArray<StudioDoc['relationships'][number]>(
         serialized.relationships,
+        isRelationshipSafe,
       ),
-      expressionFields: screenRecordArray<StudioExpressionField>(serialized.expressionFields),
+      expressionFields: screenRecordArray<StudioExpressionField>(
+        serialized.expressionFields,
+        isExpressionFieldSafe,
+      ),
       filterPresets: screenFilterPresets(serialized.filterPresets),
       // `doc.ai` validation (container + per-entry) is computed as `normalizedAi` above.
       ai: normalizedAi,

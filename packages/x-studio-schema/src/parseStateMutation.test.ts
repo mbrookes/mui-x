@@ -1314,3 +1314,140 @@ describe('parseStateMutation — applyBulkUpdate widgetRows/widgetColSpans optio
   // suite's job ends at proving the parser ACCEPTS the payload and forwards true
   // absence unchanged (see the two tests above).
 });
+
+// ─── M2: depth/breadth bounds on the deliberately-unvalidated leaves ─────────
+// The wire caps were BREADTH-only and were applied only to fields routed through the
+// shared leaf predicates. `widget.config` and `filter.value` are deliberately
+// uninterpreted leaves, and `hasUnsafeOwnKeys` only inspects TOP-LEVEL keys, so a ~20 KB
+// deeply-nested payload passed every check, installed into the doc, and then made the
+// host's autosave `JSON.stringify(serializeState(state))` throw `RangeError: Maximum call
+// stack size exceeded` — every save failing for the rest of the session while the
+// dashboard still looked fine — and `migrateState`'s `structuredClone` fail closed on the
+// next schema bump, making the doc unloadable.
+describe('parseStateMutation leaf boundedness (M2)', () => {
+  // ~10k levels of nesting in a few KB of JSON — well past `JSON.stringify`'s recursion
+  // limit, well under every existing length cap.
+  function deeplyNested(levels = 10_000): unknown {
+    let value: unknown = 1;
+    for (let i = 0; i < levels; i += 1) {
+      value = [value];
+    }
+    return value;
+  }
+  const shallow = { chartType: 'bar' as const };
+
+  it('rejects an addWidget whose config carries a deeply-nested value', () => {
+    const result = parseStateMutation({
+      type: 'addWidget',
+      args: {
+        widget: {
+          id: 'w-deep',
+          kind: 'chart',
+          title: 'W',
+          config: { chartType: 'bar', customConfig: deeplyNested() },
+        },
+      },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toMatch(/addWidget\.args\.widget\.config/);
+      expect(result.error).toMatch(/bounded, dashboard-sized value/);
+    }
+  });
+
+  it.each([
+    ['updateWidget.args.config', { widgetId: 'w1', config: { customConfig: deeplyNested() } }],
+    [
+      'updateWidget.args.changes.config',
+      { widgetId: 'w1', changes: { config: { customConfig: deeplyNested() } } },
+    ],
+  ])('rejects a deeply-nested %s', (path, args) => {
+    const result = parseStateMutation({ type: 'updateWidget', args });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain(path);
+    }
+  });
+
+  it('rejects a deeply-nested applyBulkUpdate.updatedWidgets[].config', () => {
+    const result = parseStateMutation({
+      type: 'applyBulkUpdate',
+      args: {
+        removedWidgetIds: [],
+        addedWidgets: [],
+        updatedWidgets: [{ widgetId: 'w1', config: { customConfig: deeplyNested() } }],
+        activePageId: 'page-1',
+      },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toMatch(/updatedWidgets\[0\]\.config/);
+    }
+  });
+
+  it.each(['value', 'value2'] as const)(
+    'rejects an addFilter whose %s is deeply nested',
+    (field) => {
+      const result = parseStateMutation({
+        type: 'addFilter',
+        args: {
+          filter: {
+            id: 'f1',
+            field: 'x',
+            operator: 'equals',
+            value: field === 'value' ? deeplyNested() : 1,
+            ...(field === 'value2' ? { operator2: 'equals', value2: deeplyNested() } : {}),
+            scope: { kind: 'page' },
+          },
+        },
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toMatch(new RegExp(`addFilter\\.args\\.filter\\.${field}`));
+      }
+    },
+  );
+
+  it('rejects a config record with an unbounded number of own keys', () => {
+    const wide: Record<string, number> = {};
+    for (let i = 0; i < 5_000; i += 1) {
+      wide[`k${i}`] = i;
+    }
+    const result = parseStateMutation({
+      type: 'updateWidget',
+      args: { widgetId: 'w1', config: { customConfig: wide } },
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('still accepts ordinary, dashboard-sized configs and filter values', () => {
+    expect(
+      parseStateMutation({
+        type: 'addWidget',
+        args: { widget: { id: 'w1', kind: 'chart', title: 'W', config: shallow } },
+      }).ok,
+    ).toBe(true);
+    expect(
+      parseStateMutation({
+        type: 'addFilter',
+        args: {
+          filter: {
+            id: 'f1',
+            field: 'x',
+            operator: 'in',
+            // A realistic multi-select selection payload, comfortably inside every cap.
+            value: ['a', 'b', 'c'],
+            scope: { kind: 'page', pageId: 'page-1' },
+          },
+        },
+      }).ok,
+    ).toBe(true);
+    // Nesting well within `MAX_DEPTH` (e.g. a chart's `ySeries[].format`) is fine.
+    expect(
+      parseStateMutation({
+        type: 'updateWidget',
+        args: { widgetId: 'w1', config: { ySeries: [{ fieldId: 'a', format: { style: 'x' } }] } },
+      }).ok,
+    ).toBe(true);
+  });
+});

@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { createDefaultStudioState } from '@mui/x-studio-schema';
-import { applyDocMutation, applyMutation, mutationLabel } from './applyMutation';
+import {
+  applyDocMutation,
+  applyMutation,
+  mutationLabel,
+  resolveRankFilterPageId,
+  hasConflictingRankFilter,
+} from './applyMutation';
 import { serializeDoc, deserializeState } from './statePersistence';
-import type { StudioDoc, StudioState } from './stateTypes';
+import type { StudioDoc, StudioFilterState, StudioState } from './stateTypes';
 import type { StudioWidgetOf } from './widgetTypes';
 import type { StateMutation } from './aiTypes';
 
@@ -447,7 +453,13 @@ describe('applyMutation', () => {
     expect(next.dashboard.activePageId).toBe('page-2');
   });
 
-  it("removePage: removing the last remaining page results in activePageId === ''", () => {
+  // Was: "removing the last remaining page results in activePageId === ''". That test was
+  // added as coverage of the then-current behavior, and that behavior was the bug: `''`
+  // satisfies no `Object.hasOwn(state.pages, …)` guard, so every legacy pageId-less
+  // `addWidget`/`setWidgetLayout`/`setWidgetColSpan` silently no-op'd forever afterwards,
+  // with no error and no recovery affordance ("at least one page always exists" is the real
+  // invariant — the factory always seeds one). Removing the final page is now refused.
+  it('removePage refuses to remove the LAST remaining page (no-op, doc reference preserved)', () => {
     const state = makeDoc({
       dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
       pages: {
@@ -455,8 +467,19 @@ describe('applyMutation', () => {
       },
     });
     const next = applyDocMutation(state, { type: 'removePage', args: { pageId: 'page-1' } });
-    expect(next.pages['page-1']).toBeUndefined();
-    expect(next.dashboard.activePageId).toBe('');
+    expect(next).toBe(state);
+    expect(next.pages['page-1']).toBeDefined();
+    expect(next.dashboard.activePageId).toBe('page-1');
+  });
+
+  it('removePage still removes a page when another one survives (the guard is not over-broad)', () => {
+    const state = twoPageState('page-1');
+    const next = applyDocMutation(state, { type: 'removePage', args: { pageId: 'page-1' } });
+    expect(Object.keys(next.pages)).toEqual(['page-2']);
+    expect(next.dashboard.activePageId).toBe('page-2');
+    // …and removing the now-final page is refused, so the doc can never reach zero pages.
+    const last = applyDocMutation(next, { type: 'removePage', args: { pageId: 'page-2' } });
+    expect(last).toBe(next);
   });
 
   it("removePage also drops widget-scoped filters targeting the deleted page's widgets", () => {
@@ -5147,5 +5170,489 @@ describe('mutationLabel', () => {
     const bogus = { type: 'addFilter', args: {} } as unknown as StateMutation;
     expect(() => mutationLabel(bogus)).not.toThrow();
     expect(mutationLabel(bogus)).toBe('addFilter:unknown');
+  });
+});
+
+// ─── H1: unresolvable vs. wildcard rank-filter page context ──────────────────
+// `resolveRankFilterPageId` used to return `null` for BOTH "this filter applies on every
+// page" (the legacy pageId-less `page` scope) and "this filter has no page context at all"
+// (a `widget` scope whose widget sits on no page's rows). Since `null` conflicts with — and
+// is conflicted by — every rank filter, ONE unplaced-widget rank filter silently rejected
+// every subsequent rank `addFilter` on every page. Nothing removes such a filter:
+// `dropWidgetScopedFilters` fires only on widget REMOVAL, and a widget can be left in
+// `doc.widgets` but on no page's rows by a `setWidgetLayout` or an `applyBulkUpdate`.
+describe('rank-filter page-context resolution (H1)', () => {
+  const rankFilter = (id: string, scope: StudioFilterState['scope']): StudioFilterState => ({
+    id,
+    field: 'country',
+    operator: 'equals',
+    value: null,
+    filterMode: 'rank',
+    scope,
+  });
+
+  // A doc where `w-unplaced` exists in `widgets` but appears on NO page's `widgetRows`.
+  function docWithUnplacedWidget(): StudioDoc {
+    return makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: {
+        'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w-placed']] },
+        'page-2': { id: 'page-2', title: 'P2', widgetRows: [] },
+      },
+      widgets: { 'w-placed': chartWidget('w-placed'), 'w-unplaced': chartWidget('w-unplaced') },
+    });
+  }
+
+  it('resolveRankFilterPageId distinguishes unresolvable (undefined) from everywhere (null)', () => {
+    const { pages } = docWithUnplacedWidget();
+    // Legacy pageId-less page scope → `null` (applies everywhere).
+    expect(resolveRankFilterPageId(rankFilter('a', { kind: 'page' }), pages)).toBe(null);
+    // Explicit page scope → that page id.
+    expect(
+      resolveRankFilterPageId(rankFilter('b', { kind: 'page', pageId: 'page-2' }), pages),
+    ).toBe('page-2');
+    // Placed widget → the page holding it.
+    expect(
+      resolveRankFilterPageId(rankFilter('c', { kind: 'widget', widgetId: 'w-placed' }), pages),
+    ).toBe('page-1');
+    // Unplaced widget → UNRESOLVABLE, not the `null` wildcard.
+    expect(
+      resolveRankFilterPageId(rankFilter('d', { kind: 'widget', widgetId: 'w-unplaced' }), pages),
+    ).toBe(undefined);
+    // A non-rank-eligible scope is also unresolvable, never a wildcard.
+    expect(
+      resolveRankFilterPageId(
+        rankFilter('e', { kind: 'dashboard-date-range', sourceId: 's1', pageId: 'page-1' }),
+        pages,
+      ),
+    ).toBe(undefined);
+  });
+
+  it('an unplaced-widget rank filter neither conflicts nor is conflicted with', () => {
+    const { pages } = docWithUnplacedWidget();
+    const unplaced = rankFilter('r-unplaced', { kind: 'widget', widgetId: 'w-unplaced' });
+    const onPage1 = rankFilter('r-page-1', { kind: 'page', pageId: 'page-1' });
+    // As the OTHER filter: it must not block a legitimate rank filter on any page.
+    expect(hasConflictingRankFilter('r-page-1', onPage1, [unplaced], pages)).toBe(false);
+    // As the TARGET: it collides with nothing, not even a pageId-less wildcard.
+    expect(
+      hasConflictingRankFilter(
+        'r-unplaced',
+        unplaced,
+        [rankFilter('r-everywhere', { kind: 'page' })],
+        pages,
+      ),
+    ).toBe(false);
+  });
+
+  it('the pageId-less page scope keeps its wildcard (conflicts-everywhere) semantics', () => {
+    const { pages } = docWithUnplacedWidget();
+    const everywhere = rankFilter('r-everywhere', { kind: 'page' });
+    const onPage2 = rankFilter('r-page-2', { kind: 'page', pageId: 'page-2' });
+    expect(hasConflictingRankFilter('r-page-2', onPage2, [everywhere], pages)).toBe(true);
+    expect(hasConflictingRankFilter('r-everywhere', everywhere, [onPage2], pages)).toBe(true);
+  });
+
+  it('addFilter: an unplaced-widget rank filter does not poison later rank adds on any page', () => {
+    const state = docWithUnplacedWidget();
+    // The unplaced widget's rank filter installs (its anchor widget exists in `widgets`).
+    const withUnplaced = applyDocMutation(state, {
+      type: 'addFilter',
+      args: { filter: rankFilter('r-unplaced', { kind: 'widget', widgetId: 'w-unplaced' }) },
+    });
+    expect(withUnplaced.filters.map((f) => f.id)).toEqual(['r-unplaced']);
+
+    // Before the fix, BOTH of these were silently rejected (the handler returned `state`).
+    const withPage1 = applyDocMutation(withUnplaced, {
+      type: 'addFilter',
+      args: { filter: rankFilter('r-page-1', { kind: 'page', pageId: 'page-1' }) },
+    });
+    const withPage2 = applyDocMutation(withPage1, {
+      type: 'addFilter',
+      args: { filter: rankFilter('r-page-2', { kind: 'page', pageId: 'page-2' }) },
+    });
+    expect(withPage2.filters.map((f) => f.id)).toEqual(['r-unplaced', 'r-page-1', 'r-page-2']);
+
+    // The genuine per-page uniqueness guard still fires.
+    const rejected = applyDocMutation(withPage2, {
+      type: 'addFilter',
+      args: { filter: rankFilter('r-page-1-dup', { kind: 'page', pageId: 'page-1' }) },
+    });
+    expect(rejected).toBe(withPage2);
+  });
+});
+
+// ─── H2: dependsOn cascade prune across every filter-removal path ────────────
+// The prune used to live inline in `removeFilter`, so it covered exactly one of the
+// several paths that drop filters. A page filter `f-city` with `dependsOn: ['f-country']`
+// kept pointing at `f-country` after `removeWidget` / `applyBulkUpdate` / `removePage`
+// dropped it, and the cascade drawer then gated option-narrowing on a filter that no
+// longer exists.
+describe('dependsOn cascade prune (H2)', () => {
+  const cityFilter = (dependsOn: string[]): StudioFilterState => ({
+    id: 'f-city',
+    field: 'city',
+    operator: 'equals',
+    value: 'Paris',
+    dependsOn,
+    scope: { kind: 'page', pageId: 'page-1' },
+  });
+  const countryOnW1: StudioFilterState = {
+    id: 'f-country',
+    field: 'country',
+    operator: 'equals',
+    value: 'FR',
+    scope: { kind: 'widget', widgetId: 'w1' },
+  };
+
+  function docWithCascade(dependsOn = ['f-country']): StudioDoc {
+    return makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: {
+        'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] },
+        'page-2': { id: 'page-2', title: 'P2', widgetRows: [] },
+      },
+      widgets: { w1: chartWidget('w1') },
+      filters: [countryOnW1, cityFilter(dependsOn)],
+    });
+  }
+
+  it('removeWidget prunes the dangling dependsOn of the widget filter it drops', () => {
+    const next = applyDocMutation(docWithCascade(), {
+      type: 'removeWidget',
+      args: { widgetId: 'w1' },
+    });
+    expect(next.filters.map((f) => f.id)).toEqual(['f-city']);
+    // The array is dropped entirely (not left as `[]`) — "absent is the canonical empty".
+    expect(next.filters[0].dependsOn).toBeUndefined();
+  });
+
+  it('removeWidget keeps the surviving dependsOn ids when only one is dropped', () => {
+    const state = makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+      widgets: { w1: chartWidget('w1') },
+      filters: [
+        countryOnW1,
+        {
+          id: 'f-region',
+          field: 'region',
+          operator: 'equals',
+          value: 'EU',
+          scope: { kind: 'page', pageId: 'page-1' },
+        },
+        cityFilter(['f-country', 'f-region']),
+      ],
+    });
+    const next = applyDocMutation(state, { type: 'removeWidget', args: { widgetId: 'w1' } });
+    expect(next.filters.find((f) => f.id === 'f-city')?.dependsOn).toEqual(['f-region']);
+  });
+
+  it('applyBulkUpdate prunes the dangling dependsOn of a removed widget filter', () => {
+    const next = applyDocMutation(docWithCascade(), {
+      type: 'applyBulkUpdate',
+      args: {
+        removedWidgetIds: ['w1'],
+        addedWidgets: [],
+        updatedWidgets: [],
+        activePageId: 'page-1',
+      },
+    });
+    expect(next.filters.map((f) => f.id)).toEqual(['f-city']);
+    expect(next.filters[0].dependsOn).toBeUndefined();
+  });
+
+  it('removePage prunes a dependsOn pointing at a filter the page drop removed', () => {
+    const state = makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: {
+        'page-1': { id: 'page-1', title: 'P1', widgetRows: [] },
+        'page-2': { id: 'page-2', title: 'P2', widgetRows: [] },
+      },
+      filters: [
+        {
+          id: 'f-on-page-2',
+          field: 'country',
+          operator: 'equals',
+          value: 'FR',
+          scope: { kind: 'page', pageId: 'page-2' },
+        },
+        {
+          id: 'f-on-page-1',
+          field: 'city',
+          operator: 'equals',
+          value: 'Paris',
+          dependsOn: ['f-on-page-2'],
+          scope: { kind: 'page', pageId: 'page-1' },
+        },
+      ],
+    });
+    const next = applyDocMutation(state, { type: 'removePage', args: { pageId: 'page-2' } });
+    expect(next.filters.map((f) => f.id)).toEqual(['f-on-page-1']);
+    expect(next.filters[0].dependsOn).toBeUndefined();
+  });
+
+  it('is reference-stable: no dangling id means the SAME filters array', () => {
+    const state = docWithCascade(['f-country']);
+    // Removing a widget that owns no filter drops nothing, so the array must not churn.
+    const next = applyDocMutation(state, { type: 'removeWidget', args: { widgetId: 'nope' } });
+    expect(next).toBe(state);
+    expect(next.filters).toBe(state.filters);
+  });
+
+  it('removeFilter still prunes (the original site, now via the shared helper)', () => {
+    const state = docWithCascade();
+    const next = applyDocMutation(state, {
+      type: 'removeFilter',
+      args: { filterId: 'f-country' },
+    });
+    expect(next.filters.map((f) => f.id)).toEqual(['f-city']);
+    expect(next.filters[0].dependsOn).toBeUndefined();
+  });
+});
+
+// ─── M5: cross-filter/interactive pageId parity at the reducer boundary ──────
+// `FILTER_SCOPE_REQUIRED_IDS` requires `pageId` for both kinds at the WIRE boundary, but
+// the reducer never screened it — and the `executeToolOnState` path never runs the parser.
+// A numeric `pageId` installed verbatim and could never be cleared: `removePage` compares
+// with a strict `===`, and `serializeDoc` strips both kinds so a reload never repairs it.
+describe('addFilter cross-filter/interactive pageId guards (M5)', () => {
+  function baseDoc(): StudioDoc {
+    return makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+      widgets: { w1: chartWidget('w1') },
+    });
+  }
+
+  it.each(['cross-filter', 'interactive'] as const)(
+    'no-ops when a %s scope carries a NON-STRING pageId',
+    (kind) => {
+      const state = baseDoc();
+      const next = applyDocMutation(state, {
+        type: 'addFilter',
+        args: {
+          filter: {
+            id: 'f-numeric-page',
+            field: 'x',
+            operator: 'equals',
+            value: 1,
+            scope: { kind, sourceWidgetId: 'w1', pageId: 42 },
+          },
+        },
+      } as unknown as StateMutation);
+      expect(next).toBe(state);
+      expect(next.filters).toHaveLength(0);
+    },
+  );
+
+  it.each(['cross-filter', 'interactive'] as const)(
+    'no-ops when a %s scope names a page the doc does not contain',
+    (kind) => {
+      const state = baseDoc();
+      const next = applyDocMutation(state, {
+        type: 'addFilter',
+        args: {
+          filter: {
+            id: 'f-orphan-page',
+            field: 'x',
+            operator: 'equals',
+            value: 1,
+            scope: { kind, sourceWidgetId: 'w1', pageId: 'ghost-page' },
+          },
+        },
+      } as unknown as StateMutation);
+      expect(next).toBe(state);
+      expect(next.filters).toHaveLength(0);
+    },
+  );
+
+  it.each(['cross-filter', 'interactive'] as const)(
+    'still installs a well-formed %s filter (the guard is not over-broad)',
+    (kind) => {
+      const next = applyDocMutation(baseDoc(), {
+        type: 'addFilter',
+        args: {
+          filter: {
+            id: 'f-ok',
+            field: 'x',
+            operator: 'equals',
+            value: 1,
+            scope: { kind, sourceWidgetId: 'w1', pageId: 'page-1' },
+          },
+        },
+      } as unknown as StateMutation);
+      expect(next.filters.map((f) => f.id)).toEqual(['f-ok']);
+    },
+  );
+});
+
+// ─── L1: mutationLabel's `: string` contract ─────────────────────────────────
+describe('mutationLabel totality (L1)', () => {
+  it.each([[42], [null], [{ nested: true }], [['a']]])(
+    'returns a STRING for an unrecognized non-string mutation.type (%p)',
+    (type) => {
+      const label = mutationLabel({ type, args: {} } as unknown as StateMutation);
+      expect(typeof label).toBe('string');
+      expect(label).toBe(String(type));
+      // Callers use the result as a log line / React child / `.slice()` target.
+      expect(() => label.slice(0, 3)).not.toThrow();
+    },
+  );
+});
+
+// ─── H6: a rows-only applyBulkUpdate must not wipe the page's widget widths ──
+// `widgetRows` and `widgetColSpans` are INDEPENDENTLY optional on the wire type and are
+// validated independently, so "rows only" is a legitimate payload. It used to coerce the
+// absent `widgetColSpans` to `{}` and REPLACE the page's whole span map with nothing, so
+// the same reorder expressed as `applyBulkUpdate` vs `setWidgetLayout` disagreed on every
+// widget's width.
+describe('applyBulkUpdate rows-only span preservation (H6)', () => {
+  function spannedDoc(): StudioDoc {
+    return makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: {
+        'page-1': {
+          id: 'page-1',
+          title: 'P1',
+          widgetRows: [['w1', 'w2']],
+          widgetColSpans: { w1: 16, w2: 8 },
+        },
+      },
+    });
+  }
+
+  it('preserves widgetColSpans when only widgetRows is supplied', () => {
+    const next = applyDocMutation(spannedDoc(), {
+      type: 'applyBulkUpdate',
+      args: {
+        removedWidgetIds: [],
+        addedWidgets: [],
+        updatedWidgets: [],
+        widgetRows: [['w2', 'w1']],
+        activePageId: 'page-1',
+      },
+    });
+    expect(next.pages['page-1'].widgetRows).toEqual([['w2', 'w1']]);
+    expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 16, w2: 8 });
+  });
+
+  it('agrees with setWidgetLayout for the identical reorder', () => {
+    const viaLayout = applyDocMutation(spannedDoc(), {
+      type: 'setWidgetLayout',
+      args: { rows: [['w2', 'w1']], pageId: 'page-1' },
+    });
+    const viaBulk = applyDocMutation(spannedDoc(), {
+      type: 'applyBulkUpdate',
+      args: {
+        removedWidgetIds: [],
+        addedWidgets: [],
+        updatedWidgets: [],
+        widgetRows: [['w2', 'w1']],
+        activePageId: 'page-1',
+      },
+    });
+    expect(viaBulk.pages['page-1'].widgetColSpans).toEqual(
+      viaLayout.pages['page-1'].widgetColSpans,
+    );
+  });
+
+  it('a rows-only bulk still drops a span orphaned by the new rows', () => {
+    const next = applyDocMutation(spannedDoc(), {
+      type: 'applyBulkUpdate',
+      args: {
+        removedWidgetIds: [],
+        addedWidgets: [],
+        updatedWidgets: [],
+        widgetRows: [['w1']],
+        activePageId: 'page-1',
+      },
+    });
+    // w2 is no longer placed, so its stale span is pruned; w1's row collapsed from two
+    // widgets to one, so its multi-widget-era span is cleared (the 2→1 collapse rule,
+    // matching `setWidgetLayout`) — leaving an empty map, stored as `undefined`.
+    expect(next.pages['page-1'].widgetColSpans).toBeUndefined();
+  });
+
+  it('rows AND spans together still REPLACE the map (unchanged semantics)', () => {
+    const next = applyDocMutation(spannedDoc(), {
+      type: 'applyBulkUpdate',
+      args: {
+        removedWidgetIds: [],
+        addedWidgets: [],
+        updatedWidgets: [],
+        widgetRows: [['w1', 'w2']],
+        widgetColSpans: { w1: 12 },
+        activePageId: 'page-1',
+      },
+    });
+    // w2's previous span is NOT merged back in — the producer shipped the full intended map.
+    expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 12 });
+  });
+});
+
+// ─── M6: updateWidget.changes must only merge real StudioWidget fields ───────
+describe('updateWidget.changes key allow-list (M6)', () => {
+  function oneWidgetDoc(): StudioDoc {
+    return makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+      widgets: { w1: chartWidget('w1', 'A') },
+    });
+  }
+
+  it('drops unknown top-level keys instead of merging them onto the widget forever', () => {
+    const next = applyDocMutation(oneWidgetDoc(), {
+      type: 'updateWidget',
+      args: {
+        widgetId: 'w1',
+        changes: { evil: { a: 1 }, widgetRows: 'x', title: 'Renamed' },
+      },
+    } as unknown as StateMutation);
+    const widget = next.widgets.w1 as unknown as Record<string, unknown>;
+    expect(widget.title).toBe('Renamed');
+    expect(Object.hasOwn(widget, 'evil')).toBe(false);
+    expect(Object.hasOwn(widget, 'widgetRows')).toBe(false);
+    // Nothing unknown survives into the persisted shape either.
+    expect(Object.keys(serializeDoc(next).widgets.w1).sort()).toEqual([
+      'config',
+      'id',
+      'kind',
+      'title',
+    ]);
+  });
+
+  it('an unknown-keys-only changes bag is a clean no-op (reference-equality contract)', () => {
+    const state = oneWidgetDoc();
+    const next = applyDocMutation(state, {
+      type: 'updateWidget',
+      args: { widgetId: 'w1', changes: { evil: 1 } },
+    } as unknown as StateMutation);
+    expect(next).toBe(state);
+  });
+
+  it('still merges every legitimate StudioWidget field', () => {
+    const next = applyDocMutation(oneWidgetDoc(), {
+      type: 'updateWidget',
+      args: {
+        widgetId: 'w1',
+        changes: {
+          title: 'T',
+          titleMode: 'manual',
+          subtitle: 'S',
+          subtitleMode: 'manual',
+          sourceId: 'orders',
+          kind: 'chart',
+        },
+      },
+    } as unknown as StateMutation);
+    expect(next.widgets.w1).toMatchObject({
+      title: 'T',
+      titleMode: 'manual',
+      subtitle: 'S',
+      subtitleMode: 'manual',
+      sourceId: 'orders',
+      kind: 'chart',
+    });
   });
 });

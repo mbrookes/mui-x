@@ -65,6 +65,83 @@ export type ParseStateMutationResult =
 const MAX_ARRAY_LENGTH = 500;
 const MAX_STRING_LENGTH = 10_000;
 
+// The caps above are BREADTH-only, and they are applied only to the fields routed through
+// the shared leaf predicates. Two gaps remained (Tier2 finding), both reachable with a
+// payload of a few kilobytes:
+//
+//  - No DEPTH bound. `config`'s interior is a deliberately-unvalidated leaf (see
+//    `validateWidget`), and `hasUnsafeOwnKeys` only inspects TOP-LEVEL keys, so an
+//    `addWidget` with `config: { chartType: 'bar', customConfig: <10,000-deep nested
+//    array> }` passed every check — `customConfig` is an allowed shared config key, and the
+//    payload is small enough that no length cap fires. It installed into `doc.widgets`, and
+//    then the host's autosave `JSON.stringify(serializeState(state))` threw `RangeError:
+//    Maximum call stack size exceeded`, so every save failed for the rest of the session
+//    while the dashboard still looked fine. On the next schema bump `migrateState`'s
+//    `structuredClone` hits the same limit and fails closed, making the doc unloadable.
+//  - No bound at all on `filter.value`/`value2`, the other deliberately-unvalidated leaf,
+//    which is the identical vector via `addFilter`.
+//
+// `isBoundedValue` closes both with ONE shared predicate applied at every unchecked leaf
+// that crosses this boundary, rather than an open-coded check per site. Like the caps
+// above it is deliberately generous: 32 levels is far beyond any real widget config or
+// filter value, but far below the recursion limit of `JSON.stringify`/`structuredClone`.
+const MAX_DEPTH = 32;
+// Own-key cap for a record leaf, mirroring `isFiniteNumberRecord`'s existing key-count cap
+// (and `MAX_ARRAY_LENGTH` for arrays): breadth and depth both need a bound, since a wide-
+// but-shallow record is the same denial-of-service payload by another shape.
+const MAX_RECORD_KEYS = MAX_ARRAY_LENGTH;
+
+/**
+ * True when `value` is a bounded, dashboard-sized JSON leaf: no deeper than
+ * {@link MAX_DEPTH} levels, no array longer than {@link MAX_ARRAY_LENGTH}, no record with
+ * more than {@link MAX_RECORD_KEYS} own keys, and no string (value OR key) longer than
+ * {@link MAX_STRING_LENGTH}.
+ *
+ * Deliberately shape-AGNOSTIC — it makes no claim about what the leaf MEANS, only that a
+ * consumer can `JSON.stringify`/`structuredClone`/render it without blowing a stack or a
+ * memory budget. That is exactly the property `widget.config` and `filter.value` need: the
+ * boundary's whole design is that their interiors are not interpreted here (deep-validating
+ * them would drift on every config change for no safety gain), but "not interpreted" must
+ * not mean "not bounded".
+ *
+ * `depth` counts nesting levels of the value passed in, so a caller checking a record
+ * field passes the default `0` for that record itself.
+ */
+function isBoundedValue(value: unknown, depth: number = 0): boolean {
+  if (depth > MAX_DEPTH) {
+    return false;
+  }
+  if (typeof value === 'string') {
+    return value.length <= MAX_STRING_LENGTH;
+  }
+  if (value === null || typeof value !== 'object') {
+    return true;
+  }
+  if (Array.isArray(value)) {
+    return (
+      value.length <= MAX_ARRAY_LENGTH && value.every((item) => isBoundedValue(item, depth + 1))
+    );
+  }
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record);
+  return (
+    keys.length <= MAX_RECORD_KEYS &&
+    keys.every((key) => key.length <= MAX_STRING_LENGTH && isBoundedValue(record[key], depth + 1))
+  );
+}
+
+/**
+ * The shared error string for an unbounded leaf, so every call site reports the rejection
+ * identically (and a new call site cannot invent a divergent message).
+ */
+function unboundedValueError(path: string): string {
+  return (
+    `${path} is not a bounded, dashboard-sized value: it must nest no deeper than ` +
+    `${MAX_DEPTH} levels, with no array longer than ${MAX_ARRAY_LENGTH} entries, no object ` +
+    `with more than ${MAX_RECORD_KEYS} keys, and no string longer than ${MAX_STRING_LENGTH} characters`
+  );
+}
+
 // ── Shared leaf predicates ──────────────────────────────────────────────────────
 
 // `isRecord` (a plain object — not `null`, not an array — that everything the wire
@@ -278,6 +355,11 @@ function validateWidget(widget: unknown, path: string): string | null {
   if (hasUnsafeOwnKeys(widget.config)) {
     return `${path}.config must not carry a '__proto__'/'constructor'/'prototype' key`;
   }
+  // Depth/breadth bound on the deliberately-uninterpreted `config` interior — see
+  // `isBoundedValue`. Applied at every config-carrying channel in this file.
+  if (!isBoundedValue(widget.config)) {
+    return unboundedValueError(`${path}.config`);
+  }
   // Fail-closed per-kind config-key check (matches this file's other validators,
   // which are all fail-closed on untrusted wire input): a widget carrying a
   // config key that belongs to a DIFFERENT widget kind (e.g. a Chart-only key on
@@ -478,6 +560,17 @@ function validateFilter(filter: unknown, path: string): string | null {
   if (filter.dependsOn !== undefined && !isStringArray(filter.dependsOn)) {
     return `${path}.dependsOn must be a string[] when present`;
   }
+  // `value`/`value2` stay UNINTERPRETED (the reducer appends the filter verbatim and only
+  // keys off its `id`), but they must still be BOUNDED — see `isBoundedValue`. Without
+  // this, `addFilter` was the exact same `JSON.stringify`-blows-the-stack vector as an
+  // unbounded widget `config`: a ~20 KB deeply-nested `value` installed into `doc.filters`
+  // and then broke every subsequent autosave and every `structuredClone` in `migrateState`.
+  if (!isBoundedValue(filter.value)) {
+    return unboundedValueError(`${path}.value`);
+  }
+  if (!isBoundedValue(filter.value2)) {
+    return unboundedValueError(`${path}.value2`);
+  }
   return validateFilterScope(filter.scope, `${path}.scope`);
 }
 
@@ -573,6 +666,9 @@ const MUTATION_ARG_VALIDATORS: { [M in StateMutation as M['type']]: MutationArgV
         if (hasUnsafeOwnKeys(args.changes.config)) {
           return "updateWidget.args.changes.config must not carry a '__proto__'/'constructor'/'prototype' key";
         }
+        if (!isBoundedValue(args.changes.config)) {
+          return unboundedValueError('updateWidget.args.changes.config');
+        }
         // Finding 2.2 — `config`'s interior is deliberately left as an unchecked
         // leaf (see the module doc), but `chartType` is the one leaf key every
         // OTHER config-carrying arg in this file already membership-checks on the
@@ -592,6 +688,9 @@ const MUTATION_ARG_VALIDATORS: { [M in StateMutation as M['type']]: MutationArgV
       }
       if (hasUnsafeOwnKeys(args.config)) {
         return "updateWidget.args.config must not carry a '__proto__'/'constructor'/'prototype' key";
+      }
+      if (!isBoundedValue(args.config)) {
+        return unboundedValueError('updateWidget.args.config');
       }
       // Finding 2.2 — see the identical check on `changes.config` above.
       if (hasInvalidChartTypeInConfig(args.config)) {
@@ -729,6 +828,9 @@ const MUTATION_ARG_VALIDATORS: { [M in StateMutation as M['type']]: MutationArgV
         }
         if (hasUnsafeOwnKeys(update.config)) {
           return `${at}.config must not carry a '__proto__'/'constructor'/'prototype' key`;
+        }
+        if (!isBoundedValue(update.config)) {
+          return unboundedValueError(`${at}.config`);
         }
         // Finding 2.2 — see the identical check on `updateWidget.args.config` above.
         if (hasInvalidChartTypeInConfig(update.config)) {

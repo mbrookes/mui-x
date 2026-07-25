@@ -24,3 +24,45 @@
  * while still rejecting a pathological, resource-exhausting payload outright.
  */
 export const MAX_ARRAY_ITEMS_PER_DESCRIPTOR = 200;
+
+/**
+ * Hard ceiling on the length of an individual client-supplied IDENTIFIER
+ * string — a table name, a column reference (qualified or not), an aggregation
+ * or output alias, or a `columnAliases` key/value (Tier2 finding — resource
+ * exhaustion, in a dimension `MAX_ARRAY_ITEMS_PER_DESCRIPTOR` doesn't cover).
+ *
+ * Every collection field above has a cap on how MANY entries it may hold, but
+ * — before this constant — not one field capped how LONG any individual string
+ * entry could be. A single well-formed-SHAPE request (one widget, arrays well
+ * under their count caps) could still carry, say, a 50MB string as a "table"
+ * or "column" value: it would sail past every existing check, get recursively
+ * serialized and hashed — up to `MAX_WIDGETS_PER_BATCH` times per request — by
+ * `security/canonicalize.ts`'s `sortedStringify` (every field of every widget
+ * descriptor feeds `security/cacheKey.ts`'s `computeQueryHash`), and ultimately
+ * reach the database as a bound parameter or identifier that is expensive to
+ * validate, hash, and compare.
+ *
+ * 1024 characters is deliberately generous — no legitimate table name, column
+ * name, or alias approaches that length — while still rejecting a pathological
+ * payload outright. See `MAX_STRING_VALUE_LENGTH` below for the separate,
+ * larger bound used for scalar filter/where/mutation VALUES, which (unlike an
+ * identifier) may legitimately need more headroom for real business data.
+ */
+export const MAX_STRING_LENGTH = 1024;
+
+/**
+ * Hard ceiling on the length of an individual client-supplied string VALUE —
+ * a filter/where predicate's scalar comparison value (or an "in"-list string
+ * element), and a mutation `values` string value (Tier2 finding — resource
+ * exhaustion, the same dimension `MAX_STRING_LENGTH` covers for identifiers).
+ *
+ * Deliberately a SEPARATE, larger bound than `MAX_STRING_LENGTH`: an
+ * identifier (table/column/alias) is authored by a developer and is never
+ * legitimately long, but a filter/where value carries real business data (a
+ * free-text search term, a long description to match, …) that may
+ * legitimately need more headroom than an identifier ever would. 8192
+ * characters comfortably covers realistic filter/business-data strings while
+ * still rejecting a payload designed purely to bloat the cache-key hash input
+ * and the bound parameter sent to the database.
+ */
+export const MAX_STRING_VALUE_LENGTH = 8192;

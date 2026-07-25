@@ -21,6 +21,7 @@
  * physical table/column.
  */
 import type { BatchWidgetDescriptor } from '../security/types';
+import { MAX_STRING_LENGTH } from './limits';
 
 /**
  * Resolve a logical column/field reference to its physical SQL column via the
@@ -48,6 +49,20 @@ import type { BatchWidgetDescriptor } from '../security/types';
  * (allowlist-bypass regression)` in `queryBuilder.test.ts` for the pinned property.)
  */
 export function resolveAlias(descriptor: BatchWidgetDescriptor, column: string): string {
+  // Length cap (Tier2 finding — resource exhaustion): `column` is a client
+  // JSON string used as a `columnAliases` MAP KEY here — its length was
+  // otherwise unbounded at this lookup site. Guarding with a plain `typeof`
+  // check (rather than trusting the `string` parameter type) mirrors every
+  // other defensive guard in this module, since the wire value's runtime type
+  // is not guaranteed by the TS signature.
+  if (typeof column === 'string' && column.length > MAX_STRING_LENGTH) {
+    throw new Error(
+      `MUI X Studio Server: Column reference "${column.slice(0, 80)}…" is ${column.length} characters long, ` +
+        `which exceeds the maximum of ${MAX_STRING_LENGTH} allowed for an identifier. ` +
+        `An unbounded identifier string is expensive to hash (it is folded into the query cache key) and to ` +
+        `resolve repeatedly across a batch. Shorten the column reference to at most ${MAX_STRING_LENGTH} characters.`,
+    );
+  }
   const aliases = descriptor.columnAliases;
   // Gate on an OWN-property check BEFORE the lookup (finding 2.4). `column` is
   // client JSON, and a plain object literal inherits from `Object.prototype`, so a
@@ -88,6 +103,20 @@ export function checkColumnAgainstAllowlist(
   allowlist: Record<string, string[]>,
   context: string,
 ): void {
+  // Length cap (Tier2 finding — resource exhaustion). This is the runtime
+  // choke point for a mutation's `values` KEYS (`validateMutation` calls this
+  // with each `Object.keys(values)` entry, context `'values'`) — a reference
+  // shape that never flows through `checkQualifiedColumn`'s own identical cap
+  // (mutation values keys are never table-qualified, so they take a different
+  // validation path). Checked first, before any parsing below.
+  if (typeof physical === 'string' && physical.length > MAX_STRING_LENGTH) {
+    throw new Error(
+      `MUI X Studio Server: Column reference "${physical.slice(0, 80)}…" (in ${context}) is ${physical.length} ` +
+        `characters long, which exceeds the maximum of ${MAX_STRING_LENGTH} allowed for an identifier. ` +
+        `An unbounded identifier string is expensive to hash and validate repeatedly across a batch. ` +
+        `Shorten the identifier in "${context}" to at most ${MAX_STRING_LENGTH} characters.`,
+    );
+  }
   // Reject a reference with MORE than one dot (`a.b.c` or deeper) outright
   // (Tier3 iter26 finding 6) rather than silently parsing it at the FIRST dot
   // below. Splitting at the first dot reads `a.b.c` as table `a`, column
@@ -350,6 +379,20 @@ export function validateAggregationAliases(
   const projectionKeySet = projectionKeys ? new Set(projectionKeys) : undefined;
   const seen = new Set<string>();
   for (const agg of descriptor.aggregations ?? []) {
+    // Length cap (Tier2 finding — resource exhaustion): `SAFE_ALIAS_PATTERN`
+    // constrains the CHARSET of an alias but not its length — a client could
+    // still send an arbitrarily long string built entirely from allowed
+    // characters (letters/digits/underscore/hyphen). Checked BEFORE the regex
+    // test so a pathologically long alias is rejected without ever running the
+    // (linear-time, but still client-input-driven) pattern scan over it.
+    if (agg.alias.length > MAX_STRING_LENGTH) {
+      throw new Error(
+        `MUI X Studio Server: Aggregation alias "${agg.alias.slice(0, 80)}…" is ${agg.alias.length} characters ` +
+          `long, which exceeds the maximum of ${MAX_STRING_LENGTH} allowed for an identifier. ` +
+          `An unbounded alias string is expensive to hash (it is folded into the query cache key) and to ` +
+          `validate repeatedly across a batch. Shorten the aggregation alias to at most ${MAX_STRING_LENGTH} characters.`,
+      );
+    }
     if (!SAFE_ALIAS_PATTERN.test(agg.alias)) {
       throw new Error(
         `MUI X Studio Server: Aggregation alias "${agg.alias}" contains characters outside the allowed set. ` +

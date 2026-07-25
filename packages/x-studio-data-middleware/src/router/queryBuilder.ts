@@ -92,6 +92,15 @@ export function buildSecureQuery(
   // `validateDescriptorColumns` checked against the allowlist), so execution can
   // never target a different physical column than validation approved.
   //
+  // VOLUME (Tier2 finding — resource exhaustion): this loop, and the per-pair
+  // `.on()` calls inside it, run once per `[left, right]` pair across every
+  // join. `handler.ts`'s `assertValidBatchQueryRequest` caps both the number of
+  // joins AND each join's own `on` length individually — AND (the fix for this
+  // finding) the TOTAL `on`-pairs summed across every join in the widget — so
+  // this loop can never be asked to build more than `MAX_ARRAY_ITEMS_PER_DESCRIPTOR`
+  // join conditions for one widget, regardless of how the client distributes
+  // them across the `joins` array.
+  //
   // OUTER-JOIN SECURITY PLACEMENT (finding 2.3): the security predicate for the
   // NULLABLE side of an outer join goes in the JOIN's ON clause, not WHERE. A
   // joined-table tenant predicate in WHERE drops every NULL-extended row a LEFT

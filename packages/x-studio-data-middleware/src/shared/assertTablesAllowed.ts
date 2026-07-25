@@ -7,6 +7,24 @@
  * and its error text — live in exactly one place.
  */
 import type { BatchWidgetDescriptor, FilterPredicate } from '../security/types';
+import { MAX_STRING_LENGTH } from './limits';
+
+/**
+ * Throw when a client-supplied table/column identifier exceeds
+ * `MAX_STRING_LENGTH` (Tier2 finding — resource exhaustion). Shared by
+ * `assertTablesAllowed` (table names) and `checkQualifiedColumn` (column
+ * references) below, so both identifier classes are capped identically.
+ */
+function assertIdentifierLength(value: string, context: string): void {
+  if (value.length > MAX_STRING_LENGTH) {
+    throw new Error(
+      `MUI X Studio Server: "${value.slice(0, 80)}…" (in ${context}) is ${value.length} characters long, ` +
+        `which exceeds the maximum of ${MAX_STRING_LENGTH} allowed for an identifier. ` +
+        `An unbounded identifier string is expensive to hash (it is folded into the query cache key) and to ` +
+        `validate/compare repeatedly across a batch. Shorten the identifier in "${context}" to at most ${MAX_STRING_LENGTH} characters.`,
+    );
+  }
+}
 
 /**
  * Throw when any of `tables` is not present in `schemaAllowlist`.
@@ -15,6 +33,16 @@ import type { BatchWidgetDescriptor, FilterPredicate } from '../security/types';
  * @param schemaAllowlist - The allowlist of queryable/writable table names.
  */
 export function assertTablesAllowed(tables: string[], schemaAllowlist: string[]): void {
+  // Length cap (Tier2 finding — resource exhaustion): a table name has no cap
+  // on its own length anywhere else in the pipeline. Only string-typed entries
+  // are checked here — a non-string table name is left to the allowlist
+  // membership check below, which rejects it as "not in schema allowlist"
+  // regardless of its type.
+  for (const t of tables) {
+    if (typeof t === 'string') {
+      assertIdentifierLength(t, 'table');
+    }
+  }
   const invalidTables = tables.filter((t) => !schemaAllowlist.includes(t));
   if (invalidTables.length > 0) {
     // INFORMATION DISCLOSURE (finding 3.3): the client-facing message names ONLY the
@@ -74,6 +102,14 @@ function checkQualifiedColumn(column: string, context: string, schemaAllowlist: 
         `allowlist. Ensure every column reference in "${context}" is a string.`,
     );
   }
+  // Length cap (Tier2 finding — resource exhaustion): every column reference
+  // this function validates (`columns`, `filters[].column`, `orderBy[].column`,
+  // `aggregations[].column`, both sides of `joins[].on`, a mutation's
+  // `where[].column`) previously had only a `typeof === 'string'` guard, with no
+  // bound on how long that string could be. Checked BEFORE the dot-count/
+  // qualified-table logic below so it applies uniformly whether the reference
+  // is qualified or not.
+  assertIdentifierLength(column, context);
   if (column.split('.').length > 2) {
     throw new Error(
       `MUI X: Column reference "${column}" (in ${context}) contains more than one ".". ` +

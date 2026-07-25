@@ -9,14 +9,27 @@
  *   - Size-based eviction: `maxSize` in bytes + `sizeCalculation` callback
  *
  * Performance notes:
- *   - sizeCalculation uses a fast per-row byte estimate instead of JSON.stringify
- *     to avoid O(N) serialization on every cache write.
+ *   - sizeCalculation samples a bounded prefix of rows (SIZE_SAMPLE_ROWS) and
+ *     measures their real JSON.stringify size, extrapolated across every row and
+ *     floored at the configured avgBytesPerRow — real per-row content (e.g. a
+ *     large TEXT/JSON column) can only push the estimate UP from that baseline,
+ *     never down, while still avoiding O(N) serialization of the whole result set
+ *     on every cache write.
  *   - A secondary prefix index keeps invalidatePrefix() at O(N_matched) instead
  *     of scanning all keys. The index is kept in sync via the `dispose` callback.
  */
 import { LRUCache } from 'lru-cache';
 import type { CacheEntry, CacheProvider, CacheSetOpts } from './types';
 import { floorTtlMs } from './ttl';
+
+/**
+ * Bounded sample size for the byte-size estimate below (Tier3 finding — byte-
+ * accounting gap). Stringifying every row of a potentially huge result set on
+ * every cache write would reintroduce the O(N) `JSON.stringify` cost the
+ * count-only estimate was originally introduced to avoid — sampling a small,
+ * fixed prefix keeps the estimate cheap regardless of `rows.length`.
+ */
+const SIZE_SAMPLE_ROWS = 20;
 
 interface LRUCacheProviderOptions {
   /**
@@ -76,9 +89,48 @@ export class LRUCacheProvider implements CacheProvider {
       // picked up within the advertised TTL. This mirrors RedisCacheProvider,
       // which does not refresh TTL on read either.
       updateAgeOnGet: false,
-      // Fast O(1) size estimate — avoids full JSON.stringify on every write.
-      // Accurate enough for LRU eviction purposes; tune avgBytesPerRow if needed.
-      sizeCalculation: (value: CacheEntry) => value.rows.length * avgBytesPerRow + 64,
+      // Byte-size estimate (Tier3 finding — byte-accounting gap). A pure
+      // `rows.length * avgBytesPerRow` estimate is O(1) but assumes every row
+      // is roughly the CONFIGURED average size — a result set with large
+      // TEXT/JSON column values can be far bigger than that average per row,
+      // so the LRU would believe it is comfortably under `maxSizeBytes` while
+      // the process actually holds far more live memory than the cache
+      // thinks it does.
+      //
+      // TRADE-OFF: sample a BOUNDED prefix of rows (`SIZE_SAMPLE_ROWS`) and
+      // measure their REAL serialized size via `JSON.stringify`, instead of
+      // stringifying the whole (possibly huge) result set on every write —
+      // that would reintroduce the O(N) cost this callback exists to avoid.
+      // The sampled average is extrapolated across every row, so a result set
+      // whose sampled rows are unusually large (e.g. one big TEXT/JSON column)
+      // is estimated proportionally larger too. The estimate is floored at the
+      // CONFIGURED `avgBytesPerRow` (never lower than it) via `Math.max`, so a
+      // pathologically small/empty sample never under-reports a schema known
+      // to carry larger rows on average — this also keeps every existing
+      // small-row test byte-for-byte unchanged, since a tiny sampled row's
+      // real size never exceeds the configured default.
+      sizeCalculation: (value: CacheEntry) => {
+        const { rows } = value;
+        if (rows.length === 0) {
+          return 64;
+        }
+        const sampleSize = Math.min(rows.length, SIZE_SAMPLE_ROWS);
+        let sampledBytes = 0;
+        for (let i = 0; i < sampleSize; i += 1) {
+          try {
+            const serialized = JSON.stringify(rows[i]);
+            sampledBytes += serialized === undefined ? avgBytesPerRow : serialized.length;
+          } catch {
+            // A row that cannot be stringified (e.g. carries a BigInt field)
+            // falls back to the configured average rather than throwing out
+            // of a cache write.
+            sampledBytes += avgBytesPerRow;
+          }
+        }
+        const sampledAvgBytesPerRow = sampledBytes / sampleSize;
+        const effectiveAvgBytesPerRow = Math.max(sampledAvgBytesPerRow, avgBytesPerRow);
+        return Math.ceil(rows.length * effectiveAvgBytesPerRow) + 64;
+      },
       // Keep all secondary indexes in sync when LRU evicts or deletes entries.
       dispose: (_, key) => {
         // Prefix index cleanup

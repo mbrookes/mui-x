@@ -61,7 +61,11 @@ import {
   assertQualifiedWhereColumnsAllowed,
 } from '../shared/assertTablesAllowed';
 import { sanitizeBoundaryError } from '../shared/sanitizeError';
-import { MAX_ARRAY_ITEMS_PER_DESCRIPTOR } from '../shared/limits';
+import {
+  MAX_ARRAY_ITEMS_PER_DESCRIPTOR,
+  MAX_STRING_LENGTH,
+  MAX_STRING_VALUE_LENGTH,
+} from '../shared/limits';
 import {
   compileSecurityPolicy,
   type CompiledSecurityPolicy,
@@ -133,6 +137,22 @@ function assertValidBatchMutationRequest(body: BatchMutationRequest): void {
           `otherwise throw a confusing internal error instead of a clean validation failure. ` +
           `Ensure every entry in "mutations" is a MutationDescriptor with at least an "id", "operation", and "table".`,
       );
+    }
+    // Length cap on "id"/"table" (Tier2 finding — resource exhaustion). Both are
+    // confirmed strings above, but neither had a bound on how long that string
+    // could be, mirroring the read path's identical cap in `handler.ts`.
+    for (const [field, value] of [
+      ['id', mutation.id],
+      ['table', mutation.table],
+    ] as const) {
+      if (value.length > MAX_STRING_LENGTH) {
+        throw new Error(
+          `MUI X Studio Server: Malformed mutation descriptor at mutations[${index}] — "${field}" is ${value.length} ` +
+            `characters long, which exceeds the maximum of ${MAX_STRING_LENGTH} allowed. ` +
+            `An unbounded "${field}" string is expensive to validate and serialize repeatedly across a batch. ` +
+            `Shorten "${field}" to at most ${MAX_STRING_LENGTH} characters.`,
+        );
+      }
     }
     // A "where" field that is present but not an array (Tier3 iter26 finding 1)
     // — e.g. `where: {}` — passes the checks above (which only look at "id"/
@@ -206,6 +226,23 @@ function assertValidBatchMutationRequest(body: BatchMutationRequest): void {
               `client input. Reduce the number of entries to at most ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR}.`,
           );
         }
+        // Length cap on a scalar/"in"-element STRING value (Tier2 finding —
+        // resource exhaustion), mirroring the read path's identical cap on
+        // `filters[].value` in `handler.ts`. Uses the larger
+        // `MAX_STRING_VALUE_LENGTH` bound — a where-predicate value is business
+        // data, not an identifier. Only PRESENT string values are checked; full
+        // shape validation still happens later inside `validateMutation`.
+        const whereStringValues = Array.isArray(predicateValue) ? predicateValue : [predicateValue];
+        whereStringValues.forEach((v) => {
+          if (typeof v === 'string' && v.length > MAX_STRING_VALUE_LENGTH) {
+            throw new Error(
+              `MUI X Studio Server: Malformed mutation descriptor at mutations[${index}] — "where[${predicateIndex}].value" ` +
+                `contains a string ${v.length} characters long, which exceeds the maximum of ${MAX_STRING_VALUE_LENGTH} ` +
+                `allowed. An unbounded value string is expensive to hash and, once queried, expensive for the database ` +
+                `to scan/index as a bound parameter. Shorten the value to at most ${MAX_STRING_VALUE_LENGTH} characters.`,
+            );
+          }
+        });
       });
     }
     // A "values" field that is present but not a plain object — e.g. `values: []`,
@@ -247,6 +284,38 @@ function assertValidBatchMutationRequest(body: BatchMutationRequest): void {
           `allowed per mutation. An unbounded object is unbounded query-building work driven entirely by client ` +
           `input. Reduce the number of keys in "values" to at most ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR}.`,
       );
+    }
+    // Length cap on each "values" KEY and, separately, each STRING value (Tier2
+    // finding — resource exhaustion). The key-COUNT cap above bounds how many
+    // column-value pairs "values" may hold, but not how long any one key (a
+    // column name — an identifier) or string value (business data being
+    // written) may be. Keys use the smaller `MAX_STRING_LENGTH` identifier
+    // bound; string values use the larger `MAX_STRING_VALUE_LENGTH` bound,
+    // mirroring the identifier-vs-value distinction used throughout this fix.
+    if (
+      values !== undefined &&
+      typeof values === 'object' &&
+      values !== null &&
+      !Array.isArray(values)
+    ) {
+      for (const [key, value] of Object.entries(values)) {
+        if (key.length > MAX_STRING_LENGTH) {
+          throw new Error(
+            `MUI X Studio Server: Malformed mutation descriptor at mutations[${index}] — a "values" key is ` +
+              `${key.length} characters long, which exceeds the maximum of ${MAX_STRING_LENGTH} allowed for an ` +
+              `identifier. An unbounded key is expensive to validate repeatedly across a batch. Shorten the ` +
+              `"values" key to at most ${MAX_STRING_LENGTH} characters.`,
+          );
+        }
+        if (typeof value === 'string' && value.length > MAX_STRING_VALUE_LENGTH) {
+          throw new Error(
+            `MUI X Studio Server: Malformed mutation descriptor at mutations[${index}] — "values" value for key ` +
+              `"${key.slice(0, 80)}…" is ${value.length} characters long, which exceeds the maximum of ` +
+              `${MAX_STRING_VALUE_LENGTH} allowed. An unbounded value string is expensive for the database to store ` +
+              `and index. Shorten the "values" value for "${key}" to at most ${MAX_STRING_VALUE_LENGTH} characters.`,
+          );
+        }
+      }
     }
   });
 }

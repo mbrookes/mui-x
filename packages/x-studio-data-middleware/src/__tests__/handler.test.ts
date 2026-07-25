@@ -8,7 +8,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createHmac } from 'node:crypto';
 import { handleBatchQuery, MAX_WIDGETS_PER_BATCH } from '../handler';
-import { MAX_ARRAY_ITEMS_PER_DESCRIPTOR } from '../shared/limits';
+import {
+  MAX_ARRAY_ITEMS_PER_DESCRIPTOR,
+  MAX_STRING_LENGTH,
+  MAX_STRING_VALUE_LENGTH,
+} from '../shared/limits';
 import { generateCacheKey } from '../security/cacheKey';
 import { extractSecurityClaims } from '../security/extractSecurityClaims';
 import { LRUCacheProvider } from '../cache/LRUCacheProvider';
@@ -947,6 +951,211 @@ describe('handleBatchQuery — per-array size caps (finding Tier3 resource exhau
     ).rejects.toThrow(
       /^MUI X Studio Server: Malformed widget descriptor at widgets\[0\] — "columnAliases" must be a plain object/,
     );
+  });
+
+  // Aggregate cap on the TOTAL "on"-pairs summed across every join in a widget
+  // (Tier2 finding — the per-join cap above bounds each join independently, but
+  // not their PRODUCT). A widget with several joins whose OWN "on" arrays each
+  // stay under MAX_ARRAY_ITEMS_PER_DESCRIPTOR can still sum to a total that
+  // forces building/allowlist-checking far more join conditions than the cap
+  // intends for one widget.
+  it('rejects joins whose "on" arrays are each individually under the per-join cap but sum over MAX_ARRAY_ITEMS_PER_DESCRIPTOR', async () => {
+    const perJoinOn = Array.from({ length: 70 }, () => ['sales.customer_id', 'customers.id']);
+    const joins = [
+      { table: 'customers', on: perJoinOn },
+      { table: 'customers', on: perJoinOn },
+      { table: 'customers', on: perJoinOn },
+    ];
+    // 3 * 70 = 210 total "on" pairs, each join's own 70 comfortably under
+    // MAX_ARRAY_ITEMS_PER_DESCRIPTOR (200) individually.
+    await expect(
+      handleBatchQuery(
+        { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', joins }] } as any,
+        ACME_CLAIMS,
+        { db: makeDb(), schemaAllowlist: ['sales', 'customers'], tenancy: SINGLE_TENANT },
+      ),
+    ).rejects.toThrow(
+      new RegExp(
+        `^MUI X Studio Server: Malformed widget descriptor at widgets\\[0\\] — "joins\\[\\]\\.on" contains 210 entries in total across all joins, which exceeds the maximum of ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR}`,
+      ),
+    );
+  });
+
+  it('still accepts joins whose "on" arrays sum to exactly MAX_ARRAY_ITEMS_PER_DESCRIPTOR in total', async () => {
+    const joinCapableDb = (table: string) => {
+      const qb = makeDb()(table) as any;
+      qb.join = () => qb;
+      return qb;
+    };
+    const perJoinOn: [string, string][] = Array.from(
+      { length: MAX_ARRAY_ITEMS_PER_DESCRIPTOR / 2 },
+      () => ['sales.customer_id', 'customers.id'],
+    );
+    const joins = [
+      { table: 'customers', on: perJoinOn },
+      { table: 'customers', on: perJoinOn },
+    ];
+    const result = await handleBatchQuery(
+      { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', joins }] },
+      ACME_CLAIMS,
+      { db: joinCapableDb, schemaAllowlist: ['sales', 'customers'], tenancy: SINGLE_TENANT },
+    );
+    expect(result.results[0].error).toBeUndefined();
+  });
+});
+
+// Regression (Tier2 — resource exhaustion): none of the array/object size caps
+// above bound the LENGTH of an individual string field. A single well-formed-
+// SHAPE widget (every array/object comfortably under its count cap) could
+// still carry an oversized string as a "table"/"id", a "columnAliases"
+// key/value, or a filter value — sailing past every existing check and getting
+// recursively hashed (`security/cacheKey.ts`'s `computeQueryHash`) up to
+// `MAX_WIDGETS_PER_BATCH` times per request.
+describe('handleBatchQuery — per-string length caps (finding Tier2 resource exhaustion)', () => {
+  it('rejects a widget whose "table" exceeds MAX_STRING_LENGTH', async () => {
+    const oversizedTable = 'a'.repeat(MAX_STRING_LENGTH + 1);
+    await expect(
+      handleBatchQuery(
+        { pageId: 'p1', widgets: [{ id: 'w1', table: oversizedTable }] } as any,
+        ACME_CLAIMS,
+        { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
+      ),
+    ).rejects.toThrow(
+      new RegExp(
+        `^MUI X Studio Server: Malformed widget descriptor at widgets\\[0\\] — "table" is ${MAX_STRING_LENGTH + 1} characters long, which exceeds the maximum of ${MAX_STRING_LENGTH}`,
+      ),
+    );
+  });
+
+  it('rejects a widget whose "id" exceeds MAX_STRING_LENGTH', async () => {
+    const oversizedId = 'w'.repeat(MAX_STRING_LENGTH + 1);
+    await expect(
+      handleBatchQuery(
+        { pageId: 'p1', widgets: [{ id: oversizedId, table: 'sales' }] } as any,
+        ACME_CLAIMS,
+        { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
+      ),
+    ).rejects.toThrow(
+      new RegExp(
+        `^MUI X Studio Server: Malformed widget descriptor at widgets\\[0\\] — "id" is ${MAX_STRING_LENGTH + 1} characters long, which exceeds the maximum of ${MAX_STRING_LENGTH}`,
+      ),
+    );
+  });
+
+  it('rejects a widget whose "columnAliases" value exceeds MAX_STRING_LENGTH', async () => {
+    const oversizedValue = 'a'.repeat(MAX_STRING_LENGTH + 1);
+    await expect(
+      handleBatchQuery(
+        {
+          pageId: 'p1',
+          widgets: [{ id: 'w1', table: 'sales', columnAliases: { revenue: oversizedValue } }],
+        } as any,
+        ACME_CLAIMS,
+        { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
+      ),
+    ).rejects.toThrow(
+      /"columnAliases" value for key "revenue…?" is \d+ characters long, which exceeds the maximum of \d+/,
+    );
+  });
+
+  it('rejects a widget whose "columnAliases" key exceeds MAX_STRING_LENGTH', async () => {
+    const oversizedKey = 'k'.repeat(MAX_STRING_LENGTH + 1);
+    await expect(
+      handleBatchQuery(
+        {
+          pageId: 'p1',
+          widgets: [{ id: 'w1', table: 'sales', columnAliases: { [oversizedKey]: 'amount' } }],
+        } as any,
+        ACME_CLAIMS,
+        { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
+      ),
+    ).rejects.toThrow(
+      /a "columnAliases" key is \d+ characters long, which exceeds the maximum of \d+ allowed for an identifier/,
+    );
+  });
+
+  it('rejects a widget whose filter value string exceeds MAX_STRING_VALUE_LENGTH', async () => {
+    const oversizedValue = 'v'.repeat(MAX_STRING_VALUE_LENGTH + 1);
+    await expect(
+      handleBatchQuery(
+        {
+          pageId: 'p1',
+          widgets: [
+            {
+              id: 'w1',
+              table: 'sales',
+              filters: [{ column: 'region', operator: 'eq', value: oversizedValue }],
+            },
+          ],
+        } as any,
+        ACME_CLAIMS,
+        { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
+      ),
+    ).rejects.toThrow(
+      /"filters\[0\]\.value" contains a string \d+ characters long, which exceeds the maximum of \d+/,
+    );
+  });
+
+  it('rejects a widget whose filter "in"-list string element exceeds MAX_STRING_VALUE_LENGTH', async () => {
+    const oversizedValue = 'v'.repeat(MAX_STRING_VALUE_LENGTH + 1);
+    await expect(
+      handleBatchQuery(
+        {
+          pageId: 'p1',
+          widgets: [
+            {
+              id: 'w1',
+              table: 'sales',
+              filters: [{ column: 'region', operator: 'in', value: ['west', oversizedValue] }],
+            },
+          ],
+        } as any,
+        ACME_CLAIMS,
+        { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
+      ),
+    ).rejects.toThrow(
+      /"filters\[0\]\.value" contains a string \d+ characters long, which exceeds the maximum of \d+/,
+    );
+  });
+
+  it('still accepts a widget whose filter value string is exactly at MAX_STRING_VALUE_LENGTH', async () => {
+    const value = 'v'.repeat(MAX_STRING_VALUE_LENGTH);
+    const result = await handleBatchQuery(
+      {
+        pageId: 'p1',
+        widgets: [
+          { id: 'w1', table: 'sales', filters: [{ column: 'region', operator: 'eq', value }] },
+        ],
+      },
+      ACME_CLAIMS,
+      { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
+    );
+    expect(result.results[0].error).toBeUndefined();
+  });
+
+  // A column-reference identifier (as opposed to "table"/"id"/"columnAliases",
+  // checked in the upfront whole-batch shape validation above) is only length-
+  // checked deeper, inside `checkQualifiedColumn` — per-widget isolated, like
+  // every other column-allowlist/schema-allowlist violation.
+  it('isolates an oversized "columns" entry as a per-widget error rather than rejecting the whole batch', async () => {
+    const oversizedColumn = 'c'.repeat(MAX_STRING_LENGTH + 1);
+    const result = await handleBatchQuery(
+      {
+        pageId: 'p1',
+        widgets: [
+          { id: 'bad', table: 'sales', columns: [oversizedColumn] },
+          { id: 'good', table: 'sales' },
+        ],
+      },
+      ACME_CLAIMS,
+      { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
+    );
+    const bad = result.results.find((r) => r.id === 'bad')!;
+    const good = result.results.find((r) => r.id === 'good')!;
+    expect(bad.error).toMatch(
+      /is \d+ characters long, which exceeds the maximum of \d+ allowed for an identifier/,
+    );
+    expect(good.error).toBeUndefined();
   });
 });
 

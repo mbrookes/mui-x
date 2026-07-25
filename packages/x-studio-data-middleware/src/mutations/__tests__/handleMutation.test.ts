@@ -11,7 +11,11 @@
  */
 import { describe, it, expect } from 'vitest';
 import { handleMutation, MAX_MUTATIONS_PER_BATCH } from '../handleMutation';
-import { MAX_ARRAY_ITEMS_PER_DESCRIPTOR } from '../../shared/limits';
+import {
+  MAX_ARRAY_ITEMS_PER_DESCRIPTOR,
+  MAX_STRING_LENGTH,
+  MAX_STRING_VALUE_LENGTH,
+} from '../../shared/limits';
 import type { BatchMutationRequest, CacheProvider } from '../../index';
 
 // ── Mutable in-memory mock DB (same as mutationBuilder.test.ts) ───────────────
@@ -975,6 +979,111 @@ describe('handleMutation — per-array size caps (finding Tier3 resource exhaust
       CLAIMS,
       { db, schemaAllowlist: ALLOWLIST, tenancy: SINGLE_TENANT },
     );
+    expect(result.results[0].ok).toBe(true);
+  });
+});
+
+// Regression (Tier2 — resource exhaustion): none of the array/object size caps
+// above bound the LENGTH of an individual string field. A single well-formed-
+// shape mutation (arrays/objects comfortably under their count caps) could
+// still carry an oversized string in "table"/"id"/a where-predicate value/a
+// "values" key or value.
+describe('handleMutation — per-string length caps (finding Tier2 resource exhaustion)', () => {
+  it('rejects a "table" exceeding MAX_STRING_LENGTH', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const oversizedTable = 'a'.repeat(MAX_STRING_LENGTH + 1);
+    const body: BatchMutationRequest = {
+      mutations: [
+        { id: 'm1', operation: 'insert', table: oversizedTable, values: { status: 'x' } },
+      ],
+    };
+    await expect(
+      handleMutation(body, CLAIMS, { db, schemaAllowlist: ALLOWLIST, tenancy: SINGLE_TENANT }),
+    ).rejects.toThrow(
+      new RegExp(
+        `^MUI X Studio Server: Malformed mutation descriptor at mutations\\[0\\] — "table" is ${MAX_STRING_LENGTH + 1} characters long, which exceeds the maximum of ${MAX_STRING_LENGTH}`,
+      ),
+    );
+  });
+
+  it('rejects an "id" exceeding MAX_STRING_LENGTH', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const oversizedId = 'm'.repeat(MAX_STRING_LENGTH + 1);
+    const body: BatchMutationRequest = {
+      mutations: [
+        { id: oversizedId, operation: 'insert', table: 'orders', values: { status: 'x' } },
+      ],
+    };
+    await expect(
+      handleMutation(body, CLAIMS, { db, schemaAllowlist: ALLOWLIST, tenancy: SINGLE_TENANT }),
+    ).rejects.toThrow(
+      new RegExp(
+        `^MUI X Studio Server: Malformed mutation descriptor at mutations\\[0\\] — "id" is ${MAX_STRING_LENGTH + 1} characters long, which exceeds the maximum of ${MAX_STRING_LENGTH}`,
+      ),
+    );
+  });
+
+  it('rejects a where[].value string exceeding MAX_STRING_VALUE_LENGTH', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const oversizedValue = 'v'.repeat(MAX_STRING_VALUE_LENGTH + 1);
+    const body: BatchMutationRequest = {
+      mutations: [
+        {
+          id: 'm1',
+          operation: 'delete',
+          table: 'orders',
+          where: [{ column: 'status', operator: 'eq', value: oversizedValue }],
+        },
+      ],
+    };
+    await expect(
+      handleMutation(body, CLAIMS, { db, schemaAllowlist: ALLOWLIST, tenancy: SINGLE_TENANT }),
+    ).rejects.toThrow(
+      /"where\[0\]\.value" contains a string \d+ characters long, which exceeds the maximum of \d+/,
+    );
+  });
+
+  it('rejects a "values" key exceeding MAX_STRING_LENGTH', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const oversizedKey = 'k'.repeat(MAX_STRING_LENGTH + 1);
+    const body: BatchMutationRequest = {
+      mutations: [
+        { id: 'm1', operation: 'insert', table: 'orders', values: { [oversizedKey]: 'x' } },
+      ],
+    };
+    await expect(
+      handleMutation(body, CLAIMS, { db, schemaAllowlist: ALLOWLIST, tenancy: SINGLE_TENANT }),
+    ).rejects.toThrow(
+      /a "values" key is \d+ characters long, which exceeds the maximum of \d+ allowed for an identifier/,
+    );
+  });
+
+  it('rejects a "values" string value exceeding MAX_STRING_VALUE_LENGTH', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const oversizedValue = 'v'.repeat(MAX_STRING_VALUE_LENGTH + 1);
+    const body: BatchMutationRequest = {
+      mutations: [
+        { id: 'm1', operation: 'insert', table: 'orders', values: { status: oversizedValue } },
+      ],
+    };
+    await expect(
+      handleMutation(body, CLAIMS, { db, schemaAllowlist: ALLOWLIST, tenancy: SINGLE_TENANT }),
+    ).rejects.toThrow(
+      /"values" value for key "status…?" is \d+ characters long, which exceeds the maximum of \d+/,
+    );
+  });
+
+  it('still accepts a "values" string value exactly at MAX_STRING_VALUE_LENGTH', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const value = 'v'.repeat(MAX_STRING_VALUE_LENGTH);
+    const body: BatchMutationRequest = {
+      mutations: [{ id: 'm1', operation: 'insert', table: 'orders', values: { status: value } }],
+    };
+    const result = await handleMutation(body, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      tenancy: SINGLE_TENANT,
+    });
     expect(result.results[0].ok).toBe(true);
   });
 });

@@ -292,4 +292,85 @@ describe('LRUCacheProvider', () => {
       }
     });
   });
+
+  describe('byte-size estimation accounts for real row content (Tier3 finding — byte-accounting gap)', () => {
+    // Before the fix, `sizeCalculation` was `rows.length * avgBytesPerRow + 64` —
+    // purely a function of ROW COUNT, blind to how big any individual row's
+    // fields actually are. A single-row entry carrying a large TEXT/JSON value
+    // would be estimated identically to a single-row entry of tiny scalars, so
+    // the LRU could believe it was comfortably under `maxSizeBytes` while the
+    // process held far more live memory than the cache thought it did.
+    it('evicts a small-configured-average entry sooner when its rows actually carry large string payloads', async () => {
+      const cache = new LRUCacheProvider({ maxSizeBytes: 2_000, avgBytesPerRow: 50 });
+      // A single row whose one field is a large string — the COUNT-only estimate
+      // (1 row * 50 avgBytesPerRow + 64 = 114 bytes) would say this entry is
+      // tiny; its REAL JSON-serialized size is far larger.
+      const largePayload = 'x'.repeat(5_000);
+      await cache.set('large', entry([{ blob: largePayload }]));
+      // A handful of genuinely small entries that the (correct) estimate should
+      // still comfortably admit under the same byte budget.
+      for (let i = 0; i < 3; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await cache.set(`small${i}`, entry([{ v: i }]));
+      }
+
+      // The oversized entry must have been evicted (its real size — thousands of
+      // bytes — blew through the 2,000-byte budget on its own), even though a
+      // pure row-count estimate at avgBytesPerRow=50 would never have evicted it.
+      expect(await cache.get('large')).toBeUndefined();
+      // The small entries, whose real content is tiny, must still fit.
+      expect(await cache.get('small2')).toBeDefined();
+    });
+
+    it('never estimates BELOW the configured avgBytesPerRow, even for a tiny sampled row', async () => {
+      // Floored at the configured average (Math.max(sampled, avgBytesPerRow)) —
+      // this keeps every pre-existing small-row test's byte arithmetic exactly
+      // as documented above (rows.length * avgBytesPerRow + 64) unchanged, since
+      // a tiny row's real serialized size never exceeds a generous configured
+      // average.
+      const cache = new LRUCacheProvider({ maxSizeBytes: 500, avgBytesPerRow: 100 });
+      await cache.set('k1', entry([{ v: 1 }]));
+      // Same byte-pressure scenario as the count-only tests above: writing
+      // enough small entries must still force eviction under the SAME
+      // configured-average arithmetic (164 bytes/entry), proving the floor is
+      // still in effect rather than the sampled (much smaller) real size
+      // silently shrinking the estimate.
+      for (let i = 0; i < 5; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await cache.set(`k${i}`, entry([{ v: i }]));
+      }
+      let present = 0;
+      for (let i = 0; i < 5; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        if (await cache.get(`k${i}`)) {
+          present += 1;
+        }
+      }
+      expect(present).toBeGreaterThan(0);
+      expect(present).toBeLessThan(5);
+    });
+
+    it('extrapolates a large-row estimate from a bounded sample across a result set bigger than the sample', async () => {
+      // A 25-row entry where every row is large — bigger than SIZE_SAMPLE_ROWS
+      // (20), so the estimate necessarily EXTRAPOLATES the sampled average
+      // across every row rather than measuring each one. A pure count-only
+      // estimate (25 rows * avgBytesPerRow(10) + 64 = 314 bytes) would let many
+      // such entries fit comfortably under a 30,000-byte budget; the real
+      // content (25 rows * ~1KB each ≈ 25KB per entry) means only ONE such
+      // entry fits at a time, forcing real eviction on every subsequent write.
+      const cache = new LRUCacheProvider({ maxSizeBytes: 30_000, avgBytesPerRow: 10 });
+      const bigRow = { blob: 'y'.repeat(1_000) };
+      const makeBigEntry = () => entry(Array.from({ length: 25 }, () => ({ ...bigRow })));
+
+      await cache.set('first', makeBigEntry());
+      await cache.set('second', makeBigEntry());
+      await cache.set('third', makeBigEntry());
+
+      // Only the most-recently-written large entry can fit under the byte
+      // budget once real content size is accounted for — the earliest one(s)
+      // must have been evicted.
+      expect(await cache.get('third')).toBeDefined();
+      expect(await cache.get('first')).toBeUndefined();
+    });
+  });
 });

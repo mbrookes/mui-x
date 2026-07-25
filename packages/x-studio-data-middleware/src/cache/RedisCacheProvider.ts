@@ -62,7 +62,16 @@
  * gone), and deletes the forward index itself.
  * `invalidatePrefix(prefix)` uses the reverse index to remove stale tag entries
  * for every key it deletes, keeping the forward index clean, and scans for
- * matching keys via `SCAN` (never the blocking `KEYS` command).
+ * matching keys via `SCAN` (never the blocking `KEYS` command), streaming one
+ * cursor page at a time instead of materializing the whole matching key set.
+ *
+ * Both invalidation paths delete in FIXED-SIZE BATCHES (`DEL_BATCH_SIZE` in
+ * `./redisCompat`). Spreading an unbounded key list into a single variadic
+ * `del(...keys)` throws `RangeError: Maximum call stack size exceeded` past
+ * V8's argument limit — before Redis is contacted at all — which
+ * `handleMutation` swallows as a best-effort warning while still reporting the
+ * write as `ok: true`, so the cache silently stops being invalidated exactly
+ * when it holds the most entries.
  *
  * Requires `sAdd`/`sadd`, `sMembers`/`smembers`, and `sRem`/`srem` on the Redis
  * client (all are included in ioredis and node-redis v4+). If the client
@@ -78,7 +87,27 @@
  */
 
 import type { CacheProvider, CacheEntry, CacheSetOpts } from './types';
-import { scanKeys as scanKeysCompat, setEx } from './redisCompat';
+import { DEL_BATCH_SIZE, delKeys, scanKeyPages, setEx } from './redisCompat';
+
+/**
+ * Structural check for a value deserialized out of Redis.
+ *
+ * `JSON.parse(raw) as CacheEntry` is an assertion, not a validation: ANY value
+ * that happens to parse as JSON — a host application's own key colliding with
+ * ours when no `keyPrefix` is configured, a partially-written value, an entry
+ * left behind by an older/newer schema — was returned as a cache HIT and handed
+ * to the read path as if it were a result set. The minimum invariant every
+ * consumer relies on is `rows` being an array, so anything else is treated as a
+ * miss (fail-closed: re-read from the authoritative DB).
+ */
+function isCacheEntryShape(value: unknown): value is CacheEntry {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Array.isArray((value as { rows?: unknown }).rows)
+  );
+}
 
 /**
  * Escape Redis glob metacharacters so a literal key prefix matches only itself in
@@ -188,6 +217,8 @@ export class RedisCacheProvider implements CacheProvider {
 
   private warnedTagsUnavailable = false;
 
+  private warnedMalformedEntry = false;
+
   constructor(redis: RedisClient, options: RedisCacheProviderOptions = {}) {
     this.redis = redis;
     this.defaultTtl = options.defaultTtlSeconds ?? 60;
@@ -201,11 +232,20 @@ export class RedisCacheProvider implements CacheProvider {
     if (!raw) {
       return undefined;
     }
+    let parsed: unknown;
     try {
-      return JSON.parse(raw) as CacheEntry;
+      parsed = JSON.parse(raw);
     } catch {
       return undefined;
     }
+    // Validate the SHAPE, not just the JSON-ness (see `isCacheEntryShape`): a
+    // foreign value stored under a colliding key parses fine and would
+    // otherwise be served as a result set.
+    if (!isCacheEntryShape(parsed)) {
+      this.warnMalformedEntry(key);
+      return undefined;
+    }
+    return parsed;
   }
 
   async set(key: string, value: CacheEntry, opts?: CacheSetOpts): Promise<void> {
@@ -238,24 +278,33 @@ export class RedisCacheProvider implements CacheProvider {
     // unrelated tenants (over-eviction). The stored keys keep their raw format;
     // only this match pattern is escaped.
     const pattern = `${escapeRedisGlob(this.prefix)}${escapeRedisGlob(prefix)}*`;
-    const keys = await this.scanKeys(pattern);
-    if (keys.length === 0) {
-      return;
-    }
-    // Clean up tag indexes when supported, so forward index stays accurate.
-    if (await this.tagOpsSupported()) {
-      for (const key of keys) {
-        const keyTagsKey = this.keyTagsKey(key);
-        // eslint-disable-next-line no-await-in-loop
-        const tags = await this.sMembers(keyTagsKey);
-        for (const tag of tags) {
+    const tagsSupported = await this.tagOpsSupported();
+    // Stream one SCAN page at a time and delete incrementally, rather than
+    // accumulating every matching key into one array and spreading it into a
+    // single `del(...keys)` (finding M1). A tenant's keyspace is unbounded, so
+    // the accumulating form was both a memory spike proportional to the
+    // keyspace and — past V8's spread-argument limit — a `RangeError` thrown
+    // before Redis was ever contacted, i.e. an invalidation that silently
+    // deleted nothing. Deleting while the cursor is open is safe: SCAN
+    // guarantees every key present for the whole iteration is returned.
+    for await (const page of scanKeyPages(this.redis, this.clientStyle, pattern, this.scanCount)) {
+      // Clean up tag indexes when supported, so the forward index stays accurate.
+      if (tagsSupported) {
+        for (const key of page) {
+          const keyTagsKey = this.keyTagsKey(key);
           // eslint-disable-next-line no-await-in-loop
-          await this.sRem(this.tagKey(tag), [key]);
+          const tags = await this.sMembers(keyTagsKey);
+          for (const tag of tags) {
+            // eslint-disable-next-line no-await-in-loop
+            await this.sRem(this.tagKey(tag), [key]);
+          }
         }
+        // eslint-disable-next-line no-await-in-loop
+        await delKeys(this.redis, [...page, ...page.map((k) => this.keyTagsKey(k))]);
+      } else {
+        // eslint-disable-next-line no-await-in-loop
+        await delKeys(this.redis, page);
       }
-      await this.redis.del(...keys, ...keys.map((k) => this.keyTagsKey(k)));
-    } else {
-      await this.redis.del(...keys);
     }
   }
 
@@ -271,10 +320,18 @@ export class RedisCacheProvider implements CacheProvider {
     if (keys.length === 0) {
       return;
     }
-    // Delete every tagged data key, its now-meaningless reverse-index entry,
-    // and the forward-index set itself, in one round-trip.
+    // Delete every tagged data key, its now-meaningless reverse-index entry, and
+    // the forward-index set itself — in FIXED-SIZE BATCHES (finding M1), never
+    // one variadic `del(...keys)` spread. The forward index accumulates one
+    // member per (tenant × security profile × query shape) within its TTL, so a
+    // single-call spread hit V8's argument limit and threw `RangeError` before
+    // reaching Redis; `handleMutation` then logged that as a best-effort warning
+    // and still reported `ok: true`, leaving every read stale for the full TTL.
+    // `tagKey` goes last so the forward index outlives its members: a failure
+    // mid-drain leaves the index pointing at already-deleted keys, which a retry
+    // simply re-deletes (safe), rather than orphaning live keys with no index.
     const ktagKeys = keys.map((key) => this.keyTagsKey(key));
-    await this.redis.del(...keys, ...ktagKeys, tagKey);
+    await delKeys(this.redis, [...keys, ...ktagKeys, tagKey]);
   }
 
   /** Redis key for the forward tag→keys index. */
@@ -300,18 +357,31 @@ export class RedisCacheProvider implements CacheProvider {
     );
   }
 
-  /** Normalized SADD — returns false (and does nothing) if unsupported. */
+  /**
+   * Normalized SADD — returns false (and does nothing) if unsupported.
+   *
+   * Members are added in fixed-size batches for the same reason `delKeys`
+   * batches (finding M1, sibling site): the ioredis arm spreads them into a
+   * variadic call, which has an engine argument ceiling. `tags` is host-supplied
+   * and small in practice, but "small in practice" is what made the `del`
+   * spread a latent failure rather than an obvious one.
+   */
   private async sAdd(key: string, members: string[]): Promise<boolean> {
-    if (typeof this.redis.sAdd === 'function') {
-      await this.redis.sAdd(key, members);
-      return true;
+    if (typeof this.redis.sAdd !== 'function' && typeof this.redis.sadd !== 'function') {
+      this.warnTagsUnavailable();
+      return false;
     }
-    if (typeof this.redis.sadd === 'function') {
-      await this.redis.sadd(key, ...members);
-      return true;
+    for (let i = 0; i < members.length; i += DEL_BATCH_SIZE) {
+      const chunk = members.slice(i, i + DEL_BATCH_SIZE);
+      if (typeof this.redis.sAdd === 'function') {
+        // eslint-disable-next-line no-await-in-loop
+        await this.redis.sAdd(key, chunk);
+      } else if (typeof this.redis.sadd === 'function') {
+        // eslint-disable-next-line no-await-in-loop
+        await this.redis.sadd(key, ...chunk);
+      }
     }
-    this.warnTagsUnavailable();
-    return false;
+    return true;
   }
 
   /** Normalized SMEMBERS — returns `[]` if unsupported. */
@@ -382,8 +452,22 @@ export class RedisCacheProvider implements CacheProvider {
     );
   }
 
-  /** SCAN-based key iteration (never the O(N) blocking KEYS command). */
-  private async scanKeys(pattern: string): Promise<string[]> {
-    return scanKeysCompat(this.redis, this.clientStyle, pattern, this.scanCount);
+  /**
+   * Warn (once per provider instance) that a stored value parsed as JSON but is
+   * not a `CacheEntry`. Once-only because the usual cause — a keyspace collision
+   * with the host's own Redis keys — recurs on every read of that key and would
+   * otherwise flood the logs.
+   */
+  private warnMalformedEntry(key: string): void {
+    if (this.warnedMalformedEntry) {
+      return;
+    }
+    this.warnedMalformedEntry = true;
+    console.warn(
+      `MUI X Studio Server: the value stored in Redis under cache key "${this.prefix}${key}" parsed as JSON but ` +
+        'is not a CacheEntry (no "rows" array). It is being treated as a cache MISS so the query re-reads from the ' +
+        'database rather than serving a foreign value as a result set. This usually means another writer shares ' +
+        "this Redis keyspace — set a distinct `keyPrefix` in RedisCacheProvider's options to namespace Studio's keys.",
+    );
   }
 }

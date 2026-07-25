@@ -83,8 +83,31 @@
  */
 
 import { detectClientStyle, escapeRedisGlob, type RedisClient } from './RedisCacheProvider';
-import { scanKeys as scanKeysCompat, setEx } from './redisCompat';
+import { delKeys, scanKeyPages, setEx } from './redisCompat';
 import type { TierCacheProvider, TierEntry } from './types';
+
+/** The three routing tiers a stored `TierEntry` may name. */
+const TIERS: ReadonlySet<string> = new Set(['client', 'server', 'db']);
+
+/**
+ * Structural check for a value deserialized out of Redis, mirroring
+ * `isCacheEntryShape` in `RedisCacheProvider` (finding L5 sibling site).
+ *
+ * `JSON.parse(raw) as TierEntry` is an assertion, not a validation: any value
+ * that parses as JSON — a host key colliding with ours when no `keyPrefix` is
+ * set, a `CacheEntry` written by a `RedisCacheProvider` sharing the keyspace, a
+ * partially-written value — was returned as a HIT and used to route the query,
+ * skipping the COUNT(*) preflight on a `tier` that may not even be one of the
+ * three valid tiers. Treat anything else as a miss (fail-closed: re-run the
+ * preflight).
+ */
+function isTierEntryShape(value: unknown): value is TierEntry {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const { tier, rowCount } = value as { tier?: unknown; rowCount?: unknown };
+  return typeof tier === 'string' && TIERS.has(tier) && typeof rowCount === 'number';
+}
 
 export interface RedisTierCacheProviderOptions {
   /**
@@ -121,6 +144,8 @@ export class RedisTierCacheProvider implements TierCacheProvider {
 
   private readonly scanCount: number;
 
+  private warnedMalformedEntry = false;
+
   constructor(redis: RedisClient, options: RedisTierCacheProviderOptions = {}) {
     this.redis = redis;
     this.defaultTtl = options.defaultTtlSeconds ?? 300;
@@ -134,11 +159,18 @@ export class RedisTierCacheProvider implements TierCacheProvider {
     if (!raw) {
       return undefined;
     }
+    let parsed: unknown;
     try {
-      return JSON.parse(raw) as TierEntry;
+      parsed = JSON.parse(raw);
     } catch {
       return undefined;
     }
+    // Validate the SHAPE, not just the JSON-ness (see `isTierEntryShape`).
+    if (!isTierEntryShape(parsed)) {
+      this.warnMalformedEntry(key);
+      return undefined;
+    }
+    return parsed;
   }
 
   async set(key: string, value: TierEntry, ttlMs?: number): Promise<void> {
@@ -155,14 +187,35 @@ export class RedisTierCacheProvider implements TierCacheProvider {
     // fix applied to the data-plane `RedisCacheProvider.invalidatePrefix` (finding 3.1
     // sibling site). The trailing `*` stays the only wildcard; stored key format unchanged.
     const pattern = `${escapeRedisGlob(this.prefix)}${escapeRedisGlob(prefix)}*`;
-    const keys = await this.scanKeys(pattern);
-    if (keys.length > 0) {
-      await this.redis.del(...keys);
+    // Stream one SCAN page at a time and delete in fixed-size batches — the same
+    // fix applied to the data-plane `RedisCacheProvider.invalidatePrefix`
+    // (finding M1 sibling site). Accumulating every matching key and spreading
+    // it into one variadic `del(...keys)` throws `RangeError: Maximum call stack
+    // size exceeded` past V8's argument limit, before Redis is ever contacted,
+    // so the eviction silently deletes nothing on exactly the large keyspaces
+    // that need it most.
+    for await (const page of scanKeyPages(this.redis, this.clientStyle, pattern, this.scanCount)) {
+      // eslint-disable-next-line no-await-in-loop
+      await delKeys(this.redis, page);
     }
   }
 
-  /** SCAN-based key iteration (never the O(N) blocking KEYS command). */
-  private async scanKeys(pattern: string): Promise<string[]> {
-    return scanKeysCompat(this.redis, this.clientStyle, pattern, this.scanCount);
+  /**
+   * Warn (once per provider instance) that a stored value parsed as JSON but is
+   * not a `TierEntry`. Once-only because the usual cause — a keyspace collision
+   * with another writer — recurs on every read of that key.
+   */
+  private warnMalformedEntry(key: string): void {
+    if (this.warnedMalformedEntry) {
+      return;
+    }
+    this.warnedMalformedEntry = true;
+    console.warn(
+      `MUI X Studio Server: the value stored in Redis under tier-cache key "${this.prefix}${key}" parsed as JSON ` +
+        'but is not a TierEntry (missing a valid "tier" of client/server/db and a numeric "rowCount"). It is being ' +
+        'treated as a cache MISS so the query re-runs its COUNT(*) preflight rather than routing on a foreign ' +
+        'value. This usually means another writer shares this Redis keyspace — set a distinct `keyPrefix` in ' +
+        "RedisTierCacheProvider's options to namespace the tier plane's keys.",
+    );
   }
 }

@@ -17,6 +17,8 @@
  * 3. WHERE-predicate columns validated against columnAllowlist per table
  * 4. UPDATE/DELETE require at least one WHERE predicate
  * 5. One failed mutation does not abort the rest of the batch (per-item isolation)
+ *    — the DEFAULT. Opt into all-or-nothing semantics with `atomic: true` (see
+ *    `AtomicMutationOptions` below).
  *
  * READ vs WRITE isolation asymmetry: the read path (`handleBatchQuery`) reports a
  * failing widget as its own per-widget `{ error }` while its siblings still
@@ -41,6 +43,9 @@
  *   down) is caught and logged, and the mutation still reports `ok: true`. A
  *   committed write reported as failed would prompt a client retry that inserts a
  *   duplicate row — strictly worse than a cache stale for ≤ its TTL (finding 2.6).
+ *   Under `atomic: true` the invalidation instead runs ONCE per distinct table
+ *   AFTER the transaction commits — evicting mid-transaction would let a
+ *   concurrent read re-populate the cache with rows that are about to roll back.
  */
 import type {
   JwtSecurityClaims,
@@ -84,6 +89,47 @@ import { getDefaultCache } from '../cache/defaultProviders';
  * `assertValidBatchMutationRequest`) rather than silently truncated.
  */
 export const MAX_MUTATIONS_PER_BATCH = 50;
+
+/**
+ * Opt-in transactional semantics for a mutation batch (finding M3).
+ *
+ * Declared here rather than on `HandleMutationOptions` (`security/mutationTypes.ts`)
+ * because that file is outside this change's boundary; it is an intersection on
+ * `handleMutation`'s `options` parameter, so callers pass it inline alongside the
+ * other options exactly as if it were declared there. Folding it into
+ * `HandleMutationOptions` proper is a follow-up.
+ */
+export interface AtomicMutationOptions {
+  /**
+   * Run the whole batch inside ONE database transaction, all-or-nothing.
+   *
+   * Default (`false` / omitted): every mutation is applied independently and in
+   * order, and a failure is isolated to its own `MutationResult` while its
+   * siblings still commit. That isolation is deliberate — but it left a host with
+   * NO way to get atomicity even when it explicitly wanted it. A batch such as
+   * `[insert parent, insert child-referencing-parent]` whose second item fails
+   * validation committed the parent and returned `[{ok:true}, {ok:false}]`, with
+   * no mechanism for the client to undo the orphan.
+   *
+   * With `atomic: true`, the batch runs inside `db.transaction(...)`; the
+   * transaction handle is passed to the builders in place of `db`, and the FIRST
+   * failure rolls everything back. The response then reports `ok: false` for
+   * EVERY item: the failing one carries its own error, and the rest carry a
+   * "rolled back" message — no mutation in the batch was applied. Requires the
+   * injected `db` to expose Knex's `transaction(callback)`.
+   *
+   * @default false
+   */
+  atomic?: boolean;
+}
+
+/**
+ * Internal sentinel thrown out of the `db.transaction` callback to trigger a
+ * ROLLBACK once a mutation in an atomic batch has failed. Never surfaced to the
+ * client — `runAtomicBatch` has already assembled the per-item results by the
+ * time it is thrown, and returns those instead.
+ */
+const ATOMIC_ROLLBACK_MESSAGE = 'MUI X: Atomic mutation batch rolled back';
 
 /**
  * Validate the shape of a batch mutation request body before touching it.
@@ -325,12 +371,13 @@ function assertValidBatchMutationRequest(body: BatchMutationRequest): void {
  *
  * @param body - Parsed request body (BatchMutationRequest)
  * @param claims - Verified JWT security claims from extractSecurityClaims()
- * @param options - Knex instance, allowlists, optional cache provider
+ * @param options - Knex instance, allowlists, optional cache provider, optional
+ *   `atomic` flag (see `AtomicMutationOptions`)
  */
 export async function handleMutation(
   body: BatchMutationRequest,
   claims: JwtSecurityClaims,
-  options: HandleMutationOptions,
+  options: HandleMutationOptions & AtomicMutationOptions,
 ): Promise<BatchMutationResponse> {
   assertValidBatchMutationRequest(body);
   const { schemaAllowlist, tenancy, securityColumns, columnAllowlist } = options;
@@ -362,6 +409,11 @@ export async function handleMutation(
     assertQualifiedWhereColumnsAllowed(mutation.where, schemaAllowlist);
   }
 
+  // ── Opt-in all-or-nothing batch (finding M3) ──────────────────────────────
+  if (options.atomic) {
+    return { results: await runAtomicBatch(body.mutations, claims, options, policy) };
+  }
+
   // ── Per-mutation processing — SEQUENTIAL with error isolation ─────────────
   // Mutations run in array order (not concurrently) so a batch like
   // `[insert row, update that row]` is deterministic: the update observes the
@@ -370,10 +422,157 @@ export async function handleMutation(
   const results: MutationResult[] = [];
   for (const descriptor of body.mutations) {
     // eslint-disable-next-line no-await-in-loop
-    results.push(await processMutation(descriptor, claims, options, policy));
+    results.push(
+      await processMutation(descriptor, claims, options, policy, {
+        db: options.db,
+        invalidateCache: true,
+      }),
+    );
   }
 
   return { results };
+}
+
+/**
+ * Run every mutation in the batch inside ONE `db.transaction`, rolling back on
+ * the first failure (finding M3 — `atomic: true`).
+ *
+ * The transaction handle replaces `db` for every builder call, so the whole
+ * batch commits or none of it does. On failure the returned results report
+ * `ok: false` for EVERY item — the failing one keeps its own (already
+ * sanitized) error, the others say the batch was rolled back — because after a
+ * rollback no mutation in the batch was applied, and reporting an item as
+ * `ok: true` when its row no longer exists would be a lie the client acts on.
+ *
+ * Cache invalidation is deliberately deferred to AFTER the commit: evicting
+ * mid-transaction would let a concurrent read re-populate the cache with rows
+ * that are about to disappear.
+ */
+async function runAtomicBatch(
+  mutations: MutationDescriptor[],
+  claims: JwtSecurityClaims,
+  options: HandleMutationOptions & AtomicMutationOptions,
+  policy: CompiledSecurityPolicy,
+): Promise<MutationResult[]> {
+  if (typeof options.db?.transaction !== 'function') {
+    throw new Error(
+      `MUI X Studio Server: "atomic: true" was requested, but the injected "db" does not expose a "transaction" method. ` +
+        `Without a transaction the batch cannot be rolled back, so running it would silently give per-item semantics ` +
+        `under a flag that promises all-or-nothing. ` +
+        `Pass a Knex instance (or any db object exposing "transaction(callback)"), or omit "atomic".`,
+    );
+  }
+
+  // Assembled inside the transaction callback; read back afterwards because the
+  // callback must THROW to make the driver roll back.
+  let results: MutationResult[] | undefined;
+
+  try {
+    await options.db.transaction(async (trx: unknown) => {
+      const applied: MutationResult[] = [];
+      for (const descriptor of mutations) {
+        // eslint-disable-next-line no-await-in-loop
+        const result = await processMutation(descriptor, claims, options, policy, {
+          db: trx,
+          invalidateCache: false,
+        });
+        applied.push(result);
+        if (!result.ok) {
+          results = mutations.map((m, index) =>
+            index === applied.length - 1
+              ? result
+              : {
+                  id: m.id,
+                  ok: false,
+                  error:
+                    `MUI X Studio Server: This mutation was rolled back because another mutation in the same ` +
+                    `"atomic" batch failed. No mutation in the batch was applied. ` +
+                    `Fix the failing mutation (see its own error) and resend the batch.`,
+                },
+          );
+          throw /* minify-error-disabled */ new Error(ATOMIC_ROLLBACK_MESSAGE);
+        }
+      }
+      results = applied;
+    });
+  } catch (err) {
+    if (results !== undefined) {
+      // Our own rollback sentinel — the per-item results are already assembled.
+      return results;
+    }
+    // The transaction itself failed (begin/commit error, lost connection, a
+    // host-side `db.transaction` that rejects). Nothing committed, so every item
+    // reports failure with a sanitized message.
+    const error = sanitizeBoundaryError(
+      err,
+      `MUI X Studio Server: The atomic mutation batch could not be committed and was rolled back. ` +
+        `The underlying cause has been logged server-side; inspect the server logs to diagnose it. ` +
+        `If it persists, verify the database connection and the mutations' table, column, and where-predicate configuration.`,
+    );
+    return mutations.map((m) => ({ id: m.id, ok: false, error }));
+  }
+
+  const committed = results ?? [];
+
+  // Post-commit cache invalidation — once per DISTINCT table, not once per
+  // mutation, since `deleteByTag` already evicts every entry for that table.
+  // Skipped unless everything actually committed: nothing changed in the
+  // database on a rollback, so there is nothing to evict. (`every` also guards
+  // the defensive case of a host `transaction()` that resolves despite its
+  // callback rejecting.)
+  if (committed.every((result) => result.ok)) {
+    const cacheProvider = options.cacheProvider ?? getDefaultCache();
+    for (const table of new Set(mutations.map((m) => m.table))) {
+      // eslint-disable-next-line no-await-in-loop
+      await invalidateTableCache(table, cacheProvider);
+    }
+  }
+
+  return committed;
+}
+
+/**
+ * Best-effort post-mutation cache eviction for one table.
+ *
+ * The write already committed by the time this runs, so a cache-backend failure
+ * must NOT flip the result to `ok: false` (a client retry would duplicate the
+ * row). Degrade to a logged warning: the cache is stale for ≤ its TTL, which is
+ * strictly better than reporting a committed write as failed (finding 2.6).
+ */
+async function invalidateTableCache(
+  table: string,
+  cacheProvider: NonNullable<HandleMutationOptions['cacheProvider']>,
+): Promise<void> {
+  try {
+    await cacheProvider.deleteByTag(table);
+  } catch (cacheErr) {
+    console.warn(
+      `MUI X Studio Server: post-mutation cache invalidation failed for table "${table}"; ` +
+        `the mutation committed successfully and is reported as such. Cached reads for this table may be ` +
+        `stale until their TTL expires — check the cache backend. ` +
+        `Cause: ${cacheErr instanceof Error ? cacheErr.message : String(cacheErr)}`,
+    );
+  }
+}
+
+/**
+ * Execution context for a single mutation — the connection it runs on, and
+ * whether it owns its own cache invalidation.
+ */
+interface ProcessMutationContext {
+  /**
+   * Knex instance OR transaction handle the builders must run against. Under
+   * `atomic: true` this is the `trx` handle, so the mutation joins the batch's
+   * transaction instead of auto-committing on its own connection.
+   */
+  db: any;
+  /**
+   * Whether this call performs its own post-mutation `deleteByTag`. False for an
+   * atomic batch, which invalidates once per table AFTER the commit — evicting
+   * inside the transaction would let a concurrent read re-cache rows that are
+   * about to roll back.
+   */
+  invalidateCache: boolean;
 }
 
 async function processMutation(
@@ -381,12 +580,10 @@ async function processMutation(
   claims: JwtSecurityClaims,
   options: HandleMutationOptions,
   policy: CompiledSecurityPolicy,
+  context: ProcessMutationContext,
 ): Promise<MutationResult> {
-  const { db, writableColumns, columnAllowlist } = options;
-  // Fall back to the SAME process-wide default cache `handleBatchQuery` uses when
-  // no `cacheProvider` is passed, so a zero-config host still invalidates the read
-  // path's default cache after a write (finding 2.2).
-  const cacheProvider = options.cacheProvider ?? getDefaultCache();
+  const { writableColumns, columnAllowlist } = options;
+  const { db } = context;
 
   try {
     // Validate operation type
@@ -456,19 +653,12 @@ async function processMutation(
     // ── Post-mutation cache invalidation ──────────────────────────────────
     // Evict all cached query results tagged with this table so the next read
     // fetches fresh rows from the DB — no manual /api/invalidate call needed.
-    // The write already committed, so a cache-backend failure here must NOT flip
-    // the result to `ok: false` (a client retry would duplicate the row). Catch
-    // and degrade to a logged warning; the cache is stale for ≤ its TTL, which is
-    // strictly better than reporting a committed write as failed (finding 2.6).
-    try {
-      await cacheProvider.deleteByTag(descriptor.table);
-    } catch (cacheErr) {
-      console.warn(
-        `MUI X Studio Server: post-mutation cache invalidation failed for table "${descriptor.table}"; ` +
-          `the mutation committed successfully and is reported as such. Cached reads for this table may be ` +
-          `stale until their TTL expires — check the cache backend. ` +
-          `Cause: ${cacheErr instanceof Error ? cacheErr.message : String(cacheErr)}`,
-      );
+    // Skipped inside an atomic batch, which invalidates after COMMIT instead
+    // (see `runAtomicBatch`). Falls back to the SAME process-wide default cache
+    // `handleBatchQuery` uses when no `cacheProvider` is passed, so a zero-config
+    // host still invalidates the read path's default cache (finding 2.2).
+    if (context.invalidateCache) {
+      await invalidateTableCache(descriptor.table, options.cacheProvider ?? getDefaultCache());
     }
 
     return { id: descriptor.id, ok: true, rowsAffected };

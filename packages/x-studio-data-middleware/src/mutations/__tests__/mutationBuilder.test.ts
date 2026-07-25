@@ -6,7 +6,7 @@
  * The mock's `insert` / `update` / `delete` methods mutate an in-memory table and
  * return row counts matching the real Knex contract.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   validateMutation,
   buildInsertMutation,
@@ -1106,7 +1106,7 @@ describe('INSERT fail-closed region/department scope on omission (finding 2.2)',
         policy: MT_POLICY,
         writableColumns: { orders: ['status', 'region_id'] },
       }),
-    ).toThrow(/must set an in-scope "region_id"/);
+    ).toThrow(/must set an in-scope value for that table's region column/);
   });
 
   it('REJECTS an insert that omits region_id when the caller has ZERO authorized regions', () => {
@@ -1121,7 +1121,7 @@ describe('INSERT fail-closed region/department scope on omission (finding 2.2)',
         policy: MT_POLICY,
         writableColumns: { orders: ['status', 'region_id'] },
       }),
-    ).toThrow(/must set an in-scope "region_id"/);
+    ).toThrow(/must set an in-scope value for that table's region column/);
   });
 
   it('does NOT throw from validateMutation when the caller has exactly ONE authorized region (auto-stampable)', () => {
@@ -1164,7 +1164,7 @@ describe('INSERT fail-closed region/department scope on omission (finding 2.2)',
       values: { status: 'ok' },
     };
     expect(() => buildInsertMutation(db, MULTI_REGION_CLAIMS, descriptor, MT_POLICY)).toThrow(
-      /must set an in-scope "region_id"/,
+      /must set an in-scope value for that table's region column/,
     );
     // Nothing was inserted.
     expect(db.snapshot().orders).toHaveLength(0);
@@ -1616,5 +1616,235 @@ describe('builder present-value scope check (finding 3.2)', () => {
       MT_POLICY,
     );
     expect(updateDb.snapshot().orders[0].status).toBe('shipped');
+  });
+});
+
+// ── Mutation value SHAPE validation (finding M2) ──────────────────────────────
+//
+// Regression: `validateMutation` checked value KEYS against `writableColumns`,
+// the RLS scope and the qualified-key rule, but never inspected the VALUES —
+// and `handleMutation`'s only value bound (`MAX_STRING_VALUE_LENGTH`) applies
+// exclusively to values that are ALREADY strings. So an object/array value
+// passed every check in the package and reached `db(table).insert(values)`,
+// where mysql2 coerces it to the literal string "[object Object]" and silently
+// writes it (data corruption reported as `ok: true`) while pg raises an opaque
+// driver error. This mirrors the read path's `isScalarComparisonValue` guard.
+
+describe('mutationBuilder — non-scalar mutation values are rejected fail-closed', () => {
+  const nonScalars: Array<[string, unknown]> = [
+    ['a nested object', { a: { b: 1 } }],
+    ['an array', [1, 2, 3]],
+    ['a function', () => 'nope'],
+    ['undefined', undefined],
+  ];
+
+  for (const [label, value] of nonScalars) {
+    it(`validateMutation rejects ${label} in insert values`, () => {
+      const descriptor: MutationDescriptor = {
+        id: 'm1',
+        operation: 'insert',
+        table: 'orders',
+        values: { notes: value },
+      };
+      expect(() => validateMutation(descriptor, CLAIMS, { policy: ST_POLICY })).toThrow(
+        /only scalar values \(string, number, boolean, null, Date\) may be written/,
+      );
+    });
+  }
+
+  it('validateMutation rejects a non-scalar in update values', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'update',
+      table: 'orders',
+      values: { notes: { deep: { deeper: [1, 2] } } },
+      where: [{ column: 'id', operator: 'eq', value: 1 }],
+    };
+    expect(() => validateMutation(descriptor, CLAIMS, { policy: ST_POLICY })).toThrow(
+      /only scalar values/,
+    );
+  });
+
+  it('accepts every legitimate scalar shape (string, number, boolean, null, Date)', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: {
+        status: 'ok',
+        total: 12.5,
+        paid: true,
+        cancelled_at: null,
+        created_at: new Date('2024-01-01T00:00:00.000Z'),
+      },
+    };
+    expect(() => validateMutation(descriptor, CLAIMS, { policy: ST_POLICY })).not.toThrow();
+  });
+
+  // Defense-in-depth: the builders re-check, so a DIRECT caller that skipped
+  // `validateMutation` still cannot reach the driver with a non-scalar value.
+  it('buildInsertMutation re-checks and inserts nothing', () => {
+    const db = createMutableMockDb({ orders: [] });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { notes: { a: 1 } },
+    };
+    expect(() => buildInsertMutation(db, CLAIMS, descriptor, ST_POLICY)).toThrow(
+      /only scalar values/,
+    );
+    expect(db.snapshot().orders).toHaveLength(0);
+  });
+
+  it('buildUpdateMutation re-checks and leaves the row untouched', () => {
+    const db = createMutableMockDb({ orders: [{ id: 1, status: 'pending' }] });
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'update',
+      table: 'orders',
+      values: { status: ['a'] },
+      where: [{ column: 'id', operator: 'eq', value: 1 }],
+    };
+    expect(() => buildUpdateMutation(db, CLAIMS, descriptor, ST_POLICY)).toThrow(
+      /only scalar values/,
+    );
+    expect(db.snapshot().orders[0].status).toBe('pending');
+  });
+});
+
+// ── RLS column-name non-disclosure (finding L3) ───────────────────────────────
+//
+// Regression: every row-level-security rejection named the offending COLUMN, and
+// those messages reach the client verbatim (`handleMutation` →
+// `sanitizeBoundaryError` passes `MUI X`-prefixed messages through). Probing
+// `values: { tenant_id: 1 }`, `{ org_id: 1 }`, … therefore read the deployment's
+// tenancy/region/department schema straight out of the rejections — the one place
+// the package's own non-disclosure posture (`shared/columnValidation.ts`) was not
+// applied.
+
+describe('mutationBuilder — RLS column names stay server-side', () => {
+  const REGION_SCOPED_CLAIMS = {
+    tenantId: 'acme',
+    userId: 'u1',
+    roleIds: ['editor'],
+    regionIds: [5],
+  };
+  const DEPT_SCOPED_CLAIMS = {
+    tenantId: 'acme',
+    userId: 'u1',
+    roleIds: ['editor'],
+    department: 'Sales',
+  };
+  // A department column with a NON-default name, so "the message doesn't leak the
+  // column name" is actually observable (the default name is the bare word
+  // "department", which the class-of-violation wording legitimately contains).
+  const DEPT_POLICY = {
+    tenancy: MULTI_TENANT,
+    securityColumns: { department: 'dept_code' },
+  } as const;
+
+  /** Run `fn`, returning the thrown message plus everything logged via console.warn. */
+  function captureRejection(fn: () => void): { message: string; warned: string } {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    let message = '';
+    try {
+      fn();
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    const warned = warnSpy.mock.calls.map((call) => String(call[0])).join('\n');
+    warnSpy.mockRestore();
+    return { message, warned };
+  }
+
+  it('a client-supplied tenant column is rejected without naming the column', () => {
+    const { message, warned } = captureRejection(() =>
+      validateMutation(
+        {
+          id: 'm1',
+          operation: 'insert',
+          table: 'orders',
+          values: { tenant_id: 'victim' },
+        },
+        CLAIMS,
+        { policy: MT_POLICY },
+      ),
+    );
+    expect(message).toMatch(/tenant isolation column/);
+    expect(message).not.toMatch(/tenant_id/);
+    expect(warned).toMatch(/tenant_id/);
+  });
+
+  it('an out-of-scope region value is rejected without naming the region column', () => {
+    const { message, warned } = captureRejection(() =>
+      validateMutation(
+        {
+          id: 'm1',
+          operation: 'insert',
+          table: 'orders',
+          values: { region_id: 999 },
+        },
+        REGION_SCOPED_CLAIMS,
+        { policy: MT_POLICY },
+      ),
+    );
+    expect(message).toMatch(/outside the caller's permitted regions/);
+    expect(message).not.toMatch(/region_id/);
+    expect(warned).toMatch(/region_id/);
+  });
+
+  it('a non-scalar region value is rejected without naming the region column', () => {
+    const { message, warned } = captureRejection(() =>
+      validateMutation(
+        {
+          id: 'm1',
+          operation: 'insert',
+          table: 'orders',
+          values: { region_id: [5] },
+        },
+        REGION_SCOPED_CLAIMS,
+        { policy: MT_POLICY },
+      ),
+    );
+    expect(message).toMatch(/must be a scalar region identifier/);
+    expect(message).not.toMatch(/region_id/);
+    expect(warned).toMatch(/region_id/);
+  });
+
+  it('an out-of-scope department value is rejected without naming the department column', () => {
+    const { message, warned } = captureRejection(() =>
+      validateMutation(
+        {
+          id: 'm1',
+          operation: 'insert',
+          table: 'orders',
+          values: { dept_code: 'Finance' },
+        },
+        DEPT_SCOPED_CLAIMS,
+        { policy: DEPT_POLICY },
+      ),
+    );
+    expect(message).toMatch(/outside the caller's department/);
+    expect(message).not.toMatch(/dept_code/);
+    expect(warned).toMatch(/dept_code/);
+  });
+
+  it('a required-but-omitted region on insert is rejected without naming the region column', () => {
+    const { message, warned } = captureRejection(() =>
+      validateMutation(
+        {
+          id: 'm1',
+          operation: 'insert',
+          table: 'orders',
+          values: { status: 'ok' },
+        },
+        { tenantId: 'acme', userId: 'u1', roleIds: ['editor'], regionIds: [5, 6] },
+        { policy: MT_POLICY },
+      ),
+    );
+    expect(message).toMatch(/must set an in-scope value for that table's region column/);
+    expect(message).not.toMatch(/region_id/);
+    expect(warned).toMatch(/region_id/);
   });
 });

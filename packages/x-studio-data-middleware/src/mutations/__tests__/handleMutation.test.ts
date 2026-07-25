@@ -8,8 +8,9 @@
  * - Tenant isolation enforced on each operation
  * - Cache invalidation called per successful mutation
  * - Unknown operation produces per-item error (not a batch throw)
+ * - Opt-in `atomic: true` all-or-nothing batches (finding M3)
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { handleMutation, MAX_MUTATIONS_PER_BATCH } from '../handleMutation';
 import {
   MAX_ARRAY_ITEMS_PER_DESCRIPTOR,
@@ -106,6 +107,29 @@ function createMutableMockDb(initialTables: Record<string, Row[]>) {
       result[k] = v.map((r) => ({ ...r }));
     }
     return result;
+  };
+
+  db.transactionCount = 0;
+  db.rollbackCount = 0;
+  /**
+   * Knex-shaped `transaction(callback)` for the `atomic: true` path (finding M3).
+   * Takes a snapshot up front, runs the callback against the same query builder,
+   * and RESTORES the snapshot when the callback rejects — i.e. a real rollback,
+   * so a test can assert that a failed atomic batch left no committed rows.
+   */
+  db.transaction = async (callback: (trx: unknown) => Promise<unknown>) => {
+    const backup = db.snapshot();
+    db.transactionCount += 1;
+    try {
+      return await callback(db);
+    } catch (err) {
+      db.rollbackCount += 1;
+      for (const key of Object.keys(tables)) {
+        delete tables[key];
+      }
+      Object.assign(tables, backup);
+      throw err;
+    }
   };
 
   return db;
@@ -1244,5 +1268,347 @@ describe('handleMutation — batch ordering', () => {
       status: 'processed',
       tenant_id: 'acme',
     });
+  });
+});
+
+// ── Opt-in atomic batches (finding M3) ────────────────────────────────────────
+//
+// Regression: batch mutations were not transactional and the package contained
+// no rollback of any kind, so `[insert parent, insert child-that-fails]` left the
+// parent committed with `[{ok:true},{ok:false}]` returned and no way for the
+// client to undo it. The per-item isolation is deliberate and stays the DEFAULT;
+// `atomic: true` is the new opt-in for hosts that want all-or-nothing.
+
+describe('handleMutation — atomic batches', () => {
+  it('commits every mutation when the whole batch succeeds', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const body: BatchMutationRequest = {
+      mutations: [
+        { id: 'm1', operation: 'insert', table: 'orders', values: { id: 1, status: 'new' } },
+        {
+          id: 'm2',
+          operation: 'update',
+          table: 'orders',
+          values: { status: 'processed' },
+          where: [{ column: 'id', operator: 'eq', value: 1 }],
+        },
+      ],
+    };
+
+    const { results } = await handleMutation(body, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      tenancy: MULTI_TENANT,
+      atomic: true,
+    });
+
+    expect(results.every((r) => r.ok)).toBe(true);
+    expect(db.transactionCount).toBe(1);
+    expect(db.rollbackCount).toBe(0);
+    expect(db.snapshot().orders[0]).toMatchObject({ id: 1, status: 'processed' });
+  });
+
+  it('rolls back an earlier committed insert when a later mutation fails', async () => {
+    const db = createMutableMockDb({ orders: [], customers: [] });
+    const body: BatchMutationRequest = {
+      mutations: [
+        { id: 'parent', operation: 'insert', table: 'customers', values: { id: 7, name: 'Ada' } },
+        // Rejected by the writable-columns allowlist — the pre-fix behavior left
+        // the parent row committed with no way to undo it.
+        {
+          id: 'child',
+          operation: 'insert',
+          table: 'orders',
+          values: { customer_id: 7, internal_notes: 'nope' },
+        },
+      ],
+    };
+
+    const { results } = await handleMutation(body, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      tenancy: MULTI_TENANT,
+      writableColumns: { customers: ['id', 'name'], orders: ['customer_id'] },
+      atomic: true,
+    });
+
+    // Every item reports failure — nothing in the batch was applied.
+    expect(results.map((r) => r.ok)).toEqual([false, false]);
+    expect(results[0].error).toMatch(/rolled back because another mutation/);
+    expect(results[1].error).toMatch(/not in the column allowlist/);
+    // …and the DB proves it: the parent insert was rolled back.
+    expect(db.rollbackCount).toBe(1);
+    expect(db.snapshot().customers).toHaveLength(0);
+    expect(db.snapshot().orders).toHaveLength(0);
+  });
+
+  it('rolls back an [update A, update B] pair when B fails', async () => {
+    const db = createMutableMockDb({
+      orders: [
+        { id: 1, status: 'pending', tenant_id: 'acme' },
+        { id: 2, status: 'pending', tenant_id: 'acme' },
+      ],
+    });
+    const body: BatchMutationRequest = {
+      mutations: [
+        {
+          id: 'a',
+          operation: 'update',
+          table: 'orders',
+          values: { status: 'shipped' },
+          where: [{ column: 'id', operator: 'eq', value: 1 }],
+        },
+        // No `where` — rejected by the required-predicate invariant.
+        { id: 'b', operation: 'update', table: 'orders', values: { status: 'shipped' } },
+      ],
+    };
+
+    const { results } = await handleMutation(body, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      tenancy: MULTI_TENANT,
+      atomic: true,
+    });
+
+    expect(results.map((r) => r.ok)).toEqual([false, false]);
+    // Row 1's update was undone — it is still 'pending'.
+    expect(db.snapshot().orders.find((r) => r.id === 1)?.status).toBe('pending');
+  });
+
+  it('keeps per-item isolation (and opens no transaction) by DEFAULT', async () => {
+    const db = createMutableMockDb({ orders: [], customers: [] });
+    const body: BatchMutationRequest = {
+      mutations: [
+        { id: 'parent', operation: 'insert', table: 'customers', values: { id: 7, name: 'Ada' } },
+        { id: 'child', operation: 'insert', table: 'orders', values: { internal_notes: 'nope' } },
+      ],
+    };
+
+    const { results } = await handleMutation(body, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      tenancy: MULTI_TENANT,
+      writableColumns: { customers: ['id', 'name'], orders: ['customer_id'] },
+    });
+
+    // Unchanged default behavior: the first mutation still commits.
+    expect(results.map((r) => r.ok)).toEqual([true, false]);
+    expect(db.transactionCount).toBe(0);
+    expect(db.snapshot().customers).toHaveLength(1);
+  });
+
+  it('invalidates the cache ONCE per distinct table, after the commit', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const cacheProvider = makeCacheProvider();
+    const body: BatchMutationRequest = {
+      mutations: [
+        { id: 'm1', operation: 'insert', table: 'orders', values: { id: 1, status: 'a' } },
+        { id: 'm2', operation: 'insert', table: 'orders', values: { id: 2, status: 'b' } },
+      ],
+    };
+
+    await handleMutation(body, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      tenancy: MULTI_TENANT,
+      cacheProvider,
+      atomic: true,
+    });
+
+    expect(cacheProvider.deletedTags).toEqual(['orders']);
+  });
+
+  it('does not invalidate the cache at all when the batch rolls back', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const cacheProvider = makeCacheProvider();
+    const body: BatchMutationRequest = {
+      mutations: [
+        { id: 'm1', operation: 'insert', table: 'orders', values: { id: 1, status: 'a' } },
+        // Missing `where` — fails, rolling the batch back.
+        { id: 'm2', operation: 'delete', table: 'orders' },
+      ],
+    };
+
+    const { results } = await handleMutation(body, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      tenancy: MULTI_TENANT,
+      cacheProvider,
+      atomic: true,
+    });
+
+    expect(results.every((r) => r.ok === false)).toBe(true);
+    expect(cacheProvider.deletedTags).toEqual([]);
+  });
+
+  it('rejects atomic: true when the injected db exposes no transaction()', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    // A minimal host db (e.g. a hand-rolled query builder) with no transaction support.
+    const dbWithoutTransactions = ((table: string) => db(table)) as any;
+    const body: BatchMutationRequest = {
+      mutations: [{ id: 'm1', operation: 'insert', table: 'orders', values: { status: 'ok' } }],
+    };
+
+    await expect(
+      handleMutation(body, CLAIMS, {
+        db: dbWithoutTransactions,
+        schemaAllowlist: ALLOWLIST,
+        tenancy: MULTI_TENANT,
+        atomic: true,
+      }),
+    ).rejects.toThrow(/does not expose a "transaction" method/);
+  });
+
+  it('reports every item as failed with a sanitized message when the transaction itself throws', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const db = createMutableMockDb({ orders: [] });
+    db.transaction = async () => {
+      // A raw driver-shaped failure — must never reach the client verbatim.
+      throw new Error('SQLITE_BUSY: database is locked (orders.tenant_id)');
+    };
+    const body: BatchMutationRequest = {
+      mutations: [
+        { id: 'm1', operation: 'insert', table: 'orders', values: { status: 'a' } },
+        { id: 'm2', operation: 'insert', table: 'orders', values: { status: 'b' } },
+      ],
+    };
+
+    const { results } = await handleMutation(body, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      tenancy: MULTI_TENANT,
+      atomic: true,
+    });
+
+    expect(results.map((r) => r.id)).toEqual(['m1', 'm2']);
+    expect(results.every((r) => r.ok === false)).toBe(true);
+    for (const result of results) {
+      expect(result.error).toMatch(/could not be committed and was rolled back/);
+      expect(result.error).not.toMatch(/SQLITE_BUSY/);
+    }
+    warnSpy.mockRestore();
+  });
+});
+
+// ── Mutation value shape (finding M2) ─────────────────────────────────────────
+//
+// Regression: `values` KEYS were validated three ways but the VALUES themselves
+// never were — a non-string value skipped the MAX_STRING_VALUE_LENGTH cap
+// entirely and reached `db(table).insert(values)`, where mysql2 silently writes
+// "[object Object]" and pg raises an opaque error.
+
+describe('handleMutation — non-scalar mutation values', () => {
+  it('rejects a nested-object value instead of writing it, and writes no row', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const body: BatchMutationRequest = {
+      mutations: [
+        {
+          id: 'm1',
+          operation: 'insert',
+          table: 'orders',
+          values: { notes: { a: Array.from({ length: 1_000 }, (_unused, i) => i) } } as any,
+        },
+      ],
+    };
+
+    const { results } = await handleMutation(body, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      tenancy: SINGLE_TENANT,
+    });
+
+    expect(results[0].ok).toBe(false);
+    expect(results[0].error).toMatch(/only scalar values/);
+    expect(db.snapshot().orders).toHaveLength(0);
+  });
+
+  it('rejects an array value on update and leaves the row untouched', async () => {
+    const db = createMutableMockDb({ orders: [{ id: 1, status: 'pending' }] });
+    const body: BatchMutationRequest = {
+      mutations: [
+        {
+          id: 'm1',
+          operation: 'update',
+          table: 'orders',
+          values: { status: ['a', 'b'] } as any,
+          where: [{ column: 'id', operator: 'eq', value: 1 }],
+        },
+      ],
+    };
+
+    const { results } = await handleMutation(body, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      tenancy: SINGLE_TENANT,
+    });
+
+    expect(results[0].ok).toBe(false);
+    expect(results[0].error).toMatch(/only scalar values/);
+    expect(db.snapshot().orders[0].status).toBe('pending');
+  });
+
+  it('still accepts every legitimate scalar (string, number, boolean, null)', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const body: BatchMutationRequest = {
+      mutations: [
+        {
+          id: 'm1',
+          operation: 'insert',
+          table: 'orders',
+          values: { status: 'ok', total: 12.5, paid: true, cancelled_at: null },
+        },
+      ],
+    };
+
+    const { results } = await handleMutation(body, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      tenancy: SINGLE_TENANT,
+    });
+
+    expect(results[0]).toMatchObject({ id: 'm1', ok: true });
+    expect(db.snapshot().orders[0]).toMatchObject({
+      status: 'ok',
+      total: 12.5,
+      paid: true,
+      cancelled_at: null,
+    });
+  });
+});
+
+// ── Row-level-security column non-disclosure (finding L3) ─────────────────────
+
+describe('handleMutation — RLS column names are not disclosed to the client', () => {
+  it('does not name the tenant column in the client-facing error, but logs it server-side', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const db = createMutableMockDb({ orders: [] });
+    const body: BatchMutationRequest = {
+      mutations: [
+        {
+          id: 'm1',
+          operation: 'insert',
+          table: 'orders',
+          values: { status: 'ok', tenant_id: 'victim' },
+        },
+      ],
+    };
+
+    const { results } = await handleMutation(body, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      tenancy: MULTI_TENANT,
+      writableColumns: { orders: ['status', 'tenant_id'] },
+    });
+
+    expect(results[0].ok).toBe(false);
+    // The class of violation is still stated…
+    expect(results[0].error).toMatch(/tenant isolation column/);
+    // …but the column NAME never reaches the client (it would confirm the
+    // deployment's tenancy schema to any authenticated prober).
+    expect(results[0].error).not.toMatch(/tenant_id/);
+    // The operator still gets the full detail server-side.
+    const warned = warnSpy.mock.calls.map((call) => String(call[0])).join('\n');
+    expect(warned).toMatch(/tenant_id/);
+    warnSpy.mockRestore();
   });
 });

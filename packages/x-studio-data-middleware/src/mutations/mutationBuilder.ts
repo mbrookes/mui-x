@@ -25,6 +25,20 @@
  *      matches on bare column names).
  *   6. Region/department scope is validated on INSERT/UPDATE values so a caller
  *      restricted to a region/department cannot write outside it.
+ *   7. Value SHAPES are validated, not just value KEYS: a mutation value must be a
+ *      scalar (`string | number | boolean | null | Date`), mirroring the read path's
+ *      `isScalarComparisonValue` guard on filter values. An array/object value is
+ *      rejected fail-closed rather than handed to the driver, where it is either
+ *      silently coerced to `"[object Object]"` (mysql2 — data corruption reported as
+ *      success) or raises an opaque error (pg). See `validateMutationValues`.
+ *
+ * NON-DISCLOSURE POSTURE: errors thrown here are returned to the client verbatim
+ * (`handleMutation` → `sanitizeBoundaryError` passes `MUI X`-prefixed messages
+ * through), so no message names a row-level-security COLUMN — otherwise a caller
+ * could probe `values: { tenant_id: 1 }`, `{ org_id: 1 }`, … and read the deployment's
+ * tenancy/region/department schema straight out of the rejections. The full detail is
+ * `console.warn`-ed server-side, the same split `shared/columnValidation.ts` applies
+ * to a column-allowlist rejection.
  *
  * OWASP note: Parameterized queries (Defense Option 1) are used throughout.
  * No raw SQL strings are constructed from user input.
@@ -85,22 +99,110 @@ function rejectQualifiedValueKeys(values: Record<string, unknown>, table: string
 }
 
 /**
+ * Is `value` a legitimate scalar for a mutation `values` entry?
+ *
+ * Deliberately the same primitive allowlist `shared/predicates.ts`'s
+ * `isScalarComparisonValue` applies to READ filter values — the write path had
+ * no value-shape guard at all, which is the asymmetry this closes (finding M2).
+ * `null` is accepted (writing SQL NULL is a legitimate mutation); `Date` is
+ * accepted because a date-typed column value legitimately flows through as a
+ * `Date` and every driver binds it natively.
+ */
+function isScalarMutationValue(value: unknown): boolean {
+  return (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    value instanceof Date
+  );
+}
+
+/** Describe a rejected mutation value's shape for an error message. */
+function describeMutationValueShape(value: unknown): string {
+  if (value === undefined) {
+    return 'undefined';
+  }
+  if (Array.isArray(value)) {
+    return 'an array';
+  }
+  return `a value of type "${typeof value}"`;
+}
+
+/**
+ * Reject any non-scalar value in a mutation's `values` (finding M2).
+ *
+ * Before this check, `values` keys were validated three ways (writable-column
+ * allowlist, row-level-security scope, qualified-key rejection) but the VALUES
+ * themselves were never inspected — only their length, and only when they were
+ * already strings (`handleMutation`'s `MAX_STRING_VALUE_LENGTH` cap). So
+ * `{ notes: { a: [ …100k entries… ] } }` passed every check in the package and
+ * reached `db(table).insert(values)` directly, where the outcome is
+ * driver-dependent and uniformly bad: `mysql2` coerces the object to the literal
+ * string `"[object Object]"` and SILENTLY writes it to a TEXT column (data
+ * corruption reported to the client as `ok: true`), while `pg` raises an opaque
+ * driver error that `sanitizeBoundaryError` flattens into the generic
+ * "could not be completed" message. Neither is diagnosable, and neither bounds
+ * the value's size or nesting depth.
+ *
+ * Fail closed instead: a mutation value must be a scalar the driver can bind
+ * unambiguously. A host with a genuine JSON column serializes it itself
+ * (`JSON.stringify`) before sending, which also makes the
+ * `MAX_STRING_VALUE_LENGTH` cap apply to it.
+ */
+function validateMutationValues(values: Record<string, unknown>, table: string): void {
+  for (const [key, value] of Object.entries(values)) {
+    if (!isScalarMutationValue(value)) {
+      throw new Error(
+        `MUI X Studio Server: Mutation value for column "${key}" on table "${table}" is ` +
+          `${describeMutationValueShape(value)}, but only scalar values (string, number, boolean, null, Date) ` +
+          `may be written. ` +
+          `A non-scalar value has no unambiguous column binding — depending on the driver it is silently coerced ` +
+          `to "[object Object]" and written as corrupt data, or it raises an opaque driver error — and it is ` +
+          `unbounded in size and nesting depth. ` +
+          `Send a scalar for "${key}"; if the column stores JSON, serialize the value yourself before sending it.`,
+      );
+    }
+  }
+}
+
+/**
  * Validate the row-level-security scope carried in a mutation's `values`.
  *
  * - The tenant column may never be client-supplied (the server sets it).
  * - When the caller is region/department restricted, any region/department value
  *   present in `values` must fall inside the caller's scope — otherwise a
  *   region-5 user could stamp a row into region 6.
+ *
+ * INFORMATION DISCLOSURE (finding L3): every throw below reaches the client
+ * verbatim (`handleMutation` → `sanitizeBoundaryError` passes `MUI X`-prefixed
+ * messages through unchanged), so none of them names the row-level-security
+ * COLUMN. Naming it turned a rejected write into a schema oracle: probing
+ * `values: { tenant_id: 1 }`, `{ org_id: 1 }`, … until the message changed
+ * confirmed the deployment's exact tenant/region/department column names. The
+ * full detail — including the column name — is `console.warn`-ed server-side
+ * instead, exactly the split `shared/columnValidation.ts` already applies to a
+ * column-allowlist rejection. The client still learns the CLASS of violation,
+ * which is all it needs to fix its own request.
  */
 function validateSecurityColumnValues(
   values: Record<string, unknown>,
   claims: JwtSecurityClaims,
   cols: SecurityColumns,
+  table: string,
 ): void {
   if (cols.tenant && Object.prototype.hasOwnProperty.call(values, cols.tenant)) {
+    console.warn(
+      `MUI X Studio Server: Column "${cols.tenant}" on table "${table}" cannot be set by client mutations ` +
+        `(it is the tenant isolation column and is controlled by the server). ` +
+        `The client-facing error omits the column name so a rejected mutation cannot be used to probe it.`,
+    );
     throw new Error(
-      `MUI X Studio Server: Column "${cols.tenant}" cannot be set by client mutations ` +
-        `(it is the tenant isolation column and is controlled by the server).`,
+      `MUI X Studio Server: A mutation on table "${table}" set this table's tenant isolation column, which is ` +
+        `controlled by the server and can never be supplied by a client. ` +
+        `The column is not named here because that would let a rejected mutation be used to discover the ` +
+        `deployment's tenancy schema; it is logged server-side instead. ` +
+        `Remove the server-controlled tenancy column from "values" — the server stamps it from the caller's own claims.`,
     );
   }
 
@@ -121,10 +223,16 @@ function validateSecurityColumnValues(
     // into the region column. A region is always a single scalar (number/string),
     // so anything that stringifies from an object is not a valid region value.
     if (region !== null && typeof region === 'object') {
+      console.warn(
+        `MUI X Studio Server: Column "${cols.region}" on table "${table}" received ${Array.isArray(region) ? 'an array' : 'an object'} ` +
+          `instead of a scalar region identifier. ` +
+          `The client-facing error omits the column name so a rejected mutation cannot be used to probe it.`,
+      );
       throw new Error(
-        `MUI X Studio Server: Column "${cols.region}" value must be a scalar region identifier, but received ${Array.isArray(region) ? 'an array' : 'an object'}. ` +
+        `MUI X Studio Server: A mutation on table "${table}" set this table's region-scope column to ${Array.isArray(region) ? 'an array' : 'an object'}; it must be a scalar region identifier. ` +
           `A non-scalar value cannot be validated against the caller's permitted regions and would corrupt row-level scoping. ` +
-          `Send a single number or string for "${cols.region}".`,
+          `The column is not named here because that would let a rejected mutation be used to discover the deployment's row-level-security schema; it is logged server-side instead. ` +
+          `Send a single number or string for the region column.`,
       );
     }
     // Compare as strings on both sides. `claims.regionIds` is typed `number[]`,
@@ -135,9 +243,15 @@ function validateSecurityColumnValues(
     // both sides keeps this direction fail-closed (a value not in the permitted set
     // still throws) while tolerating a numeric/string type mismatch.
     if (!claims.regionIds.some((id) => String(id) === String(region))) {
+      console.warn(
+        `MUI X Studio Server: Column "${cols.region}" on table "${table}" was set to "${String(region)}", which is ` +
+          `outside the caller's permitted regions (${claims.regionIds.join(', ') || 'none'}). ` +
+          `The client-facing error omits the column name so a rejected mutation cannot be used to probe it.`,
+      );
       throw new Error(
-        `MUI X Studio Server: Column "${cols.region}" value "${String(region)}" is outside the caller's permitted regions. ` +
+        `MUI X Studio Server: A mutation on table "${table}" set this table's region-scope column to "${String(region)}", which is outside the caller's permitted regions. ` +
           `A mutation cannot write a row into a region the caller cannot access. ` +
+          `The column is not named here because that would let a rejected mutation be used to discover the deployment's row-level-security schema; it is logged server-side instead. ` +
           `Permitted region(s): ${claims.regionIds.join(', ') || '(none)'}.`,
       );
     }
@@ -165,9 +279,15 @@ function validateSecurityColumnValues(
     Object.prototype.hasOwnProperty.call(values, cols.department) &&
     String(values[cols.department]) !== String(claims.department)
   ) {
+    console.warn(
+      `MUI X Studio Server: Column "${cols.department}" on table "${table}" was set to ` +
+        `"${String(values[cols.department])}", which is outside the caller's department ("${claims.department}"). ` +
+        `The client-facing error omits the column name so a rejected mutation cannot be used to probe it.`,
+    );
     throw new Error(
-      `MUI X Studio Server: Column "${cols.department}" value "${String(values[cols.department])}" is outside the caller's department. ` +
+      `MUI X Studio Server: A mutation on table "${table}" set this table's department-scope column to "${String(values[cols.department])}", which is outside the caller's department. ` +
         `A mutation cannot write a row into a department the caller does not belong to. ` +
+        `The column is not named here because that would let a rejected mutation be used to discover the deployment's row-level-security schema; it is logged server-side instead. ` +
         `Caller department: "${claims.department}".`,
     );
   }
@@ -204,6 +324,7 @@ function resolveInsertScopeStamps(
   values: Record<string, unknown>,
   claims: JwtSecurityClaims,
   cols: SecurityColumns,
+  table: string,
 ): Record<string, unknown> {
   const stamps: Record<string, unknown> = {};
 
@@ -214,11 +335,21 @@ function resolveInsertScopeStamps(
         // Exactly one authorized region — the server can safely derive it.
         [stamps[cols.region]] = claims.regionIds;
       } else {
+        // Same non-disclosure split as `validateSecurityColumnValues` (finding
+        // L3): the column name goes to the server log, never to the client.
+        console.warn(
+          `MUI X Studio Server: An insert into region-scoped table "${table}" did not set the region column ` +
+            `"${cols.region}", and the caller is authorized for ` +
+            `${claims.regionIds.length === 0 ? 'zero regions' : `regions ${claims.regionIds.join(', ')}`}, so the ` +
+            `server cannot derive a value. The client-facing error omits the column name so a rejected mutation ` +
+            `cannot be used to probe it.`,
+        );
         throw new Error(
-          `MUI X Studio Server: An insert into a region-scoped table must set an in-scope "${cols.region}", but none was provided. ` +
+          `MUI X Studio Server: An insert into region-scoped table "${table}" must set an in-scope value for that table's region column, but none was provided. ` +
             `The caller is authorized for ${claims.regionIds.length === 0 ? 'zero regions' : `regions ${claims.regionIds.join(', ')}`}, ` +
-            `so leaving "${cols.region}" unset would create a row outside the caller's own row-level scope (fail-closed). ` +
-            `Include an in-scope "${cols.region}" value in the insert.`,
+            `so leaving the region column unset would create a row outside the caller's own row-level scope (fail-closed). ` +
+            `The column is not named here because that would let a rejected mutation be used to discover the deployment's row-level-security schema; it is logged server-side instead. ` +
+            `Include an in-scope region value in the insert.`,
         );
       }
     }
@@ -307,7 +438,14 @@ export function validateMutation(
   // Qualified keys (`table.column`) are rejected before any scope check — they
   // are malformed input and would otherwise dodge the bare-name scope matching.
   rejectQualifiedValueKeys(values, descriptor.table);
-  validateSecurityColumnValues(values, claims, cols);
+  validateSecurityColumnValues(values, claims, cols, descriptor.table);
+  // Value SHAPE is validated alongside value KEYS (finding M2) — the read path
+  // fail-closes on a non-scalar filter value, and the write path now does too.
+  // Ordered AFTER the row-level-security check on purpose: a non-scalar in a
+  // SECURITY column has its own, more specific rejection there ("must be a
+  // scalar region identifier"), which is more actionable than the generic
+  // value-shape message.
+  validateMutationValues(values, descriptor.table);
 
   // INSERT-only fail-closed region/department scope (finding 2.2): a
   // region/department-restricted caller must produce an in-scope row rather than
@@ -315,7 +453,7 @@ export function validateMutation(
   // applied by `buildInsertMutation`; here we only want the fail-closed throw, so
   // the returned stamps are discarded.
   if (descriptor.operation === 'insert') {
-    resolveInsertScopeStamps(values, claims, cols);
+    resolveInsertScopeStamps(values, claims, cols, descriptor.table);
   }
 
   // Validate value keys against the writable columns allowlist. Fail-closed +
@@ -358,7 +496,16 @@ export function buildInsertMutation(
   // client-supplied tenant column) into the insert payload. Runs BEFORE the tenant
   // force-stamp so the check sees the client's own values. Idempotent on the normal
   // path — `validateMutation` already ran the identical check with in-scope values.
-  validateSecurityColumnValues(values, claims, cols);
+  validateSecurityColumnValues(values, claims, cols, descriptor.table);
+
+  // Defense-in-depth (finding M2): re-run the value-SHAPE check at the builder
+  // boundary, exactly like the qualified-key and row-level-security re-checks
+  // around it, so a direct caller that skipped `validateMutation` cannot reach
+  // `db(table).insert(...)` with a non-scalar value. Runs on the CLIENT's own
+  // values, before the tenant/scope stamps below (which are always scalars), and
+  // after the security check so a non-scalar SECURITY value keeps its own more
+  // specific message — the same ordering `validateMutation` uses.
+  validateMutationValues(values, descriptor.table);
 
   // Unconditionally set the tenant column — clients cannot set it to another tenant.
   if (cols.tenant) {
@@ -370,7 +517,7 @@ export function buildInsertMutation(
   // the caller's single department), and throw when a region-restricted caller
   // omitted a region the server cannot pick. Runs even for direct callers that skip
   // `validateMutation` (defense-in-depth), mirroring the tenant force-stamp above.
-  Object.assign(values, resolveInsertScopeStamps(values, claims, cols));
+  Object.assign(values, resolveInsertScopeStamps(values, claims, cols, descriptor.table));
 
   return db(descriptor.table).insert(values);
 }
@@ -450,7 +597,15 @@ export function buildUpdateMutation(
   // removed — this builder deliberately STRIPS a client-supplied tenant rather than
   // throwing, so the (now-absent) tenant column makes that arm a no-op while the
   // region/department present-value checks still run. Idempotent on the normal path.
-  validateSecurityColumnValues(values, claims, cols);
+  validateSecurityColumnValues(values, claims, cols, descriptor.table);
+
+  // Defense-in-depth (finding M2): re-run the value-SHAPE check at the builder
+  // boundary, symmetric with `buildInsertMutation`, so a direct caller that
+  // skipped `validateMutation` cannot reach `query.update(...)` with a non-scalar
+  // value. Runs on the post-strip values (the tenant column is never written from
+  // client input anyway) and after the security check, so a non-scalar SECURITY
+  // value keeps its own more specific message.
+  validateMutationValues(values, descriptor.table);
 
   return query.update(values);
 }

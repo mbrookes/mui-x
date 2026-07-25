@@ -93,6 +93,7 @@ function makeNodeRedisV4Client() {
   const store = new Map<string, { value: string; expiresAt: number }>();
   const sets = new Map<string, Set<string>>();
   const expiries = new Map<string, number>();
+  let scanSnapshot: string[] = [];
 
   const client: RedisClient & { store: typeof store } = {
     store,
@@ -156,16 +157,114 @@ function makeNodeRedisV4Client() {
       const opts = args[0] as { MATCH?: string; COUNT?: number } | undefined;
       const pattern = opts?.MATCH ?? '*';
       const prefix = pattern.endsWith('*') ? pattern.slice(0, -1) : pattern;
-      const allKeys = [...store.keys()].filter((k) => k.startsWith(prefix));
+      // The match set is snapshotted at cursor '0' and paged from there, so
+      // DELETING keys mid-iteration doesn't shift the remaining pages — the
+      // guarantee real Redis gives ("every key present for the whole iteration
+      // is returned at least once") and the one `invalidatePrefix` relies on now
+      // that it deletes each page as it arrives instead of accumulating.
+      if (cursor === '0') {
+        scanSnapshot = [...store.keys()].filter((k) => k.startsWith(prefix));
+      }
       // Simulate cursor pagination: one key per "page" to exercise the loop.
       const pageSize = 1;
       const start = Number(cursor);
-      const page = allKeys.slice(start, start + pageSize);
-      const nextCursor = start + pageSize >= allKeys.length ? '0' : String(start + pageSize);
+      const page = scanSnapshot.slice(start, start + pageSize);
+      const nextCursor = start + pageSize >= scanSnapshot.length ? '0' : String(start + pageSize);
       return { cursor: nextCursor, keys: page };
     },
   };
   return { client, sets, expiries };
+}
+
+/**
+ * Redis mock that records the ARGUMENT COUNT of every `del` call and refuses —
+ * the way V8's spread/`apply` argument limit refuses — any call carrying more
+ * than `delArgLimit` keys, throwing the same `RangeError` a real client would.
+ *
+ * It also paginates `SCAN` over a snapshot taken at cursor `'0'` (matching
+ * Redis's "every key present for the whole iteration is returned at least once"
+ * guarantee even as the caller deletes each page), so a test can observe that
+ * deletion is interleaved with scanning rather than deferred to one final call.
+ */
+function makeArgCountingRedisClient(options: { delArgLimit: number; scanPageSize: number }) {
+  const store = new Map<string, { value: string; expiresAt: number }>();
+  const sets = new Map<string, Set<string>>();
+  const delCallSizes: number[] = [];
+  const ops: string[] = [];
+  let snapshot: string[] = [];
+
+  const client: RedisClient & {
+    store: typeof store;
+    sets: typeof sets;
+    delCallSizes: number[];
+    ops: string[];
+  } = {
+    store,
+    sets,
+    delCallSizes,
+    ops,
+    async get(key: string) {
+      const entry = store.get(key);
+      if (!entry || Date.now() > entry.expiresAt) {
+        return null;
+      }
+      return entry.value;
+    },
+    async set(key: string, value: string, _exMode: 'EX', ttlSeconds: number) {
+      store.set(key, { value, expiresAt: Date.now() + ttlSeconds * 1000 });
+    },
+    async del(...keys: string[]) {
+      delCallSizes.push(keys.length);
+      ops.push('del');
+      if (keys.length > options.delArgLimit) {
+        // Exactly how the pre-fix `del(...keys)` failed: thrown by the ENGINE,
+        // before Redis is ever contacted, so nothing at all is invalidated.
+        throw new RangeError('Maximum call stack size exceeded');
+      }
+      for (const key of keys) {
+        store.delete(key);
+        sets.delete(key);
+      }
+    },
+    async expire() {},
+    async sadd(key: string, ...members: string[]) {
+      let set = sets.get(key);
+      if (!set) {
+        set = new Set<string>();
+        sets.set(key, set);
+      }
+      for (const m of members) {
+        set.add(m);
+      }
+    },
+    async smembers(key: string) {
+      return [...(sets.get(key) ?? [])];
+    },
+    async srem(key: string, ...members: string[]) {
+      const set = sets.get(key);
+      if (set) {
+        for (const m of members) {
+          set.delete(m);
+        }
+      }
+    },
+    async scan(cursor: string, ...args: unknown[]) {
+      ops.push('scan');
+      const pattern = String(args[1] ?? '*');
+      const prefix = pattern.endsWith('*') ? pattern.slice(0, -1) : pattern;
+      if (cursor === '0') {
+        snapshot = [...store.keys()].filter((k) => k.startsWith(prefix));
+      }
+      const start = Number(cursor);
+      const page = snapshot.slice(start, start + options.scanPageSize);
+      const next =
+        start + options.scanPageSize >= snapshot.length
+          ? '0'
+          : String(start + options.scanPageSize);
+      return [next, page] as [string, string[]];
+    },
+  };
+  return client;
 }
 
 const ENTRY: CacheEntry = { rows: [{ id: 1, amount: 10 }], cachedAt: 1_000 };
@@ -571,6 +670,130 @@ describe('RedisCacheProvider', () => {
       await provider.deleteByTag('sales');
       expect(await provider.get('long-lived')).toBeUndefined();
       expect(await provider.get('short-lived')).toBeUndefined();
+    });
+  });
+
+  // ── Batched DEL / streamed SCAN (finding M1) ────────────────────────────────
+  //
+  // Regression: both invalidation paths spread an UNBOUNDED key list into a
+  // single variadic `del(...keys)`. Past V8's spread-argument limit that throws
+  // `RangeError: Maximum call stack size exceeded` before Redis is contacted, so
+  // nothing is invalidated at all — and `handleMutation` swallows it as a
+  // best-effort warning while still reporting the write as `ok: true`, leaving
+  // every subsequent read stale for the full TTL. The failure grows with the
+  // deployment: the forward tag index accumulates one member per
+  // (tenant × security profile × query shape) inside a single TTL window.
+  describe('large-scale invalidation (finding M1)', () => {
+    const KEY_COUNT = 1_200;
+
+    it('deleteByTag drains a tag set far larger than one variadic DEL can carry', async () => {
+      const redis = makeArgCountingRedisClient({ delArgLimit: 600, scanPageSize: 100 });
+      const provider = new RedisCacheProvider(redis);
+      for (let i = 0; i < KEY_COUNT; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await provider.set(`k${i}`, ENTRY, { tags: ['orders'] });
+      }
+
+      // Pre-fix this rejected with RangeError (2 * 1200 + 1 arguments in one call).
+      await provider.deleteByTag('orders');
+
+      expect(Math.max(...redis.delCallSizes)).toBeLessThanOrEqual(500);
+      expect(await provider.get('k0')).toBeUndefined();
+      expect(await provider.get(`k${KEY_COUNT - 1}`)).toBeUndefined();
+      // Every data key AND its reverse index is gone.
+      expect(redis.store.size).toBe(0);
+      expect(redis.sets.has('__tag__:orders')).toBe(false);
+    });
+
+    it('invalidatePrefix deletes a huge matching keyspace in batches', async () => {
+      const redis = makeArgCountingRedisClient({ delArgLimit: 600, scanPageSize: 100 });
+      const provider = new RedisCacheProvider(redis);
+      for (let i = 0; i < KEY_COUNT; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await provider.set(`studio:v1:acme:${i}`, ENTRY, { tags: ['orders'] });
+      }
+      await provider.set('studio:v1:globex:1', ENTRY);
+
+      await provider.invalidatePrefix('studio:v1:acme:');
+
+      expect(Math.max(...redis.delCallSizes)).toBeLessThanOrEqual(500);
+      expect(await provider.get('studio:v1:acme:0')).toBeUndefined();
+      expect(await provider.get(`studio:v1:acme:${KEY_COUNT - 1}`)).toBeUndefined();
+      // The sibling tenant is untouched.
+      expect(await provider.get('studio:v1:globex:1')).toEqual(ENTRY);
+    });
+
+    it('invalidatePrefix STREAMS — it deletes each SCAN page instead of accumulating every key', async () => {
+      const redis = makeArgCountingRedisClient({ delArgLimit: 600, scanPageSize: 100 });
+      const provider = new RedisCacheProvider(redis);
+      for (let i = 0; i < 350; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await provider.set(`studio:v1:acme:${i}`, ENTRY);
+      }
+      redis.ops.length = 0;
+
+      await provider.invalidatePrefix('studio:v1:acme:');
+
+      // A `del` must appear BEFORE the final `scan`: the accumulating
+      // implementation issued every `scan` first and only then a single `del`.
+      const lastScan = redis.ops.lastIndexOf('scan');
+      const firstDel = redis.ops.indexOf('del');
+      expect(firstDel).toBeGreaterThanOrEqual(0);
+      expect(firstDel).toBeLessThan(lastScan);
+    });
+  });
+
+  // ── Cache-entry shape validation (finding L5) ───────────────────────────────
+  //
+  // Regression: `JSON.parse(raw) as CacheEntry` is an assertion, not a
+  // validation. Any value that merely PARSES — a host key colliding with ours
+  // when no `keyPrefix` is set, or a partially-written value — was served as a
+  // cache HIT and handed to the read path as a result set.
+  describe('entry shape validation (finding L5)', () => {
+    const foreignValues: Array<[string, string]> = [
+      ['a foreign object with no rows', '{"session":"abc","user":42}'],
+      ['a JSON array', '[1,2,3]'],
+      ['a bare number', '42'],
+      ['a bare string', '"hello"'],
+      ['null', 'null'],
+      ['an entry whose rows is not an array', '{"rows":{"0":{"id":1}},"cachedAt":1}'],
+    ];
+
+    for (const [label, raw] of foreignValues) {
+      it(`treats ${label} as a MISS instead of a hit`, async () => {
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const redis = makeRedisClient();
+        await redis.set('k1', raw, 'EX', 60);
+        const provider = new RedisCacheProvider(redis);
+
+        expect(await provider.get('k1')).toBeUndefined();
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        expect(warnSpy.mock.calls[0][0]).toContain('MUI X Studio Server');
+        expect(warnSpy.mock.calls[0][0]).toContain('not a CacheEntry');
+        warnSpy.mockRestore();
+      });
+    }
+
+    it('warns at most once per provider, however many foreign values it reads', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const redis = makeRedisClient();
+      await redis.set('k1', '{"session":"abc"}', 'EX', 60);
+      await redis.set('k2', '{"session":"def"}', 'EX', 60);
+      const provider = new RedisCacheProvider(redis);
+
+      await provider.get('k1');
+      await provider.get('k2');
+      await provider.get('k1');
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      warnSpy.mockRestore();
+    });
+
+    it('still returns a well-formed entry (including an empty rows array)', async () => {
+      const provider = new RedisCacheProvider(makeRedisClient());
+      const empty: CacheEntry = { rows: [], cachedAt: 5 };
+      await provider.set('k1', empty);
+      expect(await provider.get('k1')).toEqual(empty);
     });
   });
 });

@@ -73,3 +73,46 @@ describe('FieldDetailView number-format label id (Tier3 #9)', () => {
     expect(screen.getAllByText('Number Format').length).toBeGreaterThan(0);
   });
 });
+
+/**
+ * Architecture review finding (Tier2): `field.type` is doc-authored, so the
+ * `dataTypeLabels[field.type] ?? …` lookups backing the "Data type" / "Format" rows must
+ * guard against an inherited `Object.prototype` member (e.g. `type: 'constructor'`)
+ * instead of resolving a function off the prototype chain.
+ */
+describe('FieldDetailView data-type label lookup (Tier2)', () => {
+  it('falls back to the capitalized raw type when field.type collides with an Object.prototype member', () => {
+    const { wrapper } = createStudioHarness({
+      initialState: {
+        runtime: {
+          dataSources: {
+            src: {
+              id: 'src',
+              label: 'Sales',
+              // `type` cast to simulate a persisted-doc/AI-authored value that bypasses the
+              // compile-time `StudioDataField['type']` union.
+              fields: [{ id: 'amount', label: 'Amount', type: 'constructor' as never }],
+              rows: [],
+            },
+          },
+        },
+        session: {
+          shell: {
+            openDrawers: { data: true, compose: false, filters: false },
+            selectedWidgetId: null,
+            selectedFieldId: 'amount',
+            selectedSourceId: 'src',
+          },
+        },
+      },
+    });
+    render(<FieldDetailView />, { wrapper });
+    // "Data type" row falls through to the capitalized raw type…
+    expect(screen.getByText('Constructor')).not.toBe(null);
+    // …while "Format" row falls through to the raw (uncapitalized) type — matching each
+    // row's pre-existing fallback shape, now reached via the `Object.hasOwn` guard instead
+    // of an inherited-function value.
+    expect(screen.getByText('constructor')).not.toBe(null);
+    expect(screen.queryByText(/function/i)).toBe(null);
+  });
+});

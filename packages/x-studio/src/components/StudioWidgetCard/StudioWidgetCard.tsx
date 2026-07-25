@@ -677,7 +677,16 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                   }}
                 >
                   {widget.title ||
-                    widgetKindLabels[widget.kind] ||
+                    // `widget.kind` is doc-authored (persisted doc / AI `update_widget` / a
+                    // `customWidgets` registration string): guard against inherited
+                    // `Object.prototype` keys ("toString"/"constructor"/…) so a bare bracket
+                    // lookup can't resolve a function off the prototype chain instead of falling
+                    // through to the capitalized-kind fallback below. This header renders outside
+                    // the per-widget `StudioWidgetErrorBoundary` (which wraps only `def.component`),
+                    // so a thrown render here is uncaught by anything above the canvas.
+                    (Object.hasOwn(widgetKindLabels, widget.kind)
+                      ? widgetKindLabels[widget.kind]
+                      : undefined) ||
                     widget.kind.charAt(0).toUpperCase() + widget.kind.slice(1)}
                 </Typography>
                 {activeRankFilter && (

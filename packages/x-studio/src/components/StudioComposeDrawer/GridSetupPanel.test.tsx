@@ -1,4 +1,4 @@
-import { createRenderer, screen } from '@mui/internal-test-utils';
+import { createRenderer, screen, waitFor } from '@mui/internal-test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StudioRelationship, StudioWidgetConfig } from '../../models';
 import {
@@ -284,6 +284,39 @@ describe('GridSetupPanel', () => {
       mockState.doc.widgets['widget-1'] = previousWidget;
       mockState.doc.relationships = previousRelationships;
       mockState.runtime.dataSources.customers = previousCustomers;
+    }
+  });
+
+  // Architecture review finding (Tier2): `currentAgg` (read from the doc-authored
+  // `gridSummaryFields`/`gridAggregations` maps) is used as an `aggLabels[currentAgg]`
+  // bracket lookup for the per-column aggregation tooltip. An unguarded lookup that
+  // resolves an inherited `Object.prototype` member (e.g. an aggregation value of
+  // `'constructor'`) would surface the inherited function's string representation in the
+  // tooltip instead of falling through to the raw aggregation string.
+  it("falls back to the raw aggregation string in the tooltip when a column's stored aggregation collides with an Object.prototype member", async () => {
+    const previousWidget = mockState.doc.widgets['widget-1'];
+    try {
+      mockState.doc.widgets['widget-1'] = {
+        ...previousWidget,
+        config: {
+          columns: [{ fieldId: 'id' }, { fieldId: 'total' }],
+          // Cast to simulate a persisted-doc/AI-authored aggregation value that bypasses
+          // the compile-time `StudioGridSummaryAggregation` union.
+          gridSummaryFields: { id: 'constructor' as never },
+        } as StudioWidgetConfig,
+      };
+
+      const { user } = render(<GridSetupPanel widgetId="widget-1" />);
+      await user.hover(screen.getByRole('button', { name: 'Options for Order ID' }));
+
+      await waitFor(() => {
+        expect(screen.getByRole('tooltip')).toBeVisible();
+      });
+      const tooltip = screen.getByRole('tooltip');
+      expect(tooltip.textContent).toContain('constructor');
+      expect(tooltip.textContent).not.toMatch(/function/i);
+    } finally {
+      mockState.doc.widgets['widget-1'] = previousWidget;
     }
   });
 });

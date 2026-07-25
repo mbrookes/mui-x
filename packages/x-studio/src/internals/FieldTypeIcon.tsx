@@ -48,8 +48,17 @@ export function FieldTypeIcon({ type, generated = false, size = 16 }: FieldTypeI
     boolean: localeText.dataTypeBoolean,
   };
   const iconMap = generated ? TYPE_GENERATED_ICON : TYPE_ICON;
-  const Icon = iconMap[type] ?? (generated ? StringFieldGeneratedIcon : StringFieldIcon);
-  const label = `${typeLabels[type] ?? type}${generated ? ' (generated)' : ''}`;
+  // `type` is doc-authored (a persisted-doc/AI-authored field `type`): guard against inherited
+  // `Object.prototype` keys ("toString"/"constructor"/…) so a bare bracket lookup can't resolve
+  // a value off the prototype chain instead of falling through to the default icon. An
+  // unguarded lookup here doesn't just show a garbage label — `iconMap.constructor` resolves
+  // to the `Object` function, and rendering it as `<Icon size={size} />` throws ("Objects are
+  // not valid as a React child") since calling `Object({ size })` returns the props object
+  // itself as the "rendered" output.
+  const defaultIcon = generated ? StringFieldGeneratedIcon : StringFieldIcon;
+  const Icon = Object.hasOwn(iconMap, type) ? iconMap[type] : defaultIcon;
+  // Same doc-authored-key guard as `Icon` above.
+  const label = `${Object.hasOwn(typeLabels, type) ? typeLabels[type] : type}${generated ? ' (generated)' : ''}`;
 
   return (
     <Tooltip title={label} placement="top">

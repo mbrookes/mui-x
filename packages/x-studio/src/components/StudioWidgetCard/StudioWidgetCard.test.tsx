@@ -378,4 +378,16 @@ describe('StudioWidgetCard', () => {
     renderUntitled(widget({ kind: 'kpi', title: '', config: {} as StudioWidgetConfig }));
     expect(screen.getByText('KPI')).not.toBe(null);
   });
+
+  // Architecture review finding (Tier1): the widget title header renders outside this
+  // card's own `StudioWidgetErrorBoundary` (which wraps only `def.component`), so an
+  // unguarded `widgetKindLabels[widget.kind]` bracket lookup that resolves an inherited
+  // `Object.prototype` member (e.g. `kind: 'constructor'` — a persisted-doc/AI-authored/
+  // custom-widget kind string) would throw uncaught when rendered as a `Typography`
+  // child, crashing the whole dashboard. It must instead fall through to the
+  // capitalized-kind fallback.
+  it('falls back to the capitalized kind for an untitled widget whose kind collides with an Object.prototype member', () => {
+    renderUntitled(widget({ kind: 'constructor', title: '', config: {} as StudioWidgetConfig }));
+    expect(screen.getByText('Constructor')).not.toBe(null);
+  });
 });

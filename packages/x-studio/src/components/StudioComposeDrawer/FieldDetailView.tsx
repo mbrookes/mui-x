@@ -50,13 +50,22 @@ export function FieldDetailView() {
     { label: localeText.fieldDetailRowDescription, value: field.description ?? field.label },
     {
       label: localeText.fieldDetailRowDataType,
-      value: dataTypeLabels[field.type] ?? field.type.charAt(0).toUpperCase() + field.type.slice(1),
+      // `field.type` is doc-authored: guard against inherited `Object.prototype` keys
+      // ("toString"/"constructor"/…) so a bare bracket lookup can't resolve a function off the
+      // prototype chain instead of falling through to the capitalized-type fallback.
+      value: Object.hasOwn(dataTypeLabels, field.type)
+        ? dataTypeLabels[field.type]
+        : field.type.charAt(0).toUpperCase() + field.type.slice(1),
     },
     {
       label: localeText.fieldDetailRowCalculationType,
       value: localeText.fieldDetailRowNoCalculation,
     },
-    { label: localeText.fieldDetailRowFormat, value: dataTypeLabels[field.type] ?? field.type },
+    {
+      label: localeText.fieldDetailRowFormat,
+      // Same doc-authored-key guard as `fieldDetailRowDataType` above.
+      value: Object.hasOwn(dataTypeLabels, field.type) ? dataTypeLabels[field.type] : field.type,
+    },
   ];
 
   return (

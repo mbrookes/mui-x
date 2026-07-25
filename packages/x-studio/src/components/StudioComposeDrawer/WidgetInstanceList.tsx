@@ -62,7 +62,15 @@ function WidgetInstanceItem({ widget, isSelected, onSelect }: WidgetInstanceItem
       </Box>
       <Box sx={{ flexGrow: 1, minWidth: 0 }}>
         <Typography variant="body2" noWrap>
-          {widget.title || widgetKindLabels[widget.kind]}
+          {widget.title ||
+            // `widget.kind` is doc-authored: guard against inherited `Object.prototype` keys
+            // ("toString"/"constructor"/…) so a bare bracket lookup can't resolve a function off
+            // the prototype chain (see `StudioWidgetCard.tsx`'s matching guard for the full
+            // rationale — this list is contained by the Compose drawer's error boundary, but the
+            // fix is the same either way).
+            (Object.hasOwn(widgetKindLabels, widget.kind)
+              ? widgetKindLabels[widget.kind]
+              : undefined)}
         </Typography>
         {widget.subtitle && (
           <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>

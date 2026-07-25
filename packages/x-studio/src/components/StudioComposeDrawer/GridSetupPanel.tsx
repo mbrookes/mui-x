@@ -513,7 +513,11 @@ export function GridSetupPanel(props: { widgetId: string }) {
             if (currentAgg) {
               aggregationTooltipTitle = localeText.gridSetupColumnAggLabel(
                 Boolean(groupByField),
-                aggLabels[currentAgg],
+                // `currentAgg` is doc-authored (`gridAggregations`/`gridSummaryFields`): guard
+                // against inherited `Object.prototype` keys ("toString"/"constructor"/…) so a
+                // bare bracket lookup can't resolve a function off the prototype chain instead
+                // of falling through to the raw aggregation string.
+                Object.hasOwn(aggLabels, currentAgg) ? aggLabels[currentAgg] : currentAgg,
               );
             } else if (groupByField) {
               aggregationTooltipTitle = localeText.gridSetupColumnSetAggTooltip;
@@ -659,7 +663,13 @@ export function GridSetupPanel(props: { widgetId: string }) {
                         ) : (
                           <ListItemIcon />
                         )}
-                        {aggLabels[agg]}
+                        {
+                          // `agg` is drawn from the fixed `NUMERIC_AGGREGATIONS`/
+                          // `STRING_AGGREGATIONS` arrays (always a valid `aggLabels` key), but
+                          // guarded the same way as the doc-authored `currentAgg` lookup above
+                          // for consistency and defense-in-depth against the same bug class.
+                          Object.hasOwn(aggLabels, agg) ? aggLabels[agg] : agg
+                        }
                       </MenuItem>
                     ))}
                 </Menu>

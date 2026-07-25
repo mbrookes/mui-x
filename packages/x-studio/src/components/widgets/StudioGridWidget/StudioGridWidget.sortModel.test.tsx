@@ -107,7 +107,7 @@ function GridHost({
   );
 }
 
-async function setup() {
+async function setup(mode?: 'view' | 'edit') {
   const source = makeSource();
   const widget = makeWidget();
   const initialState: CreateDefaultStudioStateOverrides = {
@@ -116,6 +116,7 @@ async function setup() {
       pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [[widget.id]] } },
     },
     runtime: { dataSources: { src: source } },
+    ...(mode ? { session: { mode } } : {}),
   };
   const { controller, wrapper } = createStudioHarness({ initialState });
   const { container, ...utils } = render(<GridHost widgetId={widget.id} dataSource={source} />, {
@@ -211,5 +212,115 @@ describe('StudioGridWidget — interactive header-click sorting commits back int
     });
     expect(gridConfig().gridSortField).toBeUndefined();
     expect(gridConfig().gridSortDirection).toBeUndefined();
+  });
+
+  it('commits the sort without pushing an undo entry, so one asc/desc/none cycle is not three undo steps', async () => {
+    const { controller, widget, container } = await setup();
+
+    const gridConfig = () =>
+      controller.getState().doc.widgets[widget.id].config as StudioWidgetConfig;
+
+    // Establish a real authored edit first — this is what an author's undo must return to.
+    act(() => {
+      controller.setDashboardTitle('Authored');
+    });
+    expect(controller.canUndo()).toBe(true);
+
+    // Walk the full asc -> desc -> none cycle, asserting each step landed so the final
+    // "back to the original order" state can't be mistaken for "the clicks did nothing".
+    const amountHeader = screen.getByRole('columnheader', { name: /amount/i });
+    fireEvent.click(amountHeader);
+    await waitFor(() => {
+      expect(gridConfig().gridSortDirection).toBe('asc');
+    });
+    fireEvent.click(amountHeader);
+    await waitFor(() => {
+      expect(gridConfig().gridSortDirection).toBe('desc');
+    });
+    fireEvent.click(amountHeader);
+    await waitFor(() => {
+      expect(gridConfig().gridSortField).toBeUndefined();
+    });
+    expect(getRowIdsInOrder(container)).toEqual(['r1', 'r2', 'r3']);
+
+    // A single undo must land back on the pre-title state, not unwind three sort clicks.
+    act(() => {
+      controller.undo();
+    });
+    expect(controller.getState().doc.dashboard.title).not.toBe('Authored');
+    expect(controller.canUndo()).toBe(false);
+  });
+});
+
+// ─── View mode must not write the authored document (finding 1) ──────────────
+//
+// `gridSortField`/`gridSortDirection` are persisted widget config, so — unlike a
+// cross-filter, which is deliberately undoable and stripped at the persistence boundary —
+// a read-only viewer's header click would otherwise be baked into the saved dashboard.
+// In view mode the sort is held in component state: it still sorts, it just never reaches
+// `doc`, the undo stack, or the mutation log.
+describe('StudioGridWidget — view-mode header sorting is not persisted', () => {
+  it('sorts the grid without mutating doc, pushing an undo entry, or clearing redo', async () => {
+    const { controller, widget, container } = await setup('view');
+
+    const gridConfig = () =>
+      controller.getState().doc.widgets[widget.id].config as StudioWidgetConfig;
+
+    // Arrange a pending redo: a real edit, then an undo, leaves redo non-empty. A view-mode
+    // sort must leave it intact — `updateWidgetConfig` would have discarded it.
+    act(() => {
+      controller.setDashboardTitle('Authored');
+    });
+    act(() => {
+      controller.undo();
+    });
+    expect(controller.canRedo()).toBe(true);
+    expect(controller.canUndo()).toBe(false);
+
+    const docBefore = controller.getState().doc;
+    const mutationsBefore = controller.getRecentMutations().length;
+
+    const amountHeader = screen.getByRole('columnheader', { name: /amount/i });
+    fireEvent.click(amountHeader);
+
+    // The viewer's sort takes effect …
+    await waitFor(() => {
+      expect(getRowIdsInOrder(container)).toEqual(['r2', 'r3', 'r1']);
+    });
+
+    // … while the authored document is untouched, by reference.
+    expect(controller.getState().doc).toBe(docBefore);
+    expect(gridConfig().gridSortField).toBeUndefined();
+    expect(gridConfig().gridSortDirection).toBeUndefined();
+    expect(controller.canUndo()).toBe(false);
+    expect(controller.canRedo()).toBe(true);
+    expect(controller.getRecentMutations()).toHaveLength(mutationsBefore);
+  });
+
+  it('still honours an authored sort as the starting order in view mode', async () => {
+    const { controller, widget, container } = await setup('view');
+
+    act(() => {
+      controller.updateWidgetConfig(widget.id, {
+        gridSortField: 'amount',
+        gridSortDirection: 'asc',
+      });
+    });
+
+    // A dashboard authored with a default sort opens sorted for the viewer …
+    await waitFor(() => {
+      expect(getRowIdsInOrder(container)).toEqual(['r2', 'r3', 'r1']);
+    });
+
+    // … and the viewer can still sort away from it without writing it back.
+    const idHeader = screen.getByRole('columnheader', { name: /^id/i });
+    fireEvent.click(idHeader);
+
+    await waitFor(() => {
+      expect(getRowIdsInOrder(container)).toEqual(['r1', 'r2', 'r3']);
+    });
+    const config = controller.getState().doc.widgets[widget.id].config as StudioWidgetConfig;
+    expect(config.gridSortField).toBe('amount');
+    expect(config.gridSortDirection).toBe('asc');
   });
 });

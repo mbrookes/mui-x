@@ -837,7 +837,16 @@ describe('getBucketKey / computeSparklineData are timezone-safe for canonical da
     // Pre-fix, both rows would have rolled back one calendar day under America/New_York —
     // still distinct buckets here, but on the wrong days. Assert the bucket keys directly
     // via a single-row-per-bucket case so a day-shift would change which values line up.
-    expect(computeSparklineData(rows, 't', 'v', 'sum', 'day', false)).toEqual([10, 5]);
+    // The four empty days between the 15th and the 20th are `null` gaps: the series spans
+    // the whole 6-day range, so a day-shift bug would move the values within it.
+    expect(computeSparklineData(rows, 't', 'v', 'sum', 'day', false)).toEqual([
+      10,
+      null,
+      null,
+      null,
+      null,
+      5,
+    ]);
   });
 
   it('does not merge two rows on adjacent days into one bucket (would happen if both shifted the same direction)', () => {
@@ -867,6 +876,60 @@ describe('computeSparklineData', () => {
 
   it('returns a running total when cumulative', () => {
     expect(computeSparklineData(rows, 't', 'v', 'sum', 'month', true)).toEqual([15, 35]);
+  });
+
+  // ─── Empty periods are gaps, not deletions ─────────────────────────────────
+  // `KpiSparkline` renders the series with no `xAxis`, so points are spaced uniformly.
+  // Dropping a period with no rows would silently compress the time axis: a two-month
+  // Feb -> Apr drop would draw identically to a one-month drop, and the aria label would
+  // announce the wrong number of periods.
+
+  const gappedRows = [
+    { t: '2026-01-10', v: 100 },
+    { t: '2026-02-10', v: 120 },
+    // March has no rows at all.
+    { t: '2026-04-10', v: 90 },
+  ];
+
+  it('emits null for a period with no rows instead of dropping it', () => {
+    expect(computeSparklineData(gappedRows, 't', 'v', 'sum', 'month', false)).toEqual([
+      100,
+      120,
+      null,
+      90,
+    ]);
+  });
+
+  it('keeps the running total across a gap when cumulative, leaving the gap itself null', () => {
+    expect(computeSparklineData(gappedRows, 't', 'v', 'sum', 'month', true)).toEqual([
+      100,
+      220,
+      null,
+      310,
+    ]);
+  });
+
+  it('spans multi-period gaps (Q1 -> Q4 covers all four quarters)', () => {
+    const quarterRows = [
+      { t: '2026-01-10', v: 5 },
+      { t: '2026-10-10', v: 8 },
+    ];
+    expect(computeSparklineData(quarterRows, 't', 'v', 'sum', 'quarter', false)).toEqual([
+      5,
+      null,
+      null,
+      8,
+    ]);
+  });
+
+  it('emits 0 (not a gap) for a period whose rows aggregate to zero', () => {
+    // A real, populated period must stay distinguishable from an absent one: `0` is a
+    // measurement, `null` is the absence of one.
+    const zeroRows = [
+      { t: '2026-01-10', v: 0 },
+      { t: '2026-02-10', v: 7 },
+    ];
+    expect(computeSparklineData(zeroRows, 't', 'v', 'sum', 'month', false)).toEqual([0, 7]);
   });
 
   it('sorts weekly buckets in true chronological order across a month boundary (finding 1.11)', () => {

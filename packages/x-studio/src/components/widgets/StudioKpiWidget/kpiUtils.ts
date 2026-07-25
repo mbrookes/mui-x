@@ -9,7 +9,7 @@ import type {
   StudioKpiAggregation,
   StudioExpressionField,
 } from '../../../models';
-import { normalizeToDate } from '../../../internals/temporalUtils';
+import { fillTemporalLabelGaps, normalizeToDate } from '../../../internals/temporalUtils';
 import { resolveDateRangePreset } from '../../../internals/filterUtils';
 import {
   aggregateNumbers,
@@ -543,7 +543,7 @@ export function computeSparklineData(
   // producing a flat zero series (finding 2.6).
   measureExprField?: StudioExpressionField,
   expressionFields?: StudioExpressionField[],
-): number[] {
+): (number | null)[] {
   const buckets = new Map<string, Record<string, unknown>[]>();
 
   for (const row of rows) {
@@ -563,11 +563,35 @@ export function computeSparklineData(
   }
 
   const sortedKeys = Array.from(buckets.keys()).sort();
-  const periodValues = sortedKeys.map((key) => {
-    const bucketRows = buckets.get(key)!;
-    // `evaluateMeasure` returns `null` for a bucket it can't compute (e.g. no rows);
-    // the sparkline renders plain numbers, so a null bucket collapses to 0 rather
-    // than propagating `null` through the cumulative running sum below.
+
+  // Densify the period axis: `buckets` only holds keys that had at least one row, so a
+  // period with no data would otherwise contribute NO entry at all and the next period
+  // would slide left into its place. The sparkline is rendered by `KpiSparkline` with no
+  // `xAxis` — points are laid out at uniform spacing — so a deleted period is invisible:
+  // Jan/Feb/(no March)/Apr would draw as three evenly spaced points and the two-month
+  // Feb->Apr drop would look exactly like a one-month drop.
+  //
+  // `fillTemporalLabelGaps` is the same helper every chart family uses (via
+  // `densifyBarLabels`) for this, and it accepts precisely the key formats `getBucketKey`
+  // emits. It returns its input unchanged when the keys aren't a recognizable temporal
+  // sequence or when the synthesized run would exceed its own safety cap, so a
+  // non-densifiable series degrades to the previous (packed) behaviour rather than
+  // throwing. Invariant upheld here: the returned array has one entry per period in
+  // [first bucket, last bucket], and index i always corresponds to `periodKeys[i]`.
+  const periodKeys = fillTemporalLabelGaps(sortedKeys) as string[];
+
+  const periodValues = periodKeys.map((key) => {
+    const bucketRows = buckets.get(key);
+    // A synthesized position (no bucket) is a genuinely empty period: emit `null` so the
+    // chart draws a gap there instead of a fabricated 0, which would read as a real
+    // measurement of zero. `SparkLineChart` accepts `null` and `KpiSparkline`'s
+    // `valueFormatter` already handles it.
+    if (!bucketRows) {
+      return null;
+    }
+    // `evaluateMeasure` returns `null` for a bucket it can't compute; this bucket DOES
+    // have rows, so that is a computation failure rather than an empty period — collapse
+    // it to 0 (unchanged behaviour) instead of turning it into a gap.
     const value = measureExprField
       ? evaluateMeasure(measureExprField, bucketRows, expressionFields ?? [])
       : computeAggregate(bucketRows, valueField, aggregation);
@@ -578,8 +602,14 @@ export function computeSparklineData(
     return periodValues;
   }
 
+  // An empty period stays a gap in the cumulative series too, but it must not reset or
+  // skew the running total: it contributes 0 and the next real period resumes from the
+  // total accumulated so far.
   let running = 0;
   return periodValues.map((v) => {
+    if (v === null) {
+      return null;
+    }
     running += v;
     return running;
   });

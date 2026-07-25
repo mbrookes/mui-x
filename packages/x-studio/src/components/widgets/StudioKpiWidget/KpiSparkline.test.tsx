@@ -13,6 +13,15 @@ vi.mock('@mui/x-charts/Gauge', () => ({
   },
 }));
 
+const sparkLineSpy = vi.fn();
+
+vi.mock('@mui/x-charts/SparkLineChart', () => ({
+  SparkLineChart: (props: unknown) => {
+    sparkLineSpy(props);
+    return <div data-testid="sparkline" />;
+  },
+}));
+
 type GaugeCallProps = {
   value: number;
   valueMin: number;
@@ -84,5 +93,51 @@ describe('KpiSparkline — gauge', () => {
     renderGauge({ kpiValue: 0.5, gaugeMax: Number.NaN });
     expect(lastGaugeProps().value).toBe(50);
     warnSpy.mockRestore();
+  });
+});
+
+// ─── Empty periods survive as gaps, and the aria label counts periods ─────────
+//
+// `computeSparklineData` emits one entry per period across the series' full time span,
+// using `null` for a period with no rows. Since the sparkline is drawn with no `xAxis`
+// (points are spaced uniformly), those nulls are the ONLY thing keeping the time axis
+// honest: they must reach `SparkLineChart` intact, and the announced count must be the
+// number of periods covered, not the number of plotted points.
+
+describe('KpiSparkline — empty periods', () => {
+  beforeEach(() => {
+    sparkLineSpy.mockClear();
+  });
+
+  function renderSparkline(data: (number | null)[]) {
+    const { wrapper } = createStudioHarness();
+    return render(<KpiSparkline data={data} timeFieldResolved />, { wrapper });
+  }
+
+  it('forwards null entries to the chart rather than dropping them', () => {
+    renderSparkline([100, 120, null, 90]);
+    expect(sparkLineSpy.mock.calls.at(-1)?.[0].data).toEqual([100, 120, null, 90]);
+  });
+
+  it('announces the number of periods covered, including the empty one', () => {
+    const { container } = renderSparkline([100, 120, null, 90]);
+    const labelled = container.querySelector('[role="img"]');
+    // Four monthly periods (Jan, Feb, empty March, Apr) — not the three plotted points.
+    expect(labelled?.getAttribute('aria-label')).toContain('4 points');
+  });
+
+  it('reports the trend between the first and last periods that have a value', () => {
+    const { container } = renderSparkline([100, 120, null, 90]);
+    const label = container.querySelector('[role="img"]')?.getAttribute('aria-label') ?? '';
+    // 100 -> 90 is a decline; a leading/trailing null must not be read as a 0 endpoint.
+    expect(label).toContain('trending down');
+    expect(label).toContain('from 100 to 90');
+  });
+
+  it('does not treat a null endpoint as a zero value', () => {
+    const { container } = renderSparkline([null, 50, 80]);
+    const label = container.querySelector('[role="img"]')?.getAttribute('aria-label') ?? '';
+    expect(label).toContain('trending up');
+    expect(label).toContain('from 50 to 80');
   });
 });

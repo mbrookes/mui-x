@@ -5,6 +5,7 @@ import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import TrendingFlatIcon from '@mui/icons-material/TrendingFlat';
 import { formatPeriodShort, formatDateRangeLong } from './kpiUtils';
+import { formatPercent } from '../../../internals/numberFormat';
 import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
 
 export interface KpiTrendResult {
@@ -69,8 +70,14 @@ export function KpiTrend(props: KpiTrendProps) {
       sentimentLabel = localeText.kpiTrendUnfavorableLabel;
     }
 
+    // `delta` is a ratio (0.425 = +42.5%), so scale it to the 0–100 domain `formatPercent`
+    // expects. Formatting via `Intl` (rather than `toFixed` + a literal '%') keeps the
+    // decimal separator and the symbol's placement consistent with the KPI value rendered
+    // directly above this badge, which already goes through `formatNumber`. The explicit
+    // '+' stays: `Intl` omits a sign for positive numbers, and the badge's whole job is to
+    // show direction.
     const pct = Number.isFinite(trendResult.delta)
-      ? `${trendResult.delta >= 0 ? '+' : ''}${(trendResult.delta * 100).toFixed(1)}%`
+      ? `${trendResult.delta >= 0 ? '+' : ''}${formatPercent(trendResult.delta * 100)}`
       : localeText.kpiTrendNewLabel;
     // `KpiTrendResult` is a public slot API (`StudioKpiWidgetSlotProps.trend`): the
     // built-in widget's own trend computation always sets `comparisonLabel` together

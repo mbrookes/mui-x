@@ -38,6 +38,49 @@ describe('<KpiTrend /> localization', () => {
   });
 });
 
+// The badge sits directly under a KPI value that is formatted through `Intl` (via
+// `formatNumber`). Building the percentage as `` `${x.toFixed(1)}%` `` hardcodes the `.`
+// decimal separator and the trailing symbol, so a French/German dashboard rendered `42.5%`
+// beside a `42,5 €`. The expectations below are built from `Intl` rather than from literal
+// strings, so they hold under whatever locale the test process runs in — and fail against a
+// `toFixed` implementation under any locale that doesn't use `.`.
+describe('<KpiTrend /> percentage formatting', () => {
+  const percentFormat = new Intl.NumberFormat(undefined, {
+    style: 'percent',
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  });
+
+  it('formats a positive delta through Intl, keeping the explicit + sign', () => {
+    const { wrapper } = createStudioHarness();
+    render(<KpiTrend trendResult={TREND_RESULT} needsDateFilter={false} />, { wrapper });
+
+    expect(screen.getByText(`+${percentFormat.format(0.125)}`)).toBeVisible();
+  });
+
+  it('formats a negative delta through Intl (the sign comes from Intl itself)', () => {
+    const { wrapper } = createStudioHarness();
+    render(<KpiTrend trendResult={{ ...TREND_RESULT, delta: -0.075 }} needsDateFilter={false} />, {
+      wrapper,
+    });
+
+    expect(screen.getByText(percentFormat.format(-0.075))).toBeVisible();
+  });
+
+  it('still shows the "new" label for a non-finite delta', () => {
+    const { wrapper } = createStudioHarness();
+    render(
+      <KpiTrend
+        trendResult={{ ...TREND_RESULT, delta: Number.POSITIVE_INFINITY }}
+        needsDateFilter={false}
+      />,
+      { wrapper },
+    );
+
+    expect(screen.getByText('New')).toBeVisible();
+  });
+});
+
 // Regression coverage for architecture-review Tier3 finding 4: `KpiTrendResult` is a public
 // slot API (`StudioKpiWidgetSlotProps.trend`), so a HOST can supply a `trendResult` with
 // neither `comparisonLabel` nor `previousStart`/`previousEnd` set — a combination the

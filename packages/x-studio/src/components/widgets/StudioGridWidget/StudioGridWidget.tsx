@@ -29,6 +29,7 @@ import {
   useStudioSelector,
   useStudioLocaleText,
   selectDataSources,
+  selectMode,
   selectRelationships,
   selectGlobalCrossFilterMode,
   makeSelectExpressionFieldsForSources,
@@ -495,6 +496,9 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   // enrichment resolves their VALUES.
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
+  // Header-click sorting is authoring in edit mode and a transient viewing aid in view
+  // mode — see `handleSortModelChange` below for the persistence split this drives.
+  const mode = useStudioSelector(selectMode);
   // Expression fields for the widget's own source AND every one-hop related source.
   // The related-source subset is needed so a cross-source column that is a related
   // source's calculated column (`GridSetupPanel` offers these) can be resolved to a
@@ -821,7 +825,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   // config-only edit to `gridSortField`/`gridSortDirection` takes effect immediately.
   // `initialState.sorting` is only read once at mount by DataGridPremium, so a later edit
   // to the config had no effect until the grid happened to remount.
-  const sortModel = React.useMemo<GridSortModel>(
+  const configSortModel = React.useMemo<GridSortModel>(
     () =>
       widget.config.gridSortField
         ? [{ field: widget.config.gridSortField, sort: widget.config.gridSortDirection ?? 'asc' }]
@@ -829,25 +833,51 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     [widget.config.gridSortField, widget.config.gridSortDirection],
   );
 
-  // Commits an interactive header-click sort back into `gridSortField`/`gridSortDirection`,
-  // which then flows back down through the controlled `sortModel` above. A controlled
-  // `sortModel` with no `onSortModelChange` (the prior fix for the config->UI direction,
-  // above) makes DataGridPremium ignore header clicks entirely — clicking a column header
-  // did nothing even though headers still looked clickable (finding 2). Mirrors the same
-  // `controller.updateWidgetConfig(widgetId, { gridSortField, gridSortDirection })` pattern
-  // `GridSetupPanel` already uses for its own sort-field/direction controls, so this is just
-  // another writer of the same two config keys. DataGridPremium's default (non-multi) sort
-  // model carries at most one entry; clearing a header's sort (3-click cycle) yields `[]`,
-  // which clears both keys.
+  // View-mode sort override. `null` means "no viewer sort yet — follow the authored
+  // config", so a dashboard that ships with `gridSortField` set still opens sorted.
+  // A viewer's own header click lives here and NOWHERE else: `doc` is the authored
+  // document, and a read-only viewer must not be able to rewrite it (see
+  // `handleSortModelChange`).
+  const [viewSortModel, setViewSortModel] = React.useState<GridSortModel | null>(null);
+
+  // Switching modes drops any viewer-local sort so the grid re-reads the authored
+  // config, rather than resurrecting a stale view-mode sort on the next view/edit toggle.
+  React.useEffect(() => {
+    setViewSortModel(null);
+  }, [mode]);
+
+  const sortModel = mode === 'edit' ? configSortModel : (viewSortModel ?? configSortModel);
+
+  // Both directions of the controlled `sortModel` must work: a controlled model with no
+  // `onSortModelChange` makes DataGridPremium ignore header clicks entirely, so headers
+  // look clickable but do nothing. Where the resulting sort is STORED depends on mode:
+  //
+  // - edit mode: commit into `gridSortField`/`gridSortDirection`, the same two config keys
+  //   `GridSetupPanel`'s sort controls write, so an author's header click is a real edit
+  //   that survives a save. It is committed with `{ undoable: false }` because one logical
+  //   sort gesture is DataGridPremium's asc -> desc -> none cycle: three separate
+  //   `onSortModelChange` calls, which as undoable commits would bury the author's previous
+  //   real edit under three no-op undo steps and discard the redo stack on each click.
+  // - view mode: keep it in component state only. `doc` is the persisted, undoable
+  //   partition; a read-only viewer's transient sort must not be baked into the authored
+  //   dashboard, must not push undo entries, and must not clear a pending redo.
   const handleSortModelChange = React.useCallback(
     (model: GridSortModel) => {
+      if (mode !== 'edit') {
+        setViewSortModel(model);
+        return;
+      }
       const [first] = model;
-      controller.updateWidgetConfig(widget.id, {
-        gridSortField: first?.field,
-        gridSortDirection: first?.sort ?? undefined,
-      });
+      controller.updateWidgetConfig(
+        widget.id,
+        {
+          gridSortField: first?.field,
+          gridSortDirection: first?.sort ?? undefined,
+        },
+        { undoable: false },
+      );
     },
-    [controller, widget.id],
+    [controller, widget.id, mode],
   );
 
   // Drive column visibility externally so toggling always reflects widget config,

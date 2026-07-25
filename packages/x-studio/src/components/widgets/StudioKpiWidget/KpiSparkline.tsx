@@ -7,8 +7,12 @@ import { formatNumber } from '../../../internals/numberFormat';
 import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
 
 export interface KpiSparklineProps {
-  /** Bucketed time-series values; null means not yet computed. */
-  data: number[] | null;
+  /**
+   * Bucketed time-series values, one entry per period across the full time span — a `null`
+   * ENTRY is a period with no rows, rendered as a gap. A `null` for the whole prop means
+   * "not computed" (no time field, or the sparkline is off).
+   */
+  data: (number | null)[] | null;
   /** True when a time field was resolved — false means no time field at all. */
   timeFieldResolved: boolean;
   plotType?: 'line' | 'bar' | 'gauge';
@@ -103,14 +107,23 @@ export function KpiSparkline(props: KpiSparklineProps) {
   const hasEnoughData = data !== null && data.length > 1;
 
   if (hasEnoughData) {
-    const first = data[0];
-    const last = data[data.length - 1];
+    // Empty periods are `null` entries, so the endpoints of the SERIES are not necessarily
+    // the endpoints of the array. Describe the trend between the first and last periods
+    // that actually have a value, so a leading/trailing gap can't make the summary read
+    // "0 → 0". (`computeSparklineData` never synthesizes a gap at either end — the range is
+    // derived from real buckets — but a host-supplied series is not bound by that.)
+    const values = data.filter((v): v is number => v !== null);
+    const first = values[0] ?? 0;
+    const last = values[values.length - 1] ?? 0;
     let direction: 'up' | 'down' | 'flat' = 'flat';
     if (last > first) {
       direction = 'up';
     } else if (last < first) {
       direction = 'down';
     }
+    // `data.length` is the number of PERIODS covered (gaps included), not the number of
+    // plotted points — the announced count must match the time span a sighted user reads
+    // off the chart's width, which is exactly what the gap-filled array measures.
     const sparkAriaLabel = localeText.kpiSparklineAriaLabel(
       data.length,
       direction,
@@ -124,7 +137,12 @@ export function KpiSparkline(props: KpiSparklineProps) {
         sx={{ flexGrow: 1, minWidth: 0, alignSelf: 'stretch', minHeight: 48, overflow: 'hidden' }}
       >
         <SparkLineChart
-          data={data}
+          // `SparkLineChartProps.data` is declared `number[]`, but it is forwarded verbatim
+          // to the underlying `LineSeriesType`/`BarSeriesType` `data`, which is
+          // `readonly (number | null)[]` — a `null` renders as a gap, which is exactly what
+          // an empty period must look like here. The cast bridges the narrower public prop
+          // type; widening it belongs upstream in `@mui/x-charts`.
+          data={data as number[]}
           plotType={plotType}
           area={plotType !== 'bar' ? area : undefined}
           showHighlight

@@ -72,12 +72,24 @@ export function KpiTrend(props: KpiTrendProps) {
     const pct = Number.isFinite(trendResult.delta)
       ? `${trendResult.delta >= 0 ? '+' : ''}${(trendResult.delta * 100).toFixed(1)}%`
       : localeText.kpiTrendNewLabel;
+    // `KpiTrendResult` is a public slot API (`StudioKpiWidgetSlotProps.trend`): the
+    // built-in widget's own trend computation always sets `comparisonLabel` together
+    // with `previousStart`/`previousEnd`, so the type marks all three optional but in
+    // practice one of "comparisonLabel present" or "both dates present" always holds.
+    // A HOST-supplied `trendResult` isn't bound by that convention, though, so guard
+    // rather than assert: fall back to an empty period string (still a coherent,
+    // non-crashing render — just an unlabeled "vs." caption) when neither a
+    // `comparisonLabel` nor a complete `previousStart`/`previousEnd` pair is present.
     const periodShort = trendResult.comparisonLabel
       ? trendResult.comparisonLabel
-      : formatPeriodShort(trendResult.previousStart!, trendResult.previousEnd!);
+      : trendResult.previousStart && trendResult.previousEnd
+        ? formatPeriodShort(trendResult.previousStart, trendResult.previousEnd)
+        : '';
     const trendTooltip = trendResult.comparisonLabel
       ? localeText.kpiTrendTargetTooltip(trendResult.previousValue)
-      : formatDateRangeLong(trendResult.previousStart!, trendResult.previousEnd!);
+      : trendResult.previousStart && trendResult.previousEnd
+        ? formatDateRangeLong(trendResult.previousStart, trendResult.previousEnd)
+        : '';
 
     return (
       <Tooltip

@@ -1308,6 +1308,141 @@ describe('StudioController.updateWidget', () => {
     expect(() => controller.updateWidget('does-not-exist', { sourceId: 'foo' })).not.toThrow();
     expect(controller.getState()).toBe(before);
   });
+
+  // ── Write-side kind/chart-type guard on `changes.config` (Tier2 finding) ──────
+  // `updateWidgetConfig` already validates kind/chart-type-appropriate config keys
+  // on every config PATCH; `updateWidget`'s `changes.config` path (a documented,
+  // supported call shape that the reducer treats as a WHOLESALE config REPLACEMENT,
+  // per `applyMutation.ts`) ran neither guard. Every current call site happens to
+  // pass `config: {...existingConfig, ...patch}`, so these tests mirror that shape.
+  describe('changes.config kind/chart-type validation (mirrors updateWidgetConfig)', () => {
+    it('strips a cross-kind config key from changes.config (and warns), same as updateWidgetConfig', () => {
+      const controller = new StudioController({
+        doc: {
+          widgets: {
+            grid1: { id: 'grid1', kind: 'grid', title: 'Table', config: { gridHeight: 300 } },
+          },
+        },
+      });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      // `chartType` is a chart-only key; `gridHeight` is a legitimate grid key.
+      controller.updateWidget('grid1', {
+        config: { gridHeight: 400, chartType: 'line' } as StudioWidgetConfig,
+      });
+
+      const config = controller.getState().doc.widgets.grid1.config as StudioWidgetConfig;
+      expect(config.gridHeight).toBe(400);
+      expect('chartType' in config).toBe(false);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0][0]).toContain('chartType');
+      expect(warnSpy.mock.calls[0][0]).toContain('grid1');
+
+      warnSpy.mockRestore();
+    });
+
+    it("strips a config key invalid for the widget's CURRENT chart type from changes.config (and warns)", () => {
+      const controller = new StudioController({
+        doc: {
+          widgets: {
+            chart1: {
+              id: 'chart1',
+              kind: 'chart',
+              title: 'Gauge',
+              config: { chartType: 'gauge', yField: 'revenue', gaugeMax: 100 },
+            },
+          },
+        },
+      });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      // `sankeyTargetField` is a valid CHART key (passes the kind-level guard) but is
+      // not valid for a 'gauge' chart. Mirrors the real call-site shape: the existing
+      // config spread with a patch.
+      controller.updateWidget('chart1', {
+        config: {
+          chartType: 'gauge',
+          yField: 'revenue',
+          gaugeMax: 150,
+          sankeyTargetField: 'region',
+        } as StudioWidgetConfig,
+      });
+
+      const config = controller.getState().doc.widgets.chart1.config as StudioWidgetConfig;
+      expect(config.gaugeMax).toBe(150);
+      expect(config.yField).toBe('revenue');
+      expect('sankeyTargetField' in config).toBe(false);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0][0]).toContain('sankeyTargetField');
+      expect(warnSpy.mock.calls[0][0]).toContain('gauge');
+      expect(warnSpy.mock.calls[0][0]).toContain('chart1');
+
+      warnSpy.mockRestore();
+    });
+
+    it('never persists an invalid chartType supplied via changes.config, and does not throw', () => {
+      const controller = new StudioController({
+        doc: {
+          widgets: {
+            chart1: {
+              id: 'chart1',
+              kind: 'chart',
+              title: 'Chart',
+              config: { chartType: 'bar', xField: 'category', yField: 'revenue' },
+            },
+          },
+        },
+      });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      expect(() => {
+        controller.updateWidget('chart1', {
+          config: {
+            chartType: 'not-a-real-chart-type',
+            xField: 'category',
+            yField: 'revenue',
+          } as unknown as StudioWidgetConfig,
+        });
+      }).not.toThrow();
+
+      const config = controller.getState().doc.widgets.chart1.config as StudioWidgetConfig;
+      // The bogus chartType is fail-closed stripped (same allow-list logic
+      // `updateWidgetConfig` runs), never persisted verbatim.
+      expect(config.chartType).not.toBe('not-a-real-chart-type');
+      expect(warnSpy).toHaveBeenCalled();
+      expect(
+        warnSpy.mock.calls.some((call) => String(call[0]).includes('not-a-real-chart-type')),
+      ).toBe(true);
+
+      warnSpy.mockRestore();
+    });
+
+    it('does not warn and applies changes.config untouched when every key is valid', () => {
+      const controller = new StudioController({
+        doc: {
+          widgets: {
+            chart1: {
+              id: 'chart1',
+              kind: 'chart',
+              title: 'Chart',
+              config: { chartType: 'bar', xField: 'category' },
+            },
+          },
+        },
+      });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      controller.updateWidget('chart1', {
+        config: { chartType: 'bar', xField: 'category', yField: 'revenue' } as StudioWidgetConfig,
+      });
+
+      const config = controller.getState().doc.widgets.chart1.config as StudioWidgetConfig;
+      expect(config).toEqual({ chartType: 'bar', xField: 'category', yField: 'revenue' });
+      expect(warnSpy).not.toHaveBeenCalled();
+
+      warnSpy.mockRestore();
+    });
+  });
 });
 
 describe('StudioController.duplicateWidget', () => {

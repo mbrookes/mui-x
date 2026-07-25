@@ -431,6 +431,43 @@ describe('StudioLineAreaChart', () => {
     ]);
   });
 
+  // Tier2 finding: a split-by category value equal to an `Object.prototype` member name
+  // (e.g. "constructor") that has ZERO rows in the filtered dataset must be treated as
+  // genuinely missing (an all-null foreground series), not resolve the inherited prototype
+  // member via an unguarded `seriesFieldData.seriesData[name]` bracket lookup.
+  it('treats a hostile split-by category name ("constructor") with zero filtered rows as genuinely missing, not the inherited Object.prototype member', () => {
+    const seriesFieldData = {
+      labels: ['Q1', 'Q2'],
+      seriesNames: ['North'], // "constructor" was fully filtered out of this dataset
+      seriesData: { North: [1, 2] },
+    };
+    const allSeriesFieldData = {
+      labels: ['Q1', 'Q2'],
+      seriesNames: ['North', 'constructor'],
+      seriesData: { North: [1, 2], constructor: [5, 6] },
+    };
+    expect(() =>
+      renderChart(
+        baseProps({
+          chartType: 'line',
+          chartData: null,
+          seriesFieldData,
+          allSeriesFieldData,
+          shouldShowGhost: true,
+          preserveSplitByBaseline: true,
+        }),
+      ),
+    ).not.toThrow();
+    const props = lastLineProps();
+    const activeSeries = props.series.filter((s) => !s.id.endsWith('-ghost'));
+    expect(activeSeries.map((s) => s.id)).toEqual(['North', 'constructor']);
+    const constructorSeries = activeSeries.find((s) => s.id === 'constructor')!;
+    // "constructor" has zero rows in the filtered dataset: its foreground data must be an
+    // all-null column (genuinely missing), never a truthy inherited `Object.prototype` member
+    // silently substituted in.
+    expect(constructorSeries.data).toEqual([null, null]);
+  });
+
   it('suppresses split-by ghost series when preserveSplitByBaseline is false', () => {
     const seriesFieldData = {
       labels: ['Q1', 'Q2'],

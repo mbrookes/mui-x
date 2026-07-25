@@ -272,10 +272,19 @@ export function StudioLineAreaChart({
       if (!sfLineAllData) {
         rawData = effectiveSFLineData.seriesData[name];
       } else if (seriesFieldData) {
+        // `name` is drawn from `effectiveSFLineData.seriesNames` (== `sfLineAllData`'s
+        // series names here) — a DIFFERENT object from `seriesFieldData.seriesData` (the
+        // filtered dataset), so a hostile split-by category value (e.g.
+        // `"constructor"`/`"toString"`) that has zero rows in the filtered dataset must
+        // not fall through to the inherited `Object.prototype` member.
+        // `Object.hasOwn` treats that case the same as a genuinely-missing key: an
+        // all-null column (fully filtered out).
         rawData = alignFilteredToAllLabels(
           sfLineAllData.labels,
           seriesFieldData.labels,
-          seriesFieldData.seriesData[name] ?? sfLineAllData.labels.map(() => null),
+          Object.hasOwn(seriesFieldData.seriesData, name)
+            ? seriesFieldData.seriesData[name]
+            : sfLineAllData.labels.map(() => null),
         );
       } else {
         rawData = sfLineAllData.labels.map(() => null);

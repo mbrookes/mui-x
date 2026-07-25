@@ -1514,6 +1514,43 @@ export class StudioController {
       }
     }
 
+    // Write-side kind/chart-type guard (Tier2 finding): `changes.config` is a
+    // documented, supported call shape that the reducer treats as a WHOLESALE
+    // config REPLACEMENT (`applyMutation.ts`'s `updateWidget` handler, the
+    // `changes.config` branch), not a merge — so unlike a stray unrelated field
+    // in `changes`, an incoming `config` here needs the exact same runtime
+    // backstop `updateWidgetConfig` already applies to its (merged) config patch:
+    // strip keys invalid for the widget's kind, then (for a chart) strip keys
+    // invalid for the effective chart type. Without this, `updateWidget` was the
+    // one mutation entry point that could install a wrong-kind/wrong-chart-type
+    // config key or an invalid `chartType` unchecked — every current call site
+    // happens to pass `config: {...existingConfig, ...patch}`, so this wasn't yet
+    // exploited, but the guard belongs at this boundary regardless of that.
+    if (Object.hasOwn(definedChanges, 'config')) {
+      const existingWidget = this.store.state.doc.widgets[widgetId];
+      if (existingWidget) {
+        // If this same call also changes `kind`, validate against the NEW kind;
+        // otherwise use the widget's current kind. Only fall back to the
+        // widget's stored chart type when the kind isn't also changing away
+        // from 'chart' — a stale chart type from a different kind's widget
+        // would be a meaningless fallback.
+        const effectiveKind =
+          typeof definedChanges.kind === 'string'
+            ? (definedChanges.kind as StudioWidget['kind'])
+            : existingWidget.kind;
+        const existingChartConfig =
+          existingWidget.kind === effectiveKind
+            ? (existingWidget.config as { chartType?: StudioChartType })
+            : undefined;
+        definedChanges.config = this.sanitizeWidgetConfigForKind(
+          effectiveKind,
+          definedChanges.config as Record<string, unknown>,
+          widgetId,
+          existingChartConfig,
+        );
+      }
+    }
+
     // Re-infer titles when source changes, or when switching back to auto mode.
     // Skip re-inference when the caller explicitly provides a title/subtitle — keyed
     // off the presence of the key in `changes` (even with an `undefined` value),
@@ -1571,62 +1608,67 @@ export class StudioController {
     );
   };
 
-  updateWidgetConfig = (
+  /**
+   * Shared write-side kind/chart-type sanitization for a widget's `config`,
+   * factored out so both `updateWidgetConfig` (a merged config PATCH) and
+   * `updateWidget`'s `changes.config` path (a wholesale config REPLACEMENT,
+   * per `applyMutation.ts`'s `updateWidget` handler) run the identical guard
+   * before their respective config value reaches the reducer. See the two call
+   * sites for how the merge-vs-replacement distinction affects what "the
+   * incoming config" means, but the validation itself — strip config keys not
+   * valid for `kind`, then (for a chart) strip keys not valid for the
+   * effective chart type — is identical either way.
+   */
+  private sanitizeWidgetConfigForKind = (
+    kind: StudioWidget['kind'],
+    config: Record<string, unknown>,
     widgetId: string,
-    config: Partial<import('../models').StudioWidgetConfig>,
-    options?: { undoable?: boolean },
-  ) => {
+    // The chart type to fall back to when `config` itself doesn't declare a
+    // `chartType` (i.e. the widget's CURRENT stored chart type). Only relevant
+    // when `kind === 'chart'`; omit when there's no sensible existing chart
+    // type to fall back to (e.g. `kind` is itself changing away from 'chart').
+    existingChartConfig?: { chartType?: StudioChartType },
+  ): Record<string, unknown> => {
     // Write-side kind guard: strip any config key that isn't valid for THIS
     // widget's kind before committing (e.g. a Chart-only key patched onto a Grid
     // widget). TypeScript can't enforce the per-kind config shape on this generic
     // patch at runtime, so this is the runtime backstop. Matching the controller's
     // guard-and-continue style (never throw on bad input): warn in dev and drop
     // the offending keys rather than persisting a wrong-kind key.
-    const existingWidget = this.store.state.doc.widgets[widgetId];
     let effectiveConfig = config;
-    if (existingWidget) {
-      const invalidKeys = validateConfigKeysForKind(
-        existingWidget.kind,
-        config as Record<string, unknown>,
-      );
-      if (invalidKeys.length > 0) {
-        if (process.env.NODE_ENV !== 'production') {
-          console.warn(
-            `MUI X Studio: Ignoring config key(s) not valid for a '${existingWidget.kind}' ` +
-              `widget (id '${widgetId}'): ${invalidKeys.join(', ')}. ` +
-              'These keys belong to a different widget kind and were dropped from the update.',
-          );
-        }
-        const stripped: Record<string, unknown> = {};
-        for (const [key, value] of Object.entries(config)) {
-          if (!invalidKeys.includes(key)) {
-            stripped[key] = value;
-          }
-        }
-        effectiveConfig = stripped as Partial<import('../models').StudioWidgetConfig>;
+    const invalidKeys = validateConfigKeysForKind(kind, effectiveConfig);
+    if (invalidKeys.length > 0) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn(
+          `MUI X Studio: Ignoring config key(s) not valid for a '${kind}' ` +
+            `widget (id '${widgetId}'): ${invalidKeys.join(', ')}. ` +
+            'These keys belong to a different widget kind and were dropped from the update.',
+        );
       }
+      const stripped: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(effectiveConfig)) {
+        if (!invalidKeys.includes(key)) {
+          stripped[key] = value;
+        }
+      }
+      effectiveConfig = stripped;
     }
 
     // Write-side CHART-TYPE guard: a finer-grained layer under the kind guard
     // above. A key can be a legitimate Chart key (passes the kind guard) yet still
     // be wrong for THIS chart's type (e.g. `sankeyTargetField` patched onto a
-    // 'gauge' chart). Only the incoming PATCH is checked here, never the widget's
+    // 'gauge' chart). Only the incoming config is checked here, never the widget's
     // STORED config: a chart widget deliberately retains config keys from a
     // previously-selected chart type after switching types (bar -> gauge -> bar
     // keeps `xField`/`ySeries` around) — that's intentional UX, not a bug, so
     // re-validating stored keys on every unrelated patch would wrongly strip them.
-    // If the patch itself sets `chartType`, it's declaring a type switch, so its
-    // own keys are checked against the NEW type; otherwise fall back to the
-    // widget's CURRENT chart type.
-    if (existingWidget && existingWidget.kind === 'chart') {
+    // If the incoming config itself sets `chartType`, it's declaring a type switch,
+    // so its own keys are checked against the NEW type; otherwise fall back to the
+    // widget's CURRENT chart type (`existingChartConfig`).
+    if (kind === 'chart') {
       const patchChartType = (effectiveConfig as { chartType?: StudioChartType }).chartType;
-      const effectiveChartType =
-        patchChartType ??
-        resolveChartType(existingWidget.config as { chartType?: StudioChartType });
-      const invalidChartKeys = validateChartConfigKeysForType(
-        effectiveChartType,
-        effectiveConfig as Record<string, unknown>,
-      );
+      const effectiveChartType = patchChartType ?? resolveChartType(existingChartConfig ?? {});
+      const invalidChartKeys = validateChartConfigKeysForType(effectiveChartType, effectiveConfig);
       if (invalidChartKeys.length > 0) {
         if (process.env.NODE_ENV !== 'production') {
           console.warn(
@@ -1641,9 +1683,27 @@ export class StudioController {
             stripped[key] = value;
           }
         }
-        effectiveConfig = stripped as Partial<import('../models').StudioWidgetConfig>;
+        effectiveConfig = stripped;
       }
     }
+
+    return effectiveConfig;
+  };
+
+  updateWidgetConfig = (
+    widgetId: string,
+    config: Partial<import('../models').StudioWidgetConfig>,
+    options?: { undoable?: boolean },
+  ) => {
+    const existingWidget = this.store.state.doc.widgets[widgetId];
+    const effectiveConfig = existingWidget
+      ? (this.sanitizeWidgetConfigForKind(
+          existingWidget.kind,
+          config as Record<string, unknown>,
+          widgetId,
+          existingWidget.config as { chartType?: StudioChartType },
+        ) as Partial<import('../models').StudioWidgetConfig>)
+      : config;
 
     // Delegate the config-patch merge (delete-on-`undefined` semantics) to the
     // shared reducer's `updateWidget` handler, whose `config` branch already

@@ -507,6 +507,42 @@ describe('StudioBarChart', () => {
       expect(capturedBarCtx!.allValuesBySeriesId.South).toEqual([3, 4]);
     });
 
+    // Tier2 finding: a split-by category value equal to an `Object.prototype` member name
+    // (e.g. "constructor") that has ZERO rows in the filtered dataset must be treated as
+    // genuinely missing (an all-null ghost column), not resolve the inherited prototype
+    // member via an unguarded `seriesData[name]` bracket lookup.
+    it('treats a hostile split-by category name ("constructor") with zero filtered rows as genuinely missing, not the inherited Object.prototype member', () => {
+      const seriesFieldData = {
+        labels: ['Q1', 'Q2'],
+        seriesNames: ['North'], // "constructor" was fully filtered out of this dataset
+        seriesData: { North: [1, 2] },
+      };
+      const allSeriesFieldData = {
+        labels: ['Q1', 'Q2'],
+        seriesNames: ['North', 'constructor'],
+        seriesData: { North: [1, 2], constructor: [5, 6] },
+      };
+      expect(() =>
+        renderChart(
+          baseProps({
+            chartType: 'bar',
+            chartData: null,
+            seriesFieldData,
+            allSeriesFieldData,
+            shouldShowGhost: true,
+            preserveSplitByBaseline: true,
+          }),
+        ),
+      ).not.toThrow();
+      const props = lastBarProps();
+      expect(props.series.map((s) => s.id)).toEqual(['North', 'constructor']);
+      // "constructor" has zero rows in the filtered dataset: its ghost filtered values must be
+      // an all-null column (genuinely missing), never a truthy inherited `Object.prototype`
+      // member silently substituted in.
+      expect(capturedBarCtx!.filteredValuesBySeriesId.constructor).toEqual([null, null]);
+      expect(capturedBarCtx!.allValuesBySeriesId.constructor).toEqual([5, 6]);
+    });
+
     it('suppresses the hover highlight under active / incoming cross-filters', () => {
       const seriesFieldData = {
         labels: ['Q1', 'Q2'],

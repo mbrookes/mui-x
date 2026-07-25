@@ -57,6 +57,8 @@ import { StudioPieChart } from './StudioPieChart';
 import { StudioLineAreaChart } from './StudioLineAreaChart';
 // eslint-disable-next-line import/first -- must follow the vi.mock calls above
 import { StudioScatterChart } from './StudioScatterChart';
+// eslint-disable-next-line import/first -- must follow the vi.mock calls above
+import { StudioSankeyChart } from './StudioSankeyChart';
 
 const dataSource: StudioDataSource = {
   id: 'src',
@@ -493,5 +495,47 @@ describe('chart-family renderers consult allChartData before bailing to EmptyCha
     };
     expect(props.preserveXFieldBaseline).toBe(true);
     expect(props.preserveSplitByBaseline).toBe(false);
+  });
+
+  // Tier3 finding: `sankeyLinkColor` is a doc-authored enum config value (like funnel's
+  // `funnelCurve`/`funnelVariant`) that isn't type-enforced at the load/AI-tool boundary.
+  // `renderSankey` must allow-list it before forwarding to `StudioSankeyChart`, mirroring
+  // `SAFE_FUNNEL_*`/`SAFE_HEAT_SCHEMES`, rather than passing an arbitrary string through.
+  describe('renderSankey sankeyLinkColor allow-list', () => {
+    const sankeyConfig: StudioWidgetConfig = {
+      chartType: 'sankey',
+      xField: 'category',
+      sankeyTargetField: 'region',
+      yField: 'amount',
+    } as StudioWidgetConfig;
+    const sankeyRows = [{ category: 'a', region: 'b', amount: 1 }];
+
+    beforeEach(() => {
+      aggregateSankeySpy.mockReturnValue({
+        nodes: [{ id: 'a' }, { id: 'b' }],
+        links: [{ source: 'a', target: 'b', value: 1 }],
+      });
+    });
+
+    it('sanitizes an invalid sankeyLinkColor to undefined (chart default) instead of passing it through', () => {
+      const view = CHART_TYPE_DEFS.sankey.render(
+        makeCtx(
+          { ...sankeyConfig, sankeyLinkColor: 'not-a-real-color' } as unknown as StudioWidgetConfig,
+          sankeyRows,
+        ),
+      );
+
+      expect(view.type).toBe(StudioSankeyChart);
+      expect((view.props as { linkColor?: string }).linkColor).toBeUndefined();
+    });
+
+    it('passes through a valid sankeyLinkColor value', () => {
+      const view = CHART_TYPE_DEFS.sankey.render(
+        makeCtx({ ...sankeyConfig, sankeyLinkColor: 'target' } as StudioWidgetConfig, sankeyRows),
+      );
+
+      expect(view.type).toBe(StudioSankeyChart);
+      expect((view.props as { linkColor?: string }).linkColor).toBe('target');
+    });
   });
 });

@@ -542,7 +542,16 @@ export function StudioBarChart({
             allBarSeriesFieldData.seriesNames.map((name) => ({
               seriesId: String(name),
               allValues: allBarSeriesFieldData.seriesData[name] ?? [],
-              filteredValues: barSeriesFieldData?.seriesData[name] ?? null,
+              // `name` is drawn from `allBarSeriesFieldData.seriesNames` — a DIFFERENT
+              // object from `barSeriesFieldData.seriesData` (the filtered dataset), so a
+              // hostile split-by category value (e.g. `"constructor"`/`"toString"`) that
+              // has zero rows in the filtered dataset must not fall through to the
+              // inherited `Object.prototype` member. `Object.hasOwn` treats that case the
+              // same as a genuinely-missing key: `null` (fully filtered out).
+              filteredValues:
+                barSeriesFieldData && Object.hasOwn(barSeriesFieldData.seriesData, name)
+                  ? barSeriesFieldData.seriesData[name]
+                  : null,
             })),
           )
         : null;

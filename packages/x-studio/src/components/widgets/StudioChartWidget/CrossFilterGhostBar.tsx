@@ -57,6 +57,17 @@ export function CrossFilterGhostBar(props: BarProps) {
     );
   }
 
+  // INVARIANT: every `seriesId` this component is ever asked to render is guaranteed
+  // to be an OWN property of both maps below, because `buildGhostBarContext`
+  // (`chartWidgetHelpers.ts`) populates `allValuesBySeriesId`/`filteredValuesBySeriesId`
+  // from the SAME series list the caller (`StudioBarChart`) renders bars for — a bar's
+  // `seriesId` prop is always one of those same series. The `?? []` below is therefore
+  // just a defensive fallback, not something normally exercised. If a future refactor
+  // ever trims/filters this context independently of the rendered series list (e.g. to
+  // drop "empty" series before building it), that decoupling would silently violate this
+  // invariant and produce a wrong (silently substituted, non-crashing) ghost value rather
+  // than a visible bug — re-derive the context from the exact same series list being
+  // rendered, or update this comment if the invariant changes.
   const allValues = ctx.allValuesBySeriesId[seriesId] ?? [];
   const filteredValues = ctx.filteredValuesBySeriesId[seriesId] ?? [];
   const allValue = allValues[dataIndex] ?? 0;

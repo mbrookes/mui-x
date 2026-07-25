@@ -37,3 +37,26 @@ describe('<KpiTrend /> localization', () => {
     expect(screen.queryByText('vs. Q1 2024')).toBeNull();
   });
 });
+
+// Regression coverage for architecture-review Tier3 finding 4: `KpiTrendResult` is a public
+// slot API (`StudioKpiWidgetSlotProps.trend`), so a HOST can supply a `trendResult` with
+// neither `comparisonLabel` nor `previousStart`/`previousEnd` set — a combination the
+// built-in widget's own trend computation never produces, but the type still marks all
+// three optional. This must render gracefully (empty period caption) rather than crash on
+// a non-null assertion.
+describe('<KpiTrend /> host-supplied trendResult missing both comparisonLabel and dates', () => {
+  it('does not throw and renders an empty "vs." caption', () => {
+    const { wrapper } = createStudioHarness();
+    const hostTrendResult: KpiTrendResult = {
+      delta: 0.05,
+      previousValue: 100,
+      // Neither `comparisonLabel` nor `previousStart`/`previousEnd` — unreachable from the
+      // built-in widget, but not ruled out by the type for a host-supplied slot override.
+    };
+
+    expect(() =>
+      render(<KpiTrend trendResult={hostTrendResult} needsDateFilter={false} />, { wrapper }),
+    ).not.toThrow();
+    expect(screen.getByText('vs.')).toBeVisible();
+  });
+});

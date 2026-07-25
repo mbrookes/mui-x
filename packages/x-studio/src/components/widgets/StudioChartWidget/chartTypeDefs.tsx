@@ -70,6 +70,16 @@ const SAFE_FUNNEL_LABEL_PLACEMENTS = new Set<FunnelLabelPlacement>([
   'outside-end',
 ]);
 
+// ── sankey presentation-enum allow-list ────────────────────────────────────────
+// `sankeyLinkColor` is typed as this union but that type is NOT enforced at the
+// load/AI-tool boundary either — same rationale as the funnel enums above. An
+// unrecognized value would flow straight into `@mui/x-charts-pro`'s `SankeyChart`
+// `series.linkOptions.color`, unlike every sibling chart family's doc-authored enum
+// config value. Allow-list it (fall back to `StudioSankeyChart`'s own default via
+// `undefined`), mirroring `SAFE_FUNNEL_*`/`SAFE_HEAT_SCHEMES`.
+type SankeyLinkColor = NonNullable<StudioChartConfigOfType<'sankey'>['sankeyLinkColor']>;
+const SAFE_SANKEY_LINK_COLORS = new Set<SankeyLinkColor>(['source', 'target']);
+
 /** Returns `value` if it is a member of `allowed`, otherwise `undefined`. */
 function sanitizeEnum<T extends string>(value: unknown, allowed: ReadonlySet<T>): T | undefined {
   return typeof value === 'string' && (allowed as ReadonlySet<string>).has(value)
@@ -725,7 +735,7 @@ function renderSankey(ctx: ChartRenderContext<'sankey'>): React.ReactElement {
     <StudioSankeyChart
       data={sankeyData}
       height={chartHeight}
-      linkColor={config.sankeyLinkColor}
+      linkColor={sanitizeEnum(config.sankeyLinkColor, SAFE_SANKEY_LINK_COLORS)}
       showValues={config.sankeyShowValues}
       valueFormat={valueFieldDef?.format}
       currencyCode={valueFieldDef?.currencyCode}

@@ -238,7 +238,21 @@ describe('StudioWidgetCard', () => {
       widget: widget({ kind: 'grid', config: {} as StudioWidgetConfig }),
       filters: [crossFilter],
     });
-    expect(screen.getByText(/order_date: 1 Jan 2024 – 31 Jan 2024/)).toBeDefined();
+    // The expected bounds are derived through the same `Intl` options the helper uses
+    // rather than hardcoded as English `1 Jan 2024`: the helper now resolves both the
+    // month name and the field order from the runtime locale (it used to format through
+    // dayjs's unconfigured global default), so a hardcoded string would only pass under
+    // one locale.
+    const formatBound = (iso: string) =>
+      new Date(iso).toLocaleDateString(undefined, {
+        timeZone: 'UTC',
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      });
+    expect(
+      screen.getByText(`order_date: ${formatBound('2024-01-01')} – ${formatBound('2024-01-31')}`),
+    ).toBeDefined();
     expect(screen.queryByText(/\[object Object\]/)).toBeNull();
   });
 

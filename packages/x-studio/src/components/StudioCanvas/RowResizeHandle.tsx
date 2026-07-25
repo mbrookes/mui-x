@@ -6,6 +6,9 @@ import { Box } from '@mui/material';
 import { MIN_SPAN } from './canvasGridConstants';
 import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 import { useStudioAnnounce } from '../../internals/StudioLiveRegion';
+import { useStudioSelector } from '../../context';
+import type { StudioState } from '../../models';
+import { lookup } from '../../utils/safeLookup';
 
 interface RowResizeHandleProps {
   leftId: string;
@@ -40,6 +43,21 @@ export function RowResizeHandle({
   const totalSpan = leftSpan + rightSpan;
   const localeText = useStudioLocaleText();
   const announce = useStudioAnnounce();
+  // Titles of the two widgets this handle sits between. A dashboard row can hold several
+  // handles and a page several rows, so a bare "Resize columns" name repeated N times tells
+  // a screen-reader user nothing about which boundary they have landed on. Read from the
+  // store rather than threaded through props so the name stays correct after a rename.
+  // `widgetId` is doc-authored, hence the prototype-chain-safe `lookup` (see `selectors.ts`).
+  const selectLeftTitle = React.useMemo(
+    () => (state: StudioState) => lookup(state.doc.widgets, leftId)?.title ?? '',
+    [leftId],
+  );
+  const selectRightTitle = React.useMemo(
+    () => (state: StudioState) => lookup(state.doc.widgets, rightId)?.title ?? '',
+    [rightId],
+  );
+  const leftTitle = useStudioSelector(selectLeftTitle);
+  const rightTitle = useStudioSelector(selectRightTitle);
   const dragRef = React.useRef<{
     combinedLeft: number;
     combinedWidth: number;
@@ -162,10 +180,14 @@ export function RowResizeHandle({
       if (!Number.isFinite(combinedWidth) || combinedWidth <= 0) {
         return;
       }
-      // A pointer gesture supersedes any half-finished keyboard session: drop the pending
-      // value (uncommitted, so nothing to roll back on the doc) and let this drag's own
-      // geometry decide the final spans.
-      setPendingLeft(null);
+      // A pointer gesture supersedes any half-finished keyboard session. Dropping the pending
+      // value is not enough: the parent's `liveDrag` is what actually drives the row's flex
+      // values and the column-divider overlay, and it was set by the keyboard session's
+      // `onDragMove`. Without the matching `onDragCancel` the row stayed pinned to the
+      // abandoned preview until this drag's first `pointermove` happened to overwrite it —
+      // and if the gesture ended without ever moving, forever. Roll the session back
+      // explicitly, then let this drag's own geometry decide the final spans.
+      cancelKeyboard();
       dragRef.current = {
         combinedLeft: leftRect.left,
         combinedWidth,
@@ -174,7 +196,7 @@ export function RowResizeHandle({
       setActive(true);
       handle.setPointerCapture(event.pointerId);
     },
-    [totalSpan],
+    [totalSpan, cancelKeyboard],
   );
 
   const handlePointerMove = React.useCallback(
@@ -234,12 +256,41 @@ export function RowResizeHandle({
     onDragCancel(leftId, rightId);
   }, [leftId, rightId, onDragCancel]);
 
+  // Unmount teardown. Every other exit from an open session is an event ON this element —
+  // blur / Enter / Escape for keyboard, pointerup / pointercancel / lostpointercapture for
+  // pointer — and none of them fire when the handle is simply removed from the tree, e.g. an
+  // AI mutation streaming in a `setWidgetLayout` that collapses the row while the user is
+  // mid-nudge. The parent's `liveDrag` would then keep the row rendering uncommitted spans
+  // and the grid-line overlay with no control left to clear them.
+  //
+  // Rolls back rather than commits: the geometry the gesture was measured against is gone,
+  // so committing its spans would write a value the user never confirmed into a row that has
+  // already changed shape. Kept in a ref updated each render so the effect can stay
+  // mount-only and still see the live session state.
+  const cleanupRef = React.useRef<(() => void) | undefined>(undefined);
+  cleanupRef.current = () => {
+    if (pendingLeft === null && !dragRef.current) {
+      return;
+    }
+    dragRef.current = null;
+    onDragCancel(leftId, rightId);
+  };
+  React.useEffect(() => () => cleanupRef.current?.(), []);
+
+  const resizeLabel = localeText.canvasResizeColumnsAriaLabel;
+  const flankingTitles = [leftTitle, rightTitle].filter(Boolean).join(' / ');
+
   return (
     <Box
       data-resize-handle
       role="separator"
       aria-orientation="vertical"
-      aria-label={localeText.canvasResizeColumnsAriaLabel}
+      // The translated action name, disambiguated by the widgets it sits between so each
+      // handle on the page gets a distinct accessible name. Composed with punctuation only —
+      // no untranslated words are introduced — matching how `StudioQuickFilterBar` builds
+      // "FieldLabel: summary". Falls back to the bare action name when neither neighbour has
+      // a title (untitled widgets), which is still the pre-existing behaviour.
+      aria-label={flankingTitles ? `${resizeLabel}: ${flankingTitles}` : resizeLabel}
       aria-valuemin={minLeft}
       aria-valuemax={maxLeft}
       // Reflects the uncommitted keyboard value while a keyboard session is open, so a

@@ -1,6 +1,8 @@
 import * as React from 'react';
 import { createRenderer, screen, fireEvent, act } from '@mui/internal-test-utils';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { createStudioHarness } from '../../internals/test-utils';
+import type { StudioWidget, StudioWidgetConfig } from '../../models';
 import { RowResizeHandle } from './RowResizeHandle';
 
 /**
@@ -10,8 +12,9 @@ import { RowResizeHandle } from './RowResizeHandle';
  * forever (see cases 11-13 below, which fail without the `onPointerCancel`/
  * `onLostPointerCapture` wiring on the root Box).
  *
- * `RowResizeHandle` renders with safe context defaults (`useStudioLocaleText`/
- * `useStudioAnnounce` both fall back without a provider), so no wrapper is needed.
+ * The handle reads the titles of the two widgets it sits between (so each handle gets a
+ * distinct accessible name), so it renders inside a real `StudioProvider` via
+ * `createStudioHarness` rather than bare.
  *
  * jsdom implements neither pointer capture nor real layout, so:
  *  - `setPointerCapture`/`releasePointerCapture` are stubbed on `HTMLElement.prototype`.
@@ -22,6 +25,21 @@ import { RowResizeHandle } from './RowResizeHandle';
  */
 
 const { render } = createRenderer();
+
+function makeWidget(id: string, title: string): StudioWidget {
+  return { id, kind: 'text', title, config: {} as StudioWidgetConfig };
+}
+
+/** Harness state: two titled widgets, `a` (left) and `b` (right), matching the ids below. */
+function makeWrapper(widgets?: Record<string, StudioWidget>) {
+  return createStudioHarness({
+    initialState: {
+      doc: {
+        widgets: widgets ?? { a: makeWidget('a', 'Revenue'), b: makeWidget('b', 'Orders') },
+      },
+    },
+  }).wrapper;
+}
 
 interface HarnessProps {
   leftSpan?: number;
@@ -84,17 +102,19 @@ type HarnessSpanProps = Pick<
 >;
 
 /** Set up the handle with a combined rect spanning [0, 480] (24 columns => 20px/col). */
-function setup(props: HarnessSpanProps = {}) {
+function setup(props: HarnessSpanProps & { widgets?: Record<string, StudioWidget> } = {}) {
+  const { widgets, ...spanProps } = props;
   const onDragMove = vi.fn();
   const onDragEnd = vi.fn();
   const onDragCancel = vi.fn();
   const view = render(
     <Harness
-      {...props}
+      {...spanProps}
       onDragMove={onDragMove}
       onDragEnd={onDragEnd}
       onDragCancel={onDragCancel}
     />,
+    { wrapper: makeWrapper(widgets) },
   );
   const leftBox = screen.getByTestId('left-box');
   const rightBox = screen.getByTestId('right-box');
@@ -373,7 +393,6 @@ describe('RowResizeHandle — pointercancel / lostpointercapture (finding 1.9)',
   });
 });
 
-
 /**
  * Every span computation divides by the combined width of the two flanking boxes. That
  * width is 0 whenever the row is laid out but unpainted (a `display: none` ancestor, a
@@ -394,6 +413,7 @@ describe('RowResizeHandle — zero-width row guard', () => {
         onDragEnd={onDragEnd}
         onDragCancel={onDragCancel}
       />,
+      { wrapper: makeWrapper() },
     );
     // Both boxes collapsed onto the same x → combined width 0.
     screen.getByTestId('left-box').getBoundingClientRect = () => makeRect({ left: 0, right: 0 });
@@ -416,7 +436,7 @@ describe('RowResizeHandle — zero-width row guard', () => {
     expect(onDragEnd).not.toHaveBeenCalled();
   });
 
-  it('never emits a NaN span from any pointer callback', () => {
+  it('never emits a NaN span from any pointer callback (zero-width)', () => {
     const { handle, onDragMove, onDragEnd } = setupZeroWidth();
     fireEvent.pointerDown(handle, { pointerId: 1, clientX: 0 });
     fireEvent.pointerMove(handle, { pointerId: 1, clientX: 0 });
@@ -426,5 +446,117 @@ describe('RowResizeHandle — zero-width row guard', () => {
       args.filter((arg) => typeof arg === 'number'),
     );
     expect(emitted.every((n) => Number.isFinite(n))).toBe(true);
+  });
+});
+
+/**
+ * The parent's `liveDrag` — which drives the row's live flex values and the column-divider
+ * overlay — is only cleared by `onDragCancel`/`onDragEnd`. Every path that abandons an open
+ * session must therefore emit one, or the row stays pinned to an uncommitted preview with no
+ * control left to clear it.
+ */
+describe('RowResizeHandle — abandoned sessions', () => {
+  it('a pointer gesture that supersedes an open keyboard session rolls it back', () => {
+    const { handle, onDragCancel, onDragEnd } = setup({ leftSpan: 12, rightSpan: 12 });
+    pressKey(handle, 'ArrowRight');
+    expect(onDragCancel).not.toHaveBeenCalled();
+
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 240 });
+
+    // Dropping the pending value alone used to leave `liveDrag` set to the abandoned
+    // preview until (and unless) this drag's first pointermove overwrote it.
+    expect(onDragCancel).toHaveBeenCalledTimes(1);
+    expect(onDragCancel).toHaveBeenCalledWith('a', 'b');
+    // Superseding is a rollback, never a commit.
+    expect(onDragEnd).not.toHaveBeenCalled();
+  });
+
+  it('unmounting mid keyboard session rolls it back instead of stranding the preview', () => {
+    const { handle, unmount, onDragCancel, onDragEnd } = setup({ leftSpan: 12, rightSpan: 12 });
+    pressKey(handle, 'ArrowRight');
+    pressKey(handle, 'ArrowRight');
+    expect(onDragCancel).not.toHaveBeenCalled();
+
+    // e.g. an AI mutation streams in a `setWidgetLayout` that collapses the row.
+    act(() => {
+      unmount();
+    });
+
+    expect(onDragCancel).toHaveBeenCalledTimes(1);
+    expect(onDragCancel).toHaveBeenCalledWith('a', 'b');
+    // The geometry the gesture was measured against is gone, so nothing is committed.
+    expect(onDragEnd).not.toHaveBeenCalled();
+  });
+
+  it('unmounting mid pointer drag rolls it back too', () => {
+    const { handle, unmount, onDragCancel, onDragEnd } = setup({ leftSpan: 12, rightSpan: 12 });
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 240 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 250 });
+
+    act(() => {
+      unmount();
+    });
+
+    expect(onDragCancel).toHaveBeenCalledTimes(1);
+    expect(onDragEnd).not.toHaveBeenCalled();
+  });
+
+  it('unmounting with no open session fires nothing', () => {
+    const { unmount, onDragCancel, onDragEnd } = setup({ leftSpan: 12, rightSpan: 12 });
+    act(() => {
+      unmount();
+    });
+    expect(onDragCancel).not.toHaveBeenCalled();
+    expect(onDragEnd).not.toHaveBeenCalled();
+  });
+
+  it('a completed pointer drag is not re-cancelled on unmount', () => {
+    const { handle, unmount, onDragCancel, onDragEnd } = setup({ leftSpan: 12, rightSpan: 12 });
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 240 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 250 });
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 250 });
+    expect(onDragEnd).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      unmount();
+    });
+
+    expect(onDragCancel).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A dashboard renders one handle per adjacent widget pair. A single shared "Resize columns"
+ * name makes them indistinguishable to a screen-reader user tabbing the canvas, so the name
+ * is disambiguated by the two widgets the handle sits between.
+ */
+describe('RowResizeHandle — accessible name (a11y)', () => {
+  it('names the handle after the two widgets it sits between', () => {
+    const { handle } = setup({ leftSpan: 12, rightSpan: 12 });
+    expect(handle.getAttribute('aria-label')).toBe('Resize columns: Revenue / Orders');
+  });
+
+  it('gives handles between different widget pairs distinct names', () => {
+    const { handle } = setup({
+      leftSpan: 12,
+      rightSpan: 12,
+      widgets: { a: makeWidget('a', 'Signups'), b: makeWidget('b', 'Churn') },
+    });
+    // Differs from the default harness pair's "Resize columns: Revenue / Orders" asserted
+    // above — the name identifies the boundary, not just the action, so tabbing the canvas
+    // no longer reads the same string N times.
+    expect(handle.getAttribute('aria-label')).toBe('Resize columns: Signups / Churn');
+  });
+
+  it('falls back to the bare action name when neither neighbour has a title', () => {
+    const { handle } = setup({
+      leftSpan: 12,
+      rightSpan: 12,
+      widgets: {
+        a: { id: 'a', kind: 'text', config: {} as StudioWidgetConfig },
+        b: { id: 'b', kind: 'text', config: {} as StudioWidgetConfig },
+      },
+    });
+    expect(handle.getAttribute('aria-label')).toBe('Resize columns');
   });
 });

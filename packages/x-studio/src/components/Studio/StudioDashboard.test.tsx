@@ -71,12 +71,17 @@ describe('StudioDashboard', () => {
     expect(screen.queryByText('Hello from config A')).toBe(null);
   });
 
-  it('does NOT reload when the config prop is set to an equal-but-different object on every render (reference check)', async () => {
-    // Sanity check for the "compare by reference, not deep equality" contract documented on
-    // the prop: passing a fresh object with identical content on every render must not
-    // thrash the dashboard back to the same state repeatedly. We only assert here that a
-    // *stable* config reference does not trigger extra reload work observable via the
-    // ref — i.e. re-rendering with the SAME reference is a no-op.
+  // The two halves of the "compare by reference, not deep equality" contract documented on
+  // the `config` prop (`StudioDashboard.tsx`'s reload guard is `prevConfigRef.current !==
+  // config`). Both cases are asserted here because only one of them used to be: this file
+  // previously carried a single case titled "does NOT reload when the config prop is set to
+  // an equal-but-different object on every render", whose body passed the SAME reference —
+  // advertising a deep-equality guarantee the component does not provide.
+  //
+  // Reload is observed through state identity: `loadSerializedState` calls `commitState`,
+  // which replaces the whole state object, and nothing else in the swap effect can change it
+  // for a config carrying no data sources.
+  it('re-rendering with the same config reference is a no-op', async () => {
     const config = makeConfig('Stable content');
     const ref = React.createRef<StudioHandle>();
     const { setProps } = render(<StudioDashboard ref={ref} config={config} />);
@@ -87,6 +92,31 @@ describe('StudioDashboard', () => {
       setProps({ config });
     });
     expect(ref.current!.getState()).toBe(stateBefore);
+  });
+
+  it('DOES reload when an equal-but-different config object is passed (reference comparison)', async () => {
+    // Documented, deliberate consequence of comparing by reference: a host that rebuilds its
+    // config object inline on every render reloads the dashboard every render. Hosts must
+    // hold the object stable (`useMemo`/module constant) — which is exactly why the contract
+    // needs a test that pins the real behaviour rather than one implying the opposite.
+    const configA = makeConfig('Stable content');
+    const configB = makeConfig('Stable content');
+    expect(configB).not.toBe(configA);
+    expect(configB).toEqual(configA);
+
+    const ref = React.createRef<StudioHandle>();
+    const { setProps } = render(<StudioDashboard ref={ref} config={configA} />);
+    expect(await screen.findByText('Stable content')).not.toBe(null);
+
+    const stateBefore = ref.current!.getState();
+    await act(async () => {
+      setProps({ config: configB });
+    });
+
+    expect(ref.current!.getState()).not.toBe(stateBefore);
+    // The content is unchanged, so the reload is invisible to the user — only the discarded
+    // in-app state (and the reset undo history) reveals it.
+    expect(await screen.findByText('Stable content')).not.toBe(null);
   });
 
   it("upserts the new config's data sources after a reload, instead of dropping them", async () => {

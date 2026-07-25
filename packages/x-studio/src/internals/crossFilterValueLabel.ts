@@ -1,5 +1,3 @@
-import dayjs from 'dayjs';
-
 /**
  * Formats a cross-filter value for display in a chip label.
  *
@@ -15,9 +13,34 @@ import dayjs from 'dayjs';
  * `StudioWidgetCard.tsx` and a bare `String(...)` cast in `StudioQuickFilterBar.tsx`,
  * neither of which handled the `between`/array cases correctly).
  *
- * Deliberately does not take a `localeText` parameter — the date format and separators
- * are hardcoded-English today, matching the prior behavior of both call sites.
+ * Dates are formatted through `Intl` rather than dayjs, matching
+ * `internals/temporalUtils.ts`'s `formatTemporalAxisLabel`: nothing in this package ever
+ * calls `dayjs.locale(...)`, so `dayjs(v).format('D MMM YYYY')` always produced English
+ * month names in a fixed DMY order no matter the dashboard's locale.
  */
+
+/**
+ * The range bounds reaching this function are the plain `YYYY-MM-DD` strings produced by
+ * `periodKeyToDateRange`. `new Date('YYYY-MM-DD')` parses as UTC midnight, so the formatter
+ * is pinned to UTC — the same convention `formatTemporalAxisLabel` uses — otherwise a
+ * negative-offset runtime would render the day before the one the user clicked.
+ */
+function formatRangeBound(date?: string): string {
+  if (!date) {
+    return '';
+  }
+  const parsed = new Date(date);
+  if (Number.isNaN(parsed.getTime())) {
+    return date;
+  }
+  return parsed.toLocaleDateString(undefined, {
+    timeZone: 'UTC',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
 export function formatCrossFilterValueLabel(value: unknown): string {
   if (value == null) {
     return '';
@@ -29,11 +52,10 @@ export function formatCrossFilterValueLabel(value: unknown): string {
 
   if (typeof value === 'object' && 'from' in value && 'to' in value) {
     const range = value as { from?: string; to?: string };
-    const formatDate = (date?: string) => (date ? dayjs(date).format('D MMM YYYY') : '');
     if (range.from && range.to && range.from !== range.to) {
-      return `${formatDate(range.from)} – ${formatDate(range.to)}`;
+      return `${formatRangeBound(range.from)} – ${formatRangeBound(range.to)}`;
     }
-    return formatDate(range.from ?? range.to) || '';
+    return formatRangeBound(range.from ?? range.to) || '';
   }
 
   return String(value);

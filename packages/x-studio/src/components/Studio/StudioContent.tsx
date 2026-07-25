@@ -185,6 +185,41 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
     setPendingInsight({ text: prompt, id: nextAutoSubmitSeq() });
   }, []);
 
+  // Closing the panel ends the widget-scoped conversation it was opened for.
+  //
+  // `insightFocusedWidgetId` reaches the middleware's system prompt as `The user is asking
+  // about widget "…"`, so leaving it set after the panel closes silently re-scopes every
+  // LATER message — reopening from the FAB and asking for something unrelated still steered
+  // the model at whichever widget's "Analysis" button was pressed hours earlier. The queued
+  // insight prompt is dropped with it: if the panel closed before the auto-submit queue
+  // consumed it, the user has already walked away from that request.
+  const closeChat = React.useCallback(() => {
+    setChatOpen(false);
+    setInsightFocusedWidgetId(undefined);
+    setPendingInsight(null);
+  }, []);
+
+  // The focus is a page-local concept — the widget it names is not visible after a page
+  // switch, so it must not keep scoping the conversation. Compared against the previous
+  // value rather than run on `[activePageId]` alone so the initial mount doesn't clear a
+  // focus set in the same commit.
+  const prevActivePageIdRef = React.useRef(activePageId);
+  React.useEffect(() => {
+    const prevPageId = prevActivePageIdRef.current;
+    prevActivePageIdRef.current = activePageId;
+    if (prevPageId !== activePageId) {
+      setInsightFocusedWidgetId(undefined);
+    }
+  }, [activePageId]);
+
+  // A focused widget that has since been deleted would send a dead id to the backend, which
+  // resolves to nothing and leaves the prompt referencing a widget that no longer exists.
+  React.useEffect(() => {
+    if (insightFocusedWidgetId && !Object.hasOwn(widgets, insightFocusedWidgetId)) {
+      setInsightFocusedWidgetId(undefined);
+    }
+  }, [widgets, insightFocusedWidgetId]);
+
   const showCompose = features.compose;
   const showFilters = features.filters;
   const showDataManagement = features.dataManagement;
@@ -391,7 +426,7 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
                         stackBreakpoint={stackBreakpoint}
                         {...slotProps?.canvas}
                         onBackgroundClick={() => {
-                          setChatOpen(false);
+                          closeChat();
                           slotProps?.canvas?.onBackgroundClick?.();
                         }}
                         slotProps={{
@@ -425,7 +460,13 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
               placement="left"
             >
               <Fab
-                onClick={() => setChatOpen((prev) => !prev)}
+                onClick={() => {
+                  if (chatOpen) {
+                    closeChat();
+                  } else {
+                    setChatOpen(true);
+                  }
+                }}
                 color={chatOpen ? 'primary' : 'default'}
                 aria-label={
                   chatOpen ? localeText.aiAssistantCloseTooltip : localeText.aiAssistantOpenTooltip
@@ -454,7 +495,7 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
                   focusedWidgetId={insightFocusedWidgetId}
                   aiConfig={aiConfig}
                   open={chatOpen}
-                  onClose={() => setChatOpen(false)}
+                  onClose={closeChat}
                   overlay
                   pendingMessage={pendingInsight ?? undefined}
                 />

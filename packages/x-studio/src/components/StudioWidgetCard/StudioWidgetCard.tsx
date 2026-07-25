@@ -11,6 +11,7 @@ import {
   useTheme,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
+import CancelIcon from '@mui/icons-material/Cancel';
 
 import {
   useStudioController,
@@ -124,6 +125,34 @@ export interface StudioWidgetCardProps {
    * @param {string} prompt The pre-built chat message to submit.
    */
   onInsightRequest?: (widgetId: string, prompt: string) => void;
+}
+
+/** Height of the pre-paint placeholder when a widget kind declares no `skeletonHeight`. */
+const DEFAULT_SKELETON_HEIGHT = 120;
+
+/**
+ * Resolves a widget kind's `skeletonHeight` callback, falling back to the default height
+ * when it is absent OR throws.
+ *
+ * Only `BUILTIN_WIDGET_DEFS` can supply this today — `toWidgetDef` rebuilds a custom def's
+ * `capabilities` as `{ export }` alone, so a consumer-registered kind never reaches here. The
+ * guard is kept anyway because the call sits in this component's render body, above every
+ * boundary the card renders: a throw could only be contained by the boundary at the canvas
+ * call site, which would blank the whole card rather than just its placeholder. The default
+ * height is always a valid answer, so a throw degrades to "no kind-specific height".
+ */
+function safeSkeletonHeight<W>(
+  skeletonHeight: ((widget: W) => number) | undefined,
+  widget: W,
+): number {
+  if (!skeletonHeight) {
+    return DEFAULT_SKELETON_HEIGHT;
+  }
+  try {
+    return skeletonHeight(widget) ?? DEFAULT_SKELETON_HEIGHT;
+  } catch {
+    return DEFAULT_SKELETON_HEIGHT;
+  }
 }
 
 function DefaultLoadingOverlay() {
@@ -406,7 +435,20 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
 
   // In view mode, let the widget def opt into collapsing the entire card (custom widgets only).
   // Pass the enriched source so shouldHide can evaluate expression-field–driven conditions.
-  if (mode === 'view' && def?.shouldHide?.({ widget, dataSource: enrichedCustomSource })) {
+  //
+  // `shouldHide` is arbitrary consumer code running in THIS component's render body, above the
+  // three boundaries below — only the canvas call site's boundary can contain a throw here, and
+  // a hidden widget is unrecoverable for the user while a spuriously visible one is not. So a
+  // throw resolves to "don't hide" and the card renders normally.
+  let hiddenByDef = false;
+  if (mode === 'view' && def?.shouldHide) {
+    try {
+      hiddenByDef = def.shouldHide({ widget, dataSource: enrichedCustomSource }) === true;
+    } catch {
+      hiddenByDef = false;
+    }
+  }
+  if (hiddenByDef) {
     return null;
   }
 
@@ -711,6 +753,17 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                         activeCrossFilter.field
                       }: ${formatCrossFilterValueLabel(activeCrossFilter.value)}`}
                       onDelete={() => controller.clearCrossFilter(widgetId)}
+                      // MUI's default `Chip` delete icon is an unlabeled `<svg>` with no role,
+                      // so the only way to clear this filter had no accessible name at all.
+                      // Same treatment as `QuickFilterChip` in `StudioQuickFilterBar`, reusing
+                      // the same locale token so both surfaces announce identically.
+                      deleteIcon={
+                        <CancelIcon
+                          role="button"
+                          aria-label={localeText.quickFilterBarRemoveFilter}
+                          aria-hidden={false}
+                        />
+                      }
                       color="primary"
                       variant="outlined"
                       sx={{ flexShrink: 0, height: 20, fontSize: 11 }}
@@ -720,6 +773,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                     <SliderFilterPill
                       filter={activeSliderFilter}
                       source={source}
+                      expressionFields={expressionFields}
                       onClear={() => controller.clearInteractiveFilter(widgetId)}
                     />
                   )}
@@ -763,7 +817,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
             ) : (
               <Skeleton
                 variant="rectangular"
-                height={def.capabilities.skeletonHeight?.(widget) ?? 120}
+                height={safeSkeletonHeight(def.capabilities.skeletonHeight, widget)}
                 sx={{ borderRadius: 1 }}
               />
             ))}

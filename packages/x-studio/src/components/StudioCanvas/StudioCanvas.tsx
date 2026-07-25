@@ -17,11 +17,13 @@ import {
 } from '../../context';
 import { useStudioFeatures, useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 import { useStudioAnnounce } from '../../internals/StudioLiveRegion';
+import { StudioWidgetErrorBoundary } from '../../internals/StudioWidgetErrorBoundary';
 import { StudioWidgetCard } from '../StudioWidgetCard';
 import type { StudioWidgetCardProps } from '../StudioWidgetCard';
 import { createDefaultWidget, widgetKindRequiresDataSource } from '../../internals/widgetUtils';
 import type { StudioWidget, StudioPage } from '../../models/widgetTypes';
 import { isWidgetOfKind } from '../../models';
+import type { StudioCustomWidgetDef } from '../../models';
 import type { StudioMode } from '../../models/baseTypes';
 import { StudioDateRangeBar } from './StudioDateRangeBar';
 import {
@@ -45,6 +47,28 @@ export function getWidgetMinSpan(widget: StudioWidget | undefined): number {
     return KPI_NO_SPARKLINE_MIN_SPAN;
   }
   return MIN_SPAN;
+}
+
+/**
+ * Evaluates a custom widget kind's `shouldHide` callback, treating a throw as "don't hide".
+ *
+ * `shouldHide` is arbitrary consumer code and it runs during LAYOUT RESOLUTION — in this
+ * component's own render body, above every error boundary that wraps the widget itself.
+ * A boundary rendered below the call site cannot contain it, so the throw would escape to
+ * the canvas-wide boundary in `StudioContent` and replace every widget on every page with
+ * a single error overlay. Containing it here keeps one consumer's bad predicate from
+ * taking down the whole dashboard; "visible" is the safe default because a hidden widget
+ * cannot be recovered from by the user, whereas a spuriously visible one can.
+ */
+function safeShouldHide(
+  shouldHide: NonNullable<StudioCustomWidgetDef['shouldHide']>,
+  args: Parameters<NonNullable<StudioCustomWidgetDef['shouldHide']>>[0],
+): boolean {
+  try {
+    return shouldHide(args) === true;
+  } catch {
+    return false;
+  }
 }
 
 /** State describing an in-progress resize drag between two adjacent widgets in a row. */
@@ -288,7 +312,8 @@ function StudioPageRows({
             // against inherited keys ("toString"/"constructor"/…) so a bare bracket lookup
             // can't resolve a function off `Object.prototype` instead of "not found".
             const dataSource = lookup(dataSources, widget.sourceId);
-            return customDef.shouldHide({ widget, dataSource });
+            // Consumer callback evaluated during layout resolution — see `safeShouldHide`.
+            return safeShouldHide(customDef.shouldHide, { widget, dataSource });
           })
         ) {
           return null;
@@ -323,6 +348,10 @@ function StudioPageRows({
                 />
               )}
               {row.map((widgetId, colIndex) => {
+                // Guarded record index, consistent with the hidden-row check above and
+                // `context/selectors.ts`. Doubles as this card's error-boundary reset key:
+                // the store hands out a new widget object on every doc edit to it.
+                const widget = lookup(widgets, widgetId);
                 // Compute flex value, using live drag for the two resizing widgets
                 // Guarded record index (see `computeGridLineLefts`): an inherited
                 // `Object.prototype` member would survive `??` and produce
@@ -407,13 +436,26 @@ function StudioPageRows({
                         transition: isResizing ? 'none' : 'flex 0.1s ease',
                       }}
                     >
-                      <StudioWidgetCard
-                        widgetId={widgetId}
-                        isFirstRow={rowIndex === 0}
-                        pageId={pageId}
-                        pageTheme={pageTheme}
-                        {...slotProps?.widgetCard}
-                      />
+                      {/* Per-widget containment boundary. `StudioWidgetCard`'s three internal
+                          boundaries only cover what they wrap (the actions overlay, the header,
+                          and `def.component`); everything the card computes in its own render
+                          body — L2 enrichment for custom kinds, `inferKpiDateSubtitle`, the
+                          `def.shouldHide` predicate — sits ABOVE them and would otherwise escape
+                          to the canvas-wide boundary in `StudioContent`, replacing every widget
+                          on every page with one error overlay. Wrapping at this call site is the
+                          only place a boundary can sit above the card's whole render.
+                          `resetKeys` are identity-compared: a doc edit to this widget or a move
+                          to another page clears a latched error, and the overlay's Retry covers
+                          view-only dashboards where neither ever changes. */}
+                      <StudioWidgetErrorBoundary resetKeys={[widget, pageId]}>
+                        <StudioWidgetCard
+                          widgetId={widgetId}
+                          isFirstRow={rowIndex === 0}
+                          pageId={pageId}
+                          pageTheme={pageTheme}
+                          {...slotProps?.widgetCard}
+                        />
+                      </StudioWidgetErrorBoundary>
                     </Box>
                     {/* Gap: DnD drop zone + resize handle (between/after widgets) */}
                     {mode === 'edit' && (
@@ -426,9 +468,7 @@ function StudioPageRows({
                         rightId={nextId}
                         leftSpan={myEffectiveSpan}
                         rightSpan={nextEffectiveSpan}
-                        // Guarded record index, consistent with the `widgets` lookup in the
-                        // hidden-row check above and `context/selectors.ts`.
-                        leftMinSpan={getWidgetMinSpan(lookup(widgets, widgetId))}
+                        leftMinSpan={getWidgetMinSpan(widget)}
                         rightMinSpan={nextId ? getWidgetMinSpan(lookup(widgets, nextId)) : MIN_SPAN}
                         widgetRowsRef={widgetRowsRef}
                         onDragMove={(lId, rId, leftSpanLive) => {
@@ -446,7 +486,7 @@ function StudioPageRows({
                             snappedLeft,
                             rId,
                             snappedRight,
-                            getWidgetMinSpan(lookup(widgets, widgetId)),
+                            getWidgetMinSpan(widget),
                             nextId ? getWidgetMinSpan(lookup(widgets, nextId)) : MIN_SPAN,
                           );
                         }}
@@ -665,11 +705,26 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
         ...(Array.isArray(sx) ? sx : [sx]),
       ]}
       onMouseDown={(event) => {
-        // Deselect + notify only when clicking the canvas background (not a widget card).
-        // The date-range bar renders inside this root but is NOT a widget card, so without the
-        // second guard, pressing its preset Select would be treated as a background click —
-        // clearing the widget selection and closing the AI chat mid-interaction (finding T3).
+        // Deselect + notify only when the pointer actually went down on the canvas background.
+        //
+        // "Background" is decided in two steps, because the DOM check alone is not sufficient.
+        //
+        // 1. Portals. React 17+ dispatches events along the REACT tree, not the DOM tree, so a
+        //    mousedown inside a portal rendered by a canvas descendant (every MUI Menu/Select
+        //    /Dialog/Popover, the DataGrid column menu and filter panel, the widget edit and
+        //    expand dialogs) bubbles into this handler even though its node lives under
+        //    `document.body`. None of MUI's overlay components stop `mousedown`. A portal node
+        //    is by construction never a DOM descendant of the canvas root, so one containment
+        //    check covers all of them at once — and every genuine background click passes it,
+        //    since the pointer really is over this element. Without it, choosing an option from
+        //    any of those menus deselected the widget being configured and, via
+        //    `onBackgroundClick`, closed the AI chat — aborting an in-flight streamed answer.
+        // 2. Non-card in-tree chrome. The date-range bar renders inside this root but is not a
+        //    widget card, so its own (non-portalled) controls need an explicit exclusion.
         const target = event.target as HTMLElement;
+        if (!event.currentTarget.contains(target)) {
+          return;
+        }
         if (
           !target.closest('[data-widget-card]') &&
           !target.closest('[data-studio-date-range-bar]')

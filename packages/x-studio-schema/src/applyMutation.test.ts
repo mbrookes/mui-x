@@ -5448,6 +5448,41 @@ describe('rank-filter page-context resolution (H1)', () => {
       return withF2;
     }
 
+    it('removePage re-resolving a widget-scoped rank filter drops the now-conflicting one', () => {
+      // w1 lives on BOTH pages, so its widget-scoped rank filter resolves to p1 (first in
+      // page order). p2 separately carries a page-scoped rank filter. Removing p1 makes the
+      // widget-scoped filter re-resolve onto p2, where it now collides.
+      const base = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'p1' },
+        pages: {
+          p1: { id: 'p1', title: 'P1', widgetRows: [['w1']] },
+          p2: { id: 'p2', title: 'P2', widgetRows: [['w1']] },
+        },
+        widgets: { w1: chartWidget('w1') },
+      });
+      const withPageRank = applyDocMutation(base, {
+        type: 'addFilter',
+        args: { filter: rankFilter('f1', { kind: 'page', pageId: 'p2' }) },
+      });
+      const withWidgetRank = applyDocMutation(withPageRank, {
+        type: 'addFilter',
+        args: { filter: rankFilter('f2', { kind: 'widget', widgetId: 'w1' }) },
+      });
+      // Both accepted: f2 resolves to p1, which holds no rank filter.
+      expect(withWidgetRank.filters.map((f) => f.id)).toEqual(['f1', 'f2']);
+
+      const next = applyDocMutation(withWidgetRank, {
+        type: 'removePage',
+        args: { pageId: 'p1' },
+      });
+      // w1 survives on p2, so f2 survives `removeWidgetIds` — but it now resolves to p2,
+      // which f1 already occupies. Array order decides, matching the load boundary.
+      expect(next.widgets.w1).toBeDefined();
+      expect(next.filters.map((f) => f.id)).toEqual(['f1']);
+      const reloaded = deserializeState(serializeDoc(next), {});
+      expect(reloaded.doc.filters.map((f) => f.id)).toEqual(['f1']);
+    });
+
     it('setWidgetLayout placing the widget drops the now-conflicting rank filter', () => {
       const state = docWithBothRankFilters();
       const next = applyDocMutation(state, {

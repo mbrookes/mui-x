@@ -1786,6 +1786,14 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         filters: nextFilters,
       } = removeWidgetIds(nextPages, state.widgets, filtersAfterPageDrop, widgetIdsOnPage);
 
+      // Removing a page can RE-RESOLVE a surviving `widget`-scoped rank filter onto a
+      // different page: a widget placed on both `p1` and `p2` resolves to `p1` while `p1`
+      // exists, and to `p2` once it does not. If `p2` already holds a rank filter, the doc
+      // is now live-valid and load-invalid, and the load boundary silently deletes one of
+      // them. Same sweep the layout handlers run, for the same reason — the reducer and
+      // the load boundary must agree at commit time, not at reload.
+      const rankResolvedFilters = dropConflictingRankFilters(nextFilters, prunedPages);
+
       const remainingPageIds = Object.keys(prunedPages);
       // `?? ''` is unreachable — the last-page guard above guarantees a survivor — but is
       // kept as a total fallback rather than a non-null assertion.
@@ -1798,7 +1806,7 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         ...state,
         pages: prunedPages,
         widgets: nextWidgets,
-        filters: nextFilters,
+        filters: rankResolvedFilters,
         dashboard: { ...state.dashboard, activePageId: nextActivePageId },
       };
     },

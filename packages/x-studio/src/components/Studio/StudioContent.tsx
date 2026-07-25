@@ -19,10 +19,12 @@ import {
   selectDataSources,
   selectFilters,
   selectAi,
+  selectActivePageId,
 } from '../../context';
 import { useStudioKeyboardShortcuts } from '../../internals/useStudioKeyboardShortcuts';
 import { StudioLiveRegionProvider } from '../../internals/StudioLiveRegion';
 import { StudioDrawerErrorBoundary } from '../../internals/StudioDrawerErrorBoundary';
+import { StudioWidgetErrorBoundary } from '../../internals/StudioWidgetErrorBoundary';
 import { DrawerPanel } from './DrawerPanel';
 import { TabbedSidebar } from './TabbedSidebar';
 import { StudioCanvas } from '../StudioCanvas';
@@ -86,13 +88,16 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
   const localeText = useStudioLocaleText();
 
   const filters = useStudioSelector(selectFilters);
+  const activePageId = useStudioSelector(selectActivePageId);
   const hasCrossFilters = filters.some((f) => f.scope.kind === 'cross-filter' && !f.disabled);
 
   // Tier1 whole-dashboard-crash fix: the chat panel renders AI-authored tool-call content
   // (`chatToolRenderers.tsx`'s per-tool dispatch), so a render throw there needs a boundary
-  // — otherwise it propagates all the way up and unmounts the entire `<Studio>` tree, unlike
-  // every other dynamic-content surface in the package (compose/filters/data drawers, widget
-  // cards), all of which sit under a `StudioDrawerErrorBoundary`/`StudioWidgetErrorBoundary`.
+  // — otherwise it propagates all the way up and unmounts the entire `<Studio>` tree.
+  // (An earlier version of this comment claimed every other dynamic-content surface in the
+  // package already sat under a boundary. That was false for this very file: `<StudioCanvas>`
+  // and both pinned filter bars below rendered bare. They are wrapped now, so the claim holds
+  // — but it is asserted by the JSX down there, not by this comment.)
   // `resetKey` combines the active thread id with that thread's message count so switching
   // threads OR sending/receiving a new message in the current thread clears a latched error,
   // instead of leaving the panel stuck on the fallback until the page reloads.
@@ -130,7 +135,15 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
   const selectedWidgetId = shell.selectedWidgetId;
   const selectedFieldId = shell.selectedFieldId;
   const selectedSourceId = shell.selectedSourceId;
-  const selectedWidget = selectedWidgetId ? (widgets[selectedWidgetId] ?? null) : null;
+  // `selectedWidgetId` is session state, but guard the record index against inherited keys
+  // ("toString"/"constructor"/…) anyway, matching the guarded lookups in `StudioCanvas` and
+  // `selectors.ts`: a bare bracket lookup resolves a function off `Object.prototype` instead
+  // of "not found", and that truthy non-widget object then flows into `selectedWidget.title`
+  // and `hasSelection` (prototype-chain key lookup fix).
+  const selectedWidget =
+    selectedWidgetId && Object.hasOwn(widgets, selectedWidgetId)
+      ? (widgets[selectedWidgetId] ?? null)
+      : null;
   const selectedField = React.useMemo(() => {
     if (!selectedSourceId || !selectedFieldId) {
       return null;
@@ -328,15 +341,28 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
             >
               {/* Pinned filter bars. Wrapped so their appear/disappear height change can be
                   measured and compensated on the scroll container (see the effect above),
-                  keeping the report content visually anchored instead of jumping. */}
+                  keeping the report content visually anchored instead of jumping.
+
+                  Both bars render doc-authored filter content (field labels, formatted filter
+                  values, saved-view names) and both used to render bare — a render throw in
+                  either escaped every boundary in the tree and unmounted the whole `<Studio>`.
+                  One boundary each, so a broken cross-filter bar still leaves the quick filter
+                  bar usable. `resetKeys` are identity-compared: editing filters or switching
+                  pages clears a latched error, and the overlay's Retry covers the rest. */}
               <Box ref={filterBarRegionRef}>
                 {/* Cross-filter mode toggle — visible on all pages while any cross-filter is active */}
                 {mode !== 'edit' && features.crossFilterBar && hasCrossFilters && (
-                  <StudioCrossFilterBar />
+                  <StudioWidgetErrorBoundary resetKeys={[filters, activePageId]}>
+                    <StudioCrossFilterBar />
+                  </StudioWidgetErrorBoundary>
                 )}
 
                 {/* Active page-filter chips */}
-                {mode !== 'edit' && <StudioQuickFilterBar />}
+                {mode !== 'edit' && (
+                  <StudioWidgetErrorBoundary resetKeys={[filters, activePageId]}>
+                    <StudioQuickFilterBar />
+                  </StudioWidgetErrorBoundary>
+                )}
               </Box>
 
               <Box
@@ -352,26 +378,35 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
                 {/* The 480px floor keeps multi-column rows legible on desktop, but would force
                     horizontal scrolling on phones — so drop it below the `sm` breakpoint. */}
                 <Box sx={{ minWidth: { xs: 0, sm: MIN_CANVAS_WIDTH }, minHeight: '100%' }}>
-                  {canvas ?? (
-                    <StudioCanvas
-                      stackBreakpoint={stackBreakpoint}
-                      {...slotProps?.canvas}
-                      onBackgroundClick={() => {
-                        setChatOpen(false);
-                        slotProps?.canvas?.onBackgroundClick?.();
-                      }}
-                      slotProps={{
-                        ...slotProps?.canvas?.slotProps,
-                        widgetCard: {
-                          ...slotProps?.canvas?.slotProps?.widgetCard,
-                          onInsightRequest:
-                            features.aiChat && aiConfig?.endpoint
-                              ? handleWidgetInsightRequest
-                              : undefined,
-                        },
-                      }}
-                    />
-                  )}
+                  {/* The canvas itself (row/column layout resolution, per-widget keying) sits
+                      above every per-widget boundary, and a consumer-supplied `canvas` node is
+                      arbitrary host code — neither had a boundary, so a throw there unmounted
+                      the whole `<Studio>` including the sidebar and chat panel. `resetKeys` are
+                      identity-compared, so any widget/filter mutation or a page switch clears a
+                      latched error; the overlay's Retry button covers view-only dashboards
+                      (`featureFlags.compose: false`) where none of those may ever change. */}
+                  <StudioWidgetErrorBoundary resetKeys={[widgets, filters, activePageId, mode]}>
+                    {canvas ?? (
+                      <StudioCanvas
+                        stackBreakpoint={stackBreakpoint}
+                        {...slotProps?.canvas}
+                        onBackgroundClick={() => {
+                          setChatOpen(false);
+                          slotProps?.canvas?.onBackgroundClick?.();
+                        }}
+                        slotProps={{
+                          ...slotProps?.canvas?.slotProps,
+                          widgetCard: {
+                            ...slotProps?.canvas?.slotProps?.widgetCard,
+                            onInsightRequest:
+                              features.aiChat && aiConfig?.endpoint
+                                ? handleWidgetInsightRequest
+                                : undefined,
+                          },
+                        }}
+                      />
+                    )}
+                  </StudioWidgetErrorBoundary>
                 </Box>
               </Box>
             </Box>

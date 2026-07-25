@@ -86,10 +86,15 @@ export function StudioWidgetExpandDialog(props: StudioWidgetExpandDialogProps) {
         {/* Tier1 whole-dashboard-crash fix: this fullscreen "expand" view renders the same
             `def.component` the canvas card wraps in `StudioWidgetErrorBoundary`, but this
             dialog had no boundary of its own — a render throw here previously propagated
-            all the way up and unmounted the whole `<Studio>` tree. `resetKey` mirrors the
-            canvas card's own key so editing the widget's config after a transient error
-            clears the fallback instead of latching it. */}
-        <StudioWidgetErrorBoundary resetKey={JSON.stringify(widget.config)}>
+            all the way up and unmounted the whole `<Studio>` tree. `resetKeys` mirrors the
+            canvas card's own keys (config identity + `sourceId` + the resolved source, i.e.
+            the data/fetch generation) so a transient error clears once any of them moves,
+            and the overlay's Retry button covers the case where none of them ever does.
+            Compared by identity, never serialized — the previous
+            `JSON.stringify(widget.config)` ran in THIS component's render, above the
+            boundary, so a cyclic/`BigInt` config crashed the whole tree from the very prop
+            meant to protect it. */}
+        <StudioWidgetErrorBoundary resetKeys={[widget.config, widget.sourceId, dataSource]}>
           <def.component
             widget={widget}
             dataSource={dataSource}

@@ -476,6 +476,25 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
       ? widget.config.textTitleAlign
       : undefined;
 
+  // Reset keys for this card's error boundaries, compared by identity (never serialized).
+  //
+  // The old `resetKey={JSON.stringify(widget.config)}` was wrong twice over. It latched:
+  // an adapter returning one bad batch, or a formatter throwing on a since-replaced row,
+  // left the widget stuck on the error overlay forever because `config` never changed —
+  // and under `StudioDashboard` (`featureFlags.compose: false`) there is no config-editing
+  // UI to change it with. And it could throw: `widget.config` may carry a custom widget
+  // kind's `defaultConfig` verbatim (arbitrary consumer data, possibly cyclic or
+  // `BigInt`-bearing), and `JSON.stringify` throwing while computing the boundary's own
+  // prop happens in THIS component's render — above the boundary — so it unmounted the
+  // entire `<Studio>` tree.
+  //
+  // So: identity comparison, and every input that can plausibly clear the failure.
+  // `sourceId` lives outside `config`; `source` is the data/fetch generation (the store
+  // hands out a new data-source object whenever the host injects rows); `partitioned` is
+  // this page's filter set, so a date-range change counts. `StudioWidgetErrorOverlay`'s
+  // Retry button covers the residual case where none of them ever moves.
+  const boundaryResetKeys = [widget.config, widget.sourceId, source, partitioned];
+
   return (
     <Box sx={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column' }}>
       <Paper
@@ -554,151 +573,169 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           ...(slotProps?.paper?.sx ?? {}),
         }}
       >
-        {/* Action button overlay — floats over content so title is never truncated */}
-        <StudioWidgetCardActionsOverlay
-          mode={mode}
-          canExport={canExport}
-          isChart={isChart}
-          canExpand={canExpand}
-          exportLabel={exportLabel}
-          showEditActions={showEditActions}
-          showViewActions={showViewActions}
-          showViewExport={showViewExport}
-          showViewExpand={showViewExpand}
-          overlayTopSx={overlayTopSx}
-          moveToPageOptions={moveToPageOptions}
-          onAiRequest={onAiRequest ? () => onAiRequest(widgetId) : undefined}
-          onAiRefresh={
-            isWidgetOfKind(widget, 'text') &&
-            widget.config.textAiEnabled &&
-            (mode === 'edit' || hovered)
-              ? () => textAiRefreshRef.current?.()
-              : undefined
-          }
-          onInsightRequest={supportsInsight && onInsightRequest ? handleInsightRequest : undefined}
-          supportsForecast={supportsForecast}
-          anomalyEnabled={anomalyEnabled}
-          anomalyCount={anomalyAnnotations.length}
-          onAnomalyToggle={
-            widget && features.aiInsights && canDetectAnomalies(widget)
-              ? handleAnomalyToggle
-              : undefined
-          }
-          onAnomalyExplain={
-            widget &&
-            onInsightRequest &&
-            anomalyEnabled &&
-            anomalyAnnotations.length > 0 &&
-            canDetectAnomalies(widget)
-              ? handleAnomalyExplain
-              : undefined
-          }
-          onExport={handleExport}
-          onExpand={() => setExpanded(true)}
-          onEdit={handleEditClick}
-          onDuplicate={() => controller.duplicateWidget(widgetId)}
-          onDelete={() => controller.removeWidget(widgetId)}
-          onMoveToPage={(targetPageId) => controller.moveWidgetToPage(widgetId, targetPageId)}
-          onMoveWidget={handleMoveWidget}
-          moveWidgetDisabled={moveWidgetDisabled}
-        />
+        {/* Action button overlay — floats over content so title is never truncated.
+            Wrapped in the per-widget boundary alongside the header below: this chrome
+            renders doc-authored strings (page titles in the "move to page" menu) and used
+            to sit OUTSIDE any boundary, so a throw here escaped to the top of the tree.
+            The boundary adds no DOM, so the normal (non-error) layout is unchanged. */}
+        <StudioWidgetErrorBoundary resetKeys={boundaryResetKeys}>
+          <StudioWidgetCardActionsOverlay
+            mode={mode}
+            canExport={canExport}
+            isChart={isChart}
+            canExpand={canExpand}
+            exportLabel={exportLabel}
+            showEditActions={showEditActions}
+            showViewActions={showViewActions}
+            showViewExport={showViewExport}
+            showViewExpand={showViewExpand}
+            overlayTopSx={overlayTopSx}
+            moveToPageOptions={moveToPageOptions}
+            onAiRequest={onAiRequest ? () => onAiRequest(widgetId) : undefined}
+            onAiRefresh={
+              isWidgetOfKind(widget, 'text') &&
+              widget.config.textAiEnabled &&
+              (mode === 'edit' || hovered)
+                ? () => textAiRefreshRef.current?.()
+                : undefined
+            }
+            onInsightRequest={
+              supportsInsight && onInsightRequest ? handleInsightRequest : undefined
+            }
+            supportsForecast={supportsForecast}
+            anomalyEnabled={anomalyEnabled}
+            anomalyCount={anomalyAnnotations.length}
+            onAnomalyToggle={
+              widget && features.aiInsights && canDetectAnomalies(widget)
+                ? handleAnomalyToggle
+                : undefined
+            }
+            onAnomalyExplain={
+              widget &&
+              onInsightRequest &&
+              anomalyEnabled &&
+              anomalyAnnotations.length > 0 &&
+              canDetectAnomalies(widget)
+                ? handleAnomalyExplain
+                : undefined
+            }
+            onExport={handleExport}
+            onExpand={() => setExpanded(true)}
+            onEdit={handleEditClick}
+            onDuplicate={() => controller.duplicateWidget(widgetId)}
+            onDelete={() => controller.removeWidget(widgetId)}
+            onMoveToPage={(targetPageId) => controller.moveWidgetToPage(widgetId, targetPageId)}
+            onMoveWidget={handleMoveWidget}
+            moveWidgetDisabled={moveWidgetDisabled}
+          />
+        </StudioWidgetErrorBoundary>
         <Stack spacing={widget.kind === 'grid' ? 2 : 0.5} sx={{ flexGrow: 1, minHeight: 0 }}>
-          {/* Widget header — omitted for full-bleed custom widgets that render edge-to-edge */}
+          {/* Widget header — omitted for full-bleed custom widgets that render edge-to-edge.
+              Wrapped in its own per-widget boundary: the title / cross-filter chip / slider
+              pill / subtitle are all doc-authored content that used to render OUTSIDE any
+              boundary (acknowledged in the comment on the kind-label fallback below), so a
+              throw in the header unmounted the whole `<Studio>` tree. Separate from the
+              content boundary below so a header failure still leaves the widget's data
+              visible, and vice versa. */}
           {!isFullBleedCustom && (
-            <Box sx={{ minWidth: 0 }}>
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
-                <Typography
-                  variant="h6"
-                  noWrap
-                  sx={{
-                    minWidth: 0,
-                    flexShrink: 1,
-                    ...(sanitizedTitleFontSize !== undefined && {
-                      fontSize: sanitizedTitleFontSize,
-                    }),
-                    ...(isWidgetOfKind(widget, 'text') && {
-                      flexGrow: 1,
-                      // Sanitized before reaching `sx` — see `internals/cssValueValidation.ts`
-                      // (finding 1): these are doc-authored config values reachable via
-                      // `loadSerializedState`/the AI `update_widget` tool call, and Emotion
-                      // does not escape interpolated `sx` property values.
-                      ...(sanitizedTextTitleColor !== undefined && {
-                        color: sanitizedTextTitleColor,
+            <StudioWidgetErrorBoundary resetKeys={boundaryResetKeys}>
+              <Box sx={{ minWidth: 0 }}>
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
+                  <Typography
+                    variant="h6"
+                    noWrap
+                    sx={{
+                      minWidth: 0,
+                      flexShrink: 1,
+                      ...(sanitizedTitleFontSize !== undefined && {
+                        fontSize: sanitizedTitleFontSize,
                       }),
-                      ...(widget.config.textTitleFontFamily && {
-                        fontFamily: resolveTextFontFamily(widget.config.textTitleFontFamily),
+                      ...(isWidgetOfKind(widget, 'text') && {
+                        flexGrow: 1,
+                        // Sanitized before reaching `sx` — see `internals/cssValueValidation.ts`
+                        // (finding 1): these are doc-authored config values reachable via
+                        // `loadSerializedState`/the AI `update_widget` tool call, and Emotion
+                        // does not escape interpolated `sx` property values.
+                        ...(sanitizedTextTitleColor !== undefined && {
+                          color: sanitizedTextTitleColor,
+                        }),
+                        ...(widget.config.textTitleFontFamily && {
+                          fontFamily: resolveTextFontFamily(widget.config.textTitleFontFamily),
+                        }),
+                        ...(sanitizedTextTitleFontSize !== undefined && {
+                          fontSize: sanitizedTextTitleFontSize,
+                        }),
+                        ...(sanitizedTextTitleFontWeight !== undefined && {
+                          fontWeight: sanitizedTextTitleFontWeight,
+                        }),
+                        ...(sanitizedTextTitleAlign !== undefined && {
+                          textAlign: sanitizedTextTitleAlign,
+                        }),
                       }),
-                      ...(sanitizedTextTitleFontSize !== undefined && {
-                        fontSize: sanitizedTextTitleFontSize,
-                      }),
-                      ...(sanitizedTextTitleFontWeight !== undefined && {
-                        fontWeight: sanitizedTextTitleFontWeight,
-                      }),
-                      ...(sanitizedTextTitleAlign !== undefined && {
-                        textAlign: sanitizedTextTitleAlign,
-                      }),
-                    }),
-                  }}
-                >
-                  {widget.title ||
-                    // `widget.kind` is doc-authored (persisted doc / AI `update_widget` / a
-                    // `customWidgets` registration string): guard against inherited
-                    // `Object.prototype` keys ("toString"/"constructor"/…) so a bare bracket
-                    // lookup can't resolve a function off the prototype chain instead of falling
-                    // through to the capitalized-kind fallback below. This header renders outside
-                    // the per-widget `StudioWidgetErrorBoundary` (which wraps only `def.component`),
-                    // so a thrown render here is uncaught by anything above the canvas.
-                    (Object.hasOwn(widgetKindLabels, widget.kind)
-                      ? widgetKindLabels[widget.kind]
-                      : undefined) ||
-                    widget.kind.charAt(0).toUpperCase() + widget.kind.slice(1)}
-                </Typography>
-                {activeRankFilter && (
-                  <Chip
-                    size="small"
-                    label={`${activeRankFilter.rankDirection === 'bottom' ? localeText.filterRankBottom : localeText.filterRankTop} ${activeRankFilter.value}`}
-                    color="primary"
-                    variant="outlined"
-                    sx={{ flexShrink: 0, height: 20, fontSize: 11 }}
-                  />
+                    }}
+                  >
+                    {widget.title ||
+                      // `widget.kind` is doc-authored (persisted doc / AI `update_widget` / a
+                      // `customWidgets` registration string): guard against inherited
+                      // `Object.prototype` keys ("toString"/"constructor"/…) so a bare bracket
+                      // lookup can't resolve a function off the prototype chain instead of falling
+                      // through to the capitalized-kind fallback below. The header now sits inside
+                      // its own `StudioWidgetErrorBoundary` (it used to render outside every
+                      // boundary, which wrapped only `def.component`), but the guard stays: a
+                      // contained fallback is still a broken header, and the correct behavior is
+                      // to fall through to the capitalized kind.
+                      (Object.hasOwn(widgetKindLabels, widget.kind)
+                        ? widgetKindLabels[widget.kind]
+                        : undefined) ||
+                      widget.kind.charAt(0).toUpperCase() + widget.kind.slice(1)}
+                  </Typography>
+                  {activeRankFilter && (
+                    <Chip
+                      size="small"
+                      label={`${activeRankFilter.rankDirection === 'bottom' ? localeText.filterRankBottom : localeText.filterRankTop} ${activeRankFilter.value}`}
+                      color="primary"
+                      variant="outlined"
+                      sx={{ flexShrink: 0, height: 20, fontSize: 11 }}
+                    />
+                  )}
+                  {activeCrossFilter && (
+                    <Chip
+                      size="small"
+                      label={`${
+                        // Check the source's physical fields first, then expression
+                        // (computed) fields, mirroring `resolveFieldDef`'s use elsewhere
+                        // for field-label lookups — a cross-filter on a calculated field
+                        // previously fell straight through to the raw field id since only
+                        // `source.fields` was checked (finding 3.11).
+                        resolveFieldDef(activeCrossFilter.field, source, expressionFields)?.label ??
+                        activeCrossFilter.field
+                      }: ${formatCrossFilterValueLabel(activeCrossFilter.value)}`}
+                      onDelete={() => controller.clearCrossFilter(widgetId)}
+                      color="primary"
+                      variant="outlined"
+                      sx={{ flexShrink: 0, height: 20, fontSize: 11 }}
+                    />
+                  )}
+                  {activeSliderFilter && (
+                    <SliderFilterPill
+                      filter={activeSliderFilter}
+                      source={source}
+                      onClear={() => controller.clearInteractiveFilter(widgetId)}
+                    />
+                  )}
+                </Stack>
+                {effectiveSubtitle && (
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    noWrap
+                    sx={{ display: 'block' }}
+                  >
+                    {effectiveSubtitle}
+                  </Typography>
                 )}
-                {activeCrossFilter && (
-                  <Chip
-                    size="small"
-                    label={`${
-                      // Check the source's physical fields first, then expression
-                      // (computed) fields, mirroring `resolveFieldDef`'s use elsewhere
-                      // for field-label lookups — a cross-filter on a calculated field
-                      // previously fell straight through to the raw field id since only
-                      // `source.fields` was checked (finding 3.11).
-                      resolveFieldDef(activeCrossFilter.field, source, expressionFields)?.label ??
-                      activeCrossFilter.field
-                    }: ${formatCrossFilterValueLabel(activeCrossFilter.value)}`}
-                    onDelete={() => controller.clearCrossFilter(widgetId)}
-                    color="primary"
-                    variant="outlined"
-                    sx={{ flexShrink: 0, height: 20, fontSize: 11 }}
-                  />
-                )}
-                {activeSliderFilter && (
-                  <SliderFilterPill
-                    filter={activeSliderFilter}
-                    source={source}
-                    onClear={() => controller.clearInteractiveFilter(widgetId)}
-                  />
-                )}
-              </Stack>
-              {effectiveSubtitle && (
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  noWrap
-                  sx={{ display: 'block' }}
-                >
-                  {effectiveSubtitle}
-                </Typography>
-              )}
-            </Box>
+              </Box>
+            </StudioWidgetErrorBoundary>
           )}
           {/* Widget content — deferred to after first paint to avoid blocking initial render.
             A Skeleton placeholder preserves the card's height so the layout does not
@@ -708,7 +745,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           {def &&
             (showContent ? (
               <Box sx={{ position: 'relative', ...(def.capabilities.contentSx ?? {}) }}>
-                <StudioWidgetErrorBoundary resetKey={JSON.stringify(widget.config)}>
+                <StudioWidgetErrorBoundary resetKeys={boundaryResetKeys}>
                   <def.component
                     widget={widget}
                     dataSource={isCustomKind ? enrichedCustomSource : source}

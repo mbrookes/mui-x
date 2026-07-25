@@ -258,7 +258,18 @@ export const BUILTIN_WIDGET_DEFS = {
   },
 } satisfies Record<BuiltinStudioWidgetKind, StudioWidgetDef>;
 
-/** Converts a consumer-registered custom widget def into the unified `StudioWidgetDef` shape. */
+/**
+ * Converts a consumer-registered custom widget def into the unified `StudioWidgetDef` shape.
+ *
+ * Note on `defaultConfig`: it is spread through verbatim (and `AddWidgetView` copies it
+ * straight into a new widget's `config`), so it is arbitrary consumer data. Its JSDoc asks
+ * for JSON-serializable values, but nothing validates that — it may be cyclic, hold a
+ * `BigInt`, or contain non-plain values. Nothing on a render path may
+ * therefore serialize a widget's `config`: `StudioWidgetErrorBoundary` used to receive
+ * `resetKey={JSON.stringify(widget.config)}`, computed in the PARENT's render (above the
+ * boundary), so such a config crashed the entire `<Studio>` tree from the very prop meant to
+ * contain widget failures. The boundary now takes identity-compared `resetKeys` instead.
+ */
 function toWidgetDef(def: StudioCustomWidgetDef): StudioWidgetDef {
   return {
     ...def,

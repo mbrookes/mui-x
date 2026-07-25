@@ -7,8 +7,8 @@
  *  - the client applies the same function inside `StudioController.applyExternalMutation`
  *    when a `state-mutation` SSE event arrives.
  *
- * Because it is the one implementation of every mutation's effect, the
- * server-threaded state and the client-applied state can no longer disagree.
+ * One implementation of every mutation's effect is what keeps the server-threaded state
+ * and the client-applied state in agreement.
  *
  * Side effects a pure reducer cannot own (undo-stack management, title
  * inference from live data sources, React shell selection) are intentionally
@@ -23,18 +23,18 @@ import { isSafeKey } from './unsafeKeys';
 import { hasUnsafeOwnKeys, isStringArray } from './parseStateMutation';
 import { getAllowedConfigKeys } from './configKeyValidation';
 import { isStudioFilterOperator } from './widgetTypeGuards';
-// `isPlainRecord` (the single shared "is this a usable record" predicate: a non-record
-// `config`/`widget`/`filter` — `null`, an array, or a truthy primitive like a string —
-// is treated as ABSENT, never as a record to merge or install), `stripUnsafeConfigKeys`
-// (the config-record own-key screen: strips `__proto__`/`constructor`/`prototype` before
-// a record is installed WHOLESALE onto a widget, so it never round-trips as an own DATA
-// property that later poisons a spread or gets the whole widget dropped on the next
-// load), and `repairFilterDependsOn` (strips a malformed `dependsOn` from a filter about
-// to be installed verbatim, rather than sinking the whole filter) were each independently
-// duplicated across this file, `parseStateMutation.ts`, and `statePersistence.ts`
-// (finding 3.2). Consolidated in `internalGuards.ts` so the three trust boundaries can no
-// longer drift; imported here under this file's established local names (`isPlainRecord`,
-// `stripUnsafeConfigKeys`) so every existing call site below is unchanged.
+// The three guards the wire boundary (`parseStateMutation.ts`), the load boundary
+// (`statePersistence.ts`) and this reducer all need, kept in `internalGuards.ts` as ONE
+// implementation each so the three trust boundaries cannot drift apart:
+//  - `isPlainRecord` — the shared "is this a usable record" predicate. A non-record
+//    `config`/`widget`/`filter` (`null`, an array, or a truthy primitive like a string) is
+//    treated as ABSENT, never as a record to merge or install.
+//  - `stripUnsafeOwnKeys` (imported as `stripUnsafeConfigKeys`) — the record own-key
+//    screen. Strips `__proto__`/`constructor`/`prototype` before a record is installed
+//    WHOLESALE onto a widget, so it never round-trips as an own DATA property that later
+//    poisons a spread or gets the whole widget dropped on the next load.
+//  - `repairFilterDependsOn` — strips a malformed `dependsOn` from a filter about to be
+//    installed verbatim, rather than sinking the whole filter.
 import {
   isPlainRecord,
   stripUnsafeOwnKeys as stripUnsafeConfigKeys,
@@ -49,14 +49,12 @@ import {
  *
  * The dependency arrow runs `x-studio` → `x-studio-schema` (the client depends on
  * the schema package, never the reverse), so this dependency-free package is the
- * correct single home for the constant — there is no cycle risk, and the previous
- * four-way duplication (this file + `canvasGridConstants.ts` + `StudioController`
- * + the round-trip test) is consolidated here.
+ * correct single home for the constant — there is no cycle risk.
  *
  * The AI `set_widget_width` tool flows through the `setWidgetColSpan` handler
- * below, so it must clamp/rebalance in the SAME 24-column unit system the canvas
- * uses; otherwise a user drag-resize (24-col) and an AI resize (formerly 12-col)
- * would corrupt each other's layout.
+ * below, so it clamps and rebalances in the SAME 24-column unit system the canvas
+ * uses; a mismatched unit system would let a user drag-resize and an AI resize
+ * corrupt each other's layout.
  */
 export const GRID_COLS = 24;
 /** Minimum column span any widget can be clamped to (~1/4 of the full row width). */
@@ -82,6 +80,30 @@ function clampSpan(span: number): number {
  * builds them straight from LLM tool arguments).
  */
 const isSafePatchKey = isSafeKey;
+
+/*
+ * Shape-guard convention used throughout the handlers below.
+ *
+ * Most mutations reach this reducer through `parseStateMutation`, which type-checks every
+ * field. But the AI middleware's `executeToolOnState` builds mutations straight from LLM
+ * tool arguments WITHOUT the parser, so each handler re-checks the shapes it depends on and
+ * returns the input `state` reference — the reducer's documented no-op — for anything it
+ * cannot apply. Three recurring reasons a guard exists, referenced by name below rather
+ * than re-argued at each site:
+ *
+ *  - **crash prevention** — the handler would throw reading the field (`args.rows.map` on a
+ *    non-array, `widget.id` on `undefined`), and a reducer that throws mid-apply leaves the
+ *    server-threaded and client-applied states diverged.
+ *  - **id-coercion desync** — `Object.hasOwn(record, key)` COERCES its key to a string,
+ *    while `===`, `Array.prototype.includes` and `Set` membership never do. A non-string id
+ *    therefore matches the flat map (`Object.hasOwn(widgets, 42)` finds widget `"42"`) but
+ *    misses every row/filter/span comparison keyed off the string — a half-applied mutation.
+ *    Requiring `typeof id === 'string'` up front is what keeps the two agreeing.
+ *  - **deferred data loss** — the value installs fine now, and then `deserializeState`'s
+ *    load-boundary screen drops the key (or the whole widget/filter) on the next load. The
+ *    write-time guard makes the reducer and the load boundary agree, so nothing silently
+ *    disappears on reload.
+ */
 
 /**
  * Value-equality for two `widgetRows` matrices. Used by the layout handlers to honor
@@ -190,12 +212,12 @@ function dedupeLayoutRows(rows: string[][]): string[][] {
 
 /**
  * Normalizes the deprecated `seriesType` alias to the canonical `type` on a config's
- * `ySeries`, so the alias never survives a LIVE write (`updateWidget`/`addWidget`) —
- * `deserializeState` normalizes only at the load boundary, so without this a widget
- * written with `seriesType` would keep the alias until the next reload. Reference-
- * stable: returns the SAME config when there is no `ySeries` or every entry is
- * already canonical, so the reducer's no-op detection is preserved. Runs across kinds
- * by design (only chart configs carry `ySeries`), reading the flat config shape.
+ * `ySeries`, so the alias never survives a LIVE write (`updateWidget`/`addWidget`).
+ * `deserializeState` normalizes at the load boundary only, so a widget written with
+ * `seriesType` would otherwise keep the alias until the next reload. Reference-stable:
+ * returns the SAME config when there is no `ySeries` or every entry is already canonical,
+ * preserving the reducer's no-op detection. Runs across kinds by design (only chart
+ * configs carry `ySeries`), reading the flat config shape.
  */
 function normalizeConfigChartSeries<C extends object>(config: C): C {
   // Tolerate a non-record `config` (e.g. `null` from a server-built `addWidget`/
@@ -223,18 +245,18 @@ function normalizeConfigChartSeries<C extends object>(config: C): C {
 
 /**
  * Strip prototype-polluting own keys (`__proto__`/`constructor`/`prototype`) from a
- * filter object about to be appended to `state.filters` VERBATIM (F5 finding,
- * `addFilter`). The wire boundary (`parseStateMutation`'s `validateFilter`) already
- * rejects such a filter outright via its own `hasUnsafeOwnKeys(filter)` check, but
- * `addFilter` is also reachable from a server-built mutation that bypasses the parser
- * (the `executeToolOnState` path every other ADD channel in this file — `addWidget`,
- * `applyBulkUpdate.addedWidgets` — already defends against via `coerceWidgetConfig`/
- * `stripUnsafeConfigKeys`). Without this, such a filter would install with an own
- * `"__proto__"` key that round-trips through `serializeDoc` and poisons the next
- * `{ ...filter }` spread (e.g. `removeFilter`'s producer, or a future edit). Reuses
- * the exact `stripUnsafeConfigKeys` implementation — the check is identical regardless
- * of whether the record is a widget config or a filter. Reference-stable when the
- * filter carries no unsafe own key.
+ * filter object `addFilter` appends to `state.filters` VERBATIM.
+ *
+ * The wire boundary (`parseStateMutation`'s `validateFilter`) rejects such a filter
+ * outright via its own `hasUnsafeOwnKeys(filter)` check, but `addFilter` is also reachable
+ * from a server-built mutation that bypasses the parser (the `executeToolOnState` path,
+ * which every other ADD channel in this file — `addWidget`, `applyBulkUpdate.addedWidgets`
+ * — defends against via `coerceWidgetConfig`/`stripUnsafeConfigKeys`). Such a filter would
+ * otherwise install with an own `"__proto__"` key that round-trips through `serializeDoc`
+ * and poisons the next `{ ...filter }` spread (e.g. `removeFilter`'s producer). Reuses the
+ * exact `stripUnsafeConfigKeys` implementation — the check is identical whether the record
+ * is a widget config or a filter. Reference-stable when the filter carries no unsafe own
+ * key.
  */
 function stripUnsafeFilterKeys(filter: StudioFilterState): StudioFilterState {
   const safe = stripUnsafeConfigKeys(filter as unknown as Record<string, unknown>);
@@ -242,14 +264,13 @@ function stripUnsafeFilterKeys(filter: StudioFilterState): StudioFilterState {
     safe === (filter as unknown as Record<string, unknown>)
       ? filter
       : (safe as unknown as StudioFilterState);
-  // Descend into `scope` (Tier2 finding): `scope` is a record nested one level inside
-  // `filter`, and every OTHER nested record this reducer installs verbatim (a widget's
-  // `config` via `coerceWidgetConfig`) already gets this same defense-in-depth strip for a
-  // server-built mutation bypassing `parseStateMutation`. Without this, a scope carrying an
-  // own `__proto__`/`constructor`/`prototype` key would append verbatim and round-trip
-  // through `serializeDoc`, later poisoning a spread of the scope object. Reference-stable
+  // Descend into `scope`: it is a record nested one level inside `filter`, and every OTHER
+  // nested record this reducer installs verbatim (a widget's `config` via
+  // `coerceWidgetConfig`) gets the same strip. A scope carrying an own
+  // `__proto__`/`constructor`/`prototype` key would otherwise append verbatim, round-trip
+  // through `serializeDoc`, and later poison a spread of the scope object. Reference-stable
   // when `scope` is not a record (the crash-prevention shape guard in `addFilter.apply`
-  // already handles a non-record scope before this helper runs) or carries no unsafe key.
+  // handles a non-record scope before this helper runs) or carries no unsafe key.
   const { scope } = safeFilter;
   if (!isPlainRecord(scope)) {
     return safeFilter;
@@ -261,25 +282,23 @@ function stripUnsafeFilterKeys(filter: StudioFilterState): StudioFilterState {
   return { ...safeFilter, scope: safeScope as unknown as StudioFilterScope };
 }
 
-// Coerce a widget whose `config` is not a record (e.g. `config: null` from a
-// server-built `addWidget`/`applyBulkUpdate.addedWidgets` that bypassed
-// `parseStateMutation`) into one carrying `config: {}`, mirroring the load-boundary
-// coercion (`deserializeState`, finding 2.4). `normalizeConfigChartSeries` already
-// tolerates a non-record config so the IMMEDIATE add doesn't throw, but storing the
-// widget with `config: null` verbatim leaves a landmine: the NEXT config-touching
-// mutation does `Object.keys(existing.config)` / `shallowRecordEqual(existing.config, …)`
-// and throws `Cannot convert undefined or null to object`. Neutralizing it at the add
-// site (not just the immediate normalize call) closes that deferred throw (T2-2).
+// Make a widget's `config` safe to STORE, for the two ADD channels (`addWidget`,
+// `applyBulkUpdate.addedWidgets`). Two repairs, both mirroring the load boundary:
 //
-// It ALSO strips prototype-polluting own keys from a record config (T2-2), so the two ADD
-// channels (`addWidget`, `applyBulkUpdate.addedWidgets`) honor the SAME defense-in-depth key
-// screen `stripUnsafeConfigKeys` already gives the two UPDATE channels. A server-built
-// `addWidget` bypassing `parseStateMutation` (the `executeToolOnState` path — reachable for a
-// host-registered CUSTOM widget kind, whose `validateConfigKeysForKind` imposes no key
-// restriction) could otherwise install a config carrying an own `"__proto__"` key verbatim;
-// the NEXT `deserializeState` load then drops the ENTIRE widget on its config own-key screen —
-// deferred silent data loss. Reference-stable when the config is already a record with no
-// unsafe own key.
+//  - a non-record `config` (e.g. `config: null` from a server-built mutation that bypassed
+//    `parseStateMutation`) becomes `{}`. `normalizeConfigChartSeries` tolerates a non-record
+//    config so the IMMEDIATE add doesn't throw, but storing `config: null` verbatim leaves a
+//    landmine: the NEXT config-touching mutation does `Object.keys(existing.config)` /
+//    `shallowRecordEqual(existing.config, …)` and throws `Cannot convert undefined or null
+//    to object`.
+//  - prototype-polluting own keys are stripped from a record config, the SAME key screen
+//    `stripUnsafeConfigKeys` gives the two UPDATE channels. A server-built `addWidget`
+//    bypassing the parser (reachable for a host-registered CUSTOM widget kind, whose
+//    `validateConfigKeysForKind` imposes no key restriction) could otherwise install a
+//    config carrying an own `"__proto__"` key, and the next `deserializeState` load drops
+//    the ENTIRE widget on its config own-key screen — deferred silent data loss.
+//
+// Reference-stable when the config is already a record with no unsafe own key.
 function coerceWidgetConfig(widget: StudioWidget): StudioWidget {
   const { config } = widget;
   if (!isPlainRecord(config)) {
@@ -289,18 +308,19 @@ function coerceWidgetConfig(widget: StudioWidget): StudioWidget {
   return safeConfig === config ? widget : ({ ...widget, config: safeConfig } as StudioWidget);
 }
 
-// Key-strip the OPTIONAL widget scalars a parser-bypassing ADD channel (`addWidget`,
-// `applyBulkUpdate.addedWidgets`) never validated (Finding 1). The wire boundary's
-// `validateWidget` (`parseStateMutation.ts`) membership-checks all four — `subtitle`/
-// `sourceId` via `isOptionalString`, `titleMode`/`subtitleMode` via `isOptionalTitleMode`
-// — and the load boundary (`deserializeState`) drops each offending KEY. But a server-
-// built add bypassing the parser installed e.g. `subtitle: 42`/`titleMode: 'weird'`
-// verbatim, only for the very next load's key-drop to silently discard it — deferred data
-// loss rather than a write-time repair. Mirror the load boundary's "strip the key, don't
-// sink the whole widget" convention (these are optional, so an invalid value degrades to
-// the field's default, not a widget no-op): delete a non-string `subtitle`/`sourceId` and
-// a non-`'auto'|'manual'` `titleMode`/`subtitleMode`. Reference-stable when all four are
-// valid or absent (the only shape the wire boundary itself ever lets through).
+// Screen the four OPTIONAL widget scalars on the ADD channels (`addWidget`,
+// `applyBulkUpdate.addedWidgets`): delete a non-string `subtitle`/`sourceId` and a
+// non-`'auto'|'manual'` `titleMode`/`subtitleMode`.
+//
+// The wire boundary's `validateWidget` (`parseStateMutation.ts`) membership-checks all four
+// — `subtitle`/`sourceId` via `isOptionalString`, `titleMode`/`subtitleMode` via
+// `isOptionalTitleMode` — but a server-built add bypassing the parser reaches these handlers
+// directly, and the load boundary would then drop the offending KEY on the next load: the
+// value is discarded either way, just deferred. Repairing at write time keeps the two
+// boundaries agreeing. Strips the KEY rather than sinking the whole widget (these fields are
+// optional, so an invalid value degrades to the field's default) — the same convention
+// `deserializeState` uses. Reference-stable when all four are valid or absent, the only
+// shape the wire boundary itself lets through.
 function screenOptionalWidgetScalars(widget: StudioWidget): StudioWidget {
   let base = widget;
   for (const modeKey of ['titleMode', 'subtitleMode'] as const) {
@@ -322,11 +342,10 @@ function screenOptionalWidgetScalars(widget: StudioWidget): StudioWidget {
   return base;
 }
 
-// Drop widget/interactive/cross-filter-scoped filters anchored to any removed
-// widget. Extracted from `removeWidget` so `applyBulkUpdate` can enforce the same
-// invariant for every widget its bulk replacement drops (a removed source widget
-// would otherwise leave the page permanently filtered with no clearing affordance).
-// Returns the same array reference when nothing is dropped, preserving the
+// Drop widget/interactive/cross-filter-scoped filters anchored to any removed widget.
+// Shared by `removeWidget` and `applyBulkUpdate` so both enforce the same invariant: a
+// removed source widget must not leave its page permanently filtered with no clearing
+// affordance. Returns the same array reference when nothing is dropped, preserving the
 // reference-stable no-op behaviour callers rely on.
 function dropWidgetScopedFilters(
   filters: StudioFilterState[],
@@ -345,23 +364,19 @@ function dropWidgetScopedFilters(
  * The `StudioWidget` fields an `updateWidget.args.changes` bag may merge onto a widget —
  * every non-`id` field of `StudioWidgetOf` (`widgetTypes.ts`).
  *
- * The merge loop denied `id`, prototype-hazard keys and `undefined` values, and
- * type-checked these six known fields — but anything ELSE was merged verbatim and then
- * round-tripped through `serializeDoc` forever, e.g.
- * `updateWidget { widgetId: 'w1', changes: { evil: { a: 1 }, widgetRows: 'x' } }`
- * producing `{ id, kind, title, config, evil: { a: 1 }, widgetRows: 'x' }`. Nothing
- * downstream strips it: the wire boundary tolerates unknown keys BY POLICY (forward
- * compatibility with a newer server's additive field), and `deserializeState` never
- * screens unknown widget keys either. Note the asymmetry this closes — the sibling
- * `config` channel one level down has always been fail-closed via
- * `validateConfigKeysForKind`, so a stray key was rejected inside `config` but accepted
- * beside it.
+ * Fail-closed: a key outside this set is never merged. No boundary downstream would ever
+ * strip it — the wire boundary tolerates unknown keys BY POLICY (forward compatibility with
+ * a newer server's additive field) and `deserializeState` does not screen unknown widget
+ * keys either — so `changes: { evil: { a: 1 }, widgetRows: 'x' }` would otherwise land on
+ * the widget and round-trip through `serializeDoc` forever. This also makes the patch
+ * channel symmetric with the `config` channel one level down, which is fail-closed via
+ * `validateConfigKeysForKind`.
  *
- * Deliberately scoped to the PATCH channel. The full-widget CREATE channels
- * (`addWidget`/`applyBulkUpdate.addedWidgets`) install a whole `StudioWidget` and keep
- * their unknown-key tolerance, which is where the forward-compatibility argument actually
- * applies: an older client receiving a newer server's widget must not silently strip a
- * field it does not yet know about. A patch bag has no such round-trip to preserve.
+ * Scoped to the PATCH channel only. The full-widget CREATE channels
+ * (`addWidget`/`applyBulkUpdate.addedWidgets`) install a whole `StudioWidget` and keep their
+ * unknown-key tolerance, which is where the forward-compatibility argument applies: an older
+ * client receiving a newer server's widget must not silently strip a field it does not yet
+ * know about. A patch bag has no such round-trip to preserve.
  *
  * A `Set` (not an array/object literal) so an untrusted key can never resolve up a
  * prototype chain.
@@ -384,13 +399,11 @@ const MERGEABLE_WIDGET_CHANGE_KEYS: ReadonlySet<string> = new Set([
  * drawer maps over it directly, so a dangling id left pointing at a filter that is gone
  * silently gates option-narrowing on a filter that no longer exists.
  *
- * This cascade prune used to live INLINE in the `removeFilter` handler, so it covered
- * exactly ONE of the several paths that drop filters — every sibling path
- * (`dropWidgetScopedFilters` via `removeWidget`/`applyBulkUpdate`, `removePage`'s
- * page-anchor drop, and `deserializeState`'s load-boundary filter screen/rank dedup) left
- * the dangling references behind. Extracted here as the ONE implementation so the
- * referential-integrity invariant is enforced per-CLASS rather than per-instance;
- * `statePersistence.ts` imports it for the load boundary.
+ * The ONE implementation of that referential-integrity invariant, so every path that drops
+ * a filter enforces it: `removeFilter`, `dropWidgetScopedFilters` via
+ * `removeWidget`/`applyBulkUpdate`, `removePage`'s page-anchor drop, the layout handlers'
+ * rank sweep, and — via `statePersistence.ts`'s import — the load boundary's filter screen
+ * and rank dedup.
  *
  * Drops the whole `dependsOn` array (rather than leaving `dependsOn: []`) when the prune
  * empties it, mirroring `docTransforms.ts`'s own `remappedDependsOn.length > 0 ? … :
@@ -434,12 +447,13 @@ function pruneDependsOnAgainstSelf(filters: StudioFilterState[]): StudioFilterSt
  * the SOLE occupant of a row it used to share (that survivor's stored span is a
  * multi-widget-era leftover — mirrors `enforceLayoutColSpans`'s 2→1 collapse). A
  * pre-existing single-widget-row span is untouched (only a row that shrank FROM 2+
- * TO 1 because of this removal counts). Generalizes the single-id row-edit step
- * `removeWidget` used to inline, so `applyBulkUpdate.removedWidgetIds` (a batch of
- * ids, not just one) can share the identical row-placement cleanup rather than
- * leaving removed widgets referenced on rows nobody touched (finding: bulk removals
- * were a no-op against `widgetRows` because nothing ever stripped the id from any
- * page's rows before the removal primitive ran).
+ * TO 1 because of this removal counts).
+ *
+ * Takes an id SET rather than a single id so `removeWidget` and
+ * `applyBulkUpdate.removedWidgetIds` share the identical row-placement cleanup. Both must
+ * run it: `removeWidgetIds`' "genuinely gone" check below reads the rows, so a removal
+ * target still named on some page's rows would be classified as still-live and silently
+ * survive.
  */
 function stripWidgetIdsFromPages(
   pages: StudioDoc['pages'],
@@ -482,42 +496,35 @@ function stripWidgetIdsFromPages(
 }
 
 /**
- * Resolves the page a rank-eligible filter applies to, for the per-page
- * rank-uniqueness guard (finding: `addFilter` didn't enforce it). The return value is a
- * THREE-state answer, and the distinction between the two non-string states is the whole
- * point of this helper (see the failure it closes below):
+ * Resolves the page a rank-eligible filter applies to, for the per-page rank-uniqueness
+ * guard. The answer is THREE-state, and the two non-string states mean OPPOSITE things:
  *  - a `string` → the concrete page this filter's rank window applies to.
- *  - `null` → "applies EVERYWHERE": the legacy pageId-less `page` scope, which is active
- *    on every page, so it must conflict with (and be conflicted by) every rank filter.
- *  - `undefined` → "UNRESOLVABLE": there is no page context to compare against. Returned
- *    for a `widget` scope whose widget sits on no page's `widgetRows` (a widget left in
- *    `doc.widgets` but unplaced — e.g. after a `setWidgetLayout`, or an `applyBulkUpdate`
- *    whose `activePageId` no longer exists), and for every non-rank-eligible scope kind.
+ *  - `null` → "applies EVERYWHERE": the legacy pageId-less `page` scope, active on every
+ *    page, so it conflicts with — and is conflicted by — every rank filter.
+ *  - `undefined` → "UNRESOLVABLE": there is no page context to compare against, so it
+ *    conflicts with nothing and blocks nothing. Returned for a `widget` scope whose widget
+ *    sits on no page's `widgetRows` (left in `doc.widgets` but unplaced — e.g. after a
+ *    `setWidgetLayout`, or an `applyBulkUpdate` whose `activePageId` no longer exists), and
+ *    for every non-rank-eligible scope kind.
  *
- * Conflating those two was a real bug (fixed here): `null` used to mean BOTH, so a single
- * unplaced-widget rank filter — which nothing removes, since `dropWidgetScopedFilters`
- * only fires on widget REMOVAL — resolved to `null` and therefore "conflicted" with every
- * subsequent rank `addFilter` on EVERY page, silently rejecting each one. Worse, the
- * load-boundary dedup sweep in `statePersistence.ts` runs the same predicate in array
- * order, so it DROPPED the user's legitimate rank filter whenever the unplaced-widget one
- * happened to come first — and the next `serializeDoc` persisted that loss permanently.
- * The `dashboard-date-range` instance of this same class was closed earlier by gating the
- * callers on scope kind; the `widget`-scope instance needed the sentinel. Only the legacy
- * pageId-less `page` scope keeps wildcard semantics.
+ * Keeping UNRESOLVABLE distinct from the `null` wildcard is what stops ONE unplaced-widget
+ * rank filter — which nothing removes, since `dropWidgetScopedFilters` fires only on widget
+ * REMOVAL — from "conflicting" with, and therefore silently rejecting, every rank
+ * `addFilter` on every page.
  *
- * Duplicated (not imported) from `@mui/x-studio`'s `internals/rankFilterScope.ts`:
- * the dependency arrow runs `x-studio` → `x-studio-schema`, never the reverse, so
- * this dependency-free package cannot import the client's copy. The reducer is the
- * mutation-semantics source of truth, so it needs its own copy of the invariant
- * rather than trusting every caller (`StudioController`'s five call sites) to
- * enforce it first.
+ * The mirror consequence is that an unresolvable filter is accepted with no page context to
+ * check, so a later PLACEMENT can create the conflict `addFilter` could not see. That is
+ * what {@link dropConflictingRankFilters} exists to catch in the layout handlers.
  *
- * Exported (not duplicated a second time) so `statePersistence.ts`'s load boundary can
- * reuse the SAME resolution logic to re-check rank-filter uniqueness on a persisted doc
- * (finding: the invariant was enforced only on the live `addFilter` mutation path, never
- * re-checked on load, so a hand-edited/foreign doc could load with two conflicting rank
- * filters on the same page). Both live in this package, so there is no cross-package
- * import-direction concern the `x-studio` duplication comment above is guarding against.
+ * Duplicated (not imported) from `@mui/x-studio`'s `internals/rankFilterScope.ts`: the
+ * dependency arrow runs `x-studio` → `x-studio-schema`, never the reverse, so this
+ * dependency-free package cannot import the client's copy. The reducer is the
+ * mutation-semantics source of truth and must not depend on every caller
+ * (`StudioController`'s five call sites) enforcing the invariant first.
+ *
+ * Exported so `statePersistence.ts`'s load boundary reuses the SAME resolution logic when
+ * it re-checks rank uniqueness on a persisted doc — a hand-edited or foreign doc can
+ * otherwise carry two conflicting rank filters on one page.
  */
 export function resolveRankFilterPageId(
   filter: StudioFilterState,
@@ -549,29 +556,21 @@ export function resolveRankFilterPageId(
  * everywhere) conflicts with — and is conflicted by — any other rank filter.
  *
  * An `undefined` resolved page ({@link resolveRankFilterPageId}'s UNRESOLVABLE sentinel)
- * is the opposite of the `null` wildcard and is handled accordingly:
- *  - an unresolvable TARGET conflicts with NOTHING (there is no page context to collide
- *    on, so the add is always allowed), and
+ * is the opposite of the `null` wildcard:
+ *  - an unresolvable TARGET conflicts with NOTHING (no page context to collide on, so the
+ *    add is always allowed), and
  *  - an unresolvable OTHER filter is NON-conflicting (it cannot block anything).
- * Before the sentinel existed both cases resolved to `null` and were therefore treated as
- * "conflicts with everything", so one unplaced-widget rank filter poisoned every rank
- * `addFilter` on every page — and made the load-boundary dedup drop legitimate filters.
  *
- * Only `page`/`widget` scopes are rank-eligible (matching {@link resolveRankFilterPageId}'s
- * doc comment: "other scope kinds are never rank filters and are excluded by the
- * caller"). The existing-filter loop below therefore excludes every OTHER scope kind,
- * not just `cross-filter` — previously only `cross-filter` was excluded here, so an
- * `interactive`- or `dashboard-date-range`-scoped filter with `filterMode: 'rank'`
- * (wire-valid: the wire boundary never restricts `filterMode` to a scope kind) resolved
- * via `resolveRankFilterPageId`'s catch-all `return null`, and a `null` page context
- * conflicts with — and is conflicted by — EVERY other rank filter, so a single such
- * filter would silently reject every legitimate `page`/`widget` rank filter on every
- * page thereafter. The caller (`addFilter`) mirrors this by skipping the conflict gate
- * entirely for a non-`page`/`widget` scope, so this exclusion is defense-in-depth for
- * any other caller (e.g. the load-boundary dedup in `statePersistence.ts`).
+ * Only `page`/`widget` scopes are rank-eligible, so the existing-filter loop below excludes
+ * every OTHER scope kind. `filterMode: 'rank'` on e.g. a `dashboard-date-range` or
+ * `interactive` scope is wire-valid (the wire boundary never restricts `filterMode` to a
+ * scope kind) but is not a rank window over a page, and treating it as one would make a
+ * single such filter reject every legitimate `page`/`widget` rank filter thereafter.
+ * `addFilter` mirrors the exclusion by skipping the gate entirely for those scopes, so this
+ * loop's copy is what protects the OTHER callers — the layout handlers' sweep and the
+ * load-boundary dedup in `statePersistence.ts`.
  *
- * Exported for reuse by `statePersistence.ts`'s load-boundary rank-filter dedup sweep
- * (see {@link resolveRankFilterPageId}'s export comment).
+ * Exported for reuse by that load-boundary dedup sweep.
  */
 export function hasConflictingRankFilter(
   filterId: string,
@@ -593,13 +592,53 @@ export function hasConflictingRankFilter(
       return false;
     }
     const otherPageId = resolveRankFilterPageId(filter, pages);
-    // An unresolvable OTHER filter (an unplaced widget's rank filter) can never block a
-    // legitimate one — this is the check whose absence poisoned every later rank add.
+    // An unresolvable OTHER filter (an unplaced widget's rank filter) blocks nothing.
     if (otherPageId === undefined) {
       return false;
     }
     return targetPageId === null || otherPageId === null || otherPageId === targetPageId;
   });
+}
+
+/**
+ * Enforce per-page rank-filter uniqueness across a whole filter array, keeping the FIRST
+ * rank filter for each page context in array order and dropping any later one that
+ * conflicts with it (then cascading those drops into the survivors' `dependsOn`).
+ *
+ * `addFilter` can only gate the filter it is installing, against the page context that
+ * filter resolves to AT THAT MOMENT. A `widget`-scoped rank filter whose widget sits on no
+ * page resolves to {@link resolveRankFilterPageId}'s UNRESOLVABLE sentinel and is therefore
+ * accepted unconditionally — so a later PLACEMENT of that widget (a `setWidgetLayout`, or an
+ * `applyBulkUpdate` carrying rows) can move it onto a page that already has a rank filter
+ * and create the conflict after the fact. The layout handlers run this sweep so the
+ * invariant is restored in the same commit that breaks it, instead of the doc staying live-
+ * valid but load-invalid until `deserializeState`'s identical dedup silently deletes the
+ * filter on the next reload.
+ *
+ * Uses the SAME predicate and the SAME array-order tie-break as that load-boundary dedup
+ * (`statePersistence.ts`), so the reducer and the load boundary always agree on which
+ * filter survives. Reference-stable: returns the SAME array when nothing conflicts.
+ */
+function dropConflictingRankFilters(
+  filters: StudioFilterState[],
+  pages: StudioDoc['pages'],
+): StudioFilterState[] {
+  let changed = false;
+  const kept: StudioFilterState[] = [];
+  for (const filter of filters) {
+    // Only `page`/`widget` scopes are rank-eligible; every other scope kind is left alone
+    // (matching `addFilter`'s gate and `hasConflictingRankFilter`'s own exclusion).
+    if (
+      filter.filterMode === 'rank' &&
+      (filter.scope.kind === 'page' || filter.scope.kind === 'widget') &&
+      hasConflictingRankFilter(filter.id, filter, kept, pages)
+    ) {
+      changed = true;
+      continue;
+    }
+    kept.push(filter);
+  }
+  return changed ? pruneDependsOnAgainstSelf(kept) : filters;
 }
 
 /**
@@ -631,6 +670,73 @@ function removeSpanEntries(
     return spans;
   }
   return Object.keys(rest).length > 0 ? rest : undefined;
+}
+
+/**
+ * Fit ONE layout row's column spans inside `GRID_COLS`, in place, around the spans a
+ * mutation explicitly asked for.
+ *
+ * `anchorIds` are the row members whose span this mutation is setting; every other member
+ * of `rowIds` is an ABSORBER whose stored span may be reduced or cleared to make room. The
+ * resolution, in order:
+ *
+ *  - **anchors overflow on their own** (a payload naming several widths in one row that sum
+ *    past `GRID_COLS`): grant each anchor, in row order, as much of the row budget as is
+ *    left, and clear the span of any anchor that cannot be granted at least `MIN_SPAN`.
+ *  - **exactly one absorber**: it takes the remainder, or loses its span entirely when the
+ *    remainder is below `MIN_SPAN` (a sub-minimum span is not a legal width).
+ *  - **two or more absorbers**: there is no non-arbitrary way to split the remainder
+ *    between them, so all their spans are cleared and the row falls back to equal flex for
+ *    them.
+ *
+ * A span is only ever WRITTEN for an id `canWriteSpan` accepts, so a row-mate that is not a
+ * real widget (or carries a prototype-hazard key) can never receive a persisted span.
+ *
+ * Shared by the two write paths that set a widget's width — `setWidgetColSpan` and
+ * `applyBulkUpdate`'s col-spans merge — so an AI `set_widget_width` and an
+ * `apply_bulk_update` carrying the same width resolve a row overflow identically. Without
+ * it the bulk path fell through to `enforceLayoutColSpans`' drop-EVERY-span-in-the-row
+ * rule, which discards the widths of widgets the payload never mentioned.
+ */
+function rebalanceRowSpans(
+  spans: Record<string, number>,
+  rowIds: readonly string[],
+  anchorIds: ReadonlySet<string>,
+  canWriteSpan: (id: string) => boolean,
+): void {
+  // `Object.hasOwn` per id (not `spans[id] ?? 0`) so an untrusted row id reads 0, never an
+  // `Object` prototype member (which would poison the sums below with `NaN`).
+  const readSpan = (id: string) => (Object.hasOwn(spans, id) ? spans[id] : 0);
+  const anchorRowIds = rowIds.filter((id) => anchorIds.has(id));
+  const absorberIds = rowIds.filter((id) => !anchorIds.has(id));
+  let anchorTotal = anchorRowIds.reduce((sum, id) => sum + readSpan(id), 0);
+  if (anchorTotal > GRID_COLS) {
+    let budget = GRID_COLS;
+    for (const id of anchorRowIds) {
+      const granted = Math.min(readSpan(id), budget);
+      if (granted >= MIN_SPAN && canWriteSpan(id)) {
+        spans[id] = granted;
+        budget -= granted;
+      } else {
+        delete spans[id];
+      }
+    }
+    anchorTotal = GRID_COLS - budget;
+  }
+  const absorberTotal = absorberIds.reduce((sum, id) => sum + readSpan(id), 0);
+  if (anchorTotal + absorberTotal <= GRID_COLS) {
+    return;
+  }
+  const remaining = GRID_COLS - anchorTotal;
+  if (absorberIds.length === 1 && remaining >= MIN_SPAN) {
+    if (canWriteSpan(absorberIds[0])) {
+      spans[absorberIds[0]] = remaining;
+    }
+    return;
+  }
+  for (const id of absorberIds) {
+    delete spans[id];
+  }
 }
 
 /**
@@ -699,11 +805,10 @@ function enforceLayoutColSpans(
  * Load-time layout normalization sweep for a persisted `pages` map. Every LIVE mutation
  * path maintains the layout invariants (rows reference real widgets, no duplicate ids,
  * spans are in range and orphan-free), but a corrupted or hand-edited persisted doc can
- * violate them: `deserializeState` previously installed `pages` verbatim, so phantom
- * `widgetRows` ids (no `widgets` entry), duplicate ids, or out-of-range/orphan
- * `widgetColSpans` loaded as-is and rendered blank cards / wrong widths until the next
- * layout mutation happened to prune them. This is a cheap DEFENSIVE sweep applied at the
- * load boundary — NOT a schema migration: the doc SHAPE is unchanged, so no version bump.
+ * violate them — phantom `widgetRows` ids with no `widgets` entry, duplicate ids, or
+ * out-of-range/orphan `widgetColSpans` — which renders blank cards and wrong widths until
+ * some later layout mutation happens to prune them. A cheap DEFENSIVE sweep at the load
+ * boundary, NOT a schema migration: the doc SHAPE is unchanged, so no version bump.
  *
  * Per page it filters rows against `widgets`, dedupes duplicate ids (first occurrence
  * wins), clamps each span into the valid `MIN_SPAN`–`GRID_COLS` range, and drops spans
@@ -733,14 +838,14 @@ export function normalizePersistedPages(
       pagesChanged = true;
       continue;
     }
-    // Screen the page object's OWN top-level keys against the prototype-hazard denylist
-    // (Finding T2-1), symmetric with the page-KEY screen just above and with the load
-    // boundary's widget own-key screen. The rebuild below spreads `{ ...page, id: pid, … }`
-    // with DEFINE semantics, so an own `"__proto__"`/`"constructor"`/`"prototype"` DATA
-    // property (as `JSON.parse` materializes it on a shared/hand-edited doc) is copied
-    // straight through onto the rebuilt page and later poisons a spread/`Object.assign` of
-    // it. Drop the whole page (matching the unsafe-page-KEY drop above). Reuses the SAME
-    // `hasUnsafeOwnKeys` predicate the wire and load boundaries use.
+    // Screen the page object's OWN top-level keys against the prototype-hazard denylist,
+    // symmetric with the page-KEY screen just above and with the load boundary's widget
+    // own-key screen. The rebuild below spreads `{ ...page, id: pid, … }` with DEFINE
+    // semantics, so an own `"__proto__"`/`"constructor"`/`"prototype"` DATA property (as
+    // `JSON.parse` materializes it on a shared/hand-edited doc) would copy straight through
+    // onto the rebuilt page and later poison a spread/`Object.assign` of it. Drop the whole
+    // page, matching the unsafe-page-KEY drop above. Reuses the SAME `hasUnsafeOwnKeys`
+    // predicate the wire and load boundaries use.
     if (hasUnsafeOwnKeys(page)) {
       pagesChanged = true;
       continue;
@@ -780,37 +885,32 @@ export function normalizePersistedPages(
           rebuilt[key] = clampSpan(page.widgetColSpans[key]);
         }
       }
-      // Enforce the row-overflow col-span invariant on load (T2-1): the clamp loop bounds
+      // Enforce the row-overflow col-span invariant on load. The clamp loop above bounds
       // each span INDIVIDUALLY but never checks a shared row's span SUM, so a hand-edited
       // doc whose row's colSpans sum past `GRID_COLS` (`{ w1: 20, w2: 20 }` on one row) —
-      // or a doc the clamp itself pushes past it (`{ w1: 40, w2: 6 }` → `{ w1: 24, w2: 6 }`,
-      // sum 30 > 24) — would otherwise install verbatim and render an overflowing row until
-      // the next LIVE layout mutation happened to prune it. Run the same
-      // `enforceLayoutColSpans([], …)` pass every other layout-installing site uses (the
-      // SOLE implementation of these invariants): `oldRows = []` so a pre-existing
+      // or one the clamp itself pushes past it (`{ w1: 40, w2: 6 }` → `{ w1: 24, w2: 6 }`,
+      // sum 30 > 24) — would install verbatim and render an overflowing row until some
+      // later LIVE layout mutation pruned it. Runs the same `enforceLayoutColSpans([], …)`
+      // pass every other layout-installing site uses: `oldRows = []` so a pre-existing
       // intentional singleton span is never collapsed, while row-overflow drop, orphan
-      // drop, and empty→`undefined` collapse all apply. Reference stability is preserved by
-      // the `spansEqual` comparison below (and `enforceLayoutColSpans` collapses an empty
-      // result to `undefined`, matching the prior explicit fallback).
+      // drop, and empty→`undefined` collapse all apply. The `spansEqual` comparison below
+      // preserves reference stability.
       nextSpans = enforceLayoutColSpans([], sanitizedRows, rebuilt);
     }
-    // Reconcile the page's own `id` field with its record KEY (finding 2.1), the page
-    // analogue of the widget id↔key reconciliation in `deserializeState`. Every reducer
-    // path that targets a page keys off the record KEY (`state.pages[pageId]`), so a
-    // hand-edited/shared doc where the desync ALREADY exists (`pages: { "p-a": { "id":
-    // "p-b", … } }`) would render from the key while any affordance carrying `page.id`
-    // silently missed. The key is the source of truth; re-stamp `id: pid` (preserving the
-    // page rather than dropping it) and force a rebuild so the corrected id lands.
+    // Reconcile the page's own `id` field with its record KEY, the page analogue of the
+    // widget id↔key reconciliation in `deserializeState`. Every reducer path that targets a
+    // page keys off the record KEY (`state.pages[pageId]`), so a hand-edited/shared doc
+    // carrying the desync (`pages: { "p-a": { "id": "p-b", … } }`) renders from the key
+    // while any affordance carrying `page.id` silently misses. The key is the source of
+    // truth: re-stamp `id: pid` (preserving the page rather than dropping it) and force a
+    // rebuild so the corrected id lands.
     const idDesynced = page.id !== pid;
-    // Coerce a missing/non-string `title` to the same `'Untitled Page'` fallback the
-    // factory uses (finding: a persisted doc with junk `page.title` — `null`, `42`, an
-    // object — previously passed `migrateState`'s validation, which only checks
-    // `widgetRows`, and installed verbatim. Every consumer of `page.title` (e.g.
-    // `StudioWidgetCardActionsOverlay`) renders it directly as text with no fallback of
-    // its own, so a non-string title crashed React on first render of the page picker.
-    // `addPage`/`renamePage` already require a string `title` at the wire/reducer
-    // boundary — parseStateMutation.ts's `isString(args.title)` gate — so this closes
-    // the ONE remaining gap: a persisted doc loaded directly, bypassing those mutations.
+    // Coerce a missing/non-string `title` to the same `'Untitled Page'` fallback the factory
+    // uses. `migrateState`'s validation only checks `widgetRows`, so junk `page.title`
+    // (`null`, `42`, an object) reaches here; every consumer renders it directly as text
+    // with no fallback of its own (e.g. `StudioWidgetCardActionsOverlay`), crashing React on
+    // first render of the page picker. `addPage`/`renamePage` require a string `title` at
+    // the wire/reducer boundary, so a directly-loaded persisted doc is the one way in.
     const titleIsString = typeof page.title === 'string';
     const safeTitle = titleIsString ? page.title : 'Untitled Page';
     if (
@@ -852,15 +952,14 @@ export function normalizePersistedPages(
  * The "genuinely gone" step (`stillReferenced`) is load-bearing for `removePage` ONLY.
  * That caller hands in `pages` with the removed page DELETED but every surviving page's
  * rows untouched, so a widget that also lives on another page must keep its `widgets`
- * entry, its widget-anchored filters, and its spans — that is the cross-page guard.
- * The other two callers (`removeWidget` and `applyBulkUpdate`) both pre-strip the
- * candidate ids from ALL pages' rows before calling in, so for them `stillReferenced` can
- * never contain a candidate and the step is a no-op. That is deliberate on both sides:
- * those two callers remove the widget from `doc.widgets` outright, so leaving it on
- * another page's rows would strand a dangling row reference — the all-pages pre-strip is
- * the fix, not a bug. The step is kept (rather than deleted as dead code for two of three
- * callers) precisely because it IS the whole contract for `removePage`, and because it is
- * the correct default for any future caller that does not pre-strip.
+ * entry, its widget-anchored filters, and its spans — that is the cross-page guard. The
+ * other two callers (`removeWidget` and `applyBulkUpdate`) pre-strip the candidate ids from
+ * ALL pages' rows before calling in, so for them `stillReferenced` can never contain a
+ * candidate and the step is inert. That is deliberate on both sides: those two delete the
+ * widget from `doc.widgets` outright, so leaving it on another page's rows would strand a
+ * dangling row reference. The step stays here (rather than being deleted as inert for two
+ * of three callers) because it IS the whole contract for `removePage` and the correct
+ * default for any future caller that does not pre-strip.
  *
  * Returns the SAME `pages`/`widgets`/`filters` references when nothing was genuinely
  * removed, preserving the callers' reference-stable no-op contract.
@@ -896,10 +995,10 @@ function removeWidgetIds(
     return { pages, widgets, filters, removedIds };
   }
   // (c) drop the removed widgets from the flat widgets record — but only rebuild it when at
-  // least one removed id is an OWN key of `widgets` (T2-1). A re-delivered removal bulk (SSE
-  // at-least-once) whose `removedWidgetIds` names an already-gone widget classifies it as
-  // "genuinely removed" here (no surviving page references it), yet `{ ...widgets }` + a no-op
-  // `delete` would mint a fresh, content-identical record — flipping the caller's
+  // least one removed id is an OWN key of `widgets`. A re-delivered removal bulk (SSE
+  // at-least-once) whose `removedWidgetIds` names an already-gone widget is classified
+  // "genuinely removed" here (no surviving page references it), and `{ ...widgets }` + a
+  // no-op `delete` would mint a fresh, content-identical record — flipping the caller's
   // `widgetsChanged` gate and pushing a spurious undo entry. Returning the ORIGINAL `widgets`
   // reference when nothing was actually deleted preserves the reference-stable no-op contract.
   let anyOwnKey = false;
@@ -918,11 +1017,11 @@ function removeWidgetIds(
   }
   // (d) drop widget/interactive/cross-filter-scoped filters anchored to a removed id, then
   // cascade that drop into every SURVIVING filter's `dependsOn` (the shared
-  // `pruneDependsOn` invariant). Without the prune, e.g. a page filter `f-city` with
-  // `dependsOn: ['f-country']` keeps pointing at `f-country` after `removeWidget('w1')`
-  // dropped that widget-scoped filter, and the cascade drawer gates option-narrowing on a
-  // filter that no longer exists. Both helpers are reference-stable, so a removal that
-  // drops no filter (and a doc with no `dependsOn` at all) still returns the SAME array.
+  // `pruneDependsOn` invariant): a page filter `f-city` with `dependsOn: ['f-country']`
+  // would otherwise keep pointing at `f-country` after `removeWidget('w1')` dropped that
+  // widget-scoped filter, and the cascade drawer would gate option-narrowing on a filter
+  // that no longer exists. Both helpers are reference-stable, so a removal that drops no
+  // filter (and a doc with no `dependsOn` at all) still returns the SAME array.
   const nextFilters = pruneDependsOnAgainstSelf(
     dropWidgetScopedFilters(filters, (id) => removedIds.has(id)),
   );
@@ -977,31 +1076,23 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
   addPage: {
     apply: (state, args) => {
       const { id, title } = args;
-      // Require a STRING id (T2-3). A parser-bypassing server-built `addPage` with `id`
-      // absent would otherwise pass `isSafePatchKey(undefined)` (the denylist has no
-      // `undefined` member) and mint a page keyed `"undefined"` with `id: undefined`,
-      // simultaneously setting `dashboard.activePageId` to `undefined` — strictly worse than a
-      // no-op. The wire boundary already requires a safe string id; mirror it here.
+      // Require a STRING id: an absent one passes `isSafePatchKey(undefined)` (the denylist
+      // has no `undefined` member) and would mint a page keyed `"undefined"` with
+      // `id: undefined`, while also setting `dashboard.activePageId` to `undefined` —
+      // strictly worse than a no-op.
       if (typeof id !== 'string') {
         return state;
       }
-      // Require a STRING title (T3 finding, parser-bypass parity with the wire boundary's
-      // `isString(args.title)` gate in `parseStateMutation.ts`). Without this, a server-built
-      // `addPage` bypassing the parser with a non-string `title` (e.g. `undefined`, `42`) would
-      // install a page whose `title` violates `StudioDoc['pages'][string].title: string` — no
-      // immediate throw, but a value the canvas's page-tab renderer and `serializeDoc`'s
-      // round-trip both assume is a string, corrupting the doc until the next load boundary
-      // (which has no per-page title screen to catch it). No-op instead, mirroring the
-      // sibling `renamePage` fix and `addWidget`'s `typeof widget.id !== 'string'` guard.
+      // Require a STRING title: `StudioDoc['pages'][string].title` is `string`, the canvas
+      // page-tab renderer reads it directly, and no load-boundary screen catches a
+      // non-string page title, so a bad value would corrupt the doc indefinitely.
       if (typeof title !== 'string') {
         return state;
       }
-      // Screen the id against the shared prototype-hazard denylist before the literal
-      // insert below (matching `applyBulkUpdate.addedWidgets` and the load boundary). The
-      // literal `{ ...pages, [id]: … }` uses define-semantics, so there is no prototype
-      // pollution — but an `id` of `'__proto__'` would create a real own entry that
-      // silently VANISHES on the next load (the load-boundary key screen drops it):
-      // transient data loss. Reject it up front, uniform with the sibling handler.
+      // Screen the id against the prototype-hazard denylist. The literal
+      // `{ ...pages, [id]: … }` uses define-semantics so there is no pollution risk, but an
+      // `id` of `'__proto__'` would create a real own entry that the load-boundary key
+      // screen drops on the next load — deferred data loss.
       if (!isSafePatchKey(id)) {
         return state;
       }
@@ -1028,14 +1119,9 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
 
   setDashboardTitle: {
     apply: (state, args) => {
-      // Require a STRING title (finding 2.2, parser-bypass parity with `addPage`/
-      // `renamePage`'s `typeof title !== 'string'` guards and the wire boundary's
-      // `isString(args.title)` gate in `parseStateMutation.ts`). Without this, a
-      // server-built `setDashboardTitle` bypassing the parser with a non-string
-      // `title` (e.g. `undefined`, `42`) would install it verbatim — no immediate
-      // throw, but a value that violates `StudioDoc['dashboard'].title: string`,
-      // corrupting the dashboard title until something downstream (the page-header
-      // renderer, `serializeDoc`'s round-trip) trips over the non-string value.
+      // Require a STRING title: `StudioDoc['dashboard'].title` is `string` and the
+      // page-header renderer reads it directly, so a non-string value corrupts the title
+      // until something downstream trips over it.
       if (typeof args.title !== 'string') {
         return state;
       }
@@ -1055,44 +1141,33 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
   addWidget: {
     apply: (state, args) => {
       const { widget } = args;
-      // Require a record `widget` (T2-3). A parser-bypassing server-built `addWidget` with
-      // `widget` absent/non-record would throw on the `widget.id` read below; no-op instead,
-      // mirroring the wire boundary's `validateWidget` record check.
+      // Crash prevention: the `widget.id` read below throws on an absent/non-record widget.
       if (!isPlainRecord(widget)) {
         return state;
       }
-      // Require a STRING id (mirrors `addPage`'s `typeof id !== 'string'` guard). Only
-      // `isSafePatchKey` was checked below, but `isSafeKey` takes any `unknown` and a
-      // non-string (e.g. `widget.id: 42`) never matches the denylist's string members,
-      // so it fell through and installed a widget keyed by the STRINGIFIED id (`"42"`)
-      // while `widget.id` itself stayed numeric — a desync between the map key and the
-      // `id` field identical to the one `addPage` already guards against.
+      // Require a STRING id. `isSafePatchKey` alone accepts any non-string (it only denies
+      // three string denylist members), so `widget.id: 42` would install under the
+      // STRINGIFIED key `"42"` while `widget.id` itself stayed numeric — a map-key/field
+      // desync that splits every id-keyed invariant.
       if (typeof widget.id !== 'string') {
         return state;
       }
-      // Screen the widget id against the shared prototype-hazard denylist before the
-      // literal inserts below (matching `applyBulkUpdate.addedWidgets` and the load
-      // boundary). No prototype pollution risk (literal define-semantics), but a
-      // `'__proto__'` id would create a real own entry that silently vanishes on the next
-      // load (the load-boundary key screen drops it) — transient data loss. Reject it up
-      // front, uniform with the sibling handler.
+      // Screen the widget id against the prototype-hazard denylist. The literal inserts
+      // below use define-semantics so there is no pollution risk, but a `'__proto__'` id
+      // would create a real own entry the load-boundary key screen drops on the next load.
       if (!isSafePatchKey(widget.id)) {
         return state;
       }
-      // Require STRING `kind`/`title` (Finding 2 — this is the ADD-channel sibling of
-      // `updateWidget`'s `changes.kind`/`changes.title` guard and `applyBulkUpdate`'s
-      // `updatedWidgets` `title` guard above, and mirrors the wire boundary's own
-      // `isString(widget.kind)`/`isString(widget.title)` checks in `validateWidget`).
-      // Without this, a parser-bypassing `addWidget` with e.g. `kind: 42` installed
-      // verbatim now, only for `deserializeState`'s widget screen to silently drop the
-      // ENTIRE widget on the very next load — deferred silent data loss rather than a
-      // rejection at write time.
+      // Require STRING `kind`/`title`: the widget factory/renderer keys off `kind` and the
+      // canvas card renders `title`, and `deserializeState`'s widget screen drops the ENTIRE
+      // widget on the next load if either is non-string.
       if (typeof widget.kind !== 'string' || typeof widget.title !== 'string') {
         return state;
       }
-      // Explicit, server-chosen target page — falls back to the active page for
-      // legacy payloads. Never relies on "whatever page happens to be active on
-      // the applying side", which is the page-targeting divergence this fixes.
+      // Explicit, server-chosen target page — falls back to the active page for legacy
+      // payloads. Targeting an explicit page, rather than whatever page happens to be active
+      // on the applying side, is what keeps the server-threaded and client-applied results
+      // pointing at the same page.
       const pageId = args.pageId ?? state.dashboard.activePageId;
       // `Object.hasOwn` existence check (not truthy `state.pages[pageId]`) so an
       // untrusted `pageId` like `'constructor'` resolves to "no such page" instead
@@ -1112,14 +1187,10 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       if (Object.hasOwn(state.widgets, widget.id)) {
         return state;
       }
-      // Coerce a non-record `config` to `{}` BEFORE installing (T2-2), so a widget with a
-      // hand-built `config: null` never lands in `state.widgets` verbatim to detonate on
-      // the next config-touching mutation. Mirrors `deserializeState`'s load-boundary
-      // coercion (finding 2.4).
-      // Key-strip the optional scalars (`subtitle`/`sourceId`/`titleMode`/
-      // `subtitleMode`) the wire boundary validates but this ADD channel didn't
-      // (Finding 1) BEFORE installing, so an invalid value never lands verbatim to be
-      // silently dropped on the next load.
+      // Repair the widget BEFORE installing: `coerceWidgetConfig` makes a non-record config
+      // safe to store and strips unsafe own keys from it; `screenOptionalWidgetScalars`
+      // drops an invalid `subtitle`/`sourceId`/`titleMode`/`subtitleMode`. Both mirror the
+      // load boundary, so nothing installs here only to be dropped on the next load.
       const safeWidget = screenOptionalWidgetScalars(coerceWidgetConfig(widget));
       // Normalize the deprecated `seriesType` alias to canonical `type` on write, so
       // the alias never survives a live add (it is otherwise only normalized at the
@@ -1141,15 +1212,10 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         },
       };
     },
-    // T3 finding: `mutationLabel` is only guarded against a non-record TOP-LEVEL `args`
-    // (`isPlainRecord(mutation.args)` in `mutationLabel`) — it never guaranteed `args.widget`
-    // itself is a record, so a server-built mutation bypassing `parseStateMutation` with
-    // `args: { widget: undefined }` (a record `args`, but no usable `widget`) would throw
-    // `Cannot read properties of undefined (reading 'kind')` reading `args.widget.kind` below
-    // — an uncaught exception, not a graceful fallback label, breaking the "mutationLabel
-    // never throws" contract `mutationLabel`'s own doc-comment relies on for the AI
-    // recent-mutation log. Fall back to `'unknown'` for a missing/non-string `kind`/`id`
-    // exactly as `apply` falls back to a no-op for the same malformed shape.
+    // `mutationLabel` guards only the TOP-LEVEL `args` record, not `args.widget`, so a
+    // malformed `args: { widget: undefined }` reaches here. Fall back to `'unknown'` for a
+    // missing/non-string `kind`/`id` — the same graceful degradation `apply` gives the same
+    // shape, and what the "mutationLabel never throws" contract requires.
     label: (args) => {
       const widget = args.widget;
       const kind =
@@ -1177,12 +1243,10 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // `config` is a partial config patch (mirrors `updateWidgetConfig`):
       // keys with an `undefined` value are removed.
       //
-      // Require a record: a non-record `config` (`null`, an array, or a primitive —
-      // e.g. from a server-built mutation that bypassed `parseStateMutation`) is
-      // treated as ABSENT rather than applied — `Object.entries(null)` would
-      // otherwise throw, and `Object.entries([...])` would merge index keys ("0",
-      // "1", …) into the widget's live config (T2-2). This mirrors the sibling
-      // `changes.config` guard below (T3.3/T2-2), finishing the defense-in-depth pair.
+      // Require a record: a non-record `config` (`null`, an array, or a primitive) is
+      // treated as ABSENT rather than applied. `Object.entries(null)` throws, and
+      // `Object.entries([...])` would merge index keys ("0", "1", …) into the widget's live
+      // config. Every config channel in this file gates on `isPlainRecord` the same way.
       if (isPlainRecord(config)) {
         // Normalize the deprecated `seriesType` alias on the incoming patch's
         // `ySeries` to canonical `type`, so the alias never survives a live write
@@ -1220,41 +1284,31 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
           updated = { ...updated, config: nextConfig as StudioWidget['config'] };
         }
       }
-      // `changes` is a shallow merge onto the widget (may itself carry a full
-      // `config` object, which replaces the partial-merge result above — this
-      // matches the historical client dispatch order). Keys whose value is
-      // `undefined` are skipped so an in-process caller cannot void a required
-      // field (e.g. `changes: { title: undefined }`) via the shallow merge — the
-      // sanctioned way to void a field is `unsetFields`/`unsetConfigKeys` below,
-      // which survive JSON (an `undefined` value never does).
+      // `changes` is a shallow merge onto the widget (it may itself carry a full `config`
+      // object, which replaces the partial-merge result above — matching the client's
+      // dispatch order). Keys whose value is `undefined` are skipped so a caller cannot void
+      // a required field (e.g. `changes: { title: undefined }`) through the shallow merge;
+      // the sanctioned way to void a field is `unsetFields`/`unsetConfigKeys` below, which
+      // survive JSON (an `undefined` value never does).
       //
-      // `isPlainRecord` (not bare truthiness — F2 finding): the sibling config channels
-      // (`config`-patch above, `changes.config`/`applyBulkUpdate.updatedWidgets[].config`
-      // below) all gate on `isPlainRecord`, but this bag was gated on `if (changes)` alone.
-      // A truthy non-record `changes` (a string or array from a parser-bypassing
-      // server-built mutation) is iterable via `Object.entries`, which produces
-      // index-keyed junk properties (`"0"`, `"1"`, …) that would merge onto the widget
-      // below. Treat a non-record `changes` as ABSENT, matching every other channel.
+      // `isPlainRecord`, not bare truthiness: a truthy non-record `changes` (a string or
+      // array) is still iterable via `Object.entries`, which produces index-keyed junk
+      // properties (`"0"`, `"1"`, …) that would merge onto the widget. A non-record `changes`
+      // is ABSENT, matching every other channel in this file.
       if (isPlainRecord(changes)) {
         const definedChanges: Record<string, unknown> = {};
         const updatedRecord = updated as unknown as Record<string, unknown>;
         for (const [key, value] of Object.entries(changes)) {
-          // Skip unsafe keys (defense-in-depth; the spread below copies own props
-          // only, so this is a latent rather than live vector) and `undefined` values.
-          // Also skip `id`: it is the `state.widgets` map key, so a `changes.id` would
-          // desync `widget.id` from its key (splitting every id-keyed invariant). The
-          // wire boundary (`parseStateMutation`) rejects a `changes.id` too — this is
-          // the defense-in-depth copy for a server-built mutation bypassing the parser,
-          // mirroring the `unsetFields` `id` denylist.
+          // Skip unsafe keys (the spread below copies own props only, so this is a latent
+          // rather than live pollution vector) and `undefined` values. Also skip `id`: it is
+          // the `state.widgets` map key, so a `changes.id` would desync `widget.id` from its
+          // key and split every id-keyed invariant — matching the `unsetFields` `id` denylist.
           if (key === 'id' || !isSafePatchKey(key) || value === undefined) {
             continue;
           }
-          // Fail-closed allow-list: only a real, mergeable `StudioWidget` field may land on
-          // the widget. See `MERGEABLE_WIDGET_CHANGE_KEYS` — without this, any unknown key
-          // in the bag (`changes: { evil: {…}, widgetRows: 'x' }`) merged verbatim and
-          // round-tripped through every subsequent save forever, with no boundary anywhere
-          // that would ever strip it. `id` is already denied above (it is the map key), so
-          // it is deliberately absent from the allow-list rather than filtered twice.
+          // Fail-closed allow-list: only a real, mergeable `StudioWidget` field lands on the
+          // widget. See {@link MERGEABLE_WIDGET_CHANGE_KEYS}. `id` is denied above (it is the
+          // map key), so it is deliberately absent from the set rather than filtered twice.
           if (!MERGEABLE_WIDGET_CHANGE_KEYS.has(key)) {
             continue;
           }
@@ -1267,21 +1321,14 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
             // rewrap the widget (reference-equality no-op contract). Compared key-by-key,
             // the same way the `config`-patch branch tracks `changedConfig`.
             //
-            // `isPlainRecord(value)` is a defense-in-depth guard (mirroring this
-            // file's other unsafe-key guards for the "server bypasses the parser"
-            // case): `parseStateMutation` already rejects a non-record `changes.config`
-            // at the wire boundary, but without this guard a server-built mutation with
-            // `changes: { config: null }` would fall through to a bare `value !==
-            // updated.config` comparison and assign `config = null`, corrupting the
-            // widget — and `changes: { config: [...] }` would install the array AS the
-            // widget's `config` verbatim (T2-2), since `normalizeConfigChartSeries` and
-            // `shallowRecordEqual` are both array-tolerant. A non-record value is simply
-            // ignored rather than applied.
+            // `isPlainRecord(value)`: `changes: { config: null }` would otherwise assign
+            // `config = null` and corrupt the widget, and `changes: { config: [...] }` would
+            // install the array AS the widget's `config` (both `normalizeConfigChartSeries`
+            // and `shallowRecordEqual` are array-tolerant). A non-record value is ignored.
             if (isPlainRecord(value)) {
-              // Strip prototype-polluting own keys before installing wholesale (T2-3), the
-              // same defense-in-depth the `config`-patch loop applies per-key — otherwise
-              // an unsafe key survives as an own config property and the next load drops
-              // the whole widget.
+              // Strip prototype-polluting own keys before installing wholesale — the same
+              // screen the `config`-patch loop applies per-key. An unsafe key surviving as an
+              // own config property makes the next load drop the whole widget.
               const safeValue = stripUnsafeConfigKeys(value as Record<string, unknown>);
               const normalized = normalizeConfigChartSeries(safeValue);
               if (!shallowRecordEqual(updated.config as Record<string, unknown>, normalized)) {
@@ -1290,36 +1337,22 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
             }
             continue;
           }
-          // `title`/`kind`/`subtitle`/`sourceId` must be a STRING (defense-in-depth,
-          // mirroring the wire boundary's `isString(widget.kind)`/`isString(widget.title)`/
-          // `isOptionalString(widget.subtitle)`/`isOptionalString(widget.sourceId)` gates in
-          // `validateWidget`): `title`/`kind` are load-bearing with no fallback (the widget
-          // factory/renderer key off `kind`, the canvas card renders `title`), and
-          // `deserializeState` drops the ENTIRE widget on the NEXT load if either is
-          // non-string. `subtitle` is rendered directly as text by
-          // `StudioWidgetEditDialog` with no fallback, and `sourceId` drives the
-          // widget-to-data-source lookup — a non-string value silently breaks that lookup
-          // with no self-heal. Without this guard, a parser-bypassing `changes: { title: 42
-          // }`/`{ subtitle: 42 }`/`{ sourceId: 42 }` would merge verbatim below and install
-          // fine now, only to crash on render (`subtitle`) or silently misbehave
-          // (`sourceId`) — or, for `title`/`kind`, vanish entirely the moment the doc is
-          // next persisted and reloaded. Reject (skip) the field rather than let bad data
-          // linger until (or past) the load boundary catches it.
+          // `title`/`kind`/`subtitle`/`sourceId` must be a STRING. Each is consumed with no
+          // fallback: the widget factory/renderer keys off `kind`, the canvas card renders
+          // `title`, `StudioWidgetEditDialog` renders `subtitle` directly as text, and
+          // `sourceId` drives the widget-to-data-source lookup. `deserializeState` drops the
+          // ENTIRE widget on the next load for a non-string `title`/`kind`, and never
+          // repairs `sourceId` at all. Skip the field rather than merge a bad value.
           if (
             (key === 'title' || key === 'kind' || key === 'subtitle' || key === 'sourceId') &&
             typeof value !== 'string'
           ) {
             continue;
           }
-          // `titleMode`/`subtitleMode` must be exactly `'auto'` or `'manual'`
-          // (defense-in-depth, mirroring the wire boundary's `isOptionalTitleMode` gate in
-          // `parseStateMutation.ts`, which only allows `'auto' | 'manual' | undefined`). The
-          // load boundary (`deserializeState`) strips a non-`'auto'|'manual'` value from
-          // these same two fields rather than let it load verbatim, since the client's
-          // auto-title logic branches directly on `widget.titleMode`/`subtitleMode`. Without
-          // this guard, a parser-bypassing `changes: { titleMode: 42 }` would merge verbatim
-          // below and steer that logic until the value is stripped on the next load. Reject
-          // (skip) the field rather than let bad data linger until the load boundary catches it.
+          // `titleMode`/`subtitleMode` must be exactly `'auto'` or `'manual'`: the client's
+          // auto-title logic branches directly on them, and `deserializeState` strips any
+          // other value on the next load. Skip the field rather than steer that logic with a
+          // value the load boundary will discard anyway.
           if (
             (key === 'titleMode' || key === 'subtitleMode') &&
             value !== 'auto' &&
@@ -1340,15 +1373,14 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
           updated = { ...updated, ...(definedChanges as Partial<StudioWidget>) };
         }
       }
-      // Kind-coherence reconciliation: `changes.kind` can flip a widget's `kind` (e.g.
-      // chart → grid) with the config left as whatever the `config`-patch/`changes.config`
-      // branches above produced — which may still carry the OLD kind's keys (e.g. a grid
-      // widget left with a leftover chart-only `xField`), a config/kind mismatch nothing
-      // downstream reconciles. Reuse `getAllowedConfigKeys` (`configKeyValidation.ts`) —
-      // the same per-kind key allow-list `validateConfigKeysForKind`/`stripForeignFamilyKeys`
-      // are built from — to strip any config key not valid for the NEW kind whenever the
-      // kind actually changed. `null` means a custom/consumer-defined kind, which has no
-      // built-in key restriction, so the config is left untouched for it.
+      // Kind-coherence reconciliation. `changes.kind` can flip a widget's `kind` (e.g.
+      // chart → grid) while the config keeps whatever the branches above produced, which may
+      // still carry the OLD kind's keys (a grid widget left with a chart-only `xField`) —
+      // a config/kind mismatch nothing downstream reconciles. Strips any config key not
+      // valid for the NEW kind, using `getAllowedConfigKeys` (`configKeyValidation.ts`), the
+      // same per-kind allow-list `validateConfigKeysForKind`/`stripForeignFamilyKeys` are
+      // built from. `null` means a custom/consumer-defined kind, which has no built-in key
+      // restriction, so its config is left untouched.
       if (updated.kind !== existing.kind) {
         const allowedKeys = getAllowedConfigKeys(updated.kind);
         if (allowedKeys !== null) {
@@ -1365,15 +1397,11 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // The wire-safe equivalent of a `config`-patch `undefined` value: a key
       // NAME survives `JSON.stringify` where an `undefined` value is dropped.
       //
-      // `isStringArray` (not bare truthiness — F3 finding): a truthy non-array STRING
-      // (e.g. a parser-bypassing `unsetConfigKeys: 'title'`) is also truthy and has a
-      // `.length`, so the old `unsetConfigKeys && unsetConfigKeys.length > 0` gate let it
-      // through and `for (const key of unsetConfigKeys)` iterated it char-by-char,
-      // deleting single-character config keys instead of the intended key name. An
-      // array-like RECORD (`{ 0: 'a', length: 1 }`) is also truthy-with-`.length` but is
-      // not iterable, so it threw `TypeError: … is not iterable`. `isStringArray`
-      // rejects both, matching the wire boundary's own `isStringArray(args.unsetConfigKeys)`
-      // check in `parseStateMutation.ts`.
+      // `isStringArray`, not bare truthiness: a non-array STRING (`unsetConfigKeys: 'title'`)
+      // is truthy and has a `.length`, and `for…of` iterates it char-by-char — deleting
+      // single-character config keys instead of the intended name. An array-like RECORD
+      // (`{ 0: 'a', length: 1 }`) is truthy-with-`.length` but not iterable at all, and
+      // throws. `isStringArray` rejects both.
       if (isStringArray(unsetConfigKeys) && unsetConfigKeys.length > 0) {
         const nextConfig = { ...updated.config } as Record<string, unknown>;
         let changedConfig = false;
@@ -1395,11 +1423,7 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // the whole bag would leave a widget with no config). Only optional fields
       // (matching the `OptionalWidgetField` type on `unsetFields`) are unsettable.
       //
-      // `isStringArray` (not bare truthiness — F3 finding, same class as
-      // `unsetConfigKeys` above): a truthy non-array string is iterable char-by-char and
-      // an array-like record is not iterable at all; both would misbehave under the old
-      // `unsetFields && unsetFields.length > 0` truthiness gate. `isStringArray` rejects
-      // both.
+      // `isStringArray`, not bare truthiness — same reasoning as `unsetConfigKeys` above.
       if (isStringArray(unsetFields) && unsetFields.length > 0) {
         const nextWidget = { ...updated } as Record<string, unknown>;
         let changedWidget = false;
@@ -1444,16 +1468,10 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
   removeWidget: {
     apply: (state, args) => {
       const { widgetId } = args;
-      // Require a STRING `widgetId` (parser-bypass parity with `addPage`/`addWidget`/
-      // `setWidgetColSpan`'s `typeof id !== 'string'` guards): `Object.hasOwn` below
-      // COERCES a numeric `widgetId` to match a string-keyed `state.widgets` entry, but
-      // every downstream comparison in `stripWidgetIdsFromPages`/`removeWidgetIds`
-      // (`Set.has`, `row.includes`) uses strict `===`/`Set` membership, which never
-      // coerces. A numeric `widgetId` (e.g. `42`) would therefore pass the existence
-      // check below (matching widget `"42"`) and get deleted from `state.widgets`, but
-      // `new Set([42])` would miss every page reference and scoped-filter/span cleanup
-      // keyed off the STRING id — a half-applied removal that orphans page references,
-      // filters, and spans. No-op instead.
+      // Require a STRING `widgetId` (id-coercion desync): a numeric `42` would pass the
+      // `Object.hasOwn` existence check below (matching widget `"42"`) and get deleted from
+      // `state.widgets`, while `new Set([42])` missed every page reference, scoped filter and
+      // span keyed off the STRING id — a half-applied removal leaving all three orphaned.
       if (typeof widgetId !== 'string') {
         return state;
       }
@@ -1464,16 +1482,15 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         return state;
       }
 
-      // Row-edit step (the concern specific to a single-widget removal): strip the
-      // widget from every page's rows (dropping an emptied row), and clear the stale
-      // span of a *former row-mate this removal leaves as the sole occupant of the row
-      // they shared* — that widget now auto-fills the row, so its old multi-widget-era
-      // span is dead. This is deliberately scoped: a pre-existing single-widget-row
+      // Row-edit step: strip the widget from every page's rows (dropping an emptied row),
+      // and clear the stale span of a former row-mate this removal leaves as the SOLE
+      // occupant of the row they shared — that widget now auto-fills the row, so its
+      // multi-widget-era span is dead. Deliberately scoped: a pre-existing single-widget-row
       // span (e.g. an AI `set_widget_width` narrowing a lone widget) is intentional and
-      // must survive. The removed widget's OWN stale span entries are pruned by the
-      // shared `removeWidgetIds` primitive below, on every page. `stripWidgetIdsFromPages`
-      // is the shared (single-id-set-sized) implementation `applyBulkUpdate.removedWidgetIds`
-      // also uses, so a single removal and a batch removal edit rows identically.
+      // survives. The removed widget's OWN stale spans are pruned by `removeWidgetIds` below,
+      // on every page. `stripWidgetIdsFromPages` is shared with
+      // `applyBulkUpdate.removedWidgetIds`, so a single removal and a batch removal edit rows
+      // identically.
       const rowEditedPages = stripWidgetIdsFromPages(state.pages, new Set([widgetId]));
 
       // Finish via the shared primitive: it deletes the (now-unreferenced) widget from
@@ -1500,9 +1517,7 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
 
   setWidgetLayout: {
     apply: (state, args) => {
-      // Require an array `rows` (T2-3). A parser-bypassing server-built `setWidgetLayout`
-      // with `rows` absent/non-array would throw on the `args.rows.map(...)` below; no-op
-      // instead, mirroring the wire boundary's `isStringMatrix(args.rows)` check.
+      // Crash prevention: the `args.rows.map(...)` below throws on an absent/non-array value.
       if (!Array.isArray(args.rows)) {
         return state;
       }
@@ -1515,31 +1530,20 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         return state;
       }
       const targetPage = state.pages[targetPageId];
-      // Drop row entries that name a widget id absent from `state.widgets` (and any row
-      // left empty as a result): unlike `updateWidget`/`removeWidget`, this handler
-      // previously installed `args.rows` verbatim, so a phantom-widget id would leave
-      // the page rendering a widget that does not exist. Mirrors the trust boundary the
-      // rest of this file applies to producer-supplied ids.
       const currentRows = targetPage.widgetRows ?? [];
-      // Drop phantom-widget ids (absent from `state.widgets`) AND deduplicate ids that
-      // appear more than once — the same id twice (in one row or across rows) would
-      // render the widget twice (duplicate React key) and double-count its span in the
-      // overflow sum below. `dedupeLayoutRows` keeps the first occurrence and drops any
-      // row it empties. `.filter((row): row is string[] => Array.isArray(row))` first
-      // (mirroring `normalizePersistedPages`/`applyBulkUpdate`'s identical row-array
-      // guard): `args.rows` is itself an array here, but a parser-bypassing server-built
-      // mutation can still supply a non-array ROW ENTRY (e.g. `rows: ['w1']` or `rows:
-      // [null]`), and `row.filter(...)` on a non-array row throws a `TypeError` instead
-      // of the graceful no-op every sibling row-sanitizing site provides.
-      // `typeof id === 'string'` BEFORE `Object.hasOwn` (T3 finding): `Object.hasOwn(obj,
-      // key)` coerces a non-string `key` to a string when checking property existence, so a
-      // parser-bypassing row entry carrying a NUMBER (e.g. `42`) would silently pass this
-      // filter whenever `state.widgets` happens to have a widget keyed `"42"` — but the
-      // NUMBER `42`, not the string `"42"`, is what lands in `sanitizedRows`, violating the
-      // `string[][]` invariant every other row-processing site in this file assumes (a
-      // `===` id comparison, a `Set<string>` membership check, or `JSON.stringify` round-trip
-      // elsewhere would then silently miss it). Mirrors the same guard `normalizePersistedPages`
-      // already applies to persisted rows.
+      // Sanitize the producer-supplied rows, three screens in one pass (the same shape
+      // `normalizePersistedPages` and `applyBulkUpdate` apply to their own rows):
+      //  - `Array.isArray(row)` — `args.rows` is an array here, but a ROW ENTRY can still be
+      //    a non-array (`rows: ['w1']`, `rows: [null]`), on which `row.filter(...)` throws.
+      //  - `typeof id === 'string'` BEFORE `Object.hasOwn` — `Object.hasOwn` coerces its key,
+      //    so a NUMBER row entry `42` would pass whenever a widget `"42"` exists and land in
+      //    `sanitizedRows` as a number, violating the `string[][]` invariant every other
+      //    row-processing site assumes (`===`, `Set<string>`, JSON round-trips all miss it).
+      //  - `Object.hasOwn(state.widgets, id)` — a phantom id would leave the page rendering
+      //    a widget that does not exist.
+      // `dedupeLayoutRows` then drops a repeated id (first occurrence wins) and any row it
+      // empties: the same id twice renders the widget twice (duplicate React key) and
+      // double-counts its span in the overflow sum below.
       const sanitizedRows = dedupeLayoutRows(
         args.rows
           .filter((row): row is string[] => Array.isArray(row))
@@ -1558,19 +1562,27 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         targetPage.widgetColSpans,
       );
       // Reference-equality no-op: identical rows and unchanged spans return the SAME doc
-      // so `commitDocPatch`'s no-op guard skips a spurious undo entry.
+      // so `commitDocPatch`'s no-op guard skips a spurious undo entry. Rank-filter
+      // resolution depends only on row membership, so unchanged rows also mean unchanged
+      // rank conflicts — nothing for the sweep below to find.
       if (
         rowsEqual(currentRows, sanitizedRows) &&
         spansEqual(nextSpans, targetPage.widgetColSpans)
       ) {
         return state;
       }
+      const nextPages = {
+        ...state.pages,
+        [targetPageId]: { ...targetPage, widgetRows: sanitizedRows, widgetColSpans: nextSpans },
+      };
+      // Re-check per-page rank-filter uniqueness against the NEW placement: placing a
+      // widget whose `widget`-scoped rank filter previously resolved to nothing can drop it
+      // onto a page that already has one. Enforcing it here keeps the live doc and the load
+      // boundary in agreement at commit time — see `dropConflictingRankFilters`.
       return {
         ...state,
-        pages: {
-          ...state.pages,
-          [targetPageId]: { ...targetPage, widgetRows: sanitizedRows, widgetColSpans: nextSpans },
-        },
+        pages: nextPages,
+        filters: dropConflictingRankFilters(state.filters, nextPages),
       };
     },
     label: () => 'setWidgetLayout',
@@ -1579,27 +1591,20 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
   setWidgetColSpan: {
     apply: (state, args) => {
       const { widgetId, columns } = args;
-      // Require a STRING `widgetId` (finding 2.1, parser-bypass parity with `addPage`/
-      // `addWidget`'s `typeof id !== 'string'` guards): every downstream check below —
-      // `Object.hasOwn(state.widgets, widgetId)`, `row.includes(widgetId)` against the
-      // page's `string[][]` rows — either coerces its key to a STRING (`Object.hasOwn`)
-      // or compares by strict `===` (`row.includes`, never coerces). A numeric
-      // `widgetId` (e.g. `42`) would therefore fail EVERY `row.includes(42)` row-
-      // membership check (since rows only ever hold strings) while still passing
-      // `Object.hasOwn(state.widgets, 42)` whenever a widget `"42"` exists — exactly the
-      // condition the "on another page" orphan-span guard below relies on `currentRow`
-      // correctly reflecting, bypassing it and persisting a dead `widgetColSpans[42]`
-      // entry (a `number`-keyed record property, coerced to `"42"` on write) on the
-      // WRONG page. No-op instead.
+      // Require a STRING `widgetId`. Every check below either coerces its key to a STRING
+      // (`Object.hasOwn(state.widgets, widgetId)`) or compares by strict `===`
+      // (`row.includes(widgetId)` against the page's `string[][]` rows, which never
+      // coerces). A numeric `widgetId` (e.g. `42`) would therefore match widget `"42"` in
+      // the flat map while failing every row-membership check — bypassing the placement
+      // guard below and persisting a dead `widgetColSpans[42]` entry on the wrong page.
       if (typeof widgetId !== 'string') {
         return state;
       }
       // Prototype-hazard guard before the `newSpans[widgetId] = clamped` bracket-write
-      // below (Tier3/4 consistency finding), matching every other key-by-key rebuild in
-      // this reducer (`updateWidget`/`applyBulkUpdate` inserts, the span rebuild). The
-      // `Object.hasOwn(state.widgets, widgetId)` check below already rejects a `'__proto__'`
-      // id in practice (no widget carries such an own key post-`addWidget` screen), but the
-      // explicit guard keeps this bracket-write uniform with its siblings.
+      // below, matching every other key-by-key rebuild in this reducer. The
+      // `Object.hasOwn(state.widgets, widgetId)` check below already rejects a
+      // `'__proto__'` id in practice (no widget carries such an own key past the
+      // `addWidget` screen); this keeps the intent local to the write.
       if (!isSafePatchKey(widgetId)) {
         return state;
       }
@@ -1620,49 +1625,27 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       const targetPage = state.pages[targetPageId];
       // Derive the row's membership from the *current* state's `widgetRows` (which row
       // actually holds `widgetId` right now) rather than trusting `args.rowWidgetIds`.
-      // The producer (`executeToolOnState`'s `set_widget_width`) computed
-      // `rowWidgetIds` from the server's turn-start snapshot; if the user drags widgets
-      // between rows on the client while an agentic turn is still running, that
-      // wire-supplied grouping goes stale, and rebalancing/clearing spans against it
-      // would touch widgets that no longer share this widget's row. This is the same
-      // stale-snapshot class the explicit `pageId` arg fixed for page targeting.
-      // Fall back to `args.rowWidgetIds` only when the widget isn't in any row yet
-      // (mirrors the producer's own `?? [widgetId]` fallback for a not-yet-placed
-      // widget) — otherwise the derived current row wins.
+      // The producer (`executeToolOnState`'s `set_widget_width`) computes `rowWidgetIds`
+      // from the server's turn-start snapshot; if the user drags widgets between rows on
+      // the client while an agentic turn is still running, that wire-supplied grouping
+      // goes stale, and rebalancing/clearing spans against it would touch widgets that no
+      // longer share this widget's row. Same stale-snapshot class the explicit `pageId`
+      // arg addresses for page targeting.
       const currentRow = (targetPage.widgetRows ?? []).find((row) => row.includes(widgetId));
-      // Orphan-span guard: the widget exists in `state.widgets` but is not on THIS
-      // page's rows. If it instead lives on ANOTHER page's rows, writing its span here
-      // would persist a dead `widgetColSpans` entry on the wrong page — a legacy payload
-      // without `pageId` applied while the user is on another page, or an explicit
-      // server-stamped `pageId` racing a concurrent user move of the widget to another
-      // page mid-turn (the same stale-snapshot class the `currentRow` derivation names).
-      // No-op in that case. A widget on NO page at all is the documented not-yet-placed
-      // case and keeps the `args.rowWidgetIds` fallback below.
-      if (
-        currentRow === undefined &&
-        Object.values(state.pages).some((p) =>
-          (p.widgetRows ?? []).some((row) => row.includes(widgetId)),
-        )
-      ) {
+      // A span only means something for a widget this page's rows actually hold. Two ways
+      // `currentRow` comes back `undefined`, and both must be a no-op:
+      //  - the widget lives on ANOTHER page (a legacy payload without `pageId` applied
+      //    while the user is on a different page, or a server-stamped `pageId` racing a
+      //    concurrent move) — writing here would persist a dead entry on the wrong page;
+      //  - the widget is on NO page at all (not yet placed) — a span written for it is an
+      //    orphan by the SAME rule `enforceLayoutColSpans` and `normalizePersistedPages`
+      //    both enforce, so it would be deleted by the next layout mutation or the next
+      //    load, silently reverting the width the caller just set.
+      // `args.rowWidgetIds` is therefore never consulted: the live rows are the only
+      // membership signal this handler trusts.
+      if (currentRow === undefined) {
         return state;
       }
-      // `?? [widgetId]` final fallback (finding 2.5): for a not-yet-placed widget (in
-      // `state.widgets` but on no page) the derived `currentRow` is `undefined`, and a
-      // parser-bypassing partial payload (an `executeToolOnState`-style mutation built by
-      // hand, which never runs `parseStateMutation`) can omit `rowWidgetIds` — leaving
-      // `rowWidgetIds.filter(...)` below to throw a `TypeError` mid-apply instead of the
-      // graceful degraded apply every sibling handler provides. Default to treating the
-      // widget as the sole occupant of its row, mirroring the producer's own
-      // `currentRow ?? [widgetId]` default (`executeToolOnState`'s `set_widget_width`).
-      //
-      // `Array.isArray(args.rowWidgetIds)` guards the fallback itself (finding 2.5
-      // follow-up): the `?? [widgetId]` above only covers an ABSENT `rowWidgetIds`, but a
-      // parser-bypassing partial payload can supply a truthy NON-array value (e.g. a
-      // string), which would otherwise flow into `rowWidgetIds.filter(...)` below and
-      // throw. Treat a non-array value the same as absent — fall back to `[widgetId]` —
-      // rather than throwing mid-apply.
-      const rowWidgetIds =
-        currentRow ?? (Array.isArray(args.rowWidgetIds) ? args.rowWidgetIds : [widgetId]);
       const clamped = columns == null ? null : clampSpan(columns);
       const newSpans: Record<string, number> = { ...(targetPage.widgetColSpans ?? {}) };
 
@@ -1670,36 +1653,15 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         delete newSpans[widgetId];
       } else {
         newSpans[widgetId] = clamped;
-        const otherIds = rowWidgetIds.filter((id) => id !== widgetId);
-        // `Object.hasOwn` per id (not `newSpans[id] ?? 0`) so an untrusted id from
-        // the wire-supplied `rowWidgetIds` reads 0, never an `Object` prototype
-        // member (which would poison the sum with `NaN`).
-        const otherTotal = otherIds.reduce(
-          (sum, id) => sum + (Object.hasOwn(newSpans, id) ? newSpans[id] : 0),
-          0,
+        // Fit the row around the requested width via the shared helper — the same step
+        // `applyBulkUpdate`'s col-spans merge runs, so `set_widget_width` and
+        // `apply_bulk_update` resolve an overflowing row identically.
+        rebalanceRowSpans(
+          newSpans,
+          currentRow,
+          new Set([widgetId]),
+          (id) => Object.hasOwn(state.widgets, id) && isSafePatchKey(id),
         );
-        if (clamped + otherTotal > GRID_COLS) {
-          if (otherIds.length === 1) {
-            const otherId = otherIds[0];
-            const remaining = GRID_COLS - clamped;
-            if (remaining >= MIN_SPAN) {
-              // `Object.hasOwn`/`isSafePatchKey` before the bracket assignment (matching
-              // every other id-keyed write in this file): on the fallback branch the row
-              // membership comes from the wire-supplied `args.rowWidgetIds`, so a phantom
-              // row-mate id must never receive a persisted orphan span, and a prototype-
-              // polluting id (`'__proto__'`/`'constructor'`) must never reach the setter.
-              if (Object.hasOwn(state.widgets, otherId) && isSafePatchKey(otherId)) {
-                newSpans[otherId] = remaining;
-              }
-            } else {
-              delete newSpans[otherId];
-            }
-          } else {
-            for (const id of otherIds) {
-              delete newSpans[id];
-            }
-          }
-        }
       }
 
       const finalSpans = Object.keys(newSpans).length > 0 ? newSpans : undefined;
@@ -1730,12 +1692,8 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       if (!Object.hasOwn(state.pages, pageId)) {
         return state;
       }
-      // Require a STRING title (T3 finding, parser-bypass parity with the wire boundary's
-      // `isString(args.title)` gate in `parseStateMutation.ts`, mirroring the `addPage` fix
-      // above). Without this, a server-built `renamePage` bypassing the parser with a
-      // non-string `title` would install it verbatim — no immediate throw, but a value that
-      // violates `StudioDoc['pages'][string].title: string`, corrupting the page's title
-      // until something downstream trips over the non-string value.
+      // Require a STRING title, same reasoning as `addPage`: `StudioDoc['pages'][string]
+      // .title` is `string` and consumers render it directly with no fallback.
       if (typeof title !== 'string') {
         return state;
       }
@@ -1756,14 +1714,11 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
   removePage: {
     apply: (state, args) => {
       const { pageId } = args;
-      // Require a STRING `pageId` (parser-bypass parity with `removeWidget`/`addPage`'s
-      // `typeof id !== 'string'` guards): `Object.hasOwn` below COERCES a numeric
-      // `pageId` to match a string-keyed `state.pages` entry, but the cleanup below
-      // compares by strict `===` (`f.scope.pageId !== pageId`, `dashboard.activePageId
-      // === pageId`), which never coerces. A numeric `pageId` would pass the existence
-      // check (matching page `"42"`) and get the page deleted, but its page-scoped
-      // filters would survive (the strict compare misses) and a dangling
-      // `activePageId` would never be reassigned. No-op instead.
+      // Require a STRING `pageId` (id-coercion desync): a numeric `42` would pass the
+      // `Object.hasOwn` existence check (matching page `"42"`) and get the page deleted,
+      // while the cleanup below compares by strict `===` (`f.scope.pageId !== pageId`,
+      // `dashboard.activePageId === pageId`) and would therefore leave the page's filters
+      // behind and never reassign the now-dangling `activePageId`.
       if (typeof pageId !== 'string') {
         return state;
       }
@@ -1772,22 +1727,19 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         return state;
       }
       // Refuse to remove the LAST page. "At least one page always exists" is a real
-      // invariant of this doc shape: `createDefaultStudioState` always seeds one page, and
-      // every legacy pageId-less mutation (`addWidget`/`setWidgetLayout`/`setWidgetColSpan`
-      // without an explicit `pageId`) resolves its target through
-      // `Object.hasOwn(state.pages, dashboard.activePageId)`. Removing the final page used
-      // to leave `activePageId: ''`, which satisfies no such guard, so the doc entered a
-      // state where every one of those mutations silently no-op'd forever with no error and
-      // no affordance to recover (the canvas renders nothing, and `deserializeState`
-      // faithfully reconciles back to the same `''`).
+      // invariant of this doc shape: `createDefaultStudioState` seeds one, and every legacy
+      // pageId-less mutation (`addWidget`/`setWidgetLayout`/`setWidgetColSpan` without an
+      // explicit `pageId`) resolves its target through
+      // `Object.hasOwn(state.pages, dashboard.activePageId)`. Removing the final page leaves
+      // `activePageId: ''`, which satisfies no such guard — every one of those mutations
+      // then no-ops forever with no error and no affordance to recover (the canvas renders
+      // nothing, and `deserializeState` faithfully reconciles back to the same `''`).
       //
-      // No-op-return the input `state` reference — the dominant convention in this reducer
-      // for a mutation that cannot be applied (`removeWidget`/`setActivePage`/`updateWidget`
-      // unknown-id cases). Synthesizing a replacement page instead was rejected: a fresh
-      // page needs a fresh id, and this reducer must stay DETERMINISTIC so the
-      // server-threaded state (`executeToolOnState`) and the client-applied state
-      // (`StudioController.applyExternalMutation`) cannot diverge. A caller that really
-      // wants an empty dashboard adds the replacement page first, then removes this one.
+      // Synthesizing a replacement page instead is not an option: a fresh page needs a fresh
+      // id, and this reducer must stay DETERMINISTIC so the server-threaded state
+      // (`executeToolOnState`) and the client-applied state
+      // (`StudioController.applyExternalMutation`) cannot diverge. A caller that wants an
+      // empty dashboard adds the replacement page first, then removes this one.
       if (Object.keys(state.pages).length <= 1) {
         return state;
       }
@@ -1813,22 +1765,21 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         return p !== pageId;
       });
       // Cascade that drop into every surviving filter's `dependsOn` (the shared
-      // `pruneDependsOn` invariant — this was one of the sibling filter-removal paths that
-      // did NOT prune, leaving the cascade drawer pointed at a filter the page removal just
-      // took away). Applied HERE, not left to `removeWidgetIds` below, because that
-      // primitive short-circuits and returns its input `filters` untouched when the page
-      // held no exclusively-owned widget. Reference-stable, so a page with no filters (or
-      // no `dependsOn` anywhere) still returns the SAME array.
+      // `pruneDependsOn` invariant), or the cascade drawer stays pointed at a filter this
+      // page removal just took away. Applied HERE rather than left to `removeWidgetIds`
+      // below, because that primitive short-circuits and returns its input `filters`
+      // untouched when the page held no exclusively-owned widget. Reference-stable, so a
+      // page with no filters (or no `dependsOn` anywhere) still returns the SAME array.
       const filtersAfterPageDrop =
         droppedPageFilters.length === state.filters.length
           ? state.filters
           : pruneDependsOnAgainstSelf(droppedPageFilters);
 
-      // Remove the page's widgets, but only those NOT still referenced on a surviving
-      // page: a widget shared across pages keeps its `widgets` entry AND its
-      // widget-anchored filters/spans (the 1.5 cross-page guard). The primitive also
-      // prunes genuinely-removed widgets' widget/interactive/cross-filter-scoped
-      // filters and their stale spans everywhere.
+      // Remove the page's widgets, but only those NOT still referenced on a surviving page:
+      // a widget shared across pages keeps its `widgets` entry AND its widget-anchored
+      // filters/spans — this is the one caller that relies on `removeWidgetIds`' cross-page
+      // guard. The primitive also prunes genuinely-removed widgets'
+      // widget/interactive/cross-filter-scoped filters and their stale spans everywhere.
       const {
         pages: prunedPages,
         widgets: nextWidgets,
@@ -1836,8 +1787,8 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       } = removeWidgetIds(nextPages, state.widgets, filtersAfterPageDrop, widgetIdsOnPage);
 
       const remainingPageIds = Object.keys(prunedPages);
-      // `?? ''` is now unreachable — the last-page guard above guarantees at least one page
-      // survives — but is retained as a total fallback rather than a non-null assertion.
+      // `?? ''` is unreachable — the last-page guard above guarantees a survivor — but is
+      // kept as a total fallback rather than a non-null assertion.
       const nextActivePageId =
         state.dashboard.activePageId === pageId
           ? (remainingPageIds[0] ?? '')
@@ -1857,14 +1808,11 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
   setActivePage: {
     apply: (state, args) => {
       const { pageId } = args;
-      // Require a STRING `pageId` (parser-bypass parity with `removeWidget`/`removePage`'s
-      // `typeof id !== 'string'` guards): `Object.hasOwn` below COERCES a numeric `pageId`
-      // to match a string-keyed `state.pages` entry, so a numeric `pageId` (e.g. `42`)
-      // would pass the existence check and get installed verbatim as
+      // Require a STRING `pageId` (id-coercion desync): a numeric `42` passes the
+      // `Object.hasOwn` existence check (matching page `"42"`) and would install verbatim as
       // `dashboard.activePageId`, violating its `string` type. Unlike a numeric
       // `widgetId`/removed-page `pageId`, this one does NOT self-heal on
-      // serialize/deserialize either (see `deserializeState`'s reconciliation) — no-op
-      // instead of letting a numeric value linger indefinitely.
+      // serialize/deserialize either (see `deserializeState`'s reconciliation).
       if (typeof pageId !== 'string') {
         return state;
       }
@@ -1888,43 +1836,28 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
 
   addFilter: {
     apply: (state, args) => {
-      // Require a record `filter` (T2-3). A parser-bypassing server-built `addFilter` with
-      // `filter` absent/non-record would throw on the `args.filter.id` read below; no-op
-      // instead, mirroring the wire boundary's `validateFilter` record check.
+      // Crash prevention: the `args.filter.id` read below throws on an absent/non-record
+      // filter.
       if (!isPlainRecord(args.filter)) {
         return state;
       }
-      // Require a record `scope` carrying a STRING `kind` (T3 finding, parser-bypass parity
-      // with the wire boundary's `isValidFilterScope`/`validateFilterScope` gate in
-      // `parseStateMutation.ts`). Without this, a server-built `addFilter` bypassing the
-      // parser with `filter.scope` absent/non-record would throw reading `scope.kind` below
-      // (`Cannot read properties of undefined (reading 'kind')`) instead of the graceful
-      // no-op every sibling malformed-shape guard in this handler provides. This is a
-      // crash-prevention shape check only (mirroring `migrateState`'s deliberately-weaker
-      // scope gate) — full scope semantic validity (kind membership, required id fields) is
-      // the wire boundary's job; the reducer only needs "safe to read `.kind` off of".
+      // Crash prevention for `scope.kind`, read repeatedly below. A shape check only: full
+      // scope semantic validity (kind membership, required id fields) is the wire boundary's
+      // job — the reducer only needs "safe to read `.kind` off of".
       if (!isPlainRecord(args.filter.scope) || typeof args.filter.scope.kind !== 'string') {
         return state;
       }
-      // Require a STRING `filter.id` (parser-bypass parity with `removeWidget`/
-      // `removePage`/`setActivePage`'s `typeof id !== 'string'` guards). Without this, a
-      // numeric `filter.id` installs, but `removeFilter`'s strict `f.id !== filterId`
-      // compare (never coerces) can never match it, making it unremovable in-session —
-      // until the load boundary's non-string-id filter screen (`statePersistence.ts`)
-      // silently drops the whole filter on the next load. No-op instead of installing.
+      // Require a STRING `filter.id` (id-coercion desync): a numeric id installs, but
+      // `removeFilter`'s strict `f.id !== filterId` compare never matches it, making the
+      // filter unremovable in-session — until the load boundary's non-string-id screen drops
+      // the whole filter on the next load.
       if (typeof args.filter.id !== 'string') {
         return state;
       }
-      // Screen `field`/`operator`/`operator2` (Finding 2), parser-bypass parity with the
-      // wire boundary's `validateFilter` gate in `parseStateMutation.ts`, which
-      // membership-checks all three. Without this, a server-built `addFilter` bypassing
-      // the parser with `field: 42` or an invalid `operator` installs VERBATIM, only for
-      // the load boundary (`deserializeState`) to drop the WHOLE filter on the next load —
-      // deferred silent data loss and, worse, a live filter whose junk `operator` steers
-      // the client's evaluator until then. No-op instead of installing: `field` must be a
-      // string, `operator` must be a valid `StudioFilterOperator`, and `operator2` — when
-      // present — must be one too. Mirrors the load boundary's `isStudioFilterOperator`
-      // check on these same fields.
+      // Screen `field`/`operator`/`operator2`: `field` must be a string and both operators
+      // must be valid `StudioFilterOperator`s. A junk `operator` steers the client's
+      // evaluator live, and the load boundary drops the WHOLE filter for either — so
+      // accepting one here just defers the loss to the next reload.
       if (typeof args.filter.field !== 'string') {
         return state;
       }
@@ -1939,28 +1872,18 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       if (state.filters.some((f) => f.id === args.filter.id)) {
         return state;
       }
-      // Reject an ORPHAN scoped filter (finding 2.1 / T3-2): the cross-filter/interactive scopes
-      // carry a `sourceWidgetId`, and the `widget` scope carries a `widgetId` — for all three,
-      // the reducer's ONLY cleanup path (`dropWidgetScopedFilters`) fires when that anchor widget
-      // is REMOVED. A filter naming an anchor widget the doc never had would therefore filter its
-      // page forever with no clearing affordance — exactly the orphan state `deserializeState`
-      // drops on load. Screen it here so the wire/reducer boundary and the load boundary agree.
-      // "Existing widget" is the reducer's own notion — `Object.hasOwn(state.widgets, id)` —
-      // matching every other id-keyed guard here (`updateWidget`/`removeWidget`), and an untrusted
-      // id can't match a prototype member. No-op-return the input `state` reference, the dominant
-      // convention for an unresolvable-target mutation in this reducer (`updateWidget`/
-      // `removePage`/`setActivePage` unknown-id cases).
+      // ── Scope screening, in two stages ───────────────────────────────────────────────
+      // First every anchor id the scope carries must be a STRING, then it must name
+      // something the doc actually has. Both matter because the reducer's ONLY cleanup path
+      // for a scoped filter (`dropWidgetScopedFilters`, `removePage`'s page-anchor drop)
+      // fires when the anchor is REMOVED — a filter anchored to something that never existed
+      // is never removed, so it filters its page forever with no clearing affordance.
       const { scope } = args.filter;
-      // Require the scope's own ANCHOR ids to be STRINGS before they are ever compared via
-      // a coercing `Object.hasOwn(state.widgets/pages, …)` lookup below — the same
-      // coercion-desync class Iteration 26 closed for `filter.id` above, one level down
-      // inside the scope payload. Without this, e.g. a numeric `scope.sourceWidgetId: 9`
-      // would pass `Object.hasOwn(state.widgets, 9)` (which coerces the key to `"9"`) and
-      // install verbatim, while every downstream consumer that compares by strict `===`/
-      // `Set` membership instead of `Object.hasOwn` (`dropWidgetScopedFilters`'s
-      // `isRemoved(scope.sourceWidgetId)`, `removeWidgetIds`'s `stillReferenced` set) can
-      // never match the numeric value — a half-applied orphan that survives every removal
-      // path, exactly the class Iteration 26 closed for the mutation-level id.
+      // STRING anchor ids (id-coercion desync, one level down inside the scope payload): a
+      // numeric `scope.sourceWidgetId: 9` passes the coercing `Object.hasOwn(state.widgets,
+      // 9)` orphan check below, while every consumer that compares by strict `===`/`Set`
+      // membership (`dropWidgetScopedFilters`'s `isRemoved`, `removeWidgetIds`'s
+      // `stillReferenced`) never matches it — an orphan that survives every removal path.
       if (scope.kind === 'widget' && typeof scope.widgetId !== 'string') {
         return state;
       }
@@ -1970,29 +1893,22 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       ) {
         return state;
       }
-      // Both kinds ALSO carry a REQUIRED `pageId` (`FILTER_SCOPE_REQUIRED_IDS` in
-      // `parseStateMutation.ts` lists it for each), which this reducer previously never
-      // screened — a parser-bypass parity gap, since the `executeToolOnState` path builds
-      // mutations straight from LLM tool arguments and never runs the parser. A
-      // server-built `{ kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 42 }` installed
-      // verbatim, and then could never be cleared: `removePage`'s cleanup compares with a
-      // strict `===` that never coerces, so the numeric `pageId` survived every page
-      // removal, and `serializeDoc` strips cross-filter/interactive entries so a reload
-      // never repaired it either — a permanently stuck cross-filter with no clearing
-      // affordance. Screen it here, mirroring the `dashboard-date-range` treatment below.
+      // `cross-filter`/`interactive` ALSO carry a REQUIRED `pageId`
+      // (`FILTER_SCOPE_REQUIRED_IDS` in `parseStateMutation.ts` lists it for each), so it
+      // must be a STRING. A `{ kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 42 }`
+      // could never be cleared: `removePage`'s cleanup compares with a strict `===` that
+      // never coerces, and `serializeDoc` STRIPS cross-filter/interactive entries at the
+      // persistence boundary, so no reload ever repairs it either.
       if (
         (scope.kind === 'cross-filter' || scope.kind === 'interactive') &&
         typeof scope.pageId !== 'string'
       ) {
         return state;
       }
-      // `dashboard-date-range` scope's `pageId` is REQUIRED by the type
-      // (`FILTER_SCOPE_REQUIRED_IDS` in `stateTypes.ts` lists `pageId` for it), so it must
-      // be a STRING outright — reject a missing/non-string one (Finding 4). The previous
-      // `scope.pageId !== undefined` exemption (borrowed from `page` scope's genuinely
-      // OPTIONAL `pageId`) wrongly let a parser-bypassing `dashboard-date-range` filter
-      // with NO `pageId` through, where it would then slip past the orphan check below
-      // (also gated on `!== undefined`) and install anchored to nothing.
+      // `dashboard-date-range`'s `pageId` is REQUIRED too (`FILTER_SCOPE_REQUIRED_IDS` in
+      // `stateTypes.ts`), so a missing one is rejected outright rather than exempted the way
+      // `page` scope's genuinely OPTIONAL `pageId` is — otherwise it would also slip past the
+      // `!== undefined`-gated orphan check below and install anchored to nothing.
       if (scope.kind === 'dashboard-date-range' && typeof scope.pageId !== 'string') {
         return state;
       }
@@ -2001,6 +1917,10 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       if (scope.kind === 'page' && scope.pageId !== undefined && typeof scope.pageId !== 'string') {
         return state;
       }
+      // WIDGET-anchor orphan check: `widget`/`cross-filter`/`interactive` scopes name a
+      // widget that must already exist. "Exists" is the reducer's own notion —
+      // `Object.hasOwn(state.widgets, id)`, matching every other id-keyed guard here — so an
+      // untrusted id can't match a prototype member.
       let orphanAnchorId: string | undefined;
       if (scope.kind === 'cross-filter' || scope.kind === 'interactive') {
         orphanAnchorId = scope.sourceWidgetId;
@@ -2010,33 +1930,18 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       if (orphanAnchorId !== undefined && !Object.hasOwn(state.widgets, orphanAnchorId)) {
         return state;
       }
-      // Reject an ORPHAN `page`-scoped (or `dashboard-date-range`-scoped) filter naming a
-      // `pageId` the doc doesn't contain — the PAGE-anchor mirror of the widget-anchor
-      // orphan check just above. A `page`-scoped filter with an explicit `pageId` (the
-      // legacy "applies on every page" shape has NO `pageId` and is left alone) would
-      // otherwise filter a page that doesn't exist forever, with no clearing affordance.
-      // `dashboard-date-range` scope (finding 2) carries a REQUIRED `pageId` — unlike
-      // `page` scope's optional one, it always names one — so it is included in this same
-      // check rather than a separate `scope.pageId !== undefined` gate. `removePage`'s
-      // cleanup (`filtersAfterPageDrop`'s generic `'pageId' in f.scope` check) already
-      // drops both scope kinds when their page is removed LIVE, but neither scope kind's
-      // orphan-at-ADD-TIME case was screened here before this fix — a filter naming a
-      // nonexistent page from the start would install and stay forever, never removed
-      // (`removePage`'s cleanup only fires for a page that WAS present and got removed).
-      // The load boundary (`deserializeState`'s `(scope.kind === 'page' || scope.kind ===
-      // 'dashboard-date-range') … !Object.hasOwn(normalizedPages, scope.pageId)` screen)
-      // already drops this on the NEXT load, so accepting it here would just be dead
-      // weight until reload — screen it here so the wire/reducer boundary and the load
-      // boundary agree. `Object.hasOwn` so an untrusted `pageId` can't match a prototype
-      // member.
+      // PAGE-anchor orphan check, the mirror of the widget-anchor one just above: a filter
+      // naming a `pageId` the doc doesn't contain would filter a page that doesn't exist
+      // forever. `removePage`'s cleanup only fires for a page that WAS present and got
+      // removed, so it never reaches one that named a nonexistent page from the start.
       //
-      // `cross-filter`/`interactive` are included too (parser-bypass parity, same finding as
-      // the `pageId` string screen above): their `pageId` is required, they are the two
-      // kinds `serializeDoc` strips at the persistence boundary — so, unlike the other
-      // kinds, the load boundary can NEVER repair one that got in — and `removePage`'s
-      // cleanup only fires for a page that was present and got removed. A filter anchored
-      // to a page the doc never had would therefore be permanent, invisible, unclearable
-      // dead weight.
+      // All four `pageId`-bearing scope kinds are covered. `page` scope's `pageId` is
+      // optional, so the legacy "applies on every page" shape (no `pageId`) is left alone by
+      // the `!== undefined` gate. For `page`/`dashboard-date-range` the load boundary would
+      // drop the orphan on the next load anyway, so accepting it here would only be dead
+      // weight until reload; for `cross-filter`/`interactive` there is no such safety net at
+      // all — `serializeDoc` strips them at the persistence boundary, so a reload can never
+      // repair one, and it would be permanent, invisible, unclearable dead weight.
       if (
         (scope.kind === 'page' ||
           scope.kind === 'dashboard-date-range' ||
@@ -2047,24 +1952,21 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       ) {
         return state;
       }
-      // Reject a SECOND rank-mode filter on the same page context (finding: the reducer
-      // never enforced "at most one rank filter per page", even though `StudioController`
-      // enforces it in FIVE separate call sites before ever calling this reducer — e.g.
-      // `updateFilter`'s switch-to-rank guard, the widget-clone dedup). The controller's
-      // guards are UI-layer conveniences, not the contract boundary; the reducer is the
-      // single source of truth for mutation semantics, so a caller that skips (or a future
-      // caller that never learns) the controller's check must still not be able to violate
-      // the invariant. Mirrors `hasConflictingRankFilter`/`resolveRankFilterPageId` from
-      // `@mui/x-studio`'s `internals/rankFilterScope.ts` (duplicated, not imported — see
-      // this file's own copies above the `dropWidgetScopedFilters` helper). Only `page`/
-      // `widget` scopes are rank-eligible (`resolveRankFilterPageId`'s doc comment: "other
-      // scope kinds are never rank filters and are excluded by the caller") — the wire
-      // boundary never restricts `filterMode` to a scope kind, so a `rank`-mode filter on
-      // e.g. a `dashboard-date-range` scope is wire-valid and would otherwise resolve to a
-      // `null` page context via `resolveRankFilterPageId`'s catch-all `return null`, which
-      // conflicts with every other rank filter and would silently reject every legitimate
-      // `page`/`widget` rank filter on every page thereafter. Skip the gate entirely for
-      // any other scope kind, matching `hasConflictingRankFilter`'s own exclusion below.
+      // Reject a SECOND rank-mode filter on the same page context. `StudioController`
+      // enforces "at most one rank filter per page" at five call sites before ever reaching
+      // this reducer, but those are UI-layer conveniences, not the contract boundary — the
+      // reducer is the single source of truth for mutation semantics, so a caller that skips
+      // the controller's check still must not be able to violate the invariant.
+      //
+      // Gated to `page`/`widget` scopes, the only rank-eligible kinds. A `rank`-mode filter
+      // on e.g. a `dashboard-date-range` scope is wire-valid (the wire boundary never
+      // restricts `filterMode` to a scope kind) but is not a rank window over a page, so it
+      // is neither gated here nor counted as a conflict by `hasConflictingRankFilter`.
+      //
+      // This gate resolves the incoming filter's page context ONCE, at add time. A
+      // `widget`-scoped filter whose widget is unplaced has no page context yet and is
+      // accepted; the layout handlers re-run the sweep when a placement gives it one — see
+      // {@link dropConflictingRankFilters}.
       if (
         args.filter.filterMode === 'rank' &&
         (scope.kind === 'page' || scope.kind === 'widget') &&
@@ -2072,24 +1974,20 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       ) {
         return state;
       }
-      // Strip unsafe own keys and repair a malformed `dependsOn` (F5 finding) BEFORE
-      // the append — the filter otherwise carries its target scope/page verbatim
-      // (chosen server-side), so it is NOT re-stamped with the applying side's active
-      // page (that would reintroduce a page-targeting divergence). Both helpers are
-      // reference-stable when the filter is already clean, so a well-formed filter
-      // (the common case, and the only shape the wire boundary itself ever lets
-      // through) still appends the SAME object.
+      // Strip unsafe own keys and repair a malformed `dependsOn` before the append. The
+      // filter otherwise appends VERBATIM: its target scope/page was chosen server-side and
+      // is deliberately NOT re-stamped with the applying side's active page, which would
+      // reintroduce a page-targeting divergence. Both helpers are reference-stable when the
+      // filter is already clean, so a well-formed filter still appends the SAME object.
       const safeFilter = repairFilterDependsOn(stripUnsafeFilterKeys(args.filter));
       return {
         ...state,
         filters: [...state.filters, safeFilter],
       };
     },
-    // T3 finding (mirrors `addWidget`'s label fix above): `args.filter` is only guaranteed
-    // to be a record by THIS handler's own `apply` guard, not by `mutationLabel`'s top-level
-    // `isPlainRecord(mutation.args)` check — a server-built mutation bypassing
-    // `parseStateMutation` with `args: { filter: undefined }` would otherwise throw reading
-    // `args.filter.field`. Fall back to `'unknown'` for a missing/non-string `field`.
+    // `mutationLabel` guards only the TOP-LEVEL `args` record, not `args.filter` (same as
+    // `addWidget`'s label above), so fall back to `'unknown'` for a missing/non-string
+    // `field` rather than throwing.
     label: (args) => {
       const { filter } = args;
       const field =
@@ -2101,12 +1999,9 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
   removeFilter: {
     apply: (state, args) => {
       const { filterId } = args;
-      // Require a STRING `filterId` (parser-bypass parity with `removeWidget`/`removePage`'s
-      // `typeof id !== 'string'` guards). The comparison below is a strict `===` that never
-      // coerces, so a non-string `filterId` (e.g. `42`) simply never matches any `f.id` and
-      // this is already a harmless no-op — but every other id-bearing handler in this file
-      // guards explicitly rather than relying on that incidental behavior. No-op instead, for
-      // uniformity with the sibling handlers.
+      // Require a STRING `filterId`. The comparison below is a strict `===` that never
+      // coerces, so a non-string value is already a harmless no-op — the explicit guard is
+      // for uniformity with every other id-bearing handler rather than for that behaviour.
       if (typeof filterId !== 'string') {
         return state;
       }
@@ -2115,10 +2010,9 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         return state;
       }
       // Cascade the removal to every remaining filter's `dependsOn` via the SHARED
-      // `pruneDependsOn` helper (Tier3 finding, generalized): this handler used to inline
-      // the prune, which is why it was the only one of the several filter-dropping paths
-      // that maintained the invariant. Same semantics as before — drop the whole array
-      // rather than leave `dependsOn: []`, and keep each untouched filter's object identity.
+      // `pruneDependsOn` helper — the same one every other filter-dropping path uses. Drops
+      // the whole array rather than leaving `dependsOn: []`, and keeps each untouched
+      // filter's object identity.
       const prunedFilters = pruneDependsOnAgainstSelf(nextFilters);
       return { ...state, filters: prunedFilters };
     },
@@ -2129,53 +2023,39 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
     apply: (state, args) => {
       const { removedWidgetIds: rawRemovedWidgetIds, addedWidgets, updatedWidgets } = args;
       const { activePageId } = args;
-      // Require a real ARRAY `removedWidgetIds` (T2-3, defense-in-depth copy of the wire
-      // boundary's `isStringArray(args.removedWidgetIds)` check in `parseStateMutation.ts`):
-      // `new Set(str)` iterates a STRING char-by-char, so a parser-bypassing server-built
-      // mutation with `removedWidgetIds: 'w1'` would silently delete widgets literally named
-      // `'w'` and `'1'` below instead of the intended widget `'w1'`. `Array.isArray` rejects a
-      // non-array value outright — treated the same as an absent/empty list — rather than
-      // iterating it.
+      // Require a real ARRAY `removedWidgetIds`, then drop any non-string ENTRY.
       //
-      // Also drop (not reject wholesale) any non-string ENTRY (finding 2.1): every downstream
-      // consumer of this array — `removeWidgetIds`'s `stillReferenced` `Set<string>` membership
-      // check, `stripWidgetIdsFromPages`'s per-row `Set<string>.has`, and the `Object.hasOwn`
-      // lookups on `widgets`/`widgetColSpans` — either compares by strict `===` (never coerces)
-      // or coerces its key to a STRING (`Object.hasOwn`). A numeric candidate like `42` would
-      // therefore never match a `Set<string>` built from string row ids, yet WOULD match a
-      // widget/span keyed `"42"` via `Object.hasOwn`'s coercion — the "genuinely gone" cross-page
-      // guard silently bypassed, deleting a widget/span/filter still referenced (as a string) on
-      // another page's rows. Filtering to `typeof id === 'string'` here (rather than rejecting the
-      // whole array the way `isStringArray` would) keeps every well-formed id in a partially-junk
-      // payload usable, matching this handler's own "no-op the bad, keep the good" convention for
-      // `addedWidgets`/`updatedWidgets` entries elsewhere in this same handler.
+      // `new Set(str)` iterates a STRING char-by-char, so `removedWidgetIds: 'w1'` would
+      // delete widgets literally named `'w'` and `'1'` instead of `'w1'`. A non-array value
+      // is therefore treated as an absent/empty list.
+      //
+      // The per-entry filter is the id-coercion desync one level down: a numeric `42` never
+      // matches the `Set<string>` membership checks built from string row ids
+      // (`removeWidgetIds`' `stillReferenced`, `stripWidgetIdsFromPages`' per-row `has`) yet
+      // DOES match a widget/span keyed `"42"` through `Object.hasOwn`'s coercion — bypassing
+      // the "genuinely gone" cross-page guard and deleting a widget still referenced (as a
+      // string) on another page. Junk entries are dropped rather than rejecting the whole
+      // array, matching this handler's "skip the bad entry, keep the good ones" convention
+      // for `addedWidgets`/`updatedWidgets`.
       const removedWidgetIds = (
         Array.isArray(rawRemovedWidgetIds) ? rawRemovedWidgetIds : []
       ).filter((id): id is string => typeof id === 'string');
 
-      // Require real ARRAYS for `addedWidgets`/`updatedWidgets` too (F3 finding, same
-      // class as `removedWidgetIds` just above): both are typed as REQUIRED arrays on
-      // the wire mutation, but every use below previously defaulted only with `?? []`
-      // — which guards `null`/`undefined` but lets a TRUTHY non-array (e.g. a
-      // parser-bypassing `addedWidgets: {}` or `updatedWidgets: 'junk'`) straight
-      // through to a `for...of`, throwing `TypeError: … is not iterable` instead of the
-      // graceful no-op every sibling malformed-shape guard in this handler provides.
-      // Coerce once here so every downstream `for (const widget of addedWidgets ?? [])`
-      // site below can read from the guaranteed-array `safeAddedWidgets`/
-      // `safeUpdatedWidgets` instead.
+      // Crash prevention for `addedWidgets`/`updatedWidgets`: `?? []` guards `null`/
+      // `undefined` but lets a TRUTHY non-array (`addedWidgets: {}`, `updatedWidgets:
+      // 'junk'`) reach a `for…of`, which throws `TypeError: … is not iterable`. Coerced once
+      // here so every downstream loop reads a guaranteed array.
       const safeAddedWidgets = Array.isArray(addedWidgets) ? addedWidgets : [];
       const safeUpdatedWidgets = Array.isArray(updatedWidgets) ? updatedWidgets : [];
 
-      // Ids named in BOTH `removedWidgetIds` and `addedWidgets` in this SAME payload —
-      // a remove+re-add of the same widget id, i.e. a "replace" (F4 finding), not a
-      // genuine removal followed by an unrelated fresh insert. Computed ONCE, up front,
-      // so every downstream step that used to treat this case inconsistently — the
-      // active-page row pre-strip, the layout block's own row-placement exclusion, and
-      // the `addedWidgets` insert loop's idempotent-add guard — agrees on the SAME
-      // semantics regardless of whether this bulk also supplied `widgetRows`: the
-      // widget's placement, cross-filters, and spans are preserved (by never actually
-      // stripping its row / letting `removeWidgetIds`'s "stillReferenced" check see it
-      // survive), and its definition (title/config) is updated to the new value.
+      // Ids named in BOTH `removedWidgetIds` and `addedWidgets` in this SAME payload: a
+      // remove+re-add of one id is a "replace", not a removal followed by an unrelated fresh
+      // insert. Computed ONCE, up front, so the three steps that must agree on it — the row
+      // pre-strip, the layout block's row-placement resolution, and the `addedWidgets` insert
+      // loop's idempotent-add guard — share one definition and produce the same outcome
+      // whether or not the bulk also supplied `widgetRows`: the widget's placement,
+      // cross-filters and spans survive (nothing ever strips its row, so `removeWidgetIds`'
+      // "stillReferenced" check sees it live) and its definition is updated to the new value.
       const removedWidgetIdSet = new Set(removedWidgetIds);
       const reAddedWidgetIds = new Set<string>();
       for (const widget of safeAddedWidgets) {
@@ -2188,20 +2068,16 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         }
       }
 
-      // `widgetRows`/`widgetColSpans` are typed as REQUIRED on the wire mutation, but the
-      // reducer must stay TOTAL over a parser-bypassing partial payload a future middleware
-      // tool builds by hand (the established `executeToolOnState` pattern, which never runs
-      // `parseStateMutation`) — exactly as the three widget-delta fields already are
-      // (`?? []`). Read them as runtime-optional (finding 2.5).
+      // `widgetRows`/`widgetColSpans` are typed as REQUIRED on the wire mutation, but read as
+      // runtime-optional: a hand-built partial payload (the `executeToolOnState` pattern) can
+      // omit either, and the reducer must stay total over that.
       const widgetRows = args.widgetRows as string[][] | undefined;
       const widgetColSpans = args.widgetColSpans as Record<string, number> | undefined;
-      // The whole layout-replacement block is SKIPPED when BOTH layout fields are absent
-      // (finding 2.5 / shared with ai-middleware T2-4): defaulting an absent `widgetRows`
-      // to `[]` would silently WIPE the active page's layout when the field is merely
-      // omitted from a partial-batch mutation — strictly worse than throwing. So the layout
-      // is only replaced when at least one field is actually PRESENT (the producer attaches
-      // them only for a batch that changed layout); an updates-only bulk leaves layout
-      // untouched. When present, array/record-ness is coerced below so the block stays total.
+      // The whole layout-replacement block is SKIPPED when BOTH layout fields are absent.
+      // Defaulting an absent `widgetRows` to `[]` would WIPE the active page's layout for a
+      // batch that merely omitted the field — strictly worse than throwing. The producer
+      // attaches them only for a batch that changed layout, so an updates-only bulk leaves
+      // layout untouched. When present, array/record-ness is coerced below.
       const hasLayoutUpdate = widgetRows !== undefined || widgetColSpans !== undefined;
 
       // The layout portion (`widgetRows`/`widgetColSpans`) targets the ACTIVE PAGE only,
@@ -2213,44 +2089,29 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // page-scoped layout is conditional on the page existing. `Object.hasOwn` so an
       // untrusted `activePageId` can't match a prototype member.
       //
-      // Require a STRING `activePageId` (parser-bypass parity with the `typeof id !==
-      // 'string'` guards other id-bearing handlers use, e.g. `addPage.id`,
-      // `removeWidget.widgetId`): `Object.hasOwn` below COERCES a non-string
-      // `activePageId` (e.g. `42`) to its string property key, which could coincidentally
-      // match an existing page keyed `"42"`. Not independently exploitable here — every
-      // downstream use of `activePageId` is itself gated on `pageExists`/`Object.hasOwn`
-      // and it is never persisted to `dashboard.activePageId` — but requiring the type up
-      // front keeps this handler uniform with the rest of the file's convention rather
-      // than relying on incidental coercion behavior.
+      // Require a STRING `activePageId`: `Object.hasOwn` COERCES a non-string value (`42`)
+      // to its string property key, which could coincidentally match a page keyed `"42"`.
+      // Not independently exploitable here — every downstream use is itself gated on
+      // `pageExists`, and it is never persisted to `dashboard.activePageId` — but the
+      // explicit type check keeps this handler uniform with the rest of the file rather than
+      // resting on incidental coercion behaviour.
       const pageExists =
         typeof activePageId === 'string' && Object.hasOwn(state.pages, activePageId);
-      // Strip `removedWidgetIds` from EVERY page's rows FIRST, unconditionally — not
-      // only when the producer also supplied `widgetRows` (finding: a bulk that removes
-      // widgets but omits `widgetRows` — the common updates/removals-only case, with no
-      // layout change at all — left every page's OWN rows still naming a widget THIS
-      // SAME mutation explicitly asked to remove; the "stillReferenced" check
-      // `removeWidgetIds` runs below then saw it as still-live and silently no-op'd the
-      // whole removal). Scoped to ALL pages, not just the active one (T1 finding): the
-      // bulk-update's `removedWidgetIds` names widgets to remove doc-wide, and a widget
-      // can be dragged to a DIFFERENT page mid-turn while an agentic bulk update — computed
-      // against an earlier snapshot — is still in flight. Pre-strip used to touch only the
-      // active page, so a removal target that had moved to another page by the time this
-      // mutation applied was still "stillReferenced" there and silently survived with no
-      // error or signal. Mirrors `removeWidget`'s own `stripWidgetIdsFromPages(state.pages,
-      // …)` call (every page, not just one) — a single-widget removal and a batch removal
-      // must apply the identical cross-page guarantee.
+      // Strip `removedWidgetIds` from EVERY page's rows FIRST, unconditionally.
       //
-      // EXCEPT an id also named in `reAddedWidgetIds` (F4 finding): stripping it here
-      // UNCONDITIONALLY — regardless of `widgetRows` presence — is exactly the divergence
-      // F4 closes. The `hasLayoutUpdate` block below already carried this same exception
-      // for its OWN row-placement resolution (`validRowIds`), but this pre-strip (which
-      // runs for EVERY bulk, including one that never enters that block) did not, so a
-      // remove+re-add bulk WITHOUT `widgetRows` stripped the row here unconditionally,
-      // making `removeWidgetIds` below see the widget as genuinely gone — deleting its
-      // widget entry, filters, and spans — while the WITH-`widgetRows` branch preserved
-      // them but then silently discarded the new definition (fixed separately in the
-      // `addedWidgets` insert loop's idempotent-add guard). Leaving the row intact here
-      // for a re-added id keeps both branches agreeing: placement/filters/spans survive.
+      // Unconditionally, because `removeWidgetIds`' "stillReferenced" check below reads the
+      // rows: a removals-only bulk that omits `widgetRows` would otherwise leave every page's
+      // rows still naming the widget it asked to remove, and the removal would silently
+      // no-op. Every page rather than just the active one, because `removedWidgetIds` names
+      // widgets to remove doc-wide and a widget can be dragged to a DIFFERENT page mid-turn
+      // while an agentic bulk computed against an earlier snapshot is in flight — the same
+      // cross-page guarantee `removeWidget`'s own `stripWidgetIdsFromPages(state.pages, …)`
+      // call gives a single removal.
+      //
+      // EXCEPT an id in `reAddedWidgetIds`: a remove+re-add is a replace, and the widget
+      // survives this mutation under the same id, so its row must survive too. Stripping it
+      // would make `removeWidgetIds` see it as genuinely gone and delete its widget entry,
+      // filters and spans.
       let layoutPages: StudioDoc['pages'] = state.pages;
       const idsToPreStrip = removedWidgetIds.filter((id) => !reAddedWidgetIds.has(id));
       if (idsToPreStrip.length > 0) {
@@ -2260,18 +2121,13 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         // targets never appear on any page's rows churns nothing here.
         layoutPages = stripWidgetIdsFromPages(state.pages, new Set(idsToPreStrip));
         if (pageExists) {
-          // Finding 3.3: also prune each pre-stripped id's OWN `widgetColSpans` entry on
-          // the active page. `stripWidgetIdsFromPages` only clears a SURVIVING row-mate's
-          // now-stale span (the "orphaned sole occupant" case) — pruning the removed id's
-          // OWN span entry is normally left to `removeWidgetIds`'s cross-page "genuinely
-          // gone" check further below. Now that every page's rows are stripped above, an
-          // id in `idsToPreStrip` is genuinely gone doc-wide (nothing still references
-          // it), so that check WILL fire and prune its span on every OTHER page — but the
-          // active page's own already-rebuilt object (built above by
-          // `stripWidgetIdsFromPages`) needs the same pruning applied to it directly, same
-          // as before. Reuses `removeSpanEntries` (reference-stable when nothing
-          // matched), so a bulk that never actually touched this page's spans still
-          // returns the SAME page object.
+          // Also prune each pre-stripped id's OWN `widgetColSpans` entry on the active page.
+          // `stripWidgetIdsFromPages` clears only a SURVIVING row-mate's now-stale span (the
+          // "orphaned sole occupant" case); the removed id's own span is otherwise left to
+          // `removeWidgetIds`' "genuinely gone" check below, which prunes it on every page
+          // it does not rebuild here. The active page's object was just rebuilt above, so it
+          // needs the pruning applied directly. `removeSpanEntries` is reference-stable, so a
+          // bulk that touched none of this page's spans still returns the SAME page object.
           const strippedActivePage = layoutPages[activePageId];
           const spansPruned = removeSpanEntries(strippedActivePage.widgetColSpans, idsToPreStrip);
           const finalActivePage =
@@ -2286,84 +2142,58 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       if (pageExists && hasLayoutUpdate) {
         const page = layoutPages[activePageId];
 
-        // Sanitize the producer-supplied active-page rows against the ids that will
-        // actually exist once this bulk applies: existing widgets PLUS this bulk's own
-        // `addedWidgets` ids (inserted below in the same handler, so a row legitimately
-        // references them) that pass the safe-key gate. Unlike `setWidgetLayout` — which
-        // filters against `state.widgets` alone — the bulk's rows may name a not-yet-
-        // inserted added widget, so filtering against `state.widgets` alone would wrongly
-        // drop them. A phantom id (neither an existing widget nor a safe added-widget id)
-        // would otherwise persist in `widgetRows` with no `widgets` entry — exactly the
-        // "page renders a widget that does not exist" state `setWidgetLayout` guards
-        // against. Removed ids resolve afterwards via `removeWidgetIds` and need no
-        // special-casing. A `Set` lookup keeps an untrusted id off the prototype chain.
+        // The ids the producer's rows may legitimately name: the widgets that will exist
+        // once this bulk applies — existing widgets PLUS this bulk's own `addedWidgets` ids,
+        // which are inserted below in the same handler. Unlike `setWidgetLayout`, which
+        // filters against `state.widgets` alone, the bulk's rows can reference a
+        // not-yet-inserted added widget. Anything else is a phantom that would persist in
+        // `widgetRows` with no `widgets` entry, the "page renders a widget that does not
+        // exist" state. A `Set` lookup keeps an untrusted id off the prototype chain.
         const validRowIds = new Set<string>(Object.keys(state.widgets));
-        // Also allow this bulk's own `addedWidgets` ids: they are inserted below in the
-        // same handler, so a producer-supplied row may legitimately reference a
-        // not-yet-inserted added widget.
         for (const widget of safeAddedWidgets) {
-          // Per-entry `isPlainRecord` skip (F3 finding): a `null`/primitive entry in
-          // `addedWidgets` (e.g. from a parser-bypassing payload) would otherwise throw
-          // reading `.id` below instead of being gracefully skipped, like every other
-          // malformed-entry guard in this handler.
+          // Per-entry `isPlainRecord` skip: a `null`/primitive entry would throw reading
+          // `.id`, so it is skipped like every other malformed entry in this handler.
           if (isPlainRecord(widget) && typeof widget.id === 'string' && isSafePatchKey(widget.id)) {
             validRowIds.add(widget.id);
           }
         }
-        // Exclude ids THIS SAME payload is removing (T2 finding): a bulk update naming
-        // both `removedWidgetIds: ['w1']` and a `widgetRows` row still containing `'w1'`
-        // must not keep that row entry alive — an explicit removal in the same mutation
-        // takes precedence over a stale row the payload also happens to carry. The
-        // current producer strips removed ids out of `widgetRows` before calling this,
-        // but the reducer is the single source of truth for mutation validity and must
-        // not depend on that caller discipline: a future/adversarial producer that
-        // forgets to strip them must still see the removal honored.
+        // Exclude ids THIS SAME payload is removing: an explicit removal takes precedence
+        // over a stale row the payload also happens to carry. The current producer strips
+        // removed ids out of `widgetRows` before calling, but the reducer is the source of
+        // truth for mutation validity and must not depend on that caller discipline.
         //
-        // EXCEPT an id that is ALSO named in `addedWidgets` (finding 4, F4): a bulk that
-        // removes and re-adds the SAME widget id in one payload (a reorder/replace) is
-        // not "genuinely gone" — the widget survives this mutation under the same id, so
-        // its row placement must survive too. Deleting it here unconditionally stripped
-        // the row entry as a "phantom" BEFORE the re-add took effect, losing the widget's
-        // placement to the bottom-row default-placement fallback further below. Reuses
-        // the SHARED `reAddedWidgetIds` computed once at the top of this handler (F4
-        // finding) — the pre-strip step above and the `addedWidgets` insert loop below
-        // now agree on the exact same set, instead of each computing (or omitting) their
-        // own notion of "re-added".
+        // EXCEPT an id in `reAddedWidgetIds` — a replace, whose widget survives this mutation
+        // under the same id, so its row placement must survive too. Dropping it here as a
+        // "phantom" before the re-add takes effect would lose the placement to the bottom-row
+        // default-placement fallback further below. The SHARED set computed at the top of
+        // this handler is what keeps this step, the pre-strip above, and the insert loop
+        // below agreeing on exactly which ids are re-added.
         for (const id of removedWidgetIds) {
           if (!reAddedWidgetIds.has(id)) {
             validRowIds.delete(id);
           }
         }
-        // Drop phantom ids (not an existing widget nor a safe added-widget id) AND
-        // deduplicate ids that appear more than once — the same id twice would render the
-        // widget twice and double-count its span in `enforceLayoutColSpans`'s overflow
-        // sum. `dedupeLayoutRows` keeps the first occurrence and drops any emptied row.
+        // Which rows to reconcile against — total over all three payload shapes:
+        //  - `widgetRows` present and an ARRAY ⇒ install it (the normal case).
+        //  - `widgetRows` ABSENT (a spans-only bulk) ⇒ reconcile against the page's EXISTING
+        //    rows, never `[]`. Defaulting to `[]` un-places EVERY widget on the active page,
+        //    and `enforceLayoutColSpans` then drops the very spans this bulk carries as
+        //    orphans against the now-empty rows — a mutation that only meant to change a
+        //    width would blank the page.
+        //  - `widgetRows` present but a NON-array (hand-built junk like `null`) ⇒ treated as
+        //    ABSENT, same as above. The `widgetColSpans → {}` coercion is harmless (spans
+        //    merge or replace), but a `widgetRows → []` coercion is destructive in exactly
+        //    the way just described.
         //
-        // Resolve which rows to reconcile against, TOTAL over all three partial-payload
-        // shapes (finding 2.5 closed only two of them; T1-1 closes the third):
-        //  - `widgetRows` ABSENT (a spans-only bulk: `widgetColSpans` present, no rows) ⇒
-        //    reconcile the span update against the page's EXISTING rows, NOT `[]`.
-        //    Defaulting to `[]` here silently un-places EVERY widget on the active page —
-        //    and then `enforceLayoutColSpans` drops the very spans this bulk carries as
-        //    orphans against the now-empty rows — so a mutation that only meant to change a
-        //    width would blank the page (T1-1). Leaving row placement untouched applies the
-        //    colSpans-only update, the mirror of the rows-only case below.
-        //  - `widgetRows` present and an array ⇒ install it (the normal both-present case).
-        //  - `widgetRows` present but a non-array (hand-built junk, e.g. `null`) ⇒ treat it
-        //    as ABSENT and reconcile against the page's EXISTING rows, NOT `[]`. The
-        //    `widgetColSpans → {}` coercion is harmless (spans merge/replace), but a
-        //    `widgetRows → []` coercion is DESTRUCTIVE: it un-places every widget on the
-        //    active page and then `enforceLayoutColSpans` drops all their spans as orphans —
-        //    the exact blank-page outcome T1-1 established a malformed layout field must
-        //    never trigger. `?? []` is equally total (no `.map` throw) and strictly safer.
-        // ONE presence predicate for BOTH the row-placement resolution below and the spans
-        // merge-vs-replace decision further down (T2-2): a present-but-non-array `widgetRows`
-        // (hand-built junk, e.g. `null`, from a parser-bypassing payload) is ABSENT for row
-        // placement AND must not flip the spans decision to REPLACE. Keying the spans decision
-        // on `widgetRows === undefined` instead let a junk `widgetRows: null` + colSpans payload
-        // wholesale-replace the receiver's span map — wiping a DIFFERENT widget's
-        // concurrent/unnamed span (the same lost-update class the rows-absent MERGE branch
-        // closes), even though rows were NOT re-placed.
+        // `rowsProvided` is ONE predicate serving both the resolution above and the
+        // merge-vs-replace decision further down, so junk `widgetRows: null` is ABSENT for
+        // both. Keying the spans decision on `widgetRows === undefined` instead would let
+        // such a payload wholesale-REPLACE the receiver's span map — wiping another widget's
+        // concurrent span even though rows were never re-placed.
+        //
+        // `dedupeLayoutRows` then drops repeated ids (first occurrence wins) and any emptied
+        // row: the same id twice renders the widget twice and double-counts its span in
+        // `enforceLayoutColSpans`' overflow sum.
         const rowsProvided = Array.isArray(widgetRows);
         const safeRows: string[][] = rowsProvided
           ? (widgetRows as string[][])
@@ -2375,20 +2205,16 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         );
 
         // Normalize the producer-supplied active-page spans through the SAME invariants
-        // every other layout path enforces (previously they were stored verbatim, so a
-        // bad producer could persist an out-of-range or overflowing span): clamp each
-        // span to the valid range and drop unsafe keys (so the rebuild can't reintroduce
-        // prototype pollution), then run `enforceLayoutColSpans`. `oldRows = []` so the
-        // 2→1 collapse never fires — the producer supplied rows and spans together, so a
-        // singleton span is intentional — while the row-overflow drop, orphaned-span
-        // drop, and empty→undefined collapse all apply. Feeding the SANITIZED rows here
-        // means a span for a dropped phantom id is pruned as an orphan.
-        // Coerce a non-record `widgetColSpans` (absent when only `widgetRows` was supplied,
-        // or junk from a hand-built payload) to `{}` so `Object.keys` can't throw (finding 2.5).
+        // every other layout path enforces, so a bad producer can never persist an
+        // out-of-range or overflowing span: clamp each span to the valid range and drop
+        // unsafe keys (so the rebuild can't reintroduce prototype pollution), then run
+        // `enforceLayoutColSpans` against the SANITIZED rows, which prunes a span for a
+        // dropped phantom id as an orphan.
+        //
         // ONE presence predicate for `widgetColSpans`, mirroring `rowsProvided` above: a
         // present-but-junk value (`null`, an array, a primitive from a hand-built payload)
-        // counts as ABSENT everywhere, so it can neither be read nor flip the merge-vs-replace
-        // decision below.
+        // counts as ABSENT everywhere, so it can neither be read (`Object.keys` would
+        // throw) nor flip the merge-vs-replace decision below.
         const spansProvided =
           widgetColSpans !== null &&
           typeof widgetColSpans === 'object' &&
@@ -2402,38 +2228,46 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
           clampedSpans[key] = clampSpan(safeSpans[key]);
         }
 
-        // T2-2 (residual lost-update): a bulk that did NOT re-place rows (`!rowsProvided` —
-        // rows absent OR present-but-non-array junk, keyed on the SAME predicate the
-        // row-placement resolution above uses, not a second `widgetRows === undefined` test
-        // that would classify `null` differently) must MERGE its span entries onto the page's
-        // EXISTING spans, not REPLACE the whole map. The producer ships a turn-start snapshot
-        // of the page's spans; wholesale-replacing the receiver's map with it silently reverts
-        // a concurrent client drag-resize of a DIFFERENT widget (one not named in this batch) —
-        // the same lost-update class T2-4 / 2.3 closed for `widgetRows`, one field over.
-        // Merging (incoming keys win, untouched keys survive) is backward compatible with the
-        // current full-snapshot producer — a superset merge ≡ replace for the keys it
-        // carries — while preserving any client-side span the snapshot doesn't know about.
-        // Bulk `colSpans` entries are numbers 6–24 and cannot clear a span, so merge
-        // semantics lose nothing. Replace applies ONLY when the producer shipped rows AND
-        // spans together — then the wire spans genuinely ARE the intended full map for the
-        // new placement.
-        //
-        // `widgetRows` and `widgetColSpans` are INDEPENDENTLY optional on the wire type and
-        // are validated independently, so "rows only" is a legitimate payload — and it used
-        // to key on `rowsProvided` alone, which made an absent `widgetColSpans` coerce to
-        // `{}` and REPLACE the page's whole span map with nothing:
-        //   page p1 spans { w1: 16, w2: 8 }
-        //   applyBulkUpdate { widgetRows: [['w2','w1']], activePageId: 'p1' } → spans WIPED
-        //   setWidgetLayout  { rows:       [['w2','w1']], pageId:      'p1' } → spans KEPT
-        // Two mutations expressing the same reorder disagreed on every widget's width. This
-        // is the same replace-vs-merge class the T1-1/T2-2 comments close one field over, and
-        // the reducer must not depend on caller discipline (a producer that always ships a
-        // full span snapshot) to avoid it. A rows-only bulk now merges onto the page's
-        // existing spans; `enforceLayoutColSpans` below prunes anything the new rows orphan.
+        // REPLACE vs MERGE for the span map. Replace applies ONLY when the producer shipped
+        // rows AND spans together — then the wire spans genuinely ARE the intended full map
+        // for the new placement. Any other shape MERGES the incoming entries onto the page's
+        // EXISTING spans (incoming keys win, untouched keys survive), because the producer
+        // ships a turn-start snapshot: wholesale-replacing the receiver's map with it
+        // reverts a concurrent client drag-resize of a widget this batch never named, and a
+        // rows-only payload (an absent `widgetColSpans` coercing to `{}`) would replace the
+        // whole map with nothing — making `applyBulkUpdate { widgetRows: [['w2','w1']] }`
+        // and `setWidgetLayout { rows: [['w2','w1']] }` disagree on every widget's width.
+        // Keyed on the SAME `rowsProvided`/`spansProvided` predicates the row-placement
+        // resolution uses, so junk (`widgetRows: null`) is classified identically here.
         const spansToEnforce: Record<string, number> =
           rowsProvided && spansProvided
             ? clampedSpans
             : { ...(page.widgetColSpans ?? {}), ...clampedSpans };
+        // A merged row can sum past `GRID_COLS` even though every individual span is in
+        // range — the incoming width plus a width already on the page. Resolve that around
+        // the widths this payload actually asked for, via the SAME helper
+        // `setWidgetColSpan` uses, so `set_widget_width` and `apply_bulk_update` carrying
+        // the same width produce the same row. Without it the merged row falls through to
+        // `enforceLayoutColSpans`' drop-EVERY-span rule, which discards the width of a
+        // widget this payload never mentioned and drops the row to equal flex.
+        //
+        // Scoped to the merge branch: on the replace branch every span in the row came from
+        // this one payload, so there is no pre-existing width to protect and no non-arbitrary
+        // anchor — an internally-inconsistent full snapshot keeps the documented drop-to-flex
+        // resolution. Rows with no incoming entry have no anchor either and are left alone.
+        if (spansProvided && !rowsProvided) {
+          const anchorIds = new Set(Object.keys(clampedSpans));
+          for (const row of sanitizedRows) {
+            if (row.some((id) => anchorIds.has(id))) {
+              rebalanceRowSpans(
+                spansToEnforce,
+                row,
+                anchorIds,
+                (id) => validRowIds.has(id) && isSafePatchKey(id),
+              );
+            }
+          }
+        }
         // `oldRows` for the col-span invariants. Normally `[]` so the 2→1 collapse never
         // fires — a producer shipping rows AND spans together meant the singleton spans it
         // sent. But a rows-ONLY bulk is semantically a `setWidgetLayout`: the surviving spans
@@ -2470,15 +2304,13 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // (cascading into surviving filters' `dependsOn`), and prunes their stale col-spans
       // on every page.
       //
-      // The primitive's own "still referenced on some OTHER page's rows" guard is INERT
-      // here, and that is intentional: the pre-strip above removes every non-re-added id
-      // from EVERY page's rows (not just the active one), exactly as `removeWidget` does,
-      // so nothing can still reference them. Both handlers delete the widget from
-      // `doc.widgets` entirely, so leaving it on another page's rows would strand a
+      // The primitive's own "still referenced on some OTHER page's rows" guard is inert
+      // here, intentionally: the pre-strip above already removed every non-re-added id from
+      // EVERY page's rows, exactly as `removeWidget` does. Both handlers delete the widget
+      // from `doc.widgets` entirely, so leaving it on another page's rows would strand a
       // dangling row reference — narrowing the pre-strip back to the active page would
-      // reintroduce that bug. The guard stays in the primitive for `removePage`, the one
-      // caller that genuinely needs it (it drops a page without touching the surviving
-      // pages' rows); see `removeWidgetIds`'s doc comment.
+      // reintroduce that. The guard exists for `removePage`, the one caller that needs it;
+      // see `removeWidgetIds`'s doc comment.
       const {
         pages: nextPages,
         widgets: prunedWidgets,
@@ -2501,35 +2333,24 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // have since been legitimately moved or removed by the user).
       const newlyInsertedWidgetIds: string[] = [];
       for (const widget of safeAddedWidgets) {
-        // Require a plain-record entry (F3 finding): a `null`/primitive entry in
-        // `addedWidgets` (e.g. from a parser-bypassing payload) would otherwise throw
-        // reading `.id` below instead of being gracefully skipped, matching the
-        // per-entry `isPlainRecord` guard `updatedWidgets` gets further down.
+        // The same four screens `addWidget` applies, per entry — a malformed entry is
+        // skipped rather than sinking the whole bulk.
+        // Crash prevention: the `.id` read below throws on a `null`/primitive entry.
         if (!isPlainRecord(widget)) {
           continue;
         }
-        // Require a STRING id (mirrors `addPage`/`addWidget`'s `typeof id !== 'string'`
-        // guard): `isSafePatchKey` alone accepts any non-string (it only denies the
-        // three string denylist members), so a hand-built `widget.id: 42` would install
-        // under the STRINGIFIED key while `widget.id` itself stayed numeric — a
-        // key/field desync identical to the one `addPage` already guards against.
+        // STRING id: `isSafePatchKey` alone accepts any non-string, so `widget.id: 42` would
+        // install under the STRINGIFIED key while `widget.id` stayed numeric.
         if (typeof widget.id !== 'string') {
           continue;
         }
-        // `isSafePatchKey` before the bracket assignment (matching every other handler
-        // and the `UNSAFE_KEYS` convention): `nextWidgets['__proto__'] = widget` would
-        // re-prototype the record rather than add an own key. The wire path is already
-        // shielded by `parseStateMutation`'s `isSafeId` check on `addedWidgets[].id`;
-        // this is the defense-in-depth copy for a server-built mutation bypassing it.
+        // Safe key before the bracket assignment: `nextWidgets['__proto__'] = widget` would
+        // re-prototype the record rather than add an own key.
         if (!isSafePatchKey(widget.id)) {
           continue;
         }
-        // Require STRING `kind`/`title` (Finding 2 — the `addedWidgets` sibling of
-        // `addWidget`'s identical guard above and `updatedWidgets`' `title` guard below,
-        // mirroring the wire boundary's `isString(widget.kind)`/`isString(widget.title)`
-        // checks in `validateWidget`). Without this, a parser-bypassing entry with e.g.
-        // `kind: 42` installed verbatim now, only for `deserializeState`'s widget screen
-        // to silently drop the ENTIRE widget on the very next load.
+        // STRING `kind`/`title`, or `deserializeState`'s widget screen drops the ENTIRE
+        // widget on the next load.
         if (typeof widget.kind !== 'string' || typeof widget.title !== 'string') {
           continue;
         }
@@ -2540,30 +2361,21 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         // originally added. `Object.hasOwn` (not truthy access) so an untrusted id can't
         // match a prototype member.
         //
-        // EXCEPT when this SAME payload also named `widget.id` in `removedWidgetIds`
-        // (F4 finding, `isReplace`): that is a remove+re-add of the same id — a
-        // "replace" — not a genuine idempotent re-delivery. The pre-strip/layout steps
-        // above deliberately left this id's row (and hence its `removeWidgetIds`
-        // "stillReferenced" status, filters, and spans) untouched precisely so the
-        // widget's PLACEMENT survives; the widget's already-present entry in
-        // `nextWidgets` is therefore still the OLD definition and must be overwritten
-        // with the new one below, not skipped. Without this exception, a "replace" bulk
-        // silently discarded the new title/config and became a placement-only no-op —
-        // the exact divergence from the widgetRows-absent branch (which genuinely
-        // deleted-then-reinserted, losing placement/filters/spans instead) that F4
-        // closes by making both branches preserve placement/filters/spans AND apply the
-        // new definition.
+        // EXCEPT a `reAddedWidgetIds` member: a remove+re-add of the same id is a REPLACE,
+        // not a re-delivery. The pre-strip and layout steps above deliberately left that
+        // id's row (and hence its `removeWidgetIds` "stillReferenced" status, filters and
+        // spans) untouched so the widget's PLACEMENT survives, which means its entry in
+        // `nextWidgets` is still the OLD definition and must be overwritten below. Skipping
+        // it would make a replace bulk a placement-only no-op that discards the new
+        // title/config.
         const alreadyPresent = Object.hasOwn(nextWidgets, widget.id);
         const isReplace = reAddedWidgetIds.has(widget.id);
         if (alreadyPresent && !isReplace) {
           continue;
         }
-        // Coerce a non-record `config` to `{}` BEFORE installing (T2-2), mirroring
-        // `addWidget` and the load boundary — otherwise a hand-built `config: null`
-        // added widget detonates on the next config-touching mutation.
-        // Key-strip the optional scalars (`subtitle`/`sourceId`/`titleMode`/
-        // `subtitleMode`) the wire boundary validates but this ADD channel didn't
-        // (Finding 1) BEFORE installing, mirroring `addWidget` and the load boundary.
+        // Repair the widget before installing, exactly as `addWidget` does: make a
+        // non-record config safe to store and strip its unsafe own keys, then drop an
+        // invalid `subtitle`/`sourceId`/`titleMode`/`subtitleMode`.
         const safeWidget = screenOptionalWidgetScalars(coerceWidgetConfig(widget));
         // Normalize the deprecated `seriesType` alias on write (reference-stable when
         // already canonical), so a bulk-added widget matches the load-boundary shape.
@@ -2573,26 +2385,19 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
             ? safeWidget
             : ({ ...safeWidget, config: normalizedConfig } as StudioWidget);
         widgetsChanged = true;
-        // Only a genuinely NEW entry (never present before this loop iteration) is a
-        // candidate for the default row-placement step below — a "replace" already has
-        // a preserved placement (F4), so pushing it here would be redundant (the
-        // `referenced` filter in that step would exclude it anyway, but tracking it
-        // accurately here keeps `newlyInsertedWidgetIds`'s name honest).
+        // Only a genuinely NEW entry is a candidate for the default row-placement step
+        // below; a replace already has a preserved placement.
         if (!alreadyPresent) {
           newlyInsertedWidgetIds.push(widget.id);
         }
       }
-      // Default row-placement for a newly-inserted widget the layout portion above
-      // didn't already place (finding: when the bulk omits `widgetRows` — an
-      // updates/adds-only batch, the common case for a producer that isn't also
-      // touching layout — `hasLayoutUpdate` is `false` and the ENTIRE layout-replacement
-      // block is skipped, so an added widget landed in `nextWidgets` but was never
-      // appended to any page's rows: an orphan that exists but never renders anywhere).
-      // Scoped to `pageExists` (the same active-page-existence guard the layout portion
-      // uses) — if the target page was deleted mid-turn there is no sensible page to
-      // default onto, so the widget stays in `nextWidgets` unplaced rather than
-      // guessing a page, matching this handler's existing "apply the widget deltas even
-      // when the page-scoped layout can't be" precedent.
+      // Default row-placement for a newly-inserted widget the layout portion above didn't
+      // place. An adds-only batch omits `widgetRows`, so `hasLayoutUpdate` is `false` and the
+      // layout-replacement block never runs — the added widget would land in `nextWidgets`
+      // but appear on no page's rows: an orphan that exists and never renders. Scoped to
+      // `pageExists`: if the target page was deleted mid-turn there is no sensible page to
+      // default onto, so the widget stays unplaced rather than guessing, matching this
+      // handler's "apply the widget deltas even when the page-scoped layout can't be" rule.
       let placementPages = nextPages;
       if (newlyInsertedWidgetIds.length > 0 && pageExists) {
         const referenced = new Set<string>();
@@ -2620,17 +2425,13 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         }
       }
       for (const update of safeUpdatedWidgets) {
-        // Require a plain-record entry (F3 finding): a `null`/primitive entry in
-        // `updatedWidgets` (e.g. from a parser-bypassing payload) would otherwise throw
-        // reading `.widgetId` below instead of being gracefully skipped.
+        // Crash prevention: the `.widgetId` read below throws on a `null`/primitive entry.
         if (!isPlainRecord(update)) {
           continue;
         }
         // Prototype-hazard guard before the `nextWidgets[update.widgetId] = patchedWidget`
-        // bracket-write below (Tier3/4 consistency finding), keeping this write uniform with
-        // every other key-by-key rebuild in the reducer. The `Object.hasOwn` existence check
-        // just below already rejects an unsafe key in practice, but the explicit guard makes
-        // the intent local to the write.
+        // bracket-write below. The `Object.hasOwn` existence check just below already rejects
+        // an unsafe key in practice; this keeps the intent local to the write.
         if (!isSafePatchKey(update.widgetId)) {
           continue;
         }
@@ -2642,19 +2443,13 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         }
         const existing = nextWidgets[update.widgetId];
         let patchedWidget = existing;
-        // Only rewrap the widget for a field that genuinely DIFFERS from its current
-        // value — same idempotency guard the `config`-patch branch of `updateWidget`
-        // applies. Without this, a re-delivered bulk (SSE at-least-once) carrying a
-        // value-identical or field-less `{ widgetId }` update entry churns the doc and
-        // pushes a spurious undo entry, breaking the reference-equality no-op contract.
+        // Each field below is applied only when it genuinely DIFFERS from the widget's
+        // current value, so a re-delivered bulk (SSE at-least-once) carrying a
+        // value-identical or field-less `{ widgetId }` entry doesn't churn the doc and push a
+        // spurious undo entry.
         //
-        // `typeof update.title === 'string'` (defense-in-depth, mirroring `updateWidget`'s
-        // `changes.title`/`changes.kind` guard and the wire boundary's `isString(widget.title)`
-        // gate): `title` is typed as `string | undefined` on the wire mutation, but a
-        // parser-bypassing server-built bulk (the `executeToolOnState` pattern) can still
-        // carry a non-string value, which would install verbatim here and then be dropped
-        // — the WHOLE widget — by `deserializeState`'s non-string-title screen on the next
-        // load. Skip a non-string value instead of merging it.
+        // `title` must be a STRING: `deserializeState`'s non-string-title screen drops the
+        // WHOLE widget on the next load, so merging a junk value defers the loss to reload.
         if (
           update.title !== undefined &&
           typeof update.title === 'string' &&
@@ -2662,14 +2457,10 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         ) {
           patchedWidget = { ...patchedWidget, title: update.title };
         }
-        // `typeof update.sourceId === 'string'` (finding 3, the `sourceId` sibling of the
-        // `title` guard just above): `sourceId` is typed as `string | undefined` on the
-        // wire mutation, but a parser-bypassing server-built bulk can still carry a
-        // non-string value. Unlike `title`, a junk `sourceId` is NOT caught by any load-
-        // boundary screen (`deserializeState` drops the key gracefully rather than the
-        // whole widget), so without this guard it would install verbatim and silently
-        // break the widget-to-data-source lookup with no self-heal. Skip a non-string
-        // value instead of merging it.
+        // `sourceId` must be a STRING too, for the opposite reason: no load-boundary screen
+        // catches a junk one (`deserializeState` drops the key gracefully rather than the
+        // widget), so it would silently break the widget-to-data-source lookup with no
+        // self-heal at all.
         if (
           update.sourceId !== undefined &&
           typeof update.sourceId === 'string' &&
@@ -2685,15 +2476,13 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         // actually changed a config key by value (compared like the `config`-patch
         // branch), so a value-identical config patch stays a no-op.
         //
-        // `isPlainRecord` (not bare truthiness): a bare `if (update.config)` lets an
-        // array OR a truthy string through, and `{ ...existing.config, ...update.config }`
-        // spreads either one's index keys ("0", "1", …) into the merged config (T2-2).
-        // A non-record `update.config` is skipped entirely, same as an absent one.
+        // `isPlainRecord`, not bare truthiness: `{ ...existing.config, ...update.config }`
+        // would spread an array's or string's index keys ("0", "1", …) into the merged
+        // config. A non-record `update.config` is skipped, same as an absent one.
         if (isPlainRecord(update.config)) {
-          // Strip prototype-polluting own keys from the merge result before installing
-          // (T2-3), the same defense-in-depth the `updateWidget` config-patch loop applies
-          // per-key — otherwise an unsafe key in `update.config` survives as an own config
-          // property and `deserializeState` drops the whole widget on the next load.
+          // Strip prototype-polluting own keys from the merge result before installing — the
+          // same screen `updateWidget`'s config-patch loop applies per-key. An unsafe key
+          // surviving as an own config property makes the next load drop the whole widget.
           const mergedConfig = normalizeConfigChartSeries(
             stripUnsafeConfigKeys({
               ...existing.config,
@@ -2715,12 +2504,26 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         }
       }
 
+      // Re-check per-page rank-filter uniqueness against the FINAL placement. This bulk
+      // can move a widget onto a page (its own `widgetRows`, or the default row-placement
+      // step above), and a `widget`-scoped rank filter that resolved to nothing while its
+      // widget was unplaced then lands on a page that may already have one. Enforcing it
+      // here keeps the live doc and the load boundary in agreement at commit time — see
+      // `dropConflictingRankFilters`. Reference-stable, so a bulk that changes no
+      // placement (or a doc with no rank filters) leaves `nextFilters`' identity intact
+      // and the no-op check below still fires.
+      const rankScreenedFilters = dropConflictingRankFilters(nextFilters, placementPages);
+
       // Reference-equality no-op: a bulk that removed nothing, added/updated no widget,
       // and left the active-page layout unchanged returns the SAME doc so
       // `commitDocPatch`'s no-op guard skips a spurious undo entry. `placementPages`
       // (not `nextPages`) is the up-to-date pages reference — it equals `nextPages` by
       // identity unless the default-placement step above actually appended a row.
-      if (!widgetsChanged && placementPages === state.pages && nextFilters === state.filters) {
+      if (
+        !widgetsChanged &&
+        placementPages === state.pages &&
+        rankScreenedFilters === state.filters
+      ) {
         return state;
       }
 
@@ -2728,7 +2531,7 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         ...state,
         widgets: widgetsChanged ? nextWidgets : state.widgets,
         pages: placementPages,
-        filters: nextFilters,
+        filters: rankScreenedFilters,
       };
     },
     label: () => 'applyBulkUpdate',
@@ -2739,14 +2542,9 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       if (!state.ai) {
         return state;
       }
-      // Require STRING `name`/`updatedAt` (finding 2.2, parser-bypass parity with the
-      // wire boundary's `isString(args.name)`/`isString(args.updatedAt)` gates in
-      // `parseStateMutation.ts`). Without this, a server-built `renameAIThread`
-      // bypassing the parser with a non-string `name`/`updatedAt` would install it
-      // verbatim onto the thread — no immediate throw, but a value that violates the
-      // thread's `name: string`/`updatedAt: string` shape, corrupting the thread entry
-      // (the chat panel's thread selector renders `name` directly as text with no
-      // fallback) until something downstream trips over the non-string value.
+      // Require STRING `name`/`updatedAt`: the thread's `name`/`updatedAt` are typed
+      // `string`, and the chat panel's thread selector renders `name` directly as text with
+      // no fallback of its own.
       if (typeof args.name !== 'string' || typeof args.updatedAt !== 'string') {
         return state;
       }
@@ -2805,41 +2603,32 @@ export const MUTATION_TYPES = Object.keys(MUTATION_HANDLERS) as StateMutation['t
  * not a fresh object — callers rely on `next === doc` to detect a no-op.
  */
 export function applyDocMutation(doc: StudioDoc, mutation: StateMutation): StudioDoc {
-  // Totality guard before the `mutation.type` read below (T2 finding), the mutation-level
-  // sibling of the `isPlainRecord(mutation.args)` gate further down. A server-built value
-  // bypassing `parseStateMutation` (the `executeToolOnState` path) could hand a non-record
-  // `mutation` (`null`, `undefined`, a primitive), on which `Object.hasOwn(…, mutation.type)`
-  // throws. Gate it here so the reducer stays total and returns the documented no-op `doc`.
+  // Crash prevention: `Object.hasOwn(…, mutation.type)` below throws on a non-record
+  // `mutation` (`null`, `undefined`, a primitive).
   if (!isPlainRecord(mutation)) {
     return doc;
   }
   // A single cast at the dispatch boundary: TS cannot prove that
-  // `MUTATION_HANDLERS[mutation.type]` and `mutation.args` share the same `M`
-  // (the correlation is lost once `mutation.type` is read), so we assert the
-  // handler as the general shape. The mapped type above still guarantees a
-  // handler exists for every variant known at compile time — but a value
-  // arriving over the wire (SSE payload, legacy/forward-incompatible client)
-  // is not guaranteed to match, so guard the lookup at runtime too.
-  // `Object.hasOwn` before the bracket read (T2-1), matching the `Object.hasOwn` discipline
-  // every other table lookup in this package uses (`parseStateMutation`'s validator table,
-  // `getAllowedConfigKeys`, the reducer's per-widget guards). Without it, a `mutation.type`
-  // naming an `Object.prototype` member (`'constructor'`/`'toString'`/`'__proto__'`) resolves
-  // UP the prototype chain instead of to `undefined`, defeating the `handler ? … : doc` guard:
-  // `type: 'constructor'` would call `Object.apply(doc, args)` and replace the whole doc with
-  // a bogus `{}`, and `'__proto__'`/`'valueOf'` would throw mid-apply. Gating on own-property
-  // membership restores the documented graceful no-op for an unrecognized `type`.
+  // `MUTATION_HANDLERS[mutation.type]` and `mutation.args` share the same `M` (the
+  // correlation is lost once `mutation.type` is read), so the handler is asserted as the
+  // general shape. The mapped type above guarantees a handler exists for every variant known
+  // at compile time, but a value arriving over the wire (SSE payload, legacy or
+  // forward-incompatible client) is not guaranteed to match, hence the runtime lookup guard.
+  //
+  // `Object.hasOwn` before the bracket read, matching the lookup discipline every other
+  // table in this package uses. A `mutation.type` naming an `Object.prototype` member
+  // (`'constructor'`/`'toString'`/`'__proto__'`) otherwise resolves UP the prototype chain
+  // instead of to `undefined`, defeating the `handler ? … : doc` guard: `type: 'constructor'`
+  // would call `Object.apply(doc, args)` and replace the whole doc with a bogus `{}`, and
+  // `'__proto__'`/`'valueOf'` would throw mid-apply.
   const handler = Object.hasOwn(MUTATION_HANDLERS, mutation.type)
     ? (MUTATION_HANDLERS[mutation.type] as MutationHandler<StateMutation>)
     : undefined;
   if (!handler) {
     return doc;
   }
-  // Every mutation's `args` is a record (each `StateMutation` variant types it as an object);
-  // the wire boundary (`parseStateMutation`) enforces that. A server-built mutation bypassing
-  // the parser (the `executeToolOnState` path) could hand a non-record `args` (`undefined`, a
-  // primitive), on which every handler's first field read (`args.rows`, `args.widget`,
-  // `args.filter`, …) throws. Gate it once here so the reducer stays TOTAL and returns the
-  // documented no-op `doc` reference (T2-3), rather than repeating the guard in each handler.
+  // Crash prevention, once here rather than in each handler: every handler's first field
+  // read (`args.rows`, `args.widget`, `args.filter`, …) throws on a non-record `args`.
   if (!isPlainRecord(mutation.args)) {
     return doc;
   }
@@ -2860,35 +2649,31 @@ export function applyMutation(state: StudioState, mutation: StateMutation): Stud
 }
 
 /**
- * Compact, human-readable label for a mutation, used for the AI recent-mutation
- * log (client-side undo/redo history label + MCP `get_recent_changes`).
+ * Compact, human-readable label for a mutation, used for the AI recent-mutation log
+ * (client-side undo/redo history label + MCP `get_recent_changes`).
+ *
+ * Never throws, and always returns a `string`: callers use the result as a log line, a React
+ * child, or a `.slice()` target. Every guard below serves that contract.
  */
 export function mutationLabel(mutation: StateMutation): string {
-  // Totality guard before the `mutation.type` read below (T2 finding), the mutation-level
-  // sibling of the `isPlainRecord(mutation.args)` gate below and matching `applyDocMutation`'s
-  // own new mutation-level gate. A non-record `mutation` (`null`/primitive) would otherwise
-  // throw on `Object.hasOwn(…, mutation.type)`, breaking the "mutationLabel never throws"
-  // contract the AI recent-mutation log relies on. Fall back to a static `'unknown'` label
-  // (there is no readable `type` to echo), mirroring the per-handler `'unknown'` fallbacks.
+  // A non-record `mutation` (`null`/primitive) would throw on the `Object.hasOwn` below.
+  // There is no readable `type` to echo, so fall back to a static `'unknown'`.
   if (!isPlainRecord(mutation)) {
     return 'unknown';
   }
-  // `Object.hasOwn` before the bracket read (T2-1), same reasoning as `applyDocMutation`:
-  // a `type` naming an `Object.prototype` member would otherwise resolve to a prototype
-  // function and throw `handler.label is not a function` instead of returning the raw type
-  // string the contract promises for an unrecognized `type`.
+  // `Object.hasOwn` before the bracket read, same reasoning as `applyDocMutation`: a `type`
+  // naming an `Object.prototype` member would resolve to a prototype function and throw
+  // `handler.label is not a function` instead of returning the raw type string.
   const handler = Object.hasOwn(MUTATION_HANDLERS, mutation.type)
     ? (MUTATION_HANDLERS[mutation.type] as MutationHandler<StateMutation>)
     : undefined;
-  // A non-record `args` (a parser-bypassing server-built mutation) would throw in the label
-  // builders that reach into it (`addWidget:${args.widget.kind}`, `addFilter:${args.filter.field}`);
-  // fall back to the raw type string, matching the unrecognized-`type` contract (T2-3).
+  // An unrecognized `type` echoes the type string; so does a non-record `args`, which would
+  // throw in the label builders that reach into it (`addWidget:${args.widget.kind}`,
+  // `addFilter:${args.filter.field}`).
   //
-  // `String(...)` because `mutation.type` is only known to be a string for a RECOGNIZED
-  // type: this is the unrecognized branch, reached exactly when the value isn't one of the
-  // handler keys, so a parser-bypassing `type: 42` (or `null`, or an object) used to be
-  // returned RAW — violating this function's own `: string` contract for the callers that
-  // use the result as a log line, a React child, or a `.slice()` target.
+  // `String(...)` because `mutation.type` is only known to be a string for a RECOGNIZED type,
+  // and this is exactly the branch where it is not one — a `type: 42` (or `null`, or an
+  // object) would otherwise be returned raw, violating the `: string` contract.
   if (!handler || !isPlainRecord(mutation.args)) {
     return String((mutation as { type: unknown }).type);
   }

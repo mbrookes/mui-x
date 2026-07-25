@@ -2326,10 +2326,12 @@ describe('applyMutation', () => {
       expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 20, w2: 16 });
     });
 
-    it('still rebalances when the widget is not yet in any row, using rowWidgetIds as fallback', () => {
+    it('ignores a wire-supplied rowWidgetIds for a widget on no page: the span write is a no-op', () => {
       // The widget hasn't been placed into widgetRows yet, so no current row can be
-      // derived; the wire-supplied rowWidgetIds is the only membership signal and is
-      // used as the documented fallback (mirrors the producer's `?? [widgetId]`).
+      // derived. A span written for it would be an orphan by the same rule
+      // `enforceLayoutColSpans`/`normalizePersistedPages` enforce — deleted by the next
+      // layout mutation or the next load — so the handler must not write one, and must
+      // not rebalance a real row-mate's span against the wire-supplied grouping either.
       const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: {
@@ -2347,9 +2349,8 @@ describe('applyMutation', () => {
         type: 'setWidgetColSpan',
         args: { widgetId: 'w1', columns: 20, rowWidgetIds: ['w1', 'w2'] },
       });
-      // Fallback grouping applies: 20 + 16 = 36 > 24, one other widget, remainder
-      // 24 - 20 = 4 < MIN_SPAN, so w2's span is dropped.
-      expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 20 });
+      expect(next).toBe(state);
+      expect(next.pages['page-1'].widgetColSpans).toEqual({ w2: 16 });
     });
 
     it('a span write for a widget id absent from state.widgets is a no-op (no orphan span) (2.2)', () => {
@@ -2399,18 +2400,17 @@ describe('applyMutation', () => {
       expect(next).toBe(state);
     });
 
-    it('does not rebalance a span onto a phantom row-mate on the fallback path (2.1)', () => {
-      // w1 exists but sits in NO row, so the handler falls back to the wire-supplied
-      // `rowWidgetIds` grouping. `ghost` carries a pre-existing span (forcing the
+    it('does not rebalance a span onto a phantom row-mate sharing the row', () => {
+      // `ghost` shares w1's row and carries a pre-existing span (forcing the
       // single-other-widget overflow rebalance) but is NOT a real widget — makeDoc
-      // auto-registers any id appearing in `widgetColSpans`, so strip it back out.
+      // auto-registers any id appearing in a row/`widgetColSpans`, so strip it back out.
       const base = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: {
           'page-1': {
             id: 'page-1',
             title: 'P1',
-            widgetRows: [],
+            widgetRows: [['w1', 'ghost']],
             widgetColSpans: { ghost: 15 },
           },
         },
@@ -2422,18 +2422,16 @@ describe('applyMutation', () => {
         args: { widgetId: 'w1', columns: 12, rowWidgetIds: ['w1', 'ghost'], pageId: 'page-1' },
       });
       // clamped(12) + ghost(15) = 27 > 24 with a single other id and remaining(12) >=
-      // MIN_SPAN, so the OLD code rebalanced the phantom `ghost` to 12. The
-      // `Object.hasOwn(state.widgets, …) && isSafePatchKey(…)` guard skips writing a span
-      // for a non-widget id, so ghost's span is never rewritten to the rebalanced value.
+      // MIN_SPAN, so the rebalance wants to write ghost = 12. The write guard skips a
+      // non-widget id, so ghost's span is left at its stored value instead.
       expect(next.pages['page-1'].widgetColSpans).toEqual({ ghost: 15, w1: 12 });
     });
 
-    it('no-ops a span write when the widget lives on ANOTHER page than the target (no orphan span) (review 2.3)', () => {
+    it('no-ops a span write when the widget lives on ANOTHER page than the target (no orphan span)', () => {
       // w1 exists and is placed on page-2's rows, but the mutation targets page-1 (an
       // explicit pageId racing a concurrent move, or a legacy payload applied while the
-      // user is on another page). currentRow is undefined on page-1, so the OLD code
-      // used the wire-supplied rowWidgetIds fallback and wrote w1's span into page-1's
-      // map — a dead entry that serializes. It must instead be a no-op.
+      // user is on another page). w1 is on none of page-1's rows, so a span written here
+      // would be a dead entry that serializes on the wrong page.
       const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: {
@@ -2451,13 +2449,11 @@ describe('applyMutation', () => {
       expect(next.pages['page-2'].widgetColSpans).toBeUndefined();
     });
 
-    it('sets the span of a not-yet-placed widget when rowWidgetIds is omitted (parser-bypass, finding 2.5)', () => {
-      // w1 exists in `state.widgets` but sits on NO page (the documented not-yet-placed
-      // case), and a parser-bypassing partial payload (an `executeToolOnState`-style
-      // mutation built by hand) omits `rowWidgetIds`. The OLD code left `rowWidgetIds`
-      // undefined and threw a `TypeError` at `.filter(...)`; the handler must instead
-      // treat the widget as the sole occupant of its row (mirroring the producer's own
-      // `?? [widgetId]` default) and apply gracefully, like every sibling handler.
+    it('no-ops (without throwing) for a not-yet-placed widget when rowWidgetIds is omitted', () => {
+      // w1 exists in `state.widgets` but sits on NO page, and a parser-bypassing partial
+      // payload (an `executeToolOnState`-style mutation built by hand) omits
+      // `rowWidgetIds`. The handler never reads that field, so a missing one can't throw —
+      // and the unplaced widget makes the whole write a no-op.
       const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
@@ -2470,7 +2466,41 @@ describe('applyMutation', () => {
           args: { widgetId: 'w1', columns: 12 },
         } as StateMutation);
       }).not.toThrow();
-      expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 12 });
+      expect(next).toBe(state);
+      expect(next.pages['page-1'].widgetColSpans).toBeUndefined();
+    });
+
+    it('never writes a span the reload would delete as an orphan (widget on no page)', () => {
+      // Confirmed sequence: addWidget w1 → setWidgetLayout rows: [] (w1 unplaced) →
+      // setWidgetColSpan { w1: 12, pageId: 'page-1' }. The orphan rule
+      // `enforceLayoutColSpans` and `normalizePersistedPages` both enforce classifies a
+      // span for a widget absent from the page's rows as dead weight and deletes it, so
+      // the live write silently reverted on the next serialize/deserialize round trip.
+      const base = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+        widgets: {},
+      });
+      const added = applyDocMutation(base, {
+        type: 'addWidget',
+        args: { widget: chartWidget('w1'), pageId: 'page-1' },
+      });
+      const unplaced = applyDocMutation(added, {
+        type: 'setWidgetLayout',
+        args: { rows: [], pageId: 'page-1' },
+      });
+      expect(unplaced.pages['page-1'].widgetRows).toEqual([]);
+      expect(Object.keys(unplaced.widgets)).toEqual(['w1']);
+
+      const next = applyDocMutation(unplaced, {
+        type: 'setWidgetColSpan',
+        args: { widgetId: 'w1', columns: 12, pageId: 'page-1', rowWidgetIds: ['w1'] },
+      });
+      expect(next).toBe(unplaced);
+      expect(next.pages['page-1'].widgetColSpans).toBeUndefined();
+      // …and the live doc therefore already agrees with what a reload would produce.
+      const reloaded = deserializeState(serializeDoc(next), {});
+      expect(reloaded.doc.pages['page-1'].widgetColSpans).toBeUndefined();
     });
 
     // Finding 2.1: a NUMERIC `widgetId` must never resolve to the STRING-keyed widget of
@@ -3048,6 +3078,109 @@ describe('applyMutation', () => {
         },
       });
       expect(next.pages['page-1'].widgetColSpans).toBeUndefined();
+    });
+
+    // A merged row can overflow even though every individual span is in range — the
+    // incoming width plus a width already on the page. `enforceLayoutColSpans`' rule for an
+    // overflowing row is to drop EVERY span in it, which would wipe the width of a widget
+    // the payload never mentioned and drop the row to equal flex. Both `set_widget_width`
+    // and `apply_bulk_update` are AI-reachable, so the two must resolve the same overflow
+    // the same way.
+    describe('col-spans merge rebalances instead of dropping the whole row', () => {
+      // page p1, row [['w1','w2']], starting spans { w1: 16 }.
+      function docWithSharedRow(): StudioDoc {
+        return makeDoc({
+          dashboard: { id: 'd1', title: 'D', activePageId: 'p1' },
+          pages: {
+            p1: { id: 'p1', title: 'P1', widgetRows: [['w1', 'w2']], widgetColSpans: { w1: 16 } },
+          },
+          widgets: { w1: chartWidget('w1'), w2: chartWidget('w2') },
+        });
+      }
+
+      it('a colSpans-only bulk resolves the overflow exactly like setWidgetColSpan', () => {
+        const state = docWithSharedRow();
+        const viaColSpan = applyDocMutation(state, {
+          type: 'setWidgetColSpan',
+          args: { widgetId: 'w2', columns: 10, rowWidgetIds: ['w1', 'w2'], pageId: 'p1' },
+        });
+        // 24 − 10 = 14 ≥ MIN_SPAN, so w1 absorbs the remainder rather than losing its width.
+        expect(viaColSpan.pages.p1.widgetColSpans).toEqual({ w1: 14, w2: 10 });
+
+        const viaBulk = applyDocMutation(state, {
+          type: 'applyBulkUpdate',
+          args: {
+            removedWidgetIds: [],
+            addedWidgets: [],
+            updatedWidgets: [],
+            widgetColSpans: { w2: 10 },
+            activePageId: 'p1',
+          },
+        });
+        expect(viaBulk.pages.p1.widgetColSpans).toEqual({ w1: 14, w2: 10 });
+      });
+
+      it('a full-snapshot colSpans bulk fits the row instead of wiping every width', () => {
+        const state = docWithSharedRow();
+        const next = applyDocMutation(state, {
+          type: 'applyBulkUpdate',
+          args: {
+            removedWidgetIds: [],
+            addedWidgets: [],
+            updatedWidgets: [],
+            widgetColSpans: { w1: 16, w2: 10 },
+            activePageId: 'p1',
+          },
+        });
+        // 16 + 10 = 26 > 24. Both widths were explicitly requested, so they are granted in
+        // row order out of the 24-column budget: w1 keeps 16 and w2 takes the remaining 8.
+        expect(next.pages.p1.widgetColSpans).toEqual({ w1: 16, w2: 8 });
+      });
+
+      it('clears an anchor that cannot be granted MIN_SPAN out of the remaining budget', () => {
+        const state = docWithSharedRow();
+        const next = applyDocMutation(state, {
+          type: 'applyBulkUpdate',
+          args: {
+            removedWidgetIds: [],
+            addedWidgets: [],
+            updatedWidgets: [],
+            widgetColSpans: { w1: 20, w2: 20 },
+            activePageId: 'p1',
+          },
+        });
+        // w1 takes 20; only 4 columns remain, below MIN_SPAN (6), so w2 falls back to flex.
+        expect(next.pages.p1.widgetColSpans).toEqual({ w1: 20 });
+      });
+
+      it('leaves a row the payload names no width in to the drop-to-flex rule', () => {
+        const state = makeDoc({
+          dashboard: { id: 'd1', title: 'D', activePageId: 'p1' },
+          pages: {
+            p1: {
+              id: 'p1',
+              title: 'P1',
+              widgetRows: [['w1', 'w2'], ['w3']],
+              // w1 + w2 already overflow, and this bulk names neither of them.
+              widgetColSpans: { w1: 16, w2: 16 },
+            },
+          },
+          widgets: { w1: chartWidget('w1'), w2: chartWidget('w2'), w3: chartWidget('w3') },
+        });
+        const next = applyDocMutation(state, {
+          type: 'applyBulkUpdate',
+          args: {
+            removedWidgetIds: [],
+            addedWidgets: [],
+            updatedWidgets: [],
+            widgetColSpans: { w3: 12 },
+            activePageId: 'p1',
+          },
+        });
+        // No anchor in the overflowing row, so it keeps the documented drop-to-flex
+        // resolution; the anchored row's own width applies.
+        expect(next.pages.p1.widgetColSpans).toEqual({ w3: 12 });
+      });
     });
 
     it('drops a producer span for an id absent from widgetRows', () => {
@@ -4681,15 +4814,15 @@ describe('applyMutation', () => {
       expect(next.pages['page-1'].widgetRows).toEqual([['w1']]);
     });
 
-    // Finding 2.5 follow-up: the `?? [widgetId]` fallback only covers an ABSENT
-    // `rowWidgetIds`. A parser-bypassing partial payload can supply a truthy NON-array
-    // value (e.g. a string), which would otherwise flow into `rowWidgetIds.filter(...)`
-    // and throw. A non-array value must be treated the same as absent.
-    it('setWidgetColSpan with a non-array rowWidgetIds falls back to [widgetId] instead of throwing', () => {
+    // A parser-bypassing partial payload can supply a truthy NON-array `rowWidgetIds`
+    // (e.g. a string). The handler derives row membership from the live rows and never
+    // reads that field, so a junk value cannot throw — and w1 being on no row makes this
+    // a no-op regardless.
+    it('setWidgetColSpan with a non-array rowWidgetIds does not throw', () => {
       const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
-        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
-        widgets: { w1: chartWidget('w1') },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1', 'w2']] } },
+        widgets: { w1: chartWidget('w1'), w2: chartWidget('w2') },
       });
       let next!: StudioDoc;
       expect(() => {
@@ -5279,6 +5412,91 @@ describe('rank-filter page-context resolution (H1)', () => {
       args: { filter: rankFilter('r-page-1-dup', { kind: 'page', pageId: 'page-1' }) },
     });
     expect(rejected).toBe(withPage2);
+  });
+
+  // An unresolvable rank filter is accepted unconditionally, so the conflict it cannot have
+  // at ADD time can be created later by a PLACEMENT. The layout handlers re-run the same
+  // sweep the load boundary runs, so the live doc and a reload agree at commit time rather
+  // than diverging until the next load silently deletes the filter.
+  describe('a placement that creates a rank conflict resolves it in the reducer', () => {
+    // addWidget w1 → setWidgetLayout rows: [] leaves w1 in `widgets` but on no page.
+    function docWithUnplacedW1(): StudioDoc {
+      const base = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'p1' },
+        pages: { p1: { id: 'p1', title: 'P1', widgetRows: [] } },
+        widgets: {},
+      });
+      const added = applyDocMutation(base, {
+        type: 'addWidget',
+        args: { widget: chartWidget('w1'), pageId: 'p1' },
+      });
+      return applyDocMutation(added, { type: 'setWidgetLayout', args: { rows: [], pageId: 'p1' } });
+    }
+
+    // f1 (page-scoped rank on p1) + f2 (widget-scoped rank on the UNPLACED w1). Both are
+    // accepted: f2 resolves to the UNRESOLVABLE sentinel, so it conflicts with nothing.
+    function docWithBothRankFilters(): StudioDoc {
+      const withF1 = applyDocMutation(docWithUnplacedW1(), {
+        type: 'addFilter',
+        args: { filter: rankFilter('f1', { kind: 'page', pageId: 'p1' }) },
+      });
+      const withF2 = applyDocMutation(withF1, {
+        type: 'addFilter',
+        args: { filter: rankFilter('f2', { kind: 'widget', widgetId: 'w1' }) },
+      });
+      expect(withF2.filters.map((f) => f.id)).toEqual(['f1', 'f2']);
+      return withF2;
+    }
+
+    it('setWidgetLayout placing the widget drops the now-conflicting rank filter', () => {
+      const state = docWithBothRankFilters();
+      const next = applyDocMutation(state, {
+        type: 'setWidgetLayout',
+        args: { rows: [['w1']], pageId: 'p1' },
+      });
+      // f2 now resolves to p1, which f1 already occupies. The FIRST rank filter in array
+      // order wins — the same tie-break the load boundary uses.
+      expect(next.filters.map((f) => f.id)).toEqual(['f1']);
+      expect(next.pages.p1.widgetRows).toEqual([['w1']]);
+      // Live doc and reload now agree; before the fix the live doc kept ['f1', 'f2'] and
+      // the reload silently deleted f2, which the next save then re-persisted.
+      const reloaded = deserializeState(serializeDoc(next), {});
+      expect(reloaded.doc.filters.map((f) => f.id)).toEqual(['f1']);
+    });
+
+    it('applyBulkUpdate placing the widget via widgetRows drops the now-conflicting rank filter', () => {
+      const state = docWithBothRankFilters();
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: [],
+          addedWidgets: [],
+          updatedWidgets: [],
+          widgetRows: [['w1']],
+          widgetColSpans: {},
+          activePageId: 'p1',
+        },
+      });
+      expect(next.filters.map((f) => f.id)).toEqual(['f1']);
+      const reloaded = deserializeState(serializeDoc(next), {});
+      expect(reloaded.doc.filters.map((f) => f.id)).toEqual(['f1']);
+    });
+
+    it('a layout change that creates no conflict leaves the filters array identity intact', () => {
+      const state = docWithBothRankFilters();
+      // w1 lands on p2, where no other rank filter lives, so both survive…
+      const withPage2 = applyDocMutation(state, {
+        type: 'addPage',
+        args: { id: 'p2', title: 'P2' },
+      });
+      const next = applyDocMutation(withPage2, {
+        type: 'setWidgetLayout',
+        args: { rows: [['w1']], pageId: 'p2' },
+      });
+      expect(next.filters.map((f) => f.id)).toEqual(['f1', 'f2']);
+      // …and the untouched array keeps its identity, so no spurious undo entry is pushed.
+      expect(next.filters).toBe(withPage2.filters);
+    });
   });
 });
 

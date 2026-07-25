@@ -66,6 +66,11 @@ export interface StudioProviderProps {
    * feature IDs, and how the geography appears in the Map Setup panel.
    */
   geographies?: Record<string, StudioMapGeographyDefinition>;
+  /**
+   * Overrides the default 6-color chart palette with a fixed, per-mode categorical
+   * palette applied to every chart widget's series. See {@link usePageChartColors}.
+   */
+  chartColors?: { light: string[]; dark: string[] };
 }
 
 export function StudioProvider(props: StudioProviderProps) {
@@ -78,6 +83,7 @@ export function StudioProvider(props: StudioProviderProps) {
     aiConfig,
     customWidgets,
     geographies,
+    chartColors,
   } = props;
 
   const uiConfig = React.useMemo(
@@ -90,8 +96,9 @@ export function StudioProvider(props: StudioProviderProps) {
       aiConfig: aiConfig ?? null,
       customWidgets,
       geographies,
+      chartColors,
     }),
-    [tableSourceMode, featureFlags, localeText, aiConfig, customWidgets, geographies],
+    [tableSourceMode, featureFlags, localeText, aiConfig, customWidgets, geographies, chartColors],
   );
 
   return (

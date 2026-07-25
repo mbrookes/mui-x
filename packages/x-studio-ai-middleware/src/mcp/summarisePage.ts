@@ -14,7 +14,14 @@ import {
   type StudioChartConfig,
 } from '@mui/x-studio-schema';
 import { sanitizeForPrompt } from '../buildAISystemPrompt';
-import { checkAllowedTable, withTimeout, type ToolHandler } from './helpers';
+import {
+  checkAllowedTable,
+  errorResult,
+  safeIdentifier,
+  withTimeout,
+  type ToolHandler,
+} from './helpers';
+import { validateAndCapStringArrayElements } from './queryTools';
 import type { StudioMcpData, StudioMcpLogger, StudioStateBox } from './types';
 
 // The period-truncation (`truncateToPeriod`) and IQR anomaly-detection
@@ -62,6 +69,16 @@ const DEFAULT_MAX_QUERY_ROWS = 1000;
 const MAX_SUMMARISE_PAGE_WIDGETS = 50;
 
 /**
+ * Hard upper bound on the number of anomaly bucket labels appended to a widget's
+ * section (finding L4). `detectAnomaliesIQR` can flag up to one bucket per GROUP BY
+ * row — `min(20000, maxQueryRows)` of them — and every flagged label used to be
+ * `join(', ')`-ed into this LLM-consumed summary, so a high-cardinality
+ * `xGroupBy` produced an unbounded block of text per widget. The overflow count is
+ * still reported, so the model knows how many anomalies were found.
+ */
+const MAX_ANOMALY_LABELS = 20;
+
+/**
  * Build the `summarise_page` handler. Registered only when `data` is configured;
  * without data the tool falls through to `executeToolOnState`, which returns a
  * descriptive client-side-limitation error.
@@ -79,13 +96,56 @@ export function createSummarisePageHandler(deps: {
    * `MAX_QUERY_ROWS` when the host supplies none.
    */
   maxQueryRows?: number;
+  /**
+   * Per-source authorization consult, run once per DISTINCT widget `sourceId` on the
+   * resolved page before any live query for that source runs (finding H3).
+   *
+   * `mcp.ts` gates `summarise_page` itself under `query_data_source`
+   * SOURCE-AGNOSTICALLY (it spans the whole page), by analogy with the multi-source
+   * `studio://dashboard/data-health` resource. But that analogy only holds for
+   * `data-health`: its source set is HOST-controlled and it returns nothing but
+   * counts, whereas this handler's source set is MODEL-controlled
+   * (`add_widget`/`update_widget` accept any `sourceId` — `buildWidgetFromArgs` caps
+   * the string but performs no existence or authorization check) and it returns 5
+   * real rows per widget. A host whose policy denies `query_data_source` for
+   * `ctx.input.sourceId === 'source-hr'` — the documented per-source rule that
+   * `authorizeResourceDataAccess` threads `sourceId` for — could therefore be
+   * bypassed by adding an HR-sourced widget (a mutation, so the rule does not fire)
+   * and then calling `summarise_page`.
+   *
+   * Resolves to a deny-reason string (the widget is then skipped, like the
+   * `checkAllowedTable` denial below) or `null` to proceed. When omitted, no
+   * per-source gate is applied (used only by unit tests and callers that construct
+   * the handler directly).
+   * @param {{ sourceId: string }} input The source about to be queried.
+   * @returns {Promise<string | null>} A deny-reason string, or `null` to proceed.
+   */
+  authorizeSourceDataAccess?: (input: { sourceId: string }) => Promise<string | null>;
 }): ToolHandler {
-  const { stateBox, data, logger, maxQueryRows = DEFAULT_MAX_QUERY_ROWS } = deps;
+  const {
+    stateBox,
+    data,
+    logger,
+    maxQueryRows = DEFAULT_MAX_QUERY_ROWS,
+    authorizeSourceDataAccess,
+  } = deps;
 
   return async (args) => {
     const state = stateBox.current;
     // Accept optional pageId arg; fall back to active page.
-    const requestedPageId = (args as { pageId?: string })?.pageId;
+    // Finding M7: `pageId` was never type-checked — a non-string truthy value (an
+    // object, an array) reached the `Object.hasOwn` lookup and the not-found message
+    // verbatim. Reject it the same way every sibling identifier arg in
+    // `queryTools.ts` is rejected, rather than stringifying something nonsensical.
+    const rawPageId = (args as { pageId?: unknown } | undefined)?.pageId;
+    if (rawPageId !== undefined && typeof rawPageId !== 'string') {
+      return errorResult(
+        `summarise_page: "pageId" must be a string, received ${
+          Array.isArray(rawPageId) ? 'array' : typeof rawPageId
+        }. Pass a page id from list_pages, or omit "pageId" to summarise the active page.`,
+      );
+    }
+    const requestedPageId = rawPageId;
     const resolvedPageId = requestedPageId ?? state.doc.dashboard.activePageId;
     // `Object.hasOwn`-guarded lookup (finding T2-1): a prototype-member pageId
     // (`"constructor"`) would otherwise resolve to a truthy inherited function and
@@ -103,11 +163,11 @@ export function createSummarisePageHandler(deps: {
             text: requestedPageId
               ? // Finding F6 (Tier 3): `requestedPageId` is caller-supplied and echoed
                 // raw into this LLM-consumed tool output. Route it through
-                // `sanitizeForPrompt` — the same choke point every other
-                // state-derived string in this file already passes through (e.g.
-                // `resolvedPageId` below) — for parity with the rest of the
-                // package's sanitize-before-interpolate convention.
-                `Page "${sanitizeForPrompt(requestedPageId)}" not found.`
+                // `safeIdentifier` — the shared sanitize-AND-cap choke point for an
+                // untrusted identifier echoed into error prose. It was previously only
+                // sanitized (finding M7), leaving a multi-megabyte `pageId` free to
+                // become a multi-megabyte tool result.
+                `Page "${safeIdentifier(requestedPageId)}" not found.`
               : 'No active page found.',
           },
         ],
@@ -132,6 +192,34 @@ export function createSummarisePageHandler(deps: {
     // onto a shared array preserves page/layout order in the final summary
     // regardless of which query settles first.
     const results: (SectionItem | null)[] = new Array(widgets.length).fill(null);
+
+    // Finding H3: consult the per-source gate ONCE per distinct `sourceId`, not once
+    // per widget. The consult increments the session's tool-call usage and may bridge
+    // to the host's approval channel, so a page with 20 widgets on one source must not
+    // spend 20 budget units or prompt a human 20 times. Memoised on the in-flight
+    // promise so concurrent widgets sharing a source await the same consult.
+    const sourceAuthorization = new Map<string, Promise<string | null>>();
+    const authorizeSource = (sourceId: string): Promise<string | null> => {
+      if (!authorizeSourceDataAccess) {
+        return Promise.resolve(null);
+      }
+      let pending = sourceAuthorization.get(sourceId);
+      if (!pending) {
+        // FAIL CLOSED on a throwing gate: the consult reaches host code (`toolPolicy`,
+        // `approvalHandler`), and a host bug must skip the widget, never wave it
+        // through. The detail goes to the server log, never into the summary.
+        pending = authorizeSourceDataAccess({ sourceId }).catch((err) => {
+          logger?.error(
+            `[mcp] summarise_page per-source authorization threw: ${
+              err instanceof Error ? (err.stack ?? err.message) : String(err)
+            }`,
+          );
+          return 'the per-source authorization check failed';
+        });
+        sourceAuthorization.set(sourceId, pending);
+      }
+      return pending;
+    };
 
     await Promise.all(
       widgets.map(async (widget, i) => {
@@ -163,6 +251,18 @@ export function createSummarisePageHandler(deps: {
         if (tableCheckError) {
           logger?.error(
             `[mcp] summarise_page skipped widget "${widget.title || sourceId}": ${tableCheckError}`,
+          );
+          return;
+        }
+        // Per-source authorization (finding H3) — see `authorizeSourceDataAccess`'s doc
+        // comment. Skipped exactly like the allowlist denial above: one denied source
+        // must not fail the whole page summary, and the deny reason is logged
+        // server-side rather than echoed into the LLM-consumed summary (the model must
+        // not learn which sources exist but are off-limits).
+        const authorizationError = await authorizeSource(sourceId);
+        if (authorizationError) {
+          logger?.error(
+            `[mcp] summarise_page skipped widget "${widget.title || sourceId}": ${authorizationError}`,
           );
           return;
         }
@@ -260,17 +360,38 @@ export function createSummarisePageHandler(deps: {
               | 'min'
               | 'max';
             const xGroupBy = chartCfg.xGroupBy!;
-            // Summing per-x-value aggregates into a period bucket is only valid
-            // for sum/count — see ANOMALY_SAFE_AGGREGATIONS' doc comment. For
-            // avg/min/max, skip the anomaly path entirely rather than feed
-            // detectAnomaliesIQR a mathematically bogus combined value.
-            if (xField && yField && ANOMALY_SAFE_AGGREGATIONS.has(yAgg)) {
+            // Finding M4: `xField`/`yField` come straight off the widget config, which
+            // `add_widget`/`update_widget` accept from the model —
+            // `capConfigStringValues` caps string LENGTH but preserves non-string types,
+            // and only truthiness was checked here. An `xField: ['a','b']` /
+            // `yField: { alias: 'x' }` therefore reached the host as
+            // `columns: [['a','b']]` / `aggregations: [{ column: {…} }]`; a Knex host
+            // reads that object as an alias map and projects an unintended column.
+            // This was the only column-name path in the package that skipped the
+            // validation `query_data_source` / `get_field_values` /
+            // `compute_field_stats` all apply — run the very same helper, and skip the
+            // anomaly path (never guess) when either field is not a string.
+            const chartFields = validateAndCapStringArrayElements(
+              'summarise_page',
+              'chart fields',
+              [xField, yField],
+            );
+            if (!chartFields.ok && xField !== undefined && yField !== undefined) {
+              logger?.error(
+                `[mcp] summarise_page skipped the anomaly aggregation for widget ` +
+                  `"${widget.title || sourceId}": xField/yField must be strings.`,
+              );
+            }
+            const [safeXField, safeYField] = chartFields.ok
+              ? chartFields.value
+              : [undefined, undefined];
+            if (safeXField && safeYField && ANOMALY_SAFE_AGGREGATIONS.has(yAgg)) {
               const aggResult = await withTimeout(
                 data.queryDataSource({
                   sourceId,
                   tableName: source.tableName as string,
-                  columns: [xField],
-                  aggregations: [{ column: yField, func: yAgg, alias: 'y_agg' }],
+                  columns: [safeXField],
+                  aggregations: [{ column: safeYField, func: yAgg, alias: 'y_agg' }],
                   // Finding 6 (Tier 3): this hardcoded 20,000 previously ignored the
                   // host's configured `maxQueryRows` bound entirely. Cap at whichever
                   // is smaller, matching `query_data_source`'s own
@@ -282,7 +403,7 @@ export function createSummarisePageHandler(deps: {
               );
               const grouped = new Map<string, number>();
               for (const row of aggResult.rows) {
-                const periodKey = truncateToPeriod(row[xField], xGroupBy);
+                const periodKey = truncateToPeriod(row[safeXField], xGroupBy);
                 if (!periodKey) {
                   continue;
                 }
@@ -297,7 +418,16 @@ export function createSummarisePageHandler(deps: {
                 .filter((i) => i > 0 && i < lastIdx)
                 .map((i) => tsLabels![i]);
               if (anomalyLabels.length > 0) {
-                lines.push(`Anomalies detected at: ${anomalyLabels.join(', ')}`);
+                // Finding L4: cap how many labels are spelled out — see
+                // MAX_ANOMALY_LABELS. The total is still reported when truncated.
+                const shownLabels = anomalyLabels.slice(0, MAX_ANOMALY_LABELS);
+                const omittedLabels = anomalyLabels.length - shownLabels.length;
+                lines.push(
+                  `Anomalies detected at: ${shownLabels.join(', ')}` +
+                    (omittedLabels > 0
+                      ? ` (+${omittedLabels} more of ${anomalyLabels.length} total)`
+                      : ''),
+                );
               }
             }
           }

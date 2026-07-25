@@ -739,3 +739,26 @@ describe('renderChartSvg — array-length cap (finding 3)', () => {
     );
   });
 });
+
+// ── Unknown-`type` error interpolation (finding L6) ───────────────────────────
+
+describe('renderChartSvg — unknown chart type message (finding L6)', () => {
+  it('bounds the unknown `type` interpolated into the thrown error', () => {
+    // `type` is model-supplied and was the one field `sanitizeInput` skipped, so a
+    // 5 MB `type` became a 5 MB error — and, via `mcp/utilityTools.ts`'s
+    // `render_chart`, a 5 MB conversation message.
+    let caught: Error | undefined;
+    try {
+      renderChartSvg({ type: 'q'.repeat(5_000) } as never);
+    } catch (err) {
+      caught = err as Error;
+    }
+    expect(caught).toBeDefined();
+    expect(caught!.message).toMatch(/Unknown chart type/);
+    expect(caught!.message.length).toBeLessThan(600);
+  });
+
+  it('still names a short unknown type verbatim (no over-broad regression)', () => {
+    expect(() => renderChartSvg({ type: 'radar' } as never)).toThrow(/Unknown chart type "radar"/);
+  });
+});

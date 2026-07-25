@@ -903,7 +903,9 @@ describe('createDataToolHandlers', () => {
       expect(view.isError).toBe(true);
     });
 
-    it('renders an SVG bar chart as base64 image + text content', () => {
+    // Finding M6: the raw SVG used to be returned alongside the image on EVERY call,
+    // so each render entered the model context twice. It is opt-in now.
+    it('renders an SVG bar chart as a base64 image (and only that, by default)', () => {
       const handlers = createDataToolHandlers(makeDeps());
       const view: any = handlers.render_chart({
         type: 'bar',
@@ -912,9 +914,23 @@ describe('createDataToolHandlers', () => {
           { label: 'B', value: 2 },
         ],
       });
-      expect(view.content).toHaveLength(2);
+      expect(view.content).toHaveLength(1);
       expect(view.content[0].type).toBe('image');
       expect(view.content[0].mimeType).toBe('image/svg+xml');
+      expect(Buffer.from(view.content[0].data, 'base64').toString()).toContain('<svg');
+    });
+
+    it('adds the raw SVG text item only when includeSvg is requested', () => {
+      const handlers = createDataToolHandlers(makeDeps());
+      const view: any = handlers.render_chart({
+        type: 'bar',
+        data: [
+          { label: 'A', value: 1 },
+          { label: 'B', value: 2 },
+        ],
+        includeSvg: true,
+      });
+      expect(view.content).toHaveLength(2);
       expect(view.content[1].type).toBe('text');
       expect(view.content[1].text).toContain('<svg');
     });
@@ -1471,5 +1487,381 @@ describe('createSummarisePageHandler', () => {
     const text = result.content[0].text as string;
     expect(text).not.toContain('<script>');
     expect(text).toContain('&lt;script&gt;');
+  });
+
+  // ── finding M7: the pageId echo must also be BOUNDED and type-checked ──────
+  it('caps an oversized pageId instead of echoing it whole', async () => {
+    const handler = createSummarisePageHandler({
+      stateBox: { current: makeState() },
+      data: { queryDataSource: vi.fn() },
+    });
+    const result: any = await handler({ pageId: 'p'.repeat(50_000) });
+    expect((result.content[0].text as string).length).toBeLessThan(1_000);
+  });
+
+  it('rejects a non-string pageId instead of stringifying it', async () => {
+    const handler = createSummarisePageHandler({
+      stateBox: { current: makeState() },
+      data: { queryDataSource: vi.fn() },
+    });
+    const result: any = await handler({ pageId: { toString: 'nope' } });
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text).error).toMatch(/"pageId" must be a string/);
+  });
+
+  // ── finding H3: per-source authorization inside the widget fan-out ─────────
+  describe('per-source data-access authorization (finding H3)', () => {
+    function makeTwoSourceState(): StudioState {
+      const state = makeState({
+        dataSources: {
+          'source-orders': makeSource(),
+          'source-hr': makeSource({ id: 'source-hr', label: 'HR', tableName: 'hr_salaries' }),
+        },
+      });
+      state.doc.widgets['w-orders'] = {
+        id: 'w-orders',
+        kind: 'grid',
+        title: 'Orders Grid',
+        sourceId: 'source-orders',
+        config: {},
+      } as any;
+      // The injected model added this one: `add_widget` accepts any sourceId with no
+      // existence or authorization check, and adding it is a MUTATION, so a
+      // `query_data_source`-keyed per-source rule never fires on the way in.
+      state.doc.widgets['w-hr'] = {
+        id: 'w-hr',
+        kind: 'grid',
+        title: 'HR Grid',
+        sourceId: 'source-hr',
+        config: {},
+      } as any;
+      state.doc.pages[PAGE_ID] = {
+        ...state.doc.pages[PAGE_ID],
+        widgetRows: [['w-orders', 'w-hr']],
+      };
+      return state;
+    }
+
+    it('skips a widget whose source the host denies, and never queries it', async () => {
+      const queryDataSource = vi.fn(
+        async (_p: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
+          rows: [{ id: 'o1', total: 100 }],
+          rowCount: 1,
+        }),
+      );
+      const logger = { log: vi.fn(), error: vi.fn() };
+      const handler = createSummarisePageHandler({
+        stateBox: { current: makeTwoSourceState() },
+        data: { queryDataSource },
+        logger,
+        authorizeSourceDataAccess: async ({ sourceId }) =>
+          sourceId === 'source-hr' ? 'source-hr is off-limits' : null,
+      });
+      const result: any = await handler({});
+      const text = result.content[0].text as string;
+      expect(text).toContain('Orders Grid');
+      expect(text).not.toContain('HR Grid');
+      // The denied source's table was never touched.
+      expect(queryDataSource).toHaveBeenCalledTimes(1);
+      expect(queryDataSource.mock.calls[0][0].tableName).toBe('orders');
+      // The deny reason is logged server-side, not leaked into the summary.
+      expect(logger.error.mock.calls.flat().join('\n')).toContain('off-limits');
+      expect(text).not.toContain('off-limits');
+    });
+
+    it('consults the gate once per DISTINCT source, not once per widget', async () => {
+      const state = makeTwoSourceState();
+      // Five more widgets on the already-authorized source.
+      for (let i = 0; i < 5; i += 1) {
+        state.doc.widgets[`w-extra-${i}`] = {
+          id: `w-extra-${i}`,
+          kind: 'grid',
+          title: `Extra ${i}`,
+          sourceId: 'source-orders',
+          config: {},
+        } as any;
+      }
+      state.doc.pages[PAGE_ID] = {
+        ...state.doc.pages[PAGE_ID],
+        widgetRows: [['w-orders', 'w-hr', 'w-extra-0', 'w-extra-1', 'w-extra-2']],
+      };
+      const authorizeSourceDataAccess = vi.fn(async () => null);
+      const handler = createSummarisePageHandler({
+        stateBox: { current: state },
+        data: {
+          queryDataSource: vi.fn(
+            async (): Promise<StudioDataQueryResult> => ({ rows: [{ id: 'o1' }], rowCount: 1 }),
+          ),
+        },
+        authorizeSourceDataAccess,
+      });
+      await handler({});
+      // Two distinct sources across five widgets — the consult increments the
+      // session tool-call budget and may prompt a human, so it must not run per widget.
+      expect(authorizeSourceDataAccess).toHaveBeenCalledTimes(2);
+    });
+
+    it('fails closed (skips the widget) when the gate itself throws', async () => {
+      const queryDataSource = vi.fn(
+        async (): Promise<StudioDataQueryResult> => ({ rows: [{ id: 'o1' }], rowCount: 1 }),
+      );
+      const handler = createSummarisePageHandler({
+        stateBox: { current: makeTwoSourceState() },
+        data: { queryDataSource },
+        logger: { log: vi.fn(), error: vi.fn() },
+        authorizeSourceDataAccess: async () => {
+          throw new Error('approval channel exploded');
+        },
+      });
+      const result: any = await handler({});
+      expect(result.content[0].text).toMatch(/No queryable widgets/);
+      expect(queryDataSource).not.toHaveBeenCalled();
+    });
+
+    it('summarises every widget when no gate is configured (no regression)', async () => {
+      const queryDataSource = vi.fn(
+        async (): Promise<StudioDataQueryResult> => ({ rows: [{ id: 'o1' }], rowCount: 1 }),
+      );
+      const handler = createSummarisePageHandler({
+        stateBox: { current: makeTwoSourceState() },
+        data: { queryDataSource },
+      });
+      const result: any = await handler({});
+      expect(result.content[0].text).toContain('Orders Grid');
+      expect(result.content[0].text).toContain('HR Grid');
+    });
+  });
+
+  // ── finding M4: xField/yField must be validated before becoming column names ──
+  describe('chart-field validation for the anomaly aggregation (finding M4)', () => {
+    function makeChartState(config: Record<string, unknown>): StudioState {
+      const state = makeState();
+      state.doc.widgets['w-chart'] = {
+        id: 'w-chart',
+        kind: 'chart',
+        title: 'Revenue',
+        sourceId: 'source-orders',
+        config,
+      } as any;
+      state.doc.pages[PAGE_ID] = { ...state.doc.pages[PAGE_ID], widgetRows: [['w-chart']] };
+      return state;
+    }
+
+    it('never forwards a non-string xField/yField as a DB column name', async () => {
+      const queryDataSource = vi.fn(
+        async (_p: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
+          rows: [{ id: 'o1', total: 100 }],
+          rowCount: 1,
+        }),
+      );
+      const handler = createSummarisePageHandler({
+        stateBox: {
+          current: makeChartState({
+            chartType: 'line',
+            xGroupBy: 'month',
+            yAggregation: 'sum',
+            // `capConfigStringValues` caps string LENGTH but preserves these types.
+            xField: ['a', 'b'],
+            yField: { alias: 'x' },
+          }),
+        },
+        data: { queryDataSource },
+        logger: { log: vi.fn(), error: vi.fn() },
+      });
+      await handler({});
+      // Only the sample query ran — the aggregation query (which would have carried
+      // `columns: [['a','b']]` / `aggregations: [{ column: { alias: 'x' } }]`) did not.
+      expect(queryDataSource).toHaveBeenCalledTimes(1);
+      expect(queryDataSource.mock.calls[0][0].aggregations).toBeUndefined();
+    });
+
+    it('still runs the aggregation for well-formed string fields (no regression)', async () => {
+      const queryDataSource = vi.fn(
+        async (_p: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
+          rows: [{ created_at: '2024-01-01', y_agg: 5 }],
+          rowCount: 1,
+        }),
+      );
+      const handler = createSummarisePageHandler({
+        stateBox: {
+          current: makeChartState({
+            chartType: 'line',
+            xGroupBy: 'month',
+            yAggregation: 'sum',
+            xField: 'created_at',
+            yField: 'total',
+          }),
+        },
+        data: { queryDataSource },
+      });
+      await handler({});
+      expect(queryDataSource).toHaveBeenCalledTimes(2);
+      expect(queryDataSource.mock.calls[1][0].columns).toEqual(['created_at']);
+      expect(queryDataSource.mock.calls[1][0].aggregations).toEqual([
+        { column: 'total', func: 'sum', alias: 'y_agg' },
+      ]);
+    });
+
+    // ── finding L4: the anomaly label list must be bounded ──────────────────
+    it('caps the anomaly labels appended to the summary', async () => {
+      // One bucket per month over 500 months, with a single low baseline and many
+      // extreme values so IQR flags a large number of them.
+      const rows = Array.from({ length: 500 }, (_, i) => ({
+        created_at: `${2000 + Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}-01`,
+        y_agg: i % 5 === 0 ? 1_000_000 : 1,
+      }));
+      const queryDataSource = vi.fn(
+        async (params: StudioDataQueryParams): Promise<StudioDataQueryResult> =>
+          params.aggregations
+            ? { rows, rowCount: rows.length }
+            : { rows: [{ id: 'o1' }], rowCount: 1 },
+      );
+      const handler = createSummarisePageHandler({
+        stateBox: {
+          current: makeChartState({
+            chartType: 'line',
+            xGroupBy: 'month',
+            yAggregation: 'sum',
+            xField: 'created_at',
+            yField: 'total',
+          }),
+        },
+        data: { queryDataSource },
+      });
+      const result: any = await handler({});
+      const text = result.content[0].text as string;
+      const anomalyLine = text.split('\n').find((l) => l.startsWith('Anomalies detected at:'));
+      if (anomalyLine) {
+        // At most 20 labels are spelled out; the rest are reported as a count.
+        expect(anomalyLine.split(', ').length).toBeLessThanOrEqual(21);
+        expect(anomalyLine.length).toBeLessThan(500);
+      }
+    });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// H4 / M1 / L1 / L3 — data-query tool hardening
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('data-query host-error redaction (finding H4)', () => {
+  const SECRET = 'password authentication failed for user "studio_ro" (db-internal-7.corp:5432)';
+
+  const cases: Array<[string, Record<string, unknown>]> = [
+    ['query_data_source', { sourceId: 'source-orders' }],
+    ['describe_data_source', { sourceId: 'source-orders' }],
+    ['get_field_values', { sourceId: 'source-orders', fieldId: 'status' }],
+    ['compute_field_stats', { sourceId: 'source-orders', fields: ['total'] }],
+  ];
+
+  it.each(cases)('%s never relays the raw host/DB error text', async (name, args) => {
+    const logger = { log: vi.fn(), error: vi.fn() };
+    const handlers = createDataToolHandlers(
+      makeDeps({
+        logger,
+        data: {
+          queryDataSource: vi.fn(async () => {
+            throw new Error(SECRET);
+          }),
+        },
+      }),
+    );
+    const result: any = await handlers[name](args);
+    expect(result.isError).toBe(true);
+    const relayed = JSON.parse(await readText(result)).error as string;
+    expect(relayed).not.toContain('studio_ro');
+    expect(relayed).not.toContain('db-internal-7');
+    expect(relayed).toMatch(/withheld/i);
+    // …but the operator still gets the full detail, tied by the same reference.
+    const reference = relayed.match(/reference "([^"]+)"/)?.[1];
+    expect(reference).toBeTruthy();
+    const logged = logger.error.mock.calls.flat().join('\n');
+    expect(logged).toContain('studio_ro');
+    expect(logged).toContain(reference!);
+  });
+});
+
+describe('describe_data_source fieldDistinctValues prototype guard (finding M1)', () => {
+  it('describes a field literally named "constructor" instead of throwing', async () => {
+    const handlers = createDataToolHandlers(
+      makeDeps({
+        stateBox: {
+          current: makeState({
+            dataSources: {
+              'source-orders': makeSource({
+                fields: [{ id: 'constructor', label: 'Constructor', type: 'string' }],
+                // Empty map: `fieldDistinctValues['constructor']` used to resolve
+                // `Object` off the prototype chain and blow up on `.slice`.
+                fieldDistinctValues: {},
+              } as Partial<StudioDataSource>),
+            },
+          }),
+        },
+        data: {
+          queryDataSource: vi.fn(
+            async (): Promise<StudioDataQueryResult> => ({ rows: [], rowCount: 0 }),
+          ),
+        },
+      }),
+    );
+    const result: any = await handlers.describe_data_source({ sourceId: 'source-orders' });
+    expect(result.isError).toBeFalsy();
+    const payload = JSON.parse(await readText(result));
+    expect(payload.fields[0].id).toBe('constructor');
+    expect(payload.fields[0].sampleValues).toBeUndefined();
+  });
+});
+
+describe('prototype-keyed stats accumulators (finding L1)', () => {
+  it('compute_field_stats reports a field named "__proto__" instead of dropping it', async () => {
+    const handlers = createDataToolHandlers(
+      makeDeps({
+        data: {
+          queryDataSource: vi.fn(
+            async (): Promise<StudioDataQueryResult> => ({
+              rows: [{ __proto__min: 1 }],
+              rowCount: 1,
+            }),
+          ),
+        },
+      }),
+    );
+    const result: any = await handlers.compute_field_stats({
+      sourceId: 'source-orders',
+      fields: ['__proto__', 'total'],
+    });
+    const payload = JSON.parse(await readText(result));
+    // The `__proto__` entry is a real own property now, and `total` did not inherit
+    // anything bogus through the prototype chain.
+    expect(Object.keys(payload.stats).sort()).toEqual(['__proto__', 'total']);
+  });
+});
+
+describe('resolveSource returns the id it resolved (finding L3)', () => {
+  it('forwards the CAPPED sourceId to the host, matching the tableName it resolved', async () => {
+    const longId = `source-orders${'x'.repeat(500)}`;
+    const cappedId = longId.slice(0, 200);
+    const stateBox = {
+      current: makeState({
+        dataSources: { [cappedId]: makeSource({ id: cappedId }) },
+      }),
+    };
+    const resolved = resolveSource(stateBox, longId);
+    expect(resolved.ok).toBe(true);
+    expect((resolved as any).sourceId).toBe(cappedId);
+
+    const queryDataSource = vi.fn(
+      async (_p: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
+        rows: [],
+        rowCount: 0,
+      }),
+    );
+    const handlers = createDataToolHandlers(makeDeps({ stateBox, data: { queryDataSource } }));
+    const result: any = await handlers.query_data_source({ sourceId: longId });
+    // A host routing/authorizing on `params.sourceId` must see the id that actually
+    // corresponds to the `tableName` it was handed alongside it.
+    expect(queryDataSource.mock.calls[0][0].sourceId).toBe(cappedId);
+    expect(queryDataSource.mock.calls[0][0].tableName).toBe('orders');
+    expect(JSON.parse(await readText(result)).sourceId).toBe(cappedId);
   });
 });

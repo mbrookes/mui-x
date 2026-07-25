@@ -15,6 +15,8 @@ import {
   checkAllowedTable,
   errorResult,
   jsonResult,
+  ownArrayEntry,
+  redactedHostErrorResult,
   withTimeout,
   type ToolHandler,
 } from './helpers';
@@ -24,6 +26,7 @@ import type {
   StudioDataHavingPredicate,
   StudioDataOrderBy,
   StudioMcpData,
+  StudioMcpLogger,
   StudioStateBox,
 } from './types';
 
@@ -34,6 +37,12 @@ export interface QueryToolDeps {
   data?: StudioMcpData;
   /** Hard upper bound applied to the `query_data_source` `limit`. */
   maxQueryRows: number;
+  /**
+   * Diagnostic logger. Threaded in so a host/DB failure can be logged in FULL
+   * server-side while the model only ever sees the generic, correlation-id-bearing
+   * message `redactedHostErrorResult` produces (finding H4).
+   */
+  logger?: StudioMcpLogger;
 }
 
 /**
@@ -127,8 +136,12 @@ function validateQueryArrayArg<T>(
  * oversized-but-otherwise-valid string is truncated to
  * {@link MAX_FILTER_STRING_LENGTH} rather than rejected, the same cap
  * `add_page_filter`/`add_widget_filter` apply to a persisted filter's `field`.
+ *
+ * Exported so `mcp/summarisePage.ts` can run the SAME validation over the
+ * `xField`/`yField` it forwards as DB column names (finding M4) — that was the
+ * one column-name path in the package that skipped it.
  */
-function validateAndCapStringArrayElements(
+export function validateAndCapStringArrayElements(
   toolName: string,
   argName: string,
   entries: unknown[],
@@ -246,7 +259,20 @@ type ResolvedSource = StudioStateBox['current']['runtime']['dataSources'][string
 };
 
 type ResolveSourceResult =
-  | { ok: true; source: ResolvedSource; tableName: string }
+  | {
+      ok: true;
+      source: ResolvedSource;
+      tableName: string;
+      /**
+       * The RESOLVED (validated + length-capped) source id — the id the returned
+       * `tableName` actually belongs to (finding L3). Callers must forward THIS,
+       * not the raw `sourceId` argument: `resolveSource` looks the source up by
+       * the capped id, so a host that routes or authorizes on
+       * `params.sourceId` would otherwise be handed an id that does not
+       * correspond to the `tableName` it was given alongside it.
+       */
+      sourceId: string;
+    }
   | { ok: false; error: ReturnType<typeof errorResult> };
 
 /**
@@ -332,7 +358,12 @@ export function resolveSource(
   if (tableCheckError) {
     return { ok: false, error: errorResult(tableCheckError) };
   }
-  return { ok: true, source: source as ResolvedSource, tableName: source.tableName };
+  return {
+    ok: true,
+    source: source as ResolvedSource,
+    tableName: source.tableName,
+    sourceId: cappedSourceId,
+  };
 }
 
 /**
@@ -341,7 +372,7 @@ export function resolveSource(
  * unknown-sourceId check.
  */
 export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, ToolHandler> {
-  const { stateBox, data, maxQueryRows } = deps;
+  const { stateBox, data, maxQueryRows, logger } = deps;
 
   return {
     // ── query_data_source — routed separately from state-mutation tools ──
@@ -498,7 +529,9 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
       if (!resolved.ok) {
         return resolved.error;
       }
-      const { tableName } = resolved;
+      // Forward the RESOLVED (capped) id, never the raw argument — see the
+      // `sourceId` field on `ResolveSourceResult` (finding L3).
+      const { tableName, sourceId: resolvedSourceId } = resolved;
 
       try {
         // Bounded with the same `withTimeout` pattern `mcp/summarisePage.ts` applies to its
@@ -507,7 +540,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
         // pending indefinitely.
         const result = await withTimeout(
           data.queryDataSource({
-            sourceId,
+            sourceId: resolvedSourceId,
             tableName,
             columns: columnsElementsResult?.ok ? columnsElementsResult.value : undefined,
             filters: cappedFilters,
@@ -524,9 +557,11 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
           `query for ${tableName}`,
         );
 
-        return jsonResult({ sourceId, ...result });
+        return jsonResult({ sourceId: resolvedSourceId, ...result });
       } catch (err) {
-        return errorResult(String(err));
+        // Finding H4: log the host/DB detail server-side; relay only a generic,
+        // bounded message + correlation id.
+        return redactedHostErrorResult('query_data_source', err, logger);
       }
     },
 
@@ -543,7 +578,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
       if (!resolved.ok) {
         return resolved.error;
       }
-      const { source, tableName } = resolved;
+      const { source, tableName, sourceId: resolvedSourceId } = resolved;
       try {
         const visibleFields = (source.fields ?? []).filter((f) => !f.hidden);
         const allNumericFields = visibleFields.filter((f) => f.type === 'number');
@@ -564,14 +599,14 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
         // against one that never settles at all).
         const [sampleResult, ...statsResults] = await Promise.all([
           withTimeout(
-            data.queryDataSource({ sourceId, tableName, limit: 10 }),
+            data.queryDataSource({ sourceId: resolvedSourceId, tableName, limit: 10 }),
             15_000,
             `sample query for ${tableName}`,
           ),
           ...numericFields.map((f) =>
             withTimeout(
               data.queryDataSource({
-                sourceId,
+                sourceId: resolvedSourceId,
                 tableName,
                 aggregations: [
                   { column: f.id, func: 'min', alias: 'min' },
@@ -587,10 +622,14 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
           ),
         ]);
 
+        // Null-prototype accumulator (finding L1): field ids are DB column names, so
+        // a column named `__proto__` would otherwise make `fieldStats[f.id] = …` a
+        // silently-dropped prototype write — and, worse, make a DIFFERENT field named
+        // `min`/`max`/`sum` inherit those bogus stats through the prototype chain.
         const fieldStats: Record<
           string,
           { min: unknown; max: unknown; avg: unknown; sum: unknown }
-        > = {};
+        > = Object.create(null);
         numericFields.forEach((f, i) => {
           const row = statsResults[i]?.rows?.[0];
           if (row) {
@@ -605,21 +644,27 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
 
         return jsonResult(
           {
-            sourceId,
+            sourceId: resolvedSourceId,
             label: source.label,
             tableName: source.tableName,
             description: source.aiDescription,
             rowCount: sampleResult.rowCount,
-            fields: visibleFields.map((f) => ({
-              id: f.id,
-              label: f.label,
-              type: f.type,
-              ...(f.format && { format: f.format }),
-              ...(fieldStats[f.id] && { stats: fieldStats[f.id] }),
-              ...(source.fieldDistinctValues?.[f.id] && {
-                sampleValues: source.fieldDistinctValues[f.id].slice(0, 5),
-              }),
-            })),
+            fields: visibleFields.map((f) => {
+              // `Object.hasOwn` + `Array.isArray`-guarded lookup (finding M1) — a field
+              // id that is an `Object.prototype` member (a DB column literally named
+              // `constructor`) previously resolved `Object` off the prototype chain,
+              // passed the truthiness gate, and threw `TypeError: … .slice is not a
+              // function`, failing the whole call with an opaque error.
+              const distinctValues = ownArrayEntry(source.fieldDistinctValues, f.id);
+              return {
+                id: f.id,
+                label: f.label,
+                type: f.type,
+                ...(f.format && { format: f.format }),
+                ...(fieldStats[f.id] && { stats: fieldStats[f.id] }),
+                ...(distinctValues && { sampleValues: distinctValues.slice(0, 5) }),
+              };
+            }),
             sampleRows: sampleResult.rows,
             ...(statsTruncated && {
               statsTruncated: true,
@@ -632,7 +677,8 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
           true,
         );
       } catch (err) {
-        return errorResult(String(err));
+        // Finding H4 — see `query_data_source` above.
+        return redactedHostErrorResult('describe_data_source', err, logger);
       }
     },
 
@@ -672,7 +718,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
       if (!resolved.ok) {
         return resolved.error;
       }
-      const { tableName } = resolved;
+      const { source, tableName, sourceId: resolvedSourceId } = resolved;
       try {
         // Clamp `limit` to a sane, positive integer within [1, 200]. The old
         // `Math.min(fieldLimit ?? 50, 200)` enforced only the UPPER bound, so an
@@ -688,7 +734,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
         // own `data.queryDataSource` calls (Tier 3, iteration 22).
         const result = await withTimeout(
           data.queryDataSource({
-            sourceId,
+            sourceId: resolvedSourceId,
             tableName,
             columns: [fieldId],
             aggregations: [{ column: fieldId, func: 'count', alias: 'count' }],
@@ -706,7 +752,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
             type: 'text',
             text: JSON.stringify(
               {
-                sourceId,
+                sourceId: resolvedSourceId,
                 fieldId,
                 totalDistinctValues: result.rowCount,
                 values: result.rows,
@@ -723,9 +769,11 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
         }));
         if (chartData.length >= 2) {
           try {
-            const fieldLabel =
-              stateBox.current.runtime.dataSources[sourceId]?.fields?.find((f) => f.id === fieldId)
-                ?.label ?? fieldId;
+            // Read the label off the ALREADY-RESOLVED source rather than re-looking it
+            // up by the raw `sourceId` (finding L3): the raw argument may differ from
+            // the capped id the source was actually resolved under, and the re-lookup
+            // was an unguarded prototype-chain read besides.
+            const fieldLabel = source.fields?.find((f) => f.id === fieldId)?.label ?? fieldId;
             const svg = renderChartSvg({
               type: 'bar',
               title: `${fieldLabel} distribution`,
@@ -742,7 +790,8 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
         }
         return { content: gfvItems };
       } catch (err) {
-        return errorResult(String(err));
+        // Finding H4 — see `query_data_source` above.
+        return redactedHostErrorResult('get_field_values', err, logger);
       }
     },
 
@@ -798,7 +847,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
       if (!resolved.ok) {
         return resolved.error;
       }
-      const { tableName } = resolved;
+      const { tableName, sourceId: resolvedSourceId } = resolved;
       try {
         const aggregations = statFields.flatMap((f) => [
           { column: f, func: 'min' as const, alias: `${f}__min` },
@@ -811,7 +860,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
         // own `data.queryDataSource` calls (Tier 3, iteration 22).
         const result = await withTimeout(
           data.queryDataSource({
-            sourceId,
+            sourceId: resolvedSourceId,
             tableName,
             aggregations,
             limit: 1,
@@ -820,10 +869,13 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
           `field-stats query for ${tableName}`,
         );
         const row = result.rows[0] ?? {};
+        // Null-prototype accumulator (finding L1) — see `describe_data_source`'s
+        // `fieldStats` above: `statsOut[f]` is keyed by a model-supplied field id, so
+        // a `__proto__` entry would otherwise be silently dropped rather than reported.
         const statsOut: Record<
           string,
           { min: unknown; max: unknown; avg: unknown; sum: unknown; count: unknown }
-        > = {};
+        > = Object.create(null);
         for (const f of statFields) {
           statsOut[f] = {
             min: row[`${f}__min`],
@@ -836,9 +888,10 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
             count: row[`${f}__count`],
           };
         }
-        return jsonResult({ sourceId, stats: statsOut }, true);
+        return jsonResult({ sourceId: resolvedSourceId, stats: statsOut }, true);
       } catch (err) {
-        return errorResult(String(err));
+        // Finding H4 — see `query_data_source` above.
+        return redactedHostErrorResult('compute_field_stats', err, logger);
       }
     },
   };

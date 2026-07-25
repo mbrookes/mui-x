@@ -11,12 +11,24 @@
 import type { ChartRendererInput } from '../chartRenderer';
 import { renderChartSvg } from '../chartRenderer';
 import type { StudioAIRecentMutation } from '../models/aiTypes';
-import { errorResult, jsonResult, type ToolHandler } from './helpers';
+import {
+  capRelayedText,
+  describeErrorForLog,
+  errorResult,
+  jsonResult,
+  type ToolHandler,
+} from './helpers';
+import type { StudioMcpLogger } from './types';
 
 /** Dependencies needed by the utility tool handlers. */
 export interface UtilityToolDeps {
   /** Session-scoped mutation log surfaced by `get_recent_changes`. */
   recentChanges: StudioAIRecentMutation[];
+  /**
+   * Diagnostic logger. `render_chart` logs the FULL renderer error server-side and
+   * relays only a bounded excerpt to the model (finding H4).
+   */
+  logger?: StudioMcpLogger;
 }
 
 /**
@@ -33,9 +45,25 @@ export interface UtilityToolDeps {
  */
 const MAX_RECENT_CHANGES_RESPONSE = 50;
 
+/**
+ * Hard upper bound on the total serialized size of a single `render_chart` result
+ * (finding M6).
+ *
+ * `renderBar` emits one `<text>` element per data point and the input caps allow
+ * 1000 entries × 200-char labels, so a single render could produce ~800 KB of SVG —
+ * all of which entered the model context, since the result previously carried the
+ * chart TWICE (a base64 `image` item AND the raw `text` SVG). The duplicate text
+ * item is now opt-in (see `includeSvg`), and whatever remains is bounded here:
+ * over the cap the call is REJECTED with actionable "render fewer points" guidance
+ * rather than silently truncated, since half an SVG is not a chart. Mirrors the
+ * reject-don't-truncate stance `MAX_QUERY_ARRAY_LENGTH` (`mcp/queryTools.ts`) takes
+ * for model-supplied arrays.
+ */
+const MAX_RENDER_CHART_RESULT_BYTES = 256 * 1024;
+
 /** Build the `get_recent_changes` and `render_chart` handlers. */
 export function createUtilityToolHandlers(deps: UtilityToolDeps): Record<string, ToolHandler> {
-  const { recentChanges } = deps;
+  const { recentChanges, logger } = deps;
 
   return {
     // ── get_recent_changes — session-scoped mutation log ────────────────
@@ -83,7 +111,9 @@ export function createUtilityToolHandlers(deps: UtilityToolDeps): Record<string,
     // ── render_chart — pure SVG chart rendering ───────────────────────────
     render_chart: (args) => {
       try {
-        const chartInput = (args ?? {}) as unknown as ChartRendererInput;
+        const chartInput = (args ?? {}) as unknown as ChartRendererInput & {
+          includeSvg?: unknown;
+        };
         if (!chartInput.type) {
           return errorResult(
             '`type` is required (bar, line, pie, scatter, donut, or stacked_bar).',
@@ -91,6 +121,23 @@ export function createUtilityToolHandlers(deps: UtilityToolDeps): Record<string,
         }
         const svgString = renderChartSvg(chartInput);
         const base64 = Buffer.from(svgString).toString('base64');
+        // Finding M6: the raw SVG used to be returned ALONGSIDE the base64 image
+        // unconditionally, so every render entered the model context twice — for a
+        // chart at the input caps (1000 points × 200-char labels, one `<text>` per
+        // point) that is ~800 KB per call, none of it useful to a model that already
+        // has the image. The text copy is now opt-in for the rare caller that wants
+        // the markup itself (e.g. to embed it in a page).
+        const includeSvg = chartInput.includeSvg === true;
+        const resultBytes = base64.length + (includeSvg ? svgString.length : 0);
+        if (resultBytes > MAX_RENDER_CHART_RESULT_BYTES) {
+          return errorResult(
+            `MUI X Studio: render_chart produced a ${Math.round(resultBytes / 1024)}KB result, ` +
+              `which exceeds the limit of ${MAX_RENDER_CHART_RESULT_BYTES / 1024}KB. An oversized ` +
+              'chart result is not readable by the model and crowds out the rest of the ' +
+              'conversation. Render fewer data points or series, shorten the labels, or omit ' +
+              '`includeSvg`.',
+          );
+        }
         return {
           content: [
             {
@@ -98,14 +145,25 @@ export function createUtilityToolHandlers(deps: UtilityToolDeps): Record<string,
               data: base64,
               mimeType: 'image/svg+xml',
             },
-            {
-              type: 'text' as const,
-              text: svgString,
-            },
+            ...(includeSvg
+              ? [
+                  {
+                    type: 'text' as const,
+                    text: svgString,
+                  },
+                ]
+              : []),
           ],
         };
       } catch (err) {
-        return errorResult(String(err));
+        // `renderChartSvg` throws only messages this package authors (unknown chart
+        // type, array-length caps), and the model needs them to correct its call — so
+        // unlike the host/DB catch blocks in `queryTools.ts` the text IS relayed. It is
+        // still bounded (finding H4/L6): `input.type` is interpolated into the
+        // unknown-type message, and an oversized `type` would otherwise become an
+        // oversized conversation message. Full detail goes to the server log.
+        logger?.error(`[mcp] render_chart failed: ${describeErrorForLog(err)}`);
+        return errorResult(capRelayedText(err instanceof Error ? err.message : String(err)));
       }
     },
   };

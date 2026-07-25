@@ -255,7 +255,8 @@ export const EXTRA_TOOL_DEFINITIONS: McpToolDefinition[] = [
       'For scatter charts use `xLabels` (numeric x values as strings) with one or more `series` of ' +
       'y-values (each series is plotted as its own set of points against those x values), or provide ' +
       '`data` as { label, value } points where a numeric `label` is the x position and `value` is the y. ' +
-      'The SVG is returned as a base64-encoded image/svg+xml content item.',
+      'The SVG is returned as a base64-encoded image/svg+xml content item; pass `includeSvg: true` ' +
+      'only if you also need the raw SVG markup as text.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -300,6 +301,13 @@ export const EXTRA_TOOL_DEFINITIONS: McpToolDefinition[] = [
           type: 'array',
           items: { type: 'string' },
           description: 'Custom hex colour palette. Cycles if more series than colours.',
+        },
+        includeSvg: {
+          type: 'boolean',
+          description:
+            'Also return the raw SVG markup as a text content item, in addition to the image. ' +
+            'Off by default: the markup duplicates the image and can be hundreds of kilobytes. ' +
+            'Only request it if you need the markup itself.',
         },
       },
       required: ['type'],

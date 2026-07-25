@@ -87,9 +87,19 @@ const HEX_COLOR = /^#[0-9a-fA-F]{3,8}$/;
  * `MAX_COMPUTE_FIELD_STATS_FIELDS`, the streaming buffer caps) — had no cap on
  * the NUMBER of entries. An unbounded array turns one tool call into unbounded
  * SVG-generation work (and an unbounded response payload) rather than the
- * bounded chart a legitimate call needs. Truncated (not rejected) at this single
- * `sanitizeInput` choke point so every renderer stays covered by one fix and a
- * caller still gets a chart back, just capped.
+ * bounded chart a legitimate call needs.
+ *
+ * REJECTED, not truncated (finding L6): `checkChartArrayLength` throws, and the
+ * doc comment here used to claim the opposite ("Truncated (not rejected) … a
+ * caller still gets a chart back, just capped") — a doc/behavior mismatch a reader
+ * would only catch by stepping into the helper. The BEHAVIOR is the one kept: a
+ * chart silently missing 4000 of its 5000 points is a wrong chart presented as a
+ * right one, whereas the throw carries the same actionable "split the request"
+ * guidance `MAX_QUERY_ARRAY_LENGTH` (`mcp/queryTools.ts`) gives for the identical
+ * class of oversized model-supplied array, and — unlike a page's widget count or a
+ * source's field count — the array here IS the caller's to resend smaller. The
+ * check still lives at the single `sanitizeInput` choke point, so every renderer
+ * stays covered by one fix.
  */
 const MAX_CHART_ARRAY_LENGTH = 1000;
 
@@ -262,6 +272,13 @@ type SanitizedChartInput = ChartRendererInput & { width: number; height: number 
 function sanitizeInput(input: ChartRendererInput): SanitizedChartInput {
   return {
     ...input,
+    // `type` is the one model-supplied field this choke point used to skip (finding
+    // L6) — and `renderChartSvg`'s default branch interpolates it RAW into the
+    // thrown "Unknown chart type" error, which `mcp/utilityTools.ts` returns as a
+    // tool result. A 5 MB `type` therefore became a 5 MB conversation message.
+    // Coercing + capping it here bounds that message and keeps every untrusted
+    // field validated at one place.
+    type: sanitizeText(input.type) as ChartRendererInput['type'],
     title: sanitizeOptionalText(input.title),
     width: sanitizeDimension(input.width, DEFAULT_WIDTH),
     height: sanitizeDimension(input.height, DEFAULT_HEIGHT),
@@ -979,9 +996,11 @@ export function renderChartSvg(rawInput: ChartRendererInput): string {
     case 'stacked_bar':
       return renderStackedBar(input);
     default: {
+      // `input.type` is already coerced + capped by `sanitizeInput` (finding L6), so
+      // this message is bounded even for a multi-megabyte model-supplied `type`.
       const never: never = input.type;
       throw new Error(
-        `MUI X Studio: Unknown chart type "${never}". Supported types: bar, line, pie, scatter, donut, stacked_bar.`,
+        `MUI X Studio: Unknown chart type "${sanitizeText(never)}". Supported types: bar, line, pie, scatter, donut, stacked_bar.`,
       );
     }
   }

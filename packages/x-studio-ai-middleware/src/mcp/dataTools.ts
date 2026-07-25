@@ -46,10 +46,13 @@ export interface DataToolDeps {
  * return a descriptive error when `data` is not configured).
  */
 export function createDataToolHandlers(deps: DataToolDeps): Record<string, ToolHandler> {
-  const { stateBox, data, maxQueryRows, recentChanges } = deps;
+  const { stateBox, data, maxQueryRows, recentChanges, logger } = deps;
 
   return {
-    ...createUtilityToolHandlers({ recentChanges }),
-    ...createQueryToolHandlers({ stateBox, data, maxQueryRows }),
+    // `logger` is threaded into BOTH factories so a host/DB or render failure is
+    // logged in full server-side while the model only sees the generic,
+    // correlation-id-bearing message (finding H4).
+    ...createUtilityToolHandlers({ recentChanges, logger }),
+    ...createQueryToolHandlers({ stateBox, data, maxQueryRows, logger }),
   };
 }

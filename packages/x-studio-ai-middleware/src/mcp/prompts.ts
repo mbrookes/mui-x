@@ -13,7 +13,16 @@ import {
   CompleteRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { sanitizeForPrompt } from '../buildAISystemPrompt';
+import { safeIdentifier } from './helpers';
 import type { StudioStateBox } from './types';
+
+/**
+ * Max number of source ids spelled out in the `Unknown sourceId` error the
+ * `query_data_source_examples` prompt throws on a miss (finding M7). The whole
+ * configured catalogue used to be echoed on EVERY miss; the remainder is now
+ * reported as a count instead.
+ */
+const MAX_LISTED_SOURCE_IDS = 20;
 
 /** Dependencies required to serve the MCP prompt + completion handlers. */
 export interface PromptHandlerDeps {
@@ -105,9 +114,20 @@ export function registerPromptHandlers(server: Server, deps: PromptHandlerDeps):
         // warrants routing through the same `sanitizeForPrompt` choke point the example
         // blocks below already use, for symmetry with how `resources/list` treats the same
         // values (finding T2-5).
+        //
+        // Finding M7: sanitizing alone left both halves UNBOUNDED — `requestedId` is
+        // client-supplied prompt-argument text, and the catalogue echo grows with the
+        // number of configured sources (400 sources ⇒ a 400-id error message, on every
+        // miss). Cap each id via `safeIdentifier` (the shared sanitize-and-cap choke
+        // point) and cap how MANY are listed, reporting the remainder as a count.
+        const availableIds = allSources
+          .slice(0, MAX_LISTED_SOURCE_IDS)
+          .map((s) => safeIdentifier(s.id));
+        const omittedIds = allSources.length - availableIds.length;
         throw new Error(
-          `Unknown sourceId: "${sanitizeForPrompt(requestedId)}". ` +
-            `Available: ${allSources.map((s) => sanitizeForPrompt(s.id)).join(', ')}.`,
+          `Unknown sourceId: "${safeIdentifier(requestedId)}". ` +
+            `Available: ${availableIds.join(', ')}` +
+            `${omittedIds > 0 ? ` (+${omittedIds} more of ${allSources.length} total)` : ''}.`,
         );
       }
 
@@ -223,7 +243,10 @@ export function registerPromptHandlers(server: Server, deps: PromptHandlerDeps):
       };
     }
 
-    throw new Error(`Unknown prompt: "${name}".`);
+    // Sanitized + capped before echoing (finding M7, sibling instance): the prompt
+    // `name` is client-supplied and unbounded, and this message lands in the same
+    // model-visible position as the `Unknown sourceId` one above.
+    throw new Error(`Unknown prompt: "${safeIdentifier(name)}".`);
   });
 
   // ── completion/complete — URI autocomplete ────────────────────────────────

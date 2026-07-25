@@ -203,6 +203,21 @@ export interface StudioMcpOptions {
    */
   approvalTimeoutMs?: number;
   /**
+   * Bound (in ms) on how long a committed mutation waits for the host's
+   * {@link StudioMcpOptions.onStateChange} persistence hook before giving up on it.
+   *
+   * `onStateChange` runs inside the per-session mutation critical section, so an
+   * implementation that never settles (e.g. `await db(...).update(...)` on a
+   * blackholed connection with no `statement_timeout`) would otherwise hang the
+   * current `tools/call` AND every subsequent mutating call in the session — the
+   * same hazard {@link StudioMcpOptions.approvalTimeoutMs} bounds for
+   * `approvalHandler`. A timeout is treated exactly like a thrown persistence
+   * error: logged via `logger.error`, non-fatal, and the already-applied mutation
+   * still reports success to the caller.
+   * @default 15000
+   */
+  persistTimeoutMs?: number;
+  /**
    * Per-session mutation and tool-call budgets. Both are layered BEFORE the host
    * `toolPolicy` (via `Policy.all`), mirroring `AgenticLoopOptions.rateLimit` on the
    * chat transport.

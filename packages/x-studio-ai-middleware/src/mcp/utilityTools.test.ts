@@ -8,7 +8,7 @@
  * `render_chart`'s own hardening is covered by `../chartRenderer.test.ts`.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createUtilityToolHandlers } from './utilityTools';
 import type { StudioAIRecentMutation } from '../models/aiTypes';
 
@@ -80,5 +80,62 @@ describe('createUtilityToolHandlers — get_recent_changes', () => {
       expect(parsed.length).toBeLessThanOrEqual(MAX_RECENT_CHANGES_RESPONSE + 1);
       expect(parsed.length).toBeGreaterThan(0);
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// finding M6 — render_chart must not return the same SVG twice, uncapped
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('createUtilityToolHandlers — render_chart result size (finding M6)', () => {
+  const barArgs = {
+    type: 'bar',
+    data: [
+      { label: 'A', value: 1 },
+      { label: 'B', value: 2 },
+    ],
+  };
+
+  it('returns the image only by default (the raw SVG is no longer duplicated)', () => {
+    const handlers = createUtilityToolHandlers({ recentChanges: [] });
+    const view: any = handlers.render_chart(barArgs);
+    expect(view.content).toHaveLength(1);
+    expect(view.content[0].type).toBe('image');
+    expect(view.content[0].mimeType).toBe('image/svg+xml');
+  });
+
+  it('returns the raw SVG as text only when explicitly requested', () => {
+    const handlers = createUtilityToolHandlers({ recentChanges: [] });
+    const view: any = handlers.render_chart({ ...barArgs, includeSvg: true });
+    expect(view.content).toHaveLength(2);
+    expect(view.content[1].type).toBe('text');
+    expect(view.content[1].text).toContain('<svg');
+  });
+
+  it('rejects a result that exceeds the size cap instead of dumping it into the context', () => {
+    const handlers = createUtilityToolHandlers({ recentChanges: [] });
+    // At the input caps (1000 points, 200-char labels) `renderBar` emits one <text>
+    // per point — hundreds of kilobytes of markup, previously returned twice.
+    const data = Array.from({ length: 1000 }, (_, i) => ({
+      label: `${'L'.repeat(200)}-${i}`,
+      value: i,
+    }));
+    const view: any = handlers.render_chart({ type: 'bar', data });
+    expect(view.isError).toBe(true);
+    expect(JSON.parse(view.content[0].text).error).toMatch(/exceeds the limit of \d+KB/);
+  });
+
+  it('logs the full renderer error server-side and relays only a bounded message', () => {
+    const logger = { log: vi.fn(), error: vi.fn() };
+    const handlers = createUtilityToolHandlers({ recentChanges: [], logger });
+    // An unknown `type` reaches `renderChartSvg`'s default branch, which interpolates
+    // it into the thrown message; an oversized one must not become an oversized
+    // conversation message (findings H4/L6).
+    const view: any = handlers.render_chart({ type: 'z'.repeat(5_000) });
+    expect(view.isError).toBe(true);
+    const relayed = JSON.parse(view.content[0].text).error as string;
+    expect(relayed).toMatch(/Unknown chart type/);
+    expect(relayed.length).toBeLessThan(1_000);
+    expect(logger.error).toHaveBeenCalled();
   });
 });

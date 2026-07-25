@@ -67,7 +67,14 @@ import {
   type ToolPolicyContext,
 } from './toolPolicy';
 import type { StudioAIRecentMutation } from './models/aiTypes';
-import { errorResult, jsonResult, type ToolHandler } from './mcp/helpers';
+import {
+  errorResult,
+  jsonResult,
+  redactedHostErrorResult,
+  safeIdentifier,
+  withTimeout,
+  type ToolHandler,
+} from './mcp/helpers';
 import {
   TOOL_TITLES,
   TOOL_ANNOTATIONS,
@@ -143,11 +150,32 @@ const RAW_ROW_DATA_TOOLS = new Set([
  * `sourceId` (it spans the whole page), so its consult is routed under
  * `query_data_source` SOURCE-AGNOSTICALLY — exactly mirroring the multi-source
  * `studio://dashboard/data-health` resource, whose single source-agnostic
- * `authorizeDataAccess()` consult a blanket `query_data_source` deny gates. A
- * per-`sourceId` deny does not single out one widget's source here (same
- * intentional coarseness as `data-health`); a blanket / by-name deny does.
+ * `authorizeDataAccess()` consult a blanket `query_data_source` deny gates.
+ *
+ * This entry-level consult catches a blanket / by-name deny only. A per-`sourceId`
+ * deny is enforced SEPARATELY, inside the handler, via the
+ * `authorizeSourceDataAccess` callback wired below (finding H3) — the analogy with
+ * `data-health` breaks down for per-source rules, because `data-health`'s source set
+ * is host-controlled and returns nothing but counts, whereas this handler's source
+ * set is model-controlled (`add_widget` accepts any `sourceId` unchecked) and it
+ * returns real rows.
  */
 const MULTI_SOURCE_RAW_ROW_TOOLS = new Set(['summarise_page']);
+
+/**
+ * Default bound (ms) on the host's `onStateChange` persistence hook (finding H5).
+ *
+ * Every OTHER host callback reachable from a `tools/call` is explicitly bounded —
+ * `approvalHandler` by `approvalTimeoutMs`, `contextEnricher` by
+ * `CONTEXT_ENRICHER_TIMEOUT_MS`, every `data.queryDataSource` by `withTimeout` —
+ * with the same rationale: an unsettled callback inside the per-session
+ * `mutationChain` critical section hangs not only its own call but every
+ * subsequent mutating call in the session, forever. `onStateChange` (e.g. an
+ * `await db(...).update(...)` on a blackholed TCP connection with no
+ * `statement_timeout`) was the one that escaped it. 15s matches the bound applied
+ * to the data-query callbacks.
+ */
+const DEFAULT_PERSIST_TIMEOUT_MS = 15_000;
 
 /**
  * Built-in tools registered as dashboard-mutation tools (not dispatch-table
@@ -230,6 +258,7 @@ export function buildStudioMcpServer(
     contextEnricher,
     approvalHandler,
     approvalTimeoutMs = 120_000,
+    persistTimeoutMs = DEFAULT_PERSIST_TIMEOUT_MS,
     rateLimit,
   } = options;
 
@@ -391,6 +420,16 @@ export function buildStudioMcpServer(
       data,
       logger,
       maxQueryRows: MAX_QUERY_ROWS,
+      // Finding H3: the source-agnostic consult below (see MULTI_SOURCE_RAW_ROW_TOOLS)
+      // only catches a BLANKET `query_data_source` deny. `summarise_page`'s source set
+      // is MODEL-controlled — `add_widget` accepts any `sourceId` and performs no
+      // existence or authorization check — and each widget yields 5 real rows, so a
+      // host rule that denies `query_data_source` for one `sourceId` was bypassable by
+      // adding a widget on that source (a mutation, so the rule never fired) and then
+      // calling `summarise_page`. Thread the SAME per-source gate the
+      // `studio://data/{sourceId}` resource read passes; the handler consults it once
+      // per distinct widget source and skips the ones that are denied.
+      authorizeSourceDataAccess: (input) => authorizeResourceDataAccess(input),
     });
   }
 
@@ -445,7 +484,18 @@ export function buildStudioMcpServer(
     // tool-call result untouched.
     if (result.mutation && onStateChange) {
       try {
-        await onStateChange(stateBox.current);
+        // Bounded (finding H5): this `await` runs INSIDE the per-session
+        // `mutationChain` critical section, so an `onStateChange` promise that never
+        // settles hung this call AND every subsequent mutating call in the session
+        // forever — the exact failure mode `approvalTimeoutMs` was added to close for
+        // `approvalHandler`, a few lines above. A timeout is treated like any other
+        // persistence failure by the catch below: logged, non-fatal, the already-
+        // applied mutation still reports success.
+        await withTimeout(
+          Promise.resolve(onStateChange(stateBox.current)),
+          persistTimeoutMs,
+          'onStateChange (persistence hook)',
+        );
       } catch (persistErr) {
         logger?.error(
           `[mcp] onStateChange (persistence hook) failed after ${toolName} already applied: ` +
@@ -493,7 +543,11 @@ export function buildStudioMcpServer(
 
       return jsonResult({ output: outcome.result.output });
     } catch (err) {
-      return errorResult(String(err));
+      // Finding H4: never relay raw error text — a `toolPolicy` / `approvalHandler`
+      // implementation is host code and its throw can carry credentials, SQL, or
+      // internal hostnames exactly like a driver error. Full detail to the log, a
+      // generic message + correlation id to the caller.
+      return redactedHostErrorResult(`tool "${safeIdentifier(toolName)}"`, err, logger);
     }
   }
 
@@ -615,7 +669,9 @@ export function buildStudioMcpServer(
       // et al., and what excludes get_dashboard_state / summarise_page when the host
       // omits them.
       if (!isToolAllowed(toolName)) {
-        return errorResult(`Unknown tool: ${toolName}`);
+        // Sanitized + capped before echoing (finding M7): `toolName` is entirely
+        // client-supplied and unbounded here — it never matched a registered tool.
+        return errorResult(`Unknown tool: ${safeIdentifier(toolName)}`);
       }
 
       // Resolve the special-cased handler with an `Object.hasOwn` guard so a
@@ -628,7 +684,9 @@ export function buildStudioMcpServer(
       // receives the same clean `Unknown tool` error uniformly.
       const handler = Object.hasOwn(toolHandlers, toolName) ? toolHandlers[toolName] : undefined;
       if (!handler && !registeredToolNames.has(toolName)) {
-        return errorResult(`Unknown tool: ${toolName}`);
+        // Sanitized + capped before echoing (finding M7): `toolName` is entirely
+        // client-supplied and unbounded here — it never matched a registered tool.
+        return errorResult(`Unknown tool: ${safeIdentifier(toolName)}`);
       }
 
       // Special-cased read-only / side-effectful tools (data queries, chart render,
@@ -740,7 +798,8 @@ export function buildStudioMcpServer(
           // Allowed — commit exactly like today, just gated now.
           return await commitMutation(outcome.result, toolName);
         } catch (err) {
-          return errorResult(String(err));
+          // Finding H4 — see `runReadOnlyTool` above.
+          return redactedHostErrorResult(`tool "${safeIdentifier(toolName)}"`, err, logger);
         }
       };
 
@@ -755,7 +814,9 @@ export function buildStudioMcpServer(
       logger?.error(
         `[mcp] ${toolName} threw after ${Date.now() - t0}ms: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`,
       );
-      return errorResult(String(err));
+      // Finding H4: the full detail is already in the log line above; the result the
+      // model sees carries only the generic message + correlation id.
+      return redactedHostErrorResult(`tool "${safeIdentifier(toolName)}"`, err, logger);
     } finally {
       if (!threw) {
         logger?.log(`[mcp] ${toolName} — ${Date.now() - t0}ms`);

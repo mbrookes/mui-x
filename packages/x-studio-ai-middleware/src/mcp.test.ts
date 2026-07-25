@@ -2300,3 +2300,255 @@ describe('buildStudioMcpServer — prompts/get authorization (T2-2)', () => {
     );
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// H3 — a per-sourceId query_data_source deny must also gate summarise_page
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('buildStudioMcpServer — summarise_page per-source policy (finding H3)', () => {
+  const CALL_TOOL = 'tools/call';
+
+  /** A page carrying one allowed widget and one on a per-source-denied source. */
+  function makeMixedSourceStateBox() {
+    const state = makeStableState();
+    state.runtime.dataSources['source-hr'] = makeSource({
+      id: 'source-hr',
+      label: 'HR',
+      tableName: 'hr_salaries',
+    });
+    state.doc.widgets['w-orders'] = {
+      id: 'w-orders',
+      kind: 'grid',
+      title: 'Orders Grid',
+      sourceId: 'source-orders',
+      config: {},
+    } as any;
+    // The injected model added this one via `add_widget` — a MUTATION, so a
+    // `query_data_source`-keyed per-source rule never fires on the way in, and
+    // `buildWidgetFromArgs` performs no existence/authorization check on `sourceId`.
+    state.doc.widgets['w-hr'] = {
+      id: 'w-hr',
+      kind: 'grid',
+      title: 'HR Grid',
+      sourceId: 'source-hr',
+      config: {},
+    } as any;
+    state.doc.pages[PAGE_ID] = {
+      ...state.doc.pages[PAGE_ID],
+      widgetRows: [['w-orders', 'w-hr']],
+    };
+    return { current: state };
+  }
+
+  it('a per-sourceId query_data_source deny blocks that widget inside summarise_page', async () => {
+    const queryDataSource = vi.fn(
+      async (_p: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
+        rows: [{ id: 'o1', total: 100, status: 'pending' }],
+        rowCount: 7,
+      }),
+    );
+    const consulted: Array<{ toolName: string; sourceId: unknown }> = [];
+    const server = buildStudioMcpServer(makeMixedSourceStateBox(), {
+      data: { queryDataSource },
+      logger: { log: vi.fn(), error: vi.fn() },
+      // The documented per-source rule (see the T2-B suite above) — it must govern
+      // EVERY raw-row surface, `summarise_page`'s per-widget fan-out included.
+      toolPolicy: (ctx) => {
+        consulted.push({ toolName: ctx.toolName, sourceId: (ctx.input as any)?.sourceId });
+        if (ctx.toolName === 'query_data_source' && (ctx.input as any)?.sourceId === 'source-hr') {
+          return { action: 'deny', reason: 'source-hr is off-limits' };
+        }
+        return { action: 'allow' };
+      },
+    });
+
+    const result = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'summarise_page', arguments: {} },
+      method: CALL_TOOL,
+    })) as any;
+
+    const text = result.content[0].text as string;
+    expect(text).toContain('Orders Grid');
+    // No HR rows anywhere in the summary, and the HR table was never queried.
+    expect(text).not.toContain('HR Grid');
+    expect(queryDataSource.mock.calls.map((c) => c[0].tableName)).toEqual(['orders']);
+    // The per-source consults happened under `query_data_source`, threaded with the
+    // sourceId — same shape as the raw-row tool and resource paths.
+    expect(consulted).toContainEqual({ toolName: 'query_data_source', sourceId: 'source-hr' });
+    expect(consulted).toContainEqual({ toolName: 'query_data_source', sourceId: 'source-orders' });
+  });
+
+  it('summarises every widget when the policy allows both sources (no regression)', async () => {
+    const queryDataSource = vi.fn(
+      async (_p: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
+        rows: [{ id: 'o1', total: 100, status: 'pending' }],
+        rowCount: 7,
+      }),
+    );
+    const server = buildStudioMcpServer(makeMixedSourceStateBox(), { data: { queryDataSource } });
+    const result = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'summarise_page', arguments: {} },
+      method: CALL_TOOL,
+    })) as any;
+    const text = result.content[0].text as string;
+    expect(text).toContain('Orders Grid');
+    expect(text).toContain('HR Grid');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// H5 — onStateChange must be bounded, like every other host callback
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('buildStudioMcpServer — onStateChange timeout (finding H5)', () => {
+  const CALL_TOOL = 'tools/call';
+
+  it('does not hang the session on an onStateChange that never settles', async () => {
+    vi.useFakeTimers();
+    try {
+      const stateBox = { current: makeStableState() };
+      const logger = { log: vi.fn(), error: vi.fn() };
+      const server = buildStudioMcpServer(stateBox, {
+        logger,
+        // A blackholed persistence write: `await db(...).update(...)` on a dead
+        // connection with no statement_timeout.
+        onStateChange: () => new Promise<void>(() => {}),
+        persistTimeoutMs: 5_000,
+      });
+      const call = getHandler(server, CALL_TOOL);
+
+      let first: any;
+      const firstPromise = call({
+        params: { name: 'add_page', arguments: { title: 'Stuck' } },
+        method: CALL_TOOL,
+      }).then((r) => {
+        first = r;
+      });
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(first).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(1);
+      await firstPromise;
+      // Persistence failure is non-fatal: the already-applied mutation still succeeds.
+      expect(first.isError).toBeFalsy();
+      expect(logger.error.mock.calls.flat().join('\n')).toMatch(/onStateChange/);
+
+      // …and, critically, the session's mutation queue is not wedged behind it.
+      const second = (await call({
+        params: { name: 'add_page', arguments: { title: 'Unblocked' } },
+        method: CALL_TOOL,
+      })) as any;
+      expect(second.isError).toBeFalsy();
+      expect(
+        Object.values(stateBox.current.doc.pages as Record<string, { title: string }>).some(
+          (p) => p.title === 'Unblocked',
+        ),
+      ).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('still awaits a fast onStateChange normally (no regression)', async () => {
+    const stateBox = { current: makeStableState() };
+    const onStateChange = vi.fn(async () => {});
+    const server = buildStudioMcpServer(stateBox, { onStateChange });
+    const result = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'add_page', arguments: { title: 'Fine' } },
+      method: CALL_TOOL,
+    })) as any;
+    expect(result.isError).toBeFalsy();
+    expect(onStateChange).toHaveBeenCalledOnce();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// H4 / M7 — tools/call error text must be redacted, and echoed names bounded
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('buildStudioMcpServer — tools/call error redaction (finding H4)', () => {
+  const CALL_TOOL = 'tools/call';
+
+  it('never relays a throwing host toolPolicy verbatim', async () => {
+    const secret = 'ECONNREFUSED 10.0.0.5:5432 while checking acl for user "studio_ro"';
+    const logger = { log: vi.fn(), error: vi.fn() };
+    const server = buildStudioMcpServer(
+      { current: makeStableState() },
+      {
+        logger,
+        toolPolicy: () => {
+          throw new Error(secret);
+        },
+      },
+    );
+    const result = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'add_page', arguments: { title: 'x' } },
+      method: CALL_TOOL,
+    })) as any;
+    expect(result.isError).toBe(true);
+    const relayed = JSON.parse(result.content[0].text).error as string;
+    expect(relayed).not.toContain('10.0.0.5');
+    expect(relayed).not.toContain('studio_ro');
+    expect(relayed).toMatch(/withheld/i);
+    expect(logger.error.mock.calls.flat().join('\n')).toContain('10.0.0.5');
+  });
+
+  it('caps the unknown-sourceId error prompts/get echoes, and the id catalogue with it', async () => {
+    const GET_PROMPT = 'prompts/get';
+    const state = makeStableState();
+    // 400 configured sources: the whole catalogue used to be echoed on every miss.
+    for (let i = 0; i < 400; i += 1) {
+      state.runtime.dataSources[`source-${i}`] = makeSource({
+        id: `source-${i}`,
+        label: `Source ${i}`,
+        tableName: `table_${i}`,
+      });
+    }
+    const server = buildStudioMcpServer({ current: state });
+    const err = await getHandler(
+      server,
+      GET_PROMPT,
+    )({
+      params: {
+        name: 'query_data_source_examples',
+        arguments: { sourceId: `<b>${'q'.repeat(50_000)}` },
+      },
+      method: GET_PROMPT,
+    }).then(
+      () => {
+        throw new Error('expected prompts/get to be rejected');
+      },
+      (e: Error) => e,
+    );
+    expect(err.message).toMatch(/Unknown sourceId/);
+    expect(err.message).toContain('&lt;b&gt;');
+    expect(err.message).toMatch(/more of 401 total/);
+    expect(err.message.length).toBeLessThan(2_000);
+  });
+
+  it('escapes and caps an unknown tool name echoed back to the caller', async () => {
+    const server = buildStudioMcpServer({ current: makeStableState() });
+    const result = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: `<script>${'n'.repeat(50_000)}`, arguments: {} },
+      method: CALL_TOOL,
+    })) as any;
+    const relayed = JSON.parse(result.content[0].text).error as string;
+    expect(relayed).toMatch(/Unknown tool/);
+    expect(relayed).toContain('&lt;script&gt;');
+    expect(relayed.length).toBeLessThan(1_000);
+  });
+});

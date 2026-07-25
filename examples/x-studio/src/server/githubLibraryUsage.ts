@@ -47,6 +47,25 @@ export const DATA_GRID_LIBRARIES: LibraryDef[] = [
   { id: 'ag-grid-react', label: 'AG Grid', pkg: 'ag-grid-react' },
   { id: 'tanstack-react-table', label: 'TanStack Table', pkg: '@tanstack/react-table' },
   { id: 'react-data-grid', label: 'React Data Grid', pkg: 'react-data-grid' },
+  // TanStack Table's pre-rename v7 package. Kept as its own bar rather than folded into
+  // TanStack Table above because they're genuinely different packages with incompatible
+  // APIs, and v7 still carries roughly a tenth of v8's weekly npm downloads — plenty of
+  // repos never migrated. Read the two together when asking "how much of the ecosystem is
+  // TanStack?", and separately when asking "which API are people writing today?".
+  { id: 'react-table-v7', label: 'React Table (v7)', pkg: 'react-table' },
+  // Built on top of TanStack Table *and* MUI, so a repo using it will usually also declare
+  // both `@tanstack/react-table` and `@mui/material` — it is double-counted into those bars
+  // by design. It earns its own entry because choosing it is a distinct decision from
+  // wiring TanStack Table up by hand.
+  { id: 'material-react-table', label: 'Material React Table', pkg: 'material-react-table' },
+  { id: 'glide-data-grid', label: 'Glide Data Grid', pkg: '@glideapps/glide-data-grid' },
+  { id: 'kendo-react-grid', label: 'KendoReact Grid', pkg: '@progress/kendo-react-grid' },
+  { id: 'handsontable', label: 'Handsontable', pkg: '@handsontable/react' },
+  // The only entry here that isn't a grid-specific package: DevExtreme ships its React
+  // components as one `devextreme-react` bundle, so this counts repos that depend on the
+  // suite for *any* reason, not just its DataGrid. Unlike the Radix/Nivo/visx undercounts
+  // elsewhere in this file, treat DevExtreme's numbers as an over-count.
+  { id: 'devextreme', label: 'DevExtreme', pkg: 'devextreme-react' },
 ];
 
 export const CHART_LIBRARIES: LibraryDef[] = [

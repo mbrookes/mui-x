@@ -4977,15 +4977,18 @@ describe('StudioController — inherited-key ids never resolve as real entries',
   // COMMITTED `pages.constructor` (the `Object` function) into `doc.pages` as a real page, so
   // every later `Object.values(doc.pages)` iterated a function and the page tabs rendered a
   // bogus entry.
-  it.each(PROTO_KEYS)('reorderPages(["%s", ...]) never writes a prototype value into doc.pages', (protoKey) => {
-    const controller = makeTwoPageController();
+  it.each(PROTO_KEYS)(
+    'reorderPages(["%s", ...]) never writes a prototype value into doc.pages',
+    (protoKey) => {
+      const controller = makeTwoPageController();
 
-    controller.reorderPages([protoKey, 'page-2', 'page-1']);
+      controller.reorderPages([protoKey, 'page-2', 'page-1']);
 
-    const pages = controller.getState().doc.pages;
-    expect(Object.keys(pages)).toEqual(['page-2', 'page-1']);
-    expect(Object.values(pages).every((p) => typeof p === 'object')).toBe(true);
-  });
+      const pages = controller.getState().doc.pages;
+      expect(Object.keys(pages)).toEqual(['page-2', 'page-1']);
+      expect(Object.values(pages).every((p) => typeof p === 'object')).toBe(true);
+    },
+  );
 
   // A page legitimately NAMED `constructor` must not be dropped by the "append omitted pages"
   // fallback, which read back a truthy inherited function from the fresh `{}` accumulator.
@@ -5028,23 +5031,26 @@ describe('StudioController — inherited-key ids never resolve as real entries',
     expect(Object.keys(controller.getState().doc.widgets)).toEqual(['w1']);
   });
 
-  it.each(PROTO_KEYS)('moveWidgetToPage(w1, "%s") does not move onto a nonexistent page', (protoKey) => {
-    const controller = new StudioController({
-      doc: {
-        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
-        pages: {
-          'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['w1']] },
-          'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [] },
+  it.each(PROTO_KEYS)(
+    'moveWidgetToPage(w1, "%s") does not move onto a nonexistent page',
+    (protoKey) => {
+      const controller = new StudioController({
+        doc: {
+          dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+          pages: {
+            'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['w1']] },
+            'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [] },
+          },
+          widgets: { w1: makeWidget('w1') },
         },
-        widgets: { w1: makeWidget('w1') },
-      },
-    });
+      });
 
-    controller.moveWidgetToPage('w1', protoKey);
+      controller.moveWidgetToPage('w1', protoKey);
 
-    expect(controller.getState().doc.pages['page-1'].widgetRows).toEqual([['w1']]);
-    expect(controller.getState().doc.pages['page-2'].widgetRows).toEqual([]);
-  });
+      expect(controller.getState().doc.pages['page-1'].widgetRows).toEqual([['w1']]);
+      expect(controller.getState().doc.pages['page-2'].widgetRows).toEqual([]);
+    },
+  );
 
   it.each(PROTO_KEYS)('data-source writers no-op for an inherited source id "%s"', (protoKey) => {
     const controller = new StudioController();

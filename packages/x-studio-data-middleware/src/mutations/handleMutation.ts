@@ -421,7 +421,6 @@ export async function handleMutation(
   // beats the marginal latency of `Promise.all`.
   const results: MutationResult[] = [];
   for (const descriptor of body.mutations) {
-     
     results.push(
       // Mutations are applied SEQUENTIALLY by design: each item's outcome is reported
       // independently and, in atomic mode, a failure must roll back before any later item

@@ -151,6 +151,7 @@ describe('EdgeLabel', () => {
         );
 
         // The visible edge is the geometry's own path …
+        // eslint-disable-next-line testing-library/no-container -- a raw SVG <path> carries no role or accessible name; its `d` attribute is exactly what this assertion is about
         const paths = Array.from(container.querySelectorAll('path'));
         expect(paths.length).toBeGreaterThan(0);
         paths.forEach((p) => expect(p.getAttribute('d')).toBe(geometry.d));

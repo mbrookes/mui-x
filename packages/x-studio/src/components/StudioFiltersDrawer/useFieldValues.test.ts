@@ -2,7 +2,6 @@ import { renderHook } from '@mui/internal-test-utils';
 import { describe, expect, it } from 'vitest';
 import type { StudioDataSource, StudioFilterState } from '../../models';
 import { createStudioHarness } from '../../internals/test-utils';
-import type { FieldType } from './filterDrawerTypes';
 import { useFieldValues } from './useFieldValues';
 
 const ORDERS_SOURCE: StudioDataSource = {
@@ -38,16 +37,16 @@ function setup(parentFilters?: StudioFilterState[]) {
   const { wrapper } = createStudioHarness({
     initialState: { runtime: { dataSources: { orders: ORDERS_SOURCE } } },
   });
-  return renderHook(() => useFieldValues('segment', 'string', 'orders', parentFilters), {
+  return renderHook(() => useFieldValues('segment', 'orders', parentFilters), {
     wrapper,
   });
 }
 
-function setupForField(fieldId: string, fieldType: FieldType | undefined) {
+function setupForField(fieldId: string) {
   const { wrapper } = createStudioHarness({
     initialState: { runtime: { dataSources: { orders: ORDERS_SOURCE } } },
   });
-  return renderHook(() => useFieldValues(fieldId, fieldType, 'orders'), { wrapper });
+  return renderHook(() => useFieldValues(fieldId, 'orders'), { wrapper });
 }
 
 // Regression for finding 4: values used to be collected only for `string`/`undefined` field
@@ -58,17 +57,17 @@ function setupForField(fieldId: string, fieldType: FieldType | undefined) {
 // regardless of the declared type.
 describe('useFieldValues — non-string field types (finding 4)', () => {
   it('collects distinct values for a number field', () => {
-    const { result } = setupForField('storeId', 'number');
+    const { result } = setupForField('storeId');
     expect(result.current).toEqual(['3', '7']);
   });
 
   it('collects distinct values for a boolean field', () => {
-    const { result } = setupForField('isActive', 'boolean');
+    const { result } = setupForField('isActive');
     expect(result.current).toEqual(['false', 'true']);
   });
 
   it('still collects distinct values for a string field', () => {
-    const { result } = setupForField('country', 'string');
+    const { result } = setupForField('country');
     expect(result.current).toEqual(['DE', 'FR', 'US']);
   });
 });

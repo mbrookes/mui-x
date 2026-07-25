@@ -79,11 +79,7 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
     filter.operator2 && operators.find((o) => o.value === filter.operator2)
       ? filter.operator2
       : operators[0].value;
-  const fieldValues = useFieldValues(
-    filter.field,
-    fieldType,
-    filter.filterSourceId ?? widgetSourceId,
-  );
+  const fieldValues = useFieldValues(filter.field, filter.filterSourceId ?? widgetSourceId);
   const fieldLabel = selectedOption?.label ?? filter.field;
   // A widget filter whose field vanished (the widget's source was switched, or the source
   // reloaded with the column renamed/dropped) makes the widget render EMPTY — every row reads

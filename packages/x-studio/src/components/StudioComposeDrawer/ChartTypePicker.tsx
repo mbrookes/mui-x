@@ -132,9 +132,7 @@ export function ChartTypePicker({
                   // exist in neither MUI's palette nor this repo's theme, so `bgcolor`
                   // silently resolved to `undefined` and the selected cell was signalled by
                   // a 1px border alone. Derive the tints from the real `primary.main`.
-                  bgcolor: selected
-                    ? (t) => alpha(t.palette.primary.main, 0.18)
-                    : 'transparent',
+                  bgcolor: selected ? (t) => alpha(t.palette.primary.main, 0.18) : 'transparent',
                   cursor: 'default',
                   transition: 'all 0.15s',
                   color: selected ? 'primary.main' : 'text.secondary',

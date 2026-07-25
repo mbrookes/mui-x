@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { createPortal } from 'react-dom';
+import * as ReactDOM from 'react-dom';
 import { createRenderer, fireEvent, act, screen } from '@mui/internal-test-utils';
 import { describe, expect, it, vi } from 'vitest';
 import { createStudioHarness } from '../../internals/test-utils';
@@ -34,7 +34,7 @@ function PortalWidget() {
   return (
     <React.Fragment>
       <div>widget content</div>
-      {createPortal(<button type="button">portalled option</button>, document.body)}
+      {ReactDOM.createPortal(<button type="button">portalled option</button>, document.body)}
     </React.Fragment>
   );
 }

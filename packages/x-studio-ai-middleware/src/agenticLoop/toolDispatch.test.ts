@@ -956,6 +956,9 @@ describe('dispatchToolCall — a throwing host toolPolicy', () => {
     expect((onToolError.mock.calls[0][1] as Error).message).toMatch(/studio_ro/);
   }
 
+  // Assertions live in `expectRedactedResult` above — all three paths must produce the
+  // identical redacted shape, so asserting it in one place is the point of the helper.
+  // eslint-disable-next-line vitest/expect-expect
   it('turns a policy throw on the built-in tool path into a redacted tool result', async () => {
     const onToolError = vi.fn();
     const ctx = makeCtx({

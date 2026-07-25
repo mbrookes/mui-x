@@ -114,7 +114,7 @@ export function PageFilterRow(props: PageFilterRowProps) {
     [allPageFilters, filter.id, fields, resolveFilterSourceId, childSourceId],
   );
 
-  const fieldValues = useFieldValues(filter.field, fieldType, filter.filterSourceId, parentFilters);
+  const fieldValues = useFieldValues(filter.field, filter.filterSourceId, parentFilters);
   const fieldLabel = currentField?.label ?? filter.field;
   // A page filter whose field vanished (source reloaded with the column renamed/dropped)
   // silently matches zero rows on every widget it reaches, with the card still looking

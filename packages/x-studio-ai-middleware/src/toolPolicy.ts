@@ -117,6 +117,11 @@ export type ToolPolicyDecision =
  * `preCheckPolicy` hook (see `executeToolWithPolicy`) is the only thing consulted
  * twice, and it is caller-supplied rather than host-supplied precisely so this
  * contract holds.
+ *
+ * @param {ToolPolicyContext} ctx - The tool call being authorized, including its proposed
+ *   effects when they are known at consult time.
+ * @returns {ToolPolicyDecision | Promise<ToolPolicyDecision>} The authorization decision,
+ *   resolved synchronously or asynchronously.
  */
 export type ToolPolicy = (
   ctx: ToolPolicyContext,

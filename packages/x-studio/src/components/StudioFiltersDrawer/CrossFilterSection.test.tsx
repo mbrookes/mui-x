@@ -44,7 +44,11 @@ describe('<CrossFilterSection /> value formatting (finding 3.10)', () => {
     expect(screen.queryByText(/\[object Object\]/)).toBe(null);
     // Derived from `Intl`, not literals — the label formats via `toLocaleDateString`.
     const fmt = (iso: string) =>
-      new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+      new Date(iso).toLocaleDateString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      });
     expect(screen.getByText(new RegExp(fmt('2024-01-01')))).not.toBe(null);
     expect(screen.getByText(new RegExp(fmt('2024-01-31')))).not.toBe(null);
   });

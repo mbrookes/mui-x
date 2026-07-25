@@ -867,8 +867,8 @@ describe('StudioPieChart', () => {
 
     // The keydown originates on the chart's own focus proxy and bubbles to the widget's
     // wrapper, exactly as it does in a real chart.
-    const pressKeyOnChart = (container: HTMLElement, key: string, shiftKey = false) => {
-      const chart = container.querySelector('[data-testid="pie-chart"]') as HTMLElement;
+    const pressKeyOnChart = (_container: HTMLElement, key: string, shiftKey = false) => {
+      const chart = screen.getByTestId('pie-chart');
       chart.focus();
       fireEvent.keyDown(chart, { key, shiftKey });
     };

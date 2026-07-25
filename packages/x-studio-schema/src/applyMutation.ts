@@ -673,6 +673,17 @@ function removeSpanEntries(
 }
 
 /**
+ * Decides whether a span may be persisted for one row member.
+ *
+ * Named rather than inlined in `rebalanceRowSpans`' signature so its own parameter is
+ * documented here, on the callback, instead of being attributed to the enclosing function.
+ *
+ * @param id A row member whose span is about to be written.
+ * @returns `true` when that id is a real widget safe to persist a span for.
+ */
+type CanWriteSpan = (id: string) => boolean;
+
+/**
  * Fit ONE layout row's column spans inside `GRID_COLS`, in place, around the spans a
  * mutation explicitly asked for.
  *
@@ -702,7 +713,7 @@ function rebalanceRowSpans(
   spans: Record<string, number>,
   rowIds: readonly string[],
   anchorIds: ReadonlySet<string>,
-  canWriteSpan: (id: string) => boolean,
+  canWriteSpan: CanWriteSpan,
 ): void {
   // `Object.hasOwn` per id (not `spans[id] ?? 0`) so an untrusted row id reads 0, never an
   // `Object` prototype member (which would poison the sums below with `NaN`).

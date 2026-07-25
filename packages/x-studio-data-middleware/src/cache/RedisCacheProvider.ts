@@ -299,10 +299,9 @@ export class RedisCacheProvider implements CacheProvider {
             await this.sRem(this.tagKey(tag), [key]);
           }
         }
-         
+
         await delKeys(this.redis, [...page, ...page.map((k) => this.keyTagsKey(k))]);
       } else {
-         
         await delKeys(this.redis, page);
       }
     }

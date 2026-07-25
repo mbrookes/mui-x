@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { createRenderer } from '@mui/internal-test-utils';
+import { createRenderer, screen } from '@mui/internal-test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createStudioHarness } from '../../../internals/test-utils';
 import { KpiSparkline } from './KpiSparkline';
@@ -120,23 +120,23 @@ describe('KpiSparkline — empty periods', () => {
   });
 
   it('announces the number of periods covered, including the empty one', () => {
-    const { container } = renderSparkline([100, 120, null, 90]);
-    const labelled = container.querySelector('[role="img"]');
+    renderSparkline([100, 120, null, 90]);
+    const labelled = screen.getByRole('img');
     // Four monthly periods (Jan, Feb, empty March, Apr) — not the three plotted points.
-    expect(labelled?.getAttribute('aria-label')).toContain('4 points');
+    expect(labelled.getAttribute('aria-label')).toContain('4 points');
   });
 
   it('reports the trend between the first and last periods that have a value', () => {
-    const { container } = renderSparkline([100, 120, null, 90]);
-    const label = container.querySelector('[role="img"]')?.getAttribute('aria-label') ?? '';
+    renderSparkline([100, 120, null, 90]);
+    const label = screen.getByRole('img').getAttribute('aria-label') ?? '';
     // 100 -> 90 is a decline; a leading/trailing null must not be read as a 0 endpoint.
     expect(label).toContain('trending down');
     expect(label).toContain('from 100 to 90');
   });
 
   it('does not treat a null endpoint as a zero value', () => {
-    const { container } = renderSparkline([null, 50, 80]);
-    const label = container.querySelector('[role="img"]')?.getAttribute('aria-label') ?? '';
+    renderSparkline([null, 50, 80]);
+    const label = screen.getByRole('img').getAttribute('aria-label') ?? '';
     expect(label).toContain('trending up');
     expect(label).toContain('from 50 to 80');
   });

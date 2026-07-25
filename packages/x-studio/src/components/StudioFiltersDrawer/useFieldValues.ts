@@ -1,7 +1,6 @@
 import * as React from 'react';
 import { useStudioSelector, selectDataSources } from '../../context';
 import type { StudioDataSource, StudioFilterState } from '../../models';
-import type { FieldType } from './filterDrawerTypes';
 
 type Row = Record<string, unknown>;
 
@@ -106,7 +105,6 @@ export const FIELD_VALUES_CAP = 1000;
  */
 export function useFieldValues(
   fieldId: string,
-  fieldType: FieldType | undefined,
   filterSourceId?: string,
   parentFilters?: StudioFilterState[],
 ): string[] {
@@ -144,5 +142,5 @@ export function useFieldValues(
     }
     const sorted = Array.from(seen).sort();
     return sorted.length > FIELD_VALUES_CAP ? sorted.slice(0, FIELD_VALUES_CAP) : sorted;
-  }, [dataSources, fieldId, fieldType, filterSourceId, parentFilters]);
+  }, [dataSources, fieldId, filterSourceId, parentFilters]);
 }

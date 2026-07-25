@@ -133,7 +133,7 @@ describe('PivotSetupPanel', () => {
     // cannot fail. Match with `exact: false`, and prove the query matches something in the
     // non-count branch first so its `null` here actually means "not rendered".
     const { unmount } = render(<PivotSetupPanel widgetId="widget-1" />);
-    expect(screen.queryByLabelText('Value field', { exact: false })).not.toBeNull();
+    expect(screen.getByLabelText('Value field', { exact: false })).not.toBeNull();
     unmount();
 
     mockState.doc.widgets['widget-1'].config = {

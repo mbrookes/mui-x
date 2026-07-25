@@ -642,27 +642,27 @@ describe('renderGauge naming and value formatting', () => {
   }
 
   it("forwards the chart's accessible name to the gauge", () => {
-    const props = renderGaugeProps({ id: 'amount', label: 'Amount', type: 'number' });
-    expect(props.ariaTitle).toBe('Chart title');
+    const view = renderGaugeProps({ id: 'amount', label: 'Amount', type: 'number' });
+    expect(view.ariaTitle).toBe('Chart title');
   });
 
   it("formats the gauge value with the measure's own currency format", () => {
-    const props = renderGaugeProps({
+    const view = renderGaugeProps({
       id: 'amount',
       label: 'Amount',
       type: 'number',
       format: 'currency',
       currencyCode: 'EUR',
     });
-    const formatted = props.valueFormatter!(1234567.89);
+    const formatted = view.valueFormatter!(1234567.89);
     expect(formatted).toContain('€');
     // Compact, like the KPI card — not the Gauge default's "1,234,567.89".
     expect(formatted).not.toContain('1,234,567');
   });
 
   it('supplies no formatter for a field with no format config, leaving the Gauge default', () => {
-    const props = renderGaugeProps({ id: 'amount', label: 'Amount', type: 'number' });
-    expect(props.valueFormatter).toBe(undefined);
+    const view = renderGaugeProps({ id: 'amount', label: 'Amount', type: 'number' });
+    expect(view.valueFormatter).toBe(undefined);
   });
 });
 

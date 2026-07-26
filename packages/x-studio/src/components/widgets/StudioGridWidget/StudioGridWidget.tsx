@@ -24,6 +24,7 @@ import { useWidgetRows } from '../../../internals/useWidgetRows';
 import { getRowIdentity } from '../../../internals/rowIdentity';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
 import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
+import { useStudioFeatures } from '../../../internals/StudioUIConfigContext';
 import { crossFilterValueEquals } from '../StudioChartWidget/chartWidgetHelpers';
 
 /** Maps our model's aggregation names to DataGridPremium built-in function names. */
@@ -80,6 +81,7 @@ export interface StudioGridWidgetProps {
 export const StudioGridWidget = React.memo(function StudioGridWidget(props: StudioGridWidgetProps) {
   const { dataSource, widget, pageId, slotProps } = props;
   const controller = useStudioController();
+  const features = useStudioFeatures();
   const filters = useStudioSelector(selectFilters);
   const localeText = useStudioLocaleText();
   const selectExpressionFields = React.useMemo(
@@ -269,6 +271,9 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
 
   const handleCellClick = React.useCallback(
     (params: GridCellParams) => {
+      if (!features.crossFilter) {
+        return;
+      }
       // Don't cross-filter from the summary pinned row
       if (params.id === '__summary__') {
         return;
@@ -288,7 +293,14 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         controller.applyCrossFilter(widget.id, fieldId, value, widget.sourceId);
       }
     },
-    [controller, widget.id, widget.sourceId, activeCrossFilter, widget.config.crossFilterField],
+    [
+      controller,
+      widget.id,
+      widget.sourceId,
+      activeCrossFilter,
+      widget.config.crossFilterField,
+      features.crossFilter,
+    ],
   );
 
   // Conditional formatting: build an index of CSS class name → style for injection.

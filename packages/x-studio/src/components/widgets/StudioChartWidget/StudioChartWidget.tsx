@@ -33,6 +33,7 @@ import { CHART_TYPE_DEFS } from './chartTypeDefs';
 import type { ChartRenderContext } from './chartTypeDefs';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
 import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
+import { useStudioFeatures } from '../../../internals/StudioUIConfigContext';
 
 import { normalizeCrossFilterValue, crossFilterValueEquals } from './chartWidgetHelpers';
 import {
@@ -114,6 +115,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   const controller = useStudioController();
   const dataSources = useStudioSelector(selectDataSources);
   const localeText = useStudioLocaleText();
+  const features = useStudioFeatures();
   const selectExpressionFields = React.useMemo(
     () => makeSelectExpressionFieldsForSource(widget.sourceId ?? ''),
     [widget.sourceId],
@@ -361,7 +363,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
 
   const handleItemClick = React.useCallback(
     (label: string | number | Date, shiftKey: boolean) => {
-      if (!config.xField) {
+      if (!features.crossFilter || !config.xField) {
         return;
       }
 
@@ -459,6 +461,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       chartSupport.fieldOwners,
       xGroupBy,
       selectedPeriodKey,
+      features.crossFilter,
     ],
   );
 

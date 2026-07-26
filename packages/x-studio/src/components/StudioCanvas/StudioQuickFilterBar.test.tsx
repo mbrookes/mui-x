@@ -32,6 +32,7 @@ const BASE_FEATURES: ResolvedStudioFeatures = {
   filters: true,
   quickFilter: false,
   crossFilterBar: false,
+  crossFilter: true,
   savedFilterViews: true,
   dataManagement: true,
   relationships: true,

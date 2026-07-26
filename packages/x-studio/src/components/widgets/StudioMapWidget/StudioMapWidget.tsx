@@ -13,7 +13,7 @@ import {
   useStudioSelector,
   makeSelectActiveCrossFilter,
 } from '../../../context';
-import { useStudioGeographies } from '../../../internals/StudioUIConfigContext';
+import { useStudioGeographies, useStudioFeatures } from '../../../internals/StudioUIConfigContext';
 import { useWidgetRows } from '../../../internals/useWidgetRows';
 import { normalizeToAlpha2, alpha2ToName, STATE_ABBR_TO_NAME } from './countryUtils';
 import type { StudioMapGeographyDefinition } from './geographyLoaders';
@@ -124,7 +124,8 @@ export function StudioMapWidget({
   const mapGeography = config.mapGeography ?? 'world';
   const legendPosition = config.mapLegendPosition ?? 'bottom';
   const legendZeroMin = config.mapLegendZeroMin ?? false;
-  const crossFilterEmit = config.mapCrossFilterEmit ?? false;
+  const features = useStudioFeatures();
+  const crossFilterEmit = (config.mapCrossFilterEmit ?? false) && features.crossFilter;
 
   const hideLegend = legendPosition === 'hidden';
   const legendAlign = (config.mapLegendAlign ?? 'center') as 'start' | 'center' | 'end';
@@ -415,8 +416,9 @@ export function StudioMapWidget({
       }
       const filterSourceId = config.mapCountrySourceId ?? widget.sourceId;
       const isActive =
-        (activeCrossFilter?.scope.kind === 'cross-filter' ? activeCrossFilter.scope.sourceWidgetId : undefined) === widget.id &&
-        String(activeCrossFilter?.value) === String(rawValue);
+        (activeCrossFilter?.scope.kind === 'cross-filter'
+          ? activeCrossFilter.scope.sourceWidgetId
+          : undefined) === widget.id && String(activeCrossFilter?.value) === String(rawValue);
       if (isActive) {
         controller.clearCrossFilter(widget.id);
       } else {

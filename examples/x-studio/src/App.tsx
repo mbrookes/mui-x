@@ -183,7 +183,7 @@ const INITIAL_STATE: Partial<StudioState> = {
     },
   },
   session: {
-    mode: 'edit',
+    mode: 'view',
     shell: {
       openDrawers: { data: false, compose: true, filters: true },
       selectedWidgetId: null,
@@ -317,6 +317,15 @@ export default function App() {
   const [featureFlags, setFeatureFlags] = React.useState<StudioFeatureFlags>({
     quickFilter: false,
   });
+  // The filters side panel is for authoring page-level filters, not for reading the
+  // dashboard — Studio itself shows it in both modes (it doesn't assume a viewer-facing
+  // consumer wants that), so hide it here once out of edit mode. Derived rather than folded
+  // into `featureFlags` state so the Settings dialog's flag toggles keep showing what the
+  // user actually chose, not this mode-driven override.
+  const effectiveFeatureFlags = React.useMemo<StudioFeatureFlags>(
+    () => ({ ...featureFlags, filters: mode === 'edit' }),
+    [featureFlags, mode],
+  );
   const [locale, setLocale] = React.useState<SupportedLocale>('en');
   const localeBundle = LOCALE_BUNDLES[locale];
   const t = localeBundle.appLocaleText;
@@ -614,7 +623,7 @@ export default function App() {
                 sidebarSide={sidebarSide}
                 tableSourceMode={tableSourceMode}
                 stackBreakpoint={stackBreakpoint}
-                featureFlags={featureFlags}
+                featureFlags={effectiveFeatureFlags}
                 aiConfig={aiConfig}
                 customWidgets={customWidgets}
                 localeText={localeBundle.studioLocaleText}

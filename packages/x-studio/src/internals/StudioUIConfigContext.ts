@@ -2300,6 +2300,7 @@ export interface ResolvedStudioFeatures {
   filters: boolean;
   quickFilter: boolean;
   crossFilterBar: boolean;
+  crossFilter: boolean;
   savedFilterViews: boolean;
   dataManagement: boolean;
   relationships: boolean;
@@ -2359,6 +2360,7 @@ export function useStudioFeatures(): ResolvedStudioFeatures {
     filters: featureFlags.filters ?? true,
     quickFilter: featureFlags.quickFilter ?? false,
     crossFilterBar: featureFlags.crossFilterBar ?? false,
+    crossFilter: featureFlags.crossFilter ?? true,
     savedFilterViews: featureFlags.savedFilterViews ?? true,
     dataManagement: featureFlags.dataManagement ?? true,
     relationships: featureFlags.relationships ?? true,

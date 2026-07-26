@@ -319,11 +319,13 @@ export default function App() {
   });
   // The filters side panel is for authoring page-level filters, not for reading the
   // dashboard — Studio itself shows it in both modes (it doesn't assume a viewer-facing
-  // consumer wants that), so hide it here once out of edit mode. Derived rather than folded
-  // into `featureFlags` state so the Settings dialog's flag toggles keep showing what the
-  // user actually chose, not this mode-driven override.
+  // consumer wants that), so hide it here once out of edit mode. Same reasoning for
+  // cross-filtering: clicking a bar to filter the rest of the dashboard is an authoring-time
+  // interaction to verify, not something this read-mostly demo wants viewers stumbling into.
+  // Both derived rather than folded into `featureFlags` state so the Settings dialog's flag
+  // toggles keep showing what the user actually chose, not this mode-driven override.
   const effectiveFeatureFlags = React.useMemo<StudioFeatureFlags>(
-    () => ({ ...featureFlags, filters: mode === 'edit' }),
+    () => ({ ...featureFlags, filters: mode === 'edit', crossFilter: mode === 'edit' }),
     [featureFlags, mode],
   );
   const [locale, setLocale] = React.useState<SupportedLocale>('en');

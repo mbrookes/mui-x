@@ -124,6 +124,15 @@ export interface StudioFeatureFlags {
    */
   crossFilterBar?: boolean;
   /**
+   * Allow chart, table, and map widgets to emit a cross-filter when a viewer clicks a data
+   * point (bar, cell, map region, ...). Set to `false` to make widgets non-interactive for
+   * cross-filtering — e.g. in a read-only/embedded view where clicks shouldn't change what
+   * other widgets show. Widget-level cross-filter settings (e.g. a map's "emit on click"
+   * config) still apply on top of this — this flag only adds a dashboard-wide off switch.
+   * @default true
+   */
+  crossFilter?: boolean;
+  /**
    * Allow saving and loading named filter presets ("Saved Views") in the filters panel.
    * @default true
    */

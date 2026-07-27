@@ -5,7 +5,7 @@ import type {
   StudioGridSummaryAggregation,
   StudioRelationship,
 } from '../models';
-import { buildManyToOneRelationshipIndex } from '../internals/dataSourceGraph';
+import { buildRelatedSourceJoinIndex } from '../internals/dataSourceGraph';
 import { getCachedEnrichedRows } from '../internals/enrichedRowsCache';
 import { getCachedNormalizedDataSource } from '../internals/normalizedRowsCache';
 import { indexRowsByKey, normalizeJoinKey } from '../internals/joinKeys';
@@ -89,6 +89,12 @@ function aggregateGridValue(
  * widget-source rows and deduplicated; then the related-source row map is used
  * to look up the actual value for aggregation.
  *
+ * A one-to-one or reverse-declared relationship reaches this too (the join index is
+ * direction-independent). There the dedup is a no-op — each widget row already has a distinct
+ * join value — and the related-row map's first-write-wins lookup yields one representative
+ * related value per row, the same display-column semantics `enrichRowsWithRelatedFields` and
+ * `crossSourceEnrichment` use for the identical topology.
+ *
  * Falls back to `aggregateGridValue` for same-source fields.
  */
 function symmetricAggregate(
@@ -146,15 +152,16 @@ export function buildGroupedGridRows(
   >();
 
   if (columns && dataSources && relationships && widgetSourceId) {
-    // targetId → relationship (many-to-one from widgetSourceId) — shared traversal step,
-    // see dataSourceGraph.buildManyToOneRelationshipIndex.
-    const relIndex = buildManyToOneRelationshipIndex(widgetSourceId, relationships);
+    // relatedSourceId → oriented one-hop join — shared traversal step, see
+    // dataSourceGraph.buildRelatedSourceJoinIndex. Direction-independent and not limited to
+    // `many-to-one`, matching the display path (`crossSourceEnrichment`) it must agree with.
+    const relIndex = buildRelatedSourceJoinIndex(widgetSourceId, relationships);
 
     for (const col of columns) {
       if (!col.sourceId || col.sourceId === widgetSourceId) {
         continue;
       }
-      // Find a many-to-one relationship from widgetSourceId → col.sourceId
+      // Find the direct relationship between widgetSourceId and col.sourceId (either direction)
       const rel = relIndex.get(col.sourceId);
       if (!rel) {
         continue;

@@ -152,6 +152,74 @@ describe('enrichWithCrossSourceColumns', () => {
     expect(result[1].joinedDate).toBe('2024-03-03'); // o2 → c2
   });
 
+  // ─── Relationship shapes other than "many-to-one declared from the widget source" ──────
+  //
+  // Every case above uses the one shape the old `buildManyToOneRelationshipIndex` matched, so
+  // the narrowness was invisible to this suite. `enrichRowsWithRelatedFields`,
+  // `chartSupport.findDirectFieldOwner` and `createBatchingAdapter.resolveField` all resolve
+  // the two shapes below, so before the widening the SAME field was populated in a chart and
+  // through the adapter but blank in a grid column / map field (finding M2).
+
+  it('joins a one-to-one related source field onto primary rows', () => {
+    const detailsSource: StudioDataSource = {
+      id: 'order_details',
+      label: 'Order details',
+      fields: [
+        { id: 'orderId', label: 'Order', type: 'string' },
+        { id: 'notes', label: 'Notes', type: 'string' },
+      ],
+      rows: [
+        { orderId: 'o1', notes: 'Gift wrap' },
+        { orderId: 'o2', notes: 'Fragile' },
+      ],
+    };
+    const oneToOne: StudioRelationship[] = [
+      {
+        id: 'rel-orders-details',
+        type: 'one-to-one',
+        sourceId: 'orders',
+        sourceField: 'id',
+        targetId: 'order_details',
+        targetField: 'orderId',
+      },
+    ];
+    const result = enrichWithCrossSourceColumns(
+      orderRows,
+      'orders',
+      [{ fieldId: 'notes', sourceId: 'order_details' }],
+      { order_details: detailsSource },
+      oneToOne,
+    );
+    expect(result[0]).toMatchObject({ id: 'o1', notes: 'Gift wrap' });
+    expect(result[1]).toMatchObject({ id: 'o2', notes: 'Fragile' });
+    expect(result[2].notes).toBeUndefined(); // o3 has no details row
+  });
+
+  it('joins a REVERSE-declared many-to-one related source field onto primary rows', () => {
+    // Same customers↔orders link as the shared fixture, declared from the "one" side —
+    // which side the schema author wrote first must not decide whether the column renders.
+    const reversed: StudioRelationship[] = [
+      {
+        id: 'rel-customers-orders',
+        type: 'many-to-one',
+        sourceId: 'customers',
+        sourceField: 'id',
+        targetId: 'orders',
+        targetField: 'customerId',
+      },
+    ];
+    const result = enrichWithCrossSourceColumns(
+      orderRows,
+      'orders',
+      [{ fieldId: 'company', sourceId: 'customers' }],
+      dataSources,
+      reversed,
+    );
+    expect(result[0]).toMatchObject({ id: 'o1', company: 'Acme' });
+    expect(result[1]).toMatchObject({ id: 'o2', company: 'Globex' });
+    expect(result[2]).toMatchObject({ id: 'o3', company: 'Acme' });
+  });
+
   it('skips cross-source columns with no declared relationship', () => {
     const columns = [
       { fieldId: 'productName', sourceId: 'products' }, // no relationship declared

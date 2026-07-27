@@ -224,6 +224,81 @@ describe('getCachedEnrichedRows', () => {
     expect(result2).not.toBe(result1);
   });
 
+  it('invalidates when a REVERSE-declared relevant relationship changes (finding M3)', () => {
+    // The evaluator now resolves a `join()` through a relationship declared from the ONE side,
+    // so this filter must recognise that relationship as relevant too. When it matched only
+    // `r.sourceId === sourceId` the two were consistent — but only because both were narrow;
+    // widening the evaluator alone would leave the entry pinned to a stale `relRefs` list and
+    // serve the previous joined values forever.
+    const rows = makeRows(5);
+    const customersRows = makeRows(3);
+    const dataSources = makeDataSources(rows, customersRows);
+
+    const joinField: StudioExpressionField = {
+      id: 'expr-country',
+      label: 'Country',
+      sourceId: 'orders',
+      isMeasure: false,
+      expression: { joinSourceId: 'customers', fieldId: 'country' },
+    } as unknown as StudioExpressionField;
+    const exprFields = [joinField];
+
+    // Declared customers → orders (the "one" side first).
+    const makeReverseRel = (): StudioRelationship =>
+      ({
+        type: 'many-to-one',
+        sourceId: 'customers',
+        targetId: 'orders',
+        sourceField: 'id',
+        targetField: 'customerId',
+      }) as StudioRelationship;
+
+    const result1 = getCachedEnrichedRows(rows, 'orders', exprFields, dataSources, [
+      makeReverseRel(),
+    ]);
+    // Same call, same refs → hit.
+    const stableRels = [makeReverseRel()];
+    const result2 = getCachedEnrichedRows(rows, 'orders', exprFields, dataSources, stableRels);
+    const result3 = getCachedEnrichedRows(rows, 'orders', exprFields, dataSources, stableRels);
+    expect(result3).toBe(result2);
+    // A new relationship object ref → miss.
+    expect(result2).not.toBe(result1);
+  });
+
+  it('does NOT invalidate on a many-to-many relationship change', () => {
+    // The evaluator can never resolve a `join()` through an M:N relationship (its two fields
+    // are endpoint keys, not an FK/PK pair), so such a relationship must not be tracked as a
+    // dependency either — otherwise every entry recomputes on an edit that cannot change it.
+    const rows = makeRows(5);
+    const customersRows = makeRows(3);
+    const dataSources = makeDataSources(rows, customersRows);
+
+    const joinField: StudioExpressionField = {
+      id: 'expr-country',
+      label: 'Country',
+      sourceId: 'orders',
+      isMeasure: false,
+      expression: { joinSourceId: 'customers', fieldId: 'country' },
+    } as unknown as StudioExpressionField;
+    const exprFields = [joinField];
+
+    const makeMnRel = (): StudioRelationship =>
+      ({
+        type: 'many-to-many',
+        sourceId: 'orders',
+        targetId: 'customers',
+        sourceField: 'id',
+        targetField: 'id',
+        junctionSourceId: 'junction',
+        junctionSourceField: 'orderId',
+        junctionTargetField: 'customerId',
+      }) as StudioRelationship;
+
+    const result1 = getCachedEnrichedRows(rows, 'orders', exprFields, dataSources, [makeMnRel()]);
+    const result2 = getCachedEnrichedRows(rows, 'orders', exprFields, dataSources, [makeMnRel()]);
+    expect(result2).toBe(result1);
+  });
+
   it('tracks a join source nested inside a function expression (finding 2.18)', () => {
     const ordersRows = makeRows(3).map((r, i) => ({ ...r, customerId: i }));
     const customersV1 = [

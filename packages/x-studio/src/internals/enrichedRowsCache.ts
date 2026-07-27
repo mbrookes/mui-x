@@ -238,10 +238,24 @@ export function getCachedEnrichedRows(
     }
   }
 
-  // Collect only the relationships that affect this source's enrichment
-  // (those where this source is the "from" end of a join).
+  // Collect only the relationships that affect this source's enrichment: any DIRECT
+  // (non-many-to-many) relationship whose other endpoint is a source we join to, in EITHER
+  // declared direction.
+  //
+  // This predicate must stay byte-for-byte equivalent to `expressionEvaluator.findJoinFields`,
+  // which is what the enrichment itself uses to resolve a `JoinFieldExpression`. It was
+  // previously the same one-directional `r.sourceId === sourceId` test the evaluator used, so
+  // the two agreed — but only because both were narrow. Widening the evaluator to resolve
+  // reverse-declared relationships without widening this filter would open a cache-invalidation
+  // hole: editing the join fields of a reverse-declared relationship would change the enriched
+  // values while leaving `relRefs` unchanged, so the stale result array would be served forever.
+  // `many-to-many` is excluded for the same reason the evaluator skips it — such a relationship
+  // can never contribute a join here, so a change to one must not force recomputation either.
   const relevantRelationships = relationships.filter(
-    (r) => r.sourceId === sourceId && joinedSourceIds.has(r.targetId),
+    (r) =>
+      r.type !== 'many-to-many' &&
+      ((r.sourceId === sourceId && joinedSourceIds.has(r.targetId)) ||
+        (r.targetId === sourceId && joinedSourceIds.has(r.sourceId))),
   );
 
   // Look up the 2-level cache: rows array → fieldSetKey → entry.

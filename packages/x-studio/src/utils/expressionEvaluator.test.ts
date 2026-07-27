@@ -167,6 +167,90 @@ describe('comparison operators', () => {
   });
 });
 
+// ─── Equality — explicit comparison policy, not loose `==` (finding H3) ───────
+//
+// The filter-side equivalents of these live in `filterUtils.test.ts`; the expression side had
+// none, which is how three loose-`==` operators survived behind a rationale-free
+// `eslint-disable-next-line eqeqeq` while every filter comparison was hardened around them.
+
+describe('equality operators use the same comparison policy as the filter engine', () => {
+  it('does not treat a blank string as equal to 0', () => {
+    // The motivating case: a CSV whose blank numeric cells import as `''`. As a FILTER
+    // (`discount equals 0`, `fieldType: 'number'`) these rows are correctly excluded, so a
+    // measure `sum(if(discount == 0, 1, 0))` counting them made a KPI over the measure and a
+    // KPI over the filtered count disagree.
+    expect(
+      evaluateExpression(fn('equals', field('discount'), numVal(0)), ctx({ discount: '' })),
+    ).toBe(false);
+    expect(
+      evaluateExpression(fn('equals', field('discount'), numVal(0)), ctx({ discount: '   ' })),
+    ).toBe(false);
+    expect(
+      evaluateExpression(fn('notEqual', field('discount'), numVal(0)), ctx({ discount: '' })),
+    ).toBe(true);
+  });
+
+  it('does not treat booleans as numerically equal to 0 / 1', () => {
+    expect(
+      evaluateExpression(fn('equals', field('status'), numVal(0)), ctx({ status: false })),
+    ).toBe(false);
+    expect(evaluateExpression(fn('equals', field('flag'), numVal(1)), ctx({ flag: true }))).toBe(
+      false,
+    );
+    // `false == '0'` was true under loose `==`.
+    expect(
+      evaluateExpression(fn('equals', field('status'), strVal('0')), ctx({ status: false })),
+    ).toBe(false);
+  });
+
+  it('compares string representations for booleans and string-boolean columns', () => {
+    // Mirrors `filterUtils`' `fieldType: 'boolean'` branch (`String(rv) === String(filterVal)`)
+    // and `toBoolean`'s string-boolean handling: a CSV `'true'` and a real `true` are one value.
+    expect(evaluateExpression(fn('equals', field('ok'), boolVal(true)), ctx({ ok: true }))).toBe(
+      true,
+    );
+    expect(evaluateExpression(fn('equals', field('ok'), boolVal(true)), ctx({ ok: 'true' }))).toBe(
+      true,
+    );
+    expect(evaluateExpression(fn('equals', field('ok'), boolVal(true)), ctx({ ok: 'false' }))).toBe(
+      false,
+    );
+  });
+
+  it("keeps numeric-string coercion working ('20' equals 20)", () => {
+    // The one behaviour a fix must preserve — operands routinely arrive as raw text-input
+    // strings, exactly as `filterUtils`' numeric `equals` branch documents.
+    expect(evaluateExpression(fn('equals', field('qty'), numVal(20)), ctx({ qty: '20' }))).toBe(
+      true,
+    );
+    expect(evaluateExpression(fn('equals', field('qty'), strVal('20')), ctx({ qty: 20 }))).toBe(
+      true,
+    );
+    expect(evaluateExpression(fn('equals', field('qty'), numVal(20)), ctx({ qty: '20.0' }))).toBe(
+      true,
+    );
+  });
+
+  it('treats nullish as equal only to nullish', () => {
+    // Kept verbatim from loose `==` (`null == undefined` was already true, `null == 0` false)
+    // and matching the filter engine's `rv != null &&` guard.
+    expect(evaluateExpression(fn('equals', field('a'), field('b')), ctx({}))).toBe(true);
+    expect(evaluateExpression(fn('equals', field('a'), numVal(0)), ctx({ a: null }))).toBe(false);
+    expect(evaluateExpression(fn('equals', field('a'), strVal('')), ctx({ a: null }))).toBe(false);
+    expect(evaluateExpression(fn('notEqual', field('a'), numVal(0)), ctx({ a: null }))).toBe(true);
+  });
+
+  it('`in` answers "same value?" identically to `equals`', () => {
+    // `in(x, a, b)` must be exactly `equals(x, a) || equals(x, b)`.
+    expect(evaluateExpression(fn('in', field('d'), numVal(0)), ctx({ d: '' }))).toBe(false);
+    expect(evaluateExpression(fn('in', field('d'), numVal(0)), ctx({ d: false }))).toBe(false);
+    expect(evaluateExpression(fn('in', field('d'), numVal(0)), ctx({ d: 0 }))).toBe(true);
+    expect(evaluateExpression(fn('in', field('d'), numVal(20), numVal(30)), ctx({ d: '20' }))).toBe(
+      true,
+    );
+  });
+});
+
 // ─── Comparison — null-safety and type-aware string/date comparison (finding 2) ───────────────
 
 describe('comparison operators — null-safety (finding 2)', () => {
@@ -268,6 +352,24 @@ describe('logical operators', () => {
     expect(evaluateExpression(fn('isTrue', boolVal(true)), ctx({}))).toBe(true);
     expect(evaluateExpression(fn('isTrue', boolVal(false)), ctx({}))).toBe(false);
     expect(evaluateExpression(fn('isFalse', boolVal(false)), ctx({}))).toBe(true);
+  });
+
+  it('isTrue / isFalse accept the string-boolean form a CSV column carries', () => {
+    // Same divergence `toBoolean` was fixed for (finding 12): a boolean column sourced from
+    // CSV/API arrives as `'true'`/`'false'`. `if(on_time, 1, 0)` scored 1 for such a row and a
+    // `fieldType: 'boolean'` filter matched it, while `isTrue(on_time)` alone said false.
+    expect(evaluateExpression(fn('isTrue', field('ok')), ctx({ ok: 'true' }))).toBe(true);
+    expect(evaluateExpression(fn('isFalse', field('ok')), ctx({ ok: 'false' }))).toBe(true);
+    expect(evaluateExpression(fn('isTrue', field('ok')), ctx({ ok: 'false' }))).toBe(false);
+  });
+
+  it('isTrue / isFalse stay strict — they are not a truthiness test', () => {
+    // Deliberately NOT `toBoolean`: `and`/`or`/`if` ask "is this truthy", `isTrue` asks "is
+    // this the boolean true". Widening to truthiness would make `isTrue(1)` and
+    // `isTrue('yes')` true.
+    expect(evaluateExpression(fn('isTrue', numVal(1)), ctx({}))).toBe(false);
+    expect(evaluateExpression(fn('isTrue', strVal('yes')), ctx({}))).toBe(false);
+    expect(evaluateExpression(fn('isFalse', numVal(0)), ctx({}))).toBe(false);
   });
 
   it('isNull / isNotNull', () => {
@@ -659,6 +761,91 @@ describe('StudioJoinFieldExpression', () => {
     expect(result[0]['expr-order-country']).toBe('Germany');
     expect(result[1]['expr-order-country']).toBe('UK');
     expect(result[2]['expr-order-country']).toBeNull();
+  });
+
+  // ─── Reverse-declared relationships (finding M3) ────────────────────────────
+  //
+  // The same relationship declared from the ONE side. `createBatchingAdapter.resolveField`
+  // has always handled both directions (emitting `LEFT JOIN customers ON customers.id =
+  // orders.customerId`), while the in-memory evaluator matched only `r.sourceId === sourceId`
+  // on BOTH its fast and slow paths — so the identical doc resolved to a real value through
+  // an adapter-backed source and to `null` for every row in memory, blanking e.g. a
+  // "revenue by customer country" chart.
+  const reverseRelationships = [
+    {
+      id: 'rel-customers-orders',
+      sourceId: 'source-customers',
+      targetId: 'source-orders',
+      sourceField: 'id',
+      targetField: 'customerId',
+      type: 'many-to-one' as const,
+    },
+  ];
+
+  it('resolves a join field expression through a REVERSE-declared relationship (slow path)', () => {
+    const context: EvaluationContext = {
+      expressionFields: [],
+      row: { id: 'ORD-001', customerId: 'CUS-001', total: 100 },
+      allRows: [],
+      sourceId: 'source-orders',
+      dataSources,
+      relationships: reverseRelationships,
+    };
+    expect(evaluateExpression(joinExpr, context)).toBe('Germany');
+  });
+
+  it('resolves a REVERSE-declared join through the prebuilt index (fast path) too', () => {
+    // Both paths must agree — they previously agreed only because both were wrong.
+    const joinField: StudioExpressionField = {
+      id: 'expr-order-country',
+      label: 'Country',
+      sourceId: 'source-orders',
+      isMeasure: false,
+      expression: joinExpr,
+    };
+    const orderRows = [
+      { id: 'ORD-001', customerId: 'CUS-001', total: 100 },
+      { id: 'ORD-002', customerId: 'CUS-002', total: 200 },
+      { id: 'ORD-003', customerId: 'CUS-999', total: 50 }, // FK miss
+    ];
+    const result = enrichRowsWithExpressions(
+      orderRows,
+      [joinField],
+      'source-orders',
+      dataSources,
+      reverseRelationships,
+    );
+    expect(result[0]['expr-order-country']).toBe('Germany');
+    expect(result[1]['expr-order-country']).toBe('UK');
+    expect(result[2]['expr-order-country']).toBeNull();
+  });
+
+  it('does not resolve a join across a many-to-many relationship', () => {
+    // An M:N relationship's sourceField/targetField are two endpoint keys, not an FK/PK pair,
+    // so a direct join across one is meaningless. `enrichRowsWithRelatedFields`,
+    // `findDirectFieldOwner` and the adapter's join resolution all skip M:N; the evaluator's
+    // index used to include it and produce garbage.
+    const context: EvaluationContext = {
+      expressionFields: [],
+      row: { id: 'ORD-001', customerId: 'CUS-001' },
+      allRows: [],
+      sourceId: 'source-orders',
+      dataSources,
+      relationships: [
+        {
+          id: 'rel-mn',
+          sourceId: 'source-orders',
+          targetId: 'source-customers',
+          sourceField: 'customerId',
+          targetField: 'id',
+          type: 'many-to-many' as const,
+          junctionSourceId: 'junction',
+          junctionSourceField: 'orderId',
+          junctionTargetField: 'customerId',
+        },
+      ],
+    };
+    expect(evaluateExpression(joinExpr, context)).toBeNull();
   });
 
   it('join index: enrichRowsWithExpressions produces the same result as unindexed evaluation', () => {

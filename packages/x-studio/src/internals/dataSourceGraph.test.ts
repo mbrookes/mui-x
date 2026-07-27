@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   getReachableSourceIds,
   enrichRowsWithRelatedFields,
   resolveRows,
-  buildManyToOneRelationshipIndex,
+  buildRelatedSourceJoinIndex,
 } from './dataSourceGraph';
 import { analyzeChartSupport, resolveChartRowsForAggregation } from './chartAggregation';
 import type {
@@ -106,6 +106,106 @@ describe('resolveRows', () => {
     );
     // No relationship found → filter ignored → all rows returned
     expect(result).toHaveLength(3);
+  });
+
+  it('warns (but still fails open) when a cross-filtered ADAPTER-backed source has no rows', () => {
+    // `useAdapterRows` keeps fetched rows in the widget's local React state and never writes
+    // them to `dataSources[id].rows`, so the semi-join has nothing to filter against — and
+    // unlike an in-memory source that has merely not loaded yet, there is no later load to
+    // self-heal from. Before, the filter was dropped with no signal at all: the grid rendered
+    // every row while the chart that emitted the cross-filter showed an active selection.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // A source id unique to this test — the warning dedupe is module-level (see
+    // `warnUnappliedCrossFilter`), so a shared id would make this assertion order-dependent.
+    const adapterBacked = {
+      id: 'adapter-customers',
+      label: 'Adapter customers',
+      fields: [{ id: 'country', label: 'Country', type: 'string' }],
+      // No `rows`, but an adapter — exactly how an adapter-backed source sits in the store.
+      adapter: { fetchRows: async () => ({ rows: [] }) },
+    } as unknown as StudioDataSource;
+    const joinedSourceIds = new Set<string>();
+    const result = resolveRows(
+      orders,
+      'orders',
+      [
+        makeFilter({
+          field: 'country',
+          operator: 'equals',
+          value: 'Germany',
+          filterSourceId: 'adapter-customers',
+        }),
+      ],
+      { ...dataSources, 'adapter-customers': adapterBacked },
+      [
+        ...relationships,
+        {
+          id: 'rel-adapter',
+          sourceId: 'orders',
+          sourceField: 'customerId',
+          targetId: 'adapter-customers',
+          targetField: 'id',
+          type: 'many-to-one',
+        },
+      ],
+      [],
+      { collectJoinedSourceIds: joinedSourceIds },
+    );
+
+    // Fail-OPEN is retained deliberately (fail-closed would empty the widget permanently for an
+    // adapter-backed source, which never gains `.rows`) — but it is no longer silent.
+    expect(result).toHaveLength(3);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain('adapter-customers');
+    expect(warn.mock.calls[0][0]).toContain('has no in-memory rows');
+    // The dependency is still recorded, so an in-memory source that simply had not loaded yet
+    // re-resolves through `resolvedRowsCache` once its rows arrive.
+    expect(joinedSourceIds.has('adapter-customers')).toBe(true);
+
+    // Deduped: a second resolve for the same source pair must not spam the console on every
+    // render.
+    resolveRows(
+      orders,
+      'orders',
+      [
+        makeFilter({
+          field: 'country',
+          operator: 'equals',
+          value: 'Germany',
+          filterSourceId: 'adapter-customers',
+        }),
+      ],
+      { ...dataSources, 'adapter-customers': adapterBacked },
+      relationships,
+    );
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    // A plain in-memory source that simply has not loaded yet stays SILENT: that is the
+    // ordinary first-render state of every dashboard, and the recorded dependency makes
+    // `resolvedRowsCache` re-resolve once its rows arrive.
+    resolveRows(
+      orders,
+      'orders',
+      [
+        makeFilter({
+          field: 'country',
+          operator: 'equals',
+          value: 'Germany',
+          filterSourceId: 'not-loaded-yet',
+        }),
+      ],
+      {
+        ...dataSources,
+        'not-loaded-yet': {
+          id: 'not-loaded-yet',
+          label: 'Not loaded yet',
+          fields: [],
+        } as StudioDataSource,
+      },
+      relationships,
+    );
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
   });
 
   it('cross-source filter: join works from the "one" side too', () => {
@@ -1242,10 +1342,10 @@ describe('many-to-many relationships', () => {
     });
   });
 
-  // ─── buildManyToOneRelationshipIndex (shared traversal step, Part B item 6) ──
+  // ─── buildRelatedSourceJoinIndex (shared traversal step, Part B item 6) ──────
 
-  describe('buildManyToOneRelationshipIndex', () => {
-    it('indexes many-to-one relationships from widgetSourceId by targetId', () => {
+  describe('buildRelatedSourceJoinIndex', () => {
+    it('indexes a many-to-one relationship declared FROM widgetSourceId', () => {
       const rels: StudioRelationship[] = [
         {
           id: 'r1',
@@ -1256,12 +1356,62 @@ describe('many-to-many relationships', () => {
           targetField: 'id',
         },
       ];
-      const idx = buildManyToOneRelationshipIndex('order_items', rels);
-      expect(idx.get('orders')).toBe(rels[0]);
+      const idx = buildRelatedSourceJoinIndex('order_items', rels);
+      expect(idx.get('orders')).toEqual({
+        relationship: rels[0],
+        sourceField: 'orderId',
+        targetField: 'id',
+      });
       expect(idx.size).toBe(1);
     });
 
-    it('excludes relationships not owned by widgetSourceId or not many-to-one', () => {
+    it('indexes a REVERSE-declared relationship, flipping the two join fields', () => {
+      // Declared from the "one" side. The widget-side join value now lives in `targetField`
+      // and the related-side key in `sourceField` — a display path that only matched
+      // `sourceId === widgetSourceId` missed this entirely and rendered empty cells, while
+      // `findDirectFieldOwner` and the batching adapter both resolved it.
+      const rels: StudioRelationship[] = [
+        {
+          id: 'r1',
+          type: 'many-to-one',
+          sourceId: 'orders',
+          sourceField: 'id',
+          targetId: 'order_items',
+          targetField: 'orderId',
+        },
+      ];
+      const idx = buildRelatedSourceJoinIndex('order_items', rels);
+      expect(idx.get('orders')).toEqual({
+        relationship: rels[0],
+        sourceField: 'orderId',
+        targetField: 'id',
+      });
+    });
+
+    it('indexes one-to-one relationships (direction-independent)', () => {
+      const rels: StudioRelationship[] = [
+        {
+          id: 'r1',
+          type: 'one-to-one',
+          sourceId: 'orders',
+          sourceField: 'id',
+          targetId: 'order_details',
+          targetField: 'orderId',
+        },
+      ];
+      expect(buildRelatedSourceJoinIndex('orders', rels).get('order_details')).toEqual({
+        relationship: rels[0],
+        sourceField: 'id',
+        targetField: 'orderId',
+      });
+      expect(buildRelatedSourceJoinIndex('order_details', rels).get('orders')).toEqual({
+        relationship: rels[0],
+        sourceField: 'orderId',
+        targetField: 'id',
+      });
+    });
+
+    it('excludes relationships with neither endpoint on widgetSourceId, and many-to-many', () => {
       const rels: StudioRelationship[] = [
         {
           id: 'r1',
@@ -1272,16 +1422,47 @@ describe('many-to-many relationships', () => {
           targetField: 'id',
         },
         {
+          // An M:N relationship's sourceField/targetField are two endpoint keys, not a usable
+          // FK/PK pair, so it can never contribute a one-hop join here (matching
+          // `enrichRowsWithRelatedFields` and `createBatchingAdapter.resolveField`).
+          id: 'r2',
+          type: 'many-to-many',
+          sourceId: 'order_items',
+          sourceField: 'id',
+          targetId: 'tags',
+          targetField: 'id',
+          junctionSourceId: 'item_tags',
+          junctionSourceField: 'itemId',
+          junctionTargetField: 'tagId',
+        },
+      ];
+      const idx = buildRelatedSourceJoinIndex('order_items', rels);
+      expect(idx.size).toBe(0);
+    });
+
+    it('keeps the FIRST declaration when two relationships name the same related source', () => {
+      // Array-order first-wins, matching `findDirectRelationship`/`findJoinPath`'s `find`.
+      const rels: StudioRelationship[] = [
+        {
+          id: 'r1',
+          type: 'many-to-one',
+          sourceId: 'order_items',
+          sourceField: 'orderId',
+          targetId: 'orders',
+          targetField: 'id',
+        },
+        {
           id: 'r2',
           type: 'one-to-one',
           sourceId: 'order_items',
-          sourceField: 'x',
-          targetId: 'shipping',
+          sourceField: 'altOrderId',
+          targetId: 'orders',
           targetField: 'id',
         },
       ];
-      const idx = buildManyToOneRelationshipIndex('order_items', rels);
-      expect(idx.size).toBe(0);
+      expect(buildRelatedSourceJoinIndex('order_items', rels).get('orders')?.relationship).toBe(
+        rels[0],
+      );
     });
   });
 });

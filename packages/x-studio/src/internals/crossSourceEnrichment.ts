@@ -4,7 +4,7 @@ import type {
   StudioGridColumn,
   StudioRelationship,
 } from '../models';
-import { buildManyToOneRelationshipIndex } from './dataSourceGraph';
+import { buildRelatedSourceJoinIndex } from './dataSourceGraph';
 import { getCachedEnrichedRows } from './enrichedRowsCache';
 import { indexRowsByKey, normalizeJoinKey } from './joinKeys';
 import { getCachedNormalizedDataSource } from './normalizedRowsCache';
@@ -19,12 +19,15 @@ export interface CrossSourceFieldRef {
 }
 
 /**
- * Enriches `rows` with field values from many-to-one related sources.
+ * Enriches `rows` with field values from directly (one-hop) related sources.
  *
  * For each field ref whose `sourceId !== widgetSourceId` the function:
- *  1. Locates the many-to-one relationship from `widgetSourceId` → `ref.sourceId`
- *  2. Builds a Map of related rows keyed by their PK (`rel.targetField`)
- *  3. Copies `ref.fieldId` from the related row onto each primary row via FK lookup
+ *  1. Locates the direct relationship between `widgetSourceId` and `ref.sourceId` — in either
+ *     declared direction, and for any non-many-to-many type (see
+ *     `buildRelatedSourceJoinIndex`)
+ *  2. Builds a Map of related rows keyed by their join field (`join.targetField`)
+ *  3. Copies `ref.fieldId` from the related row onto each primary row via the widget-side
+ *     join value (`join.sourceField`)
  *
  * Field refs whose related source has no in-memory rows (async sources) are silently
  * skipped — the field value stays `undefined` in the primary row.
@@ -94,9 +97,11 @@ export function enrichWithCrossSourceFields(
 
   const colMeta: ColMeta[] = [];
 
-  // targetId → relationship (many-to-one from widgetSourceId) — shared traversal step,
-  // see dataSourceGraph.buildManyToOneRelationshipIndex.
-  const relIndex = buildManyToOneRelationshipIndex(widgetSourceId, relationships);
+  // relatedSourceId → oriented one-hop join — shared traversal step, see
+  // dataSourceGraph.buildRelatedSourceJoinIndex. Direction-independent and not limited to
+  // `many-to-one`, so a one-to-one or reverse-declared relationship resolves here exactly as
+  // it already did for charts (`findDirectFieldOwner`) and for the adapter (`resolveField`).
+  const relIndex = buildRelatedSourceJoinIndex(widgetSourceId, relationships);
 
   for (const ref of crossFields) {
     const rel = relIndex.get(ref.sourceId);

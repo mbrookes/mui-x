@@ -32,29 +32,89 @@ export function findDirectRelationship(
 }
 
 /**
- * Builds a `targetId → relationship` index of the direct many-to-one relationships
- * FROM `widgetSourceId`, i.e. `{ targetId, sourceField (FK on widget rows), targetField (PK
- * on the related source) }`. This is the single traversal step every "cross-source
- * display column" enrichment needs (grid columns, cross-source aggregation) and was
- * previously re-derived identically in `gridGrouping.ts` and `crossSourceEnrichment.ts`.
- *
- * Scope is intentionally narrow (many-to-one, one hop, from widgetSourceId only) to match
- * the exact behavior those two call sites already had — this does not add many-to-many or
- * two-hop support to grid/cross-source-column enrichment (see `findJoinPath` and
- * `enrichRowsWithRelatedFields` for the broader multi-hop traversal used by filters and charts).
+ * One direct (one-hop) join from a widget's source to a related source, with both join fields
+ * already ORIENTED from the widget's point of view — so a caller never has to know which side
+ * of the relationship the schema author happened to declare first.
  */
-export function buildManyToOneRelationshipIndex(
+export interface RelatedSourceJoin {
+  /** The declared relationship this join was derived from, unmodified. */
+  relationship: StudioRelationship;
+  /** Field on the WIDGET source's rows carrying the join value (the FK for a many-to-one). */
+  sourceField: string;
+  /** Field on the RELATED source's rows carrying the join value (the PK for a many-to-one). */
+  targetField: string;
+}
+
+/**
+ * Builds a `relatedSourceId → RelatedSourceJoin` index of the direct (one-hop) relationships
+ * that connect `widgetSourceId` to another source, in EITHER declared direction. This is the
+ * single traversal step every "cross-source display column" enrichment needs (grid columns,
+ * map fields, cross-source group-by aggregation).
+ *
+ * Its predicate deliberately matches `enrichRowsWithRelatedFields`'s own direct-relationship
+ * loop below — any non-many-to-many relationship with `widgetSourceId` at either end. It used
+ * to be much narrower (`type === 'many-to-one' && sourceId === widgetSourceId`), which made
+ * the display path answer a question three siblings answer more widely:
+ * `enrichRowsWithRelatedFields`, `chartSupport.findDirectFieldOwner` and
+ * `createBatchingAdapter.resolveField` all resolve one-to-one and reverse-declared
+ * relationships. So a `{ type: 'one-to-one', sourceId: 'orders', targetId: 'order_details' }`
+ * grid column, or a `many-to-one` declared as `{ sourceId: 'customers', targetId: 'orders' }`
+ * with the grid on `orders`, missed the index, hit a `continue`, and rendered EMPTY on every
+ * row — silently — while a chart using the identical field on the identical relationship
+ * resolved it fine, and so did the adapter path. `MapSetupPanel` offers value/country fields
+ * from every source `getReachableSourceIds` reaches (both directions, every type), so this was
+ * directly reachable from the UI, not only from a persisted or AI-authored doc.
+ *
+ * Two-hop many-to-many is still out of scope here (see `findJoinPath` and
+ * `enrichRowsWithRelatedFields` for that traversal); an M:N relationship's `sourceField`/
+ * `targetField` are two endpoint keys, not a usable FK/PK pair.
+ *
+ * Note the widened predicate admits the ONE-to-many direction too (a widget on `customers`
+ * reading a field from `orders`). That is deliberate — it is exactly what
+ * `enrichRowsWithRelatedFields` does, and both share its display-column semantics: the lookup
+ * map is first-write-wins, so such a row gets one representative related value rather than a
+ * fan-out. Rendering one arbitrary related value is the documented behaviour of every sibling;
+ * rendering an empty cell was not.
+ *
+ * First declaration wins on a duplicate related source, matching the array-order `find` in
+ * `findDirectRelationship`/`findJoinPath` (the previous last-wins behaviour matched nothing).
+ */
+export function buildRelatedSourceJoinIndex(
   widgetSourceId: string,
   relationships: StudioRelationship[],
-): Map<string, StudioRelationship> {
-  const relIndex = new Map<string, StudioRelationship>();
+): Map<string, RelatedSourceJoin> {
+  const relIndex = new Map<string, RelatedSourceJoin>();
   for (const r of relationships) {
-    if (r.type === 'many-to-one' && r.sourceId === widgetSourceId) {
-      relIndex.set(r.targetId, r);
+    if (r.type === 'many-to-many') {
+      continue;
+    }
+    if (r.sourceId === widgetSourceId && !relIndex.has(r.targetId)) {
+      relIndex.set(r.targetId, {
+        relationship: r,
+        sourceField: r.sourceField,
+        targetField: r.targetField,
+      });
+    } else if (r.targetId === widgetSourceId && !relIndex.has(r.sourceId)) {
+      // Reverse-declared: the widget-side field is the relationship's `targetField` and the
+      // related-side field is its `sourceField`.
+      relIndex.set(r.sourceId, {
+        relationship: r,
+        sourceField: r.targetField,
+        targetField: r.sourceField,
+      });
     }
   }
   return relIndex;
 }
+
+/**
+ * Compatibility alias for {@link buildRelatedSourceJoinIndex}, whose old name encoded the
+ * narrowness that was the bug. Kept only so the remaining widget-level call sites
+ * (`StudioGridWidget`'s `resolveCrossSourceFkFields`, `StudioMapWidget`'s `valueFkField`)
+ * keep compiling; both read `.sourceField`, which the oriented result still exposes, so they
+ * pick up the widened resolution unchanged. Migrate them to the new name and delete this.
+ */
+export const buildManyToOneRelationshipIndex = buildRelatedSourceJoinIndex;
 
 /**
  * Returns the set of source IDs reachable from `sourceId` in one hop via declared relationships.
@@ -197,6 +257,73 @@ function findJoinPath(
 }
 
 /**
+ * Dedupe for `warnUnappliedCrossFilter`. Module-level (not per call) because `resolveRows` runs
+ * on every render of every widget — a per-call dedupe would still emit one warning per frame.
+ * Keyed by the widget-source → filter-source pair, so it is bounded by the number of source
+ * pairs in the doc.
+ */
+const unappliedCrossFilterWarnings = new Set<string>();
+
+/**
+ * Dev-only warning for a cross-source filter that could NOT be applied because the foreign
+ * source is ADAPTER-BACKED and therefore has no in-memory rows.
+ *
+ * This is the fail-OPEN case, and fail-open on a filter is the worst possible default: the
+ * widget still looks filtered (the chip/highlight state comes from the selectors, which never
+ * consult row availability) while its numbers are unfiltered. `useAdapterRows` keeps fetched
+ * rows in local React state and never writes them back to `dataSources[id].rows` (see
+ * `widgetExport.ts`, which rebuilds the query descriptor precisely to read those rows out of
+ * `studioRequestCache` instead) — so clicking a bar on an adapter-backed `customers` chart
+ * wrote a cross-filter that a sibling `orders` grid silently ignored while visibly
+ * participating in the interaction.
+ *
+ * Scoped to adapter-backed sources on purpose. A plain in-memory source with no rows yet is
+ * the ordinary first-render state of every dashboard, and `collectJoinedSourceIds` has already
+ * recorded the dependency, so `resolvedRowsCache` re-resolves the moment rows arrive — warning
+ * there would fire on every boot for a condition that self-heals. An adapter-backed source has
+ * no such later load: it is permanent.
+ *
+ * The behaviour is deliberately left fail-open rather than changed to fail-closed:
+ *
+ * - Fail-closed would empty the widget PERMANENTLY for an adapter-backed foreign source,
+ *   turning a wrong-number bug into a dead-dashboard bug for an otherwise legitimate
+ *   configuration.
+ * - `resolveRows`'s other unresolvable-cross-filter arm (no declared join path, just below)
+ *   already fails open by documented choice; flipping only one of the two would make the two
+ *   answers to "this cross-filter cannot be evaluated" disagree — the exact class of bug this
+ *   warning exists to surface.
+ *
+ * Surfacing it matches `createBatchingAdapter`'s "degrades to client-side, never silently
+ * dropped" contract (`warnAdapterDivergence`). The real fix — resolving the foreign rows
+ * through the same `studioRequestCache` lookup `widgetExport` uses — spans files outside this
+ * module and is left as a follow-up.
+ */
+function warnUnappliedCrossFilter(
+  widgetSourceId: string | undefined,
+  filterSourceId: string,
+  foreignSource: StudioDataSource | undefined,
+) {
+  if (process.env.NODE_ENV === 'production' || !foreignSource?.adapter) {
+    return;
+  }
+  const key = `${widgetSourceId ?? '(none)'}→${filterSourceId}`;
+  if (unappliedCrossFilterWarnings.has(key)) {
+    return;
+  }
+  unappliedCrossFilterWarnings.add(key);
+  console.warn(
+    `MUI X Studio: a cross-source filter targeting the adapter-backed data source ` +
+      `"${filterSourceId}" was NOT applied to a widget on "${widgetSourceId ?? '(no source)'}" ` +
+      `because "${filterSourceId}" has no in-memory rows, so the semi-join could not be ` +
+      `evaluated. The widget renders UNFILTERED rows while still appearing to participate in ` +
+      `the filter. An adapter-backed source keeps its fetched rows in the requesting widget's ` +
+      `local state, not in \`dataSources["${filterSourceId}"].rows\`. Provide rows for ` +
+      `"${filterSourceId}" (\`setDataSourceRows\`) or avoid cross-filtering from an ` +
+      `adapter-backed source.`,
+  );
+}
+
+/**
  * Apply filters to widget rows, resolving cross-source filters via the declared
  * relationships. Cross-source filters (filterSourceId != widgetSourceId) are
  * applied to the foreign source first; the result semi-joins back to the widget's
@@ -314,6 +441,9 @@ export function resolveRows(
     // result forever.
     options?.collectJoinedSourceIds?.add(f.filterSourceId);
     if (!foreignSource?.rows) {
+      // Fail-open, but no longer silent for the case that can never self-heal — see
+      // `warnUnappliedCrossFilter` for why fail-open is kept and what the real fix is.
+      warnUnappliedCrossFilter(widgetSourceId, f.filterSourceId, foreignSource);
       continue;
     }
 

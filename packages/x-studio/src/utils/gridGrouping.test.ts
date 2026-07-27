@@ -130,6 +130,128 @@ describe('buildGroupedGridRows', () => {
     expect(result[0].total).toBe(150);
   });
 
+  // ─── Relationship shapes other than "many-to-one declared from the widget source" ──────
+  //
+  // Every cross-source case in this file used that one shape, so the old
+  // `buildManyToOneRelationshipIndex`'s narrowness was invisible here. A missed index entry
+  // hits a `continue`, silently degrading the cross-source aggregate to a plain per-row reduce
+  // over a field the widget rows don't carry — i.e. `null` — while a chart on the same field
+  // and relationship aggregated it fine (finding M2).
+
+  it('aggregates a cross-source column over a REVERSE-declared many-to-one relationship', () => {
+    // Identical topology to the fan-out test above, declared from the "one" side instead.
+    const orderItems = [
+      { id: 'i1', orderId: 'ord1', category: 'Electronics', qty: 2 },
+      { id: 'i2', orderId: 'ord1', category: 'Electronics', qty: 3 }, // same order → fan-out
+      { id: 'i3', orderId: 'ord2', category: 'Electronics', qty: 1 },
+    ];
+    const dataSources: Record<string, StudioDataSource> = {
+      order_items: {
+        id: 'order_items',
+        label: 'Order Items',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'orderId', label: 'Order', type: 'string' },
+          { id: 'category', label: 'Category', type: 'string' },
+          { id: 'qty', label: 'Qty', type: 'number' },
+        ],
+      },
+      orders: {
+        id: 'orders',
+        label: 'Orders',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'total', label: 'Total', type: 'number' },
+        ],
+        rows: [
+          { id: 'ord1', total: 100 },
+          { id: 'ord2', total: 50 },
+        ],
+      },
+    };
+    const reversed: StudioRelationship[] = [
+      {
+        id: 'rel1',
+        type: 'many-to-one',
+        sourceId: 'orders',
+        sourceField: 'id',
+        targetId: 'order_items',
+        targetField: 'orderId',
+      },
+    ];
+
+    const result = buildGroupedGridRows(
+      orderItems,
+      'category',
+      ['category', 'qty', 'total'],
+      { qty: 'sum', total: 'sum' },
+      'widget-reverse',
+      [{ fieldId: 'category' }, { fieldId: 'qty' }, { fieldId: 'total', sourceId: 'orders' }],
+      dataSources,
+      reversed,
+      'order_items',
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0].qty).toBe(6);
+    // Fan-out dedup still applies through the reversed declaration: 100 + 50, not 250.
+    expect(result[0].total).toBe(150);
+  });
+
+  it('aggregates a cross-source column over a one-to-one relationship', () => {
+    const orders = [
+      { id: 'ord1', region: 'EU' },
+      { id: 'ord2', region: 'EU' },
+    ];
+    const dataSources: Record<string, StudioDataSource> = {
+      orders: {
+        id: 'orders',
+        label: 'Orders',
+        fields: [
+          { id: 'id', label: 'ID', type: 'string' },
+          { id: 'region', label: 'Region', type: 'string' },
+        ],
+      },
+      order_details: {
+        id: 'order_details',
+        label: 'Order details',
+        fields: [
+          { id: 'orderId', label: 'Order', type: 'string' },
+          { id: 'shippingCost', label: 'Shipping', type: 'number' },
+        ],
+        rows: [
+          { orderId: 'ord1', shippingCost: 7 },
+          { orderId: 'ord2', shippingCost: 13 },
+        ],
+      },
+    };
+    const oneToOne: StudioRelationship[] = [
+      {
+        id: 'rel-details',
+        type: 'one-to-one',
+        sourceId: 'orders',
+        sourceField: 'id',
+        targetId: 'order_details',
+        targetField: 'orderId',
+      },
+    ];
+
+    const result = buildGroupedGridRows(
+      orders,
+      'region',
+      ['region', 'shippingCost'],
+      { shippingCost: 'sum' },
+      'widget-1to1',
+      [{ fieldId: 'region' }, { fieldId: 'shippingCost', sourceId: 'order_details' }],
+      dataSources,
+      oneToOne,
+      'orders',
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0].shippingCost).toBe(20);
+  });
+
   it('dedupes a cross-source many-to-one column across a numeric-vs-string FK/PK mismatch', () => {
     // order_items.orderId is numeric; orders.id is a string. The shared normalizeJoinKey
     // policy (internals/joinKeys.ts) makes the grid dedup match the chart/filter paths.

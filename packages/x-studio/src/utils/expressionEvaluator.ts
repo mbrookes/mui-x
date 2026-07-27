@@ -184,6 +184,70 @@ function isNumericLike(v: unknown): boolean {
 }
 
 /**
+ * Numeric view of a value for EQUALITY comparison, mirroring `filterUtils.ts`'s
+ * `toNumericValue` byte for byte: only actual numbers and cleanly-parsing non-blank strings
+ * are numeric; everything else (booleans, blank/whitespace strings, objects) is `NaN` and
+ * therefore falls through to the string comparison in `scalarEquals`.
+ *
+ * Deliberately NARROWER than `isNumericLike` above, which the ORDERING comparators use and
+ * which does treat booleans numerically. The two policies differ because their filter-side
+ * counterparts differ: `filterUtils`' `equals`/`not_equals` route through `toNumericValue`
+ * (so a boolean is explicitly "not numerically equal to `0`" — see its `not_equals` comment),
+ * while its `greater_than`/`less_than` keep the historical numeric coercion. Matching each
+ * one to its own filter-side counterpart is what keeps expression evaluation and filtering in
+ * agreement.
+ */
+function toEqualityNumber(v: unknown): number {
+  if (typeof v === 'number') {
+    return v;
+  }
+  if (typeof v === 'string') {
+    // `Number(' ')` is `0`; a whitespace-only cell is as absent as an empty one.
+    return v.trim() === '' ? NaN : Number(v);
+  }
+  return NaN;
+}
+
+/**
+ * Equality policy backing `equals`, `notEqual` and `in`.
+ *
+ * These three used to be raw loose `==`/`!=` behind a bare `// eslint-disable-next-line eqeqeq`
+ * that carried no rationale (it was introduced with the file and survived the commit that
+ * explicitly null-hardened the ordering comparators two lines below it, so it was never a
+ * considered exemption). Loose `==` cross-coerces: `'' == 0`, `false == '0'` and `true == 1`
+ * are all true. A CSV whose blank numeric cells import as `''` therefore made
+ * `if(discount == 0, 1, 0)` score EVERY blank row as a genuine zero, while the same question
+ * asked as a filter (`discount equals 0`, `fieldType: 'number'`) correctly excluded them —
+ * so a KPI over the measure and a KPI over the filtered count disagreed, breaking the
+ * codebase's "a KPI over a raw field and over a measure expression return the same number"
+ * invariant. `filterUtils.ts`'s `compileSingleCondition` documents the identical reasoning at
+ * length and replaced every filter-side `==` for it; this mirrors that decision.
+ *
+ * The policy, in `compileSingleCondition`'s order:
+ * - Nullish is equal only to nullish. `null`/`undefined` are one "no value", and neither
+ *   equals `0`/`''`/`false`. This is the one part of the loose-`==` behaviour kept verbatim
+ *   (`null == undefined` was already true, `null == 0` already false), and it matches the
+ *   filter engine's `rv != null &&` guard.
+ * - Both sides numeric-like (per `toEqualityNumber`) → compare as NUMBERS. This is what keeps
+ *   `'20' == 20` true — required, since operands routinely arrive as raw text-input strings.
+ * - Otherwise → compare `String(a) === String(b)`, i.e. what the user actually sees. This
+ *   subsumes the boolean case the same way `filterUtils`' `fieldType: 'boolean'` branch does
+ *   (`'true'` from a CSV equals `true`, consistent with `toBoolean` above), and stops
+ *   unrelated falsy values matching each other.
+ */
+function scalarEquals(a: ScalarValue, b: ScalarValue): boolean {
+  if (a == null || b == null) {
+    return a == null && b == null;
+  }
+  const an = toEqualityNumber(a);
+  const bn = toEqualityNumber(b);
+  if (!Number.isNaN(an) && !Number.isNaN(bn)) {
+    return an === bn;
+  }
+  return String(a) === String(b);
+}
+
+/**
  * Ordering comparator backing the `lessThan`/`greaterThan`/`lessThanOrEqual`/
  * `greaterThanOrEqual` operators. Returns `null` when either operand is null/undefined —
  * mirroring the filter engine's explicit `rv != null` null-guard policy (`filterUtils.ts`'s
@@ -217,6 +281,49 @@ function compareOrdered(a: ScalarValue, b: ScalarValue): number | null {
     return -1;
   }
   return as > bs ? 1 : 0;
+}
+
+/**
+ * Resolves the direct relationship linking the evaluating source to `joinSourceId` and returns
+ * its two join fields ORIENTED from the evaluating source's point of view, or `null` when no
+ * such relationship is declared.
+ *
+ * Direction-independent, mirroring `dataSourceGraph.findDirectRelationship` /
+ * `enrichRowsWithRelatedFields` / `chartSupport.findDirectFieldOwner` and, critically,
+ * `createBatchingAdapter`'s `resolveField` — which has always handled both directions. The
+ * lookup used to match only `r.sourceId === sourceId`, so a relationship declared from the ONE
+ * side (`{ sourceId: 'customers', targetId: 'orders', sourceField: 'id',
+ * targetField: 'customerId' }`) made `join(customers.country)` on `orders` resolve to `null`
+ * for every row in memory — a "revenue by customer country" chart came out entirely `(empty)` —
+ * while the SAME doc through the batching adapter emitted a real
+ * `LEFT JOIN customers ON customers.id = orders.customerId` and returned correct values. One
+ * document, two answers, depending only on the data-source mode.
+ *
+ * `many-to-many` is skipped: its `sourceField`/`targetField` are the two ENDPOINT keys, not a
+ * usable FK/PK pair (joining `orders.id = tags.id` is meaningless), so a direct join across one
+ * produces garbage. The previous index included M:N; `enrichRowsWithRelatedFields`,
+ * `findDirectFieldOwner` and the adapter's join resolution all skip it, so skipping it here is
+ * the same "one answer" alignment as widening the direction.
+ */
+function findJoinFields(
+  sourceId: string,
+  joinSourceId: string,
+  relationships: StudioRelationship[],
+): { sourceField: string; targetField: string } | null {
+  for (const rel of relationships) {
+    if (rel.type === 'many-to-many') {
+      continue;
+    }
+    if (rel.sourceId === sourceId && rel.targetId === joinSourceId) {
+      return { sourceField: rel.sourceField, targetField: rel.targetField };
+    }
+    if (rel.targetId === sourceId && rel.sourceId === joinSourceId) {
+      // Reverse-declared: the FK on the evaluating source's rows is the relationship's
+      // `targetField`, and the key on the joined source is its `sourceField`.
+      return { sourceField: rel.targetField, targetField: rel.sourceField };
+    }
+  }
+  return null;
 }
 
 /**
@@ -269,7 +376,9 @@ function evaluateExpressionAtDepth(
     if (!dataSources || !relationships) {
       return null;
     }
-    const rel = relationships.find((r) => r.sourceId === sourceId && r.targetId === joinSourceId);
+    // Direction-independent, same helper the prebuild uses — the fast and slow paths must not
+    // be able to disagree about which relationship links these two sources.
+    const rel = findJoinFields(sourceId, joinSourceId, relationships);
     if (!rel) {
       return null;
     }
@@ -370,12 +479,11 @@ function evaluateFunctionExpression(
       return -toNumber(evalInput(0));
 
     // ── Comparison ──────────────────────────────────────────────────────────
+    // Explicit comparison policy, NOT loose `==` — see `scalarEquals`.
     case 'equals':
-      // eslint-disable-next-line eqeqeq
-      return evalInput(0) == evalInput(1);
+      return scalarEquals(evalInput(0), evalInput(1));
     case 'notEqual':
-      // eslint-disable-next-line eqeqeq
-      return evalInput(0) != evalInput(1);
+      return !scalarEquals(evalInput(0), evalInput(1));
     case 'lessThan': {
       const cmp = compareOrdered(evalInput(0), evalInput(1));
       return cmp === null ? null : cmp < 0;
@@ -400,10 +508,23 @@ function evaluateFunctionExpression(
       return inputs.some((inp) => toBoolean(evalNode(inp)));
     case 'not':
       return !toBoolean(evalInput(0));
-    case 'isTrue':
-      return evalInput(0) === true;
-    case 'isFalse':
-      return evalInput(0) === false;
+    // `isTrue`/`isFalse` ask "is this the boolean true/false", so they stay STRICT rather than
+    // routing through `toBoolean` (which answers the different, truthiness question `and`/`or`/
+    // `if` need — `toBoolean(1)`/`toBoolean('yes')` are both `true`). The one widening is the
+    // string-boolean form: a CSV/API boolean column routinely serializes as `'true'`/`'false'`,
+    // and every other consumer of such a column already treats those as the booleans they
+    // encode — `toBoolean` above (finding 12) and `filterUtils`' `fieldType: 'boolean'`
+    // `equals` branch, which string-compares. Without this, `isTrue(on_time)` was `false` for
+    // every row of a string-boolean column while `if(on_time, 1, 0)` scored 1 and the
+    // equivalent filter matched: three answers to one question on one column.
+    case 'isTrue': {
+      const v = evalInput(0);
+      return v === true || v === 'true';
+    }
+    case 'isFalse': {
+      const v = evalInput(0);
+      return v === false || v === 'false';
+    }
     case 'isNull':
       return evalInput(0) == null;
     case 'isNotNull':
@@ -415,14 +536,13 @@ function evaluateFunctionExpression(
       return toBoolean(evalInput(0)) ? evalInput(1) : (evalInput(2) ?? null);
 
     case 'in': {
-      // inputs[0] = value, inputs[1..n] = candidates
+      // inputs[0] = value, inputs[1..n] = candidates.
+      // Routes through the SAME `scalarEquals` as `equals`, so `in(x, a, b)` is exactly
+      // `equals(x, a) || equals(x, b)` — the expression language cannot answer "is this the
+      // same value?" two different ways depending on which operator asked. (Loose `==` here
+      // made `in(x, 0)` match `''`, `false` and `'0'`, mirroring the `equals` bug.)
       const target = evalInput(0);
-      return (
-        inputs
-          .slice(1)
-          // eslint-disable-next-line eqeqeq
-          .some((inp) => target == evalNode(inp))
-      );
+      return inputs.slice(1).some((inp) => scalarEquals(target, evalNode(inp)));
     }
 
     // ── Date ────────────────────────────────────────────────────────────────
@@ -477,13 +597,6 @@ export function enrichRowsWithExpressions(
     { sourceField: string; index: Map<string, Record<string, unknown>> }
   >();
   if (dataSources && relationships) {
-    // Pre-build relationship index: targetId → relationship for O(1) lookup
-    const relByTargetId = new Map<string, (typeof relationships)[number]>();
-    for (const r of relationships) {
-      if (r.sourceId === sourceId) {
-        relByTargetId.set(r.targetId, r);
-      }
-    }
     for (const ef of sorted) {
       // Walk the FULL expression tree (`collectJoinSourceIds`) rather than checking only the
       // root node (the previous `isJoinFieldExpression(ef.expression)` check) — a join nested
@@ -492,7 +605,12 @@ export function enrichRowsWithExpressions(
       // and fell back to the O(n×m) per-row linear scan in the slow path above (finding 11).
       for (const joinSourceId of collectJoinSourceIds(ef.expression)) {
         if (!joinIndexes.has(joinSourceId)) {
-          const rel = relByTargetId.get(joinSourceId);
+          // Resolved through the SAME direction-independent helper as the slow path above —
+          // a per-join-source call (not per row), so no index is needed here. Sharing the
+          // helper is what stops the two paths disagreeing: the prebuild used to match only
+          // `r.sourceId === sourceId`, and so did the fallback, so both agreed on the WRONG
+          // answer (`null`) for a reverse-declared relationship — see `findJoinFields`.
+          const rel = findJoinFields(sourceId, joinSourceId, relationships);
           if (rel) {
             // Keys are normalized (finding 3.16) via the shared `normalizeJoinKey`
             // policy so a numeric FK matches a string PK, same as

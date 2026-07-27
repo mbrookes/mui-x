@@ -19,6 +19,7 @@ import {
   selectFilters,
   selectDataSources,
   selectRelationships,
+  selectCrossFilterAllPages,
   makeSelectExpressionFieldsForSources,
 } from '../../../context';
 
@@ -91,6 +92,10 @@ export function useBlendedSeriesRows(
   const filters = useStudioSelector(selectFilters);
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
+  // Threaded into `buildQueryDescriptor` below. Every other descriptor is built via
+  // `buildWidgetQueryDescriptor`, which supplies this; this hook is the one direct caller,
+  // so it has to read the dashboard setting itself or silently inherit the wrong default.
+  const crossFilterAllPages = useStudioSelector(selectCrossFilterAllPages);
 
   // Distinct foreign source ids referenced by the blended series — scopes the
   // expression-fields subscription so editing an unrelated source's calculated
@@ -291,6 +296,12 @@ export function useBlendedSeriesRows(
         // expression-field series is both widened into the server SELECT
         // (`expandToNativeFields`) and available for the post-fetch enrichment pass
         // below (finding 2.2, facet c).
+        // `crossFilterAllPages` (7th arg) must be passed, not defaulted. It defaults to
+        // `false`, and omitting it means a cross-page cross-filter is not counted as an
+        // incoming filter — so the server returns an AGGREGATED response for a column that
+        // is in fact cross-filtered, and the widget empties. Every other descriptor is
+        // built through `buildWidgetQueryDescriptor`, which threads it; this is the one
+        // direct caller, which is why it drifted.
         buildQueryDescriptor(
           syntheticWidget,
           spec.applicable,
@@ -298,6 +309,7 @@ export function useBlendedSeriesRows(
           src?.tableName,
           spec.expressionFields,
           relationships,
+          crossFilterAllPages,
         ),
       );
     }
@@ -311,6 +323,7 @@ export function useBlendedSeriesRows(
     dataSources,
     pageId,
     relationships,
+    crossFilterAllPages,
   ]);
 
   // usedFieldIds per foreign source, for the adapter-response enrichment pass below —
@@ -362,15 +375,28 @@ export function useBlendedSeriesRows(
     // field. Enrich each source's returned rows with its own expression fields here
     // (mirroring `useWidgetRows`' `enrichedAdapterRows`) so a foreign expression-field
     // series doesn't render as all zeros (finding 2.2, facet c).
-    const enrichForSource = (sid: string, rows: Record<string, unknown>[]) =>
-      getCachedEnrichedRows(
-        rows,
+    // L1 BEFORE L2, exactly as the sync branch above does (`getCachedNormalizedDataSource`
+    // at the `normalized` binding): adapter rows arrive in whatever shape the host's driver
+    // produced, and the filter engine's local-calendar-day policy disagrees with chart
+    // grouping's UTC-component policy for a zone-less `'2024-01-15T23:30:00'`. Without this
+    // pass a foreign series buckets on a different calendar day than the primary series it
+    // is blended with — the same class fixed for the primary source in `useWidgetRows`,
+    // reached through the foreign-series path instead.
+    const enrichForSource = (sid: string, rows: Record<string, unknown>[]) => {
+      const src = Object.hasOwn(dataSources, sid) ? dataSources[sid] : undefined;
+      const usedIds = foreignUsedFieldIdsBySid.get(sid);
+      const normalizedRows = src
+        ? getCachedNormalizedDataSource({ ...src, rows }, usedIds).rows
+        : rows;
+      return getCachedEnrichedRows(
+        normalizedRows,
         sid,
         foreignExpressionFields,
         dataSources,
         relationships,
-        foreignUsedFieldIdsBySid.get(sid),
+        usedIds,
       );
+    };
     for (const [sid, descriptor] of foreignDescriptors) {
       // `sid` is doc/AI-authored: guard against inherited `Object.prototype` keys (see the
       // `foreignSpecs` lookup above for the full rationale).

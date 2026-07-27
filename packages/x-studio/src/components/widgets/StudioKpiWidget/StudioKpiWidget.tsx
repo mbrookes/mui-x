@@ -21,6 +21,7 @@ import {
   analyzeChartSupport,
 } from '../../../internals/chartAggregation';
 import { getCachedEnrichedRows } from '../../../internals/enrichedRowsCache';
+import { getCachedNormalizedDataSource } from '../../../internals/normalizedRowsCache';
 import { collectSelectFields } from '../../../internals/queryDescriptor';
 import { buildFieldLabelMap } from '../../../internals/fieldCatalog';
 import { usePageChartColors } from '../../../internals/usePageChartColors';
@@ -329,8 +330,13 @@ function computeFilterBasedTrend(params: {
       kpiUsedFieldIds.add(f.rankByField);
     }
   }
+  // L1 BEFORE L2. `useWidgetRows` normalizes before enriching; these two KPI-local reads
+  // did not, so the headline (which comes from `useWidgetRows`) and the trend/baseline
+  // computed here could canonicalize a zone-less datetime differently and disagree about
+  // which calendar day a row belongs to — a wrong trend percentage from a source both
+  // sides agree on.
   const preEnrichedRows = getCachedEnrichedRows(
-    dataSource.rows ?? [],
+    getCachedNormalizedDataSource(dataSource, kpiUsedFieldIds).rows,
     widget.sourceId,
     expressionFields,
     dataSources,
@@ -979,8 +985,13 @@ function useKpiTrend(params: {
                     allTimeUsedFieldIds.add(f.rankByField);
                   }
                 }
+                // L1 before L2, as above — the all-time baseline must canonicalize the
+                // same way the headline does or the ratio compares two calendars.
                 const preEnrichedAllTimeRows = getCachedEnrichedRows(
-                  rawSourceRows,
+                  getCachedNormalizedDataSource(
+                    { ...dataSource, rows: rawSourceRows },
+                    allTimeUsedFieldIds,
+                  ).rows,
                   widget.sourceId,
                   expressionFields,
                   dataSources,

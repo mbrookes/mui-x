@@ -106,11 +106,29 @@ interface UseWidgetRowsResult {
    * produced from. Consumers doing L4 re-anchoring (chart `useChartRows`, KPI grain-anchoring)
    * must use this rather than re-deriving from the live `selectFilters` array, so a deferred-window
    * render never pairs stale rows with a newer filter list (finding 2.1). Pairs with `filteredRows`.
+   *
+   * EXCLUDES widget-scoped RANK (Top-N) filters. `selectFiltersForWidget` drops
+   * `filterMode === 'rank'` unless `includeWidgetRank` is set, and these sets are built
+   * without it — deliberately, because chart consumers re-rank post-aggregation and must
+   * not see rank as an ordinary predicate (that is what `widgetScopedRankFilters` is for).
+   * So for a non-chart kind, where `shouldApplyWidgetRankAtL3` is true, the ROWS were
+   * additionally reduced by a rank filter this list does not contain. "Pairs with" below
+   * means the same deferred SNAPSHOT, not an identical filter list: a non-chart consumer
+   * that needs the full effective set must append `widgetScopedRankFilters`.
    */
   resolvedFiltersAll: StudioFilterState[];
   /**
    * The widget's resolved/scoped filter set for `include: 'no-cross'` (page + widget only),
    * derived from the same deferred snapshot as the rows. Pairs with `filteredRowsNoCross`.
+   *
+   * EXCLUDES widget-scoped RANK (Top-N) filters. `selectFiltersForWidget` drops
+   * `filterMode === 'rank'` unless `includeWidgetRank` is set, and these sets are built
+   * without it — deliberately, because chart consumers re-rank post-aggregation and must
+   * not see rank as an ordinary predicate (that is what `widgetScopedRankFilters` is for).
+   * So for a non-chart kind, where `shouldApplyWidgetRankAtL3` is true, the ROWS were
+   * additionally reduced by a rank filter this list does not contain. "Pairs with" below
+   * means the same deferred SNAPSHOT, not an identical filter list: a non-chart consumer
+   * that needs the full effective set must append `widgetScopedRankFilters`.
    */
   resolvedFiltersNoCross: StudioFilterState[];
   /**
@@ -118,6 +136,15 @@ interface UseWidgetRowsResult {
    * interactive, no chart-click cross-filters), derived from the same deferred snapshot as the
    * rows. Pairs with `filteredRowsNoChartCross` — the correct chart ghost/tooltip "all rows"
    * baseline (finding 1.4).
+   *
+   * EXCLUDES widget-scoped RANK (Top-N) filters. `selectFiltersForWidget` drops
+   * `filterMode === 'rank'` unless `includeWidgetRank` is set, and these sets are built
+   * without it — deliberately, because chart consumers re-rank post-aggregation and must
+   * not see rank as an ordinary predicate (that is what `widgetScopedRankFilters` is for).
+   * So for a non-chart kind, where `shouldApplyWidgetRankAtL3` is true, the ROWS were
+   * additionally reduced by a rank filter this list does not contain. "Pairs with" below
+   * means the same deferred SNAPSHOT, not an identical filter list: a non-chart consumer
+   * that needs the full effective set must append `widgetScopedRankFilters`.
    */
   resolvedFiltersNoChartCross: StudioFilterState[];
   /**

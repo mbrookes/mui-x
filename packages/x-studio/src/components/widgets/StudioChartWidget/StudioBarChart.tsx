@@ -807,12 +807,28 @@ export function StudioBarChart({
     // (possibly densified) input is left untouched.
     const sortedPairs = [...nonEmptyBarPairs].sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
     const topPairs = sortedPairs.slice(0, topN);
-    const otherValue = sortedPairs.slice(topN).reduce<number>((sum, p) => sum + (p.value ?? 0), 0);
+    const foldedPairs = sortedPairs.slice(topN);
+    // A `null` value is a GAP (nothing was measured for that category), not a zero. Reducing
+    // with `?? 0` turned a bucket whose every folded member was a gap into a confident `0` bar
+    // — a bar the user can hover, read and act on, asserting "the remaining categories total
+    // zero" when the truth is that none of them were measured. `null` propagates instead, so
+    // the bucket renders as the gap it is, matching the "null means not measured" rule the
+    // aggregation layer follows.
+    const otherValue = foldedPairs.some((p) => p.value !== null && p.value !== undefined)
+      ? foldedPairs.reduce<number>((sum, p) => sum + (p.value ?? 0), 0)
+      : null;
     const existingOtherIdx = topPairs.findIndex((p) => p.label === otherBucketLabel);
     if (existingOtherIdx >= 0) {
-      // Real "Other" category already in top-N — merge remainder into it
+      // Real "Other" category already in top-N — merge remainder into it. Gap + gap stays a
+      // gap; a real value on either side makes the merged bucket a real value.
       const merged = topPairs.map((p, i) =>
-        i === existingOtherIdx ? { label: p.label, value: (p.value ?? 0) + otherValue } : p,
+        i === existingOtherIdx
+          ? {
+              label: p.label,
+              value:
+                p.value == null && otherValue === null ? null : (p.value ?? 0) + (otherValue ?? 0),
+            }
+          : p,
       );
       displayXAxisData = merged.map((p) => p.label);
       displayBarValues = merged.map((p) => p.value);
@@ -851,7 +867,10 @@ export function StudioBarChart({
     );
     singleSeriesFilteredValues = displayXAxisData.map((label) => {
       if (otherGroupingApplied && String(label) === otherBucketLabel) {
+        // Mirrors the baseline `otherValue` above: a ghost "Other" made entirely of gaps is a
+        // gap, so `sawValue` tracks whether anything was actually measured.
         let sum = 0;
+        let sawValue = false;
         for (const [lbl, fv] of filteredValueByLabel) {
           // Exclude the empty-label bucket, matching `nonEmptyBarPairs`'s exclusion above
           // (`label !== null && label !== undefined && label !== ''`) — otherwise this ghost
@@ -859,9 +878,10 @@ export function StudioBarChart({
           // making the "Other" ghost total exceed its own (baseline) bar (finding 3.9).
           if (lbl !== '' && !keepSet.has(lbl)) {
             sum += fv ?? 0;
+            sawValue = sawValue || (fv !== null && fv !== undefined);
           }
         }
-        return sum;
+        return sawValue ? sum : null;
       }
       return filteredValueByLabel.get(String(label)) ?? null;
     });

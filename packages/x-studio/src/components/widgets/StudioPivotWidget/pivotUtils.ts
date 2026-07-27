@@ -9,6 +9,7 @@ import { escapeCsvCell } from '../../../internals/csvUtils';
 import { downloadCsv } from '../../../internals/widgetUtils';
 import { formatFieldValue, formatNumber } from '../../../internals/numberFormat';
 import { evaluateMeasure } from '../../../utils/expressionEvaluator';
+import { lookup } from '../../../utils/safeLookup';
 import type { StudioDataField, StudioExpressionField } from '../../../models';
 
 // Re-exported so existing importers of `./pivotUtils` keep working unchanged —
@@ -121,8 +122,12 @@ export function buildPivotMatrix(
   const grandTotal = emptyAgg();
 
   for (const row of rows) {
-    const rv = String(row[rowField] ?? '');
-    const cv = String(row[colField] ?? '');
+    // `rowField`/`colField`/`valueField` are doc-authored field ids, so every per-row read
+    // goes through the prototype-chain-safe `lookup` (see `utils/safeLookup`): a bare
+    // `row["constructor"]` resolves the inherited function, which `String(...)` would turn
+    // into a pivot row/column category literally titled with the function's source text.
+    const rv = String(lookup(row, rowField) ?? '');
+    const cv = String(lookup(row, colField) ?? '');
     // Route the raw cell value through the shared null-skip + boolean-coercion
     // policy every other aggregation reducer uses (finding 1.4) — hand-rolling
     // `Number(v ?? 0)` silently turned null/undefined into `0` (inflating `avg`
@@ -130,7 +135,7 @@ export function buildPivotMatrix(
     // `NaN` (poisoning the shared accumulator's running `sum` for the cell, its
     // row/column totals, and the grand total). When there's no value field the
     // measure is always `1`, never coerced.
-    const v = valueField ? coerceAggregateValue(row[valueField]) : 1;
+    const v = valueField ? coerceAggregateValue(lookup(row, valueField)) : 1;
 
     // Row/column categories are membership, not measurement: a row/column still
     // exists even when this particular row's measure is unusable, so it's
@@ -226,8 +231,9 @@ function buildMeasurePivotMatrix(
   const grandTotalRows: Record<string, unknown>[] = [];
 
   for (const row of rows) {
-    const rv = String(row[rowField] ?? '');
-    const cv = String(row[colField] ?? '');
+    // Prototype-chain-safe reads, same rationale as `buildPivotMatrix` above.
+    const rv = String(lookup(row, rowField) ?? '');
+    const cv = String(lookup(row, colField) ?? '');
     rowSet.add(rv);
     colSet.add(cv);
 
@@ -434,13 +440,13 @@ export function pivotToCsv(
   matrix: PivotMatrix,
   aggFn: PivotAggregation | null,
   showTotals: boolean,
-  // Defaults to the English literal so existing callers (and the existing test
-  // suite) keep working unchanged; `StudioPivotWidget` passes
-  // `localeText.pivotTotalLabel` — the same locale key `PivotTable.tsx` already
-  // uses for the on-screen "Total" caption (finding 3.2) — so the CSV export and
-  // the rendered table agree in every locale instead of the CSV silently staying
-  // English-only.
-  totalLabel: string = 'Total',
+  // REQUIRED — deliberately no default. `StudioPivotWidget` passes
+  // `localeText.pivotTotalLabel`, the same locale key `PivotTable.tsx` uses for the
+  // on-screen "Total" caption (finding 3.2), so the CSV export and the rendered table agree
+  // in every locale. This used to default to the English literal `'Total'`, which meant any
+  // caller that forgot the argument silently shipped an English-only CSV beside a fully
+  // localized table — a mixed-language export with nothing to flag it (finding M21).
+  totalLabel: string,
 ): string {
   const { rowValues, colValues } = matrix;
   // Label cells (header row + row labels + the totals caption) come from user data,

@@ -37,6 +37,7 @@ import { usePageChartColors } from '../../../internals/usePageChartColors';
 import { cachedCompute } from '../../../internals/computedCache';
 import { useWidgetRows } from '../../../internals/useWidgetRows';
 import { useChartRows } from '../../../internals/useChartRows';
+import { lookup } from '../../../utils/safeLookup';
 import { useBlendedSeriesRows } from './useBlendedSeriesRows';
 
 export function useChartWidgetData(
@@ -865,7 +866,10 @@ export function useChartWidgetData(
     const seen = new Set<string>();
     const cats: string[] = [];
     for (const row of allEnrichedRows) {
-      const raw = row[colorField];
+      // `scatterColorField` is doc-authored — prototype-chain-safe read (`utils/safeLookup`),
+      // otherwise a field named after an `Object.prototype` member becomes a scatter colour
+      // category named with the inherited function's source text.
+      const raw = lookup(row, colorField);
       const cat = raw == null || raw === '' ? emptyBucketLabel(localeText) : String(raw);
       if (!seen.has(cat)) {
         seen.add(cat);

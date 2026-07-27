@@ -11,6 +11,10 @@ import type {
 import { exportGridToCsv, exportChartToPng, downloadCsv } from '../../internals/widgetUtils';
 import { buildQueryDescriptor, buildWidgetQueryDescriptor } from '../../internals/queryDescriptor';
 import { studioRequestCache } from '../../internals/StudioRequestCache';
+import {
+  setGridViewSortModel,
+  clearGridViewSortModel,
+} from '../widgets/StudioGridWidget/gridViewSortRegistry';
 import { runWidgetExport } from './widgetExport';
 import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/localeText';
 
@@ -765,5 +769,274 @@ describe('runWidgetExport', () => {
     expect(imperativeExport).toHaveBeenCalledTimes(1);
     expect(exportGridToCsv).not.toHaveBeenCalled();
     expect(exportChartToPng).not.toHaveBeenCalled();
+  });
+});
+
+// Shared reset for the suites below, mirroring the `runWidgetExport` suite's own.
+function resetExportMocks() {
+  vi.mocked(exportGridToCsv).mockClear();
+  vi.mocked(exportChartToPng).mockClear();
+  vi.mocked(downloadCsv).mockClear();
+  studioRequestCache.clear();
+}
+
+// M1a: the CSV must be ordered the way the grid on screen is ordered.
+//
+// The export mapped rows in raw source order and read no sort model at all, so a grid sorted
+// by Revenue desc exported in ingestion order — the file and the screen disagreed about the
+// most visible property of a table.
+describe('runWidgetExport grid sort model (M1a)', () => {
+  beforeEach(resetExportMocks);
+
+  const sortSource: StudioDataSource = {
+    id: 's1',
+    label: 'Source',
+    fields: [
+      { id: 'region', label: 'Region', type: 'string' },
+      { id: 'revenue', label: 'Revenue', type: 'number' },
+    ],
+    rows: [
+      { region: 'EU', revenue: 100 },
+      { region: 'US', revenue: 300 },
+      { region: 'APAC', revenue: 200 },
+    ],
+  };
+
+  function exportedRegions(config: StudioWidgetConfig) {
+    const widget: StudioWidget = {
+      id: 'w-sort',
+      kind: 'grid',
+      title: 'Grid',
+      sourceId: 's1',
+      config,
+    };
+    runWidgetExport({
+      widget,
+      source: sortSource,
+      controller: makeController(widget, { s1: sortSource }),
+      pageId: 'page-1',
+      isCustomKind: false,
+      chartContainer: null,
+      imperativeExport: null,
+      localeText: DEFAULT_STUDIO_LOCALE_TEXT,
+    });
+    const [, , rows] = vi.mocked(exportGridToCsv).mock.calls[0];
+    return (rows as Record<string, unknown>[]).map((r) => r.region);
+  }
+
+  it('exports in the authored descending sort order, not source order', () => {
+    expect(
+      exportedRegions({
+        gridSortField: 'revenue',
+        gridSortDirection: 'desc',
+      } as StudioWidgetConfig),
+    ).toEqual(['US', 'APAC', 'EU']);
+  });
+
+  it('exports in the authored ascending sort order', () => {
+    expect(
+      exportedRegions({ gridSortField: 'revenue', gridSortDirection: 'asc' } as StudioWidgetConfig),
+    ).toEqual(['EU', 'APAC', 'US']);
+  });
+
+  it('defaults an authored sort field with no direction to ascending, matching the grid', () => {
+    expect(exportedRegions({ gridSortField: 'revenue' } as StudioWidgetConfig)).toEqual([
+      'EU',
+      'APAC',
+      'US',
+    ]);
+  });
+
+  it('leaves rows in source order when nothing is sorted', () => {
+    expect(exportedRegions({} as StudioWidgetConfig)).toEqual(['EU', 'US', 'APAC']);
+  });
+
+  it("honours a view-mode viewer's sort, which lives outside the doc", () => {
+    // A view-mode header click is deliberately NOT written to `doc` (a read-only viewer must
+    // not rewrite the authored dashboard), so it reaches this export through the registry the
+    // grid publishes it on.
+    setGridViewSortModel('w-sort', [{ field: 'region', sort: 'asc' }]);
+    try {
+      // The authored config says revenue-desc; the viewer's own sort must win, exactly as it
+      // does on screen.
+      expect(
+        exportedRegions({
+          gridSortField: 'revenue',
+          gridSortDirection: 'desc',
+        } as StudioWidgetConfig),
+      ).toEqual(['APAC', 'EU', 'US']);
+    } finally {
+      clearGridViewSortModel('w-sort');
+    }
+  });
+});
+
+// M1b: an adapter response must not be re-filtered by filters the server already applied.
+//
+// The export ran the FULL filter scope over adapter rows, but those rows were already reduced
+// server-side AND only carry `descriptor.select`'s projected columns. A dashboard date range on
+// `order_date` — a column a grid rarely displays, so rarely projected — therefore evaluated
+// against rows with no `order_date` key and rejected every one of them: a headers-only CSV
+// beside a populated grid.
+describe('runWidgetExport adapter residual filter scope (M1b)', () => {
+  beforeEach(resetExportMocks);
+
+  const adapterSource: StudioDataSource = {
+    id: 's1',
+    label: 'Source',
+    fields: [
+      { id: 'status', label: 'Status', type: 'string' },
+      { id: 'order_date', label: 'Order date', type: 'date' },
+    ],
+    adapter: { getRows: vi.fn() },
+  };
+
+  // Rows exactly as the server projects them: only the grid's own column, no `order_date`.
+  const projectedRows = [{ status: 'active' }, { status: 'inactive' }];
+
+  function seedCache(widget: StudioWidget, controller: StudioController) {
+    const state = controller.getState();
+    const descriptor = buildWidgetQueryDescriptor(widget, 'page-1', undefined, {
+      filters: state.doc.filters,
+      expressionFields: state.doc.expressionFields,
+      relationships: state.doc.relationships,
+      crossFilterAllPages: false,
+    });
+    studioRequestCache.set(
+      descriptor.cacheKey,
+      { rows: projectedRows },
+      's1',
+      adapterSource.adapter,
+    );
+  }
+
+  it('does not drop every row when a dashboard date range targets an unprojected column', () => {
+    const widget: StudioWidget = {
+      id: 'w-range',
+      kind: 'grid',
+      title: 'Grid',
+      sourceId: 's1',
+      config: { columns: [{ fieldId: 'status' }] } as StudioWidgetConfig,
+    };
+    const dateRangeFilter = {
+      id: 'f-range',
+      field: 'order_date',
+      operator: 'between',
+      value: { from: '2024-01-01', to: '2024-12-31' },
+      scope: { kind: 'dashboard-date-range', sourceId: 's1', pageId: 'page-1' },
+    } as unknown as StudioFilterState;
+    const controller = new StudioController({
+      doc: { widgets: { [widget.id]: widget }, filters: [dateRangeFilter] },
+      runtime: { dataSources: { s1: adapterSource } },
+    });
+    seedCache(widget, controller);
+
+    runWidgetExport({
+      widget,
+      source: adapterSource,
+      controller,
+      pageId: 'page-1',
+      isCustomKind: false,
+      chartContainer: null,
+      imperativeExport: null,
+      localeText: DEFAULT_STUDIO_LOCALE_TEXT,
+    });
+
+    expect(exportGridToCsv).toHaveBeenCalledTimes(1);
+    const [, , rows] = vi.mocked(exportGridToCsv).mock.calls[0];
+    expect(rows).toEqual(projectedRows);
+  });
+
+  it('still applies a cross-filter, which the server descriptor deliberately excludes', () => {
+    const widget: StudioWidget = {
+      id: 'w-cross',
+      kind: 'grid',
+      title: 'Grid',
+      sourceId: 's1',
+      config: { columns: [{ fieldId: 'status' }] } as StudioWidgetConfig,
+    };
+    const crossFilter = {
+      id: 'f-cross',
+      field: 'status',
+      operator: 'equals',
+      value: 'active',
+      scope: { kind: 'cross-filter', sourceWidgetId: 'other', pageId: 'page-1' },
+    } as unknown as StudioFilterState;
+    const controller = new StudioController({
+      doc: { widgets: { [widget.id]: widget }, filters: [crossFilter] },
+      runtime: { dataSources: { s1: adapterSource } },
+    });
+    seedCache(widget, controller);
+
+    runWidgetExport({
+      widget,
+      source: adapterSource,
+      controller,
+      pageId: 'page-1',
+      isCustomKind: false,
+      chartContainer: null,
+      imperativeExport: null,
+      localeText: DEFAULT_STUDIO_LOCALE_TEXT,
+    });
+
+    const [, , rows] = vi.mocked(exportGridToCsv).mock.calls[0];
+    expect(rows).toEqual([{ status: 'active' }]);
+  });
+});
+
+// M12: the export button must never do nothing at all.
+describe('runWidgetExport surfaces an unexportable widget (M12)', () => {
+  beforeEach(resetExportMocks);
+
+  it('explains itself instead of returning silently for a grid with no data source', () => {
+    const widget: StudioWidget = {
+      id: 'w-nosource',
+      kind: 'grid',
+      title: 'Grid',
+      config: {} as StudioWidgetConfig,
+    };
+
+    runWidgetExport({
+      widget,
+      source: undefined,
+      controller: makeController(widget),
+      pageId: 'page-1',
+      isCustomKind: false,
+      chartContainer: null,
+      imperativeExport: null,
+      localeText: DEFAULT_STUDIO_LOCALE_TEXT,
+    });
+
+    expect(downloadCsv).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(downloadCsv).mock.calls[0][0]).toBe(
+      DEFAULT_STUDIO_LOCALE_TEXT.widgetExportUnavailableMessage,
+    );
+    expect(exportGridToCsv).not.toHaveBeenCalled();
+  });
+
+  it('explains itself when a pivot has registered no imperative export handler', () => {
+    const widget: StudioWidget = {
+      id: 'w-pivot-noexport',
+      kind: 'pivot',
+      title: 'Pivot',
+      sourceId: 's1',
+      config: {} as StudioWidgetConfig,
+    };
+
+    runWidgetExport({
+      widget,
+      source,
+      controller: makeController(widget, { s1: source }),
+      pageId: 'page-1',
+      isCustomKind: false,
+      chartContainer: null,
+      imperativeExport: null,
+      localeText: DEFAULT_STUDIO_LOCALE_TEXT,
+    });
+
+    expect(downloadCsv).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(downloadCsv).mock.calls[0][0]).toBe(
+      DEFAULT_STUDIO_LOCALE_TEXT.widgetExportUnavailableMessage,
+    );
   });
 });

@@ -49,7 +49,7 @@ export function StudioMapShapePlot(props: StudioMapShapePlotProps) {
   const { fill, stroke = 'none', strokeWidth = 1, onShapeClick } = props;
   const geoData = useGeoData();
   const path = useGeoPath();
-  const { featureIdToLabel } = React.use(StudioMapTooltipContext);
+  const { regionAriaLabel } = React.use(StudioMapTooltipContext);
   // The no-argument overload always returns an array of series (see useSeriesOfType);
   // its loose union return type is narrowed here.
   const series = (useSeriesOfType('mapShape') ?? []) as ChartSeriesDefaultized<'mapShape'>[];
@@ -214,7 +214,8 @@ export function StudioMapShapePlot(props: StudioMapShapePlotProps) {
                         }}
                         role="button"
                         tabIndex={regionIndex === activeIndex ? 0 : -1}
-                        aria-label={featureIdToLabel(item.name)}
+                        // Region name AND its aggregated value — see `regionAriaLabel`.
+                        aria-label={regionAriaLabel(item.name, item.colorValue ?? item.value)}
                         style={{ cursor: 'pointer', outline: 'revert' }}
                         onFocus={() => setActiveRegionIndex(regionIndex)}
                         onKeyDown={(event) => handleRegionKeyDown(event, regionIndex)}

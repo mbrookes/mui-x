@@ -62,6 +62,8 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   widgetExportPngTooltip: 'Télécharger en PNG',
   widgetExportNoDataMessage:
     "Aucune donnée disponible à exporter pour l'instant. Ouvrez la grille pour qu'elle puisse charger les données du serveur, puis réessayez l'exportation.",
+  widgetExportUnavailableMessage:
+    "Ce widget n'a rien à exporter. Terminez sa configuration — un tableau nécessite une source de données et un tableau croisé dynamique nécessite des lignes, des colonnes et des valeurs — puis réessayez.",
   widgetExpandTooltip: 'Agrandir le widget',
   widgetMoveToPageLabel: 'Déplacer vers la page',
   widgetDuplicateTooltip: 'Dupliquer le widget',
@@ -878,6 +880,8 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   chartGanttRequiresFieldsHint:
     "Le diagramme de Gantt nécessite un champ d'étiquette et des champs de dates de début et de fin.",
   chartGanttDurationLabel: 'Durée :',
+  chartGanttDurationDays: (days) => `${days} j`,
+  chartGanttDurationHours: (hours) => `${hours} h`,
   chartCrossFilterFilteredOutLabel: 'filtré',
 
   // Map widget
@@ -1208,8 +1212,11 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   // Chart / KPI / map text alternatives
   ganttChartAriaLabel: (itemCount, from, to, details) =>
     `Diagramme de Gantt avec ${itemCount} ${itemCount === 1 ? 'élément' : 'éléments'} du ${from} au ${to}. ${details}.`,
+  ganttItemAriaLabel: (label, from, to, duration) => `${label} : du ${from} au ${to} (${duration})`,
+  sankeyLinkAriaLabel: (source, target, value) => `${source} vers ${target} : ${value}`,
   sankeyChartAriaLabel: (nodeCount, linkCount, details) =>
     `Diagramme de flux Sankey avec ${nodeCount} ${nodeCount === 1 ? 'nœud' : 'nœuds'} et ${linkCount} ${linkCount === 1 ? 'lien' : 'liens'}. ${details}.`,
+  mapRegionAriaLabel: (region, valueLabel, value) => `${region} : ${valueLabel} ${value}`,
   kpiGaugeAriaLabel: (value, max, percent) => `Jauge : ${value} sur ${max} (${percent} %).`,
   kpiSparklineAriaLabel: (pointCount, trend, from, to) => {
     let trendText = 'stable';

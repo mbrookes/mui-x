@@ -61,6 +61,8 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   widgetExportPngTooltip: 'Descargar como PNG',
   widgetExportNoDataMessage:
     'Aún no hay datos disponibles para exportar. Abra la cuadrícula para que pueda cargar datos del servidor y vuelva a intentar la exportación.',
+  widgetExportUnavailableMessage:
+    'Este widget no tiene nada que exportar. Termina de configurarlo — una tabla necesita un origen de datos y una tabla dinámica necesita filas, columnas y valores — y vuelve a intentarlo.',
   widgetExpandTooltip: 'Expandir widget',
   widgetMoveToPageLabel: 'Mover a la página',
   widgetDuplicateTooltip: 'Duplicar widget',
@@ -878,6 +880,8 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   chartGanttRequiresFieldsHint:
     'El diagrama de Gantt requiere un campo de etiqueta, un campo de fecha de inicio y uno de fecha de fin.',
   chartGanttDurationLabel: 'Duración:',
+  chartGanttDurationDays: (days) => `${days} d`,
+  chartGanttDurationHours: (hours) => `${hours} h`,
   chartCrossFilterFilteredOutLabel: 'filtrado',
 
   // Map widget
@@ -1203,8 +1207,11 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   // Chart / KPI / map text alternatives
   ganttChartAriaLabel: (itemCount, from, to, details) =>
     `Diagrama de Gantt con ${itemCount} ${itemCount === 1 ? 'elemento' : 'elementos'} desde ${from} hasta ${to}. ${details}.`,
+  ganttItemAriaLabel: (label, from, to, duration) => `${label}: de ${from} a ${to} (${duration})`,
+  sankeyLinkAriaLabel: (source, target, value) => `${source} a ${target}: ${value}`,
   sankeyChartAriaLabel: (nodeCount, linkCount, details) =>
     `Diagrama de flujo Sankey con ${nodeCount} ${nodeCount === 1 ? 'nodo' : 'nodos'} y ${linkCount} ${linkCount === 1 ? 'enlace' : 'enlaces'}. ${details}.`,
+  mapRegionAriaLabel: (region, valueLabel, value) => `${region}: ${valueLabel} ${value}`,
   kpiGaugeAriaLabel: (value, max, percent) => `Medidor: ${value} de ${max} (${percent} %).`,
   kpiSparklineAriaLabel: (pointCount, trend, from, to) => {
     let trendText = 'estable';

@@ -305,7 +305,7 @@ describe('pivotToCsv', () => {
   const matrix: PivotMatrix = buildPivotMatrix(ROWS, 'region', 'product', 'amount');
 
   it('emits a header, data rows, and a totals row when showTotals is true', () => {
-    const csv = pivotToCsv(matrix, 'sum', true);
+    const csv = pivotToCsv(matrix, 'sum', true, 'Total');
     // Header and row/col labels are JSON-quoted; numeric cells are emitted raw.
     expect(csv.split('\n')).toEqual([
       '"","A","B","Total"',
@@ -316,7 +316,7 @@ describe('pivotToCsv', () => {
   });
 
   it('omits the Total column and row when showTotals is false', () => {
-    const csv = pivotToCsv(matrix, 'sum', false);
+    const csv = pivotToCsv(matrix, 'sum', false, 'Total');
     const lines = csv.split('\n');
     expect(lines[0]).toBe('"","A","B"');
     expect(lines).toHaveLength(3); // header + 2 data rows, no totals row
@@ -334,7 +334,7 @@ describe('pivotToCsv', () => {
       'v',
     );
     // avg = 1.5
-    expect(pivotToCsv(avgMatrix, 'avg', false)).toContain(',1.5');
+    expect(pivotToCsv(avgMatrix, 'avg', false, 'Total')).toContain(',1.5');
   });
 
   // ─── CSV/table rounding parity (finding 3.2) ─────────────────────────────────
@@ -355,7 +355,7 @@ describe('pivotToCsv', () => {
     );
     // avg = 4 / 3 = 1.3333… -> rounds to 1.33 at 2-decimal precision (would be
     // 1.333 at the old 3-decimal precision).
-    const csv = pivotToCsv(avgMatrix, 'avg', false);
+    const csv = pivotToCsv(avgMatrix, 'avg', false, 'Total');
     expect(csv).toContain(',1.33');
     expect(csv).not.toContain(',1.333');
   });
@@ -369,7 +369,7 @@ describe('pivotToCsv', () => {
       'product',
       'amount',
     );
-    const lines = pivotToCsv(evil, 'sum', false).split('\n');
+    const lines = pivotToCsv(evil, 'sum', false, 'Total').split('\n');
     // Header column label starting with '+' is prefixed with a single quote.
     expect(lines[0]).toBe('"","\'+cmd"');
     // Row label starting with '=' is prefixed with a single quote.
@@ -381,13 +381,13 @@ describe('pivotToCsv', () => {
   it('does not corrupt legitimate negative numeric cells', () => {
     const negMatrix = buildPivotMatrix([{ r: 'x', c: 'y', v: -5 }], 'r', 'c', 'v');
     // Numeric cell stays a bare -5, not quoted or prefixed.
-    expect(pivotToCsv(negMatrix, 'sum', false)).toContain(',-5');
+    expect(pivotToCsv(negMatrix, 'sum', false, 'Total')).toContain(',-5');
   });
 
   // ─── Locale-aware "Total" caption (finding 3.2) ──────────────────────────────
 
   it('defaults the totals caption to the English literal "Total" when no label is passed', () => {
-    const csv = pivotToCsv(matrix, 'sum', true);
+    const csv = pivotToCsv(matrix, 'sum', true, 'Total');
     const lines = csv.split('\n');
     expect(lines[0]).toBe('"","A","B","Total"');
     expect(lines[lines.length - 1].startsWith('"Total"')).toBe(true);
@@ -456,7 +456,7 @@ describe('resolvePivotCellValue / formatPivotCellValue', () => {
     const cell = matrix.cells.get('EMEA')!.get('A');
     expect(resolvePivotCellValue(cell, null)).toBe(null);
     // The whole CSV degrades to empty numeric cells rather than a plausible-but-wrong sum.
-    expect(pivotToCsv(matrix, null, false).split('\n')).toEqual([
+    expect(pivotToCsv(matrix, null, false, 'Total').split('\n')).toEqual([
       '"","A","B"',
       '"APAC",,',
       '"EMEA",,',

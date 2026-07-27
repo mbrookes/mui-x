@@ -23,6 +23,7 @@ import {
   getReachableSourceIds,
 } from '../../../internals/dataSourceGraph';
 import { normalizeJoinKey } from '../../../internals/joinKeys';
+import { lookup } from '../../../utils/safeLookup';
 import { normalizeToAlpha2, alpha2ToName, STATE_ABBR_TO_NAME } from './countryUtils';
 import type { StudioMapGeographyDefinition } from './geographyLoaders';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
@@ -370,11 +371,14 @@ export function StudioMapWidget({
     // the grid's `symmetricAggregate`. `null` (same-source value field) means no dedup.
     const seenFksByRegion = valueFkField ? new Map<string, Set<string>>() : null;
     for (const row of rows) {
-      const id = normalize(row[countryField]);
+      // Doc-authored field ids index the row through the prototype-chain-safe `lookup`
+      // (`utils/safeLookup`) — a field named `constructor`/`toString` would otherwise
+      // resolve an inherited function and shade a region keyed by its source text.
+      const id = normalize(lookup(row, countryField));
       if (!id) {
         continue;
       }
-      const rawCountryValue = row[countryField];
+      const rawCountryValue = lookup(row, countryField);
       const existingRawKeys = rawKeys.get(id);
       if (!existingRawKeys) {
         rawKeys.set(id, [rawCountryValue]);
@@ -387,7 +391,7 @@ export function StudioMapWidget({
       // so it contributes nothing (matching `symmetricAggregate`). Runs only for cross-source
       // value fields; same-source fields keep the plain per-row reduce below.
       if (seenFksByRegion) {
-        const fkKey = normalizeJoinKey(row[valueFkField as string]);
+        const fkKey = normalizeJoinKey(lookup(row, valueFkField as string));
         if (fkKey === null) {
           continue;
         }
@@ -404,7 +408,7 @@ export function StudioMapWidget({
 
       rowCounts.set(id, (rowCounts.get(id) ?? 0) + 1);
 
-      const rawValue = valueField != null ? row[valueField] : 1;
+      const rawValue = valueField != null ? lookup(row, valueField) : 1;
       // Shared null-skip + boolean-coercion policy (finding 1.4): null/undefined/NaN and
       // non-numeric values are skipped (not coerced to 0), booleans become 0/1 — matching
       // the KPI widget's `computeAggregate` so the same measure agrees across widget kinds.
@@ -715,9 +719,23 @@ export function StudioMapWidget({
       controller,
     ],
   );
+  const regionAriaLabel = React.useCallback(
+    (featureId: string, value: number | null | undefined) => {
+      const regionLabel = featureIdToLabel(featureId);
+      if (value === null || value === undefined) {
+        return regionLabel;
+      }
+      return localeText.mapRegionAriaLabel(
+        regionLabel,
+        valueFieldLabel ?? localeText.chartDefaultSeriesLabel,
+        formatMapValueCompact(value),
+      );
+    },
+    [featureIdToLabel, valueFieldLabel, localeText, formatMapValueCompact],
+  );
   const tooltipContextValue = React.useMemo(
-    () => ({ valueFieldLabel, featureIdToLabel }),
-    [valueFieldLabel, featureIdToLabel],
+    () => ({ valueFieldLabel, featureIdToLabel, regionAriaLabel }),
+    [valueFieldLabel, featureIdToLabel, regionAriaLabel],
   );
 
   if (isError) {
@@ -754,6 +772,11 @@ export function StudioMapWidget({
     const fieldLabel = geographyDef?.fieldLabel ?? localeText.mapSetupRegionFieldLabel;
     return (
       <Box
+        // `role="status"` (implicit polite live region), matching `StudioNoDataOverlay` and
+        // `StudioWidgetErrorOverlay` a few lines below. This hint replaces the map in response
+        // to a config edit, so without it a screen-reader user who cleared the region field
+        // heard nothing at all while a sighted user saw the explanation appear.
+        role="status"
         sx={{
           p: 2,
           height: '100%',

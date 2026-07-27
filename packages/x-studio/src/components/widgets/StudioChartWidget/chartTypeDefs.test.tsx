@@ -65,6 +65,8 @@ import { StudioFunnelChart } from './StudioFunnelChart';
 import { StudioGanttChart } from './StudioGanttChart';
 // eslint-disable-next-line import/first -- must follow the vi.mock calls above
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
+// eslint-disable-next-line import/first -- must follow the vi.mock calls above
+import { StudioGaugeChart } from './StudioGaugeChart';
 
 const dataSource: StudioDataSource = {
   id: 'src',
@@ -132,6 +134,7 @@ function makeCtx<T extends StudioChartType = StudioChartType>(
     onItemClick: () => {},
     annotationChildren: null,
     chartAriaTitle: 'Chart title',
+    isLoading: false,
   } as unknown as ChartRenderContext<T>;
 }
 
@@ -765,5 +768,60 @@ describe('families that emit no cross-filter still honour crossFilterMode on the
     ]);
     CHART_TYPE_DEFS.gauge.render({ ...ctx, enrichedRows: modeAware });
     expect(lastRowsArg(computeAggregateSpy)).toBe(modeAware);
+  });
+});
+
+// M4: the gauge was the ONE chart family that could render a real, wrong number over an empty
+// row set. `computeAggregate` returns `0` (not `null`) for `sum`/`count` over `[]`, so
+// `renderGauge`'s `gaugeValue === null` bail never fired for the two most common measures and
+// the needle sat at the minimum with a confidently formatted `0` in the centre. On an
+// adapter-backed source that `0` was on screen through the entire cold fetch, while a bar chart
+// in the identical state rendered blank. `runsNoDataGuard: false` (kept, so the "configure
+// gauge" hint still wins for an unconfigured gauge) meant the shared guard could not cover it.
+describe('renderGauge over an empty row set (M4)', () => {
+  const gaugeConfig = { chartType: 'gauge', yField: 'amount' } as StudioWidgetConfig;
+
+  it('shows the no-data overlay instead of a fabricated 0 when there are no rows', () => {
+    const ctx = makeCtx<'gauge'>(gaugeConfig, []);
+    const view = CHART_TYPE_DEFS.gauge.render({ ...ctx, enrichedRows: [] });
+
+    expect(view.type).toBe(StudioNoDataOverlay);
+    expect(view.type).not.toBe(StudioGaugeChart);
+  });
+
+  it('never aggregates an empty row set at all (no 0 can be produced)', () => {
+    const ctx = makeCtx<'gauge'>(gaugeConfig, []);
+    CHART_TYPE_DEFS.gauge.render({ ...ctx, enrichedRows: [] });
+
+    expect(computeAggregateSpy).not.toHaveBeenCalled();
+  });
+
+  it('renders neither a gauge nor "No data" during a cold adapter fetch', () => {
+    // An unanswered query is not "No data" — the same rule every sibling family follows, and
+    // the reason a bar chart is blank rather than labelled in this state.
+    const ctx = makeCtx<'gauge'>(gaugeConfig, []);
+    const view = CHART_TYPE_DEFS.gauge.render({ ...ctx, enrichedRows: [], isLoading: true });
+
+    expect(view.type).not.toBe(StudioGaugeChart);
+    expect(view.type).not.toBe(StudioNoDataOverlay);
+    expect((view.props as { 'aria-busy'?: boolean })['aria-busy']).toBe(true);
+    expect(computeAggregateSpy).not.toHaveBeenCalled();
+  });
+
+  it('still renders the gauge when rows exist', () => {
+    const ctx = makeCtx<'gauge'>(gaugeConfig, [{ amount: 5 }]);
+    const view = CHART_TYPE_DEFS.gauge.render({ ...ctx, enrichedRows: [{ amount: 5 }] });
+
+    expect(view.type).toBe(StudioGaugeChart);
+  });
+
+  it('shows the "configure gauge" hint, not "No data", when no measure is configured', () => {
+    // Ordering guard: the zero-row bail must stay BELOW the unconfigured-measure hint, which is
+    // exactly why `runsNoDataGuard` stays `false` for this family.
+    const ctx = makeCtx<'gauge'>({ chartType: 'gauge' } as StudioWidgetConfig, []);
+    const view = CHART_TYPE_DEFS.gauge.render({ ...ctx, enrichedRows: [] });
+
+    expect(view.type).not.toBe(StudioNoDataOverlay);
+    expect(view.type).not.toBe(StudioGaugeChart);
   });
 });

@@ -6,8 +6,151 @@ import { resolveCrossSourceFieldDefs } from '../widgets/StudioGridWidget/StudioG
 import { buildWidgetQueryDescriptor } from '../../internals/queryDescriptor';
 import { getCachedNormalizedDataSource } from '../../internals/normalizedRowsCache';
 import { studioRequestCache } from '../../internals/StudioRequestCache';
-import type { StudioDataSource, StudioWidget, StudioWidgetConfig } from '../../models';
+import { lookup } from '../../utils/safeLookup';
+import { getGridViewSortModel } from '../widgets/StudioGridWidget/gridViewSortRegistry';
+import type {
+  StudioDataSource,
+  StudioFilterState,
+  StudioWidget,
+  StudioWidgetConfig,
+} from '../../models';
 import type { StudioLocaleText } from '../../internals/StudioUIConfigContext';
+
+type Row = Record<string, unknown>;
+
+/**
+ * The filters an ADAPTER-backed widget must still evaluate client-side after the server has
+ * answered its query — the "residual".
+ *
+ * `buildQueryDescriptor` bakes the widget's authored page/widget/dashboard-date-range filters
+ * into the wire request (`include: 'no-cross'`), so the rows that come back have ALREADY been
+ * reduced by them. Re-applying them locally is not merely redundant, it is destructive: the
+ * descriptor's `select` list is built from `collectSelectFields(widget)` plus rank/cross field
+ * refs (`internals/queryDescriptor.ts`), NOT from the fields the authored page filters
+ * reference. A page filter on `order_date` therefore evaluates against rows that carry no
+ * `order_date` key at all and rejects every one of them — a dashboard date range turned the
+ * CSV export into a headers-only file while the grid on screen showed N rows (finding M1b).
+ *
+ * What genuinely IS left over, and is exactly what `useWidgetRows.ts`'s adapter branch
+ * re-applies on the render path:
+ * - page-scoped RANK (top/bottom-N) filters — the wire protocol cannot express a rank
+ *   reduction, so `buildQueryDescriptor` strips them;
+ * - widget-scoped RANK filters, for the same reason (gated downstream by `includeWidgetRank`,
+ *   which `resolveWidgetRows` resolves from the widget itself);
+ * - cross-filters and interactive (filter-widget) selections — deliberately excluded from the
+ *   descriptor so a chart click never triggers a server round-trip or churns the cacheKey.
+ *
+ * `dashboard-date-range` is deliberately absent: it is an authored filter, it went to the
+ * server, and its field is very often not a projected column.
+ *
+ * NOTE (handoff): this predicate is a transcription of `useWidgetRows.ts`'s residual pass, not
+ * a shared implementation of it — the two must not be allowed to drift. See the extraction
+ * requested in that file's owner's queue (`selectAdapterResidualFilters` belongs beside
+ * `selectFiltersForWidget` in `internals/filterScoping.ts`, with `useWidgetRows` and this
+ * export both calling it).
+ */
+function selectAdapterResidualFilters(
+  filters: StudioFilterState[],
+  widgetId: string,
+): StudioFilterState[] {
+  const residual: StudioFilterState[] = [];
+  for (const f of filters) {
+    const scope = f.scope;
+    if (!scope) {
+      continue;
+    }
+    const isRank = (f.filterMode ?? 'condition') === 'rank';
+    switch (scope.kind) {
+      case 'page':
+        if (isRank) {
+          residual.push(f);
+        }
+        break;
+      case 'widget':
+        if (scope.widgetId === widgetId && isRank) {
+          residual.push(f);
+        }
+        break;
+      case 'cross-filter':
+      case 'interactive':
+        residual.push(f);
+        break;
+      default:
+        // 'dashboard-date-range' — already enforced server-side (see the doc above).
+        break;
+    }
+  }
+  return residual;
+}
+
+/**
+ * Comparator matching DataGridPremium's default `gridStringOrNumberComparator`, including its
+ * `gridNillComparator` prelude (nullish values sort FIRST ascending / LAST descending, because
+ * the nil result is produced before the direction multiplier is applied). Reproduced here
+ * rather than imported because the Data Grid does not export it, and an approximation that
+ * merely "looks sorted" would still hand the user a CSV whose row order differs from the grid
+ * it was exported from — the exact class of divergence this is fixing.
+ *
+ * Normalized `date` / `datetime` cells are canonical `YYYY-MM-DD` / ISO strings by the time
+ * they reach here (`getCachedNormalizedDataSource`, and the adapter's own projection), so
+ * lexicographic collation of those strings is chronological — no separate date branch needed.
+ */
+function compareGridCellValues(a: unknown, b: unknown): number {
+  if (a == null && b == null) {
+    return 0;
+  }
+  if (a == null) {
+    return -1;
+  }
+  if (b == null) {
+    return 1;
+  }
+  if (typeof a === 'number' && typeof b === 'number') {
+    return a - b;
+  }
+  return String(a).localeCompare(String(b));
+}
+
+/**
+ * Order `rows` the way the grid on screen orders them.
+ *
+ * The rendered grid drives sorting through a controlled `sortModel` (`StudioGridWidget.tsx`):
+ * in edit mode that model is the authored `gridSortField` / `gridSortDirection`; in view mode
+ * it is the viewer's own header click, which is component-local state published for this
+ * export through `gridViewSortRegistry`. Neither was read here before, so a grid sorted by
+ * Revenue desc exported in raw source order (finding M1a).
+ *
+ * Deliberately NOT reproduced: row grouping (`gridGroupByField`) and the aggregation summary
+ * row. Both are presentation structures the Data Grid synthesizes at render time — a group
+ * header row and a footer total have no representation in a flat CSV of the underlying
+ * records, and inventing one would put rows in the file that exist in no data source. This
+ * mirrors the same flat-export reasoning already documented for cross-highlight dimming below.
+ */
+function applyGridSortModel(rows: Row[], widget: StudioWidget): Row[] {
+  const config = widget.config as StudioWidgetConfig;
+  const configSortModel = config.gridSortField
+    ? [{ field: config.gridSortField, sort: config.gridSortDirection ?? 'asc' }]
+    : [];
+  // View-mode header clicks win over the authored config, exactly as `sortModel` does in
+  // `StudioGridWidget`; an absent registry entry means "no viewer sort" and falls through.
+  const sortModel = getGridViewSortModel(widget.id) ?? configSortModel;
+  if (sortModel.length === 0) {
+    return rows;
+  }
+  // `slice()` — `rows` may be a memoized/cached array shared with the render path.
+  return rows.slice().sort((rowA, rowB) => {
+    for (const item of sortModel) {
+      if (!item.sort) {
+        continue;
+      }
+      const result = compareGridCellValues(lookup(rowA, item.field), lookup(rowB, item.field));
+      if (result !== 0) {
+        return item.sort === 'desc' ? -result : result;
+      }
+    }
+    return 0;
+  });
+}
 
 export interface RunWidgetExportParams {
   /** The widget being exported. */
@@ -54,8 +197,29 @@ export function runWidgetExport({
   if (widget.kind === 'grid' && widget.sourceId) {
     // Compute filtered rows lazily at export time — no need for a reactive subscription.
     const state = controller.getState();
-    const pipeline = createStudioPipeline(state);
     const hasAdapter = Boolean(source?.adapter);
+
+    // Adapter-backed rows come back ALREADY reduced by the widget's authored page/widget/
+    // date-range filters (they were baked into the wire descriptor), and the response only
+    // projects `descriptor.select`. Running the full filter set over them a second time
+    // therefore evaluates authored filters against columns the server never returned and
+    // silently drops every row — a dashboard date range produced a headers-only CSV beside a
+    // populated grid (finding M1b). Feed the pipeline only the RESIDUAL filter set for that
+    // case, which is precisely what the on-screen adapter path applies
+    // (`useWidgetRows.ts`'s adapter branch). The sync path keeps the full set: it starts from
+    // raw, fully-projected source rows, so every authored filter must be applied here.
+    const pipeline = createStudioPipeline(
+      hasAdapter
+        ? {
+            dataSources: state.runtime.dataSources,
+            relationships: state.doc.relationships,
+            expressionFields: state.doc.expressionFields,
+            filters: selectAdapterResidualFilters(state.doc.filters, widget.id),
+            crossFilterAllPages: state.doc.dashboard.crossFilterAllPages,
+            globalCrossFilterMode: state.doc.dashboard.globalCrossFilterMode,
+          }
+        : state,
+    );
 
     // Adapter-backed sources never populate `source.rows` — fetched rows live only in
     // the on-screen grid's local `useAdapterRows` state, seeded from (and written back
@@ -178,10 +342,33 @@ export function runWidgetExport({
       ).values(),
     );
 
-    exportGridToCsv(widget, source, enrichedRows, ownExpressionFields, crossSourceFieldDefs);
+    // Order the file the way the user is looking at the grid. Everything above this point
+    // reproduces WHICH rows the grid shows; without this the CSV still disagreed with the
+    // screen on the order they appear in (finding M1a).
+    const sortedRows = applyGridSortModel(enrichedRows, widget);
+
+    exportGridToCsv(widget, source, sortedRows, ownExpressionFields, crossSourceFieldDefs);
   } else if (widget.kind === 'chart') {
     exportChartToPng(widget, chartContainer, chartBackgroundColor);
   } else if (widget.kind === 'pivot' || isCustomKind) {
-    imperativeExport?.();
+    // A pivot/custom widget exports through the handler it registered on `exportRef`. That ref
+    // is null whenever the widget has nothing to export yet (the pivot nulls it while `matrix`
+    // is null) or when a custom kind never registered one at all. `canExport` is derived from
+    // the widget DEF's declared capability, not from the ref, so the button is offered in both
+    // of those states — and `imperativeExport?.()` then did nothing at all, leaving the user to
+    // conclude the export silently failed (finding M12). Report it the same way the adapter
+    // cache-miss above does.
+    if (!imperativeExport) {
+      downloadCsv(localeText.widgetExportUnavailableMessage, `${widget.title}_export.csv`);
+      return;
+    }
+    imperativeExport();
+  } else if (widget.kind === 'grid') {
+    // Reached only when a grid widget has no `sourceId`. `canExport` gates purely on kind, so
+    // the export button is shown for an unconfigured grid; before this branch existed the
+    // click fell through EVERY branch and returned silently, indistinguishable from a failed
+    // download (finding M12). There is no snackbar/toast in x-studio, so — exactly as the
+    // adapter cache-miss path above — the explanation is delivered as the file itself.
+    downloadCsv(localeText.widgetExportUnavailableMessage, `${widget.title}_export.csv`);
   }
 }

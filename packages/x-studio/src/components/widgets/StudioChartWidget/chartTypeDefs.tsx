@@ -175,6 +175,20 @@ export interface ChartRenderContext<T extends StudioChartType = StudioChartType>
    * wrapper), so the chart is not an unnamed graphic (WCAG 1.1.1 / 4.1.2, finding M10).
    */
   chartAriaTitle: string;
+  /**
+   * Whether the widget's adapter-backed source has a fetch in flight whose rows have not
+   * arrived yet.
+   *
+   * The orchestrator uses this to suppress the shared no-data guard (an in-flight query is
+   * not "no data"), but until finding M4 it never reached the renderers — so every render
+   * function that owns its OWN empty-result branch had to interpret an empty aggregation as a
+   * settled result. That produced two distinct wrong states during a cold fetch: `renderMixed`
+   * blamed the author ("configure your fields") for a query that simply had not answered yet,
+   * and `renderFunnel`/`renderGantt`/`renderSankey` asserted "No data" about a dataset nobody
+   * had looked at. Renderers must treat an empty result as *unmeasured* while this is true —
+   * the same "null means not measured" rule the aggregation layer follows.
+   */
+  isLoading: boolean;
 }
 
 /** Descriptor for a single `StudioChartType`'s guard-order behavior and rendering. */
@@ -192,10 +206,18 @@ export interface ChartTypeDef<T extends StudioChartType = StudioChartType> {
   render(ctx: ChartRenderContext<T>): React.ReactElement;
 }
 
-/** A centered hint message shown in place of the chart (unconfigured / unsupported state). */
+/**
+ * A centered hint message shown in place of the chart (unconfigured / needs-fields state).
+ *
+ * `role="status"` (an implicit polite live region) matches `StudioNoDataOverlay` and
+ * `StudioWidgetErrorOverlay`: these hints replace the chart in response to a config edit or a
+ * cross-filter, so a screen-reader user who changes a field and lands on a hint instead of a
+ * chart got no announcement at all, while a sighted user sees the message immediately.
+ */
 function ChartHintBox({ height, children }: { height: number; children: React.ReactNode }) {
   return (
     <Box
+      role="status"
       sx={{
         display: 'flex',
         alignItems: 'center',
@@ -209,9 +231,35 @@ function ChartHintBox({ height, children }: { height: number; children: React.Re
   );
 }
 
-/** An empty placeholder drawn in place of the chart when there's no aggregated data yet. */
-function EmptyChartBox({ height }: { height: number }) {
-  return <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height }} />;
+/**
+ * The element every renderer returns when it has no aggregated data to draw. The single place
+ * this file decides what "nothing to draw" looks like.
+ *
+ * `isLoading: false` → `StudioNoDataOverlay`, the labelled, announced overlay the
+ * funnel/sankey/gantt branches already used. The bar/line/pie branches used to return an empty
+ * `<Box>` here instead — a blank rectangle that explained nothing to anyone, sighted or not,
+ * for the exact condition their siblings explained.
+ *
+ * `isLoading: true` → a deliberately blank box. An unanswered query is not "No data", and
+ * asserting so mid-fetch is the same fabrication the gauge's `0` was. It carries an empty
+ * polite live region so nothing is announced until the rows land and the chart (or the
+ * overlay) takes its place.
+ *
+ * A plain function, not a component: it keeps `render()`'s returned element type equal to what
+ * is actually shown (`StudioNoDataOverlay`), rather than an opaque wrapper, which is what both
+ * the tests and a reader of a React tree want to see.
+ */
+function renderEmptyChart(height: number, isLoading: boolean): React.ReactElement {
+  if (isLoading) {
+    return (
+      <Box
+        role="status"
+        aria-busy
+        sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height }}
+      />
+    );
+  }
+  return <StudioNoDataOverlay height={height} />;
 }
 
 // ── bar / bar-stacked / bar-100 ───────────────────────────────────────────────
@@ -227,7 +275,7 @@ function renderBar(ctx: ChartRenderContext<'bar' | 'bar-stacked' | 'bar-100'>): 
   // above its shared empty-`chartData` guard (multi-Y), one below it (seriesField/single-series).
   const hasMultiY = !!multiYData && multiYData.labels.length > 0;
   // The cross-filtered `chartData` can be legitimately empty while a ghost (the widget's
-  // own un-cross-filtered `allChartData`) is available — bailing to `EmptyChartBox`
+  // own un-cross-filtered `allChartData`) is available — bailing to `renderEmptyChart`
   // unconditionally here defeats the orchestrator's ghost-rendering guard in
   // `StudioChartWidget`, which already threads `allChartData` down for exactly this case.
   // Mirrors `StudioBarChart`'s own single-series ghost gate (`shouldShowGhost &&
@@ -240,7 +288,7 @@ function renderBar(ctx: ChartRenderContext<'bar' | 'bar-stacked' | 'bar-100'>): 
     ctx.preserveXFieldBaseline;
 
   if (!hasMultiY && !hasGhostData && (!chartData || chartData.labels.length === 0)) {
-    return <EmptyChartBox height={chartHeight} />;
+    return renderEmptyChart(chartHeight, ctx.isLoading);
   }
 
   return (
@@ -294,7 +342,7 @@ function renderPieDonut(ctx: ChartRenderContext<'pie' | 'donut'>): React.ReactEl
   const chartType = config.chartType;
 
   // The cross-filtered `chartData` can be legitimately empty while a ghost (the widget's
-  // own un-cross-filtered `allChartData`) is available — bailing to `EmptyChartBox`
+  // own un-cross-filtered `allChartData`) is available — bailing to `renderEmptyChart`
   // unconditionally here defeats the orchestrator's ghost-rendering guard in
   // `StudioChartWidget`, which already threads `allChartData` down for exactly this case.
   // Mirrors `StudioPieChart`'s own `isPieHighlightActive` gate (`shouldShowGhost &&
@@ -307,7 +355,7 @@ function renderPieDonut(ctx: ChartRenderContext<'pie' | 'donut'>): React.ReactEl
     ctx.preserveXFieldBaseline;
 
   if (!hasGhostData && (!chartData || chartData.labels.length === 0)) {
-    return <EmptyChartBox height={chartHeight} />;
+    return renderEmptyChart(chartHeight, ctx.isLoading);
   }
 
   const pieYFieldDef = resolveFieldDef(ctx.activeYFields[0], ctx.dataSource, ctx.expressionFields);
@@ -376,10 +424,10 @@ function renderLineArea(
   // instead), so a multi-measure line/area chart must be reachable even when `chartData` is
   // null/empty — this check therefore runs BEFORE (and independently of) the chartData-emptiness
   // check below, mirroring `renderBar`. `StudioLineAreaChart` has a complete multi-Y render path
-  // that was dead code while this guard fell straight through to `EmptyChartBox` (finding 1.8).
+  // that was dead code while this guard fell straight through to `renderEmptyChart` (finding 1.8).
   const hasMultiY = !!multiYData && multiYData.labels.length > 0;
   // The cross-filtered `chartData` can be legitimately empty while a ghost (the widget's
-  // own un-cross-filtered `allChartData`) is available — bailing to `EmptyChartBox`
+  // own un-cross-filtered `allChartData`) is available — bailing to `renderEmptyChart`
   // unconditionally here defeats the orchestrator's ghost-rendering guard in
   // `StudioChartWidget`, which already threads `allChartData` down for exactly this case.
   // Mirrors `StudioLineAreaChart`'s own single-series `ghostLineValues` gate
@@ -392,7 +440,7 @@ function renderLineArea(
     ctx.preserveXFieldBaseline;
 
   if (!hasMultiY && !hasGhostData && (!chartData || chartData.labels.length === 0)) {
-    return <EmptyChartBox height={chartHeight} />;
+    return renderEmptyChart(chartHeight, ctx.isLoading);
   }
 
   return (
@@ -480,6 +528,12 @@ function renderMixed(ctx: ChartRenderContext<'mixed'>): React.ReactElement {
   const { multiYData, chartHeight, config } = ctx;
 
   if (!multiYData || multiYData.labels.length === 0) {
+    // An in-flight fetch is not a misconfiguration. This was the only empty-data branch in the
+    // file that blamed the AUTHOR, so a correctly-configured mixed chart on a slow adapter
+    // told the user its fields were missing until the rows landed (finding M4 sweep).
+    if (ctx.isLoading) {
+      return renderEmptyChart(chartHeight, true);
+    }
     return (
       <ChartHintBox height={chartHeight}>
         {ctx.localeText.chartMixedRequiresFieldsHint}
@@ -660,7 +714,7 @@ function renderFunnel(ctx: ChartRenderContext<'funnel'>): React.ReactElement {
     );
 
     if (reached.stages.length === 0) {
-      return <StudioNoDataOverlay height={chartHeight} />;
+      return renderEmptyChart(chartHeight, ctx.isLoading);
     }
 
     return (
@@ -711,7 +765,7 @@ function renderFunnel(ctx: ChartRenderContext<'funnel'>): React.ReactElement {
   // `renderSankey` below. `StudioFunnelChart` also bails on an empty stage list, but it
   // returns `null`, which renders a silently blank widget body with no explanation.
   if (stages.length === 0) {
-    return <StudioNoDataOverlay height={chartHeight} />;
+    return renderEmptyChart(chartHeight, ctx.isLoading);
   }
 
   return (
@@ -758,7 +812,7 @@ function renderSankey(ctx: ChartRenderContext<'sankey'>): React.ReactElement {
     () => aggregateSankey(enrichedRows, sankeySourceField, sankeyTargetField, sankeyValueField),
   );
   if (sankeyData.links.length === 0) {
-    return <StudioNoDataOverlay height={chartHeight} />;
+    return renderEmptyChart(chartHeight, ctx.isLoading);
   }
 
   return (
@@ -803,7 +857,7 @@ function renderGantt(ctx: ChartRenderContext<'gantt'>): React.ReactElement {
   // `StudioGanttChart` also bails on an empty item list, but it returns `null`, which
   // renders a silently blank widget body with no explanation.
   if (items.length === 0) {
-    return <StudioNoDataOverlay height={chartHeight} />;
+    return renderEmptyChart(chartHeight, ctx.isLoading);
   }
 
   return <StudioGanttChart items={items} height={chartHeight} categories={categories} />;
@@ -830,6 +884,23 @@ function renderGauge(ctx: ChartRenderContext<'gauge'>): React.ReactElement {
     );
   }
 
+  // A gauge over zero rows must not fabricate a reading. `computeAggregate` returns `0` — not
+  // `null` — for `sum`/`count` over an empty set, so the `gaugeValue === null` bail below never
+  // fired for those two: the needle sat at the minimum with a confidently formatted `0` in the
+  // centre, a real and wrong number. This is the only chart type in this file that could do
+  // that; every sibling family bails to `renderEmptyChart`, a hint, or the no-data overlay. It was
+  // worst on an adapter-backed source, where the `0` was on screen through the entire cold
+  // fetch while a bar chart in the identical state rendered blank.
+  //
+  // Guarded HERE rather than by flipping the registry's `runsNoDataGuard` to `true`, so the
+  // "configure gauge" hint above still wins for an unconfigured gauge — the shared guard runs
+  // before `render` and would otherwise claim "No data" about a gauge that has no measure to
+  // measure. `renderEmptyChart` resolves the loading/settled distinction: an unanswered query is
+  // not "No data" either.
+  if (enrichedRows.length === 0) {
+    return renderEmptyChart(chartHeight, ctx.isLoading);
+  }
+
   const gaugeAggregation = config.yField
     ? (config.yAggregation ?? 'sum')
     : (gaugeYSeries?.[0]?.yAggregation ?? config.yAggregation ?? 'sum');
@@ -843,7 +914,7 @@ function renderGauge(ctx: ChartRenderContext<'gauge'>): React.ReactElement {
   // it as `0` would point the needle at the bottom of the range as if that were measured —
   // the same fabrication the aggregation layer was fixed to stop. Show "no data" instead.
   if (gaugeValue === null) {
-    return <StudioNoDataOverlay height={chartHeight} />;
+    return renderEmptyChart(chartHeight, ctx.isLoading);
   }
 
   // The arc's centre number is the gauge's whole payload, so it must carry the measure's own
@@ -991,6 +1062,10 @@ export const CHART_TYPE_DEFS = {
     // `analyzeChartSupport` short-circuits to `supported: true` when no fields are requested,
     // so a gauge with no measure at all still reaches `renderGauge`'s own "configure" hint.
     runsSupportGuard: true,
+    // Still `false`, but no longer a hole: `renderGauge` runs its OWN zero-row guard after its
+    // "configure gauge" hint (see there). Keeping the shared guard off preserves the ordering
+    // — an unconfigured gauge is told to configure itself rather than being told "No data" —
+    // while the renderer covers the emptiness case the shared guard would have covered.
     runsNoDataGuard: false,
     render: renderGauge,
   },

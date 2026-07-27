@@ -329,16 +329,18 @@ export function alignFilteredToAllLabels(
  * Wraps a base valueFormatter to show "filtered / total" when a cross-filter is active.
  * @param {((number | null)[]} filteredValues - Array of filtered values aligned to bar chart label indices.
  * @param {(arg: number | null) => string} baseFormatter - The chart series' original value formatter.
- * @param {string} filteredOutLabel - Localized suffix shown for a fully-filtered-out value
- *   (`StudioLocaleText.chartCrossFilterFilteredOutLabel`, finding 2.13). Defaults to the
- *   English literal so existing callers that haven't threaded locale text through yet keep
- *   compiling, but every in-repo call site should pass the localized value.
+ * @param {string} filteredOutLabel - REQUIRED localized suffix shown for a fully-filtered-out
+ *   value (`StudioLocaleText.chartCrossFilterFilteredOutLabel`, finding 2.13). It used to
+ *   default to the English literal, which meant a call site that forgot it emitted
+ *   `"1 234 (filtered out)"` inside an otherwise fully localized tooltip — mixed-language
+ *   output with nothing to flag it, and no compile error to catch the next such call site
+ *   (finding M21).
  * @returns {(v: number | null, ctx: { dataIndex: number }) => string} A composite formatter showing "filtered / total" for cross-filtered data.
  */
 export function makeCrossFilterValueFormatter(
   filteredValues: (number | null)[],
   baseFormatter: (arg: number | null) => string,
-  filteredOutLabel: string = 'filtered out',
+  filteredOutLabel: string,
 ): (value: number | null, context: { dataIndex: number }) => string {
   return (value, { dataIndex }) => {
     const fv = filteredValues[dataIndex];
@@ -357,14 +359,14 @@ export function makeCrossFilterValueFormatter(
  * to show "filtered / baseline" when a cross-highlight ghost series is active.
  * @param {(number | null)[]} baselineValues - Array of baseline (all-data) values aligned to the x-axis.
  * @param {(arg: number | null) => string} baseFormatter - The chart series' original value formatter.
- * @param {string} filteredOutLabel - Localized suffix shown for a fully-filtered-out value
- *   (`StudioLocaleText.chartCrossFilterFilteredOutLabel`, finding 2.13). Defaults to the
- *   English literal for the same back-compat reason as `makeCrossFilterValueFormatter`.
+ * @param {string} filteredOutLabel - REQUIRED localized suffix shown for a fully-filtered-out
+ *   value (`StudioLocaleText.chartCrossFilterFilteredOutLabel`, finding 2.13). Required for the
+ *   same mixed-language reason as `makeCrossFilterValueFormatter` above.
  */
 export function makeCrossHighlightLineFormatter(
   baselineValues: (number | null)[],
   baseFormatter: (arg: number | null) => string,
-  filteredOutLabel: string = 'filtered out',
+  filteredOutLabel: string,
 ): (value: number | null, context: { dataIndex: number }) => string {
   return (value, { dataIndex }) => {
     const baseline = baselineValues[dataIndex] ?? null;

@@ -55,6 +55,7 @@ import { normalizeJoinKey } from '../../../internals/joinKeys';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
 import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
 import { crossFilterValueEquals } from '../StudioChartWidget/chartWidgetHelpers';
+import { setGridViewSortModel, clearGridViewSortModel } from './gridViewSortRegistry';
 
 /** Maps our model's aggregation names to DataGridPremium built-in function names. */
 function toGridAggFn(fn: string): string {
@@ -437,10 +438,21 @@ export function evalConditionalFormat(rule: StudioConditionalFormat, cellValue: 
       // every row). Mirrors `filterUtils.ts`'s boolean-as-string branch
       // (`compileSingleCondition`'s `fieldType === 'boolean'` case): coerce a boolean
       // cellValue to its string form before comparing against the string-committed value.
+      // An empty cell is matched only by `is_empty`, never by `equals`/`not_equals` — the
+      // same rule the numeric comparisons below already enforce. Without this, the loose
+      // comparison below made `equals ""` true for a cell holding `0` (`0 == ''`), and
+      // `equals 0` true for a cell holding `''`, so a rule meant to flag blanks highlighted
+      // every genuine zero in the column.
+      if (cellValue === null || cellValue === undefined || cellValue === '') {
+        return operator === 'not_equals';
+      }
       const isMatch =
         typeof cellValue === 'boolean'
           ? String(cellValue) === String(value)
-          : // eslint-disable-next-line eqeqeq
+          : // Loose by design: a rule value committed as a string ("5") must still match a
+            // numeric cell (`5`). The empty-cell cases that made `==` unsafe are excluded
+            // above, so the remaining coercions are the intended ones.
+            // eslint-disable-next-line eqeqeq
             cellValue == value;
       return operator === 'equals' ? isMatch : !isMatch;
     }
@@ -848,6 +860,20 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
 
   const sortModel = mode === 'edit' ? configSortModel : (viewSortModel ?? configSortModel);
 
+  // Publish the view-mode sort so the CSV export — dispatched a level up in
+  // `StudioWidgetCard`, which cannot see this component's local state — orders the file the
+  // way the viewer is looking at the grid (see `gridViewSortRegistry`). Only view mode needs
+  // this: an edit-mode sort is committed to `gridSortField`/`gridSortDirection` below, which
+  // the export reads straight off the doc. The cleanup runs on unmount AND whenever the grid
+  // leaves view mode, so a stale viewer sort can never be applied to a later export.
+  React.useEffect(() => {
+    if (mode === 'edit') {
+      return undefined;
+    }
+    setGridViewSortModel(widget.id, sortModel);
+    return () => clearGridViewSortModel(widget.id);
+  }, [mode, widget.id, sortModel]);
+
   // Both directions of the controlled `sortModel` must work: a controlled model with no
   // `onSortModelChange` makes DataGridPremium ignore header clicks entirely, so headers
   // look clickable but do nothing. Where the resulting sort is STORED depends on mode:
@@ -945,7 +971,10 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       }
       if (!result.ok) {
         throw toEnrichedMutationError(
-          new Error(result.error ?? 'Mutation failed'),
+          // `result.error` is the adapter's own (already host-authored) message; the fallback
+          // must come from locale text, not a hardcoded English literal — it is rendered
+          // verbatim in the Alert above the grid.
+          new Error(result.error ?? localeText.gridMutationError),
           rowId,
           changedField,
         );
@@ -1255,6 +1284,19 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         }}
         sortModel={sortModel}
         onSortModelChange={handleSortModelChange}
+        // Edit mode stores the sort in `gridSortField` / `gridSortDirection` — two scalar
+        // config keys that can express exactly ONE sorted column, so `handleSortModelChange`
+        // keeps only `model[0]`. The Data Grid's shift-click multi-sort was still enabled
+        // though, so an author shift-clicking a second header saw absolutely nothing happen
+        // while the identical gesture worked in view mode (finding M18). Turn the gesture off
+        // where the model cannot hold it, so the UI and the storage agree instead of failing
+        // silently. View mode keeps multi-sort: `viewSortModel` holds the full model.
+        //
+        // The alternative — a `gridSortModel` array on the config — is a schema change
+        // spanning `x-studio-schema`, `configKeyValidation`, `chartTypeRegistry`'s field
+        // collection, `GridSetupPanel` and the AI middleware's config metadata; it is the
+        // right long-term fix and is reported as a follow-up rather than done here.
+        disableMultipleColumnsSorting={mode === 'edit'}
         // Use controlled layout mode so the pinned summary row uses `position: absolute`
         // rather than `position: sticky`. At very large row counts (~470k+), the total
         // content height can exceed CSS height limits in some browsers, causing sticky

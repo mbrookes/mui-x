@@ -413,4 +413,51 @@ describe('StudioWidgetCard', () => {
     renderUntitled(widget({ kind: 'constructor', title: '', config: {} as StudioWidgetConfig }));
     expect(screen.getByText('Constructor')).not.toBe(null);
   });
+
+  // M23: the visible title had the full fallback chain above, but the card root's
+  // `aria-label` interpolated a bare `widget.title ?? ''`. Every untitled widget on a page
+  // therefore announced as the identical "Widget:, group" while sighted users read "KPI",
+  // "Table", "Revenue by region" — the accessible name distinguished nothing.
+  describe('accessible name for an untitled widget (M23)', () => {
+    // Scoped by `data-widget-id` rather than `getByRole('group')`: one of the cases below
+    // renders two cards to compare their names, and the renderer shares one document.
+    function untitledCardLabel(w: StudioWidget) {
+      renderUntitled(w);
+      return document.querySelector(`[data-widget-id="${w.id}"]`)?.getAttribute('aria-label');
+    }
+
+    it('names the card with the localized kind label rather than an empty string', () => {
+      expect(
+        untitledCardLabel(widget({ kind: 'kpi', title: '', config: {} as StudioWidgetConfig })),
+      ).toBe('Widget: KPI');
+    });
+
+    it('gives two untitled widgets of different kinds distinguishable names', () => {
+      const kpiLabel = untitledCardLabel(
+        widget({ id: 'w-kpi', kind: 'kpi', title: '', config: {} as StudioWidgetConfig }),
+      );
+      const gridLabel = untitledCardLabel(
+        widget({ id: 'w-grid', kind: 'grid', title: '', config: {} as StudioWidgetConfig }),
+      );
+      expect(kpiLabel).not.toBe(gridLabel);
+    });
+
+    it('matches the visible title exactly', () => {
+      const w = widget({
+        id: 'w-visible',
+        kind: 'grid',
+        title: '',
+        config: {} as StudioWidgetConfig,
+      });
+      renderUntitled(w);
+      const visibleTitle = screen.getByText('Table').textContent;
+      expect(document.querySelector(`[data-widget-id="${w.id}"]`)?.getAttribute('aria-label')).toBe(
+        `Widget: ${visibleTitle}`,
+      );
+    });
+
+    it('still uses the authored title when there is one', () => {
+      expect(untitledCardLabel(widget({ kind: 'kpi', title: 'Revenue' }))).toBe('Widget: Revenue');
+    });
+  });
 });

@@ -472,6 +472,24 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const exportLabel =
     exportKind === 'png' ? localeText.widgetExportPngTooltip : localeText.widgetExportCsvTooltip;
 
+  // The card's visible title and its accessible name must be the SAME string. The heading
+  // below has always had a full fallback chain, but the Paper's `aria-label` interpolated a
+  // bare `widget.title ?? ''` — so every untitled widget on a page announced as an identical
+  // "Widget:, group" while sighted users read "KPI", "Chart", "Revenue by region" (finding
+  // M23). Resolved once, here, and consumed by both.
+  //
+  // `||` (not `??`) throughout: an empty-string title is "untitled", not "titled with nothing".
+  // `Object.hasOwn` guards `widgetKindLabels` because `widget.kind` is doc-authored (persisted
+  // doc / AI `update_widget` / a `customWidgets` registration string) and a bare bracket lookup
+  // would resolve an inherited `Object.prototype` member as a truthy non-string. `def.label` is
+  // the registration's own display name and covers CUSTOM kinds, which have no locale entry;
+  // the capitalized raw kind is the last resort for a kind with no registration at all.
+  const resolvedWidgetTitle =
+    widget.title ||
+    (Object.hasOwn(widgetKindLabels, widget.kind) ? widgetKindLabels[widget.kind] : undefined) ||
+    def?.label ||
+    widget.kind.charAt(0).toUpperCase() + widget.kind.slice(1);
+
   // Overhang: center the overlay on the top edge of the card. Constrained to sit
   // inside the card for top-row widgets (where there's no room above to overhang).
   const overlayTopSx = isFirstRow ? { top: 6 } : { top: 0, transform: 'translateY(-50%)' };
@@ -555,7 +573,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         }}
         role="group"
         aria-current={isActive ? true : undefined}
-        aria-label={localeText.filtersSectionWidgetTitle(widget.title ?? '')}
+        aria-label={localeText.filtersSectionWidgetTitle(resolvedWidgetTitle)}
         data-widget-card
         data-widget-id={widgetId}
         tabIndex={0}
@@ -716,20 +734,8 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                       }),
                     }}
                   >
-                    {widget.title ||
-                      // `widget.kind` is doc-authored (persisted doc / AI `update_widget` / a
-                      // `customWidgets` registration string): guard against inherited
-                      // `Object.prototype` keys ("toString"/"constructor"/…) so a bare bracket
-                      // lookup can't resolve a function off the prototype chain instead of falling
-                      // through to the capitalized-kind fallback below. The header now sits inside
-                      // its own `StudioWidgetErrorBoundary` (it used to render outside every
-                      // boundary, which wrapped only `def.component`), but the guard stays: a
-                      // contained fallback is still a broken header, and the correct behavior is
-                      // to fall through to the capitalized kind.
-                      (Object.hasOwn(widgetKindLabels, widget.kind)
-                        ? widgetKindLabels[widget.kind]
-                        : undefined) ||
-                      widget.kind.charAt(0).toUpperCase() + widget.kind.slice(1)}
+                    {/* Same string the Paper's `aria-label` uses — see `resolvedWidgetTitle`. */}
+                    {resolvedWidgetTitle}
                   </Typography>
                   {activeRankFilter && (
                     <Chip

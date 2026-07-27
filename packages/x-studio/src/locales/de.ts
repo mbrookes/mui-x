@@ -63,6 +63,8 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   widgetExportPngTooltip: 'Download als PNG',
   widgetExportNoDataMessage:
     'Es sind noch keine Daten zum Exportieren verfügbar. Öffnen Sie das Raster, damit es Daten vom Server laden kann, und versuchen Sie den Export erneut.',
+  widgetExportUnavailableMessage:
+    'Dieses Widget kann nichts exportieren. Schließen Sie die Konfiguration ab – eine Tabelle benötigt eine Datenquelle, eine Pivot-Tabelle Zeilen, Spalten und Werte – und versuchen Sie es dann erneut.',
   widgetExpandTooltip: 'Widget erweitern',
   widgetMoveToPageLabel: 'Auf Seite verschieben',
   widgetDuplicateTooltip: 'Widget duplizieren',
@@ -879,6 +881,8 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   chartGanttRequiresFieldsHint:
     'Das Gantt-Diagramm erfordert ein Beschriftungsfeld sowie Felder für Start- und Enddatum.',
   chartGanttDurationLabel: 'Dauer:',
+  chartGanttDurationDays: (days) => `${days} T`,
+  chartGanttDurationHours: (hours) => `${hours} Std.`,
   chartCrossFilterFilteredOutLabel: 'gefiltert',
 
   // Map widget
@@ -1206,8 +1210,11 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   // Chart / KPI / map text alternatives
   ganttChartAriaLabel: (itemCount, from, to, details) =>
     `Gantt-Diagramm mit ${itemCount} ${itemCount === 1 ? 'Element' : 'Elementen'} von ${from} bis ${to}. ${details}.`,
+  ganttItemAriaLabel: (label, from, to, duration) => `${label}: ${from} bis ${to} (${duration})`,
+  sankeyLinkAriaLabel: (source, target, value) => `${source} bis ${target}: ${value}`,
   sankeyChartAriaLabel: (nodeCount, linkCount, details) =>
     `Sankey-Flussdiagramm mit ${nodeCount} ${nodeCount === 1 ? 'Knoten' : 'Knoten'} und ${linkCount} ${linkCount === 1 ? 'Verbindung' : 'Verbindungen'}. ${details}.`,
+  mapRegionAriaLabel: (region, valueLabel, value) => `${region}: ${valueLabel} ${value}`,
   kpiGaugeAriaLabel: (value, max, percent) => `Anzeige: ${value} von ${max} (${percent} %).`,
   kpiSparklineAriaLabel: (pointCount, trend, from, to) => {
     let trendText = 'unverändert';

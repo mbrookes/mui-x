@@ -94,6 +94,14 @@ export interface StudioLocaleText {
    * an adapter data source hasn't fetched (or had its cache invalidated) at export time.
    */
   widgetExportNoDataMessage: string;
+  /**
+   * Message written into the downloaded CSV in place of data when the export button was
+   * offered (it is gated on the widget KIND's declared capability) but the widget cannot
+   * actually produce a file — an unconfigured grid with no data source, or a pivot/custom
+   * widget that has not registered an `exportRef` handler yet. Previously both cases returned
+   * silently, which is indistinguishable from a failed download.
+   */
+  widgetExportUnavailableMessage: string;
   widgetExpandTooltip: string;
   widgetMoveToPageLabel: string;
   widgetDuplicateTooltip: string;
@@ -1014,6 +1022,14 @@ export interface StudioLocaleText {
   /** Label preceding the duration value in a gantt bar's hover tooltip, e.g. "Duration:" */
   chartGanttDurationLabel: string;
   /**
+   * A gantt bar's duration in whole days, e.g. "62d". Rendered directly after
+   * `chartGanttDurationLabel` in the tooltip and inside `ganttItemAriaLabel`, so a hardcoded
+   * suffix produced a translated caption with an English unit welded onto it.
+   */
+  chartGanttDurationDays: (days: number) => string;
+  /** A gantt bar's duration in whole hours (durations under a day), e.g. "3h". */
+  chartGanttDurationHours: (hours: number) => string;
+  /**
    * Suffix appended to a cross-filtered-out chart tooltip value, e.g. "1,200 (filtered out)".
    * Shared by the bar and line/area cross-filter tooltip formatters.
    */
@@ -1347,8 +1363,25 @@ export interface StudioLocaleText {
   canvasEmptyViewModeHint: string;
   /** Text alternative for the gantt chart */
   ganttChartAriaLabel: (itemCount: number, from: string, to: string, details: string) => string;
+  /**
+   * One gantt item inside `ganttChartAriaLabel`'s `details`. Localized separately because it is
+   * interpolated INTO an already-localized sentence — a hardcoded `" to "` joiner made every
+   * translated announcement mixed-language.
+   */
+  ganttItemAriaLabel: (label: string, from: string, to: string, duration: string) => string;
   /** Text alternative for the sankey diagram */
   sankeyChartAriaLabel: (nodeCount: number, linkCount: number, details: string) => string;
+  /**
+   * One sankey link inside `sankeyChartAriaLabel`'s `details`. Localized separately for the
+   * same reason as `ganttItemAriaLabel`.
+   */
+  sankeyLinkAriaLabel: (source: string, target: string, value: string) => string;
+  /**
+   * Accessible name for one region shape on the choropleth map: the region's display name, the
+   * measure's label, and its formatted value. Without the value the shapes announced only the
+   * geography, which is the one thing a choropleth is NOT about.
+   */
+  mapRegionAriaLabel: (region: string, valueLabel: string, value: string) => string;
   /** Text alternative for the KPI gauge */
   kpiGaugeAriaLabel: (value: string, max: string, percent: number) => string;
   /** Text alternative for the KPI sparkline */
@@ -1441,6 +1474,8 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   widgetExportPngTooltip: 'Download as PNG',
   widgetExportNoDataMessage:
     'No data available to export yet. Open the grid so it can load data from the server, then try exporting again.',
+  widgetExportUnavailableMessage:
+    'This widget has nothing to export. Finish configuring it — a grid needs a data source, and a pivot needs its rows, columns and values — then try exporting again.',
   widgetExpandTooltip: 'Expand widget',
   widgetMoveToPageLabel: 'Move to page',
   widgetDuplicateTooltip: 'Duplicate widget',
@@ -2279,6 +2314,8 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chartGanttRequiresFieldsHint:
     'Gantt chart requires a label field, start date field, and end date field.',
   chartGanttDurationLabel: 'Duration:',
+  chartGanttDurationDays: (days) => `${days}d`,
+  chartGanttDurationHours: (hours) => `${hours}h`,
   chartCrossFilterFilteredOutLabel: 'filtered out',
 
   // Map widget
@@ -2508,10 +2545,13 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
     `Gantt chart with ${itemCount} ${
       itemCount === 1 ? 'item' : 'items'
     } from ${from} to ${to}. ${details}.`,
+  ganttItemAriaLabel: (label, from, to, duration) => `${label}: ${from} to ${to} (${duration})`,
+  sankeyLinkAriaLabel: (source, target, value) => `${source} to ${target}: ${value}`,
   sankeyChartAriaLabel: (nodeCount, linkCount, details) =>
     `Sankey flow diagram with ${nodeCount} ${nodeCount === 1 ? 'node' : 'nodes'} and ${linkCount} ${
       linkCount === 1 ? 'link' : 'links'
     }. ${details}.`,
+  mapRegionAriaLabel: (region, valueLabel, value) => `${region}: ${valueLabel} ${value}`,
   kpiGaugeAriaLabel: (value, max, percent) => `Gauge: ${value} of ${max} (${percent}%).`,
   kpiSparklineAriaLabel: (pointCount, trend, from, to) => {
     let trendText = 'flat';

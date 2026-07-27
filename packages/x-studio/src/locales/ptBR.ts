@@ -59,6 +59,8 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   widgetExportPngTooltip: 'Baixar como PNG',
   widgetExportNoDataMessage:
     'Ainda não há dados disponíveis para exportar. Abra a grade para que ela possa carregar dados do servidor e tente exportar novamente.',
+  widgetExportUnavailableMessage:
+    'Este widget não tem nada para exportar. Termine de configurá-lo — uma tabela precisa de uma fonte de dados e uma tabela dinâmica precisa de linhas, colunas e valores — e tente exportar novamente.',
   widgetExpandTooltip: 'Expandir widget',
   widgetMoveToPageLabel: 'Mover para página',
   widgetDuplicateTooltip: 'Duplicar widget',
@@ -869,6 +871,8 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   chartGanttRequiresFieldsHint:
     'O gráfico de Gantt requer um campo de rótulo, um campo de data de início e um de data de término.',
   chartGanttDurationLabel: 'Duração:',
+  chartGanttDurationDays: (days) => `${days} d`,
+  chartGanttDurationHours: (hours) => `${hours} h`,
   chartCrossFilterFilteredOutLabel: 'filtrado',
 
   // Map widget
@@ -1196,8 +1200,11 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   // Chart / KPI / map text alternatives
   ganttChartAriaLabel: (itemCount, from, to, details) =>
     `Gráfico de Gantt com ${itemCount} ${itemCount === 1 ? 'item' : 'itens'} de ${from} até ${to}. ${details}.`,
+  ganttItemAriaLabel: (label, from, to, duration) => `${label}: de ${from} até ${to} (${duration})`,
+  sankeyLinkAriaLabel: (source, target, value) => `${source} para ${target}: ${value}`,
   sankeyChartAriaLabel: (nodeCount, linkCount, details) =>
     `Diagrama de fluxo Sankey com ${nodeCount} ${nodeCount === 1 ? 'nó' : 'nós'} e ${linkCount} ${linkCount === 1 ? 'link' : 'links'}. ${details}.`,
+  mapRegionAriaLabel: (region, valueLabel, value) => `${region}: ${valueLabel} ${value}`,
   kpiGaugeAriaLabel: (value, max, percent) => `Medidor: ${value} de ${max} (${percent}%).`,
   kpiSparklineAriaLabel: (pointCount, trend, from, to) => {
     let trendText = 'estável';

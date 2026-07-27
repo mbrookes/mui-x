@@ -1,7 +1,10 @@
 'use client';
 import * as React from 'react';
 import { Box, Tooltip, Typography, useTheme } from '@mui/material';
-import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
+import {
+  useStudioLocaleText,
+  type StudioLocaleText,
+} from '../../../internals/StudioUIConfigContext';
 import type { GanttItem } from '../../../internals/chartShapes/gantt';
 
 // Re-exported for backward compatibility with existing imports of this module.
@@ -57,14 +60,22 @@ function formatDate(ms: number): string {
   });
 }
 
-/** Duration in a human-readable string (days or hours). */
-function formatDuration(ms: number): string {
+/**
+ * Duration in a human-readable string (days or hours).
+ *
+ * The unit suffix comes from locale text, not a `${n}d` / `${n}h` template literal. It is
+ * rendered in two places that are otherwise fully localized — the item tooltip, directly after
+ * `localeText.chartGanttDurationLabel`, and the chart's `aria-label` — so a hardcoded suffix
+ * produced strings like `"Durée : 62d"`: a translated caption with an English unit welded onto
+ * it, in the one place a user cannot work around it (finding M21).
+ */
+function formatDuration(ms: number, localeText: StudioLocaleText): string {
   const days = Math.round(ms / 86_400_000);
   if (days >= 1) {
-    return `${days}d`;
+    return localeText.chartGanttDurationDays(days);
   }
   const hours = Math.round(ms / 3_600_000);
-  return `${hours}h`;
+  return localeText.chartGanttDurationHours(hours);
 }
 
 /** Returns evenly spaced axis tick timestamps between minMs and maxMs. */
@@ -174,11 +185,16 @@ export function StudioGanttChart({
   const describedCount = items.length - describedItems.length;
   const ariaLabelDetails =
     describedItems
-      .map(
-        (it) =>
-          `${it.label}: ${formatDate(it.startMs)} to ${formatDate(it.endMs)} (${formatDuration(
-            it.endMs - it.startMs,
-          )})`,
+      .map((it) =>
+        // Per-item detail goes through locale text too: this string is interpolated INTO the
+        // localized `ganttChartAriaLabel`, so a literal `" to "` here meant every translation
+        // announced a French/German/Spanish sentence containing English joiners (finding M21).
+        localeText.ganttItemAriaLabel(
+          it.label,
+          formatDate(it.startMs),
+          formatDate(it.endMs),
+          formatDuration(it.endMs - it.startMs, localeText),
+        ),
       )
       .join('; ') +
     (describedCount > 0 ? `; ${localeText.filterSummaryAndMore(describedCount)}` : '');
@@ -270,7 +286,7 @@ export function StudioGanttChart({
                 {formatDate(item.startMs)} → {formatDate(item.endMs)}
               </Typography>
               <Typography variant="caption" sx={{ display: 'block' }}>
-                {localeText.chartGanttDurationLabel} {formatDuration(durationMs)}
+                {localeText.chartGanttDurationLabel} {formatDuration(durationMs, localeText)}
               </Typography>
               {item.colorCategory && (
                 <Typography variant="caption" sx={{ display: 'block' }}>

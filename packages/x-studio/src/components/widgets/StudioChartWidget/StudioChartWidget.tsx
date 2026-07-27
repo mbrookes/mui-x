@@ -761,6 +761,11 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   if (!dataSource || (chartTypeDef.needsXField && !config.xField)) {
     return (
       <Box
+        // `role="status"` (implicit polite live region), matching `StudioNoDataOverlay` and
+        // `StudioWidgetErrorOverlay`. This message replaces the chart in response to a config
+        // edit, so without it a screen-reader user who cleared the x field heard nothing while
+        // a sighted user saw the hint appear.
+        role="status"
         sx={{
           display: 'flex',
           alignItems: 'center',
@@ -790,6 +795,10 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     }
     return (
       <Box
+        // Announced for the same reason as the "configure chart" hint above: an unsupported
+        // field combination is reached by editing the chart, and the explanation of WHY the
+        // chart vanished must reach a screen-reader user too.
+        role="status"
         sx={{
           display: 'flex',
           alignItems: 'center',
@@ -879,6 +888,11 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     onItemClick: handleItemClick,
     annotationChildren,
     chartAriaTitle,
+    // Threaded to the renderers so a family that owns its own empty-result branch can tell an
+    // in-flight fetch apart from a settled empty result (finding M4). Without it, the gauge
+    // fabricated a `0`, the mixed chart blamed the author for missing fields, and
+    // funnel/sankey/gantt asserted "No data" — all mid-fetch.
+    isLoading,
   };
 
   // ONE documented cast: `chartTypeDef` is a dynamically-indexed lookup

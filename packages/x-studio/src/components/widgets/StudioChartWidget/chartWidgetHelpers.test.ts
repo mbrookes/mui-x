@@ -526,11 +526,6 @@ describe('makeCrossFilterValueFormatter', () => {
     expect(formatter(100, { dataIndex: 0 })).toBe('$100 (filtré)');
   });
 
-  it('falls back to the English literal when no label is provided', () => {
-    const formatter = makeCrossFilterValueFormatter([null], baseFormatter);
-    expect(formatter(100, { dataIndex: 0 })).toBe('$100 (filtered out)');
-  });
-
   it('shows "filtered / total" when the filtered value differs from the total', () => {
     const formatter = makeCrossFilterValueFormatter([40], baseFormatter, 'filtré');
     expect(formatter(100, { dataIndex: 0 })).toBe('$40 / $100');
@@ -548,11 +543,6 @@ describe('makeCrossHighlightLineFormatter', () => {
   it('uses the provided localized label when the point is filtered out (value is null)', () => {
     const formatter = makeCrossHighlightLineFormatter([100], baseFormatter, 'filtré');
     expect(formatter(null, { dataIndex: 0 })).toBe('$100 (filtré)');
-  });
-
-  it('falls back to the English literal when no label is provided', () => {
-    const formatter = makeCrossHighlightLineFormatter([100], baseFormatter);
-    expect(formatter(null, { dataIndex: 0 })).toBe('$100 (filtered out)');
   });
 
   it('shows "value / baseline" when the point differs from the baseline', () => {

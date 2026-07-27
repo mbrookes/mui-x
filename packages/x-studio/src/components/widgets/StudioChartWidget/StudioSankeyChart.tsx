@@ -45,7 +45,12 @@ export function StudioSankeyChart({
   const describedLinks = data.links.slice(0, ARIA_LABEL_MAX_LINKS);
   const describedCount = data.links.length - describedLinks.length;
   const ariaLabelDetails =
-    describedLinks.map((l) => `${l.source} to ${l.target}: ${formatter(l.value)}`).join('; ') +
+    describedLinks
+      // Interpolated INTO the localized `sankeyChartAriaLabel`, so the per-link detail has to
+      // be localized as well — a literal `" to "` made every translated announcement a
+      // mixed-language sentence ("Paris to Lyon : 1 234") (finding M21).
+      .map((l) => localeText.sankeyLinkAriaLabel(l.source, l.target, formatter(l.value)))
+      .join('; ') +
     (describedCount > 0 ? `; ${localeText.filterSummaryAndMore(describedCount)}` : '');
   const ariaLabel = localeText.sankeyChartAriaLabel(
     data.nodes.length,

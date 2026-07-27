@@ -328,7 +328,11 @@ export function useTextWidgetAI(
           } else if (sseEvent.type === 'finish') {
             return false;
           } else if (sseEvent.type === 'error') {
-            throw new Error(String(sseEvent.message ?? 'AI error'));
+            // The thrown message is rendered verbatim to the user (`setError` →
+            // `StudioTextWidget`'s red body text), so the fallback must come from locale
+            // text — the same key already used as the fallback at both catch sites below —
+            // not a hardcoded English literal.
+            throw new Error(String(sseEvent.message ?? localeText.aiTextWidgetGenerationError));
           }
           return undefined;
         });

@@ -38,17 +38,33 @@ function mapPreservingIdentity<T>(array: T[], mapFn: (item: T) => T): T[] {
 }
 
 /**
- * Content equality for a managed date-range `StudioFilterState`. Used by the three
- * date-range setters below to detect a rebuild that produced a filter identical to the one
- * already stored, so they can return the ORIGINAL `doc` reference (identity preservation)
- * instead of allocating a fresh-but-equivalent `filters` array — which would otherwise pass
- * `commitDocPatch`'s reference-equality guard and commit a phantom undoable no-op that clears
- * the redo stack. `value` (`{ from, to }` or `null`) and `scope` are the only structured
- * fields; `JSON.stringify` compares them safely for these fixed-shape managed filters.
+ * Content equality for a controller-managed `StudioFilterState` — one the controller REBUILDS
+ * from scratch on every call rather than patching in place. Used by the three date-range setters
+ * below and by `StudioController.applyCrossFilter` to detect a rebuild that produced a filter
+ * identical to the one already stored, so the caller can return the ORIGINAL `doc` reference
+ * (identity preservation) / bail out entirely, instead of allocating a fresh-but-equivalent
+ * `filters` array — which would otherwise pass `commitDocPatch`'s reference-equality guard and
+ * commit a phantom undoable no-op that clears the redo stack. `value` (`{ from, to }` or `null`)
+ * and `scope` are the only structured fields; `JSON.stringify` compares them safely for these
+ * fixed-shape managed filters.
+ *
+ * `options.ignoreId` skips the `id` comparison. The date-range setters reuse the stored filter's
+ * id, so for them the ids match whenever the content does and comparing it is free extra safety.
+ * `applyCrossFilter` mints a FRESH `createFilterId()` for every emission, so its candidate's id is
+ * guaranteed to differ from the stored one — comparing it there would make every re-apply look
+ * like a change, which is exactly the bug this guard exists to prevent.
+ *
+ * Not a general-purpose deep filter equality: it compares a fixed field list, so a caller whose
+ * filters can carry `disabled` / `value2` / `conjunction` must check those itself (see
+ * `applyCrossFilter`'s `disabled` check).
  */
-function isSameManagedDateRangeFilter(a: StudioFilterState, b: StudioFilterState): boolean {
+export function isSameManagedFilterContent(
+  a: StudioFilterState,
+  b: StudioFilterState,
+  options?: { ignoreId?: boolean },
+): boolean {
   return (
-    a.id === b.id &&
+    (options?.ignoreId === true || a.id === b.id) &&
     a.field === b.field &&
     a.fieldType === b.fieldType &&
     a.filterSourceId === b.filterSourceId &&
@@ -141,7 +157,7 @@ export function setDashboardDateRange(
   if (!newFilter) {
     return existingForPage.length === 0 ? doc : { ...doc, filters: withoutExisting };
   }
-  if (existingForPage.length === 1 && isSameManagedDateRangeFilter(existingForPage[0], newFilter)) {
+  if (existingForPage.length === 1 && isSameManagedFilterContent(existingForPage[0], newFilter)) {
     return doc;
   }
 
@@ -237,7 +253,7 @@ export function setDashboardDateRangeAll(
   // phantom redo-clearing commit.
   if (
     existingForPage.length === newFilters.length &&
-    newFilters.every((nf) => existingForPage.some((ef) => isSameManagedDateRangeFilter(ef, nf)))
+    newFilters.every((nf) => existingForPage.some((ef) => isSameManagedFilterContent(ef, nf)))
   ) {
     return doc;
   }
@@ -287,7 +303,7 @@ export function setWidgetDateRange(
   if (!newFilter) {
     return existing.length === 0 ? doc : { ...doc, filters: withoutExisting };
   }
-  if (existing.length === 1 && isSameManagedDateRangeFilter(existing[0], newFilter)) {
+  if (existing.length === 1 && isSameManagedFilterContent(existing[0], newFilter)) {
     return doc;
   }
 

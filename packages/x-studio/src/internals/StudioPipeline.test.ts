@@ -645,9 +645,11 @@ describe('createStudioPipeline', () => {
       expect(result.map((r) => r.id)).toEqual(['1', '3']);
     });
 
-    it('default call is unchanged (no options → include:all, crossFilterAllPages:false)', () => {
-      // A cross-filter from another page must NOT apply when options is omitted, even if
-      // the dashboard has crossFilterAllPages enabled — the default path ignores it.
+    it('honors crossFilterAllPages WITHOUT options (the corrected behaviour is the default)', () => {
+      // The dashboard's cross-filter settings used to be read only when the caller passed
+      // `options`, which left the wrong branch as the default every new caller inherits.
+      // A cross-filter from another page must apply on a `crossFilterAllPages` dashboard
+      // whether or not the caller has a per-widget override to pass.
       const rows = [...ROWS];
       const fullState = makeFullState(rows, {
         crossFilterAllPages: true,
@@ -662,12 +664,41 @@ describe('createStudioPipeline', () => {
         ],
       });
       const pipeline = createStudioPipeline(fullState);
-      // No options → activePageId 'p1' scoping, crossFilterAllPages ignored → all 3 rows.
       const result = pipeline.resolveWidgetRows('w-grid', 'orders', rows, 'p1');
-      expect(result).toHaveLength(3);
+      expect(result.map((r) => r.id)).toEqual(['1', '3']);
     });
 
-    it('opting in honors crossFilterAllPages', () => {
+    it("honors globalCrossFilterMode 'none' WITHOUT options", () => {
+      // Same class as above: a dashboard that has switched cross-filtering off must not have
+      // its chart cross-filters silently re-applied just because the caller had no per-widget
+      // mode to pass. The interactive hard-filter invariant still holds ('no-chart-cross').
+      const rows = [...ROWS];
+      const fullState = makeFullState(rows, {
+        globalCrossFilterMode: 'none',
+        filters: [
+          makeFilter({
+            id: 'cf1',
+            scope: { kind: 'cross-filter', sourceWidgetId: 'w-other', pageId: 'p1' },
+            field: 'amount',
+            operator: 'greater_than',
+            value: 150,
+          }),
+          makeFilter({
+            id: 'if1',
+            scope: { kind: 'interactive', sourceWidgetId: 'w-filter', pageId: 'p1' },
+            field: 'region',
+            operator: 'equals',
+            value: 'EU',
+          }),
+        ],
+      });
+      const pipeline = createStudioPipeline(fullState);
+      // Cross-filter (amount>150) dropped, interactive (region=EU) kept → rows 1 and 3.
+      const result = pipeline.resolveWidgetRows('w-grid', 'orders', rows, 'p1');
+      expect(result.map((r) => r.id)).toEqual(['1', '3']);
+    });
+
+    it('passing options changes nothing about how the dashboard settings are read', () => {
       const rows = [...ROWS];
       const fullState = makeFullState(rows, {
         crossFilterAllPages: true,
@@ -682,12 +713,12 @@ describe('createStudioPipeline', () => {
         ],
       });
       const pipeline = createStudioPipeline(fullState);
-      // Opting in (even with {}) forwards crossFilterAllPages → the other-page cross-filter applies.
+      // `{}` carries no override, so it must produce exactly the no-options result above.
       const result = pipeline.resolveWidgetRows('w-grid', 'orders', rows, 'p1', {});
       expect(result.map((r) => r.id)).toEqual(['1', '3']);
     });
 
-    it("opting in with globalCrossFilterMode 'none' excludes cross-filters but keeps page filters", () => {
+    it("globalCrossFilterMode 'none' excludes cross-filters but keeps page filters", () => {
       const rows = [...ROWS];
       const fullState = makeFullState(rows, {
         globalCrossFilterMode: 'none',
@@ -715,7 +746,7 @@ describe('createStudioPipeline', () => {
       expect(result.map((r) => r.id)).toEqual(['1', '3']);
     });
 
-    it("opting in with globalCrossFilterMode 'none' still applies an active INTERACTIVE filter (hard-filter invariant)", () => {
+    it("globalCrossFilterMode 'none' still applies an active INTERACTIVE filter (hard-filter invariant)", () => {
       // `crossFilterMode: 'none'` only opts a widget out of CHART cross-filters — an
       // interactive (filter-widget) selection is a hard filter that always applies,
       // regardless of the target widget's cross-filter mode (documented in

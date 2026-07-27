@@ -129,6 +129,74 @@ describe('StudioController.applyCrossFilter', () => {
     expect(filters[0]).toMatchObject({ value: 'Clothing' });
   });
 
+  // Finding L3: `applyCrossFilter` was the last doc writer with no value-equality no-op
+  // guard. `commitDocPatch`'s guard is REFERENCE equality, and the fresh
+  // `createFilterId()` minted on every call made the rebuilt `filters` array differ even
+  // when the cross-filter was semantically identical — so a re-apply committed a phantom
+  // undoable step, wrote a mutation-log line, and cleared the redo stack for nothing.
+  it('no-ops when an identical cross-filter is re-applied', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('widget-a', { kind: 'chart' }));
+
+    controller.applyCrossFilter('widget-a', 'category', 'Electronics', 'src-a');
+    const filtersAfterFirst = controller.getState().doc.filters;
+    const logAfterFirst = controller.getRecentMutations();
+
+    controller.applyCrossFilter('widget-a', 'category', 'Electronics', 'src-a');
+
+    // Same array AND same filter id — no fresh entry was minted and swapped in.
+    expect(controller.getState().doc.filters).toBe(filtersAfterFirst);
+    // No second mutation-log line for a step that changed nothing.
+    expect(controller.getRecentMutations()).toEqual(logAfterFirst);
+    // Only ONE undoable step was ever pushed, so a single undo clears the cross-filter.
+    controller.undo();
+    expect(controller.getState().doc.filters).toHaveLength(0);
+  });
+
+  it('preserves the redo stack when an identical cross-filter is re-applied', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('widget-a', { kind: 'chart' }));
+    controller.applyCrossFilter('widget-a', 'category', 'Electronics', 'src-a');
+
+    // Build a redo entry so the "does not clear redo" half of the guard is observable.
+    controller.setDashboardTitle('Renamed');
+    controller.undo();
+    expect(controller.canRedo()).toBe(true);
+
+    controller.applyCrossFilter('widget-a', 'category', 'Electronics', 'src-a');
+
+    expect(controller.canRedo()).toBe(true);
+  });
+
+  it('still commits when the stored cross-filter differs only in operator or fieldType', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('widget-a', { kind: 'chart' }));
+
+    controller.applyCrossFilter('widget-a', 'category', 'Electronics', 'src-a');
+    controller.applyCrossFilter('widget-a', 'category', 'Electronics', 'src-a', 'not_equals');
+
+    const [f] = controller.getState().doc.filters;
+    expect(f.operator).toBe('not_equals');
+  });
+
+  // The guard checks `disabled` separately from `isSameManagedFilterContent`'s fixed field
+  // list: re-emitting is what re-enables a disabled cross-filter, and the widget click
+  // handlers' toggle can't see one either (`makeSelectActiveCrossFilter` skips disabled
+  // entries), so swallowing this call would strand the filter off with no way back.
+  it('still commits when the stored cross-filter is disabled', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('widget-a', { kind: 'chart' }));
+
+    controller.applyCrossFilter('widget-a', 'category', 'Electronics', 'src-a');
+    controller.toggleFilter(controller.getState().doc.filters[0].id);
+    expect(controller.getState().doc.filters[0].disabled).toBe(true);
+
+    controller.applyCrossFilter('widget-a', 'category', 'Electronics', 'src-a');
+
+    const [f] = controller.getState().doc.filters;
+    expect(f.disabled).toBeUndefined();
+  });
+
   it('does not remove cross-filters from other source widgets', () => {
     const controller = new StudioController();
     controller.addWidget(makeWidget('widget-a', { kind: 'chart' }));

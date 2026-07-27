@@ -2386,11 +2386,13 @@ export class StudioController {
     if (effectiveCrossFilterMode === 'none') {
       return;
     }
+    const isOwnCrossFilter = (f: StudioFilterState) =>
+      f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId === sourceWidgetId;
     // Remove any existing cross-filter from the same source widget
     const existingFilters = state.doc.filters.filter(
-      (f: StudioFilterState) =>
-        !(f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId === sourceWidgetId),
+      (f: StudioFilterState) => !isOwnCrossFilter(f),
     );
+    const existingOwn = state.doc.filters.filter(isOwnCrossFilter);
 
     const crossFilter: StudioFilterState = {
       id: createFilterId(),
@@ -2405,6 +2407,35 @@ export class StudioController {
       ...(filterSourceId && { filterSourceId }),
       ...(fieldType && { fieldType }),
     };
+
+    // Value-equality no-op guard, closing the last gap in a class every other doc writer
+    // already covers (`setGlobalCrossFilterMode`, `setCrossFilterAllPages`, `updateActivePage`,
+    // `updateExpressionField`, `docTransforms.renameFilterPreset`, the three date-range setters…).
+    // `commitDocPatch`'s guard is REFERENCE equality, and a freshly minted `createFilterId()`
+    // makes the rebuilt `filters` array differ even when the cross-filter is semantically
+    // identical — so re-applying the same source widget + field + value + operator would push an
+    // undo entry, write a mutation-log line, and CLEAR THE REDO STACK for nothing.
+    //
+    // `ignoreId: true` is the whole point (the candidate's id is new by construction);
+    // `isSameManagedFilterContent` compares field / operator / value / filterSourceId / fieldType
+    // and the full `scope` (so `scope.pageId` and `scope.sourceWidgetId` are covered too).
+    // `disabled` is checked separately because that helper's fixed field list omits it: a
+    // *disabled* stored cross-filter must NOT swallow the re-apply, since re-emitting is what
+    // re-enables it (and `makeSelectActiveCrossFilter` ignores disabled entries, so the widget
+    // click handlers' toggle can't see it either and will genuinely re-apply here).
+    //
+    // The built-in chart / grid / map click handlers all toggle-clear on an identical
+    // field+value, so they cannot reach a true re-apply on their own. Direct
+    // `controller.applyCrossFilter(…)` callers — custom widgets and host code, which get the
+    // controller from `useStudioController()` — have no such toggle, and neither would a future
+    // built-in handler that forgets one. This guard makes the invariant hold for all of them.
+    if (
+      existingOwn.length === 1 &&
+      !existingOwn[0].disabled &&
+      docTransforms.isSameManagedFilterContent(existingOwn[0], crossFilter, { ignoreId: true })
+    ) {
+      return;
+    }
 
     this.commitDocPatch(
       { filters: [...existingFilters, crossFilter] },

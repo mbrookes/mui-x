@@ -86,10 +86,14 @@ export interface StudioPipelineState {
   expressionFields: StudioExpressionField[];
   filters: StudioFilterState[];
   /**
-   * Dashboard-level cross-filter settings. Optional so bare pipeline-state snapshots
-   * (tests, benchmarks) keep working. When a full `StudioState` is passed they are read
-   * from `doc.dashboard`; they only affect `resolveWidgetRows` when the caller opts in by
-   * passing its `options` argument.
+   * Dashboard-level cross-filter settings, always honoured by `resolveWidgetRows`.
+   *
+   * Optional only so bare pipeline-state snapshots (tests, benchmarks) keep compiling — an
+   * omitted field means "unset", i.e. `crossFilterAllPages: false` and no global mode
+   * override. When a full `StudioState` is passed they are read from `doc.dashboard`
+   * automatically, so **prefer passing the `StudioState`**: a hand-built
+   * `StudioPipelineState` that forgets these two fields silently resolves cross-filters as
+   * if the user had never touched either dashboard setting.
    */
   crossFilterAllPages?: boolean;
   globalCrossFilterMode?: StudioCrossFilterMode | null;
@@ -119,14 +123,20 @@ export interface StudioPipeline {
    * @param sourceId   The widget's primary source ID.
    * @param rows       Raw (pre-normalized) rows from `dataSources[sourceId].rows`.
    * @param pageId     Active page ID, used to scope cross-filters and interactive filters.
-   * @param options    Opt-in cross-filter behaviour. When omitted, cross-filter handling
-   *   behaves exactly as before (include: 'all', crossFilterAllPages: false). When provided
-   *   (even `{}`), the dashboard's `crossFilterAllPages` is honoured and the effective
-   *   cross-filter mode is resolved as
-   *   `state.globalCrossFilterMode ?? options.widgetCrossFilterMode ?? 'cross-highlight'`; an
-   *   effective mode of `'none'` coerces `include` to `'no-chart-cross'` — chart-click
-   *   cross-filters are ignored, but interactive (filter-widget) hard-filters still apply.
-   *   An explicit `options.include` always wins.
+   * The dashboard's `crossFilterAllPages` and `globalCrossFilterMode` (from the state this
+   * pipeline closes over) are ALWAYS honoured — passing `options` is not what turns them on.
+   * The effective cross-filter mode resolves as
+   * `state.globalCrossFilterMode ?? options?.widgetCrossFilterMode ?? 'cross-highlight'`, and
+   * an effective mode of `'none'` coerces `include` to `'no-chart-cross'` — chart-click
+   * cross-filters are ignored, but interactive (filter-widget) hard-filters still apply.
+   *
+   * @param options    Per-call overrides. Every field is optional and omitting the argument
+   *   entirely is the normal case for a caller with no widget-specific override.
+   *
+   *   `options.widgetCrossFilterMode` is the emitting widget's own `config.crossFilterMode`;
+   *   it is only consulted when the dashboard has no `globalCrossFilterMode` override.
+   *   `options.include` is an explicit escape hatch that always wins over the resolved mode —
+   *   pass `'no-cross'` to deliberately ignore both cross and interactive filters.
    *
    *   `options.includeWidgetRank` OVERRIDES the {@link shouldApplyWidgetRankAtL3} default. The
    *   only legitimate reason to pass it is a caller that reproduces a *different* stage of the
@@ -254,22 +264,20 @@ export function createStudioPipeline(state: StudioPipelineState | StudioState): 
           options?.includeWidgetRank ??
           (isWidgetObject ? shouldApplyWidgetRankAtL3(widget) : false),
       };
-      // Strict backward compatibility: only engage the corrected cross-filter behaviour
-      // when the caller explicitly opts in with `options`. Omitting it preserves today's
-      // defaults (include: 'all', crossFilterAllPages: false).
-      if (options) {
-        scopeOpts.crossFilterAllPages = crossFilterAllPages;
-        const effectiveMode =
-          globalCrossFilterMode ?? options.widgetCrossFilterMode ?? 'cross-highlight';
-        // Explicit include wins; otherwise 'none' excludes chart cross-filters only — interactive
-        // (hard) filters still apply, matching the documented hard-filter invariant.
-        // eslint-disable-next-line no-nested-ternary
-        scopeOpts.include = options.include
-          ? options.include
-          : effectiveMode === 'none'
-            ? 'no-chart-cross'
-            : 'all';
-      }
+      // The dashboard's cross-filter settings are honoured UNCONDITIONALLY — this used to be
+      // gated behind "did the caller pass `options`?", which made the corrected behaviour
+      // opt-in and therefore left the WRONG behaviour as the default every new caller
+      // inherits. `options` is now purely the per-widget override channel.
+      scopeOpts.crossFilterAllPages = crossFilterAllPages;
+      // Precedence mirrors `useWidgetRows` / `StudioGridWidget` / `applyCrossFilter`: the
+      // dashboard-wide override wins over the emitting widget's own config, which wins over
+      // the built-in default. A caller with no widget context simply omits
+      // `widgetCrossFilterMode` and lands on `globalCrossFilterMode ?? 'cross-highlight'`.
+      const effectiveMode =
+        globalCrossFilterMode ?? options?.widgetCrossFilterMode ?? 'cross-highlight';
+      // Explicit include wins; otherwise 'none' excludes chart cross-filters only — interactive
+      // (hard) filters still apply, matching the documented hard-filter invariant.
+      scopeOpts.include = options?.include ?? (effectiveMode === 'none' ? 'no-chart-cross' : 'all');
       const allFilters = selectFiltersForWidget(filters, scopeOpts);
       return resolveRowsCached(
         rows,

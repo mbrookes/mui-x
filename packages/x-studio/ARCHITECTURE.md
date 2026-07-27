@@ -119,7 +119,7 @@ Every genuine user edit is labelled, including `updateWidget` (which carries the
 
 Each is the one-liner base for a family of writers, so no method hand-spreads the nested partition structure:
 
-- `commitDocPatch(patch, options?)` — shallow-merges a `Partial<StudioDoc>`, with a reference-equality no-op guard (a patch whose every key is reference-equal commits nothing).
+- `commitDocPatch(patch, options?)` — shallow-merges a `Partial<StudioDoc>`, with a reference-equality no-op guard (a patch whose every key is reference-equal commits nothing). **The guard is `===`, so it cannot see a fresh-but-equivalent object.** A writer that _rebuilds_ its slice from scratch (rather than reusing existing element references) therefore needs its own value-equality bail, or a semantically identical re-invocation pushes an undo entry, writes a mutation-log line, and clears the redo stack. The controller-managed filter rebuilders — the three date-range setters and `applyCrossFilter` — all share `docTransforms.isSameManagedFilterContent` for exactly this.
 - `commitShellPatch(patch)` — merges onto `session.shell`, always non-undoable.
 - `commitDataSourcePatch(sourceId, patch)` — merges onto one `runtime.dataSources` entry, always non-undoable, no-op on a missing source.
 - `updateState({ doc?, session?, runtime? })` — partition-aware partial update; callers name the partition explicitly.
@@ -176,6 +176,7 @@ Notable invariants among them:
 
 - **`applyInteractiveFilter`/`applyCrossFilter` stamp `scope.pageId` with the _emitting widget's own page_** (via `resolveWidgetPageId`, falling back to `activePageId` only when the widget is on no page) — not the live `activePageId` at commit time. A debounced commit (`DateRangeControl` debounces 300ms) firing after a page switch would otherwise pin the filter to the wrong page.
 - **`applyCrossFilter` centrally gates on the effective cross-filter mode** (`doc.dashboard.globalCrossFilterMode ?? sourceWidget.config?.crossFilterMode ?? 'cross-highlight'`), no-opping when it resolves to `'none'`. One enforcement point for every widget kind's click handler, rather than each widget duplicating (or omitting) the check.
+- **`applyCrossFilter` also bails on a value-identical re-apply** (`docTransforms.isSameManagedFilterContent(existing, candidate, { ignoreId: true })`, plus a separate `disabled` check so re-emitting can still re-enable a switched-off entry). It mints a fresh `createFilterId()` on every call, which defeats `commitDocPatch`'s reference guard — without this, re-applying the same source widget + field + value + operator committed an undoable, logged step and wiped the redo stack. The built-in chart/grid/map click handlers toggle-clear on an identical field+value so they never reach it, but direct `controller.applyCrossFilter(…)` callers (custom widgets, host code) have no such toggle.
 - Both no-op when the source widget no longer exists, mirroring the reducer's own existence check. Cross-filter/interactive entries are hidden from the filters drawer, so an orphaned hard-filter installed by a late debounced commit would have no UI left to clear it.
 - **Expression-field cycle guard**: `addExpressionField`/`updateExpressionField` run `hasExpressionCycle`/`detectCycles` and reject (dev-warn, no-op) a cyclic formula, so a persisted doc or host call can't slip one past the dialog's own check. As second-line defense, `evaluateExpression` carries a `resolvingFieldIds` visited set that short-circuits to `null` rather than recursing forever.
 
@@ -475,6 +476,8 @@ Foreign-source dependencies are tracked as a `SourceDep` (**rows _and_ fields** 
 
 `resolveWidgetRows` takes the `StudioWidget` object as its first argument so `shouldApplyWidgetRankAtL3` applies automatically — a new caller gets correct behaviour without knowing the rule exists. `options.includeWidgetRank` overrides it; the only legitimate reason to pass it is a caller reproducing a _different_ pipeline stage that must mirror another call's flag verbatim. Passing it to "make the numbers match the chart" is always wrong — the helper already does that. `resolveChartRows`' trailing `extraFields`/`widgetFilters` default to the underlying function's own defaults, so an existing caller keeps prior behaviour until it opts in.
 
+**`options` is the per-widget override channel only — it does not gate the dashboard settings.** The snapshot's `crossFilterAllPages` and `globalCrossFilterMode` are honoured unconditionally, with the effective mode resolving as `globalCrossFilterMode ?? options?.widgetCrossFilterMode ?? 'cross-highlight'` (the same precedence `useWidgetRows` / `StudioGridWidget` / `applyCrossFilter` use) and `'none'` coercing `include` to `'no-chart-cross'`. This used to be gated behind "did the caller pass `options`?", which made the corrected behaviour opt-in and left the wrong branch as the default every new caller inherits. The remaining hazard is the flat `StudioPipelineState` input: it can only honour what the snapshot carries, so a hand-built state that omits the two fields still reads as "both unset" — prefer passing the full `StudioState`, and see `generateInsight`'s `toPipelineState` / `richContext`'s `buildFieldStats` for the flat-shape builders that forward them explicitly.
+
 ## Widget system
 
 Seven built-in kinds live under `src/components/widgets/`: Chart, Grid, Kpi, Map, Pivot, Text, Filter.
@@ -721,6 +724,8 @@ Restoring treats the payload as untrusted: it drops an individual history entry 
 ### Client-derived context (`richContext.ts`, `generateInsight.ts`)
 
 `richContext.ts` builds purely-additive client-derived signal (field statistics, recent mutations, current selection) attached to every chat request so the model has more to work with without the user typing extra detail.
+
+Its `buildFieldStats` resolves per-source rows through the pipeline under a **synthetic widget id** (`__rich_context__`), which matches no widget — so page, date-range, cross-filter and interactive filters apply while widget-scoped ones never can. That "the live view" contract obliges it to forward `crossFilterAllPages`/`globalCrossFilterMode` into its flat `StudioPipelineState`, exactly as `generateInsight`'s `toPipelineState` does: the field stats and the widget summaries travel in the **same prompt**, so if only one of them honours the dashboard's cross-filter toggles the model is reasoning over two different row sets.
 
 `generateInsight.ts` — despite its name — no longer calls an `/insight` or `/title` endpoint; both were removed and insight generation is entirely server-side. Its remaining job is `buildWidgetDataSummary` (a compact pipeline-filtered CSV-style sample plus numeric stats) and `numericStats`, consumed by the chat requests and by `useTextWidgetAI`.
 

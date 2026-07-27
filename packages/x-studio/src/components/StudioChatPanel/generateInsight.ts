@@ -278,11 +278,16 @@ function formatDate(d: Date): string {
  *
  * Must forward `globalCrossFilterMode` and `crossFilterAllPages` (finding 2.4): the
  * pipeline resolves its effective cross-filter mode as
- * `globalCrossFilterMode ?? options.widgetCrossFilterMode ?? 'cross-highlight'` and scopes
+ * `globalCrossFilterMode ?? options?.widgetCrossFilterMode ?? 'cross-highlight'` and scopes
  * cross-filters to all pages when `crossFilterAllPages` is set. Dropping them here meant
  * the snapshot's L3 rows always resolved cross-filters as if both dashboard settings were
  * unset, while `buildChartWidgetSummary`'s L4 `widgetFilters` (below) read them directly
  * off `state.doc.dashboard` — the two layers could disagree within this one code path.
+ *
+ * The pipeline honours both fields unconditionally now (they are no longer gated behind
+ * passing `options`), but that does NOT make this forwarding redundant: it can only honour
+ * what the snapshot carries, and a flat `StudioPipelineState` that omits them still reads
+ * as "both unset". This is the one hazard left in the flat-shape input.
  */
 function toPipelineState(state: StudioState): StudioPipelineState {
   return {

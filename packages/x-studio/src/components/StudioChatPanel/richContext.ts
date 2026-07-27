@@ -107,11 +107,24 @@ function buildFieldStats(state: StudioState): Record<string, StudioAIFieldStat> 
   // Pass the flat `StudioPipelineState` shape explicitly (rather than the nested
   // `StudioState` itself) — the pipeline's own documented "built manually" input —
   // so this call doesn't depend on `createStudioPipeline` unwrapping `doc`/`runtime`.
+  //
+  // `crossFilterAllPages`/`globalCrossFilterMode` MUST be forwarded, matching
+  // `generateInsight`'s `toPipelineState` (finding 2.4). `SYNTHETIC_WIDGET_ID`'s contract
+  // (above) is "page, date-range, cross-filter and interactive filters — the live view";
+  // an omitted dashboard setting makes the pipeline resolve cross-filters as if the user
+  // had never touched either toggle, which is NOT the live view. Concretely: with
+  // `globalCrossFilterMode: 'none'` the stats below were still hard-filtered by an active
+  // chart cross-filter the user had switched off, and with `crossFilterAllPages: true` they
+  // ignored the cross-page cross-filters every widget on screen was honouring. Both put the
+  // AI's field stats and its widget summaries — which travel in the SAME prompt — under two
+  // different cross-filter regimes.
   const pipeline = createStudioPipeline({
     dataSources: state.runtime.dataSources,
     relationships: state.doc.relationships,
     expressionFields: state.doc.expressionFields,
     filters: state.doc.filters,
+    crossFilterAllPages: state.doc.dashboard.crossFilterAllPages,
+    globalCrossFilterMode: state.doc.dashboard.globalCrossFilterMode,
   });
   const activePageId = state.doc.dashboard.activePageId;
   const stats: Record<string, StudioAIFieldStat> = {};
@@ -126,8 +139,10 @@ function buildFieldStats(state: StudioState): Record<string, StudioAIFieldStat> 
     }
     // No `options` here (intentional, not an oversight): this loop computes dashboard-wide
     // field stats across every data source using a synthetic, non-widget id — there is no
-    // single real widget (and thus no per-widget `config.crossFilterMode`) to derive a
-    // cross-filter mode from, so it keeps the default (pre-opt-in) cross-filter behavior.
+    // single real widget (and thus no per-widget `config.crossFilterMode`) to override with.
+    // `options` is ONLY the per-widget override channel; the dashboard's own cross-filter
+    // settings are honoured from the pipeline state regardless (see the constructor above),
+    // so omitting it here means "no widget-specific override", not "ignore the dashboard".
     const filtered = pipeline.resolveWidgetRows(
       SYNTHETIC_WIDGET_ID,
       source.id,

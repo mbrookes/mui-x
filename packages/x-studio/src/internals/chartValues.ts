@@ -35,7 +35,16 @@ export function emptyBucketLabel(localeText?: Partial<StudioLocaleText>): string
   return localeText?.chartEmptyCategoryLabel ?? DEFAULT_STUDIO_LOCALE_TEXT.chartEmptyCategoryLabel;
 }
 
-/** Safely extracts a row field value as a string or number suitable for chart grouping. */
+/**
+ * Safely extracts a row field value as a string or number suitable for chart grouping.
+ *
+ * Its `null`/`undefined` → {@link emptyBucketLabel} branch is reachable only from a **split**
+ * dimension — `aggregateByTwoFields`' `seriesField` and `chartShapes/scatter`'s color field.
+ * Every **axis/category** call site (`aggregators.ts`' three x loops, `chartShapes/heatmap`,
+ * `StudioPieChart`) drops the row via {@link isEmptyXValue} first, so an empty x value never
+ * reaches this function. That asymmetry is the package's deliberate policy, not an oversight —
+ * see {@link isEmptyXValue}.
+ */
 export function toXValue(raw: unknown, localeText?: Partial<StudioLocaleText>): string | number {
   if (raw instanceof Date) {
     return raw.toISOString();
@@ -55,6 +64,32 @@ export function toXValue(raw: unknown, localeText?: Partial<StudioLocaleText>): 
 /**
  * Whether a RAW row value should be dropped from a chart's x axis: `null`, `undefined`
  * or the empty string.
+ *
+ * **The package-wide null policy, stated once here because it differs per dimension:**
+ *
+ * - **Axis / category dimension → the row is DROPPED.** Applied uniformly by
+ *   `aggregateByField`, `aggregateByTwoFields`, `aggregateMultipleSeries`,
+ *   `chartShapes/heatmap.aggregateHeatmap`, `chartShapes/scatter` (either coordinate) and
+ *   `StudioPieChart`'s inner ring. A category axis answers "how does the measure break down
+ *   ACROSS this dimension"; a row with no value for it has no position on that breakdown, and
+ *   fabricating one (an `(empty)` bar, a scatter point at the origin) invents a data point the
+ *   source never contained. Two earlier fixes converged on this deliberately rather than by
+ *   accident: heatmap was changed to drop so it would stop disagreeing with bar/line over the
+ *   same field (T3.2b), and scatter to drop so null costs stopped stacking on `y = 0` (M13).
+ * - **Split / color dimension → the row is KEPT, under {@link emptyBucketLabel}.** A split
+ *   partitions a category's rows; silently deleting the unlabelled partition would make the
+ *   stacked bars at that category sum to less than the single-series bar for the same rows
+ *   (T3.2a).
+ *
+ * The consequence to know when reading a dashboard: a chart's bars can sum to LESS than a KPI
+ * counting the same rows, by exactly the number of rows whose x value is empty. That is the
+ * accepted cost of the rule above — changing it is a cross-family behaviour change (six call
+ * sites in four files), not a local edit to one aggregator.
+ *
+ * Because every axis call site runs this guard BEFORE `toXValue`, `toXValue`'s own empty-bucket
+ * branch (and therefore the `localeText` those aggregators thread into it on the x path) can
+ * never fire for an x value. The argument is kept so the guard-then-convert pair is spelled
+ * identically at all six sites and the policy stays a one-line decision here.
  *
  * Deliberately does NOT treat the empty-bucket label (`emptyBucketLabel`) as empty, and
  * therefore takes no `localeText`. Every call site passes a raw row value, never an

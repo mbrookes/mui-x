@@ -112,6 +112,11 @@ export function useAdapterRows(
     // navigation when source.rows was pre-populated by setDataSourceRows). These rows never
     // went through the server, so nothing in `descriptor.filter` has been applied to them —
     // flagged so the caller can apply the whole filter chain locally instead.
+    //
+    // Returned RAW (as `dataSource.rows`, by reference), like every other row set this hook
+    // yields: L1 normalization belongs to the consumer, and `useWidgetRows` runs it over
+    // `adapterRows` before L2/L3. Keeping the reference identical is what lets it reuse the
+    // sync path's own normalized-source cache slot rather than cloning the array twice.
     return { rows: (dataSource?.rows as Row[] | undefined) ?? [], isPlaceholder: true };
   });
 

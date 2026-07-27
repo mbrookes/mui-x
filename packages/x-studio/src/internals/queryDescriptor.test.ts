@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
   buildQueryDescriptor,
   buildWidgetQueryDescriptor,
@@ -698,6 +698,85 @@ describe('buildQueryDescriptor', () => {
     // joinSourceId and fieldId are not physical columns on source-orders — not in select.
     expect(desc.select).not.toContain('segment');
     expect(desc.select).not.toContain('source-customers');
+  });
+});
+
+// ─── cacheKey folds the RESOLVED relative-date bound ──────────────────────────
+//
+// A `RelativeDateValue` ("1 hour ago") is a stable object, so `stableStringify(filter)` yields
+// the same bytes across a `RELATIVE_DATE_REFRESH_CADENCE_MS` tick — while
+// `createSimpleAdapter`/`createBatchingAdapter` resolve that same value to a DIFFERENT concrete
+// instant when they serialize the request. The cacheKey then named a window the request no
+// longer asked for. `resolvedRowsCache.filterFingerprint` already folded the resolved bound in;
+// the descriptor now reuses that exact helper, so the two key builders can't drift.
+
+describe('buildQueryDescriptor — relative-date cacheKey', () => {
+  const relativeWidget = makeWidget({ xField: 'orderDate' });
+  const relativeFilter = (unit: 'hour' | 'day'): StudioFilterState =>
+    makeFilter({
+      field: 'orderDate',
+      fieldType: 'datetime',
+      operator: 'greater_than_or_equal',
+      value: { relative: true, amount: 1, unit, direction: 'past' },
+    });
+  const keyFor = (unit: 'hour' | 'day'): string =>
+    buildQueryDescriptor(relativeWidget, [relativeFilter(unit)], PAGE_ID, 'orders_table').cacheKey;
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('is stable within one refresh cadence tick', () => {
+    // Two renders milliseconds apart resolve to the SAME bound, so they must share one entry —
+    // otherwise every render would miss the request cache and issue a fresh round-trip.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-06-15T12:30:30.000Z'));
+    const first = keyFor('hour');
+
+    vi.setSystemTime(new Date('2024-06-15T12:30:30.007Z'));
+    expect(keyFor('hour')).toBe(first);
+  });
+
+  it('changes on the next cadence tick, when the adapter would request a different window', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-06-15T12:30:00.000Z'));
+    const before = keyFor('hour');
+
+    vi.setSystemTime(new Date('2024-06-15T12:31:00.000Z'));
+    expect(keyFor('hour')).not.toBe(before);
+  });
+
+  it('leaves a day-granular relative filter untouched until the day actually rolls over', () => {
+    // Day/week/month/year resolve to a bare `YYYY-MM-DD`, so their key must NOT churn every
+    // minute — that would be a server round-trip per cadence tick for no change in the window.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-06-15T12:00:00.000Z'));
+    const morning = keyFor('day');
+
+    vi.setSystemTime(new Date('2024-06-15T18:00:00.000Z'));
+    expect(keyFor('day')).toBe(morning);
+
+    vi.setSystemTime(new Date('2024-06-16T12:00:00.000Z'));
+    expect(keyFor('day')).not.toBe(morning);
+  });
+
+  it('does not add a key segment for a dashboard with no relative-date filter', () => {
+    // The bounds are omitted entirely when nothing resolves, so an ordinary dashboard's cacheKey
+    // is byte-identical to what it was before this segment existed.
+    const concrete = buildQueryDescriptor(
+      relativeWidget,
+      [
+        makeFilter({
+          field: 'orderDate',
+          fieldType: 'datetime',
+          operator: 'greater_than_or_equal',
+          value: '2024-06-01',
+        }),
+      ],
+      PAGE_ID,
+      'orders_table',
+    );
+    expect(concrete.cacheKey).not.toContain('relativeDateBounds');
   });
 });
 

@@ -376,6 +376,40 @@ export function useWidgetRows(
     return getCachedNormalizedDataSource(dataSource, usedFieldIds);
   }, [dataSource, usedFieldIds]);
 
+  // The adapter path needs L1 just as much as the sync path does — arguably more, since the
+  // shapes L1 exists to canonicalize are exactly what a SQL driver hands back. Adapter rows used
+  // to go straight into L2/L3 unnormalized, so:
+  //   - a zone-less `'2024-01-15T23:30:00'` (what MySQL/SQLite drivers routinely return, called
+  //     out by name in `temporalUtils`' `CANONICAL_DATETIME`) denotes no definite instant: the
+  //     filter engine reads it as LOCAL time (`filterUtils.toComparable` → `normalizeToDateOnlyString`)
+  //     while chart grouping reads its UTC components (`truncateToPeriod`), so for a viewer behind
+  //     UTC one timestamp landed in two different day buckets — and the SAME dashboard on an
+  //     in-memory source (which does get L1) agreed with neither;
+  //   - a raw `Date` (a host reviving JSON dates) mixed with canonical strings in one column
+  //     split a single calendar day into two axis buckets — precisely the failure
+  //     `isFieldAlreadyCanonical` was written to prevent.
+  // Wrapping the adapter rows in a synthetic source and running the SAME
+  // `getCachedNormalizedDataSource` call restores the package-wide invariant that every
+  // foreign-source read goes through L1 (it also builds `fieldDistinctValues` for these rows, so
+  // a filter widget over an adapter-backed source stops re-scanning per render).
+  //
+  // The synthetic source is built inside this memo — keyed on `adapterRows` identity — because
+  // the L1 cache is a `WeakMap` on the rows array: rebuilding `{ ...dataSource, rows }` every
+  // render would still hit that WeakMap (same rows ref, same `fields` ref), but the memo keeps
+  // the returned row array reference-stable for the downstream L2/L3 memos too.
+  // Cold-cache placeholder rows ARE `dataSource.rows`, so they reuse the sync path's own
+  // normalized source — the identical cache slot, no second clone of the row array.
+  const normalizedAdapterRows = React.useMemo((): Row[] => {
+    if (!hasAdapter || !dataSource || adapterRows.length === 0) {
+      return adapterRows;
+    }
+    const source =
+      adapterRows === dataSource.rows ? dataSource : { ...dataSource, rows: adapterRows };
+    return (
+      (getCachedNormalizedDataSource(source, usedFieldIds).rows as Row[] | undefined) ?? adapterRows
+    );
+  }, [hasAdapter, dataSource, adapterRows, usedFieldIds]);
+
   const hasCrossFilters = React.useMemo(
     () =>
       deferredPartitioned.cross.some(
@@ -432,16 +466,20 @@ export function useWidgetRows(
   const shouldShowGhost = crossFilterMode === 'cross-highlight' && hasChartCrossFilters;
 
   // Adapter/server responses contain only physical columns — expression (calculated)
-  // fields are a client-side concept the server cannot produce. Enrich the returned raw
+  // fields are a client-side concept the server cannot produce. Enrich the L1-normalized
   // rows with expression columns here so KPIs/charts using a calculated value field (e.g.
   // `price - cost`) aggregate against real values instead of `undefined` (which renders $0).
   // No-op for aggregated responses where the requested fields are already physical.
+  //
+  // Reads `normalizedAdapterRows`, never the raw `adapterRows`: L2 (and L3 below) must sit on
+  // top of L1 on this path exactly as it does on the sync path, or the two paths bucket the same
+  // timestamp into different days (see `normalizedAdapterRows`).
   const enrichedAdapterRows = React.useMemo((): Row[] => {
-    if (!hasAdapter || !widget.sourceId || adapterRows.length === 0) {
-      return adapterRows;
+    if (!hasAdapter || !widget.sourceId || normalizedAdapterRows.length === 0) {
+      return normalizedAdapterRows;
     }
     return getCachedEnrichedRows(
-      adapterRows,
+      normalizedAdapterRows,
       widget.sourceId,
       expressionFields,
       dataSources,
@@ -450,7 +488,7 @@ export function useWidgetRows(
     );
   }, [
     hasAdapter,
-    adapterRows,
+    normalizedAdapterRows,
     widget.sourceId,
     expressionFields,
     dataSources,

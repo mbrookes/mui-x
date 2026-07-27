@@ -462,6 +462,14 @@ export function aggregateByField(
    * doesn't fall back to the English `'(empty)'` literal (T3.2). Note `isEmptyXValue`
    * deliberately takes no locale: it inspects RAW row values, where matching the bucket
    * label could only ever be a false positive (M8).
+   *
+   * On the **x** dimension this argument resolves nothing today, and that is by design rather
+   * than by omission: the `isEmptyXValue` guard above the `toXValue` call drops every empty x
+   * value first, so `toXValue`'s empty-bucket branch is unreachable from here. It is live only
+   * where a dimension KEEPS its empties — `aggregateByTwoFields`' `seriesField` and scatter's
+   * color field. `chartValues.isEmptyXValue` documents why the two dimensions differ and what
+   * it costs (chart totals can fall short of a KPI over the same rows); the argument stays so
+   * the guard-then-convert pair is spelled identically at every x call site.
    */
   localeText?: Partial<StudioLocaleText>,
   /**
@@ -482,6 +490,9 @@ export function aggregateByField(
     forcedAggregation ?? detectAggregationType(rows, yField, yAggregation);
 
   for (const row of rows) {
+    // Axis-dimension policy: an empty x DROPS the row rather than bucketing it under
+    // `(empty)` — so these counts can total less than a KPI over the same rows. See
+    // `chartValues.isEmptyXValue` for why, and why a SPLIT dimension does the opposite.
     if (isEmptyXValue(row[xField])) {
       continue;
     }
@@ -576,11 +587,15 @@ export function aggregateByTwoFields(
   }
 
   for (const row of rows) {
+    // The two dimensions of this ONE chart deliberately treat empties differently: the x
+    // (axis) dimension drops the row, the `seriesField` (split) dimension keeps it under
+    // `(empty)`. `chartValues.isEmptyXValue` states the rule and the reasoning for both.
     if (isEmptyXValue(row[xField])) {
       continue;
     }
     const raw = toXValue(row[xField], localeText);
     const xVal = applyXGroupBy(raw, xGroupBy);
+    // Split dimension — `localeText` IS live here (a null series value becomes `(empty)`).
     const seriesVal = toXValue(row[seriesField], localeText);
 
     xValuesSet.add(xVal);
@@ -690,6 +705,7 @@ export function aggregateMultipleSeries(
   const dataMap = new Map<string | number, Map<string, CellAcc>>();
 
   for (const row of rows) {
+    // Axis-dimension policy — empty x drops the row (see `chartValues.isEmptyXValue`).
     if (isEmptyXValue(row[xField])) {
       continue;
     }

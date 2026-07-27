@@ -1627,3 +1627,104 @@ describe('deferred fast-path for interactive clears (finding 3.2)', () => {
     expect(renders[renders.length - 1]).toHaveLength(3);
   });
 });
+
+// ── L1 normalization is applied on the ADAPTER path too ─────────────────────
+//
+// The sync path runs its source through `getCachedNormalizedDataSource` (L1) before L2/L3. The
+// adapter path used to hand the raw response straight to L2, so the shapes L1 exists to
+// canonicalize survived into filtering and chart grouping — and the shapes a SQL driver returns
+// are exactly those shapes:
+//
+//   - a zone-less `'2024-01-15T23:30:00'` (what MySQL/SQLite drivers routinely hand back, called
+//     out by name in `temporalUtils`' `CANONICAL_DATETIME`) denotes no definite instant. The
+//     filter engine reads it as LOCAL time (`filterUtils.toComparable` → `normalizeToDateOnlyString`)
+//     while chart grouping reads its UTC components (`truncateToPeriod`), so for a viewer behind
+//     UTC one timestamp landed in two different day buckets — and the SAME dashboard on an
+//     in-memory source agreed with neither.
+//   - a raw `Date` (a host reviving JSON dates) mixed into one column with canonical strings
+//     split a single calendar day into two axis buckets — the failure `isFieldAlreadyCanonical`
+//     was written to prevent.
+//
+// Running the same rows down both paths and asserting the emitted values are identical (and
+// canonical) is the shape that catches this and every future regression of it, in any timezone:
+// it never asks what the "right" day is, only that the two paths cannot disagree.
+
+describe('L1 normalization parity: sync path vs adapter path', () => {
+  const DATE_FIELDS: StudioDataSource['fields'] = [
+    { id: 'id', label: 'ID', type: 'number' },
+    { id: 'createdAt', label: 'Created', type: 'datetime' },
+  ];
+
+  // A fresh array each call: the adapter must be handed a DISTINCT array (as a real response
+  // would be), not the very array the sync path already normalized.
+  const makeDateRows = (): Row[] => [
+    // Zone-less — the shape a SQLite/MySQL adapter returns.
+    { id: 1, createdAt: '2024-01-15T23:30:00' },
+    // A raw Date — a host reviving JSON dates, mixed into the same column.
+    { id: 2, createdAt: new Date('2024-01-16T04:30:00.000Z') },
+  ];
+
+  // A grid widget, so `collectSelectFields` puts `createdAt` into `usedFieldIds` and L1 is
+  // actually scoped to normalize it (normalization is lazy-by-widget).
+  const gridWidget = {
+    id: 'w1',
+    kind: 'grid',
+    sourceId: 'src1',
+    title: 'Grid',
+    config: { columns: [{ fieldId: 'id' }, { fieldId: 'createdAt' }] },
+  } as unknown as StudioWidget;
+
+  const CANONICAL_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+  it('canonicalizes adapter-returned rows exactly as it canonicalizes in-memory rows', async () => {
+    mockState = createState();
+    const syncSource = makeDataSource(makeDateRows(), { fields: DATE_FIELDS });
+    const { result: syncResult } = renderHook(() =>
+      useWidgetRows(gridWidget, syncSource, 'page-1'),
+    );
+    const syncValues = syncResult.current.filteredRows.map((r) => r.createdAt);
+
+    studioRequestCache.clear();
+    const adapter: StudioDataSourceAdapter = {
+      getRows: vi.fn().mockResolvedValue({ rows: makeDateRows() }),
+    };
+    const asyncSource = makeDataSource([], { fields: DATE_FIELDS, adapter });
+    const { result: asyncResult } = renderHook(() =>
+      useWidgetRows(gridWidget, asyncSource, 'page-1'),
+    );
+    // eslint-disable-next-line testing-library/no-unnecessary-act
+    await act(async () => {
+      await vi.waitFor(() => !asyncResult.current.isLoading);
+    });
+    const asyncValues = asyncResult.current.filteredRows.map((r) => r.createdAt);
+
+    // The load-bearing assertion: whatever the runtime timezone, the two paths agree.
+    expect(asyncValues).toEqual(syncValues);
+    // And they agree on the CANONICAL spelling — not on a raw `Date`, not on the zone-less
+    // string, either of which would make the assertion above vacuously true if L1 were ever
+    // dropped from both paths at once.
+    for (const value of asyncValues) {
+      expect(typeof value).toBe('string');
+      expect(value).toMatch(CANONICAL_DATETIME);
+    }
+  });
+
+  it('canonicalizes cold-cache placeholder rows too', async () => {
+    // The placeholder is `dataSource.rows` shown while the first fetch is in flight — the very
+    // array the sync path normalizes, so it must come out canonical here as well (and it reuses
+    // the sync path's own L1 cache slot rather than cloning the array a second time).
+    mockState = createState();
+    const adapter: StudioDataSourceAdapter = {
+      // Never resolves: the widget stays on the placeholder for the whole test.
+      getRows: vi.fn().mockReturnValue(new Promise<StudioQueryResult>(() => {})),
+    };
+    const dataSource = makeDataSource(makeDateRows(), { fields: DATE_FIELDS, adapter });
+
+    const { result } = renderHook(() => useWidgetRows(gridWidget, dataSource, 'page-1'));
+
+    expect(result.current.filteredRows).toHaveLength(2);
+    for (const row of result.current.filteredRows) {
+      expect(row.createdAt).toMatch(CANONICAL_DATETIME);
+    }
+  });
+});

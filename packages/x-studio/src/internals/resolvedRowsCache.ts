@@ -99,8 +99,12 @@ const rowCache = new WeakMap<Row[], Map<string, ResolvedCacheEntry>>();
  * predicate moved, and a "last 1 hour" widget served rows computed up to 59 minutes earlier.
  *
  * Returns `null` when `value` carries no relative date anywhere.
+ *
+ * Exported so the adapter path's query-descriptor `cacheKey` (`queryDescriptor.ts`) folds the
+ * resolved bound in by the SAME rule this fingerprint does, rather than stringifying the stable
+ * `RelativeDateValue` object and producing one key for two different requested windows.
  */
-function resolvedRelativeBound(value: unknown): string | null {
+export function resolvedRelativeBound(value: unknown): string | null {
   if (isRelativeDateValue(value)) {
     return resolveRelativeDate(value);
   }

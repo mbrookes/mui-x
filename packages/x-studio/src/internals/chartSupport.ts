@@ -525,6 +525,11 @@ export function analyzeChartSupport(
 // identical — chart buckets would otherwise keep splitting on a value the rest of the dashboard
 // has already canonicalized.
 //
+// A WeakMap key is NOT a substitute for a `SourceDep` — it pins `rows` only. So the widget and
+// anchor sources are tracked as deps as well, precisely because the anchor's rows are themselves
+// read through `getCachedNormalizedDataSource`: a retype leaves both WeakMap keys identical and
+// only the `fields` ref moves.
+//
 // The innermost `Map` is capped through the shared insertion-order LRU in `rowCacheLru.ts`, like
 // the three row caches: `configKey` is derived from widget config (x/y/series/extra fields plus
 // the anchor-scoped filter fingerprint), which churns on every chart-config edit while the rows
@@ -532,7 +537,13 @@ export function analyzeChartSupport(
 interface RcfaEntry {
   relationships: StudioRelationship[];
   exprFields: StudioExpressionField[];
-  /** Rows AND fields refs of every foreign (non-widget, non-anchor) source this result read. */
+  /**
+   * Rows AND fields refs of every source this result read — the foreign ones reported via
+   * `collectReadSourceIds`, PLUS the widget and anchor sources. The latter two are not
+   * redundant with the WeakMap keys: a key covers only `rows`, while the anchor rows are read
+   * through `getCachedNormalizedDataSource` (keyed on rows AND fields), so a retype that keeps
+   * `rows` identical must invalidate here or nowhere.
+   */
   readSourceDeps: Map<string, SourceDep>;
   result: Row[];
 }
@@ -708,17 +719,30 @@ export function resolveChartRowsForAggregation(
     widgetFilters,
   );
 
-  // The widget/anchor sources are already tracked by the two WeakMap keys — skip them.
-  // An absent foreign source is still recorded (as all-null) so a later data load invalidates.
-  const foreignReadSourceIds = [...readSourceIds].filter(
-    (sourceId) => sourceId !== widgetSourceId && sourceId !== anchorSourceId,
-  );
+  // The widget and anchor sources are tracked HERE TOO, not skipped as "already covered by the
+  // two WeakMap keys" — those keys cover only each source's `rows`, and a `SourceDep` covers
+  // `rows` AND `fields`. The anchor rows are read through `getCachedNormalizedDataSource`
+  // (`grainResolution`'s many-to-one anchor and M:N junction-anchor branches), whose output
+  // depends on both, so retyping an anchor field via `updateDataSourceField` — which commits a
+  // new `fields` array while leaving `rows` reference-identical — changed the re-anchored values
+  // with nothing in the validity check noticing: outer key unchanged, inner key unchanged,
+  // `relationships`/expression fields unchanged, and the anchor was filtered out of
+  // `readSourceDeps`. The chart went on bucketing `'1/15/2024'` forever while the grid beside it
+  // showed the canonicalized `'2024-01-15'`, with no recovery short of replacing the anchor's
+  // rows. This is the same class the non-anchor `readSourceDeps` fixed (finding 1.5); the anchor
+  // was simply not in the tracked set. The widget source is included for the same reason and
+  // costs nothing — its own `rows` ref changing already implies a new `widgetRows`.
+  //
+  // An absent source is still recorded (as all-null) so a later data load invalidates.
+  const trackedReadSourceIds = new Set(readSourceIds);
+  trackedReadSourceIds.add(widgetSourceId);
+  trackedReadSourceIds.add(anchorSourceId);
 
   // `setLruEntry` evicts the least-recently-used entries before inserting when at capacity.
   setLruEntry(byKey, configKey, {
     relationships,
     exprFields: relevantExprFields,
-    readSourceDeps: captureSourceDeps(foreignReadSourceIds, dataSources),
+    readSourceDeps: captureSourceDeps(trackedReadSourceIds, dataSources),
     result,
   });
   return result;

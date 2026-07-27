@@ -12,6 +12,7 @@ import { isFilterComplete } from './filterUtils';
 import { isJoinFieldExpression } from '../utils/expressionEvaluator';
 import { collectExpressionRefs, collectJoinSourceIds } from './expressionRefs';
 import { stableStringify } from './stableStringify';
+import { resolvedRelativeBound } from './resolvedRowsCache';
 import { getDescriptor } from './chartTypeRegistry';
 import type { AggFn } from './chartTypeRegistry';
 
@@ -50,6 +51,34 @@ export function filtersToFilterNode(filters: StudioFilterState[]): StudioFilterN
     logic: 'and',
     children: filters.map(filterStateToLeaf),
   };
+}
+
+/**
+ * Every relative-date bound the filter tree currently resolves to, in tree order.
+ *
+ * A `RelativeDateValue` ("7 days ago") is a STABLE object, so `stableStringify(filter)` yields
+ * the same bytes across a `RELATIVE_DATE_REFRESH_CADENCE_MS` tick — while `createSimpleAdapter`
+ * / `createBatchingAdapter` resolve that same value to a DIFFERENT concrete instant when they
+ * serialize the request. The cacheKey then names a window the request no longer asks for, and a
+ * widget can be served rows fetched for the previous window. `StudioRequestCache`'s 30s TTL
+ * bounds the staleness, but the two keys were being built by different rules for the same
+ * reason: `resolvedRowsCache.filterFingerprint` already folds `resolvedRelativeBound` in. Reusing
+ * that exact helper here keeps both key builders on one rule (and one definition of "nested
+ * inside a `between` bound's `{from,to}`" — which `isRelativeDateValue(value)` alone never sees).
+ *
+ * Bounds that resolve to `null` (the overwhelmingly common no-relative-date case) are omitted, so
+ * a dashboard with no relative-date filter keeps a byte-identical, non-churning cacheKey.
+ */
+function collectResolvedRelativeBounds(node: StudioFilterNode | undefined): string[] {
+  if (!node) {
+    return [];
+  }
+  if (node.type === 'leaf') {
+    return [resolvedRelativeBound(node.value), resolvedRelativeBound(node.value2)].filter(
+      (bound): bound is string => bound !== null,
+    );
+  }
+  return node.children.flatMap(collectResolvedRelativeBounds);
 }
 
 // ── Select field collector ──────────────────────────────────────────────────
@@ -358,11 +387,18 @@ export function buildQueryDescriptor(
   // Like `hasIncomingCrossOrInteractiveFilters`, `hasRankFilters` only changes the request shape
   // (raw rows vs. aggregated) when there is an aggregation to strip — folding it into the key
   // unconditionally would churn the cacheKey for a widget with nothing to gain.
+  //
+  // `relativeDateBounds` folds in what each relative-date filter value currently RESOLVES to
+  // (see `collectResolvedRelativeBounds`): the raw `filter` tree alone is byte-stable across a
+  // cadence tick while the adapter re-resolves the bound at request time, so without it one key
+  // named two different windows. Omitted entirely when no filter carries a relative date.
   const hasAggregations = Boolean(aggregations && aggregations.length > 0);
+  const relativeDateBounds = collectResolvedRelativeBounds(filter);
   const cacheKeySource = {
     sourceId: widget.sourceId,
     select: select.toSorted(),
     filter,
+    ...(relativeDateBounds.length > 0 ? { relativeDateBounds } : {}),
     groupBy,
     xGroupBy,
     aggregations,

@@ -8,6 +8,11 @@ import {
   hasConflictingRankFilter,
 } from './applyMutation';
 import { serializeDoc, deserializeState } from './statePersistence';
+import {
+  OPTIONAL_STUDIO_WIDGET_FIELDS,
+  REQUIRED_STUDIO_WIDGET_FIELDS,
+  STUDIO_WIDGET_FIELDS,
+} from './widgetTypeGuards';
 import type { StudioDoc, StudioFilterState, StudioState } from './stateTypes';
 import type { StudioWidgetOf } from './widgetTypes';
 import type { StateMutation } from './aiTypes';
@@ -2121,6 +2126,80 @@ describe('applyMutation', () => {
       expect('subtitle' in next.widgets.w1).toBe(false);
     });
 
+    // The mergeable-key allow-list and the `unsetFields` denylist were two of five
+    // independently hand-maintained enumerations of `StudioWidgetOf`'s fields, none
+    // compile-locked. They are now derived from one locked tuple set
+    // (`widgetTypeGuards.ts`); these drive the two channels from those SAME lists, so a
+    // field that gains an entry in the tuple but no handling here fails at runtime too.
+    const VALID_FIELD_VALUE: Record<string, unknown> = {
+      kind: 'grid',
+      title: 'New title',
+      subtitle: 'New subtitle',
+      sourceId: 'src-2',
+      titleMode: 'manual',
+      subtitleMode: 'manual',
+      config: { chartType: 'line' },
+    };
+
+    it.each(STUDIO_WIDGET_FIELDS.filter((field) => field !== 'id'))(
+      'updateWidget.changes actually merges the mergeable field "%s"',
+      (field) => {
+        const state = makeDoc({
+          widgets: {
+            w1: { id: 'w1', kind: 'chart', title: 'W', config: { chartType: 'bar' } },
+          },
+        });
+        const value = VALID_FIELD_VALUE[field];
+        expect(value).toBeDefined(); // a new field with no fixture here is a real gap
+        const next = applyDocMutation(state, {
+          type: 'updateWidget',
+          args: { widgetId: 'w1', changes: { [field]: value } },
+        } as unknown as StateMutation);
+        expect(next).not.toBe(state);
+        // `kind: 'grid'` triggers the kind-coherence reconciliation, which strips the
+        // chart-only config; assert on the field itself in every case.
+        expect((next.widgets.w1 as unknown as Record<string, unknown>)[field]).toEqual(value);
+      },
+    );
+
+    it.each(OPTIONAL_STUDIO_WIDGET_FIELDS)('unsetFields voids the optional field "%s"', (field) => {
+      const state = makeDoc({
+        widgets: {
+          w1: {
+            id: 'w1',
+            kind: 'chart',
+            title: 'W',
+            config: { chartType: 'bar' },
+            ...(VALID_FIELD_VALUE[field] !== undefined
+              ? { [field]: VALID_FIELD_VALUE[field] }
+              : {}),
+          },
+        },
+      });
+      expect(field in state.widgets.w1).toBe(true);
+      const next = applyDocMutation(state, {
+        type: 'updateWidget',
+        args: { widgetId: 'w1', unsetFields: [field] },
+      } as unknown as StateMutation);
+      expect(field in next.widgets.w1).toBe(false);
+    });
+
+    it.each(REQUIRED_STUDIO_WIDGET_FIELDS)(
+      'unsetFields never voids the required field "%s"',
+      (field) => {
+        const state = makeDoc({
+          widgets: {
+            w1: { id: 'w1', kind: 'chart', title: 'W', config: { chartType: 'bar' } },
+          },
+        });
+        const next = applyDocMutation(state, {
+          type: 'updateWidget',
+          args: { widgetId: 'w1', unsetFields: [field] },
+        } as unknown as StateMutation);
+        expect(field in next.widgets.w1).toBe(true);
+      },
+    );
+
     it('a config patch with an own __proto__ key does not pollute Object.prototype (1.2)', () => {
       const state = makeDoc({
         widgets: {
@@ -2572,6 +2651,111 @@ describe('applyMutation', () => {
       expect(next).toBe(state);
       expect(next.pages['page-1'].widgetColSpans).toBeUndefined();
       expect(next.pages['page-2'].widgetColSpans).toBeUndefined();
+    });
+  });
+
+  // "Drops" means the KEY is `delete`d, not spread as an explicit `undefined` — this file's
+  // own stated convention (see `pruneDependsOn`'s comment, and `deserializeState`'s
+  // `activeThreadId` `delete`). `removeSpanEntries` and `enforceLayoutColSpans` both
+  // correctly COLLAPSE an emptied map to `undefined`, but six callers re-materialized it as
+  // an own key via `{ ...page, widgetColSpans: nextSpans }`, so `Object.keys(page)` and
+  // `'widgetColSpans' in page` both still reported a span map on a page that has none.
+  // `toBeUndefined()` cannot tell the two apart, which is why these assert on key PRESENCE.
+  describe('a dropped widgetColSpans deletes the key rather than writing `undefined`', () => {
+    const spanned = () =>
+      makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': {
+            id: 'page-1',
+            title: 'P1',
+            widgetRows: [['w1', 'w2']],
+            widgetColSpans: { w1: 12, w2: 12 },
+          },
+        },
+        widgets: { w1: chartWidget('w1'), w2: chartWidget('w2') },
+      });
+
+    it('via setWidgetColSpan clearing the only remaining span', () => {
+      // Clear w2 first, then w1 — the second clear empties the map.
+      const once = applyDocMutation(spanned(), {
+        type: 'setWidgetColSpan',
+        args: { widgetId: 'w2', columns: null, pageId: 'page-1', rowWidgetIds: ['w1', 'w2'] },
+      } as unknown as StateMutation);
+      const next = applyDocMutation(once, {
+        type: 'setWidgetColSpan',
+        args: { widgetId: 'w1', columns: null, pageId: 'page-1', rowWidgetIds: ['w1', 'w2'] },
+      } as unknown as StateMutation);
+      expect(Object.hasOwn(next.pages['page-1'], 'widgetColSpans')).toBe(false);
+    });
+
+    it('via removeWidget emptying the map (stripWidgetIdsFromPages + removeWidgetIds)', () => {
+      const once = applyDocMutation(spanned(), {
+        type: 'removeWidget',
+        args: { widgetId: 'w1' },
+      });
+      const next = applyDocMutation(once, { type: 'removeWidget', args: { widgetId: 'w2' } });
+      expect(Object.hasOwn(next.pages['page-1'], 'widgetColSpans')).toBe(false);
+    });
+
+    it('via setWidgetLayout unplacing every spanned widget (enforceLayoutColSpans)', () => {
+      const next = applyDocMutation(spanned(), {
+        type: 'setWidgetLayout',
+        args: { rows: [], pageId: 'page-1' },
+      });
+      expect(Object.hasOwn(next.pages['page-1'], 'widgetColSpans')).toBe(false);
+    });
+
+    it('via applyBulkUpdate unplacing every spanned widget', () => {
+      const next = applyDocMutation(spanned(), {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: [],
+          addedWidgets: [],
+          updatedWidgets: [],
+          widgetRows: [],
+          activePageId: 'page-1',
+        },
+      } as StateMutation);
+      expect(Object.hasOwn(next.pages['page-1'], 'widgetColSpans')).toBe(false);
+    });
+
+    it('via the load boundary sweep dropping every orphan span (normalizePersistedPages)', () => {
+      // Every span is orphaned (no widget exists), so the sweep empties the map.
+      const loaded = deserializeState(
+        {
+          schemaVersion: 1,
+          dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+          pages: {
+            'page-1': {
+              id: 'page-1',
+              title: 'P1',
+              widgetRows: [],
+              widgetColSpans: { gone: 12 },
+            },
+          },
+          widgets: {},
+          filters: [],
+        } as never,
+        {},
+      );
+      expect(Object.hasOwn(loaded.doc.pages['page-1'], 'widgetColSpans')).toBe(false);
+    });
+
+    it('still writes the key when a span map survives', () => {
+      const next = applyDocMutation(spanned(), {
+        type: 'removeWidget',
+        args: { widgetId: 'w2' },
+      });
+      // w1 was left the SOLE occupant of a row it shared, so its stale span is cleared too —
+      // assert on a case where a span genuinely survives instead.
+      expect(Object.hasOwn(next.pages['page-1'], 'widgetColSpans')).toBe(false);
+      const withSurvivor = applyDocMutation(spanned(), {
+        type: 'setWidgetColSpan',
+        args: { widgetId: 'w1', columns: 10, pageId: 'page-1', rowWidgetIds: ['w1', 'w2'] },
+      } as unknown as StateMutation);
+      expect(Object.hasOwn(withSurvivor.pages['page-1'], 'widgetColSpans')).toBe(true);
+      expect(withSurvivor.pages['page-1'].widgetColSpans).toEqual({ w1: 10, w2: 12 });
     });
   });
 
@@ -4223,6 +4407,61 @@ describe('applyMutation', () => {
       expect(next.widgets.w1.title).toBe('New title');
     });
 
+    // The REPLACE branch assigned the incoming widget with NO value comparison at all, so an
+    // at-least-once SSE re-delivery of the same remove+re-add bulk minted a fresh,
+    // value-identical widget object, flipped `widgetsChanged`, and pushed a phantom undo
+    // entry — the one add/update channel in this reducer that did not value-compare first.
+    it.each([
+      ['with widgetRows', true],
+      ['without widgetRows', false],
+    ])(
+      're-delivering an identical remove+re-add bulk %s returns the SAME doc (no phantom undo entry)',
+      (_label, withRows) => {
+        const state = makeDoc({
+          dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+          pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1'], ['w2']] } },
+          widgets: { w1: chartWidget('w1', 'Title'), w2: chartWidget('w2') },
+        });
+        const mutation = {
+          type: 'applyBulkUpdate',
+          args: {
+            removedWidgetIds: ['w1'],
+            // A distinct-but-value-identical widget object, exactly as `JSON.parse` of the
+            // re-delivered SSE frame produces.
+            addedWidgets: [chartWidget('w1', 'Title')],
+            updatedWidgets: [],
+            ...(withRows ? { widgetRows: [['w1'], ['w2']] } : {}),
+            activePageId: 'page-1',
+          },
+        } as StateMutation;
+        // First delivery applies (it genuinely replaces the definition)…
+        const first = applyDocMutation(state, mutation);
+        // …and the SECOND is a value-identical no-op, so the SAME doc reference comes back.
+        expect(applyDocMutation(first, mutation)).toBe(first);
+      },
+    );
+
+    it('a re-add that genuinely CHANGES the widget still applies (the comparison is not blanket)', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+        widgets: { w1: chartWidget('w1', 'Title') },
+      });
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: ['w1'],
+          addedWidgets: [
+            { ...chartWidget('w1', 'Title'), config: { chartType: 'line' } },
+          ] as unknown as StudioWidgetOf<'chart'>[],
+          updatedWidgets: [],
+          activePageId: 'page-1',
+        },
+      } as unknown as StateMutation);
+      expect(next).not.toBe(state);
+      expect(next.widgets.w1.config).toEqual({ chartType: 'line' });
+    });
+
     // L3: the replace path relied on the re-added id's ROW surviving the pre-strip, so that
     // `removeWidgetIds`' `stillReferenced` check would classify it as live. A widget in
     // `doc.widgets` but on NO page's rows has no row to survive — it was therefore treated
@@ -4721,6 +4960,85 @@ describe('applyMutation', () => {
       expect(next).toBe(state);
       expect(next.ai?.threads[0].name).toBe('Old1');
       expect(next.ai?.threads[0].updatedAt).toBeUndefined();
+    });
+
+    // The string-id rule, which `renameAIThread` was the one handler of fourteen to be
+    // missing: `args.threadId ?? state.ai.activeThreadId` accepts ANY non-nullish value, so
+    // it neither fell back to the active thread nor was screened for being a string.
+    //
+    // The case that actually distinguishes the two implementations is a non-string
+    // `threadId` that MATCHES a thread carrying the same non-string `id`: the old code
+    // renamed it, while `deserializeState`'s `ai.threads` screen DROPS any thread whose
+    // `id` is not a string. So the reducer used to write a rename onto a thread the very
+    // next load deletes — deferred data loss, exactly what the string-id rule exists to
+    // stop. (For every non-string `threadId` that matches nothing, both implementations
+    // no-op; that path is covered by the unknown-id test above.)
+    it('a non-string threadId never matches a thread carrying that same non-string id', () => {
+      // Built as a raw doc, not via the factory: `createDefaultStudioState` now screens its
+      // `doc` bag and would drop the malformed thread before the reducer ever saw it.
+      const state: StudioDoc = {
+        ...makeDoc(),
+        ai: {
+          activeThreadId: 't1',
+          threads: [
+            { id: 42, name: 'Junk', createdAt: '2024-01-01T00:00:00.000Z', messages: [] },
+            { id: 't1', name: 'Real', createdAt: '2024-01-01T00:00:00.000Z', messages: [] },
+          ],
+        },
+      } as unknown as StudioDoc;
+      let next!: StudioDoc;
+      expect(() => {
+        next = applyDocMutation(state, {
+          type: 'renameAIThread',
+          args: { name: 'Renamed', updatedAt: '2024-06-01T00:00:00.000Z', threadId: 42 },
+        } as unknown as StateMutation);
+      }).not.toThrow();
+      expect(next).toBe(state);
+      expect(next.ai?.threads[0].name).toBe('Junk');
+      expect(next.ai?.threads[1].name).toBe('Real');
+    });
+
+    it.each([
+      ['a boolean', true],
+      ['an object', { id: 't1' }],
+      ['an array', ['t1']],
+    ])('a %s threadId is a no-op and does NOT fall back to the active thread', (_label, id) => {
+      const state = makeDoc({
+        ai: {
+          activeThreadId: 't1',
+          threads: [
+            { id: 't1', name: 'Old1', createdAt: '2024-01-01T00:00:00.000Z', messages: [] },
+          ],
+        },
+      });
+      let next!: StudioDoc;
+      expect(() => {
+        next = applyDocMutation(state, {
+          type: 'renameAIThread',
+          args: { name: 'New1', updatedAt: '2024-06-01T00:00:00.000Z', threadId: id },
+        } as unknown as StateMutation);
+      }).not.toThrow();
+      expect(next).toBe(state);
+      expect(next.ai?.threads[0].name).toBe('Old1');
+    });
+
+    it('an explicit null threadId still falls back to the active thread (`??` parity)', () => {
+      // JSON has no `undefined`, so a producer that means "no explicit thread" spells it
+      // `null`. That must keep the legacy active-thread fallback, exactly as
+      // `resolveTargetPageId` treats a `null` `pageId`.
+      const state = makeDoc({
+        ai: {
+          activeThreadId: 't1',
+          threads: [
+            { id: 't1', name: 'Old1', createdAt: '2024-01-01T00:00:00.000Z', messages: [] },
+          ],
+        },
+      });
+      const next = applyDocMutation(state, {
+        type: 'renameAIThread',
+        args: { name: 'New1', updatedAt: '2024-06-01T00:00:00.000Z', threadId: null },
+      } as unknown as StateMutation);
+      expect(next.ai?.threads[0].name).toBe('New1');
     });
   });
 

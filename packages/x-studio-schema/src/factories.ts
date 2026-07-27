@@ -13,6 +13,7 @@ import type {
   StudioWidgetConfigForKind,
 } from './widgetTypes';
 import { CURRENT_SCHEMA_VERSION } from './stateTypes';
+import { screenDoc } from './docScreening';
 import type { StudioDoc, StudioRuntime, StudioSession, StudioState } from './stateTypes';
 import type { StateMutation, MutationEnvelope } from './aiTypes';
 
@@ -268,7 +269,24 @@ export function createDefaultStudioState(
     dataSources: {},
   };
 
-  const docOverrides = overrides?.doc;
+  // Screen the caller's `doc` bag through the SAME per-entry screens the persistence load
+  // boundary applies — see `docScreening.ts`. This factory is the third producer of a
+  // `StudioDoc`, and the only one that was unscreened, yet it is reachable straight from the
+  // public `Studio initialState` prop (`new StudioController(initialState)`): a filter with
+  // no `scope` threw inside `serializeDoc` on the first autosave and on every undo snapshot,
+  // a widget with `config: null` threw mid-reduce in `shallowRecordEqual`, and an
+  // `ai.threads: 'junk'` threw `map is not a function`. Only the fields the bag actually
+  // carries are touched, so the documented "an absent override keeps the factory default"
+  // merge contract is unchanged.
+  //
+  // Two of `deserializeState`'s options are deliberately NOT applied here: `cross-filter`/
+  // `interactive`-scoped filters are KEPT (they are session-flavoured and must not come off
+  // DISK, but an in-process caller legitimately builds live state carrying them), and the
+  // orphan page/widget anchor checks are skipped (a `pages`/`widgets` override is merged onto
+  // the factory defaults AFTER this runs, so a filter anchored to the default page would look
+  // like an orphan). `pages` itself is screened by `normalizePersistedPages`, which lives in
+  // `applyMutation.ts` and cannot be reached from here without an import cycle.
+  const docOverrides = screenDoc(overrides?.doc);
   const sessionOverrides = overrides?.session;
   const runtimeOverrides = overrides?.runtime;
 

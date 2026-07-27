@@ -27,11 +27,13 @@
  */
 import type { StateMutation } from './aiTypes';
 import type { StudioFilterScope } from './stateTypes';
-import { stripForeignFamilyKeys, validateConfigKeysForKind } from './configKeyValidation';
+import { validateConfigKeysForKind } from './configKeyValidation';
 import {
   isStudioChartType,
   isStudioFilterOperator,
   STUDIO_FILTER_OPERATORS,
+  WIDGET_STRING_FIELDS,
+  WIDGET_TITLE_MODE_FIELDS,
 } from './widgetTypeGuards';
 import { UNSAFE_KEYS, isSafeKey } from './unsafeKeys';
 import { isPlainRecord as isRecord } from './internalGuards';
@@ -304,22 +306,26 @@ function hasInvalidChartTypeInConfig(config: Record<string, unknown>): boolean {
  * the reducer never keys/iterates on, and deep-validating them here would drift on
  * every widget-config change for no safety gain.
  *
- * A chart config carrying keys from ANOTHER chart family is NORMALIZED rather than
- * rejected: `widget.config` is rewritten in place to its effective family's keys via
- * `stripForeignFamilyKeys` (`configKeyValidation.ts`). This is the one place this
- * validator rewrites its input, and it exists because a STORED chart config
- * legitimately retains keys authored under a previously-selected chartType
- * (retention-across-chartType-switch — see `StudioChartConfig`'s doc in
- * `widgetTypes.ts`; the persistence load boundary keeps them for the same reason). A
- * producer that ships a stored widget back through `addWidget`/
- * `applyBulkUpdate.addedWidgets` must not have the whole mutation dropped over a key
- * the user legitimately authored — the client's SSE handler only logs a rejection, so
- * the server's threaded state and the client's would silently diverge.
+ * A chart config carrying keys from ANOTHER chart family is PRESERVED — neither rejected
+ * nor stripped. Retention-across-chartType-switch is a documented, permanent feature of
+ * `StudioChartConfig` (see its doc in `widgetTypes.ts`): a user who flips a bar chart to a
+ * gauge and back must get their `xField`/`yAggregation` back, so a stored chart config
+ * legitimately carries keys authored under a previously-selected chartType.
  *
- * "Wrong family" is therefore soft; "not a chart key at all" stays fatal — the
- * kind-level `validateConfigKeysForKind` check runs first and rejects any key outside
- * the union of every chart family, so only keys that ARE valid for some chart family
- * ever reach the strip.
+ * This validator used to REWRITE `widget.config` in place to its effective family's keys
+ * (via `stripForeignFamilyKeys`), which put three boundaries in disagreement about one
+ * `addWidget` payload: `deserializeState` PRESERVES foreign-family keys, `applyMutation`'s
+ * config merge PRESERVES them, and only the wire boundary deleted them. Round-tripping a
+ * stored widget through `addWidget`/`applyBulkUpdate.addedWidgets` (duplicating it, moving
+ * it across dashboards) therefore silently destroyed exactly the retained keys the feature
+ * exists to keep. Preserving is what makes all three agree, and it is the semantics the
+ * other two — and the feature itself — already had. Latent rather than live: the only
+ * current producer (`buildWidgetFromArgs` in `@mui/x-studio-ai-middleware`) rejects a
+ * foreign-family key before the strip could fire.
+ *
+ * "Not a chart key at all" stays fatal — the kind-level `validateConfigKeysForKind` check
+ * above rejects any key outside the union of every chart family — as does an explicit
+ * `chartType` that is not a real `StudioChartType`. Only the FAMILY distinction is soft.
  *
  * The whole widget record is bounded (see `isBoundedValue`) as the last step: unknown
  * extra own keys are tolerated for forward compatibility and the reducer installs the
@@ -396,20 +402,15 @@ function validateWidget(widget: unknown, path: string): string | null {
   if (invalidConfigKeys.length > 0) {
     return `${path}.config carries key(s) not valid for a '${widget.kind}' widget: ${invalidConfigKeys.join(', ')}`;
   }
-  // Second, finer-grained pass for chart widgets, resolving the chart FAMILY from the
-  // config's own `chartType`. An explicit `chartType` that is not a real
-  // `StudioChartType` is fatal — there are no custom chart types. An ABSENT `chartType`
-  // resolves to `'bar'`, the same `?? 'bar'` fallback `resolveChartType` and the
-  // middleware's `buildWidgetFromArgs` apply, so the two boundaries agree on which
-  // family an empty/`chartType`-less config belongs to.
+  // Membership-check an explicit `chartType` for chart widgets: it is fatal — there are no
+  // custom chart types, and an unknown one wedges every later AI `update_widget` on the
+  // widget (the middleware hard-errors on an unknown stored chartType). An ABSENT
+  // `chartType` is legal and resolves to `'bar'` downstream (`resolveChartType`).
   //
-  // Keys belonging to a DIFFERENT family (e.g. a gauge keeping a bar-era `xField`) are
-  // STRIPPED, not rejected — see this function's doc comment for why a stored,
-  // user-authored config must survive a round trip through this boundary. The strip is
-  // shallow and key-presence-based, so it only ever removes whole top-level config keys.
-  // (An `updateWidget` config PATCH is a different case: it carries no `kind` and no full
-  // widget to resolve a family from, so it is intentionally NOT family-checked at all —
-  // see `hasInvalidChartTypeInConfig`'s membership-only check for that channel.)
+  // Keys belonging to a DIFFERENT chart family (e.g. a gauge keeping a bar-era `xField`)
+  // are deliberately left ALONE — see this function's doc comment for why. This validator
+  // therefore never rewrites its input, so a config that crosses it keeps its object
+  // identity and the reducer's reference-equality no-op contract is unaffected.
   if (widget.kind === 'chart') {
     const chartTypeValue = widget.config.chartType;
     if (
@@ -417,15 +418,6 @@ function validateWidget(widget: unknown, path: string): string | null {
       (!isString(chartTypeValue) || !isStudioChartType(chartTypeValue))
     ) {
       return `${path}.config.chartType must be one of the known chart types`;
-    }
-    const effectiveChartType = chartTypeValue === undefined ? 'bar' : chartTypeValue;
-    const familyConfig = stripForeignFamilyKeys(widget.config, effectiveChartType);
-    // Only rewrite when something was actually dropped, so a config that needs no
-    // normalization keeps its object identity (this gate otherwise returns its input
-    // untouched, and the reducer's own reference-equality no-op contract depends on
-    // value-identical configs staying value-identical).
-    if (Object.keys(familyConfig).length !== Object.keys(widget.config).length) {
-      widget.config = familyConfig;
     }
   }
   // Bound the WHOLE widget record last (see `isBoundedValue`). The fields above are
@@ -692,27 +684,23 @@ const MUTATION_ARG_VALIDATORS: { [M in StateMutation as M['type']]: MutationArgV
       if (Object.hasOwn(args.changes, 'id')) {
         return 'updateWidget.args.changes must not carry an id (it would desync the widget from its map key)';
       }
-      if (!isOptionalString(args.changes.title)) {
-        return 'updateWidget.args.changes.title must be a string when present';
+      // Every string-valued and title-mode-valued `StudioWidgetOf` field a wholesale
+      // `changes` merge can carry, iterated from the COMPILE-LOCKED partitions in
+      // `widgetTypeGuards.ts` rather than re-listed here. Without these checks a junk value
+      // (e.g. `titleMode: 42`) passes the wire gate and persists into a field the client's
+      // auto-title logic branches on; without the lock, a new widget field would silently
+      // get no wire check at all. (`id` is rejected outright above, and `config` is handled
+      // below — `WIDGET_OTHER_FIELDS` is exactly those two.)
+      const changesRecord = args.changes as Record<string, unknown>;
+      for (const field of WIDGET_STRING_FIELDS) {
+        if (!isOptionalString(changesRecord[field])) {
+          return `updateWidget.args.changes.${field} must be a string when present`;
+        }
       }
-      if (!isOptionalString(args.changes.subtitle)) {
-        return 'updateWidget.args.changes.subtitle must be a string when present';
-      }
-      if (!isOptionalString(args.changes.sourceId)) {
-        return 'updateWidget.args.changes.sourceId must be a string when present';
-      }
-      if (!isOptionalString(args.changes.kind)) {
-        return 'updateWidget.args.changes.kind must be a string when present';
-      }
-      // `titleMode`/`subtitleMode` are the only other `StudioWidget` fields a wholesale
-      // `changes` merge can carry; without these checks a junk value (e.g.
-      // `titleMode: 42`) passes the wire gate and persists into a field the client's
-      // auto-title logic branches on.
-      if (!isOptionalTitleMode(args.changes.titleMode)) {
-        return "updateWidget.args.changes.titleMode must be 'auto' or 'manual' when present";
-      }
-      if (!isOptionalTitleMode(args.changes.subtitleMode)) {
-        return "updateWidget.args.changes.subtitleMode must be 'auto' or 'manual' when present";
+      for (const field of WIDGET_TITLE_MODE_FIELDS) {
+        if (!isOptionalTitleMode(changesRecord[field])) {
+          return `updateWidget.args.changes.${field} must be 'auto' or 'manual' when present`;
+        }
       }
       if (args.changes.config !== undefined) {
         if (!isRecord(args.changes.config)) {

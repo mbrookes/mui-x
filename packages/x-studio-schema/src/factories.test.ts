@@ -11,6 +11,8 @@ import {
   createMutationEnvelope,
   normalizeChartSeries,
 } from './factories';
+import { applyDocMutation } from './applyMutation';
+import { serializeDoc } from './statePersistence';
 
 // The per-kind default title/config below is transcribed directly from the current
 // `BUILTIN_WIDGET_DEFAULTS` table in `factories.ts` (it is a file-private const, not
@@ -364,5 +366,140 @@ describe('createDefaultStudioState', () => {
     // synthesized page rather than left dangling.
     expect(Object.keys(state.doc.pages)).toEqual(['page-1']);
     expect(state.doc.dashboard.activePageId).toBe('page-1');
+  });
+});
+
+// `createDefaultStudioState` is the third producer of a `StudioDoc`, and it was the only
+// unscreened one — yet its `overrides.doc` bag is reachable straight from the public
+// `Studio initialState` prop (`new StudioController(initialState)`). It now runs the SAME
+// per-entry screens the persistence load boundary applies (`docScreening.ts`).
+describe('createDefaultStudioState screens its doc override', () => {
+  // The three defects the review traced end-to-end, each asserted at the point it used to
+  // throw rather than merely on the screened shape.
+  it('drops a filter with no scope (used to throw in serializeDoc on the first autosave)', () => {
+    const state = createDefaultStudioState({
+      doc: { filters: [{ id: 'f1', field: 'x', operator: 'equals', value: 1 }] as any },
+    });
+    expect(state.doc.filters).toEqual([]);
+    // The crash site: `serializeDoc` reads `f.scope.kind` with no optional chaining, on
+    // every autosave AND every undo snapshot.
+    expect(() => serializeDoc(state.doc)).not.toThrow();
+  });
+
+  it('coerces a widget config: null to {} (used to throw mid-reduce in shallowRecordEqual)', () => {
+    const state = createDefaultStudioState({
+      doc: { widgets: { w1: { id: 'w1', kind: 'chart', title: 'T', config: null } } as any },
+    });
+    expect(state.doc.widgets.w1.config).toEqual({});
+    // The crash site: the next config-touching mutation does
+    // `shallowRecordEqual(existing.config, …)`, which throws on `null`.
+    expect(() =>
+      applyDocMutation(state.doc, {
+        type: 'updateWidget',
+        args: { widgetId: 'w1', changes: { config: { chartType: 'line' } } },
+      } as any),
+    ).not.toThrow();
+  });
+
+  it('drops a junk ai.threads (used to throw `map is not a function` in renameAIThread)', () => {
+    const state = createDefaultStudioState({ doc: { ai: { threads: 'junk' } as any } });
+    expect(state.doc.ai).toBeUndefined();
+    expect(() =>
+      applyDocMutation(state.doc, {
+        type: 'renameAIThread',
+        args: { name: 'X', updatedAt: '2024-01-01T00:00:00.000Z', threadId: 't1' },
+      } as any),
+    ).not.toThrow();
+  });
+
+  it('drops junk relationships / expressionFields / filterPresets entries', () => {
+    const state = createDefaultStudioState({
+      doc: {
+        relationships: [null, { id: 'r1' }] as any,
+        expressionFields: [{ id: 'e1', sourceId: 's', label: 'L' }] as any,
+        filterPresets: [{ name: 'no id', filters: [] }] as any,
+      },
+    });
+    expect(state.doc.relationships).toEqual([]);
+    expect(state.doc.expressionFields).toEqual([]);
+    expect(state.doc.filterPresets).toEqual([]);
+  });
+
+  it('coerces a junk dashboard title/id to the factory fallbacks', () => {
+    const state = createDefaultStudioState({ doc: { dashboard: { title: 42, id: null } as any } });
+    expect(state.doc.dashboard.title).toBe('Untitled Dashboard');
+    expect(state.doc.dashboard.id).toBe('dashboard-1');
+  });
+
+  // The two screens the factory deliberately does NOT apply, because it produces LIVE
+  // state rather than reading from disk. Pinned so a future "make it match
+  // `deserializeState` exactly" change has to argue with a test.
+  it('KEEPS cross-filter and interactive scoped filters (they are live state, not disk state)', () => {
+    const state = createDefaultStudioState({
+      doc: {
+        widgets: { w1: { id: 'w1', kind: 'chart', title: 'T', config: {} } } as any,
+        filters: [
+          {
+            id: 'xf',
+            field: 'x',
+            operator: 'equals',
+            value: 1,
+            scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'page-1' },
+          },
+          {
+            id: 'ia',
+            field: 'y',
+            operator: 'equals',
+            value: 2,
+            scope: { kind: 'interactive', sourceWidgetId: 'w1', pageId: 'page-1' },
+          },
+        ] as any,
+      },
+    });
+    expect(state.doc.filters.map((f) => f.id)).toEqual(['xf', 'ia']);
+  });
+
+  it('KEEPS a filter anchored to the default page (no orphan-anchor check)', () => {
+    // The `pages`/`widgets` overrides merge onto the defaults AFTER the screen runs, so an
+    // anchor check here would wrongly drop a filter pointing at the default `page-1`.
+    const state = createDefaultStudioState({
+      doc: {
+        filters: [
+          {
+            id: 'f1',
+            field: 'x',
+            operator: 'equals',
+            value: 1,
+            scope: { kind: 'page', pageId: 'page-1' },
+          },
+        ] as any,
+      },
+    });
+    expect(state.doc.filters.map((f) => f.id)).toEqual(['f1']);
+  });
+
+  it('leaves an absent override field at its factory default (the merge contract is unchanged)', () => {
+    // The screen touches only the keys the bag actually carries, so a bag naming just
+    // `dashboard` must not stamp `filterPresets: []` / `ai: undefined` onto the doc.
+    const state = createDefaultStudioState({ doc: { dashboard: { title: 'Mine' } as any } });
+    expect(Object.hasOwn(state.doc, 'filterPresets')).toBe(false);
+    expect(Object.hasOwn(state.doc, 'ai')).toBe(false);
+    expect(state.doc.filters).toEqual([]);
+    expect(state.doc.dashboard.title).toBe('Mine');
+  });
+
+  it('leaves a well-formed doc override untouched', () => {
+    const filters = [
+      {
+        id: 'f1',
+        field: 'x',
+        operator: 'equals' as const,
+        value: 1,
+        scope: { kind: 'page' as const, pageId: 'page-1' },
+      },
+    ];
+    const state = createDefaultStudioState({ doc: { filters } });
+    // Per-entry reference stability: a clean filter keeps its object identity.
+    expect(state.doc.filters[0]).toBe(filters[0]);
   });
 });

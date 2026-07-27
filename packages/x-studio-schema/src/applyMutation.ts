@@ -22,7 +22,14 @@ import { normalizeChartSeries } from './factories';
 import { isSafeKey } from './unsafeKeys';
 import { hasUnsafeOwnKeys, isStringArray, isValidFilterScope } from './parseStateMutation';
 import { getAllowedConfigKeys } from './configKeyValidation';
-import { isStudioFilterOperator } from './widgetTypeGuards';
+import {
+  isStudioFilterOperator,
+  REQUIRED_STUDIO_WIDGET_FIELDS,
+  STUDIO_WIDGET_FIELDS,
+} from './widgetTypeGuards';
+// The optional-scalar screen is shared with the persistence load boundary — see
+// `docScreening.ts`, which owns every per-entry screen a `StudioDoc` must pass.
+import { screenOptionalWidgetScalars } from './docScreening';
 // The three guards the wire boundary (`parseStateMutation.ts`), the load boundary
 // (`statePersistence.ts`) and this reducer all need, kept in `internalGuards.ts` as ONE
 // implementation each so the three trust boundaries cannot drift apart:
@@ -131,6 +138,25 @@ function resolveTargetPageId(doc: StudioDoc, pageId: unknown): string | undefine
 }
 
 /**
+ * The `ai.threads` counterpart of {@link resolveTargetPageId}, with the identical
+ * three-state shape: nullish ⇒ the applying side's active thread (the legacy
+ * threadId-less fallback), a `string` ⇒ that thread, anything else ⇒ `undefined` so the
+ * caller no-ops.
+ *
+ * `renameAIThread` was the ONE handler of the fourteen missing the string-id rule: its
+ * `args.threadId ?? state.ai.activeThreadId` accepts ANY non-nullish value, so a
+ * `threadId: 42` neither fell back to the active thread nor matched any thread's string
+ * `id` — a silent no-op that looked like a successful rename to the producer. Routing it
+ * through this resolver makes the non-string case an explicit, documented no-op instead.
+ */
+function resolveTargetThreadId(ai: StudioDoc['ai'], threadId: unknown): string | undefined {
+  if (threadId === undefined || threadId === null) {
+    return ai?.activeThreadId;
+  }
+  return typeof threadId === 'string' ? threadId : undefined;
+}
+
+/**
  * Value-equality for two `widgetRows` matrices. Used by the layout handlers to honor
  * the reducer's reference-equality no-op contract: rebuilding a page with rows that
  * are element-for-element identical to the current ones must return the SAME doc so
@@ -181,6 +207,52 @@ function shallowRecordEqual(a: Record<string, unknown>, b: Record<string, unknow
   }
   for (const key of keysA) {
     if (!Object.hasOwn(b, key) || a[key] !== b[key]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Value-equality for two whole widgets: every own top-level key compared by `===`, except
+ * `config`, which is compared with the shared {@link shallowRecordEqual} core (the config
+ * bag is rebuilt by `coerceWidgetConfig`/`normalizeConfigChartSeries` on every add, so it
+ * is never reference-equal even when nothing changed).
+ *
+ * Used by `applyBulkUpdate`'s REPLACE branch to honor the reducer's reference-equality
+ * no-op contract. That branch previously assigned the incoming widget with NO comparison
+ * at all, so an at-least-once SSE re-delivery of a remove+re-add bulk flipped
+ * `widgetsChanged` and pushed a phantom undo entry — the one add/update channel in this
+ * file that did not value-compare first (`addWidget`'s idempotency guard, and the
+ * `updatedWidgets` loop's per-field comparisons, both do).
+ *
+ * Shallow by design, matching `shallowRecordEqual`'s own contract: a re-delivery carries a
+ * value-identical payload whose nested values are re-created by `JSON.parse`, so a nested
+ * object compares unequal and the widget is (conservatively) treated as changed.
+ */
+function widgetsValueEqual(a: StudioWidget, b: StudioWidget): boolean {
+  if (a === b) {
+    return true;
+  }
+  const aRecord = a as unknown as Record<string, unknown>;
+  const bRecord = b as unknown as Record<string, unknown>;
+  const keysA = Object.keys(aRecord);
+  if (keysA.length !== Object.keys(bRecord).length) {
+    return false;
+  }
+  for (const key of keysA) {
+    if (!Object.hasOwn(bRecord, key)) {
+      return false;
+    }
+    if (key === 'config') {
+      if (
+        !isPlainRecord(aRecord.config) ||
+        !isPlainRecord(bRecord.config) ||
+        !shallowRecordEqual(aRecord.config, bRecord.config)
+      ) {
+        return false;
+      }
+    } else if (aRecord[key] !== bRecord[key]) {
       return false;
     }
   }
@@ -333,40 +405,6 @@ function coerceWidgetConfig(widget: StudioWidget): StudioWidget {
   return safeConfig === config ? widget : ({ ...widget, config: safeConfig } as StudioWidget);
 }
 
-// Screen the four OPTIONAL widget scalars on the ADD channels (`addWidget`,
-// `applyBulkUpdate.addedWidgets`): delete a non-string `subtitle`/`sourceId` and a
-// non-`'auto'|'manual'` `titleMode`/`subtitleMode`.
-//
-// The wire boundary's `validateWidget` (`parseStateMutation.ts`) membership-checks all four
-// — `subtitle`/`sourceId` via `isOptionalString`, `titleMode`/`subtitleMode` via
-// `isOptionalTitleMode` — but a server-built add bypassing the parser reaches these handlers
-// directly, and the load boundary would then drop the offending KEY on the next load: the
-// value is discarded either way, just deferred. Repairing at write time keeps the two
-// boundaries agreeing. Strips the KEY rather than sinking the whole widget (these fields are
-// optional, so an invalid value degrades to the field's default) — the same convention
-// `deserializeState` uses. Reference-stable when all four are valid or absent, the only
-// shape the wire boundary itself lets through.
-function screenOptionalWidgetScalars(widget: StudioWidget): StudioWidget {
-  let base = widget;
-  for (const modeKey of ['titleMode', 'subtitleMode'] as const) {
-    const modeValue = (base as unknown as Record<string, unknown>)[modeKey];
-    if (modeValue !== undefined && modeValue !== 'auto' && modeValue !== 'manual') {
-      const nextBase = { ...base };
-      delete (nextBase as unknown as Record<string, unknown>)[modeKey];
-      base = nextBase as StudioWidget;
-    }
-  }
-  for (const stringKey of ['subtitle', 'sourceId'] as const) {
-    const stringValue = (base as unknown as Record<string, unknown>)[stringKey];
-    if (stringValue !== undefined && typeof stringValue !== 'string') {
-      const nextBase = { ...base };
-      delete (nextBase as unknown as Record<string, unknown>)[stringKey];
-      base = nextBase as StudioWidget;
-    }
-  }
-  return base;
-}
-
 /**
  * Will `applyBulkUpdate`'s insert loop actually install this `addedWidgets` entry?
  *
@@ -437,16 +475,26 @@ function dropWidgetScopedFilters(
  *
  * A `Set` (not an array/object literal) so an untrusted key can never resolve up a
  * prototype chain.
+ *
+ * DERIVED from the compile-locked `STUDIO_WIDGET_FIELDS` (`widgetTypeGuards.ts`) rather
+ * than re-listed by hand. Re-listing is what made this the sharpest of the five unlocked
+ * `StudioWidgetOf` enumerations: adding a field to the interface compiled cleanly while
+ * `updateWidget` silently no-opped on it forever (the `.has(key)` test below is `false`),
+ * with nothing failing to compile and no runtime error to notice.
  */
-const MERGEABLE_WIDGET_CHANGE_KEYS: ReadonlySet<string> = new Set([
-  'kind',
-  'title',
-  'titleMode',
-  'subtitle',
-  'subtitleMode',
-  'sourceId',
-  'config',
-]);
+const MERGEABLE_WIDGET_CHANGE_KEYS: ReadonlySet<string> = new Set<string>(
+  STUDIO_WIDGET_FIELDS.filter((field) => field !== 'id'),
+);
+
+/**
+ * The REQUIRED `StudioWidget` fields, as a `Set` for the `unsetFields` denylist — the
+ * mirror image of {@link MERGEABLE_WIDGET_CHANGE_KEYS}, derived from the SAME compile-locked
+ * tuples so the two can never disagree about which fields exist. A `Set` (not a chain of
+ * `!==` comparisons) so an untrusted key can never resolve up a prototype chain.
+ */
+const REQUIRED_WIDGET_FIELD_SET: ReadonlySet<string> = new Set<string>(
+  REQUIRED_STUDIO_WIDGET_FIELDS,
+);
 
 /**
  * Drop every `dependsOn` id that no longer names a surviving filter.
@@ -522,6 +570,36 @@ function pruneDependsOnAgainstSelf(filters: StudioFilterState[]): StudioFilterSt
  * target still named on some page's rows would be classified as still-live and silently
  * survive.
  */
+/**
+ * Rebuild a page with `overrides` applied and its `widgetColSpans` set to `spans` — or,
+ * when `spans` is `undefined`, with the KEY DELETED rather than written as an explicit
+ * `undefined`.
+ *
+ * The ONE implementation of that convention for `widgetColSpans`, shared by every site
+ * that installs a span map (`stripWidgetIdsFromPages`, `removeWidgetIds`,
+ * `normalizePersistedPages`, `setWidgetLayout`, `setWidgetColSpan`, `applyBulkUpdate`).
+ * `removeSpanEntries` and `enforceLayoutColSpans` both correctly COLLAPSE an emptied map
+ * to `undefined`, but their callers then re-materialized it as an own key via
+ * `{ ...page, widgetColSpans: nextSpans }` — contradicting this file's own stated rule
+ * (see {@link pruneDependsOn}: "'Drops' means the KEY is `delete`d … not spread as an
+ * explicit `undefined`"), so `Object.keys(page)` and `'widgetColSpans' in page` both still
+ * reported a span map on a page that has none. Nothing observes the difference today only
+ * because `JSON.stringify` erases it at the persistence boundary.
+ */
+function withSpans(
+  page: StudioDoc['pages'][string],
+  spans: Record<string, number> | undefined,
+  overrides?: Partial<StudioDoc['pages'][string]>,
+): StudioDoc['pages'][string] {
+  const next = { ...page, ...overrides };
+  if (spans === undefined) {
+    delete next.widgetColSpans;
+  } else {
+    next.widgetColSpans = spans;
+  }
+  return next;
+}
+
 function stripWidgetIdsFromPages(
   pages: StudioDoc['pages'],
   idsToRemove: ReadonlySet<string>,
@@ -557,7 +635,7 @@ function stripWidgetIdsFromPages(
       orphanedSoleOccupants.length > 0
         ? removeSpanEntries(page.widgetColSpans, orphanedSoleOccupants)
         : page.widgetColSpans;
-    return [pid, { ...page, widgetRows: newRows, widgetColSpans: nextSpans }] as const;
+    return [pid, withSpans(page, nextSpans, { widgetRows: newRows })] as const;
   });
   return anyPageChanged ? (Object.fromEntries(nextEntries) as StudioDoc['pages']) : pages;
 }
@@ -1010,13 +1088,11 @@ export function normalizePersistedPages(
     ) {
       nextEntries.push([
         pid,
-        {
-          ...page,
+        withSpans(page, nextSpans, {
           id: pid,
           title: safeTitle,
           widgetRows: sanitizedRows,
-          widgetColSpans: nextSpans,
-        },
+        }),
       ]);
       pagesChanged = true;
     } else {
@@ -1121,7 +1197,7 @@ function removeWidgetIds(
   for (const [pid, p] of Object.entries(pages)) {
     const prunedSpans = removeSpanEntries(p.widgetColSpans, removedIds);
     if (prunedSpans !== p.widgetColSpans) {
-      nextEntries.push([pid, { ...p, widgetColSpans: prunedSpans }]);
+      nextEntries.push([pid, withSpans(p, prunedSpans)]);
       pagesChanged = true;
     } else {
       nextEntries.push([pid, p]);
@@ -1533,14 +1609,13 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         // impossible comparison. The comparisons ARE necessary at runtime: a value
         // arriving over the wire is not type-checked, so the denylist is load-bearing
         // for an untrusted payload that names one of those fields despite the type.
+        //
+        // The denylist is `REQUIRED_STUDIO_WIDGET_FIELDS` (`widgetTypeGuards.ts`), DERIVED
+        // as `STUDIO_WIDGET_FIELDS` minus `OPTIONAL_STUDIO_WIDGET_FIELDS` and compile-locked
+        // for completeness, rather than the four names re-spelled here: a field that becomes
+        // required must not silently stay unsettable.
         for (const key of unsetFields as string[]) {
-          if (
-            key !== 'id' &&
-            key !== 'config' &&
-            key !== 'kind' &&
-            key !== 'title' &&
-            Object.hasOwn(nextWidget, key)
-          ) {
+          if (!REQUIRED_WIDGET_FIELD_SET.has(key) && Object.hasOwn(nextWidget, key)) {
             delete nextWidget[key];
             changedWidget = true;
           }
@@ -1672,7 +1747,7 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       }
       const nextPages = {
         ...state.pages,
-        [targetPageId]: { ...targetPage, widgetRows: sanitizedRows, widgetColSpans: nextSpans },
+        [targetPageId]: withSpans(targetPage, nextSpans, { widgetRows: sanitizedRows }),
       };
       // Re-check per-page rank-filter uniqueness against the NEW placement: placing a
       // widget whose `widget`-scoped rank filter previously resolved to nothing can drop it
@@ -1775,10 +1850,7 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         ...state,
         pages: {
           ...state.pages,
-          [targetPageId]: {
-            ...targetPage,
-            widgetColSpans: finalSpans,
-          },
+          [targetPageId]: withSpans(targetPage, finalSpans),
         },
       };
     },
@@ -2407,11 +2479,9 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         if (layoutChanged) {
           layoutPages = {
             ...layoutPages,
-            [activePageId]: {
-              ...page,
+            [activePageId]: withSpans(page, normalizedActiveSpans, {
               widgetRows: sanitizedRows,
-              widgetColSpans: normalizedActiveSpans,
-            },
+            }),
           };
         }
       }
@@ -2493,10 +2563,20 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         // Normalize the deprecated `seriesType` alias on write (reference-stable when
         // already canonical), so a bulk-added widget matches the load-boundary shape.
         const normalizedConfig = normalizeConfigChartSeries(safeWidget.config);
-        nextWidgets[widget.id] =
+        const nextWidget =
           normalizedConfig === safeWidget.config
             ? safeWidget
             : ({ ...safeWidget, config: normalizedConfig } as StudioWidget);
+        // Value-compare before installing on the REPLACE path, mirroring the
+        // `updatedWidgets` loop below (and every other channel in this file): the widget
+        // is already present, so an at-least-once SSE re-delivery of the same remove+re-add
+        // bulk would otherwise assign a fresh, value-identical object, flip `widgetsChanged`
+        // and push a phantom undo entry. A genuinely NEW insert has nothing to compare
+        // against and always installs.
+        if (alreadyPresent && widgetsValueEqual(nextWidgets[widget.id], nextWidget)) {
+          continue;
+        }
+        nextWidgets[widget.id] = nextWidget;
         widgetsChanged = true;
         // Only a genuinely NEW entry is a candidate for the default row-placement step
         // below; a replace already has a preserved placement.
@@ -2672,7 +2752,11 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // active thread only for legacy payloads. Targeting an explicit id keeps the
       // rename on the thread the request belongs to even if the user switched
       // threads while the model was running.
-      const targetThreadId = args.threadId ?? state.ai.activeThreadId;
+      //
+      // Resolved through the shared helper so a NON-STRING explicit `threadId` no-ops
+      // rather than being compared against every thread's string `id` (string-id rule),
+      // exactly as `resolveTargetPageId` does for the three page-targeting handlers.
+      const targetThreadId = resolveTargetThreadId(state.ai, args.threadId);
       if (!targetThreadId) {
         return state;
       }

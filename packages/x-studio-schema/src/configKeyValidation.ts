@@ -520,18 +520,20 @@ export function validateChartConfigKeysForType(
  * effective family (per {@link getAllowedChartConfigKeys}); any key belonging to a
  * different chart family is dropped.
  *
- * WHY THIS EXISTS: the write-side full-widget wire check (`parseStateMutation.ts`'s
- * `validateWidget`) is STATELESS and would otherwise reject any full widget whose config
- * carries a key outside its `chartType`'s family. A STORED chart config legitimately
- * retains keys authored under a previously-selected chartType
- * (retention-across-chartType-switch — see `StudioChartConfig`'s doc in `widgetTypes.ts`),
- * so round-tripping a stored widget through `addWidget`/`applyBulkUpdate.addedWidgets`
- * (duplicating it, moving it across dashboards) would fail wholesale.
+ * NOT USED BY ANY TRUST BOUNDARY IN THIS PACKAGE, deliberately. `parseStateMutation.ts`'s
+ * `validateWidget` used to call it to normalize an `addWidget`/`applyBulkUpdate.addedWidgets`
+ * payload in place, which made the wire boundary the ONE place a foreign-family key was
+ * deleted: `deserializeState` preserves such keys, and so does `applyMutation`'s config
+ * merge. That disagreement silently destroyed exactly the keys
+ * retention-across-chartType-switch exists to keep (see `StudioChartConfig`'s doc in
+ * `widgetTypes.ts`) whenever a stored widget was round-tripped through the wire — duplicated,
+ * or moved across dashboards. All three boundaries now PRESERVE.
  *
- * `validateWidget` calls this directly for exactly that reason: foreign-family keys are
- * STRIPPED there, not rejected, and this is the one implementation of that strip. It
- * assigns back only when a key was actually dropped, so a clean config keeps its object
- * identity. Shallow, key-presence-based, mirroring the validators above.
+ * It stays exported as a public utility for the opposite intent: a host or tool that wants a
+ * config REDUCED to one family (a "reset to this chart type's keys" affordance, an export
+ * that should not carry dormant keys) has an implementation to call rather than hand-rolling
+ * one that drifts from `getAllowedChartConfigKeys`. Shallow and key-presence-based, mirroring
+ * the validators above.
  */
 export function stripForeignFamilyKeys(
   config: Record<string, unknown>,

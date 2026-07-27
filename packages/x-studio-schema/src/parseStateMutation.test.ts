@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { createDefaultStudioState } from '@mui/x-studio-schema';
 import { parseStateMutation, PARSEABLE_MUTATION_TYPES } from './parseStateMutation';
-import { applyMutation, MUTATION_TYPES } from './applyMutation';
+import { applyDocMutation, applyMutation, MUTATION_TYPES } from './applyMutation';
+import { deserializeState, serializeDoc } from './statePersistence';
 import type { StateMutation } from './aiTypes';
 import type { StudioState } from './stateTypes';
 
@@ -782,31 +783,32 @@ describe('parseStateMutation — per-kind config-key validation (fail-closed)', 
     expect(result.ok).toBe(false);
   });
 
-  // A chart config's foreign-FAMILY keys are stripped, not fatal. A stored chart config
-  // legitimately retains keys authored under a previously-selected chartType (see
-  // `StudioChartConfig` in `widgetTypes.ts`, and the load boundary, which keeps them), so
-  // rejecting the whole mutation would drop a user-authored widget — and the client's SSE
-  // handler only `console.error`s a rejection, silently diverging from the server's state.
-  it('strips a cross-family key from an addWidget chart config instead of rejecting it', () => {
-    // `sankeyTargetField` is a sankey-only key; on a gauge chart it is dropped. The strip
-    // rewrites `widget.config` on the payload itself, which is the object the gate hands
-    // back on success, so asserting on the input reads the normalized result.
-    const widget = {
-      id: 'w',
-      kind: 'chart',
-      title: 'T',
-      config: { chartType: 'gauge', gaugeMin: 0, sankeyTargetField: 'to' } as Record<
-        string,
-        unknown
-      >,
+  // A chart config's foreign-FAMILY keys are PRESERVED — neither rejected nor stripped.
+  // Retention-across-chartType-switch is a documented permanent feature (see
+  // `StudioChartConfig` in `widgetTypes.ts`), and both of the OTHER boundaries that see a
+  // whole widget keep such keys: `deserializeState`'s widget screen and `applyMutation`'s
+  // config merge. The wire boundary used to be the one place they were deleted, so
+  // round-tripping a stored widget through it (duplicating the widget, moving it across
+  // dashboards) destroyed exactly the keys the feature exists to keep.
+  it('preserves a cross-family key on an addWidget chart config', () => {
+    // `sankeyTargetField` is a sankey-only key; on a gauge chart it is dormant, not
+    // invalid. The gate no longer rewrites `widget.config`, so the payload is untouched.
+    const config: Record<string, unknown> = {
+      chartType: 'gauge',
+      gaugeMin: 0,
+      sankeyTargetField: 'to',
     };
+    const widget = { id: 'w', kind: 'chart', title: 'T', config };
     expect(parseStateMutation({ type: 'addWidget', args: { widget } }).ok).toBe(true);
-    expect(widget.config).toEqual({ chartType: 'gauge', gaugeMin: 0 });
+    expect(widget.config).toEqual({ chartType: 'gauge', gaugeMin: 0, sankeyTargetField: 'to' });
+    // Object identity too: the validator never rewrites its input, so a value-identical
+    // config still reaches the reducer's reference-equality no-op path.
+    expect(widget.config).toBe(config);
   });
 
-  // The exact round trip the strip exists for: a bar chart switched to a gauge via
-  // `updateWidget` keeps its bar-era `xField` in storage by design, and re-submitting that
-  // STORED widget must survive the boundary rather than being rejected wholesale.
+  // The exact round trip the retention feature exists for: a bar chart switched to a gauge
+  // via `updateWidget` keeps its bar-era `xField` in storage by design, and re-submitting
+  // that STORED widget must come back out with the key intact.
   it('accepts a stored chart widget whose config retains keys from a previous chartType', () => {
     const widget = {
       id: 'w',
@@ -815,11 +817,11 @@ describe('parseStateMutation — per-kind config-key validation (fail-closed)', 
       config: { chartType: 'gauge', xField: 'x', gaugeMax: 10 } as Record<string, unknown>,
     };
     expect(parseStateMutation({ type: 'addWidget', args: { widget } }).ok).toBe(true);
-    expect(widget.config).toEqual({ chartType: 'gauge', gaugeMax: 10 });
+    expect(widget.config).toEqual({ chartType: 'gauge', xField: 'x', gaugeMax: 10 });
   });
 
   // Only WRONG-FAMILY keys are soft. A key belonging to no chart family at all is still
-  // rejected by the kind-level check, which runs before the strip.
+  // rejected by the kind-level check.
   it('still rejects an addWidget chart config key that belongs to no chart family', () => {
     const result = parseStateMutation({
       type: 'addWidget',
@@ -890,10 +892,10 @@ describe('parseStateMutation — per-kind config-key validation (fail-closed)', 
     ).toBe(true);
   });
 
-  // A config with no `chartType` resolves to the bar family (the same `?? 'bar'` fallback
-  // `resolveChartType` and the middleware's `buildWidgetFromArgs` apply), so a
-  // bar-incompatible key is stripped against BAR's key set rather than left in place.
-  it('strips a cross-family key from a chart config with NO chartType (resolves to the bar fallback)', () => {
+  // A config with no `chartType` resolves to the bar family downstream, but that resolution
+  // no longer costs the payload anything: a bar-incompatible key is preserved here exactly
+  // as it is on a config that names its `chartType` explicitly.
+  it('preserves a cross-family key on a chart config with NO chartType', () => {
     const widget = {
       id: 'w',
       kind: 'chart',
@@ -901,11 +903,11 @@ describe('parseStateMutation — per-kind config-key validation (fail-closed)', 
       config: { xField: 'a', sankeyTargetField: 'to' } as Record<string, unknown>,
     };
     expect(parseStateMutation({ type: 'addWidget', args: { widget } }).ok).toBe(true);
-    expect(widget.config).toEqual({ xField: 'a' });
+    expect(widget.config).toEqual({ xField: 'a', sankeyTargetField: 'to' });
   });
 
-  // Same fallback, exercised via the applyBulkUpdate.addedWidgets sibling path.
-  it('strips a cross-family key from an applyBulkUpdate addedWidgets entry with NO chartType', () => {
+  // Same, exercised via the applyBulkUpdate.addedWidgets sibling path.
+  it('preserves a cross-family key on an applyBulkUpdate addedWidgets entry with NO chartType', () => {
     const widget = {
       id: 'w',
       kind: 'chart',
@@ -918,7 +920,32 @@ describe('parseStateMutation — per-kind config-key validation (fail-closed)', 
         args: { ...validBulkArgs(), addedWidgets: [widget] },
       }).ok,
     ).toBe(true);
-    expect(widget.config).toEqual({ xField: 'a' });
+    expect(widget.config).toEqual({ xField: 'a', sankeyTargetField: 'to' });
+  });
+
+  // The three boundaries that see a whole widget now AGREE about one payload. Pinned as a
+  // cross-boundary assertion rather than three independent per-file ones, because the defect
+  // was precisely that each file's own tests passed while the trio disagreed.
+  it('agrees with deserializeState and applyDocMutation about a retained foreign-family key', () => {
+    const storedConfig: Record<string, unknown> = {
+      chartType: 'gauge',
+      gaugeMax: 10,
+      xField: 'x',
+    };
+    const widget = { id: 'w1', kind: 'chart', title: 'T', config: storedConfig };
+    // 1. The wire boundary accepts it and hands it through unchanged.
+    const parsed = parseStateMutation({ type: 'addWidget', args: { widget } });
+    expect(parsed.ok).toBe(true);
+    // 2. The reducer installs it with the key intact.
+    const base = createDefaultStudioState().doc;
+    const afterAdd = applyDocMutation(base, {
+      type: 'addWidget',
+      args: { widget: widget as unknown as StudioWidget },
+    });
+    expect(afterAdd.widgets.w1.config).toEqual(storedConfig);
+    // 3. The load boundary round-trips it with the key intact.
+    const reloaded = deserializeState(serializeDoc(afterAdd), {});
+    expect(reloaded.doc.widgets.w1.config).toEqual(storedConfig);
   });
 
   it('accepts an addWidget with a valid per-kind config', () => {

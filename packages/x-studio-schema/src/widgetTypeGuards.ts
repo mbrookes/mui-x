@@ -15,8 +15,15 @@
  * `StudioWidgetOf<'chart'>` (no guard needed); this guard is for the genuinely
  * cross-kind sites that branch on `widget.kind`.
  */
-import type { BuiltinStudioWidgetKind, StudioChartType, StudioFilterOperator } from './baseTypes';
+import type {
+  BuiltinStudioWidgetKind,
+  StudioChartType,
+  StudioFilterOperator,
+  StudioWidgetKind,
+} from './baseTypes';
 import type { StudioExpressionOperator } from './expressionTypes';
+import type { StudioRelationship } from './dataTypes';
+import type { OptionalWidgetField } from './mutationTypes';
 import type {
   StudioChartConfig,
   StudioChartConfigByType,
@@ -274,3 +281,160 @@ export function isStudioExpressionOperator(value: unknown): value is StudioExpre
     typeof value === 'string' && (STUDIO_EXPRESSION_OPERATORS as readonly string[]).includes(value)
   );
 }
+
+// ── Relationship-type helpers ───────────────────────────────────────────────────
+//
+// The fourth closed union this package membership-checks at a trust boundary, and the one
+// that had a runtime list with NO compile lock: `statePersistence.ts` carried a bare
+// `new Set(['many-to-one', 'one-to-one', 'many-to-many'])` with no `satisfies` and no
+// completeness assertion, unlike its three siblings above. A FOURTH relationship type added
+// to `StudioRelationship['type']` would compile cleanly and make `isRelationshipSafe`
+// silently DROP every persisted relationship using it at load — the same fail-open class the
+// siblings' `AssertAll…Listed` locks exist to prevent.
+
+/**
+ * Every `StudioRelationship['type']` literal. Locked for completeness by
+ * {@link AssertAllRelationshipTypesListed} below, exactly like the three lists above.
+ */
+export const STUDIO_RELATIONSHIP_TYPES = [
+  'many-to-one',
+  'one-to-one',
+  'many-to-many',
+] as const satisfies readonly StudioRelationship['type'][];
+
+/**
+ * Fail-closed compile-time assertion that EVERY `StudioRelationship['type']` literal appears
+ * in `STUDIO_RELATIONSHIP_TYPES`, so a new relationship type cannot be added without the
+ * runtime list following. See the block comment above for the failure it closes.
+ */
+type AssertAllRelationshipTypesListed =
+  Exclude<StudioRelationship['type'], (typeof STUDIO_RELATIONSHIP_TYPES)[number]> extends never
+    ? true
+    : [
+        'STUDIO_RELATIONSHIP_TYPES is missing:',
+        Exclude<StudioRelationship['type'], (typeof STUDIO_RELATIONSHIP_TYPES)[number]>,
+      ];
+const ALL_RELATIONSHIP_TYPES_LISTED: AssertAllRelationshipTypesListed = true;
+void ALL_RELATIONSHIP_TYPES_LISTED;
+
+/**
+ * Runtime membership test for the closed `StudioRelationship['type']` union. Backed by a
+ * `Set` so an untrusted persisted `type` can never resolve up a prototype chain.
+ */
+const RELATIONSHIP_TYPE_SET: ReadonlySet<string> = new Set<string>(STUDIO_RELATIONSHIP_TYPES);
+export function isStudioRelationshipType(value: unknown): value is StudioRelationship['type'] {
+  return typeof value === 'string' && RELATIONSHIP_TYPE_SET.has(value);
+}
+
+// ── Widget-field lists ──────────────────────────────────────────────────────────
+//
+// `StudioWidgetOf`'s field names were independently re-enumerated by hand at five sites —
+// the reducer's `MERGEABLE_WIDGET_CHANGE_KEYS` allow-list and `unsetFields` denylist and
+// optional-scalar screen, the wire boundary's `updateWidget.changes` per-field checks, and
+// the load boundary's optional-scalar screen — in a package that compile-locks every OTHER
+// list it publishes. None of the five was locked, so adding a field to `StudioWidgetOf`
+// compiled cleanly while `updateWidget` silently no-opped on it forever
+// (`MERGEABLE_WIDGET_CHANGE_KEYS.has(key)` is `false`) and neither boundary screened it.
+//
+// The three partition tuples below are the single source those five sites derive from. Each
+// is `satisfies`-checked for VALIDITY (no stray name) and, together, locked for
+// COMPLETENESS against `keyof StudioWidgetOf` by `AssertAllWidgetFieldsListed`: a new field
+// must be added to exactly one partition or the build fails. The partitions are by VALUE
+// SHAPE, because that is what the screening sites actually branch on.
+
+/** Widget fields whose value is a plain `string` (`kind`/`title` required, the rest optional). */
+export const WIDGET_STRING_FIELDS = [
+  'kind',
+  'title',
+  'subtitle',
+  'sourceId',
+] as const satisfies readonly (keyof StudioWidgetOf<StudioWidgetKind>)[];
+
+/** Widget fields whose value is the closed `'auto' | 'manual'` title-mode union. */
+export const WIDGET_TITLE_MODE_FIELDS = [
+  'titleMode',
+  'subtitleMode',
+] as const satisfies readonly (keyof StudioWidgetOf<StudioWidgetKind>)[];
+
+/**
+ * The widget fields that are neither a string nor a title mode: `id` (also the
+ * `state.widgets` map key) and the `config` bag.
+ */
+export const WIDGET_OTHER_FIELDS = [
+  'id',
+  'config',
+] as const satisfies readonly (keyof StudioWidgetOf<StudioWidgetKind>)[];
+
+/**
+ * Every `StudioWidgetOf` field, composed from the three partitions above so no partition
+ * can be forgotten while this list stays complete.
+ */
+export const STUDIO_WIDGET_FIELDS = [
+  ...WIDGET_OTHER_FIELDS,
+  ...WIDGET_STRING_FIELDS,
+  ...WIDGET_TITLE_MODE_FIELDS,
+] as const satisfies readonly (keyof StudioWidgetOf<StudioWidgetKind>)[];
+
+/**
+ * Fail-closed compile-time assertion that the three partitions together cover EVERY
+ * `StudioWidgetOf` field. This is the lock that actually fail-closes the five derived
+ * screening sites — see the block comment above.
+ */
+type AssertAllWidgetFieldsListed =
+  Exclude<
+    keyof StudioWidgetOf<StudioWidgetKind>,
+    (typeof STUDIO_WIDGET_FIELDS)[number]
+  > extends never
+    ? true
+    : [
+        'STUDIO_WIDGET_FIELDS is missing:',
+        Exclude<keyof StudioWidgetOf<StudioWidgetKind>, (typeof STUDIO_WIDGET_FIELDS)[number]>,
+      ];
+const ALL_WIDGET_FIELDS_LISTED: AssertAllWidgetFieldsListed = true;
+void ALL_WIDGET_FIELDS_LISTED;
+
+/**
+ * Every OPTIONAL `StudioWidget` field — the fields `updateWidget.unsetFields` may void, and
+ * the fields the write/load boundaries strip (rather than reject) when their value is junk.
+ * Locked for completeness against the derived `OptionalWidgetField` type below, so making a
+ * field optional (or required) forces this list to follow.
+ */
+export const OPTIONAL_STUDIO_WIDGET_FIELDS = [
+  'titleMode',
+  'subtitle',
+  'subtitleMode',
+  'sourceId',
+] as const satisfies readonly OptionalWidgetField[];
+
+type AssertAllOptionalWidgetFieldsListed =
+  Exclude<OptionalWidgetField, (typeof OPTIONAL_STUDIO_WIDGET_FIELDS)[number]> extends never
+    ? true
+    : [
+        'OPTIONAL_STUDIO_WIDGET_FIELDS is missing:',
+        Exclude<OptionalWidgetField, (typeof OPTIONAL_STUDIO_WIDGET_FIELDS)[number]>,
+      ];
+const ALL_OPTIONAL_WIDGET_FIELDS_LISTED: AssertAllOptionalWidgetFieldsListed = true;
+void ALL_OPTIONAL_WIDGET_FIELDS_LISTED;
+
+const OPTIONAL_WIDGET_FIELD_SET: ReadonlySet<string> = new Set<string>(
+  OPTIONAL_STUDIO_WIDGET_FIELDS,
+);
+
+/**
+ * The REQUIRED `StudioWidgetOf` fields, DERIVED as `STUDIO_WIDGET_FIELDS` minus the optional
+ * ones rather than re-listed. The reducer's `unsetFields` denylist is exactly this set: a
+ * widget must never be left without one.
+ */
+export const REQUIRED_STUDIO_WIDGET_FIELDS: readonly string[] = STUDIO_WIDGET_FIELDS.filter(
+  (field) => !OPTIONAL_WIDGET_FIELD_SET.has(field),
+);
+
+/**
+ * The OPTIONAL string-valued widget fields (`WIDGET_STRING_FIELDS` ∩ the optional set) —
+ * the fields both the write boundary (`applyMutation`'s `screenOptionalWidgetScalars`) and
+ * the load boundary strip when a non-string value arrives, rather than dropping the whole
+ * widget. Derived, so it cannot drift from either source list.
+ */
+export const OPTIONAL_WIDGET_STRING_FIELDS: readonly string[] = WIDGET_STRING_FIELDS.filter(
+  (field) => OPTIONAL_WIDGET_FIELD_SET.has(field),
+);

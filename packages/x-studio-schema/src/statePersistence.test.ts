@@ -1352,6 +1352,30 @@ describe('deserializeState', () => {
     },
   );
 
+  // The last gap in this file's own-key coverage: the preset CONTAINER itself was the only
+  // entry-level record not screened. Its two array siblings (`relationships[i]`,
+  // `expressionFields[i]`, via `screenRecordArray`) and the level BELOW it (the preset's
+  // inner filters, just above) both screened. Not exploitable today — every rewrite of a
+  // preset uses spread/define semantics (`docTransforms`' `renameFilterPreset` does
+  // `{ ...p, name }`) — but the key round-trips through every autosave forever.
+  it.each(['__proto__', 'constructor', 'prototype'])(
+    'drops a filterPreset carrying an own "%s" key (finding 7)',
+    (key) => {
+      const serialized = {
+        ...minimalSerialized,
+        filterPresets: JSON.parse(
+          `[{"id":"p1","name":"P","filters":[]},` +
+            `{"id":"p2","name":"Q","filters":[],"${key}":{"polluted":true}}]`,
+        ),
+      } as unknown as typeof minimalSerialized;
+      const state = deserializeState(serialized, {});
+      expect(state.doc.filterPresets!.map((p) => p.id)).toEqual(['p1']);
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+      // And the drop survives the round trip, rather than being re-persisted.
+      expect(serializeDoc(state.doc).filterPresets!.map((p) => p.id)).toEqual(['p1']);
+    },
+  );
+
   // ── symmetric filter strip on load (finding 4 / review 2.2) ──────────────────
   it('strips a hand-carried cross-filter/interactive filter on load, symmetric with serializeDoc (finding 4)', () => {
     const serialized = {
@@ -2132,6 +2156,79 @@ describe('deserializeState', () => {
     const state = deserializeState(serialized, {});
     expect(state.doc.filters.map((f) => f.id)).toEqual(['dup']);
     expect(state.doc.filters[0].value).toBe('first');
+  });
+
+  // The dedup CLAIM must happen only after every other drop-check has passed. Claiming it
+  // where the duplicate test runs meant an entry that was subsequently DROPPED had already
+  // consumed its id, so a later, perfectly valid filter sharing that id was rejected as a
+  // duplicate — both lost, silently, and the next autosave persisted the loss.
+  //
+  // One case per drop-check that runs after the dedup test, so a future reordering that
+  // reintroduces an early claim fails here rather than in production.
+  it.each([
+    [
+      'a stripped cross-filter scope',
+      { kind: 'cross-filter', sourceWidgetId: 'w-gone', pageId: 'page-1' },
+      'x',
+      'equals',
+    ],
+    ['an orphan page anchor', { kind: 'page', pageId: 'page-that-does-not-exist' }, 'x', 'equals'],
+    ['an orphan widget anchor', { kind: 'widget', widgetId: 'w-gone' }, 'x', 'equals'],
+    ['a non-string field', { kind: 'page', pageId: 'page-1' }, 42, 'equals'],
+    ['an unknown operator', { kind: 'page', pageId: 'page-1' }, 'x', 'equal'],
+  ])(
+    'does not let a filter dropped for %s consume its id (the valid duplicate survives)',
+    (_label, scope, field, operator) => {
+      const serialized = {
+        ...minimalSerialized,
+        filters: [
+          { id: 'f1', field, operator, value: 'dropped', scope },
+          {
+            id: 'f1',
+            field: 'country',
+            operator: 'equals',
+            value: 'kept',
+            scope: { kind: 'page', pageId: 'page-1' },
+          },
+        ],
+      } as unknown as typeof minimalSerialized;
+      const state = deserializeState(serialized, {});
+      expect(state.doc.filters).toHaveLength(1);
+      expect(state.doc.filters[0].value).toBe('kept');
+    },
+  );
+
+  it('still drops a duplicate of a filter that SURVIVED the whole screen', () => {
+    // The complement of the cases above: when the first occurrence is kept, the second must
+    // still be rejected — the dedup is moved, not weakened.
+    const serialized = {
+      ...minimalSerialized,
+      filters: [
+        {
+          id: 'f1',
+          field: 'a',
+          operator: 'equals',
+          value: 'first',
+          scope: { kind: 'page', pageId: 'page-1' },
+        },
+        {
+          id: 'f1',
+          field: 'b',
+          operator: 'equals',
+          value: 'second',
+          scope: { kind: 'page', pageId: 'page-1' },
+        },
+        {
+          id: 'f1',
+          field: 'c',
+          operator: 'equals',
+          value: 'third',
+          scope: { kind: 'page', pageId: 'page-1' },
+        },
+      ],
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.filters.map((f) => f.value)).toEqual(['first']);
   });
 
   it('drops two identical-id rank filters down to the first at load (Finding 3, rank-dedup escape)', () => {

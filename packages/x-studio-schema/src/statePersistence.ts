@@ -1,17 +1,21 @@
 import { createDefaultStudioState, normalizeGridColumn, normalizeChartSeries } from './factories';
 import { normalizePersistedPages, hasConflictingRankFilter, pruneDependsOn } from './applyMutation';
-import { isSafeKey } from './unsafeKeys';
-import { isValidFilterScope, hasUnsafeOwnKeys } from './parseStateMutation';
+import { isPlainRecord as isRecord } from './internalGuards';
+// The per-ENTRY screens a `StudioDoc` must pass are shared with the OTHER producer of a doc
+// (`createDefaultStudioState`, reachable from the public `Studio initialState` prop) — see
+// `docScreening.ts`. This file keeps only the three things that module cannot own: the
+// legacy leaf-shape normalization (which lives in `factories.ts`), the page sweep and rank
+// re-check (which live in `applyMutation.ts`), and the id reconciliations that need the
+// FINAL page map.
 import {
-  isPlainRecord as isRecord,
-  stripUnsafeOwnKeys,
-  repairFilterDependsOn,
-} from './internalGuards';
-import {
-  isStudioChartType,
-  isStudioFilterOperator,
-  isStudioExpressionOperator,
-} from './widgetTypeGuards';
+  screenAIState,
+  screenDashboard,
+  screenExpressionFields,
+  screenFilterPresets,
+  screenFilters,
+  screenRelationships,
+  screenWidgets,
+} from './docScreening';
 import { CURRENT_SCHEMA_VERSION } from './stateTypes';
 import type {
   StudioState,
@@ -198,372 +202,6 @@ function validateStateStructure(state: unknown): state is Record<string, unknown
   }
   return true;
 }
-
-// `isRecord`/`stripUnsafeOwnKeys`/`repairFilterDependsOn` are the shared `internalGuards.ts`
-// helpers (finding 3.2 — these were independently duplicated, byte-for-byte identical, across
-// this file, `applyMutation.ts`, and `parseStateMutation.ts`), imported under this file's
-// established local names so every existing call site below is unchanged.
-
-/**
- * Screen each ENTRY of a persisted array with `isRecord`, dropping non-record junk
- * (Finding 1) — the same per-entry screen the `filters`/`ai.threads` load paths already
- * apply, extended to `relationships` and `expressionFields`, whose entries the client
- * iterates on hot paths (`ef.sourceId`, `r.sourceId`) with no optional chaining. A
- * non-array coerces to `[]` (symmetric with the prior container-only coercion).
- * Reference-STABLE: returns the SAME array when every entry survives, so a well-formed
- * doc keeps its identity for cross-load memoization.
- *
- * `isValidEntry` is the REQUIRED-LEAF screen (finding: this helper validated record-ness
- * and nothing else, while its own doc comment justified its existence by pointing at the
- * unguarded derefs the leaves feed). Record-ness alone let e.g. `expressionFields: [{ id:
- * 'e1', label: 'Margin', sourceId: 's1', isMeasure: false }]` — no `expression` at all —
- * load with `success: true`, and the first widget referencing `e1` then hit
- * `x-studio`'s `expressionEvaluator.ts` `return 'joinSourceId' in expr;` and threw
- * `TypeError: Cannot use 'in' operator to search for 'joinSourceId' in undefined`, taking
- * down the whole pipeline — with NO self-heal, since `serializeDoc` re-persisted the junk
- * forever. It receives an already-record, already-own-key-screened entry, so it only has
- * to check the leaves consumers dereference unguarded.
- * @param {Record<string, unknown>} entry An already-record, already-own-key-screened entry.
- * @returns {boolean} `true` when every leaf the consumers dereference unguarded is present.
- */
-const screenRecordArray = <T>(
-  value: unknown,
-  isValidEntry?: (entry: Record<string, unknown>) => boolean,
-): T[] => {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  // Reject non-record entries AND entries carrying a prototype-hazard OWN key (T2-4). The
-  // client spreads a relationship/expression-field on hot paths (`{ ...ef }`, `Object.assign`),
-  // so an own `"__proto__"`/`"constructor"`/`"prototype"` DATA key (as `JSON.parse` materializes
-  // it on a shared/hand-edited doc) is a pollution hazard the wire boundary would reject — drop
-  // the whole entry, matching the widgets/filters own-key screen. Reuses the SAME predicate.
-  const safe = value.filter(
-    (entry) =>
-      isRecord(entry) &&
-      !hasUnsafeOwnKeys(entry) &&
-      (isValidEntry === undefined || isValidEntry(entry)),
-  );
-  return (safe.length === value.length ? value : safe) as T[];
-};
-
-/**
- * Depth bound for the recursive `expression` tree of a persisted `expressionFields` entry.
- *
- * `StudioExpression` is the only genuinely RECURSIVE shape that crosses this load boundary,
- * and not every consumer walker is self-bounded: `x-studio`'s `expressionEvaluator` carries
- * its own depth counter, but `internals/expressionRefs.ts`'s `collectExpressionRefs` /
- * `collectJoinSourceIds` recurse through `inputs` with no bound at all, so a persisted tree
- * nested deeply enough overflows the stack the first time a widget referencing the field
- * renders. Bound it here, at the boundary, so no walker downstream has to.
- *
- * `32` is this package's uniform nesting bound for untrusted JSON (`parseStateMutation.ts`'s
- * `MAX_DEPTH`, applied to `widget.config` and `filter.value` at the wire boundary), and is
- * deliberately generous: the expression builder UI's deepest built-in template is ~4 levels,
- * so no authorable tree comes near it.
- */
-const MAX_EXPRESSION_DEPTH = 32;
-
-/**
- * True when `node` is a structurally valid {@link StudioExpression} — one of the union's four
- * members, with the leaves that member's consumers dereference, nested no deeper than
- * {@link MAX_EXPRESSION_DEPTH}.
- *
- * The function branch is tested FIRST because `operator` is the only key that introduces
- * RECURSION: any node carrying it must be a well-formed function node (a known operator, an
- * ARRAY `inputs`, and every input itself valid) or be dropped, regardless of which member a
- * given consumer's guard precedence would resolve it to. The remaining three branches follow
- * the order `evaluateExpression` discriminates them in, so a node this screen accepts is the
- * same member the evaluator resolves it to.
- *
- * The `operator` membership check is the point of the recursion: an unknown operator is not a
- * crash but a SILENT wrong answer — every evaluator walker falls through to its `default:`
- * case and the whole computed column evaluates to `null` — which is the same fail-open class
- * as an unknown relationship `type`, and is why that sibling discriminant is membership-checked
- * too rather than merely type-checked.
- * @param {unknown} node A node of the persisted expression tree.
- * @param {number} depth Nesting level of `node`, `0` for the root.
- * @returns {boolean} `true` when the node resolves to exactly one union member with valid leaves.
- */
-const isValidExpressionNode = (node: unknown, depth: number): boolean => {
-  if (depth > MAX_EXPRESSION_DEPTH) {
-    return false;
-  }
-  if (!isRecord(node)) {
-    return false;
-  }
-  // StudioFunctionExpression — the recursive member.
-  if ('operator' in node) {
-    return (
-      isStudioExpressionOperator(node.operator) &&
-      Array.isArray(node.inputs) &&
-      node.inputs.every((input) => isValidExpressionNode(input, depth + 1))
-    );
-  }
-  // StudioValueExpression. `value` is a deliberately uninterpreted scalar leaf (the evaluator
-  // returns it verbatim), but `type` is a closed three-member union, so it gets the same
-  // membership treatment as the operator above.
-  if ('type' in node && 'value' in node) {
-    return node.type === 'number' || node.type === 'string' || node.type === 'boolean';
-  }
-  // StudioJoinFieldExpression — both ids are destructured and used as record keys unguarded.
-  if ('joinSourceId' in node && 'fieldId' in node) {
-    return typeof node.joinSourceId === 'string' && typeof node.fieldId === 'string';
-  }
-  // StudioFieldExpression — the terminal reference member. `aggregation` is optional and
-  // defaulted downstream, so it follows this file's fallback-over-drop convention.
-  if ('id' in node) {
-    return typeof node.id === 'string';
-  }
-  // Matches none of the four members: an unresolvable node every walker would skip.
-  return false;
-};
-
-/**
- * Required-leaf screen for a persisted `expressionFields` entry. `id`/`sourceId` are
- * identity data every consumer compares as strings, `label` is required by
- * `StudioExpressionField` and rendered directly as a React child by every field picker
- * (a non-string throws on first render), and `expression` is the tree `x-studio`'s
- * `expressionEvaluator` walks with an unguarded `'joinSourceId' in expr` — a
- * missing/non-record `expression` is the crash described on {@link screenRecordArray}.
- *
- * `expression` is validated all the way DOWN via {@link isValidExpressionNode}, not merely
- * for record-ness: it is a recursive tree whose interiors carry both a closed operator union
- * (fail-open to a silently-`null` column when unknown) and unbounded nesting (stack overflow
- * in the unbounded consumer walkers).
- *
- * `isMeasure` is required by the interface but documents `false` as its default, so an ABSENT
- * value is legal here; a PRESENT non-boolean is not. It decides whether the field is a per-row
- * calculated column or a single aggregate over the whole dataset, so a truthy junk value
- * (`isMeasure: 'no'`) silently loads a calculated column as a measure and reports a wrong
- * number everywhere it appears.
- *
- * The remaining fields are optional, defaulted, or display-only, so they follow this
- * file's fallback-over-drop convention and are not screened here.
- */
-const isExpressionFieldSafe = (entry: Record<string, unknown>): boolean =>
-  typeof entry.id === 'string' &&
-  typeof entry.sourceId === 'string' &&
-  typeof entry.label === 'string' &&
-  (entry.isMeasure === undefined || typeof entry.isMeasure === 'boolean') &&
-  isValidExpressionNode(entry.expression, 0);
-
-/**
- * The closed `StudioRelationship['type']` union (`dataTypes.ts`), as a `Set` so an
- * untrusted `type` can never resolve up a prototype chain.
- */
-const RELATIONSHIP_TYPES = new Set(['many-to-one', 'one-to-one', 'many-to-many']);
-
-/**
- * Required-leaf screen for a persisted `relationships` entry — the sibling of
- * {@link isExpressionFieldSafe}. All four endpoint ids/fields are read as strings by the
- * join-path resolver with no optional chaining, and `type` is the discriminant every join
- * builder switches on: an unknown value fails open into the `many-to-one` branch and
- * silently produces wrong joined rows, the same fail-open class the filter `operator`
- * membership check closes one level up.
- *
- * `id` is checked for the same reason both siblings check theirs ({@link isExpressionFieldSafe},
- * and the preset screen whose own comment calls `id` "the one field it shares with that
- * screen"). It is REQUIRED by `StudioRelationship` and it is how the entry is addressed:
- * `StudioController.updateRelationship(id, patch)`/`removeRelationship(id)` both key off
- * `rel.id`, and `RelationshipPanel` renders its delete button as
- * `onClick={() => controller.removeRelationship(rel.id)}`. A persisted relationship with no
- * `id` (or `id: 42`) therefore loaded successfully, rendered in the data drawer, and was
- * permanently unremovable and unupdatable — re-persisted forever with no self-heal — while
- * two such entries also collided on the React list key.
- *
- * The three `junction*` fields are deliberately NOT screened for `type: 'many-to-many'`,
- * even though they are documented as required for that discriminant: `dataSourceGraph.ts`'s
- * join builders guard every read (`if (!rel.junctionSourceId || !rel.junctionSourceField ||
- * !rel.junctionTargetField) { continue; }`, and `rel.type === 'many-to-many' &&
- * rel.junctionSourceId` at the reachability sites), so an incomplete entry is SKIPPED rather
- * than dereferenced. There is no unguarded read to protect, and dropping the whole
- * relationship would lose a repairable entry the data drawer can still show and edit.
- */
-const isRelationshipSafe = (entry: Record<string, unknown>): boolean =>
-  typeof entry.id === 'string' &&
-  typeof entry.sourceId === 'string' &&
-  typeof entry.targetId === 'string' &&
-  typeof entry.sourceField === 'string' &&
-  typeof entry.targetField === 'string' &&
-  typeof entry.type === 'string' &&
-  RELATIONSHIP_TYPES.has(entry.type);
-
-/**
- * Repair a thread's `messages`/`name` leaf shapes at the load boundary (F1 finding):
- * the container/entry screen around this helper's call site validated "is a record"
- * and "carries no unsafe own key" but never the LEAF shapes — a thread with `messages`
- * as a non-array (e.g. a string) or `name` as a non-string previously passed through
- * verbatim. `useChatThreads.ts`'s `activeThread?.messages ?? []` only guards nullish,
- * not wrong-type, so a string `messages` reached `<ChatBox messages={...}>` and crashed
- * on `.map`; a non-string `name` crashes as an invalid React child the first time the
- * thread selector renders it. Repair-in-place (coerce) rather than drop the whole
- * thread — mirroring `page.title`/`dashboard.title`'s fallback-over-drop treatment —
- * since neither field is identity data (`id` still is, and is left untouched). Non-
- * record input is returned as-is; the caller's own record screen handles it.
- * Reference-stable when both fields already have the correct shape.
- */
-const repairThreadLeafShapes = <T>(thread: T): T => {
-  if (!isRecord(thread)) {
-    return thread;
-  }
-  // Screen the message ENTRIES, not just the container (finding: this helper coerced
-  // `messages` to an array but never looked inside it, so `messages: [null]` survived).
-  // `<ChatBox messages={…}>` maps each entry and reads `m.role`/`m.content` with no
-  // optional chaining, so a `null`/primitive entry throws on first render of the thread —
-  // the same per-entry gap the sibling `filters`/`relationships`/`ai.threads` screens
-  // already close one level up. Drop just the junk entries (repair-in-place), consistent
-  // with this helper's fallback-over-drop treatment of the rest of the thread.
-  const rawMessages = (thread as { messages?: unknown }).messages;
-  const messagesIsArray = Array.isArray(rawMessages);
-  const safeMessages = messagesIsArray ? rawMessages.filter((m) => isRecord(m)) : [];
-  const messagesOk = messagesIsArray && safeMessages.length === rawMessages.length;
-  const nameOk = typeof (thread as { name?: unknown }).name === 'string';
-  // `createdAt` is REQUIRED by `StudioAIChatThread`, and both timestamps are consumed as strings
-  // by the chat panel's thread sort (`bTime.localeCompare(aTime)` in `useChatThreads`). A hostile
-  // or hand-edited persisted doc can carry a thread with a non-string / missing `createdAt` or a
-  // non-string `updatedAt`; left unrepaired it loads successfully and then throws a `TypeError`
-  // inside the sort `useMemo`, crashing the whole panel on mount (the comparator only runs with
-  // 2+ threads). Coerce a bad `createdAt` to a safe epoch default and DROP (rather than pass
-  // through) a non-string `updatedAt` — mirroring the fallback-over-drop treatment above, since
-  // neither timestamp is identity data.
-  const createdAtOk = typeof (thread as { createdAt?: unknown }).createdAt === 'string';
-  const hasUpdatedAt = 'updatedAt' in (thread as object);
-  const updatedAtOk =
-    !hasUpdatedAt || typeof (thread as { updatedAt?: unknown }).updatedAt === 'string';
-  if (messagesOk && nameOk && createdAtOk && updatedAtOk) {
-    return thread;
-  }
-  const repaired = {
-    ...thread,
-    // Keep the surviving messages rather than resetting to `[]`: only the junk entries are
-    // dropped (a non-array `messages` still degrades to the empty array via `safeMessages`).
-    ...(messagesOk ? {} : { messages: safeMessages }),
-    ...(nameOk ? {} : { name: 'Untitled Thread' }),
-    ...(createdAtOk ? {} : { createdAt: new Date(0).toISOString() }),
-  } as T & { updatedAt?: unknown };
-  // Delete a non-string `updatedAt` outright (it's optional) so it can't reach the comparator;
-  // the sort falls back to `createdAt`, which is now guaranteed to be a string.
-  if (!updatedAtOk) {
-    delete repaired.updatedAt;
-  }
-  return repaired as T;
-};
-
-/**
- * Screen one preset-embedded filter with the SAME semantic checks the `doc.filters` load
- * pass applies to the fields that travel VERBATIM into live `doc.filters` when a preset is
- * applied (T2-3). `@mui/x-studio`'s `docTransforms.applyFilterPreset` rematerializes each
- * preset filter as `{ ...f, id: fresh, scope: page }` — it re-stamps `id`/`scope` but
- * carries `field`/`operator`/`operator2` through unchanged and performs NO validation of its
- * own — so a junk `operator: 'equal'` (a plausible typo for `'equals'`) or `field: 42` would
- * land in live `doc.filters` as an active, fail-open chip the moment the user clicks "apply
- * preset": displayed data silently unfiltered while the UI claims a filter is applied. Screen
- * for it here at load (scope checks are unnecessary — `applyFilterPreset` re-stamps scope).
- */
-const isPresetFilterSafe = (entry: unknown): boolean => {
-  if (!isRecord(entry)) {
-    return false;
-  }
-  // Reject a preset inner filter carrying a prototype-hazard OWN key (T2-4). This is the
-  // sharpest asymmetry: `applyFilterPreset` rematerializes each preset filter into live
-  // `doc.filters` via `{ ...f, id: fresh, scope: page }`, so an own `"__proto__"` key would
-  // land on a LIVE filter, and the NEXT load's filter own-key screen then silently drops that
-  // whole filter. Screen it here so the two boundaries agree. Reuses the SAME predicate.
-  if (hasUnsafeOwnKeys(entry)) {
-    return false;
-  }
-  // `id` must be a string, matching the top-level `doc.filters` screen's identical check
-  // (finding: this predicate screened `field`/`operator`/`operator2` but skipped `id`, the
-  // one field it shares with that screen). `applyFilterPreset`'s id-remap loop does
-  // `idMap.set(f.id, fresh)` and the drawer keys its rows off the preset filter id, so a
-  // non-string `id` yields a preset row that can never be matched or removed — exactly the
-  // state the sibling screen rejects for the byte-identical payload.
-  if (typeof entry.id !== 'string') {
-    return false;
-  }
-  if (typeof entry.field !== 'string') {
-    return false;
-  }
-  if (!isStudioFilterOperator(entry.operator)) {
-    return false;
-  }
-  if (entry.operator2 !== undefined && !isStudioFilterOperator(entry.operator2)) {
-    return false;
-  }
-  return true;
-};
-
-/**
- * Coerce a preset's `name` to a string, symmetric with `page.title`'s
- * `'Untitled Page'` / `dashboard.title`'s `'Untitled Dashboard'` fallback pattern
- * (F1 finding): `screenFilterPresets` validated the preset container (a record with
- * an array `filters`) but never `preset.name`, which `StudioFiltersDrawer` renders
- * VERBATIM as a Chip `label` — a non-string `name` (`null`, `42`, an object) crashes
- * that render as an invalid React child, the same class of load-boundary gap
- * `page.title`/`dashboard.title` were already closed for. Repair-in-place (coerce)
- * rather than drop the whole preset — the name is display metadata, not identity
- * data, matching the fallback-over-drop treatment `page.title` gets. Reference-
- * stable when `name` is already a string.
- */
-const safePresetName = (name: unknown): string =>
-  typeof name === 'string' ? name : 'Untitled Filter Preset';
-
-/**
- * Screen persisted `filterPresets` (Finding 1, nested sibling site): drop any entry that
- * is not a record with an array `filters`, coerce a non-string `preset.name` to a
- * fallback (F1 finding, see {@link safePresetName}), AND screen each preset's own
- * `filters` array with {@link isPresetFilterSafe} — record-ness (a `null` inner filter
- * entry crashes `applyFilterPreset`'s id-remap loop `idMap.set(f.id, …)` the same way a
- * top-level junk entry does) PLUS the `field`/`operator`/`operator2` semantic checks
- * (T2-3), because those fields travel verbatim into live `doc.filters` via
- * `applyFilterPreset`, one indirection past the `doc.filters` load screen. Reference-
- * stable at both levels: returns the SAME outer array (and the SAME inner `filters`
- * array on each surviving preset) when nothing is dropped or repaired.
- *
- * A preset's OWN `id` is required to be a string too — the outer sibling of the `id` check
- * {@link isPresetFilterSafe} makes one level down, and of {@link isRelationshipSafe}'s. It is
- * identity data: `docTransforms`' `applyFilterPreset`/`removeFilterPreset`/rename all locate
- * the preset with `p.id === presetId` (a strict compare that never coerces) and the drawer
- * keys its rows off it, so a preset with no `id` (or `id: 42`) would load, render a chip, and
- * be permanently unappliable, unrenamable and unremovable. Drop rather than coerce, matching
- * every other identity-data screen in this file (`name` is display metadata and still gets
- * the fallback-over-drop treatment).
- */
-const screenFilterPresets = (value: unknown): StudioDoc['filterPresets'] => {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  let changed = false;
-  const safe: unknown[] = [];
-  for (const preset of value) {
-    if (!isRecord(preset) || typeof preset.id !== 'string' || !Array.isArray(preset.filters)) {
-      changed = true;
-      continue;
-    }
-    const innerFilters = preset.filters;
-    // Repair a malformed `dependsOn` (T2 finding) BEFORE the `isPresetFilterSafe` gate —
-    // `dependsOn` is not one of that predicate's checks, and dropping the KEY rather than
-    // rejecting the whole entry keeps a preset filter that is otherwise well-formed.
-    const repairedInner = innerFilters.map((entry) => repairFilterDependsOn(entry));
-    const safeInner = repairedInner.filter((entry) => isPresetFilterSafe(entry));
-    const innerUnchanged =
-      safeInner.length === innerFilters.length &&
-      safeInner.every((entry, i) => entry === innerFilters[i]);
-    const nameIsString = typeof preset.name === 'string';
-    if (innerUnchanged && nameIsString) {
-      safe.push(preset);
-    } else {
-      changed = true;
-      safe.push({
-        ...preset,
-        name: safePresetName(preset.name),
-        filters: safeInner,
-      });
-    }
-  }
-  return (changed ? safe : value) as StudioDoc['filterPresets'];
-};
 
 /**
  * The fields a fully-migrated `SerializedStudioState` must carry, checked fail-closed
@@ -963,231 +601,80 @@ export function deserializeState(
 
   const defaultState = createDefaultStudioState();
 
-  // Coerce each absent/malformed TOP-LEVEL container to its empty default up front, so this
-  // public, directly-callable API is TOTAL over a malformed `SerializedStudioState` — matching
-  // `migrateState`, which never throws. Callers that hand-build a `SerializedStudioState`, or
-  // pass `{}` / a doc missing one of the four containers, previously hit an uncaught
-  // `TypeError` (`Object.entries(undefined)` on `widgets`/`pages`, `.map` on a missing
-  // `filters`, `Object.keys(undefined)` on `dashboard` inside `stripUnsafeOwnKeys`). Record
-  // containers coerce to `{}` and array containers to `[]`, mirroring the `screenRecordArray`
-  // non-array→`[]` pattern used for the optional containers below. `serialized` is typed but
-  // untrusted at this boundary, so read the raw shape for the runtime guards. The three
-  // OPTIONAL containers (`relationships`/`expressionFields`/`filterPresets`/`ai`) are already
-  // absent-tolerant downstream (`screenRecordArray`/`screenFilterPresets`/`isRecord`) — but
-  // they are read off the already-normalised `raw` too, not off `serialized`, so a nullish
-  // argument can't reach them either (see `raw`'s definition above).
-  const serializedWidgets = (isRecord(raw.widgets) ? raw.widgets : {}) as StudioDoc['widgets'];
+  // Coerce the absent/malformed TOP-LEVEL `pages` container to its empty default up front,
+  // so this public, directly-callable API is TOTAL over a malformed `SerializedStudioState`
+  // — matching `migrateState`, which never throws. Callers that hand-build a
+  // `SerializedStudioState`, or pass `{}` / a doc missing a container, previously hit an
+  // uncaught `TypeError` (`Object.entries(undefined)` on `pages`). The other containers are
+  // coerced by their own `docScreening.ts` screen (non-record `widgets`/`dashboard` → `{}`,
+  // non-array `filters`/`relationships`/`expressionFields`/`filterPresets` → `[]`, junk
+  // `ai` → `undefined`). `serialized` is typed but untrusted at this boundary, so every
+  // read goes through the already-normalised `raw` (see its definition above).
   const serializedPages = (isRecord(raw.pages) ? raw.pages : {}) as StudioDoc['pages'];
-  const serializedFilters = (Array.isArray(raw.filters) ? raw.filters : []) as StudioDoc['filters'];
-  const serializedDashboard = (isRecord(raw.dashboard)
-    ? raw.dashboard
-    : {}) as unknown as StudioDoc['dashboard'];
 
+  // Per-entry widget screen, shared with `createDefaultStudioState` — see `docScreening.ts`.
+  const screenedWidgets = screenWidgets(raw.widgets);
+
+  // Normalize legacy leaf shapes, which is a PERSISTED-shape concern rather than a screen
+  // (and lives in `factories.ts`, which `docScreening.ts` cannot import): grid `columns`
+  // (legacy string field ids) and chart `ySeries` (legacy `seriesType` alias). Rebuild
+  // `config` only when one is present; otherwise keep the widget untouched (reference
+  // stability for the common case). Runs across kinds by design (a load-boundary normalizer
+  // that doesn't branch on `widget.kind`), so it reads through the flat cross-kind
+  // `StudioWidgetConfig` patch type.
   const normalizedWidgets = Object.fromEntries(
-    Object.entries(serializedWidgets)
-      // Screen the persisted widget-record KEYS against the shared prototype-hazard
-      // denylist and drop non-record entries. `JSON.parse` happily produces an own
-      // `"__proto__"` widget key (and a foreign/hand-edited doc can carry a `null`
-      // widget); an unsafe key would survive `Object.fromEntries` as an own property and
-      // then get inconsistent downstream treatment in the reducer, and a `null` widget
-      // would throw `Cannot read properties of null (reading 'config')` in the map below.
-      // Persisted docs are an untrusted boundary (shared/hand-edited dashboards), so this
-      // mirrors the wire boundary's own-key screening — dropping the offending entry.
-      .filter(([id, widget]) => {
-        if (
-          !(
-            isSafeKey(id) &&
-            widget !== null &&
-            typeof widget === 'object' &&
-            !Array.isArray(widget)
-          )
-        ) {
-          return false;
-        }
-        // Screen the persisted widget object's OWN top-level keys against the
-        // prototype-hazard denylist (Finding T2-1), symmetric with the wire boundary's
-        // `hasUnsafeOwnKeys(widget)` rejection in `validateWidget`. `JSON.parse` on a
-        // shared/hand-edited doc materializes an own `"__proto__"`/`"constructor"`/
-        // `"prototype"` key as a real own DATA property (not the inherited accessor); such
-        // a widget passes load verbatim today, round-trips through `serializeDoc`, and an
-        // `Object.assign({}, loadedWidget)`/spread of it then poisons the target's
-        // prototype. The wire boundary already rejects the whole widget for this, so follow
-        // the same fail-closed drop-invalid-entry convention here (matching the config-key
-        // drop just below). Reuses the SAME `hasUnsafeOwnKeys` predicate.
-        if (hasUnsafeOwnKeys(widget)) {
-          return false;
-        }
-        // Screen the persisted widget's OWN `config` keys against the prototype-hazard
-        // denylist (Finding 3.2), symmetric with the wire boundary's
-        // `hasUnsafeOwnKeys(widget.config)` rejection in `validateWidget`. A hand-edited/
-        // shared doc can carry an own `"__proto__"`/`"constructor"`/`"prototype"` config
-        // key that `JSON.parse` materializes as a real own property; the reducer rebuilds
-        // config key-by-key on later edits, so such a key is a pollution hazard the wire
-        // boundary rejects outright. Follow the load boundary's fail-closed drop-invalid-
-        // entry convention (as for a `null`/unsafe-KEY widget above): drop the whole
-        // widget rather than load a config the wire boundary would refuse. Reuses the SAME
-        // `hasUnsafeOwnKeys` predicate the wire boundary uses.
-        const cfg = (widget as { config?: unknown }).config;
-        if (isRecord(cfg) && hasUnsafeOwnKeys(cfg)) {
-          return false;
-        }
-        // Drop a persisted widget whose `kind`/`title` is missing or non-string,
-        // symmetric with the wire boundary's `isString(widget.kind)`/`isString(widget.title)`
-        // gate in `validateWidget` (`parseStateMutation.ts`). Both fields are load-bearing —
-        // the widget factory/renderer key off `kind`, and the canvas card renders `title` —
-        // and are read with no fallback, so a hand-edited/foreign doc carrying `kind: 42` or
-        // an absent `title` would otherwise load a widget the byte-identical wire payload is
-        // rejected for, and likely crash on first render. Drop the whole widget, matching the
-        // fail-closed convention every other structural check in this filter already applies.
-        if (
-          typeof (widget as { kind?: unknown }).kind !== 'string' ||
-          typeof (widget as { title?: unknown }).title !== 'string'
-        ) {
-          return false;
-        }
-        return true;
-      })
-      .map(([id, widget]) => {
-        // Reconcile the widget's own `id` field with its record KEY (finding 2.1) and
-        // coerce a non-record `config` (finding 2.4) BEFORE the legacy-shape normalization
-        // below. Both are load-boundary invariants the reducer relies on but never gets a
-        // chance to enforce for a hand-edited/shared doc:
-        //  - The reducer's every id-keyed lookup/delete/cross-filter-cleanup keys off the
-        //    RECORD KEY, and BOTH the wire boundary and the reducer reject a `changes.id`
-        //    precisely to keep `widget.id` in sync with its key. A doc where the desync
-        //    ALREADY exists (`widgets: { "w-a": { "id": "w-b", … } }`) would otherwise load
-        //    verbatim and silently no-op every subsequent edit/delete of that widget (each
-        //    passes `widget.id` back, which no `Object.hasOwn(widgets, id)` guard matches),
-        //    and a cross-filter it emits could never be cleaned up. The KEY is the source of
-        //    truth, so re-stamp `id: key` (preserving the user's data, matching the
-        //    `activePageId` reconciliation style rather than dropping the widget).
-        //  - A record widget whose `config` is not a record (a hand-edited `config: null`)
-        //    passes the record-widget `.filter` above and, because the reads below use
-        //    optional chaining, installs a live widget whose first render throws
-        //    (`config.chartType` off `null`). `deserializeState` is a public, directly-
-        //    callable surface that is total over nested corruption of an otherwise
-        //    top-level-well-formed `SerializedStudioState` (it assumes the four top-level
-        //    containers are present — that top-level shape is guaranteed upstream by
-        //    `migrateState`), so coerce the junk config to `{}` here — the gentler,
-        //    relationships-style coercion — instead of shipping a widget that crashes the
-        //    canvas at first paint.
-        const rawConfig = (widget as { config?: unknown }).config;
-        const configIsRecord =
-          rawConfig !== null && typeof rawConfig === 'object' && !Array.isArray(rawConfig);
-        let base = widget;
-        if (base.id !== id) {
-          base = { ...base, id } as StudioWidget;
-        }
-        if (!configIsRecord) {
-          base = { ...base, config: {} } as StudioWidget;
-        }
-        // Screen the widget-level `titleMode`/`subtitleMode` at the load boundary (Finding
-        // T3-1), symmetric with the wire boundary's `isOptionalTitleMode` gate on these same
-        // two fields (`parseStateMutation.ts`). A hand-edited/shared `titleMode: 42` passes
-        // the record-widget `.filter` above and would load VERBATIM into the client's
-        // auto-title logic, which branches on `widget.titleMode`/`subtitleMode` — so a
-        // non-`'auto'|'manual'` value silently steers that logic while the byte-identical
-        // wire payload is rejected. Drop the offending KEY (mirroring the junk-`chartType`
-        // key-drop below, not a widget-dropping coercion) so the widget loads without it and
-        // the `'auto'` default applies. Reference-stable when both fields are already valid.
-        for (const modeKey of ['titleMode', 'subtitleMode'] as const) {
-          const modeValue = (base as unknown as Record<string, unknown>)[modeKey];
-          if (modeValue !== undefined && modeValue !== 'auto' && modeValue !== 'manual') {
-            const nextBase = { ...base };
-            delete (nextBase as unknown as Record<string, unknown>)[modeKey];
-            base = nextBase as StudioWidget;
+    Object.entries(screenedWidgets).map(([id, widget]) => {
+      const config = widget.config as StudioWidgetConfig;
+      const columns = config?.columns;
+      const ySeries = config?.ySeries;
+      // `Array.isArray` (not truthiness) with a non-empty guard: an empty
+      // `columns: []`/`ySeries: []` (the factory defaults) is truthy, so the old
+      // `!columns && !ySeries` check rebuilt a fresh, identical config on every load —
+      // needless reference churn that defeated the "return the widget untouched" intent. A
+      // truthy non-array (a hand-corrupted `columns: "junk"`) was also truthy and then
+      // crashed on `.map`; `Array.isArray` leaves it untouched instead (deep config
+      // validation is out of scope for this package).
+      const hasColumns = Array.isArray(columns) && columns.length > 0;
+      const hasYSeries = Array.isArray(ySeries) && ySeries.length > 0;
+      if (!hasColumns && !hasYSeries) {
+        return [id, widget];
+      }
+      // Track whether any entry actually changed (the pattern `normalizeConfigChartSeries`
+      // uses in `applyMutation.ts`): a non-empty but already-canonical `columns`/`ySeries` —
+      // the common case for every configured grid/chart widget — must NOT mint a fresh array
+      // (and hence a fresh config and widget) on every load, or cross-load memoization is
+      // defeated (Finding 5). `.map(normalize)` alone always allocates.
+      let changed = false;
+      let nextColumns = columns;
+      if (hasColumns) {
+        nextColumns = columns.map((column) => {
+          const normalized = normalizeGridColumn(column);
+          if (normalized !== column) {
+            changed = true;
           }
-        }
-        // Screen the widget-level `subtitle`/`sourceId` at the load boundary (finding 3),
-        // symmetric with the wire boundary's `isOptionalString(widget.subtitle)`/
-        // `isOptionalString(widget.sourceId)` gates in `validateWidget` (`parseStateMutation.ts`).
-        // Both are OPTIONAL fields the record-widget `.filter` above never checked, so a
-        // hand-edited/shared `subtitle: 42` or `sourceId: 42` previously loaded VERBATIM: a
-        // junk `subtitle` crashes `StudioWidgetEditDialog`, which renders it directly as
-        // text with no fallback, and a junk `sourceId` silently breaks the widget-to-data-
-        // source lookup with no self-heal — while the byte-identical wire payload is
-        // rejected. Drop the offending KEY (the same "strip, don't sink the whole widget"
-        // convention the `titleMode`/`subtitleMode` loop above uses) so the widget loads
-        // without it and the "no subtitle"/"no explicit source" fallback applies.
-        // Reference-stable when both fields are already valid or absent.
-        for (const stringKey of ['subtitle', 'sourceId'] as const) {
-          const stringValue = (base as unknown as Record<string, unknown>)[stringKey];
-          if (stringValue !== undefined && typeof stringValue !== 'string') {
-            const nextBase = { ...base };
-            delete (nextBase as unknown as Record<string, unknown>)[stringKey];
-            base = nextBase as StudioWidget;
+          return normalized;
+        });
+      }
+      let nextYSeries = ySeries;
+      if (hasYSeries) {
+        nextYSeries = ySeries.map((series) => {
+          const normalized = normalizeChartSeries(series);
+          if (normalized !== series) {
+            changed = true;
           }
-        }
-        // Normalize legacy leaf shapes at the load boundary: grid `columns` (legacy
-        // string field ids) and chart `ySeries` (legacy `seriesType` alias). Rebuild
-        // `config` only when one is present; otherwise return the widget untouched
-        // (keeping reference stability for the common case). This runs across kinds
-        // by design (a load-boundary normalizer that doesn't branch on `widget.kind`),
-        // so it reads through the flat cross-kind `StudioWidgetConfig` patch type.
-        const config = base.config as StudioWidgetConfig;
-        const columns = config?.columns;
-        const ySeries = config?.ySeries;
-        // `Array.isArray` (not truthiness) with a non-empty guard: an empty
-        // `columns: []`/`ySeries: []` (the factory defaults) is truthy, so the old
-        // `!columns && !ySeries` check rebuilt a fresh, identical config on every
-        // load — needless reference churn that defeated the "return the widget
-        // untouched" intent. A truthy non-array (a hand-corrupted `columns: "junk"`)
-        // was also truthy and then crashed on `.map`; `Array.isArray` leaves it
-        // untouched instead (deep config validation is out of scope for this package).
-        const hasColumns = Array.isArray(columns) && columns.length > 0;
-        const hasYSeries = Array.isArray(ySeries) && ySeries.length > 0;
-        // Membership-check the closed `chartType` union at the load boundary (Finding 2),
-        // symmetric with the wire boundary's `isStudioChartType` gate. A hand-edited
-        // `chartType: 'trendline'` would otherwise render a blank/default chart AND wedge
-        // the next AI `update_widget` (the middleware hard-errors on an unknown stored
-        // chartType). Drop the offending key so `resolveChartType`'s `'bar'` fallback
-        // applies — the same "leave junk for the fallback/validation" treatment junk
-        // `columns` gets, not a widget-dropping coercion.
-        const hasBadChartType =
-          Object.hasOwn(config, 'chartType') &&
-          !(typeof config.chartType === 'string' && isStudioChartType(config.chartType));
-        if (!hasColumns && !hasYSeries && !hasBadChartType) {
-          return [id, base];
-        }
-        // Track whether any entry actually changed (the pattern `normalizeConfigChartSeries`
-        // uses in `applyMutation.ts`): a non-empty but already-canonical `columns`/`ySeries`
-        // — the common case for every configured grid/chart widget — must NOT mint a fresh
-        // array (and hence a fresh config and widget) on every load, or cross-load
-        // memoization is defeated (Finding 5). `.map(normalize…)` alone always allocates.
-        let changed = hasBadChartType;
-        let nextColumns = columns;
-        if (hasColumns) {
-          nextColumns = columns.map((column) => {
-            const normalized = normalizeGridColumn(column);
-            if (normalized !== column) {
-              changed = true;
-            }
-            return normalized;
-          });
-        }
-        let nextYSeries = ySeries;
-        if (hasYSeries) {
-          nextYSeries = ySeries.map((series) => {
-            const normalized = normalizeChartSeries(series);
-            if (normalized !== series) {
-              changed = true;
-            }
-            return normalized;
-          });
-        }
-        if (!changed) {
-          return [id, base];
-        }
-        const nextConfig = {
-          ...base.config,
-          ...(hasColumns ? { columns: nextColumns } : {}),
-          ...(hasYSeries ? { ySeries: nextYSeries } : {}),
-        } as StudioWidgetConfig;
-        if (hasBadChartType) {
-          delete nextConfig.chartType;
-        }
-        return [id, { ...base, config: nextConfig }];
-      }),
+          return normalized;
+        });
+      }
+      if (!changed) {
+        return [id, widget];
+      }
+      const nextConfig = {
+        ...widget.config,
+        ...(hasColumns ? { columns: nextColumns } : {}),
+        ...(hasYSeries ? { ySeries: nextYSeries } : {}),
+      } as StudioWidgetConfig;
+      return [id, { ...widget, config: nextConfig } as StudioWidget];
+    }),
   ) as StudioDoc['widgets'];
 
   // Sweep the persisted pages (drop prototype-hazard keys / non-record values, clamp
@@ -1215,38 +702,19 @@ export function deserializeState(
   // here.
   const normalizedPages = Object.keys(sweptPages).length > 0 ? sweptPages : defaultState.doc.pages;
 
+  // Per-entry dashboard screen (own-key strip + `title`/`id` coercion), shared with
+  // `createDefaultStudioState` — see `docScreening.ts`.
+  const dashboard = screenDashboard(raw.dashboard);
   // Reconcile a dangling `dashboard.activePageId` at the load boundary, mirroring the
   // exact fallback the factory (`createDefaultStudioState`) and `removePage` already use:
   // the invariant "the active page exists" is enforced everywhere EXCEPT here. A
   // hand-edited `activePageId`, or one orphaned when the sweep above dropped its page,
   // would otherwise render a blank canvas and silently no-op every legacy mutation that
   // falls back to the active page (`addWidget`/`setWidgetLayout` without an explicit
-  // `pageId`). `Object.hasOwn` (not `in`) so an untrusted id can't match a prototype member.
-  // Strip prototype-hazard OWN keys from the persisted dashboard (T2-4) BEFORE it is spread
-  // into live state below. A shared/hand-edited doc can carry an own `"__proto__"`/
-  // `"constructor"`/`"prototype"` DATA key that `deserializeState` would otherwise use verbatim
-  // and round-trip forever, later poisoning an `Object.assign`/spread of the dashboard. Drop the
-  // offending keys (the widgets/filters own-key convention) rather than the whole dashboard.
-  const dashboard = stripUnsafeOwnKeys(serializedDashboard);
-  // Coerce a missing/non-string `dashboard.title` to the same `'Untitled Dashboard'`
-  // fallback the factory uses (the dashboard-title sibling of `normalizePersistedPages`'s
-  // page-title coercion): `addDashboard`-adjacent mutations (`setDashboardTitle` et al.)
-  // already require a string `title` at the wire/reducer boundary, so a non-string value
-  // can only reach here via a hand-edited/foreign persisted doc — one `migrateState`'s
-  // `findMissingRequiredField` does not check (it only validates `pages[*].widgetRows`).
-  // Left uncoerced, the junk value would install verbatim and crash the first component
-  // that renders `dashboard.title` as text.
-  const safeDashboardTitle =
-    typeof dashboard.title === 'string' ? dashboard.title : 'Untitled Dashboard';
-  // Same fallback treatment for `dashboard.id` (finding: it got none). `id` is REQUIRED by
-  // `StudioDashboardState`, but `findMissingRequiredField` only checks that `dashboard` is a
-  // record, so a persisted `dashboard: {}` loaded with `doc.dashboard.id === undefined` — a
-  // type violation the rest of the system reads as a string (it keys saved-view/telemetry
-  // records and is interpolated into ids) and which `serializeDoc` then re-persisted forever.
-  // Fall back to the same `'dashboard-1'` the factory (`createDefaultStudioState`) stamps,
-  // mirroring how `title` falls back to the factory's `'Untitled Dashboard'`.
-  const safeDashboardId = typeof dashboard.id === 'string' ? dashboard.id : 'dashboard-1';
-  // `typeof … === 'string'` guards `Object.hasOwn` against its own key-coercion: a
+  // `pageId`). Kept HERE rather than in the shared screen because it needs the FINAL page
+  // map, which each producer of a doc assembles differently.
+  //
+  // `typeof ... === 'string'` guards `Object.hasOwn` against its own key-coercion: a
   // numeric `activePageId` (e.g. reachable via `setActivePage`'s reducer-side bug, now
   // fixed, or a hand-edited persisted doc) would otherwise COERCE to match a
   // string-keyed `normalizedPages` entry (`42` matching key `"42"`) and be treated as
@@ -1255,261 +723,43 @@ export function deserializeState(
   const activePageIdValid =
     typeof dashboard.activePageId === 'string' &&
     Object.hasOwn(normalizedPages, dashboard.activePageId);
-  const reconciledDashboard =
-    activePageIdValid && safeDashboardTitle === dashboard.title && safeDashboardId === dashboard.id
-      ? dashboard
-      : {
-          ...dashboard,
-          id: safeDashboardId,
-          title: safeDashboardTitle,
-          // `normalizedPages` is guaranteed non-empty by the synthesis above, so this always
-          // resolves to a real page id — the `?? ''` is unreachable and kept only because
-          // the indexed read is not statically known to be defined.
-          activePageId: activePageIdValid
-            ? dashboard.activePageId
-            : (Object.keys(normalizedPages)[0] ?? ''),
-        };
+  const reconciledDashboard = activePageIdValid
+    ? dashboard
+    : {
+        ...dashboard,
+        // `normalizedPages` is guaranteed non-empty by the synthesis above, so this always
+        // resolves to a real page id - the `?? ''` is unreachable and kept only because
+        // the indexed read is not statically known to be defined.
+        activePageId: Object.keys(normalizedPages)[0] ?? '',
+      };
 
-  // Validate `doc.ai` at the load boundary: keep it only when it is a record whose
-  // `threads` is an array, AND screen each thread ENTRY (T2-3) — not just the container.
-  // `renameAIThread` does `(state.ai.threads ?? []).map((t) => t.id …)` with NO optional
-  // chaining, so a `threads: [null, {…}]` that passes the container `Array.isArray` check
-  // still throws `Cannot read properties of null (reading 'id')` on the first rename, and
-  // `serializeDoc` re-persists the junk verbatim (`threads.length > 0`), round-tripping the
-  // corruption. Drop non-record entries the SAME way the sibling `filters` per-entry screen
-  // below does, rather than loading them verbatim. Reference-stable when every surviving
-  // thread is already a record; the whole `ai` is dropped to `undefined` when absent/junk.
-  //
-  // Also screen the `ai` container AND each surviving thread for prototype-hazard OWN keys
-  // (T2-4): `renameAIThread` spreads both (`{ ...state.ai, threads: … }`, `{ ...t, name }`), so
-  // an own `"__proto__"`/`"constructor"`/`"prototype"` DATA key would round-trip forever and
-  // poison a later spread. The container's unsafe keys are stripped (keeping the rest of `ai`);
-  // a thread carrying one is dropped whole, matching the sibling per-entry own-key screens.
-  let normalizedAi: StudioAIState | undefined;
-  // `raw` is the normalised container (`{}` when the argument was not a record), so `raw.ai`
-  // narrows only to `Record<string, unknown>` — a direct cast to `StudioAIState` is rejected as
-  // insufficiently overlapping. Go through `unknown`: this IS untrusted persisted input, and the
-  // `isRecord` + `Array.isArray(threads)` gate above plus the per-thread screens below are what
-  // establish the shape. The cast asserts nothing the runtime checks have not already proven.
-  if (isRecord(raw.ai) && Array.isArray((raw.ai as unknown as StudioAIState).threads)) {
-    const ai = stripUnsafeOwnKeys(raw.ai as unknown as StudioAIState);
-    // Drop non-record / unsafe-own-key entries first (existing screen), THEN repair
-    // each SURVIVING thread's `messages`/`name` leaf shapes (F1 finding) — the
-    // container/record-ness screen alone let a `messages: 'junk'` or `name: 42` thread
-    // through verbatim. `aiChanged` tracks every drop/repair below (entries, ids, dedup,
-    // AND the `activeThreadId` reconciliation further down) so a well-formed `ai` (the
-    // common case) keeps its reference identity.
-    let aiChanged = false;
-    const recordThreads = ai.threads.filter((thread) => {
-      if (!isRecord(thread) || hasUnsafeOwnKeys(thread)) {
-        aiChanged = true;
-        return false;
-      }
-      return true;
-    });
-    // Drop a thread whose `id` is not a non-empty string (Tier2 finding — the `ai.threads`
-    // sibling of the `filters` load-boundary `typeof f.id !== 'string'` screen above): `id`
-    // is identity data, and `renameAIThread`'s `t.id === threadId` lookup (and the
-    // `activeThreadId` reconciliation just below) compares against a STRING, so a non-string
-    // `id` would load as a permanently-unselectable, unrenamable thread with no error. Also
-    // de-dup by `id`, first occurrence wins (mirroring the `filters` load-boundary dedup,
-    // Finding 3): a hand-edited/foreign doc with two threads sharing an `id` previously
-    // loaded BOTH, desyncing `renameAIThread`'s single-thread-by-id lookup from whichever
-    // copy the thread selector happened to render.
-    const seenThreadIds = new Set<string>();
-    const idScreenedThreads = recordThreads.filter((thread) => {
-      const id = (thread as { id?: unknown }).id;
-      if (typeof id !== 'string' || id.length === 0) {
-        aiChanged = true;
-        return false;
-      }
-      if (seenThreadIds.has(id)) {
-        aiChanged = true;
-        return false;
-      }
-      seenThreadIds.add(id);
-      return true;
-    });
-    const safeThreads = idScreenedThreads.map((thread) => {
-      const repaired = repairThreadLeafShapes(thread);
-      if (repaired !== thread) {
-        aiChanged = true;
-      }
-      return repaired;
-    });
-    // Reconcile a dangling `activeThreadId` (Tier2 finding), mirroring the
-    // `dashboard.activePageId` reconciliation above: a hand-edited doc, or one orphaned
-    // when the id/dedup screen just above dropped its thread, would otherwise leave the
-    // chat panel pointed at a thread that no longer exists in `threads` — with no
-    // self-heal, unlike every other id-shaped reconciliation in this file. Falls back to
-    // `undefined` (no thread selected), NOT the first surviving thread: unlike
-    // `activePageId` (a page must always be rendered, so `''`/blank-canvas is worse),
-    // `activeThreadId` is already optional or UI state (`activeThreadId?: string` means
-    // "no thread selected"), so clearing it is a safe, already-handled state rather than
-    // guessing which thread the user meant.
-    const activeThreadIdValid =
-      typeof ai.activeThreadId === 'string' &&
-      safeThreads.some((t) => (t as { id: string }).id === ai.activeThreadId);
-    if (!activeThreadIdValid && ai.activeThreadId !== undefined) {
-      aiChanged = true;
-    }
-    if (aiChanged) {
-      const rebuilt: StudioAIState = { ...ai, threads: safeThreads };
-      if (!activeThreadIdValid) {
-        delete rebuilt.activeThreadId;
-      }
-      normalizedAi = rebuilt;
-    } else {
-      normalizedAi = ai;
-    }
-  }
+  // Per-entry `doc.ai` screen (container + threads + `activeThreadId` reconciliation),
+  // shared with `createDefaultStudioState` — see `docScreening.ts`.
+  const normalizedAi = screenAIState(raw.ai);
 
-  // Repair a malformed `dependsOn` (T2 finding) BEFORE the structural filter screen below:
-  // `dependsOn` is optional cascade metadata, not identity data, so a malformed value
-  // (`dependsOn: 'w1'`, `dependsOn: [1, 2]`) is stripped from the filter object rather than
-  // sinking the whole entry — mirroring how a bad widget `titleMode`/`subtitleMode` key is
-  // stripped rather than dropping the whole widget. Left unrepaired, the malformed field
-  // would load successfully and later crash `StudioFiltersDrawer`'s `dependsOn.map(...)` the
-  // first time the filter rendered. Non-record entries pass through untouched — the
-  // structural screen below drops them for other reasons.
-  const dependsOnRepairedFilters = serializedFilters.map((f) => repairFilterDependsOn(f));
-  // Symmetric with `serializeDoc`'s strip: cross-filter- and interactive-scoped
-  // filters are session-flavoured and never written to disk, so a hand-edited or
-  // foreign doc carrying them must not install them into live `doc.filters` on load.
-  // An orphaned cross-filter (whose `scope.sourceWidgetId` names a widget the doc
-  // doesn't contain) would otherwise permanently filter its page: the reducer's
-  // cleanup for such filters only fires when the source widget is REMOVED, and it was
-  // never present, so the page would load pre-filtered with no affordance to clear it.
+  // Per-entry filter screen, shared with `createDefaultStudioState` — see `docScreening.ts`.
+  // The load boundary is the ONLY caller that passes the two extra options:
   //
-  // Also DROP any entry with an invalid `scope`: `migrateState` rejects such junk up
-  // front, but `deserializeState` is a public API callable on a `SerializedStudioState`
-  // directly (its documented surface is total over nested corruption of an otherwise
-  // top-level-well-formed `SerializedStudioState` — it assumes the four top-level
-  // containers are present, a shape `migrateState` guarantees upstream), so a
-  // `filters: [null]` / `scope: null` entry must be defensively removed here too —
-  // otherwise it installs into live `doc.filters` and then throws in `serializeDoc` and
-  // the reducer on the next commit.
-  // First-occurrence-wins dedup of duplicate filter `id`s (Finding 3), mirroring the
-  // `dedupeLayoutRows` convention in `applyMutation.ts` (keep first, drop later
-  // duplicates). A hand-edited/foreign doc with two filters sharing an `id` previously
-  // loaded BOTH — and worse, defeated the rank-uniqueness dedup pass below:
-  // `hasConflictingRankFilter(filter.id, …)` self-excludes the entry whose id it's
-  // checking (`filter.id === filterId` in `applyMutation.ts`), so a duplicate-id rank
-  // filter never registered as conflicting with the already-kept copy of the SAME id and
-  // both survived. Dropping duplicate ids here (before that pass) closes both the raw
-  // duplicate and the rank-dedup escape.
-  const seenFilterIds = new Set<string>();
-  const screenedFilters = dependsOnRepairedFilters.filter((f) => {
-    if (!isRecord(f)) {
-      return false;
-    }
-    // Screen the persisted filter object's OWN keys against the prototype-hazard
-    // denylist (Finding T2-2), symmetric with the wire boundary's `hasUnsafeOwnKeys`
-    // gate now added to `validateFilter` in `parseStateMutation.ts`. The reducer's
-    // `addFilter` appends a filter verbatim (`[...state.filters, args.filter]`), and a
-    // persisted `filters` array is an untrusted boundary (`JSON.parse` on a shared/
-    // hand-edited doc materializes an own `"__proto__"`/`"constructor"`/`"prototype"`
-    // key as a real own DATA property). Drop the entry here so the byte-identical wire
-    // payload and the load payload agree. Reuses the SAME `hasUnsafeOwnKeys` predicate.
-    if (hasUnsafeOwnKeys(f)) {
-      return false;
-    }
-    // Drop a persisted filter whose `id` is not a string (Finding 3.2), symmetric with
-    // the wire boundary's `isSafeId(filter.id)` gate in `validateFilter`. A non-string
-    // `id` (a hand-edited `id: 42`) can NEVER be matched by wire `removeFilter` (whose
-    // `f.id !== filterId` compares against a string `filterId`), so it would install a
-    // permanently-unremovable filter — exactly the state the wire boundary rejects for
-    // the byte-identical payload.
-    if (typeof (f as { id?: unknown }).id !== 'string') {
-      return false;
-    }
-    // Drop a duplicate `id` — first occurrence already kept (Finding 3). Runs after the
-    // string-id screen above so a non-string id never poisons the `seen` set.
-    const filterId = (f as { id: string }).id;
-    if (seenFilterIds.has(filterId)) {
-      return false;
-    }
-    seenFilterIds.add(filterId);
-    const scope = (f as { scope?: unknown }).scope;
-    // Full scope validity — record-ness, kind membership AND every required id field
-    // present — via the ONE shared predicate the wire boundary uses (Finding T3-1),
-    // replacing the prior record + kind-only check. An unknown kind like `'pages'`
-    // would otherwise load as a permanent inert entry that escapes `removePage`/
-    // `dropWidgetScopedFilters` cleanup (both key off the known kinds); a scope missing
-    // a required id (e.g. a `dashboard-date-range` without `sourceId`, which would
-    // mis-apply a date window) is now dropped here exactly as the wire boundary rejects
-    // the byte-identical payload. `isValidFilterScope` also now rejects a scope carrying
-    // an own `__proto__`/`constructor`/`prototype` key (Tier2 finding — `validateFilterScope`
-    // gained this check so this reused predicate closes the load-boundary gap too, in
-    // agreement with the wire boundary, without a separate `hasUnsafeOwnKeys(scope)` call
-    // here).
-    if (!isValidFilterScope(scope)) {
-      return false;
-    }
-    // Symmetric with `serializeDoc`'s strip: cross-filter/interactive entries are
-    // session-flavoured and never persisted, so an orphaned one hand-carried into a
-    // foreign doc must not install (it would permanently filter its page with no
-    // affordance to clear it — the reducer's cleanup only fires on widget REMOVAL).
-    if (scope.kind === 'cross-filter' || scope.kind === 'interactive') {
-      return false;
-    }
-    // Drop a filter anchored to a `pageId` that no longer exists in `normalizedPages` —
-    // the PAGE-anchor mirror of the widget-anchor orphan check just below. A `page`-scoped
-    // filter with an explicit `pageId`, or a `dashboard-date-range` filter (whose `pageId`
-    // is required), naming a page the doc doesn't contain would otherwise be permanent
-    // dead weight with no clearing affordance: the reducer's page-anchor cleanup
-    // (`removePage`'s `filtersAfterPageDrop` in `applyMutation.ts`) only runs for a LIVE
-    // `removePage` mutation, never for a doc that already lacks the page on load (a
-    // hand-edited/foreign doc, or a page dropped by the sweep above for carrying an
-    // unsafe key). A `page`-scoped filter with NO `pageId` (the legacy "applies on every
-    // page" shape) is left alone. `Object.hasOwn` so an untrusted `pageId` can't match a
-    // prototype member — this is now safe from the numeric-`pageId`-coerces-to-a-matching-
-    // string-key class of bug (the same class Iteration 26 closed for mutation-level ids):
-    // `isValidFilterScope` above (`validateFilterScope` in `parseStateMutation.ts`) now
-    // type-checks the `page` kind's optional `pageId` with `isOptionalString` too — the one
-    // scope-anchor id that check previously skipped, since `page`'s `pageId` is its sole
-    // OPTIONAL required-id field — so a non-string `pageId` is rejected by the
-    // `isValidFilterScope` gate above and never reaches this `Object.hasOwn` lookup at all,
-    // for both `page` and `dashboard-date-range` (whose `pageId` was already a REQUIRED,
-    // and therefore already string-checked, id field).
-    if (
-      (scope.kind === 'page' || scope.kind === 'dashboard-date-range') &&
-      scope.pageId !== undefined &&
-      !Object.hasOwn(normalizedPages, scope.pageId)
-    ) {
-      return false;
-    }
-    // Drop an ORPHAN `widget`-scoped filter whose `widgetId` names no loaded widget (T3-2),
-    // symmetric with the reducer's `addFilter` guard. Its only cleanup path
-    // (`dropWidgetScopedFilters`) fires on widget REMOVAL, which never happens for a widget
-    // that was never present, so it would otherwise be permanent invisible dead weight that
-    // filters its page forever. `Object.hasOwn` so an untrusted `widgetId` can't match a
-    // prototype member.
-    if (scope.kind === 'widget' && !Object.hasOwn(normalizedWidgets, scope.widgetId)) {
-      return false;
-    }
-    // Field-is-a-string check (T2-3), symmetric with the wire boundary at
-    // `parseStateMutation.ts` ("a junk value like `field: 42` … would install an
-    // active-but-unevaluable filter that silently renders every widget in scope
-    // empty"). A hand-edited `field: 42` in persisted `filters` would otherwise load
-    // and produce that exact state, while the identical wire payload is rejected —
-    // drop the entry here so the two boundaries agree.
-    const record = f as { field?: unknown; operator?: unknown; operator2?: unknown };
-    if (typeof record.field !== 'string') {
-      return false;
-    }
-    // Membership-check the closed `operator` union (Finding 2), symmetric with the
-    // wire boundary's `isStudioFilterOperator` gate: a hand-edited `operator: 'equal'`
-    // (a plausible typo for `'equals'`) would otherwise install a chip that renders as
-    // ACTIVE while filtering nothing — a silent fail-open. A present `operator2` is
-    // held to the same membership check (absent stays legal).
-    if (!isStudioFilterOperator(record.operator)) {
-      return false;
-    }
-    if (record.operator2 !== undefined && !isStudioFilterOperator(record.operator2)) {
-      return false;
-    }
-    return true;
+  //  - `stripSessionScopes`, symmetric with `serializeDoc`'s strip: cross-filter- and
+  //    interactive-scoped filters are session-flavoured and never written to disk, so a
+  //    hand-edited or foreign doc carrying them must not install them into live
+  //    `doc.filters` on load. An orphaned cross-filter (whose `scope.sourceWidgetId` names
+  //    a widget the doc doesn't contain) would otherwise permanently filter its page: the
+  //    reducer's cleanup for such filters only fires when the source widget is REMOVED, and
+  //    it was never present, so the page would load pre-filtered with no affordance to
+  //    clear it. An in-process producer legitimately BUILDS live state carrying both kinds,
+  //    which is why the option exists rather than the strip being unconditional.
+  //  - `anchors`, resolved against the SWEPT page map and the SCREENED widget record, so an
+  //    orphan page/widget anchor is told apart from a live one. Only this boundary can
+  //    supply them (the factory merges its `pages`/`widgets` onto the defaults AFTER the
+  //    screen runs).
+  const screenedFilters = screenFilters(raw.filters, {
+    stripSessionScopes: true,
+    anchors: {
+      // `Object.hasOwn` so an untrusted id can't match a prototype member.
+      hasPage: (pageId) => Object.hasOwn(normalizedPages, pageId),
+      hasWidget: (widgetId) => Object.hasOwn(normalizedWidgets, widgetId),
+    },
   });
 
   // Re-check rank-filter per-page uniqueness at the load boundary (finding 9): the
@@ -1577,28 +827,11 @@ export function deserializeState(
       pages: normalizedPages,
       widgets: normalizedWidgets,
       filters: finalFilters,
-      // Defensive PER-ENTRY screening, symmetric with the pages/widgets/filters/ai.threads
-      // screens (Finding 1): the prior code coerced only the CONTAINER (`Array.isArray ?
-      // value : []`), so a hand-edited `relationships: [null]` / `expressionFields: [null]`
-      // installed verbatim and then crashed the client on first use — `ef.sourceId` /
-      // `r.sourceId` are read with NO optional chaining on hot paths — while `serializeDoc`
-      // re-persisted the junk forever (its `.length > 0` checks are also container-only).
-      // `screenRecordArray` drops non-record entries (and coerces a non-array to `[]`),
-      // reference-stable when every entry survives. `filterPresets` additionally requires
-      // each entry to carry an array `filters` and screens that nested array too — a
-      // well-formed preset with a `null` inner filter crashes `applyFilterPreset` the same way.
-      // Both also get a REQUIRED-LEAF screen (see `screenRecordArray`'s `isValidEntry`
-      // parameter): record-ness alone let an entry missing the very field the unguarded
-      // deref reads (`ef.expression`, `r.type`) load with `success: true` and then crash
-      // (or silently mis-join) on first use, with `serializeDoc` re-persisting it forever.
-      relationships: screenRecordArray<StudioDoc['relationships'][number]>(
-        raw.relationships,
-        isRelationshipSafe,
-      ),
-      expressionFields: screenRecordArray<StudioExpressionField>(
-        raw.expressionFields,
-        isExpressionFieldSafe,
-      ),
+      // Defensive PER-ENTRY screening for the three optional collections, symmetric with
+      // the pages/widgets/filters/ai.threads screens above and shared with
+      // `createDefaultStudioState` — see `docScreening.ts` for each screen's rationale.
+      relationships: screenRelationships(raw.relationships),
+      expressionFields: screenExpressionFields(raw.expressionFields),
       filterPresets: screenFilterPresets(raw.filterPresets),
       // `doc.ai` validation (container + per-entry) is computed as `normalizedAi` above.
       ai: normalizedAi,

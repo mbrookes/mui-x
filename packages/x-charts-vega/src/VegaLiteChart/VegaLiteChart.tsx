@@ -954,7 +954,10 @@ function SingleViewChart(props: VegaLiteChartProps) {
   const resolvedTooltipFields = tooltipChannel != null ? resolveTooltipFields(tooltipChannel) : [];
   const tooltipFields = resolvedTooltipFields.length > 0 ? resolvedTooltipFields : null;
 
-  if (compiled.chartKind === 'geo') {
+  // `legendOnly` is deliberately excluded: that proxy renders the trellis's
+  // single hoisted legend and is handled below, for every chart kind at once.
+  // Claiming it here would render a 1px-wide map and no legend at all.
+  if (compiled.chartKind === 'geo' && !cell?.legendOnly) {
     // A geoshape choropleth's color axis (set by the mark compiler for a
     // quantitative/temporal color field, see marks/geoshape.ts) picks the
     // legend variant that matches its `colorMap`, mirroring
@@ -995,7 +998,14 @@ function SingleViewChart(props: VegaLiteChartProps) {
       );
     let geoLegend: React.ReactNode;
     let geoLegendInset = false;
-    if (geoColorMap?.type === 'piecewise') {
+    // A trellis hoists ONE legend beside the whole grid, so its cells must draw
+    // none — the cartesian branch honors `cell.hideLegend` for exactly this, but
+    // the geo branch never did. Every facet cell drew its own color legend and
+    // took the width from its map: `interactive_geo_facet_species`' four US
+    // county choropleths were squeezed to unreadable slivers.
+    if (cell?.hideLegend) {
+      geoLegend = undefined;
+    } else if (geoColorMap?.type === 'piecewise') {
       geoLegend = withGeoLegendTitle(
         <PiecewiseColorLegend
           axisDirection="z"
@@ -1167,10 +1177,20 @@ function SingleViewChart(props: VegaLiteChartProps) {
   // A trellis renders one shared legend outside the grid: this "legend only"
   // proxy mounts the provider for the color scale and draws just the legend,
   // with no plotting surface.
+  // The trellis's single hoisted legend renders through this proxy. It must be
+  // checked BEFORE the geo branch below, which returns a whole chart: a geo
+  // trellis would otherwise render a 1px-wide map here and no legend at all.
+  // A choropleth/heatmap carries its scale on the zAxis `colorMap` rather than
+  // as series entries, so the matching gradient legend is drawn for it too.
   if (cell?.legendOnly) {
+    const proxyColorMap = (compiled.zAxis?.[0] as { colorMap?: { type?: string } } | undefined)
+      ?.colorMap;
     return (
       <ChartsDataProviderPremium
-        series={seriesWithPieRadius}
+        // A geo chart's `mapShape` series can only be processed by the GEO
+        // provider; handing it to this one throws. The legend it needs reads
+        // the zAxis `colorMap`, not the series, so the series are dropped.
+        series={compiled.chartKind === 'geo' ? [] : seriesWithPieRadius}
         seriesConfig={SERIES_CONFIG as never}
         xAxis={xAxis}
         yAxis={yAxis}
@@ -1180,6 +1200,15 @@ function SingleViewChart(props: VegaLiteChartProps) {
         height={resolvedHeight ?? 1}
       >
         <ChartsWrapper>
+          {compiled.colorLegendTitle && (
+            <span style={{ fontSize: 12, fontWeight: 600 }}>{compiled.colorLegendTitle}</span>
+          )}
+          {proxyColorMap?.type === 'piecewise' && (
+            <PiecewiseColorLegend axisDirection="z" direction="vertical" />
+          )}
+          {proxyColorMap && proxyColorMap.type !== 'piecewise' && (
+            <ContinuousColorLegend axisDirection="z" direction="vertical" />
+          )}
           {compiled.hasLegend && <ChartsLegend direction="vertical" sx={LEGEND_SX} />}
           {compiled.overlayLegend.length > 0 && <OverlayLegend items={compiled.overlayLegend} />}
         </ChartsWrapper>

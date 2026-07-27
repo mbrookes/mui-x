@@ -18,11 +18,14 @@
  *      THROWS on it before any write is built, so a client can never move a row to,
  *      or stamp one into, a different tenant. The INSERT force-stamp and the UPDATE
  *      tenant-strip below are defense-in-depth for DIRECT builder callers that skip
- *      `validateMutation` (INSERT also re-runs the throwing check first). Table-qualified
- *      `values` keys (`table.column`) are rejected outright: mutation values
+ *      `validateMutation` (INSERT also re-runs the throwing check first). Every
+ *      `values` KEY is shape-validated unconditionally by `assertValueKeysWellFormed`
+ *      — table-qualified keys (`table.column`) are rejected outright (mutation values
  *      always target exactly one table, so a qualified key is malformed input and
- *      would otherwise bypass the row-level-security scope check below (which
- *      matches on bare column names).
+ *      would otherwise bypass the row-level-security scope check below, which matches
+ *      on bare column names), as are over-long keys and keys carrying Knex's implicit
+ *      `" as "` alias syntax. Only the writable-columns MEMBERSHIP check is gated on
+ *      `options.writableColumns`.
  *   6. Region/department scope is validated on INSERT/UPDATE values so a caller
  *      restricted to a region/department cannot write outside it.
  *   7. Value SHAPES are validated, not just value KEYS: a mutation value must be a
@@ -50,7 +53,10 @@ import type {
   SecurityColumns,
 } from '../security/types';
 import { applyPredicates, applySecurityPredicates } from '../shared/predicates';
-import { checkColumnAgainstAllowlist } from '../shared/columnValidation';
+import {
+  assertColumnReferenceShape,
+  checkColumnAgainstAllowlist,
+} from '../shared/columnValidation';
 import {
   toCompiledSecurityPolicy,
   type CompiledSecurityPolicy,
@@ -75,17 +81,44 @@ function resolvePrimaryCols(
 }
 
 /**
- * Reject any table-qualified key (`table.column`) in a mutation's `values`.
+ * Validate the SHAPE of every key in a mutation's `values` — unconditionally,
+ * independent of whether a `writableColumns` allowlist is configured.
  *
- * Mutation `values` always target exactly ONE table, so keys must be bare column
- * names. A qualified key is malformed input on two counts: Knex would render it as
- * a qualified identifier in an INSERT column list / UPDATE SET clause (invalid SQL
- * on mainstream databases), and — more importantly — it would slip past the
- * row-level-security scope checks in `validateSecurityColumnValues`, which match on
- * bare column names, letting a caller stamp e.g. `'orders.region_id'` outside their
- * scope. We mirror the `indexOf('.')` convention used by `checkColumnAgainstAllowlist`.
+ * Two rules, in order:
+ *
+ * 1. **No table-qualified key** (`table.column`). Mutation `values` always target
+ *    exactly ONE table, so keys must be bare column names. A qualified key is
+ *    malformed input on two counts: Knex would render it as a qualified
+ *    identifier in an INSERT column list / UPDATE SET clause (invalid SQL on
+ *    mainstream databases), and — more importantly — it would slip past the
+ *    row-level-security scope checks in `validateSecurityColumnValues`, which
+ *    match on bare column names, letting a caller stamp e.g. `'orders.region_id'`
+ *    outside their scope. Mirrors the `indexOf('.')` convention used by
+ *    `checkColumnAgainstAllowlist`. Being an ANY-dot rejection, it strictly
+ *    subsumes `assertSingleDotReference` for this reference class, which is why
+ *    the shared shape check below adds nothing on that axis.
+ * 2. **The shared identifier-shape checks** (`assertColumnReferenceShape`) —
+ *    length cap and the implicit-`" as "`-alias rejection (finding L1). These
+ *    used to run ONLY inside `checkColumnAgainstAllowlist`, i.e. only when
+ *    `options.writableColumns` happened to be configured, making them the one
+ *    conditionally-run identifier check in the package: every sibling entry point
+ *    (`assertQualifiedColumnsAllowed` on the read path,
+ *    `assertQualifiedWhereColumnsAllowed` for `where[].column` in this same
+ *    batch) runs them unconditionally. On a `schemaAllowlist`-only deployment,
+ *    `values: { "status as x": "shipped" }` therefore reached real Knex and
+ *    rendered `update "orders" set "status" as "x" = 'shipped'`. That fails
+ *    CLOSED — it is a syntax error and Knex identifier-quotes both halves, so
+ *    nothing is injectable — but it surfaces as an opaque driver error that
+ *    `sanitizeBoundaryError` flattens into the generic "could not be completed"
+ *    message, which is exactly the outcome `assertNoImplicitAlias` was written to
+ *    prevent (its own docblock notes the read path runs it unconditionally "so
+ *    the `schemaAllowlist`-only deployment … is covered too").
+ *
+ * MEMBERSHIP — "is this column writable?" — stays gated on `writableColumns` in
+ * `validateMutation`, because it is unanswerable without an allowlist. Shape is
+ * always answerable, so it is always answered.
  */
-function rejectQualifiedValueKeys(values: Record<string, unknown>, table: string): void {
+function assertValueKeysWellFormed(values: Record<string, unknown>, table: string): void {
   for (const key of Object.keys(values)) {
     if (key.includes('.')) {
       throw new Error(
@@ -95,6 +128,7 @@ function rejectQualifiedValueKeys(values: Record<string, unknown>, table: string
           `Use the bare column name instead.`,
       );
     }
+    assertColumnReferenceShape(key, 'values');
   }
 }
 
@@ -435,9 +469,11 @@ export function validateMutation(
     );
   }
 
-  // Qualified keys (`table.column`) are rejected before any scope check — they
-  // are malformed input and would otherwise dodge the bare-name scope matching.
-  rejectQualifiedValueKeys(values, descriptor.table);
+  // Value-key SHAPE (qualified key, length, implicit `" as "` alias) is checked
+  // before any scope check — a qualified key is malformed input and would
+  // otherwise dodge the bare-name scope matching. UNCONDITIONAL, unlike the
+  // writable-columns MEMBERSHIP check at the end of this function (finding L1).
+  assertValueKeysWellFormed(values, descriptor.table);
   validateSecurityColumnValues(values, claims, cols, descriptor.table);
   // Value SHAPE is validated alongside value KEYS (finding M2) — the read path
   // fail-closes on a non-scalar filter value, and the write path now does too.
@@ -483,9 +519,11 @@ export function buildInsertMutation(
   descriptor: MutationDescriptor,
   policy: CompiledSecurityPolicy | SecurityPolicyOptions,
 ): any {
-  // Defense-in-depth: reject qualified keys even for direct callers that skip
-  // `validateMutation`, so a dotted key can never reach the Knex insert payload.
-  rejectQualifiedValueKeys(descriptor.values ?? {}, descriptor.table);
+  // Defense-in-depth: re-run the unconditional value-key shape checks even for
+  // direct callers that skip `validateMutation`, so a dotted key — or one
+  // carrying Knex's implicit `" as "` alias syntax — can never reach the Knex
+  // insert payload.
+  assertValueKeysWellFormed(descriptor.values ?? {}, descriptor.table);
   const values: Record<string, unknown> = { ...descriptor.values };
   const cols = resolvePrimaryCols(descriptor.table, policy);
 
@@ -578,9 +616,11 @@ export function buildUpdateMutation(
   // silently widening the mutation to the whole tenant table.
   applyPredicates(query, descriptor.where, 'write');
 
-  // Defense-in-depth: reject qualified keys even for direct callers that skip
-  // `validateMutation`, so a dotted key can never reach the Knex update payload.
-  rejectQualifiedValueKeys(descriptor.values ?? {}, descriptor.table);
+  // Defense-in-depth: re-run the unconditional value-key shape checks even for
+  // direct callers that skip `validateMutation`, so a dotted key — or one
+  // carrying Knex's implicit `" as "` alias syntax — can never reach the Knex
+  // update payload.
+  assertValueKeysWellFormed(descriptor.values ?? {}, descriptor.table);
 
   // Strip tenant column from update values — never let a client move a row
   // from one tenant to another.

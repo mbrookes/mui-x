@@ -84,30 +84,7 @@
 
 import { detectClientStyle, escapeRedisGlob, type RedisClient } from './RedisCacheProvider';
 import { delKeys, scanKeyPages, setEx } from './redisCompat';
-import type { TierCacheProvider, TierEntry } from './types';
-
-/** The three routing tiers a stored `TierEntry` may name. */
-const TIERS: ReadonlySet<string> = new Set(['client', 'server', 'db']);
-
-/**
- * Structural check for a value deserialized out of Redis, mirroring
- * `isCacheEntryShape` in `RedisCacheProvider` (finding L5 sibling site).
- *
- * `JSON.parse(raw) as TierEntry` is an assertion, not a validation: any value
- * that parses as JSON — a host key colliding with ours when no `keyPrefix` is
- * set, a `CacheEntry` written by a `RedisCacheProvider` sharing the keyspace, a
- * partially-written value — was returned as a HIT and used to route the query,
- * skipping the COUNT(*) preflight on a `tier` that may not even be one of the
- * three valid tiers. Treat anything else as a miss (fail-closed: re-run the
- * preflight).
- */
-function isTierEntryShape(value: unknown): value is TierEntry {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return false;
-  }
-  const { tier, rowCount } = value as { tier?: unknown; rowCount?: unknown };
-  return typeof tier === 'string' && TIERS.has(tier) && typeof rowCount === 'number';
-}
+import { isTierEntryShape, type TierCacheProvider, type TierEntry } from './types';
 
 export interface RedisTierCacheProviderOptions {
   /**

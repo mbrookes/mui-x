@@ -388,7 +388,22 @@ export async function handleMutation(
   // once here instead of fresh at each of the four builder call sites. The
   // `columnAllowlist` is folded into `policy.digest` so tightening column
   // visibility invalidates cache entries computed under a looser allowlist.
-  const policy = compileSecurityPolicy({ tenancy, securityColumns, columnAllowlist });
+  //
+  // `schemaAllowlist` is folded in for the same reason `handleBatchQuery` folds
+  // it in (finding L2 — the two calls used to differ): per
+  // `SecurityPolicyOptions.schemaAllowlist`'s own contract it is THE zero-config
+  // data-source separator, so a digest computed without it does not identify the
+  // data source at all. Inert today — the write path never consumes
+  // `policy.digest` (invalidation is by table tag, not by key) — but a digest
+  // that means one thing on the read path and another on the write path is a
+  // trap for the next person to compare them, and any future write-path use
+  // would silently fail to separate two databases exposing the same tables.
+  const policy = compileSecurityPolicy({
+    tenancy,
+    securityColumns,
+    columnAllowlist,
+    schemaAllowlist,
+  });
 
   // ── Upfront table validation (Zero-Knowledge Rule) ────────────────────────
   assertTablesAllowed(

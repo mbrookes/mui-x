@@ -39,6 +39,102 @@ export interface CacheSetOpts {
   tags?: string[];
 }
 
+/**
+ * The three routing tiers, as a RUNTIME list — the executable mirror of the
+ * `'client' | 'server' | 'db'` union carried by `CacheEntry.tier` and
+ * `TierEntry.tier`.
+ *
+ * Lifted here (out of `RedisTierCacheProvider`, which owned the only copy) so
+ * every reader that shape-checks a stored tier validates against the SAME set.
+ * Two providers each keeping their own literal set is the drift this exists to
+ * prevent: adding a fourth tier to the union while updating only one of them
+ * would leave the other silently rejecting valid entries — or, worse, the data
+ * plane trusting a tier the tier plane rejects.
+ */
+export const CACHE_TIERS = ['client', 'server', 'db'] as const;
+
+/** A routing tier a stored cache entry may name. */
+export type CacheTier = (typeof CACHE_TIERS)[number];
+
+const CACHE_TIER_SET: ReadonlySet<string> = new Set(CACHE_TIERS);
+
+/** Is `value` one of the three routing tiers? */
+export function isCacheTier(value: unknown): value is CacheTier {
+  return typeof value === 'string' && CACHE_TIER_SET.has(value);
+}
+
+/**
+ * Structural check for a value read back as a `CacheEntry` (finding L5, extended
+ * to `tier`/`rowCount`).
+ *
+ * A stored entry is UNTRUSTED INPUT, not a type guarantee: the backing store is
+ * host-pluggable and not exclusively ours. A Redis deployment with no `keyPrefix`
+ * can collide with the host's own keys, a partially-written value can be read
+ * back, an older-schema entry can survive a deploy, and a custom `CacheProvider`
+ * can simply be buggy. `JSON.parse(raw) as CacheEntry` — or a truthiness check on
+ * whatever a provider hands back — is an assertion, not a validation.
+ *
+ * ALL THREE consumed fields are checked, not just `rows`. Validating only `rows`
+ * left `tier` and `rowCount` trusted verbatim, so `{ rows: [], tier: 'banana',
+ * rowCount: NaN }` flowed straight into a `WidgetQueryResult` whose types declare
+ * `tier: 'client'|'server'|'db'` and `rowCount: number` — and the Studio client
+ * switches on `tier` to decide whether to filter/aggregate in-browser and renders
+ * `rowCount` as the total.
+ *
+ * `tier` and `rowCount` are checked only when PRESENT: both are optional on
+ * `CacheEntry` for backward compatibility with entries written before they
+ * existed, and an absent field is a documented legacy shape rather than a
+ * corrupt one (the readers fall back). A field that is present but invalid is
+ * evidence the whole entry is foreign, so the entry — not just that field —
+ * fails, and the reader degrades to a MISS.
+ *
+ * Shared by `RedisCacheProvider.get` (deserialization boundary) and `handler.ts`
+ * (any provider's return value), so those two cannot drift on what "a usable
+ * entry" means.
+ */
+export function isCacheEntryShape(value: unknown): value is CacheEntry {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const { rows, tier, rowCount } = value as {
+    rows?: unknown;
+    tier?: unknown;
+    rowCount?: unknown;
+  };
+  if (!Array.isArray(rows)) {
+    return false;
+  }
+  if (tier !== undefined && !isCacheTier(tier)) {
+    return false;
+  }
+  // `Number.isFinite` (not `typeof === 'number'`): it rejects `NaN`/`Infinity`
+  // as well as a numeric STRING, and it does not coerce. Matches the second-line
+  // guard the tier plane applies in `router/tierDecision.ts`.
+  if (rowCount !== undefined && !Number.isFinite(rowCount)) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Structural check for a value read back as a `TierEntry` — the tier plane's
+ * sibling of `isCacheEntryShape` above.
+ *
+ * Both fields are REQUIRED here (unlike `CacheEntry`'s optional `tier`/
+ * `rowCount`) because `TierEntry` declares them required: an entry missing
+ * either is not a `TierEntry` at all. Beyond that the field-level rules are
+ * identical to `isCacheEntryShape`'s, deliberately — one entry shape must not be
+ * held to a looser standard than the other just because it is read on a
+ * different plane.
+ */
+export function isTierEntryShape(value: unknown): value is TierEntry {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const { tier, rowCount } = value as { tier?: unknown; rowCount?: unknown };
+  return isCacheTier(tier) && Number.isFinite(rowCount);
+}
+
 export interface CacheEntry {
   /**
    * The cached result rows.
@@ -55,16 +151,28 @@ export interface CacheEntry {
   rows: Record<string, unknown>[];
   cachedAt: number;
   /**
-   * Routing tier that produced these rows. Echoed back on a cache hit so a
-   * client-tier result is not misreported as 'server' on subsequent requests.
+   * Routing tier that produced these rows.
+   *
+   * Persisted for diagnostics and for a future reader; it is NOT what
+   * `handler.ts` reports on a cache hit. The reported tier is re-derived from
+   * `rowCount` through `tierFromRowCount` under the READER's current thresholds,
+   * exactly as `router/tierDecision.ts` does on the tier plane — `thresholds` is
+   * folded into neither the cache key nor the policy digest, so a stored tier may
+   * have been decided under different config. See the tier-derivation note in
+   * `handler.ts`.
+   *
    * Optional for backward compatibility with entries written before this field.
+   * A PRESENT value must be one of `CACHE_TIERS` (see `isCacheEntryShape`).
    */
-  tier?: 'client' | 'server' | 'db';
+  tier?: CacheTier;
   /**
    * Originating row count from the COUNT(*) preflight. Echoed back on a cache
    * hit so a limit-truncated result reports the same total as the cold miss
-   * (where `rowCount` reflects the preflight, not `rows.length`).
+   * (where `rowCount` reflects the preflight, not `rows.length`), and re-mapped
+   * to the reported `tier`.
+   *
    * Optional for backward compatibility with entries written before this field.
+   * A PRESENT value must be a finite number (see `isCacheEntryShape`).
    */
   rowCount?: number;
 }
@@ -116,7 +224,7 @@ export interface CacheProvider {
  * (after the data cache TTL has expired) within the tier cache window.
  */
 export interface TierEntry {
-  tier: 'client' | 'server' | 'db';
+  tier: CacheTier;
   /**
    * Preflight COUNT(*) captured when this tier decision was written. Used as the
    * reported total for a NON-aggregation cache-miss result.

@@ -757,6 +757,15 @@ describe('RedisCacheProvider', () => {
       ['a bare string', '"hello"'],
       ['null', 'null'],
       ['an entry whose rows is not an array', '{"rows":{"0":{"id":1}},"cachedAt":1}'],
+      // `rows` alone was the whole check (finding M1): `tier`/`rowCount` were
+      // deserialized unvalidated and read straight out of the entry by
+      // `handler.ts`. The tier plane's `isTierEntryShape` had validated both
+      // fields all along; this is the data plane catching up, through the SAME
+      // shared `isCacheEntryShape`/`isTierEntryShape` pair in `cache/types.ts`.
+      ['an entry whose tier is outside the routing-tier union', '{"rows":[],"tier":"quantum"}'],
+      ['an entry whose tier is not a string', '{"rows":[],"tier":7}'],
+      ['an entry whose rowCount is a string', '{"rows":[],"rowCount":"lots"}'],
+      ['an entry whose rowCount is null', '{"rows":[],"rowCount":null}'],
     ];
 
     for (const [label, raw] of foreignValues) {
@@ -794,6 +803,19 @@ describe('RedisCacheProvider', () => {
       const empty: CacheEntry = { rows: [], cachedAt: 5 };
       await provider.set('k1', empty);
       expect(await provider.get('k1')).toEqual(empty);
+    });
+
+    it('still returns an entry carrying every valid tier, and rowCount: 0', async () => {
+      const provider = new RedisCacheProvider(makeRedisClient());
+      for (const tier of ['client', 'server', 'db'] as const) {
+        const entry: CacheEntry = { rows: [], cachedAt: 5, tier, rowCount: 0 };
+        // `0` is a legitimate count and must not be mistaken for a malformed
+        // entry — the guard is `Number.isFinite`, not truthiness.
+        // eslint-disable-next-line no-await-in-loop
+        await provider.set(tier, entry);
+        // eslint-disable-next-line no-await-in-loop
+        expect(await provider.get(tier)).toEqual(entry);
+      }
     });
   });
 });

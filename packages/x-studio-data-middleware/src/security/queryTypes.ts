@@ -187,6 +187,25 @@ export interface BatchQueryRequest {
 /** Per-widget result returned in the batch response */
 export interface WidgetQueryResult {
   id: string;
+  /**
+   * The result rows.
+   *
+   * NO-MUTATION CONTRACT (finding L3) — treat this array and its row objects as
+   * READ-ONLY. Two results in the same `BatchQueryResponse.results` may be the
+   * SAME array instance: `handleBatchQuery` single-flights structurally identical
+   * widgets (the widget `id` is deliberately excluded from the cache key), so
+   * every widget attaching to one shared pipeline — and every widget served from
+   * one data-cache hit — returns the pipeline's single `rows` object rather than a
+   * copy. Cloning per widget would defeat the dedup's whole memory benefit, so the
+   * aliasing is deliberate.
+   *
+   * A host that post-processes `results[i].rows` IN PLACE therefore mutates every
+   * deduped sibling too — and only when the client happens to send structurally
+   * identical widgets, so it presents as an intermittent bug. Copy before
+   * transforming (`results[i].rows.map(...)`, not `results[i].rows.forEach(mutate)`).
+   * This mirrors the no-mutation contract `CacheProvider.get` already documents for
+   * the same underlying reason.
+   */
   rows: Record<string, unknown>[];
   /**
    * Routing tier that served this widget (finding T3.2 — corrected to match
@@ -202,7 +221,13 @@ export interface WidgetQueryResult {
   error?: string;
 }
 
-/** Full batch response */
+/**
+ * Full batch response.
+ *
+ * ENTRIES MAY ALIAS ONE ANOTHER (finding L3): two `results` whose widgets were
+ * structurally identical share one `rows` array instance — see the no-mutation
+ * contract on `WidgetQueryResult.rows`.
+ */
 export interface BatchQueryResponse {
   pageId: string;
   results: WidgetQueryResult[];

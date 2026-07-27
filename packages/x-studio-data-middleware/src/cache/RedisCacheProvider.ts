@@ -86,28 +86,8 @@
  * Use `keyPrefix` in the constructor options for that case.
  */
 
-import type { CacheProvider, CacheEntry, CacheSetOpts } from './types';
+import { isCacheEntryShape, type CacheProvider, type CacheEntry, type CacheSetOpts } from './types';
 import { DEL_BATCH_SIZE, delKeys, scanKeyPages, setEx } from './redisCompat';
-
-/**
- * Structural check for a value deserialized out of Redis.
- *
- * `JSON.parse(raw) as CacheEntry` is an assertion, not a validation: ANY value
- * that happens to parse as JSON — a host application's own key colliding with
- * ours when no `keyPrefix` is configured, a partially-written value, an entry
- * left behind by an older/newer schema — was returned as a cache HIT and handed
- * to the read path as if it were a result set. The minimum invariant every
- * consumer relies on is `rows` being an array, so anything else is treated as a
- * miss (fail-closed: re-read from the authoritative DB).
- */
-function isCacheEntryShape(value: unknown): value is CacheEntry {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    !Array.isArray(value) &&
-    Array.isArray((value as { rows?: unknown }).rows)
-  );
-}
 
 /**
  * Escape Redis glob metacharacters so a literal key prefix matches only itself in
@@ -464,7 +444,8 @@ export class RedisCacheProvider implements CacheProvider {
     this.warnedMalformedEntry = true;
     console.warn(
       `MUI X Studio Server: the value stored in Redis under cache key "${this.prefix}${key}" parsed as JSON but ` +
-        'is not a CacheEntry (no "rows" array). It is being treated as a cache MISS so the query re-reads from the ' +
+        'is not a CacheEntry (it needs a "rows" array, and — when present — a "tier" of client/server/db and a ' +
+        'finite numeric "rowCount"). It is being treated as a cache MISS so the query re-reads from the ' +
         'database rather than serving a foreign value as a result set. This usually means another writer shares ' +
         "this Redis keyspace — set a distinct `keyPrefix` in RedisCacheProvider's options to namespace Studio's keys.",
     );

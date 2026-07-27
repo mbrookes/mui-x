@@ -1898,14 +1898,17 @@ describe('handleBatchQuery — cache', () => {
     const result2 = await handleBatchQuery(body, ACME_CLAIMS, opts);
 
     expect(result2.results[0].rows).toEqual(result1.results[0].rows);
-    // The cache hit echoes the ORIGINATING tier. These few rows route to the
+    // The cache hit reports the ORIGINATING tier. These few rows route to the
     // 'client' tier, so the second (cached) response must also report 'client'
-    // — not a hardcoded 'server'.
+    // — not a hardcoded 'server'. It gets there by RE-DERIVING the tier from the
+    // entry's stored `rowCount` under the reader's own thresholds (finding M2),
+    // not by echoing the stored `tier`; with unchanged thresholds the two are
+    // the same answer, which is exactly why this assertion is unaffected.
     expect(result1.results[0].tier).toBe('client');
     expect(result2.results[0].tier).toBe('client');
   });
 
-  it('a cache hit echoes the tier that produced the cached rows (not a hardcoded server)', async () => {
+  it('a cache hit reports the tier that produced the cached rows (not a hardcoded server)', async () => {
     const cache = new LRUCacheProvider({ ttlMs: 5000 });
     const body: BatchQueryRequest = {
       pageId: 'p1',
@@ -3512,6 +3515,28 @@ describe('handleBatchQuery — malformed cache entry degrades to a DB fetch (fin
     ['an entry with no "rows" field', { cachedAt: Date.now(), tier: 'server' }],
     ['an entry whose "rows" is not an array', { rows: 'not-an-array', cachedAt: Date.now() }],
     ['an entry whose "rows" is null', { rows: null, cachedAt: Date.now() }],
+    // The guard used to check ONLY `rows` (finding M1): `tier` and `rowCount`
+    // were trusted verbatim behind a `??` that substitutes on null/undefined
+    // only, so every entry below passed and populated a `WidgetQueryResult`
+    // typed `tier: 'client'|'server'|'db'` / `rowCount: number` with a value
+    // that is neither. The tier plane (`tierDecision.ts`) already degraded its
+    // own equivalents; the data plane closed one field of three.
+    [
+      'an entry whose "tier" is outside the routing-tier union',
+      { rows: [{ id: 1 }], cachedAt: Date.now(), tier: 'anything', rowCount: 3 },
+    ],
+    [
+      'an entry whose "rowCount" is NaN',
+      { rows: [], cachedAt: Date.now(), tier: 'client', rowCount: Number.NaN },
+    ],
+    [
+      'an entry whose "rowCount" is a numeric string',
+      { rows: [{ id: 1 }], cachedAt: Date.now(), tier: 'server', rowCount: 'banana' },
+    ],
+    [
+      'an entry whose "rowCount" is negative infinity',
+      { rows: [{ id: 1 }], cachedAt: Date.now(), rowCount: Number.NEGATIVE_INFINITY },
+    ],
   ];
 
   it.each(MALFORMED_ENTRIES)('re-queries the database for %s', async (_label, entry) => {
@@ -3559,6 +3584,181 @@ describe('handleBatchQuery — malformed cache entry degrades to a DB fetch (fin
     expect(result.results[0].rows).toEqual(cachedRows);
     expect(result.results[0].tier).toBe('client');
     expect(result.results[0].rowCount).toBe(42);
+  });
+
+  it('still serves a LEGACY entry that simply omits "tier"/"rowCount"', async () => {
+    // Absent is not malformed: both fields are optional on `CacheEntry` for
+    // backward compatibility with entries written before they existed, so the
+    // guard must reject only a field that is PRESENT and invalid.
+    const cachedRows = [{ id: 99, product: 'from-cache' }];
+    const result = await handleBatchQuery(
+      { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales' }] },
+      ACME_CLAIMS,
+      {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: MULTI_TENANT,
+        cacheProvider: makeCacheReturning({ rows: cachedRows, cachedAt: Date.now() }),
+        tierCacheTtlMs: 0,
+      },
+    );
+    expect(result.results[0].error).toBeUndefined();
+    expect(result.results[0].rows).toEqual(cachedRows);
+    // Falls back to `rows.length`, and the reported tier follows that count.
+    expect(result.results[0].rowCount).toBe(1);
+    expect(result.results[0].tier).toBe('client');
+  });
+});
+
+// ─── The two cache planes report the SAME tier for the same rowCount (M2) ─────
+//
+// "What tier do we report on a cache hit" used to be implemented twice, with
+// deliberately OPPOSITE behaviour and neither site referencing the other:
+// `handler.ts` echoed the DATA-cache entry's stored `tier` verbatim, while
+// `router/tierDecision.ts` explicitly refused to trust the TIER-cache entry's
+// and re-derived it from the stored `rowCount`.
+//
+// `thresholds` is folded into neither the cache key nor the policy digest —
+// which is precisely the justification `tierDecision.ts` gives for re-deriving
+// — so an entry written by a node running one threshold config is read back by
+// a node running another. The rows are identical either way; the client's
+// in-browser filter/aggregate decision is not.
+describe('handleBatchQuery — both cache planes derive the reported tier from rowCount (finding M2)', () => {
+  /** A minimal in-process `CacheProvider` (no `lru-cache` dependency). */
+  function makeMapCache() {
+    const store = new Map<string, any>();
+    return {
+      async get(key: string) {
+        return store.get(key);
+      },
+      async set(key: string, value: any) {
+        store.set(key, value);
+      },
+      async invalidatePrefix() {},
+      async deleteByTag() {},
+      size: () => store.size,
+    };
+  }
+
+  /** A minimal in-process `TierCacheProvider`. */
+  function makeMapTierCache() {
+    const store = new Map<string, any>();
+    return {
+      async get(key: string) {
+        return store.get(key);
+      },
+      async set(key: string, value: any) {
+        store.set(key, value);
+      },
+      async invalidatePrefix() {},
+    };
+  }
+
+  const BODY: BatchQueryRequest = { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales' }] };
+  // `sales` holds 4 acme rows, so the preflight COUNT(*) is 4 on every run.
+  // Node A's thresholds put 4 rows comfortably in the 'client' tier; node B's
+  // (mid-rollout, tightened) put them in 'server'.
+  const NODE_A = { clientTier: 10_000, serverMemoryTier: 100_000 };
+  const NODE_B = { clientTier: 1, serverMemoryTier: 100_000 };
+
+  function baseOptions() {
+    return {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenancy: MULTI_TENANT,
+    };
+  }
+
+  it("reports node B's own tier for a DATA-cache entry node A wrote under looser thresholds", async () => {
+    const shared = makeMapCache();
+
+    // Node A warms the shared data cache: 4 rows ≤ 10_000 → 'client'.
+    const nodeAWrite = await handleBatchQuery(BODY, ACME_CLAIMS, {
+      ...baseOptions(),
+      cacheProvider: shared,
+      thresholds: NODE_A,
+      tierCacheTtlMs: 0,
+    });
+    expect(nodeAWrite.results[0].tier).toBe('client');
+    expect(shared.size()).toBe(1);
+
+    // Node B reads that entry back under ITS thresholds: 4 rows > 1 → 'server'.
+    const nodeBWarm = await handleBatchQuery(BODY, ACME_CLAIMS, {
+      ...baseOptions(),
+      cacheProvider: shared,
+      thresholds: NODE_B,
+      tierCacheTtlMs: 0,
+    });
+
+    // Node B's own cold answer for the same widget — the reference the warm
+    // read must match. Before the fix the warm read echoed 'client' here.
+    const nodeBCold = await handleBatchQuery(BODY, ACME_CLAIMS, {
+      ...baseOptions(),
+      cacheProvider: makeMapCache(),
+      thresholds: NODE_B,
+      tierCacheTtlMs: 0,
+    });
+
+    expect(nodeBWarm.results[0].tier).toBe(nodeBCold.results[0].tier);
+    expect(nodeBWarm.results[0].tier).toBe('server');
+    // The rows themselves are identical whichever plane served them.
+    expect(nodeBWarm.results[0].rows).toEqual(nodeBCold.results[0].rows);
+    expect(nodeBWarm.results[0].rowCount).toBe(nodeBCold.results[0].rowCount);
+  });
+
+  it('reports the SAME tier whether the DATA plane or the TIER plane served the hit', async () => {
+    // Both planes are warmed under node A's thresholds, then read under node
+    // B's — one through the data cache, one through the tier cache. Whichever
+    // plane answers, the reported tier must be the same, because both re-derive
+    // it from the stored rowCount through the shared `tierFromRowCount`.
+    const dataCache = makeMapCache();
+    const tierCache = makeMapTierCache();
+
+    await handleBatchQuery(BODY, ACME_CLAIMS, {
+      ...baseOptions(),
+      cacheProvider: dataCache,
+      tierCacheProvider: tierCache,
+      tierCacheTtlMs: 60_000,
+      thresholds: NODE_A,
+    });
+
+    // DATA plane answers (its entry is present, so the tier plane is never consulted).
+    const viaDataPlane = await handleBatchQuery(BODY, ACME_CLAIMS, {
+      ...baseOptions(),
+      cacheProvider: dataCache,
+      tierCacheProvider: tierCache,
+      tierCacheTtlMs: 60_000,
+      thresholds: NODE_B,
+    });
+
+    // TIER plane answers: an empty data cache falls through to the (warm) tier cache.
+    const viaTierPlane = await handleBatchQuery(BODY, ACME_CLAIMS, {
+      ...baseOptions(),
+      cacheProvider: makeMapCache(),
+      tierCacheProvider: tierCache,
+      tierCacheTtlMs: 60_000,
+      thresholds: NODE_B,
+    });
+
+    expect(viaDataPlane.results[0].tier).toBe(viaTierPlane.results[0].tier);
+    expect(viaDataPlane.results[0].tier).toBe('server');
+    expect(viaDataPlane.results[0].rowCount).toBe(viaTierPlane.results[0].rowCount);
+  });
+
+  it("leaves the reported tier unchanged when the reader's thresholds match the writer's", async () => {
+    // Sanity check: re-derivation must be a no-op when nothing changed, so the
+    // cache hit still reports the tier that actually produced the rows.
+    const shared = makeMapCache();
+    const opts = {
+      ...baseOptions(),
+      cacheProvider: shared,
+      thresholds: NODE_A,
+      tierCacheTtlMs: 0,
+    };
+    const cold = await handleBatchQuery(BODY, ACME_CLAIMS, opts);
+    const warm = await handleBatchQuery(BODY, ACME_CLAIMS, opts);
+    expect(warm.results[0].tier).toBe(cold.results[0].tier);
+    expect(warm.results[0].tier).toBe('client');
   });
 });
 

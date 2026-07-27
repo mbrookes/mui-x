@@ -13,6 +13,7 @@ import {
   buildUpdateMutation,
   buildDeleteMutation,
 } from '../mutationBuilder';
+import { MAX_STRING_LENGTH } from '../../shared/limits';
 import type { MutationDescriptor } from '../../security/types';
 
 // ── Mutable in-memory mock DB ─────────────────────────────────────────────────
@@ -1457,6 +1458,122 @@ describe('qualified values keys are rejected (finding 1.2)', () => {
         writableColumns: { orders: ['status', 'total', 'notes'] },
       }),
     ).not.toThrow();
+  });
+});
+
+// ── `values`-key identifier SHAPE is checked unconditionally (finding L1) ─────
+//
+// The identifier-shape checks on `values` keys — the length cap, the multi-dot
+// rejection, and the `" as "` implicit-alias rejection — used to live ONLY
+// inside `checkColumnAgainstAllowlist`, which `validateMutation` calls behind
+// `if (options.writableColumns)`. Every sibling entry point runs the same checks
+// unconditionally: `assertQualifiedColumnsAllowed` on the read path, and
+// `assertQualifiedWhereColumnsAllowed` for `where[].column` in this very batch.
+//
+// On a `schemaAllowlist`-only deployment (no `writableColumns` — the documented
+// backward-compatible posture) a `" as "`-bearing key therefore reached real
+// Knex and rendered `update "orders" set "status" as "x" = 'shipped'`. That
+// fails CLOSED — a syntax error, with Knex identifier-quoting both halves, so
+// nothing is injectable — but it surfaces as an opaque driver error that
+// `sanitizeBoundaryError` flattens into the generic "could not be completed"
+// message, which is exactly what `assertNoImplicitAlias` exists to prevent.
+//
+// `mutationBuilder.test.ts` already covered DOTTED keys (above, via the
+// unconditional `assertValueKeysWellFormed`), and `columnValidation.test.ts`
+// covers `" as "` only through the gated `checkColumnAgainstAllowlist` path.
+
+describe('values-key identifier shape is validated with NO writableColumns (finding L1)', () => {
+  const NO_ALLOWLIST = { policy: MT_POLICY } as const;
+
+  it('rejects an implicit " as " alias in an update values key', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm',
+      operation: 'update',
+      table: 'orders',
+      values: { 'status as x': 'shipped' },
+      where: [{ column: 'id', operator: 'eq', value: 1 }],
+    };
+    expect(() => validateMutation(descriptor, CLAIMS, NO_ALLOWLIST)).toThrow(/contains " as "/);
+  });
+
+  it('rejects an implicit " as " alias in an insert values key', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm',
+      operation: 'insert',
+      table: 'orders',
+      values: { 'notes as y': 'hello', status: 'ok' },
+    };
+    expect(() => validateMutation(descriptor, CLAIMS, NO_ALLOWLIST)).toThrow(/contains " as "/);
+  });
+
+  it('rejects the " as " alias case-insensitively, exactly as Knex parses it', () => {
+    // Knex's `wrapString` splits on `" as "` case-INSENSITIVELY, so the guard
+    // must too — otherwise `" AS "` is the same bug with different casing.
+    const descriptor: MutationDescriptor = {
+      id: 'm',
+      operation: 'insert',
+      table: 'orders',
+      values: { 'status AS x': 'ok' },
+    };
+    expect(() => validateMutation(descriptor, CLAIMS, NO_ALLOWLIST)).toThrow(/contains " as "/);
+  });
+
+  it('rejects an over-long values key with NO writableColumns configured', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm',
+      operation: 'insert',
+      table: 'orders',
+      values: { ['x'.repeat(MAX_STRING_LENGTH + 1)]: 'ok' },
+    };
+    expect(() => validateMutation(descriptor, CLAIMS, NO_ALLOWLIST)).toThrow(
+      /exceeds the maximum of/,
+    );
+  });
+
+  it('is enforced at the BUILDER boundary too, so a direct caller cannot skip it', () => {
+    // Mirrors the qualified-key / security-value / value-shape re-checks that
+    // already run in both builders for direct callers that skip validateMutation.
+    const insertDb = createMutableMockDb({ orders: [] });
+    expect(() =>
+      buildInsertMutation(
+        insertDb,
+        CLAIMS,
+        { id: 'm', operation: 'insert', table: 'orders', values: { 'notes as y': 'hi' } },
+        MT_POLICY,
+      ),
+    ).toThrow(/contains " as "/);
+    expect(insertDb.snapshot().orders).toHaveLength(0);
+
+    const updateDb = createMutableMockDb({
+      orders: [{ id: 1, tenant_id: 'acme', status: 'pending' }],
+    });
+    expect(() =>
+      buildUpdateMutation(
+        updateDb,
+        CLAIMS,
+        {
+          id: 'm',
+          operation: 'update',
+          table: 'orders',
+          values: { 'status as x': 'shipped' },
+          where: [{ column: 'id', operator: 'eq', value: 1 }],
+        },
+        MT_POLICY,
+      ),
+    ).toThrow(/contains " as "/);
+    expect(updateDb.snapshot().orders[0].status).toBe('pending');
+  });
+
+  it('still accepts a legitimate key that merely CONTAINS the letters "as"', () => {
+    // Only the delimited `" as "` token is a Knex alias; `last_name`/`as_of` are
+    // ordinary column names and must keep working with no allowlist configured.
+    const descriptor: MutationDescriptor = {
+      id: 'm',
+      operation: 'insert',
+      table: 'orders',
+      values: { as_of: '2024-01-01', last_name: 'Ash', class: 'A' },
+    };
+    expect(() => validateMutation(descriptor, CLAIMS, NO_ALLOWLIST)).not.toThrow();
   });
 });
 

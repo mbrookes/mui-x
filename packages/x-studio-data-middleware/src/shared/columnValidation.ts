@@ -272,6 +272,54 @@ export function assertNoImplicitAlias(reference: string, context: string): void 
 }
 
 /**
+ * Run every IDENTIFIER-SHAPE check on a client-supplied column reference: the
+ * length cap, the multi-dot rejection, and the implicit-`" as "`-alias
+ * rejection.
+ *
+ * Split out of `checkColumnAgainstAllowlist` (finding L1) because shape and
+ * MEMBERSHIP are two different questions with two different triggers.
+ * Membership — "is this column allowed?" — can only be asked when the host
+ * configured an allowlist. Shape — "is this string even a column reference?" —
+ * is always answerable and always worth answering, and every other entry point
+ * in this package already asks it unconditionally: the read path via
+ * `assertQualifiedColumnsAllowed`, and the write path's `where[].column` via
+ * `assertQualifiedWhereColumnsAllowed` — the same file, the same batch, one
+ * field over from the one that was gated.
+ *
+ * Bundling all three into one function (rather than exporting them for callers
+ * to compose) is what stops a call site from running two of the three: a new
+ * entry point either validates the shape or visibly doesn't.
+ *
+ * @param reference - The (already alias-resolved) column reference.
+ * @param context - Short label describing where the reference came from (e.g. `'columns'`, `'values'`).
+ */
+export function assertColumnReferenceShape(reference: string, context: string): void {
+  // Length cap (Tier2 finding — resource exhaustion). This is the runtime
+  // choke point for a mutation's `values` KEYS (`validateMutation` calls this
+  // with each `Object.keys(values)` entry, context `'values'`) — a reference
+  // shape that never flows through `checkQualifiedColumn`'s own identical cap
+  // (mutation values keys are never table-qualified, so they take a different
+  // validation path). Checked first, before any parsing below.
+  if (typeof reference === 'string' && reference.length > MAX_STRING_LENGTH) {
+    throw new Error(
+      `MUI X Studio Server: Column reference "${reference.slice(0, 80)}…" (in ${context}) is ${reference.length} ` +
+        `characters long, which exceeds the maximum of ${MAX_STRING_LENGTH} allowed for an identifier. ` +
+        `An unbounded identifier string is expensive to hash and validate repeatedly across a batch. ` +
+        `Shorten the identifier in "${context}" to at most ${MAX_STRING_LENGTH} characters.`,
+    );
+  }
+  // Reject a reference with MORE than one dot (`a.b.c` or deeper) before any
+  // caller parses it at the FIRST dot. One shared implementation with
+  // `assertTablesAllowed.ts`'s `checkQualifiedColumn` — see
+  // `assertSingleDotReference`.
+  assertSingleDotReference(reference, context);
+  // Reject Knex's implicit `" as "` alias syntax (finding L2) alongside the
+  // multi-dot rejection above — same class of parser divergence, same
+  // fail-closed posture. See `assertNoImplicitAlias`.
+  assertNoImplicitAlias(reference, context);
+}
+
+/**
  * Validate a single (already alias-resolved) column reference against a
  * per-table allowlist. Throws (fail-closed) when the table has no entry or the
  * column is not allowed.
@@ -291,29 +339,12 @@ export function checkColumnAgainstAllowlist(
   allowlist: Record<string, string[]>,
   context: string,
 ): void {
-  // Length cap (Tier2 finding — resource exhaustion). This is the runtime
-  // choke point for a mutation's `values` KEYS (`validateMutation` calls this
-  // with each `Object.keys(values)` entry, context `'values'`) — a reference
-  // shape that never flows through `checkQualifiedColumn`'s own identical cap
-  // (mutation values keys are never table-qualified, so they take a different
-  // validation path). Checked first, before any parsing below.
-  if (typeof physical === 'string' && physical.length > MAX_STRING_LENGTH) {
-    throw new Error(
-      `MUI X Studio Server: Column reference "${physical.slice(0, 80)}…" (in ${context}) is ${physical.length} ` +
-        `characters long, which exceeds the maximum of ${MAX_STRING_LENGTH} allowed for an identifier. ` +
-        `An unbounded identifier string is expensive to hash and validate repeatedly across a batch. ` +
-        `Shorten the identifier in "${context}" to at most ${MAX_STRING_LENGTH} characters.`,
-    );
-  }
-  // Reject a reference with MORE than one dot (`a.b.c` or deeper) before parsing
-  // it at the FIRST dot below. One shared implementation with
-  // `assertTablesAllowed.ts`'s `checkQualifiedColumn` — see
-  // `assertSingleDotReference`.
-  assertSingleDotReference(physical, context);
-  // Reject Knex's implicit `" as "` alias syntax (finding L2) alongside the
-  // multi-dot rejection above — same class of parser divergence, same
-  // fail-closed posture. See `assertNoImplicitAlias`.
-  assertNoImplicitAlias(physical, context);
+  // Identifier-SHAPE checks (length cap, multi-dot, implicit `" as "` alias)
+  // run first, before this function's own MEMBERSHIP check parses the reference
+  // at its first dot. They live in `assertColumnReferenceShape` so callers that
+  // have no allowlist to check membership against — a mutation's `values` keys
+  // on a `writableColumns`-free deployment (finding L1) — can still run them.
+  assertColumnReferenceShape(physical, context);
   const dotIdx = physical.indexOf('.');
   const table = dotIdx !== -1 ? physical.slice(0, dotIdx) : defaultTable;
   const column = dotIdx !== -1 ? physical.slice(dotIdx + 1) : physical;

@@ -68,6 +68,7 @@ import {
 import {
   decideTierWithCache,
   DEFAULT_THRESHOLDS,
+  tierFromRowCount,
   TIER_CACHE_KEY_PREFIX,
 } from './router/tierDecision';
 import { assertQualifiedColumnsAllowed, assertTablesAllowed } from './shared/assertTablesAllowed';
@@ -77,7 +78,12 @@ import {
   MAX_STRING_LENGTH,
   MAX_STRING_VALUE_LENGTH,
 } from './shared/limits';
-import type { CacheEntry, CacheProvider, TierCacheProvider } from './cache/types';
+import {
+  isCacheEntryShape,
+  type CacheEntry,
+  type CacheProvider,
+  type TierCacheProvider,
+} from './cache/types';
 
 const DEFAULT_TIER_CACHE_TTL_MS = 30_000; // 30 seconds — aligned with data cache default
 
@@ -637,6 +643,13 @@ async function processWidget(
       // fits fails via the catch below rather than adding rows.
       chargeRowBudgetOrThrow(context.rowBudget, outcome.rows.length);
     }
+    // ROW-ARRAY ALIASING (finding L3): the spread copies the outcome's FIELDS,
+    // so every widget sharing this pipeline returns the SAME `rows` array
+    // instance (as does every widget served from one data-cache hit, above).
+    // That is deliberate — cloning per widget would defeat the dedup's memory
+    // benefit, which is most of its point — and it is documented as a
+    // no-mutation contract on `WidgetQueryResult.rows` / `BatchQueryResponse`,
+    // mirroring the one `CacheProvider.get` already carries for the same reason.
     return { id: descriptor.id, ...outcome };
   } catch (err) {
     return {
@@ -677,6 +690,15 @@ async function runWidgetPipeline(
     context;
   const queryOptions = context.policy;
 
+  // Resolved ONCE, before the cache read, because BOTH planes need them: the
+  // tier decision below, and the data-cache hit's own tier derivation (see
+  // step 1). Reading them in one place is what lets the two planes share a
+  // single tier rule instead of re-implementing it.
+  const resolvedThresholds = {
+    client: thresholds?.clientTier ?? DEFAULT_THRESHOLDS.client,
+    server: thresholds?.serverMemoryTier ?? DEFAULT_THRESHOLDS.server,
+  };
+
   // ── 1. Data cache check ────────────────────────────────────────────────
   // The cache is a best-effort layer in FRONT of the authoritative DB: a cache
   // read failure (e.g. Redis down) must degrade to a fresh DB fetch, not fail
@@ -696,14 +718,26 @@ async function runWidgetPipeline(
   // backing store is not exclusively ours: a Redis deployment with no `keyPrefix`
   // can collide with the host's own keys, a partially-written value can be read
   // back, and a custom provider can simply be buggy. Any of those makes `cached`
-  // truthy while `cached.rows` is `undefined` (or a non-array), which this handler
-  // would then return in a field typed `Record<string, unknown>[]` — every
-  // downstream `rows.map` / `rows.length` then crashes on data the database never
-  // produced. Treat a structurally invalid entry as a MISS and re-query, reusing
-  // the same degradation path as a cache read failure above.
-  if (cached && !Array.isArray(cached.rows)) {
+  // truthy while its fields are not what their types promise — and this handler
+  // would then hand them straight to the client.
+  //
+  // ALL THREE consumed fields are checked, via the SHARED `isCacheEntryShape`
+  // (`cache/types.ts`) that `RedisCacheProvider.get` also uses, so the two
+  // readers cannot drift on what a usable entry is. Checking only
+  // `Array.isArray(cached.rows)` — as this site used to — left `tier` and
+  // `rowCount` trusted verbatim behind a `??` that substitutes on null/undefined
+  // only: `{ rows: [...], tier: 'banana', rowCount: NaN }` passed the guard and
+  // populated a `WidgetQueryResult` whose types declare `tier:
+  // 'client'|'server'|'db'` and `rowCount: number`. The Studio client switches on
+  // `tier` to decide whether to filter/aggregate in-browser and renders
+  // `rowCount` as the total, so neither is inert.
+  //
+  // Treat a structurally invalid entry as a MISS and re-query, reusing the same
+  // degradation path as a cache read failure above.
+  if (cached !== undefined && !isCacheEntryShape(cached)) {
     console.warn(
-      `MUI X Studio Server: discarded a malformed cache entry for a widget (its "rows" field is not an array); ` +
+      `MUI X Studio Server: discarded a malformed cache entry for a widget (its "rows" field is not an array, or ` +
+        `its "tier"/"rowCount" field is present but is not one of client/server/db / not a finite number); ` +
         `falling back to the database. The result is still served from the DB, but the cache backend should be ` +
         `checked for a key collision (set a "keyPrefix" if the store is shared) or a faulty CacheProvider.`,
     );
@@ -717,27 +751,38 @@ async function runWidgetPipeline(
     // entirely, so a batch of pre-warmed widgets could return
     // MAX_WIDGETS_PER_BATCH × MAX_RESULT_ROWS rows with the budget untouched.
     chargeRowBudgetOrThrow(rowBudget, cached.rows.length);
+    // Echo the ORIGINATING rowCount (the preflight COUNT(*)) — not
+    // `cached.rows.length`, which is the (possibly limit-truncated) row count
+    // and would flip the reported total between the cold-miss and cache-hit
+    // responses. Falls back to the row length for entries written before
+    // rowCount was persisted.
+    const cachedRowCount = cached.rowCount ?? cached.rows.length;
     return {
       rows: cached.rows,
-      // Echo the tier that actually produced the cached rows (defaults to
-      // 'server' for entries written before tier was persisted). Reporting a
-      // 'client'-tier result as 'server' would change client-side behavior.
-      tier: cached.tier ?? 'server',
-      // Echo the ORIGINATING rowCount (the preflight COUNT(*)) — not
-      // `cached.rows.length`, which is the (possibly limit-truncated) row
-      // count and would flip the reported total between the cold-miss and
-      // cache-hit responses. Falls back to the row length for entries written
-      // before rowCount was persisted.
-      rowCount: cached.rowCount ?? cached.rows.length,
+      // ONE tier rule across both cache planes (finding M2). This site used to
+      // echo `cached.tier` verbatim while `router/tierDecision.ts` deliberately
+      // did the opposite — re-deriving from the cached `rowCount` — and neither
+      // site knew about the other. `thresholds` is folded into neither the cache
+      // key nor the policy digest (which is precisely the justification
+      // `tierDecision.ts` gives for re-deriving), so a data-cache entry written
+      // by a node running `clientTier: 10_000` was reported as 'client' by a
+      // mid-rollout node whose own config says 'server'. The rows are identical
+      // either way; the client's in-browser filter/aggregate decision is not.
+      //
+      // The data cache stores `rowCount` alongside `tier`, so it can re-derive
+      // identically — and does, through the same exported `tierFromRowCount`.
+      // This also makes the reported `tier` and `rowCount` mutually consistent by
+      // construction, which echoing could not guarantee. Aggregation results are
+      // never written to this cache (see the `tier !== 'db' || !hasAggregations`
+      // gate below), so a stored `rowCount` is always a preflight COUNT(*), the
+      // exact input `tierFromRowCount` expects.
+      tier: tierFromRowCount(cachedRowCount, resolvedThresholds),
+      rowCount: cachedRowCount,
     };
   }
 
   // ── 2 & 3. Tier decision: aggregation check → tier cache → COUNT(*) ───
   const hasAggregations = (descriptor.aggregations?.length ?? 0) > 0;
-  const resolvedThresholds = {
-    client: thresholds?.clientTier ?? DEFAULT_THRESHOLDS.client,
-    server: thresholds?.serverMemoryTier ?? DEFAULT_THRESHOLDS.server,
-  };
 
   const tierDecision = await decideTierWithCache(
     hasAggregations,

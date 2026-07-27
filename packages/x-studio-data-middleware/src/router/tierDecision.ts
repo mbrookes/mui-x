@@ -45,8 +45,15 @@ export const TIER_CACHE_KEY_PREFIX = 'tier:';
 
 /**
  * Map a preflight row count to a routing tier.
+ *
+ * THE single implementation of "what tier do we report", exported (finding M2)
+ * so the DATA plane uses it too. `handler.ts` used to echo a data-cache entry's
+ * stored `tier` verbatim while this module deliberately re-derived the tier
+ * plane's — two implementations of one rule, free to disagree, with neither site
+ * referencing the other. Both planes store the originating `rowCount` next to the
+ * tier, so both can (and now do) call this.
  */
-function tierFromRowCount(
+export function tierFromRowCount(
   rowCount: number,
   thresholds: TierThresholds,
 ): 'client' | 'server' | 'db' {
@@ -130,6 +137,11 @@ export async function decideTierWithCache(
       // different node in a cluster during a deploy); re-deriving here makes a
       // cached decision reinterpretable under the reader's own config with no key
       // change and no extra I/O.
+      //
+      // `handler.ts`'s DATA-cache hit applies the identical rule through the same
+      // exported `tierFromRowCount` (finding M2). Keep them together: a change to
+      // how a cached tier is reported must land on both planes, or a widget's
+      // reported tier starts depending on which cache happened to serve it.
       const tier = tierFromRowCount(cached.rowCount, thresholds);
       return { tier, rowCount: cached.rowCount, source: 'tier-cache' };
     }

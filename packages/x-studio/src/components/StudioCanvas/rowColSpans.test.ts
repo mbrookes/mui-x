@@ -109,9 +109,10 @@ describe('resolveResizePair', () => {
 
   it('M2 repro B: caps the pair total at what the row can still afford', () => {
     // Row `[a(16), c(unspanned), b(8)]`, resizing the a|c divider. The pair RENDERS as
-    // 12 + 6 = 18 (see repro A), but `b` keeps its stored 8, so committing 18 would persist
-    // a row summing to 26 — and `setAdjacentWidgetColSpans` writes through `commitDocPatch`,
-    // never through the reducer, so nothing would ever prune it.
+    // 12 + 6 = 18 (see repro A), but `b` keeps its stored 8, so PROPOSING 18 would describe a
+    // row summing to 26. The reducer would now shrink that back on commit
+    // (`setAdjacentWidgetColSpans` routes through `applyBulkUpdate`), so the cap here is what
+    // keeps the handle from advertising a range it cannot actually deliver.
     const pair = resolveResizePair(['a', 'c', 'b'], { a: 16, b: 8 }, 0, MIN_SPAN, MIN_SPAN);
     expect(pair.totalSpan).toBe(GRID_COLS - 8);
     expect(pair.leftSpan + pair.rightSpan + 8).toBeLessThanOrEqual(GRID_COLS);

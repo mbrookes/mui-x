@@ -136,9 +136,10 @@ describe('StudioCanvas row column spans (finding M2)', () => {
     expect(rowTotal).toBeLessThanOrEqual(GRID_COLS);
 
     // ...and the row is still in budget after a save/load cycle. `normalizePersistedPages`
-    // only clamps each span INDIVIDUALLY, so an over-budget row committed here would have
-    // reloaded over-budget forever — `setAdjacentWidgetColSpans` writes through
-    // `commitDocPatch`, never through the reducer's row-sum sweep.
+    // only clamps each span INDIVIDUALLY, so an over-budget row committed here would reload
+    // over-budget forever. Two things now prevent that: the handle's range is capped by
+    // `resolveResizePair`, and `setAdjacentWidgetColSpans` commits through the reducer's
+    // row-sum sweep (`applyBulkUpdate` → `rebalanceRowSpans`/`enforceLayoutColSpans`).
     const reloaded = deserializeState(serializeState(controller.getState()), {});
     const reloadedSpans = reloaded.doc.pages['page-1'].widgetColSpans ?? {};
     const reloadedRow = reloaded.doc.pages['page-1'].widgetRows[0];

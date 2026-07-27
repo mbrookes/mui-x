@@ -285,7 +285,11 @@ describe('StudioExpressionFieldDialog', () => {
 
       // … and the controller's cycle guard drops the write. The dialog must not pretend it saved.
       expect(onClose).not.toHaveBeenCalled();
-      expect(screen.getByText(/could not be saved/i)).not.toBe(null);
+      // A `cycle` rejection gets the SPECIFIC message, not the generic `saveRejectedMessage`:
+      // the save handler branches on `result.reason` precisely so a cycle — which the user can
+      // act on — reads differently from `duplicate-id`/`not-found`, where the field simply moved
+      // out from under the dialog. Asserting the generic copy here would let that branch rot.
+      expect(screen.getByText(/circular dependency/i)).not.toBe(null);
     });
 
     it('still closes on a deliberate no-op re-save (value-equality bail is not a failure)', async () => {

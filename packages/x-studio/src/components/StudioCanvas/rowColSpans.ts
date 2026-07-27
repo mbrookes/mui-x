@@ -27,8 +27,11 @@ import { lookup } from '../../utils/safeLookup';
  *
  * The reducer's own `0` accounting is NOT changed here (it lives in the schema package and
  * governs what is PERSISTED, not what is rendered). {@link resolveResizePair} bridges the
- * two: it caps what a resize may commit using the reducer's accounting, so the two
- * meanings can never again disagree about whether a row fits.
+ * two: it caps what a resize may PROPOSE using the reducer's accounting, so the two
+ * meanings can never disagree about whether a row fits. The reducer has the last word either
+ * way — a resize now commits through it (`setAdjacentWidgetColSpans` →
+ * `applyBulkUpdate` → `rebalanceRowSpans`/`enforceLayoutColSpans`) instead of writing the
+ * doc directly.
  */
 export function defaultColSpan(rowLength: number): number {
   if (rowLength <= 0) {
@@ -119,16 +122,17 @@ export interface ResizePairSpans {
  * The handle keeps the PAIR's total constant and only redistributes it, so that total is
  * the entire budget the gesture can spend — and the commit writes explicit entries for both
  * widgets while leaving every other widget in the row exactly as it was. That makes the
- * pair total the one place a resize can push a row over `GRID_COLS`, which is precisely
- * what used to happen: `setAdjacentWidgetColSpans` writes through `commitDocPatch`, NOT
- * through `applyMutation`, so the reducer's row-sum sweep never runs on a resize and an
- * over-budget row survives serialize/reload (only each span's individual clamp is
- * re-applied at load).
+ * pair total the one place a resize can push a row over `GRID_COLS`.
  *
- * So the pair total is capped at what the row can still afford UNDER THE REDUCER'S OWN
- * ACCOUNTING (a missing entry contributes `0` to the persisted row budget), floored at the
- * two widgets' combined minimums — because refusing to satisfy a minimum span is worse than
- * an over-budget row, matching `setAdjacentWidgetColSpans`/`enforceLayoutColSpans`' shared
+ * The DOC is no longer at risk from that: `setAdjacentWidgetColSpans` now commits through the
+ * shared reducer (a spans-only `applyBulkUpdate`), so `rebalanceRowSpans`/
+ * `enforceLayoutColSpans` re-fit the row inside `GRID_COLS` before anything is persisted. What
+ * this cap still buys is HONESTY at the handle: without it the handle would advertise (via
+ * `aria-valuemin`/`aria-valuemax`) and drag to widths the reducer would then silently shrink
+ * on release. So the pair total is capped at what the row can still afford UNDER THE REDUCER'S
+ * OWN ACCOUNTING (a missing entry contributes `0` to the persisted row budget), floored at the
+ * two widgets' combined minimums — because refusing to satisfy a minimum span is worse than an
+ * over-budget row, matching `setAdjacentWidgetColSpans`/`enforceLayoutColSpans`' shared
  * "favour widening over ever committing a sub-minimum span" policy.
  *
  * In the ordinary case (every widget in the row carries an explicit span, and they fit) the

@@ -69,6 +69,52 @@ const MAX_UNDO_HISTORY = 100;
 const MAX_MUTATION_LOG = 20;
 
 /**
+ * Why a controller mutation REFUSED a caller's request.
+ *
+ * Deliberately does NOT include "nothing changed": a value-equal re-save is the outcome the
+ * user asked for, not a failure, so it is reported as `{ ok: true, committed: false }` — see
+ * {@link StudioMutationResult}.
+ *
+ *  - `duplicate-id` — an ADD whose id is already present. The stored entry is left untouched
+ *    (an add is idempotent, never an overwrite), so the caller's *values* were discarded.
+ *  - `not-found` — an UPDATE whose target id is absent from the doc (removed from another
+ *    view, by the AI assistant, or by an undo, while a dialog was open).
+ *  - `cycle` — the write would close a circular dependency among expression fields, which
+ *    would make `enrichRowsWithExpressions` recurse without bound at render time.
+ */
+export type StudioMutationRejectionReason = 'duplicate-id' | 'not-found' | 'cycle';
+
+/**
+ * The outcome of a controller mutation that can reject its caller's request.
+ *
+ * Replaces the `void` return that made every rejection indistinguishable from a save (H8):
+ * two separate UI units — `StudioExpressionFieldDialog` and `RelationshipPanel` — had each
+ * grown their own "re-read the committed doc and compare" workaround because the controller
+ * would not say.
+ *
+ * `committed` splits the SUCCESS case in two so a caller never has to treat "nothing to do"
+ * as an error:
+ *  - `{ ok: true, committed: true }` — the write landed and pushed an undoable commit.
+ *  - `{ ok: true, committed: false }` — the request was accepted but was a value-equal no-op,
+ *    so nothing was committed (no undo entry, no cleared redo stack). A dialog should close
+ *    normally on this; only a caller that specifically needs to know whether the doc moved
+ *    (e.g. one folding undo history) has any reason to look.
+ */
+export type StudioMutationResult =
+  | { ok: true; committed: boolean }
+  | { ok: false; reason: StudioMutationRejectionReason };
+
+/** Frozen singletons so the common results allocate nothing per call. */
+const MUTATION_COMMITTED: StudioMutationResult = Object.freeze({ ok: true, committed: true });
+const MUTATION_NOOP: StudioMutationResult = Object.freeze({ ok: true, committed: false });
+const MUTATION_DUPLICATE_ID: StudioMutationResult = Object.freeze({
+  ok: false,
+  reason: 'duplicate-id',
+});
+const MUTATION_NOT_FOUND: StudioMutationResult = Object.freeze({ ok: false, reason: 'not-found' });
+const MUTATION_CYCLE: StudioMutationResult = Object.freeze({ ok: false, reason: 'cycle' });
+
+/**
  * `Array.prototype.map` that returns the ORIGINAL array when no element's reference
  * changed (1.6). Lets identity-preserving doc writers reach `commitDocPatch`'s
  * reference-equality no-op guard with an unchanged array reference on a logical
@@ -1028,13 +1074,22 @@ export class StudioController {
     this.commitDataSourcePatch(sourceId, { fields: nextFields });
   };
 
-  addExpressionField = (field: StudioExpressionField) => {
+  /**
+   * Adds a calculated (expression) field.
+   *
+   * @param field The field to add.
+   * @returns {@link StudioMutationResult} — `duplicate-id` when a field with this id already
+   *   exists (the stored one wins; an add never overwrites), `cycle` when adding it would
+   *   close a circular dependency. Callers that surface the outcome to a user must branch on
+   *   this rather than assuming the write landed.
+   */
+  addExpressionField = (field: StudioExpressionField): StudioMutationResult => {
     const state = this.store.state;
     const exists = state.doc.expressionFields.some(
       (ef: StudioExpressionField) => ef.id === field.id,
     );
     if (exists) {
-      return;
+      return MUTATION_DUPLICATE_ID;
     }
     // Cycle guard at the mutation boundary (2.8): cycle validation lives in the
     // expression dialog's save button, but a host call (or a persisted doc replayed
@@ -1042,6 +1097,11 @@ export class StudioController {
     // hard-crashes `enrichRowsWithExpressions` with unbounded recursion during widget
     // render. Reject (guard-and-continue: warn in dev, no commit) if adding this field
     // would create a cycle among the resulting field set.
+    //
+    // The dev `console.warn` is KEPT alongside the returned `reason` rather than folded into
+    // it: this method is also reachable from host code and from a persisted doc replayed
+    // through here, neither of which inspects the result, so the warning stays the only
+    // signal on those paths. The `reason` serves the callers that DO branch on it.
     const nextFields = [...state.doc.expressionFields, field];
     if (hasExpressionCycle(field, nextFields)) {
       if (process.env.NODE_ENV !== 'production') {
@@ -1051,21 +1111,32 @@ export class StudioController {
             'Remove the self/mutual reference from its expression.',
         );
       }
-      return;
+      return MUTATION_CYCLE;
     }
     this.commitDocPatch({ expressionFields: nextFields });
+    return MUTATION_COMMITTED;
   };
 
+  /**
+   * Updates a calculated (expression) field.
+   *
+   * @param fieldId The id of the field to update.
+   * @param updates The keys to patch onto it.
+   * @returns {@link StudioMutationResult} — `not-found` when no field carries `fieldId`,
+   *   `cycle` when the change would close a circular dependency, and
+   *   `{ ok: true, committed: false }` when every patched key already holds its incoming
+   *   value (a deliberate no-op re-save, which a caller should treat as success).
+   */
   updateExpressionField = (
     fieldId: string,
     updates: Partial<Omit<StudioExpressionField, 'id'>>,
-  ) => {
+  ): StudioMutationResult => {
     const state = this.store.state;
     const existing = state.doc.expressionFields.find(
       (ef: StudioExpressionField) => ef.id === fieldId,
     );
     if (!existing) {
-      return;
+      return MUTATION_NOT_FOUND;
     }
     // Value-equality no-op guard (2.6): `{ ...existing, ...updates }` always allocates a fresh
     // field object (and a fresh array below), so `commitDocPatch`'s reference-equality guard can
@@ -1075,7 +1146,7 @@ export class StudioController {
     // writers (`updateActivePage`, `updateRelationship`).
     const updateKeys = Object.keys(updates) as (keyof typeof updates)[];
     if (updateKeys.every((key) => updates[key] === existing[key])) {
-      return;
+      return MUTATION_NOOP;
     }
     const updatedField = { ...existing, ...updates };
     const nextFields = state.doc.expressionFields.map((ef: StudioExpressionField) =>
@@ -1092,9 +1163,10 @@ export class StudioController {
             'Remove the self/mutual reference from its expression.',
         );
       }
-      return;
+      return MUTATION_CYCLE;
     }
     this.commitDocPatch({ expressionFields: nextFields });
+    return MUTATION_COMMITTED;
   };
 
   /**
@@ -1441,6 +1513,32 @@ export class StudioController {
   /**
    * Atomically set the column spans of two adjacent widgets in the same row.
    * Used by the between-widget resize handle to commit a drag that affects both sides.
+   *
+   * Commits through the SHARED REDUCER (`applyBulkUpdate`, spans-only, targeting the active
+   * page) rather than writing `widgetColSpans` straight to the doc via `commitDocPatch`.
+   * That routing is the whole point: it is what makes `rebalanceRowSpans` +
+   * `enforceLayoutColSpans` — the single authority for the col-span invariants, shared with
+   * the AI `set_widget_width`/`apply_bulk_update` paths and with `setWidgetLayout` — run on a
+   * drag-resize too. Before, a resize was the ONE writer that skipped them, so a row whose
+   * spans summed past `GRID_COLS` could be committed and survive serialize/reload
+   * (`normalizePersistedPages` only clamps each span INDIVIDUALLY at load), and the canvas
+   * had to approximate the missing sweep on its side (`rowColSpans.ts`).
+   *
+   * `applyBulkUpdate` is the right entry point rather than two folded `setWidgetColSpan`
+   * mutations: a resize moves ONE budget between TWO widgets, so both must be ANCHORS of a
+   * single rebalance. Applied one after another, the second `setWidgetColSpan` would treat
+   * the first widget as an ABSORBER and could clear the span the same gesture just set
+   * (reproducible whenever the requested pair total exceeds `GRID_COLS`). The spans-only bulk
+   * shape (`widgetColSpans` present, `widgetRows` absent) is exactly "merge these widths onto
+   * the page's existing map, then rebalance the affected rows around them" — see the
+   * `spansProvided && !rowsProvided` branch in `applyMutation.ts`.
+   *
+   * Per-side minimums are still resolved HERE, before the reducer sees them: they are a
+   * canvas concern (`getWidgetMinSpan` knows a sparkline-less KPI may go narrower) that the
+   * pure reducer has no vocabulary for. They are floored at the reducer's own `MIN_SPAN`
+   * because that is the narrowest span the DOCUMENT can represent — `clampSpan` raises
+   * anything below it, both here and at the load boundary, so accepting a smaller caller
+   * minimum would only commit a width the very next save/load cycle would silently widen.
    */
   setAdjacentWidgetColSpans = (
     leftId: string,
@@ -1469,51 +1567,54 @@ export class StudioController {
     if (!sharedRow) {
       return;
     }
+    // Floor each caller-supplied minimum at the reducer's `MIN_SPAN` (see the doc comment):
+    // a narrower span cannot be represented in the document, so honouring it here would only
+    // hand the reducer a value it immediately widens.
+    const effectiveLeftMin = Math.max(leftMinSpan, MIN_SPAN_COLS);
+    const effectiveRightMin = Math.max(rightMinSpan, MIN_SPAN_COLS);
     // Clamp left to its min; right follows so the pair total stays constant
     const totalSpan = Math.round(leftSpan) + Math.round(rightSpan);
     const clampedLeft = Math.max(
-      leftMinSpan,
-      Math.min(totalSpan - rightMinSpan, Math.round(leftSpan)),
+      effectiveLeftMin,
+      Math.min(totalSpan - effectiveRightMin, Math.round(leftSpan)),
     );
-    let clampedRight = totalSpan - clampedLeft;
-    // When `totalSpan` can't satisfy both minimums (e.g. a KPI's sparkline toggled
-    // on after the layout was set, raising its min-span requirement), `clampedRight`
-    // can drop to zero or negative. Floor it at its own minimum too, mirroring how
-    // `enforceLayoutColSpans` (the reducer's shared authority for this class of
-    // constraint) resolves an unsatisfiable layout: rather than inventing a new
-    // clamping strategy, favour widening over ever committing a sub-minimum or
-    // negative span. The pair may now sum to more than `totalSpan`; that's an
-    // accepted tradeoff — an impossible constraint can't also stay proportional.
-    if (clampedRight < rightMinSpan) {
-      clampedRight = rightMinSpan;
-    }
-    const currentSpans = activePage.widgetColSpans ?? {};
-    const newSpans: Record<string, number> = { ...currentSpans };
-    newSpans[leftId] = clampedLeft;
-    newSpans[rightId] = clampedRight;
-    // Value-equality no-op guard (2.2): a resize-handle pointerup with zero movement
-    // re-derives the exact same spans, but `newSpans`/`pages` are freshly built objects,
-    // so `commitDocPatch`'s reference-equality guard can't catch it — without this a
-    // no-move resize would push a phantom undoable entry and clear the redo stack, unlike
-    // every sibling write path in this file. Compare the resulting record to the current
-    // one by value (same key set, same value per key) and bail when nothing changed.
-    const currentKeys = Object.keys(currentSpans);
-    const nextKeys = Object.keys(newSpans);
-    const spansEqual =
-      currentKeys.length === nextKeys.length &&
-      nextKeys.every((key) => currentSpans[key] === newSpans[key]);
-    if (spansEqual) {
-      return;
-    }
-    this.commitDocPatch({
-      pages: {
-        ...state.doc.pages,
-        [activePage.id]: {
-          ...activePage,
-          widgetColSpans: newSpans,
+    // When `totalSpan` can't satisfy both minimums (e.g. a KPI's sparkline toggled on after
+    // the layout was set, raising its min-span requirement), the proportional
+    // `totalSpan - clampedLeft` can drop to zero or negative. Floor it at its own minimum
+    // too: an impossible constraint cannot also stay proportional, and refusing a minimum is
+    // worse than widening. The pair may then sum to more than `totalSpan` — which is now
+    // SAFE rather than an accepted tradeoff, because the reducer this commit routes through
+    // re-fits the whole row inside `GRID_COLS` afterwards (`rebalanceRowSpans` grants each
+    // anchor as much of the row budget as is left, in row order). The over-budget row that
+    // used to escape to the doc no longer can.
+    const clampedRight = Math.max(effectiveRightMin, totalSpan - clampedLeft);
+    // The value-equality no-op guard (2.2) that used to live here — a resize-handle pointerup
+    // with zero movement re-derives the exact same spans, and `commitDocPatch`'s
+    // reference-equality guard could not catch the freshly-built record — is now the
+    // reducer's own: `applyBulkUpdate` compares the normalized spans to the page's by value
+    // (`spansEqual`) and returns the SAME doc when nothing changed, which `commitMutations`
+    // turns into a clean no-op (no undo entry, no cleared redo stack, no log line).
+    this.commitMutation(
+      {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: [],
+          addedWidgets: [],
+          updatedWidgets: [],
+          // `widgetRows` deliberately OMITTED. Present-with-spans means "this payload is the
+          // page's complete intended layout" (wholesale replace); absent means "merge these
+          // widths onto whatever the page already has and rebalance around them", which is
+          // what a resize is. It is also what keeps every OTHER widget's stored width on the
+          // page intact.
+          widgetColSpans: { [leftId]: clampedLeft, [rightId]: clampedRight },
+          activePageId: activePage.id,
         },
       },
-    });
+      // Labeled as a widget-width change rather than the reducer's generic
+      // `applyBulkUpdate` — the log describes the user's action, not the mutation the
+      // controller happens to implement it with (same convention as `duplicateWidget`).
+      { label: `setWidgetColSpan:${leftId}+${rightId}` },
+    );
   };
 
   removeWidget = (widgetId: string) => {
@@ -2012,7 +2113,16 @@ export class StudioController {
     this.commitMutation({ type: 'addFilter', args: { filter: stampedFilter } });
   };
 
-  addRelationship = (relationship: import('../models').StudioRelationship) => {
+  /**
+   * Adds a source-to-source relationship.
+   *
+   * @param relationship The relationship to add.
+   * @returns {@link StudioMutationResult} — `duplicate-id` when a relationship with this id
+   *   already exists.
+   */
+  addRelationship = (
+    relationship: import('../models').StudioRelationship,
+  ): StudioMutationResult => {
     const state = this.store.state;
     // Idempotent, mirroring `addExpressionField` (T3.3): without this guard a double-add
     // (e.g. a re-delivered AI/wire `addRelationship` event) appends a second entry sharing
@@ -2022,31 +2132,50 @@ export class StudioController {
       (rel: StudioRelationship) => rel.id === relationship.id,
     );
     if (exists) {
-      return;
+      return MUTATION_DUPLICATE_ID;
     }
     this.commitDocPatch({ relationships: [...state.doc.relationships, relationship] });
+    return MUTATION_COMMITTED;
   };
 
-  updateRelationship = (id: string, patch: Partial<import('../models').StudioRelationship>) => {
+  /**
+   * Updates a source-to-source relationship.
+   *
+   * @param id The id of the relationship to update.
+   * @param patch The keys to patch onto it.
+   * @returns {@link StudioMutationResult} — `not-found` when no relationship carries `id`
+   *   (it was removed from another view, by the AI assistant, or by an undo, while an edit
+   *   dialog was open), and `{ ok: true, committed: false }` for a value-equal no-op.
+   */
+  updateRelationship = (
+    id: string,
+    patch: Partial<import('../models').StudioRelationship>,
+  ): StudioMutationResult => {
     const state = this.store.state;
+    // The existence and value-equality checks are hoisted OUT of the `map` callback (they
+    // used to live inside it and be visible only as "the array reference didn't change") so
+    // the two outcomes they produce can be told apart and reported: an absent id is a
+    // REJECTION the caller must surface, while a value-identical patch is an accepted no-op.
+    const existing = state.doc.relationships.find((rel: StudioRelationship) => rel.id === id);
+    if (!existing) {
+      return MUTATION_NOT_FOUND;
+    }
+    // Value-equality no-op guard (2.10): `{ ...rel, ...patch }` always builds a fresh
+    // relationship object, so a value-identical patch would defeat `mapPreservingIdentity`
+    // (fresh array) and `commitDocPatch` (fresh `relationships`), committing a phantom
+    // redo-clearing undo entry.
+    const patchKeys = Object.keys(patch) as (keyof StudioRelationship)[];
+    if (patchKeys.every((key) => patch[key] === existing[key])) {
+      return MUTATION_NOOP;
+    }
+    // `mapPreservingIdentity` is retained for the (host-authored initial doc) case where two
+    // entries share an id: only the ones that actually differ are rebuilt.
     this.commitDocPatch({
-      relationships: mapPreservingIdentity(state.doc.relationships, (rel: StudioRelationship) => {
-        if (rel.id !== id) {
-          return rel;
-        }
-        // Value-equality no-op guard (2.10): `{ ...rel, ...patch }` always builds a fresh
-        // relationship object, so a value-identical patch would defeat `mapPreservingIdentity`
-        // (fresh array) and `commitDocPatch` (fresh `relationships`), committing a phantom
-        // redo-clearing undo entry. Return the SAME `rel` when every patched key already holds
-        // its incoming value so the original array reference survives and `commitDocPatch`
-        // no-ops it — matching the sibling value-equality writers.
-        const patchKeys = Object.keys(patch) as (keyof StudioRelationship)[];
-        if (patchKeys.every((key) => patch[key] === rel[key])) {
-          return rel;
-        }
-        return { ...rel, ...patch };
-      }),
+      relationships: mapPreservingIdentity(state.doc.relationships, (rel: StudioRelationship) =>
+        rel.id === id ? { ...rel, ...patch } : rel,
+      ),
     });
+    return MUTATION_COMMITTED;
   };
 
   removeRelationship = (id: string) => {
@@ -2525,27 +2654,57 @@ export class StudioController {
   /**
    * Sets the active page by ID.
    */
-  /** Updates fields on the active page (e.g. theme). */
-  updateActivePage = (changes: Partial<Omit<StudioPage, 'id'>>) => {
+  /**
+   * Updates non-layout fields on the active page (title, theme, stack breakpoint).
+   *
+   * `widgetRows`/`widgetColSpans` are EXCLUDED from `changes` (class sweep for the same
+   * defect `setAdjacentWidgetColSpans` had): this method writes the page object straight to
+   * the doc via `commitDocPatch`, so a layout written through it would skip
+   * `enforceLayoutColSpans` entirely — phantom row ids, duplicate placements and rows summing
+   * past `GRID_COLS` would all land in the doc unchecked. The type excludes them and the
+   * runtime strip below is the backstop for an untyped/host JS caller. Use
+   * {@link setWidgetLayout} for rows and {@link setAdjacentWidgetColSpans} for spans; both
+   * route through the reducer.
+   */
+  updateActivePage = (
+    changes: Partial<Omit<StudioPage, 'id' | 'widgetRows' | 'widgetColSpans'>>,
+  ) => {
     const state = this.store.state;
     const pageId = state.doc.dashboard.activePageId;
     const page = this.getActivePage();
     if (!page) {
       return;
     }
+    // Runtime backstop for the type exclusion above — a JS host (or a `as any` call site)
+    // can still hand over layout keys.
+    if (process.env.NODE_ENV !== 'production') {
+      const layoutKeys = ['widgetRows', 'widgetColSpans'].filter((key) =>
+        Object.hasOwn(changes, key),
+      );
+      if (layoutKeys.length > 0) {
+        console.warn(
+          `MUI X Studio: updateActivePage ignored layout key(s): ${layoutKeys.join(', ')}. ` +
+            "Writing them here would bypass the reducer's layout invariants (row " +
+            'membership, duplicate ids, and the per-row column budget). Use setWidgetLayout ' +
+            'for rows and setAdjacentWidgetColSpans for column spans instead.',
+        );
+      }
+    }
+    const { widgetRows, widgetColSpans, ...safeChanges } = changes as Partial<StudioPage>;
     // Value-equality no-op guard (2.10): `{ ...page, ...changes }` always allocates a fresh
     // page object, so `commitDocPatch`'s reference-equality guard can never fire even for a
     // value-identical write — re-confirming the theme the page already has would clear a pending
     // redo stack and insert a no-op undo entry. Bail when every patched key already holds its
     // incoming value, mirroring `commitDocPatch`/`updateState`'s key-wise no-op detection.
-    const changeKeys = Object.keys(changes) as (keyof typeof changes)[];
-    if (changeKeys.every((key) => changes[key] === page[key])) {
+    // Keyed on the STRIPPED payload, so a call carrying only layout keys is a clean no-op.
+    const changeKeys = Object.keys(safeChanges) as (keyof typeof safeChanges)[];
+    if (changeKeys.every((key) => safeChanges[key] === page[key])) {
       return;
     }
     this.commitDocPatch({
       pages: {
         ...state.doc.pages,
-        [pageId]: { ...page, ...changes },
+        [pageId]: { ...page, ...safeChanges },
       },
     });
   };

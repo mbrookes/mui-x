@@ -29,33 +29,12 @@ export function RelationshipPanel(props: {
   const [editingRel, setEditingRel] = React.useState<
     { id: string; form: RelationshipFormState } | undefined
   >(undefined);
-  // H8: `addRelationship`/`updateRelationship` return `void` and bail silently — `addRelationship`
-  // on a duplicate id, `updateRelationship` whenever `mapPreservingIdentity` finds no matching
-  // `rel.id` (the relationship was removed from another view / by the AI assistant while this
-  // dialog was open), which `commitDocPatch` then no-ops. Both used to `setDialogOpen(false)`
-  // unconditionally, so a discarded edit looked exactly like a saved one. The durable fix is for
-  // those controller methods to return a success/failure result; until then, verify the commit
-  // landed in the doc before closing.
+  // H8: `addRelationship`/`updateRelationship` now RETURN a `StudioMutationResult`, so this
+  // panel branches on the controller's verdict — `duplicate-id` on an add, `not-found` when
+  // the relationship was removed from another view / by the AI assistant while this dialog was
+  // open — instead of re-reading the committed doc and inferring. A value-equal no-op comes
+  // back as `ok`, so a deliberate re-save still closes the dialog.
   const [saveRejected, setSaveRejected] = React.useState(false);
-
-  /**
-   * Confirms that `id` is present in the committed doc with every patched key at its intended
-   * value, reference-comparing exactly as `updateRelationship`'s own value-equality guard does —
-   * so a deliberate no-op re-save reads as accepted while a vanished relationship does not.
-   *
-   * @param id The relationship id that was written.
-   * @param patch The values the write intended to leave behind.
-   * @returns Whether the doc now holds them.
-   */
-  const wasCommitted = (id: string, patch: Partial<StudioRelationship>): boolean => {
-    const committed = controller.getState().doc.relationships.find((rel) => rel.id === id);
-    if (!committed) {
-      return false;
-    }
-    return (Object.keys(patch) as (keyof StudioRelationship)[]).every(
-      (key) => committed[key] === patch[key],
-    );
-  };
 
   const handleAdd = (form: RelationshipFormState) => {
     const isManyToMany = form.type === 'many-to-many';
@@ -74,8 +53,7 @@ export function RelationshipPanel(props: {
           }
         : {}),
     };
-    controller.addRelationship({ id, ...patch });
-    if (!wasCommitted(id, patch)) {
+    if (!controller.addRelationship({ id, ...patch }).ok) {
       setSaveRejected(true);
       return;
     }
@@ -98,8 +76,7 @@ export function RelationshipPanel(props: {
       junctionSourceField: isManyToMany ? form.junctionSourceField : undefined,
       junctionTargetField: isManyToMany ? form.junctionTargetField : undefined,
     };
-    controller.updateRelationship(editingRel.id, patch);
-    if (!wasCommitted(editingRel.id, patch)) {
+    if (!controller.updateRelationship(editingRel.id, patch).ok) {
       setSaveRejected(true);
       return;
     }

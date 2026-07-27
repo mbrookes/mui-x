@@ -1,6 +1,7 @@
 'use client';
 import * as React from 'react';
 import {
+  Alert,
   Box,
   Button,
   FormControl,
@@ -34,9 +35,9 @@ type ArithmeticOp = (typeof OPERATORS)[number]['value'];
 
 // Collision-resistant id generator for formula-created expression fields (finding
 // 3.11): a plain `expr_formula_${Date.now()}` collides whenever two formula fields
-// are created within the same millisecond, and `addExpressionField` silently no-ops
-// a duplicate id via the reducer's idempotency check. Pairs the timestamp with a
-// module-level monotonic counter, same scheme as `chatIds.ts`/`RelationshipPanel.tsx`.
+// are created within the same millisecond, and `addExpressionField` refuses a duplicate id
+// (it reports `duplicate-id` rather than overwriting the stored field). Pairs the timestamp
+// with a module-level monotonic counter, same scheme as `chatIds.ts`/`RelationshipPanel.tsx`.
 let formulaFieldIdCounter = 0;
 function createFormulaFieldId(): string {
   formulaFieldIdCounter += 1;
@@ -115,6 +116,10 @@ export function InlineFormulaBar({ sourceId, fields, onFieldCreated }: InlineFor
   const [operator, setOperator] = React.useState<ArithmeticOp>('add');
   const [right, setRight] = React.useState<OperandState>(() => defaultOperand(firstFieldId));
   const [labelOverride, setLabelOverride] = React.useState('');
+  // `addExpressionField` reports its verdict now, so a rejected create keeps the form open
+  // and says why instead of closing (and calling `onFieldCreated`) as if the field existed —
+  // which would have left the caller's setup panel selecting a field id that is not in the doc.
+  const [addError, setAddError] = React.useState<string | null>(null);
 
   // Reset form when opening
   const handleOpen = () => {
@@ -122,10 +127,12 @@ export function InlineFormulaBar({ sourceId, fields, onFieldCreated }: InlineFor
     setOperator('add');
     setRight(defaultOperand(firstFieldId));
     setLabelOverride('');
+    setAddError(null);
     setOpen(true);
   };
 
   const handleCancel = () => {
+    setAddError(null);
     setOpen(false);
   };
 
@@ -149,7 +156,16 @@ export function InlineFormulaBar({ sourceId, fields, onFieldCreated }: InlineFor
       isMeasure: false,
       expression,
     };
-    controller.addExpressionField(field);
+    const result = controller.addExpressionField(field);
+    if (!result.ok) {
+      setAddError(
+        result.reason === 'cycle'
+          ? localeText.exprErrorCircularDependency(id)
+          : localeText.saveRejectedMessage,
+      );
+      return;
+    }
+    setAddError(null);
     onFieldCreated(id);
     setOpen(false);
   };
@@ -256,6 +272,13 @@ export function InlineFormulaBar({ sourceId, fields, onFieldCreated }: InlineFor
         helperText={localeText.inlineFormulaBarAutoHelperText}
         sx={{ mb: 1 }}
       />
+
+      {/* The controller refused the create; the form stays open and says so. */}
+      {addError !== null && (
+        <Alert severity="error" role="alert" sx={{ mb: 1 }}>
+          {addError}
+        </Alert>
+      )}
 
       <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
         <Button size="small" variant="text" onClick={handleCancel} sx={{ textTransform: 'none' }}>

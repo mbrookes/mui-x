@@ -169,15 +169,10 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
   );
   const { label, description, isMeasure, expression, precision } = form;
 
-  // H8: `addExpressionField`/`updateExpressionField` return `void` and bail SILENTLY on four
-  // paths — duplicate id, "field no longer exists", value-equality, and the cycle guard (a
-  // dev-only `console.warn`, nothing in production). `handleSave` used to call one of them and
-  // then `onClose()` unconditionally, so a rejected write closed the dialog exactly like an
-  // accepted one: edit "Margin %", have the AI assistant remove that field meanwhile, hit Save,
-  // and the edit is discarded on a normal-looking save. Until the controller can report success
-  // (see `handleSave`), the dialog verifies the committed doc itself and stays open when the
-  // write did not land.
-  const [saveRejected, setSaveRejected] = React.useState(false);
+  // H8: `addExpressionField`/`updateExpressionField` now RETURN a `StudioMutationResult`, so
+  // the dialog branches on the controller's own verdict instead of re-reading the committed
+  // doc and guessing. `null` = no rejection to show; otherwise the localized reason.
+  const [saveError, setSaveError] = React.useState<string | null>(null);
 
   // Stable across re-renders (finding 3.11): the previous `expr-${Date.now()}` was
   // recomputed on every render for a new (non-edit) field, churning the `draftField`/
@@ -216,7 +211,7 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
     setForm(buildFormState(existingField));
     // A rejection banner belongs to the save attempt that produced it, not to the next field
     // the dialog is opened on.
-    setSaveRejected(false);
+    setSaveError(null);
   }, [existingField, open]);
 
   // BL-180: expression fields offered as operands in the builder, scoped to those
@@ -289,9 +284,6 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
     });
   }, [draftField, expressionFields, dataSource.fields, isEdit, fieldId, reachableSourceIds]);
 
-  // The durable fix is for `addExpressionField`/`updateExpressionField` to RETURN a
-  // success/failure result instead of `void`; `StudioController.ts` is out of scope for this
-  // change, so the dialog verifies the commit itself.
   const handleSave = () => {
     if (validationErrors.length > 0) {
       return;
@@ -304,30 +296,24 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
       type: inferredType,
       precision: parsedPrecision,
     };
-    if (isEdit) {
-      controller.updateExpressionField(fieldId, patch);
-    } else {
-      // The duplicate-id bail is the one rejection a post-state read cannot see: the id would be
-      // present either way, and only its (foreign) values would differ. Check it up front.
-      if (controller.getState().doc.expressionFields.some((ef) => ef.id === fieldId)) {
-        setSaveRejected(true);
-        return;
-      }
-      controller.addExpressionField({ id: fieldId, sourceId: dataSource.id, ...patch });
-    }
-    // Post-state verification. Reference-compares each patched key exactly as the controller's own
-    // value-equality guard does, so a deliberate no-op re-save (open, glance, Save with no edits)
-    // reads as ACCEPTED and closes normally, while a field that was removed, or an update the
-    // cycle guard refused, keeps the dialog open with the user's work intact.
-    const committed = controller.getState().doc.expressionFields.find((ef) => ef.id === fieldId);
-    const accepted =
-      committed !== undefined &&
-      (Object.keys(patch) as (keyof typeof patch)[]).every((key) => committed[key] === patch[key]);
-    if (!accepted) {
-      setSaveRejected(true);
+    const result = isEdit
+      ? controller.updateExpressionField(fieldId, patch)
+      : controller.addExpressionField({ id: fieldId, sourceId: dataSource.id, ...patch });
+    if (!result.ok) {
+      // The controller distinguishes the rejection modes, so the banner can too: a cycle is a
+      // problem the user can act on (the doc gained a reference back to this field while the
+      // dialog held a stale `expressionFields` list), while `duplicate-id`/`not-found` mean
+      // the field moved out from under the dialog.
+      setSaveError(
+        result.reason === 'cycle'
+          ? localeText.exprErrorCircularDependency(fieldId)
+          : localeText.saveRejectedMessage,
+      );
       return;
     }
-    setSaveRejected(false);
+    // `result.ok` with `committed: false` is a value-equal no-op — open, glance, Save with no
+    // edits. That is success, not a rejection, so the dialog closes normally.
+    setSaveError(null);
     if (!isEdit) {
       onSaved?.(fieldId);
     }
@@ -482,9 +468,9 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
             />
 
             {/* H8: the controller rejected the write; the dialog stays open and says so. */}
-            {saveRejected && (
+            {saveError !== null && (
               <Alert severity="error" role="alert">
-                {localeText.saveRejectedMessage}
+                {saveError}
               </Alert>
             )}
 

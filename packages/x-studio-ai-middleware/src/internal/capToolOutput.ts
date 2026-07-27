@@ -62,6 +62,20 @@ const MAX_TOOL_OUTPUT_DEPTH = 12;
  */
 const MIN_TOOL_OUTPUT_CELL_CHARS = 64;
 const MIN_TOOL_OUTPUT_ARRAY_ITEMS = 1;
+/**
+ * Floor for `objectKeys`, the third and last cap the progressive re-trim tightens.
+ *
+ * It was originally left out of the loop entirely, which made
+ * {@link MAX_TOOL_OUTPUT_OBJECT_KEYS} a ONE-SHOT cap: a 300,000-key object dropped to
+ * 200 keys on the first pass and never narrowed again, so a result whose size lives in
+ * its key COUNT (200 keys × 12 levels of nesting, each already at the 64-char cell
+ * floor) had nothing structural left to give and fell through to the hard slice — the
+ * exact mid-token amputation the progressive loop exists to avoid. Columns are dropped
+ * LAST, after cells are narrowed and rows are dropped, because losing a column removes
+ * a dimension from every row at once whereas losing rows leaves the full schema
+ * visible — and a model that can still see the schema can re-query for the rest.
+ */
+const MIN_TOOL_OUTPUT_OBJECT_KEYS = 8;
 
 interface TrimCaps {
   cellChars: number;
@@ -82,6 +96,33 @@ export const TOOL_OUTPUT_TRUNCATED_NOTE =
 
 /** Suffix appended in place of the removed tail when a plain-text (non-JSON) result is sliced. */
 export const TOOL_OUTPUT_TRUNCATED_SUFFIX = `\n…[${TOOL_OUTPUT_TRUNCATED_NOTE}]`;
+
+/**
+ * Property name carrying {@link TOOL_OUTPUT_TRUNCATED_NOTE} in a trimmed JSON result.
+ *
+ * For an OBJECT root it is folded in as a sibling key, preserving the shape the tool
+ * advertises. For an ARRAY or SCALAR root there is nowhere to fold a sibling key, so
+ * the trimmed value is wrapped in `{ [MARKER]: …, result: <value> }` — see
+ * {@link TOOL_OUTPUT_TRUNCATED_RESULT_KEY}.
+ */
+export const TOOL_OUTPUT_TRUNCATED_NOTE_KEY = 'toolOutputTruncatedNote';
+
+/**
+ * Property holding the trimmed value when a non-object root had to be wrapped to carry
+ * the truncation marker.
+ *
+ * Reshaping a result is not free — the model was told this tool returns an array — but
+ * it only ever happens on a path that has ALREADY discarded data, and the alternative
+ * shipped for a while: an array or scalar root was returned bare, with no marker
+ * anywhere, so the model reasoned over silently-truncated data and reported a wrong
+ * answer with full confidence. That is the one failure mode this whole module exists to
+ * prevent, and it was reachable through any host `server-tool` skill returning a
+ * top-level array (`capToolOutput` runs on EVERY `ToolDispatchOutcome.output`, skills
+ * included) as well as any future tool built on `jsonResult(array)`, a shape
+ * `mcp/utilityTools.ts` already produces. A parseable, explicitly-marked envelope is
+ * strictly better than a parseable, silent lie.
+ */
+export const TOOL_OUTPUT_TRUNCATED_RESULT_KEY = 'result';
 
 interface TrimState {
   truncated: boolean;
@@ -121,11 +162,56 @@ function trimValue(value: unknown, depth: number, state: TrimState, caps: TrimCa
     // `JSON.stringify` serialises it identically.
     const out: Record<string, unknown> = Object.create(null);
     for (const [key, entry] of entries.slice(0, caps.objectKeys)) {
-      out[capText(key, caps.cellChars)] = trimValue(entry, depth + 1, state, caps);
+      const cappedKey = capText(key, caps.cellChars);
+      let outKey = cappedKey;
+      if (cappedKey !== key) {
+        // Capping a KEY is data loss exactly like capping a value, and it was the one
+        // trim in this function that did not record itself — so a result whose only
+        // truncation was a key name came back unmarked. Worse, two keys sharing a
+        // prefix longer than `cellChars` capped to the SAME string and the second
+        // silently overwrote the first, losing a whole column with no trace.
+        // `Object.entries` never yields duplicates, so only capped keys can collide;
+        // disambiguate those rather than dropping one.
+        state.truncated = true;
+        let suffix = 2;
+        while (outKey in out) {
+          outKey = `${cappedKey}~${suffix}`;
+          suffix += 1;
+        }
+      }
+      out[outKey] = trimValue(entry, depth + 1, state, caps);
     }
     return out;
   }
   return value;
+}
+
+/**
+ * Attach {@link TOOL_OUTPUT_TRUNCATED_NOTE} to a trimmed value, whatever its root shape.
+ *
+ * An object root keeps its shape and gains a sibling key; ANY other root (array,
+ * string, number, boolean, `null`) is wrapped, because there is no sibling position to
+ * put the note in. The wrap is what closes the original defect: the marker used to be
+ * folded in only for object roots, and every other root was returned bare with the
+ * truncation completely invisible to the model.
+ *
+ * Returns `value` untouched when nothing was trimmed, so a within-budget-after-trim
+ * result is never reshaped for no reason.
+ */
+function withTruncationMarker(value: unknown, truncated: boolean): unknown {
+  if (!truncated) {
+    return value;
+  }
+  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+    return {
+      ...(value as Record<string, unknown>),
+      [TOOL_OUTPUT_TRUNCATED_NOTE_KEY]: TOOL_OUTPUT_TRUNCATED_NOTE,
+    };
+  }
+  return {
+    [TOOL_OUTPUT_TRUNCATED_NOTE_KEY]: TOOL_OUTPUT_TRUNCATED_NOTE,
+    [TOOL_OUTPUT_TRUNCATED_RESULT_KEY]: value,
+  };
 }
 
 /**
@@ -141,10 +227,18 @@ function trimValue(value: unknown, depth: number, state: TrimState, caps: TrimCa
  * document cuts mid-token, so the model receives something it cannot parse at all —
  * strictly worse than a smaller, well-formed result. Cells are narrowed first (down
  * to {@link MIN_TOOL_OUTPUT_CELL_CHARS}), then rows are dropped (down to
- * {@link MIN_TOOL_OUTPUT_ARRAY_ITEMS}); each pass re-trims the previous pass's
+ * {@link MIN_TOOL_OUTPUT_ARRAY_ITEMS}), then columns (down to
+ * {@link MIN_TOOL_OUTPUT_OBJECT_KEYS}); each pass re-trims the previous pass's
  * output, so the work shrinks geometrically. The hard slice survives only as the
  * last resort for a result that no structural trim can fit (a million scalar rows,
  * whose size is all commas) and for genuinely non-JSON output.
+ *
+ * EVERY truncating path here marks its result: an object root gains a
+ * {@link TOOL_OUTPUT_TRUNCATED_NOTE_KEY} sibling, an array/scalar root is wrapped in
+ * an envelope carrying the same key, and both slice paths append
+ * {@link TOOL_OUTPUT_TRUNCATED_SUFFIX}. There is no path that discards data silently —
+ * that is the invariant, and it did not hold before (see
+ * {@link TOOL_OUTPUT_TRUNCATED_RESULT_KEY}).
  *
  * @param output - The tool's serialized result string.
  * @returns The original string when it is within budget, otherwise a truncated
@@ -181,17 +275,7 @@ export function capToolOutput(output: string): string {
 
     let serialized: string | undefined;
     try {
-      serialized = JSON.stringify(
-        state.truncated &&
-          candidate !== null &&
-          typeof candidate === 'object' &&
-          !Array.isArray(candidate)
-          ? {
-              ...(candidate as Record<string, unknown>),
-              toolOutputTruncatedNote: TOOL_OUTPUT_TRUNCATED_NOTE,
-            }
-          : candidate,
-      );
+      serialized = JSON.stringify(withTruncationMarker(candidate, state.truncated));
     } catch {
       return `${output.slice(0, MAX_TOOL_OUTPUT_CHARS)}${TOOL_OUTPUT_TRUNCATED_SUFFIX}`;
     }
@@ -212,6 +296,11 @@ export function capToolOutput(output: string): string {
       caps = {
         ...caps,
         arrayItems: Math.max(MIN_TOOL_OUTPUT_ARRAY_ITEMS, Math.floor(caps.arrayItems / 2)),
+      };
+    } else if (caps.objectKeys > MIN_TOOL_OUTPUT_OBJECT_KEYS) {
+      caps = {
+        ...caps,
+        objectKeys: Math.max(MIN_TOOL_OUTPUT_OBJECT_KEYS, Math.floor(caps.objectKeys / 2)),
       };
     } else {
       // Nothing structural left to give (e.g. one row of a million scalar columns) —

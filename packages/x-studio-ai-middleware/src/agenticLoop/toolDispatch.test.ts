@@ -335,6 +335,104 @@ describe('dispatchToolCall', () => {
     expect((outcome as { kind: string }).kind).toBe('result');
   });
 
+  // Finding L1 — a `server-tool` skill supplies `mutation` and `nextState`
+  // INDEPENDENTLY, and nothing checked that one was the other's result. It is the only
+  // dispatch path where invariant 8 ("client and server can't disagree, they run the
+  // same code") did not hold: the client applies the mutation, the server adopts
+  // `nextState`, and the two walk apart.
+  describe('server-tool skill state threading (finding L1)', () => {
+    function makeSkill(execute: NonNullable<StudioAISkill['tool']>['execute']): StudioAISkill {
+      return {
+        name: 'threading_skill',
+        mode: 'server-tool',
+        promptFragment: '',
+        tool: { name: 'threading_skill', description: 'd', parameters: {}, execute },
+      };
+    }
+
+    function ctxFor(skill: StudioAISkill) {
+      return makeCtx({
+        advertisedToolNames: new Set(['threading_skill']),
+        skillHandlers: [skill],
+      });
+    }
+
+    it('derives the threaded doc from the mutation, not from the skill nextState', async () => {
+      // A skill returning a mutation alongside a STALE `nextState`: the client would
+      // move (it applies the mutation) while the server stayed put.
+      const skill = makeSkill(async () => ({
+        output: 'ok',
+        mutation: { type: 'setDashboardTitle', args: { title: 'From mutation' } } as never,
+        nextState: INITIAL_STATE,
+      }));
+      const { outcome } = await runDispatch(
+        dispatchToolCall(tc('threading_skill'), {}, false, INITIAL_STATE, ctxFor(skill)),
+      );
+
+      const next = (outcome as { nextState: StudioState }).nextState;
+      expect(next.doc.dashboard.title).toBe('From mutation');
+    });
+
+    it('ignores a doc edit a skill made only inside nextState, with no mutation', async () => {
+      // The mirror-image divergence: the server would advance while the client, which
+      // never received a `state-mutation` event, could not.
+      const skill = makeSkill(async () => ({
+        output: 'ok',
+        nextState: {
+          ...INITIAL_STATE,
+          doc: {
+            ...INITIAL_STATE.doc,
+            dashboard: { ...INITIAL_STATE.doc.dashboard, title: 'Ghost edit' },
+          },
+        },
+      }));
+      const { events, outcome } = await runDispatch(
+        dispatchToolCall(tc('threading_skill'), {}, false, INITIAL_STATE, ctxFor(skill)),
+      );
+
+      expect(events).toEqual([]);
+      const next = (outcome as { nextState: StudioState }).nextState;
+      expect(next.doc.dashboard.title).toBe(INITIAL_STATE.doc.dashboard.title);
+    });
+
+    it('keeps the runtime/session partitions a skill supplies', async () => {
+      // The legitimate reason a skill returns its own `nextState` at all: `runtime` data
+      // it fetched is not expressible as a `StateMutation`, and is neither persisted nor
+      // client-applied, so it cannot desynchronise the two sides.
+      const skill = makeSkill(async () => ({
+        output: 'ok',
+        mutation: { type: 'setDashboardTitle', args: { title: 'Renamed' } } as never,
+        nextState: {
+          ...INITIAL_STATE,
+          runtime: {
+            ...INITIAL_STATE.runtime,
+            dataSources: {
+              fetched: { id: 'fetched', label: 'Fetched', tableName: 't', fields: [] },
+            },
+          },
+        } as StudioState,
+      }));
+      const { outcome } = await runDispatch(
+        dispatchToolCall(tc('threading_skill'), {}, false, INITIAL_STATE, ctxFor(skill)),
+      );
+
+      const next = (outcome as { nextState: StudioState }).nextState;
+      expect(next.runtime.dataSources.fetched).toBeDefined();
+      expect(next.doc.dashboard.title).toBe('Renamed');
+    });
+
+    it('falls back to the threaded state when a skill returns no nextState at all', async () => {
+      const skill = makeSkill(
+        async () => ({ output: 'ok' }) as unknown as { output: string; nextState: StudioState },
+      );
+      const { outcome } = await runDispatch(
+        dispatchToolCall(tc('threading_skill'), {}, false, INITIAL_STATE, ctxFor(skill)),
+      );
+
+      expect((outcome as { nextState: StudioState }).nextState.doc).toEqual(INITIAL_STATE.doc);
+    });
+  });
+
   it('redacts a skill execute() throw before relaying it, and fires onToolError with the detail', async () => {
     const onToolError = vi.fn();
     const execute = vi.fn(async () => {

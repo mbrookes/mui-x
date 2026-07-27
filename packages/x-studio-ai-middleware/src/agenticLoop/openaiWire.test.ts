@@ -240,6 +240,85 @@ describe('accumulateToolCallDeltas', () => {
     });
   });
 
+  // Finding L7 — the two bases were documented as guaranteeing no collision, but they
+  // only guaranteed it against a WELL-BEHAVED provider's 0..n indices. A hostile gateway
+  // that simply names an index inside a reserved range walked straight into the
+  // fallback's slot and merged two distinct calls' fragments — the exact outcome the
+  // constants exist to rule out. The ranges are now disjoint by construction.
+  it('rejects a provider index inside the reserved positional-fallback range', () => {
+    const acc = createToolCallAccumulator();
+    accumulateToolCallDeltas(
+      [
+        // Hostile: names the slot the positional fallback below would take.
+        { index: POSITIONAL_INDEX_BASE, function: { name: 'hostile', arguments: '{"a":1}' } },
+        { function: { name: 'genuine', arguments: '{"b":2}' } },
+      ],
+      acc,
+    );
+    // The out-of-range index is treated as absent, so the hostile delta takes its OWN
+    // positional slot (array position 0) rather than the genuine delta's (position 1).
+    expect(acc.reqToolCalls[POSITIONAL_INDEX_BASE].name).toBe('hostile');
+    expect(acc.reqToolCalls[POSITIONAL_INDEX_BASE + 1].name).toBe('genuine');
+  });
+
+  it('rejects a provider index inside the reserved synthetic (id-keyed) range', () => {
+    const acc = createToolCallAccumulator();
+    accumulateToolCallDeltas(
+      [
+        { id: 'tc_a', function: { name: 'id_keyed', arguments: '{"a":1}' } },
+        // Hostile: names the slot the id-keyed call above was just given.
+        { index: SYNTHETIC_INDEX_BASE, function: { name: 'hostile', arguments: '{"b":2}' } },
+      ],
+      acc,
+    );
+    // Un-merged: the id-keyed call keeps its synthetic slot untouched.
+    expect(acc.reqToolCalls[SYNTHETIC_INDEX_BASE]).toEqual({
+      id: 'tc_a',
+      name: 'id_keyed',
+      argsBuffer: '{"a":1}',
+    });
+    expect(acc.reqToolCalls[POSITIONAL_INDEX_BASE + 1].name).toBe('hostile');
+  });
+
+  it('rejects a negative provider index', () => {
+    const acc = createToolCallAccumulator();
+    accumulateToolCallDeltas([{ index: -1, function: { name: 'x', arguments: '{}' } }], acc);
+    expect(acc.reqToolCalls[-1]).toBeUndefined();
+    expect(acc.reqToolCalls[POSITIONAL_INDEX_BASE].name).toBe('x');
+  });
+
+  // Sibling sweep for finding M7: every textual field here is raw provider JSON, and
+  // none of them was type-checked — a non-string rode through implicit coercion into the
+  // `tool_call_id` on the wire, the `approvalPending` map key, and the browser-facing
+  // `toolCallId`.
+  it('ignores non-string id / name / arguments fields', () => {
+    const acc = createToolCallAccumulator();
+    accumulateToolCallDeltas(
+      [
+        {
+          index: 0,
+          id: { toString: () => 'forged' },
+          function: { name: 42, arguments: { a: 1 } },
+        } as unknown as Parameters<typeof accumulateToolCallDeltas>[0][number],
+      ],
+      acc,
+    );
+    expect(acc.reqToolCalls[0]).toEqual({ id: '', name: '', argsBuffer: '' });
+  });
+
+  it('skips a non-object delta entry instead of throwing', () => {
+    const acc = createToolCallAccumulator();
+    expect(() =>
+      accumulateToolCallDeltas(
+        [null, { index: 0, function: { name: 'x', arguments: '{}' } }] as Parameters<
+          typeof accumulateToolCallDeltas
+        >[0],
+        acc,
+      ),
+    ).not.toThrow();
+    expect(acc.reqToolCalls[0].name).toBe('x');
+  });
+
   it('does not duplicate a function name a gateway resends in full on every chunk', () => {
     const acc = createToolCallAccumulator();
     accumulateToolCallDeltas([{ index: 0, function: { name: 'remove_page' } }], acc);

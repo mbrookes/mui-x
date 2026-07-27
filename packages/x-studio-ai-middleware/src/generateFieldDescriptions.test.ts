@@ -35,8 +35,55 @@ function requestBody(fn: ReturnType<typeof stubFetch>) {
   return JSON.parse((fn.mock.calls[0][1] as RequestInit).body as string);
 }
 
+/**
+ * A 200 OK whose BODY is not JSON — a captive portal, a misrouted proxy, an auth
+ * redirect. `response.json()` rejects with a `SyntaxError` quoting the body's first
+ * bytes, which is PROVIDER-authored text (finding L4).
+ */
+function stubFetchNonJsonBody(body: string) {
+  const fn = vi.fn(async () => ({
+    ok: true,
+    status: 200,
+    statusText: 'OK',
+    json: async () => {
+      throw new SyntaxError(`Unexpected token '<', "${body.slice(0, 20)}"... is not valid JSON`);
+    },
+    text: async () => body,
+    body: { cancel: async () => {} },
+  }));
+  vi.stubGlobal('fetch', fn);
+  return fn;
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+// Finding L4 — the `.json()` success-body read had none of the failure handling the
+// sibling `.text()` read carries, so a 200 with a non-JSON body rejected with a RAW
+// `SyntaxError`: unprefixed, unbranded, and quoting the provider's own bytes.
+describe('generateFieldDescriptions — non-JSON 200 response body', () => {
+  const HOSTILE_BODY =
+    '<!DOCTYPE html><title>Proxy</title>Bearer sk-proj-LEAKED-KEY at internal-gw.corp:8443';
+
+  it('throws a branded, prefixed error and logs the detail via onError', async () => {
+    stubFetchNonJsonBody(HOSTILE_BODY);
+    const onError = vi.fn();
+
+    await expect(
+      generateFieldDescriptions('Orders', FIELDS, { ...OPTIONS, onError }),
+    ).rejects.toThrow(
+      /^MUI X Studio: Field description generation returned a 200 response whose body is not valid JSON\./,
+    );
+    expect(onError).toHaveBeenCalledWith('generateFieldDescriptions', expect.any(Error));
+  });
+
+  it('does not relay the provider body in the thrown message', async () => {
+    stubFetchNonJsonBody(HOSTILE_BODY);
+    await expect(generateFieldDescriptions('Orders', FIELDS, OPTIONS)).rejects.not.toThrow(
+      /LEAKED|DOCTYPE/,
+    );
+  });
 });
 
 describe('generateFieldDescriptions', () => {
@@ -115,6 +162,16 @@ describe('generateFieldDescriptions', () => {
       expect(requestBody(fn).max_tokens).toBe(400); // 200 * 2
     });
 
+    // Finding L4 — `GenerateInsightOptions.maxTokens` is documented as the `max_tokens`
+    // actually sent, and this handler hardcoded its own value while accepting the same
+    // options object: the same silently-ignored-option bug already fixed in the sibling
+    // `handleGenerateInsight.ts` handlers.
+    it('honours an explicit options.maxTokens over the field-count default', async () => {
+      const fn = stubFetch('[]');
+      await generateFieldDescriptions('Orders', FIELDS, { ...OPTIONS, maxTokens: 64 });
+      expect(requestBody(fn).max_tokens).toBe(64);
+    });
+
     it('sends an Authorization header when an apiKey is provided', async () => {
       const fn = stubFetch('[]');
       await generateFieldDescriptions('Orders', FIELDS, OPTIONS);
@@ -167,14 +224,23 @@ describe('generateFieldDescriptions', () => {
     it('throws when the model returns unparseable content', async () => {
       stubFetch('not json at all');
       await expect(generateFieldDescriptions('Orders', FIELDS, OPTIONS)).rejects.toThrow(
-        /unparseable JSON/,
+        /MUI X Studio: The field-description request returned a response that is not valid JSON/,
+      );
+    });
+
+    // Finding L4 — this message used to interpolate 200 chars of the raw completion,
+    // relaying PROVIDER-authored text straight to the caller (invariant 16).
+    it('does not quote the provider response in the unparseable-JSON error', async () => {
+      stubFetch('not json at all sk-proj-LEAKED-FROM-COMPLETION');
+      await expect(generateFieldDescriptions('Orders', FIELDS, OPTIONS)).rejects.not.toThrow(
+        /LEAKED/,
       );
     });
 
     it('throws when the parsed content is valid JSON but not an array', async () => {
       stubFetch(JSON.stringify({ id: 'x', aiDescription: 'y' }));
       await expect(generateFieldDescriptions('Orders', FIELDS, OPTIONS)).rejects.toThrow(
-        /did not return a JSON array/,
+        /MUI X Studio: The field-description response was valid JSON but not a JSON array/,
       );
     });
 
@@ -195,7 +261,7 @@ describe('generateFieldDescriptions', () => {
       }));
       vi.stubGlobal('fetch', fn);
       await expect(generateFieldDescriptions('Orders', FIELDS, OPTIONS)).rejects.toThrow(
-        /unparseable JSON/,
+        /MUI X Studio: The field-description request returned a response that is not valid JSON/,
       );
     });
   });

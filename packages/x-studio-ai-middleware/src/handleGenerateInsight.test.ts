@@ -43,8 +43,69 @@ function stubFetchEmptyChoices() {
   return fn;
 }
 
+/**
+ * A 200 OK whose BODY is not JSON — a captive portal, a misrouted proxy, an auth
+ * redirect. `response.json()` rejects with a `SyntaxError` that quotes the first bytes
+ * of the body, which is provider-authored text (finding L4).
+ */
+function stubFetchNonJsonBody(body: string) {
+  const fn = vi.fn(async () => ({
+    ok: true,
+    status: 200,
+    statusText: 'OK',
+    json: async () => {
+      throw new SyntaxError(`Unexpected token '<', "${body.slice(0, 20)}"... is not valid JSON`);
+    },
+    text: async () => body,
+    body: { cancel: async () => {} },
+  }));
+  vi.stubGlobal('fetch', fn);
+  return fn;
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+// Finding L4 — the `.json()` success-body reads had none of the failure handling their
+// sibling `.text()` reads carry, so a 200 with a non-JSON body rejected with a RAW
+// `SyntaxError`: unprefixed, unbranded, and quoting the provider's own bytes.
+describe('non-JSON 200 response body', () => {
+  const HOSTILE_BODY =
+    '<!DOCTYPE html><title>Proxy</title>Bearer sk-proj-LEAKED-KEY at internal-gw.corp:8443';
+
+  it('handleCreateWidget throws a branded, prefixed, provider-text-free error', async () => {
+    stubFetchNonJsonBody(HOSTILE_BODY);
+    const onError = vi.fn();
+    const request = { description: 'sales chart', sources: [] };
+
+    await expect(handleCreateWidget(request, { ...OPTIONS, onError })).rejects.toThrow(
+      /^MUI X Studio: Widget creation returned a 200 response whose body is not valid JSON\./,
+    );
+    // The provider's bytes reach the SERVER LOG only, never the thrown message.
+    expect(onError).toHaveBeenCalledWith('handleCreateWidget', expect.any(Error));
+  });
+
+  it('does not relay the provider body in the handleCreateWidget thrown message', async () => {
+    stubFetchNonJsonBody(HOSTILE_BODY);
+    const request = { description: 'sales chart', sources: [] };
+    await expect(handleCreateWidget(request, OPTIONS)).rejects.not.toThrow(/LEAKED|DOCTYPE/);
+  });
+
+  it('handleGenerateTitle throws a branded, prefixed, provider-text-free error', async () => {
+    stubFetchNonJsonBody(HOSTILE_BODY);
+    const onError = vi.fn();
+
+    await expect(handleGenerateTitle('hi', { ...OPTIONS, onError })).rejects.toThrow(
+      /^MUI X Studio: Title generation returned a 200 response whose body is not valid JSON\./,
+    );
+    expect(onError).toHaveBeenCalledWith('handleGenerateTitle', expect.any(Error));
+  });
+
+  it('does not relay the provider body in the handleGenerateTitle thrown message', async () => {
+    stubFetchNonJsonBody(HOSTILE_BODY);
+    await expect(handleGenerateTitle('hi', OPTIONS)).rejects.not.toThrow(/LEAKED|DOCTYPE/);
+  });
 });
 
 describe('handleGenerateTitle', () => {
@@ -265,7 +326,7 @@ describe('handleCreateWidget', () => {
   it('throws when the model returns invalid JSON', async () => {
     stubFetch('definitely not json');
     await expect(handleCreateWidget(request, OPTIONS)).rejects.toThrow(
-      /invalid widget configuration/,
+      /MUI X Studio: The AI widget-creation response was not valid JSON/,
     );
   });
 
@@ -283,7 +344,7 @@ describe('handleCreateWidget', () => {
   it('throws a descriptive MUI X Studio error when the response has no choices (200 OK, empty choices)', async () => {
     stubFetchEmptyChoices();
     await expect(handleCreateWidget(request, OPTIONS)).rejects.toThrow(
-      /MUI X Studio:.*returned no choices/,
+      /MUI X Studio:.*returned no usable message content/,
     );
   });
 

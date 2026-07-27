@@ -305,10 +305,10 @@
   "305": "MUI X Studio: Unknown chart type \"%s\". Supported types: bar, line, pie, scatter, donut, stacked_bar.",
   "306": "Field description generation failed: %s %s",
   "307": "Field description: LLM returned unparseable JSON: %s",
-  "308": "Field description: LLM did not return a JSON array.",
+  "308": "MUI X Studio: The field-description response was valid JSON but not a JSON array. This prevents the per-field descriptions from being read out of it. Ensure the model replies with a JSON array of {\"id\",\"aiDescription\"} entries, or an object wrapping exactly one such array.",
   "309": "Title generation failed: %s",
   "310": "Widget creation failed: %s",
-  "311": "AI returned invalid widget configuration.",
+  "311": "MUI X Studio: The AI widget-creation response was not valid JSON. This prevents the client from building a widget from the model output. Ensure the model is instructed (and capable of) responding with a single JSON object, and that the endpoint supports the `response_format: json_object` option this request sends.",
   "312": "%s timed out after %sms",
   "313": "Unknown sourceId: \"%s\". Available: %s.",
   "314": "Unknown prompt: \"%s\".",
@@ -374,7 +374,7 @@
   "374": "MUI X: SSE response exceeded the %s-byte buffer limit without a newline. This usually means the server or a proxy is streaming malformed (un-delimited) data. The stream was aborted to avoid unbounded memory growth.",
   "375": "LLM response exceeded the maximum buffered text size for a single turn (%s chars). This can happen when a misbehaving gateway streams text indefinitely without ever completing the response, which would otherwise let a single request grow this process's memory without bound. Aborting this request.",
   "376": "MUI X Studio: render_chart received %s \"%s\" entries, which exceeds the limit of %s. Split the request into multiple calls of at most %s %s entries each.",
-  "377": "MUI X Studio: The AI widget-creation request returned no choices. This prevents the client from building a widget from the model output. Check that the LLM endpoint/model returned a valid chat-completion response with at least one choice.",
+  "377": "MUI X Studio: The AI widget-creation request returned no usable message content. This prevents the client from building a widget from the model output. Check that the LLM endpoint/model returned a valid chat-completion response with at least one choice whose message content is a string.",
   "378": "MUI X Studio: The AI widget-creation response failed validation: %s This prevents an invalid or cross-kind widget definition from reaching the client. Ensure the model returns a supported \"kind\" and a \"config\" whose keys match that kind.",
   "379": "MUI X Studio: LLM response stream exceeded the maximum buffered size (%s chars) without a complete line. This can happen when a misbehaving gateway streams data without ever line-delimiting it, which would otherwise let a single request grow this process's memory without bound. Aborting this request.",
   "380": "MUI X Studio: A single turn's streamed tool calls exceeded the maximum count (%s). This can happen when a misbehaving gateway streams tool-call deltas for an unbounded number of distinct indices, which would otherwise let a single request grow this process's memory (and per-call dispatch work) without bound. Aborting this request.",
@@ -452,5 +452,8 @@
   "452": "MUI X Studio Server: Wildcard column reference \"%s\" cannot be renamed. A rename is emitted as \"<column> AS <alias>\", and a wildcard has no single column to rename — the database rejects the resulting SQL outright. Reference the individual columns you want to rename instead of a wildcard.",
   "453": "MUI X Studio Server: Wildcard column reference \"%s\" cannot be combined with another projected column or an aggregation. A wildcard expands to a set of columns this middleware cannot enumerate, so it is impossible to tell whether one of them lands on the same result-row key as another projected column or aggregation alias — and a collision would silently overwrite one of the two values in every result row. List the wildcard's columns explicitly, or project the wildcard on its own.",
   "454": "MUI X Studio Server: This widget's rows were dropped because the request's shared row budget is exhausted — %s of %s rows are left for this batch and this widget's result does not fit. Every widget in one batch shares that budget, so returning only the rows that fit would present a truncated result as a complete one — silent data loss the client cannot detect, which would then be cached and served to later requests as a complete answer. Split the dashboard page across more batch requests, or set a smaller \"limit\" on each widget so the batch's limits sum to at most %s rows.",
-  "455": "MUI X Studio: render_chart received %s plotted values across all series, which exceeds the total limit of %s. Each per-array limit (%s) applies on its own, but the number of series multiplied by the values in each is what determines how much SVG is generated. Aggregate the data first, or split it across multiple calls."
+  "455": "MUI X Studio: render_chart received %s plotted values across all series, which exceeds the total limit of %s. Each per-array limit (%s) applies on its own, but the number of series multiplied by the values in each is what determines how much SVG is generated. Aggregate the data first, or split it across multiple calls.",
+  "456": "MUI X Studio: The field-description request returned a response that is not valid JSON. This prevents any field description from being generated, so the call returns nothing usable. Ensure the configured model supports the `response_format: json_object` option this request sends, and that it is instructed to reply with a JSON array of {\"id\",\"aiDescription\"} entries.",
+  "457": "MUI X Studio: %s returned a 200 response whose body is not valid JSON. This prevents the model output from being parsed, so no result can be produced. The provider's body is withheld here because it can contain credentials or internal infrastructure details (a captive portal or auth-redirect HTML page is the usual cause) — wire `options.onError` to your logger to see it, and verify the endpoint URL points at an OpenAI-compatible chat-completions API.",
+  "458": "Non-Error rejection: %s"
 }

@@ -5,7 +5,7 @@
  * (parse-failure → gating → server-tool skill → query_data_source → unregistered
  * skill → approval + built-in). Extracted from `agenticLoop.ts` verbatim.
  */
-import { createMutationEnvelope } from '@mui/x-studio-schema';
+import { applyMutation, createMutationEnvelope, type StateMutation } from '@mui/x-studio-schema';
 import type { StudioState, StudioCustomWidgetDef } from '../models/studioTypes';
 import type { SerializableSkill, StudioAISkill, StudioAIDataConfig } from '../models/aiTypes';
 import {
@@ -298,6 +298,14 @@ async function consultToolPolicyArgsOnlyGuarded(
       policy: ctx.toolPolicy,
       transport: 'chat',
       usage: ctx.usage,
+      // The request's abort signal, threaded into the policy consult's bounds so an
+      // abandoned chat request cancels the wait for a host policy immediately. The
+      // `TOOL_POLICY_TIMEOUT_MS` deadline inside `consultPolicyBounded` is the safety
+      // net (it bounds a policy that never settles at all); the signal is the correct
+      // behaviour, because without it an aborted request still burns the full deadline
+      // on EVERY remaining tool call. MCP threads the SDK's per-request `extra.signal`
+      // into all four of its consults for the same reason.
+      signal: ctx.signal,
       ...(mayMutate ? { mayMutate: true } : {}),
     });
   } catch (policyErr) {
@@ -551,6 +559,49 @@ async function* runApprovalFlow(
 }
 
 /**
+ * Reconciles a `server-tool` skill's independently-supplied `mutation` and `nextState`
+ * so the two can't disagree (finding L1).
+ *
+ * This is the ONE dispatch path where invariant 8 — "server-threaded and client-applied
+ * state cannot disagree, because they run the same code" — did not hold. Every built-in
+ * tool derives its `nextState` from `applyMutation`, the same reducer the browser runs
+ * on the `state-mutation` event, so the two sides are the same computation by
+ * construction. A skill supplies BOTH halves itself, from host code this package never
+ * sees, and nothing checked that one was the other's result. Two divergences followed:
+ *
+ * - `nextState` with NO `mutation` — the server's threaded doc advances, no
+ *   `state-mutation` event is emitted, and the client's doc never moves. Every later
+ *   mutation this request produces is then computed against a doc the client does not
+ *   have, so it applies to a different base.
+ * - `mutation` with a STALE (or unrelated) `nextState` — the client applies the mutation
+ *   and moves, the server does not, and the same divergence opens the other way.
+ *
+ * So the DOC is always taken from the reducer: `applyMutation(state, mutation)` when a
+ * mutation was returned, and the unchanged `state.doc` when none was. What a skill
+ * legitimately owns is the rest — `runtime` (a skill that fetches rows and injects them
+ * into `runtime.dataSources` is the motivating case, and none of that is expressible as
+ * a `StateMutation`) and `session` — which are carried over from its own `nextState`
+ * untouched. Neither is persisted, undoable, or client-applied via `state-mutation`, so
+ * neither can desynchronise the two sides.
+ *
+ * The practical rule for a skill author, and the reason it is now enforceable rather
+ * than merely documented: **every `doc` change must be expressed as the returned
+ * `mutation`.** A `doc` edit made only inside `nextState` is dropped here rather than
+ * silently forking the two states.
+ */
+function reconcileSkillNextState(
+  state: StudioState,
+  result: { mutation?: StateMutation; nextState: StudioState },
+): StudioState {
+  const doc = result.mutation ? applyMutation(state, result.mutation).doc : state.doc;
+  // A skill returning a malformed `nextState` (it is host code — `undefined` is
+  // reachable however the type is declared) falls back to the threaded state rather
+  // than producing a `StudioState` with missing partitions.
+  const base = result.nextState ?? state;
+  return { ...base, doc };
+}
+
+/**
  * Executes one tool call, owning the full dispatch decision (parse-failure →
  * gating → server-tool skill → query_data_source → unregistered skill → approval +
  * built-in). Yields the side-effect events that must precede the result
@@ -650,7 +701,11 @@ export async function* dispatchToolCall(
         ctx.usage.committedMutations += 1;
         yield { type: 'state-mutation', ...createMutationEnvelope(result.mutation) };
       }
-      return { kind: 'result', output: result.output, nextState: result.nextState };
+      return {
+        kind: 'result',
+        output: result.output,
+        nextState: reconcileSkillNextState(currentState, result),
+      };
     } catch (skillErr) {
       // A server-tool skill's `execute` is HOST code: its throw is exactly as likely
       // to carry credentials, SQL, and internal hostnames as a driver error, so it is
@@ -836,6 +891,9 @@ export async function* dispatchToolCall(
       snapshotPageId: ctx.snapshotPageId,
       transport: 'chat',
       usage: ctx.usage,
+      // Same rationale as the args-only consult above: the deadline bounds a host policy
+      // that never settles, the signal makes an abandoned request stop waiting at once.
+      signal: ctx.signal,
     });
   } catch (err) {
     // `executeToolOnState` is pure and never throws by design, so anything caught here

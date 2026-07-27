@@ -32,6 +32,7 @@ import {
   accumulateToolCallDeltas,
   type OpenAIAssistantMessage,
   type OpenAIToolResultMessage,
+  type ToolCallDelta,
 } from './agenticLoop/openaiWire';
 import {
   dispatchToolCall,
@@ -223,6 +224,41 @@ export interface AgenticLoopOptions {
   enrichedContext?: StudioAIEnrichedContext;
 }
 
+// ── Provider wire-value validation ────────────────────────────────────────────
+
+/**
+ * True only for a value usable as a token count (finding M7).
+ *
+ * `chunk.usage.prompt_tokens`/`completion_tokens` are TYPED `number` but arrive as raw
+ * JSON from the provider, which this package's threat model treats as untrusted input on
+ * the same footing as the request body (invariant 15 — "a field's declared TypeScript
+ * type says nothing about what arrives"). They are also the ONLY input to
+ * `rateLimit.maxTokensPerRequest`, so accepting them unvalidated hands a hostile gateway
+ * the spend budget: a negative count makes the running sum diverge downward so the limit
+ * never trips, a string makes `usage.inputTokens += …` concatenate rather than add, and
+ * `NaN`/`Infinity` make every subsequent comparison meaningless (`NaN >= limit` is always
+ * false — the budget silently disappears).
+ *
+ * Finite, non-negative numbers only. `Number.isFinite` already excludes `NaN`,
+ * `Infinity` and every non-number, so this is the complete check.
+ */
+function isUsableTokenCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
+/**
+ * True only for a value usable as streamed assistant text (finding M7's sibling sweep).
+ *
+ * `delta.content` is TYPED `string | null` but is raw provider JSON like everything else
+ * on this wire. An object there was previously appended to `turnTextBuffer` with `+=`
+ * (yielding `"[object Object]"`, replayed to the provider on the next turn as if the
+ * model had said it) and yielded verbatim in a `text-delta` SSE event, shipping a
+ * non-string `delta` to a browser whose `StudioAISSEEvent` type promises a string.
+ */
+function isUsableDeltaText(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
 // ── Main loop ─────────────────────────────────────────────────────────────────
 
 /**
@@ -351,8 +387,45 @@ export async function* runAgenticLoop(
   const builtInToolNameSet = new Set<string>(STUDIO_AI_TOOL_NAMES);
   const collidesWithBuiltIn = (entry: { mode: string; tool?: { name: string } }): boolean =>
     entry.mode === 'server-tool' && Boolean(entry.tool) && builtInToolNameSet.has(entry.tool!.name);
-  const effectiveSkills = (skills ?? []).filter((s) => !collidesWithBuiltIn(s));
-  const effectiveSkillHandlers = skillHandlers.filter((s) => !collidesWithBuiltIn(s));
+  // Finding M6 — `allowedTools` bounds the WHOLE tool surface, `server-tool` skills
+  // included, and it does so HERE so the exclusion reaches the prompt as well as the
+  // advertised list.
+  //
+  // It used to gate the built-in list only, while every skill tool was appended
+  // unconditionally. That made one option mean two different things on the two
+  // transports for no stated reason: on MCP `allowedTools` is documented (and
+  // implemented, via `isToolAllowed`) as the EXHAUSTIVE allow-list for the whole tool
+  // surface, so `allowedTools: []` disables even always-present tools; on chat, a host
+  // that set `allowedTools: ['get_dashboard_state']` for a read-only assistant still had
+  // every mutating `server-tool` in `skillHandlers` advertised AND callable, because the
+  // dispatch-time `advertisedToolNames` gate is derived from the same unfiltered list.
+  // `StudioAIHandlerOptions.allowedTools` is documented as the lever for "a host must
+  // guarantee an integration can never call certain tools regardless of what the client
+  // puts in the request body" — a guarantee that cannot hold while an entire category of
+  // tool is exempt from it. `packages/x-studio`'s own `useTextWidgetAI` depends on
+  // exactly this: it sends a read-only `allowedTools` list for a text-generation surface.
+  //
+  // Filtered at the SKILL level, not just where `skillToolDefs` is built, for two
+  // reasons: a filtered-out skill's `promptFragment` must not stay in the system prompt
+  // telling the model to call a tool it will be rejected for (invariant 17), and
+  // dropping it from `skillHandlers` too means its `execute` is unreachable even if the
+  // dispatch-time gate were ever bypassed (invariant 9 — advertisement is not
+  // authorization, so don't rely on the advertised list alone).
+  //
+  // Only `server-tool` skills are affected: `instruction-only` and `client-handler`
+  // skills expose no tool, so `allowedTools` — a list of TOOL names — has nothing to say
+  // about them. A host that wants a skill alongside a restricted built-in set lists the
+  // skill's `tool.name` in `allowedTools`, exactly as MCP already requires for its
+  // non-built-in tools (`render_chart`, `get_recent_changes`).
+  const excludedByAllowedTools = (entry: { mode: string; tool?: { name: string } }): boolean =>
+    entry.mode === 'server-tool' &&
+    Boolean(entry.tool) &&
+    Boolean(allowedTools) &&
+    !(allowedTools as string[]).includes(entry.tool!.name);
+  const skillIsEffective = (entry: { mode: string; tool?: { name: string } }): boolean =>
+    !collidesWithBuiltIn(entry) && !excludedByAllowedTools(entry);
+  const effectiveSkills = (skills ?? []).filter(skillIsEffective);
+  const effectiveSkillHandlers = skillHandlers.filter(skillIsEffective);
 
   // T1-2 — state-reading tools whose output would defeat `privateMode`. In
   // private mode the `<dashboard_state>` block is withheld from the system prompt
@@ -406,6 +479,8 @@ export async function* runAgenticLoop(
     return true;
   });
 
+  // `effectiveSkills` is already `allowedTools`-filtered (finding M6, see above), so
+  // this maps the surviving skills straight into wire-format tool definitions.
   const skillToolDefs = effectiveSkills
     .filter((s) => s.mode === 'server-tool' && s.tool)
     .map((s) => ({
@@ -605,26 +680,48 @@ export async function* runAgenticLoop(
           return;
         }
 
+        // NOTE (finding M7's sibling sweep): this is a CAST, not a validation — every
+        // field below is raw provider JSON and is checked at its point of use
+        // (`isUsableDeltaText`, `isUsableTokenCount`, `Array.isArray` on `tool_calls`,
+        // and `openaiWire.ts`'s per-field checks inside `accumulateToolCallDeltas`).
+        // Read the declared types here as documentation of the wire CONTRACT, never as a
+        // guarantee about the bytes.
         const choices = chunk.choices as Array<{
           delta?: {
-            content?: string | null;
-            tool_calls?: Array<{
-              index: number;
-              id?: string;
-              function?: { name?: string; arguments?: string };
-              extra_content?: unknown;
-            }>;
+            content?: unknown;
+            tool_calls?: unknown;
           };
-          finish_reason?: string | null;
+          finish_reason?: unknown;
         }>;
 
-        // Accumulate token usage from the final usage chunk (stream_options: include_usage)
+        // Accumulate token usage from the final usage chunk (stream_options: include_usage).
+        //
+        // Finding M7 — every field here is RAW PROVIDER JSON, and its declared
+        // TypeScript type says nothing about what actually arrives (invariant 15). These
+        // two numbers are the entire input to `maxTokensPerRequest`, so an unvalidated
+        // read hands a hostile/broken gateway the token budget itself:
+        //  - `prompt_tokens: -1e15` keeps the running sum hugely negative, so the budget
+        //    comparison below NEVER trips and `maxTurnsPerRequest` becomes the only
+        //    remaining bound on spend;
+        //  - `prompt_tokens: "1000"` (a string) turns `usage.inputTokens` into a STRING
+        //    via `+=`, which then CONCATENATES across turns ("0100010001000…"), trips the
+        //    budget almost immediately, and ships a non-number to the browser in the
+        //    `usage` and `message-metadata` events.
+        // `isUsableTokenCount` is the same shape of wire-value type check
+        // `openaiWire.ts`'s `isUsableToolCallIndex` applies to `tool_calls[].index`. A
+        // rejected value leaves the previous value in place, exactly as a missing field
+        // does — a gateway that sends garbage is treated as one that sent nothing, which
+        // is the documented "budget silently no-ops" case below, not a worse one.
         const chunkUsage = chunk.usage as
-          | { prompt_tokens?: number; completion_tokens?: number }
+          | { prompt_tokens?: unknown; completion_tokens?: unknown }
           | undefined;
         if (chunkUsage) {
-          turnInputTokens = chunkUsage.prompt_tokens ?? turnInputTokens;
-          turnOutputTokens = chunkUsage.completion_tokens ?? turnOutputTokens;
+          turnInputTokens = isUsableTokenCount(chunkUsage.prompt_tokens)
+            ? chunkUsage.prompt_tokens
+            : turnInputTokens;
+          turnOutputTokens = isUsableTokenCount(chunkUsage.completion_tokens)
+            ? chunkUsage.completion_tokens
+            : turnOutputTokens;
         }
 
         if (!choices?.length) {
@@ -636,7 +733,10 @@ export async function* runAgenticLoop(
         // omit `delta` entirely — default to `{}` so the checks below degrade gracefully
         // instead of throwing on `undefined.content`.
         const delta = choice.delta ?? {};
-        if (choice.finish_reason) {
+        // `finish_reason` is relayed to the browser in the `finish` SSE event, whose
+        // protocol type declares it a string — so a non-string one is rejected here
+        // rather than forwarded (finding M7's sibling sweep).
+        if (typeof choice.finish_reason === 'string' && choice.finish_reason) {
           finishReason = choice.finish_reason;
         }
 
@@ -649,7 +749,7 @@ export async function* runAgenticLoop(
         // (e.g. a `delta.reasoning_content`) should inspect it here and yield
         // `reasoning-start`/`reasoning-delta`/`reasoning-end` around it, mirroring the
         // `text-delta` handling below.
-        if (delta.content) {
+        if (isUsableDeltaText(delta.content)) {
           yield { type: 'text-delta', delta: delta.content };
           turnTextBuffer += delta.content;
           // Finding 6 — bound `turnTextBuffer` growth independently of the (optional,
@@ -674,8 +774,13 @@ export async function* runAgenticLoop(
           }
         }
 
-        if (delta.tool_calls) {
-          accumulateToolCallDeltas(delta.tool_calls, acc);
+        // `Array.isArray`, not a truthiness check (finding M7's sibling sweep): a
+        // provider sending `tool_calls: {}` used to reach `deltas.entries()` and throw a
+        // bare `TypeError` that the catch below then reported as a transport failure —
+        // "the LLM provider was unreachable", of a gateway that was reachable and
+        // streaming. A non-array is simply not a tool-call list; skip it.
+        if (Array.isArray(delta.tool_calls)) {
+          accumulateToolCallDeltas(delta.tool_calls as ToolCallDelta[], acc);
         }
       }
     } catch (err) {
@@ -765,6 +870,14 @@ export async function* runAgenticLoop(
     // (e.g. a tokenizer over `currentMessages`) when the provider omits usage data —
     // out of scope for this pass; flagged here so a future reader isn't surprised
     // that `maxTokensPerRequest` silently no-ops against such a gateway.
+    //
+    // A gateway that sends usage of the WRONG TYPE (or a negative count) now degrades to
+    // exactly that same case rather than a worse one: `isUsableTokenCount` rejects the
+    // value at the read site, so `usage.*` stay non-negative numbers and this comparison
+    // stays meaningful (finding M7). Before that check, `prompt_tokens: -1e15` drove the
+    // sum permanently negative — turning the budget OFF outright — and a string count
+    // turned `+=` into concatenation, which both tripped the budget spuriously and put a
+    // non-number into the `usage`/`message-metadata` events the browser reads.
     if (
       rateLimit?.maxTokensPerRequest !== undefined &&
       usage.inputTokens + usage.outputTokens >= rateLimit.maxTokensPerRequest

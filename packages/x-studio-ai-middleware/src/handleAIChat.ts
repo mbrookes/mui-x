@@ -330,6 +330,20 @@ export interface StudioAIHandlerOptions {
    *
    * Use this when a host must guarantee an integration can never call certain tools
    * regardless of what the client puts in the request body.
+   *
+   * EXHAUSTIVE, and it covers `server-tool` SKILLS too (finding M6). When set, this is
+   * the complete list of tool names the model may be offered and may call — built-in
+   * tools AND the `tool.name` of every `server-tool` skill from `skillHandlers`/
+   * `body.skills`. A skill whose tool name is absent is dropped from the advertised
+   * list, from the system prompt, and from the dispatch registry, so a read-only
+   * `allowedTools: ['get_dashboard_state']` really is read-only even when the host has
+   * registered mutating skills. To keep a skill available alongside a restricted
+   * built-in set, list its `tool.name` here.
+   *
+   * This deliberately matches `buildStudioMcpServer`'s `allowedTools`, which has always
+   * been the exhaustive allow-list for its whole tool surface: one option name, one
+   * meaning, on both transports. `instruction-only` and `client-handler` skills expose
+   * no tool and are unaffected — use `allowedSkills` to bound those.
    */
   allowedTools?: string[];
   /**

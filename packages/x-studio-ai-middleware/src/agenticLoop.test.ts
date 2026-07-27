@@ -9,8 +9,13 @@ import { MAX_TOOL_OUTPUT_CHARS } from './internal/capToolOutput';
 import type { PendingApproval } from './agenticLoop/toolDispatch';
 import { createEffectsAwareToolPolicy, type ToolPolicy } from './toolPolicy';
 import { createDefaultStudioState } from './models/studioTypes';
+import type { StudioState } from './models/studioTypes';
 import type { StudioAISkill } from './models/aiTypes';
 import type { SerializableSkill } from './models/protocol';
+// Imported for the `allowedTools` parity suite: the claim under test is that ONE option
+// name means the same thing on both transports, which is only checkable by exercising
+// both from the same file.
+import { buildStudioMcpServer } from './mcp';
 
 // ── SSE response helpers ──────────────────────────────────────────────────────
 
@@ -2647,5 +2652,559 @@ describe('runAgenticLoop — tool policy chokepoint', () => {
     expect(
       onToolError.mock.calls.some((call) => /studio_ro/.test((call[1] as Error).message)),
     ).toBe(true);
+  });
+});
+// ── `allowedTools` bounds the whole tool surface, skills included (finding M6) ──
+
+describe('runAgenticLoop — allowedTools bounds server-tool skills', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** A host-registered skill that MUTATES — the case the gap actually mattered for. */
+  function makeMutatingSkill(): StudioAISkill {
+    return {
+      name: 'rename_skill',
+      mode: 'server-tool',
+      promptFragment: 'Use force_rename to rename the dashboard.',
+      tool: {
+        name: 'force_rename',
+        description: 'Renames the dashboard.',
+        parameters: {
+          type: 'object',
+          properties: { title: { type: 'string' } },
+        },
+        execute: vi.fn((args: Record<string, unknown>, state) => ({
+          output: JSON.stringify({ renamed: args.title }),
+          mutation: {
+            type: 'setDashboardTitle' as const,
+            args: { title: String(args.title) },
+          },
+          nextState: state,
+        })),
+      },
+    };
+  }
+
+  function advertisedToolNames(): string[] {
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string) as {
+      tools?: Array<{ function: { name: string } }>;
+    };
+    return (body.tools ?? []).map((t) => t.function.name);
+  }
+
+  // The read-only-assistant configuration `packages/x-studio`'s own `useTextWidgetAI`
+  // ships: a restrictive `allowedTools` list, which used to leave every host-registered
+  // `server-tool` fully advertised AND callable.
+  it('does not advertise a skill tool that is absent from allowedTools', async () => {
+    const skill = makeMutatingSkill();
+    vi.mocked(fetch).mockResolvedValueOnce(textResponse('ok', 10, 5));
+
+    await collectEvents(
+      runAgenticLoop(
+        [userMsg('Rename it')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        ['get_dashboard_state'],
+        [skill as unknown as SerializableSkill],
+        { ...BASE_OPTIONS, skillHandlers: [skill] },
+      ),
+    );
+
+    expect(advertisedToolNames()).toEqual(['get_dashboard_state']);
+  });
+
+  it('rejects a call to a skill tool absent from allowedTools without running it', async () => {
+    const skill = makeMutatingSkill();
+    const execute = skill.tool!.execute as ReturnType<typeof vi.fn>;
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('force_rename', { title: 'Pwned' }))
+      .mockResolvedValueOnce(textResponse('done', 10, 5));
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Rename it')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        ['get_dashboard_state'],
+        [skill as unknown as SerializableSkill],
+        { ...BASE_OPTIONS, skillHandlers: [skill] },
+      ),
+    );
+
+    // Advertisement is not authorization (invariant 9): the dispatch-time gate rejects
+    // it even though the model asked for it by name.
+    expect(execute).not.toHaveBeenCalled();
+    expect(events.some((ev) => (ev as { type: string }).type === 'state-mutation')).toBe(false);
+
+    const complete = events.find(
+      (ev) =>
+        (ev as { type: string }).type === 'tool-activity' &&
+        (ev as { phase?: string }).phase === 'complete',
+    ) as { output?: string } | undefined;
+    expect(JSON.parse(complete!.output!)).toEqual({
+      error: 'Unknown tool: force_rename',
+    });
+  });
+
+  it('keeps the skill available when its tool name IS listed in allowedTools', async () => {
+    const skill = makeMutatingSkill();
+    const execute = skill.tool!.execute as ReturnType<typeof vi.fn>;
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('force_rename', { title: 'Q3 Review' }))
+      .mockResolvedValueOnce(textResponse('done', 10, 5));
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Rename it')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        ['get_dashboard_state', 'force_rename'],
+        [skill as unknown as SerializableSkill],
+        { ...BASE_OPTIONS, skillHandlers: [skill] },
+      ),
+    );
+
+    expect(advertisedToolNames()).toEqual(['get_dashboard_state', 'force_rename']);
+    expect(execute).toHaveBeenCalledOnce();
+    expect(events.some((ev) => (ev as { type: string }).type === 'state-mutation')).toBe(true);
+  });
+
+  // Invariant 17 — prose the model reads must only name tools the model can call. A
+  // filtered-out skill's `promptFragment` would otherwise still instruct the model to
+  // call the tool it is about to be rejected for.
+  it('drops the excluded skill from the system prompt too', async () => {
+    const skill = makeMutatingSkill();
+    vi.mocked(fetch).mockResolvedValueOnce(textResponse('ok', 10, 5));
+
+    await collectEvents(
+      runAgenticLoop(
+        [userMsg('Hi')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        ['get_dashboard_state'],
+        [skill as unknown as SerializableSkill],
+        { ...BASE_OPTIONS, skillHandlers: [skill] },
+      ),
+    );
+
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string) as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    const systemPrompt = body.messages.find((m) => m.role === 'system')!.content;
+    expect(systemPrompt).not.toMatch(/force_rename/);
+  });
+
+  // `allowedTools` is a list of TOOL names, so a skill that exposes no tool has nothing
+  // for it to match against and must not be silently disabled by it.
+  it('leaves instruction-only skills untouched by allowedTools', async () => {
+    const instructionSkill = {
+      name: 'tone_skill',
+      mode: 'instruction-only',
+      promptFragment: 'Always answer in a formal tone.',
+    } as SerializableSkill;
+    vi.mocked(fetch).mockResolvedValueOnce(textResponse('ok', 10, 5));
+
+    await collectEvents(
+      runAgenticLoop([userMsg('Hi')], INITIAL_STATE, undefined, undefined, [], [instructionSkill], {
+        ...BASE_OPTIONS,
+      }),
+    );
+
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string) as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    expect(body.messages.find((m) => m.role === 'system')!.content).toMatch(/formal tone/);
+  });
+});
+
+// ── Both transports agree on what `allowedTools` means (finding M6) ────────────
+
+describe('allowedTools parity between the chat and MCP transports', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** Reaches the low-level MCP `Server`'s handler map, as `mcp.test.ts` does. */
+  function getMcpHandler(
+    server: unknown,
+    method: string,
+  ): (req: { method: string; params: Record<string, unknown> }) => Promise<unknown> {
+    type McpRequestHandler = (req: {
+      method: string;
+      params: Record<string, unknown>;
+    }) => Promise<unknown>;
+    // eslint-disable-next-line no-underscore-dangle
+    const handlers = (server as { _requestHandlers: Map<string, McpRequestHandler> })
+      ._requestHandlers;
+    const handler = handlers?.get(method);
+    if (!handler) {
+      throw new Error(`No handler registered for "${method}"`);
+    }
+    return handler;
+  }
+
+  function makeChartSkill(state: StudioState): StudioAISkill {
+    return {
+      name: 'chart_skill',
+      mode: 'server-tool',
+      promptFragment: 'Use draw_chart.',
+      tool: {
+        name: 'draw_chart',
+        description: 'Draws a chart.',
+        parameters: { type: 'object', properties: {} },
+        execute: () => ({ output: '{}', nextState: state }),
+      },
+    };
+  }
+
+  // The property under test is a DEFINITION, not an implementation detail: on both
+  // transports, `allowedTools` is the exhaustive allow-list for the WHOLE tool surface,
+  // so a NON-built-in tool (MCP's always-registered `render_chart`; chat's `server-tool`
+  // skills) is bound by it exactly like a built-in. Before finding M6, chat exempted
+  // skills and the two transports silently disagreed about what one option name meant.
+  it('excludes a non-built-in tool from the advertised list on both transports', async () => {
+    const stateBox = { current: createDefaultStudioState() };
+    const mcpServer = buildStudioMcpServer(stateBox, {
+      allowedTools: ['get_dashboard_state'],
+    });
+    const mcpTools = (await getMcpHandler(
+      mcpServer,
+      'tools/list',
+    )({
+      method: 'tools/list',
+      params: {},
+    })) as { tools: Array<{ name: string }> };
+    expect(mcpTools.tools.map((t) => t.name)).toEqual(['get_dashboard_state']);
+
+    const skill = makeChartSkill(stateBox.current);
+    vi.mocked(fetch).mockResolvedValueOnce(textResponse('ok', 10, 5));
+    await collectEvents(
+      runAgenticLoop(
+        [userMsg('Hi')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        ['get_dashboard_state'],
+        [skill as unknown as SerializableSkill],
+        { ...BASE_OPTIONS, skillHandlers: [skill] },
+      ),
+    );
+    const chatBody = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string) as {
+      tools?: Array<{ function: { name: string } }>;
+    };
+    expect((chatBody.tools ?? []).map((t) => t.function.name)).toEqual(['get_dashboard_state']);
+  });
+
+  it('rejects a call to an excluded non-built-in tool on both transports', async () => {
+    const stateBox = { current: createDefaultStudioState() };
+    const mcpServer = buildStudioMcpServer(stateBox, {
+      allowedTools: ['get_dashboard_state'],
+    });
+    const mcpResult = (await getMcpHandler(
+      mcpServer,
+      'tools/call',
+    )({
+      method: 'tools/call',
+      params: { name: 'render_chart', arguments: {} },
+    })) as { isError?: boolean; content: Array<{ text: string }> };
+    expect(mcpResult.isError).toBe(true);
+    expect(mcpResult.content[0].text).toMatch(/Unknown tool/);
+
+    const skill = makeChartSkill(stateBox.current);
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('draw_chart', {}))
+      .mockResolvedValueOnce(textResponse('done', 10, 5));
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Hi')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        ['get_dashboard_state'],
+        [skill as unknown as SerializableSkill],
+        { ...BASE_OPTIONS, skillHandlers: [skill] },
+      ),
+    );
+    const complete = events.find(
+      (ev) =>
+        (ev as { type: string }).type === 'tool-activity' &&
+        (ev as { phase?: string }).phase === 'complete',
+    ) as { output?: string } | undefined;
+    // Same rejection, for the same reason, on both surfaces.
+    expect((JSON.parse(complete!.output!) as { error: string }).error).toMatch(/Unknown tool/);
+  });
+});
+
+// ── Hostile provider-supplied token counts (finding M7) ───────────────────────
+
+describe('runAgenticLoop — hostile provider usage counts', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** A text turn whose usage chunk carries an arbitrary (untyped) `usage` payload. */
+  function textResponseWithUsage(text: string, usage: unknown): Response {
+    return makeSseResponse([
+      { choices: [{ delta: { content: text }, finish_reason: null }] },
+      { choices: [{ delta: {}, finish_reason: 'stop' }] },
+      { choices: [], usage },
+    ]);
+  }
+
+  function usageEvent(events: unknown[]) {
+    return events.find((ev) => (ev as { type: string }).type === 'usage') as {
+      inputTokens: unknown;
+      outputTokens: unknown;
+    };
+  }
+
+  // `prompt_tokens: -1e15` drove the running sum permanently negative, so
+  // `usage.inputTokens + usage.outputTokens >= maxTokensPerRequest` could never be true
+  // again: the token budget was switched OFF by the very provider it exists to bound.
+  it('ignores a negative prompt_tokens', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      textResponseWithUsage('a', {
+        prompt_tokens: -1e15,
+        completion_tokens: 60,
+      }),
+    );
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Hi')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        BASE_OPTIONS,
+      ),
+    );
+
+    const usage = usageEvent(events);
+    expect(usage.inputTokens).toBe(0);
+    expect(usage.outputTokens).toBe(60);
+  });
+
+  // `prompt_tokens: "1000"` turned `usage.inputTokens` into a STRING via `+=`, which
+  // concatenates across turns and ships a non-number to the browser.
+  it('ignores a string prompt_tokens and keeps the browser-facing usage numeric', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      textResponseWithUsage('a', {
+        prompt_tokens: '1000',
+        completion_tokens: '20',
+      }),
+    );
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Hi')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        BASE_OPTIONS,
+      ),
+    );
+
+    const usage = usageEvent(events);
+    expect(typeof usage.inputTokens).toBe('number');
+    expect(typeof usage.outputTokens).toBe('number');
+    expect(usage.inputTokens).toBe(0);
+    expect(usage.outputTokens).toBe(0);
+
+    const metadata = events.find((ev) => (ev as { type: string }).type === 'message-metadata') as {
+      metadata: { inputTokens: unknown };
+    };
+    expect(typeof metadata.metadata.inputTokens).toBe('number');
+  });
+
+  it('ignores NaN / Infinity token counts', async () => {
+    // Neither is JSON-representable, so a gateway smuggles them through a JS-side
+    // serializer; either way they must not reach the accumulator, where `NaN >= limit`
+    // is always false and the budget silently disappears.
+    vi.mocked(fetch).mockResolvedValueOnce(
+      textResponseWithUsage('a', {
+        prompt_tokens: Number.NaN,
+        completion_tokens: Infinity,
+      }),
+    );
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Hi')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        BASE_OPTIONS,
+      ),
+    );
+
+    const usage = usageEvent(events);
+    expect(Number.isFinite(usage.inputTokens as number)).toBe(true);
+    expect(Number.isFinite(usage.outputTokens as number)).toBe(true);
+  });
+
+  /** A tool-calling turn whose usage chunk carries an arbitrary `usage` payload. */
+  function toolCallResponseWithUsage(toolName: string, usage: unknown): Response {
+    return makeSseResponse([
+      {
+        choices: [
+          {
+            delta: {
+              tool_calls: [{ index: 0, id: 'tc_1', function: { name: toolName, arguments: '{}' } }],
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+      { choices: [], usage },
+    ]);
+  }
+
+  it('still trips the token budget when a later turn reports real, over-budget usage', async () => {
+    vi.mocked(fetch)
+      // Turn 1's counts are garbage and are ignored, so the budget is neither tripped
+      // spuriously nor — the actual bug — permanently disabled by the negative sum.
+      .mockResolvedValueOnce(
+        toolCallResponseWithUsage('get_dashboard_state', {
+          prompt_tokens: -1e15,
+          completion_tokens: -1e15,
+        }),
+      )
+      // Turn 2 reports a real, over-budget count (200 + 50 >= 100).
+      .mockResolvedValueOnce(toolCallResponse('get_dashboard_state', {}))
+      .mockResolvedValueOnce(textResponse('done', 10, 5));
+
+    const onLimitReached = vi.fn();
+    const events = await collectEvents(
+      runAgenticLoop([userMsg('Hi')], INITIAL_STATE, undefined, undefined, undefined, undefined, {
+        ...BASE_OPTIONS,
+        rateLimit: { maxTokensPerRequest: 100, onLimitReached },
+      }),
+    );
+
+    expect(onLimitReached).toHaveBeenCalledWith('tokens', expect.anything());
+    expect(
+      events.some(
+        (ev) =>
+          (ev as { type: string }).type === 'error' &&
+          /token budget exceeded/.test((ev as { message: string }).message),
+      ),
+    ).toBe(true);
+  });
+
+  // Sibling sweep: `delta.content` and `finish_reason` are the other two provider fields
+  // relayed straight to the browser.
+  it('ignores a non-string delta.content instead of relaying "[object Object]"', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      makeSseResponse([
+        {
+          choices: [{ delta: { content: { evil: true } }, finish_reason: null }],
+        },
+        {
+          choices: [{ delta: { content: ' real text' }, finish_reason: null }],
+        },
+        { choices: [{ delta: {}, finish_reason: 'stop' }] },
+        { choices: [], usage: { prompt_tokens: 1, completion_tokens: 1 } },
+      ]),
+    );
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Hi')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        BASE_OPTIONS,
+      ),
+    );
+
+    const deltas = events
+      .filter((ev) => (ev as { type: string }).type === 'text-delta')
+      .map((ev) => (ev as { delta: string }).delta);
+    expect(deltas).toEqual([' real text']);
+  });
+
+  it('ignores a non-string finish_reason', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      makeSseResponse([
+        {
+          choices: [{ delta: { content: 'hi' }, finish_reason: { forged: true } }],
+        },
+        { choices: [], usage: { prompt_tokens: 1, completion_tokens: 1 } },
+      ]),
+    );
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Hi')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        BASE_OPTIONS,
+      ),
+    );
+
+    const finish = events.find((ev) => (ev as { type: string }).type === 'finish') as {
+      finishReason: unknown;
+    };
+    expect(finish.finishReason).toBe('stop');
+  });
+
+  it('ignores a non-array delta.tool_calls instead of failing the stream', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      makeSseResponse([
+        {
+          choices: [{ delta: { tool_calls: { index: 0 } }, finish_reason: null }],
+        },
+        { choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }] },
+        { choices: [], usage: { prompt_tokens: 1, completion_tokens: 1 } },
+      ]),
+    );
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Hi')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        BASE_OPTIONS,
+      ),
+    );
+
+    // A non-array is not a tool-call list; the stream must not die on it, and the
+    // browser must not be told the provider was unreachable.
+    expect(events.some((ev) => (ev as { type: string }).type === 'error')).toBe(false);
+    expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
   });
 });

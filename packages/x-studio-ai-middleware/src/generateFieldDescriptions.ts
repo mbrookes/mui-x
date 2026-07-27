@@ -9,7 +9,7 @@
  *
  * Server-side only — never import from the client (contains LLM credentials).
  */
-import type { GenerateInsightOptions } from './handleGenerateInsight';
+import { readChatCompletionBody, type GenerateInsightOptions } from './handleGenerateInsight';
 import { sanitizeForPromptLine } from './buildAISystemPrompt';
 import { withTimeout } from './mcp/helpers';
 import { LLM_FETCH_TIMEOUT_MS } from './agenticLoop';
@@ -17,6 +17,7 @@ import { MAX_FILTER_STRING_LENGTH } from './executeToolOnState';
 import { capText } from './internal/promptCaps';
 import { linkAbortSignal, readBodyWithTimeout } from './internal/llmFetch';
 import { reportProviderHttpError } from './internal/providerError';
+import { markPackageAuthored } from './internal/packageError';
 
 /**
  * Hard length cap applied to each interpolated sample value before it reaches the
@@ -136,6 +137,15 @@ export async function generateFieldDescriptions(
 
   const { endpoint, apiKey, model = 'gpt-4o', headers: extraHeaders } = options;
 
+  // Finding L4 — `GenerateInsightOptions.maxTokens` is documented as "a hard cap on
+  // output tokens, sent as `max_tokens`", and this function accepts that options object
+  // while hardcoding its own budget: the option was silently ignored here, which is the
+  // exact bug already found and fixed in the sibling `handleGenerateInsight.ts`
+  // handlers. A host that lowered `maxTokens` to control spend got no effect and no
+  // warning. The previous expression stays as the DEFAULT, since it is the only one that
+  // scales with the (capped) field count.
+  const maxTokens = options.maxTokens ?? Math.min(200 * cappedFields.length, 4096);
+
   // Every interpolated value here is state-derived and attacker-influenceable —
   // `id`/`label` originate from developer-supplied metadata, and `sampleValues` are
   // LIVE database rows (the canonical injection vector). Route ALL of them through
@@ -196,9 +206,9 @@ export async function generateFieldDescriptions(
             { role: 'system', content: SYSTEM_PROMPT },
             { role: 'user', content: userContent },
           ],
-          // Scales off the CAPPED field count (finding H1i) — it previously scaled
-          // off the raw, unbounded one.
-          max_tokens: Math.min(200 * cappedFields.length, 4096),
+          // Host-supplied when given, otherwise scales off the CAPPED field count
+          // (finding H1i) — it previously scaled off the raw, unbounded one.
+          max_tokens: maxTokens,
           temperature: 0.2,
           response_format: { type: 'json_object' },
         }),
@@ -239,14 +249,15 @@ export async function generateFieldDescriptions(
   // above: a gateway that returns 2xx headers then stalls the success body would
   // otherwise hang this call forever, even though the fetch-level timeout already
   // resolved once headers arrived. The body is CANCELLED on a timeout (finding M5).
-  const data = (await readBodyWithTimeout(
+  // A 200 whose body is NOT JSON becomes a branded, provider-text-free error instead of
+  // a raw `SyntaxError` quoting the provider's HTML (finding L4) — shared with
+  // `handleGenerateInsight.ts` so all three one-shot handlers behave identically.
+  const data = await readChatCompletionBody(
     response,
-    () => response.json(),
-    LLM_FETCH_TIMEOUT_MS,
-    'Field description generation response body',
-  )) as {
-    choices: Array<{ message: { content: string } }>;
-  };
+    'Field description generation',
+    options,
+    'generateFieldDescriptions',
+  );
 
   // `data.choices?.[0]` guards against a provider/rate-limit stub that returns `{}`
   // (no `choices` key at all) with a 200 status — without the optional chaining on
@@ -255,13 +266,31 @@ export async function generateFieldDescriptions(
   // normal descriptive "unparseable JSON" error (T3-1) — matching the sibling
   // pattern `handleGenerateInsight.ts` (`handleGenerateTitle`/`handleCreateWidget`)
   // already uses for the identical shape of provider stub.
-  const raw = data.choices?.[0]?.message?.content?.trim() ?? '';
+  // `typeof === 'string'` rather than a bare `?.trim()`: `content` is raw provider JSON,
+  // and optional chaining only guards null/undefined — a NUMBER there made `.trim()`
+  // throw an opaque `TypeError` instead of reaching the descriptive error below.
+  const rawContent = data.choices?.[0]?.message?.content;
+  const raw = typeof rawContent === 'string' ? rawContent.trim() : '';
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    throw new Error(`Field description: LLM returned unparseable JSON: ${raw.slice(0, 200)}`);
+    // Finding L4 — this previously interpolated 200 chars of the raw completion into the
+    // thrown message: PROVIDER-authored text relayed verbatim to the caller (and, in a
+    // typical host, on to an end user), contrary to invariant 16, with no `MUI X Studio:`
+    // prefix to attribute it. The excerpt is dropped rather than sanitized: it was never
+    // load-bearing for the caller, who cannot act on it, and the actionable information
+    // is that the model did not return JSON. Branded, since what remains is pure package
+    // prose.
+    throw markPackageAuthored(
+      new Error(
+        'MUI X Studio: The field-description request returned a response that is not valid JSON. ' +
+          'This prevents any field description from being generated, so the call returns nothing usable. ' +
+          'Ensure the configured model supports the `response_format: json_object` option this request ' +
+          'sends, and that it is instructed to reply with a JSON array of {"id","aiDescription"} entries.',
+      ),
+    );
   }
 
   // Some models (especially with response_format: json_object) wrap the array in
@@ -274,7 +303,16 @@ export async function generateFieldDescriptions(
   }
 
   if (!Array.isArray(parsed)) {
-    throw new Error('Field description: LLM did not return a JSON array.');
+    // Same finding L4 treatment as the parse failure above: prefixed, branded, and
+    // carrying no provider-authored text (it never did — only the prefix was missing).
+    throw markPackageAuthored(
+      new Error(
+        'MUI X Studio: The field-description response was valid JSON but not a JSON array. ' +
+          'This prevents the per-field descriptions from being read out of it. ' +
+          'Ensure the model replies with a JSON array of {"id","aiDescription"} entries, or an object ' +
+          'wrapping exactly one such array.',
+      ),
+    );
   }
 
   // Validate and filter to only well-formed entries

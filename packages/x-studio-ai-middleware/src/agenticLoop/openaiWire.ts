@@ -130,26 +130,6 @@ export interface ToolCallDelta {
 }
 
 /**
- * True only for a value that is genuinely usable as a tool-call slot key.
- *
- * `ToolCallDelta.index` is TYPED `number`, but it is raw JSON straight off the
- * provider's wire — this package's threat model explicitly includes a
- * hostile/compromised OpenAI-compatible gateway (the same actor
- * {@link MAX_TOOL_CALL_ARGS_BUFFER_CHARS}, {@link MAX_TOOL_CALLS_PER_TURN} and
- * `parseSSE`'s buffer cap already defend against). A delta carrying
- * `index: "__proto__"` previously flowed straight into `acc.reqToolCalls[idx]`:
- * the lookup resolved to `Object.prototype` (truthy, so the slot-count cap never
- * tripped) and the subsequent `.id`/`.name`/`.argsBuffer` writes landed on
- * `Object.prototype` itself — permanent, process-wide prototype pollution
- * affecting every object in the host app, with the tool call silently dropped on
- * top. Rejecting a non-integer `index` here makes the delta fall through to the
- * id-based / positional path, which mints a safe synthetic index instead.
- */
-function isUsableToolCallIndex(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value);
-}
-
-/**
  * Seed for synthetic indices assigned to id-only tool-call deltas.
  *
  * Providers key streamed tool-call fragments either by a numeric `index` or by an
@@ -172,6 +152,57 @@ export const SYNTHETIC_INDEX_BASE = 1_000_000;
  * slot.
  */
 export const POSITIONAL_INDEX_BASE = 2_000_000;
+
+/**
+ * True only for a value that is genuinely usable as a tool-call slot key.
+ *
+ * `ToolCallDelta.index` is TYPED `number`, but it is raw JSON straight off the
+ * provider's wire — this package's threat model explicitly includes a
+ * hostile/compromised OpenAI-compatible gateway (the same actor
+ * {@link MAX_TOOL_CALL_ARGS_BUFFER_CHARS}, {@link MAX_TOOL_CALLS_PER_TURN} and
+ * `parseSSE`'s buffer cap already defend against). A delta carrying
+ * `index: "__proto__"` previously flowed straight into `acc.reqToolCalls[idx]`:
+ * the lookup resolved to `Object.prototype` (truthy, so the slot-count cap never
+ * tripped) and the subsequent `.id`/`.name`/`.argsBuffer` writes landed on
+ * `Object.prototype` itself — permanent, process-wide prototype pollution
+ * affecting every object in the host app, with the tool call silently dropped on
+ * top. Rejecting a non-integer `index` here makes the delta fall through to the
+ * id-based / positional path, which mints a safe synthetic index instead.
+ *
+ * The RANGE check (finding L7) is what makes {@link SYNTHETIC_INDEX_BASE} and
+ * {@link POSITIONAL_INDEX_BASE} deliver the non-collision their own doc comments
+ * promise. They were only disjoint from a WELL-BEHAVED provider's `0..n` indices: a
+ * gateway sending `index: 2000000` landed in the positional fallback's range and merged
+ * its fragments with a genuinely position-keyed call's, and `index: 1000000` did the
+ * same to an id-keyed one — the exact "two distinct calls' fragments merged into one
+ * slot" outcome those constants exist to rule out. Accepting only `0 <= index <
+ * SYNTHETIC_INDEX_BASE` makes the three ranges disjoint BY CONSTRUCTION rather than by
+ * assumption; an out-of-range `index` is treated like an absent one and falls through
+ * to the id/positional path, which is exactly where a value we refuse to trust belongs.
+ * A negative index is rejected for the same reason it is meaningless on the wire.
+ */
+function isUsableToolCallIndex(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= 0 &&
+    value < SYNTHETIC_INDEX_BASE
+  );
+}
+
+/**
+ * True only for a non-empty string, the type every textual field on this wire is
+ * declared as and none of them is guaranteed to be (invariant 15).
+ *
+ * `id` keys `idToIdx`, becomes the OpenAI `tool_calls[].id`, addresses the shared
+ * `approvalPending` map, and is echoed to the browser as `toolCallId`; `function.name`
+ * is matched against `advertisedToolNames`; `function.arguments` is concatenated and
+ * `JSON.parse`d. Each was previously used on a bare truthiness check, so a non-string
+ * rode through implicit `+`/key coercion into all of those positions.
+ */
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
 
 /**
  * Hard ceiling (chars, ~bytes for the JSON text a provider streams) on a single tool
@@ -230,7 +261,25 @@ export function createToolCallAccumulator(): ToolCallAccumulator {
  * position. Mutates `acc` in place.
  */
 export function accumulateToolCallDeltas(deltas: ToolCallDelta[], acc: ToolCallAccumulator): void {
-  for (const [i, tc] of deltas.entries()) {
+  for (const [i, tcRaw] of deltas.entries()) {
+    // A delta entry itself is provider JSON: `tool_calls: [null]` used to throw a bare
+    // `TypeError` on `tc.index`, which the caller's catch then reported to the browser as
+    // a transport failure ("the provider was unreachable") of a provider that was, in
+    // fact, streaming. Skip a non-object entry instead.
+    if (tcRaw === null || typeof tcRaw !== 'object') {
+      continue;
+    }
+    const tc = tcRaw as ToolCallDelta;
+    // Every textual field is re-derived through `isNonEmptyString` rather than used
+    // straight off `tc`, so the checks below can't be skipped by a later edit.
+    const tcId = isNonEmptyString(tc.id) ? tc.id : undefined;
+    const fn = tc.function;
+    const fnName =
+      fn !== null && typeof fn === 'object' && isNonEmptyString(fn.name) ? fn.name : undefined;
+    const fnArgs =
+      fn !== null && typeof fn === 'object' && isNonEmptyString(fn.arguments)
+        ? fn.arguments
+        : undefined;
     let idx: number;
     const tcIndex = tc.index;
     // Only a genuine integer `index` may be used as a slot key (see
@@ -239,12 +288,12 @@ export function accumulateToolCallDeltas(deltas: ToolCallDelta[], acc: ToolCallA
     // below, which mints a safe synthetic index.
     if (isUsableToolCallIndex(tcIndex)) {
       idx = tcIndex;
-    } else if (tc.id) {
-      if (acc.idToIdx[tc.id] !== undefined) {
-        idx = acc.idToIdx[tc.id];
+    } else if (tcId !== undefined) {
+      if (acc.idToIdx[tcId] !== undefined) {
+        idx = acc.idToIdx[tcId];
       } else {
         idx = acc.nextAutoIdx;
-        acc.idToIdx[tc.id] = idx;
+        acc.idToIdx[tcId] = idx;
         acc.nextAutoIdx += 1;
       }
     } else {
@@ -275,15 +324,15 @@ export function accumulateToolCallDeltas(deltas: ToolCallDelta[], acc: ToolCallA
           ),
         );
       }
-      acc.reqToolCalls[idx] = { id: tc.id ?? '', name: '', argsBuffer: '' };
+      acc.reqToolCalls[idx] = { id: tcId ?? '', name: '', argsBuffer: '' };
     }
-    if (tc.id) {
-      acc.reqToolCalls[idx].id = tc.id;
+    if (tcId !== undefined) {
+      acc.reqToolCalls[idx].id = tcId;
     }
     if (tc.extra_content) {
       acc.reqToolCalls[idx].extra_content = tc.extra_content;
     }
-    if (tc.function?.name) {
+    if (fnName !== undefined) {
       const existingName = acc.reqToolCalls[idx].name;
       // Some gateways resend the tool's COMPLETE function name on every chunk
       // instead of streaming it incrementally. Naively concatenating would turn
@@ -304,12 +353,12 @@ export function accumulateToolCallDeltas(deltas: ToolCallDelta[], acc: ToolCallA
       // (no resend flag or expected-total-length hint on the wire) to distinguish the
       // two cases in general, so this stays a deliberate best-effort tradeoff rather
       // than a bug fix.
-      if (existingName !== tc.function.name) {
-        acc.reqToolCalls[idx].name += tc.function.name;
+      if (existingName !== fnName) {
+        acc.reqToolCalls[idx].name += fnName;
       }
     }
-    if (tc.function?.arguments) {
-      const nextArgsBuffer = acc.reqToolCalls[idx].argsBuffer + tc.function.arguments;
+    if (fnArgs !== undefined) {
+      const nextArgsBuffer = acc.reqToolCalls[idx].argsBuffer + fnArgs;
       // Finding 6 — bound `argsBuffer` growth per tool call. Thrown here (rather than
       // silently truncated) so the caller's enclosing try/catch turns this into a
       // clean `{ type: 'error' }` SSE event, exactly like the idle-timeout and

@@ -10,6 +10,8 @@ import {
   MAX_TOOL_OUTPUT_CELL_CHARS,
   MAX_TOOL_OUTPUT_ARRAY_ITEMS,
   MAX_TOOL_OUTPUT_OBJECT_KEYS,
+  TOOL_OUTPUT_TRUNCATED_NOTE_KEY,
+  TOOL_OUTPUT_TRUNCATED_RESULT_KEY,
 } from './capToolOutput';
 
 describe('capToolOutput', () => {
@@ -74,6 +76,82 @@ describe('capToolOutput', () => {
     const capped = capToolOutput(csv);
     expect(capped.length).toBeLessThanOrEqual(MAX_TOOL_OUTPUT_CHARS + 500);
     expect(capped).toMatch(/truncated/i);
+  });
+
+  // Finding M4 — the marker was folded in only for an OBJECT root, so an ARRAY or
+  // SCALAR root was trimmed and returned BARE, with nothing anywhere saying the data
+  // was partial. The whole point of this module is that the model is told; every other
+  // suite case happened to use an object root, which is why it survived.
+  describe('truncation marker on every root shape', () => {
+    it('marks a truncated ARRAY root (the `jsonResult(array)` / server-tool skill shape)', () => {
+      const rows = Array.from({ length: MAX_TOOL_OUTPUT_ARRAY_ITEMS * 3 }, (_, i) => ({
+        id: i,
+        pad: 'p'.repeat(100),
+      }));
+      const capped = capToolOutput(JSON.stringify(rows));
+
+      const parsed = JSON.parse(capped) as Record<string, unknown>;
+      // A bare array has no sibling position for the note, so it is wrapped — the
+      // data still round-trips under `result`, but the note is now impossible to miss.
+      expect(parsed[TOOL_OUTPUT_TRUNCATED_NOTE_KEY]).toMatch(/truncated/i);
+      expect(Array.isArray(parsed[TOOL_OUTPUT_TRUNCATED_RESULT_KEY])).toBe(true);
+      expect(parsed[TOOL_OUTPUT_TRUNCATED_RESULT_KEY]).toHaveLength(MAX_TOOL_OUTPUT_ARRAY_ITEMS);
+      expect(capped.length).toBeLessThanOrEqual(MAX_TOOL_OUTPUT_CHARS);
+    });
+
+    it('marks a truncated SCALAR (bare JSON string) root', () => {
+      const capped = capToolOutput(JSON.stringify('n'.repeat(MAX_TOOL_OUTPUT_CHARS + 100_000)));
+
+      const parsed = JSON.parse(capped) as Record<string, unknown>;
+      expect(parsed[TOOL_OUTPUT_TRUNCATED_NOTE_KEY]).toMatch(/truncated/i);
+      expect(typeof parsed[TOOL_OUTPUT_TRUNCATED_RESULT_KEY]).toBe('string');
+      expect((parsed[TOOL_OUTPUT_TRUNCATED_RESULT_KEY] as string).length).toBeLessThanOrEqual(
+        MAX_TOOL_OUTPUT_CELL_CHARS + 1,
+      );
+    });
+
+    it('does not wrap an array root that needed no trimming', () => {
+      const output = JSON.stringify([{ id: 1 }, { id: 2 }]);
+      expect(capToolOutput(output)).toBe(output);
+    });
+  });
+
+  // Same class as the array/scalar root: a trim that leaves no trace. Capping an object
+  // KEY is data loss like any other, and it additionally used to let two keys sharing a
+  // long prefix collapse onto the same capped string, silently dropping a whole column.
+  it('marks — and disambiguates — truncated object KEYS', () => {
+    const prefix = 'k'.repeat(MAX_TOOL_OUTPUT_CELL_CHARS + 10);
+    const output = JSON.stringify({
+      [`${prefix}_a`]: 'first',
+      [`${prefix}_b`]: 'second',
+      pad: 'p'.repeat(MAX_TOOL_OUTPUT_CHARS),
+    });
+    const capped = capToolOutput(output);
+
+    const parsed = JSON.parse(capped) as Record<string, unknown>;
+    expect(parsed[TOOL_OUTPUT_TRUNCATED_NOTE_KEY]).toMatch(/truncated/i);
+    // Both values survive under distinct keys — neither overwrote the other.
+    const values = Object.entries(parsed)
+      .filter(([key]) => key !== TOOL_OUTPUT_TRUNCATED_NOTE_KEY && key !== 'pad')
+      .map(([, value]) => value);
+    expect(values).toContain('first');
+    expect(values).toContain('second');
+  });
+
+  it('fits a result whose size lives entirely in its key COUNT', () => {
+    // 400 columns of deeply nested rows: cells narrow to their floor and rows drop to
+    // theirs while this is still over budget, so `objectKeys` has to tighten too —
+    // before it joined the progressive loop this fell through to the hard slice.
+    const wide: Record<string, unknown> = {};
+    for (let i = 0; i < MAX_TOOL_OUTPUT_OBJECT_KEYS * 2; i += 1) {
+      wide[`column_number_${i}`] = { nested: { deeper: 'v'.repeat(600) } };
+    }
+    const capped = capToolOutput(JSON.stringify(wide));
+
+    expect(capped.length).toBeLessThanOrEqual(MAX_TOOL_OUTPUT_CHARS);
+    // Well-formed JSON, not a mid-token amputation.
+    const parsed = JSON.parse(capped) as Record<string, unknown>;
+    expect(parsed[TOOL_OUTPUT_TRUNCATED_NOTE_KEY]).toMatch(/truncated/i);
   });
 
   it('does not let a `__proto__` key in a producer result reach Object.prototype', () => {

@@ -1,5 +1,6 @@
 import type { StudioController } from '../../store/StudioController';
-import { createStudioPipeline } from '../../internals/StudioPipeline';
+import { createStudioPipeline, shouldApplyWidgetRankAtL3 } from '../../internals/StudioPipeline';
+import { selectAdapterResidualFilters } from '../../internals/filterScoping';
 import { exportGridToCsv, exportChartToPng, downloadCsv } from '../../internals/widgetUtils';
 import { enrichWithCrossSourceFields } from '../../internals/crossSourceEnrichment';
 import { resolveCrossSourceFieldDefs } from '../widgets/StudioGridWidget/StudioGridWidget';
@@ -8,80 +9,10 @@ import { getCachedNormalizedDataSource } from '../../internals/normalizedRowsCac
 import { studioRequestCache } from '../../internals/StudioRequestCache';
 import { lookup } from '../../utils/safeLookup';
 import { getGridViewSortModel } from '../widgets/StudioGridWidget/gridViewSortRegistry';
-import type {
-  StudioDataSource,
-  StudioFilterState,
-  StudioWidget,
-  StudioWidgetConfig,
-} from '../../models';
+import type { StudioDataSource, StudioWidget, StudioWidgetConfig } from '../../models';
 import type { StudioLocaleText } from '../../internals/StudioUIConfigContext';
 
 type Row = Record<string, unknown>;
-
-/**
- * The filters an ADAPTER-backed widget must still evaluate client-side after the server has
- * answered its query — the "residual".
- *
- * `buildQueryDescriptor` bakes the widget's authored page/widget/dashboard-date-range filters
- * into the wire request (`include: 'no-cross'`), so the rows that come back have ALREADY been
- * reduced by them. Re-applying them locally is not merely redundant, it is destructive: the
- * descriptor's `select` list is built from `collectSelectFields(widget)` plus rank/cross field
- * refs (`internals/queryDescriptor.ts`), NOT from the fields the authored page filters
- * reference. A page filter on `order_date` therefore evaluates against rows that carry no
- * `order_date` key at all and rejects every one of them — a dashboard date range turned the
- * CSV export into a headers-only file while the grid on screen showed N rows (finding M1b).
- *
- * What genuinely IS left over, and is exactly what `useWidgetRows.ts`'s adapter branch
- * re-applies on the render path:
- * - page-scoped RANK (top/bottom-N) filters — the wire protocol cannot express a rank
- *   reduction, so `buildQueryDescriptor` strips them;
- * - widget-scoped RANK filters, for the same reason (gated downstream by `includeWidgetRank`,
- *   which `resolveWidgetRows` resolves from the widget itself);
- * - cross-filters and interactive (filter-widget) selections — deliberately excluded from the
- *   descriptor so a chart click never triggers a server round-trip or churns the cacheKey.
- *
- * `dashboard-date-range` is deliberately absent: it is an authored filter, it went to the
- * server, and its field is very often not a projected column.
- *
- * NOTE (handoff): this predicate is a transcription of `useWidgetRows.ts`'s residual pass, not
- * a shared implementation of it — the two must not be allowed to drift. See the extraction
- * requested in that file's owner's queue (`selectAdapterResidualFilters` belongs beside
- * `selectFiltersForWidget` in `internals/filterScoping.ts`, with `useWidgetRows` and this
- * export both calling it).
- */
-function selectAdapterResidualFilters(
-  filters: StudioFilterState[],
-  widgetId: string,
-): StudioFilterState[] {
-  const residual: StudioFilterState[] = [];
-  for (const f of filters) {
-    const scope = f.scope;
-    if (!scope) {
-      continue;
-    }
-    const isRank = (f.filterMode ?? 'condition') === 'rank';
-    switch (scope.kind) {
-      case 'page':
-        if (isRank) {
-          residual.push(f);
-        }
-        break;
-      case 'widget':
-        if (scope.widgetId === widgetId && isRank) {
-          residual.push(f);
-        }
-        break;
-      case 'cross-filter':
-      case 'interactive':
-        residual.push(f);
-        break;
-      default:
-        // 'dashboard-date-range' — already enforced server-side (see the doc above).
-        break;
-    }
-  }
-  return residual;
-}
 
 /**
  * Comparator matching DataGridPremium's default `gridStringOrNumberComparator`, including its
@@ -208,13 +139,24 @@ export function runWidgetExport({
     // case, which is precisely what the on-screen adapter path applies
     // (`useWidgetRows.ts`'s adapter branch). The sync path keeps the full set: it starts from
     // raw, fully-projected source rows, so every authored filter must be applied here.
+    //
+    // `selectAdapterResidualFilters` is the SHARED implementation in `internals/filterScoping.ts`
+    // that `useWidgetRows` also calls — this file used to carry a hand-maintained transcription
+    // of it, which had already drifted (it excluded rank-mode `dashboard-date-range` filters
+    // that the render path applies). `includeWidgetRank` is passed explicitly rather than left
+    // to the downstream gate: `resolveWidgetRows` below resolves the very same
+    // `shouldApplyWidgetRankAtL3(widget)` for its own `selectFiltersForWidget` call, so stating
+    // it here makes the two gates the same value by construction instead of by coincidence.
     const pipeline = createStudioPipeline(
       hasAdapter
         ? {
             dataSources: state.runtime.dataSources,
             relationships: state.doc.relationships,
             expressionFields: state.doc.expressionFields,
-            filters: selectAdapterResidualFilters(state.doc.filters, widget.id),
+            filters: selectAdapterResidualFilters(state.doc.filters, {
+              widgetId: widget.id,
+              includeWidgetRank: shouldApplyWidgetRankAtL3(widget),
+            }),
             crossFilterAllPages: state.doc.dashboard.crossFilterAllPages,
             globalCrossFilterMode: state.doc.dashboard.globalCrossFilterMode,
           }

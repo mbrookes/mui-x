@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { selectFiltersForWidget } from './filterScoping';
+import { selectFiltersForWidget, selectAdapterResidualFilters } from './filterScoping';
 import type { StudioFilterState } from '../models';
 
 function makeFilter(
@@ -464,5 +464,234 @@ describe('selectFiltersForWidget — resolveDateRangePresets', () => {
     expect(typeof v.from).toBe('string');
     expect(typeof v.to).toBe('string');
     expect(v.from).toMatch(/^\d{4}-\d{2}-\d{2}/);
+  });
+});
+
+// ── selectAdapterResidualFilters ─────────────────────────────────────────────
+//
+// The residual is exactly what `buildQueryDescriptor` could NOT put into the wire `filter`
+// tree (`serverFilters.filter((f) => filterMode !== 'rank' && isFilterComplete(f))`):
+// rank-mode filters of any authored scope, plus every cross-filter / interactive selection.
+// These tests pin every scope kind on both sides of that line, plus the `includeWidgetRank`
+// gate — this predicate previously existed as two hand-maintained copies (here and in
+// `StudioWidgetCard/widgetExport.ts`) which had drifted on the date-range case below.
+
+function residualIds(
+  filters: StudioFilterState[],
+  opts: { widgetId?: string; includeWidgetRank: boolean },
+): string[] {
+  return selectAdapterResidualFilters(filters, {
+    widgetId: opts.widgetId ?? WIDGET_ID,
+    includeWidgetRank: opts.includeWidgetRank,
+  }).map((f) => f.id);
+}
+
+describe("selectAdapterResidualFilters — scope: 'page'", () => {
+  it('keeps a page-scoped RANK filter (no wire representation for a rank reduction)', () => {
+    const f = makeFilter({ id: 'pr', scope: { kind: 'page' }, filterMode: 'rank', value: 5 });
+    expect(residualIds([f], { includeWidgetRank: false })).toEqual(['pr']);
+  });
+
+  it('drops a page-scoped condition filter (already enforced server-side — finding M1b)', () => {
+    const f = makeFilter({ id: 'pc', scope: { kind: 'page', pageId: PAGE_ID }, value: 'x' });
+    expect(residualIds([f], { includeWidgetRank: true })).toEqual([]);
+  });
+
+  it('drops a page-scoped selection filter', () => {
+    const f = makeFilter({
+      id: 'ps',
+      scope: { kind: 'page' },
+      filterMode: 'selection',
+      value: ['a'],
+    });
+    expect(residualIds([f], { includeWidgetRank: true })).toEqual([]);
+  });
+
+  it('does NOT scope by pageId — that is left to selectFiltersForWidget', () => {
+    const f = makeFilter({
+      id: 'pr-other',
+      scope: { kind: 'page', pageId: 'other-page' },
+      filterMode: 'rank',
+      value: 5,
+    });
+    expect(residualIds([f], { includeWidgetRank: false })).toEqual(['pr-other']);
+    // ...and the downstream pass is what actually removes it.
+    expect(
+      selectFiltersForWidget(
+        selectAdapterResidualFilters([f], {
+          widgetId: WIDGET_ID,
+          includeWidgetRank: false,
+        }),
+        baseOpts,
+      ),
+    ).toHaveLength(0);
+  });
+});
+
+describe("selectAdapterResidualFilters — scope: 'widget' and the includeWidgetRank gate", () => {
+  const widgetRank = makeFilter({
+    id: 'wr',
+    scope: { kind: 'widget', widgetId: WIDGET_ID },
+    filterMode: 'rank',
+    value: 5,
+  });
+
+  it("keeps this widget's rank filter when includeWidgetRank is true (non-chart kinds)", () => {
+    expect(residualIds([widgetRank], { includeWidgetRank: true })).toEqual(['wr']);
+  });
+
+  // The gate exists because xy chart families re-apply their widget rank post-aggregation
+  // (`shouldApplyWidgetRankAtL3` is false for them); reducing at L3 too would double-apply it.
+  it("drops this widget's rank filter when includeWidgetRank is false (xy chart kinds)", () => {
+    expect(residualIds([widgetRank], { includeWidgetRank: false })).toEqual([]);
+  });
+
+  it('drops a rank filter belonging to a DIFFERENT widget even when includeWidgetRank is true', () => {
+    const f = makeFilter({
+      id: 'wr-other',
+      scope: { kind: 'widget', widgetId: 'other-widget' },
+      filterMode: 'rank',
+      value: 5,
+    });
+    expect(residualIds([f], { includeWidgetRank: true })).toEqual([]);
+  });
+
+  it("drops this widget's NON-rank filters regardless of the gate (enforced server-side)", () => {
+    const cond = makeFilter({
+      id: 'wc',
+      scope: { kind: 'widget', widgetId: WIDGET_ID },
+      value: 'x',
+    });
+    const sel = makeFilter({
+      id: 'ws',
+      scope: { kind: 'widget', widgetId: WIDGET_ID },
+      filterMode: 'selection',
+      value: ['a'],
+    });
+    expect(residualIds([cond, sel], { includeWidgetRank: true })).toEqual([]);
+    expect(residualIds([cond, sel], { includeWidgetRank: false })).toEqual([]);
+  });
+});
+
+describe("selectAdapterResidualFilters — scope: 'dashboard-date-range'", () => {
+  it('drops a condition-mode date range (it went to the server; re-applying it emptied the CSV)', () => {
+    const f = makeFilter({
+      id: 'ddr',
+      scope: { kind: 'dashboard-date-range', sourceId: SOURCE_ID, pageId: PAGE_ID },
+      operator: 'between',
+      value: { from: '2024-01-01', to: '2024-12-31' },
+    });
+    expect(residualIds([f], { includeWidgetRank: true })).toEqual([]);
+  });
+
+  // REGRESSION: the export path's former hand-transcribed copy excluded EVERY
+  // `dashboard-date-range` filter by scope kind, while the render path
+  // (`useWidgetRows`) reached them through the partitioner's `page` bucket and kept the
+  // rank-mode ones. `applyFilters` decides rank-ness purely from `filterMode` with no regard
+  // for scope, and `buildQueryDescriptor` strips every rank filter from the wire tree — so a
+  // rank-mode date-range filter is enforced nowhere unless it is residual.
+  it('keeps a RANK-mode date range — otherwise it is enforced nowhere at all', () => {
+    const f = makeFilter({
+      id: 'ddr-rank',
+      scope: { kind: 'dashboard-date-range', sourceId: SOURCE_ID, pageId: PAGE_ID },
+      filterMode: 'rank',
+      value: 5,
+    });
+    expect(residualIds([f], { includeWidgetRank: false })).toEqual(['ddr-rank']);
+  });
+});
+
+describe("selectAdapterResidualFilters — scopes 'cross-filter' and 'interactive'", () => {
+  it('keeps cross-filters (never sent to the server — this is their sole enforcement point)', () => {
+    const f = makeFilter({
+      id: 'cf',
+      scope: { kind: 'cross-filter', sourceWidgetId: 'other-w', pageId: PAGE_ID },
+      value: 'x',
+    });
+    expect(residualIds([f], { includeWidgetRank: false })).toEqual(['cf']);
+  });
+
+  it('keeps interactive (filter-widget) selections', () => {
+    const f = makeFilter({
+      id: 'i',
+      scope: { kind: 'interactive', sourceWidgetId: 'other-w', pageId: PAGE_ID },
+      value: 'x',
+    });
+    expect(residualIds([f], { includeWidgetRank: false })).toEqual(['i']);
+  });
+
+  it('keeps a SELF-emitted cross-filter as a candidate — self-exclusion is downstream', () => {
+    const f = makeFilter({
+      id: 'cf-self',
+      scope: { kind: 'cross-filter', sourceWidgetId: WIDGET_ID, pageId: PAGE_ID },
+      value: 'x',
+    });
+    expect(residualIds([f], { includeWidgetRank: false })).toEqual(['cf-self']);
+    expect(
+      selectFiltersForWidget(
+        selectAdapterResidualFilters([f], { widgetId: WIDGET_ID, includeWidgetRank: false }),
+        { ...baseOpts, include: 'all' },
+      ),
+    ).toHaveLength(0);
+  });
+});
+
+describe('selectAdapterResidualFilters — non-scoping concerns are left downstream', () => {
+  it('keeps DISABLED filters as candidates — selectFiltersForWidget drops them', () => {
+    const f = makeFilter({
+      id: 'cf-disabled',
+      scope: { kind: 'cross-filter', sourceWidgetId: 'other-w', pageId: PAGE_ID },
+      value: 'x',
+      disabled: true,
+    });
+    expect(residualIds([f], { includeWidgetRank: false })).toEqual(['cf-disabled']);
+    expect(
+      selectFiltersForWidget(
+        selectAdapterResidualFilters([f], { widgetId: WIDGET_ID, includeWidgetRank: false }),
+        { ...baseOpts, include: 'all' },
+      ),
+    ).toHaveLength(0);
+  });
+
+  it('ignores a filter with no scope at all', () => {
+    const f = {
+      id: 'no-scope',
+      field: 'x',
+      operator: 'equals',
+      value: 'y',
+      scope: undefined,
+    } as unknown as StudioFilterState;
+    expect(residualIds([f], { includeWidgetRank: true })).toEqual([]);
+  });
+
+  it('preserves input order across scope kinds', () => {
+    const filters = [
+      makeFilter({ id: 'pr', scope: { kind: 'page' }, filterMode: 'rank', value: 5 }),
+      makeFilter({ id: 'pc', scope: { kind: 'page' }, value: 'x' }),
+      makeFilter({
+        id: 'wr',
+        scope: { kind: 'widget', widgetId: WIDGET_ID },
+        filterMode: 'rank',
+        value: 3,
+      }),
+      makeFilter({
+        id: 'ddr',
+        scope: { kind: 'dashboard-date-range', sourceId: SOURCE_ID, pageId: PAGE_ID },
+        operator: 'between',
+        value: { from: '2024-01-01', to: '2024-12-31' },
+      }),
+      makeFilter({
+        id: 'cf',
+        scope: { kind: 'cross-filter', sourceWidgetId: 'other-w', pageId: PAGE_ID },
+        value: 'z',
+      }),
+      makeFilter({
+        id: 'i',
+        scope: { kind: 'interactive', sourceWidgetId: 'other-w', pageId: PAGE_ID },
+        value: 'q',
+      }),
+    ];
+    expect(residualIds(filters, { includeWidgetRank: true })).toEqual(['pr', 'wr', 'cf', 'i']);
+    expect(residualIds(filters, { includeWidgetRank: false })).toEqual(['pr', 'cf', 'i']);
   });
 });

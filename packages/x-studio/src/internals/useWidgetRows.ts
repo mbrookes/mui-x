@@ -22,7 +22,7 @@ import {
 import { resolveRowsCached } from './resolvedRowsCache';
 import { collectSelectFields } from './queryDescriptor';
 import { getCachedEnrichedRows } from './enrichedRowsCache';
-import { selectFiltersForWidget } from './filterScoping';
+import { selectFiltersForWidget, selectAdapterResidualFilters } from './filterScoping';
 import { getCachedNormalizedDataSource } from './normalizedRowsCache';
 import { shouldApplyWidgetRankAtL3 } from './StudioPipeline';
 import { useAdapterRows } from './useAdapterRows';
@@ -593,32 +593,30 @@ export function useWidgetRows(
             usedFieldIds,
           );
         }
-        // Page-scoped rank filters (top/bottom-N) are stripped from the server descriptor
-        // (`buildQueryDescriptor`) because the wire protocol can't express a rank reduction —
-        // so they must be re-applied here, client-side, exactly as the sync path does via
-        // `applyFilters` (finding 1.6). Non-rank page/widget filters were already enforced
-        // server-side and are deliberately NOT re-applied.
-        const pageRankFilters = deferredPartitioned.page.filter(
-          (f) => (f.filterMode ?? 'condition') === 'rank',
-        );
-        // Widget-scoped rank filters are stripped from the server descriptor (the wire
-        // protocol can't express a rank reduction) and, for non-chart kinds, are applied by
-        // no other path — so re-apply them here client-side exactly like page-scoped rank
-        // filters (finding 2.1). Only the RANK ones are re-added: non-rank widget filters were
-        // already enforced server-side and must not be double-applied. Empty for chart widgets
-        // (they re-rank post-aggregation), gated by `includeWidgetRank`.
-        const widgetRankFilters = includeWidgetRank
-          ? (deferredPartitioned.byWidgetId.get(widget.id) ?? []).filter(
-              (f) => (f.filterMode ?? 'condition') === 'rank',
-            )
-          : [];
+        // Only the RESIDUAL — the filters `buildQueryDescriptor` could NOT put into the wire
+        // request, so this client-side pass is their sole enforcement point: rank (top/bottom-N)
+        // reductions of any authored scope, which have no wire representation (findings 1.6 /
+        // 2.1), plus cross-filters and interactive selections, which are deliberately kept off
+        // the descriptor. Non-rank page/widget/date-range filters were already enforced
+        // server-side and must NOT be re-applied — the response only projects
+        // `descriptor.select`, so re-running them evaluates against columns the server never
+        // returned and drops every row (finding M1b).
+        //
+        // `selectAdapterResidualFilters` (filterScoping.ts) is the ONE implementation of that
+        // rule, shared with the CSV export (`widgetExport.ts`), which used to carry a
+        // hand-maintained transcription of this block. It returns candidates only; the
+        // page/source/`disabled`/`include` scoping still happens in `selectFiltersForWidget`
+        // below, exactly as before.
         const scoped = selectFiltersForWidget(
-          [
-            ...pageRankFilters,
-            ...widgetRankFilters,
-            ...deferredPartitioned.cross,
-            ...deferredPartitioned.interactive,
-          ],
+          selectAdapterResidualFilters(
+            [
+              ...deferredPartitioned.page,
+              ...(deferredPartitioned.byWidgetId.get(widget.id) ?? []),
+              ...deferredPartitioned.cross,
+              ...deferredPartitioned.interactive,
+            ],
+            { widgetId: widget.id, includeWidgetRank },
+          ),
           {
             widgetId: widget.id,
             widgetSourceId: widget.sourceId,

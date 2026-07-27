@@ -122,3 +122,115 @@ export function selectFiltersForWidget(
 
   return resolveDateRangePresets(result);
 }
+
+/**
+ * The CANDIDATE filters an ADAPTER-backed widget must still evaluate client-side after the
+ * server has answered its query — the "residual".
+ *
+ * ## Why a residual exists at all
+ *
+ * `buildQueryDescriptor` bakes the widget's authored page/widget/dashboard-date-range filters
+ * into the wire request (`include: 'no-cross'`), so the rows that come back have ALREADY been
+ * reduced by them. Re-applying them locally is not merely redundant, it is destructive: the
+ * descriptor's `select` list is built from `collectSelectFields(widget)` plus rank/cross field
+ * refs (`internals/queryDescriptor.ts`), NOT from the fields the authored page filters
+ * reference. A page filter on `order_date` therefore evaluates against rows that carry no
+ * `order_date` key at all and rejects every one of them — a dashboard date range turned the
+ * CSV export into a headers-only file while the grid on screen showed N rows (finding M1b).
+ *
+ * ## The rule
+ *
+ * The residual is EXACTLY the set of filters `buildQueryDescriptor` did not put into the wire
+ * `filter` tree. That tree is
+ * `serverFilters.filter((f) => filterMode !== 'rank' && isFilterComplete(f))`, which yields two
+ * complementary halves:
+ *
+ * - **Authored scopes** (`page`, `widget`, `dashboard-date-range`) contribute ONLY their
+ *   rank-mode (top/bottom-N) filters. A rank reduction has no wire representation —
+ *   `filterStateToLeaf` drops `filterMode`, so shipping one would serialize as a bogus
+ *   `field = <N>` predicate — hence `buildQueryDescriptor` strips it and the reduction has to
+ *   run here instead. Their NON-rank filters are already enforced server-side and must not be
+ *   re-applied (that is the M1b failure above).
+ * - **Interaction scopes** (`cross-filter`, `interactive`) contribute everything. They are
+ *   deliberately kept off the descriptor so a chart click never triggers a server round-trip or
+ *   churns the request cacheKey, which makes this client-side pass their SOLE enforcement point.
+ *
+ * `dashboard-date-range` is keyed on rank-ness for the same reason `page` is, rather than being
+ * excluded wholesale by scope kind. `applyFilters` decides what is a rank reduction purely from
+ * `filterMode`, with no regard for scope, so a rank-mode date-range filter is reduced at L3 on
+ * the sync path — and `buildQueryDescriptor` strips it from the wire tree just like any other
+ * rank filter. Excluding it by scope kind would leave it enforced nowhere at all. This is where
+ * the export path's former hand-transcribed copy of this predicate had drifted: it excluded
+ * every `dashboard-date-range` filter unconditionally, so an adapter-backed export silently
+ * dropped a rank-mode one that the on-screen render path applied.
+ *
+ * Incomplete filters (`isFilterComplete` false — e.g. the drawer's `{ operator: 'equals',
+ * value: '' }` add-filter default) are pruned from the wire tree too, but they are equally
+ * dropped by `applyFilters` client-side, so they need no residual treatment either way.
+ *
+ * ## This returns CANDIDATES, not a final set
+ *
+ * Callers MUST still pass the result through {@link selectFiltersForWidget}. This function
+ * decides only the rank-vs-scope-kind half of the rule; the page/source/`disabled`/`include`/
+ * `crossFilterAllPages`/self-emission scoping — and `resolveDateRangePresets` — all live there
+ * and are deliberately not duplicated here.
+ *
+ * @param includeWidgetRank
+ *   Whether this widget's WIDGET-scoped rank filter is reduced at L3 rather than
+ *   post-aggregation. Callers pass `shouldApplyWidgetRankAtL3(widget)`
+ *   (`internals/StudioPipeline.ts`), the single source of truth for that rule.
+ *
+ *   It is a REQUIRED parameter with no default, deliberately. `selectFiltersForWidget` applies
+ *   the same gate downstream, so a caller that omitted it would still get the right answer via
+ *   that second gate — which is precisely what makes a default dangerous: the two callers of
+ *   this function previously disagreed about whether to gate here or downstream, and the
+ *   difference was invisible because it happened to be masked. Forcing both to state the flag
+ *   makes the two gates provably the same boolean rather than coincidentally equivalent.
+ *
+ *   It is a parameter rather than an internal `shouldApplyWidgetRankAtL3(widget)` call for a
+ *   structural reason as well: `StudioPipeline.ts` imports this module, so importing it back
+ *   would form a cycle.
+ */
+export function selectAdapterResidualFilters(
+  filters: StudioFilterState[],
+  opts: { widgetId: string; includeWidgetRank: boolean },
+): StudioFilterState[] {
+  const { widgetId, includeWidgetRank } = opts;
+  const residual: StudioFilterState[] = [];
+
+  for (const f of filters) {
+    const scope = f.scope;
+    if (!scope) {
+      continue;
+    }
+    const isRank = (f.filterMode ?? 'condition') === 'rank';
+    switch (scope.kind) {
+      case 'page':
+      case 'dashboard-date-range':
+        // Authored, and already enforced server-side unless it is a rank reduction the wire
+        // protocol cannot express. Page/date-range scoping by `pageId` is left to
+        // `selectFiltersForWidget`.
+        if (isRank) {
+          residual.push(f);
+        }
+        break;
+      case 'widget':
+        // Same rule as the authored scopes above, plus the L3-vs-post-aggregation gate. The
+        // widget-id match is re-checked by `selectFiltersForWidget`; it is applied here too so
+        // a rank filter belonging to another widget never even enters the candidate set.
+        if (scope.widgetId === widgetId && isRank && includeWidgetRank) {
+          residual.push(f);
+        }
+        break;
+      case 'cross-filter':
+      case 'interactive':
+        // Never sent to the server; this pass is their sole enforcement point.
+        residual.push(f);
+        break;
+      default:
+        break;
+    }
+  }
+
+  return residual;
+}

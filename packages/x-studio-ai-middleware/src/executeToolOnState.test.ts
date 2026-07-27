@@ -4097,3 +4097,630 @@ describe('capIncomingDashboardState: malformed sub-entities (finding M3)', () =>
     expect(capIncomingDashboardState(state).doc.widgets.w1.config).toEqual({});
   });
 });
+
+// ── Finding H4: `String()`/`Number()` on a model-supplied object threw a raw TypeError ─
+//
+// `String(x)` is not total: for a JSON object whose `toString` is a NON-callable own
+// property — `{"toString": 1}`, which `JSON.parse` accepts verbatim, so it survives both
+// a raw tool-call `arguments` buffer and the request body — `ToPrimitive` skips the
+// uncallable `toString`, falls back to `Object.prototype.valueOf` (which returns the
+// object) and throws `TypeError: Cannot convert object to primitive value`. `Number()`
+// has the mirror form `{"valueOf": 1, "toString": 2}`.
+//
+// The "`executeToolOnState` is pure and never throws by design" invariant is stated in
+// comments (`toolPolicy.ts`, `agenticLoop/toolDispatch.ts`) but was never asserted
+// anywhere. These assert it.
+describe('executeToolOnState: non-primitive-coercible arguments (finding H4)', () => {
+  /** An object that makes `String(x)` throw. */
+  const UNSTRINGABLE = JSON.parse('{"toString": 1}') as unknown;
+  /** An object that makes `Number(x)` throw. */
+  const UNNUMBERABLE = JSON.parse('{"valueOf": 1, "toString": 2}') as unknown;
+
+  it('the throwing shapes really do throw under the raw globals (premise check)', () => {
+    // Guards the premise: without this, a future engine that stopped throwing here
+    // would make every test below pass vacuously.
+    expect(() => String(UNSTRINGABLE)).toThrow(TypeError);
+    expect(() => Number(UNNUMBERABLE)).toThrow(TypeError);
+  });
+
+  // One case per affected tool family. Each asserts both halves of the contract: the
+  // call does NOT throw, and it comes back as an actionable validation error — never a
+  // silent success that committed an empty title or looked up the widget named "".
+  const cases: Array<{ tool: string; args: Record<string, unknown> }> = [
+    { tool: 'set_dashboard_title', args: { title: UNSTRINGABLE } },
+    { tool: 'add_page', args: { title: UNSTRINGABLE } },
+    { tool: 'rename_page', args: { pageId: 'page-1', title: UNSTRINGABLE } },
+    { tool: 'remove_page', args: { pageId: UNSTRINGABLE } },
+    { tool: 'set_active_page', args: { pageId: UNSTRINGABLE } },
+    { tool: 'add_widget', args: { kind: 'chart', title: UNSTRINGABLE } },
+    { tool: 'update_widget', args: { widgetId: 'widget-1', title: UNSTRINGABLE } },
+    { tool: 'remove_widget', args: { widgetId: UNSTRINGABLE } },
+    {
+      tool: 'add_page_filter',
+      args: { field: UNSTRINGABLE, sourceId: 'src1', operator: 'equals', value: 1 },
+    },
+    {
+      tool: 'add_widget_filter',
+      args: { widgetId: 'widget-1', field: UNSTRINGABLE, sourceId: 'src1', operator: 'equals' },
+    },
+    { tool: 'remove_page_filter', args: { filterId: UNSTRINGABLE } },
+    { tool: 'remove_widget_filter', args: { filterId: UNSTRINGABLE } },
+    { tool: 'summarise_page', args: { pageId: UNSTRINGABLE } },
+    { tool: 'set_widget_width', args: { widgetId: 'widget-1', columns: UNNUMBERABLE } },
+  ];
+
+  for (const { tool, args } of cases) {
+    it(`${tool} returns a validation error instead of throwing`, () => {
+      const state = makeState();
+      let result: ReturnType<typeof executeToolOnState> | undefined;
+      expect(() => {
+        result = executeToolOnState(tool, args, state);
+      }).not.toThrow();
+      const out = parseOutput(result!.output);
+      expect(out.success).toBeUndefined();
+      expect(typeof out.error).toBe('string');
+      expect(result!.mutation).toBeUndefined();
+      expect(result!.nextState).toBe(state);
+    });
+  }
+
+  // `set_widget_forecast`'s `periods` is the `Number()` half of the class; its target
+  // must be a line/area chart to reach the coercion at all.
+  it('set_widget_forecast returns a validation error for a non-numeric `periods`', () => {
+    const base = makeState();
+    const state: StudioState = {
+      ...base,
+      doc: {
+        ...base.doc,
+        widgets: {
+          'widget-1': {
+            ...base.doc.widgets['widget-1'],
+            config: { chartType: 'line' },
+          } as never,
+        },
+      },
+    };
+    let result: ReturnType<typeof executeToolOnState> | undefined;
+    expect(() => {
+      result = executeToolOnState(
+        'set_widget_forecast',
+        { widgetId: 'widget-1', enabled: true, periods: UNNUMBERABLE },
+        state,
+      );
+    }).not.toThrow();
+    const out = parseOutput(result!.output);
+    expect(out.error).toMatch(/periods/);
+    expect(result!.mutation).toBeUndefined();
+  });
+
+  it('names the offending argument so the model can fix exactly that one', () => {
+    const state = makeState();
+    const out = parseOutput(
+      executeToolOnState('rename_page', { pageId: 'page-1', title: UNSTRINGABLE }, state).output,
+    );
+    expect(out.error as string).toContain('title');
+    expect(out.error as string).toMatch(/expected a string/i);
+  });
+
+  it('reports every offending argument at once, not just the first', () => {
+    const state = makeState();
+    const out = parseOutput(
+      executeToolOnState(
+        'update_widget',
+        { widgetId: UNSTRINGABLE, title: UNSTRINGABLE, sourceId: UNSTRINGABLE },
+        state,
+      ).output,
+    );
+    expect(out.error as string).toContain('widgetId');
+    expect(out.error as string).toContain('title');
+    expect(out.error as string).toContain('sourceId');
+  });
+
+  it('bounds the echoed argument value rather than mirroring a huge object back', () => {
+    const state = makeState();
+    const huge = JSON.parse(`{"toString": 1, "pad": "${'z'.repeat(50_000)}"}`) as unknown;
+    const out = parseOutput(
+      executeToolOnState('set_dashboard_title', { title: huge }, state).output,
+    );
+    expect((out.error as string).length).toBeLessThan(500);
+  });
+
+  // A number must still coerce, exactly as `String(42)` always did — this gate rejects
+  // non-primitives, it does not tighten the tools' accepted argument types.
+  it('still accepts a number where a string is expected', () => {
+    const state = makeState();
+    const out = parseOutput(executeToolOnState('set_dashboard_title', { title: 42 }, state).output);
+    expect(out.success).toBe(true);
+    expect(out.title).toBe('42');
+  });
+
+  // `apply_bulk_update` reports per-op failures through `skipped`, so one bad title
+  // must not discard the ops the batch already accepted (which a throw did).
+  it('apply_bulk_update skips the offending op instead of throwing the whole batch away', () => {
+    const state = makeState();
+    let result: ReturnType<typeof executeToolOnState> | undefined;
+    expect(() => {
+      result = executeToolOnState(
+        'apply_bulk_update',
+        {
+          widgetUpdates: [
+            { widgetId: 'widget-1', title: UNSTRINGABLE },
+            { widgetId: 'widget-1', title: 'Fine' },
+          ],
+        },
+        state,
+      );
+    }).not.toThrow();
+    const out = parseOutput(result!.output);
+    expect(out.success).toBe(true);
+    expect((out.applied as { updated: number }).updated).toBe(1);
+    expect(out.skipped).toEqual(
+      expect.arrayContaining([expect.stringMatching(/expected a string/i)]),
+    );
+  });
+
+  // Bulk ADDITIONS route through `buildWidgetFromArgs`, whose `{ error }` channel
+  // becomes a `skipped` entry like every other rejected addition.
+  it('apply_bulk_update skips an addition with an unusable sourceId', () => {
+    const state = makeState();
+    let result: ReturnType<typeof executeToolOnState> | undefined;
+    expect(() => {
+      result = executeToolOnState(
+        'apply_bulk_update',
+        { widgetAdditions: [{ kind: 'chart', title: 'New', sourceId: UNSTRINGABLE }] },
+        state,
+      );
+    }).not.toThrow();
+    const out = parseOutput(result!.output);
+    expect((out.applied as { added: number }).added).toBe(0);
+    expect(out.skipped).toEqual(
+      expect.arrayContaining([expect.stringMatching(/expected a string/i)]),
+    );
+  });
+});
+
+// The BODY half of finding H4: the same shapes arrive through `body.dashboardState`,
+// where a throw is worse still — it collapses the whole request into one generic SSE
+// error before any tool can run, a per-request DoS from a two-token payload.
+describe('capIncomingDashboardState: non-primitive-coercible strings (finding H4)', () => {
+  const UNSTRINGABLE = JSON.parse('{"toString": 1}') as unknown;
+
+  it('does not throw on an unstringable title/id anywhere in the incoming doc', () => {
+    const state = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd1', title: UNSTRINGABLE as string, activePageId: 'p1' },
+        pages: {
+          p1: { id: UNSTRINGABLE as string, title: UNSTRINGABLE as string, widgetRows: [] },
+        },
+        widgets: {
+          w1: {
+            id: UNSTRINGABLE,
+            kind: 'kpi',
+            title: UNSTRINGABLE,
+            sourceId: UNSTRINGABLE,
+            config: {},
+          } as never,
+        },
+        filters: [{ id: 'f1', field: UNSTRINGABLE, operator: 'equals', value: 1 } as never],
+      },
+      runtime: {
+        dataSources: {
+          src1: {
+            id: UNSTRINGABLE,
+            label: UNSTRINGABLE,
+            fields: [{ id: UNSTRINGABLE, label: UNSTRINGABLE, type: 'number' }],
+          } as never,
+        },
+      },
+    });
+
+    expect(() => capIncomingDashboardState(state)).not.toThrow();
+  });
+
+  it('normalizes the unusable value to an empty string rather than "[object Object]"', () => {
+    const state = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd1', title: UNSTRINGABLE as string, activePageId: 'p1' },
+        pages: { p1: { id: 'p1', title: 'P', widgetRows: [] } },
+        widgets: {},
+      },
+    });
+    // "[object Object]" would be a fabricated dashboard title interpolated into
+    // `<dashboard_state>` on every subsequent request.
+    expect(capIncomingDashboardState(state).doc.dashboard.title).toBe('');
+  });
+});
+
+// ── Finding H6: the wrong-page guard skipped the omitted-`pageId` form ────────
+describe('executeToolOnState: summarise_page wrong-page guard, no pageId (finding H6)', () => {
+  /** The state as it looks AFTER a same-turn `set_active_page('page-2')`. */
+  function stateWithActivePage2(): StudioState {
+    const base = makeState();
+    return {
+      ...base,
+      doc: {
+        ...base.doc,
+        dashboard: { ...base.doc.dashboard, activePageId: 'page-2' },
+        pages: {
+          ...base.doc.pages,
+          'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [] },
+        },
+      },
+    };
+  }
+
+  // The guard previously fired only when `args.pageId` was PRESENT. A model following
+  // the tool's own advertised advice — `set_active_page(page-2)` then `summarise_page()`
+  // with `pageId` omitted — fell straight through to the `pageSnapshot` return and got
+  // page-1's rows, which it then narrated as page 2: exactly the wrong-page attribution
+  // the `snapshotPageId` comparison exists to prevent, reached by the argument-less path.
+  it("rejects instead of returning the other page's snapshot verbatim", () => {
+    const result = executeToolOnState(
+      'summarise_page',
+      {},
+      stateWithActivePage2(),
+      undefined,
+      'SNAPSHOT-DATA',
+      'page-1', // the page the snapshot actually covers
+    );
+    expect(result.output).not.toBe('SNAPSHOT-DATA');
+    const out = parseOutput(result.output);
+    expect(out.error).toMatch(/only summarise page "page-1"/);
+    expect(out.error).toMatch(/page-2/);
+    expect(result.mutation).toBeUndefined();
+  });
+
+  // Same non-retry framing as the explicit-`pageId` branch: nothing the model can do
+  // this turn makes another page's rows available, so the guidance names no tool.
+  it('keeps the non-retry framing and names no discovery tool', () => {
+    const out = parseOutput(
+      executeToolOnState('summarise_page', {}, stateWithActivePage2(), undefined, 'S', 'page-1')
+        .output,
+    );
+    expect(out.error).toMatch(/no tool call can load them/i);
+    expect(out.error).not.toMatch(/set_active_page/);
+    expect(out.error).not.toMatch(/get_dashboard_state/);
+    expect(out.error).toMatch(/ask the user to open page "page-2"/);
+  });
+
+  // Regression guards for the two paths that must still succeed.
+  it('still returns the snapshot when the active page never moved', () => {
+    const result = executeToolOnState(
+      'summarise_page',
+      {},
+      makeState(), // active page is page-1
+      undefined,
+      'SNAPSHOT-DATA',
+      'page-1',
+    );
+    expect(result.output).toBe('SNAPSHOT-DATA');
+  });
+
+  it('never fires for a legacy caller that threads no snapshotPageId', () => {
+    // Without `snapshotPageId` the covered page IS the threaded active page, so the
+    // comparison is trivially satisfied and behavior is unchanged.
+    const result = executeToolOnState(
+      'summarise_page',
+      {},
+      stateWithActivePage2(),
+      undefined,
+      'SNAPSHOT-DATA',
+    );
+    expect(result.output).toBe('SNAPSHOT-DATA');
+  });
+});
+
+// ── Finding M8: `{}` maps keyed by untrusted input silently swallowed entries ──
+describe('executeToolOnState: prototype-named map keys in write/read paths (finding M8)', () => {
+  /** An own, enumerable `__proto__` key — what `JSON.parse` yields, unlike a literal. */
+  function withProtoKey<T>(value: T): Record<string, T> {
+    const map: Record<string, T> = {};
+    Object.defineProperty(map, '__proto__', {
+      value,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+    return map;
+  }
+
+  // `projectDataSourceMetadata`'s accumulator is keyed by a DATABASE COLUMN name, so a
+  // column literally named `__proto__` made that field's distinct values vanish from
+  // `get_dashboard_state` and from the `studio://dashboard/state` resource.
+  it('get_dashboard_state keeps distinct values for a column named `__proto__`', () => {
+    const base = makeState();
+    const state: StudioState = {
+      ...base,
+      runtime: {
+        ...base.runtime,
+        dataSources: {
+          src1: {
+            ...base.runtime.dataSources.src1,
+            fieldDistinctValues: withProtoKey(['a', 'b']),
+          },
+        },
+      },
+    };
+    const out = parseOutput(executeToolOnState('get_dashboard_state', {}, state).output);
+    const distinct = (out.dataSources as Record<string, { fieldDistinctValues: unknown }>).src1
+      .fieldDistinctValues as Record<string, { values: string[] }>;
+    expect(Object.hasOwn(distinct, '__proto__')).toBe(true);
+    expect(Object.getOwnPropertyDescriptor(distinct, '__proto__')!.value.values).toEqual([
+      'a',
+      'b',
+    ]);
+  });
+
+  // A malformed (non-array) entry must be DROPPED, not `.slice`d and not thrown on: an
+  // empty list would render as a `0 values` cardinality hint, inventing a fact.
+  it('get_dashboard_state drops a non-array fieldDistinctValues entry without throwing', () => {
+    const base = makeState();
+    const state: StudioState = {
+      ...base,
+      runtime: {
+        ...base.runtime,
+        dataSources: {
+          src1: {
+            ...base.runtime.dataSources.src1,
+            fieldDistinctValues: { revenue: 'abc' as unknown as string[] },
+          },
+        },
+      },
+    };
+    let out: Record<string, unknown> | undefined;
+    expect(() => {
+      out = parseOutput(executeToolOnState('get_dashboard_state', {}, state).output);
+    }).not.toThrow();
+    const distinct = (out!.dataSources as Record<string, { fieldDistinctValues: unknown }>).src1
+      .fieldDistinctValues as Record<string, unknown>;
+    expect(Object.hasOwn(distinct, 'revenue')).toBe(false);
+  });
+
+  // `projectStateForAI`'s `dataSources` accumulator is keyed by a client-supplied source
+  // id; a source keyed `__proto__` disappeared from every read surface, so the model was
+  // told a `sourceId` the dashboard really has does not exist.
+  it('get_dashboard_state keeps a data source keyed `__proto__`', () => {
+    const base = makeState();
+    const state: StudioState = {
+      ...base,
+      runtime: {
+        ...base.runtime,
+        dataSources: withProtoKey({ id: '__proto__', label: 'Sales', fields: [] }) as never,
+      },
+    };
+    const out = parseOutput(executeToolOnState('get_dashboard_state', {}, state).output);
+    expect(Object.hasOwn(out.dataSources as object, '__proto__')).toBe(true);
+  });
+
+  // The worst of the family: a silently-DROPPED mutation reported as success.
+  // `colSpans['__proto__'] = 12` on a plain object literal is a no-op (assigning a
+  // primitive to `__proto__` is ignored) while `applied.colSpans` still counted it.
+  it('apply_bulk_update actually ships a colSpan for a widget keyed `__proto__`', () => {
+    const state = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'p1' },
+        pages: { p1: { id: 'p1', title: 'P', widgetRows: [['__proto__']] } },
+        widgets: withProtoKey({
+          id: '__proto__',
+          kind: 'kpi',
+          title: 'W',
+          config: {},
+        }) as never,
+      },
+    });
+    const result = executeToolOnState('apply_bulk_update', { colSpans: withProtoKey(12) }, state);
+    const out = parseOutput(result.output);
+    expect((out.applied as { colSpans: number }).colSpans).toBe(1);
+    // The reported success must be backed by a real entry in the emitted mutation —
+    // this is exactly what silently vanished before.
+    const spans = (result.mutation as { args: { widgetColSpans: Record<string, number> } }).args
+      .widgetColSpans;
+    expect(Object.hasOwn(spans, '__proto__')).toBe(true);
+    expect(Object.getOwnPropertyDescriptor(spans, '__proto__')!.value).toBe(12);
+  });
+
+  // `addedWidgetKinds` was a `{}` keyed by a model-supplied `widgetId`, so
+  // `addedWidgetKinds['toString']` resolved an inherited FUNCTION as the widget kind —
+  // and `validateConfigKeysForKind` returns `[]` (unrestricted) for an unknown kind,
+  // skipping the whole config-key / chart-key / value-shape gate for that update.
+  it('apply_bulk_update does not resolve a widget kind through the prototype chain', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'apply_bulk_update',
+      { widgetUpdates: [{ widgetId: 'toString', config: { sankeyTargetField: 'x' } }] },
+      state,
+    );
+    const out = parseOutput(result.output);
+    expect((out.applied as { updated: number }).updated).toBe(0);
+    expect(out.skipped).toEqual(expect.arrayContaining([expect.stringMatching(/not found/i)]));
+  });
+
+  // `set_widget_width` read the applied span back with a bare
+  // `page.widgetColSpans[widgetId]`, which for `widgetId: 'constructor'` resolved
+  // `Object` — a truthy non-number echoed back to the model as the applied width.
+  it('set_widget_width reads the applied span as an own property only', () => {
+    const state = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'p1' },
+        pages: { p1: { id: 'p1', title: 'P', widgetRows: [['w1']] } },
+        widgets: { w1: { id: 'w1', kind: 'kpi', title: 'W', config: {} } as never },
+      },
+    });
+    const out = parseOutput(
+      executeToolOnState('set_widget_width', { widgetId: 'w1', columns: 12 }, state).output,
+    );
+    expect(out.columns).toBe(12);
+  });
+
+  // `capFilterValue`'s accumulator is keyed by model-supplied object keys too.
+  it('add_page_filter keeps a `__proto__` key inside an object-typed filter value', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'add_page_filter',
+      {
+        field: 'revenue',
+        sourceId: 'src1',
+        operator: 'equals',
+        value: withProtoKey({ nested: true }),
+      },
+      state,
+    );
+    const value = (result.mutation as { args: { filter: { value: Record<string, unknown> } } }).args
+      .filter.value;
+    expect(Object.hasOwn(value, '__proto__')).toBe(true);
+  });
+});
+
+// ── Finding M8 (cap gaps): key NAMES and the top-level key COUNT were unbounded ─
+describe('executeToolOnState: config/filter KEY caps (finding M8)', () => {
+  it('caps an oversized key inside customConfig, not just its value', () => {
+    const state = makeState();
+    const longKey = 'k'.repeat(100_000);
+    const result = executeToolOnState(
+      'add_widget',
+      { kind: 'kpi', title: 'KPI', config: { customConfig: { [longKey]: 1 } } },
+      state,
+    );
+    const config = (
+      result.mutation as { args: { widget: { config: { customConfig: Record<string, unknown> } } } }
+    ).args.widget.config.customConfig;
+    expect(Object.keys(config).every((k) => k.length <= 200)).toBe(true);
+  });
+
+  it('caps the TOP-LEVEL config key count so the rejection message stays bounded', () => {
+    const state = makeState();
+    const config: Record<string, unknown> = {};
+    for (let i = 0; i < 5_000; i += 1) {
+      config[`bogus${i}`] = 1;
+    }
+    // The keys are invalid for the kind, so the call is rejected — the point is that
+    // the rejection echoes a bounded id list rather than all 5,000 key names.
+    const out = parseOutput(
+      executeToolOnState('add_widget', { kind: 'kpi', title: 'K', config }, state).output,
+    );
+    expect((out.error as string).length).toBeLessThan(1_000);
+  });
+
+  it('caps an oversized key inside an object-typed filter value', () => {
+    const state = makeState();
+    const longKey = 'k'.repeat(100_000);
+    const result = executeToolOnState(
+      'add_page_filter',
+      { field: 'revenue', sourceId: 'src1', operator: 'equals', value: { [longKey]: 1 } },
+      state,
+    );
+    const value = (result.mutation as { args: { filter: { value: Record<string, unknown> } } }).args
+      .filter.value;
+    expect(Object.keys(value).every((k) => k.length <= 200)).toBe(true);
+  });
+});
+
+// ── Finding L2: the depth guard returned the remaining subtree VERBATIM ───────
+//
+// Past `MAX_FILTER_VALUE_DEPTH` / `MAX_CONFIG_VALUE_DEPTH` the guards used to
+// `return value`, so nesting one level beyond the limit skipped the 200-char /
+// 50-entry caps entirely — the depth limit was a complete cap BYPASS, not a work
+// bound. (`mcp/queryTools.ts` relies on `capFilterValue` for the same bound.)
+describe('executeToolOnState: depth-limit caps (finding L2)', () => {
+  /** Wrap `leaf` in `depth` levels of `{ n: … }`. */
+  function nest(leaf: unknown, depth: number): unknown {
+    let out = leaf;
+    for (let i = 0; i < depth; i += 1) {
+      out = { n: out };
+    }
+    return out;
+  }
+
+  it('does not persist an uncapped string nested past the filter-value depth limit', () => {
+    const state = makeState();
+    const long = 'x'.repeat(100_000);
+    const result = executeToolOnState(
+      'add_page_filter',
+      {
+        field: 'revenue',
+        sourceId: 'src1',
+        operator: 'equals',
+        // 8 levels: well past MAX_FILTER_VALUE_DEPTH (5).
+        value: nest(long, 8),
+      },
+      state,
+    );
+    const { value } = (result.mutation as { args: { filter: { value: unknown } } }).args.filter;
+    expect(JSON.stringify(value).length).toBeLessThan(1_000);
+  });
+
+  it('does not persist an uncapped array nested past the config depth limit', () => {
+    const state = makeState();
+    const hugeArray = Array.from({ length: 10_000 }, (_, i) => `v${i}`);
+    const result = executeToolOnState(
+      'add_widget',
+      {
+        kind: 'kpi',
+        title: 'KPI',
+        // `customConfig` itself is level 0, so 8 more levels is past the limit (4).
+        config: { customConfig: nest(hugeArray, 8) as Record<string, unknown> },
+      },
+      state,
+    );
+    const config = (result.mutation as { args: { widget: { config: { customConfig: unknown } } } })
+      .args.widget.config.customConfig;
+    expect(JSON.stringify(config).length).toBeLessThan(1_000);
+  });
+
+  it('says the value was truncated rather than silently dropping the subtree', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'add_page_filter',
+      { field: 'revenue', sourceId: 'src1', operator: 'equals', value: nest({ deep: 1 }, 8) },
+      state,
+    );
+    const { value } = (result.mutation as { args: { filter: { value: unknown } } }).args.filter;
+    expect(JSON.stringify(value)).toContain('truncated');
+  });
+
+  it('leaves a structure within the depth limit untouched', () => {
+    const state = makeState();
+    const result = executeToolOnState(
+      'add_page_filter',
+      { field: 'revenue', sourceId: 'src1', operator: 'equals', value: nest('leaf', 3) },
+      state,
+    );
+    const { value } = (result.mutation as { args: { filter: { value: unknown } } }).args.filter;
+    expect(value).toEqual({ n: { n: { n: 'leaf' } } });
+  });
+});
+
+// ── Finding M8 (cap gaps): `dashboard.activePageId` and the `doc.ai` thread strings ─
+describe('capIncomingDashboardState / projectStateForAI: remaining uncapped strings', () => {
+  it('caps `dashboard.activePageId`, the one uncapped `doc.dashboard` field', () => {
+    const long = 'p'.repeat(5_000);
+    const state = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: long },
+        pages: { [long]: { id: long, title: 'P', widgetRows: [] } },
+        widgets: {},
+      },
+    });
+    expect(capIncomingDashboardState(state).doc.dashboard.activePageId.length).toBe(200);
+  });
+
+  // `rename_thread` caps the name it WRITES, but `doc.ai` arrives from the request body
+  // and `capIncomingDashboardState` passes that sub-partition through untouched — so
+  // `projectStateForAI` is the only chokepoint for what the read surfaces EMIT.
+  it('caps an oversized `ai.threads[].name` emitted by get_dashboard_state', () => {
+    const base = makeState();
+    const state: StudioState = {
+      ...base,
+      doc: {
+        ...base.doc,
+        ai: {
+          activeThreadId: 't1',
+          threads: [{ id: 't1', name: 'n'.repeat(50_000), messages: [] }],
+        } as never,
+      },
+    };
+    const out = parseOutput(executeToolOnState('get_dashboard_state', {}, state).output);
+    const { threads } = (out.doc as { ai: { threads: Array<{ name: string }> } }).ai;
+    expect(threads[0].name.length).toBe(200);
+  });
+});

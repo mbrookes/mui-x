@@ -100,6 +100,45 @@ const MAX_FILTER_VALUE_ARRAY_LENGTH = 50;
 const MAX_FILTER_VALUE_OBJECT_KEYS = MAX_FILTER_VALUE_ARRAY_LENGTH;
 
 /**
+ * Max length of an object KEY retained inside a model-supplied filter `value` or
+ * widget `config` (finding M8).
+ *
+ * Every cap in this file bounded object VALUES and entry COUNTS; key NAMES at any
+ * depth were never bounded at all. Both containers are re-serialized in full on
+ * every subsequent request — `buildAISystemPrompt.ts` echoes a filter value via
+ * `JSON.stringify(f.value)`, and `describeWidget` echoes config content — and a
+ * key is just as much of that serialization as its value. The concrete reachable
+ * case: `customConfig` is a SHARED config key, valid on every widget kind and
+ * arbitrarily shaped by design, so
+ * `add_widget({ kind:'chart', title:'t', config:{ customConfig:{ "<1,000,000 chars>": 1 } } })`
+ * passes every existing gate and lands a 1 MB key in persisted `doc.widgets` and
+ * in every future `get_dashboard_state` payload.
+ *
+ * Reuses {@link MAX_FILTER_STRING_LENGTH} — a key is the same class of short
+ * identifier string as a filter `field` or a `sourceId`, both already bounded by
+ * it. Truncation can in principle collide two keys sharing a 200-char prefix
+ * (last write wins); that is the same trade-off the entry-COUNT caps already make
+ * by dropping entries outright, and no legitimate config or filter key comes close
+ * to the bound.
+ */
+const MAX_OBJECT_KEY_LENGTH = MAX_FILTER_STRING_LENGTH;
+
+/**
+ * Max number of TOP-LEVEL keys retained in a model-supplied widget `config`
+ * (finding M8). `capConfigStringValues` bounded the shape of every VALUE but never
+ * the number of keys at the top level, even though its own nested branches
+ * (`capShallowConfigValue`) have bounded key count since they were written. An
+ * unbounded key count is both a persisted token bomb and an unbounded RESPONSE
+ * echo: `invalidConfigKeyError` joins every offending key into its error string.
+ * Sized at 200 — matching `capIncomingCustomWidgets`'s
+ * `MAX_CUSTOM_WIDGET_CONFIG_KEYS` for the same kind of config bag — because a
+ * legitimate chart config can legally carry well over a hundred keys (the union of
+ * the shared keys and a chart family's own), so the 50-entry nested bound would be
+ * too tight here.
+ */
+const MAX_CONFIG_KEYS = 200;
+
+/**
  * Max number of operations accepted per array/record arg of a single
  * `apply_bulk_update` call (finding F2, Tier 2). One bulk call counts as ONE
  * mutation against `maxMutationsPerRequest`, but without a per-arg cap a single call
@@ -136,9 +175,161 @@ const MAX_IDS_IN_ERROR = 10;
  */
 const MAX_SKIPPED_IN_OUTPUT = 20;
 
+/**
+ * Max characters of an offending argument VALUE echoed back into a tool-result
+ * validation error (finding H4). `JSON.stringify(value)` is this file's existing
+ * idiom for "show the model what it sent", but the value is model-supplied and
+ * unbounded, so a megabyte-sized object would be echoed straight back into the
+ * conversation — the same response-echo bomb {@link MAX_IDS_IN_ERROR} and
+ * {@link MAX_SKIPPED_IN_OUTPUT} already bound for id and skip lists.
+ */
+const MAX_ECHOED_ARG_VALUE_LENGTH = 100;
+
 /** Cap a model-supplied string to `maxLength` characters. */
 function capString(value: string, maxLength: number): string {
   return value.length > maxLength ? value.slice(0, maxLength) : value;
+}
+
+/**
+ * Coerce an untrusted, model- or client-supplied value to a string WITHOUT ever
+ * invoking `ToPrimitive` on an object (finding H4).
+ *
+ * `String(x)` looks total but is not. For a JSON object whose `toString` is a
+ * NON-callable own property — `{"toString": 1}`, which `JSON.parse` accepts
+ * verbatim, so it survives both a raw tool-call `arguments` buffer and the request
+ * body — `ToPrimitive` skips the uncallable `toString`, falls back to
+ * `Object.prototype.valueOf` (which returns the object itself), and throws
+ * `TypeError: Cannot convert object to primitive value`.
+ *
+ * That throw escaped in two places, and in both the raw `TypeError` was strictly
+ * worse than a validation error:
+ *
+ * - Out of `executeToolOnState`, whose contract (see `toolPolicy.ts`'s PURITY
+ *   INVARIANT and `agenticLoop/toolDispatch.ts`'s catch block) is that it is pure
+ *   and never throws — so the catch there classifies the throw as a HOST-policy
+ *   failure or an internal defect and hands the model an opaque correlation id,
+ *   burning a turn and a mutation-budget unit, while the host's `onToolError`
+ *   logs a middleware bug misattributed to host code.
+ * - Out of `capIncomingDashboardState`, at the very top of `handleAIChat` request
+ *   handling, where it collapsed the entire request into one generic SSE error —
+ *   a per-request DoS from a two-token payload, and exactly the "opaque native
+ *   `TypeError`" class `validateStudioAIRequestBody` exists to eliminate.
+ *
+ * Semantics, chosen so that nothing which was already safe changes behavior:
+ * - a string is returned as-is;
+ * - `null`/`undefined` become `''` — exactly what the `String(x ?? '')` idiom this
+ *   replaces produced;
+ * - a number/boolean/bigint stringifies as before, so a model that sends
+ *   `pageId: 3` still addresses page `"3"`;
+ * - anything else (object, array, function, symbol) becomes `''` rather than
+ *   `"[object Object]"` or a throw. `''` is the right sentinel because it is
+ *   already the "argument absent" value at every call site, so an unusable object
+ *   takes the SAME path an omitted argument takes (the existence check fails, the
+ *   cap yields empty) instead of inventing a plausible-looking `"[object Object]"`
+ *   id or title. Tool-argument call sites additionally reject the value up front
+ *   via {@link invalidStringArgsError}, so the model receives an actionable error
+ *   rather than silently landing an empty title; the incoming-state cap path has
+ *   no caller to report to and relies on the `''` normalization alone.
+ */
+function asString(value: unknown): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (value === null || value === undefined) {
+    return '';
+  }
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    // Safe: the value is already a primitive here, so `ToPrimitive` never runs.
+    return String(value);
+  }
+  return '';
+}
+
+/**
+ * `Number()`'s mirror of {@link asString} (finding H4). `Number(x)` throws the same
+ * `TypeError: Cannot convert object to primitive value` for the mirror-image shape
+ * `{"valueOf": 1, "toString": 2}` (both coercion methods present but neither
+ * callable), and throws unconditionally for a symbol.
+ *
+ * Returns `NaN` for anything not numerically coercible, so the `Number.isFinite`
+ * gate every caller already applies turns the bad value into that caller's own
+ * actionable error instead of a raw throw. Nullish also yields `NaN` rather than
+ * `Number(null) === 0`: both call sites already exclude nullish before calling,
+ * and `0` would be a silently-wrong column width / forecast period rather than a
+ * rejected one.
+ */
+function asNumber(value: unknown): number {
+  if (typeof value === 'number') {
+    return value;
+  }
+  if (typeof value === 'string' || typeof value === 'boolean' || typeof value === 'bigint') {
+    // Safe: the value is already a primitive here, so `ToPrimitive` never runs.
+    return Number(value);
+  }
+  return NaN;
+}
+
+/**
+ * Render an offending model-supplied argument value for a tool-result error,
+ * bounded to {@link MAX_ECHOED_ARG_VALUE_LENGTH} and never throwing (finding H4).
+ * Falls back to naming the runtime shape when the value is not JSON-representable
+ * (a cyclic structure, a `BigInt`, a function), so the error stays useful without
+ * this file having to trust `JSON.stringify` on untrusted input.
+ */
+function describeArgValue(value: unknown): string {
+  let json: string | undefined;
+  try {
+    json = JSON.stringify(value);
+  } catch {
+    json = undefined;
+  }
+  if (json === undefined) {
+    return Array.isArray(value) ? 'an array' : `a ${typeof value}`;
+  }
+  return json.length > MAX_ECHOED_ARG_VALUE_LENGTH
+    ? `${json.slice(0, MAX_ECHOED_ARG_VALUE_LENGTH)}…`
+    : json;
+}
+
+/**
+ * Reject a model-supplied tool argument that the handler is about to read AS A
+ * STRING but that is not string-coercible (finding H4).
+ *
+ * {@link asString} guarantees the handler cannot THROW on such a value, but on its
+ * own it would silently normalize `{"toString": 1}` to `''` — committing an empty
+ * dashboard/page/widget title, or looking up the widget named `''`. This gate runs
+ * first so the model gets the same actionable, retryable validation error every
+ * sibling argument already produces (`fieldType`, `operator`, `columns`,
+ * `periods`, `enabled`), rather than a silent mis-apply reported as success.
+ *
+ * A number or boolean is ACCEPTED, not rejected: `String(42)` was always the
+ * behavior for a model that sends an id or title as a bare number, and tightening
+ * that would be an unrelated behavior change. Nullish is accepted too — every call
+ * site treats an absent argument as legal and defaults it.
+ *
+ * Returns one error naming every offending argument (not just the first), so a
+ * model that mis-shapes two arguments fixes both in one retry.
+ */
+function invalidStringArgsError(
+  args: Record<string, unknown>,
+  names: readonly string[],
+): string | undefined {
+  const offenders = names.filter((name) => {
+    const value = args[name];
+    return (
+      value !== undefined &&
+      value !== null &&
+      typeof value !== 'string' &&
+      typeof value !== 'number' &&
+      typeof value !== 'boolean'
+    );
+  });
+  if (offenders.length === 0) {
+    return undefined;
+  }
+  return `argument(s) of the wrong type: ${offenders
+    .map((name) => `${name} (expected a string, received ${describeArgValue(args[name])})`)
+    .join(', ')}. Send a plain string for each.`;
 }
 
 /**
@@ -173,12 +364,34 @@ function capTitle(title: string): string {
 }
 
 /**
- * Max recursion depth `capFilterValue` will descend into a nested array/object
- * filter value. Bounds the work done on a pathologically deep model-supplied
- * structure; values beyond this depth are left as-is (a nested array at that depth
- * is still bounded by the enclosing array-length cap applied on the way down).
+ * Max recursion depth `capFilterValue`/`capShallowConfigValue` will descend into a
+ * nested array/object value. Bounds the work done on a pathologically deep
+ * model-supplied structure.
  */
 const MAX_FILTER_VALUE_DEPTH = 5;
+
+/**
+ * What a container found AT the recursion depth limit is replaced with (finding
+ * L2).
+ *
+ * The depth guards previously returned the remaining subtree VERBATIM, which made
+ * the depth limit a complete cap BYPASS rather than a work bound: a 1 MB string or
+ * a 100,000-entry array nested one level past the limit skipped the 200-char /
+ * 50-entry caps entirely and was persisted and re-interpolated on every subsequent
+ * request — the exact token-bomb class these caps exist to close, reachable by
+ * simply adding nesting. (`mcp/queryTools.ts` relies on `capFilterValue` for the
+ * same bound on the forwarded-query path.)
+ *
+ * Replacing the over-deep container with a marker rather than recursing further
+ * keeps the work bound intact AND closes the bypass, and follows this package's
+ * "say so, don't silently truncate" convention (`SYSTEM_PROMPT_TRUNCATION_NOTE`,
+ * `truncateSkipped`'s "…N more", `projectDataSourceMetadata`'s `truncated` flag) —
+ * the model reads why the value stops rather than reasoning over a subtree it
+ * cannot know was dropped. Scalars at the limit (number/boolean/null, and strings,
+ * which are length-capped before the depth check) pass through unchanged: they are
+ * inherently bounded, so there is nothing to bypass.
+ */
+const DEPTH_LIMIT_MARKER = '[truncated: nested too deeply]';
 
 /**
  * Cap a model-supplied filter `value` before persisting it — same token-bomb class
@@ -189,8 +402,12 @@ const MAX_FILTER_VALUE_DEPTH = 5;
  * value is also capped, not just the array's own length (Tier 2, iteration 22) —
  * `buildAISystemPrompt.ts` echoes the whole value via `JSON.stringify(f.value)` on
  * every future request, so an uncapped element anywhere inside the structure is just
- * as much a persistent token bomb as an uncapped top-level string. Other
- * JSON-serializable scalar shapes (number/boolean/null) are left as-is.
+ * as much a persistent token bomb as an uncapped top-level string. Object KEY names
+ * are length-capped as well as counted ({@link MAX_OBJECT_KEY_LENGTH}, finding M8),
+ * and a container found AT the depth limit is replaced with
+ * {@link DEPTH_LIMIT_MARKER} rather than returned verbatim (finding L2) — returning
+ * it made the depth limit a complete cap bypass. Other JSON-serializable scalar
+ * shapes (number/boolean/null) are left as-is.
  *
  * Exported (Tier 3, iteration 25, finding T2-3) so `mcp/queryTools.ts` can apply the
  * SAME cap to `query_data_source`'s `filters[].value` — that path forwards
@@ -204,7 +421,9 @@ export function capFilterValue(value: unknown, depth = 0): unknown {
     return capString(value, MAX_FILTER_STRING_LENGTH);
   }
   if (depth >= MAX_FILTER_VALUE_DEPTH) {
-    return value;
+    // Finding L2 — a container here is REPLACED, not returned verbatim; see
+    // {@link DEPTH_LIMIT_MARKER} for why returning it was a cap bypass.
+    return value !== null && typeof value === 'object' ? DEPTH_LIMIT_MARKER : value;
   }
   if (Array.isArray(value)) {
     const bounded =
@@ -214,7 +433,12 @@ export function capFilterValue(value: unknown, depth = 0): unknown {
     return bounded.map((entry) => capFilterValue(entry, depth + 1));
   }
   if (value !== null && typeof value === 'object') {
-    const capped: Record<string, unknown> = {};
+    // `Object.create(null)`, not `{}` (finding M8): the keys are model-supplied, so a
+    // `{"__proto__": {…}}` filter value silently LOST that entry on a normal object
+    // literal (assigning an object to `__proto__` rewrites the prototype instead of
+    // creating a property) while the tool still reported `{ success: true }`. Same
+    // treatment the sibling `capFieldDistinctValues`/`capDataSources` maps already get.
+    const capped: Record<string, unknown> = Object.create(null);
     // Finding F3 (Tier 3): bound the NUMBER of retained keys, not just each key's
     // recursively-capped value — an object with thousands of short keys is otherwise
     // persisted and re-interpolated verbatim, the same token-bomb class the array
@@ -225,7 +449,9 @@ export function capFilterValue(value: unknown, depth = 0): unknown {
         ? entries.slice(0, MAX_FILTER_VALUE_OBJECT_KEYS)
         : entries;
     for (const [key, entry] of boundedEntries) {
-      capped[key] = capFilterValue(entry, depth + 1);
+      // Finding M8 — the KEY is length-capped too, not just the value; see
+      // {@link MAX_OBJECT_KEY_LENGTH}.
+      capped[capString(key, MAX_OBJECT_KEY_LENGTH)] = capFilterValue(entry, depth + 1);
     }
     return capped;
   }
@@ -291,7 +517,9 @@ function capShallowConfigValue(value: unknown, depth = 0): unknown {
     return capString(value, MAX_FILTER_STRING_LENGTH);
   }
   if (depth >= MAX_CONFIG_VALUE_DEPTH) {
-    return value;
+    // Finding L2, same bypass as `capFilterValue`'s guard — a container at the depth
+    // limit is replaced, never returned verbatim (see {@link DEPTH_LIMIT_MARKER}).
+    return value !== null && typeof value === 'object' ? DEPTH_LIMIT_MARKER : value;
   }
   if (Array.isArray(value)) {
     const bounded =
@@ -299,14 +527,19 @@ function capShallowConfigValue(value: unknown, depth = 0): unknown {
     return bounded.map((entry) => capShallowConfigValue(entry, depth + 1));
   }
   if (value !== null && typeof value === 'object') {
-    const capped: Record<string, unknown> = {};
+    // Null-prototype for the same reason as `capFilterValue`'s object branch (finding
+    // M8) — `customConfig` is arbitrarily shaped model JSON, so `__proto__` is a
+    // reachable key here.
+    const capped: Record<string, unknown> = Object.create(null);
     const entries = Object.entries(value as Record<string, unknown>);
     const boundedEntries =
       entries.length > MAX_FILTER_VALUE_OBJECT_KEYS
         ? entries.slice(0, MAX_FILTER_VALUE_OBJECT_KEYS)
         : entries;
     for (const [key, prop] of boundedEntries) {
-      capped[key] = capShallowConfigValue(prop, depth + 1);
+      // Finding M8 — the KEY is length-capped too (`customConfig` is an arbitrarily
+      // shaped consumer bag, so its keys are as model-supplied as its values).
+      capped[capString(key, MAX_OBJECT_KEY_LENGTH)] = capShallowConfigValue(prop, depth + 1);
     }
     return capped;
   }
@@ -344,13 +577,30 @@ function capShallowConfigValue(value: unknown, depth = 0): unknown {
  * `args.config` (or a custom widget's `defaultConfig`) at the write source; any
  * non-plain-object input (including `null`/arrays) is returned unchanged for the
  * caller's own shape validation to reject.
+ *
+ * Finding M8 additionally bounds the config's KEY space, which no cap in this file
+ * covered before: the TOP-LEVEL key count ({@link MAX_CONFIG_KEYS} — the nested
+ * branches had a key-count bound from the start, the top level did not) and every
+ * key's LENGTH at any depth ({@link MAX_OBJECT_KEY_LENGTH}). `customConfig` is a
+ * `SHARED_CONFIG_KEYS` member valid on every widget kind and arbitrarily shaped by
+ * design, so a 1 MB KEY inside it passed every gate and landed in persisted
+ * `doc.widgets` and every future `get_dashboard_state`.
  */
 function capConfigStringValues(config: unknown): unknown {
   if (config === null || typeof config !== 'object' || Array.isArray(config)) {
     return config;
   }
-  const capped: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(config as Record<string, unknown>)) {
+  // Null-prototype for the same reason as the two helpers above (finding M8).
+  const capped: Record<string, unknown> = Object.create(null);
+  // Finding M8 — bound the TOP-LEVEL key COUNT and each key's LENGTH, not just the
+  // values. The nested branches (`capShallowConfigValue`) already bounded key count;
+  // the top level did not, and no branch bounded key names at all. See
+  // {@link MAX_CONFIG_KEYS} / {@link MAX_OBJECT_KEY_LENGTH}.
+  for (const [rawKey, value] of Object.entries(config as Record<string, unknown>).slice(
+    0,
+    MAX_CONFIG_KEYS,
+  )) {
+    const key = capString(rawKey, MAX_OBJECT_KEY_LENGTH);
     if (typeof value === 'string') {
       capped[key] = capString(value, MAX_FILTER_STRING_LENGTH);
     } else if (Array.isArray(value)) {
@@ -528,10 +778,10 @@ function capDataSourceField(field: StudioDataField): StudioDataField {
     // (`serializeFieldForAI`'s `sanitizeForPrompt(f.id)`) on every request, exactly
     // like the source/page/widget ids `capEntityId` already bounds; only
     // `label`/`format`/`aiDescription` were capped before.
-    id: capEntityId(String(f.id ?? '')),
-    label: capTitle(String(f.label ?? '')),
+    id: capEntityId(asString(f.id ?? '')),
+    label: capTitle(asString(f.label ?? '')),
     ...(f.format !== undefined
-      ? { format: capString(String(f.format), MAX_TITLE_LENGTH) as StudioDataField['format'] }
+      ? { format: capString(asString(f.format), MAX_TITLE_LENGTH) as StudioDataField['format'] }
       : {}),
     // Finding H1d — rendered as `capabilities.join('+')`, unbounded in both entry
     // count and per-entry length.
@@ -540,7 +790,7 @@ function capDataSourceField(field: StudioDataField): StudioDataField {
           capabilities: f.capabilities
             .slice(0, MAX_STATE_FIELD_CAPABILITIES)
             .map((c) =>
-              capString(String(c ?? ''), MAX_FILTER_STRING_LENGTH),
+              capString(asString(c ?? ''), MAX_FILTER_STRING_LENGTH),
             ) as StudioDataField['capabilities'],
         }
       : {}),
@@ -548,12 +798,14 @@ function capDataSourceField(field: StudioDataField): StudioDataField {
     ...(f.defaultAggregationFn !== undefined
       ? {
           defaultAggregationFn: capString(
-            String(f.defaultAggregationFn),
+            asString(f.defaultAggregationFn),
             MAX_FILTER_STRING_LENGTH,
           ) as StudioDataField['defaultAggregationFn'],
         }
       : {}),
-    ...(f.aiDescription !== undefined ? { aiDescription: capTitle(String(f.aiDescription)) } : {}),
+    ...(f.aiDescription !== undefined
+      ? { aiDescription: capTitle(asString(f.aiDescription)) }
+      : {}),
   };
 }
 
@@ -586,9 +838,9 @@ function capFieldDistinctValues(
     // field. Dropping it renders exactly as "no distinct values known" (finding M1's
     // sibling — the read site also `Array.isArray`-guards this).
     if (Array.isArray(values)) {
-      capped[capEntityId(String(fieldId))] = values
+      capped[capEntityId(asString(fieldId))] = values
         .slice(0, MAX_STATE_DISTINCT_VALUES_PER_FIELD)
-        .map((v) => capString(String(v ?? ''), MAX_STATE_DISTINCT_VALUE_LENGTH));
+        .map((v) => capString(asString(v ?? ''), MAX_STATE_DISTINCT_VALUE_LENGTH));
     }
   }
   return capped;
@@ -610,10 +862,11 @@ function capFieldDistinctValues(
  * request body asserting `tableName: { orders: 'secrets' }` reached the host as an
  * object — which Knex reads as an alias map, querying a table the caller chose.
  * A non-string or over-long value is therefore DROPPED, not coerced or truncated:
- * `String({…})` would invent the table name `"[object Object]"` and a truncated
- * name would address a DIFFERENT table, whereas dropping it leaves the source
- * without a `tableName`, which every resolver already reports as an unknown /
- * unqueryable data source.
+ * coercing `{…}` would invent a table name (`String({…})` yields
+ * `"[object Object]"`; the {@link asString} that replaced it yields `""`) and a
+ * truncated name would address a DIFFERENT table, whereas dropping it leaves the
+ * source without a `tableName`, which every resolver already reports as an unknown
+ * / unqueryable data source.
  */
 function capDataSource(source: StudioDataSource): StudioDataSource {
   const cappedDistinct = capFieldDistinctValues(source.fieldDistinctValues);
@@ -623,11 +876,11 @@ function capDataSource(source: StudioDataSource): StudioDataSource {
     source.tableName.length <= MAX_FILTER_STRING_LENGTH;
   return {
     ...source,
-    id: capEntityId(String(source.id ?? '')),
-    label: capTitle(String(source.label ?? '')),
+    id: capEntityId(asString(source.id ?? '')),
+    label: capTitle(asString(source.label ?? '')),
     ...(source.tableName !== undefined && !usableTableName ? { tableName: undefined } : {}),
     ...(source.aiDescription !== undefined
-      ? { aiDescription: capTitle(String(source.aiDescription)) }
+      ? { aiDescription: capTitle(asString(source.aiDescription)) }
       : {}),
     fields: (Array.isArray(source.fields) ? source.fields : [])
       .slice(0, MAX_STATE_DATA_SOURCE_FIELDS)
@@ -669,7 +922,7 @@ function capPageWidgetRows(
       .map((row) =>
         (Array.isArray(row) ? row : [])
           .slice(0, MAX_STATE_LAYOUT_ROW_CELLS)
-          .map((id) => capEntityId(String(id ?? ''))),
+          .map((id) => capEntityId(asString(id ?? ''))),
       ),
   };
 }
@@ -695,7 +948,7 @@ function capDataSources(
     // entry's own `.id` field (`Object.entries` in `projectStateForAI`, and the
     // key is what every `sourceId` reference resolves against), so it needs the
     // same length bound `.id` already gets.
-    capped[capEntityId(String(id))] = capDataSource(source);
+    capped[capEntityId(asString(id))] = capDataSource(source);
   }
   return capped;
 }
@@ -720,16 +973,38 @@ function capDataSources(
  *
  * Applied once, at the top of `handleAIChat` request handling, BEFORE the state is
  * used to build the system prompt or threaded into the agentic loop as the starting
- * `currentState`. Non-interpolated `doc` sub-partitions (`relationships`,
- * `expressionFields`, `filterPresets`, `ai`) and the `session` partition are passed
- * through unchanged. Returns a shallow-cloned state; the input is not mutated.
+ * `currentState`. Returns a shallow-cloned state; the input is not mutated.
+ *
+ * WHAT THIS DOES **NOT** COVER (corrected — the previous wording called these
+ * "non-interpolated … passed through unchanged", which was false for the first
+ * half): the `doc` sub-partitions `relationships`, `expressionFields`,
+ * `filterPresets` and `ai` are passed through UNCAPPED, and they are NOT
+ * uninterpolated — `projectStateForAI` spreads the whole `doc` (minus `ai`), so all
+ * three of `relationships`/`expressionFields`/`filterPresets` are emitted verbatim
+ * by the `get_dashboard_state` tool and the `studio://dashboard/state` resource.
+ * They are absent only from the `<dashboard_state>` SYSTEM PROMPT block, which is
+ * what the original claim actually described. The bounds that do apply to them are
+ * downstream, not here: `capToolOutput` bounds the chat tool-result size, and
+ * `projectStateForAI` length-caps the `ai` thread `id`/`name` it emits (that path
+ * has no write-source cap of its own). Adding count/shape caps for the three
+ * structured sub-partitions is deliberately NOT done here — each is a typed graph
+ * the reducer and the pipeline consume by shape, so truncating one would silently
+ * break relationship resolution or expression evaluation rather than merely
+ * shortening a string; bounding them belongs at the same `validateStudioAIRequestBody`
+ * shape boundary that already types the rest of the body.
  */
 export function capIncomingDashboardState(state: StudioState): StudioState {
   const { doc } = state;
 
   const cappedDashboard = {
     ...doc.dashboard,
-    title: capTitle(String(doc.dashboard.title ?? '')),
+    title: capTitle(asString(doc.dashboard.title ?? '')),
+    // Finding M8 — `activePageId` was the one `doc.dashboard` field that is neither
+    // type-validated by `validateStudioAIRequestBody` nor capped here, yet it is
+    // echoed verbatim into `list_pages` and `get_dashboard_state` output and read as
+    // a page-map key by nearly every tool. Same `capEntityId` bound the page ids it
+    // is compared against already get, so the two can't disagree about length.
+    activePageId: capEntityId(asString(doc.dashboard.activePageId ?? '')),
   };
 
   // `Object.create(null)` for both maps (finding L1) and a capped map KEY for every
@@ -739,18 +1014,20 @@ export function capIncomingDashboardState(state: StudioState): StudioState {
   // left the key unbounded.
   const cappedWidgets: Record<string, StudioWidget> = Object.create(null);
   for (const [id, widget] of Object.entries(doc.widgets).slice(0, MAX_STATE_WIDGETS)) {
-    cappedWidgets[capEntityId(String(id))] = {
+    cappedWidgets[capEntityId(asString(id))] = {
       ...widget,
       // `widget?.` throughout (finding M3): a `doc.widgets: { w1: null }` body
       // previously threw a raw `TypeError: Cannot read properties of null (reading
       // 'id')` right here. The validator now rejects that shape; these guards keep
       // the other callers of this cap pass crash-free too.
-      id: capEntityId(String(widget?.id ?? '')),
-      title: capTitle(String(widget?.title ?? '')),
+      id: capEntityId(asString(widget?.id ?? '')),
+      title: capTitle(asString(widget?.title ?? '')),
       ...(widget?.subtitle !== undefined
-        ? { subtitle: capString(String(widget.subtitle), MAX_TITLE_LENGTH) }
+        ? { subtitle: capString(asString(widget.subtitle), MAX_TITLE_LENGTH) }
         : {}),
-      ...(widget?.sourceId !== undefined ? { sourceId: capSourceId(String(widget.sourceId)) } : {}),
+      ...(widget?.sourceId !== undefined
+        ? { sourceId: capSourceId(asString(widget.sourceId)) }
+        : {}),
       // Finding M3 — default a missing `config` to `{}`. Every widget-describing
       // branch in `buildAISystemPrompt.ts` dereferences it (`resolveChartType(cfg)`,
       // `kpiCfg.kpiValueField`, …), so a config-less widget on the active page threw
@@ -770,13 +1047,13 @@ export function capIncomingDashboardState(state: StudioState): StudioState {
         ? Object.fromEntries(
             Object.entries(page.widgetColSpans)
               .slice(0, MAX_STATE_WIDGET_COL_SPANS)
-              .map(([spanId, span]) => [capEntityId(String(spanId)), span]),
+              .map(([spanId, span]) => [capEntityId(asString(spanId)), span]),
           )
         : undefined;
-    cappedPages[capEntityId(String(id))] = {
+    cappedPages[capEntityId(asString(id))] = {
       ...page,
-      id: capEntityId(String(page?.id ?? '')),
-      title: capTitle(String(page?.title ?? '')),
+      id: capEntityId(asString(page?.id ?? '')),
+      title: capTitle(asString(page?.title ?? '')),
       ...capPageWidgetRows(page?.widgetRows),
       ...(cappedColSpans !== undefined ? { widgetColSpans: cappedColSpans } : {}),
     };
@@ -786,9 +1063,9 @@ export function capIncomingDashboardState(state: StudioState): StudioState {
   // raw `TypeError: Cannot read properties of null (reading 'field')` here.
   const cappedFilters: StudioFilterState[] = doc.filters.slice(0, MAX_STATE_FILTERS).map((f) => ({
     ...f,
-    field: capString(String(f?.field ?? ''), MAX_FILTER_STRING_LENGTH),
+    field: capString(asString(f?.field ?? ''), MAX_FILTER_STRING_LENGTH),
     ...(f?.filterSourceId !== undefined
-      ? { filterSourceId: capString(String(f.filterSourceId), MAX_FILTER_STRING_LENGTH) }
+      ? { filterSourceId: capString(asString(f.filterSourceId), MAX_FILTER_STRING_LENGTH) }
       : {}),
     value: capFilterValue(f?.value),
     ...(f?.value2 !== undefined ? { value2: capFilterValue(f.value2) } : {}),
@@ -820,8 +1097,27 @@ export function capIncomingDashboardState(state: StudioState): StudioState {
  * is the intentional, opt-in channel for sample rows — this dump is not.
  */
 export function projectDataSourceMetadata(source: StudioDataSource): Record<string, unknown> {
-  const cappedDistinct: Record<string, { values: string[]; truncated: boolean }> = {};
+  // `Object.create(null)`, not `{}` (finding M8): these keys are DATABASE COLUMN
+  // names, so a column literally named `__proto__` assigned an object value would
+  // rewrite the prototype instead of creating an entry — that field's distinct
+  // values would silently vanish from `get_dashboard_state` AND from the
+  // `studio://dashboard/state` resource while everything reported success. The
+  // sibling `capFieldDistinctValues` above already uses a null-prototype map over
+  // the same key space, for the same reason.
+  const cappedDistinct: Record<string, { values: string[]; truncated: boolean }> =
+    Object.create(null);
   for (const [fieldId, values] of Object.entries(source.fieldDistinctValues ?? {})) {
+    // `Array.isArray` before `.slice` (finding M8): `fieldDistinctValues` is
+    // client-supplied JSON on every path that does not go through
+    // `capFieldDistinctValues` (which drops malformed entries for this exact
+    // reason), so a `{ revenue: "abc" }` entry reached `.slice`/`.length` on a
+    // non-array. A string would have `slice`d into a fake value list and a number
+    // would have thrown a raw `TypeError` out of a read-only tool. Drop it instead:
+    // an empty list would render as a `0 values` cardinality hint, inventing a fact
+    // about the field.
+    if (!Array.isArray(values)) {
+      continue;
+    }
     cappedDistinct[fieldId] = {
       values: values.slice(0, MAX_DISTINCT_VALUES_IN_STATE_OUTPUT),
       truncated: values.length > MAX_DISTINCT_VALUES_IN_STATE_OUTPUT,
@@ -882,22 +1178,45 @@ export interface ProjectedStateForAI {
  *    is persisted with shareable dashboards — so echoing it verbatim would dump every
  *    conversation's transcript back to the provider (cross-conversation information
  *    disclosure + an unbounded token bomb). The model already has the active thread as
- *    its live message array, so it needs no chat history in this snapshot.
+ *    its live message array, so it needs no chat history in this snapshot. The
+ *    surviving `id`/`name`/`updatedAt` are length-capped here (finding M8) because
+ *    this is their ONLY chokepoint: `rename_thread` bounds the name it writes, but
+ *    `doc.ai` arrives from the request body and `capIncomingDashboardState` does not
+ *    touch that sub-partition.
+ *
+ * What is deliberately NOT redacted: the rest of `doc` is spread through verbatim,
+ * including `relationships`, `expressionFields` and `filterPresets`. They are
+ * authored dashboard structure the model legitimately needs, not host or user
+ * secrets — but note that they ARE emitted here (an earlier comment on
+ * `capIncomingDashboardState` wrongly described them as non-interpolated), so they
+ * are bounded only by `capToolOutput` on the chat path.
  */
 export function projectStateForAI(state: StudioState): ProjectedStateForAI {
-  const dataSources: Record<string, unknown> = {};
+  // `Object.create(null)`, not `{}` (finding M8): the keys are client-supplied data
+  // source ids, and a source keyed `__proto__` would be silently dropped from BOTH
+  // read surfaces (assigning an object to `{}`'s `__proto__` rewrites the prototype
+  // rather than creating an entry) — the model would then be told a `sourceId` the
+  // dashboard really has does not exist. The sibling `capDataSources` uses a
+  // null-prototype map over the same key space for the same reason.
+  const dataSources: Record<string, unknown> = Object.create(null);
   for (const [id, source] of Object.entries(state.runtime.dataSources)) {
     dataSources[id] = projectDataSourceMetadata(source);
   }
   const { ai, ...docWithoutAi } = state.doc;
   const redactedAi: ProjectedAIState | undefined = ai
     ? {
-        ...(ai.activeThreadId ? { activeThreadId: ai.activeThreadId } : {}),
-        threads: (ai.threads ?? []).map((thread) => ({
-          id: thread.id,
-          name: thread.name,
-          ...(thread.updatedAt ? { updatedAt: thread.updatedAt } : {}),
-          messageCount: thread.messages?.length ?? 0,
+        ...(ai.activeThreadId ? { activeThreadId: capEntityId(asString(ai.activeThreadId)) } : {}),
+        // `id`/`name` are length-capped here (finding M8). Unlike every other string
+        // this snapshot emits they have no write-source cap: `rename_thread` bounds
+        // the name it SETS to 40 chars, but `doc.ai` arrives from the request body
+        // and `capIncomingDashboardState` passes the whole `ai` sub-partition through
+        // untouched, so a client-supplied 50 MB thread name landed verbatim in
+        // `get_dashboard_state` output and in `studio://dashboard/state`.
+        threads: (Array.isArray(ai.threads) ? ai.threads : []).map((thread) => ({
+          id: capEntityId(asString(thread?.id)),
+          name: capTitle(asString(thread?.name)),
+          ...(thread?.updatedAt ? { updatedAt: capTitle(asString(thread.updatedAt)) } : {}),
+          messageCount: Array.isArray(thread?.messages) ? thread.messages.length : 0,
         })),
       }
     : undefined;
@@ -978,6 +1297,31 @@ function getPage(state: StudioState, id: string): StudioState['doc']['pages'][st
 }
 
 /**
+ * `Object.hasOwn`-guarded read of one widget's column span from a page's
+ * `widgetColSpans` map (finding M8), returning `null` for "no span set".
+ *
+ * `widgetColSpans` is keyed by a model-supplied widget id, and it is the second of
+ * the two maps the MCP-side `ownArrayEntry` helper was introduced for. The bare
+ * `page?.widgetColSpans?.[widgetId]` this replaces walked the prototype chain: for
+ * `widgetId: 'constructor'` it resolved `Object` — a truthy non-number — and
+ * `set_widget_width` reported `{ success: true, columns: <the Object function> }`,
+ * telling the model a width had been applied that the reducer never wrote. The
+ * `typeof … === 'number'` check makes the read total in the other direction too, so
+ * a client-supplied non-numeric span reads back as "unset" rather than being echoed.
+ */
+function getWidgetColSpan(
+  page: StudioState['doc']['pages'][string] | undefined,
+  widgetId: string,
+): number | null {
+  const spans = page?.widgetColSpans;
+  if (!spans || typeof spans !== 'object' || !Object.hasOwn(spans, widgetId)) {
+    return null;
+  }
+  const span = spans[widgetId];
+  return typeof span === 'number' ? span : null;
+}
+
+/**
  * Validates `config`'s keys against the given widget `kind` (via the shared
  * `validateConfigKeysForKind` runtime guard) and, if any key doesn't belong to
  * that kind, returns a human-readable error string naming the offending keys.
@@ -988,8 +1332,12 @@ function getPage(state: StudioState, id: string): StudioState['doc']['pages'][st
  */
 function invalidConfigKeyError(kind: string, config: Record<string, unknown>): string | undefined {
   const invalidKeys = validateConfigKeysForKind(kind, config);
+  // `joinIdsForError`, not a bare `.join` (finding M8 sibling): the offending keys are
+  // model-supplied and there can be as many of them as the config has keys, so the
+  // unbounded join echoed the whole set straight back into the conversation — the same
+  // response-echo bomb the layout-id errors already bound.
   return invalidKeys.length > 0
-    ? `config carries key(s) not valid for a '${kind}' widget: ${invalidKeys.join(', ')}`
+    ? `config carries key(s) not valid for a '${kind}' widget: ${joinIdsForError(invalidKeys)}`
     : undefined;
 }
 
@@ -1083,13 +1431,14 @@ function invalidChartConfigKeyError(
   patch: Record<string, unknown>,
   existingChartType: string | undefined,
 ): string | undefined {
-  const effective = String(patch.chartType ?? existingChartType ?? 'bar');
+  const effective = asString(patch.chartType ?? existingChartType ?? 'bar');
   if (!isStudioChartType(effective)) {
     return `unknown chartType '${effective}'. Valid values: ${STUDIO_CHART_TYPES.join(', ')}`;
   }
   const invalid = validateChartConfigKeysForType(effective, patch);
+  // Bounded join, same reason as `invalidConfigKeyError` above.
   return invalid.length > 0
-    ? `config carries key(s) not valid for chartType '${effective}': ${invalid.join(', ')}`
+    ? `config carries key(s) not valid for chartType '${effective}': ${joinIdsForError(invalid)}`
     : undefined;
 }
 
@@ -1150,7 +1499,7 @@ function resolveFieldType(
     return { fieldType: value as StudioDataField['type'] };
   }
   return {
-    error: `invalid fieldType ${JSON.stringify(value)}. Valid field types: ${Object.keys(
+    error: `invalid fieldType ${describeArgValue(value)}. Valid field types: ${Object.keys(
       VALID_FIELD_TYPES,
     ).join(', ')}.`,
   };
@@ -1213,9 +1562,23 @@ export function buildWidgetFromArgs(
   args: { kind?: unknown; title?: unknown; sourceId?: unknown; config?: unknown },
   customWidgets?: StudioCustomWidgetDef[],
 ): { widget: StudioWidget } | { error: string } {
-  const kind = String(args.kind ?? 'chart') as StudioWidget['kind'];
-  const title = capTitle(String(args.title ?? ''));
-  const sourceId = args.sourceId ? capSourceId(String(args.sourceId)) : undefined;
+  // Reject a non-string-coercible `kind`/`title`/`sourceId` BEFORE anything is built
+  // (finding H4). `asString` alone would silently turn `{"toString":1}` into `''` and
+  // commit a nameless widget; the model gets the same actionable error its `config`
+  // and `chartType` siblings already produce. Reported through this function's own
+  // `{ error }` channel, so `apply_bulk_update`'s additions loop turns it into a
+  // `skipped` entry exactly like every other rejected addition.
+  const argError = invalidStringArgsError(args as Record<string, unknown>, [
+    'kind',
+    'title',
+    'sourceId',
+  ]);
+  if (argError) {
+    return { error: argError };
+  }
+  const kind = asString(args.kind ?? 'chart') as StudioWidget['kind'];
+  const title = capTitle(asString(args.title ?? ''));
+  const sourceId = args.sourceId ? capSourceId(asString(args.sourceId)) : undefined;
   // Cap every model-supplied string-typed config value (e.g. `xField`/`yField`/
   // `seriesField`) BEFORE it is validated/merged, so an oversized value never
   // lands in state (Tier 2, iteration 22 — see `capConfigStringValues`).
@@ -1287,7 +1650,14 @@ function planRemoveFilter(
   args: Record<string, unknown>,
   ctx: ToolPlanContext,
 ): ToolExecutionResult {
-  const filterId = String(args.filterId ?? '');
+  // Finding H4 — reject a non-string-coercible `filterId` with an actionable error
+  // rather than letting `asString` normalize it to `''` and reporting the confusing
+  // `Filter  not found.` (and rather than the raw `TypeError` `String()` threw).
+  const argError = invalidStringArgsError(args, ['filterId']);
+  if (argError) {
+    return { output: JSON.stringify({ error: argError }), nextState: ctx.state };
+  }
+  const filterId = asString(args.filterId ?? '');
   // Existence check BEFORE mutating: the `removeFilter` reducer is a silent
   // no-op for an unknown id, so without this guard the model would be told
   // `success: true` for a call that changed nothing and has no signal to
@@ -1362,7 +1732,14 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
   add_page: {
     effect: 'pure',
     plan: (args, { state }) => {
-      const title = capTitle(String(args.title ?? 'New Page'));
+      // Finding H4 — see `invalidStringArgsError`. Without this an unusable `title`
+      // object silently became `''`, committing an untitled page (and the default
+      // `'New Page'` would NOT apply, since the argument is present).
+      const argError = invalidStringArgsError(args, ['title']);
+      if (argError) {
+        return { output: JSON.stringify({ error: argError }), nextState: state };
+      }
+      const title = capTitle(asString(args.title ?? 'New Page'));
       const id = createPageId();
       const mutation: StateMutation = { type: 'addPage', args: { id, title } };
       return {
@@ -1376,7 +1753,13 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
   set_dashboard_title: {
     effect: 'pure',
     plan: (args, { state }) => {
-      const title = capTitle(String(args.title ?? ''));
+      // Finding H4 — `set_dashboard_title({ title: { "toString": 1 } })` used to throw
+      // a raw `TypeError` out of this "never throws by design" function.
+      const argError = invalidStringArgsError(args, ['title']);
+      if (argError) {
+        return { output: JSON.stringify({ error: argError }), nextState: state };
+      }
+      const title = capTitle(asString(args.title ?? ''));
       const mutation: StateMutation = { type: 'setDashboardTitle', args: { title } };
       return {
         output: JSON.stringify({ success: true, title }),
@@ -1420,7 +1803,13 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
   update_widget: {
     effect: 'pure',
     plan: (args, { state }) => {
-      const widgetId = String(args.widgetId ?? '');
+      // Finding H4 — every argument this handler reads as a string, checked in one
+      // pass so a model that mis-shapes two of them fixes both in one retry.
+      const argError = invalidStringArgsError(args, ['widgetId', 'title', 'sourceId']);
+      if (argError) {
+        return { output: JSON.stringify({ error: argError }), nextState: state };
+      }
+      const widgetId = asString(args.widgetId ?? '');
       const widget = getWidget(state, widgetId);
       if (!widget) {
         return {
@@ -1468,10 +1857,10 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
 
       const changes: Partial<Omit<StudioWidget, 'id'>> = {};
       if (args.title !== undefined) {
-        changes.title = capTitle(String(args.title));
+        changes.title = capTitle(asString(args.title));
       }
       if (args.sourceId !== undefined) {
-        changes.sourceId = capSourceId(String(args.sourceId));
+        changes.sourceId = capSourceId(asString(args.sourceId));
       }
 
       // Local MERGE of the incoming patch onto the widget's CURRENT config. Used ONLY
@@ -1537,7 +1926,12 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
   remove_widget: {
     effect: 'pure',
     plan: (args, { state }) => {
-      const widgetId = String(args.widgetId ?? '');
+      // Finding H4 — see `invalidStringArgsError`.
+      const argError = invalidStringArgsError(args, ['widgetId']);
+      if (argError) {
+        return { output: JSON.stringify({ error: argError }), nextState: state };
+      }
+      const widgetId = asString(args.widgetId ?? '');
       if (!getWidget(state, widgetId)) {
         return {
           output: JSON.stringify({ error: `Widget ${widgetId} not found.` }),
@@ -1705,13 +2099,11 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // Fail closed on a non-numeric value with an actionable error naming the 6–24 range.
       let normalizedColumns: number | null = null;
       if (columns != null) {
-        const n = Number(columns);
+        const n = asNumber(columns);
         if (!Number.isFinite(n)) {
           return {
             output: JSON.stringify({
-              error: `set_widget_width 'columns' must be a number between 6 and 24 (or null to reset); received ${JSON.stringify(
-                columns,
-              )}.`,
+              error: `set_widget_width 'columns' must be a number between 6 and 24 (or null to reset); received ${describeArgValue(columns)}.`,
             }),
             nextState: state,
           };
@@ -1769,7 +2161,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // non-finite value to the minimum), so `columns: 100` really becomes 24 and
       // `columns: null` clears the span (read back as `null`). Echoing the unclamped
       // input would tell the model a width took effect that never did.
-      const appliedColumns = nextState.doc.pages[activePageId]?.widgetColSpans?.[widgetId] ?? null;
+      const appliedColumns = getWidgetColSpan(getPage(nextState, activePageId), widgetId);
       return {
         output: JSON.stringify({ success: true, widgetId, columns: appliedColumns }),
         mutation,
@@ -1781,8 +2173,13 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
   rename_page: {
     effect: 'pure',
     plan: (args, { state }) => {
-      const pageId = String(args.pageId ?? '');
-      const title = capTitle(String(args.title ?? ''));
+      // Finding H4 — see `invalidStringArgsError`.
+      const argError = invalidStringArgsError(args, ['pageId', 'title']);
+      if (argError) {
+        return { output: JSON.stringify({ error: argError }), nextState: state };
+      }
+      const pageId = asString(args.pageId ?? '');
+      const title = capTitle(asString(args.title ?? ''));
       const page = getPage(state, pageId);
       if (!page) {
         return { output: JSON.stringify({ error: `Page ${pageId} not found.` }), nextState: state };
@@ -1799,7 +2196,12 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
   remove_page: {
     effect: 'pure',
     plan: (args, { state }) => {
-      const pageId = String(args.pageId ?? '');
+      // Finding H4 — see `invalidStringArgsError`.
+      const argError = invalidStringArgsError(args, ['pageId']);
+      if (argError) {
+        return { output: JSON.stringify({ error: argError }), nextState: state };
+      }
+      const pageId = asString(args.pageId ?? '');
       const page = getPage(state, pageId);
       if (!page) {
         return { output: JSON.stringify({ error: `Page ${pageId} not found.` }), nextState: state };
@@ -1821,7 +2223,12 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
   set_active_page: {
     effect: 'pure',
     plan: (args, { state }) => {
-      const pageId = String(args.pageId ?? '');
+      // Finding H4 — see `invalidStringArgsError`.
+      const argError = invalidStringArgsError(args, ['pageId']);
+      if (argError) {
+        return { output: JSON.stringify({ error: argError }), nextState: state };
+      }
+      const pageId = asString(args.pageId ?? '');
       if (!getPage(state, pageId)) {
         return { output: JSON.stringify({ error: `Page ${pageId} not found.` }), nextState: state };
       }
@@ -1844,9 +2251,16 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       if (!getPage(state, activePageId)) {
         return { output: JSON.stringify({ error: 'No active page.' }), nextState: state };
       }
-      const field = capString(String(args.field ?? ''), MAX_FILTER_STRING_LENGTH);
-      const sourceId = capString(String(args.sourceId ?? ''), MAX_FILTER_STRING_LENGTH);
-      const operatorRaw = String(args.operator ?? 'equals');
+      // Finding H4 — `field`/`sourceId`/`operator` are read as strings. `value` is NOT
+      // in this list: a filter value is legitimately an object or array (an `in` list, a
+      // range), and `capFilterValue` handles every shape without coercing to a primitive.
+      const argError = invalidStringArgsError(args, ['field', 'sourceId', 'operator']);
+      if (argError) {
+        return { output: JSON.stringify({ error: argError }), nextState: state };
+      }
+      const field = capString(asString(args.field ?? ''), MAX_FILTER_STRING_LENGTH);
+      const sourceId = capString(asString(args.sourceId ?? ''), MAX_FILTER_STRING_LENGTH);
+      const operatorRaw = asString(args.operator ?? 'equals');
       const operatorError = invalidFilterOperatorError(operatorRaw);
       if (operatorError) {
         return { output: JSON.stringify({ error: operatorError }), nextState: state };
@@ -1887,7 +2301,12 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
   add_widget_filter: {
     effect: 'pure',
     plan: (args, { state }) => {
-      const widgetId = String(args.widgetId ?? '');
+      // Finding H4 — same set as `add_page_filter`, plus the target `widgetId`.
+      const argError = invalidStringArgsError(args, ['widgetId', 'field', 'sourceId', 'operator']);
+      if (argError) {
+        return { output: JSON.stringify({ error: argError }), nextState: state };
+      }
+      const widgetId = asString(args.widgetId ?? '');
       // Match every other entity-targeting tool: validate the widget exists before
       // committing a widget-scoped filter, so a fabricated/stale widgetId returns an
       // actionable error instead of silently committing a dangling no-op filter.
@@ -1897,9 +2316,9 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
           nextState: state,
         };
       }
-      const field = capString(String(args.field ?? ''), MAX_FILTER_STRING_LENGTH);
-      const sourceId = capString(String(args.sourceId ?? ''), MAX_FILTER_STRING_LENGTH);
-      const operatorRaw = String(args.operator ?? 'equals');
+      const field = capString(asString(args.field ?? ''), MAX_FILTER_STRING_LENGTH);
+      const sourceId = capString(asString(args.sourceId ?? ''), MAX_FILTER_STRING_LENGTH);
+      const operatorRaw = asString(args.operator ?? 'equals');
       const operatorError = invalidFilterOperatorError(operatorRaw);
       if (operatorError) {
         return { output: JSON.stringify({ error: operatorError }), nextState: state };
@@ -1952,23 +2371,55 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       //
       // The error states the contract — on this transport `summarise_page` covers the
       // SNAPSHOT'S page and nothing else — and names the one action that can succeed in
-      // this turn (omit `pageId`). It deliberately does not read as "retry": there is no
-      // argument, and no other tool call, that makes another page's rows available
-      // before the next request, so any retry is a wasted turn. `requestedPageId` is
-      // model-supplied and unbounded, so it is length-capped like every other id this
-      // file echoes back.
-      const requestedPageId = args.pageId ? capEntityId(String(args.pageId)) : undefined;
-      const coveredPageId = snapshotPageId ?? state.doc.dashboard.activePageId;
-      if (requestedPageId && requestedPageId !== coveredPageId) {
+      // this turn. It deliberately does not read as "retry": there is no argument, and
+      // no other tool call, that makes another page's rows available before the next
+      // request, so any retry is a wasted turn. Every id it echoes is model- or
+      // client-supplied and unbounded, so all of them are length-capped like every
+      // other id this file echoes back.
+      //
+      // Finding H6 — the guard covers the OMITTED-`pageId` form too, not just the
+      // explicit one. It previously fired only `if (requestedPageId)`, so a model
+      // following the advertised advice — `set_active_page(pageB)` then
+      // `summarise_page()` with no `pageId` — fell straight through to the
+      // `pageSnapshot` return and got page A's snapshot, which it then narrated as
+      // page B: exactly the wrong-page attribution the `snapshotPageId` comparison
+      // exists to prevent, just reached by the argument-less path. With no `pageId`
+      // the page the model MEANS is the threaded active page, so that is what is
+      // compared. (When no `snapshotPageId` was threaded — legacy callers —
+      // `coveredPageId` IS the threaded active page, so this can never fire.)
+      // Finding H4 — see `invalidStringArgsError`.
+      const argError = invalidStringArgsError(args, ['pageId']);
+      if (argError) {
+        return { output: JSON.stringify({ error: argError }), nextState: state };
+      }
+      const requestedPageId = args.pageId ? capEntityId(asString(args.pageId)) : undefined;
+      const coveredPageId = capEntityId(
+        asString(snapshotPageId ?? state.doc.dashboard.activePageId),
+      );
+      const targetPageId =
+        requestedPageId ?? capEntityId(asString(state.doc.dashboard.activePageId));
+      if (targetPageId !== coveredPageId) {
+        // The two forms differ only in the ONE action that can still succeed: an
+        // explicit `pageId` can be dropped, while an omitted one cannot be "dropped"
+        // any further — there the mismatch came from making another page active
+        // mid-turn, so the model must be told that doing so did not (and cannot)
+        // bring that page's rows with it. Neither form names a tool to call: the
+        // guidance must not read as "retry", because no argument and no tool call can
+        // make another page's rows available before the next request.
+        const remedy = requestedPageId
+          ? `Omit "pageId" to summarise page "${coveredPageId}", and ask the user to open page ` +
+            `"${targetPageId}" if they want that one summarised.`
+          : `Making page "${targetPageId}" active during this turn did not bring its rows with ` +
+            `it — the snapshot was already fixed when the request arrived. Summarise page ` +
+            `"${coveredPageId}" instead, and ask the user to open page "${targetPageId}" if they ` +
+            'want that one summarised.';
         return {
           output: JSON.stringify({
             error:
               `summarise_page can only summarise page "${coveredPageId}" in this conversation ` +
               'turn. The row data it reads is a snapshot captured once per request, for the page ' +
-              `that was active when the request arrived; page "${requestedPageId}" has no rows ` +
-              'available here and no tool call can load them. Omit "pageId" to summarise page ' +
-              `"${coveredPageId}", and ask the user to open page "${requestedPageId}" if they ` +
-              'want that one summarised.',
+              `that was active when the request arrived; page "${targetPageId}" has no rows ` +
+              `available here and no tool call can load them. ${remedy}`,
           }),
           nextState: state,
         };
@@ -2014,7 +2465,19 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       const applied = { updated: 0, added: 0, removed: 0, layout: false, colSpans: 0 };
 
       let widgetRows = (activePage.widgetRows ?? []).map((row) => [...row]);
-      const colSpans = { ...(activePage.widgetColSpans ?? {}) };
+      // `Object.assign(Object.create(null), …)`, not a `{ … }` spread (finding M8):
+      // both span maps are keyed by a MODEL-supplied widget id (or an id that came in
+      // on the request body — `state.doc.widgets` is client JSON), and `colSpans['__proto__']
+      // = 12` on a normal object literal is silently discarded (assigning a primitive to
+      // `__proto__` is a no-op) while `applied.colSpans += 1` still counts it. That is a
+      // dropped mutation reported as `{ success: true }` — the exact executor/reducer
+      // desync class the `Object.hasOwn` id hardening exists to prevent, on the write
+      // side. A null-prototype map has no `__proto__` accessor, so every key lands as an
+      // ordinary own property and ships in the mutation.
+      const colSpans: Record<string, number> = Object.assign(
+        Object.create(null),
+        activePage.widgetColSpans ?? {},
+      );
       // T2-1 (residual lost-update): `colSpans` is a plan-time snapshot of EVERY widget's
       // span. The `rowsChanged` branch legitimately ships that whole snapshot (rows were
       // re-placed, so the snapshot IS the intended full map), but the colSpans-ONLY branch
@@ -2022,7 +2485,8 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // merge re-asserts the stale snapshot spans of widgets this batch never touched,
       // reverting a concurrent client-side resize of a DIFFERENT widget. Track accepted
       // entries separately so the colSpans-only payload carries just the real changes.
-      const changedSpans: Record<string, number> = {};
+      // Null-prototype for the same reason as `colSpans` above (finding M8).
+      const changedSpans: Record<string, number> = Object.create(null);
 
       // The mutation carries only DELTAS (remove/add/update), applied by the reducer
       // against the receiver's CURRENT `state.doc.widgets` — never a snapshot of the
@@ -2070,12 +2534,18 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         }
       }
       for (const wid of removals) {
+        // Length-cap the id used in the ECHO only, never the one used for lookups:
+        // `skipped` entries are count-bounded by `truncateSkipped` but each entry was
+        // itself unbounded, so a batch of over-long ids echoed megabytes back into the
+        // conversation. A live id can never exceed `MAX_ENTITY_ID_LENGTH` (every
+        // incoming id is `capEntityId`-capped), so a capped label never hides a match.
+        const widLabel = capEntityId(wid);
         if (!liveWidgetIds.has(wid)) {
-          skipped.push(`remove ${wid}: not found`);
+          skipped.push(`remove ${widLabel}: not found`);
           continue;
         }
         if (!activePageWidgetIds.has(wid)) {
-          skipped.push(`remove ${wid}: not on the active page`);
+          skipped.push(`remove ${widLabel}: not on the active page`);
           continue;
         }
         removedWidgetIds.push(wid);
@@ -2096,7 +2566,16 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // Kind of each widget added THIS batch, keyed by id — so the updates loop below
       // can resolve the kind of a same-batch addition (not yet present in
       // `state.doc.widgets`) for its own config-key validation.
-      const addedWidgetKinds: Record<string, string> = {};
+      //
+      // A `Map`, matching its two immediate siblings (finding M8): the lookup key is a
+      // MODEL-supplied `update.widgetId`, so a plain object literal resolved
+      // `addedWidgetKinds['toString']` through the prototype chain to an inherited
+      // FUNCTION. That function then flowed into `invalidConfigKeyError` as the widget
+      // `kind`, and `validateConfigKeysForKind` returns `[]` (unrestricted) for any
+      // unknown kind — so the whole config-key / chart-key / value-shape gate was
+      // skipped for that update. `.get()` returns `undefined` for an unmatched key, so
+      // the `?? ` fallthroughs behave exactly as they do for a genuinely absent id.
+      const addedWidgetKinds = new Map<string, string>();
       // Running (NOT snapshot) map of every chart widget's CURRENT chartType, keyed by
       // id. Seeded lazily with existing chart widgets and eagerly with same-batch chart
       // additions, then UPDATED after each accepted update that changes a widget's
@@ -2175,7 +2654,9 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       for (const addition of additions) {
         const built = buildWidgetFromArgs(addition, customWidgets);
         if ('error' in built) {
-          skipped.push(`add "${addition.title}": ${built.error}`);
+          // Echo-only cap on the raw model-supplied title, same rationale as the
+          // removals loop above.
+          skipped.push(`add "${capTitle(asString(addition.title))}": ${built.error}`);
           continue;
         }
         const { widget } = built;
@@ -2189,7 +2670,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         addedWidgets.push(widget);
         liveWidgetIds.add(widget.id);
         addedTitleToId.set(widget.title, widget.id);
-        addedWidgetKinds[widget.id] = widget.kind;
+        addedWidgetKinds.set(widget.id, widget.kind);
         if (isWidgetOfKind(widget, 'chart')) {
           currentChartTypes.set(widget.id, widget.config.chartType);
         }
@@ -2239,9 +2720,24 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         }
       }
       for (const update of updates) {
-        const wid = String(update.widgetId ?? '');
+        const wid = asString(update.widgetId ?? '');
+        // Echo-only cap, same rationale as the removals loop above.
+        const widLabel = capEntityId(wid);
         if (!liveWidgetIds.has(wid)) {
-          skipped.push(`update ${wid}: not found`);
+          skipped.push(`update ${widLabel}: not found`);
+          continue;
+        }
+        // Finding H4 — `widgetId` was already shape-checked as a string above, but
+        // `title`/`sourceId` were not: a `{"toString":1}` in either threw a raw
+        // `TypeError` out of the whole bulk call, discarding every op the batch had
+        // already accepted. Report it as a `skipped` entry, matching every other
+        // rejected op in this handler, so the rest of the batch still applies.
+        const updateArgError = invalidStringArgsError(update as Record<string, unknown>, [
+          'title',
+          'sourceId',
+        ]);
+        if (updateArgError) {
+          skipped.push(`update ${widLabel}: ${updateArgError}`);
           continue;
         }
         // Cap every model-supplied string-typed config value BEFORE validation, so an
@@ -2253,15 +2749,19 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
           // Resolve the target's kind from either the CURRENT state or a widget
           // added earlier in this same batch (not yet in `state.doc.widgets`).
           const existingWidget = getWidget(state, wid);
-          const kind = existingWidget?.kind ?? addedWidgetKinds[wid];
+          // `?? ''` is unreachable in practice (`liveWidgetIds` membership was checked
+          // above, and it only ever holds existing or same-batch-added ids) but keeps
+          // the type honest now that the lookup is a `Map`; an empty kind is treated as
+          // an unknown kind by `validateConfigKeysForKind`, exactly as before.
+          const kind = existingWidget?.kind ?? addedWidgetKinds.get(wid) ?? '';
           const error = invalidConfigKeyError(kind, configArg);
           if (error) {
-            skipped.push(`update ${wid}: ${error}`);
+            skipped.push(`update ${widLabel}: ${error}`);
             continue;
           }
           const valueError = invalidConfigValueError(configArg);
           if (valueError) {
-            skipped.push(`update ${wid}: ${valueError}`);
+            skipped.push(`update ${widLabel}: ${valueError}`);
             continue;
           }
           if (kind === 'chart') {
@@ -2272,7 +2772,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
             const existingChartType = resolveChartTypeForUpdate(wid, existingWidget);
             const chartError = invalidChartConfigKeyError(configArg, existingChartType);
             if (chartError) {
-              skipped.push(`update ${wid}: ${chartError}`);
+              skipped.push(`update ${widLabel}: ${chartError}`);
               continue;
             }
             // Accepted: if this update sets a new chartType, record it so later
@@ -2284,9 +2784,9 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         }
         updatedWidgets.push({
           widgetId: wid,
-          ...(update.title !== undefined ? { title: capTitle(String(update.title)) } : {}),
+          ...(update.title !== undefined ? { title: capTitle(asString(update.title)) } : {}),
           ...(update.sourceId !== undefined
-            ? { sourceId: capSourceId(String(update.sourceId)) }
+            ? { sourceId: capSourceId(asString(update.sourceId)) }
             : {}),
           ...(configArg ? { config: configArg as StudioWidget['config'] } : {}),
         });
@@ -2442,12 +2942,15 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         // title (its id is server-minted), so keying `colSpans` strictly by id would
         // silently drop a same-batch add-then-resize.
         const wid = addedTitleToId.get(ref) ?? ref;
+        // Echo-only cap, same rationale as the removals loop above — `ref` is a raw
+        // model-supplied object KEY, so it is unbounded in length.
+        const refLabel = capEntityId(ref);
         if (!liveWidgetIds.has(wid)) {
-          skipped.push(`colSpan ${ref}: widget not found.`);
+          skipped.push(`colSpan ${refLabel}: widget not found.`);
           continue;
         }
         if (!activePageWidgetIdsAfterBatch.has(wid)) {
-          skipped.push(`colSpan ${ref}: not on the active page.`);
+          skipped.push(`colSpan ${refLabel}: not on the active page.`);
           continue;
         }
         if (typeof span === 'number' && span >= 6 && span <= 24) {
@@ -2456,7 +2959,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
           applied.colSpans += 1;
         } else {
           skipped.push(
-            `colSpan ${ref}: ${JSON.stringify(span)} is out of range (must be a number 6-24).`,
+            `colSpan ${refLabel}: ${describeArgValue(span)} is out of range (must be a number 6-24).`,
           );
         }
       }
@@ -2616,13 +3119,11 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // value so the model can retry, rather than storing the raw string.
       let periodsNum: number | undefined;
       if (periods != null) {
-        const n = Number(periods);
+        const n = asNumber(periods);
         if (!Number.isFinite(n) || n <= 0) {
           return {
             output: JSON.stringify({
-              error: `set_widget_forecast 'periods' must be a positive number; received ${JSON.stringify(
-                periods,
-              )}.`,
+              error: `set_widget_forecast 'periods' must be a positive number; received ${describeArgValue(periods)}.`,
             }),
             nextState: state,
           };
@@ -2642,9 +3143,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       if (typeof enabled !== 'boolean') {
         return {
           output: JSON.stringify({
-            error: `set_widget_forecast 'enabled' must be a boolean (true or false); received ${JSON.stringify(
-              enabled,
-            )}.`,
+            error: `set_widget_forecast 'enabled' must be a boolean (true or false); received ${describeArgValue(enabled)}.`,
           }),
           nextState: state,
         };
@@ -2652,9 +3151,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       if (showConfidenceBands != null && typeof showConfidenceBands !== 'boolean') {
         return {
           output: JSON.stringify({
-            error: `set_widget_forecast 'showConfidenceBands' must be a boolean (true or false); received ${JSON.stringify(
-              showConfidenceBands,
-            )}.`,
+            error: `set_widget_forecast 'showConfidenceBands' must be a boolean (true or false); received ${describeArgValue(showConfidenceBands)}.`,
           }),
           nextState: state,
         };

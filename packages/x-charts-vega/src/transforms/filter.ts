@@ -1,5 +1,6 @@
 import type { DatasetRow, VegaFilterTransform, VegaTimeUnit } from '../types';
 import type { GapCollector } from '../gaps';
+import type { SelectionStates } from '../compile/params';
 import {
   compileExpression,
   compareValues,
@@ -274,11 +275,139 @@ function compileExpressionPredicate(
   };
 }
 
+/**
+ * A `{param}` selection predicate, resolved at the selection's INITIAL state —
+ * the frame Vega-Lite renders before any interaction, which is the only frame a
+ * static wrapper can claim to reproduce. Three cases:
+ *
+ *  - The param seeds an initial `value` (`value: [{year: 1955}]`): the row is
+ *    selected when it matches every field of any seeded tuple. This is a fully
+ *    determined, non-interactive predicate — `interactive_global_development`
+ *    opens on 1955, not on all fifty years at once.
+ *  - The selection starts empty and the predicate says `empty: false`: an empty
+ *    selection matches NOTHING, so no row passes. `airport_connections` filters
+ *    its flight paths this way and opens with none drawn; failing open here
+ *    rendered every route at once — the visual inverse of the reference.
+ *  - The selection starts empty and `empty` is unset/true (Vega-Lite's default):
+ *    an empty selection matches everything, which is what failing open already
+ *    does, so the rows pass unchanged.
+ *
+ * An interval selection's initial extent isn't reproduced (it needs the scales,
+ * not just the spec), so it stays UNKNOWN and keeps failing open.
+ */
+function compileParamPredicate(
+  name: string,
+  empty: unknown,
+  gaps: GapCollector,
+  path: string,
+  selections?: SelectionStates,
+): Predicate {
+  const selection = selections?.[name];
+  if (selection?.point && selection.initial) {
+    const tuples = selection.initial;
+    return (row) =>
+      tuples.some((tuple) =>
+        Object.entries(tuple).every(([field, value]) => looseEquals(row[field], value)),
+      );
+  }
+  // Empty selection: `empty: false` is the only case that changes the outcome.
+  if (empty === false) {
+    return () => false;
+  }
+  if (!selection) {
+    gaps.add({
+      code: 'filter:unknown-param',
+      message:
+        `The filter references a parameter ("${name}") that did not resolve in this view. ` +
+        'Concatenated views compile independently, so a selection declared in a SIBLING cell ' +
+        'is not visible here; no rows were filtered by it.',
+      severity: 'unsupported',
+      path,
+    });
+    return () => 'unknown';
+  }
+  if (!selection.point) {
+    gaps.add({
+      code: 'filter:interval-selection',
+      message: `The filter is bound to the interval selection "${name}". An interval's initial extent depends on the resolved scales, not the spec alone, so it is not reproduced; no rows were filtered by it.`,
+      severity: 'partial',
+      path,
+    });
+    return () => 'unknown';
+  }
+  // An empty point selection with Vega-Lite's default `empty: true` matches
+  // every row — the same outcome as failing open, so this is not a gap.
+  return () => true;
+}
+
+/**
+ * Evaluate a predicate that depends ONLY on selection state, not on any row —
+ * i.e. one built purely from `{param}` leaves over empty selections, composed
+ * with and/or/not. Returns `undefined` as soon as anything row-dependent (a
+ * seeded selection, a field predicate, an expression) or unresolvable appears.
+ *
+ * This is what lets a `condition.test` bound to selections be settled at
+ * compile time: `interactive_global_development` hides its country trails with
+ * `opacity: {condition: {test: {or: [hovered, clicked]}, value: 0.8}, value: 0}`,
+ * and since both start empty with `empty: false` the test is false and the
+ * trails are invisible until you interact.
+ */
+export function staticSelectionTest(
+  test: unknown,
+  selections?: SelectionStates,
+): boolean | undefined {
+  if (!test || typeof test !== 'object') {
+    return undefined;
+  }
+  const obj = test as Record<string, unknown>;
+  if (Array.isArray(obj.and)) {
+    let result: boolean | undefined = true;
+    for (const entry of obj.and) {
+      const value = staticSelectionTest(entry, selections);
+      if (value === false) {
+        return false;
+      }
+      if (value === undefined) {
+        result = undefined;
+      }
+    }
+    return result;
+  }
+  if (Array.isArray(obj.or)) {
+    let result: boolean | undefined = false;
+    for (const entry of obj.or) {
+      const value = staticSelectionTest(entry, selections);
+      if (value === true) {
+        return true;
+      }
+      if (value === undefined) {
+        result = undefined;
+      }
+    }
+    return result;
+  }
+  if (obj.not !== undefined) {
+    const value = staticSelectionTest(obj.not, selections);
+    return value === undefined ? undefined : !value;
+  }
+  if (typeof obj.param === 'string') {
+    const selection = selections?.[obj.param];
+    // Only an EMPTY point selection is row-independent; a seeded one selects
+    // some rows and not others, which a per-series constant cannot express.
+    if (!selection?.point || selection.initial) {
+      return undefined;
+    }
+    return obj.empty !== false;
+  }
+  return undefined;
+}
+
 function compilePredicate(
   filter: unknown,
   gaps: GapCollector,
   path: string,
   signals?: Readonly<Record<string, unknown>>,
+  selections?: SelectionStates,
 ): Predicate {
   if (typeof filter === 'string') {
     return compileExpressionPredicate(filter, gaps, path, signals);
@@ -288,7 +417,7 @@ function compilePredicate(
     const obj = filter as Record<string, unknown>;
     if (Array.isArray(obj.and)) {
       const predicates = obj.and.map((entry, index) =>
-        compilePredicate(entry, gaps, `${path}.and[${index}]`, signals),
+        compilePredicate(entry, gaps, `${path}.and[${index}]`, signals, selections),
       );
       return (row) => {
         let unknown = false;
@@ -306,7 +435,7 @@ function compilePredicate(
     }
     if (Array.isArray(obj.or)) {
       const predicates = obj.or.map((entry, index) =>
-        compilePredicate(entry, gaps, `${path}.or[${index}]`, signals),
+        compilePredicate(entry, gaps, `${path}.or[${index}]`, signals, selections),
       );
       return (row) => {
         let unknown = false;
@@ -323,11 +452,14 @@ function compilePredicate(
       };
     }
     if (obj.not !== undefined) {
-      const predicate = compilePredicate(obj.not, gaps, `${path}.not`, signals);
+      const predicate = compilePredicate(obj.not, gaps, `${path}.not`, signals, selections);
       return (row) => {
         const result = predicate(row);
         return result === 'unknown' ? 'unknown' : !result;
       };
+    }
+    if (typeof obj.param === 'string') {
+      return compileParamPredicate(obj.param, obj.empty, gaps, path, selections);
     }
     if (isFieldPredicate(filter)) {
       return compileFieldPredicate(filter, gaps, path);
@@ -357,8 +489,9 @@ export function applyFilterTransform(
   gaps: GapCollector,
   path: string,
   signals?: Readonly<Record<string, unknown>>,
+  selections?: SelectionStates,
 ): readonly DatasetRow[] {
-  const predicate = compilePredicate(transform.filter, gaps, path, signals);
+  const predicate = compilePredicate(transform.filter, gaps, path, signals, selections);
   // 'unknown' (unsupported predicate) keeps the row: fail open.
   return rows.filter((row) => predicate(row) !== false);
 }

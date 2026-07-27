@@ -46,6 +46,26 @@ export interface CompiledParamInput {
   labels?: string[];
 }
 
+/**
+ * A point selection's state at first render, which is all a static wrapper can
+ * reproduce. Vega-Lite renders a spec's INITIAL frame before any interaction,
+ * and that frame is fully determined by the spec: a selection either starts
+ * empty, or starts pre-seeded by the param's own `value`.
+ */
+export interface SelectionInitialState {
+  /**
+   * The param's initial `value` for a point selection, normalised to a list of
+   * field→value tuples (`value: [{year: 1955}]`). A row is "selected" when it
+   * matches every field of any tuple. Absent when the selection starts empty.
+   */
+  initial?: Array<Record<string, unknown>>;
+  /** Whether this is a point selection — interval state isn't reproduced. */
+  point: boolean;
+}
+
+/** Initial selection states keyed by param name (see `SelectionInitialState`). */
+export type SelectionStates = Readonly<Record<string, SelectionInitialState>>;
+
 export interface ParamsResolution {
   /** When set, the orchestrator applies this highlightScope to every series. */
   highlightScope?: { highlight: 'item'; fade: 'global' };
@@ -55,6 +75,72 @@ export interface ParamsResolution {
   inputs?: CompiledParamInput[];
   /** Initial signal values (variable params + input defaults), keyed by name. */
   initialValues?: Record<string, unknown>;
+  /** Initial state of each selection param, for `{param}` filter predicates. */
+  selections?: SelectionStates;
+}
+
+/**
+ * Normalise a point selection's `value` into field→value tuples. Vega-Lite
+ * accepts the single-object shorthand (`value: {year: 1955}`) alongside the
+ * canonical array, and a scalar/other shape carries no field mapping we can
+ * turn into a predicate, so it yields nothing (an empty selection).
+ */
+function normaliseSelectionValue(value: unknown): Array<Record<string, unknown>> | undefined {
+  const isTuple = (entry: unknown): entry is Record<string, unknown> =>
+    !!entry && typeof entry === 'object' && !Array.isArray(entry);
+  const list = Array.isArray(value) ? value : [value];
+  const tuples = list.filter(isTuple);
+  return tuples.length > 0 ? tuples : undefined;
+}
+
+/**
+ * Collect every selection param's initial state, walking the WHOLE spec rather
+ * than reusing `collectParamGroups` (which is deliberately scoped to the top
+ * level and first-level layers, and drives gap paths and input widgets). A
+ * param name is spec-global in Vega-Lite, and a `{param}` filter can reference
+ * one declared far from it — `interactive_global_development` declares `year`
+ * at `layer[1].layer[1]` and filters on it from three different layers, so a
+ * shallow scan resolves none of them.
+ *
+ * `data`/`datasets` are skipped: a data row can legitimately contain a `params`
+ * key and must never be mistaken for a param declaration.
+ */
+function collectSelectionStates(spec: VegaLiteSpec): Record<string, SelectionInitialState> {
+  const states: Record<string, SelectionInitialState> = {};
+  const walk = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      node.forEach(walk);
+      return;
+    }
+    if (!node || typeof node !== 'object') {
+      return;
+    }
+    const record = node as Record<string, unknown>;
+    const params = record.params;
+    if (Array.isArray(params)) {
+      for (const entry of params as VegaParam[]) {
+        if (!entry || typeof entry !== 'object' || typeof entry.name !== 'string') {
+          continue;
+        }
+        if (entry.select === undefined) {
+          continue;
+        }
+        const point = selectionType(entry.select) === 'point';
+        states[entry.name] = {
+          point,
+          ...(point ? { initial: normaliseSelectionValue(entry.value) } : {}),
+        };
+      }
+    }
+    for (const key of Object.keys(record)) {
+      if (key === 'data' || key === 'datasets') {
+        continue;
+      }
+      walk(record[key]);
+    }
+  };
+  walk(spec);
+  return states;
 }
 
 interface ParamGroup {
@@ -266,6 +352,7 @@ export function resolveParams(spec: VegaLiteSpec, gaps: GapCollector): ParamsRes
   let zoom: ParamsResolution['zoom'];
   const inputs: CompiledParamInput[] = [];
   const initialValues: Record<string, unknown> = {};
+  const selections = collectSelectionStates(spec);
 
   for (const group of collectParamGroups(spec)) {
     for (let index = 0; index < group.params.length; index += 1) {
@@ -364,6 +451,9 @@ export function resolveParams(spec: VegaLiteSpec, gaps: GapCollector): ParamsRes
   }
   if (Object.keys(initialValues).length > 0) {
     resolution.initialValues = initialValues;
+  }
+  if (Object.keys(selections).length > 0) {
+    resolution.selections = selections;
   }
   return resolution;
 }

@@ -224,7 +224,8 @@ describe('applyFilterTransform / coercion and edge cases', () => {
     const gaps = createGapCollector();
     const result = applyFilterTransform(rows, { filter: { not: { param: 'brush' } } }, gaps, '$');
     expect(result).to.deep.equal(rows);
-    const gap = gaps.list().find((entry) => entry.code === 'filter:unsupported-shape');
+    // The param is undeclared here (no `selections`), so it stays UNKNOWN.
+    const gap = gaps.list().find((entry) => entry.code === 'filter:unknown-param');
     expect(gap?.severity).to.equal('unsupported');
   });
 
@@ -235,12 +236,111 @@ describe('applyFilterTransform / coercion and edge cases', () => {
   });
 });
 
+describe('applyFilterTransform / param selection predicates', () => {
+  const yearRows = [
+    { year: 1955, v: 1 },
+    { year: 1960, v: 2 },
+    { year: 1955, v: 3 },
+  ];
+
+  it('resolves a point selection seeded with an initial value', () => {
+    // `interactive_global_development` opens on 1955, not on every year at once.
+    const gaps = createGapCollector();
+    const result = applyFilterTransform(
+      yearRows,
+      { filter: { param: 'year' } },
+      gaps,
+      '$',
+      undefined,
+      { year: { point: true, initial: [{ year: 1955 }] } },
+    );
+    expect(result).to.deep.equal([yearRows[0], yearRows[2]]);
+    expect(gaps.list()).to.have.length(0);
+  });
+
+  it('drops every row for an empty selection with `empty: false`', () => {
+    // `airport_connections` draws NO flight paths until an airport is hovered;
+    // failing open here rendered every route at once.
+    const gaps = createGapCollector();
+    const result = applyFilterTransform(
+      yearRows,
+      { filter: { param: 'org', empty: false } },
+      gaps,
+      '$',
+      undefined,
+      { org: { point: true } },
+    );
+    expect(result).to.deep.equal([]);
+    expect(gaps.list()).to.have.length(0);
+  });
+
+  it('keeps every row for an empty selection with the default `empty`', () => {
+    const gaps = createGapCollector();
+    const result = applyFilterTransform(
+      yearRows,
+      { filter: { param: 'org' } },
+      gaps,
+      '$',
+      undefined,
+      { org: { point: true } },
+    );
+    expect(result).to.deep.equal(yearRows);
+    expect(gaps.list()).to.have.length(0);
+  });
+
+  it('inverts a resolved selection through `not`', () => {
+    const gaps = createGapCollector();
+    const result = applyFilterTransform(
+      yearRows,
+      { filter: { not: { param: 'year' } } },
+      gaps,
+      '$',
+      undefined,
+      { year: { point: true, initial: [{ year: 1955 }] } },
+    );
+    expect(result).to.deep.equal([yearRows[1]]);
+  });
+
+  it('composes resolved selections through and/or', () => {
+    const gaps = createGapCollector();
+    const result = applyFilterTransform(
+      yearRows,
+      {
+        filter: {
+          and: [{ param: 'year' }, { or: [{ param: 'clicked', empty: false }] }],
+        },
+      },
+      gaps,
+      '$',
+      undefined,
+      { year: { point: true, initial: [{ year: 1955 }] }, clicked: { point: true } },
+    );
+    // `clicked` starts empty with empty:false, so the whole conjunction is false.
+    expect(result).to.deep.equal([]);
+  });
+
+  it('leaves an interval selection unresolved (fails open) with a partial gap', () => {
+    const gaps = createGapCollector();
+    const result = applyFilterTransform(
+      yearRows,
+      { filter: { param: 'brush' } },
+      gaps,
+      '$',
+      undefined,
+      { brush: { point: false } },
+    );
+    expect(result).to.deep.equal(yearRows);
+    const gap = gaps.list().find((entry) => entry.code === 'filter:interval-selection');
+    expect(gap?.severity).to.equal('partial');
+  });
+});
+
 describe('applyFilterTransform / unsupported shapes', () => {
   it('keeps all rows and records a gap for a selection/param predicate', () => {
     const gaps = createGapCollector();
     const result = applyFilterTransform(rows, { filter: { param: 'brush' } }, gaps, '$');
     expect(result).to.deep.equal(rows);
-    const gap = gaps.list().find((entry) => entry.code === 'filter:unsupported-shape');
+    const gap = gaps.list().find((entry) => entry.code === 'filter:unknown-param');
     expect(gap?.severity).to.equal('unsupported');
   });
 

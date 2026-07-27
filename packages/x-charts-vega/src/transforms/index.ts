@@ -3,6 +3,7 @@ import type { GapCollector } from '../gaps';
 import { applyAggregateTransform } from './aggregate';
 import { applyBinTransform } from './bin';
 import { applyCalculateTransform } from './calculate';
+import type { SelectionStates } from '../compile/params';
 import { applyFilterTransform } from './filter';
 import { applyLookupTransform } from './lookup';
 import { applyTimeUnitTransform } from './timeUnit';
@@ -45,12 +46,20 @@ export function applyTransforms(
   path: string,
   signals?: Readonly<Record<string, unknown>>,
   datasets?: Record<string, readonly DatasetRow[]>,
+  selections?: SelectionStates,
 ): readonly DatasetRow[] {
   let current = rows;
   transforms.forEach((transform, index) => {
     const transformPath = `${path}.transform[${index}]`;
     if ('filter' in transform) {
-      current = applyFilterTransform(current, transform as never, gaps, transformPath, signals);
+      current = applyFilterTransform(
+        current,
+        transform as never,
+        gaps,
+        transformPath,
+        signals,
+        selections,
+      );
     } else if ('calculate' in transform) {
       current = applyCalculateTransform(current, transform as never, gaps, transformPath, signals);
     } else if ('aggregate' in transform) {

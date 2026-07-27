@@ -7,10 +7,11 @@ import { createGapCollector } from '../gaps';
 import type { TranslationGap } from '../gaps';
 import { normalizeSpec } from '../normalize';
 import { applyTransforms, applyEncodingTransforms } from '../transforms';
+import { staticSelectionTest } from '../transforms/filter';
 import { markRegistry, UNSUPPORTED_MARK_HINTS } from '../marks';
 import { forcesDiscreteBarCategory, resolveAxes } from './scales';
 import { resolveParams } from './params';
-import type { CompiledParamInput } from './params';
+import type { CompiledParamInput, SelectionStates } from './params';
 import type {
   AxisResolution,
   CompiledGeo,
@@ -140,10 +141,13 @@ export interface CompiledChart {
  * field-driven (field-driven opacity has no per-point equivalent and keeps its
  * own `encoding:opacity-field-unsupported` gap in `compile/color.ts`).
  */
-function staticMarkOpacity(unit: {
-  mark: VegaMarkDef;
-  encoding: VegaEncoding;
-}): number | undefined {
+function staticMarkOpacity(
+  unit: {
+    mark: VegaMarkDef;
+    encoding: VegaEncoding;
+  },
+  selections?: SelectionStates,
+): number | undefined {
   const enc = unit.encoding.opacity;
   let encValue: number | undefined;
   if (enc && !Array.isArray(enc)) {
@@ -151,11 +155,21 @@ function staticMarkOpacity(unit: {
     // "selected" appearance. Vega-Lite selections default to `empty: "all"`, so
     // with no interaction the selection matches everything and the *condition's*
     // value applies — not the `value` fallback (which is the "unselected" look).
-    // We can't drive the interaction, so mirror Vega's initial render by taking
-    // the condition value when present (e.g. interactive_legend: opacity 1, not
-    // the 0.2 fallback that would wash the whole chart out).
+    // So the condition value is the right default (e.g. interactive_legend:
+    // opacity 1, not the 0.2 fallback that would wash the whole chart out).
+    //
+    // But when the test is bound to selections declaring `empty: false`, an
+    // empty selection matches NOTHING and the base `value` applies instead —
+    // that is settled by the spec, so resolve it rather than assume. It is what
+    // keeps `interactive_global_development`'s country trails hidden (their
+    // `value: 0`) until something is actually hovered, instead of painting
+    // every trajectory over the chart at 0.8.
     const condition = (enc as { condition?: unknown }).condition;
+    const conditionTest =
+      condition && !Array.isArray(condition) ? (condition as { test?: unknown }).test : undefined;
+    const testResult = staticSelectionTest(conditionTest, selections);
     const conditionValue =
+      testResult !== false &&
       condition &&
       !Array.isArray(condition) &&
       typeof (condition as { value?: unknown }).value === 'number'
@@ -177,6 +191,62 @@ function staticMarkOpacity(unit: {
       : undefined;
   const raw = unit.mark.opacity ?? unit.mark.fillOpacity ?? encValue ?? markTypeDefault;
   return typeof raw === 'number' && raw >= 0 && raw < 1 ? raw : undefined;
+}
+
+/**
+ * Fold a layer's constant opacity into the colors of the overlays it produced,
+ * mutating them in place (they were just built by this layer's mark compiler
+ * and are not shared).
+ *
+ * Overlays paint plain SVG with colors they resolved themselves, so they never
+ * reach `compile/index.ts`'s series-palette pass where `seriesOpacity` is
+ * applied — the alpha has to be folded in here instead. Colors live in a small
+ * set of well-known places: a `style` object's `fill`/`stroke` (segments, text,
+ * geo overlays), the same names directly on an item (rects, geoShapes), or a
+ * `color` field (boxes, error bars). Anything else is left alone rather than
+ * guessed at.
+ */
+function applyOverlayOpacity(overlays: CompiledOverlay[] | undefined, opacity: number): void {
+  if (!overlays || overlays.length === 0) {
+    return;
+  }
+  const COLOR_KEYS = ['fill', 'stroke', 'color'] as const;
+  const tint = (holder: Record<string, unknown> | undefined) => {
+    if (!holder) {
+      return;
+    }
+    for (const key of COLOR_KEYS) {
+      const value = holder[key];
+      if (typeof value === 'string' && value !== 'none') {
+        holder[key] = applyAlpha(value, opacity);
+      }
+    }
+  };
+  // A text overlay renders <text> with no explicit fill, so its color is SVG's
+  // implicit black. There is nothing for `tint` to modify, and the opacity
+  // would be dropped — `interactive_global_development`'s year watermark asks
+  // for `mark.opacity: 0.06` and would otherwise paint solid black. Making that
+  // implicit default explicit is exact, not a guess.
+  const isText = (kind: unknown) => kind === 'text' || kind === 'geoText';
+  for (const overlay of overlays) {
+    tint(overlay as unknown as Record<string, unknown>);
+    const items = (overlay as { items?: unknown }).items;
+    if (!Array.isArray(items)) {
+      continue;
+    }
+    for (const item of items) {
+      if (!item || typeof item !== 'object') {
+        continue;
+      }
+      const record = item as Record<string, unknown>;
+      tint(record);
+      const style = record.style as Record<string, unknown> | undefined;
+      tint(style);
+      if (isText((overlay as { kind?: unknown }).kind) && style?.fill === undefined) {
+        record.style = { ...(style ?? {}), fill: applyAlpha('rgb(0, 0, 0)', opacity) };
+      }
+    }
+  }
 }
 
 /** Numeric values an overlay contributes to a continuous axis. */
@@ -357,6 +427,7 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
       unit.path,
       signals,
       normalized.datasets,
+      paramsRes.selections,
     );
     const { rows, encoding } = applyEncodingTransforms(
       afterTopLevel,
@@ -535,11 +606,18 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
     series.push(...compiled.series);
     // Record this layer's static opacity against the series it produced, so it
     // can be baked into the resolved color once palette colors are assigned.
-    const opacity = staticMarkOpacity(unit);
+    const opacity = staticMarkOpacity(unit, paramsRes.selections);
     if (opacity !== undefined) {
       for (let i = before; i < series.length; i += 1) {
         seriesOpacity[i] = opacity;
       }
+      // A custom overlay carries its own colors and never passes through the
+      // series-palette pass above, so the layer's opacity has to be folded into
+      // those colors here or it is simply lost. `interactive_global_development`
+      // draws its country trails as a continuous-x line overlay whose opacity
+      // resolves to 0 (hidden until you hover) — without this they painted 681
+      // opaque grey trajectories straight over the chart.
+      applyOverlayOpacity(compiled.overlays, opacity);
     }
     compiled.plots.forEach((plot) => plots.add(plot));
     referenceLines.push(...(compiled.referenceLines ?? []));

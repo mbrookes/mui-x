@@ -497,7 +497,11 @@ describe('compileTextMark', () => {
       });
       const overlay = compiled.overlays.find((entry) => entry.kind === 'geoPoints') as
         Extract<(typeof compiled.overlays)[number], { kind: 'geoPoints' }> | undefined;
-      expect(overlay?.items[0]?.color).to.equal('orange');
+      // Carries Vega-Lite's default 0.7 point/circle mark opacity, the same
+      // one cartesian point marks already get — overlays now have the layer's
+      // static opacity folded into their colors (compile/index.ts
+      // `applyOverlayOpacity`) instead of dropping it.
+      expect(overlay?.items[0]?.color).to.equal('rgba(255, 165, 0, 0.7)');
     });
 
     it('reports mark:text-geo-missing-fields when longitude/latitude have no field', () => {

@@ -13,7 +13,11 @@ import type {
   StudioDataSource,
   StudioRelationship,
 } from '../models';
-import { aggregateNumbers, coerceAggregateValue, countDistinct } from '../internals/aggregate';
+import {
+  aggregateCellValues,
+  aggregateNumbers,
+  coerceAggregateValue,
+} from '../internals/aggregate';
 import { normalizeJoinKey } from '../internals/joinKeys';
 import { collectJoinSourceIds } from '../internals/expressionRefs';
 import { getCachedNormalizedDataSource } from '../internals/normalizedRowsCache';
@@ -699,55 +703,25 @@ function evalMeasureExpression(
 
   if (isFieldExpression(expr)) {
     const { aggregation = 'sum' } = expr;
-    if (aggregation === 'count_distinct') {
-      // Distinctness is over the RAW cell values (strings, dates, …), not the numeric
-      // coercion below — coercing first drops every non-numeric value to `null`, so a
-      // `count_distinct` measure over a string field would collapse to 0 while the KPI
-      // and grid paths over the same field return the true distinct count. Route through
-      // the shared `countDistinct` (excludes null/undefined) so all three agree — the
-      // "KPI over a raw field and a measure expression return the same number" invariant
-      // (finding 2.23).
-      return countDistinct(rows.map((r) => r[expr.id]));
-    }
-    if (aggregation === 'count') {
-      // Pre-detect whether the field is numeric-like, mirroring the chart aggregators'
-      // "treat as numeric if ANY non-null value coerces to a number" pre-detect
-      // (`aggregators.ts`'s `aggregateByField`). When the field IS numeric-like, keep the
-      // existing "count of numerically-valid values" semantics — this is deliberately pinned
-      // by the `evaluateMeasure` test "counts only the numeric rows", which skips BOTH null
-      // and non-numeric-string rows the same way `avg`/`min`/`max`'s denominator does. When
-      // the field is genuinely non-numeric (e.g. a string `status` column), fall back to the
-      // standard SQL `COUNT(col)` semantic — the non-null count of RAW values — instead of
-      // silently returning 0 for every row, which disagreed with the KPI/grid `count` over the
-      // same field (finding 4). Per `aggregate.ts`'s guidance, this counts directly from
-      // `rows`, not from a null-filtered numeric value array.
-      const isNumericField = rows.some((r) => coerceAggregateValue(r[expr.id]) !== null);
-      if (isNumericField) {
-        let numericCount = 0;
-        for (const r of rows) {
-          if (coerceAggregateValue(r[expr.id]) !== null) {
-            numericCount += 1;
-          }
-        }
-        return numericCount;
-      }
-      let nonNullCount = 0;
-      for (const r of rows) {
-        if (r[expr.id] != null) {
-          nonNullCount += 1;
-        }
-      }
-      return nonNullCount;
-    }
-    // Skip null / non-numeric rows BEFORE coercing (mirrors `computeAggregate`). The
-    // previous `toNumber`-then-`isNaN` guard was dead code — `toNumber` maps null and
-    // unparseable values to 0, so null rows silently entered every aggregate as 0,
-    // inflating avg denominators and skewing min/count (finding 1.6).
-    const values = rows.flatMap((r) => {
-      const v = coerceAggregateValue(r[expr.id]);
-      return v === null ? [] : [v];
-    });
-    return aggregate(values, aggregation);
+    // ONE aggregation name, ONE meaning — the whole branch routes through the shared
+    // `aggregateCellValues`, the single place that decides what each name means over a row
+    // set (finding M8). In particular `count` is `COUNT(*)` here, exactly as it is for the
+    // KPI (`computeAggregate`), the grid footer/group-by (`gridGrouping.aggregateValues`),
+    // the pivot (`pivotUtils.resolveAgg`) and all three chart aggregators. This branch used
+    // to answer TWO other questions under the same name — a count of numerically-valid
+    // values for a numeric-like field, and a non-null `COUNT(col)` for a non-numeric one —
+    // so a KPI over `amount` with aggregation `count` read 10 while a KPI over the measure
+    // `count(amount)` read 7 on the same 10 rows (3 with a null amount). The `COUNT(col)`
+    // semantic still exists, under its own name `count_non_null`.
+    //
+    // `count_distinct` measures distinctness over the RAW cell values (never the numeric
+    // coercion — that would collapse a distinct count over a string field to 0), and
+    // `sum`/`avg`/`min`/`max` skip null/non-numeric rows rather than folding them in as 0
+    // (finding 1.6); both policies now live in `aggregateCellValues`.
+    return aggregateCellValues(
+      rows.map((r) => r[expr.id]),
+      aggregation,
+    );
   }
 
   if (isJoinFieldExpression(expr)) {

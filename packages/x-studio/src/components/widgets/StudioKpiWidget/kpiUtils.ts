@@ -12,11 +12,7 @@ import type {
 } from '../../../models';
 import { fillTemporalLabelGaps, normalizeToDate } from '../../../internals/temporalUtils';
 import { resolveDateRangePreset } from '../../../internals/filterUtils';
-import {
-  aggregateNumbers,
-  coerceAggregateValue,
-  countDistinct,
-} from '../../../internals/aggregate';
+import { aggregateCellValues } from '../../../internals/aggregate';
 import { evaluateMeasure } from '../../../utils/expressionEvaluator';
 import { lookup } from '../../../utils/safeLookup';
 import {
@@ -584,26 +580,18 @@ export function computeAggregate(
   field: string,
   aggregation: StudioKpiAggregation,
 ): number | null {
-  if (aggregation === 'count') {
-    return rows.length;
-  }
-
-  if (aggregation === 'count_distinct') {
-    // Distinctness is over the raw cell values (strings, dates, …), so it must not
-    // route through the numeric coercion below. `countDistinct` excludes null/undefined
-    // (SQL COUNT(DISTINCT) semantic) so the KPI, grid, and measure-expression paths all
-    // return the same number for the same field (finding 2.23).
-    return countDistinct(rows.map((row) => lookup(row, field)));
-  }
-
-  // Exclude null/non-numeric values so they don't inflate the denominator for
-  // avg/min/max. Boolean fields (e.g. onTime) are coerced to 0/1 so avg produces a
-  // ratio. This is the reference null-skip policy shared via `internals/aggregate`.
-  const values = rows
-    .map((row) => coerceAggregateValue(lookup(row, field)))
-    .filter((v): v is number => v !== null);
-
-  return aggregateNumbers(values, aggregation);
+  // One value per row (prototype-chain-safe `lookup`, `undefined` for a missing key),
+  // handed to the shared `aggregateCellValues` — the single place that decides what each
+  // aggregation NAME means over a row set (finding M8). This preserves every semantic this
+  // function already had (it IS the reference implementation the others were aligned to):
+  // `count` is `COUNT(*)` (`values.length` === `rows.length`), `count_distinct` is measured
+  // over the RAW values, and `sum`/`avg`/`min`/`max` skip null/non-numeric rows so they
+  // never inflate an avg denominator or drag a min toward 0. Routing through the shared
+  // helper is what stops the measure-expression path drifting away from it again.
+  return aggregateCellValues(
+    rows.map((row) => lookup(row, field)),
+    aggregation,
+  );
 }
 
 // ─── Sparkline bucketing ──────────────────────────────────────────────────────

@@ -9,7 +9,7 @@ import { buildRelatedSourceJoinIndex } from '../internals/dataSourceGraph';
 import { getCachedEnrichedRows } from '../internals/enrichedRowsCache';
 import { getCachedNormalizedDataSource } from '../internals/normalizedRowsCache';
 import { indexRowsByKey, normalizeJoinKey } from '../internals/joinKeys';
-import { coerceAggregateValue, countDistinct } from '../internals/aggregate';
+import { aggregateCellValues } from '../internals/aggregate';
 
 /**
  * Aggregates an array of already-extracted cell values for one field/aggregation
@@ -26,47 +26,14 @@ export function aggregateValues(
   values: unknown[],
   aggregation: StudioGridSummaryAggregation,
 ): number | null {
-  if (aggregation === 'count') {
-    return values.length;
-  }
-
-  if (aggregation === 'count_distinct') {
-    // Shared distinct-count policy (excludes null/undefined) so a grid group-by aggregate
-    // agrees with the KPI and measure-expression paths over the same field (finding 2.23).
-    return countDistinct(values);
-  }
-
-  // Route through the shared null-skip + boolean/numeric-string coercion policy
-  // (finding 2.13) so a grid's group-by aggregate agrees with KPI/Chart/Pivot over
-  // the same field — a raw `typeof v === 'number'` check silently excluded numeric
-  // strings (`"12"`) and booleans instead of coercing them.
-  const numericValues = values
-    .map((value) => coerceAggregateValue(value))
-    .filter((value): value is number => value !== null);
-
-  switch (aggregation) {
-    case 'sum':
-      return numericValues.reduce((total, value) => total + value, 0);
-    case 'avg':
-      // Null/empty aggregate must not silently become 0 (finding 2.13) — matches
-      // min/max below and `gridSummary.ts`'s `avg`, instead of the previous `: 0`.
-      return numericValues.length > 0
-        ? numericValues.reduce((total, value) => total + value, 0) / numericValues.length
-        : null;
-    case 'min':
-      // Reduce loop, not `Math.min(...numericValues)` — the spread form throws
-      // `RangeError: Maximum call stack size exceeded` past ~125k elements
-      // (finding 2.17); mirrors `internals/aggregate.ts`/`gridSummary.ts`.
-      return numericValues.length > 0
-        ? numericValues.reduce((acc, value) => (value < acc ? value : acc))
-        : null;
-    case 'max':
-      return numericValues.length > 0
-        ? numericValues.reduce((acc, value) => (value > acc ? value : acc))
-        : null;
-    default:
-      return null;
-  }
+  // Delegates wholesale to the shared `aggregateCellValues` — the single place that decides
+  // what each aggregation NAME means over a row set (finding M8). Every semantic this
+  // function had is preserved: `count` is `COUNT(*)` (one entry per row, nulls included),
+  // `count_distinct` excludes null/undefined and is measured over the RAW values (finding
+  // 2.23), and `sum`/`avg`/`min`/`max` route through the shared null-skip + boolean/
+  // numeric-string coercion (findings 2.13/2.17), so an empty set gives `sum` 0 and
+  // `avg`/`min`/`max` `null` rather than a fabricated 0.
+  return aggregateCellValues(values, aggregation);
 }
 
 function aggregateGridValue(

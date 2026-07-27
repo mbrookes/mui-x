@@ -1255,7 +1255,14 @@ describe('evaluateMeasure', () => {
     expect(evaluateMeasure(measure, nullableRows, noFields)).toBe(100);
   });
 
-  it('counts only the numeric rows', () => {
+  it('counts EVERY row (COUNT(*)), not just the numeric ones', () => {
+    // `count` is `COUNT(*)` on every path in the package (finding M8) — the KPI, the grid
+    // footer/group-by, the pivot and all three chart aggregators tally ROWS and ignore the
+    // measure value entirely. This branch used to answer a different question under the same
+    // name ("how many values coerced to a number"), so a KPI over `price` with aggregation
+    // `count` read 5 while a KPI over the measure `count(price)` read 2 on the same rows.
+    // The value-sensitive counts have their own names: `count_non_null` (`COUNT(col)`) and
+    // `count_distinct`.
     const measure: StudioExpressionField = {
       id: 'countPrice',
       label: 'Count Price',
@@ -1263,7 +1270,10 @@ describe('evaluateMeasure', () => {
       isMeasure: true,
       expression: field('price', 'count'),
     };
-    expect(evaluateMeasure(measure, nullableRows, noFields)).toBe(2);
+    expect(evaluateMeasure(measure, nullableRows, noFields)).toBe(nullableRows.length);
+    expect(evaluateMeasure(measure, nullableRows, noFields)).toBe(
+      computeAggregate(nullableRows, 'price', 'count'),
+    );
   });
 
   it('matches computeAggregate semantics: measure avg == KPI avg on the same nullable data', () => {
@@ -1318,12 +1328,12 @@ describe('evaluateMeasure', () => {
     );
   });
 
-  // ─── `count` over a non-numeric field counts non-null values, not 0 (finding 4) ───────────────
+  // ─── `count` over a non-numeric field is COUNT(*), not 0 (findings 4 / M8) ────────────────────
 
-  it('count over a non-numeric (string) field counts non-null values, not 0', () => {
-    // Before the fix, `count` built its value array via the numeric coercion used by
+  it('count over a non-numeric (string) field counts rows, not 0', () => {
+    // Before finding 4, `count` built its value array via the numeric coercion used by
     // sum/avg/min/max — every string value fails that coercion, so `count(status)` over a
-    // string column silently returned 0 for every row instead of the non-null row count.
+    // string column silently returned 0 for every row.
     const statusRows = [{ status: 'paid' }, { status: 'unpaid' }, { status: 'paid' }];
     const measure: StudioExpressionField = {
       id: 'countStatus',
@@ -1335,7 +1345,11 @@ describe('evaluateMeasure', () => {
     expect(evaluateMeasure(measure, statusRows, noFields)).toBe(3);
   });
 
-  it('count over a non-numeric field excludes null/undefined rows (SQL COUNT(col) semantics)', () => {
+  it('count over a non-numeric field INCLUDES null/undefined rows (COUNT(*), not COUNT(col))', () => {
+    // This branch used to return the non-null count (1) here, which is a DIFFERENT question
+    // from the one every other `count` path in the package answers (finding M8). `COUNT(col)`
+    // still exists — under its own name, `count_non_null` — but the bare name `count` means
+    // `COUNT(*)` everywhere, so the KPI and the measure agree.
     const statusRows = [{ status: 'paid' }, { status: null }, { status: undefined }, {}];
     const measure: StudioExpressionField = {
       id: 'countStatus',
@@ -1344,22 +1358,7 @@ describe('evaluateMeasure', () => {
       isMeasure: true,
       expression: field('status', 'count'),
     };
-    expect(evaluateMeasure(measure, statusRows, noFields)).toBe(1);
-  });
-
-  it('count over a raw field matches the KPI row-count invariant for a fully-populated field', () => {
-    // The documented "KPI over a raw field and an equivalent measure expression return the
-    // same number" invariant, already enforced for avg/count_distinct — extended to `count`
-    // for the case where every row has a real (non-null) value, so KPI's `rows.length` and
-    // the measure's non-null count agree.
-    const statusRows = [{ status: 'paid' }, { status: 'unpaid' }, { status: 'paid' }];
-    const measure: StudioExpressionField = {
-      id: 'countStatus',
-      label: 'Count Status',
-      sourceId: 'sales',
-      isMeasure: true,
-      expression: field('status', 'count'),
-    };
+    expect(evaluateMeasure(measure, statusRows, noFields)).toBe(4);
     expect(evaluateMeasure(measure, statusRows, noFields)).toBe(
       computeAggregate(statusRows, 'status', 'count'),
     );

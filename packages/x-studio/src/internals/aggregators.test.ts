@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
+  aggregateByField,
+  aggregateByTwoFields,
+  aggregateMultipleSeries,
   applyRankToAggregated,
   applyRankToMultiSeries,
   applyRankToSeriesFieldData,
+  detectAggregationType,
+  detectAggregationTypeByField,
 } from './aggregators';
 import type { AggregatedData, MultiSeriesData, MultiYSeriesData } from './aggregators';
-import type { StudioFilterState } from '../models';
+import type { StudioExpressionField, StudioFilterState } from '../models';
 
 function rankFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
   return {
@@ -208,5 +213,226 @@ describe('applyRankToAggregated — null (no-data) handling', () => {
     expect(
       applyRankToAggregated(data, rankFilter({ value: 1, rankDirection: 'bottom' })).labels,
     ).toEqual(['Rome']);
+  });
+});
+// ─── The aggregation type is detected ONCE, for every aggregator family (M10) ──
+//
+// `aggregateByField` gained a `forcedAggregation` override so a filtered aggregation and its
+// baseline (ghost) counterpart could agree on sum-vs-count. The other two aggregators kept
+// hand-copied inline detection with no override, so `seriesFieldData` vs `allSeriesFieldData`
+// and `multiYData` vs `allMultiYData` still pre-detected INDEPENDENTLY: a cross-filtered
+// subset whose y values are all sentinel strings downgraded to 'count' while the baseline
+// stayed 'sum', drawing row-count bars against a sum-valued ghost.
+
+describe('detectAggregationTypeByField', () => {
+  it('detects per field, downgrading only the entirely non-numeric ones', () => {
+    const rows = [
+      { amount: 10, code: 'N/A' },
+      { amount: 20, code: 'X' },
+    ];
+    expect(detectAggregationTypeByField(rows, ['amount', 'code'], 'sum')).toEqual({
+      amount: 'sum',
+      code: 'count',
+    });
+  });
+
+  it('honours a per-field aggregation map', () => {
+    const rows = [{ amount: 10, other: 5 }];
+    expect(
+      detectAggregationTypeByField(rows, ['amount', 'other'], {
+        amount: 'avg',
+      }),
+    ).toEqual({
+      amount: 'avg',
+      other: 'sum',
+    });
+  });
+});
+
+describe('aggregateByTwoFields — forcedAggregation', () => {
+  // The repro: split-by bar chart, yField `amount`, yAggregation 'sum', seriesField `channel`.
+  // Rows for region 'X' carry the sentinel string 'N/A' in `amount`.
+  const baseline = [
+    { region: 'X', channel: 'web', amount: 'N/A' },
+    { region: 'X', channel: 'web', amount: 'N/A' },
+    { region: 'Y', channel: 'web', amount: 100 },
+  ];
+  // A cross-filter selecting region 'X' leaves only the sentinel rows.
+  const filtered = baseline.filter((r) => r.region === 'X');
+
+  it('downgrades to count when detecting independently from a sentinel-only subset', () => {
+    // Documents the divergence the override exists to prevent.
+    const independent = aggregateByTwoFields(
+      filtered,
+      'region',
+      'channel',
+      'amount',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'sum',
+    );
+    expect(independent.seriesData.web).toEqual([2]); // a ROW COUNT
+  });
+
+  it('uses the forced (baseline) aggregation instead, so ghost and foreground agree', () => {
+    const forced = detectAggregationType(baseline, 'amount', 'sum');
+    expect(forced).toBe('sum');
+
+    const foreground = aggregateByTwoFields(
+      filtered,
+      'region',
+      'channel',
+      'amount',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'sum',
+      undefined,
+      forced,
+    );
+    // No usable numeric value in the subset → a null gap, NOT a row count masquerading as a sum.
+    expect(foreground.seriesData.web).toEqual([null]);
+  });
+});
+
+describe('aggregateMultipleSeries — forcedAggregation', () => {
+  const baseline = [
+    { region: 'X', amount: 'N/A', units: 1 },
+    { region: 'Y', amount: 100, units: 2 },
+  ];
+  const filtered = baseline.filter((r) => r.region === 'X');
+
+  it('downgrades to count when detecting independently from a sentinel-only subset', () => {
+    const independent = aggregateMultipleSeries(filtered, 'region', ['amount', 'units'], undefined);
+    expect(independent.series.find((s) => s.fieldId === 'amount')?.values).toEqual([1]);
+  });
+
+  it('uses the forced (baseline) per-field map instead', () => {
+    const forced = detectAggregationTypeByField(baseline, ['amount', 'units'], 'sum');
+    expect(forced).toEqual({ amount: 'sum', units: 'sum' });
+
+    const foreground = aggregateMultipleSeries(
+      filtered,
+      'region',
+      ['amount', 'units'],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'sum',
+      undefined,
+      forced,
+    );
+    expect(foreground.series.find((s) => s.fieldId === 'amount')?.values).toEqual([null]);
+    expect(foreground.series.find((s) => s.fieldId === 'units')?.values).toEqual([1]);
+  });
+});
+
+// ─── Measure expression fields on a chart axis ────────────────────────────────
+//
+// `enrichRowsWithExpressions` deliberately excludes measures from row enrichment, so
+// `row[measureId]` is `undefined` on every row. Without `expressionFields`, detection kept
+// 'sum' and finalizing an empty accumulator produced a confident zero/gap while the KPI beside
+// the chart — which evaluates the measure over the whole row set — showed the right number.
+
+describe('generic aggregators — measure expression y fields', () => {
+  const avgOrderValue: StudioExpressionField = {
+    id: 'aov',
+    label: 'Avg order value',
+    sourceId: 'src',
+    isMeasure: true,
+    expression: {
+      operator: 'divide',
+      inputs: [
+        { id: 'revenue', aggregation: 'sum' },
+        { id: 'revenue', aggregation: 'count' },
+      ],
+    },
+  };
+  const expressionFields = [avgOrderValue];
+
+  const rows = [
+    { region: 'A', channel: 'web', revenue: 100 },
+    { region: 'A', channel: 'web', revenue: 300 },
+    { region: 'B', channel: 'web', revenue: 50 },
+  ];
+
+  it('aggregateByField evaluates the measure per bucket instead of plotting a flat gap', () => {
+    const withMeasure = aggregateByField(
+      rows,
+      'region',
+      'aov',
+      undefined,
+      'sum',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      expressionFields,
+    );
+    expect(withMeasure.labels).toEqual(['A', 'B']);
+    expect(withMeasure.values).toEqual([200, 50]);
+
+    // Without `expressionFields` the measure has no per-row value at all.
+    const without = aggregateByField(rows, 'region', 'aov', undefined, 'sum');
+    expect(without.values).toEqual([null, null]);
+  });
+
+  it('aggregateByTwoFields evaluates the measure per cell', () => {
+    const result = aggregateByTwoFields(
+      rows,
+      'region',
+      'channel',
+      'aov',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'sum',
+      undefined,
+      undefined,
+      expressionFields,
+    );
+    expect(result.labels).toEqual(['A', 'B']);
+    expect(result.seriesData.web).toEqual([200, 50]);
+  });
+
+  it('aggregateMultipleSeries mixes measure and plain series', () => {
+    const result = aggregateMultipleSeries(
+      rows,
+      'region',
+      ['aov', 'revenue'],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'sum',
+      undefined,
+      undefined,
+      expressionFields,
+    );
+    expect(result.series.find((s) => s.fieldId === 'aov')?.values).toEqual([200, 50]);
+    expect(result.series.find((s) => s.fieldId === 'revenue')?.values).toEqual([400, 50]);
+  });
+
+  it("'count' still tallies rows and ignores the measure", () => {
+    const result = aggregateByField(
+      rows,
+      'region',
+      'aov',
+      undefined,
+      'count',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      expressionFields,
+    );
+    expect(result.values).toEqual([2, 1]);
   });
 });

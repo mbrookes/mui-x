@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
   accumulateValue,
+  aggregateCellValues,
   aggregateNumbers,
   coerceAggregateValue,
+  compareRankScores,
   countDistinct,
   createAggregateAccumulator,
   finalizeAccumulator,
+  reduceRankScore,
+  resolveMeasureAggregate,
 } from './aggregate';
 import { computeAggregate } from '../components/widgets/StudioKpiWidget/kpiUtils';
 import { computeGridSummary } from '../utils/gridSummary';
@@ -117,53 +121,114 @@ describe('countDistinct', () => {
   });
 });
 
-// ─── count_distinct invariant across KPI / grid / measure paths (finding 2.23) ──
+// ─── Cross-path aggregation invariant (findings 2.23 / M8) ────────────────────
 //
-// The three call sites historically disagreed: the KPI path counted null/undefined
-// as a distinct value; the grid paths excluded nulls; the measure-expression path
-// coerced values to numbers first, collapsing a distinct count over a string field to
-// 0. All three must now return the SAME number for the same data — the documented
-// "KPI over a raw field and a measure expression return the same number" invariant.
+// "A KPI over a raw field and a KPI over an equivalent measure expression return the
+// same number" is a documented invariant of this package. It is enforced here by
+// running the SAME rows/field/aggregation through every production path at once.
+//
+// The fixtures deliberately contain nulls: an aggregation name whose two definitions
+// differ only in how they treat missing values coincides on fully-populated data, so a
+// table without nulls proves nothing at all about the thing that actually broke.
+
+const gridField = (id: string): StudioDataField => ({ id, label: id, type: 'string' });
+
+/** All four production aggregation paths over the same rows / field / function. */
+function crossPathAggregate(
+  rows: Record<string, unknown>[],
+  field: string,
+  fn: 'count' | 'count_distinct',
+) {
+  // KPI path
+  const kpi = computeAggregate(rows, field, fn);
+
+  // Grid group-by path: fold every row into one group and read the aggregate.
+  const grouped = buildGroupedGridRows(
+    rows.map((r) => ({ ...r, __g: 'all' })),
+    '__g',
+    ['__g', field],
+    { [field]: fn },
+    'w',
+  );
+  const grid = grouped[0]?.[field] as number;
+
+  // Grid footer summary path: parse the "Unique: N" / "Count: N" string back to a number.
+  const summary = computeGridSummary(rows, [gridField(field)], { fields: { [field]: fn } });
+  const gridSummary = Number((summary[field] ?? '').replace(/[^\d.-]/g, ''));
+
+  // Measure-expression path
+  const measure: StudioExpressionField = {
+    id: `${fn}Measure`,
+    label: fn,
+    sourceId: 'src',
+    isMeasure: true,
+    expression: { id: field, aggregation: fn },
+  };
+  const measureValue = evaluateMeasure(measure, rows, []);
+
+  return { kpi, grid, gridSummary, measure: measureValue };
+}
+
+// `count` is `COUNT(*)` — how many ROWS, regardless of whether this measure had a usable
+// value in them. The measure-expression path used to answer two OTHER questions under the
+// same name (a count of numerically-valid values for a numeric-like field, a non-null
+// `COUNT(col)` for a non-numeric one), so a KPI over `amount` with aggregation `count` read
+// 10 while a KPI over the measure `count(amount)` read 7 on the same 10 rows — same
+// dashboard, same question, two answers (finding M8).
+describe('count is identical across the KPI, grid, and measure paths', () => {
+  it('counts every row of a numeric field, nulls included', () => {
+    // The exact repro: 10 orders, `amount` null on 3.
+    const rows = [
+      { amount: 10 },
+      { amount: 20 },
+      { amount: null },
+      { amount: 30 },
+      { amount: null },
+      { amount: 40 },
+      { amount: 50 },
+      { amount: undefined },
+      { amount: 60 },
+      { amount: 70 },
+    ];
+    const { kpi, grid, gridSummary, measure } = crossPathAggregate(rows, 'amount', 'count');
+    // 10 — NOT 7 (the old measure path's count of numerically-valid values).
+    expect(kpi).toBe(10);
+    expect(grid).toBe(10);
+    expect(gridSummary).toBe(10);
+    expect(measure).toBe(10);
+  });
+
+  it('counts every row of a non-numeric field, nulls included', () => {
+    const rows = [{ status: 'paid' }, { status: null }, { status: 'unpaid' }, {}];
+    const { kpi, grid, gridSummary, measure } = crossPathAggregate(rows, 'status', 'count');
+    // 4 — NOT 2 (the old measure path's SQL `COUNT(col)` for a non-numeric field).
+    expect(kpi).toBe(4);
+    expect(grid).toBe(4);
+    expect(gridSummary).toBe(4);
+    expect(measure).toBe(4);
+  });
+
+  it('agrees on a fully-populated field too', () => {
+    const rows = [{ region: 'US' }, { region: 'EU' }, { region: 'US' }];
+    const { kpi, grid, gridSummary, measure } = crossPathAggregate(rows, 'region', 'count');
+    expect(kpi).toBe(3);
+    expect(grid).toBe(3);
+    expect(gridSummary).toBe(3);
+    expect(measure).toBe(3);
+  });
+});
+
+// count_distinct historically disagreed too: the KPI path counted null/undefined as a
+// distinct value; the grid paths excluded nulls; the measure-expression path coerced values
+// to numbers first, collapsing a distinct count over a string field to 0 (finding 2.23).
 describe('count_distinct is identical across the KPI, grid, and measure paths', () => {
-  const gridField = (id: string): StudioDataField => ({ id, label: id, type: 'string' });
-
-  /** All four production distinct-count paths over the same rows/field. */
-  function distinctCounts(rows: Record<string, unknown>[], field: string) {
-    // KPI path
-    const kpi = computeAggregate(rows, field, 'count_distinct');
-
-    // Grid group-by path: fold every row into one group and read the aggregate.
-    const grouped = buildGroupedGridRows(
-      rows.map((r) => ({ ...r, __g: 'all' })),
-      '__g',
-      ['__g', field],
-      { [field]: 'count_distinct' },
-      'w',
-    );
-    const grid = grouped[0]?.[field] as number;
-
-    // Grid footer summary path: parse the "Unique: N" formatted string back to a number.
-    const summary = computeGridSummary(rows, [gridField(field)], {
-      fields: { [field]: 'count_distinct' },
-    });
-    const gridSummary = Number((summary[field] ?? '').replace(/[^\d.-]/g, ''));
-
-    // Measure-expression path
-    const measure: StudioExpressionField = {
-      id: 'distinctMeasure',
-      label: 'Distinct',
-      sourceId: 'src',
-      isMeasure: true,
-      expression: { id: field, aggregation: 'count_distinct' },
-    };
-    const measureValue = evaluateMeasure(measure, rows, []);
-
-    return { kpi, grid, gridSummary, measure: measureValue };
-  }
-
   it('agrees on a string field with duplicates', () => {
     const rows = [{ region: 'US' }, { region: 'US' }, { region: 'EU' }, { region: 'APAC' }];
-    const { kpi, grid, gridSummary, measure } = distinctCounts(rows, 'region');
+    const { kpi, grid, gridSummary, measure } = crossPathAggregate(
+      rows,
+      'region',
+      'count_distinct',
+    );
     expect(kpi).toBe(3);
     expect(grid).toBe(3);
     expect(gridSummary).toBe(3);
@@ -179,7 +244,11 @@ describe('count_distinct is identical across the KPI, grid, and measure paths', 
       { region: undefined },
       {}, // missing key → undefined
     ];
-    const { kpi, grid, gridSummary, measure } = distinctCounts(rows, 'region');
+    const { kpi, grid, gridSummary, measure } = crossPathAggregate(
+      rows,
+      'region',
+      'count_distinct',
+    );
     // 2 distinct non-null regions (US, EU) — NOT 3 (the old KPI path counted the null
     // group) and NOT 0 (the old measure path coerced strings to NaN and dropped them).
     expect(kpi).toBe(2);
@@ -190,7 +259,7 @@ describe('count_distinct is identical across the KPI, grid, and measure paths', 
 
   it('agrees on a numeric field too', () => {
     const rows = [{ score: 10 }, { score: 10 }, { score: 20 }, { score: null }];
-    const { kpi, grid, gridSummary, measure } = distinctCounts(rows, 'score');
+    const { kpi, grid, gridSummary, measure } = crossPathAggregate(rows, 'score', 'count_distinct');
     expect(kpi).toBe(2);
     expect(grid).toBe(2);
     expect(gridSummary).toBe(2);
@@ -218,5 +287,133 @@ describe('streaming accumulator', () => {
     const empty = createAggregateAccumulator();
     expect(finalizeAccumulator(empty, 'min')).toBe(null);
     expect(finalizeAccumulator(empty, 'max')).toBe(null);
+  });
+});
+
+describe('aggregateCellValues', () => {
+  // One entry per row, `undefined` where the key is missing.
+  const cells = [10, null, '20', undefined, 'n/a', true];
+
+  it('separates the three count questions (finding M8)', () => {
+    // COUNT(*) — every row, whatever it held.
+    expect(aggregateCellValues(cells, 'count')).toBe(6);
+    // COUNT(col) — the non-null/undefined entries: 10, '20', 'n/a', true.
+    expect(aggregateCellValues(cells, 'count_non_null')).toBe(4);
+    // COUNT(DISTINCT col) — over the RAW values, nulls excluded.
+    expect(aggregateCellValues(cells, 'count_distinct')).toBe(4);
+  });
+
+  it('coerces and null-skips for sum/avg/min/max', () => {
+    // Usable: 10, 20 (numeric string), 1 (boolean). 'n/a'/null/undefined are skipped.
+    expect(aggregateCellValues(cells, 'sum')).toBe(31);
+    expect(aggregateCellValues(cells, 'avg')).toBe(31 / 3);
+    expect(aggregateCellValues(cells, 'min')).toBe(1);
+    expect(aggregateCellValues(cells, 'max')).toBe(20);
+  });
+
+  it('keeps the documented empty-set policy', () => {
+    expect(aggregateCellValues([], 'count')).toBe(0);
+    expect(aggregateCellValues([], 'count_non_null')).toBe(0);
+    expect(aggregateCellValues([], 'sum')).toBe(0);
+    expect(aggregateCellValues([], 'avg')).toBe(null);
+    expect(aggregateCellValues([], 'min')).toBe(null);
+    expect(aggregateCellValues([], 'max')).toBe(null);
+    // All-null rows still COUNT(*) as rows, but have no sum/avg to report.
+    expect(aggregateCellValues([null, undefined], 'count')).toBe(2);
+    expect(aggregateCellValues([null, undefined], 'count_non_null')).toBe(0);
+    expect(aggregateCellValues([null, undefined], 'avg')).toBe(null);
+  });
+});
+
+// ─── Rank scoring shared by the row-level and post-aggregation rankers (M9) ────
+describe('reduceRankScore', () => {
+  it('skips nulls instead of folding them in as 0', () => {
+    expect(reduceRankScore([-500, null, undefined], 'sum')).toBe(-500);
+    expect(reduceRankScore([2, null, 4], 'avg')).toBe(3);
+    expect(reduceRankScore([5, null, 3], 'min')).toBe(3);
+    expect(reduceRankScore([5, null, 3], 'max')).toBe(5);
+  });
+
+  it('returns null — not 0 — for a candidate with no usable measurement', () => {
+    expect(reduceRankScore([], 'sum')).toBe(null);
+    expect(reduceRankScore([null, undefined, null], 'sum')).toBe(null);
+    expect(reduceRankScore([null], 'min')).toBe(null);
+  });
+});
+
+describe('compareRankScores', () => {
+  it('sorts a null ("no data") score LAST in both directions', () => {
+    // Top-N: a no-data candidate must not outrank a real negative measurement.
+    expect([-500, null, -200].toSorted((a, b) => compareRankScores(a, b, 'top'))).toEqual([
+      -200,
+      -500,
+      null,
+    ]);
+    // Bottom-N: nor undercut a real positive one.
+    expect([500, null, 200].toSorted((a, b) => compareRankScores(a, b, 'bottom'))).toEqual([
+      200,
+      500,
+      null,
+    ]);
+  });
+
+  it('compares two no-data candidates as equal (never NaN)', () => {
+    expect(compareRankScores(null, null, 'top')).toBe(0);
+    expect(compareRankScores(undefined, null, 'bottom')).toBe(0);
+    expect(compareRankScores(3, 3, 'top')).toBe(0);
+  });
+});
+
+describe('resolveMeasureAggregate', () => {
+  const revenuePerOrder: StudioExpressionField = {
+    id: 'revPerOrder',
+    label: 'Revenue / order',
+    sourceId: 'src',
+    isMeasure: true,
+    expression: {
+      operator: 'divide',
+      inputs: [
+        { id: 'revenue', aggregation: 'sum' },
+        { id: 'revenue', aggregation: 'count' },
+      ],
+    },
+  };
+
+  it('evaluates the measure over the whole row set', () => {
+    const rows = [{ revenue: 100 }, { revenue: 200 }, { revenue: 300 }];
+    expect(resolveMeasureAggregate(rows, 'revPerOrder', [revenuePerOrder])).toBe(200);
+  });
+
+  it('returns null (never 0) for an empty row set', () => {
+    expect(resolveMeasureAggregate([], 'revPerOrder', [revenuePerOrder])).toBe(null);
+  });
+
+  it('returns null for a field id that is not a measure expression field', () => {
+    const rows = [{ revenue: 100 }];
+    // A plain data-source field…
+    expect(resolveMeasureAggregate(rows, 'revenue', [revenuePerOrder])).toBe(null);
+    // …and a row-level (non-measure) expression column.
+    const column: StudioExpressionField = {
+      id: 'doubled',
+      label: 'Doubled',
+      sourceId: 'src',
+      isMeasure: false,
+      expression: {
+        operator: 'multiply',
+        inputs: [{ id: 'revenue' }, { type: 'number', value: 2 }],
+      },
+    };
+    expect(resolveMeasureAggregate(rows, 'doubled', [column])).toBe(null);
+  });
+
+  it('still returns a genuine 0', () => {
+    const zeroSum: StudioExpressionField = {
+      id: 'zero',
+      label: 'Zero',
+      sourceId: 'src',
+      isMeasure: true,
+      expression: { id: 'revenue', aggregation: 'sum' },
+    };
+    expect(resolveMeasureAggregate([{ revenue: 0 }], 'zero', [zeroSum])).toBe(0);
   });
 });

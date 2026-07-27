@@ -22,8 +22,41 @@
  *   (pivot matrix cells, multi-series chart aggregation).
  */
 
-/** Aggregation functions supported over a numeric value set. */
-export type AggregateFn = 'sum' | 'avg' | 'count' | 'min' | 'max' | 'count_distinct';
+import type { StudioExpressionField } from '../models';
+// `expressionEvaluator` imports the pure primitives at the top of this module, so this is a
+// module cycle — a deliberate one. Both sides consume the other only from FUNCTION BODIES
+// (never at module-evaluation time) and both export hoisted function declarations, so the
+// live bindings are resolved by the time either is called. Keeping `resolveMeasureAggregate`
+// here is what lets every bucket-producing path (KPI, pivot, charts) reach measure evaluation
+// through the one aggregation module instead of each re-deriving it.
+import { evaluateMeasure } from '../utils/expressionEvaluator';
+
+/**
+ * Aggregation functions supported over a value set.
+ *
+ * The `count` family carries three DIFFERENT questions, and every path in the package
+ * must answer each of them the same way (finding M8):
+ * - `count` — `COUNT(*)`: how many ROWS landed here, regardless of whether this
+ *   particular measure had a usable value in them. This is the semantic the KPI
+ *   (`computeAggregate`), the grid footer/group-by (`gridGrouping.aggregateValues`),
+ *   the pivot (`pivotUtils.resolveAgg`) and all three chart aggregators already use,
+ *   so it is THE meaning of the bare name `count`.
+ * - `count_non_null` — `COUNT(col)`: how many rows had a non-null value for the
+ *   measure. Standard SQL's column count. Distinct name, distinct number.
+ * - `count_distinct` — `COUNT(DISTINCT col)` over the RAW values.
+ *
+ * `count_non_null` is deliberately NOT part of the persisted `StudioKpiAggregation` /
+ * `StudioGridSummaryAggregation` unions: it exists here so the semantic has a name and
+ * a single implementation, and so no path can quietly re-use `count` to mean it.
+ */
+export type AggregateFn =
+  | 'sum'
+  | 'avg'
+  | 'count'
+  | 'count_non_null'
+  | 'min'
+  | 'max'
+  | 'count_distinct';
 
 /**
  * Coerce a raw cell value to a number for aggregation, or `null` when the value
@@ -72,7 +105,10 @@ export function coerceAggregateValue(value: unknown): number | null {
  * null-filtered value array here.
  */
 export function aggregateNumbers(values: number[], fn: AggregateFn): number | null {
-  if (fn === 'count') {
+  if (fn === 'count' || fn === 'count_non_null') {
+    // `values` is already the coerced, null-skipped list, so both counts collapse to its
+    // length here. Callers that need the true `COUNT(*)` (null rows included) must go
+    // through `aggregateCellValues` / `computeAggregate` with the RAW cell values.
     return values.length;
   }
   if (fn === 'count_distinct') {
@@ -134,6 +170,52 @@ export function countDistinct(values: Iterable<unknown>): number {
   return seen.size;
 }
 
+/**
+ * Aggregate one RAW cell value per row — the single place that decides what each
+ * aggregation NAME means over a row set (finding M8).
+ *
+ * Every whole-row-set reducer in the package routes through this, so `count` can no
+ * longer mean `COUNT(*)` on one path (KPI / grid footer / chart bars) and "count of
+ * numerically-valid values" on another (measure expressions). Before this, a KPI over
+ * `amount` with aggregation `count` returned 10 for a 10-row source with 3 null
+ * amounts, while a KPI whose value field was the measure `count(amount)` returned 7 —
+ * same dashboard, same question, two answers.
+ *
+ * `values` must contain exactly ONE entry per row (use `undefined` for a missing key),
+ * because `count` is defined as `values.length`.
+ *
+ * - `count` → `values.length` (`COUNT(*)`, null rows included);
+ * - `count_non_null` → the number of non-null/undefined entries (`COUNT(col)`);
+ * - `count_distinct` → {@link countDistinct} over the RAW values;
+ * - `sum`/`avg`/`min`/`max` → {@link aggregateNumbers} over the
+ *   {@link coerceAggregateValue}-coerced, null-skipped values.
+ */
+export function aggregateCellValues(values: readonly unknown[], fn: AggregateFn): number | null {
+  if (fn === 'count') {
+    return values.length;
+  }
+  if (fn === 'count_non_null') {
+    let count = 0;
+    for (const value of values) {
+      if (value !== null && value !== undefined) {
+        count += 1;
+      }
+    }
+    return count;
+  }
+  if (fn === 'count_distinct') {
+    return countDistinct(values);
+  }
+  const numeric: number[] = [];
+  for (const value of values) {
+    const coerced = coerceAggregateValue(value);
+    if (coerced !== null) {
+      numeric.push(coerced);
+    }
+  }
+  return aggregateNumbers(numeric, fn);
+}
+
 /** Streaming accumulator for aggregating values without buffering them. */
 export interface AggregateAccumulator {
   sum: number;
@@ -182,6 +264,7 @@ export function finalizeAccumulator(
   }
   switch (fn) {
     case 'count':
+    case 'count_non_null':
       return acc.count;
     case 'avg':
       return acc.sum / acc.count;
@@ -193,4 +276,117 @@ export function finalizeAccumulator(
     default:
       return acc.sum;
   }
+}
+
+// ─── Rank scoring ─────────────────────────────────────────────────────────────
+
+/** Which end of a ranking survives: `'top'` keeps the highest scores, `'bottom'` the lowest. */
+export type RankDirection = 'top' | 'bottom';
+
+/**
+ * Reduce one rank candidate's measurements to a single score, skipping the `null`s.
+ *
+ * `null` values are ABSENT measurements, not zeros, so they contribute nothing: they
+ * neither add 0 to a sum, nor pull an average toward 0, nor win a `min`/`max` against a
+ * real value. When every value is null the candidate has NO DATA and the score is
+ * `null` — which {@link compareRankScores} sorts to the losing end in EITHER direction.
+ *
+ * Shared by the post-aggregation chart rankers (`aggregators.ts`) and the row-level rank
+ * filter (`filterUtils.ts`), which used to seed each group at a concrete `0` instead. That
+ * made an all-null group win a "Top 1 by profit" against two genuinely negative groups on
+ * every row-level widget (grid/KPI/map/pivot/heatmap/funnel), while the bar chart's
+ * post-aggregation ranker — already null-aware — picked the real winner (finding M9).
+ */
+export function reduceRankScore(
+  values: Iterable<number | null | undefined>,
+  fn: 'sum' | 'avg' | 'min' | 'max',
+): number | null {
+  const acc = createAggregateAccumulator();
+  for (const value of values) {
+    if (value !== null && value !== undefined) {
+      accumulateValue(acc, value);
+    }
+  }
+  return finalizeAccumulator(acc, fn);
+}
+
+/**
+ * Order two rank scores so a `null` ("no data") candidate always LOSES, whichever end of
+ * the ranking is being kept.
+ *
+ * A no-data candidate must never win a slot in a Top-N *or* a Bottom-N: coercing its score
+ * to 0 outranks every negative measurement in a Top-N and undercuts every positive one in a
+ * Bottom-N, and coercing it to ±Infinity beats every real measurement outright.
+ *
+ * Equality is tested before subtracting so two no-data candidates compare as 0 rather than
+ * producing `NaN`; a NaN comparator is not a consistent ordering, which makes the surviving
+ * set engine-dependent.
+ */
+export function compareRankScores(
+  a: number | null | undefined,
+  b: number | null | undefined,
+  dir: RankDirection,
+): number {
+  const av = a ?? null;
+  const bv = b ?? null;
+  if (av === null || bv === null) {
+    if (av === bv) {
+      return 0;
+    }
+    return av === null ? 1 : -1;
+  }
+  if (av === bv) {
+    return 0;
+  }
+  return dir === 'top' ? bv - av : av - bv;
+}
+
+// ─── Measure expression fields ────────────────────────────────────────────────
+
+/**
+ * Resolve `fieldId` to a MEASURE expression field (`isMeasure: true`), or `undefined`
+ * when it is a plain data-source field / a non-measure (row-level) expression column.
+ *
+ * A measure has no per-row value at all — `enrichRowsWithExpressions` deliberately skips
+ * measures, so `row[measureId]` is always `undefined` — and must instead be evaluated once
+ * over the FULL row set of each bucket. Callers use this to decide which of the two paths
+ * to take before reading `row[fieldId]`.
+ */
+export function findMeasureExpressionField(
+  fieldId: string,
+  expressionFields: readonly StudioExpressionField[] | undefined,
+): StudioExpressionField | undefined {
+  if (!fieldId || !expressionFields || expressionFields.length === 0) {
+    return undefined;
+  }
+  return expressionFields.find((ef) => ef.id === fieldId && ef.isMeasure);
+}
+
+/**
+ * Aggregate a MEASURE expression field over `rows` — the shared entry point every
+ * bucket-producing path (KPI, pivot, and all three chart aggregators) uses so a measure
+ * returns the same number wherever it is placed.
+ *
+ * Returns `null` — never `0` — when the measure cannot be evaluated at all: an empty row
+ * set, a `fieldId` that is not a measure expression field, or a non-finite result. This
+ * package's doctrine is "null means not measured, not zero": a fabricated 0 is
+ * indistinguishable from a genuine zero measurement, so it plots a real bar/point, wins a
+ * Top-N against real negative values, and leads a descending value sort.
+ *
+ * A measure that genuinely evaluates to 0 still returns 0.
+ */
+export function resolveMeasureAggregate(
+  rows: Record<string, unknown>[],
+  fieldId: string,
+  expressionFields: StudioExpressionField[],
+): number | null {
+  if (rows.length === 0) {
+    return null;
+  }
+  const measure = findMeasureExpressionField(fieldId, expressionFields);
+  if (!measure) {
+    return null;
+  }
+  const value = evaluateMeasure(measure, rows, expressionFields);
+  return value === null || !Number.isFinite(value) ? null : value;
 }

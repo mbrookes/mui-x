@@ -1,13 +1,18 @@
-import type { StudioFilterState } from '../models';
+import type { StudioExpressionField, StudioFilterState } from '../models';
 import { sortLabels, type XGroupBy } from './temporalUtils';
 import { applyXGroupBy, isEmptyXValue, toXValue } from './chartValues';
 import type { StudioLocaleText } from './localeText';
 import {
   accumulateValue,
   coerceAggregateValue,
+  compareRankScores,
   createAggregateAccumulator,
   finalizeAccumulator,
+  findMeasureExpressionField,
+  reduceRankScore,
+  resolveMeasureAggregate,
   type AggregateAccumulator,
+  type RankDirection,
 } from './aggregate';
 
 type Row = Record<string, unknown>;
@@ -58,61 +63,16 @@ export interface MultiYSeriesData {
   }>;
 }
 
-/** Which end of the ranking survives: `'top'` keeps the highest scores, `'bottom'` the lowest. */
-type RankDirection = 'top' | 'bottom';
-
-/**
- * Reduce one candidate's cells to a single rank score, skipping the `null`s.
- *
- * `null` cells are ABSENT measurements, not zeros (see {@link AggregatedData.values}), so they
- * contribute nothing: they neither add 0 to a sum, nor pull an average toward 0, nor win a
- * `min`/`max` against a real value. When every cell is null the candidate has no data at all
- * and the score is `null` — which {@link selectRankedIndices} sorts to the losing end.
- *
- * Uses an explicit loop rather than `Math.min(...values)`: the spread form throws
- * `RangeError: Maximum call stack size exceeded` past ~125k elements (matching
- * `internals/aggregate.ts` and `utils/gridGrouping.ts`).
- */
-function reduceRankScore(
-  values: readonly (number | null | undefined)[],
-  fn: 'sum' | 'avg' | 'min' | 'max',
-): number | null {
-  let acc: number | null = null;
-  let count = 0;
-  for (const value of values) {
-    if (value == null) {
-      continue;
-    }
-    count += 1;
-    if (acc === null) {
-      acc = value;
-    } else if (fn === 'min') {
-      acc = value < acc ? value : acc;
-    } else if (fn === 'max') {
-      acc = value > acc ? value : acc;
-    } else {
-      acc += value;
-    }
-  }
-  if (acc === null) {
-    return null;
-  }
-  return fn === 'avg' ? acc / count : acc;
-}
-
 /**
  * Pick the indices of the `n` best-ranked candidates out of `count`, scoring each through
- * `rawScoreOf`. The one place the rank ordering policy lives, shared by all three
+ * `rawScoreOf`. The one place the POST-AGGREGATION rank ordering lives, shared by all three
  * `applyRankTo*` entry points so a Top-N behaves identically whatever shape the data has.
  *
- * A `null` raw score means "no data", not "zero" — such a candidate must never win a slot in
- * a Top-N or a Bottom-N, so it sorts LAST in EITHER direction rather than being coerced to a
- * 0 that outranks every negative value (or undercuts every positive one), or to a ±Infinity
- * that beats every real measurement (H4).
- *
- * The comparator tests equality first, so two no-data candidates (both the same ±Infinity)
- * compare as 0 instead of yielding `Infinity - Infinity === NaN`. A NaN comparator is not a
- * consistent ordering, which makes the surviving set engine-dependent.
+ * Scoring (`reduceRankScore`) and ordering (`compareRankScores`) themselves live in
+ * `internals/aggregate.ts`, shared with the ROW-LEVEL rank filter in `filterUtils.ts` so the
+ * two paths can no longer disagree about what a no-data candidate is worth (finding M9).
+ * A `null` score means "no data", not "zero": such a candidate must never win a slot in a
+ * Top-N or a Bottom-N, so it loses in EITHER direction.
  *
  * Returns the winning indices as a Set; every caller then filters its own arrays with a
  * keep-mask, so surviving candidates stay in their ORIGINAL input order. Ranking selects
@@ -125,17 +85,8 @@ function selectRankedIndices(
   dir: RankDirection,
   n: number,
 ): Set<number> {
-  const noDataScore = dir === 'top' ? -Infinity : Infinity;
-  const scoreOf = (index: number): number => rawScoreOf(index) ?? noDataScore;
   const indices = Array.from({ length: count }, (_, i) => i);
-  indices.sort((a, b) => {
-    const sa = scoreOf(a);
-    const sb = scoreOf(b);
-    if (sa === sb) {
-      return 0;
-    }
-    return dir === 'top' ? sb - sa : sa - sb;
-  });
+  indices.sort((a, b) => compareRankScores(rawScoreOf(a), rawScoreOf(b), dir));
   return new Set(indices.slice(0, n));
 }
 
@@ -447,6 +398,33 @@ export function detectAggregationType(
   return sawNonNull && !sawNumeric ? 'count' : yAggregation;
 }
 
+/**
+ * {@link detectAggregationType} for a whole multi-Y series set, returning the `fieldId → fn`
+ * map {@link aggregateMultipleSeries} accepts as its `forcedAggregation`.
+ *
+ * Exists for the same reason the single-field version is exported: a caller that pairs a
+ * FILTERED aggregation with a BASELINE (ghost) one must detect ONCE — from the baseline, which
+ * has the fuller picture — and hand the SAME map to both calls. Detecting independently per
+ * subset let a cross-filtered subset whose y values are all sentinel strings downgrade to
+ * `'count'` while the baseline stayed `'sum'`, drawing row-count bars against a sum-valued
+ * ghost (finding M10).
+ */
+export function detectAggregationTypeByField(
+  rows: Row[],
+  yFields: string[],
+  yAggregation: ChartAggFn | Record<string, ChartAggFn> = 'sum',
+): Record<string, ChartAggFn> {
+  const out: Record<string, ChartAggFn> = {};
+  for (const fieldId of yFields) {
+    out[fieldId] = detectAggregationType(
+      rows,
+      fieldId,
+      typeof yAggregation === 'string' ? yAggregation : (yAggregation[fieldId] ?? 'sum'),
+    );
+  }
+  return out;
+}
+
 export function aggregateByField(
   rows: Row[],
   xField: string,
@@ -480,6 +458,23 @@ export function aggregateByField(
    * never mismatches sum vs. count between the two (finding 3).
    */
   forcedAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max',
+  /**
+   * The dashboard's expression fields, so a MEASURE y field can be evaluated.
+   *
+   * A measure (`isMeasure: true`) has NO per-row value — `enrichRowsWithExpressions` deliberately
+   * excludes measures from row enrichment, so `row[measureId]` is `undefined` on every row.
+   * Reading it per-row made `detectAggregationType` see nothing, keep `'sum'`, and finalize an
+   * empty accumulator, so a chart with a measure on its Y axis plotted confident zeros while the
+   * KPI beside it — which calls `evaluateMeasure` over the whole row set — showed the right
+   * number. When this is supplied and `yField` resolves to a measure, each bucket keeps its ROWS
+   * and the measure is evaluated over them via the shared `resolveMeasureAggregate`, mirroring
+   * `pivotUtils.buildMeasurePivotMatrix`. Omit it (or pass a list without the field) and the
+   * aggregator behaves exactly as before.
+   *
+   * `'count'` is unaffected: it tallies rows and ignores the measure entirely, here as everywhere
+   * else (see `internals/aggregate.ts`'s `AggregateFn`).
+   */
+  expressionFields?: StudioExpressionField[],
 ): AggregatedData {
   // Row counts per x-value (drive the 'count' aggregation and define the label set).
   const counts = new Map<string | number, number>();
@@ -488,6 +483,13 @@ export function aggregateByField(
 
   const effectiveAggregation =
     forcedAggregation ?? detectAggregationType(rows, yField, yAggregation);
+
+  // A MEASURE y field has no per-row value (see the `expressionFields` param), so its buckets
+  // keep the contributing ROWS and evaluate the measure over each bucket at the end.
+  const isMeasure =
+    effectiveAggregation !== 'count' &&
+    findMeasureExpressionField(yField, expressionFields) !== undefined;
+  const measureRows = isMeasure ? new Map<string | number, Row[]>() : undefined;
 
   for (const row of rows) {
     // Axis-dimension policy: an empty x DROPS the row rather than bucketing it under
@@ -500,7 +502,14 @@ export function aggregateByField(
     const xVal = applyXGroupBy(raw, xGroupBy);
     counts.set(xVal, (counts.get(xVal) ?? 0) + 1);
 
-    if (effectiveAggregation !== 'count') {
+    if (measureRows) {
+      const bucket = measureRows.get(xVal);
+      if (bucket) {
+        bucket.push(row);
+      } else {
+        measureRows.set(xVal, [row]);
+      }
+    } else if (effectiveAggregation !== 'count') {
       // Route through the shared coercion policy: null/undefined/non-numeric values
       // are skipped (not coerced to 0), so they no longer inflate avg denominators or
       // drag min toward 0 (finding 1.4). Booleans coerce to 0/1.
@@ -511,9 +520,23 @@ export function aggregateByField(
     }
   }
 
+  // Memoized per label: a `sortBy: 'value'` ordering calls `valueFor` from inside the sort
+  // comparator, so an un-memoized measure evaluation would re-walk each bucket's rows
+  // O(n log n) times.
+  const measureValues = measureRows ? new Map<string | number, number | null>() : undefined;
+
   const valueFor = (label: string | number): number | null => {
     if (effectiveAggregation === 'count') {
       return counts.get(label) ?? 0;
+    }
+    if (measureRows && measureValues) {
+      if (!measureValues.has(label)) {
+        measureValues.set(
+          label,
+          resolveMeasureAggregate(measureRows.get(label) ?? [], yField, expressionFields!),
+        );
+      }
+      return measureValues.get(label)!;
     }
     // `null`, not `?? 0`: a bucket whose measures are ALL null/non-numeric has no
     // aggregate. Coercing it to 0 plotted an all-null Oslo temperature at 0 °C above a
@@ -551,6 +574,17 @@ export function aggregateByTwoFields(
   yAggregation: 'sum' | 'count' | 'avg' | 'min' | 'max' = 'sum',
   /** See {@link aggregateByField}'s `localeText` param (T3.2). */
   localeText?: Partial<StudioLocaleText>,
+  /**
+   * See {@link aggregateByField}'s `forcedAggregation` param (finding 3 / M10). The split-by
+   * family needs this for exactly the same reason the single-series one does: `seriesFieldData`
+   * (filtered) and `allSeriesFieldData` (baseline ghost) are two calls over different row sets,
+   * and detecting independently let a cross-filtered subset whose y values are all sentinel
+   * strings downgrade to `'count'` while the baseline stayed `'sum'` — foreground bars drawn as
+   * row counts against a sum-valued ghost.
+   */
+  forcedAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max',
+  /** See {@link aggregateByField}'s `expressionFields` param — enables a MEASURE `yField`. */
+  expressionFields?: StudioExpressionField[],
 ): MultiSeriesData {
   // First pass: collect all unique x values and series values
   const xValuesSet = new Set<string | number>();
@@ -559,32 +593,21 @@ export function aggregateByTwoFields(
   // Map: xValue -> seriesValue -> per-cell accumulator (sum/count/min/max).
   const dataMap = new Map<string | number, Map<string | number, CellAcc>>();
 
-  // Pre-detect: if the yField is non-numeric (e.g. a string ID), fall back to
-  // count so callers that omit yAggregation (or misconfigure it for a
-  // non-numeric measure) get row counts instead of every cell rendering
-  // `null` (blank chart) — mirrors the pre-detect `aggregateByField` and
-  // `aggregateMultipleSeries` already apply (finding 2.4). Treat the field as
-  // numeric if ANY non-null value coerces to a number (not just the first), so a
-  // leading "N/A"/"—" sentinel ahead of real numbers doesn't downgrade a configured
-  // sum/avg to a row count; reuse the row loop's `coerceAggregateValue` for consistency.
-  let effectiveAggregation = yAggregation;
-  if (effectiveAggregation !== 'count') {
-    let sawNonNull = false;
-    let sawNumeric = false;
-    for (const row of rows) {
-      const v = row[yField];
-      if (v !== null && v !== undefined) {
-        sawNonNull = true;
-        if (coerceAggregateValue(v) !== null) {
-          sawNumeric = true;
-          break;
-        }
-      }
-    }
-    if (sawNonNull && !sawNumeric) {
-      effectiveAggregation = 'count';
-    }
-  }
+  // Detected ONCE, through the SAME shared `detectAggregationType` the other two aggregators
+  // use — this used to be a hand-copied inline duplicate with no `forcedAggregation` override
+  // (finding M10). It falls back to `'count'` when the yField is entirely non-numeric on this
+  // row set, so a string measure renders row counts rather than a blank chart (finding 2.4).
+  const effectiveAggregation =
+    forcedAggregation ?? detectAggregationType(rows, yField, yAggregation);
+
+  // A MEASURE yField has no per-row value; buckets keep their ROWS instead. See
+  // {@link aggregateByField}'s `expressionFields` param.
+  const isMeasure =
+    effectiveAggregation !== 'count' &&
+    findMeasureExpressionField(yField, expressionFields) !== undefined;
+  const measureRows = isMeasure
+    ? new Map<string | number, Map<string | number, Row[]>>()
+    : undefined;
 
   for (const row of rows) {
     // The two dimensions of this ONE chart deliberately treat empties differently: the x
@@ -606,7 +629,19 @@ export function aggregateByTwoFields(
       seriesMap = new Map();
       dataMap.set(xVal, seriesMap);
     }
-    if (effectiveAggregation === 'count') {
+    if (measureRows) {
+      let cellMap = measureRows.get(xVal);
+      if (!cellMap) {
+        cellMap = new Map();
+        measureRows.set(xVal, cellMap);
+      }
+      const bucket = cellMap.get(seriesVal);
+      if (bucket) {
+        bucket.push(row);
+      } else {
+        cellMap.set(seriesVal, [row]);
+      }
+    } else if (effectiveAggregation === 'count') {
       // 'count' tallies rows regardless of the measure value (null rows included),
       // matching the KPI reference; the accumulated value is irrelevant.
       accumulateCell(seriesMap, seriesVal, 1);
@@ -622,10 +657,34 @@ export function aggregateByTwoFields(
 
   const seriesNames = sortLabels(Array.from(seriesValuesSet));
 
+  // Memoized per (label, series) — a `sortBy: 'value'` ordering totals every cell of a label
+  // from inside the sort comparator, so an un-memoized measure evaluation would re-walk each
+  // cell's rows O(n log n) times.
+  // Nested (not a joined string key) so two different (label, series) pairs can never collide.
+  const measureValues = measureRows
+    ? new Map<string | number, Map<string | number, number | null>>()
+    : undefined;
+
   // Resolve a single cell to its aggregated value; `null` when the cell has no
   // data so line/area charts render visible gaps instead of collapsing to zero.
-  const cellValue = (label: string | number, seriesName: string | number): number | null =>
-    finalizeCell(dataMap.get(label)?.get(seriesName), effectiveAggregation);
+  const cellValue = (label: string | number, seriesName: string | number): number | null => {
+    if (measureRows && measureValues) {
+      let cached = measureValues.get(label);
+      if (!cached) {
+        cached = new Map();
+        measureValues.set(label, cached);
+      }
+      if (!cached.has(seriesName)) {
+        const bucket = measureRows.get(label)?.get(seriesName);
+        cached.set(
+          seriesName,
+          bucket ? resolveMeasureAggregate(bucket, yField, expressionFields!) : null,
+        );
+      }
+      return cached.get(seriesName)!;
+    }
+    return finalizeCell(dataMap.get(label)?.get(seriesName), effectiveAggregation);
+  };
 
   const labels = orderLabels(sortLabels(Array.from(xValuesSet)), {
     sortBy,
@@ -661,48 +720,52 @@ export function aggregateMultipleSeries(
   yAggregation: ChartAggFn | Record<string, ChartAggFn> = 'sum',
   /** See {@link aggregateByField}'s `localeText` param (T3.2). */
   localeText?: Partial<StudioLocaleText>,
+  /**
+   * Per-field effective aggregations, used verbatim instead of re-running
+   * {@link detectAggregationTypeByField} against `rows` — the multi-Y equivalent of
+   * {@link aggregateByField}'s `forcedAggregation` (finding 3 / M10). Compute it ONCE from the
+   * baseline row set (see {@link detectAggregationTypeByField}) and pass the same map to both
+   * the filtered (`multiYData`) and baseline (`allMultiYData`) calls, so a cross-filtered subset
+   * whose values are all sentinel strings can't downgrade to `'count'` while the baseline stays
+   * `'sum'`. Fields absent from the map fall back to per-call detection.
+   */
+  forcedAggregation?: Record<string, ChartAggFn>,
+  /** See {@link aggregateByField}'s `expressionFields` param — enables MEASURE `yFields`. */
+  expressionFields?: StudioExpressionField[],
 ): MultiYSeriesData {
-  // Pre-detect non-numeric fields so callers that omit yAggregation don't get NaN.
-  // A non-numeric field is always aggregated as a count regardless of yAggregation.
-  // Treat a field as numeric if ANY non-null value coerces to a number (not just the
-  // first), so a leading "N/A"/"—" sentinel ahead of real numbers doesn't downgrade a
-  // configured sum/avg to a row count; reuse the row loop's `coerceAggregateValue` so
-  // the pre-detect and accumulation agree.
-  const useCount = new Set<string>();
-  for (const fieldId of yFields) {
-    let sawNonNull = false;
-    let sawNumeric = false;
-    for (const row of rows) {
-      const v = row[fieldId];
-      if (v !== null && v !== undefined) {
-        sawNonNull = true;
-        if (coerceAggregateValue(v) !== null) {
-          sawNumeric = true;
-          break;
-        }
-      }
-    }
-    if (sawNonNull && !sawNumeric) {
-      useCount.add(fieldId);
-    }
-  }
-
-  const configuredAggregation = (fieldId: string): ChartAggFn =>
-    typeof yAggregation === 'string' ? yAggregation : (yAggregation[fieldId] ?? 'sum');
-
-  const fieldAggregation = (fieldId: string): ChartAggFn =>
-    useCount.has(fieldId) ? 'count' : configuredAggregation(fieldId);
-
-  // Resolve each field's aggregation once so the row loop can decide per field whether
-  // to count every row or to skip null/non-numeric values (finding 1.4).
+  // Resolve each field's aggregation ONCE, through the SAME shared `detectAggregationType` the
+  // other two aggregators use — this used to be a hand-copied inline duplicate with no
+  // `forcedAggregation` override (finding M10). A field that is entirely non-numeric on this row
+  // set falls back to `'count'` so callers that omit `yAggregation` don't get a blank chart.
   const aggByField = new Map<string, ChartAggFn>(
-    yFields.map((fieldId) => [fieldId, fieldAggregation(fieldId)]),
+    yFields.map((fieldId) => [
+      fieldId,
+      forcedAggregation?.[fieldId] ??
+        detectAggregationType(
+          rows,
+          fieldId,
+          typeof yAggregation === 'string' ? yAggregation : (yAggregation[fieldId] ?? 'sum'),
+        ),
+    ]),
+  );
+  const fieldAggregation = (fieldId: string): ChartAggFn => aggByField.get(fieldId) ?? 'sum';
+
+  // MEASURE y fields have no per-row value; their buckets keep the contributing ROWS instead.
+  // See {@link aggregateByField}'s `expressionFields` param.
+  const measureFields = new Set(
+    yFields.filter(
+      (fieldId) =>
+        fieldAggregation(fieldId) !== 'count' &&
+        findMeasureExpressionField(fieldId, expressionFields) !== undefined,
+    ),
   );
 
   const labelOrder: (string | number)[] = [];
   const labelSet = new Set<string | number>();
   // Map: label → fieldId → per-cell accumulator (sum/count/min/max).
   const dataMap = new Map<string | number, Map<string, CellAcc>>();
+  // Map: label → contributing rows (only populated when at least one yField is a measure).
+  const measureRows = measureFields.size > 0 ? new Map<string | number, Row[]>() : undefined;
 
   for (const row of rows) {
     // Axis-dimension policy — empty x drops the row (see `chartValues.isEmptyXValue`).
@@ -716,8 +779,20 @@ export function aggregateMultipleSeries(
       labelOrder.push(xVal);
       dataMap.set(xVal, new Map());
     }
+    if (measureRows) {
+      const bucket = measureRows.get(xVal);
+      if (bucket) {
+        bucket.push(row);
+      } else {
+        measureRows.set(xVal, [row]);
+      }
+    }
     const fieldMap = dataMap.get(xVal)!;
     for (const fieldId of yFields) {
+      if (measureFields.has(fieldId)) {
+        // Evaluated later, over the label's whole row bucket.
+        continue;
+      }
       if (aggByField.get(fieldId) === 'count') {
         // 'count' tallies rows (null rows included); the value is irrelevant.
         accumulateCell(fieldMap, fieldId, 1);
@@ -731,11 +806,33 @@ export function aggregateMultipleSeries(
     }
   }
 
+  // Memoized per (label, field) — a `sortBy: 'value'` ordering totals every series of a label
+  // from inside the sort comparator, so an un-memoized measure evaluation would re-walk each
+  // label's rows O(n log n) times. Nested maps, never a joined string key, so no pair collides.
+  const measureValues = measureRows
+    ? new Map<string | number, Map<string, number | null>>()
+    : undefined;
+
   // `null` when the (label, field) cell has no data — a y-field that is absent from every
   // row at this label, or whose values are all null/non-numeric. Previously `?? 0`, which
   // drew a real bar/point at zero for a measure that simply doesn't exist there (H4).
-  const cellValue = (label: string | number, fieldId: string): number | null =>
-    finalizeCell(dataMap.get(label)?.get(fieldId), fieldAggregation(fieldId));
+  const cellValue = (label: string | number, fieldId: string): number | null => {
+    if (measureFields.has(fieldId) && measureValues) {
+      let cached = measureValues.get(label);
+      if (!cached) {
+        cached = new Map();
+        measureValues.set(label, cached);
+      }
+      if (!cached.has(fieldId)) {
+        cached.set(
+          fieldId,
+          resolveMeasureAggregate(measureRows?.get(label) ?? [], fieldId, expressionFields!),
+        );
+      }
+      return cached.get(fieldId)!;
+    }
+    return finalizeCell(dataMap.get(label)?.get(fieldId), fieldAggregation(fieldId));
+  };
 
   const sortedLabels = orderLabels(sortLabels(labelOrder), {
     sortBy,

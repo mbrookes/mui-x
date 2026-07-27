@@ -16,6 +16,7 @@ import {
   aggregateMultipleSeries,
   analyzeChartSupport,
   detectAggregationType,
+  detectAggregationTypeByField,
   prepareScatterData,
   prepareScatterDataGrouped,
   type BlendedSeriesInput,
@@ -377,6 +378,53 @@ export function useChartWidgetData(
     return detectAggregationType(allEnrichedRows, categoryYField, singleSeriesYAggregation);
   }, [shouldShowGhost, allEnrichedRows, categoryYField, singleSeriesYAggregation]);
 
+  // The split-by (`seriesField`) family has the SAME filtered-vs-baseline pairing —
+  // `seriesFieldData` against `allSeriesFieldData` — and used to pre-detect independently in
+  // each, because `aggregateByTwoFields` carried its own hand-copied inline detection with no
+  // override. A cross-filter selecting rows whose y values are all sentinel strings ("N/A")
+  // downgraded the filtered call to 'count' while the baseline stayed 'sum', so the foreground
+  // bars were row counts drawn against a sum-valued ghost (finding M10). Detect once, from the
+  // baseline, exactly as the single-series path above does.
+  const seriesFieldEffectiveAggregation = React.useMemo(() => {
+    const yField = activeYFields[0];
+    if (!shouldShowGhost || !yField) {
+      return undefined;
+    }
+    return detectAggregationType(allEnrichedRows, yField, singleSeriesYAggregation);
+  }, [shouldShowGhost, allEnrichedRows, activeYFields, singleSeriesYAggregation]);
+
+  // Same fix for the multi-Y family (`multiYData` vs `allMultiYData`), whose per-field
+  // detection map must likewise be computed once from the baseline (finding M10).
+  const multiYEffectiveAggregation = React.useMemo(() => {
+    if (!shouldShowGhost || activeYFields.length < 2) {
+      return undefined;
+    }
+    return detectAggregationTypeByField(allEnrichedRows, activeYFields, yAggregationByField);
+  }, [shouldShowGhost, allEnrichedRows, activeYFields, yAggregationByField]);
+
+  // Cache-key fragments for the forced aggregations and the expression-field set: both change
+  // the aggregated result, and `cachedCompute` keys on the rows reference plus this string.
+  const seriesFieldEffAggKey = seriesFieldEffectiveAggregation ?? '';
+  const multiYEffAggKey = React.useMemo(
+    () =>
+      multiYEffectiveAggregation
+        ? Object.entries(multiYEffectiveAggregation)
+            .map(([f, fn]) => `${f}=${fn}`)
+            .join(',')
+        : '',
+    [multiYEffectiveAggregation],
+  );
+  // Only MEASURE fields affect aggregation (row-level expression columns are already baked into
+  // `enrichedRows`, whose reference is the cache's outer key), so the fragment covers just those.
+  const measureFieldsKey = React.useMemo(
+    () =>
+      expressionFields
+        .filter((ef) => ef.isMeasure)
+        .map((ef) => `${ef.id}:${JSON.stringify(ef.expression)}`)
+        .join('|'),
+    [expressionFields],
+  );
+
   // Blended multi-Y data: each series aggregated in its own source, aligned on xField.
   const blendedMultiYData = React.useMemo(() => {
     const xField = config.xField;
@@ -449,7 +497,7 @@ export function useChartWidgetData(
     const rkKey = JSON.stringify(filteredRankFilter);
     return cachedCompute(
       enrichedRows,
-      `sfd:${xField}:${seriesField}:${yField}:${xGroupBy ?? ''}:${singleSeriesYAggregation ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}:${localeText.chartEmptyCategoryLabel}`,
+      `sfd:${xField}:${seriesField}:${yField}:${xGroupBy ?? ''}:${singleSeriesYAggregation ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}:${localeText.chartEmptyCategoryLabel}:${seriesFieldEffAggKey}:${measureFieldsKey}`,
       () =>
         applyRankToSeriesFieldData(
           aggregateByTwoFields(
@@ -463,6 +511,8 @@ export function useChartWidgetData(
             xFieldOrderedValues,
             singleSeriesYAggregation,
             localeText,
+            seriesFieldEffectiveAggregation,
+            expressionFields,
           ),
           filteredRankFilter,
         ),
@@ -479,6 +529,10 @@ export function useChartWidgetData(
     chartSortDirection,
     xFieldOrderedValues,
     localeText,
+    seriesFieldEffectiveAggregation,
+    seriesFieldEffAggKey,
+    expressionFields,
+    measureFieldsKey,
   ]);
 
   // Full series names from non-cross-filtered data (with rank applied).
@@ -493,7 +547,7 @@ export function useChartWidgetData(
     const rkKey = JSON.stringify(widgetRankFilter);
     return cachedCompute(
       allEnrichedRows,
-      `asn:${xField}:${seriesField}:${yField}:${xGroupBy ?? ''}:${singleSeriesYAggregation ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}:${localeText.chartEmptyCategoryLabel}`,
+      `asn:${xField}:${seriesField}:${yField}:${xGroupBy ?? ''}:${singleSeriesYAggregation ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}:${localeText.chartEmptyCategoryLabel}:${seriesFieldEffAggKey}:${measureFieldsKey}`,
       () =>
         applyRankToSeriesFieldData(
           aggregateByTwoFields(
@@ -512,6 +566,8 @@ export function useChartWidgetData(
             // (finding 2.23).
             singleSeriesYAggregation,
             localeText,
+            seriesFieldEffectiveAggregation,
+            expressionFields,
           ),
           widgetRankFilter,
         ).seriesNames,
@@ -528,6 +584,10 @@ export function useChartWidgetData(
     chartSortDirection,
     xFieldOrderedValues,
     localeText,
+    seriesFieldEffectiveAggregation,
+    seriesFieldEffAggKey,
+    expressionFields,
+    measureFieldsKey,
   ]);
 
   // Always-resolved palette: used for stable per-series color assignment.
@@ -603,7 +663,7 @@ export function useChartWidgetData(
     const rkKey = JSON.stringify(filteredRankFilter);
     return cachedCompute(
       enrichedRows,
-      `cd:${xField}:${categoryYField}:${xGroupBy ?? ''}:${singleSeriesYAggregation ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}:${localeText.chartEmptyCategoryLabel}:${singleSeriesEffectiveAggregation ?? ''}`,
+      `cd:${xField}:${categoryYField}:${xGroupBy ?? ''}:${singleSeriesYAggregation ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}:${localeText.chartEmptyCategoryLabel}:${singleSeriesEffectiveAggregation ?? ''}:${measureFieldsKey}`,
       () => {
         const raw = aggregateByField(
           enrichedRows,
@@ -616,11 +676,14 @@ export function useChartWidgetData(
           xFieldOrderedValues,
           localeText,
           singleSeriesEffectiveAggregation,
+          expressionFields,
         );
         return applyRankToAggregated(raw, filteredRankFilter, rankByFieldData);
       },
     );
   }, [
+    expressionFields,
+    measureFieldsKey,
     enrichedRows,
     config.xField,
     activeYFields,
@@ -652,7 +715,7 @@ export function useChartWidgetData(
     const rkKey = JSON.stringify(filteredRankFilter);
     return cachedCompute(
       enrichedRows,
-      `myd:${xField}:${activeYFields.join(',')}:${xGroupBy ?? ''}:${yAggByFieldKey}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}:${localeText.chartEmptyCategoryLabel}`,
+      `myd:${xField}:${activeYFields.join(',')}:${xGroupBy ?? ''}:${yAggByFieldKey}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}:${localeText.chartEmptyCategoryLabel}:${multiYEffAggKey}:${measureFieldsKey}`,
       () => {
         const raw = aggregateMultipleSeries(
           enrichedRows,
@@ -664,6 +727,8 @@ export function useChartWidgetData(
           xFieldOrderedValues,
           yAggregationByField,
           localeText,
+          multiYEffectiveAggregation,
+          expressionFields,
         );
         return applyRankToMultiSeries(raw, filteredRankFilter);
       },
@@ -681,6 +746,10 @@ export function useChartWidgetData(
     chartSortDirection,
     xFieldOrderedValues,
     localeText,
+    multiYEffectiveAggregation,
+    multiYEffAggKey,
+    expressionFields,
+    measureFieldsKey,
   ]);
 
   // Full (baseline) aggregations — used for ghost rendering when cross-filters are active.
@@ -701,7 +770,7 @@ export function useChartWidgetData(
     const rkKey = JSON.stringify(widgetRankFilter);
     return cachedCompute(
       allEnrichedRows,
-      `acd:${xField}:${categoryYField}:${xGroupBy ?? ''}:${singleSeriesYAggregation ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}:${localeText.chartEmptyCategoryLabel}:${singleSeriesEffectiveAggregation ?? ''}`,
+      `acd:${xField}:${categoryYField}:${xGroupBy ?? ''}:${singleSeriesYAggregation ?? ''}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}:${localeText.chartEmptyCategoryLabel}:${singleSeriesEffectiveAggregation ?? ''}:${measureFieldsKey}`,
       () => {
         const raw = aggregateByField(
           allEnrichedRows,
@@ -714,11 +783,14 @@ export function useChartWidgetData(
           xFieldOrderedValues,
           localeText,
           singleSeriesEffectiveAggregation,
+          expressionFields,
         );
         return applyRankToAggregated(raw, widgetRankFilter, allRankByFieldData);
       },
     );
   }, [
+    expressionFields,
+    measureFieldsKey,
     shouldShowGhost,
     allEnrichedRows,
     config.xField,
@@ -800,7 +872,7 @@ export function useChartWidgetData(
     const rkKey = JSON.stringify(widgetRankFilter);
     return cachedCompute(
       allEnrichedRows,
-      `amyd:${xField}:${activeYFields.join(',')}:${xGroupBy ?? ''}:${yAggByFieldKey}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}:${localeText.chartEmptyCategoryLabel}`,
+      `amyd:${xField}:${activeYFields.join(',')}:${xGroupBy ?? ''}:${yAggByFieldKey}:${rkKey}:${chartSortBy ?? ''}:${chartSortDirection ?? ''}:${(xFieldOrderedValues ?? []).join(',')}:${localeText.chartEmptyCategoryLabel}:${multiYEffAggKey}:${measureFieldsKey}`,
       () => {
         const raw = aggregateMultipleSeries(
           allEnrichedRows,
@@ -812,6 +884,8 @@ export function useChartWidgetData(
           xFieldOrderedValues,
           yAggregationByField,
           localeText,
+          multiYEffectiveAggregation,
+          expressionFields,
         );
         return applyRankToMultiSeries(raw, widgetRankFilter);
       },
@@ -830,6 +904,10 @@ export function useChartWidgetData(
     chartSortDirection,
     xFieldOrderedValues,
     localeText,
+    multiYEffectiveAggregation,
+    multiYEffAggKey,
+    expressionFields,
+    measureFieldsKey,
   ]);
 
   // Scatter's y measure: mirror the `yField ?? ySeries[0].fieldId` fallback every sibling chart

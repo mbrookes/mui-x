@@ -3,7 +3,14 @@ import type { RelativeDateUnit, RelativeDateValue } from './filterTypes';
 import type { StudioFilterState } from '../models';
 import { normalizeToDate, normalizeToDateOnlyString } from './temporalUtils';
 import { computeDateRangePreset } from './dateRangeUtils';
-import { coerceAggregateValue } from './aggregate';
+import {
+  accumulateValue,
+  coerceAggregateValue,
+  compareRankScores,
+  createAggregateAccumulator,
+  finalizeAccumulator,
+  type AggregateAccumulator,
+} from './aggregate';
 import { normalizeJoinKey } from './joinKeys';
 
 type Row = Record<string, unknown>;
@@ -822,22 +829,38 @@ export function applyFilters(rows: Row[], filters: StudioFilterState[]): Row[] {
       // L4-re-anchored and foreign rows reaching `applyFilters` carry no such guarantee.
       // Nullish (and non-scalar) dimension values normalize to `null` and form a single
       // "missing" group, which then ranks like any other.
-      const totals = new Map<string | null, number>();
+      const totals = new Map<string | null, AggregateAccumulator>();
       for (const row of result) {
         const key = normalizeJoinKey(row[fieldId]);
+        // The group key is registered unconditionally — group MEMBERSHIP is not the same
+        // question as whether this row carried a usable measurement — but only usable values
+        // are folded in. The accumulator's `count` therefore distinguishes "this group summed
+        // to 0" from "this group was never measured at all".
+        let acc = totals.get(key);
+        if (!acc) {
+          acc = createAggregateAccumulator();
+          totals.set(key, acc);
+        }
         // Route the rank-by measure through the SHARED numeric-coercion policy
         // (`coerceAggregateValue`) that every other aggregation path uses, rather than
         // `Number(... ?? 0)`. A non-numeric sentinel ("N/A") would otherwise coerce to NaN,
         // poison the whole group's running total, and corrupt the top-N ordering (NaN
-        // comparisons are always false). Null / non-numeric values are skipped (contribute
-        // nothing) while the group key is still registered so an all-null group keeps a
-        // concrete `0` total, matching the chart aggregators (finding 3.5).
+        // comparisons are always false).
         const coerced = coerceAggregateValue(row[f.rankByField]);
-        totals.set(key, (totals.get(key) ?? 0) + (coerced ?? 0));
+        if (coerced !== null) {
+          accumulateValue(acc, coerced);
+        }
       }
-      const sorted = Array.from(totals.entries()).sort((a, b) =>
-        dir === 'top' ? b[1] - a[1] : a[1] - b[1],
-      );
+      // `finalizeAccumulator` yields `null` for a group with NO usable measurement, and
+      // `compareRankScores` sorts `null` to the losing end in EITHER direction — the same
+      // policy the post-aggregation chart rankers apply via `reduceRankScore` (finding M9).
+      // Seeding each group at a concrete `0` (the previous behaviour, whose comment claimed
+      // it matched the chart aggregators — it did not) let a no-data group win a "Top 1 by
+      // profit" over two genuinely negative groups on every row-level widget, while the bar
+      // chart over the same filter picked the real winner.
+      const sorted = Array.from(totals.entries())
+        .map(([key, acc]) => [key, finalizeAccumulator(acc, 'sum')] as const)
+        .sort((a, b) => compareRankScores(a[1], b[1], dir));
       const topKeys = new Set(sorted.slice(0, n).map(([k]) => k));
       // Membership is tested through the SAME normalization the grouping used, so a row can
       // never fall outside every surviving group it contributed a total to.
@@ -848,12 +871,14 @@ export function applyFilters(rows: Row[], filters: StudioFilterState[]): Row[] {
       // branch above uses — rather than `Number(... ?? 0)`. A non-numeric sentinel ("N/A")
       // would otherwise coerce to NaN, making every comparison false so `toSorted` leaves the
       // rows in an arbitrary engine-dependent order and top-N picks a meaningless subset
-      // (finding T3.1). Null / non-numeric values fall back to 0, matching the aggregate branch.
-      const sorted = result.toSorted((a, b) => {
-        const av = coerceAggregateValue(a[fieldId]) ?? 0;
-        const bv = coerceAggregateValue(b[fieldId]) ?? 0;
-        return dir === 'top' ? bv - av : av - bv;
-      });
+      // (finding T3.1). A row with no usable value scores `null` — "not measured", not 0 —
+      // and `compareRankScores` sorts it to the losing end in EITHER direction, so it can
+      // never displace a real negative measurement from a Top-N or a real positive one from a
+      // Bottom-N. Falling back to 0 here did exactly that, and disagreed with the
+      // post-aggregation chart rankers (finding M9).
+      const sorted = result.toSorted((a, b) =>
+        compareRankScores(coerceAggregateValue(a[fieldId]), coerceAggregateValue(b[fieldId]), dir),
+      );
       result = sorted.slice(0, n);
     }
   }

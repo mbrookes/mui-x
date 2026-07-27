@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import dayjs from 'dayjs';
 import { applyFilters, resolveDateRangePresets, resolveRelativeDate } from './filterUtils';
 import { computeDateRangePreset } from './dateRangeUtils';
+import { aggregateByField, applyRankToAggregated } from './aggregators';
 import type { StudioFilterState } from '../models';
 
 function makeFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
@@ -1013,6 +1014,83 @@ describe('applyFilters — rank mode', () => {
       }),
     ]);
     expect(result.map((r) => r.id).sort()).toEqual(['a', 'c']);
+  });
+});
+
+// ─── A no-data candidate loses at BOTH rank layers (finding M9) ────────────────
+//
+// Two rank implementations run over the same filter: the ROW-LEVEL reduction here
+// (grid/KPI/map/pivot/heatmap/funnel) and the POST-AGGREGATION one in `aggregators.ts`
+// (bar/line/area charts). The row-level branch used to seed each group at a concrete `0`
+// and rank on that, while the post-aggregation one scored an all-null candidate `null` and
+// sorted it to the losing end — so a group with no usable measurement at all WON a
+// "Top 1 by profit" on every row-level widget and LOST it on the bar chart beside them.
+// Both now share `reduceRankScore`/`compareRankScores` from `internals/aggregate.ts`.
+describe('applyFilters — rank mode agrees with the chart rankers on no-data candidates', () => {
+  // A totals −500, B totals −200, C has no usable profit at all. The honest Top-1 is B.
+  const orders = [
+    { id: 'a1', region: 'A', profit: -300 },
+    { id: 'a2', region: 'A', profit: -200 },
+    { id: 'b1', region: 'B', profit: -200 },
+    { id: 'c1', region: 'C', profit: null },
+    { id: 'c2', region: 'C', profit: undefined },
+  ];
+
+  const rankFilter = (rankDirection: 'top' | 'bottom') =>
+    makeFilter({
+      field: 'region',
+      filterMode: 'rank',
+      operator: 'equals',
+      value: 1,
+      rankDirection,
+      rankByField: 'profit',
+    });
+
+  /** Regions surviving the ROW-LEVEL rank reduction. */
+  const rowLevelWinners = (dir: 'top' | 'bottom') => [
+    ...new Set(applyFilters(orders, [rankFilter(dir)]).map((r) => r.region)),
+  ];
+
+  /** Regions surviving the POST-AGGREGATION (chart) rank reduction over the same rows. */
+  const chartWinners = (dir: 'top' | 'bottom') => {
+    const aggregated = aggregateByField(orders, 'region', 'profit', undefined, 'sum');
+    return applyRankToAggregated(aggregated, rankFilter(dir), aggregated).labels;
+  };
+
+  it('a no-data group never wins a Top-N — B (−200) does, on both paths', () => {
+    // Seeded at 0, region C outranked both real (negative) totals here.
+    expect(rowLevelWinners('top')).toEqual(['B']);
+    expect(chartWinners('top')).toEqual(['B']);
+  });
+
+  it('a no-data group never wins a Bottom-N either — A (−500) does, on both paths', () => {
+    // `null` must lose in BOTH directions; a "no data sorts lowest" rule would hand C the
+    // bottom slot instead, which is the same fabrication in the opposite direction.
+    expect(rowLevelWinners('bottom')).toEqual(['A']);
+    expect(chartWinners('bottom')).toEqual(['A']);
+  });
+
+  it('a row with no usable value never wins a direct numeric Top-N', () => {
+    // The plain-numeric branch had the same `?? 0` seeding: a null-profit row scored 0 and
+    // beat every negative measurement.
+    const result = applyFilters(orders, [
+      makeFilter({
+        field: 'profit',
+        filterMode: 'rank',
+        operator: 'equals',
+        value: 2,
+        rankDirection: 'top',
+      }),
+    ]);
+    expect(result.map((r) => r.id)).toEqual(['a2', 'b1']);
+  });
+
+  it('a group with a genuine 0 total still outranks the negative ones', () => {
+    // The fix must not confuse "measured zero" with "not measured": a real 0 is a data point
+    // and keeps winning a Top-N against negatives.
+    const withRealZero = [...orders, { id: 'd1', region: 'D', profit: 0 }];
+    const result = applyFilters(withRealZero, [rankFilter('top')]);
+    expect([...new Set(result.map((r) => r.region))]).toEqual(['D']);
   });
 });
 

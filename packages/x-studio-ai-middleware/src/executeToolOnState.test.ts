@@ -10,6 +10,31 @@ import {
 } from './models/studioTypes';
 import type { StudioChartConfig, StudioCustomWidgetDef, StudioState } from './models/studioTypes';
 
+/**
+ * Installs entries that `createDefaultStudioState` would screen out.
+ *
+ * The factory now runs the shared `screenDoc` per-entry screens — the same ones
+ * `deserializeState` applies — so a hostile fixture written THROUGH it is sanitized
+ * before the function under test sees it. That screening is correct, and it is
+ * deliberately NOT on the path these tests cover: `body.dashboardState` arrives over the
+ * wire and reaches `capIncomingDashboardState`/`executeToolOnState` without passing
+ * through the factory at all. Build the clean shell with the factory, then install the
+ * hostile entries directly — that is what the wire can actually deliver.
+ */
+function installUnscreened<T extends object>(target: T, key: string, value: unknown): T {
+  // `defineProperty`, and an explicit `key` parameter rather than a patch object: writing
+  // `{ __proto__: value }` as a literal sets the PROTOTYPE instead of an own key, so the
+  // entry would silently never be installed — the very confusion these tests exist to pin.
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+  return target;
+}
+
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function makeState(): StudioState {
@@ -3379,16 +3404,24 @@ describe('capIncomingDashboardState: entity id and layout caps', () => {
     const state = createDefaultStudioState({
       doc: {
         dashboard: { id: 'd1', title: 'D', activePageId: 'p1' },
-        pages: { p1: { id: long, title: 'Page', widgetRows: [['w1']] } },
+        pages: { p1: { id: 'p1', title: 'Page', widgetRows: [['w1']] } },
         widgets: {
-          w1: { id: long, kind: 'kpi', title: 'W', config: {} },
+          w1: { id: 'w1', kind: 'kpi', title: 'W', config: {} },
         },
       },
       runtime: {
         dataSources: {
-          src1: { id: long, label: 'Sales', fields: [] },
+          src1: { id: 'src1', label: 'Sales', fields: [] },
         },
       },
+    });
+    // Oversized ids installed post-factory: `screenDoc` reconciles an entity id back to its
+    // map key, so writing them through the factory would hand the cap a 2-char id.
+    installUnscreened(state.doc.pages, 'p1', { ...state.doc.pages.p1, id: long });
+    installUnscreened(state.doc.widgets, 'w1', { ...state.doc.widgets.w1, id: long });
+    installUnscreened(state.runtime.dataSources, 'src1', {
+      ...state.runtime.dataSources.src1,
+      id: long,
     });
 
     const capped = capIncomingDashboardState(state);
@@ -4014,6 +4047,8 @@ describe('capIncomingDashboardState: prototype-named map keys (finding L1)', () 
    * for a request body containing one. An object LITERAL cannot express this:
    * `{ __proto__: v }` sets the prototype instead of creating a property.
    */
+
+
   function withProtoKey<T>(value: T): Record<string, T> {
     const map: Record<string, T> = {};
     Object.defineProperty(map, '__proto__', {
@@ -4029,12 +4064,26 @@ describe('capIncomingDashboardState: prototype-named map keys (finding L1)', () 
     const state = createDefaultStudioState({
       doc: {
         dashboard: { id: 'd1', title: 'D', activePageId: '__proto__' },
-        pages: withProtoKey({ id: '__proto__', title: 'Page', widgetRows: [['__proto__']] }),
-        widgets: withProtoKey({ id: '__proto__', kind: 'kpi', title: 'W', config: {} } as never),
+        pages: {},
+        widgets: {},
       },
-      runtime: {
-        dataSources: withProtoKey({ id: '__proto__', label: 'Sales', fields: [] }),
-      },
+      runtime: { dataSources: {} },
+    });
+    installUnscreened(state.doc.pages, '__proto__', {
+      id: '__proto__',
+      title: 'Page',
+      widgetRows: [['__proto__']],
+    });
+    installUnscreened(state.doc.widgets, '__proto__', {
+      id: '__proto__',
+      kind: 'kpi',
+      title: 'W',
+      config: {},
+    });
+    installUnscreened(state.runtime.dataSources, '__proto__', {
+      id: '__proto__',
+      label: 'Sales',
+      fields: [],
     });
 
     const capped = capIncomingDashboardState(state);
@@ -4320,11 +4369,14 @@ describe('capIncomingDashboardState: non-primitive-coercible strings (finding H4
   it('normalizes the unusable value to an empty string rather than "[object Object]"', () => {
     const state = createDefaultStudioState({
       doc: {
-        dashboard: { id: 'd1', title: UNSTRINGABLE as string, activePageId: 'p1' },
+        dashboard: { id: 'd1', title: 'D', activePageId: 'p1' },
         pages: { p1: { id: 'p1', title: 'P', widgetRows: [] } },
         widgets: {},
       },
     });
+    // Post-factory: `screenDoc` replaces a non-string title with the default, so writing
+    // it through the factory would test the factory rather than the cap.
+    installUnscreened(state.doc.dashboard, 'title', UNSTRINGABLE);
     // "[object Object]" would be a fabricated dashboard title interpolated into
     // `<dashboard_state>` on every subsequent request.
     expect(capIncomingDashboardState(state).doc.dashboard.title).toBe('');
@@ -4500,13 +4552,14 @@ describe('executeToolOnState: prototype-named map keys in write/read paths (find
       doc: {
         dashboard: { id: 'd1', title: 'D', activePageId: 'p1' },
         pages: { p1: { id: 'p1', title: 'P', widgetRows: [['__proto__']] } },
-        widgets: withProtoKey({
-          id: '__proto__',
-          kind: 'kpi',
-          title: 'W',
-          config: {},
-        }) as never,
+        widgets: {},
       },
+    });
+    installUnscreened(state.doc.widgets, '__proto__', {
+      id: '__proto__',
+      kind: 'kpi',
+      title: 'W',
+      config: {},
     });
     const result = executeToolOnState('apply_bulk_update', { colSpans: withProtoKey(12) }, state);
     const out = parseOutput(result.output);

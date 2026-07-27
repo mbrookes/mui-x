@@ -12,7 +12,7 @@ const FIELD: StudioExpressionField = {
   label: 'Profit margin',
   sourceId: 's1',
   isMeasure: false,
-  expression: {} as StudioExpressionField['expression'],
+  expression: { type: 'number', value: 0 } as StudioExpressionField['expression'],
   type: 'number',
 };
 

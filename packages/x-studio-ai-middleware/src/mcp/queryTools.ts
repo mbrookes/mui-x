@@ -17,6 +17,7 @@ import {
   jsonResult,
   mapWithConcurrency,
   MAX_CONCURRENT_HOST_QUERIES,
+  opLabel,
   ownArrayEntry,
   redactedHostErrorResult,
   safeIdentifier,
@@ -24,6 +25,7 @@ import {
   withTimeout,
   type ToolHandler,
 } from './helpers';
+import { asString } from '../internal/promptCaps';
 import type {
   StudioDataFilter,
   StudioDataAggregation,
@@ -898,7 +900,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
           // `StudioTimeoutError`, which `redactedHostErrorMessage` relays VERBATIM on
           // the premise that a branded message holds only server-authored prose —
           // so it must be sanitized to keep that premise true (finding M2).
-          `query for ${safeIdentifier(tableName)}`,
+          opLabel`query for ${tableName}`,
         );
 
         return jsonResult({ sourceId: resolvedSourceId, ...result });
@@ -956,7 +958,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
             15_000,
             // Sanitized: an untrusted `tableName` inside a BRANDED timeout message
             // (finding M2) — see `query_data_source`'s label above.
-            `sample query for ${safeIdentifier(tableName)}`,
+            opLabel`sample query for ${tableName}`,
           ),
           mapWithConcurrency(numericFields, MAX_CONCURRENT_HOST_QUERIES, (f) =>
             withTimeout(
@@ -972,7 +974,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
                 limit: 1,
               }),
               15_000,
-              `stats query for ${safeIdentifier(tableName)}.${safeIdentifier(f.id)}`,
+              opLabel`stats query for ${tableName}.${f.id}`,
             ).catch(() => null),
           ),
         ]);
@@ -1101,7 +1103,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
           // Both interpolations are untrusted (`tableName` off `runtime.dataSources`,
           // `fieldId` straight from the model) inside a BRANDED timeout message that is
           // relayed verbatim — sanitized to keep the brand's premise true (finding M2).
-          `field-values query for ${safeIdentifier(tableName)}.${safeIdentifier(fieldId)}`,
+          opLabel`field-values query for ${tableName}.${fieldId}`,
         );
         type GfvContentItem =
           | { type: 'text'; text: string }
@@ -1123,7 +1125,11 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
         ];
         // Auto-render a bar chart of the top values (best-effort).
         const chartData = result.rows.slice(0, 20).map((r) => ({
-          label: String(r[fieldId] ?? '(null)'),
+          // `asString`, not the raw `String()` global: a row value comes straight from the
+          // host's database, and a JSON/JSONB column deserializes to an arbitrary object —
+          // `String({ toString: 1 })` throws `Cannot convert object to primitive value`,
+          // which would escape as an opaque failure rather than a tool result.
+          label: asString(r[fieldId] ?? '(null)'),
           value: Number(r.count ?? 0),
         }));
         if (chartData.length >= 2) {
@@ -1233,7 +1239,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
           15_000,
           // Sanitized untrusted `tableName` in a BRANDED message (finding M2) — see
           // `query_data_source`'s label above.
-          `field-stats query for ${safeIdentifier(tableName)}`,
+          opLabel`field-stats query for ${tableName}`,
         );
         const row = result.rows[0] ?? {};
         // Null-prototype accumulator (finding L1) — see `describe_data_source`'s

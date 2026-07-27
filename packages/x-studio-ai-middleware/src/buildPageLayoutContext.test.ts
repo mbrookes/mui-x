@@ -109,12 +109,20 @@ describe('buildPageLayoutContext', () => {
       doc: {
         dashboard: { id: 'd', title: 'D', activePageId: 'p1' },
         pages: { p1: { id: 'p1', title: 'P1', widgetRows: [['constructor']], widgetColSpans: {} } },
-        widgets: {
-          // An OWN `constructor` key, so the widget itself resolves legitimately and
-          // the span lookup is the only thing left that could walk the prototype.
-          constructor: { id: 'constructor', kind: 'grid', title: 'G', config: {} } as StudioWidget,
-        },
+        widgets: {},
       },
+    });
+    // Installed post-factory. `createDefaultStudioState` now runs the shared `screenDoc`
+    // per-entry screens, which drop a `constructor`-keyed widget — correctly, since the
+    // load boundary does the same. But that screening is not on this path: a
+    // `dashboardState` delivered over the wire reaches `buildPageLayoutContext` without
+    // passing through the factory, so an OWN `constructor` key is still reachable here and
+    // the span lookup must not walk the prototype for it.
+    Object.defineProperty(state.doc.widgets, 'constructor', {
+      value: { id: 'constructor', kind: 'grid', title: 'G', config: {} } as StudioWidget,
+      enumerable: true,
+      writable: true,
+      configurable: true,
     });
 
     const layout = buildPageLayoutContext(state);

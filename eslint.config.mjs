@@ -219,6 +219,10 @@ const AI_MIDDLEWARE_SANITIZER_FILES = [
   'packages/x-studio-ai-middleware/src/internal/promptCaps.ts',
   'packages/x-studio-ai-middleware/src/mcp/helpers.ts',
   'packages/x-studio-ai-middleware/src/mcp/summarisePage.ts',
+  // `query_data_source`'s chart-data builder labels each slice with a row value read
+  // straight out of the host's database. A JSON/JSONB column deserializes to an arbitrary
+  // object, so the raw `String()` global is a live throw here, not a latent one.
+  'packages/x-studio-ai-middleware/src/mcp/queryTools.ts',
 ];
 
 export default defineConfig(

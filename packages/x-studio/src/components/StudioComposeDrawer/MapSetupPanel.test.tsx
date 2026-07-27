@@ -299,7 +299,7 @@ describe('MapSetupPanel', () => {
         type: 'number',
         sourceId: 'orders',
         isMeasure: false,
-        expression: {},
+        expression: { type: 'number', value: 0 },
       },
       {
         id: 'expr-str',
@@ -307,7 +307,7 @@ describe('MapSetupPanel', () => {
         type: 'string',
         sourceId: 'orders',
         isMeasure: false,
-        expression: {},
+        expression: { type: 'number', value: 0 },
       },
     ] as unknown as typeof mockState.doc.expressionFields;
     configureStudioContextMock({ getState: () => mockState, controller });

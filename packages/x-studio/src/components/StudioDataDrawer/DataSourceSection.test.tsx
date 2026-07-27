@@ -42,7 +42,7 @@ const EXPR_FIELD: StudioExpressionField = {
   label: 'Calc',
   sourceId: 'orders',
   isMeasure: false,
-  expression: {} as StudioExpressionField['expression'],
+  expression: { type: 'number', value: 0 } as StudioExpressionField['expression'],
   type: 'number',
 };
 

@@ -67,7 +67,7 @@ function exprField(id: string, sourceId: string): StudioExpressionField {
     label: id,
     sourceId,
     isMeasure: false,
-    expression: {} as StudioExpressionField['expression'],
+    expression: { type: 'number', value: 0 } as StudioExpressionField['expression'],
   };
 }
 

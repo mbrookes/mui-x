@@ -66,6 +66,9 @@ export function SelectionFilterInput({
         value={search}
         onChange={(event) => setSearch(event.target.value)}
         slotProps={{
+          // M20: a placeholder is only a last-resort accessible-name source — name the input
+          // explicitly, the same way `MultiSelectControl`'s identical search box does.
+          htmlInput: { 'aria-label': localeText.filterSearchValues },
           input: {
             startAdornment: (
               <InputAdornment position="start">

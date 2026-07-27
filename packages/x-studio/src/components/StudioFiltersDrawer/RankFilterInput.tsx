@@ -65,13 +65,29 @@ export function RankFilterInput({
         </ToggleButton>
       </ToggleButtonGroup>
 
-      {/* N items number field */}
+      {/* N items number field.
+          H5: `onValueCommitted`, NOT `onValueChange`. Base UI fires `onValueChange` per
+          keystroke, so typing "25" committed `2` and then `25` — two undoable `updateFilter`s
+          and two full pipeline recomputes for one editing gesture, against the "one undo entry
+          per editing gesture" contract `BufferedBoundInput`/`BufferedTextField` establish and
+          test. `onValueCommitted` carries blur semantics (and fires alongside the change for
+          keyboard arrows / increment buttons, which ARE complete gestures).
+
+          No `Math.max` clamp here either: on a CONTROLLED field, clamping mid-edit meant
+          selecting "10" and pressing Backspace wrote `1` straight back, so the field could not
+          be emptied to retype a two-digit value. `min={1}` already makes Base UI clamp, and it
+          does so at commit time. A commit of `null` (field left empty) is ignored so the field
+          resyncs to the stored N rather than leaving the rank filter without one. */}
       <NumberField
         size="small"
         label={localeText.filterRankCountLabel}
         value={n ?? null}
         min={1}
-        onValueChange={(v) => onChange({ value: Math.max(1, v ?? 1) })}
+        onValueCommitted={(v) => {
+          if (v !== null && v !== n) {
+            onChange({ value: v });
+          }
+        }}
       />
 
       {showRankBy && (

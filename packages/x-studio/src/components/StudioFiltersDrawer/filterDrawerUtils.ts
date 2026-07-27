@@ -11,7 +11,7 @@ import {
   type StudioLocaleText,
 } from '../../internals/StudioUIConfigContext';
 import { buildFieldCatalog } from '../../internals/fieldCatalog';
-import { hasBetweenBound } from '../../internals/filterUtils';
+import { hasBetweenBound, isConditionComplete } from '../../internals/filterUtils';
 import type { FieldOption, FieldType, FilterMode } from './filterDrawerTypes';
 import { getOperatorLabel, getOperatorsForFieldType } from './filterOperatorMetadata';
 
@@ -109,10 +109,97 @@ export function resolveFilterField(
 
 // ─── Relative date helpers ────────────────────────────────────────────────────
 
+const RELATIVE_DATE_UNITS: ReadonlySet<string> = new Set<RelativeDateValue['unit']>([
+  'second',
+  'minute',
+  'hour',
+  'day',
+  'week',
+  'month',
+  'year',
+]);
+
+/**
+ * True only for a COMPLETE, scalar `RelativeDateValue` (`{ relative: true, amount, unit,
+ * direction }`).
+ *
+ * M9: the predicate used to check `.relative === true` and nothing else, so a `between` value
+ * built on top of a relative date — `{ relative: true, amount: 3, unit: 'month', direction:
+ * 'past', from: '2024-01-01' }`, which `FilterValueInput`'s between editor could produce by
+ * spreading the previous relative value as its `{ from, to }` base — answered `true`. Every
+ * `between` ↔ scalar reset guard is written as `… && !isRelativeDateValue(value)`, so that one
+ * object permanently disarmed all of them: the user's typed range could never be reset or
+ * repaired, and the widget-edit dialog rendered it read-only. Rejecting anything carrying
+ * `from`/`to` bounds — and requiring the three scalar fields to actually be present and valid —
+ * keeps the two shapes disjoint, which is what every caller assumes.
+ *
+ * NOTE: `internals/filterUtils.ts` carries its own, deliberately loose copy for the evaluation
+ * path (where `.relative === true` is enough to pick the relative-date branch). This one is the
+ * authoring-UI predicate: it decides whether a value is SAFE TO KEEP across a shape change, so
+ * it must be the strict of the two.
+ */
 export function isRelativeDateValue(value: unknown): value is RelativeDateValue {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  if (candidate.relative !== true) {
+    return false;
+  }
+  if ('from' in candidate || 'to' in candidate) {
+    return false;
+  }
   return (
-    typeof value === 'object' && value !== null && (value as RelativeDateValue).relative === true
+    typeof candidate.amount === 'number' &&
+    typeof candidate.unit === 'string' &&
+    RELATIVE_DATE_UNITS.has(candidate.unit) &&
+    (candidate.direction === 'past' || candidate.direction === 'next')
   );
+}
+
+/**
+ * True when `value` carries the `{ from, to }` shape the `between` operator edits, rather than
+ * the scalar shape every other operator edits. A `RelativeDateValue` is a non-array object too,
+ * but a fully-supported _scalar_, so it is excluded (finding 1.14).
+ */
+export function isBetweenShapedValue(value: unknown): boolean {
+  return (
+    value !== null &&
+    value !== undefined &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    !isRelativeDateValue(value)
+  );
+}
+
+/**
+ * True when switching from `previousOperator` to `nextOperator` crosses the `between` ↔ scalar
+ * value-shape boundary and therefore has to reset the value.
+ *
+ * M8: the reset used to run in ONE direction only — leaving `between` cleared the stranded
+ * `{ from, to }` object, but entering `between` left a scalar in place. `revenue = 500` switched
+ * to "Between" rendered two EMPTY bound inputs while `filter.value` was still `500`, so the card
+ * read as a half-authored range that the user had in fact never cleared, and the first bound they
+ * typed silently replaced it. It fails safe (`isConditionComplete` rejects a scalar `between`, so
+ * `applyFilters` drops the filter rather than matching nothing), but the drawer and the doc
+ * disagreed — and ARCHITECTURE.md has always claimed the reset runs "in both directions".
+ */
+export function needsOperatorValueReset(
+  previousOperator: StudioFilterOperator,
+  nextOperator: StudioFilterOperator,
+  value: unknown,
+): boolean {
+  if (previousOperator === nextOperator) {
+    return false;
+  }
+  if (nextOperator === 'between') {
+    // Entering `between`: a scalar cannot be read as a range. An already-empty value needs no
+    // reset (nothing to strand), and an existing `{ from, to }` object must be preserved.
+    return value !== '' && value !== null && value !== undefined && !isBetweenShapedValue(value);
+  }
+  // Leaving `between`: a stranded `{ from, to }` object makes `toComparable` yield NaN (silently
+  // matching nothing) and the scalar value input render "[object Object]".
+  return isBetweenShapedValue(value);
 }
 
 export function absoluteToRelative(dateStr: string): RelativeDateValue {
@@ -297,7 +384,13 @@ export function summarizeFilter(
       filter.rankDirection === 'bottom'
         ? (localeText.filterRankBottom ?? 'Bottom')
         : (localeText.filterRankTop ?? 'Top');
-    const n = filter.value ? String(filter.value) : '?';
+    // Explicit emptiness check, not truthiness: `value: 0` is a real (if degenerate) N and must
+    // render "Top 0", not "Top ?" — the last remaining truthiness-on-a-filter-value site, and the
+    // same class of bug `hasBetweenBound` and `SliderControl`'s `?? min` already fixed elsewhere.
+    const n =
+      filter.value === undefined || filter.value === null || filter.value === ''
+        ? '?'
+        : String(filter.value);
     const field = filter.field ? ` · ${filter.field}` : '';
     return `${dir} ${n}${field}`;
   }
@@ -338,7 +431,13 @@ export function summarizeFilter(
   }
 
   const primary = summarizeCondition(filter.operator, filter.value);
-  if (!filter.operator2) {
+  // `isConditionComplete` mirrors `compileRowTest`'s own gate on the second condition
+  // (`filterUtils.ts`: `if (!operator2 || !isConditionComplete(operator2, value2)) return
+  // primary`). Without it the summary announced a condition the engine ignores: clicking
+  // "Add condition" seeds `{ operator2: 'equals', value2: '' }`, so every collapsed card — and
+  // every quick-filter chip and KPI tooltip built on this summary — immediately read
+  // "Equals: north AND Equals" for a filter that was still only doing the first half.
+  if (!filter.operator2 || !isConditionComplete(filter.operator2, filter.value2)) {
     return primary;
   }
   const conj =
@@ -360,6 +459,31 @@ export function defaultValueForMode(mode: FilterMode): StudioFilterState['value'
     return [];
   }
   return '';
+}
+
+/**
+ * Returns the partial state changes needed when a filter's FIELD changes — a phase-1 field pick,
+ * or an `UnresolvedFieldAlert` repoint that drops the row back to its picker. Merge it into the
+ * `field`/`fieldType`/`filterSourceId` delta the caller is already committing.
+ *
+ * M7: a field switch must clear ALL FIVE condition keys together — `operator`, `value`,
+ * `operator2`, `value2`, `conjunction`. The drawer rows used to rewrite only `value`/`operator`
+ * (phase-1) or nothing at all (repoint), so a second condition authored against the OLD field
+ * survived the switch. A string filter reading `contains "north" AND ends_with "ia"` repointed
+ * onto numeric `revenue` kept `value2: "ia"`; the operator self-repair then rewrote `contains` →
+ * `equals` non-undoably, and the widget silently ANDed `revenue ends_with "ia"`, matching nothing
+ * — an empty widget with no second-condition UI on screen to explain or remove it.
+ * `StudioWidgetEditDialog/FilterRow` has cleared all five since finding 2.10; this is the same
+ * reset, shared so the two surfaces cannot drift again.
+ */
+export function buildFieldRepointReset(mode: FilterMode = 'condition'): Partial<StudioFilterState> {
+  return {
+    operator: 'equals',
+    value: defaultValueForMode(mode),
+    operator2: undefined,
+    value2: undefined,
+    conjunction: undefined,
+  };
 }
 
 /**

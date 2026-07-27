@@ -184,10 +184,17 @@ describe('WidgetFilterRow', () => {
       );
 
       await user.click(screen.getByRole('button', { name: 'Select a field…' }));
+      // M7: the repoint clears the whole condition, not just the field triple — a second
+      // condition authored against the old field must not survive into the new one.
       expect(updateSpy).toHaveBeenCalledWith('wf1', {
         field: '',
         fieldType: undefined,
         filterSourceId: undefined,
+        operator: 'equals',
+        value: '',
+        operator2: undefined,
+        value2: undefined,
+        conjunction: undefined,
       });
     });
 

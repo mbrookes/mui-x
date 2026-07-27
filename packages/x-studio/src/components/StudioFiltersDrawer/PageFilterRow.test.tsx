@@ -411,5 +411,161 @@ describe('PageFilterRow', () => {
 
       expect(screen.queryByTestId('filter-field-unresolved')).toBe(null);
     });
+
+    // M7: the repoint used to rewrite only `field`/`fieldType`/`filterSourceId`. A second
+    // condition authored against the OLD field survived it — `contains "north" AND ends_with
+    // "ia"` repointed onto numeric `revenue` kept `value2: "ia"`, the operator self-repair
+    // rewrote `contains` → `equals` non-undoably, and the widget silently ANDed
+    // `revenue ends_with "ia"`: an empty widget, no second-condition UI, no explanation.
+    it('clears all five condition keys when the field is re-pointed (M7)', async () => {
+      const filter = makeFilter({
+        field: 'total',
+        fieldType: 'string',
+        operator: 'contains',
+        value: 'north',
+        operator2: 'ends_with',
+        value2: 'ia',
+        conjunction: 'and',
+      });
+      const { controller, wrapper } = createStudioHarness({
+        initialState: {
+          doc: { filters: [filter] },
+          runtime: { dataSources: { src: SOURCE } },
+        },
+      });
+      const updateSpy = vi.spyOn(controller, 'updateFilter');
+      const { user } = render(
+        <PageFilterRow
+          filter={filter}
+          fields={fields}
+          fieldOptions={fieldOptions}
+          onRemove={() => {}}
+          allPageFilters={[filter]}
+        />,
+        { wrapper },
+      );
+
+      await user.click(screen.getByRole('button', { name: 'Select a field…' }));
+
+      expect(updateSpy).toHaveBeenCalledWith('pf1', {
+        field: '',
+        fieldType: undefined,
+        filterSourceId: undefined,
+        operator: 'equals',
+        value: '',
+        operator2: undefined,
+        value2: undefined,
+        conjunction: undefined,
+      });
+    });
+  });
+
+  // H4: the quick-filter chip is the only toggle in the product and it renders in VIEW mode
+  // only, so a filter disabled from view mode was, in edit mode, an ordinary-looking card the
+  // drawer counted as active — with no way to turn it back on and nothing on screen explaining
+  // why the widget below showed unfiltered data.
+  describe('disabled filter (H4)', () => {
+    it('shows a disabled filter as off and offers a re-enable control', async () => {
+      const filter = makeFilter({ value: '10', disabled: true });
+      const { controller, wrapper } = createStudioHarness({
+        initialState: { doc: { filters: [filter] } },
+      });
+      const toggleSpy = vi.spyOn(controller, 'toggleFilter');
+      const { user } = render(
+        <PageFilterRow
+          filter={filter}
+          fields={fields}
+          fieldOptions={fieldOptions}
+          onRemove={() => {}}
+          allPageFilters={[filter]}
+        />,
+        { wrapper },
+      );
+
+      // The state is carried by a real switch, not by dimming alone: it is named after the
+      // filter and reads "off" to assistive tech.
+      const toggle = screen.getByRole('switch', { name: 'Amount' });
+      expect((toggle as HTMLInputElement).checked).toBe(false);
+
+      await user.click(toggle);
+      expect(toggleSpy).toHaveBeenCalledWith('pf1');
+    });
+
+    it('shows an enabled filter as on', () => {
+      const filter = makeFilter({ value: '10' });
+      const { wrapper } = createStudioHarness({ initialState: { doc: { filters: [filter] } } });
+      render(
+        <PageFilterRow
+          filter={filter}
+          fields={fields}
+          fieldOptions={fieldOptions}
+          onRemove={() => {}}
+          allPageFilters={[filter]}
+        />,
+        { wrapper },
+      );
+
+      expect((screen.getByRole('switch', { name: 'Amount' }) as HTMLInputElement).checked).toBe(
+        true,
+      );
+    });
+  });
+
+  // H5: Base UI's `NumberField` fires `onValueChange` per keystroke, so typing "25" used to
+  // commit `2` and then `25` — two undoable `updateFilter`s and two full pipeline recomputes
+  // for one editing gesture — and the `Math.max(1, v ?? 1)` clamp on a CONTROLLED field wrote
+  // `1` straight back when the field was emptied, so it could not be cleared to retype.
+  describe('rank count input commit semantics (H5)', () => {
+    function renderRankRow() {
+      const filter = makeFilter({
+        filterMode: 'rank',
+        value: 10,
+        rankDirection: 'top',
+        operator: 'equals',
+      });
+      const harness = createStudioHarness({ initialState: { doc: { filters: [filter] } } });
+      const updateSpy = vi.spyOn(harness.controller, 'updateFilter');
+      const { user } = render(
+        <PageFilterRow
+          filter={filter}
+          fields={fields}
+          fieldOptions={fieldOptions}
+          onRemove={() => {}}
+          allPageFilters={[filter]}
+        />,
+        { wrapper: harness.wrapper },
+      );
+      return { user, updateSpy };
+    }
+
+    it('commits a multi-digit value once, on blur, and lets the field be cleared first', async () => {
+      const { user, updateSpy } = renderRankRow();
+      const input = screen.getByLabelText('Number of items') as HTMLInputElement;
+
+      await user.clear(input);
+      // The clamp used to make this impossible: emptying the field re-rendered "1".
+      expect(input.value).toBe('');
+      expect(updateSpy).not.toHaveBeenCalled();
+
+      await user.type(input, '25');
+      // Still nothing committed mid-gesture — no per-keystroke `2` on the undo stack.
+      expect(updateSpy).not.toHaveBeenCalled();
+
+      await user.tab();
+      expect(updateSpy).toHaveBeenCalledTimes(1);
+      expect(updateSpy).toHaveBeenCalledWith('pf1', { value: 25 });
+    });
+
+    it('does not commit when the field is left empty', async () => {
+      const { user, updateSpy } = renderRankRow();
+      const input = screen.getByLabelText('Number of items') as HTMLInputElement;
+
+      await user.clear(input);
+      await user.tab();
+
+      // A rank filter without an N is meaningless, so an empty commit is ignored and the
+      // stored value stands.
+      expect(updateSpy).not.toHaveBeenCalled();
+    });
   });
 });

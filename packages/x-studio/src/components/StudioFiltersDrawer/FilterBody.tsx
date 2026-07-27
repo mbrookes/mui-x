@@ -19,7 +19,7 @@ import { SelectionFilterInput } from './SelectionFilterInput';
 import { RankFilterInput } from './RankFilterInput';
 import { useStudioLocaleText } from '../../context';
 import { SecondCondition } from './SecondCondition';
-import { isRelativeDateValue } from './filterDrawerUtils';
+import { needsOperatorValueReset } from './filterDrawerUtils';
 
 interface FilterBodyProps {
   filter: StudioFilterState;
@@ -68,6 +68,7 @@ export function FilterBody({
 }: FilterBodyProps) {
   const localeText = useStudioLocaleText();
   const mode: FilterMode = filter.filterMode ?? 'condition';
+  const dependsOnLabelId = React.useId();
   // react-doctor-disable-next-line react-doctor/server-dedup-props -- value is a filtered subset of options; intentional Autocomplete controlled pattern
   const selectedDependencies = React.useMemo(
     () => (dependencyOptions ?? []).filter((opt) => (dependsOn ?? []).includes(opt.id)),
@@ -86,25 +87,18 @@ export function FilterBody({
               value={activeOperator}
               onChange={(event) => {
                 const nextOperator = event.target.value as StudioFilterOperator;
-                // 1.6: `between` carries a `{ from, to }` object value; every other operator
-                // carries a scalar. Switching AWAY from `between` while leaving the object in
-                // place makes `toComparable` yield NaN (silently matching nothing) and the
-                // value input render "[object Object]". Reset the value when the new operator
-                // is shape-incompatible. (The reverse, scalar → `between`, is handled in
-                // FilterValueInput's between branch — finding 1.10.)
+                // 1.6 / 1.14 / M8: `between` carries a `{ from, to }` object value; every other
+                // operator carries a scalar. `needsOperatorValueReset` resets the value across
+                // that boundary in BOTH directions (a stranded object makes `toComparable`
+                // yield NaN and renders "[object Object]"; a stranded scalar renders two empty
+                // bound inputs over a value the user never cleared) while preserving a
+                // `RelativeDateValue`, which is a non-array object but a valid scalar.
                 //
-                // 1.14: a `RelativeDateValue` (`{ relative: true, amount, unit, direction }`)
-                // is ALSO a non-array object, but it's a fully-supported scalar date value —
-                // not a `between`-shaped one — so it must be excluded from the reset predicate,
-                // otherwise switching operator (e.g. "On" → "Before") silently discards a
-                // configured relative date.
-                const valueIsBetweenShape =
-                  filter.value !== null &&
-                  typeof filter.value === 'object' &&
-                  !Array.isArray(filter.value) &&
-                  !isRelativeDateValue(filter.value);
+                // `activeOperator` — not `filter.operator` — is the "previous" operator, since
+                // it is what the row actually rendered when a stored operator was invalid for
+                // the field type.
                 onChange(
-                  nextOperator !== 'between' && valueIsBetweenShape
+                  needsOperatorValueReset(activeOperator, nextOperator, filter.value)
                     ? { operator: nextOperator, value: '' }
                     : { operator: nextOperator },
                 );
@@ -145,6 +139,7 @@ export function FilterBody({
           {dependencyOptions && dependencyOptions.length > 0 && onDependencyChange && (
             <div>
               <Typography
+                id={dependsOnLabelId}
                 variant="caption"
                 color="text.secondary"
                 sx={{ mb: 0.5, display: 'block' }}
@@ -159,7 +154,28 @@ export function FilterBody({
                 value={selectedDependencies}
                 onChange={(_, next) => onDependencyChange(next.map((opt) => opt.id))}
                 renderInput={(params) => (
-                  <TextField {...params} placeholder={localeText.filterSelectParent} />
+                  // M20: a `placeholder` is only a last-resort accessible-name source (and is
+                  // dropped by several screen readers once a chip is selected). This
+                  // Autocomplete has no `label` at all, so point the combobox at the caption
+                  // above it — the same rule `StudioWidgetEditDialog/FilterRow` documents and
+                  // `MultiSelectControl` already follows.
+                  //
+                  // `params.slotProps` must be spread back in, `htmlInput` included:
+                  // Autocomplete delivers ALL of its wiring through it (the `combobox` role,
+                  // `aria-expanded`/`aria-controls`/`aria-activedescendant`, the popup
+                  // handlers, and the `input`/`inputLabel` slots). Replacing the object
+                  // outright silently downgrades the combobox to a plain textbox.
+                  <TextField
+                    {...params}
+                    placeholder={localeText.filterSelectParent}
+                    slotProps={{
+                      ...params.slotProps,
+                      htmlInput: {
+                        ...params.slotProps.htmlInput,
+                        'aria-labelledby': dependsOnLabelId,
+                      },
+                    }}
+                  />
                 )}
                 isOptionEqualToValue={(opt, val) => opt.id === val.id}
                 disableCloseOnSelect

@@ -86,12 +86,20 @@ export function StudioDateRangeBar() {
     return result;
   }, [dataSources]);
 
-  // Active preset comes from any dashboard date-range filter on this page — they all share
-  // the same preset, so the first match is sufficient.
+  // Active preset comes from any ACTIVE dashboard date-range filter on this page — they all
+  // share the same preset, so the first match is sufficient.
+  //
+  // H4: `!filter.disabled` mirrors `selectFiltersForWidget`, which drops disabled filters up
+  // front. Without it the bar read back "Last 3 months" for a range no widget was applying —
+  // the toolbar asserting a constraint while every chart below it showed unfiltered data, with
+  // nothing on screen reconciling the two. Reading `'all_time'` instead also keeps the
+  // coverage-reconciliation effect below from resurrecting the disabled filter on mount.
   const activePreset: StudioDateRangePreset | 'all_time' = React.useMemo(() => {
     const f = (filters as StudioFilterState[]).find(
       (filter) =>
-        filter.scope.kind === 'dashboard-date-range' && filter.scope.pageId === activePageId,
+        filter.scope.kind === 'dashboard-date-range' &&
+        filter.scope.pageId === activePageId &&
+        !filter.disabled,
     );
     return f?.dateRangePreset ?? 'all_time';
   }, [filters, activePageId]);

@@ -19,7 +19,7 @@ import type { StudioFilterOperator, StudioFilterState } from '../../models';
 import type { FieldType } from './filterDrawerTypes';
 import { FilterValueInput } from './FilterValueInput';
 import { useStudioLocaleText } from '../../context';
-import { isRelativeDateValue } from './filterDrawerUtils';
+import { needsOperatorValueReset } from './filterDrawerUtils';
 
 interface SecondConditionProps {
   filter: StudioFilterState;
@@ -95,20 +95,11 @@ export function SecondCondition(props: SecondConditionProps) {
           value={activeOperator2}
           onChange={(event) => {
             const nextOperator2 = event.target.value as StudioFilterOperator;
-            // 1.15: mirror the primary condition's shape-reset for `value2`. Switching
-            // `operator2` away from `between` while leaving the `{ from, to }` object in
-            // `value2` makes `toComparable` yield NaN (silently matching nothing) and the
-            // value input render "[object Object]". A `RelativeDateValue` is a non-array
-            // object too but a valid scalar — exclude it, exactly like FilterBody's primary
-            // operator handler.
-            const value2IsBetweenShape =
-              filter.value2 !== null &&
-              filter.value2 !== undefined &&
-              typeof filter.value2 === 'object' &&
-              !Array.isArray(filter.value2) &&
-              !isRelativeDateValue(filter.value2);
+            // 1.15 / M8: mirror the primary condition's shape-reset for `value2`, through the
+            // exact same helper so the two can't drift — including M8's second direction
+            // (scalar → `between`), which this handler was missing just as `FilterBody`'s was.
             onChange(
-              nextOperator2 !== 'between' && value2IsBetweenShape
+              needsOperatorValueReset(activeOperator2, nextOperator2, filter.value2)
                 ? { operator2: nextOperator2, value2: '' }
                 : { operator2: nextOperator2 },
             );

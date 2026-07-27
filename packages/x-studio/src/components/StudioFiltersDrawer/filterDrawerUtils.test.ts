@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
   absoluteToRelative,
   buildFieldOptions,
+  buildFieldRepointReset,
   buildModeReset,
   defaultValueForMode,
   getOperators,
   isFilterEffective,
   isRelativeDateValue,
+  needsOperatorValueReset,
   relativeToAbsolute,
   resolveFilterField,
   summarizeFilter,
@@ -245,6 +247,38 @@ describe('summarizeFilter — condition mode', () => {
     );
     expect(result).toContain('OR');
   });
+
+  // `compileRowTest` gates the second condition on `isConditionComplete(operator2, value2)`.
+  // The summary did not, so clicking "Add condition" — which seeds `{ operator2: 'equals',
+  // value2: '' }` — immediately made every collapsed card, quick-filter chip and KPI tooltip
+  // announce "Equals: north AND Equals" for a filter still doing only the first half.
+  it('omits an INCOMPLETE second condition, matching what the engine applies', () => {
+    const result = summarizeFilter(
+      makeFilter({
+        operator: 'contains',
+        value: 'north',
+        fieldType: 'string',
+        operator2: 'equals',
+        value2: '',
+        conjunction: 'and',
+      }),
+    );
+    expect(result).toBe('Contains: north');
+  });
+
+  it('keeps a value-less second condition, which the engine does apply', () => {
+    const result = summarizeFilter(
+      makeFilter({
+        operator: 'contains',
+        value: 'north',
+        fieldType: 'string',
+        operator2: 'is_empty',
+        value2: '',
+        conjunction: 'or',
+      }),
+    );
+    expect(result).toContain('OR');
+  });
 });
 
 // ─── summarizeFilter — selection mode ────────────────────────────────────────
@@ -311,6 +345,12 @@ describe('summarizeFilter — rank mode', () => {
       makeFilter({ filterMode: 'rank', rankDirection: 'top', value: 7, field: '' }),
     );
     expect(result).toBe('Top 7');
+  });
+
+  // The last truthiness-on-a-filter-value site: `filter.value ? … : '?'` rendered "Top ?" for a
+  // genuine `0`, the same class of bug `hasBetweenBound` and `SliderControl`'s `?? min` fixed.
+  it('shows a genuine 0 rather than "?"', () => {
+    expect(summarizeFilter(makeFilter({ filterMode: 'rank', value: 0 }))).toBe('Top 0 · value');
   });
 });
 
@@ -446,6 +486,112 @@ describe('isRelativeDateValue', () => {
 
   it('returns false for object without relative:true', () => {
     expect(isRelativeDateValue({ amount: 5, unit: 'day', direction: 'past' })).toBe(false);
+  });
+
+  // M9: the predicate used to check `.relative === true` and nothing else, so a `between`
+  // value built on top of a relative date answered `true` — and every `between` ↔ scalar
+  // reset guard (all written `… && !isRelativeDateValue(value)`) was permanently disarmed.
+  it('returns false for a `between` value carrying relative-date fields (M9)', () => {
+    expect(
+      isRelativeDateValue({
+        relative: true,
+        amount: 3,
+        unit: 'month',
+        direction: 'past',
+        from: '2024-01-01',
+      }),
+    ).toBe(false);
+    expect(
+      isRelativeDateValue({
+        relative: true,
+        amount: 3,
+        unit: 'month',
+        direction: 'past',
+        to: '2024-03-01',
+      }),
+    ).toBe(false);
+  });
+
+  it('returns false for an incomplete or malformed relative date (M9)', () => {
+    expect(isRelativeDateValue({ relative: true })).toBe(false);
+    expect(
+      isRelativeDateValue({ relative: true, amount: '3', unit: 'day', direction: 'past' }),
+    ).toBe(false);
+    expect(isRelativeDateValue({ relative: true, amount: 3, unit: 'fortnight' })).toBe(false);
+    expect(
+      isRelativeDateValue({ relative: true, amount: 3, unit: 'day', direction: 'sideways' }),
+    ).toBe(false);
+  });
+
+  it('returns false for an array', () => {
+    expect(isRelativeDateValue([])).toBe(false);
+  });
+});
+
+// ─── needsOperatorValueReset ──────────────────────────────────────────────────
+// M8: the `between` ↔ scalar value reset used to run in ONE direction only, while
+// ARCHITECTURE.md claimed "in both directions".
+
+describe('needsOperatorValueReset', () => {
+  const relative = { relative: true, amount: 3, unit: 'month', direction: 'past' };
+
+  it('resets when LEAVING between with a range object still stored', () => {
+    expect(needsOperatorValueReset('between', 'greater_than', { from: 1, to: 2 })).toBe(true);
+  });
+
+  it('resets when ENTERING between with a scalar still stored (M8)', () => {
+    expect(needsOperatorValueReset('equals', 'between', 500)).toBe(true);
+    expect(needsOperatorValueReset('equals', 'between', 'north')).toBe(true);
+    expect(needsOperatorValueReset('equals', 'between', relative)).toBe(true);
+  });
+
+  it('does not reset when entering between with nothing stored', () => {
+    expect(needsOperatorValueReset('equals', 'between', '')).toBe(false);
+    expect(needsOperatorValueReset('equals', 'between', null)).toBe(false);
+    expect(needsOperatorValueReset('equals', 'between', undefined)).toBe(false);
+  });
+
+  it('does not reset when entering between with a range already stored', () => {
+    expect(needsOperatorValueReset('equals', 'between', { from: 1, to: 2 })).toBe(false);
+  });
+
+  it('does not reset between two scalar operators, relative dates included', () => {
+    expect(needsOperatorValueReset('equals', 'greater_than', '5')).toBe(false);
+    expect(needsOperatorValueReset('equals', 'less_than', relative)).toBe(false);
+  });
+
+  it('does not reset when the operator did not change', () => {
+    expect(needsOperatorValueReset('between', 'between', { from: 1 })).toBe(false);
+    expect(needsOperatorValueReset('equals', 'equals', 5)).toBe(false);
+  });
+
+  // M9 compounding: a hybrid relative/`between` value is `between`-shaped, so leaving
+  // `between` clears it instead of preserving it as a "scalar relative date".
+  it('resets a hybrid relative/between value when leaving between (M9)', () => {
+    expect(needsOperatorValueReset('between', 'equals', { ...relative, from: '2024-01-01' })).toBe(
+      true,
+    );
+  });
+});
+
+// ─── buildFieldRepointReset ───────────────────────────────────────────────────
+// M7: a field switch must clear all five condition keys together, matching
+// `StudioWidgetEditDialog/FilterRow`'s own reset.
+
+describe('buildFieldRepointReset', () => {
+  it('clears all five condition keys', () => {
+    expect(buildFieldRepointReset()).toEqual({
+      operator: 'equals',
+      value: '',
+      operator2: undefined,
+      value2: undefined,
+      conjunction: undefined,
+    });
+  });
+
+  it('seeds the mode-appropriate default value', () => {
+    expect(buildFieldRepointReset('selection').value).toEqual([]);
+    expect(buildFieldRepointReset('rank').value).toBe(10);
   });
 });
 

@@ -57,6 +57,10 @@ function QuickFilterChip(props: QuickFilterChipProps) {
         size="small"
         color={disabled ? undefined : 'primary'}
         variant={disabled ? 'outlined' : 'filled'}
+        // M20: the chip IS the enable/disable toggle, and its on/off state was carried by
+        // colour, fill and opacity alone — nothing a screen reader or a low-vision user can
+        // read. `aria-pressed` states it outright, matching `ToggleControl`'s value chips.
+        aria-pressed={!disabled}
         onMouseEnter={() => setChipHovered(true)}
         onMouseLeave={() => {
           setChipHovered(false);

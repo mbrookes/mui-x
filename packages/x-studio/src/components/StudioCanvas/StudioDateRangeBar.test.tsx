@@ -168,3 +168,60 @@ describe('StudioDateRangeBar custom preset coverage-reconciliation (finding 1.7)
     expect(controller.canUndo()).toBe(false);
   });
 });
+
+/**
+ * H4: the bar read its active preset from ANY `dashboard-date-range` filter on the page,
+ * `disabled` ones included — while `selectFiltersForWidget` drops disabled filters up front.
+ * A range toggled off from the quick-filter bar therefore left the toolbar asserting
+ * "Last 3 months" over charts showing unfiltered data, with nothing on screen reconciling the
+ * two. Reading `'all_time'` instead also keeps the coverage-reconciliation effect from
+ * resurrecting the disabled filter on mount.
+ */
+describe('StudioDateRangeBar honours the disabled flag (H4)', () => {
+  function disabledPresetFilter(): StudioFilterState {
+    return {
+      id: 'dr-disabled',
+      field: 'order_date',
+      operator: 'between',
+      value: { from: '2024-01-01', to: '2024-03-31' },
+      dateRangePreset: 'last_3_months',
+      disabled: true,
+      scope: { kind: 'dashboard-date-range' as const, sourceId: 'src1', pageId: PAGE_ID },
+    };
+  }
+
+  it('reads "All time" while the only date-range filter is disabled', () => {
+    const { wrapper } = createStudioHarness({
+      initialState: {
+        doc: {
+          filters: [disabledPresetFilter()],
+          dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
+        },
+        runtime: { dataSources: DATA_SOURCE_WITH_DATE },
+      },
+    });
+    render(<StudioDateRangeBar />, { wrapper });
+
+    expect(screen.getByText(DEFAULT_STUDIO_LOCALE_TEXT.dateRangePresetAllTime)).toBeVisible();
+    expect(screen.queryByText(DEFAULT_STUDIO_LOCALE_TEXT.dateRangePresetLast3Months)).toBe(null);
+  });
+
+  it('does not resurrect the disabled filter through coverage reconciliation', () => {
+    const { wrapper, controller } = createStudioHarness({
+      initialState: {
+        doc: {
+          filters: [disabledPresetFilter()],
+          dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
+        },
+        runtime: { dataSources: DATA_SOURCE_WITH_DATE },
+      },
+    });
+    render(<StudioDateRangeBar />, { wrapper });
+
+    const rangeFilters = controller
+      .getState()
+      .doc.filters.filter((f) => f.scope.kind === 'dashboard-date-range');
+    expect(rangeFilters.length).toBe(1);
+    expect(rangeFilters[0].disabled).toBe(true);
+  });
+});

@@ -586,4 +586,43 @@ describe('StudioQuickFilterBar', () => {
       expect(controller.updateState).not.toHaveBeenCalled();
     });
   });
+
+  // M20: the chip IS the enable/disable toggle, and its state was carried by colour, fill and
+  // opacity alone — nothing a screen reader or a low-vision user can perceive.
+  describe('toggle state exposure (M20)', () => {
+    function renderTwoChips() {
+      mockState = createDefaultStudioState({
+        doc: {
+          filters: [
+            makePageFilter('f1', 'country'),
+            { ...makePageFilter('f2', 'region'), disabled: true },
+          ],
+          dashboard: { id: 'd1', title: 'T', activePageId: PAGE_ID },
+        },
+        runtime: {
+          dataSources: {
+            src1: {
+              id: 'src1',
+              label: 'Source',
+              fields: [
+                { id: 'country', label: 'Country', type: 'string' as const },
+                { id: 'region', label: 'Region', type: 'string' as const },
+              ],
+              rows: [],
+            },
+          },
+        },
+      });
+      render(<StudioQuickFilterBar />);
+    }
+
+    it('marks an enabled chip pressed and a disabled chip unpressed', () => {
+      renderTwoChips();
+
+      const pressedStates = screen
+        .getAllByText(/Equals: France/)
+        .map((label) => label.closest('.MuiChip-root')?.getAttribute('aria-pressed'));
+      expect(pressedStates).toEqual(['true', 'false']);
+    });
+  });
 });

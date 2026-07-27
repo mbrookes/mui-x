@@ -18,8 +18,8 @@ import {
   getOperators,
   resolveFilterField,
   summarizeFilter,
+  buildFieldRepointReset,
   buildModeReset,
-  defaultValueForMode,
   isFilterEffective,
   isFilterFresh,
 } from './filterDrawerUtils';
@@ -217,12 +217,15 @@ export function PageFilterRow(props: PageFilterRowProps) {
                   (o) => o.id === fieldId && o.sourceId === sourceId,
                 );
                 if (opt) {
+                  // M7: `buildFieldRepointReset` clears all five condition keys together
+                  // (operator/value/operator2/value2/conjunction) — a stale second condition
+                  // authored against the previous field would otherwise keep evaluating
+                  // against the new one with no UI on screen to see or remove it.
                   handleFilterChange({
                     field: opt.id,
                     fieldType: opt.fieldType,
                     filterSourceId: opt.sourceId,
-                    value: defaultValueForMode(currentMode),
-                    operator: 'equals',
+                    ...buildFieldRepointReset(currentMode),
                   });
                 }
               }}
@@ -250,14 +253,31 @@ export function PageFilterRow(props: PageFilterRowProps) {
       onRemove={() => onRemove(filter.id)}
       // An unresolved field is opened by default: the whole point of the banner is that it
       // must be seen without the user first suspecting the filter.
-      initialExpanded={isFieldUnresolved || isFilterFresh(filter) || !isFilterEffective(filter)}
+      //
+      // `!isFilterEffective(filter)` is deliberately NOT how a disabled filter surfaces — it
+      // would force every disabled card open. The card's own switch + dimming carries that
+      // state, so exclude `disabled` here and keep the expansion rule about authoring state.
+      initialExpanded={
+        isFieldUnresolved ||
+        isFilterFresh(filter) ||
+        (!filter.disabled && !isFilterEffective(filter))
+      }
+      disabled={filter.disabled}
+      onToggleDisabled={() => controller.toggleFilter(filter.id)}
     >
       {isFieldUnresolved && (
         <Box sx={{ px: 1.5, pt: 1.5 }}>
           <UnresolvedFieldAlert
             fieldId={filter.field}
             onRepoint={() =>
-              handleFilterChange({ field: '', fieldType: undefined, filterSourceId: undefined })
+              handleFilterChange({
+                field: '',
+                fieldType: undefined,
+                filterSourceId: undefined,
+                // M7: same five-key clear as the phase-1 picker — the dialog's own repoint has
+                // done this since finding 2.10, the drawer's had not.
+                ...buildFieldRepointReset(filter.filterMode ?? 'condition'),
+              })
             }
           />
         </Box>

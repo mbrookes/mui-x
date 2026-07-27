@@ -1,6 +1,8 @@
 import * as React from 'react';
 import { createRenderer, screen, within } from '@mui/internal-test-utils';
 import { describe, expect, it, vi } from 'vitest';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import type { StudioFilterState } from '../../models';
 import { FilterBody } from './FilterBody';
 import { getOperators } from './filterDrawerUtils';
@@ -175,5 +177,142 @@ describe('FilterBody', () => {
     await user.click(within(listbox).getByText('>'));
 
     expect(onChange).toHaveBeenCalledWith({ operator2: 'greater_than' });
+  });
+
+  // M8: the reset ran in ONE direction only. ARCHITECTURE.md has always claimed "in both
+  // directions", and the missing half left `revenue = 500` rendering two EMPTY bound inputs
+  // over a stored scalar `500` — a card the user reads as a half-authored range they never
+  // cleared, and whose first typed bound silently replaces the old value.
+  it('resets a scalar value when the operator switches TO `between` (M8)', async () => {
+    const filter = makeFilter({ operator: 'equals', value: 500 });
+    const onChange = vi.fn();
+    const operators = getOperators('number');
+    const { user } = render(
+      <FilterBody
+        filter={filter}
+        fieldType="number"
+        operators={operators}
+        activeOperator="equals"
+        activeOperator2="equals"
+        fieldValues={[]}
+        onModeChange={() => {}}
+        onChange={onChange}
+      />,
+    );
+
+    const operatorSelect = screen.getAllByRole('combobox')[0];
+    await user.click(operatorSelect);
+    await user.click(within(screen.getByRole('listbox')).getByText('Between'));
+
+    expect(onChange).toHaveBeenCalledWith({ operator: 'between', value: '' });
+  });
+
+  it('resets a scalar value2 when operator2 switches TO `between` (M8)', async () => {
+    const filter = makeFilter({
+      operator: 'equals',
+      value: '5',
+      operator2: 'equals',
+      value2: '7',
+      conjunction: 'and',
+    });
+    const onChange = vi.fn();
+    const operators = getOperators('number');
+    const { user } = render(
+      <FilterBody
+        filter={filter}
+        fieldType="number"
+        operators={operators}
+        activeOperator="equals"
+        activeOperator2="equals"
+        fieldValues={[]}
+        onModeChange={() => {}}
+        onChange={onChange}
+      />,
+    );
+
+    const operator2Select = screen.getAllByRole('combobox')[1];
+    await user.click(operator2Select);
+    await user.click(within(screen.getByRole('listbox')).getByText('Between'));
+
+    expect(onChange).toHaveBeenCalledWith({ operator2: 'between', value2: '' });
+  });
+
+  it('does not reset an ALREADY-EMPTY value when switching to `between` (M8)', async () => {
+    const filter = makeFilter({ operator: 'equals', value: '' });
+    const onChange = vi.fn();
+    const operators = getOperators('number');
+    const { user } = render(
+      <FilterBody
+        filter={filter}
+        fieldType="number"
+        operators={operators}
+        activeOperator="equals"
+        activeOperator2="equals"
+        fieldValues={[]}
+        onModeChange={() => {}}
+        onChange={onChange}
+      />,
+    );
+
+    const operatorSelect = screen.getAllByRole('combobox')[0];
+    await user.click(operatorSelect);
+    await user.click(within(screen.getByRole('listbox')).getByText('Between'));
+
+    // Nothing to strand, so no redundant `value` key in the delta.
+    expect(onChange).toHaveBeenCalledWith({ operator: 'between' });
+  });
+
+  // M9, end to end. The old sequence: "On: 3 months ago" → Between (no reset, M8) → pick a
+  // `from` → `FilterValueInput` spread the relative value as the between base, producing
+  // `{ relative: true, amount: 3, unit: 'month', direction: 'past', from }`. The loose
+  // `isRelativeDateValue` then answered `true` for that hybrid, so every `between` ↔ scalar
+  // reset guard refused to fire ever again and the widget-edit dialog rendered it read-only:
+  // the user's typed range was unreachable. With M8 the first step already resets, and the
+  // hardened predicate means even a host/AI-authored hybrid stays repairable.
+  it('leaves a relative-date filter repairable across a Between round-trip (M9)', async () => {
+    const relative = { relative: true, amount: 3, unit: 'month', direction: 'past' } as const;
+    const operators = getOperators('date');
+
+    // Step 1 — "On: 3 months ago" → "Between" now clears the scalar relative value.
+    const onChange = vi.fn();
+    const { user, unmount } = render(
+      <FilterBody
+        filter={makeFilter({ fieldType: 'date', operator: 'equals', value: relative })}
+        fieldType="date"
+        operators={operators}
+        activeOperator="equals"
+        activeOperator2="equals"
+        fieldValues={[]}
+        onModeChange={() => {}}
+        onChange={onChange}
+      />,
+    );
+    const operatorSelect = screen.getAllByRole('combobox')[0];
+    await user.click(operatorSelect);
+    await user.click(within(screen.getByRole('listbox')).getByText('Between'));
+    expect(onChange).toHaveBeenCalledWith({ operator: 'between', value: '' });
+    unmount();
+
+    // Step 2 — even a doc that already holds the hybrid (host- or AI-authored) is repairable:
+    // switching back to a scalar operator resets it instead of silently keeping it.
+    const hybrid = { ...relative, from: '2024-01-01' };
+    const onChange2 = vi.fn();
+    const { user: user2 } = render(
+      <LocalizationProvider dateAdapter={AdapterDayjs}>
+        <FilterBody
+          filter={makeFilter({ fieldType: 'date', operator: 'between', value: hybrid })}
+          fieldType="date"
+          operators={operators}
+          activeOperator="between"
+          activeOperator2="equals"
+          fieldValues={[]}
+          onModeChange={() => {}}
+          onChange={onChange2}
+        />
+      </LocalizationProvider>,
+    );
+    await user2.click(screen.getAllByRole('combobox')[0]);
+    await user2.click(within(screen.getByRole('listbox')).getByText('Before'));
+    expect(onChange2).toHaveBeenCalledWith({ operator: 'less_than', value: '' });
   });
 });

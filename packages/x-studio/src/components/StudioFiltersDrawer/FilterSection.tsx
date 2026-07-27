@@ -8,6 +8,16 @@ import { PageFilterRow } from './PageFilterRow';
 import { WidgetFilterRow } from './WidgetFilterRow';
 import { CollapsibleSection } from '../../internals/CollapsibleSection';
 
+/**
+ * The collapsed-section badge answers "how many filters are actually constraining this page /
+ * widget", so it must exclude `disabled` entries — exactly like `selectFiltersForWidget` and
+ * every selector that decides "is this filter active" (H4). Counting a toggled-off filter here
+ * made the drawer read "Page filters (2)" while only one of the two reached the pipeline.
+ */
+function countActive(filters: StudioFilterState[]): number {
+  return filters.reduce((total, filter) => (filter.disabled ? total : total + 1), 0);
+}
+
 // ─── Page filter section ──────────────────────────────────────────────────────
 
 interface FilterSectionProps {
@@ -42,7 +52,7 @@ export function FilterSection(props: FilterSectionProps) {
       onAdd={onAddFilter}
       addDisabled={fields.length === 0}
       addTooltip={localeText.filtersAddFilterTooltip}
-      count={filters.length}
+      count={countActive(filters)}
     >
       {filters.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ py: 0.5 }}>
@@ -107,7 +117,7 @@ export function WidgetFilterSection(props: WidgetFilterSectionProps) {
       onAdd={onAddFilter}
       addDisabled={!hasAnySources}
       addTooltip={localeText.filtersAddFilterTooltip}
-      count={filters.length}
+      count={countActive(filters)}
     >
       {filters.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ py: 0.5 }}>

@@ -134,10 +134,18 @@ export function FilterValueInput(props: {
   // reuse the same `DateValueInput` picker twice (from + to); numeric fields get a pair of
   // number inputs.
   if (operator === 'between') {
-    const betweenValue =
+    // M9: PICK the two bounds rather than spreading the stored value wholesale. Spreading made
+    // every non-array object the base of the next commit, so editing a `between` on top of a
+    // relative date produced `{ relative: true, amount, unit, direction, from }` — a hybrid that
+    // is neither shape, that `isRelativeDateValue` then mistook for a scalar relative date, and
+    // that consequently disarmed every `between` ↔ scalar reset guard for good. Writing back
+    // only `{ from, to }` keeps the committed value canonically `between`-shaped whatever the
+    // doc happened to hold (host- or AI-authored filters included).
+    const source =
       value !== null && typeof value === 'object' && !Array.isArray(value)
         ? (value as { from?: unknown; to?: unknown })
         : {};
+    const betweenValue: { from?: unknown; to?: unknown } = { from: source.from, to: source.to };
     const setBound = (key: 'from' | 'to') => (v: unknown) =>
       onChange({ ...betweenValue, [key]: v });
     if (fieldType === 'date' || fieldType === 'datetime') {

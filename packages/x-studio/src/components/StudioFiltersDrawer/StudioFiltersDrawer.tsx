@@ -369,6 +369,8 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
             value={filterSearch}
             onChange={(event) => setFilterSearch(event.target.value)}
             slotProps={{
+              // M20: a placeholder is only a last-resort accessible-name source.
+              htmlInput: { 'aria-label': localeText.filterSearchPlaceholder },
               input: {
                 startAdornment: (
                   <InputAdornment position="start">
@@ -485,6 +487,10 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
                       }
                     }}
                     slotProps={{
+                      // M20: this field is AUTOFOCUSED, so its accessible name is the first
+                      // thing announced when the save-view flow opens — a placeholder alone is
+                      // the weakest possible source for it.
+                      htmlInput: { 'aria-label': localeText.filtersSaveViewPlaceholder },
                       input: {
                         endAdornment: (
                           <InputAdornment position="end">
@@ -516,14 +522,23 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
 
               <Stack spacing={0.5}>
                 {filterPresets.length > 0 && (
+                  // M20: `disabled` used to mean "this is the view you are on". That is what
+                  // `aria-current` is for — `disabled` says "this control does not work",
+                  // strips the chip from the tab order, and hides the very state it was meant
+                  // to convey from anyone navigating by keyboard or screen reader. The chip
+                  // stays focusable and the handler no-ops when it is already current.
                   <Chip
                     icon={<HomeOutlinedIcon sx={{ fontSize: '14px !important' }} />}
                     label={localeText.filtersDefaultViewLabel}
                     size="small"
                     color={isDefaultViewActive ? 'primary' : 'default'}
-                    disabled={isDefaultViewActive}
-                    clickable={!isDefaultViewActive}
-                    onClick={!isDefaultViewActive ? () => controller.clearPageFilters() : undefined}
+                    aria-current={isDefaultViewActive ? 'true' : undefined}
+                    clickable
+                    onClick={() => {
+                      if (!isDefaultViewActive) {
+                        controller.clearPageFilters();
+                      }
+                    }}
                     sx={{ justifyContent: 'flex-start' }}
                   />
                 )}
@@ -556,16 +571,22 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
                           }}
                         />
                       ) : (
+                        // M20: `aria-current`, not `disabled` — see the default-view chip above.
+                        // Re-clicking the active preset is a no-op rather than a re-apply:
+                        // `applyFilterPreset` re-mints filter ids, so it would push an undo
+                        // entry for a change the user cannot see.
                         <Chip
                           icon={<BookmarkIcon sx={{ fontSize: '14px !important' }} />}
                           label={preset.name}
                           size="small"
                           color={isActive ? 'primary' : 'default'}
-                          disabled={isActive}
-                          clickable={!isActive}
-                          onClick={
-                            isActive ? undefined : () => controller.applyFilterPreset(preset.id)
-                          }
+                          aria-current={isActive ? 'true' : undefined}
+                          clickable
+                          onClick={() => {
+                            if (!isActive) {
+                              controller.applyFilterPreset(preset.id);
+                            }
+                          }}
                           sx={{ flexGrow: 1, justifyContent: 'flex-start' }}
                         />
                       )}

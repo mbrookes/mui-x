@@ -283,6 +283,49 @@ describe('<StudioFiltersDrawer /> hides the managed date-range filter (finding 2
   });
 });
 
+// H4: every "this filter is active" surface counted `disabled` entries as active, so the
+// section badge read "Page filters (2)" while only one of the two ever reached the pipeline.
+// The badge must mirror `selectFiltersForWidget`, which drops disabled filters up front.
+describe('<StudioFiltersDrawer /> section count excludes disabled filters (H4)', () => {
+  const CHART: StudioWidget = {
+    id: 'chart-1',
+    kind: 'chart',
+    title: 'Revenue',
+    sourceId: 'src',
+    config: { chartType: 'bar', xField: 'region' },
+  };
+
+  it('counts only enabled page filters in the collapsed section badge', async () => {
+    const { user } = renderWithSelectedWidget(CHART, {
+      filters: [
+        {
+          id: 'pf-active',
+          field: 'region',
+          fieldType: 'string',
+          operator: 'equals',
+          value: 'EMEA',
+          scope: { kind: 'page' },
+        },
+        {
+          id: 'pf-disabled',
+          field: 'region',
+          fieldType: 'string',
+          operator: 'equals',
+          value: 'APAC',
+          scope: { kind: 'page' },
+          disabled: true,
+        },
+      ],
+    });
+
+    // The badge only renders while the section is collapsed.
+    await user.click(screen.getByRole('button', { name: /Page filters/ }));
+
+    const header = screen.getByText(/Page filters/);
+    expect(header.textContent).toBe('Page filters1');
+  });
+});
+
 // Regression coverage for architecture-review finding 3.11: `normalizeFilterForCompare` used
 // to keep raw `dependsOn` filter ids when deciding whether the live page filters match a
 // saved preset. Live ids, `${presetId}-*` preset-baked ids, and the fresh ids
@@ -361,7 +404,10 @@ describe('<StudioFiltersDrawer /> saved-view active chip with cascading filters 
 
     const chip = screen.getByText('My view').closest('.MuiChip-root');
     expect(chip).not.toBe(null);
-    expect(chip!.className).toContain('Mui-disabled');
+    // M20: "this is the view you are on" is `aria-current`, not `disabled` — the chip stays
+    // focusable so a keyboard/screen-reader user can perceive the state at all.
+    expect(chip!.getAttribute('aria-current')).toBe('true');
+    expect(chip!.className).not.toContain('Mui-disabled');
   });
 
   it('does not mark the preset chip active when the cascade points at a different position', () => {
@@ -406,6 +452,6 @@ describe('<StudioFiltersDrawer /> saved-view active chip with cascading filters 
 
     const chip = screen.getByText('My view').closest('.MuiChip-root');
     expect(chip).not.toBe(null);
-    expect(chip!.className).not.toContain('Mui-disabled');
+    expect(chip!.getAttribute('aria-current')).toBe(null);
   });
 });

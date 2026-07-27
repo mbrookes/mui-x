@@ -68,23 +68,42 @@ export function RelativeDateInput({
               size="small"
               color={isActive ? 'primary' : 'default'}
               variant={isActive ? 'filled' : 'outlined'}
+              // M20: these are toggle buttons whose selected state was conveyed by colour and
+              // fill alone — invisible to a screen reader and to anyone who can't distinguish
+              // the two. `aria-pressed` is the pattern `ToggleControl` already uses next door.
+              aria-pressed={isActive}
               onClick={() => onChange(preset.value)}
             />
           );
         })}
       </Box>
+      {/* H5: `onValueCommitted` (blur semantics), not `onValueChange` (per keystroke) — see
+          `RankFilterInput` for the full rationale. Typing "12" here used to commit `1` and then
+          `12` as two undoable filter mutations, and the `Math.max(1, …)` clamp on a controlled
+          field made the input impossible to clear before retyping. A `null` commit (empty
+          field) is ignored: `RelativeDateValue.amount` is required, and Base UI resyncs the
+          displayed text back to the stored amount on blur. */}
       <NumberField
         size="small"
         label={localeText.filterValueAmountLabel}
         value={value.amount}
-        onValueChange={(v) => onChange({ ...value, amount: Math.max(1, v ?? 1) })}
+        onValueCommitted={(v) => {
+          if (v !== null && v !== value.amount) {
+            onChange({ ...value, amount: v });
+          }
+        }}
         min={1}
         fullWidth
       />
       <FormControl size="small" fullWidth>
+        {/* M19: MUI's `SelectInput` reads the accessible name off `inputProps` (it forwards
+            `inputProps['aria-label']` onto the rendered combobox); a bare `aria-label` prop
+            lands on the wrapper `div` and names nothing. There is no `InputLabel` in this
+            FormControl to fall back to, so the combobox was anonymous. Same pattern as
+            `StudioWidgetEditDialog/FilterRow` and `MultiSelectControl`. */}
         <Select
           value={value.unit}
-          aria-label={localeText.filterRelativeDateUnitAriaLabel}
+          inputProps={{ 'aria-label': localeText.filterRelativeDateUnitAriaLabel }}
           onChange={(event) => onChange({ ...value, unit: event.target.value as RelativeDateUnit })}
         >
           {relativeUnits.map((u) => (
@@ -97,7 +116,7 @@ export function RelativeDateInput({
       <FormControl size="small" fullWidth>
         <Select
           value={value.direction}
-          aria-label={localeText.filterRelativeDateDirectionAriaLabel}
+          inputProps={{ 'aria-label': localeText.filterRelativeDateDirectionAriaLabel }}
           onChange={(event) =>
             onChange({ ...value, direction: event.target.value as 'past' | 'next' })
           }

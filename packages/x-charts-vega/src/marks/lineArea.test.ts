@@ -781,4 +781,71 @@ describe('compileLineAreaMark', () => {
       expect(compiled.gaps.map((gap) => gap.code)).to.include('mark:line-geo-missing-fields');
     });
   });
+
+  describe('detail channel', () => {
+    const rows = [
+      { key: 'a', v: 1, id: 1, g: 'X' },
+      { key: 'b', v: 2, id: 1, g: 'X' },
+      { key: 'a', v: 3, id: 2, g: 'X' },
+      { key: 'b', v: 4, id: 2, g: 'X' },
+      { key: 'a', v: 5, id: 3, g: 'Y' },
+      { key: 'b', v: 6, id: 3, g: 'Y' },
+    ];
+
+    it('splits a line into one series per detail value, crossed with the color split', () => {
+      // `parallel_coordinate`-shaped: one line per record (`detail`), coloured
+      // by a separate grouping field. Grouping on colour alone collapsed ~340
+      // penguin lines into 3.
+      const compiled = compileSpec({
+        data: { values: rows },
+        mark: 'line',
+        encoding: {
+          x: { field: 'key', type: 'nominal' },
+          y: { field: 'v', type: 'quantitative' },
+          color: { field: 'g', type: 'nominal' },
+          detail: { field: 'id', type: 'nominal' },
+        },
+      } as never);
+      // Three (colour, detail) pairs: (X,1), (X,2), (Y,3).
+      expect(compiled.series).to.have.length(3);
+      // `detail` contributes no legend entries of its own — one label per colour.
+      const labels = compiled.series.map((s) => (s as { label?: string }).label);
+      expect(labels.filter(Boolean)).to.deep.equal(['X', 'Y']);
+      // Every line of a colour group shares that group's colour, and it is
+      // explicit: the per-series auto-assignment would otherwise give each of
+      // them its own.
+      const colors = compiled.series.map((s) => (s as { color?: string }).color);
+      expect(colors[0]).to.equal(colors[1]);
+      expect(colors[0]).to.not.equal(undefined);
+      expect(colors[2]).to.not.equal(colors[0]);
+    });
+
+    it('splits on detail alone when there is no color encoding', () => {
+      const compiled = compileSpec({
+        data: { values: rows },
+        mark: 'line',
+        encoding: {
+          x: { field: 'key', type: 'nominal' },
+          y: { field: 'v', type: 'quantitative' },
+          detail: { field: 'id', type: 'nominal' },
+        },
+      } as never);
+      expect(compiled.series).to.have.length(3);
+    });
+
+    it('ignores an aggregate-only detail that names no field', () => {
+      // `{detail: {aggregate: "count"}}` groups nothing (parallel_coordinate's
+      // axis-rule layer uses it purely to collapse rows).
+      const compiled = compileSpec({
+        data: { values: rows },
+        mark: 'line',
+        encoding: {
+          x: { field: 'key', type: 'nominal' },
+          y: { field: 'v', type: 'quantitative' },
+          detail: { aggregate: 'count' },
+        },
+      } as never);
+      expect(compiled.series).to.have.length(1);
+    });
+  });
 });

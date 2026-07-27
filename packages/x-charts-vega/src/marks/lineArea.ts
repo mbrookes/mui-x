@@ -181,6 +181,23 @@ function colorDatumLabel(colorDef: unknown): string | undefined {
 const DEFAULT_STROKE_DASH_RANGE = ['none', '4 2', '2 1', '1 1', '1 2 4 2'];
 
 /**
+ * The `detail` channel's field, when it carries one. `detail` groups a line
+ * mark into one line per distinct value WITHOUT introducing a legend or any
+ * visual channel of its own — it is how Vega-Lite draws "one line per record"
+ * (`parallel_coordinate` splits on a per-penguin `index` while coloring by
+ * `Species`). An aggregate-only `detail` (`{aggregate: "count"}`, used by that
+ * spec's axis-rule layer purely to collapse rows) names no field and groups
+ * nothing here.
+ */
+function resolveDetailField(encoding: VegaEncoding): string | undefined {
+  const def = encoding.detail;
+  if (!def || Array.isArray(def) || !isFieldDef(def) || !def.field) {
+    return undefined;
+  }
+  return def.field;
+}
+
+/**
  * Resolves a `strokeDash` FIELD encoding (as opposed to `mark.strokeDash`, a
  * constant array) to a detail split: one line per distinct value, in the same
  * default-ascending-unless-sorted order `compile/color.ts`'s color domain
@@ -1058,15 +1075,50 @@ export function compileLineAreaMark(ctx: UnitContext): CompiledUnit {
   // Bucket rows by group in a single pass over `rows` (rather than rescanning
   // all rows once per group), then build each series from its own bucket.
   const groupField = splitField ?? dashSplit?.field;
+  // `detail` subdivides each color group further, one line per distinct value,
+  // and is the ONLY thing separating the lines when there is no color split at
+  // all. Its key is combined with the color key rather than replacing it, so
+  // the two compose: `parallel_coordinate` draws one line per penguin (`index`)
+  // coloured by `Species`, where grouping on colour alone collapsed ~340 lines
+  // into 3. `baseByGroupKey` remembers which colour group each composite key
+  // came from, which is safer than splitting the key back apart (a category
+  // key embeds the raw value and could contain any separator).
+  const detailField = resolveDetailField(encoding);
+  const baseByGroupKey = new Map<string, string>();
   const rowsByGroup = new Map<string, DatasetRow[]>();
   for (const row of rows) {
-    const key = groupField ? ctx.categoryKey(row[groupField]) : SINGLE_GROUP_KEY;
+    const base = groupField ? ctx.categoryKey(row[groupField]) : SINGLE_GROUP_KEY;
+    const key = detailField ? `${base} ${ctx.categoryKey(row[detailField])}` : base;
+    baseByGroupKey.set(key, base);
     const bucket = rowsByGroup.get(key);
     if (bucket) {
       bucket.push(row);
     } else {
       rowsByGroup.set(key, [row]);
     }
+  }
+  if (detailField) {
+    // Expand each colour group into its detail sub-groups, keeping the colour
+    // and letting only the first carry the label — `detail` adds no legend
+    // entries of its own, so the legend still lists one entry per colour.
+    const expanded: typeof groups = [];
+    for (const [index, group] of groups.entries()) {
+      // Each sub-group needs an EXPLICIT colour. `compile/index.ts` only
+      // auto-assigns a palette colour when a chart has a single uncoloured
+      // series, so leaving these undefined gave all ~340 penguin lines their
+      // own colour instead of three species colours.
+      const color = group.color ?? ctx.palette[index % ctx.palette.length];
+      let labelled = false;
+      for (const key of rowsByGroup.keys()) {
+        if (baseByGroupKey.get(key) !== group.key) {
+          continue;
+        }
+        expanded.push({ ...group, key, color, label: labelled ? undefined : group.label });
+        labelled = true;
+      }
+    }
+    groups.length = 0;
+    groups.push(...expanded);
   }
 
   // Stroke width/dash/color-override have no dedicated x-charts line-series

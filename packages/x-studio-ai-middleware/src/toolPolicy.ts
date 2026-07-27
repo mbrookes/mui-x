@@ -210,6 +210,67 @@ const POLICY_ABORTED_REASON =
   'call was denied without running. No authorization was ever granted, so it must not proceed.';
 
 /**
+ * Render a rejected `decision.action` for the deny reason below WITHOUT letting host
+ * (or, transitively, request-derived) content into a message that reaches a model and
+ * an operator log. Only a short, plainly-identifier-shaped string is echoed back; every
+ * other value is described by type alone.
+ */
+function describeRejectedAction(action: unknown): string {
+  if (typeof action === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(action)) {
+    return `"${action}"`;
+  }
+  return `a value of type ${typeof action}`;
+}
+
+/**
+ * Deny reason for a decision whose `action` is none of the three documented values.
+ * Server-authored: the only interpolation is filtered by {@link describeRejectedAction}.
+ */
+function unrecognizedDecisionReason(action: unknown): string {
+  return (
+    `MUI X Studio: The host toolPolicy returned ${describeRejectedAction(action)} as its ` +
+    "decision `action`, which is not one of 'allow', 'deny' or 'require-approval', so this tool " +
+    'call was DENIED. An unrecognized decision is treated as a deny for the same fail-CLOSED reason ' +
+    'a deadline is: the call was never actually authorized, and interpreting an unknown action as ' +
+    'permission would silently grant exactly what the policy was written to block. Check the ' +
+    'toolPolicy implementation for a misspelled or miscapitalized action (e.g. `Deny`, `denied`) or ' +
+    'a code path that returns no `action` at all.'
+  );
+}
+
+/**
+ * Coerce a host-returned decision to one this package's three consumers can safely
+ * branch on (finding M3).
+ *
+ * Every consumer of a decision tests only the two NEGATIVE cases (`deny`,
+ * `require-approval`) and falls through to allow, because those are the only two that
+ * need handling. That makes `allow` the behavior for any value that is not literally
+ * one of the other two — so `{ action: 'Deny' }`, `{ action: 'denied' }` or `{}` from a
+ * host policy authorized every call the policy existed to block. (A policy returning
+ * `undefined`/`null` already failed closed, by throwing into the call sites' catches,
+ * which is what made the well-shaped-but-unrecognized case easy to miss.)
+ *
+ * Normalizing HERE, once, rather than adding a positive `=== 'allow'` test at each
+ * consumer, keeps the fail-closed judgement in one place — a consumer added later
+ * inherits it instead of having to remember it, exactly as with the deadline bound.
+ *
+ * A nullish return is deliberately passed through untouched rather than normalized:
+ * it already fails closed by throwing at the consumer's `decision.action` read, and
+ * that throw is what routes the host's detail to `onToolError`/`logger` — the same
+ * reason a policy THROW is not converted here either.
+ */
+function normalizePolicyDecision(decision: ToolPolicyDecision): ToolPolicyDecision {
+  if (decision === null || decision === undefined) {
+    return decision;
+  }
+  const action: unknown = (decision as { action?: unknown }).action;
+  if (action === 'allow' || action === 'deny' || action === 'require-approval') {
+    return decision;
+  }
+  return { action: 'deny', reason: unrecognizedDecisionReason(action) };
+}
+
+/**
  * Await the host policy under a deadline and (when supplied) the request's abort
  * signal, mapping either to a fail-CLOSED `deny` rather than an unbounded wait.
  *
@@ -281,7 +342,10 @@ async function consultPolicyBounded(
   if (outcome === POLICY_ABORTED) {
     return { action: 'deny', reason: POLICY_ABORTED_REASON };
   }
-  return outcome;
+  // Finding M3 — an `action` outside the documented three is denied HERE, once, rather
+  // than reaching three consumers that each only test the negative cases and so would
+  // each read it as an allow. See `normalizePolicyDecision`.
+  return normalizePolicyDecision(outcome);
 }
 
 // ── Effect diffing ────────────────────────────────────────────────────────────
@@ -480,8 +544,13 @@ export const Policy = {
     return async (ctx) => {
       let strictest: ToolPolicyDecision = { action: 'allow' };
       for (const policy of policies) {
+        // Finding M3 — composed policies are invoked directly rather than through
+        // `consultPolicyBounded` (the composite itself is what gets bounded, once, by
+        // the caller), so the same fail-closed normalization has to be applied to each
+        // member here. Without it an inner policy's `{ action: 'Deny' }` would neither
+        // short-circuit nor raise `strictest`, and `all` would return `allow`.
         // eslint-disable-next-line no-await-in-loop -- sequential evaluation so a deny short-circuits before later policies run
-        const decision = await policy(ctx);
+        const decision = normalizePolicyDecision(await policy(ctx));
         if (decision.action === 'deny') {
           return decision;
         }

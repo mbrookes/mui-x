@@ -426,6 +426,59 @@ function validateAndCapRecordArrayElements<T extends object>(
   return { ok: true, value: capped };
 }
 
+/** The five aggregate functions `compute_field_stats` fans each field out into. */
+const FIELD_STAT_FUNCS = ['min', 'max', 'avg', 'sum', 'count'] as const;
+
+/**
+ * Build the `aggregations` array for a per-field stats query, enforcing
+ * {@link SAFE_AGGREGATION_ALIAS} on every alias it EMITS (finding M1).
+ *
+ * `compute_field_stats` synthesizes each alias from a model-supplied field id
+ * (`` `${field}__min` ``), and an alias is emitted by the host as a SQL IDENTIFIER
+ * (`SUM(??) AS alias`) rather than bound as data — the same
+ * attacker-authored-structure position `query_data_source` has validated
+ * `aggregations[].alias` against this pattern all along (see
+ * `QUERY_RECORD_CONTRACTS.aggregations`). `validateAndCapStringArrayElements` only
+ * type-checks and length-caps `fields`, so `fields: ['orders.total']` previously
+ * produced `alias: 'orders.total__min'` and forwarded it unchecked. The shipped
+ * reference host's `SAFE_ALIAS_PATTERN` then rejected it, so the model got a
+ * host-attributed error instead of the actionable, retryable one this layer promises.
+ *
+ * Both the check and the construction live HERE, in one helper, so the contract runs
+ * over whatever this function actually emits — a caller cannot assemble the array and
+ * forget the check, which is precisely how this site diverged from its sibling. The
+ * other four data tools use CONSTANT aliases and so were never exposed.
+ */
+function buildFieldStatAggregations(
+  toolName: string,
+  argName: string,
+  fields: string[],
+):
+  | { ok: true; value: StudioDataAggregation[] }
+  | { ok: false; error: ReturnType<typeof errorResult> } {
+  const aggregations: StudioDataAggregation[] = [];
+  for (let i = 0; i < fields.length; i += 1) {
+    const column = fields[i];
+    for (const func of FIELD_STAT_FUNCS) {
+      const alias = `${column}__${func}`;
+      if (!SAFE_AGGREGATION_ALIAS.test(alias)) {
+        return {
+          ok: false,
+          error: errorResult(
+            `${toolName}: "${argName}[${i}]" must contain only letters, digits, underscores and ` +
+              'hyphens, because this tool derives a SQL result alias from it. This request was ' +
+              'blocked before reaching the database, because an alias is emitted as a SQL ' +
+              'identifier rather than compared as data. Call describe_data_source on this ' +
+              'sourceId and re-issue the call using a field id exactly as listed there.',
+          ),
+        };
+      }
+      aggregations.push({ column, func, alias });
+    }
+  }
+  return { ok: true, value: aggregations };
+}
+
 /**
  * Cap on the number of numeric fields `describe_data_source` fans out into
  * per-field aggregation queries (Tier 3, iteration 24, finding 5), mirroring
@@ -1156,13 +1209,18 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
           return resolved.error;
         }
         const { tableName, sourceId: resolvedSourceId } = resolved;
-        const aggregations = statFields.flatMap((f) => [
-          { column: f, func: 'min' as const, alias: `${f}__min` },
-          { column: f, func: 'max' as const, alias: `${f}__max` },
-          { column: f, func: 'avg' as const, alias: `${f}__avg` },
-          { column: f, func: 'sum' as const, alias: `${f}__sum` },
-          { column: f, func: 'count' as const, alias: `${f}__count` },
-        ]);
+        // Finding M1 — the alias contract is enforced by the builder itself, so it
+        // cannot be skipped by assembling the array inline. See
+        // `buildFieldStatAggregations`.
+        const aggregationsResult = buildFieldStatAggregations(
+          'compute_field_stats',
+          'fields',
+          statFields,
+        );
+        if (!aggregationsResult.ok) {
+          return aggregationsResult.error;
+        }
+        const aggregations = aggregationsResult.value;
         // Bounded with the same `withTimeout` pattern `mcp/summarisePage.ts` applies to its
         // own `data.queryDataSource` calls (Tier 3, iteration 22).
         const result = await withTimeout(

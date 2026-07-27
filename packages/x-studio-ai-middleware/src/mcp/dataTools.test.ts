@@ -1084,6 +1084,63 @@ describe('createDataToolHandlers', () => {
       expect(result.isError).toBeUndefined();
       expect(queryDataSource).toHaveBeenCalledOnce();
     });
+
+    // Finding M1: this handler SYNTHESIZES a SQL result alias from a model-supplied
+    // field id (`${field}__min`), and an alias is emitted by the host as a SQL
+    // IDENTIFIER — the same position `query_data_source` has validated
+    // `aggregations[].alias` against `SAFE_AGGREGATION_ALIAS` all along. `fields` was
+    // only type-checked and length-capped, so the derived alias went out unchecked.
+    it.each([
+      ['a dotted field id', 'orders.total'],
+      ['a quoted identifier break', 'total" AS x, (SELECT 1) AS y --'],
+      ['whitespace', 'total revenue'],
+    ])('rejects %s before querying, since it derives a SQL alias', async (_label, field) => {
+      const queryDataSource = vi.fn();
+      const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+      const result: any = await handlers.compute_field_stats({
+        sourceId: 'source-orders',
+        fields: [field],
+      });
+      expect(result.isError).toBe(true);
+      const parsed = JSON.parse(await readText(result));
+      // Actionable and attributed to THIS layer — previously the call was forwarded and
+      // the host's own `SAFE_ALIAS_PATTERN` rejected it, so the model got a
+      // host-attributed error instead of the retryable one this layer promises.
+      expect(parsed.error).toMatch(/"fields\[0\]" must contain only letters, digits/);
+      expect(parsed.error).toMatch(/describe_data_source/);
+      expect(queryDataSource).not.toHaveBeenCalled();
+    });
+
+    it('names the offending index when a later field is the unsafe one', async () => {
+      const queryDataSource = vi.fn();
+      const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+      const result: any = await handlers.compute_field_stats({
+        sourceId: 'source-orders',
+        fields: ['total', 'count', 'orders.total'],
+      });
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(await readText(result)).error).toMatch(/"fields\[2\]"/);
+      expect(queryDataSource).not.toHaveBeenCalled();
+    });
+
+    it('still forwards identifier-shaped field ids, aliases and all', async () => {
+      const queryDataSource = vi.fn(
+        async (_params: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
+          rows: [{}],
+          rowCount: 1,
+        }),
+      );
+      const handlers = createDataToolHandlers(makeDeps({ data: { queryDataSource } }));
+      const result: any = await handlers.compute_field_stats({
+        sourceId: 'source-orders',
+        fields: ['total_revenue', 'unit-count'],
+      });
+      expect(result.isError).toBeUndefined();
+      expect(queryDataSource.mock.calls[0][0].aggregations).toHaveLength(10);
+      for (const agg of queryDataSource.mock.calls[0][0].aggregations!) {
+        expect(agg.alias).toMatch(/^[A-Za-z0-9_-]+$/);
+      }
+    });
   });
 
   describe('render_chart', () => {

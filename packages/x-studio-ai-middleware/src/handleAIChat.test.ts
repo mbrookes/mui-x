@@ -1209,6 +1209,87 @@ describe('handleAIChat — server-side allowedSkills enforcement (T1-1)', () => 
 
     expect(prompt).toContain('Body-supplied content, trusted when allowedSkills is unset.');
   });
+
+  // ── Finding H3: the count cap was applied to `body.skills` BEFORE the allowedSkills
+  // branch, so only the `else` arm ever got it. `capIncomingSkills` was unit-tested in
+  // isolation and `allowedSkills` was tested for CONTENT substitution, but nothing
+  // asserted the cap was actually WIRED on both arms — which is how the helper kept
+  // passing while the trust-boundary path stayed unbounded. These two tests cover the
+  // wiring, not the helper.
+  it('dedupes by name on the allowedSkills arm, so a repeated allowlisted name cannot multiply one host skill', async () => {
+    const hostSkill: StudioAISkill = {
+      name: 'narrator',
+      mode: 'server-tool',
+      promptFragment: 'HOST-FRAGMENT-MARKER',
+      tool: {
+        name: 'narrate_dashboard',
+        description: 'Narrate the dashboard.',
+        parameters: { type: 'object', properties: {} },
+        execute: () => ({ output: 'ok', nextState: createDefaultStudioState() }),
+      },
+    };
+    // `allowedSkills` substitutes CONTENT by name; it does not reduce the number of
+    // entries. So every one of these resolves to the SAME host skill.
+    const body = makeBody({
+      skills: Array.from({ length: 500 }, () => ({
+        name: 'narrator',
+        mode: 'instruction-only' as const,
+        promptFragment: 'ignored — replaced by the host definition',
+      })),
+    });
+
+    vi.mocked(fetch).mockResolvedValueOnce(textResponse('ok'));
+    await readAll(
+      handleAIChat(body, { ...OPTIONS, allowedSkills: ['narrator'], skillHandlers: [hostSkill] }),
+    );
+    const sentBody = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string) as {
+      messages: Array<{ role: string; content: string }>;
+      tools: { function: { name: string } }[];
+    };
+
+    // `buildSkillSection` concatenated 500 copies of the fragment before
+    // `MAX_SYSTEM_PROMPT_CHARS` ever sliced; `skillToolDefs` emitted 500 `tools`
+    // entries sharing one `function.name` on every turn.
+    const prompt = sentBody.messages.find((m) => m.role === 'system')?.content ?? '';
+    expect(prompt.split('HOST-FRAGMENT-MARKER').length - 1).toBe(1);
+    expect(sentBody.tools.filter((t) => t.function.name === 'narrate_dashboard')).toHaveLength(1);
+  });
+
+  it('applies the entry-count cap on the allowedSkills arm too, not just the pass-through arm', async () => {
+    const names = Array.from({ length: 500 }, (_, i) => `skill${i}`);
+    const hostSkills: StudioAISkill[] = names.map((name, i) => ({
+      name,
+      mode: 'server-tool',
+      promptFragment: `fragment for ${name}`,
+      tool: {
+        name: `host_skill_tool_${i}`,
+        description: 'A host tool.',
+        parameters: { type: 'object', properties: {} },
+        execute: () => ({ output: 'ok', nextState: createDefaultStudioState() }),
+      },
+    }));
+    const body = makeBody({
+      skills: names.map((name) => ({
+        name,
+        mode: 'instruction-only' as const,
+        promptFragment: 'ignored — replaced by the host definition',
+      })),
+    });
+
+    vi.mocked(fetch).mockResolvedValueOnce(textResponse('ok'));
+    await readAll(
+      handleAIChat(body, { ...OPTIONS, allowedSkills: names, skillHandlers: hostSkills }),
+    );
+    const sentBody = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string) as {
+      tools: { function: { name: string } }[];
+    };
+
+    // 500 distinct allowlisted skills resolve to 500 distinct host definitions — all of
+    // them advertised, unbounded, on every turn. `MAX_REQUEST_SKILLS` is 100.
+    expect(
+      sentBody.tools.filter((t) => t.function.name.startsWith('host_skill_tool_')),
+    ).toHaveLength(100);
+  });
 });
 
 // Tier 1 resource-exhaustion finding: `runtime.dataSources`, `richContext`, and
@@ -1616,6 +1697,27 @@ describe('capIncomingSkills (finding H1a)', () => {
 
   it('returns undefined input unchanged', () => {
     expect(capIncomingSkills(undefined)).toBeUndefined();
+  });
+
+  it('dedupes by name, keeping the first entry (finding H3)', () => {
+    const capped = capIncomingSkills([
+      { name: 'dup', mode: 'instruction-only', promptFragment: 'first' },
+      { name: 'other', mode: 'instruction-only', promptFragment: 'other' },
+      { name: 'dup', mode: 'instruction-only', promptFragment: 'second' },
+    ])!;
+    expect(capped.map((s) => s.name)).toEqual(['dup', 'other']);
+    expect(capped[0].promptFragment).toBe('first');
+  });
+
+  it('collapses a repeated-name flood well below the entry cap (finding H3)', () => {
+    // The shape `allowedSkills` resolution produces: N body entries naming one
+    // allowlisted skill all resolve to the SAME host definition.
+    const flood = Array.from({ length: 5_000 }, () => ({
+      name: 'same',
+      mode: 'instruction-only' as const,
+      promptFragment: 'do a thing',
+    }));
+    expect(capIncomingSkills(flood)!.length).toBe(1);
   });
 });
 

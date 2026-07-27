@@ -576,12 +576,21 @@ export async function handleCreateWidget(
     // so a caller surfacing it to a user got a bare, unattributable sentence. Branded:
     // it is built entirely from package prose, and deliberately quotes NONE of the
     // model-authored `content` it failed to parse (invariant 16).
+    //
+    // Finding L3 — the remediation used to tell the operator to check "the
+    // `response_format: json_object` option this request sends", but the request body
+    // built above sets no `response_format` at all, so that was a dead end: the
+    // operator would go looking for an option that does not exist. The guidance now
+    // names the lever that actually governs this failure — the system prompt — and
+    // says plainly that no structured-output option is in play.
     throw markPackageAuthored(
       new Error(
         'MUI X Studio: The AI widget-creation response was not valid JSON. ' +
           'This prevents the client from building a widget from the model output. ' +
-          'Ensure the model is instructed (and capable of) responding with a single JSON object, ' +
-          'and that the endpoint supports the `response_format: json_object` option this request sends.',
+          'This request does not send a `response_format` option, so JSON-only output depends ' +
+          'entirely on the model obeying the system prompt: check that the configured model is ' +
+          'capable of replying with a single JSON object and nothing else (no prose, no code ' +
+          'fences), and switch to one that is if it is not.',
       ),
     );
   }

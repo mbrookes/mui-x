@@ -308,7 +308,7 @@
   "308": "MUI X Studio: The field-description response was valid JSON but not a JSON array. This prevents the per-field descriptions from being read out of it. Ensure the model replies with a JSON array of {\"id\",\"aiDescription\"} entries, or an object wrapping exactly one such array.",
   "309": "Title generation failed: %s",
   "310": "Widget creation failed: %s",
-  "311": "MUI X Studio: The AI widget-creation response was not valid JSON. This prevents the client from building a widget from the model output. Ensure the model is instructed (and capable of) responding with a single JSON object, and that the endpoint supports the `response_format: json_object` option this request sends.",
+  "311": "MUI X Studio: The AI widget-creation response was not valid JSON. This prevents the client from building a widget from the model output. This request does not send a `response_format` option, so JSON-only output depends entirely on the model obeying the system prompt: check that the configured model is capable of replying with a single JSON object and nothing else (no prose, no code fences), and switch to one that is if it is not.",
   "312": "%s timed out after %sms",
   "313": "Unknown sourceId: \"%s\". Available: %s.",
   "314": "Unknown prompt: \"%s\".",

@@ -764,6 +764,19 @@ export function capIncomingCustomWidgets(
  * server-side lever for untrusted skill CONTENT is `options.allowedSkills`, which
  * substitutes host-authored definitions by name.
  *
+ * Finding H3: entries are DEDUPED BY `name` before the count cap. `allowedSkills`
+ * resolution maps every body entry naming the same allowlisted skill onto the SAME
+ * host-registered definition, so a body asserting one allowlisted name N times
+ * resolves to N copies of one skill — N identical `promptFragment`s concatenated by
+ * `buildSkillSection` and N `tools` entries sharing a `function.name` on every turn.
+ * Deduping first collapses that to one entry while leaving distinct skills intact;
+ * the count cap then bounds what remains. Order is preserved: the first entry for a
+ * given name wins.
+ *
+ * This function is the ONE place the skill list is bounded, and it is applied to the
+ * RESOLVED list (after `allowedSkills` substitution) rather than to `body.skills`, so
+ * neither resolution branch can skip it.
+ *
  * `validateStudioAIRequestBody` has already guaranteed each element is an object
  * with a string `name` by the time this runs. Returns the input unchanged when it is
  * `undefined`; never mutates the input.
@@ -774,7 +787,18 @@ export function capIncomingSkills(
   if (!skills) {
     return skills;
   }
-  return skills.slice(0, MAX_REQUEST_SKILLS).map((skill) => {
+  const seenNames = new Set<string>();
+  const deduped: SerializableSkill[] = [];
+  for (const skill of skills) {
+    if (!seenNames.has(skill.name)) {
+      seenNames.add(skill.name);
+      deduped.push(skill);
+    }
+    if (deduped.length >= MAX_REQUEST_SKILLS) {
+      break;
+    }
+  }
+  return deduped.map((skill) => {
     const tool: unknown = (skill as { tool?: unknown }).tool;
     let cappedTool: SerializableSkill['tool'];
     if (isPlainRecord(tool)) {
@@ -1366,7 +1390,11 @@ export function handleAIChat(
           // that reached the system prompt (and, for `pageSnapshot`, the conversation
           // itself) with no size bound at all. Capped at the SAME chokepoint as the
           // three above so there is one place to look for "what bounds request input".
-          const cappedSkills = capIncomingSkills(skills);
+          //
+          // `skills` is the exception: its cap cannot run here, because the
+          // `allowedSkills` branch below REPLACES each body entry with a host-registered
+          // definition and so needs bounding AFTER resolution, not before (finding H3).
+          // `capIncomingSkills` is applied to `effectiveSkills` instead — see below.
           const cappedPageSnapshot = capIncomingPageSnapshot(pageSnapshot);
           // `focusedWidgetId` is echoed VERBATIM into the `## Per-widget focus` block
           // (`buildAISystemPrompt.ts`) whenever it names a real widget — and it is a
@@ -1435,17 +1463,31 @@ export function handleAIChat(
           // never throws" contract. Now a malformed value is always caught by
           // validation first and surfaces as a normal `{ type: 'error' }` SSE frame.
           //
-          // Note the two branches differ in WHERE the content comes from, and only the
-          // pass-through branch needs the size cap: with `allowedSkills` configured the
-          // body's object is discarded entirely in favour of the host-authored
-          // `skillHandlers` entry, so `cappedSkills` (finding H1a) applies to the
-          // trusted-as-is branch.
-          const effectiveSkills = options.allowedSkills
+          // Finding H3: the two branches differ in WHERE the CONTENT comes from, but
+          // BOTH need the count cap, and previously only the `else` arm got it —
+          // `capIncomingSkills` was applied to `body.skills` before this branch, so the
+          // `allowedSkills` arm (the documented trust boundary for untrusted skills) was
+          // the one path with no bound on skill COUNT at all. `allowedSkills` only
+          // substitutes each entry's content; it does not reduce the number of entries, so
+          // a body asserting one allowlisted name 200_000 times resolved to 200_000 copies
+          // of the same host skill — `buildSkillSection` concatenating 200_000 fragments
+          // before `MAX_SYSTEM_PROMPT_CHARS` ever slices, and `skillToolDefs` emitting
+          // 200_000 `tools` entries sharing a `function.name` on every turn.
+          //
+          // So resolution and bounding are now separate steps: resolve first, then run the
+          // single `capIncomingSkills` chokepoint over the RESULT. No arm can skip it, and
+          // the dedupe-by-name inside it collapses the repeated-name case that only the
+          // `allowedSkills` arm can produce. Capping the host-authored definitions from
+          // `skillHandlers` is a no-op for any sanely sized skill; `options.skillHandlers`
+          // itself is passed to the loop untouched, so a `server-tool`'s `execute` is
+          // unaffected (the resolved list only feeds the prompt and the advertised tools).
+          const resolvedSkills: SerializableSkill[] | undefined = options.allowedSkills
             ? (skills ?? [])
                 .filter((s) => options.allowedSkills!.includes(s.name))
                 .map((s) => options.skillHandlers?.find((h) => h.name === s.name))
                 .filter((s): s is StudioAISkill => Boolean(s))
-            : cappedSkills;
+            : skills;
+          const effectiveSkills = capIncomingSkills(resolvedSkills);
 
           // Best-effort server-side context enrichment. Failures never abort the chat.
           // Bounded by `CONTEXT_ENRICHER_TIMEOUT_MS` (finding T2-2) — without this, a

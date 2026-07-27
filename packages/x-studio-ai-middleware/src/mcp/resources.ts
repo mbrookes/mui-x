@@ -592,7 +592,16 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
                 limit: 1,
               }),
               15_000,
-              `data-health count query for ${tableName}`,
+              // Sanitized untrusted `tableName` in a BRANDED message (finding M2). A
+              // `withTimeout` label lands in a `StudioTimeoutError`, and
+              // `redactedHostErrorMessage` relays a BRANDED message VERBATIM on the
+              // premise that it contains only server-authored prose — so an
+              // un-sanitized `tableName` (client-supplied, and only string-and-length
+              // checked by `validateTableName`) reaches an LLM-consumed error with its
+              // newlines intact. Every sibling label in `queryTools.ts` and
+              // `summarisePage.ts` already routes through `safeIdentifier`; these two
+              // were the only ones that did not.
+              `data-health count query for ${safeIdentifier(tableName)}`,
             );
             const row = result.rows[0];
             counts[s.id] = Number(row?.count ?? result.rowCount ?? 0);
@@ -803,7 +812,12 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
             limit: 20,
           }),
           15_000,
-          `row preview query for ${tableName}`,
+          // Sanitized untrusted `tableName` in a BRANDED message (finding M2) — see the
+          // `data-health` label above. This site is the more directly reachable of the
+          // two: the resulting message is thrown, and the SDK returns it as the
+          // JSON-RPC `error.message`, which most clients splice straight into the model
+          // conversation.
+          `row preview query for ${safeIdentifier(tableName)}`,
         );
       } catch (err) {
         throw new Error(redactedHostErrorMessage('studio://data row preview query', err, logger));

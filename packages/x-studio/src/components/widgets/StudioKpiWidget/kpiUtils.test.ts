@@ -12,6 +12,7 @@ import {
   computeSparklineData,
   formatPeriodShort,
   formatDateRangeLong,
+  resolveKpiDateField,
   toLocalYmd,
 } from './kpiUtils';
 import type { StudioDataSource, StudioExpressionField, StudioFilterState } from '../../../models';
@@ -932,6 +933,20 @@ describe('computeSparklineData', () => {
     expect(computeSparklineData(zeroRows, 't', 'v', 'sum', 'month', false)).toEqual([0, 7]);
   });
 
+  it('emits a gap (not 0) for an avg period whose rows have no usable values', () => {
+    // Same "null means not measured, not zero" policy as the trend's `computePeriodValue`
+    // (M3): the January bucket HAS rows, but every value is null, so `computeAggregate`
+    // returns `null` for `avg`. Coercing that to `0` drew a real point at zero — reading as
+    // "the average was 0 in January" — instead of the gap the sparkline already renders for
+    // unmeasured periods. Contrast with the `sum`-to-zero case above, which still plots 0.
+    const blankRows = [
+      { t: '2026-01-10', v: null },
+      { t: '2026-01-20', v: null },
+      { t: '2026-02-10', v: 7 },
+    ];
+    expect(computeSparklineData(blankRows, 't', 'v', 'avg', 'month', false)).toEqual([null, 7]);
+  });
+
   it('sorts weekly buckets in true chronological order across a month boundary (finding 1.11)', () => {
     // Week granularity is the auto-selected default for 14–90 day ranges. A row in
     // the week of Mon 2026-01-26 and a row in the week of Mon 2026-02-02 must
@@ -1089,5 +1104,112 @@ describe('prototype-chain keys in KPI record lookups', () => {
     const rows = [{ revenue: 10 }, { revenue: 20 }];
     expect(computeAggregate(rows, 'toString', 'sum')).toBe(0);
     expect(computeAggregate(rows, 'constructor', 'count_distinct')).toBe(0);
+  });
+});
+
+// ─── resolveKpiDateField — the ONE date-field rule (M5) ───────────────────────
+describe('resolveKpiDateField', () => {
+  const source: StudioDataSource = {
+    id: 'sales',
+    label: 'Sales',
+    fields: [
+      { id: 'createdAt', label: 'Created', type: 'date' },
+      { id: 'shippedAt', label: 'Shipped', type: 'date' },
+      { id: 'amount', label: 'Amount', type: 'number' },
+    ],
+    rows: [],
+  } as unknown as StudioDataSource;
+
+  const base = { widgetId: 'kpi-1', widgetSourceId: 'sales', dataSource: source } as const;
+
+  it('tier 1: an in-scope date filter outranks the stored config field', () => {
+    // The panel replaces the time-field picker with "Using the date filter on X" as soon as a
+    // filter is in scope, so a rule where the stored config won would contradict the only
+    // affordance the user has.
+    const filter = makeFilter({ field: 'shippedAt', fieldType: 'date' });
+    const resolved = resolveKpiDateField({
+      ...base,
+      config: { kpiSparklineField: 'createdAt' },
+      scopedFilters: [filter],
+    });
+    expect(resolved).toMatchObject({
+      field: 'shippedAt',
+      sourceId: 'sales',
+      isNative: true,
+      origin: 'filter',
+    });
+  });
+
+  it('tier 1: reports a CROSS-SOURCE date filter with its owning source rather than discarding it', () => {
+    // Pre-M5 the sparkline threw this away (it only accepted a native filter field), so a page
+    // filter on a related source rendered no sparkline while the panel claimed it was in use.
+    const filter = makeFilter({
+      field: 'orderDate',
+      fieldType: 'date',
+      filterSourceId: 'orders',
+    });
+    const resolved = resolveKpiDateField({ ...base, config: {}, scopedFilters: [filter] });
+    expect(resolved).toMatchObject({
+      field: 'orderDate',
+      sourceId: 'orders',
+      isNative: false,
+      origin: 'filter',
+    });
+  });
+
+  it('tier 2: falls back to the configured field, carrying kpiSparklineSourceId', () => {
+    const resolved = resolveKpiDateField({
+      ...base,
+      config: { kpiSparklineField: 'orderDate', kpiSparklineSourceId: 'orders' },
+      scopedFilters: [],
+    });
+    expect(resolved).toMatchObject({
+      field: 'orderDate',
+      sourceId: 'orders',
+      isNative: false,
+      origin: 'config',
+    });
+  });
+
+  it('tier 3: falls back to the first own-source date field, and never reports it as cross-source', () => {
+    // The hedged M5 sub-finding: the fixed-period trend used to read `kpiSparklineSourceId`
+    // independently of the field it had resolved, so a config with a stale source id but no
+    // field fell back to an OWN-source column while still claiming to be cross-source.
+    const resolved = resolveKpiDateField({
+      ...base,
+      config: { kpiSparklineSourceId: 'orders' },
+      scopedFilters: [],
+    });
+    expect(resolved).toMatchObject({
+      field: 'createdAt',
+      sourceId: 'sales',
+      isNative: true,
+      origin: 'source-default',
+    });
+  });
+
+  it('reports no field when nothing resolves, and always surfaces the in-scope date filter', () => {
+    const dateless: StudioDataSource = {
+      id: 'lookup',
+      label: 'Lookup',
+      fields: [{ id: 'name', label: 'Name', type: 'string' }],
+      rows: [],
+    } as unknown as StudioDataSource;
+    const resolved = resolveKpiDateField({
+      widgetId: 'kpi-1',
+      widgetSourceId: 'lookup',
+      dataSource: dateless,
+      config: {},
+      scopedFilters: [],
+    });
+    expect(resolved).toMatchObject({ field: null, isNative: false, origin: 'none' });
+    expect(resolved.dateFilter).toBeUndefined();
+
+    // The filter is reported even when it did not win the field choice, because callers use
+    // it for auto-granularity.
+    const filter = makeFilter({ field: 'createdAt', fieldType: 'date' });
+    expect(resolveKpiDateField({ ...base, config: {}, scopedFilters: [filter] }).dateFilter).toBe(
+      filter,
+    );
   });
 });

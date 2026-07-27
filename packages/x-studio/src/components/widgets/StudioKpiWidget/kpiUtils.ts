@@ -8,6 +8,7 @@ import type {
   StudioFilterState,
   StudioKpiAggregation,
   StudioExpressionField,
+  StudioWidgetConfigForKind,
 } from '../../../models';
 import { fillTemporalLabelGaps, normalizeToDate } from '../../../internals/temporalUtils';
 import { resolveDateRangePreset } from '../../../internals/filterUtils';
@@ -326,6 +327,127 @@ export function findDateFilter(
   return bySpecificity.find((f) => isDateFieldFilter(f, dataSource));
 }
 
+// ─── Canonical "which date field does this KPI use?" rule ─────────────────────
+
+/**
+ * Where a KPI's resolved date field came from. Ordered most → least authoritative,
+ * matching the tiers `resolveKpiDateField` tries.
+ */
+export type KpiDateFieldOrigin = 'filter' | 'config' | 'source-default' | 'none';
+
+export interface KpiDateFieldResolution {
+  /** The date field id to bucket / window on. `null` when nothing could be resolved. */
+  field: string | null;
+  /**
+   * The source that OWNS `field`. Equal to the widget's own source for a native field;
+   * a related source id when the field lives across a relationship. `undefined` only
+   * when `field` is `null` (or the widget has no source at all).
+   */
+  sourceId: string | undefined;
+  /** True when `field` is a column on the widget's OWN rows (no cross-source join needed). */
+  isNative: boolean;
+  /**
+   * The in-scope date filter that was found, whether or not it drove the resolution.
+   * Callers use it for auto-granularity even when it did not win the field choice.
+   */
+  dateFilter: StudioFilterState | undefined;
+  /** Which tier produced `field`. */
+  origin: KpiDateFieldOrigin;
+}
+
+/**
+ * THE single "which date field does this KPI use?" rule.
+ *
+ * There used to be three independent answers to that question — the sparkline's, the
+ * fixed-period trend's, and the setup panel's — and they disagreed in ways users could see
+ * (M5):
+ *
+ * - The sparkline took the active date filter's field only when it was NATIVE to the widget's
+ *   source, and otherwise fell through to `kpiSparklineField`. A page filter on a RELATED
+ *   source (e.g. `orders.order_date` on a `customers` KPI) therefore resolved to `null` — no
+ *   sparkline at all — while the panel simultaneously reported "Using the date filter on Order
+ *   Date" and HID the manual time-field picker, leaving the user no control to fix it.
+ * - The fixed-period trend preferred `kpiSparklineField` and only then the first date field on
+ *   the widget's own source, so a source with `created_at` (first) plus a page filter on
+ *   `shipped_at` bucketed the sparkline on `shipped_at` while the trend windowed on
+ *   `created_at` — two different date columns in one card.
+ *
+ * The canonical rule is **filter → explicit config → first own-source date field**, i.e. the
+ * SPARKLINE's precedence (filter wins over config), extended with the TREND's last-resort
+ * fallback. That ordering is the one the UI already promises: `KpiSparklineOptions` replaces
+ * the time-field picker with "Using the date filter on X" as soon as an in-scope date filter
+ * exists, so a rule where the stored config outranked the filter would contradict the only
+ * affordance the user has. The own-source fallback is kept because the trend section of the
+ * setup panel has NO date-field picker of its own — a fixed-period trend on a KPI with the
+ * sparkline switched off has no other way to name a window field.
+ *
+ * Consumers differ ONLY in how they treat the last tier, and that difference is a single
+ * documented `origin` check rather than a second lookup chain:
+ * - the sparkline requires `origin !== 'source-default'`, so an unconfigured KPI still renders
+ *   the "pick a time field" hint instead of silently bucketing on whichever date column happens
+ *   to be declared first (which would also contradict the panel's empty picker);
+ * - the fixed-period trend accepts every tier.
+ *
+ * Whenever both consumers resolve a field, they resolve the SAME one — which is the property
+ * the two repros above needed.
+ *
+ * CONTRACT: `scopedFilters` MUST already be scoped to this widget via `selectFiltersForWidget`
+ * (same contract as `findDateFilter`, which this delegates to).
+ */
+export function resolveKpiDateField(params: {
+  config: Pick<StudioWidgetConfigForKind<'kpi'>, 'kpiSparklineField' | 'kpiSparklineSourceId'>;
+  widgetId: string;
+  widgetSourceId: string | undefined;
+  dataSource: StudioDataSource | undefined;
+  /** Pre-scoped via `selectFiltersForWidget` — see the contract note above. */
+  scopedFilters: StudioFilterState[];
+}): KpiDateFieldResolution {
+  const { config, widgetId, widgetSourceId, dataSource, scopedFilters } = params;
+
+  const dateFilter = dataSource ? findDateFilter(scopedFilters, widgetId, dataSource) : undefined;
+
+  // Tier 1 — the active date filter. `filterSourceId` names the owning source for a
+  // cross-source filter; its absence means the filter targets the widget's own source.
+  if (dateFilter?.field) {
+    const sourceId = dateFilter.filterSourceId ?? widgetSourceId;
+    return {
+      field: dateFilter.field,
+      sourceId,
+      isNative: sourceId === widgetSourceId,
+      dateFilter,
+      origin: 'filter',
+    };
+  }
+
+  // Tier 2 — the explicitly configured time field. `kpiSparklineSourceId` is written by the
+  // panel's picker whenever the chosen field belongs to a related source, so it — not a
+  // separately-derived guess — is the authority on where the field lives.
+  if (config.kpiSparklineField) {
+    const sourceId = config.kpiSparklineSourceId ?? widgetSourceId;
+    return {
+      field: config.kpiSparklineField,
+      sourceId,
+      isNative: sourceId === widgetSourceId,
+      dateFilter,
+      origin: 'config',
+    };
+  }
+
+  // Tier 3 — last resort: the first date/datetime column declared on the widget's own source.
+  const ownDateField = dataSource?.fields.find((f) => f.type === 'date' || f.type === 'datetime');
+  if (ownDateField) {
+    return {
+      field: ownDateField.id,
+      sourceId: widgetSourceId,
+      isNative: true,
+      dateFilter,
+      origin: 'source-default',
+    };
+  }
+
+  return { field: null, sourceId: undefined, isNative: false, dateFilter, origin: 'none' };
+}
+
 // ─── Previous period range ─────────────────────────────────────────────────────
 
 /**
@@ -589,13 +711,20 @@ export function computeSparklineData(
     if (!bucketRows) {
       return null;
     }
-    // `evaluateMeasure` returns `null` for a bucket it can't compute; this bucket DOES
-    // have rows, so that is a computation failure rather than an empty period — collapse
-    // it to 0 (unchanged behaviour) instead of turning it into a gap.
+    // A bucket that HAS rows but yields `null` is still an UNMEASURED period, not a
+    // measured zero — `computeAggregate` returns `null` for an avg/min/max over rows whose
+    // values are all null/non-numeric, and `evaluateMeasure` returns `null` for a
+    // root-level divide/modulo-by-zero. This used to collapse to `0`, which drew a real
+    // data point at zero: for an `avg` KPI a month where every row's value was blank read
+    // as "the average was 0 that month". That is the same "null means not measured, not
+    // zero" violation as the trend's `computePeriodValue` (M3), and the sparkline already
+    // has a first-class representation for it — the `null` gap the empty-period branch
+    // above emits. Note this is NOT the "aggregates to zero" case: `sum`/`count` over rows
+    // return a real `0` and still plot a point (see the `kpiUtils.test.ts` case pinning that).
     const value = measureExprField
       ? evaluateMeasure(measureExprField, bucketRows, expressionFields ?? [])
       : computeAggregate(bucketRows, valueField, aggregation);
-    return value ?? 0;
+    return value;
   });
 
   if (!cumulative) {

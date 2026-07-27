@@ -38,6 +38,10 @@ const rowsHolder = vi.hoisted(() => ({
   current: [] as Record<string, unknown>[],
   effective: null as Record<string, unknown>[] | null,
   isLoading: false,
+  // Simulates a DEFERRED render window: when set, `useWidgetRows` reports THIS filter set
+  // (the snapshot the mocked rows were produced from) while the store's live `doc.filters`
+  // already holds a newer one. Every KPI derivation must follow the rows, not the store.
+  deferredFilters: null as unknown[] | null,
 }));
 
 vi.mock('../../../internals/useWidgetRows', () => ({
@@ -55,6 +59,8 @@ vi.mock('../../../internals/useWidgetRows', () => ({
     } catch {
       filters = [];
     }
+    // A deferred window: the rows (and therefore the resolved filter sets) lag the store.
+    const snapshotFilters = (rowsHolder.deferredFilters as StudioFilterState[] | null) ?? filters;
     const base = {
       widgetId: widget.id,
       widgetSourceId: widget.sourceId,
@@ -67,8 +73,21 @@ vi.mock('../../../internals/useWidgetRows', () => ({
       isLoading: rowsHolder.isLoading,
       isError: false,
       errorMessage: undefined,
-      resolvedFiltersAll: selectFiltersForWidget(filters, { ...base, include: 'all' }),
-      resolvedFiltersNoCross: selectFiltersForWidget(filters, { ...base, include: 'no-cross' }),
+      resolvedFiltersAll: selectFiltersForWidget(snapshotFilters, { ...base, include: 'all' }),
+      resolvedFiltersNoCross: selectFiltersForWidget(snapshotFilters, {
+        ...base,
+        include: 'no-cross',
+      }),
+      // Mirrors the real hook: `selectFiltersForWidget` drops WIDGET-scoped rank filters unless
+      // `includeWidgetRank` is set, and the two sets above are built without it — so they are
+      // exposed separately and the KPI re-adds them (see `kpiScopedFilters`).
+      widgetScopedRankFilters: snapshotFilters.filter(
+        (f) =>
+          !f.disabled &&
+          f.scope?.kind === 'widget' &&
+          f.scope.widgetId === widget.id &&
+          (f.filterMode ?? 'condition') === 'rank',
+      ),
     };
   },
 }));
@@ -86,7 +105,7 @@ vi.mock('../../../context', async (importOriginal) => ({
 // string formatting.
 const trendSpy = vi.fn();
 function TrendSpy(props: KpiTrendProps) {
-  trendSpy(props.trendResult);
+  trendSpy(props.trendResult, props.needsDateFilter);
   return null;
 }
 const valueSpy = vi.fn();
@@ -102,6 +121,9 @@ function SparklineSpy(props: KpiSparklineProps) {
 
 function lastTrend(): KpiTrendProps['trendResult'] {
   return trendSpy.mock.calls.at(-1)?.[0] ?? null;
+}
+function lastTrendNeedsDateFilter(): boolean {
+  return trendSpy.mock.calls.at(-1)?.[1] ?? false;
 }
 function lastValue(): string | undefined {
   return valueSpy.mock.calls.at(-1)?.[0];
@@ -267,6 +289,12 @@ function makeWidget(config: Record<string, unknown>, sourceId: string): StudioWi
     config,
   } as unknown as StudioWidgetOf<'kpi'>;
 }
+
+// File-level reset: only the deferred-window tests opt into a lagging filter snapshot, and
+// `rowsHolder` is module state shared by every test in this file.
+beforeEach(() => {
+  rowsHolder.deferredFilters = null;
+});
 
 describe('<StudioKpiWidget /> fixed-period trend correctness', () => {
   beforeEach(() => {
@@ -851,7 +879,13 @@ describe('<StudioKpiWidget /> sparkline and filter-tooltip scoping (finding 2.5)
     await user.hover(wrapperSpan);
     // filterSubtitle must be empty (the other page's filter is excluded), which
     // disables the tooltip's hover listener entirely — no tooltip should open.
-    expect(screen.queryByRole('tooltip')).toBeNull();
+    //
+    // This MUST wait. MUI's `Tooltip` has a 100ms default `enterDelay`, so a synchronous
+    // `queryByRole('tooltip')` right after `hover` returns `null` whether or not the leak is
+    // present — the assertion could never fail, making this test vacuous. `findByRole`
+    // rejecting after a budget that comfortably exceeds the delay (and which the positive
+    // counterpart below resolves well within) is what actually pins the leak.
+    await expect(screen.findByRole('tooltip', {}, { timeout: 500 })).rejects.toThrow();
   });
 
   it("shows this page's filter in the KPI hover tooltip", async () => {
@@ -951,7 +985,10 @@ describe('<StudioKpiWidget /> sparkline and filter-tooltip scoping (finding 2.5)
     await user.hover(wrapperSpan);
     // With the toggle off, the cross-page filter is excluded, so `filterSubtitle` is
     // '' and the tooltip's hover listener stays disabled — no tooltip opens.
-    expect(screen.queryByRole('tooltip')).toBeNull();
+    //
+    // Waited for the same reason as the sibling negative case above: a synchronous
+    // `queryByRole('tooltip')` cannot fail through MUI's 100ms `enterDelay`.
+    await expect(screen.findByRole('tooltip', {}, { timeout: 500 })).rejects.toThrow();
   });
 
   it('finding 2.5: routes the hover subtitle text through summarizeFilter with the active localeText (no locale bypass)', async () => {
@@ -2315,5 +2352,355 @@ describe('<StudioKpiWidget /> loading affordance for a cold adapter fetch (findi
 
     expect(document.querySelector('.MuiSkeleton-root')).toBeNull();
     expect(lastValue()).toBe('0');
+  });
+});
+
+// ─── M3: an unmeasurable period must not become a confident "−100%" ───────────
+//
+// `aggregateNumbers` returns `null` for avg/min/max over an empty set — the package's
+// documented "null means not measured, not zero" policy. `computePeriodValue` used to
+// coerce that to `0` at all three of its return points, and `computeFixedPeriodTrend` then
+// divided: a KPI whose CURRENT fixed-period window contains no rows rendered a red "−100%"
+// as if the average had collapsed, when the truth is that there is no current measurement
+// at all. The filter-based path was already protected by the `hasData` gate; the
+// fixed-period path windows independently of the headline, so it was not.
+describe('<StudioKpiWidget /> unmeasurable trend periods (M3)', () => {
+  beforeEach(() => {
+    trendSpy.mockClear();
+    valueSpy.mockClear();
+    sparklineSpy.mockClear();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-07-07T12:00:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  // "today" is 2026-07-07, so the 'month' fixed period is 2026-06-08 → 2026-07-07 and the
+  // previous window is 2026-05-09 → 2026-06-07. These rows populate ONLY the previous one.
+  const previousOnlyRows = [
+    { id: 'r1', rating: 4, saleDate: '2026-05-20' },
+    { id: 'r2', rating: 4.4, saleDate: '2026-05-21' },
+  ];
+  const ratingSource = {
+    id: 'sales',
+    label: 'Sales',
+    fields: [
+      { id: 'id', label: 'ID', type: 'string' },
+      { id: 'rating', label: 'Rating', type: 'number' },
+      { id: 'saleDate', label: 'Date', type: 'date' },
+    ],
+    rows: previousOnlyRows,
+  } as unknown as StudioDataSource;
+
+  it('renders NO trend badge for an avg KPI whose current fixed period has no rows (not "−100%")', () => {
+    rowsHolder.current = previousOnlyRows;
+    const widget = makeWidget(
+      {
+        kpiValueField: 'rating',
+        kpiAggregation: 'avg',
+        kpiTrend: true,
+        kpiTrendFixedPeriod: 'month',
+        kpiSparklineField: 'saleDate',
+      },
+      'sales',
+    );
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { sales: ratingSource },
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, ratingSource);
+
+    // Headline: avg over every row that exists → 4.2 (there IS a measurement overall).
+    expect(lastValue()).toBe('4.2');
+    // Trend: the current window is unmeasurable, so no delta can be stated. Before the fix
+    // this was `(0 − 4.2) / 4.2 = −1`, rendered in red as a −100% collapse.
+    expect(lastTrend()).toBeNull();
+  });
+
+  it('still renders a trend badge for a SUM KPI with an empty current period (0 is a real total)', () => {
+    // Contrast case, so the M3 fix cannot be satisfied by suppressing every empty period:
+    // `sum`/`count` over no rows IS a genuine measurement of zero, unlike avg/min/max.
+    rowsHolder.current = previousOnlyRows;
+    const widget = makeWidget(
+      {
+        kpiValueField: 'rating',
+        kpiAggregation: 'sum',
+        kpiTrend: true,
+        kpiTrendFixedPeriod: 'month',
+        kpiSparklineField: 'saleDate',
+      },
+      'sales',
+    );
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { sales: ratingSource },
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, ratingSource);
+
+    const trend = lastTrend();
+    expect(trend).not.toBeNull();
+    expect(trend!.delta).toBeCloseTo(-1);
+    expect(trend!.previousValue).toBeCloseTo(8.4);
+  });
+});
+
+// ─── M5: one canonical "which date field does this KPI use?" rule ─────────────
+describe('<StudioKpiWidget /> canonical date-field resolution (M5)', () => {
+  beforeEach(() => {
+    trendSpy.mockClear();
+    valueSpy.mockClear();
+    sparklineSpy.mockClear();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-07-07T12:00:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  // Repro 1 fixtures: a KPI on `customers` (the "one" side) with a page date filter on
+  // `orders_d.orderDate` (the related "many" side). `customers` deliberately has NO date
+  // field of its own, so nothing but the cross-source filter can resolve a time axis.
+  const customerRows = [
+    { id: 'C1', name: 'Ada' },
+    { id: 'C2', name: 'Grace' },
+  ];
+  const customersSource = {
+    id: 'customers',
+    label: 'Customers',
+    fields: [
+      { id: 'id', label: 'ID', type: 'string' },
+      { id: 'name', label: 'Name', type: 'string' },
+    ],
+    rows: customerRows,
+  } as unknown as StudioDataSource;
+
+  const datedOrdersSource = {
+    id: 'orders_d',
+    label: 'Orders',
+    fields: [
+      { id: 'id', label: 'ID', type: 'string' },
+      { id: 'customerId', label: 'Customer', type: 'string' },
+      { id: 'orderDate', label: 'Order Date', type: 'date' },
+    ],
+    rows: [
+      { id: 'O1', customerId: 'C1', orderDate: '2026-05-10' },
+      { id: 'O2', customerId: 'C2', orderDate: '2026-06-10' },
+    ],
+  } as unknown as StudioDataSource;
+
+  const customerOrdersRelationship = {
+    id: 'rel-cust',
+    sourceId: 'customers',
+    targetId: 'orders_d',
+    sourceField: 'id',
+    targetField: 'customerId',
+    type: 'many-to-one',
+  } as unknown as StudioRelationship;
+
+  it('repro 1: resolves the sparkline time field from a date filter on a RELATED source', () => {
+    // Pre-fix, `useKpiSparkline` accepted the date filter's field only when it was NATIVE to
+    // the widget's source, so this fell through to an unset `kpiSparklineField` → `timeField`
+    // null → no sparkline at all. Meanwhile `KpiSparklineOptions` matched the very same filter
+    // (it scans own + joined date fields), hid the Time-field picker and announced "Using the
+    // date filter on Order Date" — leaving the user with no control left to fix it.
+    rowsHolder.current = customerRows;
+    const crossSourceDateFilter: StudioFilterState = {
+      id: 'f-order-date',
+      field: 'orderDate',
+      fieldType: 'date',
+      filterSourceId: 'orders_d',
+      scope: { kind: 'page', pageId: 'page-1' },
+      operator: 'greater_than_or_equal',
+      value: '2020-01-01',
+    } as unknown as StudioFilterState;
+    const widget = makeWidget(
+      { kpiAggregation: 'count', kpiSparkline: true, kpiSparklineGranularity: 'month' },
+      'customers',
+    );
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { customers: customersSource, orders_d: datedOrdersSource },
+      relationships: [customerOrdersRelationship],
+      filters: [crossSourceDateFilter],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, customersSource);
+
+    expect(lastSparkline()?.timeFieldResolved).toBe(true);
+  });
+
+  // Repro 2 fixtures: two date columns, `createdAt` declared FIRST and `shippedAt` second.
+  // "today" is 2026-07-07 → current fixed 'month' window 2026-06-08…2026-07-07, previous
+  // 2026-05-09…2026-06-07. The two rows swap which window they land in depending on WHICH
+  // date column is used, so the resulting delta identifies the field the trend picked.
+  const twoDateRows = [
+    { id: 'r1', amount: 100, createdAt: '2026-06-20', shippedAt: '2026-05-20' },
+    { id: 'r2', amount: 300, createdAt: '2026-05-20', shippedAt: '2026-06-20' },
+  ];
+  const twoDateSource = {
+    id: 'sales2',
+    label: 'Sales',
+    fields: [
+      { id: 'id', label: 'ID', type: 'string' },
+      { id: 'createdAt', label: 'Created', type: 'date' },
+      { id: 'shippedAt', label: 'Shipped', type: 'date' },
+      { id: 'amount', label: 'Amount', type: 'number' },
+    ],
+    rows: twoDateRows,
+  } as unknown as StudioDataSource;
+
+  it('repro 2: the sparkline and the fixed-period trend use the SAME date field', () => {
+    // Pre-fix the sparkline took the filter's field (`shippedAt`) while the trend preferred
+    // `kpiSparklineField` and then fell back to the FIRST date column (`createdAt`) — two
+    // different date columns driving one card.
+    rowsHolder.current = twoDateRows;
+    const shippedFilter: StudioFilterState = {
+      id: 'f-shipped',
+      field: 'shippedAt',
+      fieldType: 'date',
+      scope: { kind: 'page', pageId: 'page-1' },
+      operator: 'greater_than_or_equal',
+      // Wide enough to keep every row, so the filter only names the field.
+      value: '2020-01-01',
+    } as unknown as StudioFilterState;
+    const widget = makeWidget(
+      {
+        kpiValueField: 'amount',
+        kpiAggregation: 'sum',
+        kpiSparkline: true,
+        kpiSparklineGranularity: 'month',
+        kpiTrend: true,
+        kpiTrendFixedPeriod: 'month',
+      },
+      'sales2',
+    );
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { sales2: twoDateSource },
+      filters: [shippedFilter],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, twoDateSource);
+
+    // Sparkline bucketed by month on `shippedAt`: May → 100 (r1), June → 300 (r2).
+    // Bucketing on `createdAt` would have produced the reversed [300, 100].
+    expect(lastSparkline()?.data).toEqual([100, 300]);
+    // Trend windowed on `shippedAt`: current = r2 (300), previous = r1 (100) → +200%.
+    // Windowing on `createdAt` would have produced ≈ −66.7%.
+    const trend = lastTrend();
+    expect(trend).not.toBeNull();
+    expect(trend!.delta).toBeCloseTo(2);
+    expect(trend!.previousValue).toBe(100);
+  });
+});
+
+// ─── M6: every filter derivation follows the rows, not the live store ─────────
+describe('<StudioKpiWidget /> deferred filter snapshot consistency (M6)', () => {
+  beforeEach(() => {
+    trendSpy.mockClear();
+    valueSpy.mockClear();
+    sparklineSpy.mockClear();
+  });
+
+  afterEach(() => {
+    rowsHolder.deferredFilters = null;
+    vi.clearAllMocks();
+  });
+
+  const dateFilterJustAdded: StudioFilterState = {
+    id: 'f-just-added',
+    field: 'saleDate',
+    fieldType: 'date',
+    scope: { kind: 'page', pageId: 'page-1' },
+    operator: 'greater_than_or_equal',
+    value: '2026-06-08',
+    operator2: 'less_than_or_equal',
+    value2: '2026-07-07',
+    conjunction: 'and',
+  } as unknown as StudioFilterState;
+
+  it('does not compute a trend from a date filter the rendered rows have not caught up to', () => {
+    // A date filter has just been added to the store, but React is still inside the deferred
+    // window: `useWidgetRows` reports the PREVIOUS (empty) filter snapshot together with the
+    // still-unfiltered rows. Re-deriving the filter set from the live `selectFilters` array —
+    // which the trend, sparkline and hover subtitle all used to do — made
+    // `computeFilterBasedTrend` compare a previous-period value computed under the NEW filter
+    // against a `currentValue` computed from the OLD rows. Consuming `useWidgetRows`' exposed
+    // sets instead means the trend simply reports "needs a date filter" for this one frame.
+    rowsHolder.current = salesRows;
+    rowsHolder.deferredFilters = [];
+    const widget = makeWidget(
+      { kpiValueField: 'amount', kpiAggregation: 'sum', kpiTrend: true },
+      'sales',
+    );
+    const salesWithRows = { ...salesSource, rows: salesRows } as StudioDataSource;
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { sales: salesWithRows },
+      filters: [dateFilterJustAdded],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, salesWithRows);
+
+    expect(lastTrend()).toBeNull();
+    expect(lastTrendNeedsDateFilter()).toBe(true);
+  });
+
+  it('computes the trend from that same filter once the snapshot has caught up (contrast case)', () => {
+    // Identical setup except the deferred snapshot now matches the store — proving the test
+    // above pins the SNAPSHOT, not merely "this filter never produces a trend".
+    rowsHolder.current = salesRows;
+    rowsHolder.deferredFilters = null;
+    const widget = makeWidget(
+      { kpiValueField: 'amount', kpiAggregation: 'sum', kpiTrend: true },
+      'sales',
+    );
+    const salesWithRows = { ...salesSource, rows: salesRows } as StudioDataSource;
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { sales: salesWithRows },
+      filters: [dateFilterJustAdded],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, salesWithRows);
+
+    expect(lastTrendNeedsDateFilter()).toBe(false);
+    expect(lastTrend()).not.toBeNull();
+  });
+
+  it('lists the deferred snapshot — not the live store — in the hover filter subtitle', async () => {
+    // The hover subtitle was the third re-derivation site (`filterSubtitle`). It must describe
+    // the filters the displayed value was actually computed under; during a deferred window
+    // the live array names one the rendered rows do not yet reflect.
+    rowsHolder.current = salesRows;
+    rowsHolder.deferredFilters = [];
+    const widget = makeWidget({ kpiValueField: 'amount', kpiAggregation: 'sum' }, 'sales');
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { sales: salesSource },
+      filters: [dateFilterJustAdded],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    const { container, user } = renderKpi(widget, salesSource);
+    // eslint-disable-next-line testing-library/no-container -- no accessible role/text on the empty ValueSpy-wrapped span
+    const wrapperSpan = container.querySelector('span')!;
+    await user.hover(wrapperSpan);
+    // Empty subtitle → `disableHoverListener` → no tooltip. Waited past MUI's 100ms
+    // `enterDelay` so the assertion can actually fail.
+    await expect(screen.findByRole('tooltip', {}, { timeout: 500 })).rejects.toThrow();
   });
 });

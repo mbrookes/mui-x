@@ -261,6 +261,99 @@ describe('resolveRows', () => {
   });
 });
 
+// ─── resolveRows — two cross-filters on ONE foreign source are conjunctive ─────
+//
+// The semantics every other layer implements: a widget row survives when ONE foreign row
+// satisfies EVERY predicate — `EXISTS(A AND B)`. Applying each cross-filter with its own
+// semi-join computes `EXISTS(A) AND EXISTS(B)`, which a customer satisfies when one order is
+// paid and a DIFFERENT order is over 100. L4 (`grainResolution`'s single
+// `applyFilters(rows, anchorScopedFilters)`) and SQL both say the customer is excluded, so the
+// same page showed a grid and a chart disagreeing about the identical nominal filter.
+
+describe('resolveRows — multiple cross-filters on the same foreign source', () => {
+  const customers = [
+    { id: 'C1', name: 'Acme' },
+    { id: 'C2', name: 'Globex' },
+  ];
+  // C1 has a paid-but-cheap order and an unpaid-but-expensive one: no SINGLE order is both.
+  // C2 has one order that is both paid and expensive.
+  const orders = [
+    { id: 'O1', customerId: 'C1', status: 'paid', total: 50 },
+    { id: 'O2', customerId: 'C1', status: 'unpaid', total: 500 },
+    { id: 'O3', customerId: 'C2', status: 'paid', total: 500 },
+  ];
+
+  const dataSources: Record<string, StudioDataSource> = {
+    customers: makeSource(customers),
+    orders: makeSource(orders),
+  };
+
+  const relationships: StudioRelationship[] = [
+    {
+      id: 'rel-orders-customers',
+      sourceId: 'orders',
+      sourceField: 'customerId',
+      targetId: 'customers',
+      targetField: 'id',
+      type: 'many-to-one',
+    },
+  ];
+
+  it('requires ONE foreign row to satisfy every predicate, not one row per predicate', () => {
+    const result = resolveRows(
+      customers,
+      'customers',
+      [
+        makeFilter({
+          id: 'f1',
+          field: 'status',
+          operator: 'equals',
+          value: 'paid',
+          filterSourceId: 'orders',
+        }),
+        makeFilter({
+          id: 'f2',
+          field: 'total',
+          operator: 'greater_than',
+          value: 100,
+          fieldType: 'number',
+          filterSourceId: 'orders',
+        }),
+      ],
+      dataSources,
+      relationships,
+    );
+    expect(result.map((r) => r.id)).toEqual(['C2']);
+  });
+
+  it('still keeps a customer whose SINGLE order satisfies both predicates', () => {
+    const result = resolveRows(
+      customers,
+      'customers',
+      [
+        makeFilter({
+          id: 'f1',
+          field: 'status',
+          operator: 'equals',
+          value: 'paid',
+          filterSourceId: 'orders',
+        }),
+        makeFilter({
+          id: 'f2',
+          field: 'total',
+          operator: 'greater_than',
+          value: 10,
+          fieldType: 'number',
+          filterSourceId: 'orders',
+        }),
+      ],
+      dataSources,
+      relationships,
+    );
+    expect(result.map((r) => r.id)).toEqual(['C1', 'C2']);
+  });
+});
+
 // ─── resolveRows — cross-filter regression (ORDER_ITEMS → ORDERS) ─────────────
 //
 // Mirrors the real bug: a "Revenue by Category" chart (ORDER_ITEMS source) emits

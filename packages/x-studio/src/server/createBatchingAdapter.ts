@@ -44,6 +44,11 @@ import {
   resolveRelativeDate,
 } from '../internals/filterUtils';
 import { normalizeJoinKey } from '../internals/joinKeys';
+import {
+  aggregationPushdownWarning,
+  decideAggregationPushdown,
+  isClientOnlyAggFn,
+} from './aggregationPushdown';
 
 /** Structured filter predicate sent to the server (mirrors FilterPredicate in @mui/x-studio-data-middleware) */
 interface FilterPredicate {
@@ -747,6 +752,14 @@ interface ResolvedField {
    *  will fail if that column does not exist on the table. */
   unresolved?: boolean;
   /**
+   * True when the field WAS found on a related source, but only across a relationship that is
+   * one-to-many from the widget's point of view (the widget sits on the "one" side of a
+   * `many-to-one`). Always accompanied by `unresolved: true` — see the fan-out guard in
+   * `resolveField` for why such a reference has no correct form in this wire protocol at all.
+   * Callers use it only to phrase a more accurate warning.
+   */
+  fanOut?: boolean;
+  /**
    * When skip=true because the join target lives on a different adapter endpoint,
    * this carries the information needed to enrich rows client-side after fetching
    * the primary rows from the server.
@@ -1017,6 +1030,23 @@ function resolveField(
     if (relatedSourceId !== null) {
       const relatedSource = dataSources[relatedSourceId];
       if (relatedSource?.fields.some((f) => f.id === fieldId)) {
+        // ORIENTATION GUARD. A `LEFT JOIN` is row-preserving only when the widget's source is on
+        // the MANY side of the relationship (or the relationship is `one-to-one`). When the widget
+        // sits on the ONE side, the join FANS the row set OUT — one widget row per matching
+        // related row — and everything downstream reads a multiplied table:
+        //   - as a FILTER, `customers … LEFT JOIN orders … WHERE orders.status = 'shipped'` makes a
+        //     customer with three shipped orders contribute three rows, so a `SUM(lifetime_value)`
+        //     KPI reads 3× (the in-memory path runs a SEMI-join and reads 1×);
+        //   - as a DISPLAY column, the same fan-out duplicates every grid row, while in-memory
+        //     `enrichRowsWithRelatedFields` picks one representative related value per row.
+        // The faithful SQL is a semi-join (`WHERE id IN (SELECT customer_id FROM orders WHERE …)`),
+        // which this wire protocol cannot express — `JoinDescriptor` offers only inner/left/right
+        // joins. So the reference is reported as unresolved: callers drop it from SELECT and WHERE
+        // and warn, the module's standing "degrades visibly, never silently wrong" contract, rather
+        // than emitting a join whose every number is wrong by an unpredictable factor.
+        if (rel.type === 'many-to-one' && rel.targetId === primarySourceId) {
+          return { column: fieldId, unresolved: true, fanOut: true };
+        }
         const relatedTable = relatedSource.tableName ?? relatedSourceId;
         return {
           column: `${relatedTable}.${fieldId}`,
@@ -1097,50 +1127,17 @@ function buildBatchWidgetDescriptor(
     // client-side aggregation. The db-tier query builder excludes aggregate
     // fields from groupBy via aggregations[*].column.
     const columns = [...d.select];
-    // A `count` aggregation is routed client-side (2.16d): the wire protocol's count becomes
-    // SQL `COUNT(column)` (skips NULL measures), but Studio's count means row-count including
-    // nulls (COUNT(*) semantics, matching KPI/chart/grid). We can't express COUNT(*) on the wire
-    // without editing the middleware, so we return raw rows (aggregations stripped) and let the
-    // widget aggregate client-side — exactly like the cross-endpoint-groupBy path already does.
-    // `columns` already carries every select field (group-by + measure), so raw rows are complete.
-    let aggregations: AggregationSpec[] | undefined;
-    if (d.hasIncomingCrossOrInteractiveFilters && d.aggregations && d.aggregations.length > 0) {
-      // A chart-click cross-filter or interactive (filter-widget) selection targeting this
-      // widget is enforced CLIENT-SIDE over the returned rows — but a server-aggregated response
-      // is one row per group with only the grouped/alias columns, so the cross-filter's field
-      // reads `undefined` on every row and empties the widget (finding 2.9). Route to raw rows +
-      // client-side aggregation instead, mirroring the `count`/`avg`+`xGroupBy` special cases.
-      warnCrossFilterAggregatedRoutedClientSide(d.sourceId, warnDedupe);
-      aggregations = undefined;
-    } else if (d.hasRankFilters && d.aggregations && d.aggregations.length > 0) {
-      // A rank-by-measure filter re-applies CLIENT-SIDE and must sum `rankByField` per group over
-      // RAW rows — but a pushed-down aggregation GROUP BYs `rankByField` into a grouping dimension,
-      // collapsing duplicate rows so the client ranks over group-collapsed rows and picks the wrong
-      // Top-N (finding T2.4). Route to raw rows + client-side aggregation, like the cross-filter case.
-      warnRankAggregatedRoutedClientSide(d.sourceId, warnDedupe);
-      aggregations = undefined;
-    } else if (hasCountAggregation(d.aggregations)) {
-      warnCountRoutedClientSide(d.sourceId, warnDedupe);
-      aggregations = undefined;
-    } else if (d.xGroupBy && hasAvgAggregation(d.aggregations)) {
-      // avg + xGroupBy: raw rows + client-side aggregation (finding 1.8) — see helper.
-      warnAvgXGroupByRoutedClientSide(d.sourceId, warnDedupe);
-      aggregations = undefined;
-    } else if (d.aggregations && d.aggregations.length > 0) {
-      aggregations = d.aggregations.map((a) => ({
-        column: a.field,
-        // count_distinct has no wire equivalent → downgraded to count with a warning (2.11).
-        func: mapAggFn(a.fn, d.sourceId, warnDedupe),
-        alias: a.alias,
-      }));
-    } else {
-      aggregations = undefined;
-    }
 
     // Split the filter into server-executable predicates and a client-side residual
     // (OR conditions / unmappable operators) so neither is silently mistranslated (1.4 / 1.5).
     // Leaves we DO push down are checked for NULL-handling divergence via
     // warnServerLeafDivergence (finding 2.16a).
+    //
+    // This MUST run before the aggregation push-down decision below: "a leaf fell to the client
+    // residual" is one of that decision's inputs, and the two used to run in the opposite order.
+    // A residual cannot be evaluated against a pre-aggregated response, so an aggregating widget
+    // with (say) a `contains` page filter pushed the aggregation down, discarded the residual with
+    // only a warning, and aggregated over EVERY row.
     const partition = partitionFilterNode(d.filter, (leaf) =>
       warnServerLeafDivergence(leaf, d.sourceId, warnDedupe),
     );
@@ -1169,6 +1166,17 @@ function buildBatchWidgetDescriptor(
       }
       return true;
     });
+
+    // Only a residual leaf that CAN be re-applied to the returned raw rows justifies giving up the
+    // push-down. A leaf on an own-source calculated column is rejected by the projection guard
+    // below whether or not the query aggregates (the raw rows never carry that column), so counting
+    // it here would trade a wrong number for an equally wrong number fetched the slow way.
+    const aggregations = decideWireAggregations(
+      d,
+      partition.clientLeaves.some((leaf) => !isOwnSourceExpressionField(leaf.field)),
+      warnDedupe,
+      (fieldId) => fieldId,
+    );
 
     const clientFilter = resolveClientResidual(
       partition,
@@ -1220,7 +1228,12 @@ function buildBatchWidgetDescriptor(
   // Cross-endpoint enrichments collected while resolving fields
   const enrichments: CrossEndpointEnrichment[] = [];
 
-  function resolve(fieldId: string): { column: string; skip?: boolean; unresolved?: boolean } {
+  function resolve(fieldId: string): {
+    column: string;
+    skip?: boolean;
+    unresolved?: boolean;
+    fanOut?: boolean;
+  } {
     const resolved = resolveField(
       fieldId,
       d.sourceId,
@@ -1247,7 +1260,12 @@ function buildBatchWidgetDescriptor(
         enrichments.push({ logicalFieldId: fieldId, ...resolved.crossEndpointJoin });
       }
     }
-    return { column: resolved.column, skip: resolved.skip, unresolved: resolved.unresolved };
+    return {
+      column: resolved.column,
+      skip: resolved.skip,
+      unresolved: resolved.unresolved,
+      fanOut: resolved.fanOut,
+    };
   }
 
   // SELECT all fields (group-by AND aggregate-source fields), skipping server-incompatible
@@ -1272,70 +1290,53 @@ function buildBatchWidgetDescriptor(
   const groupByResolved = d.groupBy ? resolve(d.groupBy) : undefined;
   const groupByIsCrossEndpoint = Boolean(groupByResolved?.skip);
 
-  // Aggregations — skip expression fields that can't be aggregated server-side.
-  // When the groupBy field is cross-endpoint, strip ALL aggregations so the server
-  // returns raw rows (with FK column) that the client can enrich and then aggregate.
-  const aggregations: AggregationSpec[] | undefined = (() => {
-    if (groupByIsCrossEndpoint) {
-      // Can't group server-side — return raw rows for client-side enrichment + aggregation.
-      return undefined;
-    }
-    // A chart-click cross-filter or interactive (filter-widget) selection targeting this widget
-    // is enforced CLIENT-SIDE over the returned rows — but a server-aggregated response is one
-    // row per group with only the grouped/alias columns, so the cross-filter's field reads
-    // `undefined` on every row and empties the widget (finding 2.9). Route to raw rows +
-    // client-side aggregation instead, mirroring the `count`/`avg`+`xGroupBy` special cases below.
-    if (d.hasIncomingCrossOrInteractiveFilters && d.aggregations && d.aggregations.length > 0) {
-      warnCrossFilterAggregatedRoutedClientSide(d.sourceId, warnDedupe);
-      return undefined;
-    }
-    // A rank-by-measure filter re-applies CLIENT-SIDE over RAW rows: a pushed-down aggregation
-    // GROUP BYs `rankByField` into a grouping dimension and collapses duplicate rows, so the client
-    // ranks over group-collapsed rows and picks the wrong Top-N (finding T2.4). Fetch raw rows +
-    // aggregate client-side, mirroring the cross-filter case above.
-    if (d.hasRankFilters && d.aggregations && d.aggregations.length > 0) {
-      warnRankAggregatedRoutedClientSide(d.sourceId, warnDedupe);
-      return undefined;
-    }
-    // A `count` aggregation is routed client-side (2.16d) — SQL COUNT(column) skips NULLs while
-    // Studio counts every row (COUNT(*) semantics). Strip ALL aggregations so the server returns
-    // raw rows the widget can count client-side (the select columns already carry the measures).
-    if (hasCountAggregation(d.aggregations)) {
-      warnCountRoutedClientSide(d.sourceId, warnDedupe);
-      return undefined;
-    }
-    // avg + xGroupBy is routed client-side too (finding 1.8): the adapter can't transmit the
-    // bucket granularity, so a pushed-down avg would be re-bucketed into an average of averages.
-    if (d.xGroupBy && hasAvgAggregation(d.aggregations)) {
-      warnAvgXGroupByRoutedClientSide(d.sourceId, warnDedupe);
-      return undefined;
-    }
-    const aggs = (d.aggregations ?? []).flatMap((a) => {
-      const r = resolve(a.field);
-      if (r.skip) {
-        return [];
-      }
-      return [
-        {
-          column: r.column,
-          // count_distinct has no wire equivalent → downgraded to count with a warning (2.11).
-          func: mapAggFn(a.fn, d.sourceId, warnDedupe),
-          alias: a.alias,
-        },
-      ];
-    });
-    return aggs.length > 0 ? aggs : undefined;
-  })();
-
   // Filters — split into server-executable predicates and a client-side residual (OR
   // conditions / unmappable operators, findings 1.4 / 1.5), then resolve the server predicates'
   // cross-source column references, using the physical column name (not the logical alias) so
   // the server WHERE clause references a real column. Predicates whose field cannot be resolved
   // to any column in this source (unresolved: true) are dropped — applying them would produce
   // "no such column" SQL errors.
+  //
+  // Partitioning runs BEFORE the aggregation push-down decision below, because "a leaf fell to the
+  // client residual" is one of that decision's inputs and a residual cannot be evaluated against a
+  // pre-aggregated response. The two used to run in the opposite order, so an aggregating widget
+  // with an unpushable filter dropped that filter with only a warning and aggregated every row.
   const partition = partitionFilterNode(d.filter, (leaf) =>
     warnServerLeafDivergence(leaf, d.sourceId, warnDedupe),
   );
+
+  /**
+   * Whether a residual leaf's field can be re-projected under its LOGICAL id in the returned raw
+   * rows — the same test `resolveClientResidual`'s `tryProjectField` applies below, minus the
+   * projection side effect, so it can also be asked BEFORE the push-down decision. Deliberately
+   * side-effect-free (unlike `resolve`, which would register a spurious JOIN for a cross-source
+   * field before we reject it).
+   */
+  const isPlainPrimaryField = (fieldId: string): boolean => {
+    const isExpressionField = expressionFields?.some((f) => f.id === fieldId) ?? false;
+    return (
+      !isExpressionField && Boolean(dataSources[d.sourceId]?.fields.some((f) => f.id === fieldId))
+    );
+  };
+
+  // Aggregations — skip expression fields that can't be aggregated server-side.
+  // When the groupBy field is cross-endpoint, strip ALL aggregations so the server
+  // returns raw rows (with FK column) that the client can enrich and then aggregate.
+  const aggregations: AggregationSpec[] | undefined = groupByIsCrossEndpoint
+    ? // Can't group server-side — return raw rows for client-side enrichment + aggregation.
+      undefined
+    : decideWireAggregations(
+        d,
+        // Only a residual leaf that CAN be re-applied to the returned raw rows justifies giving up
+        // the push-down; one whose column could not be projected is dropped either way.
+        partition.clientLeaves.some((leaf) => isPlainPrimaryField(leaf.field)),
+        warnDedupe,
+        (fieldId) => {
+          const r = resolve(fieldId);
+          return r.skip ? null : r.column;
+        },
+      );
+
   const filters = partition.predicates.flatMap((pred) => {
     const r = resolve(pred.column);
     if (r.skip) {
@@ -1350,6 +1351,22 @@ function buildBatchWidgetDescriptor(
         `A filter on the computed field "${pred.column}" for source "${d.sourceId}" targets an ` +
           `arithmetic expression with no server-side column, so it was dropped from the query. ` +
           `Computed-field filters work correctly on in-memory sources.`,
+      );
+      return [];
+    }
+    if (r.fanOut) {
+      // The predicate's field IS reachable, but only across a relationship that is one-to-many
+      // from this widget's side, where the wire protocol's only tool — a LEFT JOIN — multiplies
+      // the row set instead of semi-joining it (see the orientation guard in `resolveField`).
+      // Dropping it makes the widget show MORE rows than the in-memory path; emitting the join
+      // would make every aggregate wrong by the per-row match count, which is worse and invisible.
+      warnAdapterDivergence(
+        warnDedupe,
+        `A filter on "${pred.column}" for source "${d.sourceId}" targets a related source that has ` +
+          `MANY rows per row of this source. The data adapter's query protocol can only express ` +
+          `that as a JOIN, which would multiply this widget's rows and inflate every aggregate, ` +
+          `so the filter was dropped and the widget may show more rows than expected. This filter ` +
+          `works correctly on in-memory sources.`,
       );
       return [];
     }
@@ -1377,20 +1394,14 @@ function buildBatchWidgetDescriptor(
   // Client-side residual: re-applied to returned raw rows when the query is NOT aggregated
   // server-side. A leaf's field is only usable client-side if it comes back under its logical
   // id (a plain primary-source column) — a cross-source/expression field would arrive under an
-  // aliased/physical key, so those are dropped with a warning instead. The primary/expression
-  // membership check is deliberately side-effect-free (unlike `resolve`, which would register a
-  // spurious JOIN for a cross-source field before we reject it).
+  // aliased/physical key, so those are dropped with a warning instead.
   const clientFilter = resolveClientResidual(
     partition,
     Boolean(aggregations),
     d.sourceId,
     warnDedupe,
     (fieldId) => {
-      const isExpressionField = expressionFields?.some((f) => f.id === fieldId) ?? false;
-      const isPlainPrimaryField =
-        !isExpressionField &&
-        Boolean(dataSources[d.sourceId]?.fields.some((f) => f.id === fieldId));
-      if (!isPlainPrimaryField) {
+      if (!isPlainPrimaryField(fieldId)) {
         return false;
       }
       if (!columns.includes(fieldId)) {
@@ -1514,12 +1525,17 @@ function isFullyBoundedBetween(value: unknown): boolean {
 
 /**
  * True when a single (op, value, fieldType) triple can be sent to the server with EXACTLY the same
- * semantics as the in-memory evaluator. Beyond the operator mapping, four cases must stay
+ * semantics as the in-memory evaluator. Beyond the operator mapping, five cases must stay
  * client-side because their wire translation inverts or corrupts the in-memory result:
- *  - an empty `in` array matches NOTHING in-memory (`filterVal.some(...)` over `[]`), but the
- *    middleware DROPS an empty-`in` predicate on reads — matching EVERYTHING (finding 2.16c);
+ *  - an empty `in` array matches NOTHING both in-memory (`filterVal.some(...)` over `[]`) and on
+ *    the wire (the middleware emits `whereIn(col, [])` → `1 = 0`), so pushing it down would be
+ *    faithful today — but the in-memory "match nothing" is the SEMANTICS this module pins, and the
+ *    predicate selects no rows either way, so it is kept client-side where one evaluator owns the
+ *    empty-selection rule (see `leafToClientFilterState`'s `filterMode` note, finding T2.3);
  *  - an open-ended `between` (only one bound set) is unbounded in-memory but becomes a
  *    malformed two-arg `whereBetween` on the wire (finding 2.15);
+ *  - a `boolean` field whose value is not one of the two spellings `toWirePredicateValue` can
+ *    coerce to a real boolean (see the `boolean` branch below);
  *  - `not_equals` on a `date`/`datetime` field, whose faithful form is an OR (finding T1.3b);
  *  - `equals` on a `date`/`datetime` field whose value does not reduce to a calendar day, so the
  *    day-range rewrite in `toPredicatesFor` cannot be built (finding T1.3b).
@@ -1543,6 +1559,17 @@ function isOpValueServerTranslatable(
   }
   if (op === 'between' && !isFullyBoundedBetween(value)) {
     return false;
+  }
+  if (fieldType === 'boolean') {
+    // The drawer stores a boolean filter's value as the STRING `'true'`/`'false'`, which the
+    // in-memory evaluator compares as `String(row[field]) === value` — correct. Bound to SQL as a
+    // string it is not: PostgreSQL implicitly casts `'true'`, but MySQL (`tinyint(1)`) and SQLite
+    // coerce it NUMERICALLY to 0, so `col = 'true'` returns exactly the rows where the flag is
+    // FALSE — the complement of what was asked for. `toWirePredicateValue` coerces the two
+    // recognised spellings to real booleans; anything else on a boolean field (a bare `''`, a
+    // number, an `in [...]` list) has no equally certain coercion, so it falls to the client
+    // residual instead of shipping a guess.
+    return coerceWireBoolean(resolveWireScalar(value)) !== null;
   }
   if (isDateFieldType(fieldType)) {
     // "not on day D" is `col < D OR col >= nextDay(D)`. The wire protocol AND-combines every
@@ -1645,6 +1672,36 @@ function resolveWireScalar(rawValue: unknown): unknown {
 }
 
 /**
+ * A boolean filter value as a REAL boolean, or `null` when this module cannot be certain what the
+ * author meant (finding: boolean `equals`/`not_equals` inverted on MySQL/SQLite).
+ *
+ * The filter drawer stores a boolean condition's value as the string `'true'`/`'false'`
+ * (`BooleanValueInput`'s `<Select>` options), and the in-memory evaluator compares it as
+ * `String(row[field]) === value`, which is right. Bound to SQL as a string it is not: `where(col,
+ * '=', 'true')` is implicitly cast by PostgreSQL but coerced NUMERICALLY by MySQL's `tinyint(1)`
+ * and by SQLite, both of which read `'true'` as `0` and therefore return the COMPLEMENT of the
+ * requested rows. Both drivers are first-class in the dev server, so this is not a theoretical
+ * dialect corner.
+ *
+ * Only the exact spellings the drawer produces (plus a genuine boolean, for a host-authored
+ * descriptor) are recognised. `'1'`/`'yes'`/`0` etc. return `null` so the leaf falls to the client
+ * residual, where the shared evaluator decides — rather than this module inventing a rule the
+ * in-memory path does not have.
+ */
+function coerceWireBoolean(value: unknown): boolean | null {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (value === 'true') {
+    return true;
+  }
+  if (value === 'false') {
+    return false;
+  }
+  return null;
+}
+
+/**
  * Resolve a filter value to its wire form for one (operator, value) pair:
  *  - relative-date values (e.g. "7 days ago") are resolved to a concrete date/instant string;
  *  - a `between` value authored as a `{ from, to }` object (how `setDashboardDateRange` /
@@ -1664,8 +1721,20 @@ function resolveWireScalar(rawValue: unknown): unknown {
  * relative value stored as the WHOLE filter value, not one nested inside `from`/`to` — such a
  * nested bound used to ship to the server raw/unresolved, which the middleware cannot interpret.
  */
-function toWirePredicateValue(operator: FilterPredicate['operator'], rawValue: unknown): unknown {
+function toWirePredicateValue(
+  operator: FilterPredicate['operator'],
+  rawValue: unknown,
+  fieldType?: StudioFilterLeaf['fieldType'],
+): unknown {
   const value = resolveWireScalar(rawValue);
+  if (fieldType === 'boolean') {
+    // Ship a real boolean, never the drawer's `'true'`/`'false'` STRING — see the `boolean` branch
+    // of `isOpValueServerTranslatable`, which is what guarantees the coercion succeeds here.
+    const asBoolean = coerceWireBoolean(value);
+    if (asBoolean !== null) {
+      return asBoolean;
+    }
+  }
   if (
     operator === 'between' &&
     value !== null &&
@@ -1788,7 +1857,7 @@ function toPredicatesFor(
  */
 function leafToPredicates(leaf: StudioFilterLeaf): FilterPredicate[] {
   const operator = mapOperator(leaf.op)!;
-  const value = toWirePredicateValue(operator, leaf.value);
+  const value = toWirePredicateValue(operator, leaf.value, leaf.fieldType);
   const predicates: FilterPredicate[] = toPredicatesFor(
     leaf.field,
     operator,
@@ -1802,7 +1871,7 @@ function leafToPredicates(leaf: StudioFilterLeaf): FilterPredicate[] {
   // T1.2). Because translatability already vetted `op2`, the `mapOperator(...)!` below is safe.
   if (leaf.op2 !== undefined && isConditionComplete(leaf.op2, leaf.value2)) {
     const op2 = mapOperator(leaf.op2)!;
-    const value2 = toWirePredicateValue(op2, leaf.value2);
+    const value2 = toWirePredicateValue(op2, leaf.value2, leaf.fieldType);
     predicates.push(...toPredicatesFor(leaf.field, op2, value2, leaf.fieldType));
   }
   return predicates;
@@ -1898,7 +1967,10 @@ function leafToClientFilterState(leaf: StudioFilterLeaf): StudioFilterState {
  *
  * @param {boolean} aggregated - whether the server will aggregate. When true the returned rows
  *   are pre-aggregated and a raw-field predicate cannot be re-applied, so it is dropped with a
- *   warning instead of a (wrong) client-side pass.
+ *   warning instead of a (wrong) client-side pass. Since `decideAggregationPushdown` now gives up
+ *   the push-down whenever a RECOVERABLE residual leaf exists, this branch is reached only for
+ *   leaves that could not have been re-applied to raw rows either (a filter on an own-source
+ *   calculated column, which the raw rows do not carry) — the drop is unavoidable, not a choice.
  * @param {(fieldId: string) => boolean} tryProjectField - ensures the leaf's field will be present (by its logical id) in the
  *   returned raw rows; returns false when the column cannot be projected (e.g. a cross-source
  *   field whose row key would not be the logical id), in which case the leaf is dropped+warned.
@@ -1951,114 +2023,39 @@ function resolveClientResidual(
 }
 
 /**
- * True when any aggregation uses `count`. A `count` aggregation is deliberately NOT pushed to the
- * server (finding 2.16d): the wire protocol's `count` becomes SQL `COUNT(column)`, which skips
- * rows whose measure value is NULL, whereas Studio's `count` means row-count including nulls
- * (`COUNT(*)` semantics — the policy the KPI / chart / grid client aggregators follow). Since the
- * wire protocol cannot express `COUNT(*)` and the middleware is owned elsewhere, count-aggregated
- * queries are routed through the raw-rows-then-client-aggregate path instead.
+ * Run the SHARED aggregation push-down ladder (`decideAggregationPushdown`, also used by
+ * `createSimpleAdapter`) and translate the surviving specs to the wire shape.
+ *
+ * Returns `undefined` — i.e. "server returns raw rows, the widget aggregates client-side" — for
+ * every case the ladder rejects, warning once per build so the divergence from in-memory behaviour
+ * is never silent.
+ *
+ * @param {(fieldId: string) => string | null} resolveColumn - maps a measure's logical field id to
+ *   the physical column to aggregate, or `null` when it has no server-side column at all (an
+ *   arithmetic expression field); such a spec is dropped, and the raw inputs come back for the
+ *   client to re-derive.
  */
-function hasCountAggregation(aggregations: StudioQueryDescriptor['aggregations']): boolean {
-  return (aggregations ?? []).some((a) => a.fn === 'count');
-}
-
-/** True when any aggregation uses `avg`. */
-function hasAvgAggregation(aggregations: StudioQueryDescriptor['aggregations']): boolean {
-  return (aggregations ?? []).some((a) => a.fn === 'avg');
-}
-
-/** Warn (once per build) that a `count` aggregation was routed client-side (finding 2.16d). */
-function warnCountRoutedClientSide(sourceId: string, dedupe: Set<string>): void {
-  warnAdapterDivergence(
-    dedupe,
-    `A "count" aggregation for source "${sourceId}" was computed client-side instead of pushed ` +
-      `to the data adapter: the adapter's SQL count skips rows with a NULL measure value, while ` +
-      `Studio counts every row (COUNT(*) semantics, consistent with in-memory sources). Raw rows ` +
-      `are fetched for this widget and aggregated client-side.`,
-  );
-}
-
-/**
- * Warn (once per build) that an `avg` aggregation combined with an `xGroupBy` bucketing was
- * routed to raw-rows-then-client-aggregate (finding 1.8). The adapter cannot transmit `xGroupBy`,
- * so a pushed-down `avg` is computed at the RAW x-grain; the client then re-buckets by
- * month/quarter/etc. and would average those per-grain averages — an unweighted average of
- * averages, correct only when every bucket has an equal row count. Fetching raw rows and letting
- * the widget compute the average client-side (exactly as `count` already does) is exact.
- */
-function warnAvgXGroupByRoutedClientSide(sourceId: string, dedupe: Set<string>): void {
-  warnAdapterDivergence(
-    dedupe,
-    `An "avg" aggregation with time bucketing (xGroupBy) for source "${sourceId}" was computed ` +
-      `client-side instead of pushed to the data adapter: the adapter cannot transmit the bucket ` +
-      `granularity, so a server-side average would be re-bucketed into an (incorrect) unweighted ` +
-      `average of averages. Raw rows are fetched for this widget and averaged client-side.`,
-  );
-}
-
-/**
- * Warn (once per build) that a server-side aggregation push-down was routed to
- * raw-rows-then-client-aggregate because the widget has an incoming chart-click cross-filter or
- * interactive (filter-widget) selection (finding 2.9). Those scopes are deliberately excluded
- * from the server query (see `queryDescriptor.buildQueryDescriptor`) and are instead enforced
- * client-side over the returned rows — but a server-aggregated response is one row per group
- * with only the grouped/alias columns present, so the cross-filter's own field would read
- * `undefined` on every row and empty the widget entirely. Fetching raw rows lets the client
- * apply the cross-filter to real per-row data before its own (always-on) aggregation step runs.
- */
-function warnCrossFilterAggregatedRoutedClientSide(sourceId: string, dedupe: Set<string>): void {
-  warnAdapterDivergence(
-    dedupe,
-    `A server-side aggregation for source "${sourceId}" was computed client-side instead of ` +
-      `pushed to the data adapter: the widget has an incoming cross-filter or interactive ` +
-      `filter-widget selection, which is enforced client-side over the returned rows. A ` +
-      `server-aggregated response would contain only the grouped/alias columns, so the ` +
-      `cross-filter's field would read undefined on every row and empty the widget. Raw rows ` +
-      `are fetched for this widget and aggregated client-side instead.`,
-  );
-}
-
-/**
- * Warn (once per build) that a server-side aggregation push-down was routed to
- * raw-rows-then-client-aggregate because the widget also has an active rank-mode (top/bottom-N)
- * filter (finding T2.4). Rank filters have no wire form and are always re-applied client-side over
- * the returned rows — but the client rank reduction sums `rankByField` per group and must therefore
- * see RAW rows. A pushed-down `sum`/`min`/`max` makes the server GROUP BY every projected
- * non-measure column (including `rankByField`), collapsing duplicate `(groupKey, rankByFieldValue)`
- * pairs to one row, so the client would rank over group-collapsed rows and pick the wrong Top-N.
- * Fetching raw rows lets the client rank over real per-row data before its own aggregation runs.
- */
-function warnRankAggregatedRoutedClientSide(sourceId: string, dedupe: Set<string>): void {
-  warnAdapterDivergence(
-    dedupe,
-    `A server-side aggregation for source "${sourceId}" was computed client-side instead of ` +
-      `pushed to the data adapter: the widget has an active rank (top/bottom-N) filter, whose ` +
-      `client-side reduction must sum the rank measure per group over raw rows. A ` +
-      `server-aggregated response would group the rank measure into a dimension and collapse ` +
-      `rows, so the rank would select the wrong Top-N. Raw rows are fetched for this widget and ` +
-      `aggregated client-side instead.`,
-  );
-}
-
-/**
- * Map an aggregation function to its wire form, warning once when `count_distinct` is
- * downgraded to a plain `count` (finding 2.11): the wire protocol has no DISTINCT aggregation,
- * so a "distinct count of X" would otherwise silently render the TOTAL row count on a db-tier
- * source. In-memory sources are unaffected.
- */
-function mapAggFn(
-  fn: NonNullable<StudioQueryDescriptor['aggregations']>[number]['fn'],
-  sourceId: string,
+function decideWireAggregations(
+  d: StudioQueryDescriptor,
+  hasUnpushableFilters: boolean,
   dedupe: Set<string>,
-): AggregationSpec['func'] {
-  if (fn === 'count_distinct') {
-    warnAdapterDivergence(
-      dedupe,
-      `count_distinct is not supported by the data adapter's query protocol for source ` +
-        `"${sourceId}" and was executed as a plain count (total rows, not distinct values). ` +
-        `Distinct counts work correctly on in-memory sources.`,
-    );
-    return 'count';
+  resolveColumn: (fieldId: string) => string | null,
+): AggregationSpec[] | undefined {
+  const decision = decideAggregationPushdown({ descriptor: d, hasUnpushableFilters });
+  if (decision.reason) {
+    warnAdapterDivergence(dedupe, aggregationPushdownWarning(d.sourceId, decision.reason));
   }
-  return fn;
+  if (decision.strip) {
+    return undefined;
+  }
+  const specs = (d.aggregations ?? []).flatMap((a): AggregationSpec[] => {
+    // Unreachable: the ladder strips the whole push-down when a client-only function is present.
+    // Kept so `func` narrows to the wire enum rather than being cast.
+    if (isClientOnlyAggFn(a.fn)) {
+      return [];
+    }
+    const column = resolveColumn(a.field);
+    return column === null ? [] : [{ column, func: a.fn, alias: a.alias }];
+  });
+  return specs.length > 0 ? specs : undefined;
 }

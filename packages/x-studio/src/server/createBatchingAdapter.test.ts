@@ -2243,3 +2243,457 @@ describe('createBatchingAdapter — rank + aggregation push-down (finding T2.4)'
     ]);
   });
 });
+
+// ── Unpushable filter + server aggregation ───────────────────────────────────
+
+describe('createBatchingAdapter — unpushable filter + server aggregation', () => {
+  it('strips the aggregation so a `contains` filter can still be enforced over raw rows', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchFn = makeOkFetch([
+      {
+        id: 'w1',
+        rows: [
+          { region: 'EU', product: 'pro plan', amount: 10 },
+          { region: 'EU', product: 'basic plan', amount: 90 },
+          { region: 'US', product: 'pro max', amount: 5 },
+        ],
+      },
+    ]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    const result = await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        select: ['region', 'amount'],
+        groupBy: 'region',
+        aggregations: [{ field: 'amount', fn: 'sum', alias: 'amount' }],
+        // `contains` has no faithful wire form (the server's LIKE is case-sensitive), so this
+        // leaf falls to the client residual.
+        filter: {
+          type: 'leaf',
+          field: 'product',
+          op: 'contains',
+          value: 'pro',
+          fieldType: 'string',
+        },
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ aggregations?: unknown; columns?: string[]; filters?: unknown }>;
+    };
+    // The push-down decision must SEE the residual: with the aggregation pushed down the response
+    // would be one row per region with no `product` column, the residual would be dropped with a
+    // warning, and every bar would be summed over EVERY row.
+    expect(body.widgets[0].aggregations).toBeUndefined();
+    expect(body.widgets[0].filters).toBeUndefined();
+    // The residual's column must be projected so it can be evaluated on the returned rows.
+    expect(body.widgets[0].columns).toContain('product');
+    expect(result.rows).toEqual([
+      { region: 'EU', product: 'pro plan', amount: 10 },
+      { region: 'US', product: 'pro max', amount: 5 },
+    ]);
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('still pushes the aggregation down when every filter leaf IS server-translatable', async () => {
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        select: ['region', 'amount'],
+        groupBy: 'region',
+        aggregations: [{ field: 'amount', fn: 'sum', alias: 'amount' }],
+        filter: {
+          type: 'leaf',
+          field: 'product',
+          op: 'equals',
+          value: 'pro',
+          fieldType: 'string',
+        },
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ aggregations?: unknown; filters?: unknown }>;
+    };
+    expect(body.widgets[0].aggregations).toEqual([
+      { column: 'amount', func: 'sum', alias: 'amount' },
+    ]);
+    expect(body.widgets[0].filters).toEqual([{ column: 'product', operator: 'eq', value: 'pro' }]);
+  });
+
+  it('keeps the aggregation when the only residual leaf targets an own-source calculated column', async () => {
+    // Such a leaf cannot be re-applied to raw rows either (the calculated column is not
+    // materialised there), so giving up the push-down for it would buy nothing.
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+      expressionFields: [
+        {
+          id: 'expr-margin',
+          label: 'Margin',
+          sourceId: 'orders',
+          isMeasure: false,
+          expression: { op: '-', left: { field: 'price' }, right: { field: 'cost' } },
+        } as unknown as StudioExpressionField,
+      ],
+    });
+
+    await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        select: ['region', 'amount'],
+        groupBy: 'region',
+        aggregations: [{ field: 'amount', fn: 'sum', alias: 'amount' }],
+        filter: {
+          type: 'leaf',
+          field: 'expr-margin',
+          op: 'contains',
+          value: '5',
+          fieldType: 'string',
+        },
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ aggregations?: unknown }>;
+    };
+    expect(body.widgets[0].aggregations).toEqual([
+      { column: 'amount', func: 'sum', alias: 'amount' },
+    ]);
+    warnSpy.mockRestore();
+  });
+});
+
+// ── Aggregation-strip ladder completeness ────────────────────────────────────
+
+describe('createBatchingAdapter — aggregation-strip ladder completeness', () => {
+  it('routes count_distinct to raw rows instead of downgrading it to a wire count', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        select: ['region', 'customer_id'],
+        groupBy: 'region',
+        aggregations: [{ field: 'customer_id', fn: 'count_distinct', alias: 'customer_id' }],
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ aggregations?: unknown }>;
+    };
+    // The old downgrade shipped `func: 'count'`; the client then re-aggregated a one-row-per-group
+    // response and every group's distinct count rendered as 1.
+    expect(body.widgets[0].aggregations).toBeUndefined();
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('routes a plain count to raw rows', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        select: ['region', 'amount'],
+        groupBy: 'region',
+        aggregations: [{ field: 'amount', fn: 'count', alias: 'amount' }],
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ aggregations?: unknown }>;
+    };
+    expect(body.widgets[0].aggregations).toBeUndefined();
+    // The warning is part of the contract: the strip is a documented divergence from a faithful
+    // push-down, not a silent optimisation.
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('routes avg to raw rows when a projected column sits outside the client aggregation grain', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        // A grid grouped by `region` that also projects `product`: the middleware GROUP BYs every
+        // projected non-measure column, so the server would average per (region, product) and the
+        // grid would average those per-product averages.
+        select: ['region', 'product', 'amount'],
+        groupBy: 'region',
+        aggregations: [{ field: 'amount', fn: 'avg', alias: 'amount' }],
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ aggregations?: unknown }>;
+    };
+    expect(body.widgets[0].aggregations).toBeUndefined();
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('still pushes a sum down at a finer server grain (sum re-reduces correctly)', async () => {
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        select: ['region', 'product', 'amount'],
+        groupBy: 'region',
+        aggregations: [{ field: 'amount', fn: 'sum', alias: 'amount' }],
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ aggregations?: unknown }>;
+    };
+    expect(body.widgets[0].aggregations).toEqual([
+      { column: 'amount', func: 'sum', alias: 'amount' },
+    ]);
+  });
+});
+
+// ── Boolean wire values ──────────────────────────────────────────────────────
+
+describe('createBatchingAdapter — boolean filter values', () => {
+  it('sends a real boolean for "equals", never the drawer\'s "true" string', async () => {
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        filter: {
+          type: 'leaf',
+          field: 'active',
+          op: 'equals',
+          value: 'true',
+          fieldType: 'boolean',
+        },
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ filters?: Array<{ column: string; operator: string; value: unknown }> }>;
+    };
+    // `where(col, '=', 'true')` is implicitly cast by PostgreSQL but coerced NUMERICALLY to 0 by
+    // MySQL's tinyint(1) and by SQLite — both return exactly the COMPLEMENT of the requested rows.
+    expect(body.widgets[0].filters).toEqual([{ column: 'active', operator: 'eq', value: true }]);
+  });
+
+  it('sends a real boolean for "not_equals" too', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        filter: {
+          type: 'leaf',
+          field: 'active',
+          op: 'not_equals',
+          value: 'false',
+          fieldType: 'boolean',
+        },
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ filters?: Array<{ column: string; operator: string; value: unknown }> }>;
+    };
+    expect(body.widgets[0].filters).toEqual([{ column: 'active', operator: 'neq', value: false }]);
+    warnSpy.mockRestore();
+  });
+
+  it('routes a boolean value it cannot coerce to the client residual instead of guessing', async () => {
+    const fetchFn = makeOkFetch([
+      {
+        id: 'w1',
+        rows: [
+          { id: 1, active: true },
+          { id: 2, active: false },
+        ],
+      },
+    ]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    const result = await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        filter: {
+          type: 'leaf',
+          field: 'active',
+          op: 'equals',
+          // Not one of the two spellings the drawer produces — no certain SQL coercion exists.
+          value: '1',
+          fieldType: 'boolean',
+        },
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ filters?: unknown; columns?: string[] }>;
+    };
+    expect(body.widgets[0].filters).toBeUndefined();
+    expect(body.widgets[0].columns).toContain('active');
+    // The shared in-memory evaluator owns the answer: `String(row.active) === '1'` matches nothing.
+    expect(result.rows).toEqual([]);
+  });
+});
+
+// ── Cross-source filter fan-out ──────────────────────────────────────────────
+
+describe('createBatchingAdapter — cross-source filter fan-out', () => {
+  /** customers (the "one" side) <- orders (the "many" side), both on the same endpoint. */
+  function makeOneSideHarness(fetchFn: ReturnType<typeof makeOkFetch>) {
+    const endpoint = uid();
+    const sharedAdapter = createBatchingAdapter(endpoint, {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+    const dataSources: Record<string, StudioDataSource> = {
+      'source-orders': {
+        id: 'source-orders',
+        label: 'Orders',
+        tableName: 'orders',
+        fields: [field('id', 'number'), field('customerId', 'number'), field('status')],
+        adapter: sharedAdapter,
+      },
+      'source-customers': {
+        id: 'source-customers',
+        label: 'Customers',
+        tableName: 'customers',
+        fields: [field('id', 'number'), field('lifetime_value', 'number')],
+        adapter: sharedAdapter,
+      },
+    };
+    const relationships: StudioRelationship[] = [
+      {
+        id: 'rel-orders-customers',
+        type: 'many-to-one',
+        sourceId: 'source-orders',
+        sourceField: 'customerId',
+        targetId: 'source-customers',
+        targetField: 'id',
+      },
+    ];
+    return createBatchingAdapter(endpoint, {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+      dataSources,
+      relationships,
+    });
+  }
+
+  it('does not emit a row-multiplying LEFT JOIN for a filter on the "many" side', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = makeOneSideHarness(fetchFn);
+
+    await adapter.getRows(
+      makeDescriptor({
+        sourceId: 'source-customers',
+        tableName: 'customers',
+        widgetId: 'w1',
+        select: ['lifetime_value'],
+        aggregations: [{ field: 'lifetime_value', fn: 'sum', alias: 'lifetime_value' }],
+        filter: {
+          type: 'leaf',
+          field: 'status',
+          op: 'equals',
+          value: 'shipped',
+          fieldType: 'string',
+        },
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ joins?: unknown; filters?: unknown; columns?: string[] }>;
+    };
+    // `customers LEFT JOIN orders ... WHERE orders.status = 'shipped'` makes a customer with three
+    // shipped orders contribute three rows, so the KPI sum reads 3x. The wire protocol has no
+    // semi-join, so the reference is dropped with a warning instead.
+    expect(body.widgets[0].joins).toBeUndefined();
+    expect(body.widgets[0].filters).toBeUndefined();
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('still joins for a filter on the "one" side (many-to-one from the widget, no fan-out)', async () => {
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = makeOneSideHarness(fetchFn);
+
+    await adapter.getRows(
+      makeDescriptor({
+        sourceId: 'source-orders',
+        tableName: 'orders',
+        widgetId: 'w1',
+        select: ['id'],
+        filter: {
+          type: 'leaf',
+          field: 'lifetime_value',
+          op: 'greater_than',
+          value: 100,
+          fieldType: 'number',
+        },
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{
+        joins?: Array<{ table: string }>;
+        filters?: Array<{ column: string }>;
+      }>;
+    };
+    expect(body.widgets[0].joins).toEqual([
+      { table: 'customers', type: 'left', on: [['orders.customerId', 'customers.id']] },
+    ]);
+    expect(body.widgets[0].filters).toEqual([
+      { column: 'customers.lifetime_value', operator: 'gt', value: 100 },
+    ]);
+  });
+});

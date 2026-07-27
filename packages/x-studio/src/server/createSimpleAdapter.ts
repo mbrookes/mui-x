@@ -49,6 +49,7 @@ import type {
   StudioQueryResult,
 } from '../models';
 import { isRelativeDateValue, resolveRelativeDate } from '../internals/filterUtils';
+import { aggregationPushdownWarning, decideAggregationPushdown } from './aggregationPushdown';
 
 /**
  * Resolves a single filter value to its wire form, recursively handling a `RelativeDateValue`
@@ -104,68 +105,31 @@ function resolveDescriptorRelativeDates(descriptor: StudioQueryDescriptor): Stud
 }
 
 /**
- * Strip server-side aggregations from a descriptor that carries an incoming chart-click
- * cross-filter or interactive (filter-widget) selection, so the widget doesn't empty out
- * (finding 2.7 — the same class as `createBatchingAdapter`'s guard).
+ * Strip a server-side aggregation push-down the client could not repair, using the SAME ladder
+ * `createBatchingAdapter` runs (`decideAggregationPushdown`).
  *
- * Those scopes are deliberately excluded from the server query and enforced client-side over the
- * returned rows, but a server-aggregated response is one row per group with only the grouped/alias
- * columns — the cross-filter's own field reads `undefined` on every row and empties the widget.
- * Returning raw rows lets the widget apply the cross-filter to real per-row data before its own
- * (always-on) aggregation step runs. A host that ignores `aggregations` entirely already returns
- * raw rows, so this is a no-op for it; it only matters for a host faithfully honouring the
- * (documented) `aggregations` contract.
+ * This used to be two bespoke guards here — incoming cross/interactive filters and rank filters —
+ * i.e. two of the ladder's five rungs. The three missing ones were not academic: a simple-adapter
+ * bar chart with `yAggregation: 'count'` asked the host for one pre-aggregated row per group and
+ * then counted those rows client-side, so EVERY bar read `1`. `count_distinct` and an `avg` at a
+ * grain finer than the widget's re-aggregation grain failed the same way. Sharing the decision is
+ * the structural fix: a rung added for one adapter can no longer be missing from the other.
+ *
+ * A host that ignores `aggregations` entirely already returns raw rows, so this is a no-op for it;
+ * it only matters for a host faithfully honouring the (documented) `aggregations` contract.
+ *
+ * `hasUnpushableFilters` is `false` because this adapter does not partition the filter tree at all:
+ * it forwards Studio's native `StudioFilterNode` and the host owns every operator's semantics, so
+ * no leaf is left over for a client-side residual.
  */
-function stripAggregationsForIncomingCrossFilter(
-  descriptor: StudioQueryDescriptor,
-): StudioQueryDescriptor {
-  if (
-    !descriptor.hasIncomingCrossOrInteractiveFilters ||
-    !descriptor.aggregations ||
-    descriptor.aggregations.length === 0
-  ) {
+function stripUnrepairableAggregations(descriptor: StudioQueryDescriptor): StudioQueryDescriptor {
+  const decision = decideAggregationPushdown({ descriptor, hasUnpushableFilters: false });
+  if (!decision.strip) {
     return descriptor;
   }
   if (process.env.NODE_ENV !== 'production') {
     console.warn(
-      `MUI X Studio: A server-side aggregation for source "${descriptor.sourceId}" was stripped ` +
-        `before sending to the data adapter because the widget has an incoming cross-filter or ` +
-        `interactive filter-widget selection, which is enforced client-side over the returned ` +
-        `rows. A server-aggregated response would contain only the grouped/alias columns, so the ` +
-        `cross-filter's field would read undefined on every row and empty the widget. Raw rows ` +
-        `are requested instead and aggregated client-side.`,
-    );
-  }
-  return { ...descriptor, aggregations: undefined };
-}
-
-/**
- * Strip server-side aggregations from a descriptor that carries an active rank-mode (top/bottom-N)
- * filter (finding T2.4 — the same class as the cross-filter guard above).
- *
- * A rank filter has no wire form and is always re-applied client-side over the returned rows, but
- * its reduction sums the rank measure per group and so must see RAW rows. A server-aggregated
- * response GROUP BYs the rank measure into a dimension and collapses duplicate rows, so the client
- * would rank over group-collapsed rows and pick the wrong Top-N. Returning raw rows lets the widget
- * rank over real per-row data before its own aggregation step runs. A host that ignores
- * `aggregations` already returns raw rows, so this is a no-op for it.
- */
-function stripAggregationsForRankFilter(descriptor: StudioQueryDescriptor): StudioQueryDescriptor {
-  if (
-    !descriptor.hasRankFilters ||
-    !descriptor.aggregations ||
-    descriptor.aggregations.length === 0
-  ) {
-    return descriptor;
-  }
-  if (process.env.NODE_ENV !== 'production') {
-    console.warn(
-      `MUI X Studio: A server-side aggregation for source "${descriptor.sourceId}" was stripped ` +
-        `before sending to the data adapter because the widget has an active rank (top/bottom-N) ` +
-        `filter, whose client-side reduction must sum the rank measure per group over raw rows. A ` +
-        `server-aggregated response would group the rank measure into a dimension and collapse ` +
-        `rows, so the rank would select the wrong Top-N. Raw rows are requested instead and ` +
-        `aggregated client-side.`,
+      `MUI X Studio: ${aggregationPushdownWarning(descriptor.sourceId, decision.reason!)}`,
     );
   }
   return { ...descriptor, aggregations: undefined };
@@ -208,11 +172,11 @@ export function createSimpleAdapter(
     async getRows(descriptor: StudioQueryDescriptor): Promise<StudioQueryResult> {
       // Resolve relative-date values (e.g. "7 days ago") to concrete dates before sending —
       // the host receives a plain, self-describing descriptor rather than a client-only
-      // relative spec it cannot interpret (finding 2.19). Then strip server aggregations when an
-      // incoming cross/interactive filter would make an aggregated response empty the widget
-      // (finding 2.7), or when an active rank filter needs raw rows to rank correctly (finding T2.4).
-      const resolvedDescriptor = stripAggregationsForRankFilter(
-        stripAggregationsForIncomingCrossFilter(resolveDescriptorRelativeDates(descriptor)),
+      // relative spec it cannot interpret (finding 2.19). Then run the shared aggregation
+      // push-down ladder, which strips an aggregation the client could not repair (see
+      // `stripUnrepairableAggregations`).
+      const resolvedDescriptor = stripUnrepairableAggregations(
+        resolveDescriptorRelativeDates(descriptor),
       );
       const body = transformDescriptor
         ? transformDescriptor(resolvedDescriptor)

@@ -7,6 +7,7 @@ import type {
   StudioWidget,
   StudioWidgetConfig,
 } from '../models';
+import { findJoinPath } from './dataSourceGraph';
 import { selectFiltersForWidget } from './filterScoping';
 import { isFilterComplete } from './filterUtils';
 import { isJoinFieldExpression } from '../utils/expressionEvaluator';
@@ -339,18 +340,16 @@ export function buildQueryDescriptor(
       return [f.field];
     }
     // Cross-source filter: the residual semi-joins the foreign match set back to the widget's
-    // rows on the relationship FK column, so THAT column (on the widget's source) must be
+    // rows on the relationship join column, so THAT column (on the widget's source) must be
     // projected — the foreign field itself belongs to another source and can't be selected here.
-    // Mirror the direct-relationship resolution in `dataSourceGraph.findJoinPath`.
-    const rel = relationships.find(
-      (r) =>
-        (r.sourceId === widget.sourceId && r.targetId === f.filterSourceId) ||
-        (r.targetId === widget.sourceId && r.sourceId === f.filterSourceId),
-    );
-    if (!rel) {
-      return [];
-    }
-    return [rel.sourceId === widget.sourceId ? rel.sourceField : rel.targetField];
+    //
+    // Call `findJoinPath` rather than re-deriving the column from a local `relationships.find`.
+    // The local version mirrored only that function's DIRECT-relationship arm, so a cross-filter
+    // whose `filterSourceId` names a many-to-many remote endpoint (a two-hop path) or an M:N
+    // JUNCTION source — both of which `findJoinPath` resolves — matched nothing, projected no
+    // column, and left the residual comparing `undefined` on every row: the widget emptied.
+    const joinPath = findJoinPath(widget.sourceId ?? '', f.filterSourceId, relationships);
+    return joinPath ? [joinPath.widgetJoinField] : [];
   });
 
   // Expression columns are expanded to the native columns they depend on — the server

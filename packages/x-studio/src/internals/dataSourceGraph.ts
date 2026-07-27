@@ -150,7 +150,7 @@ export function getReachableSourceIds(
  *   junction's own rows/fields — see the dedicated junction-source loop below, finding 3)
  * - hops:2 — many-to-many via a junction source, filtering on the REMOTE endpoint
  */
-type JoinPath =
+export type JoinPath =
   | { hops: 1; widgetJoinField: string; filterJoinField: string }
   | {
       hops: 2;
@@ -168,9 +168,17 @@ type JoinPath =
 /**
  * Returns a JoinPath describing how to link widgetSource to filterSource,
  * or null if no relationship path exists.
- * Checks direct relationships first, then many-to-many two-hop paths.
+ * Checks direct relationships first, then many-to-many two-hop paths, then the case where
+ * filterSource IS an M:N junction source.
+ *
+ * Exported because it is the ONE definition of "which column on the widget's own rows carries the
+ * semi-join key" — `queryDescriptor` must project exactly that column so the adapter path's
+ * client-side residual can evaluate a cross-source cross-filter. Re-deriving it there from a bare
+ * `relationships.find(...)` covered only the direct arm, so an incoming cross-filter naming an M:N
+ * remote endpoint or a junction source projected no join column at all and the residual dropped
+ * every row.
  */
-function findJoinPath(
+export function findJoinPath(
   widgetSourceId: string,
   filterSourceId: string,
   relationships: StudioRelationship[],
@@ -426,13 +434,24 @@ export function resolveRows(
 
   let rows = enrichedRows;
 
-  // Pre-enrich each distinct foreign source once, regardless of how many cross-filters
-  // target it. Without this cache, each cross-filter re-runs enrichRowsWithExpressions
-  // over the same foreign rows — O(crossFilters × foreignRows) instead of O(foreignRows).
-  const foreignEnrichedCache = new Map<string, Row[]>();
-
+  /**
+   * Cross-filters GROUPED by the foreign source they filter, so each group is evaluated with ONE
+   * `applyFilters` over that source's rows followed by ONE semi-join.
+   *
+   * This grouping is the whole semantics of a multi-predicate cross-source filter. Applying each
+   * cross-filter with its OWN semi-join — what this loop used to do — computes
+   * `EXISTS(foreign matching A) AND EXISTS(foreign matching B)`, which a customer satisfies when
+   * one order is paid and a DIFFERENT order is over $100. SQL, every BI tool, and Studio's own L4
+   * re-anchoring (`grainResolution.ts` applies a single `applyFilters(rows, anchorScopedFilters)`)
+   * all mean `EXISTS(foreign matching A AND B)`. The two answers disagreed on the same page: a
+   * grid on `customers` kept a customer that a bar chart anchored on `orders` dropped.
+   *
+   * Keyed by `filterSourceId` alone: `findJoinPath` is a pure function of
+   * `(widgetSourceId, filterSourceId, relationships)`, all fixed for one `resolveRows` call, so
+   * every filter naming the same foreign source resolves to the same join path by construction.
+   */
+  const crossFilterGroups = new Map<string, StudioFilterState[]>();
   for (const f of crossFilters) {
-    const foreignSource = dataSources[f.filterSourceId];
     // Record the foreign source this cross-filter depends on BEFORE any early-out
     // (covers derived filterSourceId from expression-owned page filters — f may not
     // be the same object the caller passed in). Recording here — even when the source
@@ -440,45 +459,51 @@ export function resolveRows(
     // entry once that source later gains rows, instead of serving a stale unfiltered
     // result forever.
     options?.collectJoinedSourceIds?.add(f.filterSourceId);
+    const foreignSource = dataSources[f.filterSourceId];
     if (!foreignSource?.rows) {
       // Fail-open, but no longer silent for the case that can never self-heal — see
       // `warnUnappliedCrossFilter` for why fail-open is kept and what the real fix is.
       warnUnappliedCrossFilter(widgetSourceId, f.filterSourceId, foreignSource);
       continue;
     }
-
-    const joinPath = findJoinPath(widgetSourceId ?? '', f.filterSourceId, relationships);
-    if (!joinPath) {
+    if (!findJoinPath(widgetSourceId ?? '', f.filterSourceId, relationships)) {
       continue; // no declared relationship — skip rather than produce incorrect results
     }
-
     // Destructure filterSourceId out so baseFilter is a plain StudioFilterState for applyFilters
     const { filterSourceId: removedField, ...baseFilter } = f;
     void removedField;
+    const group = crossFilterGroups.get(f.filterSourceId);
+    if (group) {
+      group.push(baseFilter);
+    } else {
+      crossFilterGroups.set(f.filterSourceId, [baseFilter]);
+    }
+  }
+
+  for (const [filterSourceId, groupFilters] of crossFilterGroups) {
+    // Both were validated while grouping above; re-read rather than carry them through the map.
+    const foreignSource = dataSources[filterSourceId]!;
+    const joinPath = findJoinPath(widgetSourceId ?? '', filterSourceId, relationships)!;
+
     // Enrich the foreign source rows via enrichedRowsCache so filter changes don't
     // force re-enrichment of foreign sources (the enrich result is filter-independent).
-    // The local foreignEnrichedCache is kept as a guard against duplicate lookups
-    // within a single resolveRows call (multiple cross-filters on the same source).
-    if (!foreignEnrichedCache.has(f.filterSourceId)) {
-      foreignEnrichedCache.set(
-        f.filterSourceId,
-        getCachedEnrichedRows(
-          foreignSource.rows,
-          f.filterSourceId,
-          expressionFields,
-          dataSources,
-          relationships,
-          undefined,
-          // The foreign source's own expression columns may JOIN yet another source; record
-          // those targets so a later refresh of that transitive source also invalidates the L3
-          // entry (finding 1.2).
-          options?.collectJoinedSourceIds,
-        ),
-      );
-    }
-
-    const enrichedForeignRows = foreignEnrichedCache.get(f.filterSourceId)!;
-    const matchingForeignRows = applyFilters(enrichedForeignRows, [baseFilter]);
+    // Grouping already guarantees one enrichment per foreign source per call, so the old
+    // local `foreignEnrichedCache` guard against duplicate lookups is no longer needed.
+    const enrichedForeignRows = getCachedEnrichedRows(
+      foreignSource.rows!,
+      filterSourceId,
+      expressionFields,
+      dataSources,
+      relationships,
+      undefined,
+      // The foreign source's own expression columns may JOIN yet another source; record
+      // those targets so a later refresh of that transitive source also invalidates the L3
+      // entry (finding 1.2).
+      options?.collectJoinedSourceIds,
+    );
+    // ONE conjunctive pass: a foreign row must satisfy EVERY predicate targeting this source to
+    // put its widget row through the semi-join — `EXISTS(A AND B)`, matching L4 and SQL.
+    const matchingForeignRows = applyFilters(enrichedForeignRows, groupFilters);
 
     if (joinPath.hops === 1) {
       // One-hop (direct) semi-join: keep widget rows whose join field is in the allowed set.

@@ -546,6 +546,65 @@ describe('buildQueryDescriptor', () => {
     expect(desc.select).not.toContain('tier');
   });
 
+  it('cross-SOURCE cross-filter across a MANY-TO-MANY remote endpoint widens select too', () => {
+    // orders <-(order_tags)-> tags. Regression lock for the switch to `findJoinPath`: the old
+    // local `relationships.find` happened to get this arm right (an M:N relationship's
+    // `sourceField`/`targetField` ARE the widget-side join keys), and it must stay right now
+    // that the two-hop path is resolved by the shared traversal instead.
+    const relationships: StudioRelationship[] = [
+      {
+        id: 'rel-orders-tags',
+        type: 'many-to-many',
+        sourceId: 'source-orders',
+        sourceField: 'id',
+        targetId: 'source-tags',
+        targetField: 'id',
+        junctionSourceId: 'source-order-tags',
+        junctionSourceField: 'order_id',
+        junctionTargetField: 'tag_id',
+      },
+    ];
+    const widget = makeWidget({});
+    const crossFilter = makeFilter({
+      scope: { kind: 'cross-filter', sourceWidgetId: 'w2', pageId: PAGE_ID },
+      field: 'label',
+      filterSourceId: 'source-tags',
+      value: 'priority',
+    });
+    const desc = buildQueryDescriptor(widget, [crossFilter], PAGE_ID, undefined, [], relationships);
+    expect(desc.select).toContain('id');
+    expect(desc.select).not.toContain('label');
+  });
+
+  it('cross-SOURCE cross-filter naming an M:N JUNCTION source widens select too', () => {
+    // A junction table is never a relationship's own sourceId/targetId, so neither the direct
+    // nor the two-hop arm matches it — but `findJoinPath` has a dedicated case, and the drawer
+    // can set `filterSourceId` to a junction source.
+    const relationships: StudioRelationship[] = [
+      {
+        id: 'rel-orders-tags',
+        type: 'many-to-many',
+        sourceId: 'source-orders',
+        sourceField: 'id',
+        targetId: 'source-tags',
+        targetField: 'id',
+        junctionSourceId: 'source-order-tags',
+        junctionSourceField: 'order_id',
+        junctionTargetField: 'tag_id',
+      },
+    ];
+    const widget = makeWidget({});
+    const crossFilter = makeFilter({
+      scope: { kind: 'cross-filter', sourceWidgetId: 'w2', pageId: PAGE_ID },
+      field: 'quantity',
+      filterSourceId: 'source-order-tags',
+      value: 3,
+    });
+    const desc = buildQueryDescriptor(widget, [crossFilter], PAGE_ID, undefined, [], relationships);
+    expect(desc.select).toContain('id');
+    expect(desc.select).not.toContain('quantity');
+  });
+
   it('cross-filter application DOES change the cacheKey for a server-aggregated widget (finding 2.9)', () => {
     // A cross-filter is enforced CLIENT-SIDE over the returned rows. For a widget whose
     // descriptor pushes an aggregation down, the server would otherwise return one

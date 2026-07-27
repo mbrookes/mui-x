@@ -266,3 +266,60 @@ describe('createSimpleAdapter — relative-date resolution', () => {
     expect(filter).toMatchObject({ value: { from: 10, to: 100 } });
   });
 });
+
+describe('createSimpleAdapter — aggregation push-down ladder', () => {
+  async function postedAggregations(descriptor: Partial<StudioQueryDescriptor>): Promise<unknown> {
+    const fetchFn = makeOkFetch();
+    const adapter = createSimpleAdapter('/api/orders', {
+      fetchFn: fetchFn as unknown as typeof fetch,
+    });
+    await adapter.getRows(makeDescriptor(descriptor));
+    const [, init] = fetchFn.mock.calls[0] as [string, RequestInit];
+    return (JSON.parse(init.body as string) as { aggregations?: unknown }).aggregations;
+  }
+
+  it('strips a count aggregation so the host returns raw rows', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // Every bar read `1`: the host returned one pre-aggregated row per region and the chart then
+    // counted THOSE rows. The simple adapter used to implement only two of the five ladder rungs.
+    const aggregations = await postedAggregations({
+      select: ['region', 'amount'],
+      groupBy: 'region',
+      aggregations: [{ field: 'amount', fn: 'count', alias: 'amount' }],
+    });
+    expect(aggregations).toBeUndefined();
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('strips a count_distinct aggregation', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const aggregations = await postedAggregations({
+      select: ['region', 'customer_id'],
+      groupBy: 'region',
+      aggregations: [{ field: 'customer_id', fn: 'count_distinct', alias: 'customer_id' }],
+    });
+    expect(aggregations).toBeUndefined();
+    warnSpy.mockRestore();
+  });
+
+  it('strips an avg aggregation whose server grain is finer than the widget grain', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const aggregations = await postedAggregations({
+      select: ['region', 'product', 'amount'],
+      groupBy: 'region',
+      aggregations: [{ field: 'amount', fn: 'avg', alias: 'amount' }],
+    });
+    expect(aggregations).toBeUndefined();
+    warnSpy.mockRestore();
+  });
+
+  it('still forwards a sum aggregation the host can compute faithfully', async () => {
+    const aggregations = await postedAggregations({
+      select: ['region', 'amount'],
+      groupBy: 'region',
+      aggregations: [{ field: 'amount', fn: 'sum', alias: 'amount' }],
+    });
+    expect(aggregations).toEqual([{ field: 'amount', fn: 'sum', alias: 'amount' }]);
+  });
+});

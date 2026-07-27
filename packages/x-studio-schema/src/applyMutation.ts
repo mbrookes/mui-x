@@ -20,7 +20,7 @@ import type { StudioChartSeries, StudioWidget } from './widgetTypes';
 import type { StateMutation } from './aiTypes';
 import { normalizeChartSeries } from './factories';
 import { isSafeKey } from './unsafeKeys';
-import { hasUnsafeOwnKeys, isStringArray } from './parseStateMutation';
+import { hasUnsafeOwnKeys, isStringArray, isValidFilterScope } from './parseStateMutation';
 import { getAllowedConfigKeys } from './configKeyValidation';
 import { isStudioFilterOperator } from './widgetTypeGuards';
 // The three guards the wire boundary (`parseStateMutation.ts`), the load boundary
@@ -104,6 +104,31 @@ const isSafePatchKey = isSafeKey;
  *    write-time guard makes the reducer and the load boundary agree, so nothing silently
  *    disappears on reload.
  */
+
+/**
+ * Resolve a mutation's target page: the explicit, server-chosen `args.pageId` when it names
+ * one, else the applying side's active page (the legacy pageId-less fallback).
+ *
+ * The ONE implementation of that resolution, shared by `addWidget`, `setWidgetLayout` and
+ * `setWidgetColSpan`, so the string-id rule is applied to `args.pageId` uniformly. A
+ * non-string explicit `pageId` returns `undefined` (the caller no-ops) rather than being
+ * handed to the COERCING `Object.hasOwn(state.pages, pageId)` existence check: a numeric
+ * `42` would otherwise resolve to a page keyed `"42"` and the mutation would apply to it.
+ * Those three handlers happen to be safe under coercion today — each writes back through
+ * the same bracket key it read, so read and write agree — but that is a property of their
+ * current bodies, not of the resolution, and one added `Set.has`/`===`/`.includes` (exactly
+ * what broke `removeWidget`/`removePage`/`setWidgetColSpan`) would silently split them.
+ *
+ * `null` is treated as ABSENT alongside `undefined`, preserving the `??` semantics these
+ * call sites had: a producer that spells "no explicit page" as JSON `null` still gets the
+ * active-page fallback rather than a no-op.
+ */
+function resolveTargetPageId(doc: StudioDoc, pageId: unknown): string | undefined {
+  if (pageId === undefined || pageId === null) {
+    return doc.dashboard.activePageId;
+  }
+  return typeof pageId === 'string' ? pageId : undefined;
+}
 
 /**
  * Value-equality for two `widgetRows` matrices. Used by the layout handlers to honor
@@ -342,6 +367,38 @@ function screenOptionalWidgetScalars(widget: StudioWidget): StudioWidget {
   return base;
 }
 
+/**
+ * Will `applyBulkUpdate`'s insert loop actually install this `addedWidgets` entry?
+ *
+ * The ONE acceptance test for that question, so the two blocks that must agree about it
+ * cannot drift: the layout block's `validRowIds` population (which admits a not-yet-inserted
+ * added widget's id into the sanitized rows) and the insert loop itself. The `validRowIds`
+ * step runs FIRST and therefore PREDICTS the insert loop's verdict; every condition the
+ * insert loop applies must live here or the prediction is wrong in exactly one direction —
+ * a row installs naming a widget the insert loop then skips, which is the "page renders a
+ * widget that does not exist" state `validRowIds` exists to prevent. It survives
+ * `serializeDoc` and is healed only by `normalizePersistedPages` on the NEXT load.
+ *
+ * The conditions, and why each one costs the whole entry rather than a repaired key:
+ *  - a non-record entry would throw on the `.id` read;
+ *  - a non-string `id` would install under the STRINGIFIED bracket key while `widget.id`
+ *    stayed numeric, desyncing the record key from the widget (see the string-id rule);
+ *  - an unsafe `id` would re-prototype the record instead of adding an own key;
+ *  - a non-string `kind`/`title` is dropped by `deserializeState`'s widget screen, which
+ *    drops the ENTIRE widget — so installing one just defers the loss to the next load.
+ *
+ * Same screens `addWidget` applies to its single widget, in the same order.
+ */
+function isInsertableAddedWidget(widget: unknown): widget is StudioWidget {
+  return (
+    isPlainRecord(widget) &&
+    typeof widget.id === 'string' &&
+    isSafePatchKey(widget.id) &&
+    typeof widget.kind === 'string' &&
+    typeof widget.title === 'string'
+  );
+}
+
 // Drop widget/interactive/cross-filter-scoped filters anchored to any removed widget.
 // Shared by `removeWidget` and `applyBulkUpdate` so both enforce the same invariant: a
 // removed source widget must not leave its page permanently filtered with no clearing
@@ -408,7 +465,8 @@ const MERGEABLE_WIDGET_CHANGE_KEYS: ReadonlySet<string> = new Set([
  * Drops the whole `dependsOn` array (rather than leaving `dependsOn: []`) when the prune
  * empties it, mirroring `docTransforms.ts`'s own `remappedDependsOn.length > 0 ? … :
  * undefined` convention for this exact field and `repairFilterDependsOn`'s "absent is the
- * canonical empty state" treatment. Reference-stable at BOTH levels: the SAME array is
+ * canonical empty state" treatment. "Drops" means the KEY is `delete`d, not set to
+ * `undefined` — see the comment at the site. Reference-stable at BOTH levels: the SAME array is
  * returned when nothing needed pruning, and a filter with no dangling reference keeps its
  * existing object identity.
  */
@@ -423,10 +481,19 @@ export function pruneDependsOn(
     }
     changed = true;
     const remainingDependsOn = f.dependsOn.filter((id) => survivingIds.has(id));
-    return {
-      ...f,
-      dependsOn: remainingDependsOn.length > 0 ? remainingDependsOn : undefined,
-    };
+    if (remainingDependsOn.length > 0) {
+      return { ...f, dependsOn: remainingDependsOn };
+    }
+    // DELETE the key rather than writing `dependsOn: undefined`. Spreading an explicit
+    // `undefined` leaves the key present as an own property, so `Object.keys(filter)` and
+    // `'dependsOn' in filter` both still report it and the in-memory shape differs from a
+    // filter that never carried one — the same distinction `deserializeState`'s
+    // `activeThreadId` reconciliation deliberately preserves with its own `delete`. Nothing
+    // observes the difference today only because `JSON.stringify` erases it at the
+    // persistence boundary.
+    const pruned = { ...f };
+    delete pruned.dependsOn;
+    return pruned;
   });
   return changed ? next : filters;
 }
@@ -648,6 +715,15 @@ function dropConflictingRankFilters(
  * untrusted id (`'constructor'`, `'__proto__'`) can never reach into the record's
  * prototype chain. Shared by `removeWidget` (its own span + orphaned sole-occupant
  * spans) and `applyBulkUpdate` (removed widgets' stale spans on other pages).
+ *
+ * The rebuild also screens each surviving KEY with `isSafePatchKey`, the way every other
+ * key-by-key `Record` rebuild in this package does (`normalizePersistedPages`' span
+ * rebuild, `applyBulkUpdate`'s `clampedSpans`, `updateWidget`'s config patch loop,
+ * `stripUnsafeOwnKeys`). Defense in depth rather than a live vector: the one producer of
+ * an unscreened `pages` map is the public `Studio initialState` prop, which
+ * `createDefaultStudioState({ doc: { pages } })` installs verbatim, and a `__proto__` span
+ * key from there would be copied into a fresh record by `rest[key] = …` — re-prototyping it
+ * instead of adding an own key.
  */
 function removeSpanEntries(
   spans: Record<string, number> | undefined,
@@ -660,7 +736,7 @@ function removeSpanEntries(
   let changed = false;
   const rest: Record<string, number> = {};
   for (const key of Object.keys(spans)) {
-    if (idSet.has(key)) {
+    if (idSet.has(key) || !isSafePatchKey(key)) {
       changed = true;
     } else {
       rest[key] = spans[key];
@@ -1179,11 +1255,13 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // payloads. Targeting an explicit page, rather than whatever page happens to be active
       // on the applying side, is what keeps the server-threaded and client-applied results
       // pointing at the same page.
-      const pageId = args.pageId ?? state.dashboard.activePageId;
+      // Resolved through the shared helper, so a NON-STRING explicit `pageId` no-ops rather
+      // than reaching the coercing `Object.hasOwn` below (string-id rule).
+      const pageId = resolveTargetPageId(state, args.pageId);
       // `Object.hasOwn` existence check (not truthy `state.pages[pageId]`) so an
       // untrusted `pageId` like `'constructor'` resolves to "no such page" instead
       // of the `Object` prototype member (which would be treated as a page object).
-      if (!Object.hasOwn(state.pages, pageId)) {
+      if (pageId === undefined || !Object.hasOwn(state.pages, pageId)) {
         return state;
       }
       const page = state.pages[pageId];
@@ -1239,6 +1317,15 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
   updateWidget: {
     apply: (state, args) => {
       const { widgetId, changes, config, unsetFields, unsetConfigKeys } = args;
+      // Require a STRING `widgetId` BEFORE the coercing existence check (string-id rule).
+      // Every write this handler performs happens to be a bracket assignment through the
+      // same coerced key `Object.hasOwn` matched, so a numeric `42` is benign TODAY — but
+      // that is a property of the current body, not a guarantee, and the guard is what stops
+      // one added non-coercing comparison from silently splitting read and write the way it
+      // did for `removeWidget`/`removePage`/`setWidgetColSpan`.
+      if (typeof widgetId !== 'string') {
+        return state;
+      }
       // `Object.hasOwn` (not truthy `state.widgets[widgetId]`) so an untrusted
       // `widgetId` like `'constructor'` is a clean "unknown id" no-op rather than
       // resolving to the `Object` prototype member and corrupting a write.
@@ -1534,10 +1621,11 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       }
       // Explicit, server-chosen target page — falls back to the active page for
       // legacy payloads, mirroring `addWidget.pageId`.
-      const targetPageId = args.pageId ?? state.dashboard.activePageId;
+      const targetPageId = resolveTargetPageId(state, args.pageId);
       // `Object.hasOwn` guard (not truthy `state.pages[targetPageId]`) so an
-      // untrusted `pageId` can't resolve to a prototype member.
-      if (!Object.hasOwn(state.pages, targetPageId)) {
+      // untrusted `pageId` can't resolve to a prototype member; `undefined` is the shared
+      // resolver's "explicit but non-string `pageId`" no-op (string-id rule).
+      if (targetPageId === undefined || !Object.hasOwn(state.pages, targetPageId)) {
         return state;
       }
       const targetPage = state.pages[targetPageId];
@@ -1621,10 +1709,11 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       }
       // Explicit, server-chosen target page — falls back to the active page for
       // legacy payloads, mirroring `addWidget.pageId`.
-      const targetPageId = args.pageId ?? state.dashboard.activePageId;
+      const targetPageId = resolveTargetPageId(state, args.pageId);
       // `Object.hasOwn` guard (not truthy `state.pages[targetPageId]`) so an
-      // untrusted `pageId` can't resolve to a prototype member.
-      if (!Object.hasOwn(state.pages, targetPageId)) {
+      // untrusted `pageId` can't resolve to a prototype member; `undefined` is the shared
+      // resolver's "explicit but non-string `pageId`" no-op (string-id rule).
+      if (targetPageId === undefined || !Object.hasOwn(state.pages, targetPageId)) {
         return state;
       }
       // Unknown-widget guard (mirrors `updateWidget`/`removeWidget`): a span write for a
@@ -1699,6 +1788,13 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
   renamePage: {
     apply: (state, args) => {
       const { pageId, title } = args;
+      // Require a STRING `pageId` BEFORE the coercing existence check (string-id rule),
+      // uniform with `removePage`/`setActivePage`. Benign today — the rename writes back
+      // through the same bracket key the check matched — but the invariant is what keeps a
+      // future non-coercing comparison from desyncing read and write here.
+      if (typeof pageId !== 'string') {
+        return state;
+      }
       // `Object.hasOwn` guard so an untrusted `pageId` can't match a prototype member.
       if (!Object.hasOwn(state.pages, pageId)) {
         return state;
@@ -1860,10 +1956,10 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       if (!isPlainRecord(args.filter)) {
         return state;
       }
-      // Crash prevention for `scope.kind`, read repeatedly below. A shape check only: full
-      // scope semantic validity (kind membership, required id fields) is the wire boundary's
-      // job — the reducer only needs "safe to read `.kind` off of".
-      if (!isPlainRecord(args.filter.scope) || typeof args.filter.scope.kind !== 'string') {
+      // Crash prevention for the `scope` reads below. Only "is this a record" here; full
+      // scope WELLFORMEDNESS is checked once, against the stripped scope, further down via
+      // the shared `isValidFilterScope`.
+      if (!isPlainRecord(args.filter.scope)) {
         return state;
       }
       // Require a STRING `filter.id` (id-coercion desync): a numeric id installs, but
@@ -1892,50 +1988,41 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         return state;
       }
       // ── Scope screening, in two stages ───────────────────────────────────────────────
-      // First every anchor id the scope carries must be a STRING, then it must name
-      // something the doc actually has. Both matter because the reducer's ONLY cleanup path
-      // for a scoped filter (`dropWidgetScopedFilters`, `removePage`'s page-anchor drop)
-      // fires when the anchor is REMOVED — a filter anchored to something that never existed
-      // is never removed, so it filters its page forever with no clearing affordance.
-      const { scope } = args.filter;
-      // STRING anchor ids (id-coercion desync, one level down inside the scope payload): a
-      // numeric `scope.sourceWidgetId: 9` passes the coercing `Object.hasOwn(state.widgets,
-      // 9)` orphan check below, while every consumer that compares by strict `===`/`Set`
-      // membership (`dropWidgetScopedFilters`'s `isRemoved`, `removeWidgetIds`'s
-      // `stillReferenced`) never matches it — an orphan that survives every removal path.
-      if (scope.kind === 'widget' && typeof scope.widgetId !== 'string') {
+      // Stage 1 — WELLFORMEDNESS, delegated to `isValidFilterScope`, the SAME predicate the
+      // wire boundary (`validateFilterScope`) and the load boundary (`deserializeState`'s
+      // filter screen) already use. Hand-rolling a per-kind id check here is what let the
+      // three boundaries disagree: this handler once screened only `typeof scope.kind ===
+      // 'string'`, so a `{ kind: 'pages' }` (any unknown kind) or a `dashboard-date-range`
+      // missing its REQUIRED `sourceId` installed live, and then either escaped every
+      // cleanup path forever (all of `dropWidgetScopedFilters`, `removePage`'s page-anchor
+      // drop and `removeWidgetIds` key off the five KNOWN kinds) or was silently dropped by
+      // this very predicate on the next load. Both are the deferred-data-loss class the
+      // "all three boundaries must agree on the same payload" rule exists to prevent, and
+      // both are reachable without the parser — `executeToolOnState.ts` builds mutations
+      // straight from LLM tool arguments, and `StudioController.addFilter` commits straight
+      // to this reducer. The shared predicate covers kind membership, every required id
+      // field per kind (`FILTER_SCOPE_REQUIRED_IDS` in `parseStateMutation.ts`), `page`
+      // scope's genuinely OPTIONAL `pageId` (string when present), the scope's own
+      // prototype-hazard key screen, and the size bound.
+      //
+      // Run against the STRIPPED filter, not `args.filter`: a scope carrying an own
+      // `__proto__`/`constructor`/`prototype` key is REPAIRED (the key removed) rather than
+      // sinking the whole add — the strip-don't-drop response this handler has always given
+      // that shape — and the wellformedness check then runs on exactly the object that will
+      // be installed. Both repairs are reference-stable, so a well-formed wire-validated
+      // filter is still appended as the SAME object.
+      const safeFilter = repairFilterDependsOn(stripUnsafeFilterKeys(args.filter));
+      const { scope } = safeFilter;
+      if (!isValidFilterScope(scope)) {
         return state;
       }
-      if (
-        (scope.kind === 'cross-filter' || scope.kind === 'interactive') &&
-        typeof scope.sourceWidgetId !== 'string'
-      ) {
-        return state;
-      }
-      // `cross-filter`/`interactive` ALSO carry a REQUIRED `pageId`
-      // (`FILTER_SCOPE_REQUIRED_IDS` in `parseStateMutation.ts` lists it for each), so it
-      // must be a STRING. A `{ kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 42 }`
-      // could never be cleared: `removePage`'s cleanup compares with a strict `===` that
-      // never coerces, and `serializeDoc` STRIPS cross-filter/interactive entries at the
-      // persistence boundary, so no reload ever repairs it either.
-      if (
-        (scope.kind === 'cross-filter' || scope.kind === 'interactive') &&
-        typeof scope.pageId !== 'string'
-      ) {
-        return state;
-      }
-      // `dashboard-date-range`'s `pageId` is REQUIRED too (`FILTER_SCOPE_REQUIRED_IDS` in
-      // `stateTypes.ts`), so a missing one is rejected outright rather than exempted the way
-      // `page` scope's genuinely OPTIONAL `pageId` is — otherwise it would also slip past the
-      // `!== undefined`-gated orphan check below and install anchored to nothing.
-      if (scope.kind === 'dashboard-date-range' && typeof scope.pageId !== 'string') {
-        return state;
-      }
-      // `page` scope's `pageId` is OPTIONAL (a legacy pageId-less filter applies on every
-      // page), so only screen it for string-ness when present.
-      if (scope.kind === 'page' && scope.pageId !== undefined && typeof scope.pageId !== 'string') {
-        return state;
-      }
+      // Stage 2 — EXISTENCE. What the wire boundary structurally cannot check: it validates
+      // a payload in isolation and has no doc to look ids up in. Kept here (and ONLY here)
+      // because the reducer's sole cleanup path for a scoped filter
+      // (`dropWidgetScopedFilters`, `removePage`'s page-anchor drop) fires when the anchor is
+      // REMOVED — a filter anchored to something that never existed is never removed, so it
+      // filters its page forever with no clearing affordance.
+      //
       // WIDGET-anchor orphan check: `widget`/`cross-filter`/`interactive` scopes name a
       // widget that must already exist. "Exists" is the reducer's own notion —
       // `Object.hasOwn(state.widgets, id)`, matching every other id-keyed guard here — so an
@@ -1987,18 +2074,15 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // accepted; the layout handlers re-run the sweep when a placement gives it one — see
       // {@link dropConflictingRankFilters}.
       if (
-        args.filter.filterMode === 'rank' &&
+        safeFilter.filterMode === 'rank' &&
         (scope.kind === 'page' || scope.kind === 'widget') &&
-        hasConflictingRankFilter(args.filter.id, args.filter, state.filters, state.pages)
+        hasConflictingRankFilter(safeFilter.id, safeFilter, state.filters, state.pages)
       ) {
         return state;
       }
-      // Strip unsafe own keys and repair a malformed `dependsOn` before the append. The
-      // filter otherwise appends VERBATIM: its target scope/page was chosen server-side and
-      // is deliberately NOT re-stamped with the applying side's active page, which would
-      // reintroduce a page-targeting divergence. Both helpers are reference-stable when the
-      // filter is already clean, so a well-formed filter still appends the SAME object.
-      const safeFilter = repairFilterDependsOn(stripUnsafeFilterKeys(args.filter));
+      // Append the (already stripped/repaired) filter. It otherwise appends VERBATIM: its
+      // target scope/page was chosen server-side and is deliberately NOT re-stamped with the
+      // applying side's active page, which would reintroduce a page-targeting divergence.
       return {
         ...state,
         filters: [...state.filters, safeFilter],
@@ -2069,12 +2153,20 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
 
       // Ids named in BOTH `removedWidgetIds` and `addedWidgets` in this SAME payload: a
       // remove+re-add of one id is a "replace", not a removal followed by an unrelated fresh
-      // insert. Computed ONCE, up front, so the three steps that must agree on it — the row
-      // pre-strip, the layout block's row-placement resolution, and the `addedWidgets` insert
-      // loop's idempotent-add guard — share one definition and produce the same outcome
-      // whether or not the bulk also supplied `widgetRows`: the widget's placement,
-      // cross-filters and spans survive (nothing ever strips its row, so `removeWidgetIds`'
-      // "stillReferenced" check sees it live) and its definition is updated to the new value.
+      // insert. Computed ONCE, up front, so the FOUR steps that must agree on it — the row
+      // pre-strip, the `removeWidgetIds` candidate list, the layout block's row-placement
+      // resolution, and the `addedWidgets` insert loop's idempotent-add guard — share one
+      // definition and produce the same outcome whether or not the bulk also supplied
+      // `widgetRows`: the widget's placement, cross-filters and spans survive, and its
+      // definition is updated to the new value.
+      //
+      // This set deliberately uses a LOOSER screen than `isInsertableAddedWidget`: it answers
+      // "does this payload intend to keep this id alive?", not "will the insert loop install
+      // it?". A re-add whose new definition is junk (a non-string `kind`, say) is skipped by
+      // the insert loop, and membership here is what makes the OLD widget — its entry, row,
+      // filters and spans — survive intact instead of the removal half of a rejected replace
+      // deleting the user's widget. `removedWidgetIds` is already string-filtered, so
+      // `has(widget.id)` implies a string id.
       const removedWidgetIdSet = new Set(removedWidgetIds);
       const reAddedWidgetIds = new Set<string>();
       for (const widget of safeAddedWidgets) {
@@ -2168,11 +2260,17 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         // not-yet-inserted added widget. Anything else is a phantom that would persist in
         // `widgetRows` with no `widgets` entry, the "page renders a widget that does not
         // exist" state. A `Set` lookup keeps an untrusted id off the prototype chain.
+        //
+        // Admission uses the SHARED `isInsertableAddedWidget` predicate, not a re-listed
+        // subset of the insert loop's screens: this step PREDICTS that loop's verdict, and
+        // any condition it fails to mirror leaves a row naming a widget the loop then skips.
+        // That was a real gap — this block screened record-ness/string-id/safe-key while the
+        // insert loop ADDITIONALLY required a string `kind`/`title`, so a
+        // `{ id: 'w9', kind: 42 }` entry with a `widgetRows: [['w9']]` installed the row and
+        // no widget.
         const validRowIds = new Set<string>(Object.keys(state.widgets));
         for (const widget of safeAddedWidgets) {
-          // Per-entry `isPlainRecord` skip: a `null`/primitive entry would throw reading
-          // `.id`, so it is skipped like every other malformed entry in this handler.
-          if (isPlainRecord(widget) && typeof widget.id === 'string' && isSafePatchKey(widget.id)) {
+          if (isInsertableAddedWidget(widget)) {
             validRowIds.add(widget.id);
           }
         }
@@ -2330,11 +2428,21 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // dangling row reference — narrowing the pre-strip back to the active page would
       // reintroduce that. The guard exists for `removePage`, the one caller that needs it;
       // see `removeWidgetIds`'s doc comment.
+      //
+      // The candidate list is `idsToPreStrip`, NOT `removedWidgetIds`: a re-added id is a
+      // REPLACE and must be excluded EXPLICITLY. Handing the full list in and relying on the
+      // re-added id's surviving ROW to make `stillReferenced` classify it as live worked only
+      // for a PLACED widget. A widget in `doc.widgets` but on no page's rows has no row to
+      // survive, so it was classified as genuinely removed and `dropWidgetScopedFilters` took
+      // its `widget`/`interactive`/`cross-filter` filters away moments before the insert loop
+      // re-added it — a replace of an unplaced widget silently losing its scoped filters. For
+      // the placed case the two are equivalent (the surviving row already vetoed the removal),
+      // so this only narrows the list to what the design always meant.
       const {
         pages: nextPages,
         widgets: prunedWidgets,
         filters: nextFilters,
-      } = removeWidgetIds(layoutPages, state.widgets, state.filters, removedWidgetIds);
+      } = removeWidgetIds(layoutPages, state.widgets, state.filters, idsToPreStrip);
 
       // Apply the add/update deltas on top of the pruned widgets — never a turn-start
       // snapshot — so any widget the user concurrently created or edited (on this page
@@ -2352,25 +2460,11 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // have since been legitimately moved or removed by the user).
       const newlyInsertedWidgetIds: string[] = [];
       for (const widget of safeAddedWidgets) {
-        // The same four screens `addWidget` applies, per entry — a malformed entry is
-        // skipped rather than sinking the whole bulk.
-        // Crash prevention: the `.id` read below throws on a `null`/primitive entry.
-        if (!isPlainRecord(widget)) {
-          continue;
-        }
-        // STRING id: `isSafePatchKey` alone accepts any non-string, so `widget.id: 42` would
-        // install under the STRINGIFIED key while `widget.id` stayed numeric.
-        if (typeof widget.id !== 'string') {
-          continue;
-        }
-        // Safe key before the bracket assignment: `nextWidgets['__proto__'] = widget` would
-        // re-prototype the record rather than add an own key.
-        if (!isSafePatchKey(widget.id)) {
-          continue;
-        }
-        // STRING `kind`/`title`, or `deserializeState`'s widget screen drops the ENTIRE
-        // widget on the next load.
-        if (typeof widget.kind !== 'string' || typeof widget.title !== 'string') {
+        // The same screens `addWidget` applies, per entry — a malformed entry is skipped
+        // rather than sinking the whole bulk. Held in `isInsertableAddedWidget` so the
+        // `validRowIds` step above, which must predict this verdict to avoid installing a
+        // row for a widget that never lands, applies the IDENTICAL test.
+        if (!isInsertableAddedWidget(widget)) {
           continue;
         }
         // Idempotent add: existence anywhere in `nextWidgets` means this widget was
@@ -2446,6 +2540,13 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       for (const update of safeUpdatedWidgets) {
         // Crash prevention: the `.widgetId` read below throws on a `null`/primitive entry.
         if (!isPlainRecord(update)) {
+          continue;
+        }
+        // STRING `widgetId` before the coercing `Object.hasOwn` below (string-id rule):
+        // `isSafePatchKey` only screens the denylist and accepts any non-string, so a numeric
+        // `42` would otherwise match a widget keyed `"42"`. Uniform with `updateWidget`, the
+        // single-widget channel this loop mirrors.
+        if (typeof update.widgetId !== 'string') {
           continue;
         }
         // Prototype-hazard guard before the `nextWidgets[update.widgetId] = patchedWidget`

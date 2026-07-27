@@ -386,6 +386,17 @@ than throw, matching the skip-not-throw convention every sibling guard uses. The
 package filters rather than rejects is `applyBulkUpdate`'s arrays, where "no-op the bad, keep
 the good" keeps a partially-junk payload usable.
 
+The invariant is enforced **uniformly**, not only where a mismatch is currently observable.
+Several handlers (`updateWidget`, `renamePage`, `applyBulkUpdate`'s `updatedWidgets[].widgetId`,
+and the three `args.pageId` reads) are benign under coercion _today_, because every write they
+perform is a bracket assignment through the same coerced key the `Object.hasOwn` read matched —
+so read and write agree. That is a property of those bodies, not of the id, and it is one added
+`Set.has`/`===`/`.includes` away from silently breaking, which is exactly the history above.
+They carry the guard anyway. The three explicit-`pageId` handlers share one resolver,
+`resolveTargetPageId(doc, args.pageId)`, which returns the active page for a nullish value (the
+legacy pageId-less fallback, preserving the `??` semantics) and `undefined` for any other
+non-string — so the caller no-ops instead of handing a number to the coercing existence check.
+
 ### Prototype-hazard keys
 
 `UNSAFE_KEYS` (`'__proto__'`, `'constructor'`, `'prototype'`) and `isSafeKey` live in their own
@@ -465,7 +476,11 @@ surviving-id-set signature for the load boundary, which computes the set itself.
 It drops the whole `dependsOn` array (never leaves `dependsOn: []`) when the prune empties it,
 mirroring `docTransforms.ts`'s convention for this exact field, and is reference-stable at both
 levels — the same array back when nothing needed pruning, and each untouched filter keeps its
-object identity.
+object identity. "Drops" means the KEY is `delete`d on the rebuilt filter, not spread as an
+explicit `dependsOn: undefined`: an own key with an `undefined` value still answers
+`Object.keys(filter)` and `'dependsOn' in filter`, so the in-memory shape would differ from a
+filter that never carried one. `deserializeState`'s `activeThreadId` reconciliation preserves
+the same distinction the same way.
 
 The prune began life INLINE in `removeFilter`, which is exactly why it covered one filter-dropping
 path and no other. Extracting it turned the invariant from something each handler had to remember
@@ -733,7 +748,7 @@ a no-op.
 | :--------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------- |
 | `dropWidgetScopedFilters`                      | Drop `widget`/`interactive`/`cross-filter` filters anchored to any removed widget                                                               |
 | `pruneDependsOn` / `pruneDependsOnAgainstSelf` | The SOLE `dependsOn` cascade prune (see [cascade pruning](#cascade-pruning-is-a-per-class-invariant))                                           |
-| `removeSpanEntries`                            | Prune `widgetColSpans` entries, collapsing an emptied map to `undefined`                                                                        |
+| `removeSpanEntries`                            | Prune `widgetColSpans` entries (`isSafeKey`-screening every surviving key), collapsing an emptied map to `undefined`                            |
 | `stripWidgetIdsFromPages`                      | Strip a set of ids from every page's rows, dropping an emptied row and clearing a surviving row-mate's stale span when the row collapses 2+ → 1 |
 | `dedupeLayoutRows`                             | The SOLE layout-matrix dedup — first occurrence wins across the whole matrix, dropping any row it empties                                       |
 | `enforceLayoutColSpans`                        | The SOLE col-span invariant pass (2→1 collapse, row-overflow drop, orphaned-span drop)                                                          |
@@ -996,13 +1011,27 @@ above; only what is specific to each is listed here.
   It applies the filter as-is, without re-stamping its scope to the applying side's active page —
   the filter already carries its server-chosen target.
 
-  It then rejects **orphans**, because the reducer's only cleanup path for a scoped filter fires
-  when its anchor is _removed_: a filter anchored to something that never existed is never removed,
-  so it filters its page forever with no clearing affordance. Two mirrored checks —
-  `scope.widgetId`/`scope.sourceWidgetId` must name a live widget, and an explicit `scope.pageId`
-  must name a live page (for `page`, `dashboard-date-range`, `cross-filter`, and `interactive`; a
-  legacy pageId-less `page` filter applies everywhere, is not an anchor, and is left alone, while
-  the other three require their `pageId` outright because the type does).
+  Scope screening runs in **two stages, split by what each boundary can actually know**:
+  1. **Wellformedness** is delegated to `isValidFilterScope` — the SAME predicate the wire
+     boundary and the load boundary already use — run against the already-stripped/repaired
+     filter, so a scope carrying a prototype-hazard own key is repaired rather than dropped.
+     Kind membership, the required id fields per kind, `page`'s optional-but-must-be-a-string
+     `pageId`, and the size bound all come from that one implementation. Hand-rolling per-kind
+     id checks here is what let the three boundaries disagree: this handler once screened only
+     `typeof scope.kind === 'string'`, so an **unknown kind** (`{ kind: 'pages' }`) and a
+     `dashboard-date-range` **missing its required `sourceId`** both installed live. The first
+     then escaped every cleanup path forever — `dropWidgetScopedFilters`, `removePage`'s
+     page-anchor drop and `removeWidgetIds` all key off the five KNOWN kinds — and the second
+     matched its date window against a source id that could never be right and was silently
+     dropped by `isValidFilterScope` on the next load.
+  2. **Existence** — the orphan checks, which stay here because the wire boundary validates a
+     payload in isolation and has no doc to look ids up in. The reducer's only cleanup path for
+     a scoped filter fires when its anchor is _removed_, so a filter anchored to something that
+     never existed is never removed and filters its page forever with no clearing affordance.
+     Two mirrored checks: `scope.widgetId`/`scope.sourceWidgetId` must name a live widget, and
+     an explicit `scope.pageId` must name a live page (for `page`, `dashboard-date-range`,
+     `cross-filter`, and `interactive`; a legacy pageId-less `page` filter applies everywhere,
+     is not an anchor, and is left alone).
 
   The two session-flavoured kinds needed this most and had it least: `serializeDoc` STRIPS
   `cross-filter`/`interactive` entries, so unlike every other scope kind the load boundary can
@@ -1048,13 +1077,22 @@ above; only what is specific to each is listed here.
 
   **Remove-and-re-add of the same id in one payload is a "replace", not a removal.** The
   `reAddedWidgetIds` set (`removedWidgetIds ∩ addedWidgets` ids) is computed once up front and
-  consulted at all three steps that would otherwise disagree: the pre-strip skips those ids (so the
-  row, and hence the filters and spans, survives); the layout block's `validRowIds` exclusion skips
+  consulted at all **four** steps that would otherwise disagree: the pre-strip skips those ids (so
+  the row survives); `removeWidgetIds` is handed `idsToPreStrip` — removals MINUS re-adds — so a
+  re-added id is never even a removal candidate; the layout block's `validRowIds` exclusion skips
   them (so a row naming the id isn't dropped as a phantom); and the insert loop OVERWRITES rather
   than skips an already-present entry with such an id (so the definition updates on top of the
   preserved placement). Before this was unified the two branches disagreed: a replace bulk
   supplying `widgetRows` preserved placement but discarded the new title/config, while one omitting
   `widgetRows` genuinely deleted-then-reinserted the widget, losing its placement/filters/spans.
+
+  The `removeWidgetIds` exclusion is **explicit** rather than inferred from the surviving row.
+  Handing the full `removedWidgetIds` in and relying on `stillReferenced` to classify the re-added
+  id as live worked only for a PLACED widget: one in `doc.widgets` but on no page's rows has no row
+  to survive, so it read as genuinely removed and `dropWidgetScopedFilters` took its
+  `widget`/`interactive`/`cross-filter` filters away moments before the insert loop re-added it — a
+  replace of an unplaced widget silently losing its scoped filters. For the placed case the two
+  candidate lists are equivalent, since the surviving row already vetoed the removal.
 
   **Layout replacement is scoped to the `activePageId` page and skipped independently of the
   deltas.** When `activePageId` names a page that no longer exists (deleted mid-turn), only the
@@ -1090,13 +1128,26 @@ above; only what is specific to each is listed here.
   `setWidgetLayout`, so it passes the page's real previous rows.
 
   **Row sanitization** mirrors `setWidgetLayout`'s, widened for this handler's own inserts:
-  `validRowIds` is `state.widgets` **union** this bulk's `addedWidgets` ids that are strings and
-  pass `isSafePatchKey` (rows may legitimately reference a widget inserted later in the same
-  handler), minus `removedWidgetIds` (minus `reAddedWidgetIds`). Both the population step and the
-  consuming `row.filter` require `typeof id === 'string'`: `isSafePatchKey` only screens the
-  denylist, so a numeric `addedWidgets[].id` otherwise survived into the sanitized rows while the
-  insertion loop skipped inserting it — a dangling row reference no cleanup path could reach.
-  `dedupeLayoutRows` then applies, and span keys are `isSafePatchKey`-filtered and clamped.
+  `validRowIds` is `state.widgets` **union** this bulk's `addedWidgets` entries that
+  `isInsertableAddedWidget` accepts (rows may legitimately reference a widget inserted later in the
+  same handler), minus `removedWidgetIds` (minus `reAddedWidgetIds`). `dedupeLayoutRows` then
+  applies, and span keys are `isSafePatchKey`-filtered and clamped.
+
+  That admission step **PREDICTS the insert loop's verdict**, and any condition it fails to mirror
+  produces a row naming a widget the loop then skips — the "page renders a widget that does not
+  exist" state `validRowIds` exists to prevent, which survives `serializeDoc` and is healed only by
+  `normalizePersistedPages` on the NEXT load. `isInsertableAddedWidget` is therefore the ONE
+  acceptance test both blocks call (record-ness, string `id`, `isSafePatchKey`, string
+  `kind`/`title`) rather than two hand-kept lists. Both instances of the disagreement were real: a
+  numeric `addedWidgets[].id` (`isSafePatchKey` alone screens the denylist, not the type), and then
+  the later-added `kind`/`title` string checks, which the insert loop applied and the admission
+  step never learned about.
+
+  `reAddedWidgetIds` deliberately uses a LOOSER screen than `isInsertableAddedWidget`, because it
+  answers a different question — "does this payload intend to keep this id alive?", not "will the
+  insert loop install it?". A replace whose new definition is junk is skipped by the insert loop,
+  and membership in that set is what leaves the OLD widget (entry, row, filters, spans) intact
+  instead of letting the removal half of a rejected replace delete the user's widget.
 
   **Unplaced added widgets get a fallback placement.** After the layout portion runs, the handler
   collects every id still referenced across all pages' post-removal rows and appends a
@@ -1369,10 +1420,17 @@ runtime data sources, and the session-scoped filters are all excluded by constru
 
 `deserializeState(serialized, dataSources, shellOverrides?)` rebuilds the full partitioned state.
 It is a public export a host may call directly on `JSON.parse(localStorage.getItem(k))`, so it is
-**TOTAL over a malformed `SerializedStudioState`** — both its top-level containers (each
-absent/malformed one coerced to its empty default up front: record containers to `{}`, `filters`
-to `[]`) and their nested entries. Totality means "repairs corruption instead of crashing", not
-"loads anything".
+**TOTAL over a malformed `SerializedStudioState`** — the ARGUMENT ITSELF (coerced to `{}` when it
+is not a record), its top-level containers (each absent/malformed one coerced to its empty default
+up front: record containers to `{}`, `filters` to `[]`), and their nested entries. Totality means
+"repairs corruption instead of crashing", not "loads anything".
+
+The argument coercion closes the case the documented contract makes most likely and the code
+handled least: `JSON.parse(localStorage.getItem(k))` is `null` for a missing key. The version read
+already anticipated that with `?.schemaVersion`, but the container reads immediately below then
+threw `Cannot read properties of null`. Every field is now read off the normalised `raw`, not off
+`serialized` — including `ai`/`relationships`/`expressionFields`/`filterPresets`, which used to be
+read off the raw argument even though their siblings were not.
 
 **The one deliberate exception:** it THROWS when `serialized.schemaVersion` is a number GREATER
 than `CURRENT_SCHEMA_VERSION`. Everything else it meets is _within-version_ corruption it can
@@ -1489,18 +1547,32 @@ screens, in the order they run:
     `evaluateExpression` discriminates them in, so a node this screen accepts is the same member
     the evaluator resolves it to.
 
-  - **`isRelationshipSafe`** requires all four endpoint ids/fields to be strings and `type` to be a
-    member of the closed `StudioRelationship['type']` union (held in a `Set`). An unknown `type`
-    FAILS OPEN into the `many-to-one` branch of every join builder and silently produces wrong
-    joined rows — the same fail-open class the filter `operator` check closes one level up.
+  - **`isRelationshipSafe`** requires `id` and all four endpoint ids/fields to be strings, and
+    `type` to be a member of the closed `StudioRelationship['type']` union (held in a `Set`). An
+    unknown `type` FAILS OPEN into the `many-to-one` branch of every join builder and silently
+    produces wrong joined rows — the same fail-open class the filter `operator` check closes one
+    level up. The `id` check is the one both siblings already made and this predicate omitted:
+    `StudioController.updateRelationship(id, patch)`/`removeRelationship(id)` key off `rel.id` and
+    `RelationshipPanel`'s delete button is `removeRelationship(rel.id)`, so an entry with no `id`
+    loaded, rendered in the data drawer, and was permanently unremovable and unupdatable.
+
+        The three `junction*` fields are deliberately NOT screened for `type: 'many-to-many'`, even
+        though they are documented as required for it: `dataSourceGraph.ts`'s join builders guard every
+        read (`if (!rel.junctionSourceId || !rel.junctionSourceField || !rel.junctionTargetField)
+
+    { continue; }`), so an incomplete entry is SKIPPED, not dereferenced. There is no unguarded
+    read to protect, and dropping the whole relationship would lose an entry the data drawer can
+    still show and repair.
 
   Each predicate receives an already-record, already-own-key-screened entry, so it only checks the
   leaves consumers dereference unguarded; the rest stay optional/defaulted/display-only and follow
   the fallback-over-drop convention. `screenFilterPresets` coerces a preset's `name` (rendered
-  verbatim as a Chip `label`) and screens each preset INNER filter for a string `id` alongside
-  `field`/`operator`/`operator2` — `applyFilterPreset`'s id-remap does `idMap.set(f.id, fresh)` and
-  the drawer keys its rows off that id, so a non-string one yields a preset row that can never be
-  matched or removed.
+  verbatim as a Chip `label`), requires the preset's OWN `id` to be a string, and screens each
+  preset INNER filter for a string `id` alongside `field`/`operator`/`operator2`. Both `id` checks
+  exist for the same reason: `applyFilterPreset`/`removeFilterPreset`/rename locate a preset with
+  `p.id === presetId` and the inner id-remap does `idMap.set(f.id, fresh)`, with the drawer keying
+  its rows off both — a strict compare that never coerces, so a non-string id yields a preset (or a
+  preset row) that can never be matched, applied or removed.
 
 Finally, `session` is reset to `{ mode: 'edit', shell: default ⊕ shellOverrides }`, and
 `runtime.dataSources` is the host-injected argument. The load-boundary normalizers run across kinds

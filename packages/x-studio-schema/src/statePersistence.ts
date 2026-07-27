@@ -361,8 +361,27 @@ const RELATIONSHIP_TYPES = new Set(['many-to-one', 'one-to-one', 'many-to-many']
  * builder switches on: an unknown value fails open into the `many-to-one` branch and
  * silently produces wrong joined rows, the same fail-open class the filter `operator`
  * membership check closes one level up.
+ *
+ * `id` is checked for the same reason both siblings check theirs ({@link isExpressionFieldSafe},
+ * and the preset screen whose own comment calls `id` "the one field it shares with that
+ * screen"). It is REQUIRED by `StudioRelationship` and it is how the entry is addressed:
+ * `StudioController.updateRelationship(id, patch)`/`removeRelationship(id)` both key off
+ * `rel.id`, and `RelationshipPanel` renders its delete button as
+ * `onClick={() => controller.removeRelationship(rel.id)}`. A persisted relationship with no
+ * `id` (or `id: 42`) therefore loaded successfully, rendered in the data drawer, and was
+ * permanently unremovable and unupdatable — re-persisted forever with no self-heal — while
+ * two such entries also collided on the React list key.
+ *
+ * The three `junction*` fields are deliberately NOT screened for `type: 'many-to-many'`,
+ * even though they are documented as required for that discriminant: `dataSourceGraph.ts`'s
+ * join builders guard every read (`if (!rel.junctionSourceId || !rel.junctionSourceField ||
+ * !rel.junctionTargetField) { continue; }`, and `rel.type === 'many-to-many' &&
+ * rel.junctionSourceId` at the reachability sites), so an incomplete entry is SKIPPED rather
+ * than dereferenced. There is no unguarded read to protect, and dropping the whole
+ * relationship would lose a repairable entry the data drawer can still show and edit.
  */
 const isRelationshipSafe = (entry: Record<string, unknown>): boolean =>
+  typeof entry.id === 'string' &&
   typeof entry.sourceId === 'string' &&
   typeof entry.targetId === 'string' &&
   typeof entry.sourceField === 'string' &&
@@ -501,6 +520,15 @@ const safePresetName = (name: unknown): string =>
  * `applyFilterPreset`, one indirection past the `doc.filters` load screen. Reference-
  * stable at both levels: returns the SAME outer array (and the SAME inner `filters`
  * array on each surviving preset) when nothing is dropped or repaired.
+ *
+ * A preset's OWN `id` is required to be a string too — the outer sibling of the `id` check
+ * {@link isPresetFilterSafe} makes one level down, and of {@link isRelationshipSafe}'s. It is
+ * identity data: `docTransforms`' `applyFilterPreset`/`removeFilterPreset`/rename all locate
+ * the preset with `p.id === presetId` (a strict compare that never coerces) and the drawer
+ * keys its rows off it, so a preset with no `id` (or `id: 42`) would load, render a chip, and
+ * be permanently unappliable, unrenamable and unremovable. Drop rather than coerce, matching
+ * every other identity-data screen in this file (`name` is display metadata and still gets
+ * the fallback-over-drop treatment).
  */
 const screenFilterPresets = (value: unknown): StudioDoc['filterPresets'] => {
   if (!Array.isArray(value)) {
@@ -509,7 +537,7 @@ const screenFilterPresets = (value: unknown): StudioDoc['filterPresets'] => {
   let changed = false;
   const safe: unknown[] = [];
   for (const preset of value) {
-    if (!isRecord(preset) || !Array.isArray(preset.filters)) {
+    if (!isRecord(preset) || typeof preset.id !== 'string' || !Array.isArray(preset.filters)) {
       changed = true;
       continue;
     }
@@ -907,12 +935,22 @@ export function deserializeState(
   dataSources: StudioRuntime['dataSources'],
   shellOverrides?: Partial<StudioSession['shell']>,
 ): StudioState {
+  // Coerce the WHOLE argument to a record before anything reads off it. `serialized` is
+  // typed, but this is a public export a host may call directly on
+  // `JSON.parse(localStorage.getItem(key))` — which is `null` for a missing key, and
+  // `undefined` if the host forgets the argument entirely. The version read below already
+  // anticipated that with `?.`, but the container reads further down then threw
+  // `Cannot read properties of null (reading 'widgets')` — a documented-total function that
+  // was total over every nested corruption and not over the single most likely input. One
+  // coercion here makes every read below unconditionally safe, and the result is exactly the
+  // default state a `{}` argument already produced.
+  const raw = (isRecord(serialized) ? serialized : {}) as Record<string, unknown>;
+
   // Read the claimed version BEFORE anything else. Only a NUMBER greater than the current
   // version is rejected: an absent version is a legacy pre-versioning doc (v0), and any
   // other non-number is junk this function's within-version repair convention ignores —
   // both are `migrateState`'s business, not a reason to refuse to load.
-  const claimedVersion = (serialized as unknown as Record<string, unknown> | null | undefined)
-    ?.schemaVersion;
+  const claimedVersion = raw.schemaVersion;
   if (typeof claimedVersion === 'number' && claimedVersion > CURRENT_SCHEMA_VERSION) {
     throw new Error(
       `MUI X Studio: Cannot migrate from schema version ${claimedVersion} to ${CURRENT_SCHEMA_VERSION}. ` +
@@ -935,8 +973,9 @@ export function deserializeState(
   // non-array→`[]` pattern used for the optional containers below. `serialized` is typed but
   // untrusted at this boundary, so read the raw shape for the runtime guards. The three
   // OPTIONAL containers (`relationships`/`expressionFields`/`filterPresets`/`ai`) are already
-  // absent-tolerant downstream (`screenRecordArray`/`screenFilterPresets`/`isRecord`).
-  const raw = serialized as unknown as Record<string, unknown>;
+  // absent-tolerant downstream (`screenRecordArray`/`screenFilterPresets`/`isRecord`) — but
+  // they are read off the already-normalised `raw` too, not off `serialized`, so a nullish
+  // argument can't reach them either (see `raw`'s definition above).
   const serializedWidgets = (isRecord(raw.widgets) ? raw.widgets : {}) as StudioDoc['widgets'];
   const serializedPages = (isRecord(raw.pages) ? raw.pages : {}) as StudioDoc['pages'];
   const serializedFilters = (Array.isArray(raw.filters) ? raw.filters : []) as StudioDoc['filters'];
@@ -1247,8 +1286,8 @@ export function deserializeState(
   // poison a later spread. The container's unsafe keys are stripped (keeping the rest of `ai`);
   // a thread carrying one is dropped whole, matching the sibling per-entry own-key screens.
   let normalizedAi: StudioAIState | undefined;
-  if (isRecord(serialized.ai) && Array.isArray((serialized.ai as StudioAIState).threads)) {
-    const ai = stripUnsafeOwnKeys(serialized.ai as StudioAIState);
+  if (isRecord(raw.ai) && Array.isArray((raw.ai as StudioAIState).threads)) {
+    const ai = stripUnsafeOwnKeys(raw.ai as StudioAIState);
     // Drop non-record / unsafe-own-key entries first (existing screen), THEN repair
     // each SURVIVING thread's `messages`/`name` leaf shapes (F1 finding) — the
     // container/record-ness screen alone let a `messages: 'junk'` or `name: 42` thread
@@ -1548,14 +1587,14 @@ export function deserializeState(
       // deref reads (`ef.expression`, `r.type`) load with `success: true` and then crash
       // (or silently mis-join) on first use, with `serializeDoc` re-persisting it forever.
       relationships: screenRecordArray<StudioDoc['relationships'][number]>(
-        serialized.relationships,
+        raw.relationships,
         isRelationshipSafe,
       ),
       expressionFields: screenRecordArray<StudioExpressionField>(
-        serialized.expressionFields,
+        raw.expressionFields,
         isExpressionFieldSafe,
       ),
-      filterPresets: screenFilterPresets(serialized.filterPresets),
+      filterPresets: screenFilterPresets(raw.filterPresets),
       // `doc.ai` validation (container + per-entry) is computed as `normalizedAi` above.
       ai: normalizedAi,
     },

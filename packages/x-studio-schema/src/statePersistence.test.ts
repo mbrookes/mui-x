@@ -2911,6 +2911,47 @@ describe('deserializeState required-leaf screens (M1)', () => {
     expect(state.doc.ai?.threads[0].messages).toEqual([{ role: 'user', content: 'hi' }]);
   });
 
+  // M1: `isRelationshipSafe` screened all four endpoint ids/fields and `type`, but omitted
+  // the `id` check BOTH its siblings make (`isExpressionFieldSafe`, and the preset-inner
+  // screen whose own comment calls `id` "the one field it shares with that screen"). `id` is
+  // REQUIRED by `StudioRelationship` and is how the entry is addressed:
+  // `StudioController.updateRelationship(id, patch)`/`removeRelationship(id)` key off
+  // `rel.id`, and `RelationshipPanel` wires its delete button to
+  // `removeRelationship(rel.id)`. A persisted relationship with no `id` (or `id: 42`)
+  // therefore loaded, rendered in the data drawer, and was permanently unremovable and
+  // unupdatable — re-persisted forever with no self-heal — while two such entries also
+  // collided on the React list key.
+  it('drops a relationships entry with a missing or non-string id (M1)', () => {
+    const { id: omittedId, ...relWithoutId } = goodRel;
+    expect(omittedId).toBe('r1');
+    const serialized = {
+      ...minimal,
+      relationships: [goodRel, relWithoutId, { ...goodRel, id: 42 }],
+    } as unknown as typeof minimal;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.relationships.map((r) => r.id)).toEqual(['r1']);
+    // Self-heals: the unaddressable entries are not re-persisted.
+    expect(serializeState(state).relationships).toEqual([goodRel]);
+  });
+
+  // The OUTER sibling of the preset-inner-filter `id` screen just below, and of M1's:
+  // `docTransforms`' `applyFilterPreset`/`removeFilterPreset`/rename all locate a preset with
+  // `p.id === presetId` (a strict compare that never coerces) and the drawer keys its rows
+  // off it, so a preset with no `id` loads, renders a chip, and can never be applied,
+  // renamed or removed.
+  it('drops a filterPresets entry whose own id is not a string', () => {
+    const serialized = {
+      ...minimal,
+      filterPresets: [
+        { id: 'p1', name: 'Kept', filters: [] },
+        { name: 'No id', filters: [] },
+        { id: 42, name: 'Numeric id', filters: [] },
+      ],
+    } as unknown as typeof minimal;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.filterPresets?.map((p) => p.id)).toEqual(['p1']);
+  });
+
   it('drops a preset inner filter whose id is not a string', () => {
     const serialized = {
       ...minimal,
@@ -2959,6 +3000,30 @@ describe('deserializeState schemaVersion gate (M4)', () => {
       deserializeState({ ...minimal, schemaVersion: 'v2' } as unknown as typeof minimal, {}),
     ).not.toThrow();
   });
+
+  // L4: `deserializeState` is documented as TOTAL over a malformed `SerializedStudioState`
+  // and as "a public export a host may call directly on
+  // `JSON.parse(localStorage.getItem(k))`" — which returns `null` for a missing key. The
+  // version read already anticipated that with `?.schemaVersion`, but the container reads
+  // just below then threw `Cannot read properties of null (reading 'widgets')`: total over
+  // every nested corruption, and not over the single most likely input. The whole argument
+  // is now coerced to `{}` when it is not a record, so a nullish call yields exactly the
+  // default state a `{}` argument already produced.
+  it.each([null, undefined, 'junk', 42, []])(
+    'is total over a non-record argument (%p) instead of throwing (L4)',
+    (bogus) => {
+      expect(() => deserializeState(bogus as unknown as typeof minimal, {})).not.toThrow();
+      const state = deserializeState(bogus as unknown as typeof minimal, {});
+      // The "at least one page always exists" invariant still holds …
+      expect(Object.keys(state.doc.pages).length).toBeGreaterThan(0);
+      expect(Object.hasOwn(state.doc.pages, state.doc.dashboard.activePageId)).toBe(true);
+      // … and every other container is its empty default.
+      expect(state.doc.widgets).toEqual({});
+      expect(state.doc.filters).toEqual([]);
+      expect(state.doc.relationships).toEqual([]);
+      expect(state.doc.ai).toBeUndefined();
+    },
+  );
 });
 
 // ─── L3 / H2 at the load boundary ────────────────────────────────────────────

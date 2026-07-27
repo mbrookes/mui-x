@@ -520,16 +520,18 @@ export function validateChartConfigKeysForType(
  * effective family (per {@link getAllowedChartConfigKeys}); any key belonging to a
  * different chart family is dropped.
  *
- * WHY THIS EXISTS (future-use — no current call site): the write-side full-widget
- * wire check (`parseStateMutation.ts`'s `validateWidget`) is STATELESS and rejects
- * any full widget whose config carries a key outside its `chartType`'s family. A
- * STORED chart config legitimately retains keys authored under a previously-selected
- * chartType (retention-across-chartType-switch — see `StudioChartConfig`'s doc in
- * `widgetTypes.ts`), so a future producer that round-trips a stored widget through
- * `addWidget`/`applyBulkUpdate.addedWidgets` must strip it to its effective family's
- * keys FIRST via this helper, or the valid, user-authored config is rejected at the
- * boundary. This is the sanctioned way to do that strip. Shallow, key-presence-based,
- * mirroring the validators above.
+ * WHY THIS EXISTS: the write-side full-widget wire check (`parseStateMutation.ts`'s
+ * `validateWidget`) is STATELESS and would otherwise reject any full widget whose config
+ * carries a key outside its `chartType`'s family. A STORED chart config legitimately
+ * retains keys authored under a previously-selected chartType
+ * (retention-across-chartType-switch — see `StudioChartConfig`'s doc in `widgetTypes.ts`),
+ * so round-tripping a stored widget through `addWidget`/`applyBulkUpdate.addedWidgets`
+ * (duplicating it, moving it across dashboards) would fail wholesale.
+ *
+ * `validateWidget` calls this directly for exactly that reason: foreign-family keys are
+ * STRIPPED there, not rejected, and this is the one implementation of that strip. It
+ * assigns back only when a key was actually dropped, so a clean config keeps its object
+ * identity. Shallow, key-presence-based, mirroring the validators above.
  */
 export function stripForeignFamilyKeys(
   config: Record<string, unknown>,

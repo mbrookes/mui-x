@@ -365,6 +365,49 @@ describe('applyMutation', () => {
     expect(next.widgets).toEqual(state.widgets);
   });
 
+  // H2, the direct sibling of the non-string-`id` dangling-row case above. The two
+  // `kind`/`title` skips were added to the insert loop later, and their tests (just above)
+  // never pass a `widgetRows` — so the `validRowIds` block, which PREDICTS the insert loop's
+  // verdict, kept admitting such an entry's id. The row installed on the active page and the
+  // insert loop then skipped the widget, leaving `pages[p].widgetRows` naming a widget absent
+  // from `doc.widgets`: the exact "page renders a widget that does not exist" state
+  // `validRowIds` exists to prevent. It survives `serializeDoc` and is healed only by
+  // `normalizePersistedPages` on the NEXT load. Both blocks now share
+  // `isInsertableAddedWidget`, so they cannot disagree again.
+  it('applyBulkUpdate with a non-string addedWidgets kind does not leave a dangling widgetRows reference (H2)', () => {
+    const state = twoPageState('page-1');
+    const next = applyDocMutation(state, {
+      type: 'applyBulkUpdate',
+      args: {
+        removedWidgetIds: [],
+        updatedWidgets: [],
+        addedWidgets: [{ id: 'w9', kind: 42, title: 't', config: {} }],
+        widgetRows: [['w9']],
+        activePageId: 'page-1',
+      } as never,
+    });
+    // The widget was never inserted …
+    expect(Object.hasOwn(next.widgets, 'w9')).toBe(false);
+    // … so no row may name it.
+    expect(next.pages['page-1'].widgetRows).toEqual([]);
+  });
+
+  it('applyBulkUpdate with a non-string addedWidgets title does not leave a dangling widgetRows reference (H2)', () => {
+    const state = twoPageState('page-1');
+    const next = applyDocMutation(state, {
+      type: 'applyBulkUpdate',
+      args: {
+        removedWidgetIds: [],
+        updatedWidgets: [],
+        addedWidgets: [{ id: 'w9', kind: 'chart', title: 42, config: {} }],
+        widgetRows: [['w9']],
+        activePageId: 'page-1',
+      } as never,
+    });
+    expect(Object.hasOwn(next.widgets, 'w9')).toBe(false);
+    expect(next.pages['page-1'].widgetRows).toEqual([]);
+  });
+
   it('addPage with a prototype-hazard id is a no-op (Tier 3)', () => {
     const state = twoPageState('page-1');
     const next = applyDocMutation(state, {
@@ -4180,6 +4223,45 @@ describe('applyMutation', () => {
       expect(next.widgets.w1.title).toBe('New title');
     });
 
+    // L3: the replace path relied on the re-added id's ROW surviving the pre-strip, so that
+    // `removeWidgetIds`' `stillReferenced` check would classify it as live. A widget in
+    // `doc.widgets` but on NO page's rows has no row to survive — it was therefore treated
+    // as genuinely removed and `dropWidgetScopedFilters` took its widget-scoped filter away
+    // moments before the insert loop re-added the widget. `removeWidgetIds` is now handed
+    // `idsToPreStrip` (removals MINUS re-adds), making the exclusion explicit instead of a
+    // row-survival side effect; for a PLACED widget the two lists are equivalent, because
+    // the surviving row already vetoed the removal.
+    it('a replace of an UNPLACED widget keeps its widget-scoped filter (L3)', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        // `w1` exists in `widgets` but appears on no page's rows.
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+        widgets: { w1: chartWidget('w1', 'Old title') },
+        filters: [
+          {
+            id: 'f1',
+            field: 'x',
+            operator: 'equals',
+            value: 1,
+            scope: { kind: 'widget', widgetId: 'w1' },
+          },
+        ],
+      });
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: ['w1'],
+          addedWidgets: [chartWidget('w1', 'New title')],
+          updatedWidgets: [],
+          activePageId: 'page-1',
+        },
+      } as StateMutation);
+      // The widget survives the replace with its NEW definition …
+      expect(next.widgets.w1.title).toBe('New title');
+      // … and its scoped filter was never dropped along the way.
+      expect(next.filters.map((f) => f.id)).toEqual(['f1']);
+    });
+
     it('removes a widget from every page when removedWidgetIds names it, even with widgetRows omitted (T1 cross-page fix)', () => {
       const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
@@ -5168,6 +5250,77 @@ describe('applyMutation', () => {
         },
       } as any);
       expect(next.filters).toHaveLength(1);
+    });
+  });
+
+  // H1: `addFilter` hand-rolled its scope screening per kind and checked only `typeof
+  // scope.kind === 'string'` for kind membership, so it accepted two shapes BOTH other
+  // trust boundaries reject — the deferred-data-loss class the "all three boundaries agree
+  // on the same payload" rule exists to prevent. Both are reachable WITHOUT the wire parser
+  // (`executeToolOnState.ts` builds mutations straight from LLM tool args; the public
+  // `StudioController.addFilter` commits straight to the reducer). The handler now delegates
+  // wellformedness to `isValidFilterScope`, the same predicate the wire and load boundaries
+  // use, keeping only the doc-relative EXISTENCE checks the wire structurally cannot do.
+  describe('addFilter delegates scope wellformedness to the shared predicate (H1)', () => {
+    // `FILTER_SCOPE_REQUIRED_IDS` lists BOTH `sourceId` and `pageId` for
+    // `dashboard-date-range`, but the reducer screened `pageId` alone. A payload omitting
+    // `sourceId` installed live with `scope.sourceId === undefined` — so the date window is
+    // matched against a source id that can never be right — persisted, and was then silently
+    // dropped by `isValidFilterScope` on the very next load.
+    it('no-ops a dashboard-date-range scope missing its REQUIRED sourceId', () => {
+      const state = twoPageState();
+      const next = applyDocMutation(state, {
+        type: 'addFilter',
+        args: {
+          filter: {
+            id: 'f1',
+            field: 'date',
+            operator: 'equals',
+            value: '2024',
+            scope: { kind: 'dashboard-date-range', pageId: 'page-1' },
+          },
+        },
+      } as any);
+      expect(next).toBe(state);
+      expect(next.filters).toHaveLength(0);
+    });
+
+    // An UNKNOWN kind was the sharper of the two: it installed and then escaped EVERY
+    // cleanup path, because `dropWidgetScopedFilters`, `removePage`'s page-anchor drop and
+    // `removeWidgetIds` all key off the five known kinds. The filter then narrowed its page
+    // forever with no clearing affordance — exactly the failure `statePersistence.ts`'s own
+    // `isValidFilterScope` comment describes.
+    it('no-ops a scope whose kind is not one of the five known kinds', () => {
+      const state = twoPageState();
+      const next = applyDocMutation(state, {
+        type: 'addFilter',
+        args: {
+          filter: {
+            id: 'f1',
+            field: 'x',
+            operator: 'equals',
+            value: 1,
+            scope: { kind: 'pages' },
+          },
+        },
+      } as any);
+      expect(next).toBe(state);
+      expect(next.filters).toHaveLength(0);
+    });
+
+    // The delegation must not tighten the ONE genuinely-optional id: `page` scope's
+    // `pageId` is optional (a legacy pageId-less filter applies on every page), and
+    // `validateFilterScope` handles that with `isOptionalString`. Pinned here so a future
+    // simplification of the shared predicate cannot silently drop the legacy shape.
+    it('still accepts the legacy pageId-less page scope through the shared predicate', () => {
+      const state = twoPageState();
+      const next = applyDocMutation(state, {
+        type: 'addFilter',
+        args: {
+          filter: { id: 'f1', field: 'x', operator: 'equals', value: 1, scope: { kind: 'page' } },
+        },
+      } as any);
+      expect(next.filters.map((f) => f.id)).toEqual(['f1']);
     });
   });
 });

@@ -17,6 +17,7 @@ import { buildWidgetDataSummary } from './generateInsight';
 import { buildRichContext } from './richContext';
 import { parseSSEStream, serializeDashboardState } from './sseUtils';
 import { createMessageId } from './chatIds';
+import type { StudioChatTurnMutationLedger } from './chatTurnMutations';
 
 /**
  * Configuration for the x-studio AI assistant.
@@ -24,6 +25,15 @@ import { createMessageId } from './chatIds';
  * `x-studio` is a UI-only package — it contains no LLM implementation.
  * Point `endpoint` at an `x-studio-ai-middleware` server (e.g. `examples/x-studio-dev-server`)
  * which holds the API key, builds the system prompt, and runs tool calls server-side.
+ *
+ * **Referential stability is a performance hint, not a correctness requirement.**
+ * `StudioChatPanel` rebuilds its `ChatAdapter` whenever this object's identity
+ * changes, and the panel re-renders on every streamed token — so passing a fresh
+ * object literal on each render (the shape of the examples below) rebuilds the
+ * adapter constantly. Nothing breaks: the in-flight readers a `stop()` must cancel
+ * are tracked in a registry owned by the panel, deliberately OUTSIDE the adapter,
+ * precisely so a rebuilt adapter can still abort the stream that is actually
+ * running. Memoizing (`React.useMemo`) still saves the rebuild work.
  */
 export interface StudioAIConfig {
   /**
@@ -109,6 +119,37 @@ export interface StudioAIConfig {
 
 type ChatSendMessageInput = Parameters<ChatAdapter['sendMessage']>[0];
 
+/** Response-body reader of one in-flight `sendMessage` stream. */
+export type StudioStreamReader = ReadableStreamDefaultReader<Uint8Array>;
+
+export interface CreateBackendChatAdapterOptions {
+  /**
+   * Registry of the response-body readers of every in-flight `sendMessage` stream,
+   * cancelled by `stop()`.
+   *
+   * Pass a caller-owned `Set` whose lifetime is INDEPENDENT of the adapter's. The
+   * adapter is rebuilt whenever any of `createBackendChatAdapter`'s inputs change
+   * identity — `aiConfig` is a public prop that hosts routinely pass as an inline
+   * object literal, and `focusedWidgetId` changes while the panel is open (clicking
+   * another widget's "Analysis" mid-stream) — and the panel re-renders on every
+   * streamed token, so rebuilds happen constantly DURING a stream. With the registry
+   * living inside the adapter, the rebuilt adapter (the one `stop()` is dispatched
+   * to) starts with an empty set and `stop()` cancels nothing, while the reader
+   * holding the live connection is only reachable from the discarded closure.
+   *
+   * Defaults to an adapter-local `Set`, which is correct only when the adapter is
+   * never rebuilt mid-stream.
+   */
+  activeReaders?: Set<StudioStreamReader>;
+  /**
+   * Records the `doc` snapshots around each applied `state-mutation`, keyed by the
+   * assistant message id of the turn that produced it, so **Retry** can revert a
+   * failed turn's already-applied edits before replaying it (see
+   * `chatTurnMutations.ts`). Omit to disable that tracking.
+   */
+  mutationLedger?: StudioChatTurnMutationLedger;
+}
+
 /** Coerces untrusted wire data to a finite number, falling back to `0` otherwise. */
 function toFiniteNumber(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
@@ -127,6 +168,7 @@ export function createBackendChatAdapter(
   controller: StudioController,
   customWidgets?: StudioCustomWidgetDef[],
   focusedWidgetId?: string,
+  options?: CreateBackendChatAdapterOptions,
 ): ChatAdapter {
   const {
     endpoint,
@@ -175,14 +217,23 @@ export function createBackendChatAdapter(
   // stream's still-live reader, making `stop()` a no-op for it. Each request adds
   // its own reader and removes only that reader when it settles, so `stop()` always
   // cancels exactly the readers that are still live.
-  const activeReaders = new Set<ReadableStreamDefaultReader<Uint8Array>>();
+  //
+  // The registry is caller-INJECTED (see `CreateBackendChatAdapterOptions.
+  // activeReaders`): a per-adapter Set solves overlapping streams but not adapter
+  // churn. This adapter is rebuilt whenever `aiConfig`/`customWidgets`/
+  // `focusedWidgetId` change identity, which for an unmemoized host prop is every
+  // render — i.e. every streamed token — so `stop()` reaches a brand-new adapter
+  // whose own Set is empty while the live reader sits in the discarded one's.
+  // Ownership therefore belongs to whoever outlives the adapter, not the adapter.
+  const activeReaders = options?.activeReaders ?? new Set<StudioStreamReader>();
+  const mutationLedger = options?.mutationLedger;
 
   return {
     async sendMessage(input: ChatSendMessageInput): Promise<ReadableStream<ChatMessageChunk>> {
       const msgId = createMessageId();
       // This request's own reader, captured so cleanup removes only it (never a
       // concurrent request's reader) from the shared `activeReaders` set.
-      let requestReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+      let requestReader: StudioStreamReader | null = null;
       // A single agentic turn can interleave text and tool calls across multiple
       // steps: preamble text → tool call → final answer. Each contiguous text run
       // must render as its OWN text part, in arrival order — otherwise the final
@@ -496,7 +547,17 @@ export function createBackendChatAdapter(
                 // `parseStateMutation`. The try/catch is now only a secondary safety
                 // net — `applyStateMutation` drops a malformed payload itself rather
                 // than throwing, so this catches only unexpected controller-side errors.
+                const docBefore = controller.getState().doc;
                 applyStateMutation((event as { mutation?: unknown }).mutation, controller);
+                const docAfter = controller.getState().doc;
+                // Record only mutations that actually moved the document, keyed by THIS
+                // turn's assistant message id, so a Retry of this message can revert
+                // exactly what it applied instead of replaying it on top (see
+                // `chatTurnMutations.ts`). A dropped/no-op mutation leaves `doc`
+                // reference-identical and is not worth tracking.
+                if (docAfter !== docBefore) {
+                  mutationLedger?.record(msgId, docBefore, docAfter);
+                }
               } catch (err) {
                 console.error('[StudioBackendAdapter] Failed to apply state mutation:', err);
               }
@@ -573,7 +634,10 @@ export function createBackendChatAdapter(
       // connections. ChatBox has already aborted the fetch signal before calling
       // stop(), so this is a best-effort cleanup to free resources immediately.
       // Cancelling per-reader (rather than a single shared reader) means overlapping
-      // streams from mid-stream thread switches are all stopped correctly.
+      // streams from mid-stream thread switches are all stopped correctly, and
+      // because the registry is owned by the caller rather than by this closure, it
+      // also covers streams started by a PREVIOUS adapter instance that a re-render
+      // has since replaced.
       for (const reader of activeReaders) {
         reader.cancel().catch(() => {});
       }

@@ -110,12 +110,22 @@ describe('serializeDashboardState', () => {
 // can end right after a final event with no trailing blank line — and the decoder
 // must be flushed so a trailing multi-byte sequence isn't silently dropped.
 
-function makeStreamResponse(chunks: Uint8Array[]): Response {
+interface StreamProbe {
+  response: Response;
+  /** How many `read()` calls the parser made. */
+  readCount: () => number;
+  cancelSpy: ReturnType<typeof vi.fn>;
+}
+
+function makeStreamProbe(chunks: Uint8Array[]): StreamProbe {
   let index = 0;
-  return {
+  let reads = 0;
+  const cancelSpy = vi.fn(() => Promise.resolve());
+  const response = {
     body: {
       getReader: () => ({
         read: () => {
+          reads += 1;
           if (index < chunks.length) {
             const value = chunks[index];
             index += 1;
@@ -123,11 +133,16 @@ function makeStreamResponse(chunks: Uint8Array[]): Response {
           }
           return Promise.resolve({ done: true, value: undefined });
         },
-        cancel: () => Promise.resolve(),
+        cancel: cancelSpy,
         releaseLock: () => {},
       }),
     },
   } as unknown as Response;
+  return { response, readCount: () => reads, cancelSpy };
+}
+
+function makeStreamResponse(chunks: Uint8Array[]): Response {
+  return makeStreamProbe(chunks).response;
 }
 
 describe('parseSSEStream', () => {
@@ -216,17 +231,89 @@ describe('parseSSEStream', () => {
     expect(events).toEqual([]);
   });
 
-  it('stops reading once onEvent returns false, even for the final flushed event', async () => {
+  // The previous version of this test fed a single chunk that the stream ended right
+  // after, so "stopped early" and "ran to completion" were indistinguishable — and the
+  // `done` branch discards `processLine`'s return value anyway, so returning `false`
+  // there changes nothing. Feeding events the parser would otherwise keep consuming is
+  // what makes the early stop observable.
+  it('stops reading, and cancels the reader, once onEvent returns false', async () => {
     const encoder = new TextEncoder();
-    const chunk = encoder.encode('data: {"type":"finish","finishReason":"stop"}');
-    const response = makeStreamResponse([chunk]);
+    const probe = makeStreamProbe([
+      encoder.encode('data: {"type":"finish","finishReason":"stop"}\n\n'),
+      encoder.encode('data: {"type":"text-delta","delta":"never read"}\n\n'),
+    ]);
 
     const events: Record<string, unknown>[] = [];
-    await parseSSEStream(response, (event) => {
+    await parseSSEStream(probe.response, (event) => {
       events.push(event);
       return false;
     });
 
+    // Only the terminal event was delivered — the second chunk was never pulled.
     expect(events).toEqual([{ type: 'finish', finishReason: 'stop' }]);
+    expect(probe.readCount()).toBe(1);
+    // The socket is released immediately rather than left open until `.stop()`.
+    expect(probe.cancelSpy).toHaveBeenCalled();
+  });
+
+  it('keeps reading while onEvent returns undefined', async () => {
+    // Control for the test above: with no `false` return, every chunk IS consumed —
+    // so the assertions above are pinning the early stop, not the mock's shape.
+    const encoder = new TextEncoder();
+    const probe = makeStreamProbe([
+      encoder.encode('data: {"type":"text-delta","delta":"a"}\n\n'),
+      encoder.encode('data: {"type":"text-delta","delta":"b"}\n\n'),
+    ]);
+
+    const events: Record<string, unknown>[] = [];
+    await parseSSEStream(probe.response, (event) => {
+      events.push(event);
+    });
+
+    expect(events).toHaveLength(2);
+    expect(probe.readCount()).toBe(3); // two chunks + the `done` read
+    expect(probe.cancelSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ── parseSSEStream: un-newlined buffer cap ───────────────────────────────────
+//
+// The cap exists to stop a hostile/broken proxy streaming bytes with NO newline from
+// growing the buffer without bound. It must be measured against the RESIDUAL partial
+// line, not the whole pre-split buffer: a single read can legitimately carry more than
+// the cap in properly delimited events (a large `state-mutation` behind a proxy that
+// flushes late), and aborting that stream as "malformed" is a false positive that
+// silently loses a dashboard edit.
+
+describe('parseSSEStream buffer cap', () => {
+  const CAP = 8 * 1024 * 1024;
+
+  it('aborts a stream whose un-newlined residue exceeds the cap', async () => {
+    const encoder = new TextEncoder();
+    const probe = makeStreamProbe([encoder.encode(`data: ${'x'.repeat(CAP + 1)}`)]);
+
+    await expect(parseSSEStream(probe.response, () => {})).rejects.toThrow(
+      /exceeded the \d+-byte buffer limit/,
+    );
+    // The connection is released rather than left accumulating.
+    expect(probe.cancelSpy).toHaveBeenCalled();
+  });
+
+  it('does not abort a large but properly newline-delimited read', async () => {
+    // One read carrying well over the cap, every byte of it newline-terminated.
+    const encoder = new TextEncoder();
+    const bigPayload = 'y'.repeat(Math.ceil(CAP / 4));
+    const line = `data: {"type":"text-delta","delta":"${bigPayload}"}\n\n`;
+    const probe = makeStreamProbe([encoder.encode(line.repeat(5))]);
+
+    const events: Record<string, unknown>[] = [];
+    await expect(
+      parseSSEStream(probe.response, (event) => {
+        events.push(event);
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(events).toHaveLength(5);
+    expect(probe.cancelSpy).not.toHaveBeenCalled();
   });
 });

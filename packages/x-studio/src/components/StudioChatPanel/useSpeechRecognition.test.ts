@@ -183,7 +183,14 @@ describe('useSpeechRecognition', () => {
     act(() => {
       result.current.start(); // second call — should be a no-op
     });
-    expect(mockInstance.startSpy).toHaveBeenCalledOnce();
+    // Assert on the INSTANCE COUNT, not on `mockInstance.startSpy`. The mock
+    // constructor reassigns `mockInstance` to the newest instance, so dropping the
+    // `recognitionRef.current` early-return would construct a second recognition
+    // object — leaving two microphones open — and `mockInstance` (now instance B)
+    // would still report exactly one `start()` call. Only the instance count can
+    // observe the guard.
+    expect(mockInstances).toHaveLength(1);
+    expect(mockInstances[0].startSpy).toHaveBeenCalledOnce();
   });
 
   it('stops recognition on unmount', () => {

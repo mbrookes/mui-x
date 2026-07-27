@@ -762,6 +762,211 @@ describe('createBackendChatAdapter: overlapping streams stop()', () => {
   });
 });
 
+// ── stop() across an adapter rebuild (regression: H6) ─────────────────────────
+//
+// The panel rebuilds its adapter whenever `aiConfig`/`customWidgets`/`focusedWidgetId`
+// change identity — and `aiConfig` is a public prop that hosts routinely pass inline,
+// while the panel re-renders on every streamed token. `ChatBox` dispatches `stop()` to
+// whichever adapter it currently holds, so with the reader registry living inside the
+// adapter closure, Stop reached a brand-new adapter with an empty set and cancelled
+// nothing, while the reader holding the live connection sat unreachable in the
+// discarded one. The registry is therefore owned by the caller.
+
+describe('createBackendChatAdapter: stop() survives an adapter rebuild', () => {
+  it('cancels a stream started by a previous adapter when the registry is shared', async () => {
+    const cancelSpy = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        body: {
+          getReader: () => ({
+            read: vi.fn().mockImplementation(() => new Promise(() => {})), // never resolves
+            cancel: cancelSpy,
+            releaseLock: vi.fn(),
+          }),
+        },
+      }),
+    );
+
+    const controller = makeController();
+    const activeReaders = new Set<ReadableStreamDefaultReader<Uint8Array>>();
+
+    // The adapter the stream starts on…
+    const firstAdapter = createBackendChatAdapter(
+      { endpoint: 'https://fake.test/api/ai' },
+      controller,
+      undefined,
+      undefined,
+      { activeReaders },
+    );
+    const stream = await firstAdapter.sendMessage(makeSendInput([makeUserMessage('stop me')]));
+    stream
+      .getReader()
+      .read()
+      .catch(() => {});
+    await new Promise((resolve) => {
+      setTimeout(resolve, 10);
+    });
+    expect(activeReaders.size).to.equal(1);
+
+    // …is replaced mid-stream (a fresh `aiConfig` literal, or the user clicking another
+    // widget's "Analysis", both of which happen while the response is streaming).
+    const rebuiltAdapter = createBackendChatAdapter(
+      { endpoint: 'https://fake.test/api/ai' },
+      controller,
+      undefined,
+      'widget-b',
+      { activeReaders },
+    );
+
+    // Stop is dispatched to the CURRENT adapter, which never started this stream.
+    rebuiltAdapter.stop?.();
+    await new Promise((resolve) => {
+      setTimeout(resolve, 10);
+    });
+
+    expect(cancelSpy).toHaveBeenCalled();
+
+    vi.unstubAllGlobals();
+  });
+
+  it('cannot cancel it when each adapter owns its own registry (the bug)', async () => {
+    // Control: the same scenario WITHOUT a shared registry, pinning that the assertion
+    // above is about the shared ownership and not about `stop()` in general.
+    const cancelSpy = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        body: {
+          getReader: () => ({
+            read: vi.fn().mockImplementation(() => new Promise(() => {})),
+            cancel: cancelSpy,
+            releaseLock: vi.fn(),
+          }),
+        },
+      }),
+    );
+
+    const controller = makeController();
+    const firstAdapter = createBackendChatAdapter(
+      { endpoint: 'https://fake.test/api/ai' },
+      controller,
+    );
+    const stream = await firstAdapter.sendMessage(makeSendInput([makeUserMessage('stop me')]));
+    stream
+      .getReader()
+      .read()
+      .catch(() => {});
+    await new Promise((resolve) => {
+      setTimeout(resolve, 10);
+    });
+
+    const rebuiltAdapter = createBackendChatAdapter(
+      { endpoint: 'https://fake.test/api/ai' },
+      controller,
+    );
+    rebuiltAdapter.stop?.();
+    await new Promise((resolve) => {
+      setTimeout(resolve, 10);
+    });
+
+    expect(cancelSpy).not.toHaveBeenCalled();
+
+    vi.unstubAllGlobals();
+  });
+});
+
+// ── turn-mutation ledger (regression: M14) ────────────────────────────────────
+
+describe('createBackendChatAdapter: mutation ledger', () => {
+  it('records the doc snapshots around each applied state-mutation, keyed by message id', async () => {
+    const sse = makeSseBody([
+      {
+        type: 'state-mutation',
+        mutation: { type: 'setDashboardTitle', args: { title: 'Updated' } },
+      },
+      { type: 'finish', finishReason: 'stop' },
+    ]);
+    mockFetch(sse);
+
+    // A controller whose doc identity actually changes when a mutation is applied —
+    // the ledger deliberately ignores no-op mutations.
+    let doc: object = { dashboard: { title: 'Before' } };
+    const controller = {
+      getState: () => ({ doc }) as any,
+      applyExternalMutation: vi.fn(() => {
+        doc = { dashboard: { title: 'Updated' } };
+      }),
+      getRecentMutations: () => [],
+      setState: vi.fn(),
+    } as unknown as StudioController;
+
+    const recorded: { messageId: string; before: object; after: object }[] = [];
+    const adapter = createBackendChatAdapter(
+      { endpoint: 'https://fake.test/api/ai', privateMode: true },
+      controller,
+      undefined,
+      undefined,
+      {
+        mutationLedger: {
+          record: (messageId, before, after) =>
+            recorded.push({ messageId, before: before as object, after: after as object }),
+          revert: () => false,
+          has: () => false,
+        },
+      },
+    );
+
+    const stream = await adapter.sendMessage(makeSendInput([makeUserMessage('add a chart')]));
+    const chunks = await collectChunks(stream);
+
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0].before).to.deep.equal({ dashboard: { title: 'Before' } });
+    expect(recorded[0].after).to.deep.equal({ dashboard: { title: 'Updated' } });
+    // Keyed by the assistant message id this turn streamed under, which is what
+    // `StudioMessageActions` retries by.
+    const startChunk = chunks.filter(isChatMessageChunk).find((chunk) => chunk.type === 'start') as
+      | { messageId: string }
+      | undefined;
+    expect(recorded[0].messageId).to.equal(startChunk?.messageId);
+
+    vi.unstubAllGlobals();
+  });
+
+  it('does not record a mutation that left the document unchanged', async () => {
+    const sse = makeSseBody([
+      { type: 'state-mutation', mutation: { type: 'setDashboardTitle', args: { title: 'Same' } } },
+      { type: 'finish', finishReason: 'stop' },
+    ]);
+    mockFetch(sse);
+
+    const doc = { dashboard: { title: 'Same' } };
+    const controller = {
+      getState: () => ({ doc }) as any,
+      applyExternalMutation: vi.fn(), // reducer no-op: same doc reference back
+      getRecentMutations: () => [],
+      setState: vi.fn(),
+    } as unknown as StudioController;
+
+    const record = vi.fn();
+    const adapter = createBackendChatAdapter(
+      { endpoint: 'https://fake.test/api/ai', privateMode: true },
+      controller,
+      undefined,
+      undefined,
+      { mutationLedger: { record, revert: () => false, has: () => false } },
+    );
+
+    await collectChunks(await adapter.sendMessage(makeSendInput([makeUserMessage('noop')])));
+
+    expect(record).not.toHaveBeenCalled();
+
+    vi.unstubAllGlobals();
+  });
+});
+
 describe('createBackendChatAdapter: abort signal', () => {
   it('emits abort chunk when the fetch is aborted via signal', async () => {
     const ac = new AbortController();

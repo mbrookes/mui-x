@@ -8,7 +8,6 @@ import AddIcon from '@mui/icons-material/Add';
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 import { ChatBox } from '@mui/x-chat';
 import type { ChatAdapter, ChatPartRendererMap } from '@mui/x-chat/headless';
-import { useChatComposer } from '@mui/x-chat/headless';
 
 import {
   useStudioController,
@@ -19,8 +18,9 @@ import {
   selectDashboard,
 } from '../../context';
 import { useStudioUIConfig, useStudioLocaleText } from '../../internals/StudioUIConfigContext';
-import type { StudioAIConfig } from './studioBackendAdapter';
+import type { StudioAIConfig, StudioStreamReader } from './studioBackendAdapter';
 import { createBackendChatAdapter } from './studioBackendAdapter';
+import { StudioChatTurnMutationContext, createChatTurnMutationLedger } from './chatTurnMutations';
 import type { StudioCustomWidgetDef } from '../../models';
 import { toSxArray } from './chatPanelUtils';
 import { studioApprovalOnlyRenderer, studioDynamicToolRenderer } from './chatToolRenderers';
@@ -33,96 +33,7 @@ import { useChatVoiceInput } from './useChatVoiceInput';
 import { StudioComposerToolbar, VoiceMicContext } from './StudioComposerToolbar';
 import { useChatThreads, StreamThreadPin } from './useChatThreads';
 import { nextAutoSubmitSeq } from './chatIds';
-
-/** A single queued auto-submission (see `AutoSubmitTrigger` below). */
-interface PendingAutoSubmit {
-  text: string;
-  seq: number;
-}
-
-/**
- * Max number of queued auto-submissions. Only two producers ever push onto this
- * queue (`pendingMessage` and `initialPrompt`), so 2 is enough headroom for both
- * to be pending at once (finding 2.9) without letting the queue grow unbounded.
- */
-const MAX_PENDING_AUTO_SUBMIT = 2;
-
-/** Appends `item` to `queue`, keeping only the most recent `MAX_PENDING_AUTO_SUBMIT` entries. */
-function enqueuePendingAutoSubmit(
-  queue: PendingAutoSubmit[],
-  item: PendingAutoSubmit,
-): PendingAutoSubmit[] {
-  return [...queue, item].slice(-MAX_PENDING_AUTO_SUBMIT);
-}
-
-// Invisible component rendered inside ChatBox (inside ChatRoot context).
-// Processes `pending` as a FIFO queue: the oldest entry sets the composer value and
-// submits it, one at a time.
-//
-// `submit()` (`useChatComposer`) is a silent no-op while a response is already
-// streaming. Gating on `isSubmitting` (mapped from `store.state.isStreaming`)
-// handles the common case — an auto-submit arriving while a visibly-in-flight
-// response is streaming — by simply not consuming the entry yet: `isSubmitting`
-// is an effect dependency, so this re-runs (and retries) the moment streaming
-// ends, instead of the message silently vanishing (finding 2.2).
-//
-// That still leaves one narrow gap: the send pipeline's internal `isSending`
-// guard (`sendMessageActions.ts`) clears in a `finally` block slightly AFTER
-// `store.state.isStreaming` resets (the stream's `finish` event flips
-// `isStreaming` false before the pipeline finishes its own post-stream
-// bookkeeping) — a `submit()` call landing in that gap silently no-ops even
-// though every signal here says "not streaming". Deferring the actual
-// `submit()` call by a macrotask (rather than just a microtask) gives that
-// trailing bookkeeping a beat to finish first when this entry's turn comes up
-// hot on the heels of a just-completed prior submission.
-//
-// Dedup lives in `pending` itself (via `onConsumed`, which removes the entry from
-// the parent's `pendingAutoSubmit` state) rather than in a ref local to this
-// component. In overlay mode `<Grow mountOnEnter unmountOnExit>` unmounts this
-// component whenever the overlay closes, which would reset a local ref's
-// consumed-set to empty — a fresh mount on reopen would then re-find and
-// re-submit any entry still sitting in `pending`, causing a duplicate LLM call on
-// every reopen (finding 5). Pruning the entry from the state queue itself means a
-// remount has nothing stale left to reprocess.
-//
-// `onConsumed` is called from INSIDE the deferred `setTimeout` callback, right
-// after `submit()` — not synchronously up front. Pruning synchronously (before
-// `submit()` fires) would change `pending`'s identity immediately, which is this
-// same effect's own dependency: React would re-render and run this effect's
-// cleanup — `clearTimeout(timeoutId)` — before the 0ms timeout ever gets a chance
-// to fire, cancelling the very `submit()` call the entry was just marked
-// "consumed" for and silently dropping the message. Deferring `onConsumed`
-// alongside `submit()` means an entry is only pruned once it has actually been
-// submitted; if the timeout is cancelled first (e.g. the overlay unmounts before
-// it fires), the entry is left in `pending` for a future mount to retry instead
-// of being lost.
-function AutoSubmitTrigger({
-  pending,
-  onConsumed,
-}: {
-  pending: PendingAutoSubmit[];
-  onConsumed: (seq: number) => void;
-}) {
-  const { setValue, submit, isSubmitting } = useChatComposer();
-
-  React.useEffect(() => {
-    if (isSubmitting) {
-      return undefined;
-    }
-    const next = pending[0];
-    if (!next) {
-      return undefined;
-    }
-    setValue(next.text);
-    const timeoutId = setTimeout(() => {
-      submit();
-      onConsumed(next.seq);
-    }, 0);
-    return () => clearTimeout(timeoutId);
-  }, [pending, isSubmitting, setValue, submit, onConsumed]);
-
-  return null;
-}
+import { AutoSubmitTrigger, enqueuePendingAutoSubmit, type PendingAutoSubmit } from './autoSubmit';
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -148,6 +59,11 @@ export interface StudioChatPanelProps {
   /**
    * LLM configuration — endpoint, optional API key, and model.
    * If not provided, the panel is not rendered.
+   *
+   * Memoizing this object (`React.useMemo`) avoids rebuilding the chat adapter on
+   * every render, but it is only an optimization: an inline object literal is
+   * supported and nothing about stopping, streaming, or state application depends
+   * on it (see the adapter memo's comment for how that is guaranteed).
    */
   aiConfig?: StudioAIConfig | null;
   /**
@@ -251,12 +167,41 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
   const activeWidgetIds = React.useMemo(() => (activePage?.widgetRows ?? []).flat(), [activePage]);
 
   // ── Adapter (recreated when aiConfig or controller changes) ───────────────
+  //
+  // This memo misses constantly and that is FINE BY DESIGN, because nothing about
+  // correctness may depend on a host memoizing a prop. `aiConfig` is passed straight
+  // through from the public `<Studio aiConfig={…}>` prop and is routinely an inline
+  // object literal (that is how it is documented); `customWidgets` likewise; and
+  // `focusedWidgetId` genuinely changes while the panel is open — clicking another
+  // widget's "Analysis" mid-stream. Meanwhile the panel re-renders on every streamed
+  // token (each one writes thread messages back to the store), so a fresh adapter can
+  // replace the running one dozens of times per response.
+  //
+  // The one piece of state that must NOT be discarded across those rebuilds is the
+  // set of in-flight response readers `stop()` cancels — `ChatBox` dispatches `stop()`
+  // to whichever adapter it currently holds, so a per-adapter registry hands it an
+  // empty set and the Stop button silently cancels nothing. The registry therefore
+  // lives in a ref here, outliving every adapter instance.
+  // Lazy `useState` initializer rather than `useRef(new Set())`: same stable identity
+  // for the panel's lifetime, without allocating a throwaway Set on every one of those
+  // per-token renders.
+  const [activeReaders] = React.useState(() => new Set<StudioStreamReader>());
+
+  // Same lifetime argument: the record of which `state-mutation`s each assistant turn
+  // applied has to survive adapter rebuilds (and be reachable from `StudioMessageActions`,
+  // which `ChatBox` renders as a slot), so Retry can revert a failed turn instead of
+  // replaying it on top. See `chatTurnMutations.ts`.
+  const turnMutations = React.useMemo(() => createChatTurnMutationLedger(controller), [controller]);
+
   const adapter = React.useMemo<ChatAdapter | null>(() => {
     if (!aiConfig?.endpoint) {
       return null;
     }
-    return createBackendChatAdapter(aiConfig, controller, customWidgets, focusedWidgetId);
-  }, [aiConfig, controller, customWidgets, focusedWidgetId]);
+    return createBackendChatAdapter(aiConfig, controller, customWidgets, focusedWidgetId, {
+      activeReaders,
+      mutationLedger: turnMutations,
+    });
+  }, [aiConfig, controller, customWidgets, focusedWidgetId, activeReaders, turnMutations]);
 
   // ── AI conversation thread state (create/switch/persist + write-back race fix) ──
   const {
@@ -406,6 +351,7 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
     composerValue,
     handleToggleVoice,
     handleComposerValueChange,
+    runProgrammaticComposerChange,
   } = useChatVoiceInput();
 
   const voiceMicContextValue = React.useMemo(
@@ -557,83 +503,95 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
       </Menu>
 
       {/* Chat box */}
-      <VoiceMicContext.Provider value={voiceMicContextValue}>
-        <Box sx={{ flexGrow: 1, minHeight: 0 }}>
-          <ChatBox
-            {...slotProps?.chatBox}
-            adapter={adapter}
-            density={density}
-            variant={variant}
-            // `messages`/`onMessagesChange` are always Studio's own values, matching the
-            // `StudioChatPanelSlotProps.chatBox` JSDoc ("cannot be overridden here") — a
-            // consumer-supplied override would show the consumer's array in the rendered
-            // ChatBox while `handleMessagesChange` keeps writing stream deltas into
-            // controller thread state, silently diverging the two (finding 2.8). Since
-            // these are set AFTER `{...slotProps?.chatBox}` above, they always win.
-            messages={threadMessages}
-            onMessagesChange={handleMessagesChange}
-            onFinish={slotProps?.chatBox?.onFinish}
-            onError={slotProps?.chatBox?.onError}
-            composerValue={composerValue}
-            onComposerValueChange={handleComposerValueChange}
-            // `initialPrompt` is auto-submitted (not merely pre-filled) via the
-            // `AutoSubmitTrigger` effect above — ChatBox's own `autoSubmitInitialValue`
-            // is declared in its PropTypes but not implemented. Only the consumer's
-            // `slotProps.chatBox.initialComposerValue` pre-fill is honoured here.
-            initialComposerValue={slotProps?.chatBox?.initialComposerValue}
-            suggestions={threadMessages.length === 0 ? suggestions : undefined}
-            suggestionsAutoSubmit
-            // `displayName` is rendered on every one of the user's own messages, so it has to
-            // come from `localeText` like every other visible string — it was hardcoded to the
-            // English "You" even under a fully translated locale.
-            currentUser={{ id: 'user', displayName: localeText.chatUserDisplayName, role: 'user' }}
-            features={{
-              // Consumer can configure optional features …
-              ...slotProps?.chatBox?.features,
-              // … but Studio always enforces these: we manage the conversation header
-              // ourselves and don't support file attachments in the AI flow.
-              conversationHeader: false,
-              attachments: false,
-            }}
-            localeText={{
-              // Studio-appropriate empty-state and placeholder text
-              composerInputPlaceholder: localeText.chatComposerPlaceholder,
-              threadNoMessagesLabel: localeText.chatEmptyStateTitle,
-              threadNoMessagesHelperText: localeText.chatEmptyStateSubtitle,
-              // Consumer overrides last so they can tailor every string
-              ...slotProps?.chatBox?.localeText,
-            }}
-            partRenderers={{
-              // Studio default part renderers (reasoning "Thinking…", optional tool-call hiding)
-              ...studioPartRenderers,
-              // Consumer can add custom renderers or override Studio's defaults
-              ...slotProps?.chatBox?.partRenderers,
-            }}
-            slots={{
-              // Studio overrides: stop-streaming button, message root with metadata display,
-              // per-message copy/retry actions, and mic button in the composer toolbar
-              composerSendButton: StudioSendButton,
-              composerToolbar: StudioComposerToolbar,
-              messageRoot: StudioMessageRoot,
-              messageActions: StudioMessageActions,
-              // Consumer slot overrides come last
-              ...slotProps?.chatBox?.slots,
-            }}
-            slotProps={{
-              // Keep suggestions wrapped in the narrow overlay panel — the default
-              // above-composer mode switches to nowrap+overflowX:auto which overflows.
-              suggestions: {
-                sx: { '&:not([data-empty])': { flexWrap: 'wrap', overflowX: 'unset' } },
-              },
-              ...slotProps?.chatBox?.slotProps,
-            }}
-            sx={{ height: '100%' }}
-          >
-            <AutoSubmitTrigger pending={pendingAutoSubmit} onConsumed={handleAutoSubmitConsumed} />
-            <StreamThreadPin {...streamThreadPinProps} />
-          </ChatBox>
-        </Box>
-      </VoiceMicContext.Provider>
+      {/* `StudioMessageActions` is a ChatBox SLOT, so the retry handler can't be passed
+          the turn ledger as a prop — it reaches it through this provider. */}
+      <StudioChatTurnMutationContext.Provider value={turnMutations}>
+        <VoiceMicContext.Provider value={voiceMicContextValue}>
+          <Box sx={{ flexGrow: 1, minHeight: 0 }}>
+            <ChatBox
+              {...slotProps?.chatBox}
+              adapter={adapter}
+              density={density}
+              variant={variant}
+              // `messages`/`onMessagesChange` are always Studio's own values, matching the
+              // `StudioChatPanelSlotProps.chatBox` JSDoc ("cannot be overridden here") — a
+              // consumer-supplied override would show the consumer's array in the rendered
+              // ChatBox while `handleMessagesChange` keeps writing stream deltas into
+              // controller thread state, silently diverging the two (finding 2.8). Since
+              // these are set AFTER `{...slotProps?.chatBox}` above, they always win.
+              messages={threadMessages}
+              onMessagesChange={handleMessagesChange}
+              onFinish={slotProps?.chatBox?.onFinish}
+              onError={slotProps?.chatBox?.onError}
+              composerValue={composerValue}
+              onComposerValueChange={handleComposerValueChange}
+              // `initialPrompt` is auto-submitted (not merely pre-filled) via the
+              // `AutoSubmitTrigger` effect above — ChatBox's own `autoSubmitInitialValue`
+              // is declared in its PropTypes but not implemented. Only the consumer's
+              // `slotProps.chatBox.initialComposerValue` pre-fill is honoured here.
+              initialComposerValue={slotProps?.chatBox?.initialComposerValue}
+              suggestions={threadMessages.length === 0 ? suggestions : undefined}
+              suggestionsAutoSubmit
+              // `displayName` is rendered on every one of the user's own messages, so it has to
+              // come from `localeText` like every other visible string — it was hardcoded to the
+              // English "You" even under a fully translated locale.
+              currentUser={{
+                id: 'user',
+                displayName: localeText.chatUserDisplayName,
+                role: 'user',
+              }}
+              features={{
+                // Consumer can configure optional features …
+                ...slotProps?.chatBox?.features,
+                // … but Studio always enforces these: we manage the conversation header
+                // ourselves and don't support file attachments in the AI flow.
+                conversationHeader: false,
+                attachments: false,
+              }}
+              localeText={{
+                // Studio-appropriate empty-state and placeholder text
+                composerInputPlaceholder: localeText.chatComposerPlaceholder,
+                threadNoMessagesLabel: localeText.chatEmptyStateTitle,
+                threadNoMessagesHelperText: localeText.chatEmptyStateSubtitle,
+                // Consumer overrides last so they can tailor every string
+                ...slotProps?.chatBox?.localeText,
+              }}
+              partRenderers={{
+                // Studio default part renderers (reasoning "Thinking…", optional tool-call hiding)
+                ...studioPartRenderers,
+                // Consumer can add custom renderers or override Studio's defaults
+                ...slotProps?.chatBox?.partRenderers,
+              }}
+              slots={{
+                // Studio overrides: stop-streaming button, message root with metadata display,
+                // per-message copy/retry actions, and mic button in the composer toolbar
+                composerSendButton: StudioSendButton,
+                composerToolbar: StudioComposerToolbar,
+                messageRoot: StudioMessageRoot,
+                messageActions: StudioMessageActions,
+                // Consumer slot overrides come last
+                ...slotProps?.chatBox?.slots,
+              }}
+              slotProps={{
+                // Keep suggestions wrapped in the narrow overlay panel — the default
+                // above-composer mode switches to nowrap+overflowX:auto which overflows.
+                suggestions: {
+                  sx: { '&:not([data-empty])': { flexWrap: 'wrap', overflowX: 'unset' } },
+                },
+                ...slotProps?.chatBox?.slotProps,
+              }}
+              sx={{ height: '100%' }}
+            >
+              <AutoSubmitTrigger
+                pending={pendingAutoSubmit}
+                onConsumed={handleAutoSubmitConsumed}
+                runProgrammaticComposerChange={runProgrammaticComposerChange}
+              />
+              <StreamThreadPin {...streamThreadPinProps} />
+            </ChatBox>
+          </Box>
+        </VoiceMicContext.Provider>
+      </StudioChatTurnMutationContext.Provider>
     </Box>
   );
 

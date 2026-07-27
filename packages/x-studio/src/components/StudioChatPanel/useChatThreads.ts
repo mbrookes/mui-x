@@ -29,6 +29,48 @@ import { createThreadId } from './chatIds';
 // `activeThreadIdRef` for future turns but cannot retroactively redirect the
 // pinned, in-flight write target.
 
+/** Max length of an auto-derived thread name before it is ellipsized. */
+const MAX_DERIVED_THREAD_NAME_LENGTH = 48;
+
+/**
+ * Derives a human-readable conversation name from its first user message.
+ *
+ * Without this, every thread is created with the same `chatNewConversationName`
+ * placeholder and nothing ever changes it except the model's optional
+ * `rename_thread` tool — so the switcher menu (which renders `thread.name`
+ * verbatim, ordered only by `updatedAt`) shows five rows all reading "New
+ * conversation" and the user cannot tell them apart.
+ *
+ * Deriving from the first message rather than adding a rename dialog: it needs no
+ * new UI surface, no new locale keys, and no new persisted field, and the first
+ * question a user asks is what they actually remember a conversation by. An
+ * explicit rename affordance is still worth adding, but it is a deliberate UX
+ * addition rather than a fix for unusable naming.
+ *
+ * Returns `undefined` when there's nothing to derive from (no user message yet, or
+ * only non-text parts), leaving the caller's placeholder in place.
+ */
+export function deriveThreadName(messages: ChatMessageType[]): string | undefined {
+  const firstUserMessage = messages.find((message) => message.role === 'user');
+  if (!firstUserMessage) {
+    return undefined;
+  }
+  const text = firstUserMessage.parts
+    .filter((part): part is { type: 'text'; text: string } => part.type === 'text')
+    .map((part) => part.text)
+    .join(' ')
+    // Collapse newlines/runs of whitespace: the name renders on a single ellipsized
+    // line, and a multi-line prompt would otherwise produce a name full of gaps.
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!text) {
+    return undefined;
+  }
+  return text.length > MAX_DERIVED_THREAD_NAME_LENGTH
+    ? `${text.slice(0, MAX_DERIVED_THREAD_NAME_LENGTH).trimEnd()}…`
+    : text;
+}
+
 export interface UseChatThreadsResult {
   activeThreadId: string;
   activeThread: StudioAIChatThread | undefined;
@@ -98,15 +140,31 @@ export function useChatThreads(controller: StudioController): UseChatThreadsResu
       const existingThreads = state.doc.ai?.threads ?? [];
       const now = new Date().toISOString();
 
+      // Name the conversation after its first user message. Only ever overwrites the
+      // untouched placeholder, so the model's `rename_thread` tool (and any name a
+      // persisted doc already carries) always wins — this fills the gap where nothing
+      // named the thread at all, it does not compete for the name.
+      const derivedName = deriveThreadName(messages);
+
       const updatedThreads = existingThreads.some((t) => t.id === targetThreadId)
         ? existingThreads.map((t) =>
-            t.id === targetThreadId ? { ...t, messages, updatedAt: now } : t,
+            t.id === targetThreadId
+              ? {
+                  ...t,
+                  messages,
+                  updatedAt: now,
+                  name:
+                    derivedName && t.name === localeText.chatNewConversationName
+                      ? derivedName
+                      : t.name,
+                }
+              : t,
           )
         : [
             ...existingThreads,
             {
               id: targetThreadId,
-              name: localeText.chatNewConversationName,
+              name: derivedName ?? localeText.chatNewConversationName,
               createdAt: now,
               updatedAt: now,
               messages,
@@ -138,7 +196,6 @@ export function useChatThreads(controller: StudioController): UseChatThreadsResu
   const [threadMenuAnchor, setThreadMenuAnchor] = React.useState<HTMLElement | null>(null);
 
   const handleNewThread = React.useCallback(() => {
-    abortInFlightStream();
     const state = controller.getState();
     const existingThreads = state.doc.ai?.threads ?? [];
     const currentActiveId = state.doc.ai?.activeThreadId ?? defaultThreadId.current;
@@ -153,18 +210,28 @@ export function useChatThreads(controller: StudioController): UseChatThreadsResu
     if (!currentActiveThread || currentActiveThread.messages.length === 0) {
       return;
     }
+    // Abort AFTER the reuse check, never before it. Aborting first meant the "the
+    // current thread is already empty, reuse it" path killed an in-flight stream and
+    // then returned without creating or switching anything — a click that visibly did
+    // nothing except truncate the response the user was reading.
+    abortInFlightStream();
     const newId = createThreadId();
     const now = new Date().toISOString();
+    // Re-read after the abort: terminating the stream flushes a final
+    // `onMessagesChange` write-back into `doc.ai`, so the pre-abort snapshot above is
+    // stale by now and committing it would drop that last partial response.
+    const stateAfterAbort = controller.getState();
+    const threadsAfterAbort = stateAfterAbort.doc.ai?.threads ?? existingThreads;
     // Non-undoable: creating/switching chat threads is not an authored dashboard
     // edit and must not consume the user's undo history (see handleMessagesChange).
     controller.setState(
       {
-        ...state,
+        ...stateAfterAbort,
         doc: {
-          ...state.doc,
+          ...stateAfterAbort.doc,
           ai: {
             threads: [
-              ...existingThreads,
+              ...threadsAfterAbort,
               { id: newId, name: localeText.chatNewConversationName, createdAt: now, messages: [] },
             ],
             activeThreadId: newId,

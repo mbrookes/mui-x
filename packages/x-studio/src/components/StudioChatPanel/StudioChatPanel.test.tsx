@@ -346,17 +346,36 @@ describe('StudioChatPanel: auto-submit queue', () => {
     const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(makeFinishSseResponse()));
     vi.stubGlobal('fetch', fetchMock);
 
-    render(<StudioChatPanel aiConfig={aiConfig} initialPrompt="Explain this widget" />);
+    const { rerender } = render(
+      <StudioChatPanel aiConfig={aiConfig} initialPrompt="Explain this widget" />,
+    );
     await flushAsync(3);
 
     // Not eligible at mount (the thread wasn't empty) — no request yet.
     expect(fetchMock).not.toHaveBeenCalled();
+    const threadIdAtMount = mockState.doc.ai?.activeThreadId;
+    const rendersBeforeClick = chatBoxSpy.mock.calls.length;
 
     // User starts a brand-new (empty) conversation.
     fireEvent.click(
       screen.getByRole('button', { name: DEFAULT_STUDIO_LOCALE_TEXT.chatNewConversationName }),
     );
+    // The shared `studioContextMock` replaces `useStudioSelector` with a plain
+    // `selector(getState())` and NO store subscription, so a controller write never
+    // re-renders anything by itself — the click above mutates `mockState` and nothing
+    // else happens. Without this explicit rerender the panel never re-reads
+    // `activeThreadId`, the `initialPrompt` effect never re-runs, and this test would
+    // pass with the `mountThreadIdRef` pin (the whole fix it exists for) deleted.
+    // See the note in `test/studioContextMock.ts`: any behaviour that depends on
+    // re-rendering from a store change has to be driven manually here.
+    rerender(<StudioChatPanel aiConfig={aiConfig} initialPrompt="Explain this widget" />);
     await flushAsync();
+
+    // Sanity: the scenario this test is about actually happened — a DIFFERENT thread
+    // is active, and the panel re-rendered against it (so the `initialPrompt` effect
+    // really did get another chance to fire).
+    expect(mockState.doc.ai?.activeThreadId).not.toBe(threadIdAtMount);
+    expect(chatBoxSpy.mock.calls.length).toBeGreaterThan(rendersBeforeClick);
 
     // The stale, mount-time initialPrompt must never be auto-submitted into this new
     // thread — it was only ever eligible for the thread active at mount.
@@ -380,8 +399,11 @@ describe('StudioChatPanel: auto-submit queue', () => {
     );
     await flushAsync();
 
-    // Neither producer clobbered the other's entry — both were eventually sent.
-    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+    // Neither producer clobbered the other's entry — both were eventually sent, and
+    // each exactly once. (`toBeGreaterThanOrEqual(2)` passed on five duplicate
+    // submissions, in the file whose entire purpose is guarding duplicate
+    // auto-submission.)
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     const lastMessageTexts = requestBodies.map((body) => body.messages.at(-1)?.parts?.[0]?.text);
     expect(lastMessageTexts).toContain('Insight please');
     expect(lastMessageTexts).toContain('Explain this widget');
@@ -424,8 +446,8 @@ describe('StudioChatPanel: auto-submit queue', () => {
     resolveFirst?.();
     await flushAsync();
 
-    // The second message is retried once streaming ends, not lost.
-    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+    // The second message is retried once streaming ends, not lost — and retried ONCE.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     const secondCallBody = JSON.parse(
       String((fetchMock.mock.calls[1] as [string, RequestInit])[1].body),
     ) as { messages: { parts: { text: string }[] }[] };

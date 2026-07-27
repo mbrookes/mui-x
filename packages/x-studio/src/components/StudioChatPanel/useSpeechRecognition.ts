@@ -70,7 +70,8 @@ function getSpeechRecognitionCtor(): SpeechRecognitionCtor | null {
  *   responsible for resolving this from whatever locale signal the host app
  *   uses — `StudioLocaleText` itself carries only translated strings, not a
  *   BCP-47 tag (see `countryUtils.ts`'s `Intl.DisplayNames` comment for the
- *   same distinction). Omit to keep the previous behavior (browser default).
+ *   same distinction). Studio's own consumer, `useChatVoiceInput`, resolves it
+ *   from `<html lang>`. Omit for the browser/OS default.
  */
 export function useSpeechRecognition(lang?: string): UseSpeechRecognitionReturn {
   const Ctor = React.useMemo(() => getSpeechRecognitionCtor(), []);

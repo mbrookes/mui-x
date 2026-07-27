@@ -20,7 +20,7 @@ import { mockUseStudioSelector, configureStudioContextMock } from '../../../test
 // transitively imports `../../context`, which the `vi.mock` below replaces — this import
 // MUST come after the `studioContextMock` import above, otherwise `mockUseStudioSelector`
 // is referenced (inside the hoisted `vi.mock` factory) before its binding is initialized.
-import { useChatThreads } from './useChatThreads';
+import { useChatThreads, deriveThreadName } from './useChatThreads';
 import { createThreadId, createMessageId, nextAutoSubmitSeq } from './chatIds';
 
 vi.mock('../../context', async (importOriginal) => ({
@@ -152,6 +152,90 @@ describe('useChatThreads: thread create/switch/persistence', () => {
     expect(mockState.doc.ai?.activeThreadId).toBe(threadBId);
   });
 
+  // The abort used to run BEFORE the "current thread is already empty, reuse it"
+  // early return, so a "New conversation" click on an already-empty thread killed
+  // the in-flight response and then returned without creating or switching anything
+  // — a click that visibly did nothing except truncate what the user was reading.
+  it('does not abort an in-flight stream when the click is a no-op reuse', () => {
+    const controller = makeController();
+    const { result, rerender } = renderHook(() => useChatThreads(controller));
+    const stopStreaming = vi.fn();
+
+    act(() => {
+      result.current.handleMessagesChange([makeMessage('in thread A')]);
+    });
+    act(() => {
+      result.current.handleNewThread(); // thread B, empty + active
+    });
+    rerender();
+    const threadBId = mockState.doc.ai!.activeThreadId!;
+
+    // A response is streaming (into A, per the write-target pin).
+    act(() => {
+      result.current.streamThreadPinProps.isStreamingRef.current = true;
+      result.current.streamThreadPinProps.stopStreamRef.current = stopStreaming;
+    });
+
+    act(() => {
+      result.current.handleNewThread(); // B is empty → reuse, nothing to do
+    });
+    rerender();
+
+    expect(stopStreaming).not.toHaveBeenCalled();
+    expect(mockState.doc.ai?.activeThreadId).to.equal(threadBId);
+    expect(mockState.doc.ai?.threads).toHaveLength(2);
+  });
+
+  it('still aborts an in-flight stream when a new thread is actually created', () => {
+    const controller = makeController();
+    const { result } = renderHook(() => useChatThreads(controller));
+    const stopStreaming = vi.fn();
+
+    act(() => {
+      result.current.handleMessagesChange([makeMessage('in thread A')]);
+    });
+    act(() => {
+      result.current.streamThreadPinProps.isStreamingRef.current = true;
+      result.current.streamThreadPinProps.stopStreamRef.current = stopStreaming;
+    });
+
+    act(() => {
+      result.current.handleNewThread(); // A is non-empty → really creates B
+    });
+
+    expect(stopStreaming).toHaveBeenCalledTimes(1);
+    expect(mockState.doc.ai?.threads).toHaveLength(2);
+  });
+
+  it('does not drop the final write-back flushed by aborting the stream', () => {
+    // Stopping the stream flushes one last `onMessagesChange` into `doc.ai`, so the
+    // pre-abort state snapshot is stale by the time the new thread is committed.
+    const controller = makeController();
+    const { result } = renderHook(() => useChatThreads(controller));
+
+    act(() => {
+      result.current.handleMessagesChange([makeMessage('question on A')]);
+    });
+    const threadAId = mockState.doc.ai!.activeThreadId!;
+
+    act(() => {
+      result.current.streamThreadPinProps.isStreamingRef.current = true;
+      result.current.streamThreadPinProps.writeTargetThreadIdRef.current = threadAId;
+      result.current.streamThreadPinProps.stopStreamRef.current = () => {
+        result.current.handleMessagesChange([
+          makeMessage('question on A'),
+          makeMessage('final partial answer'),
+        ]);
+      };
+    });
+
+    act(() => {
+      result.current.handleNewThread();
+    });
+
+    expect(mockState.doc.ai?.threads.find((t) => t.id === threadAId)?.messages).toHaveLength(2);
+  });
+
   it('persists messages onto the correct thread across multiple writes', () => {
     const controller = makeController();
     const { result } = renderHook(() => useChatThreads(controller));
@@ -165,6 +249,112 @@ describe('useChatThreads: thread create/switch/persistence', () => {
 
     expect(mockState.doc.ai?.threads).toHaveLength(1);
     expect(mockState.doc.ai?.threads[0].messages).toHaveLength(2);
+  });
+});
+
+// ── thread naming ─────────────────────────────────────────────────────────────
+//
+// Every thread used to be created with the same `chatNewConversationName`
+// placeholder and nothing ever changed it except the model's optional
+// `rename_thread` tool, so the switcher menu showed N rows all reading "New
+// conversation" with no way to tell them apart.
+
+describe('deriveThreadName', () => {
+  it('uses the first user message', () => {
+    expect(deriveThreadName([makeMessage('Why did revenue drop in Q3?')])).to.equal(
+      'Why did revenue drop in Q3?',
+    );
+  });
+
+  it('skips assistant messages and reads the first USER turn', () => {
+    const messages: ChatMessage[] = [
+      { id: 'a', role: 'assistant', parts: [{ type: 'text', text: 'Hi, how can I help?' }] },
+      makeMessage('Break down sales by region'),
+    ];
+    expect(deriveThreadName(messages)).to.equal('Break down sales by region');
+  });
+
+  it('collapses whitespace and truncates a long prompt', () => {
+    const name = deriveThreadName([
+      makeMessage(
+        `Compare\n  this quarter's revenue against the same quarter last year, by region`,
+      ),
+    ]);
+    expect(name).to.have.length.lessThan(52);
+    expect(name!.endsWith('…')).to.equal(true);
+    expect(name!.startsWith('Compare this')).to.equal(true);
+  });
+
+  it('returns undefined when there is nothing to derive from', () => {
+    expect(deriveThreadName([])).to.equal(undefined);
+    expect(deriveThreadName([{ id: 'x', role: 'user', parts: [] }])).to.equal(undefined);
+    expect(deriveThreadName([makeMessage('   ')])).to.equal(undefined);
+  });
+});
+
+describe('useChatThreads: thread naming', () => {
+  it('names a newly created thread after its first user message', () => {
+    const controller = makeController();
+    const { result } = renderHook(() => useChatThreads(controller));
+
+    act(() => {
+      result.current.handleMessagesChange([makeMessage('Why did revenue drop in Q3?')]);
+    });
+
+    expect(mockState.doc.ai?.threads[0].name).to.equal('Why did revenue drop in Q3?');
+  });
+
+  it('backfills the placeholder name of an existing thread on its first user message', () => {
+    const controller = makeController();
+    const { result, rerender } = renderHook(() => useChatThreads(controller));
+
+    // Thread A gets a message, thread B is created empty (name = placeholder).
+    act(() => {
+      result.current.handleMessagesChange([makeMessage('first')]);
+    });
+    act(() => {
+      result.current.handleNewThread();
+    });
+    rerender();
+    const threadBId = mockState.doc.ai!.activeThreadId!;
+    expect(mockState.doc.ai?.threads.find((t) => t.id === threadBId)?.name).to.equal(
+      'New conversation',
+    );
+
+    act(() => {
+      result.current.handleMessagesChange([makeMessage('Show me churn by cohort')]);
+    });
+
+    expect(mockState.doc.ai?.threads.find((t) => t.id === threadBId)?.name).to.equal(
+      'Show me churn by cohort',
+    );
+  });
+
+  it('never overwrites a name that is not the untouched placeholder', () => {
+    // e.g. the model's `rename_thread` tool, or a name loaded from a persisted doc.
+    const controller = makeController();
+    const { result } = renderHook(() => useChatThreads(controller));
+
+    act(() => {
+      result.current.handleMessagesChange([makeMessage('first question')]);
+    });
+    const threadId = mockState.doc.ai!.activeThreadId!;
+    mockState = {
+      ...mockState,
+      doc: {
+        ...mockState.doc,
+        ai: {
+          ...mockState.doc.ai!,
+          threads: mockState.doc.ai!.threads.map((t) => ({ ...t, name: 'Q3 planning' })),
+        },
+      },
+    };
+
+    act(() => {
+      result.current.handleMessagesChange([makeMessage('first question'), makeMessage('another')]);
+    });
+
+    expect(mockState.doc.ai?.threads.find((t) => t.id === threadId)?.name).to.equal('Q3 planning');
   });
 });
 

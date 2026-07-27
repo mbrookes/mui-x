@@ -13,6 +13,8 @@ class MockSpeechRecognition {
 
   interimResults = false;
 
+  lang = '';
+
   onresult: ((event: MockSpeechRecognitionEvent) => void) | null = null;
 
   onerror: (() => void) | null = null;
@@ -158,6 +160,103 @@ describe('useChatVoiceInput', () => {
     // Session 2 base is the retained "there"; the stale transcript was reset so it
     // does not double up.
     expect(result.current.composerValue).toBe('there again');
+  });
+
+  // ── Dictation language (regression: 3.15) ──────────────────────────────────
+  //
+  // `useSpeechRecognition` has always accepted a `lang`, but nothing ever passed one,
+  // so the whole mechanism was dead and dictation always used the browser/OS default —
+  // a French dashboard transcribing French speech as English words.
+  describe('dictation language', () => {
+    afterEach(() => {
+      document.documentElement.removeAttribute('lang');
+    });
+
+    it("follows the document's <html lang>", () => {
+      document.documentElement.lang = 'fr-FR';
+      const { result } = renderHook(() => useChatVoiceInput());
+
+      act(() => {
+        result.current.handleToggleVoice();
+      });
+
+      expect(mockInstance.lang).to.equal('fr-FR');
+    });
+
+    it('prefers an explicit lang argument over the document language', () => {
+      document.documentElement.lang = 'fr-FR';
+      const { result } = renderHook(() => useChatVoiceInput('de-DE'));
+
+      act(() => {
+        result.current.handleToggleVoice();
+      });
+
+      expect(mockInstance.lang).to.equal('de-DE');
+    });
+
+    it('leaves the browser default when no language is available', () => {
+      const { result } = renderHook(() => useChatVoiceInput());
+
+      act(() => {
+        result.current.handleToggleVoice();
+      });
+
+      expect(mockInstance.lang).to.equal('');
+    });
+  });
+
+  // ── Programmatic composer writes must not stop dictation (regression: 3.15) ──
+  //
+  // `ChatBox` reports EVERY composer-store write back through `onComposerValueChange`,
+  // including Studio's own. An auto-submitted widget insight sets the composer text and
+  // the send pipeline then clears it — two "changes" the hook used to read as the user
+  // typing, silently killing the microphone mid-sentence with no visible cause.
+  it('does not stop listening for a programmatic composer change', () => {
+    const { result } = renderHook(() => useChatVoiceInput());
+
+    act(() => {
+      result.current.handleToggleVoice(); // start
+    });
+    act(() => {
+      mockInstance.emitResult('half a sentence');
+    });
+
+    act(() => {
+      // What `AutoSubmitTrigger` does: set the auto-submitted text, then the send
+      // pipeline clears the composer.
+      result.current.runProgrammaticComposerChange(() => {
+        result.current.handleComposerValueChange('Analyse the revenue widget');
+        result.current.handleComposerValueChange('');
+      });
+    });
+
+    expect(result.current.isListening).to.equal(true);
+    expect(mockInstance.stopSpy).not.toHaveBeenCalled();
+
+    // Dictation carries on and re-populates the composer with the full utterance.
+    act(() => {
+      mockInstance.emitResult('half a sentence and the rest');
+    });
+    expect(result.current.composerValue).to.equal('half a sentence and the rest');
+  });
+
+  it('still stops listening for a real user edit after a programmatic one', () => {
+    const { result } = renderHook(() => useChatVoiceInput());
+
+    act(() => {
+      result.current.handleToggleVoice();
+    });
+    act(() => {
+      result.current.runProgrammaticComposerChange(() => {
+        result.current.handleComposerValueChange('auto');
+      });
+    });
+    act(() => {
+      result.current.handleComposerValueChange('typed by hand');
+    });
+
+    expect(result.current.isListening).to.equal(false);
+    expect(result.current.composerValue).to.equal('typed by hand');
   });
 
   it('keeps the composer value when the browser auto-ends the session (onend)', () => {

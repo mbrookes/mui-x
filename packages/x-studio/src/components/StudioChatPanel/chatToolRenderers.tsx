@@ -20,13 +20,19 @@ import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 import type { StudioLocaleText } from '../../internals/localeText';
 import { lookup } from '../../utils/safeLookup';
+import type { StudioAIToolName } from './studioAITools';
 
 // ── Per-tool icon map ─────────────────────────────────────────────────────────
 // Maps each Studio AI tool name to an MUI icon component for the tool call cards.
 // createToolPartRenderer() takes ToolPartExternalProps (including toolSlots) and
 // returns a ChatPartRenderer that wraps the default ToolPart.
+//
+// Keyed by `StudioAIToolName` — NOT `string` — so adding a tool to the registry is a
+// compile error here instead of a silent runtime fallback that renders the raw
+// snake_case name (`set_widget_forecast`) as the card's title. The parity test only
+// catches that after the fact, and only if someone runs it.
 
-export const STUDIO_TOOL_ICONS: Record<string, React.ComponentType> = {
+export const STUDIO_TOOL_ICONS: Record<StudioAIToolName, React.ComponentType> = {
   // Dashboard-level tools
   get_dashboard_state: InfoOutlinedIcon,
   list_pages: FormatListBulletedIcon,
@@ -57,7 +63,8 @@ export const STUDIO_TOOL_ICONS: Record<string, React.ComponentType> = {
 
 // Maps each Studio AI tool name to the `StudioLocaleText` key holding its localized
 // tool-card title, so the labels flow through the package's `localeText` system.
-export const STUDIO_TOOL_LABEL_KEYS: Record<string, keyof StudioLocaleText> = {
+// Exhaustively keyed by `StudioAIToolName` for the same reason as the icon map above.
+export const STUDIO_TOOL_LABEL_KEYS: Record<StudioAIToolName, keyof StudioLocaleText> = {
   // Dashboard-level tools
   get_dashboard_state: 'chatToolLabelGetDashboardState',
   list_pages: 'chatToolLabelListPages',
@@ -86,7 +93,16 @@ export const STUDIO_TOOL_LABEL_KEYS: Record<string, keyof StudioLocaleText> = {
   query_data_source: 'chatToolLabelQueryDataSource',
 };
 
-function StudioToolTitle({
+/**
+ * Tool-card title: resolves the localized label for the tool the model called,
+ * falling back to whatever the default renderer would have shown.
+ *
+ * Exported for testing — the prototype-chain guard below is invisible from the maps
+ * alone (both are plain object literals, so `Object.hasOwn(map, 'constructor')` is
+ * `false` no matter how the component indexes them); only rendering this component
+ * can tell a `lookup()` from a bare bracket index.
+ */
+export function StudioToolTitle({
   ownerState,
   children,
   ...props
@@ -97,7 +113,10 @@ function StudioToolTitle({
   // "constructor"/"toString"/… resolves an inherited `Object.prototype` function, which is
   // `!== undefined`, so `localeText[localeKey]` is `undefined` at best and the raw function
   // reaches JSX at worst ("Functions are not valid as a React child", blank card title).
-  const localeKey = lookup(STUDIO_TOOL_LABEL_KEYS, ownerState?.toolName);
+  const localeKey = lookup<string, keyof StudioLocaleText>(
+    STUDIO_TOOL_LABEL_KEYS,
+    ownerState?.toolName,
+  );
   const label = localeKey !== undefined ? (localeText[localeKey] as string) : children;
   return <div {...props}>{label}</div>;
 }

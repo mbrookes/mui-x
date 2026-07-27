@@ -71,12 +71,20 @@ export async function parseSSEStream(
   const decoder = new TextDecoder();
   let buffer = '';
 
-  // Hard cap on the un-newlined buffer. A well-behaved server delimits every event with a
-  // newline, so `buffer` only ever holds a single partial line between reads. A hostile or
-  // misbehaving proxy could stream bytes containing NO newline at all, which would grow `buffer`
-  // without bound — an eventual out-of-memory in a long-lived tab. If the cap is exceeded we
-  // cancel the read and fail the stream cleanly (surfaced as an error to the caller) rather than
-  // keep accumulating. 8 MB is far larger than any legitimate single SSE event.
+  // Hard cap on the RESIDUAL (un-newlined) buffer — the partial line left over after the
+  // complete lines of a read have been split off and processed. A well-behaved server
+  // delimits every event with a newline, so that residue only ever holds a single partial
+  // line. A hostile or misbehaving proxy could stream bytes containing NO newline at all,
+  // which would grow it without bound — an eventual out-of-memory in a long-lived tab. If
+  // the cap is exceeded we cancel the read and fail the stream cleanly (surfaced as an
+  // error to the caller) rather than keep accumulating. 8 MB is far larger than any
+  // legitimate single SSE event.
+  //
+  // Measuring the residue rather than the whole pre-split buffer matters: a single read can
+  // legitimately deliver more than 8 MB of PROPERLY DELIMITED events (a large
+  // `state-mutation`/`summarise_page` payload behind a buffering proxy that flushes late),
+  // and checking before the split aborted that stream as "malformed" even though every byte
+  // in it was newline-terminated — the exact condition the cap is supposed to permit.
   const MAX_BUFFER_SIZE = 8 * 1024 * 1024;
 
   // Parses one `data: <json>` line (with any trailing newline already stripped) and
@@ -120,9 +128,14 @@ export async function parseSSEStream(
     }
 
     buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+
     if (buffer.length > MAX_BUFFER_SIZE) {
       // Free the connection before surfacing the failure so a runaway stream doesn't keep the
       // socket alive. `cancel()` can reject if the stream is already errored/closed — ignore it.
+      // Checked before dispatching this read's complete lines: at this point the residue alone
+      // is already over the cap, so the stream is unusable regardless of what those lines say.
       reader.cancel().catch(() => {});
       throw new Error(
         `MUI X: SSE response exceeded the ${MAX_BUFFER_SIZE}-byte buffer limit without a newline. ` +
@@ -130,8 +143,6 @@ export async function parseSSEStream(
           `The stream was aborted to avoid unbounded memory growth.`,
       );
     }
-    const lines = buffer.split('\n');
-    buffer = lines.pop() ?? '';
 
     for (const line of lines) {
       if (processLine(line) === false) {

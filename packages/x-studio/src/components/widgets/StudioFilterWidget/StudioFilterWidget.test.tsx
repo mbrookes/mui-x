@@ -290,6 +290,79 @@ describe('StudioFilterWidget', () => {
     });
   });
 
+  // ── H1: an adapter-backed source has never delivered its rows ──────────────
+  //
+  // `StudioDataSource.rows` is `undefined` (not `[]`) for a source whose data comes from an
+  // adapter until the host imperatively calls `setDataSourceRows`. Every value-driven control read
+  // that as "measured, and there is nothing": the dropdown said "No options" forever and the
+  // slider's auto-range fell back to a 0–100 the user could nevertheless drag and commit.
+  describe('adapter-backed source with undefined rows (H1)', () => {
+    const ADAPTER_SOURCE: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: DATA_SOURCE.fields,
+      adapter: { getRows: async () => ({ rows: [] }) },
+    };
+
+    function renderWidget(config: Partial<StudioWidgetConfig>, dataSource: StudioDataSource) {
+      const { wrapper } = createStudioHarness();
+      return render(
+        <StudioFilterWidget
+          widget={filterWidget(config)}
+          dataSource={dataSource}
+          pageId="page-1"
+        />,
+        { wrapper },
+      );
+    }
+
+    it('reports the values as loading instead of rendering an empty multi-select', () => {
+      renderWidget(
+        { filterWidgetType: 'multi-select', filterWidgetField: 'country' },
+        ADAPTER_SOURCE,
+      );
+
+      expect(screen.getByText('Loading')).toBeVisible();
+      // The empty-option list the control would otherwise render is not shown at all.
+      expect(screen.queryByRole('combobox')).toBe(null);
+    });
+
+    it('does not render a fabricated 0–100 slider range', () => {
+      renderWidget({ filterWidgetType: 'slider', filterWidgetField: 'amount' }, ADAPTER_SOURCE);
+
+      expect(screen.getByText('Loading')).toBeVisible();
+      expect(screen.queryByRole('slider')).toBe(null);
+    });
+
+    it('still renders the control when the source genuinely delivered zero rows', () => {
+      renderWidget(
+        { filterWidgetType: 'slider', filterWidgetField: 'amount' },
+        {
+          ...ADAPTER_SOURCE,
+          rows: [],
+        },
+      );
+
+      // A measured-empty source is a different claim from an unmeasured one: the control renders.
+      expect(screen.queryByText('Loading')).toBe(null);
+      expect(screen.getAllByRole('slider').length).toBeGreaterThan(0);
+    });
+
+    it('leaves the date-range control alone — it derives nothing from rows', () => {
+      // Rendered through the stub slot: the real control needs a pickers LocalizationProvider,
+      // and what matters here is only that the widget still routes to it rather than to the
+      // loading placeholder.
+      setup(
+        { filterWidgetType: 'date-range', filterWidgetField: 'country' },
+        'dateRangeControl',
+        ADAPTER_SOURCE,
+      );
+
+      expect(screen.getByTestId('control')).toBeVisible();
+      expect(screen.queryByText('Loading')).toBe(null);
+    });
+  });
+
   it('clears the interactive filter from the control onClear', () => {
     const { captured, clearSpy } = setup(
       { filterWidgetType: 'multi-select', filterWidgetField: 'country' },

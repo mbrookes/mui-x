@@ -46,10 +46,30 @@ const EXPRESSION: StudioExpression = {
   ],
 } as StudioExpression;
 
-function setup(props: Partial<React.ComponentProps<typeof StudioExpressionFieldDialog>> = {}) {
+/**
+ * @param props Dialog props to override.
+ * @param options.storedExpressionFields What the CONTROLLER's doc holds. Defaults to the
+ *   `expressionFields` prop, because the dialog now verifies its write against the committed doc
+ *   (H8) and a controller whose doc doesn't contain the edited field is exactly the "removed
+ *   elsewhere" rejection. Pass it explicitly to simulate that divergence on purpose.
+ * @returns The rendered view plus the controller and its spies.
+ */
+function setup(
+  props: Partial<React.ComponentProps<typeof StudioExpressionFieldDialog>> = {},
+  options: { storedExpressionFields?: StudioExpressionField[] } = {},
+) {
   const onClose = vi.fn();
   const onSaved = vi.fn();
-  const { controller, wrapper } = createStudioHarness();
+  const { controller, wrapper } = createStudioHarness({
+    initialState: {
+      doc: {
+        expressionFields:
+          options.storedExpressionFields ??
+          (props.expressionFields as StudioExpressionField[]) ??
+          [],
+      },
+    },
+  });
   const addSpy = vi.spyOn(controller, 'addExpressionField');
   const updateSpy = vi.spyOn(controller, 'updateExpressionField');
   const view = render(
@@ -124,6 +144,165 @@ describe('StudioExpressionFieldDialog', () => {
     );
     expect(onSaved).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  // ── H1: never preview a number that was never measured ─────────────────────
+  //
+  // `ExpressionPreview`'s measure branch had NO empty guard: it fed `dataSource.rows ?? []` to
+  // `evaluateMeasure`, which returns the identity of the aggregation — `0` for a `sum` — and the
+  // dialog rendered that as a confident answer. `rows` is `undefined` for every adapter-backed
+  // source, so an author configuring `sum(amount)` against a live database was told the total is
+  // zero.
+  describe('measure preview with no delivered rows (H1)', () => {
+    const SUM_AMOUNT = { id: 'amount', aggregation: 'sum' } as unknown as StudioExpression;
+    const TOTAL: StudioExpressionField = {
+      id: 'expr-sum',
+      label: 'Total',
+      sourceId: 'orders',
+      isMeasure: true,
+      expression: SUM_AMOUNT,
+    };
+
+    it('renders no measure preview when the source has never delivered rows', () => {
+      setup({
+        dataSource: { ...DATA_SOURCE, rows: undefined },
+        existingField: TOTAL,
+        expressionFields: [TOTAL],
+      });
+
+      // `ExpressionPreview` renders its whole block inside a `role="status"` live region; with no
+      // rows there is nothing to preview, so the block is absent entirely rather than showing the
+      // `0` that `evaluateMeasure(field, [])` returns for a `sum`.
+      expect(screen.queryByRole('status')).toBe(null);
+    });
+
+    it('renders the real aggregate once rows exist', () => {
+      setup({
+        dataSource: { ...DATA_SOURCE, rows: [{ amount: 3 }, { amount: 4 }] },
+        existingField: TOTAL,
+        expressionFields: [TOTAL],
+      });
+
+      const preview = screen.getByRole('status');
+      expect(preview.textContent).toMatch(/\b7(\.00)?\b/);
+    });
+  });
+
+  // ── H8: a rejected write must not look like a save ─────────────────────────
+  //
+  // `addExpressionField`/`updateExpressionField` return `void` and bail SILENTLY on four paths.
+  // `handleSave` used to call one and then `onClose()` unconditionally, so the user watched the
+  // dialog close on an edit that was discarded. Each test below drives one rejection path and
+  // asserts the dialog stays open AND says why.
+  describe('rejected writes keep the dialog open (H8)', () => {
+    const MARGIN: StudioExpressionField = {
+      id: 'expr-1',
+      label: 'Margin',
+      sourceId: 'orders',
+      isMeasure: false,
+      expression: EXPRESSION,
+    };
+
+    it('does not close when the edited field was removed from the doc meanwhile', async () => {
+      // `updateExpressionField` finds no `existing` and returns (StudioController.ts:1067-1069).
+      const { user, updateSpy, onClose } = setup(
+        { existingField: MARGIN, expressionFields: [MARGIN] },
+        { storedExpressionFields: [] },
+      );
+
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      expect(updateSpy).toHaveBeenCalledOnce();
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getByText(/could not be saved/i)).not.toBe(null);
+    });
+
+    it('does not close when a new field collides with an existing id', async () => {
+      // `addExpressionField`'s duplicate-id bail (StudioController.ts:1036-1038).
+      const { user, controller, onClose, onSaved } = setup();
+      await user.type(screen.getByRole('textbox', { name: 'Name' }), 'Profit');
+
+      // The first save lands and closes; a host would normally unmount or re-key the dialog here.
+      await user.click(screen.getByRole('button', { name: 'Add Field' }));
+      expect(onClose).toHaveBeenCalledOnce();
+      expect(controller.getState().doc.expressionFields).toHaveLength(1);
+
+      // This instance is still mounted holding the SAME generated id (`newFieldIdRef` only
+      // regenerates when `open`/`existingField` change), so a second save is exactly the
+      // duplicate-id case the controller silently drops.
+      onClose.mockClear();
+      onSaved.mockClear();
+      await user.click(screen.getByRole('button', { name: 'Add Field' }));
+
+      expect(controller.getState().doc.expressionFields).toHaveLength(1);
+      expect(onClose).not.toHaveBeenCalled();
+      expect(onSaved).not.toHaveBeenCalled();
+      expect(screen.getByText(/could not be saved/i)).not.toBe(null);
+    });
+
+    it('does not close when the cycle guard refuses the update', async () => {
+      // `updateExpressionField`'s cycle guard (StudioController.ts:1087-1096) is a dev-only warn
+      // plus a silent bail. It is only REACHABLE when the doc holds a reference the dialog's own
+      // validator cannot see — which is precisely the H8 scenario: the doc moved on (here, the
+      // partner field was re-pointed back at the field being edited) while the dialog kept the
+      // `expressionFields` list it was opened with.
+      const margin: StudioExpressionField = {
+        id: 'expr-1',
+        label: 'Margin',
+        sourceId: 'orders',
+        isMeasure: false,
+        expression: { id: 'expr-2' } as StudioExpression,
+      };
+      // What the dialog was opened with: a partner that references nothing — no cycle in sight.
+      const partnerAsOpened: StudioExpressionField = {
+        id: 'expr-2',
+        label: 'Partner',
+        sourceId: 'orders',
+        isMeasure: false,
+        expression: { type: 'number', value: 1 } as StudioExpression,
+      };
+      // What the doc actually holds now: the partner points back at `expr-1`, closing the loop.
+      const partnerRepointed: StudioExpressionField = {
+        ...partnerAsOpened,
+        expression: { id: 'expr-1' } as StudioExpression,
+      };
+      const { user, onClose } = setup(
+        { existingField: margin, expressionFields: [margin, partnerAsOpened] },
+        { storedExpressionFields: [margin, partnerRepointed] },
+      );
+
+      // The cycle guard warns in dev before bailing; that warning is the point, so expect it.
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        // The dialog's own validation sees nothing wrong, so Save is live …
+        expect(screen.getByRole('button', { name: 'Save' })).toHaveProperty('disabled', false);
+        await user.click(screen.getByRole('button', { name: 'Save' }));
+
+        expect(warn).toHaveBeenCalledWith(expect.stringMatching(/circular dependency/i));
+      } finally {
+        warn.mockRestore();
+      }
+
+      // … and the controller's cycle guard drops the write. The dialog must not pretend it saved.
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getByText(/could not be saved/i)).not.toBe(null);
+    });
+
+    it('still closes on a deliberate no-op re-save (value-equality bail is not a failure)', async () => {
+      // `updateExpressionField`'s value-equality guard (StudioController.ts:1077-1079) means
+      // "nothing to write", which is exactly what the user asked for. Store the field with every
+      // value the dialog would write so the guard fires.
+      const stored: StudioExpressionField = { ...MARGIN, type: 'number', precision: 2 };
+      const { user, onClose } = setup(
+        { existingField: stored, expressionFields: [stored] },
+        { storedExpressionFields: [stored] },
+      );
+
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      expect(onClose).toHaveBeenCalledOnce();
+      expect(screen.queryByRole('alert')).toBe(null);
+    });
   });
 
   it('closes without saving when Cancel is clicked', async () => {

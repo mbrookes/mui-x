@@ -16,6 +16,8 @@ interface ExpressionFieldRowProps {
   enrichedRows?: Record<string, unknown>[];
   /** Single aggregate value for measure fields. */
   measureValue?: unknown;
+  /** H1: the owning source is adapter-backed and its rows have not been delivered yet. */
+  awaitingRows?: boolean;
 }
 
 export default function ExpressionFieldRow({
@@ -25,6 +27,7 @@ export default function ExpressionFieldRow({
   onDelete,
   enrichedRows,
   measureValue,
+  awaitingRows,
 }: ExpressionFieldRowProps) {
   const localeText = useStudioLocaleText();
   const type = field.type ?? (field.isMeasure ? 'number' : 'string');
@@ -47,7 +50,7 @@ export default function ExpressionFieldRow({
   );
 
   return (
-    <FieldPreviewTooltip field={field} rows={previewRows}>
+    <FieldPreviewTooltip field={field} rows={previewRows} awaitingRows={awaitingRows}>
       <ListItemButton
         sx={{
           borderRadius: 1,

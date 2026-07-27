@@ -198,6 +198,16 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   dataDrawerMoreColumns: (count) => `${count} columna${count === 1 ? '' : 's'} más`,
   dataDrawerViewSourceLink: 'Ver datos de origen →',
   dataDrawerMorePreviewRows: (count) => `+${count} más`,
+  dataDrawerRowsUnknown: 'número de filas no disponible',
+  dataDrawerDeleteFieldConfirmTitle: '¿Eliminar el campo calculado?',
+  dataDrawerDeleteFieldConfirmMessage: (fieldLabel, referenceCount) =>
+    `«${fieldLabel}» se usa en ${referenceCount} ${
+      referenceCount === 1 ? 'lugar' : 'lugares'
+    } (widgets, filtros o campos calculados). Al eliminarlo, ${
+      referenceCount === 1 ? 'ese lugar se quedará' : 'esos lugares se quedarán'
+    } sin ningún valor que mostrar.`,
+  saveRejectedMessage:
+    'No se pudo guardar este cambio: es posible que se haya eliminado o modificado en otro lugar. Cierra el diálogo e inténtalo de nuevo.',
   lineageTypePrefix: (type) => `Tipo: ${type}`,
   lineageJoinDetail: (srcSource, srcField, tgtSource, tgtField) =>
     `Unión: ${srcSource}.${srcField} = ${tgtSource}.${tgtField}`,
@@ -409,6 +419,7 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   exprLiteralValueAriaLabel: 'Valor literal',
   exprUnnamedFieldLabel: 'Sin nombre',
   exprPreviewNullLabel: 'null',
+  exprCalculatedFieldBadgeLabel: 'Campo calculado',
 
   // Expression validation errors
   exprErrorMissingId: 'El campo calculado debe tener un identificador.',

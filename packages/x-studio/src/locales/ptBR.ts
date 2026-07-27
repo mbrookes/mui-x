@@ -196,6 +196,16 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   dataDrawerMoreColumns: (count) => `${count} ${count === 1 ? 'coluna' : 'colunas'} a mais`,
   dataDrawerViewSourceLink: 'Ver dados da fonte →',
   dataDrawerMorePreviewRows: (count) => `+${count} a mais`,
+  dataDrawerRowsUnknown: 'contagem de linhas indisponível',
+  dataDrawerDeleteFieldConfirmTitle: 'Excluir o campo calculado?',
+  dataDrawerDeleteFieldConfirmMessage: (fieldLabel, referenceCount) =>
+    `“${fieldLabel}” é usado em ${referenceCount} ${
+      referenceCount === 1 ? 'lugar' : 'lugares'
+    } (widgets, filtros ou campos calculados). Excluí-lo deixa ${
+      referenceCount === 1 ? 'esse lugar' : 'esses lugares'
+    } sem nenhum valor para exibir.`,
+  saveRejectedMessage:
+    'Não foi possível salvar esta alteração — ela pode ter sido removida ou modificada em outro lugar. Feche a caixa de diálogo e tente novamente.',
   lineageTypePrefix: (type) => `Tipo: ${type}`,
   lineageJoinDetail: (srcSource, srcField, tgtSource, tgtField) =>
     `Junção: ${srcSource}.${srcField} = ${tgtSource}.${tgtField}`,
@@ -407,6 +417,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   exprLiteralValueAriaLabel: 'Valor literal',
   exprUnnamedFieldLabel: 'Sem nome',
   exprPreviewNullLabel: 'null',
+  exprCalculatedFieldBadgeLabel: 'Campo calculado',
 
   // Expression validation errors
   exprErrorMissingId: 'O campo calculado precisa ter um identificador.',

@@ -24,6 +24,12 @@ import {
   selectMode,
   useStudioLocaleText,
 } from '../../context';
+import type { StudioDataSource } from '../../models';
+import { lookup } from '../../utils/safeLookup';
+import {
+  getDataSourceRowState,
+  isAwaitingDataSourceRows,
+} from '../../internals/dataSourceRowState';
 import { DataSourceSection } from './DataSourceSection';
 import { RelationshipPanel } from './RelationshipPanel';
 import { DataLineageGraph } from './DataLineageGraph';
@@ -72,24 +78,44 @@ export function StudioDataDrawer({ sx }: StudioDataDrawerProps = {}) {
     );
   }
 
-  const selectedSource = lineageSourceId ? dataSources[lineageSourceId] : null;
-  const previewSource = previewSourceId ? dataSources[previewSourceId] : null;
-  const selectedSourceCounts = selectedSource
-    ? `${selectedSource.rows?.length ?? 0} ${localeText.dataDrawerRowsLabel} · ${
-        selectedSource.fields.filter((f) => !f.hidden).length +
-        expressionFields.filter(
-          (ef) => ef.sourceId === selectedSource.id && !ef.hidden && !ef.isMeasure,
-        ).length
-      } ${localeText.dataDrawerFieldsLabel}`
-    : null;
-  const previewSourceCounts = previewSource
-    ? `${previewSource.rows?.length ?? 0} ${localeText.dataDrawerRowsLabel} · ${
-        previewSource.fields.filter((f) => !f.hidden).length +
-        expressionFields.filter(
-          (ef) => ef.sourceId === previewSource.id && !ef.hidden && !ef.isMeasure,
-        ).length
-      } ${localeText.dataDrawerFieldsLabel}`
-    : null;
+  // `lineageSourceId`/`previewSourceId` originate from ids in the doc-authored `dataSources`
+  // record, so index it through the prototype-chain-safe `lookup` (the `utils/safeLookup`
+  // convention) rather than a bare bracket read: a key named after an `Object.prototype` member
+  // resolves an inherited function that `?? null` cannot catch, and `.fields.filter` below would
+  // then throw inside a dialog title.
+  const selectedSource = lookup(dataSources, lineageSourceId) ?? null;
+  const previewSource = lookup(dataSources, previewSourceId) ?? null;
+
+  /**
+   * Row/field counts for a source-preview dialog title.
+   *
+   * H1: `rows?.length ?? 0` claimed "0 rows" for any adapter-backed source, whose `rows` stays
+   * `undefined` until the host imperatively calls `setDataSourceRows` — the adapter path resolves
+   * rows per-widget into `studioRequestCache` and never writes them back here. A row count that
+   * was never taken is reported as unavailable (or as loading while an adapter is expected to
+   * deliver it), never as a number.
+   *
+   * @param source The data source being previewed.
+   * @returns The localized "N rows · M fields" caption for that source.
+   */
+  const describeSourceCounts = (source: StudioDataSource): string => {
+    const fieldCount =
+      source.fields.filter((f) => !f.hidden).length +
+      expressionFields.filter((ef) => ef.sourceId === source.id && !ef.hidden && !ef.isMeasure)
+        .length;
+    let rowsText: string;
+    if (getDataSourceRowState(source) !== 'unavailable') {
+      rowsText = `${source.rows!.length} ${localeText.dataDrawerRowsLabel}`;
+    } else if (isAwaitingDataSourceRows(source)) {
+      rowsText = localeText.widgetLoadingLabel;
+    } else {
+      rowsText = localeText.dataDrawerRowsUnknown;
+    }
+    return `${rowsText} · ${fieldCount} ${localeText.dataDrawerFieldsLabel}`;
+  };
+
+  const selectedSourceCounts = selectedSource ? describeSourceCounts(selectedSource) : null;
+  const previewSourceCounts = previewSource ? describeSourceCounts(previewSource) : null;
 
   // Defense-in-depth (this drawer had no error boundary at all, unlike
   // `StudioComposeDrawer`/`StudioFiltersDrawer`, which self-wrap their own content in

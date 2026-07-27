@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { useStudioSelector, selectDataSources } from '../../context';
 import type { StudioDataSource, StudioFilterState } from '../../models';
+import { getDataSourceRowState } from '../../internals/dataSourceRowState';
 
 type Row = Record<string, unknown>;
 
@@ -103,6 +104,22 @@ export const FIELD_VALUES_CAP = 1000;
  *
  * The result is capped at `FIELD_VALUES_CAP` distinct values; a length equal to the cap
  * signals the caller (`SelectionFilterInput`) that the field is high-cardinality.
+ *
+ * ## Adapter-backed sources yield no values (H1)
+ *
+ * `StudioDataSource.rows` is `undefined` — not `[]` — for a source whose data comes from an
+ * `adapter`: rows are resolved per-widget into `studioRequestCache` (`useAdapterRows`) and only
+ * the host's imperative `StudioController.setDataSourceRows` ever writes them onto the source.
+ * Such a source is SKIPPED here rather than scanned as an empty array, because a distinct-value
+ * list built from rows nobody read is not a measurement of anything.
+ *
+ * The empty array this hook then returns is, unavoidably, indistinguishable from "this field
+ * genuinely has no values" at the call site: the return type is `string[]`, and both
+ * `PageFilterRow` and `WidgetFilterRow` render it straight into `SelectionFilterInput`. Fixing
+ * that display honestly (a loading affordance instead of an empty checkbox list) requires
+ * widening this signature to carry the row state and updating those three components — all
+ * outside the scope of this change. Until then the skip below at least keeps a HALF-delivered
+ * multi-source scan (one in-memory source, one adapter-backed) from being reported as complete.
  */
 export function useFieldValues(
   fieldId: string,
@@ -127,10 +144,17 @@ export function useFieldValues(
       if (!ds || !ds.fields.some((f) => f.id === fieldId)) {
         continue;
       }
+      // H1: `rows === undefined` means the row set was never delivered (see this hook's doc
+      // comment). `ds.rows ?? []` treated that as a scan that found nothing; skip it explicitly
+      // so the intent is legible and a future signature widening has one place to hook into.
+      if (getDataSourceRowState(ds) === 'unavailable') {
+        continue;
+      }
+      const sourceRows = ds.rows as Row[];
       const rows =
         parentFilters && parentFilters.length > 0
-          ? applyParentFilters((ds.rows ?? []) as Row[], parentFilters, ds)
-          : ((ds.rows ?? []) as Row[]);
+          ? applyParentFilters(sourceRows, parentFilters, ds)
+          : sourceRows;
       for (const row of rows) {
         const val = row[fieldId];
         if (val != null && val !== '') {

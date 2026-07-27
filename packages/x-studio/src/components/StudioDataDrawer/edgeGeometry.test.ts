@@ -65,12 +65,12 @@ describe('buildEdgeGeometry', () => {
     ['source below target (fallback)', node(0, 100), node(0, 0)],
   ];
 
-  it.each(cases)('returns anchors and control points that compose its own path (%s)', (_, a, b) => {
-    const g = buildEdgeGeometry(a, b);
-    expect(g.d).toBe(
-      `M ${g.s.x} ${g.s.y} C ${g.cp1.x} ${g.cp1.y}, ${g.cp2.x} ${g.cp2.y}, ${g.t.x} ${g.t.y}`,
-    );
-  });
+  // REMOVED: an `expect(g.d).toBe(\`M ${g.s.x} ${g.s.y} C …\`)` case used to sit here. It could
+  // not fail: `buildEdgeGeometry` builds `d` from `s`/`cp1`/`cp2`/`t` inside the same `return`
+  // statement, so the assertion restated the implementation with the implementation's own values.
+  // The concrete-anchor test at the bottom of this block is what actually pins the branch
+  // selection, and `EdgeLabel.test.tsx`'s "places the badge on the rendered path" pins that the
+  // badge and the path come from one geometry call.
 
   it.each(cases)('is the single source of buildEdgePath (%s)', (_, a, b) => {
     expect(buildEdgePath(a, b)).toBe(buildEdgeGeometry(a, b).d);

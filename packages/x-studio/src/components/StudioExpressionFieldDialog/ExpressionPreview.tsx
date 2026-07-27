@@ -27,8 +27,20 @@ export function ExpressionPreview({
 }: ExpressionPreviewProps) {
   const localeText = useStudioLocaleText();
   const previewResult = React.useMemo(() => {
-    const rows = dataSource.rows ?? [];
+    const rows = dataSource.rows;
     const otherExprFields = expressionFields.filter((ef) => ef.id !== currentFieldId);
+    // H1: `dataSource.rows ?? []` fed an EMPTY row array to `evaluateMeasure`, which returns the
+    // identity of the aggregation — `0` for a `sum` — and the dialog rendered that as a confident
+    // "the total is 0" preview. `rows` is `undefined` for every adapter-backed source (rows are
+    // resolved per-widget into `studioRequestCache`; only the host's imperative
+    // `setDataSourceRows` writes them onto the source), so an author configuring a `sum` measure
+    // against a live database was shown a fabricated zero as the answer. There is nothing to
+    // preview against rows that were never delivered — render nothing rather than a number that
+    // was never measured. A source that genuinely returned `[]` is the same situation for preview
+    // purposes: `sum` over zero rows is not a measurement of anything the author can check.
+    if (rows === undefined || rows.length === 0) {
+      return null;
+    }
     try {
       if (isMeasure) {
         const draftField: StudioExpressionField = {
@@ -67,9 +79,11 @@ export function ExpressionPreview({
         <Chip
           label={
             // A root-level divide/modulo-by-zero yields `null` (finding 3.16) — no
-            // valid result to format, rather than a fabricated 0.
+            // valid result to format, rather than a fabricated 0. Uses the same localized
+            // "no value" label as the column-preview chips below, which had drifted to a
+            // bare em dash here.
             previewResult.value === null
-              ? '—'
+              ? localeText.exprPreviewNullLabel
               : formatNumber(previewResult.value, undefined, undefined, undefined, precision)
           }
           size="small"

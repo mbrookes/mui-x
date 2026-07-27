@@ -1,6 +1,7 @@
 'use client';
 import * as React from 'react';
 import {
+  Alert,
   Button,
   Dialog,
   DialogActions,
@@ -16,6 +17,7 @@ import {
 } from '@mui/material';
 import { useStudioLocaleText } from '../../context';
 import type { StudioDataSource } from '../../models';
+import { lookup } from '../../utils/safeLookup';
 
 export interface RelationshipFormState {
   sourceId: string;
@@ -47,8 +49,13 @@ export function RelationshipDialog(props: {
   onSave: (form: RelationshipFormState) => void;
   initial?: RelationshipFormState;
   dataSources: Record<string, StudioDataSource>;
+  /**
+   * H8: message shown when the controller silently rejected the write, so the dialog can stay
+   * open with the user's edits intact instead of closing as if it had saved.
+   */
+  error?: string | null;
 }) {
-  const { open, onClose, onSave, initial, dataSources } = props;
+  const { open, onClose, onSave, initial, dataSources, error } = props;
   const localeText = useStudioLocaleText();
   const [form, setForm] = React.useState<RelationshipFormState>(initial ?? emptyRelForm());
 
@@ -59,9 +66,13 @@ export function RelationshipDialog(props: {
   }, [initial, open]);
 
   const sourceList = Object.values(dataSources).filter((s) => !s.hidden);
-  const sourceFields = dataSources[form.sourceId]?.fields ?? [];
-  const targetFields = dataSources[form.targetId]?.fields ?? [];
-  const junctionFields = dataSources[form.junctionSourceId]?.fields ?? [];
+  // The three ids are doc-authored (and the junction one starts as `''`), so index through the
+  // prototype-chain-safe `lookup` per the `utils/safeLookup` convention rather than a bare
+  // bracket read that could resolve an inherited `Object.prototype` member. `?? []` on `fields`
+  // is a field list, not a row count — an empty picker for an unknown source is correct.
+  const sourceFields = lookup(dataSources, form.sourceId)?.fields ?? [];
+  const targetFields = lookup(dataSources, form.targetId)?.fields ?? [];
+  const junctionFields = lookup(dataSources, form.junctionSourceId)?.fields ?? [];
   const isManyToMany = form.type === 'many-to-many';
   const isValid =
     form.sourceId &&
@@ -111,6 +122,11 @@ export function RelationshipDialog(props: {
       </DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
+          {error && (
+            <Alert severity="error" role="alert">
+              {error}
+            </Alert>
+          )}
           <FormControl size="small" fullWidth>
             <InputLabel>{localeText.relationshipTypeLabel}</InputLabel>
             <Select

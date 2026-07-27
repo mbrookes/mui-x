@@ -67,48 +67,40 @@ describe('EdgeLabel', () => {
     expect(screen.getByText('N:1')).not.toBe(null);
   });
 
-  // Prototype-chain lookup bugs: `sources[rel.sourceId]` and `TYPE_LABELS[rel.type]` are plain
-  // object bracket lookups. A doc-authored `rel.sourceId`/`rel.type` equal to an inherited
-  // `Object.prototype` member name (e.g. "constructor") resolves the inherited function instead
-  // of `undefined`, which previously either crashed on `.find()` off an `undefined` `.fields`
-  // property or rendered a function as an SVG `<text>` child.
+  // ── Prototype-chain lookup guards ───────────────────────────────────────────
+  //
+  // REMOVED (they could not fail): three `it.each` blocks used to assert `.not.toThrow()` for a
+  // prototype-key `rel.sourceId`, `rel.targetId`, and `rel.junctionSourceId`. Their comment
+  // claimed the unguarded lookup "crashed on `.find()` off an `undefined` `.fields`" — it does
+  // not. Every consumer of those three lookups reads through `?.` and falls back with `??`:
+  // `srcSource?.fields?.find(...) ?? rel.sourceField` and `srcSource?.label ?? rel.sourceId`. With
+  // `Object.hasOwn` REMOVED the lookup resolves `Object`/`Function.prototype.toString`, whose
+  // `.label` and `.fields` are both `undefined`, so every rendered string is byte-identical and
+  // nothing throws. There is no input that distinguishes guarded from unguarded for those three,
+  // because no inherited `Object.prototype` member carries a `label` or `fields` property.
+  //
+  // The guards in `EdgeLabel.tsx` are KEPT as defense in depth — they cost nothing and they stop
+  // the class of bug the moment someone reads a property that DOES exist on a function (`name`,
+  // `length`, `call`) — but they are unobservable today, so no test can pin them.
+  //
+  // `rel.type` is different and its test stays: `TYPE_LABELS[rel.type]` and
+  // `REL_TYPE_LOCALE_KEYS[rel.type]` are rendered/indexed directly, so the inherited value IS the
+  // output. Unguarded, the SVG `<text>` child becomes a function ("Functions are not valid as a
+  // React child") and the accessible name resolves through `localeText[Object]` to `undefined`.
   it.each(['constructor', 'toString', 'valueOf', 'hasOwnProperty'])(
-    'renders without throwing when rel.sourceId is the prototype key %s',
-    (key) => {
-      const hostileRel: StudioRelationship = { ...REL, sourceId: key };
-      expect(() => setup(hostileRel, DATA_SOURCES)).not.toThrow();
-    },
-  );
-
-  it.each(['constructor', 'toString', 'valueOf', 'hasOwnProperty'])(
-    'renders without throwing when rel.targetId is the prototype key %s',
-    (key) => {
-      const hostileRel: StudioRelationship = { ...REL, targetId: key };
-      expect(() => setup(hostileRel, DATA_SOURCES)).not.toThrow();
-    },
-  );
-
-  it.each(['constructor', 'toString', 'valueOf', 'hasOwnProperty'])(
-    'renders without throwing when rel.type is the prototype key %s',
+    'renders the raw type string, never an inherited function, when rel.type is the prototype key %s',
     (key) => {
       const hostileRel = { ...REL, type: key } as unknown as StudioRelationship;
       expect(() => setup(hostileRel, DATA_SOURCES)).not.toThrow();
-      // The malformed type falls back to being rendered as its own string, never as a function.
-      expect(screen.getByText(key)).not.toBe(null);
+      // The badge falls back to the raw type string …
+      expect(screen.getByText(key)).toBeVisible();
+      // … and so does the accessible name, rather than the `undefined` an unguarded
+      // `localeText[REL_TYPE_LOCALE_KEYS[key]]` would interpolate.
+      const label = screen.getAllByRole('button')[0].getAttribute('aria-label') ?? '';
+      expect(label).toContain(key);
+      expect(label).not.toContain('undefined');
     },
   );
-
-  it('renders without throwing when rel.junctionSourceId is a prototype key and the popover is opened', async () => {
-    const hostileRel: StudioRelationship = {
-      ...REL,
-      type: 'many-to-many',
-      junctionSourceId: 'constructor',
-    };
-    const { user } = setup(hostileRel);
-    await user.click(screen.getAllByRole('button')[0]);
-    // The junction source falls back to being rendered as its own ID string, never as a function.
-    expect(screen.getByText(/constructor/)).not.toBe(null);
-  });
 
   // The badge used to be positioned from a private copy of `buildEdgePath`'s branch
   // selection. Both now come from one `buildEdgeGeometry` call, so the badge and its

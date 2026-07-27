@@ -9,6 +9,7 @@ const PREVIEW_ROWS = 5;
 export default function FieldPreviewTooltip({
   field,
   rows,
+  awaitingRows,
   children,
 }: {
   field: {
@@ -20,14 +21,24 @@ export default function FieldPreviewTooltip({
     currencyCode?: string;
   };
   rows?: Record<string, unknown>[];
+  /**
+   * H1: true when the owning source is adapter-backed and its rows have not been delivered yet
+   * (`isAwaitingDataSourceRows`). `rows` is then `undefined` for the same reason it is
+   * `undefined` for a source that genuinely has none, and dropping the tooltip in both cases
+   * renders "not measured yet" as "nothing to show". When set, the tooltip still renders — with
+   * a loading line in place of the sample values — so the affordance doesn't disappear and
+   * reappear as rows arrive.
+   */
+  awaitingRows?: boolean;
   children: React.ReactElement;
 }) {
   const localeText = useStudioLocaleText();
-  if (!rows || rows.length === 0) {
+  const hasRows = rows !== undefined && rows.length > 0;
+  if (!hasRows && !awaitingRows) {
     return children;
   }
 
-  const values = rows.slice(0, PREVIEW_ROWS).map((row) => {
+  const values = (rows ?? []).slice(0, PREVIEW_ROWS).map((row) => {
     const v = row[field.id];
     if (v === null || v === undefined) {
       return '—';
@@ -45,6 +56,11 @@ export default function FieldPreviewTooltip({
       <Typography variant="caption" sx={{ fontWeight: 700, opacity: 0.8 }}>
         {field.label}
       </Typography>
+      {!hasRows && (
+        <Typography variant="caption" sx={{ opacity: 0.7 }}>
+          {localeText.widgetLoadingLabel}
+        </Typography>
+      )}
       {values.map((v, i) => (
         // react-doctor-disable-next-line react-doctor/no-array-index-as-key, react-doctor/no-array-index-key -- display-only list of enum values, ordering is stable
         <Typography
@@ -55,7 +71,7 @@ export default function FieldPreviewTooltip({
           {v}
         </Typography>
       ))}
-      {rows.length > PREVIEW_ROWS && (
+      {hasRows && rows!.length > PREVIEW_ROWS && (
         <Typography variant="caption" sx={{ opacity: 0.5 }}>
           {localeText.dataDrawerMorePreviewRows(rows.length - PREVIEW_ROWS)}
         </Typography>

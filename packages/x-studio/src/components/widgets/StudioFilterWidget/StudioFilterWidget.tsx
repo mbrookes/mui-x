@@ -1,6 +1,6 @@
 'use client';
 import * as React from 'react';
-import { Box, Typography } from '@mui/material';
+import { Box, CircularProgress, Stack, Typography } from '@mui/material';
 import dayjs from 'dayjs';
 import type { StudioWidgetOf, StudioDataSource } from '../../../models';
 import {
@@ -14,6 +14,10 @@ import {
 } from '../../../context';
 import { getCachedEnrichedRows } from '../../../internals/enrichedRowsCache';
 import { getCachedNormalizedDataSource } from '../../../internals/normalizedRowsCache';
+import {
+  getDataSourceRowState,
+  isAwaitingDataSourceRows,
+} from '../../../internals/dataSourceRowState';
 
 import {
   DateRangeControl,
@@ -97,6 +101,16 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
       expressionFields.find((ef) => ef.id === fieldId && ef.sourceId === widget.sourceId)
     );
   }, [fieldId, normalizedDataSource, expressionFields, widget.sourceId]);
+
+  // H1: `dataSource.rows` is `undefined` — not `[]` — for an adapter-backed source until the host
+  // imperatively calls `setDataSourceRows`; the adapter path resolves rows per-widget into
+  // `studioRequestCache` (`useAdapterRows`) and never writes them back onto the source. Every
+  // row-derived rendering below (`distinctValues`, `autoMin`/`autoMax`) previously read that
+  // `undefined` as "measured, and there is nothing", producing a permanently empty dropdown and a
+  // slider whose range was a meaningless 0–100 that the user could nevertheless drag and commit.
+  // `'unavailable'` is kept distinct from `'empty'` so those two renderings can differ.
+  const rowState = getDataSourceRowState(dataSource);
+  const awaitingRows = isAwaitingDataSourceRows(dataSource);
 
   const rows = React.useMemo(() => {
     if (!normalizedDataSource?.rows) {
@@ -267,6 +281,40 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
         <Typography variant="body2" color="text.secondary">
           {localeText.filterWidgetNoFieldConfigured}
         </Typography>
+      </Box>
+    );
+  }
+
+  // H1: the value-driven control types (multi-select, toggle, slider) derive their entire visible
+  // state from rows. When the rows were never delivered there is nothing honest to render: "No
+  // options" and a 0–100 slider are both positive claims about data nobody has read. Say so
+  // instead — and keep saying it rather than flickering to a wrong control — until rows arrive.
+  // (The date-range control derives nothing from rows, so it is deliberately not gated.)
+  //
+  // DECLINED here, deliberately: routing this widget through `useWidgetRows` — which would make
+  // the adapter actually FETCH the values — needs a `filter` entry in
+  // `internals/chartTypeRegistry.ts`'s `widgetKindRegistry`. Without one, `getDescriptor` falls
+  // back to `xyDescriptor`, whose `collectFields` reads chart config keys a filter widget doesn't
+  // have, so the query descriptor would omit `config.filterWidgetField` and the fetched rows
+  // would not carry the column being filtered on. That registry file is out of scope for this
+  // change; until it gains a filter descriptor, this widget reports the absence rather than
+  // fabricating a value list.
+  const isValueDrivenControl =
+    filterWidgetType === 'multi-select' ||
+    filterWidgetType === 'toggle' ||
+    filterWidgetType === 'slider';
+  if (isValueDrivenControl && rowState === 'unavailable') {
+    return (
+      <Box sx={{ p: 1 }}>
+        <Typography variant="subtitle2" noWrap>
+          {label}
+        </Typography>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mt: 0.5 }}>
+          {awaitingRows && <CircularProgress size={14} />}
+          <Typography variant="body2" color="text.secondary">
+            {awaitingRows ? localeText.widgetLoadingLabel : localeText.widgetNoData}
+          </Typography>
+        </Stack>
       </Box>
     );
   }

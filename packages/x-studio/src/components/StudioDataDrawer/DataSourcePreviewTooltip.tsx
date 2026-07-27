@@ -4,6 +4,10 @@ import { Box, Stack, Tooltip, Typography } from '@mui/material';
 import type { PopperProps } from '@mui/material/Popper';
 import { useStudioLocaleText } from '../../context';
 import { formatFieldValue } from '../../internals/numberFormat';
+import {
+  getDataSourceRowState,
+  isAwaitingDataSourceRows,
+} from '../../internals/dataSourceRowState';
 
 import type { StudioDataSource } from '../../models';
 
@@ -38,19 +42,42 @@ export default function DataSourcePreviewTooltip({
   }, [onOpenPreview, source.id]);
 
   const rows = source.rows;
-  if (!rows || rows.length === 0) {
+  // H1: `rows === undefined` is "never delivered", not "delivered and empty" — an adapter-backed
+  // source resolves rows per-widget into `studioRequestCache` and only the host's imperative
+  // `setDataSourceRows` ever writes them onto the source. Dropping the whole tooltip in that case
+  // also removed the ONLY keyboard route to "View source data" (`StudioDataDrawer` gates its
+  // "View lineage" entry point on `sourceList.length >= 2`), so a single-source adapter-backed
+  // dashboard had no way at all to open the preview dialog. Keep the tooltip whenever there is
+  // either something to preview or an action to reach; show the row state in place of the table.
+  const hasRows = rows !== undefined && rows.length > 0;
+  if (!hasRows && !onOpenPreview) {
     return children;
   }
 
   const visibleFields = source.fields.filter((f) => !f.hidden).slice(0, DS_PREVIEW_COLS);
   const columnDelta = source.fields.filter((f) => !f.hidden).length - DS_PREVIEW_COLS;
-  const previewRows = rows.slice(0, DS_PREVIEW_ROWS);
+  const previewRows = hasRows ? rows!.slice(0, DS_PREVIEW_ROWS) : [];
+  let emptyStateText: string | null = null;
+  if (!hasRows) {
+    if (isAwaitingDataSourceRows(source)) {
+      emptyStateText = localeText.widgetLoadingLabel;
+    } else if (getDataSourceRowState(source) === 'empty') {
+      emptyStateText = localeText.dataDrawerNoData(source.label);
+    } else {
+      emptyStateText = localeText.dataDrawerRowsUnknown;
+    }
+  }
 
   const title = (
     <Stack spacing={0.5}>
       <Typography variant="caption" sx={{ fontWeight: 700, opacity: 0.8 }}>
         {source.label}
       </Typography>
+      {emptyStateText !== null && (
+        <Typography variant="caption" sx={{ opacity: 0.7 }}>
+          {emptyStateText}
+        </Typography>
+      )}
       <Box
         component="table"
         sx={{ borderCollapse: 'collapse', fontSize: 11, fontFamily: 'monospace', display: 'table' }}
@@ -117,11 +144,12 @@ export default function DataSourcePreviewTooltip({
           ))}
         </tbody>
       </Box>
-      {(rows.length > DS_PREVIEW_ROWS || columnDelta > 0) && (
+      {((hasRows && rows!.length > DS_PREVIEW_ROWS) || columnDelta > 0) && (
         <Typography variant="caption" sx={{ opacity: 0.5 }}>
           {[
-            rows.length > DS_PREVIEW_ROWS
-              ? localeText.dataDrawerMoreRows(rows.length - DS_PREVIEW_ROWS)
+            // Never report "N more rows" off a row set that was never delivered.
+            hasRows && rows!.length > DS_PREVIEW_ROWS
+              ? localeText.dataDrawerMoreRows(rows!.length - DS_PREVIEW_ROWS)
               : null,
             columnDelta > 0 ? localeText.dataDrawerMoreColumns(columnDelta) : null,
           ]

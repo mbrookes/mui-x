@@ -29,6 +29,7 @@ import {
   type ExpressionValidationError,
 } from '../../utils/expressionEvaluator';
 import { StudioDrawerErrorBoundary } from '../../internals/StudioDrawerErrorBoundary';
+import { lookup } from '../../utils/safeLookup';
 import { ExpressionBuilder } from './ExpressionNodeEditor';
 import { ExpressionPreview } from './ExpressionPreview';
 
@@ -168,6 +169,16 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
   );
   const { label, description, isMeasure, expression, precision } = form;
 
+  // H8: `addExpressionField`/`updateExpressionField` return `void` and bail SILENTLY on four
+  // paths — duplicate id, "field no longer exists", value-equality, and the cycle guard (a
+  // dev-only `console.warn`, nothing in production). `handleSave` used to call one of them and
+  // then `onClose()` unconditionally, so a rejected write closed the dialog exactly like an
+  // accepted one: edit "Margin %", have the AI assistant remove that field meanwhile, hit Save,
+  // and the edit is discarded on a normal-looking save. Until the controller can report success
+  // (see `handleSave`), the dialog verifies the committed doc itself and stays open when the
+  // write did not land.
+  const [saveRejected, setSaveRejected] = React.useState(false);
+
   // Stable across re-renders (finding 3.11): the previous `expr-${Date.now()}` was
   // recomputed on every render for a new (non-edit) field, churning the `draftField`/
   // `validationErrors` memos below (both depend on `fieldId`) on every keystroke until
@@ -203,6 +214,9 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
     newFieldIdRef.current = createNewExpressionFieldId();
     // react-doctor-disable-next-line react-doctor/no-derived-state -- locally buffered form; sync on external change is intentional
     setForm(buildFormState(existingField));
+    // A rejection banner belongs to the save attempt that produced it, not to the next field
+    // the dialog is opened on.
+    setSaveRejected(false);
   }, [existingField, open]);
 
   // BL-180: expression fields offered as operands in the builder, scoped to those
@@ -275,36 +289,71 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
     });
   }, [draftField, expressionFields, dataSource.fields, isEdit, fieldId, reachableSourceIds]);
 
+  // The durable fix is for `addExpressionField`/`updateExpressionField` to RETURN a
+  // success/failure result instead of `void`; `StudioController.ts` is out of scope for this
+  // change, so the dialog verifies the commit itself.
   const handleSave = () => {
     if (validationErrors.length > 0) {
       return;
     }
+    const patch = {
+      label,
+      description: description || undefined,
+      isMeasure,
+      expression,
+      type: inferredType,
+      precision: parsedPrecision,
+    };
     if (isEdit) {
-      controller.updateExpressionField(fieldId, {
-        label,
-        description: description || undefined,
-        isMeasure,
-        expression,
-        type: inferredType,
-        precision: parsedPrecision,
-      });
+      controller.updateExpressionField(fieldId, patch);
     } else {
-      controller.addExpressionField({
-        id: fieldId,
-        label,
-        description: description || undefined,
-        sourceId: dataSource.id,
-        isMeasure,
-        expression,
-        type: inferredType,
-        precision: parsedPrecision,
-      });
+      // The duplicate-id bail is the one rejection a post-state read cannot see: the id would be
+      // present either way, and only its (foreign) values would differ. Check it up front.
+      if (controller.getState().doc.expressionFields.some((ef) => ef.id === fieldId)) {
+        setSaveRejected(true);
+        return;
+      }
+      controller.addExpressionField({ id: fieldId, sourceId: dataSource.id, ...patch });
+    }
+    // Post-state verification. Reference-compares each patched key exactly as the controller's own
+    // value-equality guard does, so a deliberate no-op re-save (open, glance, Save with no edits)
+    // reads as ACCEPTED and closes normally, while a field that was removed, or an update the
+    // cycle guard refused, keeps the dialog open with the user's work intact.
+    const committed = controller.getState().doc.expressionFields.find((ef) => ef.id === fieldId);
+    const accepted =
+      committed !== undefined &&
+      (Object.keys(patch) as (keyof typeof patch)[]).every((key) => committed[key] === patch[key]);
+    if (!accepted) {
+      setSaveRejected(true);
+      return;
+    }
+    setSaveRejected(false);
+    if (!isEdit) {
       onSaved?.(fieldId);
     }
     onClose();
   };
 
   const hasErrors = validationErrors.length > 0;
+
+  /**
+   * Localized label for the inferred output type.
+   *
+   * The chip rendered `inferredType` raw — the `'number'`/`'string'`/`'boolean'` discriminant —
+   * next to a fully localized caption, so a French user read "Type de sortie: boolean". The same
+   * three keys the literal-type picker in `ExpressionNodeEditor` already uses cover this.
+   */
+  const inferredTypeLabel =
+    lookup(
+      {
+        number: localeText.exprDataTypeNumber,
+        string: localeText.exprDataTypeText,
+        boolean: localeText.exprDataTypeBoolean,
+      },
+      inferredType,
+    ) ??
+    // `date`/`datetime` have no dedicated key; the raw discriminant is the honest fallback.
+    inferredType;
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
@@ -387,7 +436,7 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
               <Typography variant="caption" color="text.secondary">
                 {localeText.exprOutputTypeLabel}
               </Typography>
-              <Chip label={inferredType} size="small" variant="outlined" />
+              <Chip label={inferredTypeLabel} size="small" variant="outlined" />
             </Stack>
 
             {inferredType === 'number' && (
@@ -431,6 +480,13 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
               currentFieldId={fieldId}
               precision={parsedPrecision}
             />
+
+            {/* H8: the controller rejected the write; the dialog stays open and says so. */}
+            {saveRejected && (
+              <Alert severity="error" role="alert">
+                {localeText.saveRejectedMessage}
+              </Alert>
+            )}
 
             {/* Validation errors */}
             {hasErrors && (

@@ -429,7 +429,17 @@ function InputNode({
               <MenuItem key={opt.id} value={opt.id}>
                 {opt.label}
                 {opt.isExpr && (
-                  <Chip label="fx" size="small" sx={{ ml: 0.5, height: 16, fontSize: '0.6rem' }} />
+                  // The "fx" glyph is the only thing distinguishing a calculated field from a
+                  // physical one in this list, and as bare decorative text it carried no
+                  // accessible name — a screen-reader user heard "Margin fx" at best, "Margin" at
+                  // worst. `aria-label` names it with the same localized string the drawer uses
+                  // for a calculated field.
+                  <Chip
+                    label="fx"
+                    aria-label={localeText.exprCalculatedFieldBadgeLabel}
+                    size="small"
+                    sx={{ ml: 0.5, height: 16, fontSize: '0.6rem' }}
+                  />
                 )}
               </MenuItem>
             ))}

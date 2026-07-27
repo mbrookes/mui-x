@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { createRenderer, screen, fireEvent, within } from '@mui/internal-test-utils';
+import { act, createRenderer, screen, fireEvent, waitFor, within } from '@mui/internal-test-utils';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { StudioDataSource, StudioExpressionField } from '../../models';
 import { createStudioHarness } from '../../internals/test-utils';
@@ -147,59 +147,230 @@ describe('DataSourceSection', () => {
       shouldThrowInEvaluateMeasure = false;
     });
 
-    it('contains a throw from evaluateMeasure instead of crashing the section render', () => {
+    // `measureValue` reaches the DOM only through `ExpressionFieldRow`'s hover tooltip. The
+    // previous pair of tests never opened it, so both asserted only that the row label rendered —
+    // identical assertions that passed whether `evaluateMeasure` returned, threw, or was never
+    // called at all. Both now open the tooltip, which is the only place the two outcomes differ.
+    const MEASURE_FIELD: StudioExpressionField = {
+      ...EXPR_FIELD,
+      id: 'm1',
+      label: 'Total',
+      isMeasure: true,
+      // `sum(amount)` over SOURCE's single row → 1.
+      expression: { id: 'amount', aggregation: 'sum' } as StudioExpressionField['expression'],
+    };
+
+    it('contains a throw from evaluateMeasure instead of crashing the section render', async () => {
       shouldThrowInEvaluateMeasure = true;
-      const measureField: StudioExpressionField = {
-        ...EXPR_FIELD,
-        id: 'm1',
-        label: 'Total',
-        isMeasure: true,
-      };
       const { wrapper } = createStudioHarness();
 
-      expect(() =>
-        render(
+      let view: ReturnType<typeof render> | undefined;
+      expect(() => {
+        view = render(
           <div>
             <div data-testid="sibling">Canary content outside the section</div>
             <DataSourceSection
               source={SOURCE}
-              expressionFields={[measureField]}
+              expressionFields={[MEASURE_FIELD]}
               dataSources={{ orders: SOURCE }}
               relationships={[]}
               isEditMode
             />
           </div>,
           { wrapper },
-        ),
-      ).not.toThrow();
+        );
+      }).not.toThrow();
 
-      // The sibling survives, and the measure field row itself still renders — only the
-      // aggregate preview value is dropped (falls back to `undefined`, same as when the
-      // field has no rows), instead of the throw propagating up and taking the tree down.
-      expect(screen.getByTestId('sibling')).not.toBe(null);
-      expect(screen.getByText('Total')).not.toBe(null);
+      // The sibling survives and the measure row still renders …
+      expect(screen.getByTestId('sibling')).toBeVisible();
+      expandSection();
+      expect(screen.getByText('Total')).toBeVisible();
+
+      // … but the aggregate is dropped: `measureValue` falls back to `undefined`, so
+      // `ExpressionFieldRow` passes no preview rows and `FieldPreviewTooltip` renders the trigger
+      // untouched — no tooltip at all, exactly as for a field with no rows. This is the assertion
+      // that distinguishes the caught throw from a successful evaluation (the sibling test below
+      // opens the tooltip and reads the value out of it).
+      await view!.user.hover(screen.getByText('Total'));
+      await act(async () => {
+        await new Promise((resolve) => {
+          setTimeout(resolve, 200);
+        });
+      });
+      expect(screen.queryByRole('tooltip')).toBe(null);
     });
 
-    it('renders the field row normally when evaluateMeasure does not throw', () => {
+    it('shows the computed aggregate in the preview when evaluateMeasure does not throw', async () => {
       shouldThrowInEvaluateMeasure = false;
-      const measureField: StudioExpressionField = {
-        ...EXPR_FIELD,
-        id: 'm1',
-        label: 'Total',
-        isMeasure: true,
-      };
       const { wrapper } = createStudioHarness();
-      render(
+      const { user } = render(
         <DataSourceSection
           source={SOURCE}
-          expressionFields={[measureField]}
+          expressionFields={[MEASURE_FIELD]}
           dataSources={{ orders: SOURCE }}
           relationships={[]}
           isEditMode
         />,
         { wrapper },
       );
-      expect(screen.getByText('Total')).not.toBe(null);
+      expandSection();
+
+      await user.hover(screen.getByText('Total'));
+      const tooltip = await screen.findByRole('tooltip');
+      expect(within(tooltip).getByText('1')).toBeVisible();
+    });
+  });
+
+  // ── H1: an adapter-backed source has never delivered its rows ──────────────
+  //
+  // `StudioDataSource.rows` is `undefined` (not `[]`) for a source whose data comes from an
+  // adapter until the host imperatively calls `setDataSourceRows`. `?? 0` reported that as a
+  // measured "0 rows".
+  describe('adapter-backed source with undefined rows (H1)', () => {
+    const ADAPTER_SOURCE: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: SOURCE.fields,
+      adapter: { getRows: async () => ({ rows: [] }) },
+    };
+
+    it('does not claim "0 rows" for a source that was never counted', () => {
+      const { wrapper } = createStudioHarness();
+      render(
+        <DataSourceSection
+          source={ADAPTER_SOURCE}
+          expressionFields={[]}
+          dataSources={{ orders: ADAPTER_SOURCE }}
+          relationships={[]}
+          isEditMode
+        />,
+        { wrapper },
+      );
+
+      expect(screen.queryByText(/0 rows/)).toBe(null);
+      expect(screen.getByText(/2 fields · Loading/)).toBeVisible();
+    });
+
+    it('still says "0 rows" when the source genuinely delivered an empty set', () => {
+      const emptySource: StudioDataSource = { ...ADAPTER_SOURCE, rows: [] };
+      const { wrapper } = createStudioHarness();
+      render(
+        <DataSourceSection
+          source={emptySource}
+          expressionFields={[]}
+          dataSources={{ orders: emptySource }}
+          relationships={[]}
+          isEditMode
+        />,
+        { wrapper },
+      );
+
+      expect(screen.getByText(/2 fields · 0 rows/)).toBeVisible();
+    });
+  });
+
+  // ── H7: deleting a referenced calculated field asks first ──────────────────
+  //
+  // `StudioController.removeExpressionField`'s JSDoc documents this confirmation; the count was
+  // being read and discarded, and the field deleted on a single click, silently blanking every
+  // widget that referenced it.
+  describe('delete confirmation for a referenced calculated field (H7)', () => {
+    const REFERENCING_WIDGET = {
+      id: 'w1',
+      kind: 'kpi' as const,
+      title: 'Total',
+      sourceId: 'orders',
+      config: { kpiValueField: 'e1' },
+    };
+
+    it('asks before deleting a field that is still referenced', async () => {
+      const { controller, wrapper } = createStudioHarness({
+        initialState: {
+          doc: { expressionFields: [EXPR_FIELD], widgets: { w1: REFERENCING_WIDGET } },
+        },
+      });
+      const removeSpy = vi.spyOn(controller, 'removeExpressionField');
+      const { user } = render(
+        <DataSourceSection
+          source={SOURCE}
+          expressionFields={[EXPR_FIELD]}
+          dataSources={{ orders: SOURCE }}
+          relationships={[]}
+          isEditMode
+        />,
+        { wrapper },
+      );
+      expandSection();
+
+      await user.click(screen.getByTestId('DeleteIcon').closest('button')!);
+
+      // Nothing deleted yet — the confirmation names the field and how many places use it.
+      expect(removeSpy).not.toHaveBeenCalled();
+      expect(screen.getByText('Delete calculated field?')).toBeVisible();
+      expect(screen.getByText(/"Calc" is used by 1 /)).toBeVisible();
+
+      // Confirming goes through; the controller's own dev warning about the stranded references
+      // is expected here (it is the same information the confirmation just showed).
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        await user.click(screen.getByRole('button', { name: 'Delete' }));
+        expect(removeSpy).toHaveBeenCalledWith('e1');
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('keeps the field when the confirmation is cancelled', async () => {
+      const { controller, wrapper } = createStudioHarness({
+        initialState: {
+          doc: { expressionFields: [EXPR_FIELD], widgets: { w1: REFERENCING_WIDGET } },
+        },
+      });
+      const removeSpy = vi.spyOn(controller, 'removeExpressionField');
+      const { user } = render(
+        <DataSourceSection
+          source={SOURCE}
+          expressionFields={[EXPR_FIELD]}
+          dataSources={{ orders: SOURCE }}
+          relationships={[]}
+          isEditMode
+        />,
+        { wrapper },
+      );
+      expandSection();
+
+      await user.click(screen.getByTestId('DeleteIcon').closest('button')!);
+      await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+      expect(removeSpy).not.toHaveBeenCalled();
+      // `waitFor`: MUI's Dialog unmounts at the end of its Fade exit transition, so it is still in
+      // the tree for a frame after `open` flips to false.
+      await waitFor(() => {
+        expect(screen.queryByText('Delete calculated field?')).toBe(null);
+      });
+    });
+
+    it('deletes an unreferenced field in one click, with no confirmation', async () => {
+      const { controller, wrapper } = createStudioHarness({
+        initialState: { doc: { expressionFields: [EXPR_FIELD] } },
+      });
+      const removeSpy = vi.spyOn(controller, 'removeExpressionField');
+      const { user } = render(
+        <DataSourceSection
+          source={SOURCE}
+          expressionFields={[EXPR_FIELD]}
+          dataSources={{ orders: SOURCE }}
+          relationships={[]}
+          isEditMode
+        />,
+        { wrapper },
+      );
+      expandSection();
+
+      await user.click(screen.getByTestId('DeleteIcon').closest('button')!);
+
+      expect(screen.queryByText('Delete calculated field?')).toBe(null);
+      expect(removeSpy).toHaveBeenCalledWith('e1');
     });
   });
 });

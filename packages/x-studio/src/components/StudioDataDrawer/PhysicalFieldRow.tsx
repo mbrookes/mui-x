@@ -7,6 +7,8 @@ import FieldPreviewTooltip from './FieldPreviewTooltip';
 interface PhysicalFieldRowProps {
   field: StudioDataSource['fields'][number];
   rows: StudioDataSource['rows'];
+  /** H1: the owning source is adapter-backed and its rows have not been delivered yet. */
+  awaitingRows?: boolean;
   isSelected: boolean;
   isEditMode: boolean;
   onSelect: () => void;
@@ -15,12 +17,13 @@ interface PhysicalFieldRowProps {
 export default function PhysicalFieldRow({
   field,
   rows,
+  awaitingRows,
   isSelected,
   isEditMode,
   onSelect,
 }: PhysicalFieldRowProps) {
   return (
-    <FieldPreviewTooltip field={field} rows={rows}>
+    <FieldPreviewTooltip field={field} rows={rows} awaitingRows={awaitingRows}>
       <ListItemButton
         selected={isEditMode && isSelected}
         disableRipple={!isEditMode}

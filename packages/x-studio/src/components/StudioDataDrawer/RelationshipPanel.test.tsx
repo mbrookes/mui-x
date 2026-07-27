@@ -74,43 +74,70 @@ describe('RelationshipPanel', () => {
     expect(screen.getByText('Edit relationship')).not.toBe(null);
   });
 
-  // Prototype-chain lookup bugs: `dataSources[rel.sourceId]` and `relationshipTypeLabels[rel.type]`
-  // are plain object bracket lookups. A doc-authored `rel.sourceId`/`rel.type` equal to an
-  // inherited `Object.prototype` member name (e.g. "constructor") resolves the inherited function
-  // instead of `undefined` — which previously survived `?? rel.sourceId` (truthy) and crashed
-  // `<Chip label>` rendering with "Functions are not valid as a React child."
+  // ── Prototype-chain lookup guards ───────────────────────────────────────────
+  //
+  // REMOVED (they could not fail): `it.each` blocks for a prototype-key `rel.sourceId`,
+  // `rel.targetId`, and `rel.junctionSourceId`. All three feed `…?.label ?? rel.<id>`, and no
+  // inherited `Object.prototype` member has a `label` property — so with `Object.hasOwn` REMOVED
+  // the lookup resolves `Object`, `.label` is `undefined`, `??` fires, and the rendered text is
+  // byte-identical. The guards in `RelationshipPanel.tsx` are KEPT as defense in depth (they
+  // become load-bearing the moment someone reads a property functions DO have), but they are
+  // unobservable today and no input distinguishes them.
+  //
+  // `rel.type` is genuinely different and stays: `relationshipTypeLabels[rel.type]` is the `<Chip
+  // label>` VALUE, so unguarded it renders a function and React throws "Functions are not valid
+  // as a React child."
   it.each(['constructor', 'toString', 'valueOf', 'hasOwnProperty'])(
-    'renders without throwing when rel.sourceId is the prototype key %s',
-    (key) => {
-      expect(() => setup([{ ...REL, sourceId: key }])).not.toThrow();
-      expect(screen.getByText(new RegExp(`${key}.*Customers`))).not.toBe(null);
-    },
-  );
-
-  it.each(['constructor', 'toString', 'valueOf', 'hasOwnProperty'])(
-    'renders without throwing when rel.targetId is the prototype key %s',
-    (key) => {
-      expect(() => setup([{ ...REL, targetId: key }])).not.toThrow();
-      expect(screen.getByText(new RegExp(`Orders.*${key}`))).not.toBe(null);
-    },
-  );
-
-  it.each(['constructor', 'toString', 'valueOf', 'hasOwnProperty'])(
-    'renders without throwing when rel.type is the prototype key %s',
+    'renders the raw type string, never an inherited function, when rel.type is the prototype key %s',
     (key) => {
       const hostileRel = { ...REL, type: key } as unknown as StudioRelationship;
       expect(() => setup([hostileRel])).not.toThrow();
-      // The malformed type falls back to being rendered as its own string, never as a function.
-      expect(screen.getByText(key)).not.toBe(null);
+      expect(screen.getByText(key)).toBeVisible();
     },
   );
 
-  it('renders without throwing when rel.junctionSourceId is a prototype key', () => {
-    const hostileRel: StudioRelationship = {
-      ...REL,
-      type: 'many-to-many',
-      junctionSourceId: 'constructor',
-    };
-    expect(() => setup([hostileRel])).not.toThrow();
+  // ── H8: a rejected write must not close the dialog ─────────────────────────
+  //
+  // `addRelationship` bails on a duplicate id and `updateRelationship`'s `mapPreservingIdentity`
+  // finds nothing to patch when the relationship was removed elsewhere (the AI assistant, a second
+  // view) — both return `void`, and the panel used to `setDialogOpen(false)` regardless, so a
+  // discarded edit looked exactly like a saved one.
+  describe('rejected writes keep the dialog open (H8)', () => {
+    it('keeps the edit dialog open when the relationship was removed from the doc meanwhile', async () => {
+      const { controller, wrapper } = createStudioHarness({
+        initialState: { doc: { relationships: [REL] } },
+      });
+      const { user } = render(
+        <RelationshipPanel relationships={[REL]} dataSources={DATA_SOURCES} />,
+        { wrapper },
+      );
+
+      await user.click(screen.getByTestId('EditIcon').closest('button')!);
+      expect(screen.getByText('Edit relationship')).toBeVisible();
+
+      // The doc moves on while the dialog is open.
+      controller.removeRelationship('r1');
+
+      await user.click(screen.getByRole('button', { name: 'Update' }));
+
+      expect(screen.getByText('Edit relationship')).toBeVisible();
+      expect(screen.getByText(/could not be saved/i)).toBeVisible();
+    });
+
+    it('closes the edit dialog when the update actually lands', async () => {
+      const { wrapper } = createStudioHarness({
+        initialState: { doc: { relationships: [REL] } },
+      });
+      const { user } = render(
+        <RelationshipPanel relationships={[REL]} dataSources={DATA_SOURCES} />,
+        { wrapper },
+      );
+
+      await user.click(screen.getByTestId('EditIcon').closest('button')!);
+      await user.click(screen.getByRole('button', { name: 'Update' }));
+
+      expect(screen.queryByText('Edit relationship')).toBe(null);
+      expect(screen.queryByText(/could not be saved/i)).toBe(null);
+    });
   });
 });

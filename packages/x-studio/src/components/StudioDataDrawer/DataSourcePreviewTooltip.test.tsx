@@ -31,7 +31,7 @@ function setup(onOpenPreview?: (sourceId: string) => void) {
 }
 
 describe('DataSourcePreviewTooltip', () => {
-  it('renders the trigger untouched when the source has no rows', () => {
+  it('renders the trigger untouched when the source has no rows and no preview action', () => {
     const { wrapper } = createStudioHarness();
     render(
       <DataSourcePreviewTooltip source={{ ...SOURCE, rows: [] }}>
@@ -40,7 +40,41 @@ describe('DataSourcePreviewTooltip', () => {
       { wrapper },
     );
 
-    expect(screen.getByRole('button', { name: 'Orders' })).not.toBe(null);
+    expect(screen.getByRole('button', { name: 'Orders' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: /View source data/i })).toBe(null);
+  });
+
+  // ── H1: an adapter-backed source has never delivered its rows ──────────────
+  //
+  // `rows === undefined` used to drop the whole tooltip — which also removed the ONLY keyboard
+  // route to "View source data", since `StudioDataDrawer` gates its "View lineage" entry point on
+  // two or more sources.
+  describe('adapter-backed source with undefined rows (H1)', () => {
+    const ADAPTER_SOURCE: StudioDataSource = {
+      id: 'orders',
+      label: 'Orders',
+      fields: SOURCE.fields,
+      adapter: { getRows: async () => ({ rows: [] }) },
+    };
+
+    it('keeps the "View source" affordance reachable and says the rows are still loading', () => {
+      const { wrapper } = createStudioHarness();
+      render(
+        <DataSourcePreviewTooltip source={ADAPTER_SOURCE} onOpenPreview={() => {}}>
+          <button type="button">Orders</button>
+        </DataSourcePreviewTooltip>,
+        { wrapper },
+      );
+
+      act(() => {
+        screen.getByRole('button', { name: 'Orders' }).focus();
+      });
+
+      expect(screen.getByRole('button', { name: /View source data/i })).toBeVisible();
+      expect(screen.getByText('Loading')).toBeVisible();
+      // Never a fabricated row count for rows nobody read.
+      expect(screen.queryByText(/more rows/i)).toBe(null);
+    });
   });
 
   // ── M11: the preview action must be reachable without a mouse ───────────────
@@ -60,7 +94,7 @@ describe('DataSourcePreviewTooltip', () => {
       expect(screen.getByRole('button', { name: /View source data/i })).not.toBe(null);
     });
 
-    it('keeps the tooltip open while focus moves onto the "View source" button', () => {
+    it('keeps the tooltip open while focus moves onto the "View source" button', async () => {
       setup(() => {});
 
       const trigger = screen.getByRole('button', { name: 'Orders' });
@@ -78,7 +112,27 @@ describe('DataSourcePreviewTooltip', () => {
         viewSource.focus();
       });
 
-      expect(screen.getByRole('button', { name: /View source data/i })).not.toBe(null);
+      // A SYNCHRONOUS assertion here could not fail: the popper unmounts only at the END of MUI's
+      // Grow exit transition (that is exactly why the sibling "closes the tooltip …" test below
+      // needs `waitFor`), so it is still in the tree for a frame even when `open` HAS flipped to
+      // false. Waiting past the exit window first is what makes this assert the settled state
+      // instead of a transitional frame.
+      //
+      // What this test does NOT pin, verified by mutation: neither `disablePortal` nor the
+      // wrapper's `onBlur` containment check changes the outcome here. React propagates events
+      // through the REACT tree, so even a portaled "View source" button's focus bubbles back to
+      // this wrapper's `onFocus`, which re-opens the tooltip in the same batch that the blur
+      // closed it. Those two lines in the component are kept as defense in depth (they avoid a
+      // close/re-open round trip and keep DOM tab order matching visual order) but they are not
+      // observable from here. What IS pinned is the user-facing guarantee: after focus lands on
+      // the button, the button is still there to be activated.
+      await act(async () => {
+        await new Promise((resolve) => {
+          setTimeout(resolve, 500);
+        });
+      });
+
+      expect(screen.getByRole('button', { name: /View source data/i })).toBeVisible();
     });
 
     it('invokes onOpenPreview when the "View source" button is activated', () => {

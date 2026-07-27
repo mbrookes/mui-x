@@ -1,11 +1,12 @@
 'use client';
 import * as React from 'react';
-import { Box, Typography } from '@mui/material';
+import { Box, CircularProgress, Stack, Typography } from '@mui/material';
 import { DataGridPremium, type GridColDef } from '@mui/x-data-grid-premium';
 import { useStudioLocaleText } from '../../context';
 import type { StudioDataSource, StudioExpressionField, StudioRelationship } from '../../models';
 import { enrichRowsWithExpressions } from '../../utils/expressionEvaluator';
 import { formatFieldValue } from '../../internals/numberFormat';
+import { isAwaitingDataSourceRows } from '../../internals/dataSourceRowState';
 
 interface DataSourcePreviewProps {
   source: StudioDataSource;
@@ -89,6 +90,23 @@ export function DataSourcePreview({
 
     return [...physicalCols, ...exprCols];
   }, [source.fields, expressionFields, source.id]);
+
+  // H1: an adapter-backed source carries no `rows` until the host imperatively calls
+  // `setDataSourceRows` — the adapter path resolves rows per-widget into `studioRequestCache`
+  // and never writes them back onto the source. Collapsing that `undefined` into "No data
+  // available for Orders." states, falsely, that the source was read and found empty. Show a
+  // loading affordance while an adapter is still expected to deliver them; keep the genuine
+  // "no data" message for a source that really did come back with zero rows.
+  if (isAwaitingDataSourceRows(source)) {
+    return (
+      <Stack spacing={1} sx={{ p: 2, alignItems: 'center' }}>
+        <CircularProgress size={20} aria-label={localeText.widgetLoadingLabel} />
+        <Typography variant="body2" color="text.secondary">
+          {localeText.widgetLoadingLabel}
+        </Typography>
+      </Stack>
+    );
+  }
 
   if (enrichedRows.length === 0) {
     return (

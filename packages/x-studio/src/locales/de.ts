@@ -200,6 +200,16 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   dataDrawerMoreColumns: (count) => `${count} weitere Spalte${count === 1 ? '' : 'n'}`,
   dataDrawerViewSourceLink: 'Quelldaten anzeigen →',
   dataDrawerMorePreviewRows: (count) => `+${count} weitere`,
+  dataDrawerRowsUnknown: 'Zeilenanzahl nicht verfügbar',
+  dataDrawerDeleteFieldConfirmTitle: 'Berechnetes Feld löschen?',
+  dataDrawerDeleteFieldConfirmMessage: (fieldLabel, referenceCount) =>
+    `„${fieldLabel}“ wird an ${referenceCount} ${
+      referenceCount === 1 ? 'Stelle' : 'Stellen'
+    } verwendet (Widgets, Filter oder berechnete Felder). Beim Löschen ${
+      referenceCount === 1 ? 'bleibt diese Stelle' : 'bleiben diese Stellen'
+    } ohne anzuzeigenden Wert.`,
+  saveRejectedMessage:
+    'Diese Änderung konnte nicht gespeichert werden — sie wurde möglicherweise an anderer Stelle entfernt oder geändert. Schließen Sie den Dialog und versuchen Sie es erneut.',
   lineageTypePrefix: (type) => `Typ: ${type}`,
   lineageJoinDetail: (srcSource, srcField, tgtSource, tgtField) =>
     `Verknüpfung: ${srcSource}.${srcField} = ${tgtSource}.${tgtField}`,
@@ -410,6 +420,7 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   exprLiteralValueAriaLabel: 'Literalwert',
   exprUnnamedFieldLabel: 'Unbenannt',
   exprPreviewNullLabel: 'null',
+  exprCalculatedFieldBadgeLabel: 'Berechnetes Feld',
 
   // Expression validation errors
   exprErrorMissingId: 'Das berechnete Feld muss eine ID haben.',

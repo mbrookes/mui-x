@@ -1,6 +1,19 @@
 'use client';
 import * as React from 'react';
-import { Box, Collapse, List, ListItemButton, Stack, Typography } from '@mui/material';
+import {
+  Box,
+  Button,
+  Collapse,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
+  List,
+  ListItemButton,
+  Stack,
+  Typography,
+} from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
@@ -14,6 +27,10 @@ import type { StudioDataSource, StudioExpressionField, StudioRelationship } from
 import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';
 import { enrichRowsWithExpressions, evaluateMeasure } from '../../utils/expressionEvaluator';
 import { getReachableSourceIds } from '../../internals/dataSourceGraph';
+import {
+  getDataSourceRowState,
+  isAwaitingDataSourceRows,
+} from '../../internals/dataSourceRowState';
 import DataSourcePreviewTooltip from './DataSourcePreviewTooltip';
 import PhysicalFieldRow from './PhysicalFieldRow';
 import ExpressionFieldRow from './ExpressionFieldRow';
@@ -74,12 +91,53 @@ export function DataSourceSection(props: {
     setDialogOpen(true);
   };
 
-  const handleDeleteExpressionField = (fieldId: string) => {
-    controller.removeExpressionField(fieldId);
+  // H7: `StudioController.removeExpressionField`'s JSDoc documents that the reference count is
+  // "exposed so the UI layer (`DataSourceSection`) can surface a 'used by N places — delete
+  // anyway?' confirmation" — but the count was read and discarded here, and the row deleted on a
+  // single click. In production the controller doesn't even emit its dev `console.warn`, so
+  // deleting a field used by a chart's yField silently blanked that chart with no way to relate
+  // cause to effect. Ask first whenever the field is still referenced; an unreferenced field
+  // still deletes in one click, because there is nothing to warn about.
+  const [pendingDelete, setPendingDelete] = React.useState<{
+    field: StudioExpressionField;
+    referenceCount: number;
+  } | null>(null);
+
+  const handleDeleteExpressionField = (field: StudioExpressionField) => {
+    const referenceCount = controller.getExpressionFieldReferenceCount(field.id);
+    if (referenceCount > 0) {
+      setPendingDelete({ field, referenceCount });
+      return;
+    }
+    controller.removeExpressionField(field.id);
+  };
+
+  const handleConfirmDelete = () => {
+    if (pendingDelete) {
+      controller.removeExpressionField(pendingDelete.field.id);
+    }
+    setPendingDelete(null);
   };
 
   const visibleFieldCount = source.fields.filter((f) => !f.hidden).length + sourceExprFields.length;
-  const sectionSecondaryText = `${visibleFieldCount} ${localeText.dataDrawerFieldsLabel} · ${source.rows?.length ?? 0} ${localeText.dataDrawerRowsLabel}`;
+  // H1: `source.rows` is `undefined` — not `[]` — for an adapter-backed source until the host
+  // imperatively calls `setDataSourceRows`; the adapter path resolves rows per-widget into
+  // `studioRequestCache` and never writes them back here. `?? 0` therefore reported a confident
+  // "0 rows" for a source that had simply never been counted. Print the count only when the rows
+  // were actually delivered.
+  const rowState = getDataSourceRowState(source);
+  const awaitingRows = isAwaitingDataSourceRows(source);
+  let rowCountText: string;
+  if (rowState !== 'unavailable') {
+    rowCountText = `${source.rows!.length} ${localeText.dataDrawerRowsLabel}`;
+  } else if (awaitingRows) {
+    // An adapter is on its way with the real count.
+    rowCountText = localeText.widgetLoadingLabel;
+  } else {
+    // No rows, no adapter to deliver any — the count is simply unknown from here.
+    rowCountText = localeText.dataDrawerRowsUnknown;
+  }
+  const sectionSecondaryText = `${visibleFieldCount} ${localeText.dataDrawerFieldsLabel} · ${rowCountText}`;
 
   return (
     <div>
@@ -110,6 +168,7 @@ export function DataSourceSection(props: {
                 key={field.id}
                 field={field}
                 rows={source.rows}
+                awaitingRows={awaitingRows}
                 isSelected={isSelected}
                 isEditMode={isEditMode}
                 onSelect={() => controller.selectField(source.id, field.id)}
@@ -139,9 +198,10 @@ export function DataSourceSection(props: {
                 field={ef}
                 isEditMode={isEditMode}
                 onEdit={() => handleEditExpressionField(ef)}
-                onDelete={() => handleDeleteExpressionField(ef.id)}
+                onDelete={() => handleDeleteExpressionField(ef)}
                 enrichedRows={enrichedRows}
                 measureValue={measureValue}
+                awaitingRows={awaitingRows}
               />
             );
           })}
@@ -172,6 +232,36 @@ export function DataSourceSection(props: {
         existingField={editingField}
         reachableSourceIds={reachableSourceIds}
       />
+
+      {/* H7: the "used by N places — delete anyway?" confirmation the controller documents. */}
+      <Dialog
+        open={pendingDelete !== null}
+        onClose={() => setPendingDelete(null)}
+        aria-labelledby="studio-delete-expression-field-title"
+        aria-describedby="studio-delete-expression-field-desc"
+      >
+        <DialogTitle id="studio-delete-expression-field-title">
+          {localeText.dataDrawerDeleteFieldConfirmTitle}
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText id="studio-delete-expression-field-desc">
+            {pendingDelete
+              ? localeText.dataDrawerDeleteFieldConfirmMessage(
+                  pendingDelete.field.label,
+                  pendingDelete.referenceCount,
+                )
+              : null}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPendingDelete(null)} autoFocus>
+            {localeText.exprCancel}
+          </Button>
+          <Button onClick={handleConfirmDelete} color="error">
+            {localeText.dataDrawerDeleteTooltip}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </div>
   );
 }

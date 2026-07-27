@@ -199,6 +199,16 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   dataDrawerMoreColumns: (count) => `${count} colonne${count === 1 ? '' : 's'} de plus`,
   dataDrawerViewSourceLink: 'Afficher les données sources →',
   dataDrawerMorePreviewRows: (count) => `+${count} de plus`,
+  dataDrawerRowsUnknown: 'nombre de lignes indisponible',
+  dataDrawerDeleteFieldConfirmTitle: 'Supprimer le champ calculé ?',
+  dataDrawerDeleteFieldConfirmMessage: (fieldLabel, referenceCount) =>
+    `« ${fieldLabel} » est utilisé à ${referenceCount} ${
+      referenceCount === 1 ? 'endroit' : 'endroits'
+    } (widgets, filtres ou champs calculés). Le supprimer laissera ${
+      referenceCount === 1 ? 'cet endroit' : 'ces endroits'
+    } sans valeur à afficher.`,
+  saveRejectedMessage:
+    "Cette modification n'a pas pu être enregistrée — elle a peut-être été supprimée ou modifiée ailleurs. Fermez la boîte de dialogue et réessayez.",
   lineageTypePrefix: (type) => `Type : ${type}`,
   lineageJoinDetail: (srcSource, srcField, tgtSource, tgtField) =>
     `Jointure : ${srcSource}.${srcField} = ${tgtSource}.${tgtField}`,
@@ -411,6 +421,7 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   exprLiteralValueAriaLabel: 'Valeur littérale',
   exprUnnamedFieldLabel: 'Sans nom',
   exprPreviewNullLabel: 'null',
+  exprCalculatedFieldBadgeLabel: 'Champ calculé',
 
   // Expression validation errors
   exprErrorMissingId: 'Le champ calculé doit avoir un identifiant.',

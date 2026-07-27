@@ -250,6 +250,22 @@ export interface StudioLocaleText {
   dataDrawerMoreColumns: (count: number) => string;
   dataDrawerViewSourceLink: string;
   dataDrawerMorePreviewRows: (count: number) => string;
+  /**
+   * Shown where a data source's row count would go when `rows` has never been delivered
+   * (an adapter-backed source that nothing has fetched yet). Printing `0` there asserts a
+   * measurement that was never taken.
+   */
+  dataDrawerRowsUnknown: string;
+  /** Title of the confirmation dialog shown before deleting a referenced calculated field. */
+  dataDrawerDeleteFieldConfirmTitle: string;
+  /** Body of that confirmation: how many places still reference the field being deleted. */
+  dataDrawerDeleteFieldConfirmMessage: (fieldLabel: string, referenceCount: number) => string;
+  /**
+   * Shown in a dialog when the controller silently rejected the write (the record was
+   * removed or changed elsewhere), so the dialog stays open instead of closing as if saved.
+   * Shared by the calculated-field and relationship dialogs.
+   */
+  saveRejectedMessage: string;
   lineageTypePrefix: (type: string) => string;
   lineageJoinDetail: (
     srcSource: string,
@@ -486,6 +502,12 @@ export interface StudioLocaleText {
   exprUnnamedFieldLabel: string;
   /** Chip label for a preview row whose expression evaluated to no value */
   exprPreviewNullLabel: string;
+  /**
+   * Accessible name for the "fx" badge marking a calculated field in the operand picker. The
+   * glyph is the only thing distinguishing it from a physical field and carries no name of its
+   * own.
+   */
+  exprCalculatedFieldBadgeLabel: string;
 
   // ── Expression validation errors ───────────────────────────────────────────
   // Rendered in the expression dialog's error banner. Each maps 1:1 to an
@@ -1555,6 +1577,16 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   dataDrawerMoreColumns: (count) => `${count} more ${count === 1 ? 'column' : 'columns'}`,
   dataDrawerViewSourceLink: 'View source data →',
   dataDrawerMorePreviewRows: (count) => `+${count} more`,
+  dataDrawerRowsUnknown: 'row count unavailable',
+  dataDrawerDeleteFieldConfirmTitle: 'Delete calculated field?',
+  dataDrawerDeleteFieldConfirmMessage: (fieldLabel, referenceCount) =>
+    `"${fieldLabel}" is used by ${referenceCount} ${
+      referenceCount === 1
+        ? 'widget, filter or calculated field'
+        : 'widgets, filters or calculated fields'
+    }. Deleting it leaves ${referenceCount === 1 ? 'that place' : 'those places'} with no value to show.`,
+  saveRejectedMessage:
+    'This change could not be saved — it may have been removed or changed elsewhere. Close the dialog and try again.',
   lineageTypePrefix: (type) => `Type: ${type}`,
   lineageJoinDetail: (srcSource, srcField, tgtSource, tgtField) =>
     `Join: ${srcSource}.${srcField} = ${tgtSource}.${tgtField}`,
@@ -1764,6 +1796,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   exprLiteralValueAriaLabel: 'Literal value',
   exprUnnamedFieldLabel: 'Unnamed',
   exprPreviewNullLabel: 'null',
+  exprCalculatedFieldBadgeLabel: 'Calculated field',
 
   // Expression validation errors
   exprErrorMissingId: 'Expression field must have an id.',

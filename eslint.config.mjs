@@ -149,6 +149,78 @@ const SANITIZE_FOR_PROMPT_MESSAGE =
   'prose, add an `// eslint-disable-next-line no-restricted-syntax` with a one-line ' +
   'justification so the exception is reviewable.';
 
+/**
+ * Message for the `String` restriction on the ai-middleware's sanitizer surface.
+ */
+const AI_MIDDLEWARE_STRING_MESSAGE =
+  'The `String` global is NOT total over `JSON.parse` output: `String({"toString": 1})` ' +
+  'throws `TypeError: Cannot convert object to primitive value`, and so does any ' +
+  'null-prototype object. Every value on this surface is un-narrowed request-body or ' +
+  'tool-argument JSON, so the throw is reachable from a two-token payload — it has ' +
+  'already reached `buildApprovalDisplayInput` outside the dispatch try/catch and closed ' +
+  'a live SSE stream. Use `asString` from `internal/promptCaps` (or `capText`, which ' +
+  'wraps it). If the argument is provably a primitive already, add an ' +
+  '`// eslint-disable-next-line no-restricted-syntax` with a one-line justification so ' +
+  'the exception is reviewable.';
+
+/**
+ * The `no-restricted-syntax` restrictions shared by EVERY file in
+ * `x-studio-ai-middleware`. See {@link BASE_RESTRICTED_SYNTAX} for why the base
+ * restrictions have to be spread back in.
+ *
+ * @type {unknown[]}
+ */
+const AI_MIDDLEWARE_RESTRICTED_SYNTAX = [
+  ...BASE_RESTRICTED_SYNTAX,
+  {
+    selector:
+      'Identifier[name="sanitizeForPrompt"]:not(FunctionDeclaration > Identifier.id, ExportSpecifier > Identifier, ImportSpecifier > Identifier)',
+    message: SANITIZE_FOR_PROMPT_MESSAGE,
+  },
+  {
+    selector: 'ImportSpecifier > Identifier.imported[name="sanitizeForPrompt"]',
+    message: SANITIZE_FOR_PROMPT_MESSAGE,
+  },
+];
+
+/**
+ * Message for the `withTimeout` interpolated-label restriction.
+ */
+const WITH_TIMEOUT_LABEL_MESSAGE =
+  'A `withTimeout` label lands inside a BRANDED `StudioTimeoutError`, and ' +
+  '`redactedHostErrorMessage` relays branded messages VERBATIM on the premise that they ' +
+  'hold only server-authored prose. Interpolating an untrusted identifier (a `tableName` ' +
+  'off `runtime.dataSources`, a client-declared skill name) therefore defeats the brand — ' +
+  'two call sites already did. Tag the template with `opLabel` from `mcp/helpers` instead: ' +
+  'it sanitizes every interpolation hole while keeping the literal prose intact. If every ' +
+  'interpolation is provably server-authored, add an ' +
+  '`// eslint-disable-next-line no-restricted-syntax` with a one-line justification so the ' +
+  'exception is reviewable.';
+
+/**
+ * The sanitizer / totality / prompt-construction surface of `x-studio-ai-middleware`:
+ * the modules that coerce untrusted `JSON.parse` output to a string on the way into a
+ * prompt, an SVG, an error message, or an approval payload.
+ *
+ * Scoped to these files rather than the whole package because the remaining `String(…)`
+ * call sites there are error-formatting fallbacks in request/response plumbing
+ * (`handleAIChat.ts`, `handleGenerateInsight.ts`, `mcp/queryTools.ts`,
+ * `mcp/resources.ts`, `mcp.ts`, `internal/providerError.ts`) that are the same hazard
+ * class but were out of scope for the change that added this rule. Widening the `files`
+ * list is the intended way to finish the sweep — each addition should come with the
+ * `asString` conversions that file needs.
+ */
+const AI_MIDDLEWARE_SANITIZER_FILES = [
+  'packages/x-studio-ai-middleware/src/buildAISystemPrompt.ts',
+  'packages/x-studio-ai-middleware/src/chartRenderer.ts',
+  'packages/x-studio-ai-middleware/src/executeToolOnState.ts',
+  'packages/x-studio-ai-middleware/src/generateFieldDescriptions.ts',
+  'packages/x-studio-ai-middleware/src/agenticLoop/toolDispatch.ts',
+  'packages/x-studio-ai-middleware/src/internal/promptCaps.ts',
+  'packages/x-studio-ai-middleware/src/mcp/helpers.ts',
+  'packages/x-studio-ai-middleware/src/mcp/summarisePage.ts',
+];
+
 export default defineConfig(
   baseConfig,
   // eslint-plugin-mdx loads `.remarkrc.mjs` itself, but ESLint doesn't know
@@ -587,17 +659,39 @@ export default defineConfig(
     files: [`packages/x-studio-ai-middleware/src/**/*${EXTENSION_TS}`],
     ignores: [`**/*${EXTENSION_TEST_FILE}`, `**/*.spec${EXTENSION_TS}`, '**/*.d.ts'],
     rules: {
+      'no-restricted-syntax': ['error', ...AI_MIDDLEWARE_RESTRICTED_SYNTAX],
+    },
+  },
+  {
+    // Finding H1 — the raw `String` global is banned on the sanitizer/totality surface.
+    // MUST come after the package-wide block above and MUST re-state its restrictions:
+    // flat config REPLACES a rule's options rather than merging them, so listing only
+    // the `String` entries here would switch `sanitizeForPrompt` (and the shared base
+    // restrictions) back off for exactly the files that need them most.
+    files: AI_MIDDLEWARE_SANITIZER_FILES,
+    ignores: [`**/*${EXTENSION_TEST_FILE}`, `**/*.spec${EXTENSION_TS}`, '**/*.d.ts'],
+    rules: {
       'no-restricted-syntax': [
         'error',
-        ...BASE_RESTRICTED_SYNTAX,
+        ...AI_MIDDLEWARE_RESTRICTED_SYNTAX,
         {
-          selector:
-            'Identifier[name="sanitizeForPrompt"]:not(FunctionDeclaration > Identifier.id, ExportSpecifier > Identifier, ImportSpecifier > Identifier)',
-          message: SANITIZE_FOR_PROMPT_MESSAGE,
+          // Call position only — `x.toISOString()` / `n.toString()` are member
+          // expressions and must not match.
+          selector: 'CallExpression > Identifier.callee[name="String"]',
+          message: AI_MIDDLEWARE_STRING_MESSAGE,
         },
         {
-          selector: 'ImportSpecifier > Identifier.imported[name="sanitizeForPrompt"]',
-          message: SANITIZE_FOR_PROMPT_MESSAGE,
+          selector: 'NewExpression > Identifier.callee[name="String"]',
+          message: AI_MIDDLEWARE_STRING_MESSAGE,
+        },
+        {
+          // An interpolating template literal passed straight to `withTimeout`. The
+          // no-interpolation case (a plain string literal) is untouched, and
+          // `opLabel`-tagged templates are `TaggedTemplateExpression`s, so they do not
+          // match either.
+          selector:
+            'CallExpression[callee.name="withTimeout"] > TemplateLiteral[expressions.length>0]',
+          message: WITH_TIMEOUT_LABEL_MESSAGE,
         },
       ],
     },

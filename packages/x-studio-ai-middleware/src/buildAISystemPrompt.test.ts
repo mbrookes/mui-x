@@ -1140,6 +1140,30 @@ describe('sanitizeForPrompt', () => {
     expect(sanitizeForPrompt(0)).toBe('0');
     expect(sanitizeForPrompt(false)).toBe('false');
   });
+
+  // Finding H1 — the raw `String` global is NOT total over `JSON.parse` output.
+  // `ToPrimitive` skips the uncallable own `toString`, falls back to
+  // `Object.prototype.valueOf` (which returns the object), and throws
+  // `TypeError: Cannot convert object to primitive value`. A sanitizer that throws on
+  // the exact input class it exists to neutralize is not a choke point.
+  it('does not throw for an object whose `toString` is not callable', () => {
+    const hostile = JSON.parse('{"toString": 1}');
+    // Sanity-check the premise, so this test fails loudly if the engine ever changes.
+    expect(() => String(hostile)).toThrow(TypeError);
+    expect(sanitizeForPrompt(hostile)).toBe('');
+    expect(sanitizeForPromptLine(hostile)).toBe('');
+  });
+
+  it('does not throw for a null-prototype object', () => {
+    const hostile = Object.assign(Object.create(null), JSON.parse('{"a": 1}'));
+    expect(() => String(hostile)).toThrow(TypeError);
+    expect(sanitizeForPrompt(hostile)).toBe('');
+  });
+
+  it('renders nullish as empty rather than the literal "undefined"/"null"', () => {
+    expect(sanitizeForPrompt(undefined)).toBe('');
+    expect(sanitizeForPrompt(null)).toBe('');
+  });
 });
 
 describe('buildAISystemPrompt: prompt-injection hardening', () => {
@@ -1592,6 +1616,98 @@ describe('buildAISystemPrompt: malformed sub-entity shapes (finding M3)', () => 
     // Previously: `f.scope.kind` threw for EVERY request that resolves an active
     // page — a permanent per-dashboard denial of service.
     expect(() => buildAISystemPrompt(state)).not.toThrow();
+  });
+});
+
+// ── Finding H2: wrong-shaped array config VALUES must not throw ──────────────
+//
+// One level BELOW the M3 block above, and the gap it left: M3 covers a missing
+// `config`, this covers a config that is present but whose ARRAY-typed values are
+// not arrays. Nothing rejects that shape on the way in — `capShallowConfigValue`
+// deliberately leaves non-scalar config values unvalidated, and a key like grid
+// `columns` or `ySeries` passes config-KEY validation — so
+// `update_widget({widgetId:'w1', config:{columns:'x'}})` COMMITS and every
+// subsequent request then threw on `.map`/`.join` behind a `?.length` gate that
+// `'x'.length === 1` satisfies. The same shapes also arrive straight off
+// `body.dashboardState.doc.widgets` with no tool call at all, which is why the READ
+// side has to be total rather than relying on a write-side guard.
+describe('buildAISystemPrompt: wrong-shaped array config values (finding H2)', () => {
+  const buildWithConfig = (config: Record<string, unknown>, kind: StudioWidget['kind'] = 'chart') =>
+    buildAISystemPrompt(
+      makeState({
+        pages: { [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [['w1']] } },
+        widgets: { w1: makeWidget('w1', { kind, config } as Partial<StudioWidget>) },
+        dataSources: { src1: makeSource() },
+      }),
+    );
+
+  it.each([
+    ['ySeries', { chartType: 'mixed', xField: 'month', ySeries: 'x' }],
+    ['ySeries with a null entry', { chartType: 'mixed', xField: 'month', ySeries: [null] }],
+    ['funnelCategoryOrder', { chartType: 'funnel', funnelCategoryOrder: 'xy' }],
+    ['funnelStageSequence', { chartType: 'funnel', funnelStageSequence: 'xy' }],
+    ['annotations', { chartType: 'bar', xField: 'month', yField: 'revenue', annotations: 'xy' }],
+  ])('renders a chart widget with a wrong-shaped %s instead of throwing', (_label, config) => {
+    expect(() => buildWithConfig(config as Record<string, unknown>)).not.toThrow();
+  });
+
+  it('renders a grid widget whose `columns` is a string instead of throwing', () => {
+    // The exact repro: `columns` is an allowed grid key, `'x'` is not a scalar so the
+    // value check passes, `'x'.length` is truthy, and `'x'.map` is undefined.
+    expect(() => buildWithConfig({ columns: 'x' }, 'grid')).not.toThrow();
+  });
+
+  it('renders a grid widget whose `columns` entries are not objects', () => {
+    expect(() => buildWithConfig({ columns: [null, 'x', 7] }, 'grid')).not.toThrow();
+  });
+
+  it('omits the field entirely rather than emitting a bogus value for a non-array', () => {
+    const prompt = buildWithConfig({ columns: 'x' }, 'grid');
+    // Scoped to the widget's own `<dashboard_state>` line — the static instruction
+    // sections legitimately mention `columns:` when documenting the grid config.
+    const widgetLine = prompt.split('\n').find((line) => line.includes('id: w1'));
+    expect(widgetLine).toBeDefined();
+    expect(widgetLine).not.toContain('columns:');
+  });
+
+  it('still renders a WELL-FORMED array config value unchanged', () => {
+    const prompt = buildWithConfig(
+      { columns: [{ fieldId: 'revenue' }, { fieldId: 'month' }] },
+      'grid',
+    );
+    expect(prompt).toContain('columns: [revenue, month]');
+  });
+
+  it('still renders a well-formed ySeries unchanged', () => {
+    const prompt = buildWithConfig({
+      chartType: 'mixed',
+      xField: 'month',
+      ySeries: [{ fieldId: 'revenue', yAggregation: 'avg' }, { fieldId: 'units' }],
+    });
+    expect(prompt).toContain('ySeries: [revenue(avg), units(sum)]');
+  });
+
+  it('blanks only the offending ENTRY of an otherwise well-formed ySeries', () => {
+    const prompt = buildWithConfig({
+      chartType: 'mixed',
+      xField: 'month',
+      ySeries: [{ fieldId: 'revenue', yAggregation: 'avg' }, null],
+    });
+    expect(prompt).toContain('ySeries: [revenue(avg), (sum)]');
+  });
+
+  // A non-coercible `{"toString": 1}` reaching the prompt through a config value is the
+  // H1 half of the same payload class: `String(x)` throws for it, so the sanitizer must
+  // not be the thing that dereferences it.
+  it('renders a config value whose `toString` is not callable instead of throwing', () => {
+    const hostile = JSON.parse('{"toString": 1}');
+    expect(() =>
+      buildWithConfig({ chartType: 'bar', xField: hostile, yField: 'revenue' }),
+    ).not.toThrow();
+    expect(() =>
+      buildWithConfig({ chartType: 'mixed', xField: 'month', ySeries: [hostile] }),
+    ).not.toThrow();
+    expect(() => buildWithConfig({ columns: [hostile] }, 'grid')).not.toThrow();
   });
 });
 

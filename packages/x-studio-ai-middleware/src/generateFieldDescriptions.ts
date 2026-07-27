@@ -10,7 +10,7 @@
  * Server-side only — never import from the client (contains LLM credentials).
  */
 import { readChatCompletionBody, type GenerateInsightOptions } from './handleGenerateInsight';
-import { sanitizeForPromptLine } from './buildAISystemPrompt';
+import { PROMPT_LINE_BREAK_RE, sanitizeForPromptLine } from './buildAISystemPrompt';
 import { withTimeout } from './mcp/helpers';
 import { LLM_FETCH_TIMEOUT_MS } from './agenticLoop';
 import { MAX_FILTER_STRING_LENGTH } from './executeToolOnState';
@@ -53,6 +53,21 @@ const MAX_FIELDS_PER_REQUEST = 500;
  * `executeToolOnState.ts`'s `MAX_TITLE_LENGTH`, the bound the chat path applies.
  */
 const MAX_GENERATED_AI_DESCRIPTION_LENGTH = 200;
+
+/**
+ * A run of line terminators plus the whitespace hugging it, collapsed to one space
+ * when normalizing a model-authored `aiDescription` (finding L2).
+ *
+ * Derived from `buildAISystemPrompt`'s {@link PROMPT_LINE_BREAK_RE} rather than
+ * hand-written. The previous global `\s*[\r\n]+\s*` matched only `\r` and `\n`, so
+ * U+2028, U+2029, U+0085, U+000B and U+000C all survived it — and this value is
+ * stored on `StudioDataField.aiDescription` and merged into every future system
+ * prompt, so the "newline-stripped at the source" guarantee this cap advertises
+ * simply did not hold for those five code points. Reusing the canonical set means a
+ * future addition to it fixes this site too. (`\s` does not cover U+0085 at all,
+ * which is why the surrounding-whitespace groups alone were never enough.)
+ */
+const LINE_BREAK_RUN_RE = new RegExp(`\\s*(?:${PROMPT_LINE_BREAK_RE.source})+\\s*`, 'g');
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -165,7 +180,10 @@ export async function generateFieldDescriptions(
         Array.isArray(f?.sampleValues) && f.sampleValues.length > 0
           ? ` Sample values: ${f.sampleValues
               .slice(0, 10)
-              .map((v) => sanitizeForPromptLine(String(v).slice(0, MAX_SAMPLE_VALUE_LENGTH)))
+              // `capText`, not `String(v).slice(…)` (finding H1): sample values are raw
+              // host row data, and `String({"toString": 1})` throws — which here would
+              // fail the whole description request instead of blanking one sample.
+              .map((v) => sanitizeForPromptLine(capText(v, MAX_SAMPLE_VALUE_LENGTH)))
               .join(', ')}.`
           : '';
       return `id: "${sanitizeForPromptLine(f?.id)}", label: "${sanitizeForPromptLine(f?.label)}", type: ${sanitizeForPromptLine(f?.type)}.${sample}`;
@@ -336,7 +354,7 @@ export async function generateFieldDescriptions(
       // handling at all. The chat read path caps it to 200 later; the MCP and
       // host-catalog paths do not, so capping here covers every consumer.
       aiDescription: capText(
-        item.aiDescription.replace(/\s*[\r\n]+\s*/g, ' ').trim(),
+        item.aiDescription.replace(LINE_BREAK_RUN_RE, ' ').trim(),
         MAX_GENERATED_AI_DESCRIPTION_LENGTH,
       ),
     }));

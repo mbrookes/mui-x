@@ -11,6 +11,7 @@ import type { ToolPolicy, ToolEffectSummary } from '../toolPolicy';
 import {
   waitForApproval,
   dispatchToolCall,
+  buildApprovalDisplayInput,
   buildApprovalEffectsSummary,
   extractToolErrorMessage,
   isApprovalThreadIdAuthorized,
@@ -158,6 +159,109 @@ describe('isApprovalThreadIdAuthorized', () => {
 });
 
 // ── buildApprovalEffectsSummary (T2-2) ──────────────────────────────────────────
+
+// ── buildApprovalDisplayInput (finding H1) ──────────────────────────────────────
+//
+// The one helper on the approval path that consumes RAW model arguments, and until
+// this block the only coverage it had was indirect, through require-approval tests
+// that always passed a well-formed `{widgetId: 'w1'}`.
+describe('buildApprovalDisplayInput', () => {
+  const state = createDefaultStudioState({
+    doc: {
+      dashboard: { id: 'd', title: 'D', activePageId: 'p1' },
+      pages: { p1: { id: 'p1', title: 'Page One', widgetRows: [['w1']] } },
+      widgets: {
+        w1: { id: 'w1', kind: 'chart', title: 'Revenue', config: { chartType: 'bar' } },
+      },
+    },
+  });
+
+  /** `{"toString": 1}` — `JSON.parse` accepts it, and `String()` throws on it. */
+  const nonCoercible = () => JSON.parse('{"toString": 1}');
+
+  it('overrides a spoofed widgetTitle with the real title from state', () => {
+    expect(
+      buildApprovalDisplayInput(
+        'remove_widget',
+        { widgetId: 'w1', widgetTitle: 'harmless widget' },
+        state,
+      ),
+    ).toEqual({ widgetId: 'w1', widgetTitle: 'Revenue' });
+  });
+
+  it('leaves the input untouched when the widget id does not resolve', () => {
+    const input = { widgetId: 'ghost', widgetTitle: 'harmless widget' };
+    expect(buildApprovalDisplayInput('remove_widget', input, state)).toBe(input);
+  });
+
+  it('overrides a spoofed pageTitle with the real title from state', () => {
+    expect(
+      buildApprovalDisplayInput('remove_page', { pageId: 'p1', pageTitle: 'nothing' }, state),
+    ).toEqual({ pageId: 'p1', pageTitle: 'Page One' });
+  });
+
+  it('enriches apply_bulk_update widgetRemovals with real titles', () => {
+    expect(
+      buildApprovalDisplayInput('apply_bulk_update', { widgetRemovals: ['w1', 'ghost'] }, state),
+    ).toEqual({
+      widgetRemovals: [
+        { id: 'w1', title: 'Revenue' },
+        { id: 'ghost', title: '(unknown widget)' },
+      ],
+    });
+  });
+
+  it('passes an unrecognised tool name through untouched', () => {
+    const input = { widgetId: 'w1' };
+    expect(buildApprovalDisplayInput('set_dashboard_title', input, state)).toBe(input);
+  });
+
+  // ── The H1 payloads ──
+  // `String({"toString": 1})` throws `TypeError: Cannot convert object to primitive
+  // value`, and this function used it on three raw model-supplied ids.
+  it('does not throw for a widgetId whose `toString` is not callable', () => {
+    const input = JSON.parse('{"widgetId": {"toString": 1}}');
+    // Sanity-check the premise so this fails loudly if the engine ever changes.
+    expect(() => String(input.widgetId)).toThrow(TypeError);
+    expect(() => buildApprovalDisplayInput('remove_widget', input, state)).not.toThrow();
+    // Unresolvable, so the raw input is handed through for the human to see verbatim.
+    expect(buildApprovalDisplayInput('remove_widget', input, state)).toBe(input);
+  });
+
+  it('does not throw for a pageId whose `toString` is not callable', () => {
+    const input = { pageId: nonCoercible() };
+    expect(() => buildApprovalDisplayInput('remove_page', input, state)).not.toThrow();
+  });
+
+  it('does not throw for a null-prototype widgetId', () => {
+    const input = { widgetId: Object.create(null) };
+    expect(() => String(input.widgetId)).toThrow(TypeError);
+    expect(() => buildApprovalDisplayInput('remove_widget', input, state)).not.toThrow();
+  });
+
+  it('does not throw for a non-coercible entry in apply_bulk_update widgetRemovals', () => {
+    const input = JSON.parse('{"widgetRemovals": [{"toString": 1}, "w1"]}');
+    expect(() => buildApprovalDisplayInput('apply_bulk_update', input, state)).not.toThrow();
+    expect(buildApprovalDisplayInput('apply_bulk_update', input, state)).toEqual({
+      widgetRemovals: [
+        { id: '', title: '(unknown widget)' },
+        { id: 'w1', title: 'Revenue' },
+      ],
+    });
+  });
+
+  it('does not throw for a nullish or non-object toolInput', () => {
+    expect(() => buildApprovalDisplayInput('remove_widget', undefined, state)).not.toThrow();
+    expect(() => buildApprovalDisplayInput('remove_widget', null, state)).not.toThrow();
+  });
+
+  // `Object.hasOwn` discipline: a prototype-member id must not resolve through the
+  // prototype chain (finding T2-1) — kept covered now that this block exists.
+  it('does not resolve a prototype-member id', () => {
+    const input = { widgetId: 'constructor' };
+    expect(buildApprovalDisplayInput('remove_widget', input, state)).toBe(input);
+  });
+});
 
 describe('buildApprovalEffectsSummary', () => {
   const emptyEffects = (): ToolEffectSummary => ({
@@ -901,6 +1005,63 @@ describe('dispatchToolCall', () => {
       approvalPending.get('call_1')!.resolve(true);
       await pendingStep;
     });
+
+    // ── Finding H1: a non-coercible id on the approval path must not kill the stream ──
+    //
+    // `createDefaultToolPolicy` gates by tool NAME, so a `remove_widget` the executor
+    // rejects on its arguments still routes to approval. `buildApprovalDisplayInput`
+    // then ran on the RAW model arguments, using `String(input.widgetId ?? '')` — which
+    // throws for `{"toString": 1}` — from a call site OUTSIDE the try wrapping
+    // `executeToolWithPolicy`. The throw propagated out of `dispatchToolCall`, past the
+    // SSE try block in `agenticLoop.ts`, and closed the stream with one generic error
+    // frame: a whole-request DoS from a two-token payload.
+    it.each([
+      ['remove_widget', '{"widgetId": {"toString": 1}}'],
+      ['apply_bulk_update', '{"widgetRemovals": [{"toString": 1}]}'],
+    ])(
+      'does not kill the stream when %s is called with a non-coercible id',
+      async (toolName, argsBuffer) => {
+        const stateWithWidget = createDefaultStudioState({
+          doc: {
+            dashboard: { id: 'd', title: 'D', activePageId: 'p1' },
+            pages: { p1: { id: 'p1', title: 'P1', widgetRows: [['w1']] } },
+            widgets: {
+              w1: { id: 'w1', kind: 'chart', title: 'My Widget', config: { chartType: 'bar' } },
+            },
+          },
+        });
+        const approvalPending = new Map<string, PendingApproval>();
+        const ctx = makeCtx({
+          advertisedToolNames: new Set([toolName]),
+          toolPolicy: approvalPolicy,
+          approvalPending,
+        });
+
+        const gen = dispatchToolCall(
+          tc(toolName, argsBuffer),
+          JSON.parse(argsBuffer),
+          false,
+          stateWithWidget,
+          ctx,
+        );
+
+        // The generator must still reach the approval event rather than rejecting.
+        const first = await gen.next();
+        expect((first.value as { type: string }).type).toBe('tool-approval-request');
+
+        const pendingStep = gen.next();
+        await Promise.resolve();
+        approvalPending.get('call_1')!.resolve(true);
+        let step = await pendingStep;
+        while (!step.done) {
+          // eslint-disable-next-line no-await-in-loop -- draining an async generator.
+          step = await gen.next();
+        }
+
+        // …and the call must land as a recoverable tool RESULT, not a throw.
+        expect((step.value as { kind: string }).kind).toBe('result');
+      },
+    );
 
     // Tier 3, iteration 22: the policy's own `reason` for a `require-approval`
     // decision (e.g. "exceeds daily mutation budget") used to be silently dropped

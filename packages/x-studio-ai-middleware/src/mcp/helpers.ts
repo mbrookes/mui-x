@@ -8,6 +8,7 @@
 
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { sanitizeForPromptLine } from '../buildAISystemPrompt';
+import { asString } from '../internal/promptCaps';
 import { StudioTimeoutError, isPackageAuthoredError } from '../internal/packageError';
 import type { StudioMcpLogger } from './types';
 
@@ -92,13 +93,20 @@ export const MAX_ECHOED_IDENTIFIER_LENGTH = 200;
  * that the identifier occupies exactly that one position — it must not be able to
  * open a new line and forge a markdown heading, a `key: "value"` pair, or a
  * sibling sentence, nor close its own quoted field with a bare `"`.
+ *
+ * Coerces through the shared `asString`, not the raw `String` global (finding H1):
+ * this is the designated chokepoint for UNTRUSTED identifiers, and every one of them
+ * descends from `JSON.parse` output — for which `String(x)` is not total
+ * (`String({"toString": 1})` throws `TypeError: Cannot convert object to primitive
+ * value`). A chokepoint that throws on the input class it exists to neutralize is
+ * worse than no chokepoint.
  */
 export function safeIdentifier(value: unknown): string {
-  const asString = typeof value === 'string' ? value : String(value ?? '');
+  const text = asString(value);
   const capped =
-    asString.length > MAX_ECHOED_IDENTIFIER_LENGTH
-      ? `${asString.slice(0, MAX_ECHOED_IDENTIFIER_LENGTH)}…`
-      : asString;
+    text.length > MAX_ECHOED_IDENTIFIER_LENGTH
+      ? `${text.slice(0, MAX_ECHOED_IDENTIFIER_LENGTH)}…`
+      : text;
   return sanitizeForPromptLine(capped);
 }
 
@@ -180,9 +188,30 @@ export function capRelayedText(text: string): string {
     : text;
 }
 
-/** Full error detail, for SERVER-SIDE logs only — never for a model-visible result. */
+/**
+ * Full error detail, for SERVER-SIDE logs only — never for a model-visible result.
+ *
+ * Total by construction (finding H1). The old `String(err)` fallback throws
+ * `TypeError: Cannot convert object to primitive value` for a rejection value of
+ * `{"toString": 1}` — a shape a host callback can reject with verbatim from
+ * `JSON.parse`d input — and a logger that throws turns a logged failure into an
+ * unhandled one, which on the chat transport means a killed SSE stream. `asString`
+ * covers every primitive; a non-coercible value falls back to its JSON form (and
+ * finally to its runtime shape) so the log still says something useful.
+ */
 export function describeErrorForLog(err: unknown): string {
-  return err instanceof Error ? (err.stack ?? err.message) : String(err);
+  if (err instanceof Error) {
+    return err.stack ?? err.message;
+  }
+  const primitive = asString(err);
+  if (primitive !== '') {
+    return primitive;
+  }
+  try {
+    return JSON.stringify(err) ?? `[${typeof err}]`;
+  } catch {
+    return `[unserializable ${Array.isArray(err) ? 'array' : typeof err}]`;
+  }
 }
 
 /**
@@ -417,6 +446,39 @@ export async function mapWithConcurrency<T, R>(
   return results;
 }
 
+declare const operationLabelBrand: unique symbol;
+
+/**
+ * A `withTimeout` operation label whose untrusted interpolations have already been
+ * sanitized. Produced only by {@link opLabel}.
+ */
+export type OperationLabel = string & { readonly [operationLabelBrand]: true };
+
+/**
+ * Tagged template for a {@link withTimeout} operation label, and the STRUCTURAL answer
+ * to the "remember to call `safeIdentifier`" contract that {@link withTimeout} used to
+ * rely on.
+ *
+ * A timeout label lands inside a BRANDED `StudioTimeoutError`, and
+ * {@link redactedHostErrorMessage} relays branded messages VERBATIM on the premise that
+ * they hold only server-authored prose. Two of the nine call sites interpolated a raw
+ * `tableName` off `runtime.dataSources` — client-supplied on the chat transport —
+ * straight into that label, which defeats the brand entirely. Choosing per call site is
+ * what makes that possible, so this removes the choice: every `${…}` hole goes through
+ * {@link safeIdentifier} (length-capped, angle brackets escaped, line breaks and `"`
+ * neutralized) while the literal chunks the template itself spells out — including the
+ * quotes a label like `server-tool skill "…"` wants — survive unescaped.
+ *
+ * Same trick as `buildAISystemPrompt.ts`'s `promptLine`, applied to the other place in
+ * this package where an untrusted value reaches model-visible prose.
+ */
+export function opLabel(strings: TemplateStringsArray, ...values: unknown[]): OperationLabel {
+  return strings.reduce(
+    (acc, chunk, i) => acc + chunk + (i < values.length ? safeIdentifier(values[i]) : ''),
+    '',
+  ) as OperationLabel;
+}
+
 /**
  * Race a promise against a timeout. Rejects with a {@link StudioTimeoutError} if the
  * timeout fires first.
@@ -430,11 +492,21 @@ export async function mapWithConcurrency<T, R>(
  * only server-authored prose and compile-time constants, and `redactedHostErrorMessage`
  * relays branded messages VERBATIM on exactly that premise. A `label` that
  * interpolates an untrusted identifier (a `tableName` off `runtime.dataSources`, a
- * model-supplied `fieldId`) therefore defeats the brand's whole point — route any
- * such part through {@link safeIdentifier} first, as every call site in
- * `mcp/queryTools.ts` and `mcp/summarisePage.ts` now does.
+ * model-supplied `fieldId`) therefore defeats the brand's whole point.
+ *
+ * That contract used to be upheld by per-call-site memory, and two call sites forgot —
+ * the same shape as the sanitizer-variant problem in `buildAISystemPrompt.ts`. Build an
+ * interpolated label with the {@link opLabel} tagged template instead: it routes every
+ * `${…}` hole through {@link safeIdentifier} while leaving the literal prose (including
+ * its own quotes) intact, so a raw interpolation is not expressible at the call site.
+ * A plain string literal remains valid — that is the no-interpolation case, and it has
+ * nothing to get wrong.
  */
-export function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+export function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  label: string | OperationLabel,
+): Promise<T> {
   // Track the timer so it can be cleared once the race settles. Without this, a
   // fast-settling `promise` leaves the timeout pending — keeping the event loop
   // alive (and, under Node, holding the process open) until it eventually fires.

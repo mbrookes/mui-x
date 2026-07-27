@@ -16,9 +16,11 @@ import {
 import { sanitizeForPromptLine } from '../buildAISystemPrompt';
 import {
   checkAllowedTable,
+  describeErrorForLog,
   errorResult,
   mapWithConcurrency,
   MAX_CONCURRENT_HOST_QUERIES,
+  opLabel,
   safeIdentifier,
   validateTableName,
   withTimeout,
@@ -275,10 +277,11 @@ export function createSummarisePageHandler(deps: {
         // `approvalHandler`), and a host bug must skip the widget, never wave it
         // through. The detail goes to the server log, never into the summary.
         pending = authorizeSourceDataAccess({ sourceId }).catch((err) => {
+          // `describeErrorForLog`, not `String(err)` (finding H1): the raw global
+          // throws for a rejection value of `{"toString": 1}`, and a logger inside a
+          // `.catch` that throws re-rejects the very promise this handler is guarding.
           logger?.error(
-            `[mcp] summarise_page per-source authorization threw: ${
-              err instanceof Error ? (err.stack ?? err.message) : String(err)
-            }`,
+            `[mcp] summarise_page per-source authorization threw: ${describeErrorForLog(err)}`,
           );
           return 'the per-source authorization check failed';
         });
@@ -384,12 +387,13 @@ export function createSummarisePageHandler(deps: {
             limit: 50,
           }),
           15_000,
-          // Sanitized (finding M2): `tableName` comes off `runtime.dataSources`, which on
-          // the chat transport descends from the client-supplied request body, and this
-          // label lands inside a BRANDED `StudioTimeoutError` that
-          // `redactedHostErrorMessage` relays VERBATIM on the premise that a branded
-          // message holds only server-authored prose.
-          `sample query for ${safeIdentifier(tableName)}`,
+          // `opLabel` (finding M2, structurally closed): `tableName` comes off
+          // `runtime.dataSources`, which on the chat transport descends from the
+          // client-supplied request body, and this label lands inside a BRANDED
+          // `StudioTimeoutError` that `redactedHostErrorMessage` relays VERBATIM on the
+          // premise that a branded message holds only server-authored prose. The tagged
+          // template sanitizes the hole so the call site cannot forget to.
+          opLabel`sample query for ${tableName}`,
         );
 
         const { rows, rowCount } = result;
@@ -454,15 +458,21 @@ export function createSummarisePageHandler(deps: {
 
         // Time-series aggregation: GROUP BY query for anomaly detection and charting.
         // Skip blended charts — the y-field belongs to a different source's table.
+        // Finding H2 — `Array.isArray`, and a per-element guard inside the predicate.
+        // `(chartCfg.ySeries ?? [])` only defends against nullish: a committed
+        // `ySeries: 'x'` (an allowed chart config key whose non-scalar value no write
+        // gate validates) has no `.some`, and `ySeries: [null]` throws on `s.sourceId`.
+        // Either one made `summarise_page` throw for that dashboard on every call.
+        const ySeries = Array.isArray(chartCfg?.ySeries) ? chartCfg.ySeries : [];
         const isBlended =
           chartCfg !== undefined &&
-          (chartCfg.ySeries ?? []).some((s) => s.sourceId && s.sourceId !== widget.sourceId);
+          ySeries.some((s) => s?.sourceId && s.sourceId !== widget.sourceId);
         let tsLabels: string[] | null = null;
         let tsValues: number[] | null = null;
 
         if (isTimeSeries && !isBlended && chartCfg !== undefined) {
           const xField = chartCfg.xField;
-          const yField = chartCfg.yField ?? (chartCfg.ySeries?.[0]?.fieldId as string | undefined);
+          const yField = chartCfg.yField ?? (ySeries[0]?.fieldId as string | undefined);
           const yAgg = (chartCfg.yAggregation ?? 'sum') as 'sum' | 'avg' | 'count' | 'min' | 'max';
           const xGroupBy = chartCfg.xGroupBy!;
           // Finding M4: `xField`/`yField` come straight off the widget config, which
@@ -503,8 +513,8 @@ export function createSummarisePageHandler(deps: {
                 limit: Math.min(20_000, maxQueryRows),
               }),
               15_000,
-              // Sanitized for the same reason as the sample query's label above.
-              `aggregation query for ${safeIdentifier(tableName)}`,
+              // `opLabel` for the same reason as the sample query's label above.
+              opLabel`aggregation query for ${tableName}`,
             );
             const grouped = new Map<string, number>();
             for (const row of aggResult.rows) {
@@ -541,7 +551,10 @@ export function createSummarisePageHandler(deps: {
         results[i] = { text: lines.join('\n') };
       } catch (err) {
         logger?.error(
-          `[mcp] summarise_page skipped widget "${widget.title || sourceId}": ${err instanceof Error ? err.message : String(err)}`,
+          // `describeErrorForLog`, not `String(err)` (finding H1) — see above; this
+          // logger call sits in the catch that keeps ONE bad widget from failing the
+          // whole summary, so it must not be able to throw itself.
+          `[mcp] summarise_page skipped widget "${widget.title || sourceId}": ${describeErrorForLog(err)}`,
         );
       }
     });

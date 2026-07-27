@@ -14,14 +14,83 @@
  */
 
 /**
+ * Coerce an untrusted, model- or client-supplied value to a string WITHOUT ever
+ * invoking `ToPrimitive` on an object (findings H4, then H1).
+ *
+ * `String(x)` looks total but is not. For a JSON object whose `toString` is a
+ * NON-callable own property — `{"toString": 1}`, which `JSON.parse` accepts
+ * verbatim, so it survives both a raw tool-call `arguments` buffer and the request
+ * body — `ToPrimitive` skips the uncallable `toString`, falls back to
+ * `Object.prototype.valueOf` (which returns the object itself), and throws
+ * `TypeError: Cannot convert object to primitive value`. A null-prototype object
+ * (`JSON.parse` output assigned onto `Object.create(null)`, which several caps in
+ * this package produce) throws for the same reason with no own `toString` at all.
+ *
+ * That throw escaped in several places, and in every one the raw `TypeError` was
+ * strictly worse than a validation error:
+ *
+ * - Out of `executeToolOnState`, whose contract (see `toolPolicy.ts`'s PURITY
+ *   INVARIANT and `agenticLoop/toolDispatch.ts`'s catch block) is that it is pure
+ *   and never throws — so the catch there classifies the throw as a HOST-policy
+ *   failure or an internal defect and hands the model an opaque correlation id,
+ *   burning a turn and a mutation-budget unit, while the host's `onToolError`
+ *   logs a middleware bug misattributed to host code.
+ * - Out of `capIncomingDashboardState`, at the very top of `handleAIChat` request
+ *   handling, where it collapsed the entire request into one generic SSE error —
+ *   a per-request DoS from a two-token payload, and exactly the "opaque native
+ *   `TypeError`" class `validateStudioAIRequestBody` exists to eliminate.
+ * - Out of `buildApprovalDisplayInput` on the chat approval path, which ran
+ *   OUTSIDE `dispatchToolCall`'s try — so a `remove_widget({"widgetId":{"toString":1}})`
+ *   the executor would have rejected cleanly instead propagated past the SSE try
+ *   block and CLOSED THE STREAM with one generic error frame (finding H1).
+ *
+ * This lives here, next to the other shared cap primitives, because every one of
+ * them — and every prompt sanitizer built on them (`sanitizeForPrompt`,
+ * `sanitizeForPromptLine`, `safeIdentifier`, `chartRenderer`'s `sanitizeText`/`esc`)
+ * — needs the same guarantee. A `String` restriction in `eslint.config.mjs` keeps
+ * the sanitizer surface routed through here.
+ *
+ * Semantics, chosen so that nothing which was already safe changes behavior:
+ * - a string is returned as-is;
+ * - `null`/`undefined` become `''` — exactly what the `String(x ?? '')` idiom this
+ *   replaces produced;
+ * - a number/boolean/bigint stringifies as before, so a model that sends
+ *   `pageId: 3` still addresses page `"3"`;
+ * - anything else (object, array, function, symbol) becomes `''` rather than
+ *   `"[object Object]"` or a throw. `''` is the right sentinel because it is
+ *   already the "argument absent" value at every call site, so an unusable object
+ *   takes the SAME path an omitted argument takes (the existence check fails, the
+ *   cap yields empty) instead of inventing a plausible-looking `"[object Object]"`
+ *   id or title. Tool-argument call sites additionally reject the value up front
+ *   via `executeToolOnState`'s `invalidStringArgsError`, so the model receives an
+ *   actionable error rather than silently landing an empty title; the
+ *   incoming-state and display-only paths have no caller to report to and rely on
+ *   the `''` normalization alone.
+ */
+export function asString(value: unknown): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (value === null || value === undefined) {
+    return '';
+  }
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    // eslint-disable-next-line no-restricted-syntax -- this IS the total coercion the restriction points at; the value is already a primitive here, so `ToPrimitive` never runs and `String` cannot throw.
+    return String(value);
+  }
+  return '';
+}
+
+/**
  * Cap an arbitrary value's string form to `maxChars`.
  *
- * Coerces first (`String(value ?? '')`) because every caller is guarding a field
- * that is only NOMINALLY typed: request bodies are unvalidated JSON, so a field
- * declared `string` can arrive as a number, an object, or `undefined`.
+ * Coerces through {@link asString} because every caller is guarding a field that is
+ * only NOMINALLY typed: request bodies are unvalidated JSON, so a field declared
+ * `string` can arrive as a number, an object, or `undefined` — and the raw
+ * `String(value ?? '')` this used to do THROWS for `{"toString": 1}` (finding H1).
  */
 export function capText(value: unknown, maxChars: number): string {
-  const str = typeof value === 'string' ? value : String(value ?? '');
+  const str = asString(value);
   return str.length > maxChars ? str.slice(0, maxChars) : str;
 }
 

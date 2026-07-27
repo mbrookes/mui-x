@@ -4724,3 +4724,108 @@ describe('capIncomingDashboardState / projectStateForAI: remaining uncapped stri
     expect(threads[0].name.length).toBe(200);
   });
 });
+
+// ── Finding L1: the last prompt-interpolated strings with no per-field cap ────
+//
+// `session.mode`, `widget.kind`, `filter.id`, `filter.operator` and
+// `filter.scope.widgetId` all reach the system prompt (`Mode: …`,
+// `describeWidget`'s `kind: …`, and the `## Active Filters` line's
+// `[id: …] scope:widget:… — field operator value`), but the `...f` / `...widget`
+// spread carried them through this cap untouched and `session` was never rewritten
+// at all. Every sibling identifier already gets `capEntityId`; these now do too, so
+// the aggregate `MAX_SYSTEM_PROMPT_CHARS` backstop is no longer the only bound.
+describe('capIncomingDashboardState: remaining uncapped prompt strings (finding L1)', () => {
+  const long = 'z'.repeat(5_000);
+
+  const stateWith = (overrides: Partial<StudioState>): StudioState => ({
+    ...createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'p1' },
+        pages: { p1: { id: 'p1', title: 'P', widgetRows: [['w1']] } },
+        widgets: { w1: { id: 'w1', kind: 'chart', title: 'W', config: {} } },
+      },
+    }),
+    ...overrides,
+  });
+
+  it('caps `session.mode`', () => {
+    const base = stateWith({});
+    const state: StudioState = { ...base, session: { ...base.session, mode: long as never } };
+    expect(capIncomingDashboardState(state).session.mode.length).toBe(200);
+  });
+
+  it('leaves a well-formed `session.mode` unchanged', () => {
+    const base = stateWith({});
+    expect(capIncomingDashboardState(base).session.mode).toBe(base.session.mode);
+  });
+
+  it('caps `widget.kind`', () => {
+    const base = stateWith({});
+    const state: StudioState = {
+      ...base,
+      doc: {
+        ...base.doc,
+        widgets: { w1: { ...base.doc.widgets.w1, kind: long as never } },
+      },
+    };
+    expect(capIncomingDashboardState(state).doc.widgets.w1.kind.length).toBe(200);
+  });
+
+  it('caps `filter.id`, `filter.operator` and `filter.scope.widgetId`', () => {
+    const base = stateWith({});
+    const state: StudioState = {
+      ...base,
+      doc: {
+        ...base.doc,
+        filters: [
+          {
+            id: long,
+            field: 'region',
+            operator: long as never,
+            value: 'EU',
+            scope: { kind: 'widget', widgetId: long },
+          },
+        ],
+      },
+    };
+    const [f] = capIncomingDashboardState(state).doc.filters;
+    expect(f.id.length).toBe(200);
+    expect(f.operator.length).toBe(200);
+    expect((f.scope as { widgetId: string }).widgetId.length).toBe(200);
+  });
+
+  it('leaves a well-formed filter byte-for-byte unchanged', () => {
+    const base = stateWith({});
+    const state: StudioState = {
+      ...base,
+      doc: {
+        ...base.doc,
+        filters: [
+          {
+            id: 'f1',
+            field: 'region',
+            operator: 'equals',
+            value: 'EU',
+            scope: { kind: 'widget', widgetId: 'w1' },
+          },
+        ],
+      },
+    };
+    expect(capIncomingDashboardState(state).doc.filters[0]).toEqual(state.doc.filters[0]);
+  });
+
+  it('does not invent a `kind` / `operator` for an entity that has none', () => {
+    const base = stateWith({});
+    const state: StudioState = {
+      ...base,
+      doc: {
+        ...base.doc,
+        widgets: { w1: { id: 'w1', title: 'W', config: {} } as never },
+        filters: [{ field: 'region', value: 'EU', scope: { kind: 'page', pageId: 'p1' } } as never],
+      },
+    };
+    const capped = capIncomingDashboardState(state);
+    expect('kind' in capped.doc.widgets.w1).toBe(false);
+    expect('operator' in capped.doc.filters[0]).toBe(false);
+  });
+});

@@ -17,7 +17,8 @@ import {
 } from '../toolPolicy';
 import type { StudioAISSEEvent, ApprovalEffectsSummary } from '../models/protocol';
 import { createDataToolHandlers } from '../mcp/dataTools';
-import { redactedHostErrorMessage, safeIdentifier, withTimeout } from '../mcp/helpers';
+import { opLabel, redactedHostErrorMessage, safeIdentifier, withTimeout } from '../mcp/helpers';
+import { asString } from '../internal/promptCaps';
 import type { AccumulatedToolCall } from './openaiWire';
 
 /** Default cap on rows `query_data_source` may request, mirroring `mcp.ts`'s default. */
@@ -262,9 +263,12 @@ function redactedHostError(
   return redactedHostErrorMessage(context, err, {
     log: () => {},
     error: (...args: unknown[]) => {
+      // `asString`, not the raw `String` global (finding H1): this sink runs while
+      // handling a failure, so a non-coercible log argument must not throw a second
+      // one out of the catch that is already recovering.
       ctx.onToolError?.(
         toolName,
-        /* minify-error-disabled */ new Error(args.map((a) => String(a)).join(' ')),
+        /* minify-error-disabled */ new Error(args.map((a) => asString(a)).join(' ')),
       );
     },
   });
@@ -371,6 +375,20 @@ export function extractToolErrorMessage(output: string): string {
  * apply the SAME state-derived label enrichment before handing `input` to the host
  * `approvalHandler` — otherwise the two transports would disagree and the MCP path
  * would forward the raw, spoofable model label (finding T2-A).
+ *
+ * Every id read here goes through `asString`, never the raw `String` global (finding
+ * H1). `toolInput` is un-narrowed `JSON.parse` output straight off the model's
+ * tool-call buffer, and `String({"toString": 1})` throws `TypeError: Cannot convert
+ * object to primitive value`. That mattered here more than anywhere else in the
+ * package: `createDefaultToolPolicy` gates by tool NAME, so
+ * `remove_widget({"widgetId":{"toString":1}})` — which the executor rejects cleanly —
+ * still routed to approval and reached this function, whose caller in
+ * `dispatchToolCall` sat OUTSIDE the try wrapping `executeToolWithPolicy`. The throw
+ * propagated past the SSE try block in `agenticLoop.ts` and closed the whole stream
+ * with one generic error frame. `apply_bulk_update({widgetRemovals:[{toString:1}]})`
+ * did the same through the `widgetRemovals` branch. The call site is now inside that
+ * try as well, so neither this function nor `buildApprovalEffectsSummary` can escape
+ * as a stream-killing throw even if a future edit reintroduces one.
  */
 export function buildApprovalDisplayInput(
   toolName: string,
@@ -386,11 +404,11 @@ export function buildApprovalDisplayInput(
   const readPage = (id: string): StudioState['doc']['pages'][string] | undefined =>
     Object.hasOwn(state.doc.pages, id) ? state.doc.pages[id] : undefined;
   if (toolName === 'remove_widget') {
-    const realTitle = readWidget(String(input.widgetId ?? ''))?.title;
+    const realTitle = readWidget(asString(input.widgetId))?.title;
     return realTitle !== undefined ? { ...input, widgetTitle: realTitle } : toolInput;
   }
   if (toolName === 'remove_page') {
-    const realTitle = readPage(String(input.pageId ?? ''))?.title;
+    const realTitle = readPage(asString(input.pageId))?.title;
     return realTitle !== undefined ? { ...input, pageTitle: realTitle } : toolInput;
   }
   if (toolName === 'apply_bulk_update') {
@@ -403,7 +421,7 @@ export function buildApprovalDisplayInput(
       return {
         ...input,
         widgetRemovals: removals.map((id) => {
-          const widgetId = String(id);
+          const widgetId = asString(id);
           return { id: widgetId, title: readWidget(widgetId)?.title ?? '(unknown widget)' };
         }),
       };
@@ -695,7 +713,11 @@ export async function* dispatchToolCall(
           matchedSkill.tool.execute(toolInput as Record<string, unknown>, currentState),
         ),
         SERVER_TOOL_TIMEOUT_MS,
-        `server-tool skill "${name}"`,
+        // `opLabel`, not a raw template: `name` is a CLIENT-declared server-tool skill
+        // name off `body.skills`, and this label lands in a BRANDED `StudioTimeoutError`
+        // that `redactedHostErrorMessage` relays verbatim. The tagged template routes
+        // the hole through `safeIdentifier` while keeping the literal quotes.
+        opLabel`server-tool skill "${name}"`,
       );
       if (result.mutation) {
         ctx.usage.committedMutations += 1;
@@ -825,7 +847,8 @@ export async function* dispatchToolCall(
           logger: {
             log: () => {},
             error: (...args: unknown[]) => {
-              hostErrorDetail = args.map((a) => String(a)).join(' ');
+              // `asString` (finding H1) — see `redactedHostError`'s sink above.
+              hostErrorDetail = args.map((a) => asString(a)).join(' ');
             },
           },
         });
@@ -882,6 +905,16 @@ export async function* dispatchToolCall(
   // decision happen for every built-in tool. A read-only tool produces no mutation,
   // so `executeToolWithPolicy` simply returns `allowed` with no `state-mutation`.
   let outcome: Awaited<ReturnType<typeof executeToolWithPolicy>>;
+  // Built INSIDE the try below (finding H1). These were computed after it, so a throw
+  // from either — `buildApprovalDisplayInput` used the non-total `String()` on raw
+  // model arguments — escaped `dispatchToolCall`, escaped the `while (true) { await
+  // dispatch.next() }` driver in `agenticLoop.ts` (whose enclosing try covers only the
+  // SSE read loop, which has already exited by then), and killed the stream with one
+  // generic error frame. Both are display-only enrichment of an approval prompt;
+  // neither is worth a terminated request, so they now fail the same recoverable,
+  // redacted way every other step on this path does.
+  let displayInput: unknown;
+  let effectsSummary: ApprovalEffectsSummary | undefined;
   try {
     outcome = await executeToolWithPolicy(name, toolInput, currentState, {
       policy: ctx.toolPolicy,
@@ -895,6 +928,16 @@ export async function* dispatchToolCall(
       // that never settles, the signal makes an abandoned request stop waiting at once.
       signal: ctx.signal,
     });
+    if (outcome.kind === 'needs-approval') {
+      // The human-facing approval display must reflect the real target from state,
+      // not a title the (possibly prompt-injected) model chose. See
+      // `buildApprovalDisplayInput`.
+      displayInput = buildApprovalDisplayInput(name, toolInput, currentState);
+      // T2-2: attach a state-derived structural-effects summary (which widgets/pages/filters
+      // get removed, which widgets get orphaned) so the human isn't approving a layout op
+      // blind. `outcome.effects` is always present on the built-in needs-approval path.
+      effectsSummary = buildApprovalEffectsSummary(outcome.effects, currentState);
+    }
   } catch (err) {
     // `executeToolOnState` is pure and never throws by design, so anything caught here
     // is either a throw from the HOST `toolPolicy` (`Policy.all` awaits it with no
@@ -915,14 +958,6 @@ export async function* dispatchToolCall(
   }
 
   if (outcome.kind === 'needs-approval') {
-    // The human-facing approval display must reflect the real target from state,
-    // not a title the (possibly prompt-injected) model chose. See
-    // `buildApprovalDisplayInput`.
-    const displayInput = buildApprovalDisplayInput(name, toolInput, currentState);
-    // T2-2: attach a state-derived structural-effects summary (which widgets/pages/filters
-    // get removed, which widgets get orphaned) so the human isn't approving a layout op
-    // blind. `outcome.effects` is always present on the built-in needs-approval path.
-    const effectsSummary = buildApprovalEffectsSummary(outcome.effects, currentState);
     const approval = yield* runApprovalFlow(
       tc.id,
       name,

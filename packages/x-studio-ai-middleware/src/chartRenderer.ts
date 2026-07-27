@@ -8,6 +8,7 @@
  */
 
 import { sanitizeForPromptLine } from './buildAISystemPrompt';
+import { asString } from './internal/promptCaps';
 import { markPackageAuthored } from './internal/packageError';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -207,7 +208,11 @@ function sanitizeText(value: unknown): string {
   if (value === undefined || value === null) {
     return '';
   }
-  const str = String(value);
+  // `asString`, not the raw `String` global (finding H1): `render_chart` arguments come
+  // straight off a `JSON.parse`d tool-call buffer, and `String({"toString": 1})` throws
+  // `TypeError: Cannot convert object to primitive value` — which at this choke point
+  // would fail the whole render rather than blanking one label.
+  const str = asString(value);
   // Truncate an oversized text field (finding F7) — a huge single label is the same
   // unbounded-work/response-payload class `MAX_CHART_ARRAY_LENGTH` guards for arrays.
   return str.length > MAX_CHART_TEXT_LENGTH ? str.slice(0, MAX_CHART_TEXT_LENGTH) : str;
@@ -359,7 +364,9 @@ function sanitizeInput(input: ChartRendererInput): SanitizedChartInput {
  * instead of throwing and failing the whole render.
  */
 function esc(value: unknown): string {
-  const s = value === undefined || value === null ? '' : String(value);
+  // `asString` (finding H1) — see `sanitizeText`. This is the last line of defense for
+  // any call site that bypassed the `sanitizeInput` choke point, so it must be total.
+  const s = asString(value);
   return s
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -493,7 +500,7 @@ function renderBar(input: SanitizedChartInput): string {
     // X label
     const labelY = PAD.top + chartH + 18;
     lines.push(
-      `<text x="${(x + barW / 2).toFixed(1)}" y="${labelY}" text-anchor="middle" font-family="${FONT_FAMILY}" font-size="11" fill="#555">${esc(String(d.label))}</text>`,
+      `<text x="${(x + barW / 2).toFixed(1)}" y="${labelY}" text-anchor="middle" font-family="${FONT_FAMILY}" font-size="11" fill="#555">${esc(d.label)}</text>`,
     );
   });
 
@@ -521,7 +528,7 @@ function renderLine(input: SanitizedChartInput): string {
     xLabels = rawXLabels;
     allSeries = rawSeries;
   } else if (data && data.length > 0) {
-    xLabels = data.map((d) => String(d.label));
+    xLabels = data.map((d) => d.label);
     allSeries = [{ name: title ?? 'Value', values: data.map((d) => d.value) }];
   } else {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="10" y="20" font-family="${FONT_FAMILY}" fill="red">No data provided.</text></svg>`;
@@ -721,7 +728,7 @@ function renderPie(input: SanitizedChartInput): string {
     const pct = total > 0 ? ` (${Math.round((d.value / total) * 100)}%)` : '';
     lines.push(
       `<rect x="${lx}" y="${ly}" width="12" height="12" fill="${fill}" rx="2"/>`,
-      `<text x="${lx + 16}" y="${ly + 10}" font-family="${FONT_FAMILY}" font-size="11" fill="#555">${esc(String(d.label))}${esc(pct)}</text>`,
+      `<text x="${lx + 16}" y="${ly + 10}" font-family="${FONT_FAMILY}" font-size="11" fill="#555">${esc(d.label)}${esc(pct)}</text>`,
     );
   });
 
@@ -754,14 +761,14 @@ function renderScatter(input: SanitizedChartInput): string {
     });
   } else if (input.data) {
     input.data.forEach((d, i) => {
-      const x = parseFloat(String(d.label));
+      const x = parseFloat(d.label);
       // `Number.isFinite` for the same reason as the multi-series branch above; a
       // non-numeric label still falls through to the index-as-x branch.
       if (Number.isFinite(x)) {
-        points.push({ x, y: d.value, label: String(d.label), color: color(colors, i) });
+        points.push({ x, y: d.value, label: d.label, color: color(colors, i) });
       } else {
         // label is not numeric — use index as x
-        points.push({ x: i, y: d.value, label: String(d.label), color: color(colors, 0) });
+        points.push({ x: i, y: d.value, label: d.label, color: color(colors, 0) });
       }
     });
   }
@@ -961,7 +968,7 @@ function renderDonut(input: SanitizedChartInput): string {
     const pct = total > 0 ? ` (${Math.round((d.value / total) * 100)}%)` : '';
     svgLines.push(
       `<rect x="${lx}" y="${ly}" width="12" height="12" fill="${fill}" rx="2"/>`,
-      `<text x="${lx + 16}" y="${ly + 10}" font-family="${FONT_FAMILY}" font-size="11" fill="#555">${esc(String(d.label))}${esc(pct)}</text>`,
+      `<text x="${lx + 16}" y="${ly + 10}" font-family="${FONT_FAMILY}" font-size="11" fill="#555">${esc(d.label)}${esc(pct)}</text>`,
     );
   });
 
@@ -1043,7 +1050,7 @@ function renderStackedBar(input: SanitizedChartInput): string {
 
     const labelY = yBase + 18;
     svgLines.push(
-      `<text x="${(xOf(i) + barW / 2).toFixed(1)}" y="${labelY}" text-anchor="middle" font-family="${FONT_FAMILY}" font-size="11" fill="#555">${esc(String(lbl))}</text>`,
+      `<text x="${(xOf(i) + barW / 2).toFixed(1)}" y="${labelY}" text-anchor="middle" font-family="${FONT_FAMILY}" font-size="11" fill="#555">${esc(lbl)}</text>`,
     );
   });
 

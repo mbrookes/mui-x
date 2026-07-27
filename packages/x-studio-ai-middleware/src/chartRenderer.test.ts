@@ -689,6 +689,62 @@ describe('renderChartSvg — non-string text field coercion (T2-5)', () => {
     expect(svg).not.toContain('<script>');
     expect(svg).toContain('&lt;script&gt;');
   });
+
+  // Finding H1 — `sanitizeText`/`esc` coerced with the raw `String` global, which is
+  // NOT total over `JSON.parse` output: `String({"toString": 1})` throws
+  // `TypeError: Cannot convert object to primitive value`. `render_chart` arguments
+  // come straight off a tool-call buffer, so the whole render failed (degrading to a
+  // redacted error) on a two-token payload.
+  it.each([
+    [
+      'a data label',
+      () => ({
+        type: 'bar' as const,
+        data: [{ label: JSON.parse('{"toString":1}') as unknown as string, value: 3 }],
+      }),
+    ],
+    [
+      'a title',
+      () => ({
+        type: 'bar' as const,
+        title: JSON.parse('{"toString":1}') as unknown as string,
+        data: SIMPLE_DATA,
+      }),
+    ],
+    [
+      'an xLabels entry',
+      () => ({
+        type: 'line' as const,
+        xLabels: [JSON.parse('{"toString":1}') as unknown as string, 'b'],
+        series: [{ name: 'S', values: [1, 2] }],
+      }),
+    ],
+    [
+      'a series name',
+      () => ({
+        type: 'line' as const,
+        xLabels: ['a', 'b'],
+        series: [{ name: JSON.parse('{"toString":1}') as unknown as string, values: [1, 2] }],
+      }),
+    ],
+  ])('renders when %s is not string-coercible instead of failing the render', (_label, make) => {
+    let svg = '';
+    expect(() => {
+      svg = renderChartSvg(make() as ChartRendererInput);
+    }).not.toThrow();
+    expect(isSvg(svg)).toBe(true);
+  });
+
+  it('renders when a label is a null-prototype object', () => {
+    let svg = '';
+    expect(() => {
+      svg = renderChartSvg({
+        type: 'bar',
+        data: [{ label: Object.create(null) as unknown as string, value: 3 }],
+      });
+    }).not.toThrow();
+    expect(isSvg(svg)).toBe(true);
+  });
 });
 
 // ── Array-length cap (Tier 3, finding 3) ───────────────────────────────────────

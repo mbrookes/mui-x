@@ -13,6 +13,7 @@ import type {
   StudioAIEnrichedContext,
 } from './models/aiTypes';
 import { WIDGET_KIND_DESCRIPTIONS, CHART_TYPE_DOCS, KPI_SPARKLINE_DOC } from './widgetConfigMeta';
+import { asString } from './internal/promptCaps';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -31,9 +32,16 @@ import { WIDGET_KIND_DESCRIPTIONS, CHART_TYPE_DOCS, KPI_SPARKLINE_DOC } from './
  *
  * This is the single choke point for that escaping — apply it to EVERY
  * state-derived string interpolated into the prompt.
+ *
+ * Coerces through `asString`, not the raw `String` global (finding H1): every value
+ * reaching here descends from `JSON.parse` output, and `String({"toString": 1})`
+ * throws `TypeError: Cannot convert object to primitive value`. A sanitizer that
+ * throws on the exact input class it exists to neutralize is not a choke point. A
+ * non-coercible value renders as `''` — the same "absent" sentinel every cap in this
+ * package already uses — rather than `"[object Object]"`.
  */
 export function sanitizeForPrompt(value: unknown): string {
-  return String(value).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return asString(value).replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 /**
@@ -47,12 +55,19 @@ export function sanitizeForPrompt(value: unknown): string {
  * by enough renderers/tokenizers to be worth neutralizing. Whether any of them
  * actually forges a line break depends on the target model's tokenizer — which is
  * exactly why they are neutralized rather than reasoned about.
+ *
+ * Exported (finding L2) so the one OTHER site in the package that strips line
+ * terminators — `generateFieldDescriptions`'s `aiDescription` normalizer, which
+ * hand-rolled a global `\s*[\r\n]+\s*` and therefore missed all five of the non-`\r`/`\n`
+ * code points, breaking its own stated "newline-stripped at the source" guarantee —
+ * derives its pattern from THIS set instead of re-guessing it. Consumers must only
+ * read `.source` or pass it to `String.prototype.replace`; see the note below.
  */
 // `no-control-regex` exists to catch control characters typed into a pattern by
 // accident. U+000B and U+000C are here deliberately — neutralizing them is the whole
 // point of this constant — so the rule is disabled for this line only.
 // eslint-disable-next-line no-control-regex
-const PROMPT_LINE_BREAK_RE = /\r\n|[\r\n\u0085\u000B\u000C\u2028\u2029]/g;
+export const PROMPT_LINE_BREAK_RE = /\r\n|[\r\n\u0085\u000B\u000C\u2028\u2029]/g;
 
 /**
  * Replaces every line terminator with a literal `\n` two-character escape — visible
@@ -275,6 +290,43 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
   const pushQuoted = (key: string, value: unknown): void => {
     parts.push(`${key}: "${sanitizeForPromptLine(value)}"`);
   };
+  /*
+   * The ARRAY sibling of `pushField`/`pushQuoted`, and the structural answer to
+   * finding H2.
+   *
+   * Four array-typed config fields (`ySeries`, `funnelCategoryOrder`,
+   * `funnelStageSequence`, grid `columns`) were read behind a bare `value?.length`
+   * truthiness gate and then dereferenced with `.map`/`.join`. `?.length` is
+   * truthy for a STRING too, so a config of `{columns: 'x'}` — `columns` is an
+   * allowed grid key, and non-scalar config values are deliberately left
+   * unvalidated by the write gates (`executeToolOnState.ts`'s
+   * `capShallowConfigValue`) — passed the gate and then threw
+   * `TypeError: gridCfg.columns.map is not a function`. Because the bad shape is
+   * COMMITTED to `doc.widgets`, that throw then repeated on every subsequent
+   * request: the assistant was permanently bricked for that dashboard. The same
+   * shapes arrive straight off `body.dashboardState.doc.widgets` with no tool call
+   * at all, so the read side has to be total on its own.
+   *
+   * Four more `Array.isArray` guards at the four call sites would have fixed those
+   * four; this makes the unsafe shape inexpressible instead. `render` is only ever
+   * invoked on an element of a real array, and a `render` that throws on a
+   * wrong-shaped ELEMENT (`ySeries: [null]` → `s.fieldId`) is caught per element and
+   * rendered as the same `''` an absent value produces. A non-array (or empty) value
+   * emits nothing at all, exactly like the old truthiness gate's false branch.
+   */
+  const pushList = (key: string, value: unknown, render: (entry: unknown) => unknown): void => {
+    if (!Array.isArray(value) || value.length === 0) {
+      return;
+    }
+    const rendered = value.map((entry) => {
+      try {
+        return sanitizeForPromptLine(render(entry));
+      } catch {
+        return '';
+      }
+    });
+    parts.push(`${key}: [${rendered.join(', ')}]`);
+  };
 
   pushField('id', widget.id);
   pushField('kind', widget.kind);
@@ -327,7 +379,13 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
     pushChartField('barMinBandSize', chartCfg.barMinBandSize);
     pushChartField('barMaxCategories', chartCfg.barMaxCategories);
     pushChartField('axisTickFontSize', chartCfg.axisTickFontSize);
-    if (allowed.has('annotations') && chartCfg.annotations?.length) {
+    // `Array.isArray`, not `?.length` (finding H2's sibling): `'xy'.length` is 2, so a
+    // string-shaped `annotations` reported a bogus count rather than being skipped.
+    if (
+      allowed.has('annotations') &&
+      Array.isArray(chartCfg.annotations) &&
+      chartCfg.annotations.length > 0
+    ) {
       pushField('annotations', chartCfg.annotations.length);
     }
     if (allowed.has('forecast') && chartCfg.forecast?.enabled) {
@@ -341,11 +399,13 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
     pushChartField('xGroupBy', chartCfg.xGroupBy);
     pushChartField('chartSortBy', chartCfg.chartSortBy);
     pushChartField('chartSortDirection', chartCfg.chartSortDirection);
-    if (allowed.has('ySeries') && chartCfg.ySeries?.length) {
-      pushField(
-        'ySeries',
-        `[${chartCfg.ySeries.map((s) => `${s.fieldId}(${s.yAggregation ?? 'sum'})`).join(', ')}]`,
-      );
+    if (allowed.has('ySeries')) {
+      // Finding H2 — via `pushList`, so a `ySeries` that is not an array (or whose
+      // entries are not objects) is skipped/blanked instead of throwing on `.map`.
+      pushList('ySeries', chartCfg.ySeries, (entry) => {
+        const series = (entry ?? {}) as { fieldId?: unknown; yAggregation?: unknown };
+        return `${asString(series.fieldId)}(${asString(series.yAggregation ?? 'sum')})`;
+      });
     }
     pushChartField('seriesField', chartCfg.seriesField);
     pushChartField('scatterColorField', chartCfg.scatterColorField);
@@ -361,12 +421,14 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
     pushChartField('ganttStartField', chartCfg.ganttStartField);
     pushChartField('ganttEndField', chartCfg.ganttEndField);
     pushChartField('ganttColorField', chartCfg.ganttColorField);
-    if (allowed.has('funnelCategoryOrder') && chartCfg.funnelCategoryOrder?.length) {
-      pushField('funnelCategoryOrder', `[${chartCfg.funnelCategoryOrder.join(', ')}]`);
+    if (allowed.has('funnelCategoryOrder')) {
+      // Finding H2 — `'xy'?.length` was truthy, so a string here reached `.join`.
+      pushList('funnelCategoryOrder', chartCfg.funnelCategoryOrder, (entry) => entry);
     }
     pushChartField('funnelReachedField', chartCfg.funnelReachedField);
-    if (allowed.has('funnelStageSequence') && chartCfg.funnelStageSequence?.length) {
-      pushField('funnelStageSequence', `[${chartCfg.funnelStageSequence.join(', ')}]`);
+    if (allowed.has('funnelStageSequence')) {
+      // Finding H2 — same shape as `funnelCategoryOrder` above.
+      pushList('funnelStageSequence', chartCfg.funnelStageSequence, (entry) => entry);
     }
     pushChartField('funnelLabelFormat', chartCfg.funnelLabelFormat);
     pushChartField('funnelLabelPlacement', chartCfg.funnelLabelPlacement);
@@ -404,9 +466,11 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
     }
   } else if (isWidgetOfKind(widget, 'grid')) {
     const gridCfg = (widget.config ?? {}) as typeof widget.config;
-    if (gridCfg.columns?.length) {
-      pushField('columns', `[${gridCfg.columns.map((c) => c.fieldId).join(', ')}]`);
-    }
+    // Finding H2 — `update_widget({config: {columns: 'x'}})` passes every write gate
+    // (`columns` is an allowed grid key and a non-scalar value is left unvalidated),
+    // commits to `doc.widgets`, and then `'x'?.length` was truthy while `'x'.map` is
+    // undefined — a `TypeError` on EVERY subsequent request for that dashboard.
+    pushList('columns', gridCfg.columns, (entry) => (entry as { fieldId?: unknown })?.fieldId);
     if (gridCfg.gridSortField !== undefined) {
       pushField('sortField', `${gridCfg.gridSortField}(${gridCfg.gridSortDirection ?? 'asc'})`);
     }
@@ -1032,7 +1096,10 @@ const PROMPT_BOUNDARY_TAG_RE = new RegExp(
  * `handleAIChat`; this is defense-in-depth for the tag framing.
  */
 function neutralizeSkillBoundary(fragment: string): string {
-  return String(fragment).replace(PROMPT_BOUNDARY_TAG_RE, '&lt;$1$2');
+  // `asString`, not the raw `String` global (finding H1): `promptFragment` is declared
+  // `string` but arrives from an unvalidated request body, and `String({"toString": 1})`
+  // throws — which here would kill the whole request while building the prompt.
+  return asString(fragment).replace(PROMPT_BOUNDARY_TAG_RE, '&lt;$1$2');
 }
 
 function buildSkillSection(skills?: SerializableSkill[]): string {

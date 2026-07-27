@@ -33,6 +33,7 @@ import type {
   StudioDataSource,
 } from './models/studioTypes';
 import type { StateMutation, StudioAIToolName } from './models/aiTypes';
+import { asString } from './internal/promptCaps';
 // Shared pure functions: the widget factory (so AI-created and UI-created widgets
 // share defaults) and the single mutation reducer (so the server-threaded state
 // and the client-applied state are computed by the exact same code).
@@ -191,62 +192,7 @@ function capString(value: string, maxLength: number): string {
 }
 
 /**
- * Coerce an untrusted, model- or client-supplied value to a string WITHOUT ever
- * invoking `ToPrimitive` on an object (finding H4).
- *
- * `String(x)` looks total but is not. For a JSON object whose `toString` is a
- * NON-callable own property — `{"toString": 1}`, which `JSON.parse` accepts
- * verbatim, so it survives both a raw tool-call `arguments` buffer and the request
- * body — `ToPrimitive` skips the uncallable `toString`, falls back to
- * `Object.prototype.valueOf` (which returns the object itself), and throws
- * `TypeError: Cannot convert object to primitive value`.
- *
- * That throw escaped in two places, and in both the raw `TypeError` was strictly
- * worse than a validation error:
- *
- * - Out of `executeToolOnState`, whose contract (see `toolPolicy.ts`'s PURITY
- *   INVARIANT and `agenticLoop/toolDispatch.ts`'s catch block) is that it is pure
- *   and never throws — so the catch there classifies the throw as a HOST-policy
- *   failure or an internal defect and hands the model an opaque correlation id,
- *   burning a turn and a mutation-budget unit, while the host's `onToolError`
- *   logs a middleware bug misattributed to host code.
- * - Out of `capIncomingDashboardState`, at the very top of `handleAIChat` request
- *   handling, where it collapsed the entire request into one generic SSE error —
- *   a per-request DoS from a two-token payload, and exactly the "opaque native
- *   `TypeError`" class `validateStudioAIRequestBody` exists to eliminate.
- *
- * Semantics, chosen so that nothing which was already safe changes behavior:
- * - a string is returned as-is;
- * - `null`/`undefined` become `''` — exactly what the `String(x ?? '')` idiom this
- *   replaces produced;
- * - a number/boolean/bigint stringifies as before, so a model that sends
- *   `pageId: 3` still addresses page `"3"`;
- * - anything else (object, array, function, symbol) becomes `''` rather than
- *   `"[object Object]"` or a throw. `''` is the right sentinel because it is
- *   already the "argument absent" value at every call site, so an unusable object
- *   takes the SAME path an omitted argument takes (the existence check fails, the
- *   cap yields empty) instead of inventing a plausible-looking `"[object Object]"`
- *   id or title. Tool-argument call sites additionally reject the value up front
- *   via {@link invalidStringArgsError}, so the model receives an actionable error
- *   rather than silently landing an empty title; the incoming-state cap path has
- *   no caller to report to and relies on the `''` normalization alone.
- */
-function asString(value: unknown): string {
-  if (typeof value === 'string') {
-    return value;
-  }
-  if (value === null || value === undefined) {
-    return '';
-  }
-  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
-    // Safe: the value is already a primitive here, so `ToPrimitive` never runs.
-    return String(value);
-  }
-  return '';
-}
-
-/**
- * `Number()`'s mirror of {@link asString} (finding H4). `Number(x)` throws the same
+ * `Number()`'s mirror of `asString` (finding H4). `Number(x)` throws the same
  * `TypeError: Cannot convert object to primitive value` for the mirror-image shape
  * `{"valueOf": 1, "toString": 2}` (both coercion methods present but neither
  * callable), and throws unconditionally for a symbol.
@@ -757,6 +703,40 @@ function capEntityId(id: string): string {
 }
 
 /**
+ * Every id-bearing key across the `StudioFilterScope` union (finding L1). Listed by
+ * NAME rather than switched on `scope.kind` because `scope` is unvalidated client
+ * JSON: a `kind` that doesn't match any variant must still get its ids capped.
+ */
+const FILTER_SCOPE_ID_KEYS = ['pageId', 'widgetId', 'sourceWidgetId', 'sourceId'] as const;
+
+/**
+ * Cap the identifiers inside a filter's `scope` (finding L1).
+ *
+ * `scope.widgetId` lands in the `## Active Filters` prompt line's `widget:<id>`
+ * label, and the whole `scope` is echoed by `get_dashboard_state` — but
+ * `capIncomingDashboardState`'s `...f` spread carried it through untouched while
+ * every sibling identifier got {@link capEntityId}. Reusing the same bound also keeps
+ * a scope id comparable to the page/widget ids it is matched against, which are
+ * capped with `capEntityId` in the loops above.
+ *
+ * Returns a spreadable patch: `{}` when there is no object-shaped scope to rewrite,
+ * so a missing or malformed `scope` keeps whatever the `...f` spread already put
+ * there (the prompt builder's `f?.scope?.kind` guard handles it from there).
+ */
+function capFilterScope(scope: unknown): { scope?: StudioFilterState['scope'] } {
+  if (scope === null || typeof scope !== 'object') {
+    return {};
+  }
+  const capped: Record<string, unknown> = { ...(scope as Record<string, unknown>) };
+  for (const key of FILTER_SCOPE_ID_KEYS) {
+    if (capped[key] !== undefined) {
+      capped[key] = capEntityId(asString(capped[key]));
+    }
+  }
+  return { scope: capped as StudioFilterState['scope'] };
+}
+
+/**
  * Cap a model-supplied `StudioDataField`'s free-text strings before it is
  * persisted onto an incoming data source (see {@link MAX_STATE_DATA_SOURCES}).
  * `label`/`aiDescription` reuse {@link MAX_TITLE_LENGTH} — the same bound
@@ -1022,6 +1002,15 @@ export function capIncomingDashboardState(state: StudioState): StudioState {
       // the other callers of this cap pass crash-free too.
       id: capEntityId(asString(widget?.id ?? '')),
       title: capTitle(asString(widget?.title ?? '')),
+      // Finding L1 — `kind` is interpolated into `<dashboard_state>` on every future
+      // request (`describeWidget`'s `pushField('kind', widget.kind)`) and echoed by
+      // `get_dashboard_state`, but it is a bare `...widget` spread away from every
+      // sibling identifier that already gets `capEntityId`. Nothing bounded it except
+      // the aggregate `MAX_SYSTEM_PROMPT_CHARS` backstop. Conditional so a genuinely
+      // absent `kind` stays absent rather than becoming `''`.
+      ...(widget?.kind !== undefined
+        ? { kind: capEntityId(asString(widget.kind)) as StudioWidget['kind'] }
+        : {}),
       ...(widget?.subtitle !== undefined
         ? { subtitle: capString(asString(widget.subtitle), MAX_TITLE_LENGTH) }
         : {}),
@@ -1063,6 +1052,20 @@ export function capIncomingDashboardState(state: StudioState): StudioState {
   // raw `TypeError: Cannot read properties of null (reading 'field')` here.
   const cappedFilters: StudioFilterState[] = doc.filters.slice(0, MAX_STATE_FILTERS).map((f) => ({
     ...f,
+    // Finding L1 — `id` and `operator` are both interpolated bare into the
+    // `## Active Filters` prompt line (`[id: …] scope:… — field operator value`) and
+    // echoed by `get_dashboard_state`, yet the `...f` spread was the only thing that
+    // put them there. Every sibling identifier already gets `capEntityId`; these now
+    // do too, so the line is bounded field by field rather than only by the aggregate
+    // `MAX_SYSTEM_PROMPT_CHARS` backstop.
+    ...(f?.id !== undefined ? { id: capEntityId(asString(f.id)) } : {}),
+    ...(f?.operator !== undefined
+      ? { operator: capEntityId(asString(f.operator)) as StudioFilterState['operator'] }
+      : {}),
+    // Finding L1 — `scope.widgetId` is interpolated into the same line's
+    // `widget:<id>` label. Capping with `capEntityId` keeps it comparable to the
+    // widget/page ids above, which are capped with the same bound.
+    ...capFilterScope(f?.scope),
     field: capString(asString(f?.field ?? ''), MAX_FILTER_STRING_LENGTH),
     ...(f?.filterSourceId !== undefined
       ? { filterSourceId: capString(asString(f.filterSourceId), MAX_FILTER_STRING_LENGTH) }
@@ -1080,6 +1083,21 @@ export function capIncomingDashboardState(state: StudioState): StudioState {
       widgets: cappedWidgets,
       filters: cappedFilters,
     },
+    // Finding L1 — `session.mode` is interpolated into the prompt's `Mode: …` line but
+    // this cap never rewrote `session` at all, so it was the one prompt-interpolated
+    // state string with no per-field bound of any kind.
+    ...(state.session !== undefined && state.session !== null
+      ? {
+          session: {
+            ...state.session,
+            ...(state.session.mode !== undefined
+              ? {
+                  mode: capEntityId(asString(state.session.mode)) as StudioState['session']['mode'],
+                }
+              : {}),
+          },
+        }
+      : {}),
     runtime: {
       ...state.runtime,
       dataSources: capDataSources(state.runtime.dataSources),

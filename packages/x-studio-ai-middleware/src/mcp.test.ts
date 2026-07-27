@@ -662,6 +662,43 @@ describe('buildStudioMcpServer', () => {
       expect(text).toContain('client-side');
     });
 
+    // Finding H2 — `(chartCfg.ySeries ?? []).some(…)` only defends against nullish. A
+    // committed `ySeries: 'x'` (an allowed chart config key whose non-scalar value no
+    // write gate validates, and which also arrives straight off
+    // `body.dashboardState.doc.widgets`) has no `.some`, and `ySeries: [null]` throws on
+    // `s.sourceId`. Either threw inside the per-widget try, so the widget was SILENTLY
+    // dropped from the summary on every call for that dashboard.
+    it.each([
+      ['a non-array ySeries', 'x'],
+      ['a null ySeries entry', [null]],
+    ])('still summarises a chart widget with %s', async (_label, ySeries) => {
+      const state = makeStableState();
+      const widgetId = 'w-bad-yseries';
+      state.doc.widgets[widgetId] = {
+        id: widgetId,
+        kind: 'chart',
+        title: 'Broken Series Chart',
+        sourceId: 'source-orders',
+        config: { chartType: 'mixed', xField: 'status', ySeries },
+      } as any;
+      state.doc.pages[PAGE_ID] = { ...state.doc.pages[PAGE_ID], widgetRows: [[widgetId]] };
+      const queryDataSource = vi.fn(
+        async (): Promise<StudioDataQueryResult> => ({
+          rows: [{ id: 'o1', total: 100, status: 'pending' }],
+          rowCount: 7,
+        }),
+      );
+      const server = buildStudioMcpServer({ current: state }, { data: { queryDataSource } });
+      const result = (await getHandler(
+        server,
+        CALL_TOOL,
+      )({
+        params: { name: 'summarise_page', arguments: {} },
+        method: CALL_TOOL,
+      })) as any;
+      expect(result.content[0].text as string).toContain('Broken Series Chart');
+    });
+
     it('runs anomaly detection via GROUP BY query for time-series charts', async () => {
       const state = makeStableState();
       state.runtime.dataSources['source-orders'] = makeSource({

@@ -362,7 +362,13 @@ export function compileRectMark(ctx: UnitContext): CompiledUnit {
   // else an aggregate-prefixed field name ("Mean of Horsepower"), else the field.
   // (Carried on the compiled unit; the shell draws it above the legend, since
   // x-charts' zAxis config has no title/label slot.)
-  const explicitTitle = colorDef.title;
+  // `legend: {title: null}` suppresses the title just as a channel-level
+  // `title: null` does, and `legend: null` removes the legend outright —
+  // `rect_heatmap_weather` asks for the former and was captioned
+  // "MAX of temp_max" where the reference shows a bare gradient.
+  const legendDef = colorDef.legend as { title?: unknown } | null | undefined;
+  const explicitTitle =
+    legendDef === null || legendDef?.title === null ? null : (colorDef.title ?? legendDef?.title);
   let legendTitle: string | undefined;
   if (explicitTitle === null) {
     legendTitle = undefined;

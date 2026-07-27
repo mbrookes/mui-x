@@ -289,6 +289,8 @@ function resolveVegaViewSize(
       (unit) => (unit as { encoding?: Record<string, unknown> }).encoding?.[channel] != null,
     );
   };
+  const viewConfigStep = (spec as { config?: { view?: { step?: unknown } } }).config?.view?.step;
+  const viewStep = typeof viewConfigStep === 'number' ? viewConfigStep : undefined;
   const plotSize = (
     size: VegaLiteSpec['width'],
     axis: { config: { scaleType?: string; data?: readonly unknown[] } } | undefined,
@@ -305,10 +307,16 @@ function resolveVegaViewSize(
       channelEncoded(channel);
     const count = axis?.config.data?.length ?? 0;
     if (isDiscrete && count > 0) {
+      // `config.view.step` sets the default band step for every discrete scale
+      // in the view; a channel's own `{step: N}` size still wins over it. Without
+      // it a spec that shrinks its cells globally renders far too wide —
+      // `rect_heatmap_weather` asks for a 13px step and got the 20px default,
+      // making its 31-day heatmap ~620px instead of ~403px and pushing the last
+      // day and the whole color legend outside the visible area.
       const step =
         size && typeof size === 'object' && typeof (size as { step?: unknown }).step === 'number'
           ? (size as { step: number }).step
-          : VEGA_DEFAULT_STEP;
+          : (viewStep ?? VEGA_DEFAULT_STEP);
       return step * count * dodgeFactor(channel);
     }
     return fallback;

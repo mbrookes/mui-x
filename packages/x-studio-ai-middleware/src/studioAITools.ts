@@ -13,6 +13,25 @@ export const WIDGET_CONFIG_DESCRIPTION = buildWidgetConfigDescription();
 /**
  * OpenAI-compatible tool definitions for the x-studio AI assistant.
  * These are passed in the `tools` field of every chat completion request.
+ *
+ * INVARIANT 17, structurally — **no description in this array names another tool.**
+ *
+ * These strings are static: they ship verbatim in `tools` no matter which subset of
+ * `STUDIO_AI_TOOLS` a request actually advertises. `allowedTools`, `privateMode`, the
+ * `data` config and the `pageSnapshot` gate all narrow that subset, so any description
+ * that said "call X first" was wrong for every session that excluded X — the model
+ * spends a turn, a tool-call budget unit, and a full conversation re-send discovering
+ * the dispatcher's `Unknown tool` rejection. Gating the descriptions per session was
+ * the alternative; it was rejected because `agenticLoop.ts` and `mcp.ts` both consume
+ * this array directly, so the gate would have to be re-implemented (and kept correct)
+ * at two call sites — true by vigilance, exactly the property that failed here.
+ *
+ * So each description states the CONSTRAINT a valid call must satisfy, or names a
+ * prompt REGION ("the dashboard state", `## Layout`), which is true in every session.
+ * This is the same rule `resolveSource`'s and `summarise_page`'s error strings already
+ * follow. `studioAITools.test.ts` enforces it over every description string, nested
+ * parameter descriptions included, so a future cross-reference fails the build rather
+ * than shipping.
  */
 export const STUDIO_AI_TOOLS = [
   {
@@ -95,7 +114,8 @@ export const STUDIO_AI_TOOLS = [
           config: {
             type: 'object',
             description:
-              'Partial widget config to merge in (optional). Same keys as add_widget. Pass only the keys you are changing.',
+              'Partial widget config to merge in (optional). Takes the same per-kind config ' +
+              'keys as a widget creation. Pass only the keys you are changing.',
           },
           unsetFields: {
             type: 'array',
@@ -145,7 +165,9 @@ export const STUDIO_AI_TOOLS = [
       description:
         'Rearranges widgets on the active page by specifying which widgets share a row. ' +
         'Each entry in `rows` is an array of widget IDs that will appear side-by-side on the same row. ' +
-        'Every widget currently on the page must appear in the new layout — use remove_widget first if you want to drop one. ' +
+        'Every widget currently on the page must appear in the new layout: an omitted widget ' +
+        'is dropped from the layout, so removing a widget from the page is a separate action, ' +
+        'never an omission here. ' +
         'The current layout is shown in the system prompt under "## Layout".',
       parameters: {
         type: 'object',
@@ -172,8 +194,9 @@ export const STUDIO_AI_TOOLS = [
         'Sets the column-span (width) of a specific widget on the active page. ' +
         'The canvas uses a 24-column grid; valid values are 6–24. ' +
         'Set `columns` to null to reset the widget to auto-fill (equal share of row width). ' +
-        'Has no effect on a widget that is the only widget in its row (it always fills 100%). ' +
-        'Use set_widget_layout first to put multiple widgets on the same row if needed.',
+        'Has no effect on a widget that is the only widget in its row (it always fills 100%) — ' +
+        'a width only becomes visible once its row holds more than one widget, which is a ' +
+        'layout change, not a width change.',
       parameters: {
         type: 'object',
         properties: {
@@ -231,21 +254,28 @@ export const STUDIO_AI_TOOLS = [
     function: {
       name: 'set_active_page',
       // Every page-scoped tool resolves its target from `dashboard.activePageId`
-      // server-side and REJECTS a widget/filter that lives elsewhere, telling the
-      // model to "call set_active_page first" (see `executeToolOnState.ts`). Naming
-      // that prerequisite here saves the model a wasted error round-trip per
-      // cross-page edit; the `add_page` note prevents the opposite waste — a
-      // redundant activation of a page that is already active.
+      // server-side and REJECTS a widget/filter that lives elsewhere (see
+      // `executeToolOnState.ts`). Stating that RULE — rather than enumerating the tools
+      // it applies to — still saves the model a wasted error round-trip per cross-page
+      // edit, and stays true in a session that advertises only some of them (invariant
+      // 17). The page-creation note prevents the opposite waste: a redundant activation
+      // of a page that is already active.
       description:
         'Switches the visible (active) page of the dashboard. ' +
-        'add_widget, set_widget_layout, set_widget_width, add_page_filter and apply_bulk_update ' +
-        'only ever act on the active page and reject targets that live on another page, ' +
-        'so call this first when the page you want to change is not the active one. ' +
-        'add_page already activates the page it creates. Use list_pages to find page IDs.',
+        'Every page-scoped operation — adding a widget, changing the layout or a widget ' +
+        'width, adding a page filter, applying a bulk update — acts on the ACTIVE page only ' +
+        'and rejects a target that lives on another page, so switch first when the page you ' +
+        'want to change is not the active one. ' +
+        'Creating a page already activates it, so no switch is needed after that.',
       parameters: {
         type: 'object',
         properties: {
-          pageId: { type: 'string', description: 'ID of the page to make active.' },
+          pageId: {
+            type: 'string',
+            description:
+              'ID of the page to make active. Must be the id of a page that already exists — ' +
+              'the pages and their ids are described in the dashboard state; never invent one.',
+          },
         },
         required: ['pageId'],
       },
@@ -363,7 +393,7 @@ export const STUDIO_AI_TOOLS = [
       description:
         'Returns all dashboard pages with their id, title, widget count, and widget titles. ' +
         'Use this to discover what pages and widgets exist before navigating, querying, or answering questions about what the dashboard contains. ' +
-        'Prefer this over get_dashboard_state when you only need to know what pages and widgets are present.',
+        'Prefer this over a full dashboard-document read when you only need to know what pages and widgets are present.',
       parameters: { type: 'object', properties: {}, required: [] },
     },
   },
@@ -371,13 +401,25 @@ export const STUDIO_AI_TOOLS = [
     type: 'function',
     function: {
       name: 'summarise_page',
+      // Finding H6 — this description used to advise "otherwise call set_active_page
+      // first", and that advice steered the model straight into the one sequence that
+      // silently returns the WRONG page: `set_active_page(pageB)` then `summarise_page()`
+      // with `pageId` omitted. On the chat transport the row data is a `pageSnapshot`
+      // captured ONCE at request time, so activating another page mid-turn cannot make
+      // that page's rows available — the snapshot still covers page A. The
+      // implementation's own error text says so ("Omit `pageId` … ask the user to open
+      // page X", deliberately not reading as "retry"), so the advertised schema
+      // contradicted both the code and ARCHITECTURE.md. It now states the same contract
+      // they do, and — per invariant 17 — names no tool.
       description:
         'Returns a data snapshot of every widget on a dashboard page — ' +
         'a sampled CSV excerpt and numeric stats (min/max/avg) per widget. ' +
         'Call this when the user asks you to summarise, analyse, or describe a page. ' +
-        'Defaults to the active page. A pageId for a non-active page is honored only ' +
-        'where live data is available server-side; otherwise call set_active_page first ' +
-        '(the tool error will tell you when this is required). ' +
+        'Omitting pageId summarises the page this request captured data for (the active ' +
+        'page) and is always accepted. A pageId naming a different page is honored only ' +
+        'where live data for that page is available server-side; where it is not, the ' +
+        'call is rejected and nothing you can do within this turn will load the rows for ' +
+        'that page — ask the user to open that page and request the summary again. ' +
         'After receiving the result, write an executive summary of the key insights. ' +
         'IMPORTANT FORMATTING RULES: ' +
         '(1) Begin immediately with the content — no preamble like "Here is a summary", "I will now...", "Based on the data...", etc. ' +
@@ -391,10 +433,12 @@ export const STUDIO_AI_TOOLS = [
           pageId: {
             type: 'string',
             description:
-              'ID of the page to summarise. Defaults to the active page when omitted. ' +
-              'A non-active pageId is only honored where live data is available server-side; ' +
-              'otherwise summarise the active page or call set_active_page first. ' +
-              'Use list_pages to find page IDs.',
+              'ID of the page to summarise. OMIT IT to summarise the page this request ' +
+              'captured data for (the active page) — omitting is always accepted and is the ' +
+              'right choice unless the user explicitly asked about a different page. ' +
+              'A pageId naming a different page is honored only where live data for that ' +
+              'page is available server-side; otherwise the call is rejected and the rows for ' +
+              'that page cannot be loaded in this turn by any means.',
           },
         },
         required: [],
@@ -429,7 +473,7 @@ export const STUDIO_AI_TOOLS = [
                 config: {
                   type: 'object',
                   description:
-                    'Partial widget config to merge in (optional). Same keys as add_widget.',
+                    'Partial widget config to merge in (optional). Same per-kind config keys as a widget creation.',
                 },
               },
               required: ['widgetId'],
@@ -446,12 +490,16 @@ export const STUDIO_AI_TOOLS = [
             items: {
               type: 'object',
               properties: {
-                kind: { type: 'string', description: 'Widget kind (same values as add_widget).' },
+                kind: {
+                  type: 'string',
+                  description: 'Widget kind (same values a widget creation accepts).',
+                },
                 title: { type: 'string', description: 'Widget title.' },
                 sourceId: { type: 'string', description: 'Data source ID (optional).' },
                 config: {
                   type: 'object',
-                  description: 'Initial widget config (same keys as add_widget).',
+                  description:
+                    'Initial widget config (same per-kind config keys as a widget creation).',
                 },
               },
               required: ['kind', 'title'],
@@ -517,7 +565,7 @@ export const STUDIO_AI_TOOLS = [
         'Results are read-only — this tool never modifies data. ' +
         'Only use this tool when data access has been configured on the server; if unavailable it ' +
         'will return an error. ' +
-        'Tip: use the dashboard state (from get_dashboard_state) to discover available sourceIds and field names.',
+        'Tip: the valid sourceIds and field IDs are exactly the ones described in the dashboard state.',
       parameters: {
         type: 'object',
         properties: {
@@ -525,7 +573,7 @@ export const STUDIO_AI_TOOLS = [
             type: 'string',
             description:
               'The data source ID from the dashboard state (e.g. "source-orders", "source-crm-deals"). ' +
-              'Call get_dashboard_state to discover available sources and their field IDs.',
+              'Must be one of the sources described there; do not guess an id.',
           },
           columns: {
             type: 'array',

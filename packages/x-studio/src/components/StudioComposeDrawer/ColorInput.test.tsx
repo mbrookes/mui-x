@@ -83,7 +83,22 @@ describe('ColorInput (finding 2.9)', () => {
     expect(onChange).toHaveBeenCalledWith('');
   });
 
-  it('resyncs the buffered text when the external value prop changes (undo/redo)', () => {
+  it('resyncs the buffered text when the external value prop changes and nothing is being typed', () => {
+    const onChange = vi.fn();
+    const { setProps } = render(<ColorInput label="Color" value="#ff8800" onChange={onChange} />);
+
+    setProps({ value: '#abcdef' });
+
+    expect((screen.getByLabelText('Color') as HTMLInputElement).value).toBe('#abcdef');
+  });
+
+  // M15: the resync is DIRTY-AWARE. This case used to assert the opposite — that an external
+  // write overwrote a half-typed value — which is precisely the bug: the compose drawer and
+  // the AI chat panel are usable at the same time and the AI tool surface includes
+  // `update_widget`, so a concurrent write (or an undo from a keyboard shortcut) landed
+  // mid-keystroke and silently threw the user's edit away. In-flight typing now wins; only an
+  // `identity` change discards it (covered below).
+  it('keeps in-flight typing when the external value changes mid-edit', () => {
     const onChange = vi.fn();
     const { setProps } = render(<ColorInput label="Color" value="#ff8800" onChange={onChange} />);
     const input = screen.getByLabelText('Color') as HTMLInputElement;
@@ -91,7 +106,10 @@ describe('ColorInput (finding 2.9)', () => {
     fireEvent.change(input, { target: { value: '#000000' } });
     setProps({ value: '#abcdef' });
 
-    expect((screen.getByLabelText('Color') as HTMLInputElement).value).toBe('#abcdef');
+    expect((screen.getByLabelText('Color') as HTMLInputElement).value).toBe('#000000');
+    // …and the blur still commits what the user actually typed, not the concurrent write.
+    fireEvent.blur(screen.getByLabelText('Color'));
+    expect(onChange).toHaveBeenCalledWith('#000000');
   });
 });
 

@@ -29,6 +29,7 @@ import { buildFieldCatalog } from '../../internals/fieldCatalog';
 import { fieldHasCapability } from '../../utils/fieldCapabilities';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
 import { collectStaleWidgetFilterIds } from './collectStaleWidgetFilterIds';
+import { useBufferedInput } from './useBufferedInput';
 
 /**
  * Slider min/max/step numeric input (architecture review finding 2.3): parsing and
@@ -54,14 +55,14 @@ function SliderBoundInput(props: {
 }) {
   const { widgetId, value, label, error, onCommit } = props;
   const initialText = value !== undefined ? String(value) : '';
-  const [text, setText] = React.useState(initialText);
-  const [dirty, setDirty] = React.useState(false);
-
-  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed bound; resync on external change (field swap, widget switch, undo/redo). `widgetId` must be in the deps (not just `initialText`) — a widget switch that lands on the SAME bound value would otherwise leave a still-dirty buffer from the previous widget uncommitted into the new one.
-  React.useEffect(() => {
-    setText(initialText);
-    setDirty(false);
-  }, [initialText, widgetId]);
+  // Shared dirty-aware buffer (M15), keyed per widget AND per bound so re-pointing at a
+  // different widget/bound holding the same number still discards an uncommitted edit.
+  const {
+    value: text,
+    dirty,
+    setValue,
+    settle,
+  } = useBufferedInput(initialText, `${widgetId}:sliderBound:${label}`);
 
   const commit = () => {
     if (!dirty) {
@@ -73,8 +74,7 @@ function SliderBoundInput(props: {
     if (resolved !== value) {
       onCommit(resolved);
     }
-    setText(resolved !== undefined ? String(resolved) : '');
-    setDirty(false);
+    settle(resolved !== undefined ? String(resolved) : '');
   };
 
   return (
@@ -87,8 +87,7 @@ function SliderBoundInput(props: {
       error={error !== undefined}
       helperText={error}
       onChange={(evt) => {
-        setText(evt.target.value);
-        setDirty(true);
+        setValue(evt.target.value);
       }}
       onBlur={commit}
       onKeyDown={(evt) => {

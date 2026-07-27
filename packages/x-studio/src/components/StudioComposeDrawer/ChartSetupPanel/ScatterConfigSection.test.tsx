@@ -15,6 +15,15 @@ const controller = {
 
 const mockState = { doc: { widgets: {} }, runtime: { dataSources: {} } };
 
+// H3: the section no longer reaches for the controller to write a FIELD — `ChartSetupPanel`
+// hands it the one source-aware commit path (`commitChartConfigWithSource`), so a pick on a
+// source-less chart adopts the picked field's source. The stand-in forwards to
+// `controller.updateWidgetConfig` so the patch-shape assertions below still read naturally,
+// while the source argument is asserted directly on the spy where it matters.
+const commitFieldConfig = vi.fn((patch: unknown) => {
+  controller.updateWidgetConfig('widget-1', patch);
+});
+
 vi.mock('../../../context', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../context')>()),
   useStudioSelector: mockUseStudioSelector,
@@ -38,6 +47,7 @@ function renderScatter(config: Partial<StudioChartConfigOfType<'scatter'>>) {
       config={{ chartType: 'scatter', scatterSizeField: 'y', ...config } as never}
       numericFields={numericFields}
       categoryFields={categoryFields}
+      commitFieldConfig={commitFieldConfig}
     />,
   );
 }
@@ -50,6 +60,7 @@ describe('ScatterConfigSection radii inputs (finding 2.3)', () => {
   beforeEach(() => {
     configureStudioContextMock({ getState: () => mockState, controller });
     controller.updateWidgetConfig.mockClear();
+    commitFieldConfig.mockClear();
   });
 
   it('does not commit the min radius while typing', () => {
@@ -121,6 +132,7 @@ describe('ScatterConfigSection radii inputs reject out-of-range/cross-invalid va
   beforeEach(() => {
     configureStudioContextMock({ getState: () => mockState, controller });
     controller.updateWidgetConfig.mockClear();
+    commitFieldConfig.mockClear();
   });
 
   it('rejects a min radius below the advertised range and reverts on blur', () => {
@@ -222,6 +234,7 @@ describe('ScatterConfigSection Y field over a multi-series config', () => {
   beforeEach(() => {
     configureStudioContextMock({ getState: () => mockState, controller });
     controller.updateWidgetConfig.mockClear();
+    commitFieldConfig.mockClear();
   });
 
   it('preserves the remaining series when a new Y field is picked', async () => {
@@ -237,6 +250,7 @@ describe('ScatterConfigSection Y field over a multi-series config', () => {
         }
         numericFields={numericFields}
         categoryFields={categoryFields}
+        commitFieldConfig={commitFieldConfig}
       />,
     );
 
@@ -258,6 +272,7 @@ describe('ScatterConfigSection Y field over a multi-series config', () => {
         config={{ chartType: 'scatter', yField: 'x', ySeries: [{ fieldId: 'x' }] } as never}
         numericFields={numericFields}
         categoryFields={categoryFields}
+        commitFieldConfig={commitFieldConfig}
       />,
     );
 
@@ -279,6 +294,7 @@ describe('ScatterConfigSection radii inputs resync on widget switch', () => {
   beforeEach(() => {
     configureStudioContextMock({ getState: () => mockState, controller });
     controller.updateWidgetConfig.mockClear();
+    commitFieldConfig.mockClear();
   });
 
   it('resyncs (clears dirty) instead of committing stale text when switching to a different widget with the same min radius value', () => {
@@ -288,6 +304,7 @@ describe('ScatterConfigSection radii inputs resync on widget switch', () => {
         config={{ chartType: 'scatter', scatterSizeField: 'y', scatterMinRadius: 4 } as never}
         numericFields={numericFields}
         categoryFields={categoryFields}
+        commitFieldConfig={commitFieldConfig}
       />,
     );
     const input = screen.getByLabelText('Min radius') as HTMLInputElement;

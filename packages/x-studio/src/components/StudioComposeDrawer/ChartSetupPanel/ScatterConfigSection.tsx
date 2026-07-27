@@ -2,8 +2,9 @@
 import * as React from 'react';
 import { Stack, TextField } from '@mui/material';
 import { useStudioController, useStudioLocaleText } from '../../../context';
-import type { StudioChartConfigOfType } from '../../../models';
+import type { StudioChartConfig, StudioChartConfigOfType } from '../../../models';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from '../DataSourceFieldSelect';
+import { useBufferedInput } from '../useBufferedInput';
 import { buildSingleMeasurePatch } from './commitMeasureSeries';
 
 /**
@@ -41,20 +42,18 @@ function RadiusInput(props: {
 }) {
   const { widgetId, value, label, min, max, otherBound, kind, revertedHelperText, onCommit } =
     props;
-  const [text, setText] = React.useState(String(value));
-  const [dirty, setDirty] = React.useState(false);
-  // Set when a commit REJECTED the typed value and snapped the field back. The revert is
-  // otherwise indistinguishable from "nothing happened", so the user retypes the same
-  // out-of-range value and watches it vanish again. Advisory only — it explains the
-  // already-applied revert, mirroring `FilterSetupPanel`'s cross-bound messages.
-  const [notice, setNotice] = React.useState<string | undefined>(undefined);
-
-  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed radius; resync on external change (widget switch, undo/redo). `widgetId` must be in the deps (not just `value`) — a widget switch that lands on the SAME radius value would otherwise leave a still-dirty buffer from the previous widget uncommitted into the new one.
-  React.useEffect(() => {
-    setText(String(value));
-    setDirty(false);
-    setNotice(undefined);
-  }, [value, widgetId]);
+  // Shared dirty-aware buffer (M15): in-flight typing survives an external write to the same
+  // widget, and re-pointing at a different widget/bound discards it. `notice` is set when a
+  // commit REJECTED the typed value and snapped the field back — the revert is otherwise
+  // indistinguishable from "nothing happened", so the user retypes the same out-of-range
+  // value and watches it vanish again.
+  const {
+    value: text,
+    dirty,
+    notice,
+    setValue,
+    settle,
+  } = useBufferedInput(String(value), `${widgetId}:scatterRadius:${kind}`);
 
   const commit = () => {
     if (!dirty) {
@@ -70,9 +69,7 @@ function RadiusInput(props: {
     }
     // An unparseable/emptied/out-of-range/cross-invalid entry reverts to the last
     // committed value rather than silently clamping to a boundary or the fallback default.
-    setText(String(valid ? parsed : value));
-    setNotice(valid ? undefined : revertedHelperText(min, max));
-    setDirty(false);
+    settle(String(valid ? parsed : value), valid ? undefined : revertedHelperText(min, max));
   };
 
   return (
@@ -84,9 +81,7 @@ function RadiusInput(props: {
       error={notice !== undefined}
       helperText={notice}
       onChange={(evt) => {
-        setText(evt.target.value);
-        setDirty(true);
-        setNotice(undefined);
+        setValue(evt.target.value);
       }}
       onBlur={commit}
       onKeyDown={(evt) => {
@@ -107,6 +102,19 @@ export interface ScatterConfigSectionProps {
   categoryFields: DataSourceFieldEntry[];
   /** First configured Y-series field id, used as the fallback for the single Y-field picker. */
   firstYSeriesFieldId?: string;
+  /** The widget's current source id — the `yField` mirror's own-source test. */
+  widgetSourceId?: string;
+  /**
+   * H3: the ONE write path for this section's field pickers, supplied by `ChartSetupPanel`.
+   * It routes through `commitChartConfigWithSource`, so a pick on a source-less chart adopts
+   * the picked field's source instead of leaving the widget permanently blank. Required —
+   * a field picker added here cannot reach for `controller.updateWidgetConfig` by accident.
+   */
+  commitFieldConfig: (
+    configPatch: Partial<StudioChartConfig>,
+    /** The picked field's source, or `undefined` when the gesture clears the field. */
+    sourceId: string | undefined,
+  ) => void;
 }
 
 /** Scatter chart setup: single Y field plus optional colour-by and size-by fields. */
@@ -116,6 +124,8 @@ export function ScatterConfigSection({
   numericFields,
   categoryFields,
   firstYSeriesFieldId,
+  widgetSourceId,
+  commitFieldConfig,
 }: ScatterConfigSectionProps) {
   const controller = useStudioController();
   const localeText = useStudioLocaleText();
@@ -124,13 +134,13 @@ export function ScatterConfigSection({
     <React.Fragment>
       <DataSourceFieldSelect
         value={config.yField ?? firstYSeriesFieldId ?? ''}
-        onChange={(fieldId) => {
+        onChange={(fieldId, sourceId) => {
           // Single-measure picker over a multi-series config — see `buildSingleMeasurePatch`
           // for why the remaining series are preserved and why clearing writes `ySeries: []`
           // rather than a placeholder entry.
-          controller.updateWidgetConfig(
-            widgetId,
-            buildSingleMeasurePatch('scatter', config, fieldId),
+          commitFieldConfig(
+            buildSingleMeasurePatch('scatter', config, fieldId, widgetSourceId),
+            fieldId ? sourceId : undefined,
           );
         }}
         fields={numericFields}
@@ -140,10 +150,11 @@ export function ScatterConfigSection({
       />
       <DataSourceFieldSelect
         value={config.scatterColorField ?? ''}
-        onChange={(fieldId) =>
-          controller.updateWidgetConfig(widgetId, {
-            scatterColorField: fieldId || undefined,
-          })
+        onChange={(fieldId, sourceId) =>
+          commitFieldConfig(
+            { scatterColorField: fieldId || undefined },
+            fieldId ? sourceId : undefined,
+          )
         }
         fields={categoryFields}
         label={localeText.chartSetupColorByLabel}
@@ -151,10 +162,11 @@ export function ScatterConfigSection({
       />
       <DataSourceFieldSelect
         value={config.scatterSizeField ?? ''}
-        onChange={(fieldId) =>
-          controller.updateWidgetConfig(widgetId, {
-            scatterSizeField: fieldId || undefined,
-          })
+        onChange={(fieldId, sourceId) =>
+          commitFieldConfig(
+            { scatterSizeField: fieldId || undefined },
+            fieldId ? sourceId : undefined,
+          )
         }
         fields={numericFields}
         label={localeText.chartSetupSizeByLabel}

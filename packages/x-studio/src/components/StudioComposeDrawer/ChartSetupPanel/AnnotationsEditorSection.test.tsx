@@ -182,3 +182,48 @@ describe('AnnotationsEditorSection identity resync (M2)', () => {
     expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
   });
 });
+// M15: `AnnotationLabelInput` was the ONE buffered input in the drawer with no change-check
+// on commit. `dirty` means "was typed in", not "differs from the stored value", so typing a
+// character into a reference-line label and deleting it again pushed an undoable commit whose
+// content matched its predecessor — and, because every commit clears the redo stack, it also
+// silently discarded any redo the user still had. A later Ctrl+Z then appeared to do nothing.
+describe('AnnotationsEditorSection label input no-op guard (M15)', () => {
+  beforeEach(() => {
+    controller.updateWidgetConfig.mockClear();
+    configureStudioContextMock({ getState: () => mockState, controller });
+  });
+
+  it('commits nothing when the label is typed and restored before blur', () => {
+    renderAnnotations([{ id: 'ann-1', axis: 'y', value: 10, label: 'Goal' }]);
+    const input = screen.getByLabelText('Label') as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: 'Goals' } });
+    fireEvent.change(input, { target: { value: 'Goal' } });
+    fireEvent.blur(input);
+
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+  });
+
+  it('commits nothing when a character is typed into an empty label and deleted again', () => {
+    renderAnnotations([{ id: 'ann-1', axis: 'y', value: 10, label: '' }]);
+    const input = screen.getByLabelText('Label') as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: 'a' } });
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.blur(input);
+
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+  });
+
+  it('still commits a genuine label change', () => {
+    renderAnnotations([{ id: 'ann-1', axis: 'y', value: 10, label: '' }]);
+    const input = screen.getByLabelText('Label') as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: 'Target' } });
+    fireEvent.blur(input);
+
+    expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+      annotations: [expect.objectContaining({ id: 'ann-1', label: 'Target' })],
+    });
+  });
+});

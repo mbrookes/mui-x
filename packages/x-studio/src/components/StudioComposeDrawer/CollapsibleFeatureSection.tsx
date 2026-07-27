@@ -23,7 +23,12 @@ export function CollapsibleFeatureSection({
   onToggle,
   children,
 }: CollapsibleFeatureSectionProps) {
-  const [expanded, setExpanded] = React.useState(false);
+  // Seeded from `enabled` rather than hardcoded `false`: the switch turning ON expands the
+  // panel, so a section that is ALREADY on when the drawer opens (re-editing a widget whose
+  // trend/sparkline feature was configured earlier) must open expanded too. Starting collapsed
+  // hid the live settings of a visibly-enabled feature behind an extra click, and made the
+  // chevron the only way to discover them.
+  const [expanded, setExpanded] = React.useState(enabled);
   const regionId = React.useId();
 
   const handleSwitch = (next: boolean) => {

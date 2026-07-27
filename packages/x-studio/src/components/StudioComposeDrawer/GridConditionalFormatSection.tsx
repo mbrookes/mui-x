@@ -13,6 +13,7 @@ import {
 } from '../../context';
 import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
 import { SetupSection } from './SetupSection';
+import { useBufferedInput } from './useBufferedInput';
 
 /**
  * Numeric conditional-format value input (architecture review finding 1.14):
@@ -34,14 +35,15 @@ function ConditionalFormatValueInput(props: {
 }) {
   const { widgetId, ruleIndex, value, ariaLabel, onCommit } = props;
   const initialText = value !== undefined && value !== null ? String(value) : '';
-  const [text, setText] = React.useState(initialText);
-  const [dirty, setDirty] = React.useState(false);
-
-  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed rule value; resync on external change (field/operator swap, widget switch, undo/redo). `widgetId`/`ruleIndex` must be in the deps (not just `initialText`) — switching to a different widget or a different rule on the SAME widget that happens to carry the same value would otherwise leave a still-dirty buffer uncommitted into the wrong rule.
-  React.useEffect(() => {
-    setText(initialText);
-    setDirty(false);
-  }, [initialText, widgetId, ruleIndex]);
+  // Shared dirty-aware buffer (M15), keyed on widget AND rule index so switching to a
+  // different widget or a different rule carrying the same value still discards an
+  // uncommitted edit.
+  const {
+    value: text,
+    dirty,
+    setValue,
+    settle,
+  } = useBufferedInput(initialText, `${widgetId}:cfValue:${ruleIndex}`);
 
   const commit = () => {
     if (!dirty) {
@@ -59,8 +61,7 @@ function ConditionalFormatValueInput(props: {
     if (next !== value) {
       onCommit(next);
     }
-    setText(next !== undefined ? String(next) : '');
-    setDirty(false);
+    settle(next !== undefined ? String(next) : '');
   };
 
   return (
@@ -70,8 +71,7 @@ function ConditionalFormatValueInput(props: {
       placeholder="0"
       slotProps={{ htmlInput: { 'aria-label': ariaLabel } }}
       onChange={(event) => {
-        setText(event.target.value);
-        setDirty(true);
+        setValue(event.target.value);
       }}
       onBlur={commit}
       onKeyDown={(event) => {
@@ -107,14 +107,13 @@ function ConditionalFormatStringValueInput(props: {
   const { widgetId, ruleIndex, value, ariaLabel, onCommit } = props;
   const localeText = useStudioLocaleText();
   const initialText = value !== undefined && value !== null ? String(value) : '';
-  const [text, setText] = React.useState(initialText);
-  const [dirty, setDirty] = React.useState(false);
-
-  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed rule value; resync on external change (field/operator swap, widget switch, undo/redo). `widgetId`/`ruleIndex` must be in the deps (not just `initialText`) — switching to a different widget or a different rule on the SAME widget that happens to carry the same value would otherwise leave a still-dirty buffer uncommitted into the wrong rule.
-  React.useEffect(() => {
-    setText(initialText);
-    setDirty(false);
-  }, [initialText, widgetId, ruleIndex]);
+  // Shared dirty-aware buffer (M15) — see `ConditionalFormatValueInput` above.
+  const {
+    value: text,
+    dirty,
+    setValue,
+    settle,
+  } = useBufferedInput(initialText, `${widgetId}:cfStringValue:${ruleIndex}`);
 
   const commit = () => {
     if (!dirty) {
@@ -128,7 +127,7 @@ function ConditionalFormatStringValueInput(props: {
     if (text !== initialText) {
       onCommit(text);
     }
-    setDirty(false);
+    settle(text);
   };
 
   return (
@@ -138,8 +137,7 @@ function ConditionalFormatStringValueInput(props: {
       placeholder={localeText.gridSetupCFValuePlaceholder}
       slotProps={{ htmlInput: { 'aria-label': ariaLabel } }}
       onChange={(event) => {
-        setText(event.target.value);
-        setDirty(true);
+        setValue(event.target.value);
       }}
       onBlur={commit}
       onKeyDown={(event) => {
@@ -229,7 +227,12 @@ export function GridConditionalFormatSection(props: { widgetId: string }) {
               <Select
                 size="small"
                 value={rule.fieldId}
-                aria-label={localeText.gridConditionFieldAriaLabel}
+                // MUI's `Select` does NOT forward a bare `aria-label` to the element that
+                // carries `role="combobox"` — `SelectInput` reads it off `inputProps`, which
+                // is what `Select`'s own `inputProps` prop feeds. Passed as a plain prop it
+                // landed on the hidden native input instead, leaving all three comboboxes in
+                // this row with no accessible name. Same pattern as `FilterRow.tsx`.
+                inputProps={{ 'aria-label': localeText.gridConditionFieldAriaLabel }}
                 onChange={(event) => {
                   const next = [...conditionalFormats];
                   next[i] = { ...rule, fieldId: event.target.value };
@@ -257,7 +260,7 @@ export function GridConditionalFormatSection(props: { widgetId: string }) {
               <Select
                 size="small"
                 value={rule.operator}
-                aria-label={localeText.gridConditionOperatorAriaLabel}
+                inputProps={{ 'aria-label': localeText.gridConditionOperatorAriaLabel }}
                 onChange={(event) => {
                   const next = [...conditionalFormats];
                   next[i] = {
@@ -303,7 +306,7 @@ export function GridConditionalFormatSection(props: { widgetId: string }) {
               <Select
                 size="small"
                 value={preset?.label ?? '__custom__'}
-                aria-label={localeText.gridConditionStyleAriaLabel}
+                inputProps={{ 'aria-label': localeText.gridConditionStyleAriaLabel }}
                 onChange={(event) => {
                   const selected = cfStylePresets.find((p) => p.label === event.target.value);
                   if (selected) {

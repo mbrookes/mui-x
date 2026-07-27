@@ -166,9 +166,16 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   );
 
   // Heatmap Y axis: any field type, but restricted to the primary source so that
-  // aggregateHeatmap() can resolve values directly from the row objects.
+  // aggregateHeatmap() can resolve values directly from the row objects. With no primary
+  // source yet the restriction would match NOTHING (`f.sourceId === undefined` is never
+  // true), leaving this required picker empty on a brand-new heatmap — offer the whole
+  // catalog instead, exactly as the X-field picker does, since the pick establishes the
+  // source it is then restricted to (H3).
   const heatYFields = React.useMemo(
-    () => allFields.filter((f) => f.sourceId === widgetSourceId).sort(sortBySourceLabel),
+    () =>
+      widgetSourceId
+        ? allFields.filter((f) => f.sourceId === widgetSourceId).sort(sortBySourceLabel)
+        : [...allFields].sort(sortBySourceLabel),
     [allFields, widgetSourceId],
   );
 
@@ -387,6 +394,40 @@ export function ChartSetupPanel(props: { widgetId: string }) {
     controller.updateWidgetConfig(widgetId, { ySeries: [...ySeries, { fieldId: '' }] });
   };
 
+  // Widget-scoped filters that stop resolving once the widget adopts `sourceId`. Left in
+  // place, a stale filter's field is absent from the new source's rows and the `between`/`gte`
+  // date branches in `filterUtils.ts` then exclude EVERY row, silently blanking the chart
+  // (finding 1.5). Folded into the same undoable commit as the adoption.
+  const staleFilterIdsFor = (sourceId: string) =>
+    collectStaleWidgetFilterIds(allFilters, widgetId, sourceId, allFields, relationships);
+
+  // H3: the single commit path for every NON-anchor field pick in this panel and its
+  // per-type sections (Y measure, split-by, and the scatter / funnel / heatmap / sankey
+  // sections' own pickers, which receive it as a required prop).
+  //
+  // `createDefaultWidget` never sets `sourceId`, so a chart starts source-less and renders
+  // permanently blank until something adopts one — and the X-field picker is not always the
+  // control the user reaches for first. A "measure-first" gesture (add a chart → pick a Y
+  // measure) used to write the field and nothing else: no source, no rows, no warning, every
+  // option still enabled. These pickers therefore adopt too — but only `'if-unset'`, never
+  // re-anchoring a chart that already has a source, because a reachable cross-source measure
+  // is resolved by the anchor-grain mechanism and re-anchoring would orphan the X field.
+  const commitFieldConfig = (
+    configPatch: Partial<StudioChartConfig>,
+    /** The picked field's source, or `undefined` when the gesture clears the field. */
+    sourceId: string | undefined,
+  ) => {
+    commitChartConfigWithSource({
+      controller,
+      widgetId,
+      configPatch,
+      sourceId,
+      widgetSourceId,
+      adopt: 'if-unset',
+      removeFilterIds: !widgetSourceId && sourceId ? staleFilterIdsFor(sourceId) : undefined,
+    });
+  };
+
   // Shared "commit ySeries + derive yField/yAggregation" transition used by both handlers
   // below, so neither can miss the BL-186 fieldless-count re-lock or the own-source `yField`
   // mirror (finding 2.4 / 2.5). The patch shape itself lives in `buildMeasureSeriesPatch`,
@@ -422,10 +463,24 @@ export function ChartSetupPanel(props: { widgetId: string }) {
     // panel's OWN `nativeYFieldIds` then permanently excluded the series from its future support
     // checks. Restrict the stamp to `mixed` so a non-mixed pick commits the same sourceId-less
     // shape the empty-list Y picker below already uses for the identical gesture.
+    //
+    // H3: `widgetSourceId &&` is load-bearing on a source-LESS widget. There the pick adopts
+    // the field's source (see `commitFieldConfig`), so the series becomes native and stamping
+    // it would immediately make it foreign to the source it just established — excluding it
+    // from `nativeYFieldIds` and writing `yField: ''`.
     const nextSourceId =
-      chartType === 'mixed' && sourceId && sourceId !== widgetSourceId ? sourceId : undefined;
-    commitYSeries(
-      ySeries.map((s, i) => (i === index ? { ...s, fieldId, sourceId: nextSourceId } : s)),
+      chartType === 'mixed' && sourceId && widgetSourceId && sourceId !== widgetSourceId
+        ? sourceId
+        : undefined;
+    const next = ySeries.map((s, i) =>
+      i === index ? { ...s, fieldId, sourceId: nextSourceId } : s,
+    );
+    // The measure patch is derived against the source the widget will HAVE after this
+    // gesture, so a field picked onto a source-less chart counts as own-source for the
+    // `yField` mirror rather than being dropped as foreign.
+    commitFieldConfig(
+      buildMeasureSeriesPatch(chartType, next, widgetSourceId ?? sourceId),
+      fieldId ? sourceId : undefined,
     );
   };
 
@@ -632,18 +687,14 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                 controller,
                 widgetId,
                 configPatch: configUpdate,
-                sourceId,
-                widgetSourceId: widget?.sourceId,
+                sourceId: fieldId ? sourceId : undefined,
+                widgetSourceId,
+                // The X field IS the chart's source anchor, so ANY cross-source pick
+                // re-anchors the widget — unlike the measure/split-by pickers, which adopt
+                // only when there is no anchor yet.
+                adopt: 'anchor',
                 removeFilterIds:
-                  sourceId && sourceId !== widget?.sourceId
-                    ? collectStaleWidgetFilterIds(
-                        allFilters,
-                        widgetId,
-                        sourceId,
-                        allFields,
-                        relationships,
-                      )
-                    : undefined,
+                  sourceId && sourceId !== widgetSourceId ? staleFilterIdsFor(sourceId) : undefined,
               });
             }}
             fields={isScatter ? fieldsForCapability(allFields, 'numeric') : allFields}
@@ -780,6 +831,8 @@ export function ChartSetupPanel(props: { widgetId: string }) {
               numericFields={numericFields}
               categoryFields={categoryFields}
               firstYSeriesFieldId={firstYSeriesFieldId}
+              widgetSourceId={widgetSourceId}
+              commitFieldConfig={commitFieldConfig}
             />
           )}
 
@@ -790,6 +843,8 @@ export function ChartSetupPanel(props: { widgetId: string }) {
               config={chartConfig}
               numericFields={numericFields}
               firstYSeriesFieldId={firstYSeriesFieldId}
+              widgetSourceId={widgetSourceId}
+              commitFieldConfig={commitFieldConfig}
             />
           )}
 
@@ -802,6 +857,8 @@ export function ChartSetupPanel(props: { widgetId: string }) {
               numericFields={numericFields}
               allFields={allFields}
               firstYSeriesFieldId={firstYSeriesFieldId}
+              widgetSourceId={widgetSourceId}
+              commitFieldConfig={commitFieldConfig}
             />
           )}
 
@@ -813,6 +870,8 @@ export function ChartSetupPanel(props: { widgetId: string }) {
               categoryFields={categoryFields}
               numericFields={numericFields}
               firstYSeriesFieldId={firstYSeriesFieldId}
+              widgetSourceId={widgetSourceId}
+              commitFieldConfig={commitFieldConfig}
             />
           )}
 
@@ -931,15 +990,23 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                 {ySeries.length === 0 && (
                   <DataSourceFieldSelect
                     value=""
-                    onChange={(fieldId) => {
+                    onChange={(fieldId, sourceId) => {
                       // Picking a measure field re-derives the usual per-field aggregation
                       // (sum, or count for non-numeric fields — handled by aggregateByField),
                       // so drop the fieldless-count lock. See BL-186.
-                      controller.updateWidgetConfig(widgetId, {
-                        ySeries: [{ fieldId }],
-                        yField: fieldId,
-                        yAggregation: undefined,
-                      });
+                      //
+                      // H3: this is the picker a "measure-first" gesture reaches first on a
+                      // brand-new chart, so it must adopt the picked field's source — it used
+                      // not even to destructure `sourceId`, leaving the widget source-less and
+                      // permanently blank.
+                      commitFieldConfig(
+                        {
+                          ySeries: [{ fieldId }],
+                          yField: fieldId,
+                          yAggregation: undefined,
+                        },
+                        fieldId ? sourceId : undefined,
+                      );
                     }}
                     fields={numericFields}
                     getOptionDisabled={(option) =>
@@ -1000,10 +1067,11 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                 <span>
                   <DataSourceFieldSelect
                     value={config.seriesField ?? ''}
-                    onChange={(fieldId) =>
-                      controller.updateWidgetConfig(widgetId, {
-                        seriesField: fieldId || undefined,
-                      })
+                    onChange={(fieldId, sourceId) =>
+                      commitFieldConfig(
+                        { seriesField: fieldId || undefined },
+                        fieldId ? sourceId : undefined,
+                      )
                     }
                     fields={categoryFields}
                     getOptionDisabled={(option) => {

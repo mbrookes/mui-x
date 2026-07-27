@@ -12,8 +12,9 @@ import {
   Typography,
 } from '@mui/material';
 import { useStudioController, useStudioLocaleText } from '../../../context';
-import type { StudioChartConfigOfType } from '../../../models';
+import type { StudioChartConfig, StudioChartConfigOfType } from '../../../models';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from '../DataSourceFieldSelect';
+import { useBufferedInput } from '../useBufferedInput';
 import { buildSingleMeasurePatch } from './commitMeasureSeries';
 
 export interface FunnelConfigSectionProps {
@@ -22,6 +23,18 @@ export interface FunnelConfigSectionProps {
   numericFields: DataSourceFieldEntry[];
   /** First configured Y-series field id, used as the fallback for the single value-field picker. */
   firstYSeriesFieldId?: string;
+  /** The widget's current source id — the `yField` mirror's own-source test. */
+  widgetSourceId?: string;
+  /**
+   * H3: the ONE write path for this section's field picker, supplied by `ChartSetupPanel`.
+   * It routes through `commitChartConfigWithSource`, so a value-field pick on a source-less
+   * funnel adopts that field's source instead of leaving the widget permanently blank.
+   */
+  commitFieldConfig: (
+    configPatch: Partial<StudioChartConfig>,
+    /** The picked field's source, or `undefined` when the gesture clears the field. */
+    sourceId: string | undefined,
+  ) => void;
 }
 
 /**
@@ -40,20 +53,17 @@ function FunnelGapInput(props: {
   onCommit: (next: number | undefined) => void;
 }) {
   const { widgetId, value, label, clampedHelperText, onCommit } = props;
-  const [text, setText] = React.useState(String(value));
-  const [dirty, setDirty] = React.useState(false);
-  // Set when a commit CHANGED the typed value to fit the range. Without it the clamp is
-  // indistinguishable from "nothing happened" and the user retypes the same rejected
-  // value. Advisory only — it explains the already-applied clamp, mirroring
-  // `FilterSetupPanel`'s cross-bound messages.
-  const [notice, setNotice] = React.useState<string | undefined>(undefined);
-
-  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed gap; resync on external change (widget switch, undo/redo). `widgetId` is in the deps because a widget switch that lands on the SAME gap value (e.g. both widgets default to 0) would otherwise leave a still-dirty buffer from the previous widget uncommitted into the new one.
-  React.useEffect(() => {
-    setText(String(value));
-    setDirty(false);
-    setNotice(undefined);
-  }, [value, widgetId]);
+  // Shared dirty-aware buffer (M15). `notice` is set when a commit CHANGED the typed value to
+  // fit the range — without it the clamp is indistinguishable from "nothing happened" and the
+  // user retypes the same rejected value. Advisory only: it explains the already-applied
+  // clamp, mirroring `FilterSetupPanel`'s cross-bound messages.
+  const {
+    value: text,
+    dirty,
+    notice,
+    setValue,
+    settle,
+  } = useBufferedInput(String(value), `${widgetId}:funnelGap`);
 
   const commit = () => {
     if (!dirty) {
@@ -64,15 +74,16 @@ function FunnelGapInput(props: {
     if (!Number.isNaN(parsed)) {
       const clamped = Math.max(0, Math.min(32, parsed));
       if (clamped !== value) {
-        onCommit(clamped || undefined);
+        // `0` is the documented default, so it is stored as "unset" rather than persisted
+        // explicitly. Written as an explicit `=== 0` test, not `clamped || undefined`: a
+        // truthiness test on a numeric bound is the shape that silently swallows a legitimate
+        // zero the day the default stops being 0.
+        onCommit(clamped === 0 ? undefined : clamped);
       }
-      setText(String(clamped));
-      setNotice(clamped === parsed ? undefined : clampedHelperText(clamped));
+      settle(String(clamped), clamped === parsed ? undefined : clampedHelperText(clamped));
     } else {
-      setText(String(value));
-      setNotice(clampedHelperText(value));
+      settle(String(value), clampedHelperText(value));
     }
-    setDirty(false);
   };
 
   return (
@@ -84,9 +95,7 @@ function FunnelGapInput(props: {
       error={notice !== undefined}
       helperText={notice}
       onChange={(evt) => {
-        setText(evt.target.value);
-        setDirty(true);
-        setNotice(undefined);
+        setValue(evt.target.value);
       }}
       onBlur={commit}
       onKeyDown={(evt) => {
@@ -106,6 +115,8 @@ export function FunnelConfigSection({
   config,
   numericFields,
   firstYSeriesFieldId,
+  widgetSourceId,
+  commitFieldConfig,
 }: FunnelConfigSectionProps) {
   const controller = useStudioController();
   const localeText = useStudioLocaleText();
@@ -119,13 +130,13 @@ export function FunnelConfigSection({
     <React.Fragment>
       <DataSourceFieldSelect
         value={config.yField ?? firstYSeriesFieldId ?? ''}
-        onChange={(fieldId) => {
+        onChange={(fieldId, sourceId) => {
           // Single-measure picker over a multi-series config — see `buildSingleMeasurePatch`
           // for why the remaining series are preserved and why clearing writes `ySeries: []`
           // rather than a placeholder entry.
-          controller.updateWidgetConfig(
-            widgetId,
-            buildSingleMeasurePatch('funnel', config, fieldId),
+          commitFieldConfig(
+            buildSingleMeasurePatch('funnel', config, fieldId, widgetSourceId),
+            fieldId ? sourceId : undefined,
           );
         }}
         fields={numericFields}

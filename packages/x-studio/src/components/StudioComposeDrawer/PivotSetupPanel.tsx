@@ -25,6 +25,9 @@ import type { DataSourceFieldEntry } from './DataSourceFieldSelect';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
 import type { StudioWidgetConfigForKind } from '../../models';
 import { buildFieldCatalog, buildSourceFieldEntries } from '../../internals/fieldCatalog';
+// The SAME resolver the pivot widget itself applies, so panel and canvas can never disagree
+// about whether a stored `pivotAggregation` is one this build supports (M10).
+import { resolvePivotAggregation } from '../widgets/StudioPivotWidget/pivotUtils';
 import { collectStaleWidgetFilterIds } from './collectStaleWidgetFilterIds';
 
 interface PivotSetupPanelProps {
@@ -44,7 +47,19 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
   // Narrow to the pivot config shape for reading pivot-specific keys.
   const config = (widget?.config ?? {}) as StudioWidgetConfigForKind<'pivot'>;
 
-  const aggFn = config.pivotAggregation ?? 'sum';
+  // M10: read the aggregation through the SAME allow-list the widget applies
+  // (`StudioPivotWidget` → `resolvePivotAggregation`), not a bare `?? 'sum'`. The key's VALUE
+  // is never validated at the load/AI-tool boundary — only its name is — so an imported or
+  // AI-authored `pivotAggregation: 'median'` reached the widget, resolved to `null` and
+  // rendered every cell as `—`, while this panel simultaneously fed `'median'` to a `Select`
+  // that has no such option (MUI renders an out-of-range value as blank) and went on showing
+  // the value-field picker as if the config were fine. Now the panel says the same thing the
+  // widget does: the stored value is surfaced as an explicit, italicised entry so the user can
+  // see what is actually configured and replace it, and the value-field picker follows the
+  // RESOLVED aggregation (an unsupported one is not `'count'`, so the picker stays visible —
+  // it just no longer pretends the aggregation above it is valid).
+  const resolvedAggFn = resolvePivotAggregation(config.pivotAggregation);
+  const aggFn = resolvedAggFn ?? config.pivotAggregation ?? 'sum';
   const showTotals = config.pivotShowTotals ?? true;
   // MUI's `Select` only emits `aria-labelledby` when handed an explicit `labelId`, and
   // `InputLabel` does not derive an `id`/`htmlFor` from `FormControl` context (its `label`
@@ -190,10 +205,19 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
           <MenuItem value="count">{localeText.aggFnCountRows}</MenuItem>
           <MenuItem value="min">{localeText.aggFnMin}</MenuItem>
           <MenuItem value="max">{localeText.aggFnMax}</MenuItem>
+          {/* Schema drift: the persisted aggregation is not one this build supports. Without
+              this entry the Select's value matches no MenuItem and MUI renders the control
+              blank — indistinguishable from "not configured" — while the widget renders every
+              cell as `—`. Mirrors the raw-id field fallback in `GridConditionalFormatSection`. */}
+          {resolvedAggFn === null && (
+            <MenuItem value={aggFn} sx={{ fontStyle: 'italic' }}>
+              {aggFn}
+            </MenuItem>
+          )}
         </Select>
       </FormControl>
 
-      {aggFn !== 'count' && (
+      {resolvedAggFn !== 'count' && (
         <DataSourceFieldSelect
           value={config.pivotValueField ?? ''}
           onChange={(fieldId, sourceId) => handleFieldChange('pivotValueField', fieldId, sourceId)}

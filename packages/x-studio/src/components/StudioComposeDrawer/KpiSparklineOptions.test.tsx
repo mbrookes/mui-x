@@ -389,3 +389,75 @@ describe('KpiSparklineOptions combobox accessible names (finding 2)', () => {
     expect(screen.getByRole('combobox', { name: 'Plot type' })).toBeVisible();
   });
 });
+// ─── M5: the panel and the widget answer "which date field?" identically ─────
+//
+// The panel used to run its own scan (first in-scope filter matching own OR joined date
+// fields) with no notion of the widget's later tiers, so it could replace the Time-field
+// picker with "Using date filter on X" for a filter the widget then did not use — leaving the
+// sparkline blank and the user with no control to fix it. It now delegates to
+// `resolveKpiDateField`, the single rule the rendered widget uses, and hides the picker
+// exactly when that rule reports `origin === 'filter'`.
+describe('KpiSparklineOptions date-field rule shared with the widget (M5)', () => {
+  beforeEach(() => {
+    controller.updateWidgetConfig.mockClear();
+    mockState.doc.dashboard = {
+      id: 'dashboard-1',
+      title: 'Dashboard',
+      activePageId: 'page-1',
+    };
+    mockState.doc.widgets['widget-1'] = {
+      id: 'widget-1',
+      kind: 'kpi',
+      sourceId: 'orders',
+      title: 'Orders',
+      config: {} as StudioWidgetConfig,
+    };
+  });
+
+  afterEach(() => {
+    mockState.doc.filters = [];
+  });
+
+  it('keeps the Time-field picker for an in-scope filter on a field the widget cannot resolve', () => {
+    // A page filter on a RELATED source's date column, with no `fieldType` to identify it as
+    // a date and no matching column on the widget's own source: `findDateFilter` does not
+    // select it, so the widget resolves its time field from config/own-source instead. The
+    // panel must not claim the filter is driving the sparkline.
+    mockState.doc.filters = [
+      {
+        id: 'f-cross',
+        field: 'shippedAt',
+        filterSourceId: 'shipments',
+        scope: { kind: 'page', pageId: 'page-1' },
+        operator: 'between',
+        value: { from: '2026-01-01', to: '2026-01-31' },
+      },
+    ] as unknown as StudioFilterState[];
+    configureStudioContextMock({ getState: () => mockState, controller });
+
+    render(
+      <KpiSparklineOptions widgetId="widget-1" config={mockState.doc.widgets['widget-1'].config} />,
+    );
+
+    expect(screen.getByLabelText('Time field')).not.toBe(null);
+    expect(screen.queryByText(/Using date filter/)).toBe(null);
+  });
+
+  it('keeps the Time-field picker when only an explicitly configured field resolves', () => {
+    // No in-scope date filter at all: the widget resolves through the CONFIG tier, so the
+    // picker — the control that writes that config — must stay on screen.
+    mockState.doc.filters = [];
+    mockState.doc.widgets['widget-1'] = {
+      ...mockState.doc.widgets['widget-1'],
+      config: { kpiSparklineField: 'createdAt' } as StudioWidgetConfig,
+    };
+    configureStudioContextMock({ getState: () => mockState, controller });
+
+    render(
+      <KpiSparklineOptions widgetId="widget-1" config={mockState.doc.widgets['widget-1'].config} />,
+    );
+
+    expect(screen.getByLabelText('Time field')).not.toBe(null);
+    expect(screen.queryByText(/Using date filter/)).toBe(null);
+  });
+});

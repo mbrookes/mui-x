@@ -10,7 +10,7 @@ import {
   Typography,
 } from '@mui/material';
 import { useStudioController, useStudioLocaleText } from '../../../context';
-import type { StudioChartConfigOfType } from '../../../models';
+import type { StudioChartConfig, StudioChartConfigOfType } from '../../../models';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from '../DataSourceFieldSelect';
 import { buildSingleMeasurePatch } from './commitMeasureSeries';
 
@@ -21,6 +21,18 @@ export interface SankeyConfigSectionProps {
   numericFields: DataSourceFieldEntry[];
   /** First configured Y-series field id, used as the fallback for the value-field picker. */
   firstYSeriesFieldId?: string;
+  /** The widget's current source id — the `yField` mirror's own-source test. */
+  widgetSourceId?: string;
+  /**
+   * H3: the ONE write path for this section's field pickers, supplied by `ChartSetupPanel`.
+   * It routes through `commitChartConfigWithSource`, so a target-node or value pick on a
+   * source-less sankey adopts that field's source instead of leaving the widget blank.
+   */
+  commitFieldConfig: (
+    configPatch: Partial<StudioChartConfig>,
+    /** The picked field's source, or `undefined` when the gesture clears the field. */
+    sourceId: string | undefined,
+  ) => void;
 }
 
 /** Sankey chart setup: target node field, value measure, link colour, and show-values toggle. */
@@ -30,6 +42,8 @@ export function SankeyConfigSection({
   categoryFields,
   numericFields,
   firstYSeriesFieldId,
+  widgetSourceId,
+  commitFieldConfig,
 }: SankeyConfigSectionProps) {
   const controller = useStudioController();
   const localeText = useStudioLocaleText();
@@ -41,10 +55,11 @@ export function SankeyConfigSection({
     <React.Fragment>
       <DataSourceFieldSelect
         value={config.sankeyTargetField ?? ''}
-        onChange={(fieldId) =>
-          controller.updateWidgetConfig(widgetId, {
-            sankeyTargetField: fieldId || undefined,
-          })
+        onChange={(fieldId, sourceId) =>
+          commitFieldConfig(
+            { sankeyTargetField: fieldId || undefined },
+            fieldId ? sourceId : undefined,
+          )
         }
         fields={categoryFields}
         label={localeText.chartSetupSankeyTargetLabel}
@@ -53,13 +68,13 @@ export function SankeyConfigSection({
       />
       <DataSourceFieldSelect
         value={config.yField ?? firstYSeriesFieldId ?? ''}
-        onChange={(fieldId) => {
+        onChange={(fieldId, sourceId) => {
           // Single-measure picker over a multi-series config — see `buildSingleMeasurePatch`
           // for why the remaining series are preserved and why clearing writes `ySeries: []`
           // rather than a placeholder entry.
-          controller.updateWidgetConfig(
-            widgetId,
-            buildSingleMeasurePatch('sankey', config, fieldId),
+          commitFieldConfig(
+            buildSingleMeasurePatch('sankey', config, fieldId, widgetSourceId),
+            fieldId ? sourceId : undefined,
           );
         }}
         fields={numericFields}

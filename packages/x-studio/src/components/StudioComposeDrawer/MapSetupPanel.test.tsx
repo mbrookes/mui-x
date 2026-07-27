@@ -268,11 +268,12 @@ describe('MapSetupPanel', () => {
     expect(screen.getByRole('button', { name: 'Highlight', pressed: true })).toBeVisible();
   });
 
-  it('regression: deselecting the active toggle commits the default mode (cross-highlight), not a no-op', async () => {
-    // Under the old hand-rolled ToggleButtonGroup, `onChange` only called `update(...)`
-    // `if (value)`, so clicking the already-selected button (which reports `null` on
-    // deselect) silently did nothing. The shared CrossFilterModeSection always commits
-    // `defaultMode` on deselect, matching Chart/Grid/Kpi.
+  // M16 — BEHAVIOUR CHANGE. This used to assert that clicking the already-selected toggle
+  // committed `defaultMode`. `CrossFilterModeSection` now ignores an exclusive group's `null`
+  // deselect, like every sibling exclusive group in the drawer: these modes have no "nothing
+  // selected" state, so clicking the selected button expresses no new choice, and silently
+  // moving the widget to a different mode is the bug (see `CrossFilterModeSection.test.tsx`).
+  it('leaves the active toggle alone when it is clicked again', async () => {
     mockState.doc.widgets['widget-1'] = {
       ...mockState.doc.widgets['widget-1'],
       config: { ...mockState.doc.widgets['widget-1'].config, crossFilterMode: 'cross-filter' },
@@ -285,9 +286,8 @@ describe('MapSetupPanel', () => {
 
     await user.click(screen.getByRole('button', { name: 'Filter' }));
 
-    expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
-      crossFilterMode: 'cross-highlight',
-    });
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Filter', pressed: true })).toBeVisible();
   });
 
   // ─── Finding 2.1 ────────────────────────────────────────────────────────────
@@ -441,5 +441,85 @@ describe('MapSetupPanel — combobox accessible names (finding 2)', () => {
     expect(screen.getByRole('combobox', { name: 'Map type' })).toBeVisible();
     expect(screen.getByRole('combobox', { name: 'Aggregation' })).toBeVisible();
     expect(screen.getByRole('combobox', { name: 'Color scheme' })).toBeVisible();
+  });
+});
+// ─── H3: the value picker adopts a source too ────────────────────────────────
+//
+// `createDefaultWidget` never sets `sourceId`, so a map starts source-less. The COUNTRY
+// picker adopted the picked field's source from the start; the VALUE picker did not — it
+// wrote `mapValueField` plus a `mapValueSourceId` derived from comparing against a
+// `widget.sourceId` that was `undefined`, so the widget stayed source-less and rendered
+// blank while the aggregation Select unlocked to "Sum" and nothing warned.
+describe('MapSetupPanel value-field source adoption (H3)', () => {
+  beforeEach(() => {
+    controller.updateWidgetConfig.mockClear();
+    controller.updateWidget.mockClear();
+  });
+
+  it('adopts the field source when a value field is picked before a source exists', async () => {
+    mockState.doc.widgets['widget-1'] = {
+      id: 'widget-1',
+      kind: 'map',
+      sourceId: undefined,
+      config: {} as StudioWidgetConfig,
+    };
+    configureStudioContextMock({ getState: () => mockState, controller });
+
+    const { user } = render(<MapSetupPanel widgetId="widget-1" />);
+
+    await user.click(screen.getByLabelText('Value field', { exact: false }));
+    await user.click(await screen.findByRole('option', { name: /Total$/ }));
+
+    expect(controller.updateWidget).toHaveBeenCalledWith(
+      'widget-1',
+      {
+        sourceId: 'orders',
+        // Adopted as the PRIMARY source, so the field is native and carries no
+        // `mapValueSourceId` — the value the old code wrote was meaningless anyway, since it
+        // compared against a `widget.sourceId` that did not exist.
+        config: { mapValueField: 'total', mapValueSourceId: undefined },
+      },
+      { removeFilterIds: [] },
+    );
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+  });
+
+  // The region field is the map's natural anchor, so an established source is not re-pointed
+  // by a measure pick: a cross-source measure is enriched through the declared relationship.
+  it('does not re-anchor an established source; it stores the cross-source id instead', async () => {
+    mockState.doc.widgets['widget-1'] = {
+      id: 'widget-1',
+      kind: 'map',
+      sourceId: 'customers',
+      config: { mapCountryField: 'country' } as StudioWidgetConfig,
+    };
+    // The measure lives across a declared relationship, so it is reachable (and therefore
+    // selectable) from the widget's own source.
+    mockState.doc.relationships = [
+      {
+        id: 'rel-customers-orders',
+        sourceId: 'customers',
+        sourceField: 'orderId',
+        targetId: 'orders',
+        targetField: 'id',
+        type: 'many-to-one',
+      },
+    ] as any;
+    configureStudioContextMock({ getState: () => mockState, controller });
+
+    try {
+      const { user } = render(<MapSetupPanel widgetId="widget-1" />);
+
+      await user.click(screen.getByLabelText('Value field', { exact: false }));
+      await user.click(await screen.findByRole('option', { name: /Total$/ }));
+
+      expect(controller.updateWidget).not.toHaveBeenCalled();
+      expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+        mapValueField: 'total',
+        mapValueSourceId: 'orders',
+      });
+    } finally {
+      mockState.doc.relationships = [];
+    }
   });
 });

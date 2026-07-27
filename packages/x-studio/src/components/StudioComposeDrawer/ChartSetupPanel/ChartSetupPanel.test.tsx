@@ -1,5 +1,5 @@
 import { createRenderer, screen } from '@mui/internal-test-utils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StudioWidget, StudioWidgetConfig } from '../../../models';
 import {
   mockUseStudioSelector,
@@ -1400,5 +1400,213 @@ describe('ChartSetupPanel — X-field adoption survives other configured fields 
       mockState.doc.widgets['widget-1'] = previousWidget;
       delete (mockState.runtime.dataSources as Record<string, unknown>).tickets;
     }
+  });
+});
+// ─── H3: measure-first configuration acquires a source ───────────────────────
+//
+// `createDefaultWidget` never sets `sourceId`, so every chart starts source-less and
+// `useWidgetRows` returns no rows until a field pick adopts one. Only three of the panel's
+// thirteen field pickers did that; the rest dropped the `sourceId` their `onChange` was
+// handed, so a user who reached for the measure (or split-by, or a per-type section's own
+// picker) before the X field got a permanently blank widget with every option still enabled
+// and no warning anywhere. Nothing else in the panel can recover from that: there is no
+// source picker to fall back on.
+describe('ChartSetupPanel source adoption from a non-anchor field pick (H3)', () => {
+  const previousWidget = mockState.doc.widgets['widget-1'];
+
+  beforeEach(() => {
+    configureStudioContextMock({ getState: () => mockState, controller });
+    controller.updateWidget.mockClear();
+    controller.updateWidgetConfig.mockClear();
+  });
+
+  afterEach(() => {
+    mockState.doc.widgets['widget-1'] = previousWidget;
+  });
+
+  /** A source-less widget of the given chart type, mirroring `createDefaultWidget`'s output. */
+  function renderSourceless(config: Record<string, unknown>) {
+    // The shared fixture's `sourceId` is inferred as `string`; this suite is entirely about
+    // the state before one exists, so widen it here rather than loosening the fixture.
+    mockState.doc.widgets['widget-1'] = {
+      ...previousWidget,
+      sourceId: undefined as unknown as string,
+      config: config as StudioWidgetConfig,
+    };
+    return render(<ChartSetupPanel widgetId="widget-1" />);
+  }
+
+  /**
+   * The arguments of the SOURCE half of an adoption. It commits first and undoably - that is
+   * what pushes the pre-gesture doc onto the undo stack - and the config patch then rides
+   * along non-undoably, so the whole gesture is ONE undo step. See
+   * `commitChartConfigWithSource`. (Both halves are asserted inline in each test rather than
+   * behind a shared assertion helper, which `vitest/expect-expect` cannot see through.)
+   */
+  function sourceCommit(sourceId: string) {
+    // No filters in this fixture, so nothing stale to fold in.
+    return ['widget-1', { sourceId }, { removeFilterIds: [] }] as const;
+  }
+
+  it('adopts the measure field source when the Y picker is used before the X picker', async () => {
+    const { user } = renderSourceless({ chartType: 'bar' });
+
+    await user.click(screen.getByLabelText('Y / Measure field', { exact: false }));
+    await user.click(await screen.findByRole('option', { name: /Total$/ }));
+
+    expect(controller.updateWidget).toHaveBeenCalledWith(...sourceCommit('orderItems'));
+    expect(controller.updateWidgetConfig).toHaveBeenCalledWith(
+      'widget-1',
+      {
+        ySeries: [{ fieldId: 'total' }],
+        yField: 'total',
+        yAggregation: undefined,
+      },
+      {
+        undoable: false,
+      },
+    );
+  });
+
+  it('adopts the measure field source from a Y-series row picker', async () => {
+    const { user } = renderSourceless({
+      chartType: 'bar',
+      ySeries: [{ fieldId: '' }],
+    });
+
+    await user.click(screen.getByLabelText('Y / Measure field', { exact: false }));
+    await user.click(await screen.findByRole('option', { name: /Total$/ }));
+
+    // A series on a chart that has just adopted the field's own source is NATIVE, so it
+    // carries no `sourceId` stamp and mirrors into the flat `yField`.
+    expect(controller.updateWidget).toHaveBeenCalledWith(...sourceCommit('orderItems'));
+    expect(controller.updateWidgetConfig).toHaveBeenCalledWith(
+      'widget-1',
+      {
+        ySeries: [{ fieldId: 'total', sourceId: undefined }],
+        yField: 'total',
+      },
+      {
+        undoable: false,
+      },
+    );
+  });
+
+  it('adopts the split-by field source', async () => {
+    const { user } = renderSourceless({ chartType: 'bar' });
+
+    await user.click(screen.getByLabelText('Split by (series field)'));
+    await user.click(await screen.findByRole('option', { name: /Country$/ }));
+
+    expect(controller.updateWidget).toHaveBeenCalledWith(...sourceCommit('customers'));
+    expect(controller.updateWidgetConfig).toHaveBeenCalledWith(
+      'widget-1',
+      { seriesField: 'country' },
+      {
+        undoable: false,
+      },
+    );
+  });
+
+  it('adopts the value field source from the funnel section', async () => {
+    const { user } = renderSourceless({ chartType: 'funnel' });
+
+    await user.click(screen.getByLabelText('Value field', { exact: false }));
+    await user.click(await screen.findByRole('option', { name: /Total$/ }));
+
+    expect(controller.updateWidget).toHaveBeenCalledWith(...sourceCommit('orderItems'));
+    expect(controller.updateWidgetConfig).toHaveBeenCalledWith(
+      'widget-1',
+      {
+        ySeries: [{ fieldId: 'total' }],
+        yField: 'total',
+      },
+      {
+        undoable: false,
+      },
+    );
+  });
+
+  it('adopts the target-node field source from the sankey section', async () => {
+    const { user } = renderSourceless({ chartType: 'sankey' });
+
+    await user.click(screen.getByLabelText('Target (to) field', { exact: false }));
+    await user.click(await screen.findByRole('option', { name: /Country$/ }));
+
+    expect(controller.updateWidget).toHaveBeenCalledWith(...sourceCommit('customers'));
+    expect(controller.updateWidgetConfig).toHaveBeenCalledWith(
+      'widget-1',
+      { sankeyTargetField: 'country' },
+      {
+        undoable: false,
+      },
+    );
+  });
+
+  it('adopts the row-axis field source from the heatmap section', async () => {
+    const { user } = renderSourceless({ chartType: 'heatmap' });
+
+    // The row-axis picker is restricted to the widget's own source, which does not exist
+    // yet — it must offer the whole catalog rather than rendering empty, since this very
+    // pick is what establishes the source it is then restricted to.
+    await user.click(screen.getByLabelText('Row axis field', { exact: false }));
+    await user.click(await screen.findByRole('option', { name: /Country$/ }));
+
+    expect(controller.updateWidget).toHaveBeenCalledWith(...sourceCommit('customers'));
+    expect(controller.updateWidgetConfig).toHaveBeenCalledWith(
+      'widget-1',
+      { heatYField: 'country' },
+      {
+        undoable: false,
+      },
+    );
+  });
+
+  it('adopts the colour-by field source from the scatter section', async () => {
+    const { user } = renderSourceless({ chartType: 'scatter' });
+
+    await user.click(screen.getByLabelText('Color by', { exact: false }));
+    await user.click(await screen.findByRole('option', { name: /Country$/ }));
+
+    expect(controller.updateWidget).toHaveBeenCalledWith(...sourceCommit('customers'));
+    expect(controller.updateWidgetConfig).toHaveBeenCalledWith(
+      'widget-1',
+      { scatterColorField: 'country' },
+      {
+        undoable: false,
+      },
+    );
+  });
+
+  // The non-anchor pickers adopt only to give a source-LESS widget its first source. Once the
+  // chart is anchored, a reachable cross-source measure is resolved by the anchor-grain
+  // mechanism; re-anchoring on it would orphan the X field the user already chose.
+  it('does not re-anchor a chart that already has a source', async () => {
+    mockState.doc.widgets['widget-1'] = {
+      ...previousWidget,
+      sourceId: 'orders',
+      config: { chartType: 'bar', xField: 'id' } as StudioWidgetConfig,
+    };
+
+    const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
+    await user.click(screen.getByLabelText('Y / Measure field', { exact: false }));
+    await user.click(await screen.findByRole('option', { name: /Total$/ }));
+
+    expect(controller.updateWidget).not.toHaveBeenCalled();
+    expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+      ySeries: [{ fieldId: 'total' }],
+      yField: 'total',
+      yAggregation: undefined,
+    });
+  });
+
+  // Clearing a field must never adopt anything — there is no picked field to take a source
+  // from, and the `sourceId` the picker reports on a clear is meaningless.
+  it('does not adopt a source when a field is cleared', async () => {
+    const { user } = renderSourceless({ chartType: 'bar', seriesField: 'country' });
+
+    await user.click(screen.getAllByLabelText('Clear field')[0]);
+
+    expect(controller.updateWidget).not.toHaveBeenCalled();
   });
 });

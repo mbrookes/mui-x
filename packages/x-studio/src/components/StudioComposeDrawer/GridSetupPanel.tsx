@@ -93,9 +93,14 @@ const FIELD_BOUND_GRID_CONFIG_KEYS = [
 ] as const;
 
 /**
- * Returns `config` with every field-bound grid key removed (`columns` reset
- * to `[]`) so it can safely be applied after the widget's data source changes,
- * while every other (non-field-bound) config key is preserved untouched.
+ * Returns `config` with every field-bound grid key removed so it can safely be applied after
+ * the widget's data source changes, while every other (non-field-bound) config key is
+ * preserved untouched.
+ *
+ * M17: `columns` is DELETED, not reset to `[]`. The two are different states — `undefined`
+ * means "unset, show every field of the source", `[]` means "explicitly no columns" — and
+ * writing `[]` here would leave the grid showing nothing at all after a source switch instead
+ * of the new source's fields.
  */
 function clearFieldBoundGridConfig(
   config: StudioWidgetConfigForKind<'grid'> | undefined,
@@ -104,7 +109,6 @@ function clearFieldBoundGridConfig(
   for (const key of FIELD_BOUND_GRID_CONFIG_KEYS) {
     delete next[key];
   }
-  next.columns = [];
   return next as StudioWidgetConfigForKind<'grid'>;
 }
 
@@ -156,8 +160,14 @@ export function GridSetupPanel(props: { widgetId: string }) {
     () => (source?.fields ?? []).filter((f) => !f.hidden),
     [source],
   );
+  // M17: `[]` and `undefined` are DIFFERENT states and must not be collapsed. `undefined` is
+  // "unset — show every field of the source" (a brand-new grid, or one whose source just
+  // changed); `[]` is "the user explicitly removed every column". Testing `?.length` treated
+  // the second as the first, so removing the last column made every column reappear — the
+  // exact opposite of what the menu item says — and the "Add column" menu then read
+  // "All columns added."
   const configColumns: StudioGridColumn[] = React.useMemo(() => {
-    if (config.columns?.length) {
+    if (config.columns) {
       return config.columns;
     }
     return primaryFields.map((f) => ({ fieldId: f.id }));
@@ -563,7 +573,14 @@ export function GridSetupPanel(props: { widgetId: string }) {
           {/* Selected columns list */}
           {configColumns.map((col, index) => {
             const colKey = columnAggKey(col);
-            const fieldInfo = fieldLookup.get(colKey) ?? fieldLookup.get(col.fieldId);
+            // Keyed strictly by the composite `colKey`. The old `?? fieldLookup.get(col.fieldId)`
+            // fallback was either redundant (a primary-source column's `colKey` IS its bare
+            // `fieldId`) or wrong: for a cross-source column it resolved to the PRIMARY
+            // source's same-id field, so a related-source `id` column rendered the primary
+            // source's label, type icon and numeric/string aggregation menu (H3, bare-id
+            // lookups ignoring `sourceId`). An unresolvable column falls through to the raw-id
+            // display below, which is the honest rendering of schema drift.
+            const fieldInfo = fieldLookup.get(colKey);
             const isNumeric = fieldInfo?.type === 'number';
             const availableAggs = isNumeric ? NUMERIC_AGGREGATIONS : STRING_AGGREGATIONS;
             // `colKey` is derived from the doc-authored `config.columns`, and
@@ -861,7 +878,12 @@ export function GridSetupPanel(props: { widgetId: string }) {
                   onChange={(fieldId) =>
                     controller.updateWidgetConfig(widgetId, {
                       gridGroupByField: fieldId || undefined,
-                      gridAggregations: fieldId ? groupAggregations : undefined,
+                      // Persist `undefined`, never the `{}` the `?? {}` default produces —
+                      // matching `handleGroupAggChange`'s own `Object.keys(next).length > 0`
+                      // guard. Writing an empty object turns "no per-column aggregations"
+                      // into a doc key that survives export, and the two sibling writers of
+                      // the same key disagreeing is how that drift starts.
+                      gridAggregations: fieldId ? config.gridAggregations : undefined,
                     })
                   }
                   fields={crossFilterFieldEntries}

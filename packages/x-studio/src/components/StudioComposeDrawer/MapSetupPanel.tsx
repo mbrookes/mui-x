@@ -221,6 +221,38 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
   }
 
   /**
+   * Adopt `sourceId` as the map's primary source and write `changes` in the SAME commit, so
+   * the whole gesture is one undo step. Shared by BOTH field pickers: `createDefaultWidget`
+   * never sets `sourceId`, so a map starts source-less and `useWidgetRows` returns no rows
+   * until a pick establishes one. The country picker did this from the start; the value
+   * picker did NOT (H3) — a "measure-first" configuration (add a Map → pick a Value field)
+   * wrote `mapValueField` and a bogus `mapValueSourceId` (bogus because `widget.sourceId` was
+   * `undefined`, so the "is it foreign?" test compared against nothing) and left the widget
+   * permanently blank, with the aggregation Select unlocking to "Sum" and no warning anywhere.
+   *
+   * The removal of any widget-scoped filter that no longer resolves against the adopted
+   * source rides along (finding 1.6): a filter added to this source-less map keeps matching by
+   * `widgetId`, and once its field is absent from the new source's rows the `filterUtils.ts`
+   * branches exclude every row, silently blanking the map. Every other source-adopting setup
+   * panel (Chart/KPI/Grid/Filter) folds this into the same commit.
+   */
+  function adoptSourceWith(changes: Partial<typeof config>, sourceId: string) {
+    controller.updateWidget(
+      widgetId,
+      { sourceId, config: { ...config, ...changes } },
+      {
+        removeFilterIds: collectStaleWidgetFilterIds(
+          allFilters,
+          widgetId,
+          sourceId,
+          fieldCatalog,
+          relationships,
+        ),
+      },
+    );
+  }
+
+  /**
    * Handle country field selection.
    * - If the widget has no sourceId yet, adopt the selected field's source.
    * - If the selected field is from the widget's existing sourceId, store normally.
@@ -232,28 +264,7 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
       return;
     }
     if (!widget?.sourceId) {
-      // No primary source yet — adopt the country field's source as primary. Fold in the
-      // removal of any widget-scoped filter that no longer resolves against the adopted
-      // source (finding 1.6): a filter added to this source-less map keeps matching by
-      // `widgetId`, and once its field is absent from the new source's rows the
-      // `filterUtils.ts` branches exclude every row, silently blanking the map. Every other
-      // source-adopting setup panel (Chart/KPI/Grid/Filter) folds this into the same commit.
-      controller.updateWidget(
-        widgetId,
-        {
-          sourceId,
-          config: { ...config, mapCountryField: fieldId, mapCountrySourceId: undefined },
-        },
-        {
-          removeFilterIds: collectStaleWidgetFilterIds(
-            allFilters,
-            widgetId,
-            sourceId,
-            fieldCatalog,
-            relationships,
-          ),
-        },
-      );
+      adoptSourceWith({ mapCountryField: fieldId, mapCountrySourceId: undefined }, sourceId);
       return;
     }
     if (sourceId === widget.sourceId) {
@@ -261,6 +272,33 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
     } else {
       update({ mapCountryField: fieldId, mapCountrySourceId: sourceId });
     }
+  }
+
+  /**
+   * Handle value field selection. Same three branches as the country picker above — the two
+   * were inconsistent before H3.
+   *
+   * The region field is the map's natural anchor, so an established source is NOT re-anchored
+   * here: a cross-source measure is enriched onto the widget's rows through the declared
+   * relationship (`mapValueSourceId`), and re-anchoring would orphan the region field.
+   */
+  function handleValueFieldChange(fieldId: string, sourceId: string) {
+    if (!fieldId) {
+      // Clearing the value field falls back to a synthetic per-row count. Reset the
+      // aggregation to 'count' (mirroring KpiSetupPanel) so the renderer stops applying a
+      // stale avg/min/max to per-row 1s — which showed a constant 1 for every region while
+      // the panel's locked label claimed "Count" (finding 2.1).
+      update({ mapValueField: undefined, mapValueSourceId: undefined, mapAggregation: 'count' });
+      return;
+    }
+    if (!widget?.sourceId) {
+      adoptSourceWith({ mapValueField: fieldId, mapValueSourceId: undefined }, sourceId);
+      return;
+    }
+    update({
+      mapValueField: fieldId,
+      mapValueSourceId: sourceId !== widget.sourceId ? sourceId : undefined,
+    });
   }
 
   if (!widget) {
@@ -316,24 +354,7 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
           config.mapValueField,
           config.mapValueSourceId ?? widget?.sourceId,
         )}
-        onChange={(fieldId, sourceId) =>
-          update(
-            fieldId
-              ? {
-                  mapValueField: fieldId,
-                  mapValueSourceId: sourceId !== widget?.sourceId ? sourceId : undefined,
-                }
-              : // Clearing the value field falls back to a synthetic per-row count. Reset the
-                // aggregation to 'count' (mirroring KpiSetupPanel) so the renderer stops
-                // applying a stale avg/min/max to per-row 1s — which showed a constant 1 for
-                // every region while the panel's locked label claimed "Count" (finding 2.1).
-                {
-                  mapValueField: undefined,
-                  mapValueSourceId: undefined,
-                  mapAggregation: 'count',
-                },
-          )
-        }
+        onChange={handleValueFieldChange}
       />
       {valueFieldUnreachable && (
         <Alert severity="warning">{localeText.mapSetupUnreachableFieldWarning}</Alert>

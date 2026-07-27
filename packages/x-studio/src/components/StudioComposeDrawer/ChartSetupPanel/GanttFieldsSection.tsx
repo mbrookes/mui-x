@@ -67,6 +67,9 @@ export function GanttFieldsSection({
       configPatch: configUpdate,
       sourceId,
       widgetSourceId,
+      // Gantt hides the shared X-field picker, so these ARE the chart's source anchor: any
+      // cross-source pick re-anchors the widget.
+      adopt: 'anchor',
       removeFilterIds:
         sourceId && sourceId !== widgetSourceId
           ? collectStaleWidgetFilterIds(

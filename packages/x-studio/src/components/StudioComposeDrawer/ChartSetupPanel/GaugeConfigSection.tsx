@@ -10,6 +10,7 @@ import type {
 } from '../../../models';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from '../DataSourceFieldSelect';
 import { collectStaleWidgetFilterIds } from '../collectStaleWidgetFilterIds';
+import { useBufferedInput } from '../useBufferedInput';
 import { commitChartConfigWithSource } from './commitConfigWithSource';
 
 export interface GaugeConfigSectionProps {
@@ -48,60 +49,44 @@ export function GaugeConfigSection({
   // impossible to type a multi-digit min/max one keystroke at a time whenever an
   // intermediate digit transiently violated the bound, and made the field
   // impossible to clear. Buffer the displayed text locally and only parse/
-  // validate/commit on blur (mirrors `FormatPanel.tsx`'s grid-height input).
-  const [minText, setMinText] = React.useState(String(gaugeMin));
-  const [minDirty, setMinDirty] = React.useState(false);
-  const [maxText, setMaxText] = React.useState(String(gaugeMax));
-  const [maxDirty, setMaxDirty] = React.useState(false);
-  // Set when a commit REJECTED the typed value and snapped the field back. The revert is
-  // otherwise indistinguishable from "nothing happened", so the user retypes the same
-  // out-of-range value and watches it vanish again. Advisory only — it explains the
-  // already-applied revert, mirroring `FilterSetupPanel`'s cross-bound messages.
-  const [minNotice, setMinNotice] = React.useState<string | undefined>(undefined);
-  const [maxNotice, setMaxNotice] = React.useState<string | undefined>(undefined);
-
-  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed gaugeMin; resync on external change (widget switch, undo/redo, the sibling field's commit re-deriving this one)
-  React.useEffect(() => {
-    setMinText(String(gaugeMin));
-    setMinDirty(false);
-    setMinNotice(undefined);
-  }, [gaugeMin, widgetId]);
-
-  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- see above, for gaugeMax
-  React.useEffect(() => {
-    setMaxText(String(gaugeMax));
-    setMaxDirty(false);
-    setMaxNotice(undefined);
-  }, [gaugeMax, widgetId]);
+  // validate/commit on blur, through the shared dirty-aware `useBufferedInput` (M15) so
+  // an external write (the AI chat panel's `update_widget`, an undo) can't discard the
+  // half-typed bound. `notice` is set when a commit REJECTED the typed value and snapped the
+  // field back — the revert is otherwise indistinguishable from "nothing happened", so the
+  // user retypes the same out-of-range value and watches it vanish again.
+  const min = useBufferedInput(String(gaugeMin), `${widgetId}:gaugeMin`);
+  const max = useBufferedInput(String(gaugeMax), `${widgetId}:gaugeMax`);
 
   const commitMin = () => {
-    if (!minDirty) {
+    if (!min.dirty) {
       return;
     }
-    const raw = minText.trim();
+    const raw = min.value.trim();
     const parsed = raw === '' ? NaN : Number(raw);
     const valid = !Number.isNaN(parsed) && parsed < gaugeMax;
     if (valid && parsed !== gaugeMin) {
       controller.updateWidgetConfig(widgetId, { gaugeMin: parsed });
     }
-    setMinText(String(valid ? parsed : gaugeMin));
-    setMinNotice(valid ? undefined : localeText.chartSetupGaugeMinRevertedHelperText);
-    setMinDirty(false);
+    min.settle(
+      String(valid ? parsed : gaugeMin),
+      valid ? undefined : localeText.chartSetupGaugeMinRevertedHelperText,
+    );
   };
 
   const commitMax = () => {
-    if (!maxDirty) {
+    if (!max.dirty) {
       return;
     }
-    const raw = maxText.trim();
+    const raw = max.value.trim();
     const parsed = raw === '' ? NaN : Number(raw);
     const valid = !Number.isNaN(parsed) && parsed > gaugeMin;
     if (valid && parsed !== gaugeMax) {
       controller.updateWidgetConfig(widgetId, { gaugeMax: parsed });
     }
-    setMaxText(String(valid ? parsed : gaugeMax));
-    setMaxNotice(valid ? undefined : localeText.chartSetupGaugeMaxRevertedHelperText);
-    setMaxDirty(false);
+    max.settle(
+      String(valid ? parsed : gaugeMax),
+      valid ? undefined : localeText.chartSetupGaugeMaxRevertedHelperText,
+    );
   };
 
   return (
@@ -119,8 +104,11 @@ export function GaugeConfigSection({
             controller,
             widgetId,
             configPatch: { yField: fieldId },
-            sourceId,
+            sourceId: fieldId ? sourceId : undefined,
             widgetSourceId,
+            // Gauge has no X field, so its value picker IS the chart's source anchor: any
+            // cross-source pick re-anchors the widget.
+            adopt: 'anchor',
             removeFilterIds:
               sourceId && sourceId !== widgetSourceId
                 ? collectStaleWidgetFilterIds(
@@ -164,13 +152,11 @@ export function GaugeConfigSection({
           size="small"
           label={localeText.chartSetupMinLabel}
           type="number"
-          value={minText}
-          error={minNotice !== undefined}
-          helperText={minNotice}
+          value={min.value}
+          error={min.notice !== undefined}
+          helperText={min.notice}
           onChange={(evt) => {
-            setMinText(evt.target.value);
-            setMinDirty(true);
-            setMinNotice(undefined);
+            min.setValue(evt.target.value);
           }}
           onBlur={commitMin}
           onKeyDown={(evt) => {
@@ -184,13 +170,11 @@ export function GaugeConfigSection({
           size="small"
           label={localeText.chartSetupMaxLabel}
           type="number"
-          value={maxText}
-          error={maxNotice !== undefined}
-          helperText={maxNotice}
+          value={max.value}
+          error={max.notice !== undefined}
+          helperText={max.notice}
           onChange={(evt) => {
-            setMaxText(evt.target.value);
-            setMaxDirty(true);
-            setMaxNotice(undefined);
+            max.setValue(evt.target.value);
           }}
           onBlur={commitMax}
           onKeyDown={(evt) => {

@@ -86,7 +86,15 @@ describe('CrossFilterModeSection', () => {
     expect(screen.getByRole('button', { name: 'Filter', pressed: true })).toBeVisible();
   });
 
-  it('commits defaultMode when the selected toggle is deselected (null onChange value)', async () => {
+  // M16 — BEHAVIOUR CHANGE. This case previously asserted that clicking the ALREADY-SELECTED
+  // button committed `defaultMode`. That mapping was user-hostile: a chart with
+  // `crossFilterMode: 'none'` whose user clicked the already-highlighted **None** got
+  // `'cross-highlight'` written and cross-highlighting silently switched ON — the button
+  // clicked to confirm a choice changed it to something else. An exclusive
+  // `ToggleButtonGroup`'s `null` is a deselect, and these modes have no "nothing selected"
+  // state, so the only correct reading is "no change". Every sibling exclusive group in the
+  // drawer already ignores `null`.
+  it('commits nothing when the selected toggle is clicked again (null onChange value)', async () => {
     const { user } = render(
       <CrossFilterModeSection
         widgetId="widget-1"
@@ -99,9 +107,26 @@ describe('CrossFilterModeSection', () => {
 
     await user.click(screen.getByRole('button', { name: 'Filter' }));
 
-    expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
-      crossFilterMode: 'cross-highlight',
-    });
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Filter', pressed: true })).toBeVisible();
+  });
+
+  // The repro from the finding, stated directly.
+  it('leaves an explicit "none" alone when None is clicked again', async () => {
+    const { user } = render(
+      <CrossFilterModeSection
+        widgetId="widget-1"
+        title="Interactions"
+        modes={['cross-highlight', 'cross-filter', 'none']}
+        defaultMode="cross-highlight"
+        value="none"
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'None' }));
+
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'None', pressed: true })).toBeVisible();
   });
 
   it('commits the clicked mode when selecting a different button', async () => {
@@ -159,9 +184,13 @@ describe('CrossFilterModeSection', () => {
       expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
     });
 
-    it('still commits when deselecting a NON-default selected mode (the resolved value actually changes)', async () => {
-      // This is the pre-existing "commits defaultMode when deselected" case (still correct):
-      // the resolved next value differs from the currently stored value, so it's a real change.
+    // M16 — BEHAVIOUR CHANGE. This used to assert that deselecting a NON-default selected
+    // mode committed `defaultMode`, on the reasoning that "the resolved next value differs
+    // from the stored one, so it's a real change". It is not a change the user asked for:
+    // clicking the selected button expresses no new choice at all, and silently moving the
+    // widget to a mode the user never clicked is the same bug as the `'none'` repro above,
+    // just less visible. A deselect is now inert whatever the stored value is.
+    it('does not commit when clicking a selected NON-default mode either', async () => {
       const { user } = render(
         <CrossFilterModeSection
           widgetId="widget-1"
@@ -174,9 +203,7 @@ describe('CrossFilterModeSection', () => {
 
       await user.click(screen.getByRole('button', { name: 'Filter' }));
 
-      expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
-        crossFilterMode: 'cross-highlight',
-      });
+      expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
     });
   });
 });

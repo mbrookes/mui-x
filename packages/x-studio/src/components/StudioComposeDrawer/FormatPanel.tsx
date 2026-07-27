@@ -30,6 +30,7 @@ import { inferWidgetTitles, inferKpiDateSubtitle } from '../../internals/widgetU
 import type { StudioLocaleText } from '../../internals/StudioUIConfigContext';
 import type { StudioWidgetConfig } from '../../models';
 import { GridConditionalFormatSection } from './GridConditionalFormatSection';
+import { useBufferedInput } from './useBufferedInput';
 
 type LegendPosition = 'bottom' | 'top' | 'left' | 'right' | 'hidden';
 type LegendAlign = 'start' | 'center' | 'end';
@@ -115,18 +116,19 @@ export function FormatPanel(props: { widgetId: string }) {
   const activePageId = useStudioSelector(selectActivePageId);
   const crossFilterAllPages = useStudioSelector(selectCrossFilterAllPages);
   const localeText = useStudioLocaleText();
-  const [formState, setFormState] = React.useState({
-    title: widget?.title ?? '',
-    subtitle: widget?.subtitle ?? '',
-    titleDirty: false,
-    subtitleDirty: false,
-    // Local text buffer for the grid-height input (Finding 1.3): kept separate from
-    // `config?.gridHeight` so keystrokes are never dropped by clamp validation —
-    // clamping/committing only happens on blur (see `handleGridHeightBlur`).
-    gridHeight: String(config?.gridHeight ?? 400),
-    gridHeightDirty: false,
-  });
-  const { title, subtitle, titleDirty, subtitleDirty, gridHeight, gridHeightDirty } = formState;
+  // Three independent dirty-aware buffers (M15's shared `useBufferedInput`). They must be
+  // independent: the compose drawer and the AI chat panel are usable at the same time, and the
+  // AI tool surface includes `update_widget`, so an external write to (say) `subtitle` must
+  // not discard a title the user is part-way through typing. `gridHeight` is buffered for the
+  // additional reason that keystrokes must never be dropped by clamp validation — the clamp
+  // only runs on blur (Finding 1.3, see `handleGridHeightBlur`). A widget switch (the
+  // `identity` argument) is the one case that discards a dirty buffer.
+  const titleBuffer = useBufferedInput(widget?.title ?? '', widgetId);
+  const subtitleBuffer = useBufferedInput(widget?.subtitle ?? '', widgetId);
+  const gridHeightBuffer = useBufferedInput(String(config?.gridHeight ?? 400), widgetId);
+  const { value: title, dirty: titleDirty } = titleBuffer;
+  const { value: subtitle, dirty: subtitleDirty } = subtitleBuffer;
+  const { value: gridHeight, dirty: gridHeightDirty } = gridHeightBuffer;
 
   const isAutoTitle = widget?.titleMode === 'auto' || (!widget?.titleMode && !widget?.title);
   const isAutoSubtitle =
@@ -151,51 +153,6 @@ export function FormatPanel(props: { widgetId: string }) {
     return null;
   }, [widget, isAutoSubtitle, allFilters, activePageId, crossFilterAllPages, localeText]);
 
-  // Tracks which widget the buffer was last synced FOR, so a widget switch can be told apart
-  // from an external edit to the widget already being edited. Only the former is allowed to
-  // discard dirty buffers (see the effect below).
-  const syncedWidgetIdRef = React.useRef(widgetId);
-
-  // Resync is PER FIELD and DIRTY-AWARE. Title, subtitle and gridHeight share one state
-  // object, but they are three independent buffers: the compose drawer and the AI chat panel
-  // are usable at the same time, and the AI tool surface includes `update_widget`, so an
-  // external write to (say) `subtitle` fires this effect while the user is mid-way through
-  // typing a new title. Overwriting the WHOLE object then silently discarded that uncommitted
-  // title. A field whose buffer is dirty keeps its in-progress text; clean fields still track
-  // the store, so undo/redo and external edits are reflected as before.
-  //
-  // A widget switch is the one case that resets everything including the dirty flags — an
-  // uncommitted edit must never leak onto a different widget. (`StudioComposeDrawer` also
-  // keys its config view on the selected widget id, remounting this subtree; this is the
-  // in-component guarantee for the other contexts the panel is rendered in.)
-  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- form state is intentionally reset when widget/page changes
-  React.useEffect(() => {
-    const widgetChanged = syncedWidgetIdRef.current !== widgetId;
-    syncedWidgetIdRef.current = widgetId;
-    // react-doctor-disable-next-line react-doctor/no-derived-state -- locally buffered editable fields; saved on blur
-    setFormState((prev) => {
-      const fromStore = {
-        title: widget?.title ?? '',
-        subtitle: widget?.subtitle ?? '',
-        gridHeight: String(config?.gridHeight ?? 400),
-      };
-      if (widgetChanged) {
-        return {
-          ...fromStore,
-          titleDirty: false,
-          subtitleDirty: false,
-          gridHeightDirty: false,
-        };
-      }
-      return {
-        ...prev,
-        ...(prev.titleDirty ? {} : { title: fromStore.title }),
-        ...(prev.subtitleDirty ? {} : { subtitle: fromStore.subtitle }),
-        ...(prev.gridHeightDirty ? {} : { gridHeight: fromStore.gridHeight }),
-      };
-    });
-  }, [widget?.title, widget?.subtitle, widgetId, config?.gridHeight]);
-
   const handleTitleBlur = () => {
     if (!titleDirty) {
       return;
@@ -204,7 +161,7 @@ export function FormatPanel(props: { widgetId: string }) {
     if (trimmed !== (widget?.title ?? '')) {
       controller.updateWidget(widgetId, { title: trimmed, titleMode: 'manual' });
     }
-    setFormState((prev) => ({ ...prev, titleDirty: false }));
+    titleBuffer.settle(title);
   };
 
   const handleResetTitle = () => {
@@ -213,7 +170,7 @@ export function FormatPanel(props: { widgetId: string }) {
     }
     const inferred = inferWidgetTitles(widget, dataSources, localeText);
     controller.updateWidget(widgetId, { title: inferred.title, titleMode: 'auto' });
-    setFormState((prev) => ({ ...prev, title: inferred.title }));
+    titleBuffer.settle(inferred.title);
   };
 
   const handleSubtitleBlur = () => {
@@ -227,7 +184,7 @@ export function FormatPanel(props: { widgetId: string }) {
         subtitleMode: 'manual',
       });
     }
-    setFormState((prev) => ({ ...prev, subtitleDirty: false }));
+    subtitleBuffer.settle(subtitle);
   };
 
   // Commits the buffered grid-height text on blur (or Enter), clamping to the
@@ -241,7 +198,7 @@ export function FormatPanel(props: { widgetId: string }) {
     if (clamped !== (config?.gridHeight ?? 400)) {
       controller.updateWidgetConfig(widgetId, { gridHeight: clamped });
     }
-    setFormState((prev) => ({ ...prev, gridHeight: String(clamped), gridHeightDirty: false }));
+    gridHeightBuffer.settle(String(clamped));
   };
 
   const handleResetSubtitle = () => {
@@ -250,7 +207,7 @@ export function FormatPanel(props: { widgetId: string }) {
     }
     const inferred = inferWidgetTitles(widget, dataSources, localeText);
     controller.updateWidget(widgetId, { subtitle: inferred.subtitle, subtitleMode: 'auto' });
-    setFormState((prev) => ({ ...prev, subtitle: inferred.subtitle }));
+    subtitleBuffer.settle(inferred.subtitle);
   };
 
   const hasKindControls =
@@ -268,7 +225,7 @@ export function FormatPanel(props: { widgetId: string }) {
         helperText={localeText.formatPanelWidgetTitleHelperText}
         value={title}
         onChange={(event) => {
-          setFormState((prev) => ({ ...prev, title: event.target.value, titleDirty: true }));
+          titleBuffer.setValue(event.target.value);
         }}
         onBlur={handleTitleBlur}
         onKeyDown={(event) => {
@@ -312,7 +269,7 @@ export function FormatPanel(props: { widgetId: string }) {
         value={subtitleDirty ? subtitle : (effectiveAutoSubtitle ?? subtitle)}
         placeholder={isAutoSubtitle ? '' : localeText.formatPanelNoSubtitlePlaceholder}
         onChange={(event) => {
-          setFormState((prev) => ({ ...prev, subtitle: event.target.value, subtitleDirty: true }));
+          subtitleBuffer.setValue(event.target.value);
         }}
         onBlur={handleSubtitleBlur}
         onKeyDown={(event) => {
@@ -374,11 +331,7 @@ export function FormatPanel(props: { widgetId: string }) {
             value={gridHeight}
             slotProps={{ htmlInput: { min: 200, step: 50 } }}
             onChange={(event) => {
-              setFormState((prev) => ({
-                ...prev,
-                gridHeight: event.target.value,
-                gridHeightDirty: true,
-              }));
+              gridHeightBuffer.setValue(event.target.value);
             }}
             onBlur={handleGridHeightBlur}
             onKeyDown={(event) => {

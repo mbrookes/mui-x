@@ -23,6 +23,12 @@ vi.mock('../../../context', async (importOriginal) => ({
 
 const { render } = createRenderer();
 
+// H3: see `ScatterConfigSection.test.tsx` — the section writes fields through the
+// source-aware commit path handed down by `ChartSetupPanel`, never the raw controller.
+const commitFieldConfig = vi.fn((patch: unknown) => {
+  controller.updateWidgetConfig('widget-1', patch);
+});
+
 const numericFields: DataSourceFieldEntry[] = [
   { id: 'count', label: 'Count', type: 'number', sourceId: 'orders', sourceLabel: 'Orders' },
   { id: 'revenue', label: 'Revenue', type: 'number', sourceId: 'orders', sourceLabel: 'Orders' },
@@ -34,6 +40,7 @@ function renderFunnel(config: Partial<StudioChartConfigOfType<'funnel'>>) {
       widgetId="widget-1"
       config={{ chartType: 'funnel', yField: 'count', ...config } as never}
       numericFields={numericFields}
+      commitFieldConfig={commitFieldConfig}
     />,
   );
 }
@@ -45,6 +52,7 @@ describe('FunnelConfigSection gap input (finding 2.3)', () => {
   beforeEach(() => {
     configureStudioContextMock({ getState: () => mockState, controller });
     controller.updateWidgetConfig.mockClear();
+    commitFieldConfig.mockClear();
   });
 
   it('does not commit while typing', () => {
@@ -142,6 +150,7 @@ describe('FunnelConfigSection gap input (finding 2.3)', () => {
         widgetId="widget-1"
         config={{ chartType: 'funnel', yField: 'count', funnelGap: 0 } as never}
         numericFields={numericFields}
+        commitFieldConfig={commitFieldConfig}
       />,
     );
     const input = screen.getByLabelText('Section gap (px)') as HTMLInputElement;
@@ -175,6 +184,7 @@ describe('FunnelConfigSection value field over a multi-series config', () => {
   beforeEach(() => {
     configureStudioContextMock({ getState: () => mockState, controller });
     controller.updateWidgetConfig.mockClear();
+    commitFieldConfig.mockClear();
   });
 
   it('preserves the remaining series when a new value field is picked', async () => {
@@ -189,6 +199,7 @@ describe('FunnelConfigSection value field over a multi-series config', () => {
           } as never
         }
         numericFields={numericFields}
+        commitFieldConfig={commitFieldConfig}
       />,
     );
 
@@ -210,6 +221,7 @@ describe('FunnelConfigSection value field over a multi-series config', () => {
         widgetId="widget-1"
         config={{ chartType: 'funnel', yField: 'count', ySeries: [{ fieldId: 'count' }] } as never}
         numericFields={numericFields}
+        commitFieldConfig={commitFieldConfig}
       />,
     );
 

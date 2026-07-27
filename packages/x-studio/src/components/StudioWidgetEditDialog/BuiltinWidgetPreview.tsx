@@ -3,6 +3,7 @@ import * as React from 'react';
 import {
   useStudioSelector,
   selectWidgets,
+  selectPages,
   selectActivePageId,
   makeSelectWidgetSource,
 } from '../../context';
@@ -21,7 +22,30 @@ export function BuiltinWidgetPreview({ widgetId }: { widgetId: string }) {
   const widget = Object.hasOwn(widgets, widgetId) ? widgets[widgetId] : undefined;
   const selectSource = React.useMemo(() => makeSelectWidgetSource(widgetId), [widgetId]);
   const source = useStudioSelector(selectSource);
-  const pageId = useStudioSelector(selectActivePageId);
+  const pages = useStudioSelector(selectPages);
+  const activePageId = useStudioSelector(selectActivePageId);
+  // M11: the widget's OWN page, not whichever page happens to be active. `pageId` is the
+  // page SCOPE the widget renders under: `StudioFilterWidget` reads its own interactive
+  // filter back with it (`makeSelectActiveInteractiveFilter(widgetId, pageId)`) while the
+  // write side stamps the widget's actual page via `StudioController.resolveWidgetPageId`, so
+  // when the two disagree the control writes correctly but never reads its own selection
+  // back — it renders as unset immediately after the user picks a value. Every other render
+  // path (`StudioCanvas`, `StudioWidgetCard`, the expand dialog) passes the widget's own
+  // page; only this preview did not, and `StudioWidgetEditDialog` is publicly exported and
+  // takes only a `widgetId`, so a host can legitimately open it for an off-page widget.
+  //
+  // Mirrors `StudioController.resolveWidgetPageIdInDoc`, including its "not in any layout"
+  // fallback to the active page (a widget created but not yet placed).
+  const pageId = React.useMemo(() => {
+    for (const [id, page] of Object.entries(pages)) {
+      for (const row of page.widgetRows ?? []) {
+        if (row.includes(widgetId)) {
+          return id;
+        }
+      }
+    }
+    return activePageId;
+  }, [pages, activePageId, widgetId]);
   const widgetDefMap = useWidgetDefMap();
   const def = widget ? widgetDefMap.get(widget.kind) : undefined;
 

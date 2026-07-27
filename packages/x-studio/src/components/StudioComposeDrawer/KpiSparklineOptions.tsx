@@ -27,8 +27,15 @@ import { fieldHasCapability } from '../../utils/fieldCapabilities';
 import { lookup } from '../../utils/safeLookup';
 import { buildSourceFieldEntries } from '../../internals/fieldCatalog';
 import { selectFiltersForWidget } from '../../internals/filterScoping';
+import { shouldApplyWidgetRankAtL3 } from '../../internals/StudioPipeline';
+// THE date-field rule, owned by the KPI widget and exported for exactly this reason: the
+// setup panel must answer "is a filter driving the time axis?" with the SAME implementation
+// the rendered widget uses (M5). Imported from `kpiUtils` (pure) rather than the widget's
+// barrel, which would drag the whole chart-rendering import chain into the compose drawer.
+import { resolveKpiDateField } from '../widgets/StudioKpiWidget/kpiUtils';
 import type { StudioDataSource, StudioWidgetConfig } from '../../models';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from './DataSourceFieldSelect';
+import { useBufferedInput } from './useBufferedInput';
 
 function getKpiGranularities(localeText: ReturnType<typeof useStudioLocaleText>) {
   return [
@@ -132,44 +139,52 @@ export function KpiSparklineOptions(props: { widgetId: string; config: StudioWid
     return result;
   }, [source, sourceId, relationships, dataSources, expressionFields]);
 
-  const autoDateFilter = React.useMemo(() => {
-    if (!sourceId) {
-      return null;
-    }
-    // Scope through the SAME authority the KPI widget itself uses to resolve its effective
-    // date filter (`selectFiltersForWidget`, matching `useKpiSparkline`'s `scopedFilters`)
-    // instead of a raw, unscoped `filters` scan. The previous page/dashboard-date-range/widget
-    // scope-kind check had no `pageId`, `disabled`, or cross-filter-mode enforcement, so it
-    // could match a date filter scoped to a DIFFERENT page or widget than the one actually in
-    // effect for this KPI at render time — wrongly reporting an auto-detected date filter (and
-    // hiding the manual Time-field picker) when the widget itself would show no such filter, or
-    // vice versa (finding 3).
-    const relevant = selectFiltersForWidget(filters, {
+  // M5: the SINGLE "which date field does this KPI use?" rule, shared verbatim with the
+  // rendered widget (`resolveKpiDateField`, `kpiUtils.ts`). This panel used to answer the
+  // question with its own third variant — it matched the first in-scope filter against own
+  // AND joined date fields with no notion of the resolver's later tiers — so it could hide the
+  // manual Time-field picker for a filter the widget then did not use, leaving the sparkline
+  // blank with no control left to fix it. The picker is now hidden EXACTLY when the resolver
+  // reports `origin === 'filter'`, i.e. when a filter really is driving the time axis.
+  //
+  // `scopedFilters` is the resolver's documented contract: pre-scoped through
+  // `selectFiltersForWidget`, matching what the widget passes. A raw `filters` scan has no
+  // `pageId`, `disabled` or cross-filter-mode enforcement, so it could match a date filter
+  // scoped to a different page or widget than the one actually in effect (finding 3).
+  // `includeWidgetRank` mirrors the widget's own resolution of the same flag.
+  const dateFieldResolution = React.useMemo(() => {
+    const scopedFilters = selectFiltersForWidget(filters, {
       widgetId,
       widgetSourceId: sourceId,
       activePageId,
       include: crossFilterMode === 'none' ? 'no-cross' : 'all',
       crossFilterAllPages,
+      includeWidgetRank: widget ? shouldApplyWidgetRankAtL3(widget) : false,
     });
-    return (
-      relevant.find((f) => {
-        return allDateFieldsWithJoined.some(
-          (df) => df.id === f.field && (!f.filterSourceId || f.filterSourceId === df.sourceId),
-        );
-      }) ?? null
-    );
+    return resolveKpiDateField({
+      config,
+      widgetId,
+      widgetSourceId: sourceId,
+      dataSource: source,
+      scopedFilters,
+    });
   }, [
     filters,
+    widget,
+    config,
     sourceId,
+    source,
     widgetId,
-    allDateFieldsWithJoined,
     activePageId,
     crossFilterMode,
     crossFilterAllPages,
   ]);
 
+  const autoDateFilter = dateFieldResolution.origin === 'filter' ? dateFieldResolution : null;
   const autoFieldLabel = autoDateFilter
-    ? allDateFieldsWithJoined.find((f) => f.id === autoDateFilter.field)?.label
+    ? (allDateFieldsWithJoined.find(
+        (f) => f.id === autoDateFilter.field && f.sourceId === autoDateFilter.sourceId,
+      )?.label ?? autoDateFilter.field)
     : null;
 
   const plotType = config.kpiSparklinePlotType ?? 'line';
@@ -179,28 +194,20 @@ export function KpiSparklineOptions(props: { widgetId: string; config: StudioWid
 
   // Local text buffer for the gauge-max input (architecture review finding 1.14):
   // rejecting anything not `> 0` on every keystroke made the field impossible to
-  // clear and retype. Buffer the displayed text locally and only parse/validate/
-  // commit on blur, mirroring `FormatPanel.tsx`'s grid-height input.
-  const [gaugeMaxText, setGaugeMaxText] = React.useState(String(gaugeMax));
-  const [gaugeMaxDirty, setGaugeMaxDirty] = React.useState(false);
-
-  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed gaugeMax; resync on external change (widget switch, undo/redo)
-  React.useEffect(() => {
-    setGaugeMaxText(String(gaugeMax));
-    setGaugeMaxDirty(false);
-  }, [gaugeMax, widgetId]);
+  // clear and retype. Buffered through the shared dirty-aware `useBufferedInput` (M15) and
+  // parsed/validated/committed on blur only.
+  const gaugeMaxBuffer = useBufferedInput(String(gaugeMax), `${widgetId}:kpiSparklineGaugeMax`);
 
   const commitGaugeMax = () => {
-    if (!gaugeMaxDirty) {
+    if (!gaugeMaxBuffer.dirty) {
       return;
     }
-    const parsed = Number(gaugeMaxText);
+    const parsed = Number(gaugeMaxBuffer.value);
     const valid = Number.isFinite(parsed) && parsed > 0;
     if (valid && parsed !== gaugeMax) {
       controller.updateWidgetConfig(widgetId, { kpiSparklineGaugeMax: parsed });
     }
-    setGaugeMaxText(String(valid ? parsed : gaugeMax));
-    setGaugeMaxDirty(false);
+    gaugeMaxBuffer.settle(String(valid ? parsed : gaugeMax));
   };
 
   return (
@@ -281,10 +288,9 @@ export function KpiSparklineOptions(props: { widgetId: string; config: StudioWid
           size="small"
           label={localeText.kpiSetupGaugeMaxLabel}
           type="number"
-          value={gaugeMaxText}
+          value={gaugeMaxBuffer.value}
           onChange={(event) => {
-            setGaugeMaxText(event.target.value);
-            setGaugeMaxDirty(true);
+            gaugeMaxBuffer.setValue(event.target.value);
           }}
           onBlur={commitGaugeMax}
           onKeyDown={(event) => {

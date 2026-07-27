@@ -2,7 +2,7 @@
 import * as React from 'react';
 import { FormControl, InputLabel, MenuItem, Select, Stack } from '@mui/material';
 import { useStudioController, useStudioLocaleText } from '../../../context';
-import type { StudioChartConfigOfType } from '../../../models';
+import type { StudioChartConfig, StudioChartConfigOfType } from '../../../models';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from '../DataSourceFieldSelect';
 import { SortDirectionToggle } from './SortDirectionToggle';
 import { buildSingleMeasurePatch } from './commitMeasureSeries';
@@ -20,6 +20,22 @@ export interface HeatmapAxesSectionProps {
   allFields: DataSourceFieldEntry[];
   /** First configured Y-series field id, used as the fallback for the value-field picker. */
   firstYSeriesFieldId?: string;
+  /**
+   * The widget's current source id. Scopes the axis-label lookups below (a bare-id lookup
+   * across the multi-source catalog can match a same-id field on a merely-reachable source
+   * and show its label) and is the `yField` mirror's own-source test.
+   */
+  widgetSourceId?: string;
+  /**
+   * H3: the ONE write path for this section's field pickers, supplied by `ChartSetupPanel`.
+   * It routes through `commitChartConfigWithSource`, so a row-axis or value pick on a
+   * source-less heatmap adopts that field's source instead of leaving the widget blank.
+   */
+  commitFieldConfig: (
+    configPatch: Partial<StudioChartConfig>,
+    /** The picked field's source, or `undefined` when the gesture clears the field. */
+    sourceId: string | undefined,
+  ) => void;
 }
 
 /** Heatmap chart setup: row axis field, colour-value measure, colour scheme, and axis sorting. */
@@ -30,6 +46,8 @@ export function HeatmapAxesSection({
   numericFields,
   allFields,
   firstYSeriesFieldId,
+  widgetSourceId,
+  commitFieldConfig,
 }: HeatmapAxesSectionProps) {
   const controller = useStudioController();
   const localeText = useStudioLocaleText();
@@ -39,15 +57,28 @@ export function HeatmapAxesSection({
   const sortByLabelId = React.useId();
 
   const heatAxesSet = !!(config.xField && config.heatYField);
-  const heatXFieldLabel = allFields.find((f) => f.id === config.xField)?.label;
-  const heatYFieldLabel = allFields.find((f) => f.id === config.heatYField)?.label;
+  // Own-source-first resolution, mirroring `ChartSetupPanel`'s `selectedXField` (finding
+  // 2.12): `buildFieldCatalog` sorts by source label, so a bare-id lookup across the
+  // multi-source catalog can match a related source that shares the field id and sorts
+  // earlier, labelling the sort options after the wrong source's field.
+  const findFieldLabel = (fieldId: string | undefined) =>
+    fieldId === undefined
+      ? undefined
+      : (
+          (widgetSourceId
+            ? allFields.find((f) => f.id === fieldId && f.sourceId === widgetSourceId)
+            : undefined) ?? allFields.find((f) => f.id === fieldId)
+        )?.label;
+  const heatXFieldLabel = findFieldLabel(config.xField);
+  const heatYFieldLabel = findFieldLabel(config.heatYField);
 
   return (
     <React.Fragment>
       <DataSourceFieldSelect
         value={config.heatYField ?? ''}
-        onChange={(fieldId) =>
-          controller.updateWidgetConfig(widgetId, { heatYField: fieldId || undefined })
+        valueSourceId={widgetSourceId}
+        onChange={(fieldId, sourceId) =>
+          commitFieldConfig({ heatYField: fieldId || undefined }, fieldId ? sourceId : undefined)
         }
         fields={heatYFields}
         label={localeText.chartSetupHeatmapRowAxisLabel}
@@ -56,13 +87,13 @@ export function HeatmapAxesSection({
       />
       <DataSourceFieldSelect
         value={config.yField ?? firstYSeriesFieldId ?? ''}
-        onChange={(fieldId) => {
+        onChange={(fieldId, sourceId) => {
           // Single-measure picker over a multi-series config — see `buildSingleMeasurePatch`
           // for why the remaining series are preserved and why clearing writes `ySeries: []`
           // rather than a placeholder entry.
-          controller.updateWidgetConfig(
-            widgetId,
-            buildSingleMeasurePatch('heatmap', config, fieldId),
+          commitFieldConfig(
+            buildSingleMeasurePatch('heatmap', config, fieldId, widgetSourceId),
+            fieldId ? sourceId : undefined,
           );
         }}
         fields={numericFields}

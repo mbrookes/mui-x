@@ -11,6 +11,7 @@ import {
 } from '@mui/material';
 import { useStudioController, useStudioLocaleText } from '../../../context';
 import type { StudioChartConfigOfType } from '../../../models';
+import { useBufferedInput } from '../useBufferedInput';
 
 export interface PieArcLabelsSectionProps {
   widgetId: string;
@@ -34,21 +35,17 @@ function MinAngleInput(props: {
   onCommit: (next: number) => void;
 }) {
   const { widgetId, value, label, helperText, clampedHelperText, onCommit } = props;
-  const [text, setText] = React.useState(String(value));
-  const [dirty, setDirty] = React.useState(false);
-  // Set when a commit CHANGED the typed value to fit the range. Without it the clamp is
-  // indistinguishable from "nothing happened" and the user retypes the same rejected
-  // value. Advisory only — it explains the already-applied clamp, mirroring
-  // `FilterSetupPanel`'s cross-bound messages, and replaces the standing helper text so
-  // the field never shows two competing hints at once.
-  const [notice, setNotice] = React.useState<string | undefined>(undefined);
-
-  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed min angle; resync on external change (widget switch, undo/redo). `widgetId` is in the deps because a widget switch that lands on the SAME min-angle value would otherwise leave a still-dirty buffer from the previous widget uncommitted into the new one.
-  React.useEffect(() => {
-    setText(String(value));
-    setDirty(false);
-    setNotice(undefined);
-  }, [value, widgetId]);
+  // Shared dirty-aware buffer (M15). `notice` is set when a commit CHANGED the typed value to
+  // fit the range — without it the clamp is indistinguishable from "nothing happened" and the
+  // user retypes the same rejected value. Advisory only, and it replaces the standing helper
+  // text so the field never shows two competing hints at once.
+  const {
+    value: text,
+    dirty,
+    notice,
+    setValue,
+    settle,
+  } = useBufferedInput(String(value), `${widgetId}:pieArcLabelMinAngle`);
 
   const commit = () => {
     if (!dirty) {
@@ -61,13 +58,10 @@ function MinAngleInput(props: {
       if (clamped !== value) {
         onCommit(clamped);
       }
-      setText(String(clamped));
-      setNotice(clamped === parsed ? undefined : clampedHelperText(clamped));
+      settle(String(clamped), clamped === parsed ? undefined : clampedHelperText(clamped));
     } else {
-      setText(String(value));
-      setNotice(clampedHelperText(value));
+      settle(String(value), clampedHelperText(value));
     }
-    setDirty(false);
   };
 
   return (
@@ -79,9 +73,7 @@ function MinAngleInput(props: {
       error={notice !== undefined}
       helperText={notice ?? helperText}
       onChange={(evt) => {
-        setText(evt.target.value);
-        setDirty(true);
-        setNotice(undefined);
+        setValue(evt.target.value);
       }}
       onBlur={commit}
       onKeyDown={(evt) => {

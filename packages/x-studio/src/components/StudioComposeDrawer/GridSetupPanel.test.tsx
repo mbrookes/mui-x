@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { createRenderer, screen, waitFor } from '@mui/internal-test-utils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StudioRelationship, StudioWidget, StudioWidgetConfig } from '../../models';
 import {
   mockUseStudioSelector,
@@ -120,7 +120,10 @@ describe('GridSetupPanel', () => {
 
     expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
       gridGroupByField: 'category',
-      gridAggregations: {},
+      // `undefined`, never `{}`: the sibling writer (`handleGroupAggChange`) already guards
+      // with `Object.keys(next).length > 0`, and persisting an empty object turns "no
+      // per-column aggregations" into a doc key that survives export (M17).
+      gridAggregations: undefined,
     });
   });
 
@@ -167,10 +170,12 @@ describe('GridSetupPanel', () => {
         'widget-1',
         {
           sourceId: 'customers',
+          // `columns` is DELETED, not reset to `[]` (M17). `undefined` means "unset — show
+          // every field of the (new) source"; `[]` means "explicitly no columns", which would
+          // leave the grid blank after a source switch.
           config: {
             gridSortDirection: 'desc',
             gridHeight: 500,
-            columns: [],
           },
         },
         { removeFilterIds: [] },
@@ -541,5 +546,71 @@ describe('GridSetupPanel — calculated column (findings 3 & 4)', () => {
 
     expect(realController.getState().doc.widgets['widget-1'].sourceId).toBe('orders');
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+});
+// ─── M17: `[]` and `undefined` are different column states ───────────────────
+//
+// `configColumns` tested `config.columns?.length`, collapsing "the user explicitly removed
+// every column" into "unset — show every field of the source". Removing the last column
+// therefore produced the exact opposite of what the menu item says: every column reappeared,
+// and the "Add column" menu then read "All columns added."
+describe('GridSetupPanel empty vs missing column list (M17)', () => {
+  const previousWidget = mockState.doc.widgets['widget-1'];
+
+  beforeEach(() => {
+    configureStudioContextMock({ getState: () => mockState, controller });
+    controller.updateWidgetConfig.mockClear();
+    controller.updateWidget.mockClear();
+  });
+
+  afterEach(() => {
+    mockState.doc.widgets['widget-1'] = previousWidget;
+  });
+
+  it('removing the last explicit column does not make every column reappear', async () => {
+    mockState.doc.widgets['widget-1'] = {
+      ...previousWidget,
+      sourceId: 'orders',
+      config: { columns: [{ fieldId: 'id' }] } as StudioWidgetConfig,
+    };
+
+    const { user, setProps } = render(<GridSetupPanel widgetId="widget-1" />);
+
+    await user.click(screen.getByRole('button', { name: 'Options for Order ID' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Remove' }));
+
+    expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
+      columns: [],
+    });
+
+    // Re-render against the config that commit produces: no columns are listed, and every
+    // field of the source is offered again by "Add column" — not "All columns added."
+    mockState.doc.widgets['widget-1'] = {
+      ...previousWidget,
+      sourceId: 'orders',
+      config: { columns: [] } as StudioWidgetConfig,
+    };
+    setProps({ widgetId: 'widget-1' });
+
+    expect(screen.queryByText('Order ID')).toBeNull();
+    expect(screen.queryByText('Total')).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: 'Add column' }));
+    expect(await screen.findByRole('menuitem', { name: /Order ID$/ })).toBeVisible();
+    expect(screen.queryByRole('menuitem', { name: 'All columns added' })).toBeNull();
+  });
+
+  it('still shows every field of the source when `columns` is unset', () => {
+    mockState.doc.widgets['widget-1'] = {
+      ...previousWidget,
+      sourceId: 'orders',
+      config: {} as StudioWidgetConfig,
+    };
+
+    render(<GridSetupPanel widgetId="widget-1" />);
+
+    expect(screen.getByText('Order ID')).toBeVisible();
+    expect(screen.getByText('Total')).toBeVisible();
+    expect(screen.getByText('Category')).toBeVisible();
   });
 });

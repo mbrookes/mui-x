@@ -172,7 +172,12 @@ describe('KpiSetupPanel', () => {
     }
   });
 
-  it('commits crossFilterMode: none when the already-selected Filter button is deselected', async () => {
+  // M16 — BEHAVIOUR CHANGE. This used to assert that clicking the already-selected Filter
+  // button committed `defaultMode` (`'none'` for KPI). `CrossFilterModeSection` now ignores an
+  // exclusive group's `null` deselect: these modes have no "nothing selected" state, so
+  // clicking the selected button expresses no new choice and must not flip the widget to a
+  // mode the user never clicked. See `CrossFilterModeSection.test.tsx` for the full rationale.
+  it('commits nothing when the already-selected Filter button is clicked again', async () => {
     const previousWidget = mockState.doc.widgets['widget-1'];
     controller.updateWidgetConfig.mockClear();
 
@@ -190,9 +195,8 @@ describe('KpiSetupPanel', () => {
 
       await user.click(screen.getByRole('button', { name: 'Filter' }));
 
-      expect(controller.updateWidgetConfig).toHaveBeenCalledWith('widget-1', {
-        crossFilterMode: 'none',
-      });
+      expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+      expect(screen.getByRole('button', { name: 'Filter', pressed: true })).toBeVisible();
     } finally {
       mockState.doc.widgets['widget-1'] = previousWidget;
     }

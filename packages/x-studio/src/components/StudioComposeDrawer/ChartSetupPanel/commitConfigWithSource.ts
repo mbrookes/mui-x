@@ -2,13 +2,35 @@ import type { StudioChartConfig } from '../../../models';
 import type { StudioController } from '../../../store/StudioController';
 
 /**
+ * Which picks may re-point the widget at the picked field's source.
+ *
+ * `createDefaultWidget` never sets `sourceId`, so EVERY chart and map starts source-less and
+ * `useWidgetRows` early-returns with no rows until something adopts one. A chart has no
+ * separate source picker, so the only thing that ever can is a field pick — which is why this
+ * argument is REQUIRED rather than defaulted: a new picker cannot be added without its author
+ * stating which of the two policies it follows. Ten pickers silently omitted the source
+ * argument while it was optional, and a "measure-first" configuration (add a chart → pick a Y
+ * measure) produced a permanently blank widget with every option enabled and no warning (H3).
+ *
+ * - `'anchor'` — the picker IS the widget's source anchor (the X field, the gauge value field,
+ *   every gantt field, the map's region field). Any cross-source pick re-anchors the whole
+ *   widget onto the picked field's source.
+ * - `'if-unset'` — a NON-anchor picker (Y measure, split-by, heatmap row axis, sankey target,
+ *   scatter colour/size, map value). It adopts only to give a source-less widget its first
+ *   source; once anchored, a reachable cross-source pick is resolved by the anchor-grain
+ *   mechanism (`analyzeChartSupport` / `resolveChartRowsForAggregation`) or, for `mixed`, by a
+ *   blended `StudioChartSeries.sourceId` — re-anchoring there would orphan the X field.
+ */
+export type ChartSourceAdoption = 'anchor' | 'if-unset';
+
+/**
  * Commits a chart config patch that may also ADOPT the picked field's data source.
  *
  * A chart has no separate source picker — a field pick IS how it acquires or changes its
- * source — so the shared X-field picker (`ChartSetupPanel`), the gauge value-field picker
- * and every gantt field picker all need the same two-part write: the source (plus the
- * widget-scoped filters that no longer resolve against it) and the config keys the pick
- * changed.
+ * source — so EVERY field picker in `ChartSetupPanel` and its per-type sections routes its
+ * write through here, alongside the gauge value picker and the gantt field pickers. The
+ * two-part write is the source (plus the widget-scoped filters that no longer resolve against
+ * it) and the config keys the pick changed.
  *
  * Invariants upheld here:
  *
@@ -39,16 +61,27 @@ export function commitChartConfigWithSource(options: {
   widgetId: string;
   /** ONLY the keys this gesture changes — never the widget's full stored config. */
   configPatch: Partial<StudioChartConfig>;
-  /** The source the picked field belongs to. */
+  /**
+   * The source the picked field belongs to, or `undefined` when the gesture CLEARS the field
+   * (clearing must never adopt anything).
+   */
   sourceId: string | undefined;
   /** The widget's current source id. */
   widgetSourceId: string | undefined;
+  /** Whether this picker may re-anchor the widget. See {@link ChartSourceAdoption}. */
+  adopt: ChartSourceAdoption;
   /** Widget-scoped filters that no longer resolve against the adopted source. */
   removeFilterIds?: string[];
 }) {
-  const { controller, widgetId, configPatch, sourceId, widgetSourceId, removeFilterIds } = options;
+  const { controller, widgetId, configPatch, sourceId, widgetSourceId, adopt, removeFilterIds } =
+    options;
 
-  if (!sourceId || sourceId === widgetSourceId) {
+  const adopts =
+    !!sourceId &&
+    sourceId !== widgetSourceId &&
+    (adopt === 'anchor' || widgetSourceId === undefined);
+
+  if (!adopts) {
     controller.updateWidgetConfig(widgetId, configPatch);
     return;
   }

@@ -26,10 +26,9 @@ export interface CrossFilterModeSectionProps {
    */
   modes: StudioCrossFilterMode[];
   /**
-   * The mode used when the stored config value is `undefined`, AND the value committed
-   * when the user deselects the currently-selected button (an exclusive
-   * `ToggleButtonGroup` reports `null` on deselect). Chart/Grid pass `'cross-highlight'`;
-   * KPI passes `'none'`.
+   * The mode shown as selected when the stored config value is `undefined`. Chart/Grid/Map
+   * pass `'cross-highlight'`; KPI passes `'none'`. It is NOT what a deselect commits — see
+   * the `onChange` handler.
    */
   defaultMode: StudioCrossFilterMode;
   /** The raw, possibly-legacy `config.crossFilterMode` value. */
@@ -70,17 +69,27 @@ export function CrossFilterModeSection(props: CrossFilterModeSectionProps) {
         value={displayValue}
         exclusive
         onChange={(_e, next: StudioCrossFilterMode | null) => {
-          // An exclusive `ToggleButtonGroup` reports `null` when the user deselects the current
-          // button; resolve that (and any explicit pick) to a concrete mode. Guard against an
-          // undoable no-op: deselecting the already-default button (or re-picking the current
-          // mode) resolves to the value already in effect. `undefined` means "default", so
-          // compare against the resolved current value before committing a new config key.
-          const resolvedNext = next ?? defaultMode;
-          if (resolvedNext === (value ?? defaultMode)) {
+          // M16: an exclusive `ToggleButtonGroup` reports `null` when the user clicks the
+          // ALREADY-SELECTED button. That is a deselect gesture, and these three modes have no
+          // "nothing selected" state — so it means "no change", and the only correct response
+          // is to ignore it. Mapping `null` to `defaultMode` (the previous behaviour, pinned
+          // by two tests) made clicking the highlighted **None** on a chart commit
+          // `'cross-highlight'` and silently switch cross-highlighting ON: the button the user
+          // clicked to confirm their choice changed it to something else. Every sibling
+          // exclusive group in the drawer — `SortDirectionToggle`, the funnel style toggle,
+          // the mixed bar/line series toggle, the grid sort-direction toggle — already
+          // ignores `null`; this was the one that did not.
+          if (next === null) {
+            return;
+          }
+          // `undefined` means "default", so compare against the RESOLVED current value: a
+          // pick that lands back on the mode already in effect must not push an undo entry
+          // whose content matches its predecessor (finding 2.8).
+          if (next === (value ?? defaultMode)) {
             return;
           }
           controller.updateWidgetConfig(widgetId, {
-            crossFilterMode: resolvedNext,
+            crossFilterMode: next,
           });
         }}
         size="small"

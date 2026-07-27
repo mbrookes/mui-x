@@ -16,6 +16,7 @@ import {
 import { createIdFactory } from '@mui/x-studio-schema';
 import { useStudioController, useStudioLocaleText } from '../../../context';
 import type { StudioChartAnnotation } from '../../../models';
+import { useBufferedInput } from '../useBufferedInput';
 
 // Collision-resistant (timestamp + monotonic counter + random suffix) instead of the
 // previous bare `Math.random()` — see `createIdFactory` in `@mui/x-studio-schema`.
@@ -45,14 +46,7 @@ function AnnotationValueInput(props: {
   onCommit: (next: number | string) => void;
 }) {
   const { value, label, identity, onCommit } = props;
-  const [text, setText] = React.useState(String(value));
-  const [dirty, setDirty] = React.useState(false);
-
-  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed annotation value; resync on external change (undo/redo) AND on `identity` (see M2 above)
-  React.useEffect(() => {
-    setText(String(value));
-    setDirty(false);
-  }, [value, identity]);
+  const { value: text, dirty, setValue, settle } = useBufferedInput(String(value), identity);
 
   const commit = () => {
     if (!dirty) {
@@ -62,8 +56,7 @@ function AnnotationValueInput(props: {
     if (raw === '') {
       // An emptied field reverts to the last committed value rather than silently
       // coercing to 0 (`Number('')` is `0`, not `NaN`).
-      setText(String(value));
-      setDirty(false);
+      settle(String(value));
       return;
     }
     const num = Number(raw);
@@ -71,8 +64,7 @@ function AnnotationValueInput(props: {
     if (next !== value) {
       onCommit(next);
     }
-    setText(String(next));
-    setDirty(false);
+    settle(String(next));
   };
 
   return (
@@ -81,8 +73,7 @@ function AnnotationValueInput(props: {
       label={label}
       value={text}
       onChange={(event) => {
-        setText(event.target.value);
-        setDirty(true);
+        setValue(event.target.value);
       }}
       onBlur={commit}
       onKeyDown={(event) => {
@@ -103,6 +94,13 @@ function AnnotationValueInput(props: {
  * locally and only commit on blur/Enter, mirroring `AnnotationValueInput` above.
  *
  * M2: `identity` is in the resync deps for the same reason as `AnnotationValueInput`.
+ *
+ * M15: this was the ONE buffered input in the drawer with no change-check on commit. `dirty`
+ * means "was typed in", NOT "differs from the stored value" — typing a character into a
+ * reference-line label and deleting it again pushed an undoable commit whose content matched
+ * its predecessor (and cleared the redo stack), so a later Ctrl+Z appeared to do nothing at
+ * all. All thirteen sibling inputs guard; `ColorInput` even documents itself as mirroring
+ * "the established `AnnotationLabelInput` pattern" while being stricter than it was.
  */
 function AnnotationLabelInput(props: {
   value: string;
@@ -111,21 +109,16 @@ function AnnotationLabelInput(props: {
   onCommit: (next: string) => void;
 }) {
   const { value, label, identity, onCommit } = props;
-  const [text, setText] = React.useState(value);
-  const [dirty, setDirty] = React.useState(false);
-
-  // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- buffered text mirrors the committed label; resync on external change (undo/redo) AND on `identity` (see M2 above)
-  React.useEffect(() => {
-    setText(value);
-    setDirty(false);
-  }, [value, identity]);
+  const { value: text, dirty, setValue, settle } = useBufferedInput(value, identity);
 
   const commit = () => {
     if (!dirty) {
       return;
     }
-    onCommit(text);
-    setDirty(false);
+    if (text !== value) {
+      onCommit(text);
+    }
+    settle(text);
   };
 
   return (
@@ -134,8 +127,7 @@ function AnnotationLabelInput(props: {
       label={label}
       value={text}
       onChange={(event) => {
-        setText(event.target.value);
-        setDirty(true);
+        setValue(event.target.value);
       }}
       onBlur={commit}
       onKeyDown={(event) => {
@@ -199,7 +191,12 @@ export function AnnotationsEditorSection({ widgetId, config }: AnnotationsEditor
             <FormControl size="small" sx={{ width: 56 }}>
               <Select
                 value={ann.axis}
-                aria-label={localeText.chartAnnotationAxisAriaLabel}
+                // MUI's `Select` does NOT forward a bare `aria-label` to the element that
+                // carries `role="combobox"` — `SelectInput` reads it off `inputProps`, which
+                // is what `Select`'s own `inputProps` prop feeds. Passed as a plain prop it
+                // landed on the hidden native input instead, leaving the combobox with no
+                // accessible name at all. Same pattern as `FilterRow.tsx`.
+                inputProps={{ 'aria-label': localeText.chartAnnotationAxisAriaLabel }}
                 onChange={(event) => {
                   controller.updateWidgetConfig(widgetId, {
                     annotations: annotations.map((a) =>

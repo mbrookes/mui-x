@@ -54,7 +54,11 @@ describe('StudioMapTooltipContext provider', () => {
 
     render(
       <StudioMapTooltipContext.Provider
-        value={{ valueFieldLabel: 'Net Sales', featureIdToLabel: resolveLabel }}
+        value={{
+          valueFieldLabel: 'Net Sales',
+          featureIdToLabel: resolveLabel,
+          regionAriaLabel: (id: string) => resolveLabel(id),
+        }}
       >
         <Probe />
       </StudioMapTooltipContext.Provider>,
@@ -76,7 +80,11 @@ describe('StudioMapTooltipContext provider', () => {
 
     render(
       <StudioMapTooltipContext.Provider
-        value={{ valueFieldLabel: null, featureIdToLabel: resolveLabel }}
+        value={{
+          valueFieldLabel: null,
+          featureIdToLabel: resolveLabel,
+          regionAriaLabel: (id: string) => resolveLabel(id),
+        }}
       >
         <Probe />
       </StudioMapTooltipContext.Provider>,

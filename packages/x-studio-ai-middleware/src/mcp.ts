@@ -991,7 +991,11 @@ export function buildStudioMcpServer(
 
   server.setRequestHandler(CallToolRequestSchema, async (request, extra) =>
     // The single MCP-side output-budget boundary (finding M3) — see `capCallToolResult`.
-    capCallToolResult(await handleCallTool(request, extra.signal)),
+    // `extra?.signal`: the SDK always supplies `extra`, but reading it unguarded makes the
+    // handler non-total for any caller that invokes it directly, and a throw here surfaces
+    // as an opaque JSON-RPC internal error rather than a tool result. The signal is an
+    // optimization (it cancels a bounded wait early); its absence must not break the call.
+    capCallToolResult(await handleCallTool(request, extra?.signal)),
   );
 
   // ── resources/* and prompts/* + completion/* ──────────────────────────────

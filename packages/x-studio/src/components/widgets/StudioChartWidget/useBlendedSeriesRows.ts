@@ -386,7 +386,7 @@ export function useBlendedSeriesRows(
       const src = Object.hasOwn(dataSources, sid) ? dataSources[sid] : undefined;
       const usedIds = foreignUsedFieldIdsBySid.get(sid);
       const normalizedRows = src
-        ? getCachedNormalizedDataSource({ ...src, rows }, usedIds).rows
+        ? (getCachedNormalizedDataSource({ ...src, rows }, usedIds).rows ?? rows)
         : rows;
       return getCachedEnrichedRows(
         normalizedRows,

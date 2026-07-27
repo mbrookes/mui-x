@@ -336,7 +336,7 @@ function computeFilterBasedTrend(params: {
   // which calendar day a row belongs to — a wrong trend percentage from a source both
   // sides agree on.
   const preEnrichedRows = getCachedEnrichedRows(
-    getCachedNormalizedDataSource(dataSource, kpiUsedFieldIds).rows,
+    getCachedNormalizedDataSource(dataSource, kpiUsedFieldIds).rows ?? [],
     widget.sourceId,
     expressionFields,
     dataSources,
@@ -991,7 +991,7 @@ function useKpiTrend(params: {
                   getCachedNormalizedDataSource(
                     { ...dataSource, rows: rawSourceRows },
                     allTimeUsedFieldIds,
-                  ).rows,
+                  ).rows ?? rawSourceRows,
                   widget.sourceId,
                   expressionFields,
                   dataSources,

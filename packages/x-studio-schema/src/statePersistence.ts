@@ -1286,8 +1286,13 @@ export function deserializeState(
   // poison a later spread. The container's unsafe keys are stripped (keeping the rest of `ai`);
   // a thread carrying one is dropped whole, matching the sibling per-entry own-key screens.
   let normalizedAi: StudioAIState | undefined;
-  if (isRecord(raw.ai) && Array.isArray((raw.ai as StudioAIState).threads)) {
-    const ai = stripUnsafeOwnKeys(raw.ai as StudioAIState);
+  // `raw` is the normalised container (`{}` when the argument was not a record), so `raw.ai`
+  // narrows only to `Record<string, unknown>` — a direct cast to `StudioAIState` is rejected as
+  // insufficiently overlapping. Go through `unknown`: this IS untrusted persisted input, and the
+  // `isRecord` + `Array.isArray(threads)` gate above plus the per-thread screens below are what
+  // establish the shape. The cast asserts nothing the runtime checks have not already proven.
+  if (isRecord(raw.ai) && Array.isArray((raw.ai as unknown as StudioAIState).threads)) {
+    const ai = stripUnsafeOwnKeys(raw.ai as unknown as StudioAIState);
     // Drop non-record / unsafe-own-key entries first (existing screen), THEN repair
     // each SURVIVING thread's `messages`/`name` leaf shapes (F1 finding) — the
     // container/record-ness screen alone let a `messages: 'junk'` or `name: 42` thread

@@ -111,13 +111,46 @@ const packageFilesWithReactCompiler = getReactCompilerFilesForPackages([
   },
 ]);
 
+const baseConfig = createBaseConfig({
+  baseDirectory: dirname,
+  enableReactCompiler: isAnyReactCompilerPluginEnabled,
+  materialUi: true,
+  markdown: true,
+});
+
+/**
+ * The `no-restricted-syntax` restrictions the shared base config installs for every
+ * file (namespace-only React imports, `new Error`, `window.setTimeout`, …).
+ *
+ * Flat config REPLACES a rule's options rather than merging them, so any scoped block
+ * that adds one more restriction has to re-state these or it silently switches the
+ * shared ones off for the files it covers. Reading them back off the base config keeps
+ * that automatic instead of a copy that rots.
+ *
+ * @type {unknown[]}
+ */
+const BASE_RESTRICTED_SYNTAX = (Array.isArray(baseConfig) ? baseConfig : [baseConfig])
+  .flatMap((entry) => entry?.rules?.['no-restricted-syntax'] ?? [])
+  // Drop the leading severity — the scoped block supplies its own.
+  .filter((option) => typeof option === 'object' && option !== null);
+
+/**
+ * Message for the `sanitizeForPrompt` restriction below. Follows the repo's
+ * error-message guidance: what happened, why it is a problem, how to fix it.
+ */
+const SANITIZE_FOR_PROMPT_MESSAGE =
+  '`sanitizeForPrompt` escapes `<` and `>` only, so line breaks and `"` survive it. ' +
+  'Every value it guards is state-derived and attacker-influenceable, so on a single ' +
+  'line of the system prompt it can forge a `## Security Rules` heading inside the ' +
+  'trusted `<dashboard_state>` block, or a sibling `source: "…"` field the widget never ' +
+  'reads — a prompt injection that has shipped three times already. Use the `promptLine` ' +
+  'tagged template (or `sanitizeForPromptLine`) instead. If this position really is a ' +
+  'multi-line, host-authored region where collapsing newlines would corrupt legitimate ' +
+  'prose, add an `// eslint-disable-next-line no-restricted-syntax` with a one-line ' +
+  'justification so the exception is reviewable.';
+
 export default defineConfig(
-  createBaseConfig({
-    baseDirectory: dirname,
-    enableReactCompiler: isAnyReactCompilerPluginEnabled,
-    materialUi: true,
-    markdown: true,
-  }),
+  baseConfig,
   // eslint-plugin-mdx loads `.remarkrc.mjs` itself, but ESLint doesn't know
   // that file is a config dependency, so `--cache` doesn't invalidate when
   // it changes. Embedding the imported value in a setting puts its content
@@ -517,6 +550,56 @@ export default defineConfig(
     files: [`packages/x-studio/src/locales/**/*${EXTENSION_TS}`],
     rules: {
       'mui/straight-quotes': 'off',
+    },
+  },
+  {
+    // Prompt-injection guard for the AI middleware's system-prompt builders.
+    //
+    // `buildAISystemPrompt.ts` ships two sanitizers for the untrusted, state-derived
+    // text interpolated into the LLM system prompt:
+    //
+    // - `sanitizeForPrompt` escapes `<`/`>` only. Correct ONLY for genuinely
+    //   multi-line, host-authored regions (`enrichedContext.notes`), where collapsing
+    //   newlines would corrupt legitimate prose.
+    // - `sanitizeForPromptLine`, and the `promptLine` tagged template built on it,
+    //   additionally neutralize every line terminator and `"`. Correct for every
+    //   single-line position — which is nearly all of them.
+    //
+    // Picking the weaker variant for a single-line position is a live injection hole,
+    // and it has shipped three separate times (finding M2, the `pageLayout.colSpan`
+    // relapse, then H3's `richContext.omitted`). `promptLine` removed the choice
+    // structurally, but only inside the one file, and only by convention. This block
+    // makes the fourth relapse fail CI.
+    //
+    // Shape: ban every USE of the identifier — calls, bare callback references
+    // (`.map(sanitizeForPrompt)`), and imports (which also closes the
+    // `import { sanitizeForPrompt as x }` alias hole). Banning only the callback form
+    // would miss the template-literal call that caused all three real relapses. The
+    // few legitimately multi-line sites carry an `eslint-disable-next-line` plus a
+    // one-line justification, which converts "did the author pick the right
+    // sanitizer?" into "did the author consciously opt out?" — a question review can
+    // actually answer, one exception at a time.
+    //
+    // Not uses, so not flagged: the function's own declaration, and its `index.ts`
+    // re-export (it is part of the package's public surface). Tests are exempt via
+    // `ignores` — `buildAISystemPrompt.test.ts` calls it directly to assert exactly
+    // how weak it is.
+    files: [`packages/x-studio-ai-middleware/src/**/*${EXTENSION_TS}`],
+    ignores: [`**/*${EXTENSION_TEST_FILE}`, `**/*.spec${EXTENSION_TS}`, '**/*.d.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        ...BASE_RESTRICTED_SYNTAX,
+        {
+          selector:
+            'Identifier[name="sanitizeForPrompt"]:not(FunctionDeclaration > Identifier.id, ExportSpecifier > Identifier, ImportSpecifier > Identifier)',
+          message: SANITIZE_FOR_PROMPT_MESSAGE,
+        },
+        {
+          selector: 'ImportSpecifier > Identifier.imported[name="sanitizeForPrompt"]',
+          message: SANITIZE_FOR_PROMPT_MESSAGE,
+        },
+      ],
     },
   },
   ...[

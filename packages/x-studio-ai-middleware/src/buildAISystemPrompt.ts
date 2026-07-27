@@ -91,6 +91,7 @@ function neutralizeLineBreaks(value: string): string {
  * prose. Everywhere else, prefer {@link promptLine} — it removes the choice.
  */
 export function sanitizeForPromptLine(value: unknown): string {
+  // eslint-disable-next-line no-restricted-syntax -- this IS the strict variant: it composes the angle-bracket escape rather than substituting for it.
   return neutralizeLineBreaks(sanitizeForPrompt(value)).replace(/"/g, '&quot;');
 }
 
@@ -844,6 +845,7 @@ function buildDashboardState(
           // escapes only `"`, `\`, and code units below `0x20`: U+2028/U+2029 pass
           // straight through it (finding L6), so the line-break neutralizer runs on top.
           // Every other value on this line is bare, so those use the line sanitizer.
+          // eslint-disable-next-line no-restricted-syntax -- deliberate: `JSON.stringify` already quotes/escapes this value, and `neutralizeLineBreaks` restores the line guarantee the line sanitizer would have given.
           `  - [id: ${sanitizeForPromptLine(f.id)}] scope:${scopeLabel} — ${sanitizeForPromptLine(f.field)} ${sanitizeForPromptLine(f.operator)} ${neutralizeLineBreaks(sanitizeForPrompt(JSON.stringify(f.value)))}`,
         );
       }
@@ -1245,6 +1247,7 @@ function buildRichContextBlock(
       // free prose from `contextEnricher`, and collapsing its newlines would corrupt
       // legitimate paragraphs. Every other value here is single-line and goes through
       // `promptLine`. Do not "make this consistent" without re-reading invariant 13.
+      // eslint-disable-next-line no-restricted-syntax -- deliberate: `notes` is host-authored multi-line prose, and collapsing its newlines would corrupt legitimate paragraphs.
       inner.push(sanitizeForPrompt(enrichedContext.notes));
     }
     if (inner.length > 0) {

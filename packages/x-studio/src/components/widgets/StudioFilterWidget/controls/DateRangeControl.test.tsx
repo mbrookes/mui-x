@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { createRenderer, fireEvent, screen, within } from '@mui/internal-test-utils';
+import { configure, createRenderer, fireEvent, screen, within } from '@mui/internal-test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 // Side-effect imports: `AdapterDayjs.ts` calls `.utc()`/`.tz()` assuming the consumer has
 // already loaded these plugins' ambient `declare module 'dayjs'` augmentations. x-date-pickers'
@@ -15,9 +15,47 @@ import { createStudioHarness } from '../../../../internals/test-utils';
 import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../../../internals/StudioUIConfigContext';
 import { DateRangeControl } from './DateRangeControl';
 
-const { render } = createRenderer();
+// This suite runs entirely on fake timers so the control's 300ms debounce is driven by
+// `clock.tick(...)` instead of by wall-clock waiting — nothing below depends on how fast the
+// machine is. Two pieces of glue are needed to get `userEvent` and fake timers to coexist:
+//
+//   1. `advanceTimers`, wired up per-session in `setup()` below.
+//   2. This `asyncWrapper` override. React Testing Library wraps every async interaction
+//      (i.e. every `userEvent` call) in a wrapper that drains the microtask queue by awaiting
+//      a 0ms `setTimeout` — and it only pumps the clock for *jest*'s fake timers, which it
+//      detects via `typeof jest !== 'undefined'`. Under vitest that check is always false, so
+//      the awaited timeout is never fired and the very first `await user.click(...)` hangs
+//      until the test times out. Re-implementing the drain against vitest's clock is what
+//      makes fake timers usable here at all; the act-environment toggling mirrors RTL's own
+//      wrapper so interactions keep behaving (and keep logging) exactly as they do elsewhere.
+const globalWithActEnvironment = globalThis as typeof globalThis & {
+  IS_REACT_ACT_ENVIRONMENT?: boolean;
+};
+configure({
+  asyncWrapper: async (callback) => {
+    const previousActEnvironment = globalWithActEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    globalWithActEnvironment.IS_REACT_ACT_ENVIRONMENT = false;
+    try {
+      const result = await callback();
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 0);
+        if (vi.isFakeTimers()) {
+          vi.advanceTimersByTime(0);
+        }
+      });
+      return result;
+    } finally {
+      globalWithActEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+    }
+  },
+});
+
+const { clock, render } = createRenderer({ clock: 'fake' });
 
 const localeText = DEFAULT_STUDIO_LOCALE_TEXT;
+
+/** The debounce window `DateRangeControl` applies to `onApply`, in milliseconds. */
+const DEBOUNCE_MS = 300;
 
 // The DatePicker chooses its desktop/mobile variant from `useMediaQuery`, which relies on
 // `window.matchMedia`. Stub it so the (simpler to drive) desktop variant renders in jsdom.
@@ -53,7 +91,16 @@ function setup(props: Partial<React.ComponentProps<typeof DateRangeControl>> = {
     />,
     { wrapper },
   );
-  return { onApply, onClear, ...utils };
+  // `createRenderer`'s `user` is set up without `advanceTimers`, so under fake timers its
+  // internal inter-event `wait()` (a 0ms `setTimeout`) would never resolve and every
+  // interaction would hang. Deriving a sub-session — same pointer/keyboard state, extra
+  // config — wires that wait to the fake clock, which is exactly what `advanceTimers` is for.
+  const user = utils.user.setup({
+    advanceTimers: (ms: number) => {
+      vi.advanceTimersByTime(ms);
+    },
+  });
+  return { onApply, onClear, ...utils, user };
 }
 
 /** The sectioned date field exposes its label via an `aria-labelledby` group, not a plain
@@ -148,29 +195,50 @@ describe('DateRangeControl', () => {
   // blur reverted the field the user had just typed, only for the commit to land moments
   // later and fill it back in — a visible empty→filled flicker on every tab-out.
   it('does not revert its own in-flight edit when blurred before the commit fires', async () => {
-    const { user } = setup({ currentValue: null });
+    // Two things have to be true for this test to exercise the guard at all, and an earlier
+    // version of it had neither:
+    //
+    //  - The edit must be a COMPLETE date. `DatePicker` fires `onChange` only once every
+    //    section is filled, so a month-only edit never reaches `scheduleApply` and leaves
+    //    `pendingApply.current` null — the guard is then simply not on the path.
+    //  - `currentValue` must be non-null and DIFFERENT from what is typed. The blur handler
+    //    resyncs via `setFrom(currentValue?.from ? … : null)`; against a null `currentValue`
+    //    that is a null→null no-op which React bails on, so the field keeps the typed
+    //    sections whether or not the guard exists.
+    //
+    // With a real pre-edit value the unguarded blur would visibly snap the field back to
+    // March, which is the empty→filled flicker this guard was added to prevent.
+    const { user, onApply } = setup({ currentValue: { from: '2024-03-20' } });
 
     const fromField = getDateField(localeText.filterWidgetDateFromLabel);
     const monthSection = within(fromField).getByRole('spinbutton', { name: 'Month' });
+    expect(monthSection.textContent).toBe('03');
+
     await user.click(monthSection);
-    // A single keystroke schedules the debounced commit; kept minimal so real typing time
-    // can't approach the 300ms window before the blur below (same rationale as the
-    // "cancels a pending debounced apply" test).
-    await user.keyboard('1');
+    // Fake timers mean no time passes while typing, so the commit scheduled by the final
+    // keystroke is guaranteed to still be pending at the blur below.
+    await user.keyboard('01152024');
     expect(monthSection.textContent).toBe('01');
 
-    // Blur while the commit is still pending — `currentValue` is still `null`.
+    // Blur while the commit is still pending — `currentValue` still holds the March date.
     await user.click(document.body);
 
+    expect(monthSection.textContent).toBe('01');
+
+    // And once the commit lands, the typed value is what's displayed and what was applied —
+    // the blur must not have produced a January→March→January flicker in between.
+    await clock.tickAsync(DEBOUNCE_MS);
+    expect(onApply).toHaveBeenCalledExactlyOnceWith({ from: '2024-01-15', to: undefined });
     expect(monthSection.textContent).toBe('01');
   });
 
   describe('applying a new "from" date (debounced)', () => {
     // The control debounces `onApply` by 300ms so that typing into the date field doesn't
-    // trigger a pipeline re-render per keystroke. Real timers (with an awaited delay) are used
-    // here rather than fake timers, since combining `vi.useFakeTimers()` with userEvent's own
-    // internal timing proved unreliable for this sectioned field in jsdom.
-    it('calls onApply with the formatted value after the debounce window', async () => {
+    // trigger a pipeline re-render per keystroke. The whole suite runs on fake timers, so
+    // these tests step the clock explicitly instead of waiting on wall-clock time: nothing
+    // here depends on how fast the machine is, and the exact boundary of the window is
+    // asserted rather than approximated by an over-long sleep.
+    it('calls onApply with the formatted value only once the debounce window has elapsed', async () => {
       const { user, onApply } = setup({ currentValue: null });
 
       const fromField = getDateField(localeText.filterWidgetDateFromLabel);
@@ -180,11 +248,14 @@ describe('DateRangeControl', () => {
 
       expect(onApply).not.toHaveBeenCalled();
 
-      await new Promise((resolve) => {
-        setTimeout(resolve, 400);
-      });
+      // One tick short of the window: still nothing. This is what pins the debounce to its
+      // documented duration — a shorter delay would have committed by now.
+      await clock.tickAsync(DEBOUNCE_MS - 1);
+      expect(onApply).not.toHaveBeenCalled();
 
-      expect(onApply).toHaveBeenCalledWith({ from: '2024-01-15', to: undefined });
+      // Crossing the window commits exactly once, with the fully typed date.
+      await clock.tickAsync(1);
+      expect(onApply).toHaveBeenCalledExactlyOnceWith({ from: '2024-01-15', to: undefined });
     });
 
     it('cancels a pending debounced apply when clear is clicked before it fires (finding 2)', async () => {
@@ -195,26 +266,27 @@ describe('DateRangeControl', () => {
       const fromField = getDateField(localeText.filterWidgetDateFromLabel);
       const monthSection = within(fromField).getByRole('spinbutton', { name: 'Month' });
       await user.click(monthSection);
-      // A single keystroke is enough to schedule a debounced `onApply` — kept minimal
-      // (unlike the full-date entry above) so real typing time can never itself approach
-      // the 300ms debounce window before `clear` is clicked, which would flake this test
-      // for a reason unrelated to what it verifies.
+      // A single keystroke is enough to schedule a debounced `onApply`.
       await user.keyboard('2');
 
-      // Clear immediately, before the 300ms debounce window elapses — this must cancel
-      // the scheduled `onApply` rather than let it fire afterward and silently
-      // resurrect the just-cleared date range. Uses `fireEvent.click` (not `user.click`)
-      // to avoid the Tooltip-wrapped icon button's hover-open simulation, whose own
-      // delayed state update would otherwise land during the real-timer wait below and
-      // trip `vitest-fail-on-console`'s act() warning — unrelated to what this test verifies.
+      // Sanity-check that an apply really is pending: stopping one tick short of the window
+      // leaves it unfired, so the `clear` below genuinely lands inside the window.
+      await clock.tickAsync(DEBOUNCE_MS - 1);
+      expect(onApply).not.toHaveBeenCalled();
+
+      // Clear before the window elapses — this must cancel the scheduled `onApply` rather
+      // than let it fire afterward and silently resurrect the just-cleared date range.
+      // Uses `fireEvent.click` (not `user.click`) to avoid the Tooltip-wrapped icon button's
+      // hover-open simulation, whose own delayed state update would otherwise land while the
+      // clock is being stepped below and trip `vitest-fail-on-console`'s act() warning —
+      // unrelated to what this test verifies.
       fireEvent.click(screen.getByRole('button', { name: localeText.filterWidgetClearAriaLabel }));
 
       expect(onClear).toHaveBeenCalledOnce();
 
-      await new Promise((resolve) => {
-        setTimeout(resolve, 400);
-      });
-
+      // Run every remaining timer, not just past the window, so a merely-rescheduled (rather
+      // than cancelled) apply would still be caught.
+      await clock.tickAsync(DEBOUNCE_MS * 10);
       expect(onApply).not.toHaveBeenCalled();
     });
   });

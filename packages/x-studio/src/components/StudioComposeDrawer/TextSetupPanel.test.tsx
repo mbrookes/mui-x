@@ -1,4 +1,4 @@
-import { createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
+import { act, createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StudioWidgetConfig } from '../../models';
 import {
@@ -6,6 +6,7 @@ import {
   mockUseStudioController,
   configureStudioContextMock,
 } from '../../../test/studioContextMock';
+import { StudioController } from '../../store/StudioController';
 import { TextSetupPanel } from './TextSetupPanel';
 
 const controller = {
@@ -214,5 +215,77 @@ describe('TextSetupPanel — per-field dirty-aware resync (finding 5)', () => {
     fireEvent.blur(screen.getByLabelText('Title'));
 
     expect(controller.updateWidget).not.toHaveBeenCalled();
+  });
+});
+
+// ─── The same rule, driven by a REAL store write ──────────────────────────────
+//
+// The block above simulates the store notification with a `nonce` prop, because the
+// shared context mock's default (snapshot) mode reads `getState()` once per render and
+// subscribes to nothing. That leaves one half of the claim untested: a panel that read
+// the widget from a NON-reactive source — a ref, a one-time `controller.getState()`, a
+// prop threaded down by the drawer — would satisfy every `nonce`-driven assertion above,
+// because the nonce re-renders it regardless of where it read from. So "the AI writes
+// `update_widget` while the drawer is open and the user sees it" was not pinned anywhere.
+//
+// Here the mock runs in subscribed mode against a real `StudioController`'s store, so the
+// only thing that can re-render the panel is the panel's own subscription, and the write
+// is a real `updateWidgetConfig` rather than a hand-edited fixture.
+describe('TextSetupPanel — resync driven by a real store write (subscribed mock)', () => {
+  let realController: StudioController;
+
+  beforeEach(() => {
+    realController = new StudioController({
+      doc: {
+        widgets: {
+          'widget-1': {
+            id: 'widget-1',
+            kind: 'text',
+            title: 'Notes',
+            config: {} as StudioWidgetConfig,
+          },
+        },
+      },
+    });
+    configureStudioContextMock({ store: realController.store, controller: realController });
+  });
+
+  it('shows an external write to the body without any manual re-render', async () => {
+    render(<TextSetupPanel widgetId="widget-1" />);
+
+    expect((screen.getByLabelText('Body') as HTMLInputElement).value).toBe('');
+
+    // Exactly what the AI chat panel's `update_widget` tool does while the drawer is open.
+    await act(async () => {
+      realController.updateWidgetConfig('widget-1', {
+        textBody: 'Written by the assistant',
+      } as Partial<StudioWidgetConfig>);
+    });
+
+    expect((screen.getByLabelText('Body') as HTMLInputElement).value).toBe(
+      'Written by the assistant',
+    );
+  });
+
+  it('keeps an in-flight title edit when that write lands mid-keystroke', async () => {
+    const { user } = render(<TextSetupPanel widgetId="widget-1" />);
+
+    const titleInput = screen.getByLabelText('Title') as HTMLInputElement;
+    await user.clear(titleInput);
+    await user.type(titleInput, 'Draft title');
+    expect(titleInput.value).toBe('Draft title');
+
+    await act(async () => {
+      realController.updateWidgetConfig('widget-1', {
+        textBody: 'Written by the assistant',
+      } as Partial<StudioWidgetConfig>);
+    });
+
+    // The dirty buffer wins over the external write...
+    expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('Draft title');
+    // ...and the clean sibling still tracked it, so the panel really did re-render.
+    expect((screen.getByLabelText('Body') as HTMLInputElement).value).toBe(
+      'Written by the assistant',
+    );
   });
 });

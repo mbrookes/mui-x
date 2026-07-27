@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { vi } from 'vitest';
 
 /**
@@ -39,7 +40,55 @@ import { vi } from 'vitest';
  *     mockState = createState();
  *     configureStudioContextMock({ getState: () => mockState, controller });
  *   });
+ *
+ * ## Two modes: snapshot (default) and subscribed (opt-in)
+ *
+ * **Snapshot mode** — what you get from `{ getState }` alone, and what every existing
+ * call site uses. `useStudioSelector` is `selector(getState())`: the state is read once
+ * per render and nothing is subscribed to. A controller write during a test mutates the
+ * holder but re-renders nothing, so any behaviour that depends on a component reacting
+ * to a store change is invisible — a test asserting it passes with or without the
+ * production code that implements it. Files in this mode drive the re-render by hand
+ * (a `nonce` prop, `setProps`, `rerender`).
+ *
+ * **Subscribed mode** — opt in by passing `store` (a `StudioController`'s `.store`, or
+ * anything with `subscribe`/`getSnapshot`) or a bare `subscribe`. `useStudioSelector`
+ * then runs through `useSyncExternalStore` exactly as production does: a
+ * `controller.<mutation>()` notifies subscribers, each subscribed component re-reads its
+ * selector, and React re-renders **only** those whose selected value changed by
+ * `Object.is`. That makes both halves testable — that a store write updates the UI, and
+ * that an unrelated store write does *not* re-render (the reference-stability contract
+ * `context/selectors.ts` exists to uphold).
+ *
+ *   beforeEach(() => {
+ *     controller = new StudioController(initialState);
+ *     configureStudioContextMock({ store: controller.store, controller });
+ *   });
+ *   // ...then, inside a test:
+ *   act(() => { controller.addFilter(...); });   // components re-render on their own
+ *
+ * Subscribed mode inherits `useSyncExternalStore`'s contract: `selector(state)` MUST
+ * return a referentially stable value while `state` is unchanged, or React throws
+ * "The result of getSnapshot should be cached to avoid an infinite loop". That is the
+ * same constraint production selectors are written against, which is the point — the
+ * mock no longer lets a selector pass here that would loop in the real app.
+ *
+ * Snapshot mode has no such constraint: its `getSnapshot` is a module constant, so a
+ * `getState` that mints a fresh object per call stays legal exactly as before.
+ *
+ * The mode is a module-level switch set by `configureStudioContextMock`, so it must not
+ * change while a component is mounted (call it from `beforeEach`, before rendering — as
+ * every file already does). The hook call sequence itself is identical in both modes, so
+ * switching between test files is safe.
  */
+
+type Subscribe = (onStoreChange: () => void) => () => void;
+
+/** The subset of `Store<StudioState>` the mock needs to drive re-renders. */
+export interface StudioContextMockStore {
+  subscribe: Subscribe;
+  getSnapshot: () => unknown;
+}
 
 // Reads the live per-file `mockState` via a getter so mid-test reassignments
 // (e.g. switching to a different data source within one test) still propagate.
@@ -49,12 +98,54 @@ let getState: () => unknown = () => {
   );
 };
 let getController: () => unknown = () => ({});
+/** Non-null only in subscribed mode. */
+let subscribe: Subscribe | null = null;
 
-const selectorImpl = (selector: (state: any) => unknown) => selector(getState());
+// Snapshot-mode placeholders. `useSyncExternalStore` is called in BOTH modes so the hook
+// sequence never depends on the mode; in snapshot mode it is wired to a subscription that
+// never fires and a snapshot that never changes, so it is inert and the selected value is
+// still computed fresh on every render (the pre-existing behaviour, byte for byte).
+const NOOP_SUBSCRIBE: Subscribe = () => () => {};
+const getInertSnapshot = () => null;
+
+function useSelectorImpl(selector: (state: any) => unknown) {
+  const subscribeFn = subscribe;
+  const getSelection = React.useCallback(() => selector(getState()), [selector]);
+  const subscribed = React.useSyncExternalStore(
+    subscribeFn ?? NOOP_SUBSCRIBE,
+    subscribeFn ? getSelection : getInertSnapshot,
+    subscribeFn ? getSelection : getInertSnapshot,
+  );
+  return subscribeFn ? subscribed : selector(getState());
+}
+
 const controllerImpl = () => getController();
 
-export const mockUseStudioSelector = vi.fn(selectorImpl);
+export const mockUseStudioSelector = vi.fn(useSelectorImpl);
 export const mockUseStudioController = vi.fn(controllerImpl);
+
+interface StudioContextMockConfigBase {
+  /** The object `useStudioController()` returns. Defaults to `{}`. */
+  controller?: unknown;
+  /**
+   * Use instead of `controller` when the test file reassigns its controller mid-test
+   * (the getter is read live on each `useStudioController()` call).
+   *
+   * @returns {unknown} The object `useStudioController()` should return for the current test.
+   */
+  getController?: () => unknown;
+  /**
+   * Opt in to subscription-driven re-renders. Pass a real `StudioController`'s `.store`
+   * (or anything exposing `subscribe`/`getSnapshot`). `getState` then defaults to
+   * `store.getSnapshot`.
+   */
+  store?: StudioContextMockStore;
+  /**
+   * Lower-level alternative to `store`: subscribe only. Use when the state getter and the
+   * change notifications come from different places. Requires `getState`.
+   */
+  subscribe?: Subscribe;
+}
 
 /**
  * Point the shared context mock at the currently-running test file's state and
@@ -62,23 +153,36 @@ export const mockUseStudioController = vi.fn(controllerImpl);
  *
  * Re-applies the fn implementations on every call so it survives files whose
  * `afterEach` runs `vi.restoreAllMocks()` / `vi.resetAllMocks()` (which would
- * otherwise wipe the shared implementation for a later file).
+ * otherwise wipe the shared implementation for a later file). It also RESETS the
+ * subscribed-mode switch, so a file that opts in cannot leak reactivity into the next
+ * file to run in the same worker.
  *
- * @param config.getState      Returns the state the selector mock resolves against.
- *   Pass a getter (not a value) so mid-test reassignments propagate.
- * @param config.controller    The object `useStudioController()` returns. Defaults to
- *   `{}` for files that don't use the controller.
- * @param config.getController Use instead of `controller` when the test file reassigns
- *   its controller mid-test (the getter is read live on each `useStudioController()` call).
+ * @param config.getState Returns the state the selector mock resolves against. Pass a
+ *   getter (not a value) so mid-test reassignments propagate. Optional only when `store`
+ *   is given, in which case it defaults to `store.getSnapshot`.
  */
-export function configureStudioContextMock(config: {
-  getState: () => unknown;
-  controller?: unknown;
-  getController?: () => unknown;
-}): void {
-  getState = config.getState;
+export function configureStudioContextMock(
+  config: StudioContextMockConfigBase & { getState: () => unknown },
+): void;
+export function configureStudioContextMock(
+  config: StudioContextMockConfigBase & { store: StudioContextMockStore; getState?: () => unknown },
+): void;
+export function configureStudioContextMock(
+  config: StudioContextMockConfigBase & { getState?: () => unknown },
+): void {
+  const store = config.store;
+  if (config.getState) {
+    getState = config.getState;
+  } else if (store) {
+    getState = store.getSnapshot;
+  } else {
+    throw new Error(
+      'studioContextMock: configureStudioContextMock needs `getState`, `store`, or both.',
+    );
+  }
   getController = config.getController ?? (() => config.controller ?? {});
-  mockUseStudioSelector.mockImplementation(selectorImpl);
+  subscribe = config.subscribe ?? store?.subscribe ?? null;
+  mockUseStudioSelector.mockImplementation(useSelectorImpl);
   mockUseStudioController.mockImplementation(controllerImpl);
 }
 

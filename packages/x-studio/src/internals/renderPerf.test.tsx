@@ -7,6 +7,21 @@
  *
  * Methodology: wrap components in a render-counting spy, apply a state change,
  * and assert the render count stays within expected bounds.
+ *
+ * Until the shared `test/studioContextMock.ts` grew a subscribed mode, that
+ * methodology was not achievable here and nothing in this file implemented it:
+ * `useStudioSelector` was `selector(getState())` with no subscription, so a
+ * `controller.<mutation>()` re-rendered nothing and a render count could only ever
+ * be 1. The selector cases below therefore call the selectors directly (they are
+ * pure functions and that is a fair test of them), and the two rendering cases
+ * asserted only "no error text" — the one at the end of the first block applies a
+ * page filter to a mounted widget and could not have failed if the widget ignored
+ * the filter entirely.
+ *
+ * The second block is the missing half: it configures the mock with the real
+ * `StudioController`'s store, so mutations propagate through `useSyncExternalStore`
+ * exactly as in the app, and asserts both directions — a relevant write re-renders
+ * and changes what is on screen, an irrelevant one re-renders nothing.
  */
 
 import * as React from 'react';
@@ -301,5 +316,167 @@ describe('UI render performance', () => {
     });
 
     expect(container.textContent).not.toContain('Failed to load');
+  });
+});
+
+// ─── Store-driven re-renders (subscribed mock) ────────────────────────────────
+//
+// Everything above configures the shared context mock in its default SNAPSHOT mode:
+// `useStudioSelector` reads `getState()` once per render and subscribes to nothing, so
+// no component in the tree can react to a `controller.<mutation>()` on its own. This
+// block opts into SUBSCRIBED mode by handing the mock the real controller's `Store`,
+// which routes every `useStudioSelector` through `useSyncExternalStore` — the same path
+// `context/StudioContext.tsx` uses in the app. Two things become observable that were
+// not:
+//
+//   1. that a mounted widget re-computes when the store changes under it, and
+//   2. that an UNRELATED store change re-renders nothing — the reference-stability
+//      contract every memoized selector in `context/selectors.ts` exists to uphold, and
+//      which is otherwise only checkable one selector call at a time in
+//      `context/selectors.test.ts`, never through a real component.
+describe('UI render performance — store-driven re-renders', () => {
+  beforeEach(() => {
+    studioRequestCache.clear();
+    controller = new StudioController(buildInitialState());
+    syncState();
+    // `store` is the opt-in: `getState` defaults to `controller.store.getSnapshot`, so
+    // there is no second, manually-synced copy of the state to drift from the store.
+    configureStudioContextMock({ store: controller.store, getController: () => controller });
+  });
+
+  it('re-renders a mounted KPI when a page filter is added, and shows the filtered value', async () => {
+    const source = buildDataSource();
+    const widget = controller.getState().doc.widgets['w-kpi-1'];
+
+    const { container } = render(
+      <ThemeProvider theme={theme}>
+        <StudioKpiWidget
+          widget={widget as StudioWidgetOf<'kpi'>}
+          dataSource={source}
+          pageId="page-1"
+        />
+      </ThemeProvider>,
+    );
+
+    // `amount` is `(i % 10) * 100` over 100 rows → ten 0..900 cycles → 45,000,
+    // rendered in the KPI's compact notation.
+    expect(container.textContent).toContain('45K');
+
+    // Nothing re-renders this widget by hand: the controller notifies its store, the
+    // subscribed `useStudioSelector(selectFilters)` reads a new filters array, and React
+    // re-renders the widget. This is the whole scenario the snapshot-mode sibling test
+    // ("applying a page filter does not cause errors in widget rendering") could only
+    // assert the absence of an error for.
+    await act(async () => {
+      controller.addFilter({
+        id: 'f-cat',
+        field: 'category',
+        operator: 'equals',
+        value: 'A',
+        scope: { kind: 'page' },
+      });
+    });
+
+    // Category A is the even-indexed rows → 0/200/400/600/800 per cycle → 20,000.
+    expect(container.textContent).toContain('20K');
+    expect(container.textContent).not.toContain('45K');
+  });
+
+  it('does not re-render a KPI when an expression field is added for an unrelated source', async () => {
+    const source = buildDataSource();
+    const widget = controller.getState().doc.widgets['w-kpi-1'];
+
+    // Render-counting spy in the `value` slot: `StudioKpiWidget` renders it inline, so it
+    // renders exactly when the widget does.
+    let valueRenders = 0;
+    function CountingValue(props: { value: string; hasData: boolean }) {
+      valueRenders += 1;
+      return <span data-testid="kpi-value">{props.value}</span>;
+    }
+    const slots = { value: CountingValue };
+
+    render(
+      <ThemeProvider theme={theme}>
+        <StudioKpiWidget
+          widget={widget as StudioWidgetOf<'kpi'>}
+          dataSource={source}
+          pageId="page-1"
+          slots={slots}
+        />
+      </ThemeProvider>,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    // `valueRenders` is a render COUNTER incremented by the probe component, not the return
+    // value of `render()`. The rule cannot tell the two apart from the identifier alone.
+    // eslint-disable-next-line testing-library/render-result-naming-convention
+    const paintCountBeforeMutation = valueRenders;
+    expect(paintCountBeforeMutation).toBeGreaterThan(0);
+
+    // A calculated column authored on a DIFFERENT source. `state.doc.expressionFields`
+    // gets a new array reference, so every widget subscribed to it naively would
+    // re-render; `makeSelectExpressionFieldsForSources` is supposed to hand this widget
+    // back the previous (empty) array because none of the fields belong to its sources.
+    await act(async () => {
+      controller.addExpressionField({
+        id: 'ef-other',
+        sourceId: 'source-2',
+        label: 'Elsewhere',
+        expression: { kind: 'literal', value: 1 },
+      } as any);
+    });
+
+    // Sanity: the write really landed, so a stable render count means "filtered out",
+    // not "nothing happened".
+    expect(controller.getState().doc.expressionFields).toHaveLength(1);
+    expect(controller.getState().doc.expressionFields[0].sourceId).toBe('source-2');
+
+    expect(valueRenders).toBe(paintCountBeforeMutation);
+  });
+
+  it("does re-render when an expression field is added for the KPI's OWN source", async () => {
+    // The counterpart to the case above — without it, a selector that returned a frozen
+    // reference forever would pass that test and this file would be recommending a bug.
+    const source = buildDataSource();
+    const widget = controller.getState().doc.widgets['w-kpi-1'];
+
+    let valueRenders = 0;
+    function CountingValue(props: { value: string; hasData: boolean }) {
+      valueRenders += 1;
+      return <span data-testid="kpi-value">{props.value}</span>;
+    }
+    const slots = { value: CountingValue };
+
+    render(
+      <ThemeProvider theme={theme}>
+        <StudioKpiWidget
+          widget={widget as StudioWidgetOf<'kpi'>}
+          dataSource={source}
+          pageId="page-1"
+          slots={slots}
+        />
+      </ThemeProvider>,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    // `valueRenders` is a render COUNTER incremented by the probe component, not the return
+    // value of `render()`. The rule cannot tell the two apart from the identifier alone.
+    // eslint-disable-next-line testing-library/render-result-naming-convention
+    const paintCountBeforeMutation = valueRenders;
+
+    await act(async () => {
+      controller.addExpressionField({
+        id: 'ef-own',
+        sourceId: 'source-1',
+        label: 'Doubled',
+        expression: { kind: 'literal', value: 1 },
+      } as any);
+    });
+
+    expect(valueRenders).toBeGreaterThan(paintCountBeforeMutation);
   });
 });

@@ -196,6 +196,22 @@ export interface CacheProvider {
   /**
    * Store a result under the given key.
    *
+   * NO-MUTATION CONTRACT — the WRITE side (finding L3, and the write-then-return
+   * path `get`'s contract above does not cover). An in-process provider may store
+   * `value` BY REFERENCE (the built-in `LRUCacheProvider` does), so the caller
+   * must treat `value` — and every row object inside `value.rows` — as read-only
+   * from the moment it is handed over. `handleBatchQuery` both stores the entry
+   * here and returns the result to the host, so a host that post-processed
+   * `results[i].rows` in place (masking a column, decrypting one) wrote straight
+   * into the process-wide server cache, and every subsequent hit for the whole TTL
+   * served the mutated rows to every user sharing the security profile.
+   *
+   * `handleBatchQuery` now hands over its own `rows` ARRAY (`{ rows: [...rows] }`),
+   * so array-level mutation (`push`/`splice`/`sort`/`length = 0`) can no longer
+   * reach the cache. The row OBJECTS are still shared — cloning them would defeat
+   * the whole memory rationale for the single-flight dedup — so the contract on
+   * `WidgetQueryResult.rows` stands: copy before transforming.
+   *
    * @param opts.ttlMs  - Per-entry TTL in ms (overrides the provider default).
    * @param opts.tags   - Labels for bulk invalidation via `deleteByTag`.
    */

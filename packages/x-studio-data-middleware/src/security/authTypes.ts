@@ -131,9 +131,22 @@ export type TenancyConfig =
  * }
  */
 export interface SecurityColumnsConfig {
-  /** Column checked against `claims.regionIds` for the primary table (default `region_id`). */
+  /**
+   * Column checked against `claims.regionIds` for the primary table (default `region_id`).
+   *
+   * `null` is REJECTED here (unlike inside `perTable`, where it drops the
+   * dimension): the top-level value resolves through `config?.region ?? 'region_id'`,
+   * so a `null` would silently fall back to the DEFAULT column — the opposite of
+   * what the same literal means one level down. Omit the field to inherit the
+   * default; use `perTable[table] = { region: null }` to actually drop the
+   * dimension. Enforced at runtime by `compileSecurityPolicy`.
+   */
   region?: string;
-  /** Column checked against `claims.department` for the primary table (default `department`). */
+  /**
+   * Column checked against `claims.department` for the primary table (default `department`).
+   *
+   * `null` is REJECTED here for the same reason as `region` above.
+   */
   department?: string;
   /**
    * Per-table column overrides.

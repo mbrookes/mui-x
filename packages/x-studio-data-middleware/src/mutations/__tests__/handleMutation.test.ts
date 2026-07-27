@@ -14,6 +14,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { handleMutation, MAX_MUTATIONS_PER_BATCH } from '../handleMutation';
 import {
   MAX_ARRAY_ITEMS_PER_DESCRIPTOR,
+  MAX_PREDICATE_VALUES_PER_DESCRIPTOR,
   MAX_STRING_LENGTH,
   MAX_STRING_VALUE_LENGTH,
 } from '../../shared/limits';
@@ -566,6 +567,54 @@ describe('handleMutation — cache invalidation', () => {
 
 // ── WHERE-column allowlist ────────────────────────────────────────────────────
 
+// ── Host-config allowlist shape (fail-closed, not fail-open) ─────────────────
+//
+// Regression: `writableColumns` (like `schemaAllowlist`/`columnAllowlist`) was
+// enforced by TypeScript alone, and reaches `checkColumnAgainstAllowlist`, whose
+// membership test is `Array.prototype.includes`. A STRING entry degrades that to
+// SUBSTRING matching, admitting any substring of the entry as a writable column.
+// A mis-shaped host allowlist is a configuration error, so the WHOLE batch is
+// rejected before any mutation runs — not isolated into a per-item result that
+// would let the other mutations write through a broken allowlist.
+describe('handleMutation — host allowlist shape is validated at runtime', () => {
+  it('rejects a STRING writableColumns entry instead of substring-matching against it', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const body: BatchMutationRequest = {
+      mutations: [{ id: 'm1', operation: 'insert', table: 'orders', values: { status: 'ok' } }],
+    };
+
+    await expect(
+      handleMutation(body, CLAIMS, {
+        db,
+        schemaAllowlist: ALLOWLIST,
+        tenancy: SINGLE_TENANT,
+        // `'id,status'.includes('status')` is true, and so is `.includes('')`.
+        writableColumns: { orders: 'id,status' } as unknown as Record<string, string[]>,
+      }),
+    ).rejects.toThrow(/writableColumns\["orders"\] must be an array of strings/);
+    // Rejected before any write.
+    expect(db.snapshot().orders).toHaveLength(0);
+  });
+
+  it('rejects a STRING schemaAllowlist instead of substring-matching against it', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const body: BatchMutationRequest = {
+      mutations: [{ id: 'm1', operation: 'insert', table: 'orders', values: { status: 'ok' } }],
+    };
+
+    await expect(
+      handleMutation(body, CLAIMS, {
+        db,
+        // `'orders_public'.includes('orders')` is true — the pre-fix code wrote to
+        // `orders`, a table this deployment never allowlisted.
+        schemaAllowlist: 'orders_public' as unknown as string[],
+        tenancy: SINGLE_TENANT,
+      }),
+    ).rejects.toThrow(/schemaAllowlist must be an array of strings/);
+    expect(db.snapshot().orders).toHaveLength(0);
+  });
+});
+
 describe('handleMutation — where-column allowlist', () => {
   it('returns ok=false when a mutation references a column outside the allowlist', async () => {
     const db = createMutableMockDb({
@@ -981,6 +1030,34 @@ describe('handleMutation — per-array size caps (finding Tier3 resource exhaust
     ).rejects.toThrow(
       new RegExp(
         `^MUI X Studio Server: Malformed mutation descriptor at mutations\\[0\\] — "values" contains ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR + 1} keys, which exceeds the maximum of ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR}`,
+      ),
+    );
+  });
+
+  // Aggregate cap on the TOTAL comparison values summed across every predicate
+  // (the per-predicate cap bounds each `in`-list independently, but not its
+  // product with the `where` array's own length cap — 200 × 200 = 40,000 bound
+  // parameters for one mutation). Mirrors the read path's `filters[].value`
+  // aggregate cap in `handler.ts`.
+  it('rejects where[].value lists that are each individually under the per-predicate cap but sum over MAX_PREDICATE_VALUES_PER_DESCRIPTOR', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const perPredicateValues = Array.from({ length: 150 }, (_unused, i) => i);
+    // 20 × 150 = 3,000 total values; each predicate's own 150 is under the
+    // per-predicate cap of 200.
+    const where = Array.from({ length: 20 }, () => ({
+      column: 'id',
+      operator: 'in' as const,
+      value: perPredicateValues,
+    }));
+    await expect(
+      handleMutation(
+        { mutations: [{ id: 'm1', operation: 'delete', table: 'orders', where }] },
+        CLAIMS,
+        { db, schemaAllowlist: ALLOWLIST, tenancy: SINGLE_TENANT },
+      ),
+    ).rejects.toThrow(
+      new RegExp(
+        `^MUI X Studio Server: Malformed mutation descriptor at mutations\\[0\\] — "where\\[\\]\\.value" contains 3000 comparison values in total across all predicates, which exceeds the maximum of ${MAX_PREDICATE_VALUES_PER_DESCRIPTOR}`,
       ),
     );
   });
@@ -1487,6 +1564,90 @@ describe('handleMutation — atomic batches', () => {
       expect(result.error).not.toMatch(/SQLITE_BUSY/);
     }
     warnSpy.mockRestore();
+  });
+
+  // ── COMMIT-time failure (the shape the pre-fix discrimination misread) ──────
+  //
+  // Regression: `runAtomicBatch` discriminated its own rollback sentinel from a
+  // genuine transaction failure by testing `results !== undefined` — a variable
+  // the SUCCESS path assigns too, from inside the same callback. A failure raised
+  // AFTER the callback resolves (a Postgres 40001 serialization failure or a
+  // deferred-constraint violation at COMMIT, a lost connection, a MySQL deadlock
+  // surfacing at commit) therefore arrived with `results` already holding the
+  // fully-assembled, all-`ok: true` per-item results and was returned verbatim:
+  // the client marked the write saved while the database had rolled everything
+  // back. The pre-existing test above stubs `transaction` to throw BEFORE invoking
+  // the callback, so `results` was still `undefined` and only the generic path
+  // ever ran — which is exactly why this shape went unnoticed.
+  it('reports every item as failed (and evicts nothing) when the COMMIT fails after the callback resolved', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const db = createMutableMockDb({ orders: [] });
+    const cacheProvider = makeCacheProvider();
+    const realTransaction = db.transaction;
+    // Snapshot / run / restore is the REAL mock transaction; the only change is
+    // that the commit at the end of the callback fails, which is what a 40001 or
+    // a deferred-constraint violation looks like from the caller's side.
+    db.transaction = async (callback: (trx: unknown) => Promise<unknown>) =>
+      realTransaction(async (trx: unknown) => {
+        // The batch runs to completion — every mutation succeeds and the
+        // per-item results are assembled …
+        await callback(trx);
+        // … and only THEN does the commit fail.
+        throw new Error('could not serialize access due to concurrent update (40001)');
+      });
+    const body: BatchMutationRequest = {
+      mutations: [
+        { id: 'm1', operation: 'insert', table: 'orders', values: { status: 'a' } },
+        { id: 'm2', operation: 'insert', table: 'orders', values: { status: 'b' } },
+      ],
+    };
+
+    const { results } = await handleMutation(body, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      tenancy: MULTI_TENANT,
+      cacheProvider,
+      atomic: true,
+    });
+
+    expect(results.map((r) => r.id)).toEqual(['m1', 'm2']);
+    // The bug returned `[{ok:true},{ok:true}]` here.
+    expect(results.map((r) => r.ok)).toEqual([false, false]);
+    for (const result of results) {
+      expect(result.error).toMatch(/could not be committed and was rolled back/);
+      // The raw driver error is a schema/concurrency oracle — never verbatim.
+      expect(result.error).not.toMatch(/40001/);
+    }
+    // The rollback really happened — no row survived the failed commit …
+    expect(db.snapshot().orders).toHaveLength(0);
+    // … and nothing was evicted, because nothing changed in the database.
+    expect(cacheProvider.deletedTags).toEqual([]);
+    warnSpy.mockRestore();
+  });
+
+  it('reports every item as failed when db.transaction resolves without running the callback', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    // A host `transaction()` that never awaits (or never runs) its callback.
+    db.transaction = async () => undefined;
+    const body: BatchMutationRequest = {
+      mutations: [
+        { id: 'm1', operation: 'insert', table: 'orders', values: { status: 'a' } },
+        { id: 'm2', operation: 'insert', table: 'orders', values: { status: 'b' } },
+      ],
+    };
+
+    const { results } = await handleMutation(body, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      tenancy: MULTI_TENANT,
+      atomic: true,
+    });
+
+    // Every requested mutation gets a result — the previous `results ?? []`
+    // fallback returned an empty array, silently dropping both.
+    expect(results.map((r) => r.id)).toEqual(['m1', 'm2']);
+    expect(results.every((r) => r.ok === false)).toBe(true);
+    expect(results[0].error).toMatch(/resolved without running the batch callback/);
   });
 });
 

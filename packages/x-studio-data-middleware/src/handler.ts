@@ -75,6 +75,7 @@ import { assertQualifiedColumnsAllowed, assertTablesAllowed } from './shared/ass
 import { sanitizeBoundaryError } from './shared/sanitizeError';
 import {
   MAX_ARRAY_ITEMS_PER_DESCRIPTOR,
+  MAX_PREDICATE_VALUES_PER_DESCRIPTOR,
   MAX_STRING_LENGTH,
   MAX_STRING_VALUE_LENGTH,
 } from './shared/limits';
@@ -277,8 +278,25 @@ function assertValidBatchQueryRequest(body: BatchQueryRequest): void {
     // so a pathologically long `in`-list can't reach query building at all.
     const filters = (widget as Partial<BatchWidgetDescriptor>).filters;
     if (Array.isArray(filters)) {
+      // Aggregate cap on the TOTAL comparison values across every filter in this
+      // widget — the per-predicate cap below bounds each `in`-list independently,
+      // but not their PRODUCT with the `filters` array's own length cap. 200
+      // filters × 200 values each passes both individual caps yet still means
+      // 40,000 bound parameters for ONE widget (and 2,000,000 for a
+      // `MAX_WIDGETS_PER_BATCH`-sized batch), every one of which is canonicalized
+      // and hashed into the cache key before reaching the database. This is the
+      // same gap `totalOnPairs` closes for `joins[].on` just below; summed IN
+      // ADDITION TO the per-predicate cap, never instead of it.
+      let totalPredicateValues = 0;
       filters.forEach((predicate, predicateIndex) => {
         const predicateValue = (predicate as { value?: unknown } | null)?.value;
+        // Count real comparison values: every element of an `in`/`between` list,
+        // or one for a present scalar. An absent `value` contributes nothing.
+        if (Array.isArray(predicateValue)) {
+          totalPredicateValues += predicateValue.length;
+        } else if (predicateValue !== undefined) {
+          totalPredicateValues += 1;
+        }
         if (
           Array.isArray(predicateValue) &&
           predicateValue.length > MAX_ARRAY_ITEMS_PER_DESCRIPTOR
@@ -314,6 +332,16 @@ function assertValidBatchQueryRequest(body: BatchQueryRequest): void {
           }
         });
       });
+      if (totalPredicateValues > MAX_PREDICATE_VALUES_PER_DESCRIPTOR) {
+        throw new Error(
+          `MUI X Studio Server: Malformed widget descriptor at widgets[${index}] — "filters[].value" contains ` +
+            `${totalPredicateValues} comparison values in total across all filters, which exceeds the maximum of ` +
+            `${MAX_PREDICATE_VALUES_PER_DESCRIPTOR} allowed per widget. Each filter may individually stay under its ` +
+            `own per-predicate cap yet still sum to an unbounded number of bound parameters to hash into the cache ` +
+            `key and send to the database for a single widget. Reduce the total number of filter values to at most ` +
+            `${MAX_PREDICATE_VALUES_PER_DESCRIPTOR}.`,
+        );
+      }
     }
     // Size cap for each JOIN's own "on" sub-array (Tier2 finding — resource
     // exhaustion). `joins` is validated as an array (and length-capped as a
@@ -855,7 +883,19 @@ async function runWidgetPipeline(
     try {
       await cacheProvider.set(
         cacheKey,
-        { rows, cachedAt: Date.now(), tier, rowCount },
+        // SHALLOW-COPY THE ROW ARRAY (finding L3, write side). `rows` is ALSO the
+        // array this function returns to the host, and an in-process provider
+        // stores what it is given by reference (`LRUCacheProvider` clones only on
+        // `get`). Handing over the same array made the host's own result and the
+        // process-wide server cache one object: a host that post-processed
+        // `results[i].rows` in place wrote into the cache, and every subsequent hit
+        // for the whole TTL served the mutated rows to every user sharing the
+        // security profile. A shallow copy severs the ARRAY identity for the cost
+        // of one pointer array. The row OBJECTS stay shared on purpose — cloning
+        // them would defeat the memory rationale for the single-flight dedup — so
+        // the documented no-mutation contract on `WidgetQueryResult.rows` and
+        // `CacheProvider.set` still governs in-place row edits.
+        { rows: [...rows], cachedAt: Date.now(), tier, rowCount },
         { tags: [descriptor.table, ...(descriptor.joins?.map((j) => j.table) ?? [])] },
       );
     } catch (cacheErr) {

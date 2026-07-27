@@ -13,6 +13,7 @@ import {
   qualifiedTableOf,
 } from './columnValidation';
 import { MAX_STRING_LENGTH } from './limits';
+import { assertStringArrayAllowlist } from './allowlistShape';
 
 /**
  * Throw when a client-supplied table/column identifier exceeds
@@ -38,6 +39,15 @@ function assertIdentifierLength(value: string, context: string): void {
  * @param schemaAllowlist - The allowlist of queryable/writable table names.
  */
 export function assertTablesAllowed(tables: string[], schemaAllowlist: string[]): void {
+  // FAIL CLOSED on a mis-shaped allowlist, BEFORE the `.includes` membership test
+  // below. `schemaAllowlist: string[]` is compile-time only, and the membership
+  // test is `Array.prototype.includes` — handed a STRING (the shape a host gets
+  // from `schemaAllowlist: process.env.STUDIO_TABLES`) it becomes
+  // `String.prototype.includes`, i.e. SUBSTRING matching, and
+  // `'orders_public'.includes('orders')` admits a table that was never
+  // allowlisted. Re-asserted here as well as in `compileSecurityPolicy` because
+  // this function is exported and reachable without compiling a policy.
+  assertStringArrayAllowlist(schemaAllowlist, 'schemaAllowlist');
   // Length cap (Tier2 finding — resource exhaustion): a table name has no cap
   // on its own length anywhere else in the pipeline. Only string-typed entries
   // are checked here — a non-string table name is left to the allowlist
@@ -232,6 +242,10 @@ export function assertQualifiedColumnsAllowed(
   descriptor: BatchWidgetDescriptor,
   schemaAllowlist: string[],
 ): void {
+  // Fail closed on a mis-shaped allowlist before `checkQualifiedColumn`'s
+  // `.includes` membership test — see `assertTablesAllowed`. Asserted once per
+  // descriptor rather than once per column reference.
+  assertStringArrayAllowlist(schemaAllowlist, 'schemaAllowlist');
   for (const column of descriptor.columns ?? []) {
     checkQualifiedColumn(column, 'columns', schemaAllowlist);
   }
@@ -348,6 +362,9 @@ export function assertQualifiedWhereColumnsAllowed(
   where: FilterPredicate[] | undefined,
   schemaAllowlist: string[],
 ): void {
+  // Fail closed on a mis-shaped allowlist before `checkQualifiedColumn`'s
+  // `.includes` membership test — see `assertTablesAllowed`.
+  assertStringArrayAllowlist(schemaAllowlist, 'schemaAllowlist');
   for (const predicate of where ?? []) {
     checkQualifiedColumn(predicate.column, 'where', schemaAllowlist);
   }

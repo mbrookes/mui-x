@@ -205,6 +205,17 @@ export interface WidgetQueryResult {
    * transforming (`results[i].rows.map(...)`, not `results[i].rows.forEach(mutate)`).
    * This mirrors the no-mutation contract `CacheProvider.get` already documents for
    * the same underlying reason.
+   *
+   * THE ROW OBJECTS ARE ALSO SHARED WITH THE SERVER CACHE. A freshly-queried
+   * result is written to the cache and returned here, and an in-process provider
+   * stores what it is given by reference. `handleBatchQuery` hands the cache its
+   * own copy of the ARRAY, so `push`/`splice`/`sort`/`length = 0` on this array
+   * cannot reach the cache — but mutating a ROW (`rows[0].email = mask(...)`,
+   * decrypting a column in place) writes into the cached entry, and every hit for
+   * the remainder of that entry's TTL then serves the mutated rows to EVERY user
+   * sharing the security profile. Cloning the rows per request would defeat the
+   * dedup's memory benefit, so this is a contract rather than a copy: transform
+   * into new objects (`rows.map((r) => ({ ...r, email: mask(r.email) }))`).
    */
   rows: Record<string, unknown>[];
   /**

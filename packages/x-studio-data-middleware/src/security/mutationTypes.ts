@@ -67,6 +67,12 @@ export interface HandleMutationOptions {
   /**
    * Allowlist of tables the middleware may write to.
    * Any table not in this list is rejected before a query is built.
+   *
+   * SHAPE IS VALIDATED AT RUNTIME (`shared/allowlistShape.ts`): a non-array value
+   * — the shape a host gets from `schemaAllowlist: process.env.STUDIO_TABLES` —
+   * throws, because the membership check is `Array.prototype.includes` and a
+   * string would silently degrade it to substring matching, admitting tables that
+   * were never allowlisted.
    */
   schemaAllowlist: string[];
   /**
@@ -74,6 +80,9 @@ export interface HandleMutationOptions {
    *
    * Only columns listed here may appear in `MutationDescriptor.values`.
    * If omitted, no column-level validation is applied (not recommended for production).
+   *
+   * Each table's entry must be an ARRAY of strings — validated at runtime for the
+   * same substring-matching reason as `schemaAllowlist` above.
    *
    * @example
    * writableColumns: { orders: ['status', 'notes'], customers: ['name', 'email'] }
@@ -188,6 +197,12 @@ export interface HandleBatchQueryOptions {
    * Allowlist of table names the middleware may query.
    * Zero-Knowledge Rule: if a requested table is not in this list, the
    * request is rejected before any query is built.
+   *
+   * SHAPE IS VALIDATED AT RUNTIME (`shared/allowlistShape.ts`): a non-array value
+   * — the shape a host gets from `schemaAllowlist: process.env.STUDIO_TABLES` —
+   * throws, because the membership check is `Array.prototype.includes` and a
+   * string would silently degrade it to substring matching, admitting tables that
+   * were never allowlisted.
    */
   schemaAllowlist: string[];
   /**
@@ -211,6 +226,9 @@ export interface HandleBatchQueryOptions {
    *
    * If omitted, no column-level validation is applied (for backward
    * compatibility), but this is strongly discouraged in production.
+   *
+   * Each table's entry must be an ARRAY of strings — validated at runtime for the
+   * same substring-matching reason as `schemaAllowlist` above.
    *
    * @example
    * columnAllowlist: {

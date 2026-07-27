@@ -41,6 +41,34 @@ import { sortedStringify } from './canonicalize';
 const securityHashMemo = new Map<string, string>();
 
 /**
+ * DOMAIN SEPARATION TAG for the cache-key HMAC.
+ *
+ * The HMAC key defaults to `CACHE_HMAC_SECRET ?? JWT_SECRET`, so in the common
+ * zero-extra-config deployment the SAME key that authenticates bearer tokens also
+ * derives cache keys — and those keys are written to Redis, appear in logs, and
+ * are visible to anyone with cache read access. Prefixing the HMAC input with a
+ * fixed, NUL-terminated tag means a cache-key digest and a JWT signature are
+ * computed over provably disjoint input spaces, so neither can be used as an
+ * oracle for the other under the shared key. The NUL byte cannot appear in the
+ * JSON `securityProfile`, so the tag is unambiguous rather than merely a prefix.
+ *
+ * Changing this string (or the `:v1` suffix) invalidates every existing cache
+ * entry — deliberately, since the derivation itself has changed.
+ */
+const CACHE_KEY_HMAC_DOMAIN = 'mui-x-studio-cache-key:v1\0';
+
+/**
+ * Warn ONCE per process when the cache-key HMAC falls back to reusing
+ * `JWT_SECRET` (the convenient path — no extra env var to set).
+ *
+ * Not practically exploitable given the domain separation above, but a key with
+ * two purposes is a key whose blast radius on disclosure is two systems, and the
+ * fallback is silent. One warning at first use is enough to surface it without
+ * becoming log noise.
+ */
+let warnedAboutJwtSecretReuse = false;
+
+/**
  * Entry ceiling for `securityHashMemo`. Exported for tests only — it is not
  * re-exported from the package root, so it is not public API.
  */
@@ -98,7 +126,11 @@ function computeSecurityHash(
     return cached;
   }
 
-  const hash = createHmac('sha256', hmacSecret).update(securityProfile).digest('hex').slice(0, 16);
+  // Domain-separate the derivation — see `CACHE_KEY_HMAC_DOMAIN`.
+  const hash = createHmac('sha256', hmacSecret)
+    .update(CACHE_KEY_HMAC_DOMAIN + securityProfile)
+    .digest('hex')
+    .slice(0, 16);
 
   if (securityHashMemo.size >= SECURITY_HASH_MEMO_MAX_SIZE) {
     // Evict the LEAST-RECENTLY-USED entry — the first key in insertion order,
@@ -177,6 +209,24 @@ export function generateCacheKey(
       'MUI X Studio Server: No cache HMAC secret is configured. ' +
         'With an empty key the security hash is guessable, breaking the "a client cannot forge another tenant\'s cache key" guarantee. ' +
         'Set CACHE_HMAC_SECRET (or JWT_SECRET) or pass an explicit secret to generateCacheKey().',
+    );
+  }
+  // CROSS-PURPOSE KEY REUSE (hygiene): surface the `JWT_SECRET` fallback once per
+  // process. Only when the DEFAULT was actually taken — an explicitly passed
+  // secret, or a configured `CACHE_HMAC_SECRET`, is the intended configuration and
+  // must stay silent.
+  if (
+    !warnedAboutJwtSecretReuse &&
+    !process.env.CACHE_HMAC_SECRET &&
+    process.env.JWT_SECRET &&
+    hmacSecret === process.env.JWT_SECRET
+  ) {
+    warnedAboutJwtSecretReuse = true;
+    console.warn(
+      'MUI X Studio Server: CACHE_HMAC_SECRET is not set, so cache keys are derived from JWT_SECRET — ' +
+        'the same key that authenticates bearer tokens. The derivation is domain-separated, so this is not ' +
+        'directly exploitable, but cache keys are written to the cache backend and logs, which widens the blast ' +
+        'radius of that one secret. Set CACHE_HMAC_SECRET to a distinct random value.',
     );
   }
   const securityHash = computeSecurityHash(claims, hmacSecret, policyDigest, cacheScope);

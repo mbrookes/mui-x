@@ -22,6 +22,7 @@
  */
 import type { BatchWidgetDescriptor } from '../security/types';
 import { MAX_STRING_LENGTH } from './limits';
+import { assertStringArrayAllowlist } from './allowlistShape';
 
 /**
  * Resolve a logical column/field reference to its physical SQL column via the
@@ -364,6 +365,15 @@ export function checkColumnAgainstAllowlist(
         `Add "${table}" to the allowlist (use ["*"] to allow all of its columns).`,
     );
   }
+  // FAIL CLOSED on a mis-shaped entry, BEFORE the `.includes` membership tests
+  // below. `Record<string, string[]>` is compile-time only, and a string entry
+  // (`columnAllowlist: { orders: 'id,status' }`) turns both tests into
+  // `String.prototype.includes` — SUBSTRING matching, which admits any substring
+  // of the entry, INCLUDING the empty string (reachable: this function splits a
+  // qualified reference at its first dot, so `'orders.'` yields `column === ''`).
+  // `compileSecurityPolicy` validates the whole allowlist up front on the request
+  // path; this re-assert covers direct callers of this exported function.
+  assertStringArrayAllowlist(allowed, `column allowlist entry for table "${table}"`);
   if (allowed.includes('*')) {
     return;
   }

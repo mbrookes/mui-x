@@ -32,6 +32,7 @@
 import { createHash } from 'node:crypto';
 import type { SecurityColumns, SecurityColumnsConfig, TenancyConfig } from './types';
 import { resolveJoinSecurityColumns, resolvePrimarySecurityColumns } from '../shared/predicates';
+import { assertPerTableAllowlist, assertStringArrayAllowlist } from '../shared/allowlistShape';
 import { sortedStringify } from './canonicalize';
 
 /** The security-relevant subset of the handler/mutation options. */
@@ -71,6 +72,19 @@ export interface SecurityPolicyOptions {
    * before this field existed.
    */
   schemaAllowlist?: string[];
+  /**
+   * Per-table WRITABLE-column allowlist, mirroring
+   * `HandleMutationOptions.writableColumns`.
+   *
+   * Accepted here for RUNTIME SHAPE VALIDATION only — it is deliberately NOT
+   * folded into `digest` (the write path never consumes the digest, and folding it
+   * in would change the read path's keys for a value the read path does not use).
+   * It is validated at this single config choke point for the same reason
+   * `columnAllowlist` and `schemaAllowlist` are: it reaches
+   * `checkColumnAgainstAllowlist` via `mutationBuilder`, whose membership test is
+   * `Array.prototype.includes`, which fails OPEN by substring-matching a string.
+   */
+  writableColumns?: Record<string, string[]>;
 }
 
 /**
@@ -205,18 +219,44 @@ function describeColumnValue(value: unknown): string {
 /**
  * Validate an OPTIONAL security-column override value (finding 2.1).
  *
- * `undefined` (inherit the default) and `null` (the documented drop / whole-entry
- * opt-out sentinel) are both legitimate. Any OTHER value must be a usable column
- * name: an empty / whitespace-only / non-string value is neither a rename nor the
- * `null` drop sentinel, and — because `resolveDimension('')` returns `''`, which
- * the downstream truthiness gate silently skips — it acts as an UNDOCUMENTED third
- * sentinel that quietly opts the dimension out of scoping (and, for `perTable.tenant`,
- * dodges the single-tenant contradiction check, which gates on `Boolean(entry.tenant)`).
- * Fail closed here at the single config choke point.
+ * `undefined` (inherit the default) is always legitimate. `null` is legitimate
+ * ONLY inside `perTable`, where it is the documented drop / whole-entry opt-out
+ * sentinel — hence `nullMeansDrop`. Any OTHER value must be a usable column name:
+ * an empty / whitespace-only / non-string value is neither a rename nor the `null`
+ * drop sentinel, and — because `resolveDimension('')` returns `''`, which the
+ * downstream truthiness gate silently skips — it acts as an UNDOCUMENTED third
+ * sentinel that quietly opts the dimension out of scoping (and, for
+ * `perTable.tenant`, dodges the single-tenant contradiction check, which gates on
+ * `Boolean(entry.tenant)`). Fail closed here at the single config choke point.
+ *
+ * WHY `null` IS REJECTED AT THE TOP LEVEL: `SecurityColumnsConfig.region` /
+ * `.department` are typed `string | undefined` — `null` is not a documented value
+ * there — and it does the OPPOSITE of what the identical literal means one level
+ * down. `resolveDimension`'s fallback for the top-level defaults is
+ * `config?.region ?? 'region_id'`, and `null ?? 'region_id'` is `'region_id'`: a
+ * host writing `securityColumns: { region: null }` intending "this deployment has
+ * no region column" gets the DEFAULT `region_id` column scoped instead. That is
+ * fail-closed in direction (an over-scoped query, not a leak), but it is a silent
+ * semantic divergence from `perTable[t] = { region: null }`, which really does
+ * drop the dimension. Reject it and name the alternative rather than let the same
+ * sentinel mean two opposite things.
  */
-function assertOptionalColumnName(value: unknown, label: string): void {
-  if (value === undefined || value === null) {
+function assertOptionalColumnName(value: unknown, label: string, nullMeansDrop: boolean): void {
+  if (value === undefined) {
     return;
+  }
+  if (value === null) {
+    if (nullMeansDrop) {
+      return;
+    }
+    throw new Error(
+      `MUI X Studio Server: ${label} is null, which is not a valid column name at the top level. ` +
+        `Inside "perTable" a null DROPS that dimension, but the top-level default resolves through ` +
+        `"config.region ?? 'region_id'", so a top-level null silently falls back to the DEFAULT column instead of ` +
+        `dropping the dimension — the same sentinel would mean two opposite things. ` +
+        `Omit the field to inherit the default, give it a real column name to rename it, or set the dimension to ` +
+        `null per table (securityColumns.perTable["<table>"] = { region: null }) to actually drop it.`,
+    );
   }
   if (!isUsableColumnName(value)) {
     throw new Error(
@@ -233,6 +273,13 @@ function assertOptionalColumnName(value: unknown, label: string): void {
  *
  * Call this ONCE at the top of `handleBatchQuery` / `handleMutation` and thread
  * the returned object down in place of the raw `(tenancy, securityColumns)` pair.
+ *
+ * Fail-closed ALLOWLIST-SHAPE validation: `schemaAllowlist`, `columnAllowlist`
+ * and `writableColumns` are compile-time-only types, and every membership check
+ * that consumes them is `Array.prototype.includes` — which on a string silently
+ * degrades to SUBSTRING matching and admits names the host never allowlisted.
+ * Their shape is therefore asserted at RUNTIME here, at the single config choke
+ * point, exactly as `tenancy.tenantColumn` is. See `shared/allowlistShape.ts`.
  *
  * Fail-closed tenant-column validation (finding 2.1): a `multi-tenant` deployment
  * whose `tenantColumn` is empty / whitespace-only / non-string (the realistic
@@ -252,6 +299,24 @@ function assertOptionalColumnName(value: unknown, label: string): void {
 export function compileSecurityPolicy(opts: SecurityPolicyOptions): CompiledSecurityPolicy {
   const { tenancy, securityColumns } = opts;
 
+  // Fail closed: the ALLOWLISTS are compile-time-only types too, and a host that
+  // reads them from the environment/a config file can hand us a string where an
+  // array is expected. Every membership check downstream is
+  // `Array.prototype.includes`, which on a string degrades to SUBSTRING matching
+  // and admits names that were never allowlisted — the allowlist fails OPEN.
+  // Validated HERE, alongside `tenancy.tenantColumn` below, because this is the
+  // one config choke point both `handleBatchQuery` and `handleMutation` run
+  // before touching any allowlist. See `shared/allowlistShape.ts`.
+  if (opts.schemaAllowlist !== undefined) {
+    assertStringArrayAllowlist(opts.schemaAllowlist, 'schemaAllowlist');
+  }
+  if (opts.columnAllowlist !== undefined) {
+    assertPerTableAllowlist(opts.columnAllowlist, 'columnAllowlist');
+  }
+  if (opts.writableColumns !== undefined) {
+    assertPerTableAllowlist(opts.writableColumns, 'writableColumns');
+  }
+
   // Fail closed: multi-tenant REQUIRES a real tenant column at runtime (finding 2.1).
   if (tenancy.mode === 'multi-tenant' && !isUsableColumnName(tenancy.tenantColumn)) {
     throw new Error(
@@ -268,15 +333,22 @@ export function compileSecurityPolicy(opts: SecurityPolicyOptions): CompiledSecu
   // out of scoping (finding 2.1). Applies to the top-level region/department
   // defaults and every per-table dimension override.
   if (securityColumns) {
-    assertOptionalColumnName(securityColumns.region, 'securityColumns.region');
-    assertOptionalColumnName(securityColumns.department, 'securityColumns.department');
+    // `nullMeansDrop: false` at the TOP level — see `assertOptionalColumnName`. A
+    // top-level `null` resolves back to the hardcoded default column, the opposite
+    // of what the same literal means inside `perTable`.
+    assertOptionalColumnName(securityColumns.region, 'securityColumns.region', false);
+    assertOptionalColumnName(securityColumns.department, 'securityColumns.department', false);
     for (const [table, entry] of Object.entries(securityColumns.perTable ?? {})) {
       if (entry == null) {
         continue;
       }
-      assertOptionalColumnName(entry.tenant, `securityColumns.perTable["${table}"].tenant`);
-      assertOptionalColumnName(entry.region, `securityColumns.perTable["${table}"].region`);
-      assertOptionalColumnName(entry.department, `securityColumns.perTable["${table}"].department`);
+      assertOptionalColumnName(entry.tenant, `securityColumns.perTable["${table}"].tenant`, true);
+      assertOptionalColumnName(entry.region, `securityColumns.perTable["${table}"].region`, true);
+      assertOptionalColumnName(
+        entry.department,
+        `securityColumns.perTable["${table}"].department`,
+        true,
+      );
     }
   }
 

@@ -66,3 +66,27 @@ export const MAX_STRING_LENGTH = 1024;
  * and the bound parameter sent to the database.
  */
 export const MAX_STRING_VALUE_LENGTH = 8192;
+
+/**
+ * Hard ceiling on the TOTAL number of predicate comparison values a SINGLE
+ * widget/mutation descriptor may carry, summed across every one of its
+ * `filters[].value` / `where[].value` entries.
+ *
+ * `MAX_ARRAY_ITEMS_PER_DESCRIPTOR` caps the predicate COUNT (≤ 200 filters) and
+ * each individual `in`-list LENGTH (≤ 200 values) — but not their PRODUCT. One
+ * well-formed-looking widget could therefore carry 200 × 200 = 40,000 bound
+ * parameters, and a `MAX_WIDGETS_PER_BATCH`-sized batch 2,000,000, all of which
+ * are canonicalized and hashed into the cache key and then shipped to the
+ * database as bind parameters. This is the same gap `totalOnPairs`
+ * (`handler.ts`) closes for `joins[].on`, applied to the value lists.
+ *
+ * Deliberately a SEPARATE, larger constant than `MAX_ARRAY_ITEMS_PER_DESCRIPTOR`
+ * rather than reusing it: a legitimate dashboard genuinely can carry several
+ * multi-select `in` filters at once (a page filter plus two cross-filters, each
+ * with a long selection), and capping their SUM at 200 would reject a shape the
+ * per-predicate cap already admits individually. 2,000 leaves room for ten
+ * fully-maxed `in` lists per descriptor while cutting the worst case by 20× per
+ * descriptor (40,000 → 2,000) and by the same factor per batch (2,000,000 →
+ * 100,000).
+ */
+export const MAX_PREDICATE_VALUES_PER_DESCRIPTOR = 2000;

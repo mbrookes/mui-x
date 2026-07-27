@@ -256,6 +256,40 @@ describe('compileSecurityPolicy — fail-closed empty-string dimension override 
     ).toThrow(/securityColumns\.department/s);
   });
 
+  // Regression: `assertOptionalColumnName` returned early for `null`, treating it
+  // as the documented drop sentinel — but `resolveDimension`'s TOP-LEVEL fallback
+  // is `config?.region ?? 'region_id'`, and `null ?? 'region_id'` is `'region_id'`.
+  // A host writing `securityColumns: { region: null }` to mean "no region column
+  // in this deployment" silently got the DEFAULT `region_id` column scoped —
+  // exactly the opposite of what the identical literal means inside `perTable`.
+  it('throws for a top-level securityColumns.region of null (the opposite of the perTable meaning)', () => {
+    expect(() =>
+      compileSecurityPolicy({
+        tenancy: MULTI_TENANT,
+        securityColumns: { region: null as unknown as string },
+      }),
+    ).toThrow(/securityColumns\.region is null, which is not a valid column name at the top level/);
+  });
+
+  it('throws for a top-level securityColumns.department of null', () => {
+    expect(() =>
+      compileSecurityPolicy({
+        tenancy: MULTI_TENANT,
+        securityColumns: { department: null as unknown as string },
+      }),
+    ).toThrow(/securityColumns\.department is null/);
+  });
+
+  it('still accepts null INSIDE perTable, where it really does drop the dimension', () => {
+    const policy = compileSecurityPolicy({
+      tenancy: MULTI_TENANT,
+      securityColumns: { perTable: { audit_log: { region: null } } },
+    });
+    expect(policy.forPrimaryTable('audit_log').region).toBeUndefined();
+    // …and the top-level default still applies to every other table.
+    expect(policy.forPrimaryTable('orders').region).toBe('region_id');
+  });
+
   it('still allows null (drop) and a real string (rename) in the same override', () => {
     expect(() =>
       compileSecurityPolicy({
@@ -263,6 +297,82 @@ describe('compileSecurityPolicy — fail-closed empty-string dimension override 
         securityColumns: { perTable: { audit_log: { region: null, department: 'dept' } } },
       }),
     ).not.toThrow();
+  });
+});
+
+// ── Fail-closed ALLOWLIST-SHAPE validation ──────────────────────────────────
+//
+// Regression: `schemaAllowlist`, `columnAllowlist` and `writableColumns` were
+// enforced by TypeScript alone, while every membership check that consumes them
+// is `Array.prototype.includes`. A host that wires an allowlist straight to an
+// environment variable supplies a STRING, and `includes` silently degrades to
+// SUBSTRING matching — which FAILS OPEN. `compileSecurityPolicy` is the one
+// config choke point both handlers run first, and it already runtime-validates
+// `tenancy.tenantColumn` for exactly the same reason.
+describe('compileSecurityPolicy — fail-closed allowlist-shape validation', () => {
+  it('throws for a string schemaAllowlist (the substring-matching fail-open shape)', () => {
+    expect(() =>
+      compileSecurityPolicy({
+        tenancy: MULTI_TENANT,
+        schemaAllowlist: 'orders_public' as unknown as string[],
+      }),
+    ).toThrow(/schemaAllowlist must be an array of strings/);
+  });
+
+  it('throws for a non-string entry inside schemaAllowlist', () => {
+    expect(() =>
+      compileSecurityPolicy({
+        tenancy: MULTI_TENANT,
+        schemaAllowlist: ['orders', 42] as unknown as string[],
+      }),
+    ).toThrow(/schemaAllowlist contains a number/);
+  });
+
+  it('throws for a string columnAllowlist entry', () => {
+    expect(() =>
+      compileSecurityPolicy({
+        tenancy: MULTI_TENANT,
+        columnAllowlist: { orders: 'id,status' } as unknown as Record<string, string[]>,
+      }),
+    ).toThrow(/columnAllowlist\["orders"\] must be an array of strings/);
+  });
+
+  it('throws for a non-object columnAllowlist', () => {
+    expect(() =>
+      compileSecurityPolicy({
+        tenancy: MULTI_TENANT,
+        columnAllowlist: ['orders'] as unknown as Record<string, string[]>,
+      }),
+    ).toThrow(/columnAllowlist must be a plain object/);
+  });
+
+  it('throws for a string writableColumns entry', () => {
+    expect(() =>
+      compileSecurityPolicy({
+        tenancy: MULTI_TENANT,
+        writableColumns: { orders: 'id,status' } as unknown as Record<string, string[]>,
+      }),
+    ).toThrow(/writableColumns\["orders"\] must be an array of strings/);
+  });
+
+  it('accepts every well-formed allowlist shape unchanged', () => {
+    expect(() =>
+      compileSecurityPolicy({
+        tenancy: MULTI_TENANT,
+        schemaAllowlist: ['orders', 'customers'],
+        columnAllowlist: { orders: ['id', 'status'], customers: ['*'] },
+        writableColumns: { orders: ['status'] },
+      }),
+    ).not.toThrow();
+  });
+
+  it('does NOT fold writableColumns into the digest (the write path never reads it)', () => {
+    const withWritable = compileSecurityPolicy({
+      tenancy: MULTI_TENANT,
+      writableColumns: { orders: ['status'] },
+    });
+    const without = compileSecurityPolicy({ tenancy: MULTI_TENANT });
+    expect(withWritable.digest).toBe(without.digest);
   });
 });
 

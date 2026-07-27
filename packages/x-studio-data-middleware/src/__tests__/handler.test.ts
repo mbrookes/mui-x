@@ -11,6 +11,7 @@ import { handleBatchQuery, MAX_CONCURRENT_WIDGET_QUERIES, MAX_WIDGETS_PER_BATCH 
 import { MAX_ROWS_PER_REQUEST } from '../router/execute';
 import {
   MAX_ARRAY_ITEMS_PER_DESCRIPTOR,
+  MAX_PREDICATE_VALUES_PER_DESCRIPTOR,
   MAX_STRING_LENGTH,
   MAX_STRING_VALUE_LENGTH,
 } from '../shared/limits';
@@ -108,6 +109,55 @@ const SALES_POLICY_DIGEST = compileSecurityPolicy({
 
 function makeDb() {
   return createMockDb({ sales: SALES_ROWS });
+}
+
+/** One recorded call on a join's ON-clause builder. */
+interface RecordedOnCall {
+  method: 'on' | 'andOnVal' | 'andOnIn';
+  args: unknown[];
+}
+
+/**
+ * Install Knex-shaped join support on a mock query builder that ACTUALLY INVOKES
+ * the join callback (finding: the join stubs in this file were `qb.join = () =>
+ * qb`, which silently discarded it).
+ *
+ * `buildSecureQuery` passes every join as `join(table, function () { this.on(...) })`,
+ * and that callback is where `applySecurityPredicatesToJoinOn` places the
+ * outer-join security predicates — the whole point of the ON-vs-WHERE placement
+ * fix. A stub that drops the callback means NONE of that code runs, so a test
+ * claiming to "verify the full code path runs" verified nothing about it.
+ * `router/__tests__/queryBuilder.test.ts` covers the branch against real Knex;
+ * what was missing here is the handler-level composition (compiled policy → query
+ * plan → builder) reaching a real ON clause.
+ *
+ * The recorded calls are appended to `calls` so a test can assert what the ON
+ * clause actually contained. Mirrors `createRecordingDb`'s `joinCtx` in
+ * `router/__tests__/queryBuilder.test.ts`.
+ */
+function installRecordingJoins(qb: any, calls: RecordedOnCall[]): void {
+  const onCtx = {
+    on(...args: unknown[]) {
+      calls.push({ method: 'on', args });
+      return onCtx;
+    },
+    andOnVal(...args: unknown[]) {
+      calls.push({ method: 'andOnVal', args });
+      return onCtx;
+    },
+    andOnIn(...args: unknown[]) {
+      calls.push({ method: 'andOnIn', args });
+      return onCtx;
+    },
+  };
+  for (const method of ['join', 'leftJoin', 'rightJoin'] as const) {
+    qb[method] = (_table: unknown, cb: unknown) => {
+      if (typeof cb === 'function') {
+        (cb as (this: typeof onCtx) => void).call(onCtx);
+      }
+      return qb;
+    };
+  }
 }
 
 /**
@@ -892,12 +942,12 @@ describe('handleBatchQuery — per-array size caps (finding Tier3 resource exhau
 
   it('still accepts a join whose "on" array is exactly at MAX_ARRAY_ITEMS_PER_DESCRIPTOR', async () => {
     // The mock db has no built-in "join" (inner join, the default when no
-    // `type` is given) support — stub it as a no-op, mirroring the
-    // "db-tier aggregation with a JOIN" test's `leftJoin` stub, so this test
-    // exercises the size-cap validation rather than an unrelated mock gap.
+    // `type` is given) support — install the recording join helper so this test
+    // exercises the size-cap validation rather than an unrelated mock gap, and
+    // still runs the real ON-clause callback.
     const joinCapableDb = (table: string) => {
       const qb = makeDb()(table) as any;
-      qb.join = () => qb;
+      installRecordingJoins(qb, []);
       return qb;
     };
     const on: [string, string][] = [['sales.customer_id', 'customers.id']];
@@ -970,6 +1020,48 @@ describe('handleBatchQuery — per-array size caps (finding Tier3 resource exhau
     );
   });
 
+  // Aggregate cap on the TOTAL comparison values summed across every filter in a
+  // widget (the per-predicate cap bounds each `in`-list independently, but not
+  // its product with the `filters` array's own length cap — 200 × 200 = 40,000
+  // bound parameters for one widget, 2,000,000 for a full batch). Mirrors the
+  // `joins[].on` aggregate cap immediately below.
+  it('rejects filters whose value lists are each individually under the per-predicate cap but sum over MAX_PREDICATE_VALUES_PER_DESCRIPTOR', async () => {
+    const perFilterValues = Array.from({ length: 150 }, (_unused, i) => i);
+    // 20 × 150 = 3,000 total values; each filter's own 150 is comfortably under
+    // MAX_ARRAY_ITEMS_PER_DESCRIPTOR (200) individually.
+    const filters = Array.from({ length: 20 }, () => ({
+      column: 'amount',
+      operator: 'in',
+      value: perFilterValues,
+    }));
+    await expect(
+      handleBatchQuery(
+        { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', filters }] } as any,
+        ACME_CLAIMS,
+        { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
+      ),
+    ).rejects.toThrow(
+      new RegExp(
+        `^MUI X Studio Server: Malformed widget descriptor at widgets\\[0\\] — "filters\\[\\]\\.value" contains 3000 comparison values in total across all filters, which exceeds the maximum of ${MAX_PREDICATE_VALUES_PER_DESCRIPTOR}`,
+      ),
+    );
+  });
+
+  it('still accepts filters whose value lists sum to exactly MAX_PREDICATE_VALUES_PER_DESCRIPTOR', async () => {
+    const perFilterValues = Array.from({ length: 200 }, (_unused, i) => i);
+    const filters = Array.from({ length: MAX_PREDICATE_VALUES_PER_DESCRIPTOR / 200 }, () => ({
+      column: 'amount',
+      operator: 'in' as const,
+      value: perFilterValues,
+    }));
+    const result = await handleBatchQuery(
+      { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', filters }] },
+      ACME_CLAIMS,
+      { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
+    );
+    expect(result.results[0].error).toBeUndefined();
+  });
+
   // Aggregate cap on the TOTAL "on"-pairs summed across every join in a widget
   // (Tier2 finding — the per-join cap above bounds each join independently, but
   // not their PRODUCT). A widget with several joins whose OWN "on" arrays each
@@ -1001,7 +1093,7 @@ describe('handleBatchQuery — per-array size caps (finding Tier3 resource exhau
   it('still accepts joins whose "on" arrays sum to exactly MAX_ARRAY_ITEMS_PER_DESCRIPTOR in total', async () => {
     const joinCapableDb = (table: string) => {
       const qb = makeDb()(table) as any;
-      qb.join = () => qb;
+      installRecordingJoins(qb, []);
       return qb;
     };
     const perJoinOn: [string, string][] = Array.from(
@@ -1937,8 +2029,7 @@ describe('handleBatchQuery — cache', () => {
     };
     const joinCapableDb = (table: string) => {
       const qb = makeDb()(table) as any;
-      qb.leftJoin = () => qb;
-      qb.join = () => qb;
+      installRecordingJoins(qb, []);
       return qb;
     };
     const body: BatchQueryRequest = {
@@ -3129,11 +3220,15 @@ describe('handleBatchQuery — JOIN with ambiguous column names', () => {
     // executeForTier() in preflight.ts uses qualify() to prefix every unqualified
     // column with the primary table name (e.g. amount → sales.amount).
     //
-    // The mock adds leftJoin support (no-op) to verify the full code path runs
-    // without throwing and returns the primary table's aggregated values.
+    // The join mock INVOKES the Knex join callback against a recording ON-clause
+    // builder, so `buildSecureQuery`'s per-join callback — including
+    // `applySecurityPredicatesToJoinOn` — actually executes here. The previous
+    // stub (`qb.leftJoin = () => qb`) discarded the callback, so this test's own
+    // "verify the full code path runs" claim excluded the entire ON clause.
+    const onCalls: RecordedOnCall[] = [];
     const joinCapableDb = (table: string) => {
       const qb = makeDb()(table) as any;
-      qb.leftJoin = () => qb;
+      installRecordingJoins(qb, onCalls);
       return qb;
     };
 
@@ -3161,6 +3256,56 @@ describe('handleBatchQuery — JOIN with ambiguous column names', () => {
     expect(rows).toHaveLength(3);
     const west = rows.find((r) => r.region === 'west');
     expect(west?.total).toBe(250);
+
+    // The ON clause really was built — both the client's own pair (qualified on
+    // each side) and, because this is a LEFT join, the joined table's tenant
+    // predicate placed in ON rather than WHERE so unmatched rows stay
+    // NULL-extended instead of silently degrading the join to an INNER join.
+    expect(onCalls).toContainEqual({
+      method: 'on',
+      args: ['sales.region', '=', 'regions.name'],
+    });
+    expect(onCalls).toContainEqual({
+      method: 'andOnVal',
+      args: ['regions.tenant_id', '=', 'acme'],
+    });
+  });
+
+  it('places the PRIMARY table predicate in ON for a RIGHT join, through the full handler pipeline', async () => {
+    // The symmetric case: a RIGHT join makes the PRIMARY table the nullable side,
+    // so its predicate moves into the first right join's ON clause. Covered
+    // against real Knex in `router/__tests__/queryBuilder.test.ts`; covered HERE
+    // through the handler's own composition (compiled policy → validated plan →
+    // builder), which no `handleBatchQuery` test reached while the join stub
+    // discarded its callback.
+    const onCalls: RecordedOnCall[] = [];
+    const joinCapableDb = (table: string) => {
+      const qb = makeDb()(table) as any;
+      installRecordingJoins(qb, onCalls);
+      return qb;
+    };
+
+    const result = await handleBatchQuery(
+      {
+        pageId: 'p1',
+        widgets: [
+          {
+            id: 'w1',
+            table: 'sales',
+            columns: ['sales.region'],
+            joins: [{ table: 'regions', type: 'right', on: [['sales.region', 'regions.name']] }],
+          },
+        ],
+      },
+      ACME_CLAIMS,
+      { db: joinCapableDb, schemaAllowlist: ['sales', 'regions'], tenancy: MULTI_TENANT },
+    );
+
+    expect(result.results[0].error).toBeUndefined();
+    expect(onCalls).toContainEqual({
+      method: 'andOnVal',
+      args: ['sales.tenant_id', '=', 'acme'],
+    });
   });
 });
 
@@ -4030,14 +4175,17 @@ describe('handleBatchQuery — wildcard projections', () => {
    */
   const joinCapableDb = () => {
     const projections: unknown[][] = [];
+    const onCalls: RecordedOnCall[] = [];
     const inner = createMockDb({
       sales: SALES_ROWS,
       customers: [{ id: 1, tenant_id: 'acme', product: 'other' }],
     });
     const db = ((table: string) => {
       const qb = inner(table) as any;
-      qb.join = () => qb;
-      qb.leftJoin = () => qb;
+      // Invokes the join callback (see `installRecordingJoins`) rather than
+      // discarding it, so the ON clause — and the security predicates placed in
+      // it — really run in these tests too.
+      installRecordingJoins(qb, onCalls);
       const { select } = qb;
       qb.select = (columns: unknown) => {
         projections.push(Array.isArray(columns) ? columns : [columns]);
@@ -4046,7 +4194,7 @@ describe('handleBatchQuery — wildcard projections', () => {
       return qb;
     }) as any;
     db.raw = inner.raw;
-    return { db, projections };
+    return { db, projections, onCalls };
   };
 
   // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
@@ -4144,5 +4292,87 @@ describe('handleBatchQuery — wildcard projections', () => {
     expect(result.results[0].rows.length).toBeGreaterThan(0);
     // No join, so `SELECT *` already names exactly one table's columns.
     expect(projections).toEqual([]);
+  });
+});
+
+// ─── The returned `rows` array is not the cached array (finding L3, write side) ─
+//
+// Regression: `runWidgetPipeline` stored `{ rows, … }` in the cache and returned
+// the SAME `rows` reference to the host, while `LRUCacheProvider.set` stores by
+// reference (only `get` clones). A host that post-processed `results[i].rows` in
+// place therefore wrote into the process-wide server cache, and every subsequent
+// hit for the whole TTL served the mutated rows to every user sharing the
+// security profile.
+describe('handleBatchQuery — the returned rows array is not the cached array', () => {
+  it('does not let a host mutating the returned array corrupt the cached entry', async () => {
+    const cacheProvider = new LRUCacheProvider({ ttlMs: 5000 });
+    const opts = {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenancy: SINGLE_TENANT,
+      cacheProvider,
+    };
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [{ id: 'w1', table: 'sales', columns: ['id', 'amount'] }],
+    };
+
+    const cold = await handleBatchQuery(body, ACME_CLAIMS, opts);
+    const originalLength = cold.results[0].rows.length;
+    expect(originalLength).toBeGreaterThan(0);
+
+    // A host post-processing its own result in place — dropping rows, reordering,
+    // truncating. The pre-fix code shared this array with the cache.
+    cold.results[0].rows.length = 0;
+
+    const warm = await handleBatchQuery(body, ACME_CLAIMS, { ...opts, db: makeDb() });
+    expect(warm.results[0].rows).toHaveLength(originalLength);
+  });
+});
+
+// ─── Host-config allowlist shape (fail-closed, not fail-open) ────────────────
+//
+// Regression: `schemaAllowlist: string[]` / `columnAllowlist: Record<string,
+// string[]>` were enforced by TypeScript alone, while every membership check is
+// `Array.prototype.includes`. A host reading its allowlist from the environment
+// (`schemaAllowlist: process.env.STUDIO_TABLES`) supplies a STRING, and `includes`
+// silently becomes `String.prototype.includes` — SUBSTRING matching, which admits
+// tables/columns the host never allowlisted. These are host-CONFIGURATION errors,
+// not client input, so they reject the whole request rather than becoming a
+// per-widget `{ error }`.
+describe('handleBatchQuery — host allowlist shape is validated at runtime', () => {
+  it('rejects a STRING schemaAllowlist instead of substring-matching against it', async () => {
+    const dbSpy = vi.fn((table: string) => makeDb()(table));
+    await expect(
+      handleBatchQuery({ pageId: 'p1', widgets: [{ id: 'w1', table: 'sales' }] }, ACME_CLAIMS, {
+        db: dbSpy,
+        // `'sales_public'.includes('sales')` is TRUE — the pre-fix code admitted
+        // `sales`, a table this deployment never allowlisted, and emitted
+        // `select * from "sales" …`.
+        schemaAllowlist: 'sales_public' as unknown as string[],
+        tenancy: SINGLE_TENANT,
+      }),
+    ).rejects.toThrow(/schemaAllowlist must be an array of strings/);
+    // Nothing reached query construction.
+    expect(dbSpy).not.toHaveBeenCalled();
+  });
+
+  it('rejects a STRING columnAllowlist entry instead of substring-matching against it', async () => {
+    const dbSpy = vi.fn((table: string) => makeDb()(table));
+    await expect(
+      handleBatchQuery(
+        { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', columns: ['id'] }] },
+        ACME_CLAIMS,
+        {
+          db: dbSpy,
+          schemaAllowlist: ['sales'],
+          // Any substring passed — including the EMPTY string, reachable through a
+          // trailing-dot reference such as `columns: ['sales.']`.
+          columnAllowlist: { sales: 'id,region' } as unknown as Record<string, string[]>,
+          tenancy: SINGLE_TENANT,
+        },
+      ),
+    ).rejects.toThrow(/columnAllowlist\["sales"\] must be an array of strings/);
+    expect(dbSpy).not.toHaveBeenCalled();
   });
 });

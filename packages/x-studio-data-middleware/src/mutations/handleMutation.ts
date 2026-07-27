@@ -68,6 +68,7 @@ import {
 import { sanitizeBoundaryError } from '../shared/sanitizeError';
 import {
   MAX_ARRAY_ITEMS_PER_DESCRIPTOR,
+  MAX_PREDICATE_VALUES_PER_DESCRIPTOR,
   MAX_STRING_LENGTH,
   MAX_STRING_VALUE_LENGTH,
 } from '../shared/limits';
@@ -126,10 +127,34 @@ export interface AtomicMutationOptions {
 /**
  * Internal sentinel thrown out of the `db.transaction` callback to trigger a
  * ROLLBACK once a mutation in an atomic batch has failed. Never surfaced to the
- * client — `runAtomicBatch` has already assembled the per-item results by the
- * time it is thrown, and returns those instead.
+ * client — it CARRIES the per-item results `runAtomicBatch` had already
+ * assembled by the time it was thrown, and those are returned instead.
+ *
+ * WHY THE PAYLOAD LIVES ON THE ERROR (correctness, not style): `runAtomicBatch`
+ * used to throw a plain `Error` with a fixed message and then discriminate in its
+ * `catch` on `results !== undefined` — a variable that the SUCCESS path assigns
+ * too, from inside the very same callback. Anything the transaction machinery
+ * raises AFTER the callback resolves — a Postgres `40001` serialization failure
+ * or deferred-constraint violation at COMMIT, a lost connection, a MySQL deadlock
+ * surfacing at commit — therefore landed in the catch with `results` already
+ * holding the fully-assembled, all-`ok: true` per-item results, was misread as
+ * "our own rollback sentinel", and was returned verbatim. The client was told
+ * every write succeeded while the database had committed nothing; the early
+ * `return` also skipped the post-commit cache invalidation gate below.
+ *
+ * Carrying the results ON the sentinel makes that misclassification
+ * unrepresentable: `err instanceof AtomicRollback` is true for exactly the throw
+ * that assembled them, and for nothing else.
  */
-const ATOMIC_ROLLBACK_MESSAGE = 'MUI X: Atomic mutation batch rolled back';
+class AtomicRollback extends Error {
+  readonly results: MutationResult[];
+
+  constructor(results: MutationResult[]) {
+    super('MUI X: Atomic mutation batch rolled back');
+    this.name = 'AtomicRollback';
+    this.results = results;
+  }
+}
 
 /**
  * Validate the shape of a batch mutation request body before touching it.
@@ -247,6 +272,14 @@ function assertValidBatchMutationRequest(body: BatchMutationRequest): void {
             `Reduce the number of entries in "where" to at most ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR}.`,
         );
       }
+      // Aggregate cap on the TOTAL comparison values across every predicate in
+      // this mutation — the per-predicate cap below bounds each `in`-list
+      // independently, but not its PRODUCT with the `where` array's own length
+      // cap. 200 predicates × 200 values each passes both individual caps yet
+      // still means 40,000 bound parameters for ONE mutation (and 2,000,000 for a
+      // `MAX_MUTATIONS_PER_BATCH`-sized batch). Mirrors the read path's identical
+      // `totalPredicateValues` accumulator on `filters[].value` in `handler.ts`.
+      let totalPredicateValues = 0;
       where.forEach((predicate, predicateIndex) => {
         if (typeof predicate !== 'object' || predicate === null) {
           throw new Error(
@@ -261,6 +294,13 @@ function assertValidBatchMutationRequest(body: BatchMutationRequest): void {
         // is length-capped here, regardless of operator (shape validation for
         // `value` happens later, per mutation, inside `validateMutation`).
         const predicateValue = (predicate as { value?: unknown }).value;
+        // Count real comparison values: every element of an `in` list, or one for
+        // a present scalar. An absent `value` contributes nothing.
+        if (Array.isArray(predicateValue)) {
+          totalPredicateValues += predicateValue.length;
+        } else if (predicateValue !== undefined) {
+          totalPredicateValues += 1;
+        }
         if (
           Array.isArray(predicateValue) &&
           predicateValue.length > MAX_ARRAY_ITEMS_PER_DESCRIPTOR
@@ -290,6 +330,16 @@ function assertValidBatchMutationRequest(body: BatchMutationRequest): void {
           }
         });
       });
+      if (totalPredicateValues > MAX_PREDICATE_VALUES_PER_DESCRIPTOR) {
+        throw new Error(
+          `MUI X Studio Server: Malformed mutation descriptor at mutations[${index}] — "where[].value" contains ` +
+            `${totalPredicateValues} comparison values in total across all predicates, which exceeds the maximum of ` +
+            `${MAX_PREDICATE_VALUES_PER_DESCRIPTOR} allowed per mutation. Each predicate may individually stay under ` +
+            `its own per-predicate cap yet still sum to an unbounded number of bound parameters to build and send to ` +
+            `the database for a single mutation. Reduce the total number of where-predicate values to at most ` +
+            `${MAX_PREDICATE_VALUES_PER_DESCRIPTOR}.`,
+        );
+      }
     }
     // A "values" field that is present but not a plain object — e.g. `values: []`,
     // `values: "oops"`, `values: 42`, `values: null` — passes the checks above
@@ -380,7 +430,7 @@ export async function handleMutation(
   options: HandleMutationOptions & AtomicMutationOptions,
 ): Promise<BatchMutationResponse> {
   assertValidBatchMutationRequest(body);
-  const { schemaAllowlist, tenancy, securityColumns, columnAllowlist } = options;
+  const { schemaAllowlist, tenancy, securityColumns, columnAllowlist, writableColumns } = options;
 
   // ── Compile the row-level-security policy ONCE for the whole batch ─────────
   // The single compiled object is threaded into every mutation builder in place
@@ -398,11 +448,20 @@ export async function handleMutation(
   // that means one thing on the read path and another on the write path is a
   // trap for the next person to compare them, and any future write-path use
   // would silently fail to separate two databases exposing the same tables.
+  //
+  // `writableColumns` is passed for RUNTIME SHAPE VALIDATION only (it is not
+  // folded into the digest): it is the write path's third compile-time-only
+  // allowlist, and it reaches the same `Array.prototype.includes` membership
+  // check — which fails OPEN by substring-matching a string — via
+  // `mutationBuilder`'s `checkColumnAgainstAllowlist` call. Validating it here
+  // means the whole batch is rejected before ANY mutation runs, rather than each
+  // mutation quietly writing a column the host never made writable.
   const policy = compileSecurityPolicy({
     tenancy,
     securityColumns,
     columnAllowlist,
     schemaAllowlist,
+    writableColumns,
   });
 
   // ── Upfront table validation (Zero-Knowledge Rule) ────────────────────────
@@ -462,6 +521,12 @@ export async function handleMutation(
  * rollback no mutation in the batch was applied, and reporting an item as
  * `ok: true` when its row no longer exists would be a lie the client acts on.
  *
+ * A failure raised by the transaction machinery ITSELF — including one that only
+ * surfaces at COMMIT, after the callback has already resolved with a full set of
+ * `ok: true` results — is reported as an all-items-failed batch, never as those
+ * results. See `AtomicRollback` for why the two are discriminated by the sentinel
+ * TYPE rather than by whether the results happen to have been assembled.
+ *
  * Cache invalidation is deliberately deferred to AFTER the commit: evicting
  * mid-transaction would let a concurrent read re-populate the cache with rows
  * that are about to disappear.
@@ -481,46 +546,52 @@ async function runAtomicBatch(
     );
   }
 
-  // Assembled inside the transaction callback; read back afterwards because the
-  // callback must THROW to make the driver roll back.
-  let results: MutationResult[] | undefined;
+  // Assembled inside the transaction callback and read back afterwards, because
+  // the callback must THROW to make the driver roll back. It is deliberately NOT
+  // what the catch below discriminates on — see `AtomicRollback`.
+  let applied: MutationResult[] | undefined;
 
   try {
     await options.db.transaction(async (trx: unknown) => {
-      const applied: MutationResult[] = [];
+      const running: MutationResult[] = [];
       for (const descriptor of mutations) {
         // eslint-disable-next-line no-await-in-loop
         const result = await processMutation(descriptor, claims, options, policy, {
           db: trx,
           invalidateCache: false,
         });
-        applied.push(result);
+        running.push(result);
         if (!result.ok) {
-          results = mutations.map((m, index) =>
-            index === applied.length - 1
-              ? result
-              : {
-                  id: m.id,
-                  ok: false,
-                  error:
-                    `MUI X Studio Server: This mutation was rolled back because another mutation in the same ` +
-                    `"atomic" batch failed. No mutation in the batch was applied. ` +
-                    `Fix the failing mutation (see its own error) and resend the batch.`,
-                },
+          throw new AtomicRollback(
+            mutations.map((m, index) =>
+              index === running.length - 1
+                ? result
+                : {
+                    id: m.id,
+                    ok: false,
+                    error:
+                      `MUI X Studio Server: This mutation was rolled back because another mutation in the same ` +
+                      `"atomic" batch failed. No mutation in the batch was applied. ` +
+                      `Fix the failing mutation (see its own error) and resend the batch.`,
+                  },
+            ),
           );
-          throw /* minify-error-disabled */ new Error(ATOMIC_ROLLBACK_MESSAGE);
         }
       }
-      results = applied;
+      applied = running;
     });
   } catch (err) {
-    if (results !== undefined) {
-      // Our own rollback sentinel — the per-item results are already assembled.
-      return results;
+    if (err instanceof AtomicRollback) {
+      // Our own rollback sentinel — it carries the per-item results assembled at
+      // the moment the failing mutation was detected.
+      return err.results;
     }
-    // The transaction itself failed (begin/commit error, lost connection, a
-    // host-side `db.transaction` that rejects). Nothing committed, so every item
-    // reports failure with a sanitized message.
+    // ANY other throw means the transaction machinery itself failed — including,
+    // critically, a failure raised AFTER the callback resolved: a serialization
+    // failure or deferred-constraint violation at COMMIT, a lost connection, a
+    // deadlock surfacing at commit. `applied` is fully populated in exactly that
+    // case, which is why it must not be what this branch keys off. Nothing was
+    // committed, so every item reports failure with a sanitized message.
     const error = sanitizeBoundaryError(
       err,
       `MUI X Studio Server: The atomic mutation batch could not be committed and was rolled back. ` +
@@ -530,14 +601,31 @@ async function runAtomicBatch(
     return mutations.map((m) => ({ id: m.id, ok: false, error }));
   }
 
-  const committed = results ?? [];
+  if (applied === undefined) {
+    // Defensive: a host `transaction()` that RESOLVED without ever running (or
+    // without awaiting) the callback. Nothing ran, so nothing committed — report
+    // every item as failed rather than returning an empty `results` array that
+    // silently drops every mutation the client asked about.
+    return mutations.map((m) => ({
+      id: m.id,
+      ok: false,
+      error:
+        `MUI X Studio Server: The atomic mutation batch was not applied — the injected "db.transaction" ` +
+        `resolved without running the batch callback to completion. No mutation in the batch was applied, and ` +
+        `reporting them as succeeded would tell the client a write landed when it did not. ` +
+        `Ensure "db.transaction(callback)" awaits the callback and rejects when it throws (Knex's own behavior).`,
+    }));
+  }
+
+  const committed = applied;
 
   // Post-commit cache invalidation — once per DISTINCT table, not once per
   // mutation, since `deleteByTag` already evicts every entry for that table.
-  // Skipped unless everything actually committed: nothing changed in the
-  // database on a rollback, so there is nothing to evict. (`every` also guards
-  // the defensive case of a host `transaction()` that resolves despite its
-  // callback rejecting.)
+  // Reached ONLY when the transaction resolved AND every mutation succeeded:
+  // the callback throws `AtomicRollback` on the first failure (so `applied` is
+  // never assigned), and any commit-time failure is caught above. The `every`
+  // check is a redundant belt-and-braces assertion of that invariant — nothing
+  // changed in the database on a rollback, so there is nothing to evict.
   if (committed.every((result) => result.ok)) {
     const cacheProvider = options.cacheProvider ?? getDefaultCache();
     for (const table of new Set(mutations.map((m) => m.table))) {

@@ -7,7 +7,10 @@
  * and object property order must not change the key), and HMAC-secret scoping.
  */
 import { describe, it, expect } from 'vitest';
+import { createHmac } from 'node:crypto';
 import { generateCacheKey } from '../cacheKey';
+import { SINGLE_TENANT_POLICY_DIGEST } from '../compileSecurityPolicy';
+import { sortedStringify } from '../canonicalize';
 import type { JwtSecurityClaims, BatchWidgetDescriptor } from '../types';
 
 const SECRET = 'test-secret';
@@ -256,6 +259,40 @@ describe('generateCacheKey', () => {
     it('throws when the effective secret is empty (would be forgeable)', () => {
       expect(() => generateCacheKey(CLAIMS, DESCRIPTOR, '')).toThrow(
         /No cache HMAC secret is configured/,
+      );
+    });
+  });
+
+  // The HMAC key defaults to `CACHE_HMAC_SECRET ?? JWT_SECRET`, so in the common
+  // deployment the key that authenticates bearer tokens also derives cache keys —
+  // which are written to the cache backend and appear in logs. The derivation is
+  // domain-separated so the two live in provably disjoint input spaces under that
+  // shared key.
+  describe('domain separation from the JWT signature', () => {
+    it('does not equal a bare HMAC of the security profile under the same key', () => {
+      const key = generateCacheKey(CLAIMS, DESCRIPTOR, SECRET);
+      const securityHash = key.split(':')[3];
+      // The exact `securityProfile` string `computeSecurityHash` builds for these
+      // claims, with no cacheScope and the default policy digest.
+      const securityProfile = sortedStringify({
+        tenantId: CLAIMS.tenantId,
+        regionIds: undefined,
+        department: undefined,
+        policyDigest: SINGLE_TENANT_POLICY_DIGEST,
+      });
+      const undomained = createHmac('sha256', SECRET)
+        .update(securityProfile)
+        .digest('hex')
+        .slice(0, 16);
+      expect(securityHash).not.toBe(undomained);
+    });
+
+    it('is still deterministic and still separates distinct security profiles', () => {
+      expect(generateCacheKey(CLAIMS, DESCRIPTOR, SECRET)).toBe(
+        generateCacheKey(CLAIMS, DESCRIPTOR, SECRET),
+      );
+      expect(generateCacheKey(CLAIMS, DESCRIPTOR, SECRET)).not.toBe(
+        generateCacheKey({ ...CLAIMS, tenantId: 'globex' }, DESCRIPTOR, SECRET),
       );
     });
   });

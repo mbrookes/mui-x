@@ -51,6 +51,7 @@ import {
   validateProjectionKeyCollisions,
   validateWildcardProjection,
 } from '../shared/columnValidation';
+import { assertStringArrayAllowlist } from '../shared/allowlistShape';
 
 /**
  * A physical SQL column reference that has ALREADY been alias-resolved (through
@@ -497,6 +498,13 @@ function synthesizeProjectionFromAllowlist(
         `Add "${table}" to the allowlist (use ["*"] to allow all of its columns).`,
     );
   }
+  // FAIL CLOSED on a mis-shaped entry, matching `checkColumnAgainstAllowlist`:
+  // `Record<string, string[]>` is compile-time only. A STRING entry makes the
+  // `.includes('*')` test below `String.prototype.includes` (substring matching,
+  // which fails open), and made the `allowed.map(...)` projection synthesis throw
+  // a raw `TypeError` — a third, inconsistent behavior for the same
+  // misconfiguration. One shared, actionable error instead.
+  assertStringArrayAllowlist(allowed, `column allowlist entry for table "${table}"`);
   if (allowed.includes('*')) {
     // Explicit opt-out, but scoped to the PRIMARY table's columns only. `['*']`
     // means "all columns of THIS table" → `<table>.*`, never a bare `*`. A bare

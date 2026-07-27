@@ -9,8 +9,10 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createBatchingAdapter } from './createBatchingAdapter';
+import { applyFilters } from '../internals/filterUtils';
 import type {
   StudioDataSource,
+  StudioFilterState,
   StudioQueryDescriptor,
   StudioExpressionField,
   StudioRelationship,
@@ -1789,6 +1791,339 @@ describe('createBatchingAdapter — day-granular date translation (finding T1.3)
         { column: 'createdAt', operator: 'lte', value: '2026-07-19T12:30:00.000Z' },
       ]);
     });
+  });
+});
+
+// ── Date `equals` / `not_equals` day granularity (finding T1.3b) ─────────────────────────────
+//
+// `equals`/`not_equals` on a `date`/`datetime` field are DAY-granular in the in-memory evaluator
+// for EVERY value form — `compileSingleCondition` runs BOTH sides through `toDayComparable`, which
+// truncates to `YYYY-MM-DD` (unlike the ordering bounds above, which only widen a value that
+// carries no time-of-day). The wire path did neither: `equals` shipped a raw `eq` against a bare
+// `'YYYY-MM-DD'`, matching only the exact-midnight rows of a DATETIME column (typically none), and
+// `not_equals` shipped a raw `neq`, KEEPING the whole day the evaluator excludes. Both were merely
+// `console.warn`ed, so a dashboard viewer saw a wrong number and only a developer saw the note.
+
+/** One predicate as the middleware's wire protocol spells it. */
+interface WirePredicate {
+  column: string;
+  operator: string;
+  value: unknown;
+}
+
+/**
+ * Evaluate a wire predicate list the way a SQL engine would: RAW comparisons against the stored
+ * column value, with none of Studio's date normalization, and SQL three-valued NULL handling.
+ * That literalness is the point — it is what makes a parity assertion against `applyFilters`
+ * meaningful rather than circular.
+ */
+function applyWirePredicates(
+  rows: Record<string, unknown>[],
+  predicates: WirePredicate[] = [],
+): Record<string, unknown>[] {
+  return rows.filter((row) =>
+    predicates.every(({ column, operator, value }) => {
+      const rv = row[column] as string | null | undefined;
+      const cmp = value as string;
+      switch (operator) {
+        case 'eq':
+          return rv === cmp;
+        // SQL `col != x` is UNKNOWN (→ excluded) for a NULL column, unlike the evaluator.
+        case 'neq':
+          return rv != null && rv !== cmp;
+        case 'gt':
+          return rv != null && rv > cmp;
+        case 'gte':
+          return rv != null && rv >= cmp;
+        case 'lt':
+          return rv != null && rv < cmp;
+        case 'lte':
+          return rv != null && rv <= cmp;
+        case 'in':
+          return Array.isArray(value) && rv != null && value.includes(rv);
+        case 'between': {
+          const [lo, hi] = value as [string, string];
+          return rv != null && rv >= lo && rv <= hi;
+        }
+        default:
+          throw new Error(`unhandled wire operator "${operator}" in the test SQL stub`);
+      }
+    }),
+  );
+}
+
+/** A fetch stub that actually executes the pushed-down predicates over `rows`. */
+function makeSqlishFetch(rows: Record<string, unknown>[]) {
+  return vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+    const body = JSON.parse(init.body as string) as {
+      widgets: Array<{ id: string; filters?: WirePredicate[] }>;
+    };
+    return Promise.resolve({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          // Echo the wire id back so responses route to the right caller.
+          results: body.widgets.map((w) => ({
+            id: w.id,
+            rows: applyWirePredicates(rows, w.filters),
+          })),
+        }),
+    });
+  });
+}
+
+describe('createBatchingAdapter — date equals/not_equals day granularity (finding T1.3b)', () => {
+  /** Rows straddling the Jul 10 day boundary on a DATETIME column. */
+  const datetimeRows = [
+    { id: 1, createdAt: '2026-07-09T23:30:00.000Z' }, // previous day, late
+    { id: 2, createdAt: '2026-07-10T00:00:00.000Z' }, // exactly midnight — the only row a raw `eq` found
+    { id: 3, createdAt: '2026-07-10T13:04:00.000Z' }, // same day, afternoon
+    { id: 4, createdAt: '2026-07-11T00:00:00.000Z' }, // next day, midnight
+  ];
+
+  it('expands a bare-date "equals" on a datetime column to a [>= day, < next-day] pair', async () => {
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        select: ['createdAt'],
+        filter: {
+          type: 'leaf',
+          field: 'createdAt',
+          op: 'equals',
+          value: '2026-07-10',
+          fieldType: 'datetime',
+        },
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ filters?: WirePredicate[] }>;
+    };
+    // `createdAt = '2026-07-10'` matched only the exact-midnight rows; the day-granular form is
+    // the half-open interval the evaluator compares.
+    expect(body.widgets[0].filters).toEqual([
+      { column: 'createdAt', operator: 'gte', value: '2026-07-10' },
+      { column: 'createdAt', operator: 'lt', value: '2026-07-11' },
+    ]);
+  });
+
+  it('expands an "equals" whose value carries a time-of-day to the SAME day pair', async () => {
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        select: ['createdAt'],
+        filter: {
+          type: 'leaf',
+          field: 'createdAt',
+          op: 'equals',
+          value: '2026-07-10T13:04:00.000Z',
+          fieldType: 'datetime',
+        },
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ filters?: WirePredicate[] }>;
+    };
+    // Deliberately NOT an exact `eq`, and deliberately unlike the `lte`/`gt`/`between` bounds a
+    // few tests up, which DO keep full precision for a timed value. `equals`/`not_equals` do not
+    // consult `isDateOnlyFilterValue` in-memory at all: `compileSingleCondition` truncates the
+    // filter value to `YYYY-MM-DD` unconditionally, so "on this instant" already means "on this
+    // day" everywhere else in Studio. Shipping `eq '2026-07-10T13:04:00.000Z'` would match the one
+    // row stored at that exact instant while the evaluator matches the whole day — the same
+    // midnight-skew bug this fix removes, one notch narrower.
+    expect(body.widgets[0].filters).toEqual([
+      { column: 'createdAt', operator: 'gte', value: '2026-07-10' },
+      { column: 'createdAt', operator: 'lt', value: '2026-07-11' },
+    ]);
+  });
+
+  it('routes an "equals" whose value is not reducible to a calendar day to the client residual', async () => {
+    const fetchFn = makeOkFetch([
+      {
+        id: 'w1',
+        rows: [
+          { id: 1, createdAt: '2026-07-10T13:04:00.000Z' },
+          { id: 2, createdAt: '2026-07-11T13:04:00.000Z' },
+        ],
+      },
+    ]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    const result = await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        select: ['id', 'createdAt'],
+        filter: {
+          type: 'leaf',
+          field: 'createdAt',
+          // An epoch millisecond value: the evaluator normalizes it, but the adapter cannot build
+          // the `[gte day, lt nextDay]` pair from it without reimplementing date parsing, and a
+          // bare `eq 1783083840000` against a timestamp column matches nothing.
+          op: 'equals',
+          value: Date.UTC(2026, 6, 10, 13, 4),
+          fieldType: 'datetime',
+        },
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ filters?: unknown }>;
+    };
+    expect(body.widgets[0].filters).toBeUndefined();
+    // ...and the residual evaluates it faithfully, at day granularity, over the returned rows.
+    expect(result.rows.map((r) => r.id)).toEqual([1]);
+  });
+
+  it('routes a "not_equals" on a datetime column to the client residual instead of pushing "neq"', async () => {
+    const rows = [...datetimeRows, { id: 5, createdAt: null }];
+    const fetchFn = makeSqlishFetch(rows);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    const result = await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        select: ['id', 'createdAt'],
+        filter: {
+          type: 'leaf',
+          field: 'createdAt',
+          op: 'not_equals',
+          value: '2026-07-10',
+          fieldType: 'datetime',
+        },
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ filters?: unknown }>;
+    };
+    // "not on day D" is `< D OR >= nextDay(D)` — an OR, which the AND-only wire protocol cannot
+    // express — so unlike `equals` it gets no pushdown at all. A raw `neq '2026-07-10'` would have
+    // kept rows 3 AND 2's neighbours on day 10 (only the midnight row 2 compares equal) and
+    // dropped the NULL row 5.
+    expect(body.widgets[0].filters).toBeUndefined();
+    // The residual excludes the WHOLE of Jul 10 and keeps the NULL row, exactly like in-memory.
+    expect(result.rows.map((r) => r.id)).toEqual([1, 4, 5]);
+  });
+
+  it('still pushes a bare "not_equals" down on a non-date field', async () => {
+    // Pins that the date carve-out above is narrow: a string `not_equals` keeps its pushdown (and
+    // its NULL-handling warning, which stays because SQL three-valued logic is not fixable here).
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        filter: {
+          type: 'leaf',
+          field: 'status',
+          op: 'not_equals',
+          value: 'closed',
+          fieldType: 'string',
+        },
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ filters?: WirePredicate[] }>;
+    };
+    expect(body.widgets[0].filters).toEqual([
+      { column: 'status', operator: 'neq', value: 'closed' },
+    ]);
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('no longer warns about a date "equals" — the divergence it announced is gone', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        select: ['createdAt'],
+        filter: {
+          type: 'leaf',
+          field: 'createdAt',
+          op: 'equals',
+          value: '2026-07-10',
+          fieldType: 'date',
+        },
+      }),
+    );
+
+    // The old warning conceded the number was wrong ("Use a `between` range instead"); a viewer
+    // never saw it. Nothing to warn about now that the predicate itself is faithful.
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  // The regression test proper: run the SAME filter through the in-memory evaluator and through
+  // the adapter against a literal SQL-ish server, and require identical row sets. Before the fix
+  // the evaluator returned rows 2 and 3 while the wire `createdAt = '2026-07-10'` returned only
+  // row 2 — the "KPI reads 0 against a real value" symptom.
+  it('returns the SAME rows as the in-memory evaluator for a date-only "equals" on a datetime column', async () => {
+    const inMemoryFilter: StudioFilterState = {
+      id: 'f1',
+      // `scope` is unused by the evaluator; only field/operator/value/fieldType matter here.
+      scope: { kind: 'widget', widgetId: 'w1' },
+      field: 'createdAt',
+      operator: 'equals',
+      value: '2026-07-10',
+      fieldType: 'datetime',
+    };
+    const inMemoryRows = applyFilters(datetimeRows, [inMemoryFilter]);
+
+    const fetchFn = makeSqlishFetch(datetimeRows);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    const result = await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        select: ['id', 'createdAt'],
+        filter: {
+          type: 'leaf',
+          field: 'createdAt',
+          op: 'equals',
+          value: '2026-07-10',
+          fieldType: 'datetime',
+        },
+      }),
+    );
+
+    expect(result.rows).toEqual(inMemoryRows);
+    // Guard against a vacuous pass (two empty row sets are also "identical").
+    expect(inMemoryRows.map((r) => r.id)).toEqual([2, 3]);
   });
 });
 

@@ -1139,8 +1139,8 @@ function buildBatchWidgetDescriptor(
 
     // Split the filter into server-executable predicates and a client-side residual
     // (OR conditions / unmappable operators) so neither is silently mistranslated (1.4 / 1.5).
-    // Leaves we DO push down are checked for null/date divergence via warnServerLeafDivergence
-    // (finding 2.16 a/b).
+    // Leaves we DO push down are checked for NULL-handling divergence via
+    // warnServerLeafDivergence (finding 2.16a).
     const partition = partitionFilterNode(d.filter, (leaf) =>
       warnServerLeafDivergence(leaf, d.sourceId, warnDedupe),
     );
@@ -1448,6 +1448,13 @@ function buildBatchWidgetDescriptor(
  *    the server's `whereLike(col, value)` behaved as a case-sensitive EXACT match — silently
  *    returning only rows equal to the needle instead of every row containing it (finding 1.7).
  *    All three substring operators are evaluated client-side to stay byte-for-byte consistent.
+ *
+ * Presence in this map is NECESSARY but not SUFFICIENT for pushdown: `isOpValueServerTranslatable`
+ * subtracts the (operator, value, fieldType) combinations whose wire form would still diverge —
+ * today an empty `in: []`, an open-ended `between`, a `not_equals` on a `date`/`datetime` field
+ * and an `equals` on a `date`/`datetime` field whose value does not reduce to a calendar day
+ * (see there). And presence does not mean a 1:1 predicate: `toPredicatesFor` rewrites the
+ * date-granularity operators (`eq`, `gt`, `lte`, `between`) into day-faithful bound pairs.
  */
 const OPERATOR_MAP: Partial<Record<StudioFilterOperator, FilterPredicate['operator']>> = {
   equals: 'eq',
@@ -1506,15 +1513,28 @@ function isFullyBoundedBetween(value: unknown): boolean {
 }
 
 /**
- * True when a single (op, value) pair can be sent to the server with EXACTLY the same semantics
- * as the in-memory evaluator. Beyond the operator mapping, two value-shaped cases must stay
+ * True when a single (op, value, fieldType) triple can be sent to the server with EXACTLY the same
+ * semantics as the in-memory evaluator. Beyond the operator mapping, four cases must stay
  * client-side because their wire translation inverts or corrupts the in-memory result:
  *  - an empty `in` array matches NOTHING in-memory (`filterVal.some(...)` over `[]`), but the
  *    middleware DROPS an empty-`in` predicate on reads — matching EVERYTHING (finding 2.16c);
  *  - an open-ended `between` (only one bound set) is unbounded in-memory but becomes a
- *    malformed two-arg `whereBetween` on the wire (finding 2.15).
+ *    malformed two-arg `whereBetween` on the wire (finding 2.15);
+ *  - `not_equals` on a `date`/`datetime` field, whose faithful form is an OR (finding T1.3b);
+ *  - `equals` on a `date`/`datetime` field whose value does not reduce to a calendar day, so the
+ *    day-range rewrite in `toPredicatesFor` cannot be built (finding T1.3b).
+ *
+ * The two date cases exist because `equals`/`not_equals` on a `date`/`datetime` field are
+ * DAY-granular in-memory for EVERY value form: `filterUtils`' `compileSingleCondition` routes both
+ * sides through `toDayComparable`, which truncates to `YYYY-MM-DD`. (This is unlike the ordering
+ * bounds, which go through `compileDateBound` and only widen a DATE-ONLY value — so the wire
+ * rewrite for them is conditional on date-only-ness while the one for `equals` is not.)
  */
-function isOpValueServerTranslatable(op: StudioFilterOperator, value: unknown): boolean {
+function isOpValueServerTranslatable(
+  op: StudioFilterOperator,
+  value: unknown,
+  fieldType: StudioFilterLeaf['fieldType'],
+): boolean {
   if (mapOperator(op) === null) {
     return false;
   }
@@ -1523,6 +1543,24 @@ function isOpValueServerTranslatable(op: StudioFilterOperator, value: unknown): 
   }
   if (op === 'between' && !isFullyBoundedBetween(value)) {
     return false;
+  }
+  if (isDateFieldType(fieldType)) {
+    // "not on day D" is `col < D OR col >= nextDay(D)`. The wire protocol AND-combines every
+    // predicate and has no OR, so there is no AND-expressible form — pushing `neq D` instead
+    // compares the raw column to midnight and KEEPS every non-midnight row of day D, i.e. the
+    // adapter returns MORE rows than the evaluator. Route it to the client residual, where
+    // `applyFilters` evaluates it at day granularity (and, as a bonus, keeps the NULL rows SQL
+    // three-valued logic would have dropped).
+    if (op === 'not_equals') {
+      return false;
+    }
+    // `equals` IS AND-expressible (`>= D` AND `< nextDay(D)`, see `toPredicatesFor`) — but only
+    // once the wire value reduces to a calendar day. A numeric epoch, a `Date` instance or a
+    // non-ISO string cannot be turned into that pair here, and a bare `eq` against them diverges,
+    // so those fall back to the client residual rather than shipping a wrong predicate.
+    if (op === 'equals') {
+      return dayPartOfWireValue(resolveWireScalar(value)) !== null;
+    }
   }
   return true;
 }
@@ -1542,7 +1580,7 @@ function isLeafServerTranslatable(leaf: StudioFilterLeaf): boolean {
   if (!isConditionComplete(leaf.op, leaf.value)) {
     return false;
   }
-  if (!isOpValueServerTranslatable(leaf.op, leaf.value)) {
+  if (!isOpValueServerTranslatable(leaf.op, leaf.value, leaf.fieldType)) {
     return false;
   }
   // Mirror `isConditionComplete`'s presence rule (not a bare `value2 !== undefined` check) — a
@@ -1562,22 +1600,28 @@ function isLeafServerTranslatable(leaf: StudioFilterLeaf): boolean {
   if (leaf.conjunction === 'or') {
     return false;
   }
-  return isOpValueServerTranslatable(leaf.op2!, leaf.value2);
+  return isOpValueServerTranslatable(leaf.op2!, leaf.value2, leaf.fieldType);
 }
 
 /**
- * Warn (once per widget-descriptor build) about the null-handling / date-normalization drift of
- * a leaf that IS pushed to the server but whose semantics differ subtly from the in-memory
- * evaluator (finding 2.16 a/b). Unlike the operators routed to the client residual, these stay
- * server-side because their pushdown is essential (`not_equals`, date range bounds are common,
- * high-selectivity filters and routing them client-side would defeat the query pushdown and, for
- * aggregated widgets, drop the filter entirely). The divergence is surfaced loudly instead of
- * silently:
- *  - `not_equals` (any type): SQL three-valued logic excludes NULL rows server-side, but the
- *    in-memory evaluator KEEPS them (`row[field] != value` is true for null).
- *  - `equals` on a `date`/`datetime` field: the server compares the raw column to a bare
- *    `'YYYY-MM-DD'` string while in-memory normalizes both sides — so an equality against a
- *    DATETIME/timestamp column can match zero rows server-side yet match that day in-memory.
+ * Warn (once per widget-descriptor build) about the null-handling drift of a leaf that IS pushed
+ * to the server but whose semantics differ subtly from the in-memory evaluator (finding 2.16a).
+ * Unlike the operators routed to the client residual, `not_equals` stays server-side because its
+ * pushdown is essential (it is a common, high-selectivity filter, and routing it client-side would
+ * defeat the query pushdown and, for aggregated widgets, drop the filter entirely). The divergence
+ * is surfaced loudly instead of silently: SQL three-valued logic excludes NULL rows server-side,
+ * but the in-memory evaluator KEEPS them (`row[field] != value` is true for null).
+ *
+ * There is no longer a companion date warning. `equals` on a `date`/`datetime` field used to be
+ * pushed as a raw `eq` against a bare `'YYYY-MM-DD'` — matching only exact-midnight rows on a
+ * DATETIME column while in-memory matched the whole day — and that was merely warned about
+ * ("Use a `between` range instead"), i.e. a dashboard viewer saw a wrong number and only a
+ * developer saw the console note. It is now TRANSLATED to a faithful `>= D AND < nextDay(D)` pair
+ * by `toPredicatesFor`, and the shapes that cannot be translated are routed to the client residual
+ * by `isOpValueServerTranslatable`, so there is nothing left to warn about (finding T1.3b).
+ *
+ * `not_equals` on a `date`/`datetime` field is likewise no longer pushed at all (its faithful form
+ * is an OR), so this warning only ever fires for a non-date `not_equals`.
  */
 function warnServerLeafDivergence(
   leaf: StudioFilterLeaf,
@@ -1591,16 +1635,6 @@ function warnServerLeafDivergence(
         `where SQL three-valued logic excludes rows whose value is NULL. In-memory sources keep ` +
         `those NULL rows, so the adapter may return fewer rows. Add an explicit "is empty" ` +
         `condition if NULL rows should be included.`,
-    );
-  }
-  const isDateField = leaf.fieldType === 'date' || leaf.fieldType === 'datetime';
-  if (isDateField && (leaf.op === 'equals' || leaf.op2 === 'equals')) {
-    warnAdapterDivergence(
-      dedupe,
-      `An "equals" filter on the ${leaf.fieldType} field "${leaf.field}" for source "${sourceId}" ` +
-        `compares raw column values server-side but normalized values in-memory. On a ` +
-        `DATETIME/timestamp column an equality against a plain date can match zero rows ` +
-        `server-side while matching that day's rows in-memory. Use a "between" range instead.`,
     );
   }
 }
@@ -1656,6 +1690,25 @@ function isDateOnlyWireValue(value: unknown): value is string {
   return typeof value === 'string' && DATE_ONLY_RE.test(value);
 }
 
+/**
+ * The calendar day of a wire date value as `YYYY-MM-DD` — the whole of a bare date, or the date
+ * part of a full ISO instant (`2024-07-10T13:04:00.000Z` → `2024-07-10`). `null` for anything this
+ * module cannot reduce to a calendar day on its own (a numeric epoch, a `Date` instance, a
+ * non-ISO string), which is the signal to keep the predicate client-side rather than guess.
+ *
+ * Deliberately looser than `isDateOnlyWireValue`: the ordering bounds only widen a value that
+ * carries NO time-of-day (mirroring `filterUtils`' `isDateOnlyFilterValue`), whereas `equals` is
+ * day-granular in-memory even for a value that DOES carry one (`toDayComparable` truncates it),
+ * so its wire rewrite needs the day of an instant too.
+ */
+function dayPartOfWireValue(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(value);
+  return match === null ? null : match[1];
+}
+
 /** The calendar day AFTER a bare `YYYY-MM-DD` date, as a `YYYY-MM-DD` string (handles month/year rollover). */
 function nextDayIso(dateOnly: string): string {
   const [y, m, d] = dateOnly.split('-').map(Number);
@@ -1674,7 +1727,19 @@ function nextDayIso(dateOnly: string): string {
  *    keep day-D afternoon rows the evaluator excludes);
  *  - `< D` (→ `< 'D'` at midnight) and `>= D` (→ `>= 'D'`) already match day granularity unchanged;
  *  - `between [from, to]` upper bound is the same `<= to` case → emit `>= from` AND `< nextDay(to)`.
- * A value carrying an explicit time keeps full precision (no translation), exactly like in-memory.
+ * For those ordering bounds, a value carrying an explicit time keeps full precision (no
+ * translation), exactly like in-memory (`compileDateBound` → `isDateOnlyFilterValue`).
+ *
+ * `equals` is the one operator whose in-memory form is day-granular UNCONDITIONALLY — the
+ * `equals`/`not_equals` branches of `compileSingleCondition` run BOTH sides through
+ * `toDayComparable`, which truncates to `YYYY-MM-DD` whether or not the filter value carries a
+ * time. So `= D` becomes `>= day(D) AND < nextDay(day(D))` for every value that reduces to a
+ * calendar day, not only for bare dates (finding T1.3b). Before this, a "On 2024-07-10" filter on
+ * a DATETIME column shipped `WHERE created_at = '2024-07-10'` — matching only exact-midnight rows,
+ * so a KPI that reads a real number in-memory read 0 through the adapter.
+ *
+ * `not_equals` has no AND-expressible day form (`< D OR >= nextDay(D)`) and so is not routed here
+ * at all — `isOpValueServerTranslatable` keeps it client-side.
  */
 function toPredicatesFor(
   field: string,
@@ -1683,6 +1748,18 @@ function toPredicatesFor(
   fieldType: StudioFilterLeaf['fieldType'],
 ): FilterPredicate[] {
   const isDate = isDateFieldType(fieldType);
+  if (isDate && operator === 'eq') {
+    const day = dayPartOfWireValue(value);
+    // A `null` day means the value never passed `isOpValueServerTranslatable` in the first place,
+    // so this leaf is on the client residual and we are not called for it — the guard is defensive
+    // for a hand-built predicate path.
+    if (day !== null) {
+      return [
+        { column: field, operator: 'gte', value: day },
+        { column: field, operator: 'lt', value: nextDayIso(day) },
+      ];
+    }
+  }
   if (isDate && operator === 'lte' && isDateOnlyWireValue(value)) {
     return [{ column: field, operator: 'lt', value: nextDayIso(value) }];
   }
@@ -1705,7 +1782,8 @@ function toPredicatesFor(
 /**
  * Emit the server FilterPredicate(s) for a server-translatable leaf. Mirrors the historical
  * `flattenFilterNode` leaf branch, including the `{ from, to }` → `[lo, hi]` `between`
- * conversion, the faithful day-granular date translation (`toPredicatesFor`, finding T1.3), and
+ * conversion, the faithful day-granular date translation (`toPredicatesFor`, findings T1.3 /
+ * T1.3b — note it can emit TWO predicates for a single condition), and
  * the AND-combined second condition (`op2` / `value2`).
  */
 function leafToPredicates(leaf: StudioFilterLeaf): FilterPredicate[] {
@@ -1777,8 +1855,9 @@ function partitionFilterNode(
       return;
     }
     if (isLeafServerTranslatable(n)) {
-      // Surface any null-handling / date-normalization drift for leaves we DO push down
-      // (finding 2.16 a/b) before emitting the predicate.
+      // Surface any NULL-handling drift for leaves we DO push down (finding 2.16a) before
+      // emitting the predicate. Date-granularity drift is no longer warned about — it is
+      // translated away by `toPredicatesFor` or routed to the residual (finding T1.3b).
       onServerLeaf?.(n);
       result.predicates.push(...leafToPredicates(n));
     } else {

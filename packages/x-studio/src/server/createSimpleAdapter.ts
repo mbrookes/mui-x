@@ -15,6 +15,25 @@
  *   Request body: { sourceId, select, filter?, groupBy?, aggregations? }
  *   Response: { rows: Record<string, unknown>[] }
  *
+ * The `filter` tree is Studio's own `StudioFilterNode`, NOT the data-middleware's
+ * `FilterPredicate` wire shape, so the host must implement Studio's operator semantics. The one
+ * that most often surprises a host implementer is date granularity: on a `date`/`datetime` field,
+ * `equals`/`not_equals` and any bare `YYYY-MM-DD` ordering bound compare at CALENDAR-DAY
+ * granularity, not at the midnight instant the value literally names. Against a DATETIME/timestamp
+ * column that means:
+ *   - `equals D`        → `col >= D AND col < D+1day` (a literal `col = D` matches only the rows
+ *                         stored at exactly midnight — typically none);
+ *   - `not_equals D`    → `col < D OR col >= D+1day` (or NULL — Studio keeps NULL rows here, SQL's
+ *                         `col != D` does not);
+ *   - `<= D` / `> D`    → `col < D+1day` / `col >= D+1day` (the whole of day D is inside `<= D`);
+ *   - `>= D` / `< D`    → unchanged;
+ *   - `between [F, T]`  → `col >= F AND col < T+1day`.
+ * A bound that carries an explicit time-of-day keeps full precision, EXCEPT for
+ * `equals`/`not_equals`, which are day-granular for every value form. `createBatchingAdapter`
+ * performs exactly these rewrites itself because it speaks the `FilterPredicate` protocol; this
+ * adapter cannot, because it does not translate the tree at all — the host owns the semantics
+ * (findings T1.3 / T1.3b).
+ *
  * Usage:
  *   const source: StudioDataSource = {
  *     id: 'orders',

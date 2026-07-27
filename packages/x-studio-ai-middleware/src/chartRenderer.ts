@@ -7,6 +7,9 @@
  * Supported chart types: 'bar', 'line', 'pie'.
  */
 
+import { sanitizeForPromptLine } from './buildAISystemPrompt';
+import { markPackageAuthored } from './internal/packageError';
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 /** A single data point for bar and pie charts, or a single-series line chart. */
@@ -114,6 +117,29 @@ const MAX_CHART_ARRAY_LENGTH = 1000;
  */
 const MAX_CHART_TEXT_LENGTH = 200;
 
+/**
+ * Hard upper bound on the TOTAL number of plotted values a single `render_chart`
+ * call may produce, across all series (finding M9).
+ *
+ * {@link MAX_CHART_ARRAY_LENGTH} bounds `data`, `xLabels`, `series`, and each
+ * series' `values` INDEPENDENTLY, at 1,000 each — but nothing bounded the PRODUCT.
+ * `{ type: 'line', xLabels: 1000 labels, series: 1000 series × 1000 values }` passes
+ * every one of those checks and makes `renderLine` emit ~1,000,000 SVG elements
+ * (a polyline point plus a `<circle>` per value) as one joined string: tens of
+ * megabytes of markup and the CPU to build it. `mcp/utilityTools.ts`'s 256 KB result
+ * cap does not help — it measures the string AFTER it has been built and base64
+ * encoded, so it bounds the model's context, not this process's CPU and heap. One
+ * MCP call was therefore a memory/CPU denial of service.
+ *
+ * 5,000 values is well past any chart a human or a model can actually read (a
+ * 600×400 canvas has ~540 usable pixels of width) while still admitting the widest
+ * legitimate shapes: 5 series × 1,000 points, or a single 1,000-point series with
+ * room to spare. REJECTED rather than truncated, like every other cap in this file:
+ * a chart silently missing most of its data is a wrong chart presented as a right
+ * one.
+ */
+const MAX_CHART_TOTAL_VALUES = 5000;
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
@@ -201,10 +227,37 @@ function sanitizeOptionalText(value: unknown): string | undefined {
  */
 function checkChartArrayLength(argName: string, length: number): void {
   if (length > MAX_CHART_ARRAY_LENGTH) {
-    throw new Error(
-      `MUI X Studio: render_chart received ${length} "${argName}" entries, which exceeds the ` +
-        `limit of ${MAX_CHART_ARRAY_LENGTH}. Split the request into multiple calls of at most ` +
-        `${MAX_CHART_ARRAY_LENGTH} ${argName} entries each.`,
+    // BRANDED as package-authored (finding M2): the message is built from a
+    // server-authored `argName` and two numbers, so there is nothing untrusted in it
+    // to leak — and `mcp/utilityTools.ts` relays a branded message to the model
+    // (where it is the actionable "split the request" guidance) while redacting
+    // anything unbranded behind a correlation id.
+    throw markPackageAuthored(
+      new Error(
+        `MUI X Studio: render_chart received ${length} "${argName}" entries, which exceeds the ` +
+          `limit of ${MAX_CHART_ARRAY_LENGTH}. Split the request into multiple calls of at most ` +
+          `${MAX_CHART_ARRAY_LENGTH} ${argName} entries each.`,
+      ),
+    );
+  }
+}
+
+/**
+ * Reject a payload whose TOTAL plotted-value count exceeds
+ * {@link MAX_CHART_TOTAL_VALUES} — the product bound the four independent
+ * per-array caps never provided (finding M9). Runs BEFORE any rendering, since the
+ * cost this bounds is the rendering itself.
+ */
+function checkChartTotalValues(total: number): void {
+  if (total > MAX_CHART_TOTAL_VALUES) {
+    throw markPackageAuthored(
+      new Error(
+        `MUI X Studio: render_chart received ${total} plotted values across all series, which ` +
+          `exceeds the total limit of ${MAX_CHART_TOTAL_VALUES}. Each per-array limit ` +
+          `(${MAX_CHART_ARRAY_LENGTH}) applies on its own, but the number of series multiplied by ` +
+          'the values in each is what determines how much SVG is generated. Aggregate the data ' +
+          'first, or split it across multiple calls.',
+      ),
     );
   }
 }
@@ -229,9 +282,15 @@ function sanitizeSeries(series: ChartSeries[] | undefined): ChartSeries[] | unde
     return undefined;
   }
   checkChartArrayLength('series', series.length);
+  // Accumulate across series so the PRODUCT is bounded, not just each factor
+  // (finding M9) — see `MAX_CHART_TOTAL_VALUES`. Checked as the sum accrues, so an
+  // oversized payload is rejected before its values are mapped rather than after.
+  let totalValues = 0;
   return series.map((s) => {
     const values = Array.isArray(s?.values) ? s.values : [];
     checkChartArrayLength('series[].values', values.length);
+    totalValues += values.length;
+    checkChartTotalValues(totalValues);
     return {
       ...s,
       name: sanitizeText(s?.name),
@@ -336,6 +395,27 @@ function niceMax(rawMax: number, tickCount = 5): number {
   return Math.ceil(rawMax / step) * step;
 }
 
+/**
+ * Whether a resolved axis maximum can actually be divided by to produce geometry
+ * (finding M9).
+ *
+ * Every renderer guarded its scale with `maxVal <= 0`, which covers zero and
+ * negatives and nothing else — and `niceMax` can return a NON-FINITE max from
+ * perfectly finite input: `render_chart({ type: 'bar', data: [{ value: 1.797e308 }] })`
+ * passes `sanitizeValue` (`Number.isFinite` is true for `Number.MAX_VALUE`), then
+ * `niceMax` computes `Math.ceil(max / step) * step` = `4 * 5e307` = **Infinity**.
+ * `Infinity <= 0` is false, so no placeholder fired; `ticks(Infinity)` yielded
+ * `[NaN, Infinity, …]` and the emitted SVG carried `y1="NaN"` and `y="Infinity"`
+ * attributes — exactly the NaN geometry these guards were documented to prevent,
+ * reached through the one arithmetic case they did not cover.
+ *
+ * Consolidated into one predicate every renderer calls, so the zero case and the
+ * non-finite case can no longer drift apart per renderer.
+ */
+function hasUsableScale(max: number): boolean {
+  return Number.isFinite(max) && max > 0;
+}
+
 function ticks(max: number, count = 5): number[] {
   const step = max / count;
   return Array.from({ length: count + 1 }, (_, i) => Math.round(step * i * 100) / 100);
@@ -359,6 +439,12 @@ function renderBar(input: SanitizedChartInput): string {
   const chartH = H - PAD.top - PAD.bottom;
 
   const maxVal = niceMax(Math.max(...data.map((d) => d.value), 0));
+  // The `data.some(d => d.value > 0)` gate above covers the zero/negative scale; this
+  // covers the NON-FINITE one `niceMax` can produce from a finite `Number.MAX_VALUE`
+  // data point (finding M9) — see `hasUsableScale`.
+  if (!hasUsableScale(maxVal)) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="10" y="20" font-family="${FONT_FAMILY}" fill="red">No data provided.</text></svg>`;
+  }
   const tickValues = ticks(maxVal);
 
   const barPad = 0.2;
@@ -454,8 +540,9 @@ function renderLine(input: SanitizedChartInput): string {
   // `maxVal` is 0, so every `yOf(v)` computes `v / 0` → NaN and the whole SVG
   // fills with `y1="NaN"` gridlines/points (BOTH the multi-series and
   // single-series paths reach here). Render the same "No data provided."
-  // placeholder bar/donut/scatter use (finding 2.2).
-  if (maxVal <= 0) {
+  // placeholder bar/donut/scatter use (finding 2.2). `hasUsableScale` also covers the
+  // NON-FINITE `maxVal` a `Number.MAX_VALUE` value produces (finding M9).
+  if (!hasUsableScale(maxVal)) {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="10" y="20" font-family="${FONT_FAMILY}" fill="red">No data provided.</text></svg>`;
   }
 
@@ -570,6 +657,14 @@ function renderPie(input: SanitizedChartInput): string {
   // `polarToCartesian(∞)` produced NaN path coordinates (finding 2.2). Summing
   // positives keeps `total` a positive denominator that the drawn slices sum into.
   const total = data.reduce((s, d) => (d.value > 0 ? s + d.value : s), 0);
+  // A NON-FINITE `total` (two `Number.MAX_VALUE` slices sum to Infinity) makes every
+  // `d.value / total` zero, so the pie body renders as invisible zero-width wedges
+  // while the legend still reports "0%" for each — a broken chart the caller cannot
+  // distinguish from a real one. Emit the same placeholder as the other degenerate
+  // cases (finding M9).
+  if (!hasUsableScale(total)) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="10" y="20" font-family="${FONT_FAMILY}" fill="red">No data provided.</text></svg>`;
+  }
   const lines: string[] = [];
 
   // ── Title
@@ -648,7 +743,11 @@ function renderScatter(input: SanitizedChartInput): string {
     rawSeries.forEach((s, si) => {
       s.values.forEach((y, i) => {
         const x = parseFloat(rawXLabels[i]);
-        if (!Number.isNaN(x)) {
+        // `Number.isFinite`, not `!Number.isNaN` (finding M9): an `xLabels` entry of
+        // `"1e999"` parses to Infinity, which is not NaN — it was accepted as an x
+        // coordinate, made `xRange` Infinity, and turned every `px()` into
+        // `Infinity / Infinity` → `cx="NaN"`.
+        if (Number.isFinite(x)) {
           points.push({ x, y, label: rawXLabels[i], seriesName: s.name, color: color(colors, si) });
         }
       });
@@ -656,7 +755,9 @@ function renderScatter(input: SanitizedChartInput): string {
   } else if (input.data) {
     input.data.forEach((d, i) => {
       const x = parseFloat(String(d.label));
-      if (!Number.isNaN(x)) {
+      // `Number.isFinite` for the same reason as the multi-series branch above; a
+      // non-numeric label still falls through to the index-as-x branch.
+      if (Number.isFinite(x)) {
         points.push({ x, y: d.value, label: String(d.label), color: color(colors, i) });
       } else {
         // label is not numeric — use index as x
@@ -687,7 +788,8 @@ function renderScatter(input: SanitizedChartInput): string {
   // point): `yMax` is 0, so every `py(y)` computes `y / 0` → NaN and the
   // gridline/tick/point attributes come out as `NaN`. Render the same "No data
   // provided." placeholder the empty-`points` branch above uses (finding 2.2).
-  if (yMax <= 0) {
+  // `hasUsableScale` also covers a NON-FINITE `yMax` (finding M9).
+  if (!hasUsableScale(yMax)) {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="10" y="20" font-family="${FONT_FAMILY}" fill="red">No data provided.</text></svg>`;
   }
 
@@ -768,6 +870,12 @@ function renderDonut(input: SanitizedChartInput): string {
   // → NaN arc coordinates (finding 2.2). The all-non-positive case is already
   // handled by the placeholder guard above, so `total` here is always positive.
   const total = data.reduce((s, d) => (d.value > 0 ? s + d.value : s), 0);
+  // Non-finite `total` guard, mirroring `renderPie` (finding M9): besides the
+  // zero-width wedges, the donut's centre label prints `total.toLocaleString()`, so an
+  // Infinity total renders the chart's headline figure as "∞".
+  if (!hasUsableScale(total)) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="10" y="20" font-family="${FONT_FAMILY}" fill="red">No data provided.</text></svg>`;
+  }
   const svgLines: string[] = [];
 
   if (title) {
@@ -880,8 +988,10 @@ function renderStackedBar(input: SanitizedChartInput): string {
   // tick's `(tv / maxTotal) * chartH` and every bar's `(val / maxTotal) * chartH`
   // is NaN. Render the same "No data provided." placeholder the other renderers
   // use (finding 2.2) rather than the "requires xLabels and series" message,
-  // which is reserved for genuinely missing series above.
-  if (maxTotal <= 0) {
+  // which is reserved for genuinely missing series above. `hasUsableScale` also covers
+  // a NON-FINITE `maxTotal` — two `Number.MAX_VALUE` stack segments sum to Infinity
+  // (finding M9).
+  if (!hasUsableScale(maxTotal)) {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="10" y="20" font-family="${FONT_FAMILY}" fill="red">No data provided.</text></svg>`;
   }
 
@@ -999,8 +1109,16 @@ export function renderChartSvg(rawInput: ChartRendererInput): string {
       // `input.type` is already coerced + capped by `sanitizeInput` (finding L6), so
       // this message is bounded even for a multi-megabyte model-supplied `type`.
       const never: never = input.type;
-      throw new Error(
-        `MUI X Studio: Unknown chart type "${sanitizeText(never)}". Supported types: bar, line, pie, scatter, donut, stacked_bar.`,
+      // SANITIZED as well as capped, and BRANDED (finding M2). `type` is model-supplied
+      // and this message is relayed to the model as a tool result, so a `type` carrying
+      // newlines could forge a sibling line of prose in it; `sanitizeForPromptLine`
+      // collapses those exactly as every other echoed identifier in the package is
+      // treated. Only once it holds nothing untrusted may it carry the package-authored
+      // brand that makes `mcp/utilityTools.ts` relay it verbatim.
+      throw markPackageAuthored(
+        new Error(
+          `MUI X Studio: Unknown chart type "${sanitizeForPromptLine(sanitizeText(never))}". Supported types: bar, line, pie, scatter, donut, stacked_bar.`,
+        ),
       );
     }
   }

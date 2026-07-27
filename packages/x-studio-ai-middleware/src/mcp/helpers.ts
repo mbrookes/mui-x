@@ -74,9 +74,17 @@ export const MAX_ECHOED_IDENTIFIER_LENGTH = 200;
  * must not be able to close a client's tag-structured framing or read as an
  * instruction. It is also unbounded — the URI/prompt-arg families are
  * client-supplied — so it is capped first, matching the cap `resolveSource`
- * applies to `sourceId`. `resolveSource` was the ONLY site doing both; its
- * siblings did neither (`mcp/resources.ts`) or only sanitized
- * (`mcp/prompts.ts`, `mcp/summarisePage.ts`).
+ * applies to `sourceId`.
+ *
+ * (Corrected under finding M2: this comment used to claim `resolveSource` was
+ * "the ONLY site doing both". It was not doing both — it length-capped `sourceId`
+ * and then interpolated the CAPPED-but-UNSANITIZED value into its own
+ * `Unknown data source: "…"` message. Every identifier echoed into model- or
+ * client-visible prose now routes through THIS function instead, which is the one
+ * place that does both: `resolveSource`, `validateTableName`,
+ * {@link checkAllowedTable}, the `withTimeout` operation labels in
+ * `mcp/queryTools.ts` / `mcp/summarisePage.ts`, `mcp/prompts.ts` and
+ * `mcp/resources.ts`.)
  *
  * Uses the SINGLE-LINE sanitizer, not the angle-bracket-only one: every caller
  * interpolates the result into one line of prose (`Unknown data source: "…"`,
@@ -308,13 +316,105 @@ export function checkAllowedTable(
   if (allowedTables === '*' || allowedTables === undefined) {
     return null;
   }
-  if (!allowedTables.includes(tableName)) {
+  // FAIL CLOSED on anything that is not an array (finding M1). `allowedTables` is
+  // typed `string[] | '*' | undefined`, but this is the file whose own doc argues a
+  // declared TypeScript type says nothing about what arrives, and this value is
+  // routinely built from configuration (`process.env.ALLOWED_TABLES`, a JSON config
+  // that lost its array wrapper). Two concrete degradations were reachable:
+  //   - `allowedTables: 'orders'` made `allowedTables.includes(tableName)` the STRING
+  //     `includes` — a SUBSTRING test. `'orders'.includes('order')` is `true`, so
+  //     `'s'`, `'rd'`, and `''` all passed too, reducing the allowlist to "any
+  //     substring of the config string". On the chat transport the attacker authors
+  //     `runtime.dataSources`, so it picks the `tableName` that has to match.
+  //   - `allowedTables: null` made `null.includes` THROW, escaping the caller's try
+  //     block entirely instead of denying one table.
+  // Denying is the only safe reading: an allowlist that cannot be interpreted
+  // authorizes nothing.
+  if (!Array.isArray(allowedTables)) {
     return (
-      `Data source "${sourceId}" resolves to table "${tableName}", which is not in the ` +
-      'server-configured allowedTables list. This request was blocked before reaching the database.'
+      `Data source "${safeIdentifier(sourceId)}" cannot be queried: the server-configured ` +
+      'allowedTables is neither an array of table names nor the "*" sentinel, so no table can be ' +
+      'authorized against it. This request was blocked before reaching the database. Configure ' +
+      'allowedTables as an array of table-name strings, or "*" to opt out of the restriction.'
+    );
+  }
+  if (!allowedTables.includes(tableName)) {
+    // Both identifiers route through `safeIdentifier` (finding M2). `sourceId` is
+    // caller-supplied on the chat transport and `tableName` comes off
+    // `runtime.dataSources`, which descends from the client-supplied request body —
+    // and this string is surfaced verbatim as an MCP error message (`resources.ts`
+    // even `throw`s it, so it reaches the client as the JSON-RPC `error.message` with
+    // its newlines intact). Its immediate neighbour `validateTableName` already
+    // sanitized its `sourceId`; this one did neither identifier.
+    return (
+      `Data source "${safeIdentifier(sourceId)}" resolves to table "${safeIdentifier(tableName)}", ` +
+      'which is not in the server-configured allowedTables list. This request was blocked before ' +
+      'reaching the database.'
     );
   }
   return null;
+}
+
+/**
+ * Max number of `data.queryDataSource` calls this package keeps in flight at once
+ * within a SINGLE tool call (finding L2).
+ *
+ * The per-call COUNT caps (`MAX_DESCRIBE_DATA_SOURCE_NUMERIC_FIELDS`,
+ * `MAX_SUMMARISE_PAGE_WIDGETS`, both 50) bound how many queries a call may issue,
+ * but the fan-outs themselves were bare `Promise.all`s — so `describe_data_source`
+ * started up to 51 and `summarise_page` up to 100 host queries simultaneously, and
+ * the only thing bounding real concurrency was the host's connection pool, which a
+ * host sizes for its whole application rather than for one tool call. Draining it
+ * from one call starves every other request in the process. The sibling
+ * `@mui/x-studio-data-middleware` already solved this for its batch fan-out with a
+ * worker pool (`MAX_CONCURRENT_WIDGET_QUERIES`); this is the same bound on this
+ * side of the boundary, and deliberately the same number.
+ */
+export const MAX_CONCURRENT_HOST_QUERIES = 6;
+
+/**
+ * Run `task` over `items` with at most `limit` concurrent invocations, preserving
+ * input order in the returned array — the bounded-concurrency replacement for the
+ * `Promise.all` fan-outs in `describe_data_source` and `summarise_page`
+ * (finding L2). Mirrors `@mui/x-studio-data-middleware`'s `mapWithConcurrency`.
+ *
+ * A fixed pool of workers pulls the next index off a shared cursor, so one slow
+ * query delays only itself rather than blocking a whole chunk the way a chunked
+ * `Promise.all` loop would. Per-item error isolation is unchanged: whatever `task`
+ * does about its own failures (a `.catch(() => null)`, an internal `try`) still
+ * governs, and a task that rejects still rejects the whole map — same as
+ * `Promise.all`.
+ *
+ * @param items The inputs to map over.
+ * @param limit Maximum number of concurrent `task` invocations.
+ * @param task  Per-item work; its result is stored at the item's input index.
+ * @returns The per-item results, in input order.
+ */
+export async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  task: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let cursor = 0;
+  const workerCount = Math.min(Math.max(limit, 1), items.length);
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      for (;;) {
+        const index = cursor;
+        cursor += 1;
+        if (index >= items.length) {
+          return;
+        }
+        // This IS the concurrency limiter: each worker must finish one item before
+        // pulling the next, and `workerCount` workers run this loop in parallel.
+        // Awaiting in the loop is the mechanism, not an oversight.
+        // eslint-disable-next-line no-await-in-loop
+        results[index] = await task(items[index], index);
+      }
+    }),
+  );
+  return results;
 }
 
 /**
@@ -325,6 +425,14 @@ export function checkAllowedTable(
  * server-authored operation name and `ms` is a constant, so the message carries no
  * untrusted content and {@link redactedHostErrorMessage} relays it verbatim instead
  * of withholding it behind a correlation id.
+ *
+ * CALLER CONTRACT (finding M2): the brand is a promise that the message contains
+ * only server-authored prose and compile-time constants, and `redactedHostErrorMessage`
+ * relays branded messages VERBATIM on exactly that premise. A `label` that
+ * interpolates an untrusted identifier (a `tableName` off `runtime.dataSources`, a
+ * model-supplied `fieldId`) therefore defeats the brand's whole point — route any
+ * such part through {@link safeIdentifier} first, as every call site in
+ * `mcp/queryTools.ts` and `mcp/summarisePage.ts` now does.
  */
 export function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   // Track the timer so it can be cleared once the race settles. Without this, a

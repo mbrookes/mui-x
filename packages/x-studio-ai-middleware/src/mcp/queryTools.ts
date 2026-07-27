@@ -15,8 +15,11 @@ import {
   checkAllowedTable,
   errorResult,
   jsonResult,
+  mapWithConcurrency,
+  MAX_CONCURRENT_HOST_QUERIES,
   ownArrayEntry,
   redactedHostErrorResult,
+  safeIdentifier,
   validateTableName,
   withTimeout,
   type ToolHandler,
@@ -167,6 +170,149 @@ export function validateAndCapStringArrayElements(
 }
 
 /**
+ * Build a runtime closed set from an exhaustive `Record<Union, true>` literal.
+ *
+ * The `satisfies Record<T, true>` at each call site is the completeness lock: TypeScript
+ * requires EVERY member of the union to be present (a member added to the union without
+ * being added here fails to compile) and rejects any key that is not in it. That is what
+ * keeps the runtime set and the compile-time union from drifting — the class of drift
+ * this whole family of checks exists to catch.
+ */
+function closedSetOf<T extends string>(members: Record<T, true>): ReadonlySet<string> {
+  return new Set(Object.keys(members));
+}
+
+/**
+ * The closed value domains of `query_data_source`'s SQL-STRUCTURAL fields — the
+ * fields whose value does not become a bound parameter but selects a piece of query
+ * STRUCTURE: a comparison operator, an aggregate function, a sort direction (finding H5).
+ *
+ * These were type-checked (`typeof === 'string'`) and length-checked (≤200) by
+ * {@link validateAndCapRecordArrayElements} and nothing else, so
+ * `orderBy[].direction: 'asc; DROP TABLE t--'` and
+ * `aggregations[].func: 'count(*) FROM secrets--'` reached `data.queryDataSource`
+ * verbatim. Their TypeScript types are closed unions (`models/aiTypes.ts`) and the
+ * JSON schemas advertise `enum`s (`studioAITools.ts`) — but this package's entire
+ * thesis is that a schema is advertisement, not enforcement, and the provider is a
+ * first-class attacker. Knex whitelists neither an ORDER BY direction it does not
+ * recognise (it silently coerces to `asc`) nor an aggregate function name, so a host
+ * doing `query.orderBy(col, ob.direction)` or ``knex.raw(`${func}(${col})`)`` was
+ * handed attacker-authored query structure.
+ *
+ * The shipped reference host (`@mui/x-studio-data-middleware`'s
+ * `security/validateQueryPlan.ts`) does validate these, so a default deployment was
+ * covered; this is the same check on THIS side of the boundary, for a bespoke
+ * `queryDataSource`. The sibling that proves the omission was an oversight rather
+ * than a stance is in this package: `mcp/summarisePage.ts` already gates the same
+ * `func` value through a closed set before forwarding it — see
+ * `ANOMALY_SAFE_AGGREGATIONS`, which is now expressed as a SUBSET of
+ * {@link QUERY_AGGREGATION_FUNCS} rather than a second hand-written copy.
+ */
+export const QUERY_FILTER_OPERATORS = closedSetOf({
+  eq: true,
+  neq: true,
+  in: true,
+  lt: true,
+  lte: true,
+  gt: true,
+  gte: true,
+  like: true,
+  between: true,
+} satisfies Record<StudioDataFilter['operator'], true>);
+
+/** Closed value domain of `aggregations[].func` — see {@link QUERY_FILTER_OPERATORS}. */
+export const QUERY_AGGREGATION_FUNCS = closedSetOf({
+  sum: true,
+  avg: true,
+  count: true,
+  min: true,
+  max: true,
+} satisfies Record<StudioDataAggregation['func'], true>);
+
+/** Closed value domain of `having[].operator` — see {@link QUERY_FILTER_OPERATORS}. */
+export const QUERY_HAVING_OPERATORS = closedSetOf({
+  eq: true,
+  gt: true,
+  lt: true,
+  gte: true,
+  lte: true,
+} satisfies Record<StudioDataHavingPredicate['operator'], true>);
+
+/** Closed value domain of `orderBy[].direction` — see {@link QUERY_FILTER_OPERATORS}. */
+export const QUERY_ORDER_BY_DIRECTIONS = closedSetOf({
+  asc: true,
+  desc: true,
+} satisfies Record<StudioDataOrderBy['direction'], true>);
+
+/**
+ * The pattern an `aggregations[].alias` / `having[].alias` must match (finding H5).
+ *
+ * An alias is not a closed set, but it is not a bound parameter either: a host emits
+ * it as a SQL identifier (`SUM(??) AS alias`), which is the same
+ * attacker-authored-structure position as `func` and `direction`. Identical to the
+ * `SAFE_ALIAS_PATTERN` the shipped reference host
+ * (`@mui/x-studio-data-middleware`'s `shared/columnValidation.ts`) enforces
+ * unconditionally, so a call this layer accepts is one that host also accepts —
+ * letting a `like this; DROP TABLE t--` alias through here only to have the host
+ * reject it moves the failure further from the model that can fix it.
+ */
+const SAFE_AGGREGATION_ALIAS = /^[A-Za-z0-9_-]+$/;
+
+/**
+ * The exact keys each `query_data_source` record array may carry through to
+ * `data.queryDataSource`, and the closed value domain of each SQL-structural one
+ * (findings H5 + L2).
+ *
+ * `keys` is an ALLOW-LIST, not a description: {@link validateAndCapRecordArrayElements}
+ * projects a fresh record containing only these keys. Previously it projected EVERY key
+ * of the model's record, so an unlisted `raw`, `joins`, or `alias` on a `filters` entry
+ * reached the host intact — and those are precisely the keys that would change query
+ * structure on a host that reads them. Nothing outside the documented
+ * `models/aiTypes.ts` shapes is part of the contract, so nothing outside them is
+ * forwarded.
+ */
+const QUERY_RECORD_CONTRACTS = {
+  filters: {
+    keys: ['field', 'operator', 'value', 'value2'],
+    stringFields: ['field', 'operator'],
+    enums: { operator: QUERY_FILTER_OPERATORS },
+  },
+  aggregations: {
+    keys: ['column', 'func', 'alias'],
+    stringFields: ['column', 'func', 'alias'],
+    enums: { func: QUERY_AGGREGATION_FUNCS },
+    patterns: { alias: SAFE_AGGREGATION_ALIAS },
+  },
+  having: {
+    keys: ['alias', 'operator', 'value'],
+    stringFields: ['alias', 'operator'],
+    enums: { operator: QUERY_HAVING_OPERATORS },
+    patterns: { alias: SAFE_AGGREGATION_ALIAS },
+  },
+  orderBy: {
+    keys: ['column', 'direction'],
+    stringFields: ['column', 'direction'],
+    enums: { direction: QUERY_ORDER_BY_DIRECTIONS },
+  },
+} satisfies Record<
+  string,
+  {
+    keys: readonly string[];
+    stringFields: readonly string[];
+    enums?: Record<string, ReadonlySet<string>>;
+    patterns?: Record<string, RegExp>;
+  }
+>;
+
+/** The contract shape {@link validateAndCapRecordArrayElements} consumes. */
+interface QueryRecordContract {
+  keys: readonly string[];
+  stringFields: readonly string[];
+  enums?: Readonly<Record<string, ReadonlySet<string>>>;
+  patterns?: Readonly<Record<string, RegExp>>;
+}
+
+/**
  * Validate + cap the RECORD-shaped elements of `query_data_source`'s
  * `aggregations` / `having` / `orderBy` / `filters` arrays (finding F4, Tier 2).
  * `validateQueryArrayArg` above only checks array-ness and overall length —
@@ -175,21 +321,31 @@ export function validateAndCapStringArrayElements(
  * arbitrary non-string value or an unbounded string, from reaching
  * `data.queryDataSource` verbatim.
  *
- * Each entry must be a plain object (rejected otherwise). Any of `stringFields`
- * present on it must, if present, be a string — rejected if not (an
+ * Each entry must be a plain object (rejected otherwise). Any of
+ * `contract.stringFields` present on it must be a string — rejected if not (an
  * object/array/number masquerading as e.g. a column name is not recoverable by
  * truncation) — and is truncated to {@link MAX_FILTER_STRING_LENGTH} if
  * oversized rather than rejected outright, mirroring
- * `validateAndCapStringArrayElements` above. Fields not listed in
- * `stringFields` (e.g. `having`'s numeric `value`) are left untouched — full
- * schema validation of every field is out of scope here, same as
- * `validateQueryArrayArg`'s own shallow-but-effective stance.
+ * `validateAndCapStringArrayElements` above.
+ *
+ * Finding H5 adds the third dimension the first two never covered: a VALUE-DOMAIN
+ * check on the SQL-structural fields (`contract.enums` / `contract.patterns`). A
+ * `direction` of `'asc; DROP TABLE t--'` is a 21-character string and so passed both
+ * the type and the length check on its way to the host. Out-of-domain values are
+ * REJECTED, never coerced to a default: silently sorting the opposite way, or
+ * silently swapping `count` for `sum`, answers a question the caller did not ask and
+ * renders the wrong answer as a right-looking chart.
+ *
+ * Finding L2 closes the last gap: the returned record is PROJECTED to
+ * `contract.keys` only. Numeric/boolean values on listed keys (`having`'s `value`)
+ * pass through untouched — deep validation of a bound parameter is the host's job —
+ * but an unlisted key never reaches the host at all.
  */
 function validateAndCapRecordArrayElements<T extends object>(
   toolName: string,
   argName: string,
   entries: T[],
-  stringFields: readonly string[],
+  contract: QueryRecordContract,
 ): { ok: true; value: T[] } | { ok: false; error: ReturnType<typeof errorResult> } {
   const capped: T[] = [];
   for (let i = 0; i < entries.length; i += 1) {
@@ -206,7 +362,7 @@ function validateAndCapRecordArrayElements<T extends object>(
     const record = entry as unknown as Record<string, unknown>;
     // The named `stringFields` must, if present, be strings — an object/array/number
     // masquerading as e.g. a column name is not recoverable by truncation.
-    for (const field of stringFields) {
+    for (const field of contract.stringFields) {
       const fieldValue = record[field];
       if (fieldValue !== undefined && typeof fieldValue !== 'string') {
         return {
@@ -218,18 +374,52 @@ function validateAndCapRecordArrayElements<T extends object>(
         };
       }
     }
-    // Finding F5 (Tier 3): cap EVERY string-typed value on the record — not just the
-    // named `stringFields`. The previous `{ ...record }` spread forwarded any UNLISTED
-    // key verbatim, so an extra key carrying an unbounded string reached
-    // `data.queryDataSource` uncapped. Projecting each string down to
-    // {@link MAX_FILTER_STRING_LENGTH} closes that hole while leaving non-string values
-    // (numbers such as `having`'s `value`, booleans) untouched.
+    // Project ONLY the contract's own keys (finding L2), capping each string value to
+    // {@link MAX_FILTER_STRING_LENGTH}. The previous version projected every key of the
+    // model's record, so an unlisted `raw`/`joins` reached `data.queryDataSource`
+    // intact — the keys most likely to change query STRUCTURE on a host that reads
+    // them. Non-string values on listed keys (`having`'s numeric `value`) are
+    // forwarded untouched.
     const cappedRecord: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(record)) {
+    for (const key of contract.keys) {
+      if (!Object.hasOwn(record, key)) {
+        continue;
+      }
+      const value = record[key];
       cappedRecord[key] =
         typeof value === 'string' && value.length > MAX_FILTER_STRING_LENGTH
           ? value.slice(0, MAX_FILTER_STRING_LENGTH)
           : value;
+    }
+    // VALUE-DOMAIN checks (finding H5), run on the PROJECTED+CAPPED value so what is
+    // validated is exactly what is forwarded.
+    for (const [field, allowed] of Object.entries(contract.enums ?? {})) {
+      const value = cappedRecord[field];
+      if (value !== undefined && !allowed.has(value as string)) {
+        return {
+          ok: false,
+          error: errorResult(
+            `${toolName}: "${argName}[${i}].${field}" must be one of ` +
+              `${[...allowed].map((v) => `"${v}"`).join(', ')}. This request was blocked before ` +
+              'reaching the database, because that value selects part of the query itself rather ' +
+              'than being compared as data. Re-issue the call using one of the listed values.',
+          ),
+        };
+      }
+    }
+    for (const [field, pattern] of Object.entries(contract.patterns ?? {})) {
+      const value = cappedRecord[field];
+      if (value !== undefined && !pattern.test(value as string)) {
+        return {
+          ok: false,
+          error: errorResult(
+            `${toolName}: "${argName}[${i}].${field}" must contain only letters, digits, ` +
+              'underscores and hyphens. This request was blocked before reaching the database, ' +
+              'because that value is emitted as a SQL identifier rather than compared as data. ' +
+              'Re-issue the call with a simple alias such as "total_revenue".',
+          ),
+        };
+      }
     }
     capped.push(cappedRecord as unknown as T);
   }
@@ -253,6 +443,38 @@ function validateAndCapRecordArrayElements<T extends object>(
  * reason for a different number.
  */
 const MAX_DESCRIBE_DATA_SOURCE_NUMERIC_FIELDS = MAX_COMPUTE_FIELD_STATS_FIELDS;
+
+/**
+ * Hard upper bound on `query_data_source`'s `offset` (finding L2). Its sibling
+ * `limit` is capped by the host's `maxQueryRows`; `offset` was floored at 0 and left
+ * unbounded above, so `{ limit: 1, offset: 500_000_000 }` cost one row of output and
+ * a full scan-and-discard of everything before it. One million rows is far past any
+ * paging depth a model-driven exploration legitimately needs, and past the depth at
+ * which keyset pagination (a filter on the sort column) is the right tool anyway.
+ */
+const MAX_QUERY_OFFSET = 1_000_000;
+
+/**
+ * Fallback used when a host supplies a `maxQueryRows` that is not a usable positive
+ * number (finding L2). `maxQueryRows` is host configuration, but it is configuration
+ * — `Number(process.env.MAX_QUERY_ROWS)` on an unset variable is `NaN` — and it was
+ * forwarded into `Math.min(Math.max(1, limit || maxQueryRows), maxQueryRows)`
+ * unvalidated, which yields `NaN` and hands the host `LIMIT NaN`: the exact failure
+ * the clamp exists to prevent, arriving through the clamp itself. Mirrors `mcp.ts`'s
+ * own `data?.maxQueryRows ?? 1000` default and `summarisePage.ts`'s
+ * `DEFAULT_MAX_QUERY_ROWS`.
+ */
+const DEFAULT_MAX_QUERY_ROWS = 1000;
+
+/**
+ * Coerce a host-supplied `maxQueryRows` to a usable positive integer, falling back to
+ * {@link DEFAULT_MAX_QUERY_ROWS} — see that constant for why a host-supplied value
+ * still needs validating.
+ */
+function sanitizeMaxQueryRows(value: number): number {
+  const truncated = Math.trunc(Number(value));
+  return Number.isFinite(truncated) && truncated > 0 ? truncated : DEFAULT_MAX_QUERY_ROWS;
+}
 
 /** The shape of a resolved, queryable data source: guaranteed to have a `tableName`. */
 type ResolvedSource = StudioStateBox['current']['runtime']['dataSources'][string] & {
@@ -355,8 +577,14 @@ export function resolveSource(
     return {
       ok: false,
       error: errorResult(
-        `Unknown data source: "${cappedSourceId}". Only the data sources configured on this ` +
-          'dashboard can be queried; pass the id of one of them.',
+        // SANITIZED as well as capped (finding M2). The cap above bounds the LENGTH of
+        // the echoed id; it does nothing about its CONTENT, and this message is spliced
+        // into the model conversation by most MCP clients — so a `sourceId` carrying
+        // newlines could forge a sibling line of prose here. `mcp/resources.ts` emits
+        // the character-identical message and already routed it through
+        // `safeIdentifier`; this site was the outlier.
+        `Unknown data source: "${safeIdentifier(cappedSourceId)}". Only the data sources ` +
+          'configured on this dashboard can be queried; pass the id of one of them.',
       ),
     };
   }
@@ -392,7 +620,10 @@ export function resolveSource(
  * unknown-sourceId check.
  */
 export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, ToolHandler> {
-  const { stateBox, data, maxQueryRows, logger } = deps;
+  const { stateBox, data, logger } = deps;
+  // Validate the HOST-supplied bound before it becomes the clamp's own ceiling
+  // (finding L2) — see `sanitizeMaxQueryRows`.
+  const maxQueryRows = sanitizeMaxQueryRows(deps.maxQueryRows);
 
   return {
     // ── query_data_source — routed separately from state-mutation tools ──
@@ -463,6 +694,15 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
       // one) in `aggregations`/`having`/`orderBy`/`filters`, reached
       // `data.queryDataSource` verbatim. Validate + cap each array's elements now
       // that array-shape is already confirmed.
+      //
+      // Finding H5: each record array is validated against its contract in
+      // `QUERY_RECORD_CONTRACTS`, which adds the VALUE-DOMAIN check the type + length
+      // checks never made (`operator`/`func`/`direction` against their closed sets,
+      // `alias` against the safe-identifier pattern) and projects the entry down to
+      // the contract's own keys. `columns` needs no contract — it is a plain string
+      // array of column names, a per-element check `validateAndCapStringArrayElements`
+      // already covers, and a column NAME is a bound identifier rather than a closed
+      // set (only the host knows the table's real columns).
       const columnsElementsResult = columnsResult.value
         ? validateAndCapStringArrayElements('query_data_source', 'columns', columnsResult.value)
         : undefined;
@@ -470,10 +710,12 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
         return columnsElementsResult.error;
       }
       const filtersElementsResult = filtersResult.value
-        ? validateAndCapRecordArrayElements('query_data_source', 'filters', filtersResult.value, [
-            'field',
-            'operator',
-          ])
+        ? validateAndCapRecordArrayElements(
+            'query_data_source',
+            'filters',
+            filtersResult.value,
+            QUERY_RECORD_CONTRACTS.filters,
+          )
         : undefined;
       if (filtersElementsResult && !filtersElementsResult.ok) {
         return filtersElementsResult.error;
@@ -483,26 +725,30 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
             'query_data_source',
             'aggregations',
             aggregationsResult.value,
-            ['column', 'func', 'alias'],
+            QUERY_RECORD_CONTRACTS.aggregations,
           )
         : undefined;
       if (aggregationsElementsResult && !aggregationsElementsResult.ok) {
         return aggregationsElementsResult.error;
       }
       const havingElementsResult = havingResult.value
-        ? validateAndCapRecordArrayElements('query_data_source', 'having', havingResult.value, [
-            'alias',
-            'operator',
-          ])
+        ? validateAndCapRecordArrayElements(
+            'query_data_source',
+            'having',
+            havingResult.value,
+            QUERY_RECORD_CONTRACTS.having,
+          )
         : undefined;
       if (havingElementsResult && !havingElementsResult.ok) {
         return havingElementsResult.error;
       }
       const orderByElementsResult = orderByResult.value
-        ? validateAndCapRecordArrayElements('query_data_source', 'orderBy', orderByResult.value, [
-            'column',
-            'direction',
-          ])
+        ? validateAndCapRecordArrayElements(
+            'query_data_source',
+            'orderBy',
+            orderByResult.value,
+            QUERY_RECORD_CONTRACTS.orderBy,
+          )
         : undefined;
       if (orderByElementsResult && !orderByElementsResult.ok) {
         return orderByElementsResult.error;
@@ -540,20 +786,40 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
       const truncatedOffset = Math.trunc(Number(offset));
       const clampedOffset =
         Number.isFinite(truncatedOffset) && truncatedOffset > 0 ? truncatedOffset : 0;
+      // Finding L2: `offset` had a lower bound but NO upper one, unlike its sibling
+      // `limit` (capped by `maxQueryRows`). `{ limit: 1, offset: 500000000 }` is a
+      // cheap-looking call that makes the database scan and discard half a billion
+      // rows. REJECTED rather than clamped: clamping would silently return a
+      // different page than the one requested, which is a wrong answer presented as a
+      // right one — where the rejection tells the model to paginate with a filter
+      // instead.
+      if (clampedOffset > MAX_QUERY_OFFSET) {
+        return errorResult(
+          `query_data_source: "offset" of ${clampedOffset} exceeds the limit of ` +
+            `${MAX_QUERY_OFFSET}. A large offset makes the database scan and discard every ` +
+            'skipped row, so this request was blocked before reaching it. Narrow the result set ' +
+            'with "filters" (for example, on the id or date column you are paginating by) rather ' +
+            'than paging deeper.',
+        );
+      }
 
       if (!sourceId) {
         return errorResult('sourceId is required');
       }
 
-      const resolved = resolveSource(stateBox, sourceId, data.allowedTables);
-      if (!resolved.ok) {
-        return resolved.error;
-      }
-      // Forward the RESOLVED (capped) id, never the raw argument — see the
-      // `sourceId` field on `ResolveSourceResult` (finding L3).
-      const { tableName, sourceId: resolvedSourceId } = resolved;
-
       try {
+        // Inside the `try` (finding M1): `resolveSource` reads host/client-supplied
+        // state and calls out to `validateTableName`/`checkAllowedTable`, so an
+        // unexpected THROW there (a malformed `allowedTables`, a state box whose
+        // `current` getter fails) must become this tool call's redacted error rather
+        // than escaping the handler and rejecting whatever awaits it.
+        const resolved = resolveSource(stateBox, sourceId, data.allowedTables);
+        if (!resolved.ok) {
+          return resolved.error;
+        }
+        // Forward the RESOLVED (capped) id, never the raw argument — see the
+        // `sourceId` field on `ResolveSourceResult` (finding L3).
+        const { tableName, sourceId: resolvedSourceId } = resolved;
         // Bounded with the same `withTimeout` pattern `mcp/summarisePage.ts` applies to its
         // own `data.queryDataSource` calls (Tier 3, iteration 22) — without it, a hung host
         // query implementation leaves this tool call (and the agentic loop turn awaiting it)
@@ -574,7 +840,12 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
             ...(offset !== undefined && { offset: clampedOffset }),
           }),
           15_000,
-          `query for ${tableName}`,
+          // `tableName` is untrusted (on the chat transport `runtime.dataSources`
+          // descends from the request body) and this label lands inside a BRANDED
+          // `StudioTimeoutError`, which `redactedHostErrorMessage` relays VERBATIM on
+          // the premise that a branded message holds only server-authored prose —
+          // so it must be sanitized to keep that premise true (finding M2).
+          `query for ${safeIdentifier(tableName)}`,
         );
 
         return jsonResult({ sourceId: resolvedSourceId, ...result });
@@ -594,12 +865,13 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
       if (!sourceId) {
         return errorResult('sourceId is required');
       }
-      const resolved = resolveSource(stateBox, sourceId, data.allowedTables);
-      if (!resolved.ok) {
-        return resolved.error;
-      }
-      const { source, tableName, sourceId: resolvedSourceId } = resolved;
       try {
+        // Inside the `try` for the same reason `query_data_source`'s is (finding M1).
+        const resolved = resolveSource(stateBox, sourceId, data.allowedTables);
+        if (!resolved.ok) {
+          return resolved.error;
+        }
+        const { source, tableName, sourceId: resolvedSourceId } = resolved;
         const visibleFields = (source.fields ?? []).filter((f) => !f.hidden);
         const allNumericFields = visibleFields.filter((f) => f.type === 'number');
         // Truncate (not reject) an oversized numeric-field fan-out — see
@@ -617,13 +889,23 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
         // sample query) or silently never resolve into `statsResults` (the per-field
         // queries, each already `.catch(() => null)`-guarded against a query error but not
         // against one that never settles at all).
-        const [sampleResult, ...statsResults] = await Promise.all([
+        //
+        // The per-field fan-out runs through `mapWithConcurrency` rather than
+        // `Promise.all` (finding L2): `MAX_DESCRIBE_DATA_SOURCE_NUMERIC_FIELDS` bounds
+        // how many stats queries this call may ISSUE (50), but nothing bounded how many
+        // were in flight at once, so one tool call could open 51 host connections
+        // simultaneously and drain a pool the host sized for its whole application.
+        // `withTimeout` does not help here — it bounds the WAIT, not the WORK. Peak
+        // concurrency is now `MAX_CONCURRENT_HOST_QUERIES` + the one sample query.
+        const [sampleResult, statsResults] = await Promise.all([
           withTimeout(
             data.queryDataSource({ sourceId: resolvedSourceId, tableName, limit: 10 }),
             15_000,
-            `sample query for ${tableName}`,
+            // Sanitized: an untrusted `tableName` inside a BRANDED timeout message
+            // (finding M2) — see `query_data_source`'s label above.
+            `sample query for ${safeIdentifier(tableName)}`,
           ),
-          ...numericFields.map((f) =>
+          mapWithConcurrency(numericFields, MAX_CONCURRENT_HOST_QUERIES, (f) =>
             withTimeout(
               data.queryDataSource({
                 sourceId: resolvedSourceId,
@@ -637,7 +919,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
                 limit: 1,
               }),
               15_000,
-              `stats query for ${tableName}.${f.id}`,
+              `stats query for ${safeIdentifier(tableName)}.${safeIdentifier(f.id)}`,
             ).catch(() => null),
           ),
         ]);
@@ -734,12 +1016,13 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
         rawFieldId.length > MAX_FILTER_STRING_LENGTH
           ? rawFieldId.slice(0, MAX_FILTER_STRING_LENGTH)
           : rawFieldId;
-      const resolved = resolveSource(stateBox, sourceId, data.allowedTables);
-      if (!resolved.ok) {
-        return resolved.error;
-      }
-      const { source, tableName, sourceId: resolvedSourceId } = resolved;
       try {
+        // Inside the `try` for the same reason `query_data_source`'s is (finding M1).
+        const resolved = resolveSource(stateBox, sourceId, data.allowedTables);
+        if (!resolved.ok) {
+          return resolved.error;
+        }
+        const { source, tableName, sourceId: resolvedSourceId } = resolved;
         // Clamp `limit` to a sane, positive integer within [1, 200]. The old
         // `Math.min(fieldLimit ?? 50, 200)` enforced only the UPPER bound, so an
         // untrusted `NaN` (e.g. a non-numeric `"many"`), negative, zero, or
@@ -762,7 +1045,10 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
             limit: clampedFieldLimit,
           }),
           15_000,
-          `field-values query for ${tableName}.${fieldId}`,
+          // Both interpolations are untrusted (`tableName` off `runtime.dataSources`,
+          // `fieldId` straight from the model) inside a BRANDED timeout message that is
+          // relayed verbatim — sanitized to keep the brand's premise true (finding M2).
+          `field-values query for ${safeIdentifier(tableName)}.${safeIdentifier(fieldId)}`,
         );
         type GfvContentItem =
           | { type: 'text'; text: string }
@@ -863,12 +1149,13 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
         return statFieldsResult.error;
       }
       const statFields = statFieldsResult.value;
-      const resolved = resolveSource(stateBox, sourceId, data.allowedTables);
-      if (!resolved.ok) {
-        return resolved.error;
-      }
-      const { tableName, sourceId: resolvedSourceId } = resolved;
       try {
+        // Inside the `try` for the same reason `query_data_source`'s is (finding M1).
+        const resolved = resolveSource(stateBox, sourceId, data.allowedTables);
+        if (!resolved.ok) {
+          return resolved.error;
+        }
+        const { tableName, sourceId: resolvedSourceId } = resolved;
         const aggregations = statFields.flatMap((f) => [
           { column: f, func: 'min' as const, alias: `${f}__min` },
           { column: f, func: 'max' as const, alias: `${f}__max` },
@@ -886,7 +1173,9 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
             limit: 1,
           }),
           15_000,
-          `field-stats query for ${tableName}`,
+          // Sanitized untrusted `tableName` in a BRANDED message (finding M2) — see
+          // `query_data_source`'s label above.
+          `field-stats query for ${safeIdentifier(tableName)}`,
         );
         const row = result.rows[0] ?? {};
         // Null-prototype accumulator (finding L1) — see `describe_data_source`'s

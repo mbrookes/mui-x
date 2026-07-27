@@ -17,13 +17,20 @@ import { sanitizeForPromptLine } from '../buildAISystemPrompt';
 import {
   checkAllowedTable,
   errorResult,
+  mapWithConcurrency,
+  MAX_CONCURRENT_HOST_QUERIES,
   safeIdentifier,
   validateTableName,
   withTimeout,
   type ToolHandler,
 } from './helpers';
 import { validateAndCapStringArrayElements } from './queryTools';
-import type { StudioMcpData, StudioMcpLogger, StudioStateBox } from './types';
+import type {
+  StudioDataAggregation,
+  StudioMcpData,
+  StudioMcpLogger,
+  StudioStateBox,
+} from './types';
 
 // The period-truncation (`truncateToPeriod`) and IQR anomaly-detection
 // (`detectAnomaliesIQR`) helpers both live in `@mui/x-studio-schema` — the
@@ -41,8 +48,21 @@ const ANOMALY_CHART_TYPES = new Set(['bar', 'bar-stacked', 'bar-100', 'line']);
  * mean) or a running min/max, neither of which is tracked here, so the anomaly
  * path is skipped entirely for those aggregations rather than feeding
  * `detectAnomaliesIQR` a mathematically bogus input.
+ *
+ * This is a strict SUBSET of `QUERY_AGGREGATION_FUNCS` (`mcp/queryTools.ts`), the
+ * closed set every `aggregations[].func` bound for `data.queryDataSource` is now
+ * validated against (finding H5) — this gate was the package's ONLY value-domain
+ * check on a `func` before that, which is what proved the omission over there was an
+ * oversight rather than a stance. The `satisfies` annotation is the drift lock: an
+ * entry here that is not a member of the shared union fails to compile, so the subset
+ * relationship cannot silently break. It is deliberately NOT derived by filtering the
+ * shared set — the exclusion is a mathematical statement about combining buckets, not
+ * a security bound, and the two must stay free to differ.
  */
-const ANOMALY_SAFE_AGGREGATIONS = new Set(['sum', 'count']);
+const ANOMALY_SAFE_AGGREGATIONS: ReadonlySet<string> = new Set([
+  'sum',
+  'count',
+] satisfies StudioDataAggregation['func'][]);
 
 /**
  * Default `maxQueryRows` fallback when a caller constructs this handler without
@@ -99,6 +119,26 @@ function sanitizeCsvValue(value: unknown): string {
 }
 
 /**
+ * Format a host-reported `rowCount` for the `### … (N rows)` heading (finding L2).
+ *
+ * `rowCount` is typed `number`, but it is HOST-supplied — and `node-pg` returns
+ * `COUNT(*)` as a STRING by default (bigint doesn't fit a JS number), which is the
+ * single most common shape a real host hands back here. `rowCount.toLocaleString()`
+ * does not throw on a string (every value has `toLocaleString`), it just returns the
+ * string unchanged — so this was the one remaining UNESCAPED interpolation in the
+ * raw-markdown block, and everything else in that block is sanitized precisely
+ * because a widget section is LLM-consumed text that must not be forgeable.
+ *
+ * A numeric-looking value (number or numeric string) is formatted as a number, which
+ * is structurally incapable of carrying markup. Anything else falls back to the
+ * single-line sanitizer, like every other untrusted value in this file.
+ */
+function formatRowCount(rowCount: unknown): string {
+  const asNumber = typeof rowCount === 'number' ? rowCount : Number(rowCount);
+  return Number.isFinite(asNumber) ? asNumber.toLocaleString() : sanitizeForPromptLine(rowCount);
+}
+
+/**
  * Build the `summarise_page` handler. Registered only when `data` is configured;
  * without data the tool falls through to `executeToolOnState`, which returns a
  * descriptive client-side-limitation error.
@@ -143,13 +183,18 @@ export function createSummarisePageHandler(deps: {
    */
   authorizeSourceDataAccess?: (input: { sourceId: string }) => Promise<string | null>;
 }): ToolHandler {
-  const {
-    stateBox,
-    data,
-    logger,
-    maxQueryRows = DEFAULT_MAX_QUERY_ROWS,
-    authorizeSourceDataAccess,
-  } = deps;
+  const { stateBox, data, logger, authorizeSourceDataAccess } = deps;
+  // Finding L2: a host-supplied `maxQueryRows` was taken on trust, so an
+  // unparseable one (`Number(process.env.MAX_QUERY_ROWS)` on an unset variable is
+  // `NaN`) made the anomaly query's `Math.min(20_000, maxQueryRows)` evaluate to
+  // `NaN` and handed the host `LIMIT NaN` — the exact failure the clamp exists to
+  // prevent, arriving through the clamp itself. The `?? DEFAULT` default only ever
+  // covered an OMITTED value, never an unusable one.
+  const rawMaxQueryRows = Math.trunc(Number(deps.maxQueryRows ?? DEFAULT_MAX_QUERY_ROWS));
+  const maxQueryRows =
+    Number.isFinite(rawMaxQueryRows) && rawMaxQueryRows > 0
+      ? rawMaxQueryRows
+      : DEFAULT_MAX_QUERY_ROWS;
 
   return async (args) => {
     const state = stateBox.current;
@@ -242,12 +287,27 @@ export function createSummarisePageHandler(deps: {
       return pending;
     };
 
-    await Promise.all(
-      widgets.map(async (widget, i) => {
-        const sourceId = widget.sourceId;
-        if (!sourceId) {
-          return;
-        }
+    // Bounded-concurrency fan-out (finding L2). `MAX_SUMMARISE_PAGE_WIDGETS` bounds how
+    // many widgets are covered (50) and each widget issues up to TWO live queries, so
+    // the previous bare `Promise.all` could open ~100 host connections at once and
+    // drain a pool the host sized for its whole application. `withTimeout` does not
+    // help — it bounds the WAIT, not the WORK. The sibling `@mui/x-studio-data-middleware`
+    // already bounds its own batch fan-out this way; this is the same bound on this
+    // side of the boundary. Layout order is still preserved by the pre-sized `results`
+    // array (and by `mapWithConcurrency`'s own input-order guarantee).
+    await mapWithConcurrency(widgets, MAX_CONCURRENT_HOST_QUERIES, async (widget, i) => {
+      const sourceId = widget.sourceId;
+      if (!sourceId) {
+        return;
+      }
+      // Finding M1: EVERYTHING per-widget runs inside this try, not just the queries.
+      // The source resolution below reaches `validateTableName` / `checkAllowedTable`,
+      // which read client-supplied state and host-supplied configuration — and a throw
+      // from either (`allowedTables: null` used to make `null.includes` throw) escaped
+      // the old inner `try`, rejecting the whole fan-out and failing the ENTIRE page
+      // summary instead of skipping one widget. Per-widget isolation is the contract
+      // this handler already states for every other kind of per-widget failure.
+      try {
         // `Object.hasOwn`-guarded lookup (finding T2-1, for parity with the
         // `pageId` guard above): `widget.sourceId` is model-settable
         // (`add_widget`/`update_widget` accept any string with no existence
@@ -307,187 +367,184 @@ export function createSummarisePageHandler(deps: {
         const visibleFields = (source.fields ?? []).filter((f) => !f.hidden);
         const numericFields = visibleFields.filter((f) => f.type === 'number');
 
-        try {
-          // Time-series charts span the bar/line families, so read the chart config
-          // through the flat cross-family `StudioChartConfig` patch type.
-          const chartCfg = isWidgetOfKind(widget, 'chart')
-            ? (widget.config as StudioChartConfig)
-            : undefined;
-          const isTimeSeries =
-            chartCfg !== undefined &&
-            Boolean(chartCfg.xGroupBy) &&
-            ANOMALY_CHART_TYPES.has(chartCfg.chartType ?? 'bar');
+        // Time-series charts span the bar/line families, so read the chart config
+        // through the flat cross-family `StudioChartConfig` patch type.
+        const chartCfg = isWidgetOfKind(widget, 'chart')
+          ? (widget.config as StudioChartConfig)
+          : undefined;
+        const isTimeSeries =
+          chartCfg !== undefined &&
+          Boolean(chartCfg.xGroupBy) &&
+          ANOMALY_CHART_TYPES.has(chartCfg.chartType ?? 'bar');
 
-          const result = await withTimeout(
-            data.queryDataSource({
-              sourceId,
-              tableName,
-              limit: 50,
-            }),
-            15_000,
-            `sample query for ${tableName}`,
-          );
+        const result = await withTimeout(
+          data.queryDataSource({
+            sourceId,
+            tableName,
+            limit: 50,
+          }),
+          15_000,
+          // Sanitized (finding M2): `tableName` comes off `runtime.dataSources`, which on
+          // the chat transport descends from the client-supplied request body, and this
+          // label lands inside a BRANDED `StudioTimeoutError` that
+          // `redactedHostErrorMessage` relays VERBATIM on the premise that a branded
+          // message holds only server-authored prose.
+          `sample query for ${safeIdentifier(tableName)}`,
+        );
 
-          const { rows, rowCount } = result;
+        const { rows, rowCount } = result;
 
-          // Compute basic stats for numeric fields from the sample rows.
-          const stats = numericFields
-            .map((f) => {
-              const values = rows.map((r) => Number(r[f.id])).filter((v) => !Number.isNaN(v));
-              if (values.length === 0) {
-                return null;
-              }
-              const sum = values.reduce((a, b) => a + b, 0);
-              const min = Math.min(...values);
-              const max = Math.max(...values);
-              const avg = sum / values.length;
-              // `f.label` is a state-derived (model/host-settable) data-source field
-              // label, interpolated into ONE ` | `-separated entry of this summary's
-              // single-line `Stats:` row — so it routes through
-              // `sanitizeForPromptLine`, not the angle-bracket-only
-              // `sanitizeForPrompt`. Escaping `<`/`>` alone would leave a label free to
-              // emit its own newline and forge a whole sibling line (a `### …` heading,
-              // a second `Stats:` row); collapsing CR/LF keeps it one entry on one line.
-              return `${sanitizeForPromptLine(f.label)}: sum=${sum.toLocaleString()}, avg=${avg.toFixed(2)}, min=${min}, max=${max}`;
-            })
-            .filter(Boolean);
-
-          // CSV excerpt — header + first 5 rows, tab-separated, inside a ``` fence.
-          // Both the header labels (state-derived field labels) and the row cell values
-          // (live, attacker-influenceable DB data) are LLM-consumed text once this
-          // summary is returned to the agentic loop, and both occupy exactly one field
-          // on one line — so they route through `sanitizeCsvValue`, which is
-          // `sanitizeForPromptLine` plus this block's tab delimiter.
-          //
-          // The angle-bracket-only `sanitizeForPrompt` used to be enough here only by
-          // luck: a cell value carrying a newline followed by ``` closes the fence
-          // opened below, and anything after it — `### Revenue (999,999 rows)`, a forged
-          // `Stats:` line — then reads as a genuine peer of the real widget sections
-          // rather than as data.
-          const headers = visibleFields.map((f) => sanitizeCsvValue(f.label));
-          const csvRows = rows.slice(0, 5).map((r) =>
-            visibleFields.map((f) => {
-              const v = r[f.id];
-              return v == null ? '' : sanitizeCsvValue(v);
-            }),
-          );
-          const csv = [headers, ...csvRows].map((row) => row.join('\t')).join('\n');
-
-          // `widget.title`/`source.label` are model/host-settable strings (`add_widget`
-          // caps a title's LENGTH at 200 chars and constrains nothing else) echoed into
-          // a single-line `### …` markdown heading — `sanitizeForPromptLine`, so a title
-          // cannot end its heading and open a forged section of its own.
-          const label = sanitizeForPromptLine(widget.title || source.label);
-          const lines = [
-            `### ${label} (${rowCount.toLocaleString()} rows)`,
-            ...(stats.length > 0
-              ? [`Stats (from ${rows.length} sample rows): ${stats.join(' | ')}`]
-              : []),
-            '```',
-            csv,
-            '```',
-          ];
-
-          // Time-series aggregation: GROUP BY query for anomaly detection and charting.
-          // Skip blended charts — the y-field belongs to a different source's table.
-          const isBlended =
-            chartCfg !== undefined &&
-            (chartCfg.ySeries ?? []).some((s) => s.sourceId && s.sourceId !== widget.sourceId);
-          let tsLabels: string[] | null = null;
-          let tsValues: number[] | null = null;
-
-          if (isTimeSeries && !isBlended && chartCfg !== undefined) {
-            const xField = chartCfg.xField;
-            const yField =
-              chartCfg.yField ?? (chartCfg.ySeries?.[0]?.fieldId as string | undefined);
-            const yAgg = (chartCfg.yAggregation ?? 'sum') as
-              | 'sum'
-              | 'avg'
-              | 'count'
-              | 'min'
-              | 'max';
-            const xGroupBy = chartCfg.xGroupBy!;
-            // Finding M4: `xField`/`yField` come straight off the widget config, which
-            // `add_widget`/`update_widget` accept from the model —
-            // `capConfigStringValues` caps string LENGTH but preserves non-string types,
-            // and only truthiness was checked here. An `xField: ['a','b']` /
-            // `yField: { alias: 'x' }` therefore reached the host as
-            // `columns: [['a','b']]` / `aggregations: [{ column: {…} }]`; a Knex host
-            // reads that object as an alias map and projects an unintended column.
-            // This was the only column-name path in the package that skipped the
-            // validation `query_data_source` / `get_field_values` /
-            // `compute_field_stats` all apply — run the very same helper, and skip the
-            // anomaly path (never guess) when either field is not a string.
-            const chartFields = validateAndCapStringArrayElements(
-              'summarise_page',
-              'chart fields',
-              [xField, yField],
-            );
-            if (!chartFields.ok && xField !== undefined && yField !== undefined) {
-              logger?.error(
-                `[mcp] summarise_page skipped the anomaly aggregation for widget ` +
-                  `"${widget.title || sourceId}": xField/yField must be strings.`,
-              );
+        // Compute basic stats for numeric fields from the sample rows.
+        const stats = numericFields
+          .map((f) => {
+            const values = rows.map((r) => Number(r[f.id])).filter((v) => !Number.isNaN(v));
+            if (values.length === 0) {
+              return null;
             }
-            const [safeXField, safeYField] = chartFields.ok
-              ? chartFields.value
-              : [undefined, undefined];
-            if (safeXField && safeYField && ANOMALY_SAFE_AGGREGATIONS.has(yAgg)) {
-              const aggResult = await withTimeout(
-                data.queryDataSource({
-                  sourceId,
-                  tableName,
-                  columns: [safeXField],
-                  aggregations: [{ column: safeYField, func: yAgg, alias: 'y_agg' }],
-                  // Finding 6 (Tier 3): this hardcoded 20,000 previously ignored the
-                  // host's configured `maxQueryRows` bound entirely. Cap at whichever
-                  // is smaller, matching `query_data_source`'s own
-                  // `Math.min(limit, maxQueryRows)` clamp.
-                  limit: Math.min(20_000, maxQueryRows),
-                }),
-                15_000,
-                `aggregation query for ${tableName}`,
+            const sum = values.reduce((a, b) => a + b, 0);
+            const min = Math.min(...values);
+            const max = Math.max(...values);
+            const avg = sum / values.length;
+            // `f.label` is a state-derived (model/host-settable) data-source field
+            // label, interpolated into ONE ` | `-separated entry of this summary's
+            // single-line `Stats:` row — so it routes through
+            // `sanitizeForPromptLine`, not the angle-bracket-only
+            // `sanitizeForPrompt`. Escaping `<`/`>` alone would leave a label free to
+            // emit its own newline and forge a whole sibling line (a `### …` heading,
+            // a second `Stats:` row); collapsing CR/LF keeps it one entry on one line.
+            return `${sanitizeForPromptLine(f.label)}: sum=${sum.toLocaleString()}, avg=${avg.toFixed(2)}, min=${min}, max=${max}`;
+          })
+          .filter(Boolean);
+
+        // CSV excerpt — header + first 5 rows, tab-separated, inside a ``` fence.
+        // Both the header labels (state-derived field labels) and the row cell values
+        // (live, attacker-influenceable DB data) are LLM-consumed text once this
+        // summary is returned to the agentic loop, and both occupy exactly one field
+        // on one line — so they route through `sanitizeCsvValue`, which is
+        // `sanitizeForPromptLine` plus this block's tab delimiter.
+        //
+        // The angle-bracket-only `sanitizeForPrompt` used to be enough here only by
+        // luck: a cell value carrying a newline followed by ``` closes the fence
+        // opened below, and anything after it — `### Revenue (999,999 rows)`, a forged
+        // `Stats:` line — then reads as a genuine peer of the real widget sections
+        // rather than as data.
+        const headers = visibleFields.map((f) => sanitizeCsvValue(f.label));
+        const csvRows = rows.slice(0, 5).map((r) =>
+          visibleFields.map((f) => {
+            const v = r[f.id];
+            return v == null ? '' : sanitizeCsvValue(v);
+          }),
+        );
+        const csv = [headers, ...csvRows].map((row) => row.join('\t')).join('\n');
+
+        // `widget.title`/`source.label` are model/host-settable strings (`add_widget`
+        // caps a title's LENGTH at 200 chars and constrains nothing else) echoed into
+        // a single-line `### …` markdown heading — `sanitizeForPromptLine`, so a title
+        // cannot end its heading and open a forged section of its own.
+        const label = sanitizeForPromptLine(widget.title || source.label);
+        const lines = [
+          `### ${label} (${formatRowCount(rowCount)} rows)`,
+          ...(stats.length > 0
+            ? [`Stats (from ${rows.length} sample rows): ${stats.join(' | ')}`]
+            : []),
+          '```',
+          csv,
+          '```',
+        ];
+
+        // Time-series aggregation: GROUP BY query for anomaly detection and charting.
+        // Skip blended charts — the y-field belongs to a different source's table.
+        const isBlended =
+          chartCfg !== undefined &&
+          (chartCfg.ySeries ?? []).some((s) => s.sourceId && s.sourceId !== widget.sourceId);
+        let tsLabels: string[] | null = null;
+        let tsValues: number[] | null = null;
+
+        if (isTimeSeries && !isBlended && chartCfg !== undefined) {
+          const xField = chartCfg.xField;
+          const yField = chartCfg.yField ?? (chartCfg.ySeries?.[0]?.fieldId as string | undefined);
+          const yAgg = (chartCfg.yAggregation ?? 'sum') as 'sum' | 'avg' | 'count' | 'min' | 'max';
+          const xGroupBy = chartCfg.xGroupBy!;
+          // Finding M4: `xField`/`yField` come straight off the widget config, which
+          // `add_widget`/`update_widget` accept from the model —
+          // `capConfigStringValues` caps string LENGTH but preserves non-string types,
+          // and only truthiness was checked here. An `xField: ['a','b']` /
+          // `yField: { alias: 'x' }` therefore reached the host as
+          // `columns: [['a','b']]` / `aggregations: [{ column: {…} }]`; a Knex host
+          // reads that object as an alias map and projects an unintended column.
+          // This was the only column-name path in the package that skipped the
+          // validation `query_data_source` / `get_field_values` /
+          // `compute_field_stats` all apply — run the very same helper, and skip the
+          // anomaly path (never guess) when either field is not a string.
+          const chartFields = validateAndCapStringArrayElements('summarise_page', 'chart fields', [
+            xField,
+            yField,
+          ]);
+          if (!chartFields.ok && xField !== undefined && yField !== undefined) {
+            logger?.error(
+              `[mcp] summarise_page skipped the anomaly aggregation for widget ` +
+                `"${widget.title || sourceId}": xField/yField must be strings.`,
+            );
+          }
+          const [safeXField, safeYField] = chartFields.ok
+            ? chartFields.value
+            : [undefined, undefined];
+          if (safeXField && safeYField && ANOMALY_SAFE_AGGREGATIONS.has(yAgg)) {
+            const aggResult = await withTimeout(
+              data.queryDataSource({
+                sourceId,
+                tableName,
+                columns: [safeXField],
+                aggregations: [{ column: safeYField, func: yAgg, alias: 'y_agg' }],
+                // Finding 6 (Tier 3): this hardcoded 20,000 previously ignored the
+                // host's configured `maxQueryRows` bound entirely. Cap at whichever
+                // is smaller, matching `query_data_source`'s own
+                // `Math.min(limit, maxQueryRows)` clamp.
+                limit: Math.min(20_000, maxQueryRows),
+              }),
+              15_000,
+              // Sanitized for the same reason as the sample query's label above.
+              `aggregation query for ${safeIdentifier(tableName)}`,
+            );
+            const grouped = new Map<string, number>();
+            for (const row of aggResult.rows) {
+              const periodKey = truncateToPeriod(row[safeXField], xGroupBy);
+              if (!periodKey) {
+                continue;
+              }
+              grouped.set(periodKey, (grouped.get(periodKey) ?? 0) + Number(row.y_agg ?? 0));
+            }
+            tsLabels = [...grouped.keys()].sort();
+            tsValues = tsLabels.map((l) => grouped.get(l)!);
+            const outlierIndices = detectAnomaliesIQR(tsValues);
+            // Trim first and last period (partial periods cause false-positive low outliers).
+            const lastIdx = tsValues.length - 1;
+            const anomalyLabels = [...outlierIndices]
+              .filter((i) => i > 0 && i < lastIdx)
+              .map((i) => tsLabels![i]);
+            if (anomalyLabels.length > 0) {
+              // Finding L4: cap how many labels are spelled out — see
+              // MAX_ANOMALY_LABELS. The total is still reported when truncated.
+              const shownLabels = anomalyLabels.slice(0, MAX_ANOMALY_LABELS);
+              const omittedLabels = anomalyLabels.length - shownLabels.length;
+              lines.push(
+                `Anomalies detected at: ${shownLabels.join(', ')}${
+                  omittedLabels > 0
+                    ? ` (+${omittedLabels} more of ${anomalyLabels.length} total)`
+                    : ''
+                }`,
               );
-              const grouped = new Map<string, number>();
-              for (const row of aggResult.rows) {
-                const periodKey = truncateToPeriod(row[safeXField], xGroupBy);
-                if (!periodKey) {
-                  continue;
-                }
-                grouped.set(periodKey, (grouped.get(periodKey) ?? 0) + Number(row.y_agg ?? 0));
-              }
-              tsLabels = [...grouped.keys()].sort();
-              tsValues = tsLabels.map((l) => grouped.get(l)!);
-              const outlierIndices = detectAnomaliesIQR(tsValues);
-              // Trim first and last period (partial periods cause false-positive low outliers).
-              const lastIdx = tsValues.length - 1;
-              const anomalyLabels = [...outlierIndices]
-                .filter((i) => i > 0 && i < lastIdx)
-                .map((i) => tsLabels![i]);
-              if (anomalyLabels.length > 0) {
-                // Finding L4: cap how many labels are spelled out — see
-                // MAX_ANOMALY_LABELS. The total is still reported when truncated.
-                const shownLabels = anomalyLabels.slice(0, MAX_ANOMALY_LABELS);
-                const omittedLabels = anomalyLabels.length - shownLabels.length;
-                lines.push(
-                  `Anomalies detected at: ${shownLabels.join(', ')}${
-                    omittedLabels > 0
-                      ? ` (+${omittedLabels} more of ${anomalyLabels.length} total)`
-                      : ''
-                  }`,
-                );
-              }
             }
           }
-
-          results[i] = { text: lines.join('\n') };
-        } catch (err) {
-          logger?.error(
-            `[mcp] summarise_page skipped widget "${widget.title || sourceId}": ${err instanceof Error ? err.message : String(err)}`,
-          );
         }
-      }),
-    );
+
+        results[i] = { text: lines.join('\n') };
+      } catch (err) {
+        logger?.error(
+          `[mcp] summarise_page skipped widget "${widget.title || sourceId}": ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    });
 
     const sections = results.filter((r): r is SectionItem => r != null);
     // `activePage.title` is a model-settable stored title (`add_page`/`rename_page`)

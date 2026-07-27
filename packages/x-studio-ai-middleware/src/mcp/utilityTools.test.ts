@@ -138,4 +138,44 @@ describe('createUtilityToolHandlers — render_chart result size (finding M6)', 
     expect(relayed.length).toBeLessThan(1_000);
     expect(logger.error).toHaveBeenCalled();
   });
+
+  /**
+   * Finding M2: this was the only relay site in the package that never consulted
+   * `isPackageAuthoredError` — it assumed every throw reaching it was one the
+   * renderer authored, an assumption nothing enforced. The renderer's own throws are
+   * branded and still reach the model in full; anything else is redacted like every
+   * other host-boundary failure.
+   */
+  it('redacts an UNBRANDED error instead of relaying its text verbatim', () => {
+    const logger = { log: vi.fn(), error: vi.fn() };
+    const handlers = createUtilityToolHandlers({ recentChanges: [], logger });
+    // A `colors` getter that throws stands in for any unexpected failure inside the
+    // renderer — the class the old unconditional relay would have echoed verbatim.
+    const hostile = {
+      type: 'bar',
+      data: [{ label: 'a', value: 1 }],
+      get colors(): string[] {
+        throw new Error('connect ECONNREFUSED 10.0.0.5:5432 (password=hunter2)');
+      },
+    };
+    const view: any = handlers.render_chart(hostile as never);
+    expect(view.isError).toBe(true);
+    const relayed = JSON.parse(view.content[0].text).error as string;
+    expect(relayed).not.toContain('hunter2');
+    expect(relayed).not.toContain('10.0.0.5');
+    expect(relayed).toMatch(/reference "mcp-/);
+    // The detail is still available to an operator, server-side.
+    expect(String(logger.error.mock.calls[0][0])).toContain('hunter2');
+  });
+
+  it('still relays the renderer BRANDED array-cap guidance the model needs', () => {
+    const handlers = createUtilityToolHandlers({ recentChanges: [] });
+    const data = Array.from({ length: 1001 }, (_, i) => ({ label: `L${i}`, value: i }));
+    const view: any = handlers.render_chart({ type: 'bar', data });
+    expect(view.isError).toBe(true);
+    const relayed = JSON.parse(view.content[0].text).error as string;
+    expect(relayed).toMatch(/exceeds the limit of 1000/);
+    expect(relayed).toMatch(/Split the request/);
+    expect(relayed).not.toMatch(/reference "mcp-/);
+  });
 });

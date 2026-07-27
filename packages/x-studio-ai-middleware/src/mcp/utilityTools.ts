@@ -11,13 +11,7 @@
 import type { ChartRendererInput } from '../chartRenderer';
 import { renderChartSvg } from '../chartRenderer';
 import type { StudioAIRecentMutation } from '../models/aiTypes';
-import {
-  capRelayedText,
-  describeErrorForLog,
-  errorResult,
-  jsonResult,
-  type ToolHandler,
-} from './helpers';
+import { errorResult, jsonResult, redactedHostErrorResult, type ToolHandler } from './helpers';
 import type { StudioMcpLogger } from './types';
 
 /** Dependencies needed by the utility tool handlers. */
@@ -156,14 +150,23 @@ export function createUtilityToolHandlers(deps: UtilityToolDeps): Record<string,
           ],
         };
       } catch (err) {
-        // `renderChartSvg` throws only messages this package authors (unknown chart
-        // type, array-length caps), and the model needs them to correct its call — so
-        // unlike the host/DB catch blocks in `queryTools.ts` the text IS relayed. It is
-        // still bounded (finding H4/L6): `input.type` is interpolated into the
-        // unknown-type message, and an oversized `type` would otherwise become an
-        // oversized conversation message. Full detail goes to the server log.
-        logger?.error(`[mcp] render_chart failed: ${describeErrorForLog(err)}`);
-        return errorResult(capRelayedText(err instanceof Error ? err.message : String(err)));
+        // `renderChartSvg`'s own throws (unknown chart type, the array-length and
+        // total-value caps) are what the model needs in order to correct its call, so
+        // unlike the host/DB catch blocks in `queryTools.ts` that text IS relayed — and
+        // it is bounded (findings H4/L6): the unknown-type message interpolates
+        // `input.type`, capped and sanitized at the renderer's own choke point.
+        //
+        // Finding M2: it now routes through `redactedHostErrorResult` like every other
+        // relay site in the package instead of relaying `err.message` unconditionally.
+        // This was the ONE site that never consulted `isPackageAuthoredError`, so it
+        // assumed every throw reaching it was package-authored — an assumption nothing
+        // enforced. `renderChartSvg` calls `.toLocaleString()`, `.map`, and array
+        // spreads over model-supplied structures; any unexpected `TypeError` (or an
+        // error thrown from a future call site) was relayed verbatim, stack message and
+        // all. The renderer's own throws are explicitly branded, so they still reach
+        // the model in full; anything else is now logged and replaced with a
+        // correlation id.
+        return redactedHostErrorResult('render_chart', err, logger);
       }
     },
   };

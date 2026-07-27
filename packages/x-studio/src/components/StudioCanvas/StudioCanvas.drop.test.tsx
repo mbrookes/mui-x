@@ -1,14 +1,20 @@
 import * as React from 'react';
-import { createRenderer, act } from '@mui/internal-test-utils';
+import { createRenderer, act, waitFor } from '@mui/internal-test-utils';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { MIN_SPAN } from '@mui/x-studio-schema';
 import { createStudioHarness } from '../../internals/test-utils';
+import { StudioLiveRegionProvider } from '../../internals/StudioLiveRegion';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/localeText';
 import type { StudioWidget, StudioWidgetConfig, StudioDataSource } from '../../models';
 import { StudioCanvas } from './StudioCanvas';
+import { resolveResizePair } from './rowColSpans';
 import {
   DRAG_TYPE_CANVAS_WIDGET,
   DRAG_TYPE_COMPOSE_WIDGET,
   type StudioDragItem,
 } from './studioWidgetDndTypes';
+import { clearDraggingWidgetId, setDraggingWidgetId } from './studioDragSession';
+import { MAX_PER_ROW } from './canvasGridConstants';
 
 /**
  * Finding 4.1: `StudioPageRows.handleDrop` (the geometry/splice logic behind every
@@ -305,7 +311,7 @@ describe('StudioCanvas drag-and-drop geometry (finding 4.1)', () => {
   });
 
   it('canDrop guards: an active drag disables adjacent-to-self gaps and redundant same-row insertion points', () => {
-    const { wrapper } = createStudioHarness({
+    const { controller, wrapper } = createStudioHarness({
       initialState: {
         doc: {
           pages: {
@@ -317,7 +323,9 @@ describe('StudioCanvas drag-and-drop geometry (finding 4.1)', () => {
     });
     render(<StudioCanvas />, { wrapper });
 
-    document.body.dataset.studioDraggingWidgetId = 'a';
+    // The "which widget is being dragged" flag is scoped to the Studio instance (its
+    // controller), not to `document` — see `studioDragSession.ts`.
+    setDraggingWidgetId(controller, 'a');
     const draggingItem = canvasMoveItem('a', 'page-1');
     const arg = { source: { data: draggingItem as unknown as Record<string, unknown> } };
 
@@ -623,6 +631,205 @@ describe('StudioCanvas drag-and-drop geometry (finding 4.1)', () => {
       expect(registry.size).toBe(1);
       const [emptyTarget] = Array.from(registry.values());
       expect((emptyTarget.element as HTMLElement).getAttribute('role')).toBe('status');
+    });
+  });
+
+  // ── Finding H2: MAX_PER_ROW was enforced on the keyboard and duplicate paths, but the
+  // mouse drop path spliced into a row with no cap at all. A fifth widget drops every
+  // span to `round(24/5) = 5` (below MIN_SPAN), which inverts every divider's
+  // `minLeft`/`maxLeft` and wedges every resize handle in the row permanently.
+  describe('row capacity (finding H2)', () => {
+    /** A page whose single row is already at `MAX_PER_ROW`. */
+    function fullRowHarness() {
+      const ids = Array.from({ length: MAX_PER_ROW }, (_, i) => `w${i}`);
+      return {
+        ids,
+        ...createStudioHarness({
+          initialState: {
+            doc: {
+              pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [ids, ['spare']] } },
+              widgets: Object.fromEntries(
+                [...ids, 'spare'].map((id) => [id, makeWidget(id)]),
+              ) as Record<string, StudioWidget>,
+            },
+          },
+        }),
+      };
+    }
+
+    it('refuses a compose drop into a row already holding MAX_PER_ROW widgets', () => {
+      const { controller, wrapper } = fullRowHarness();
+      const insertWidgetAtSpy = vi.spyOn(controller, 'insertWidgetAt');
+      render(<StudioCanvas />, { wrapper });
+
+      // The full row's own gaps and its leading vertical insertion point.
+      const fullRowGaps = gaps().slice(0, MAX_PER_ROW);
+      const item = composeItem('text');
+      for (const gap of fullRowGaps) {
+        expect(fireDrop(gap, item)).toBe(false);
+      }
+      expect(insertWidgetAtSpy).not.toHaveBeenCalled();
+    });
+
+    it('refuses moving a widget in from another row, but still allows reordering inside the row', () => {
+      const { ids, controller, wrapper } = fullRowHarness();
+      const moveWidgetSpy = vi.spyOn(controller, 'moveWidget');
+      render(<StudioCanvas />, { wrapper });
+
+      const fullRowGaps = gaps().slice(0, MAX_PER_ROW);
+      // An outsider would grow the row past its cap — rejected.
+      expect(fireDrop(fullRowGaps[0], canvasMoveItem('spare', 'page-1'))).toBe(false);
+      expect(moveWidgetSpy).not.toHaveBeenCalled();
+
+      // A widget ALREADY in the row is a reorder, not an addition: the row's length is
+      // unchanged, so it must stay droppable. (The gaps immediately flanking the dragged
+      // widget are separately disabled by `isAdjacentToDraggingWidget`; this is a
+      // non-adjacent one.)
+      act(() => {
+        expect(fireDrop(fullRowGaps[MAX_PER_ROW - 1], canvasMoveItem(ids[0], 'page-1'))).toBe(true);
+      });
+      expect(moveWidgetSpy).toHaveBeenCalledTimes(1);
+      const rows = controller.getState().doc.pages['page-1'].widgetRows;
+      expect(rows[0]).toHaveLength(MAX_PER_ROW);
+    });
+
+    it('a drop that bypasses canDrop splits into a new row instead of overflowing', () => {
+      const { ids, controller, wrapper } = fullRowHarness();
+      render(<StudioCanvas />, { wrapper });
+
+      // Bypass the `canDrop` gate the way a programmatic (or cross-instance) drop would,
+      // exercising `insertIntoRow`'s defense-in-depth fallback directly.
+      const fullRowGaps = gaps().slice(0, MAX_PER_ROW);
+      act(() => {
+        fullRowGaps[1].onDrop({
+          source: { data: canvasMoveItem('spare', 'page-1') as unknown as Record<string, unknown> },
+        });
+      });
+
+      const rows = controller.getState().doc.pages['page-1'].widgetRows;
+      // Every row is within the cap, and nothing was lost.
+      for (const row of rows) {
+        expect(row.length).toBeLessThanOrEqual(MAX_PER_ROW);
+      }
+      expect(rows.flat().sort()).toEqual([...ids, 'spare'].sort());
+
+      // ...and no divider anywhere in the resulting layout is wedged: `RowResizeHandle`
+      // computes `minLeft = leftMinSpan`, `maxLeft = totalSpan - rightMinSpan`, so an
+      // over-dense row would hand it `6 > 4` and make every arrow key a no-op forever.
+      const spans = controller.getState().doc.pages['page-1'].widgetColSpans;
+      for (const row of rows) {
+        for (let i = 0; i < row.length - 1; i += 1) {
+          const pair = resolveResizePair(row, spans, i, MIN_SPAN, MIN_SPAN);
+          expect(pair.totalSpan - MIN_SPAN).toBeGreaterThanOrEqual(MIN_SPAN);
+        }
+      }
+    });
+  });
+
+  // ── Finding M12: `handleDrop` bailed silently when a data-requiring widget kind was
+  // dropped with zero data sources. The drop target had highlighted, so the gesture looked
+  // accepted; the success branch announced and the failure branch said nothing at all.
+  describe('failed drops announce (finding M12)', () => {
+    function liveRegionText(): string {
+      const region = document.querySelector('[aria-live="polite"]');
+      return region?.textContent ?? '';
+    }
+
+    it('announces when a data-requiring kind is dropped with no data sources', async () => {
+      const { wrapper } = createStudioHarness({
+        initialState: {
+          doc: {
+            pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['a']] } },
+            widgets: { a: makeWidget('a') },
+          },
+          runtime: { dataSources: {} },
+        },
+      });
+      render(
+        <StudioLiveRegionProvider>
+          <StudioCanvas />
+        </StudioLiveRegionProvider>,
+        { wrapper },
+      );
+
+      const ips = insertionPoints();
+      act(() => {
+        expect(fireDrop(ips[ips.length - 1], composeItem('kpi'))).toBe(true);
+      });
+
+      await waitFor(() => {
+        expect(liveRegionText()).toBe(DEFAULT_STUDIO_LOCALE_TEXT.composeNoDataSources);
+      });
+    });
+
+    it('announces the same refusal on an empty page', async () => {
+      const { wrapper } = createStudioHarness({
+        initialState: {
+          doc: { pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] } } },
+          runtime: { dataSources: {} },
+        },
+      });
+      render(
+        <StudioLiveRegionProvider>
+          <StudioCanvas />
+        </StudioLiveRegionProvider>,
+        { wrapper },
+      );
+
+      const [target] = Array.from(registry.values());
+      act(() => {
+        expect(fireDrop(target, composeItem('kpi'))).toBe(true);
+      });
+
+      await waitFor(() => {
+        expect(liveRegionText()).toBe(DEFAULT_STUDIO_LOCALE_TEXT.composeNoDataSources);
+      });
+    });
+  });
+
+  // ── Finding M22: the drag session used to be `document.body.dataset`, a document-level
+  // singleton. Two Studios on one page share widget ids, so dragging `w1` in instance A
+  // disabled the gaps flanking instance B's untouched copy of `w1`.
+  describe('multi-instance drag state (finding M22)', () => {
+    function twoWidgetHarness() {
+      return createStudioHarness({
+        initialState: {
+          doc: {
+            pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['w1', 'w2']] } },
+            widgets: { w1: makeWidget('w1'), w2: makeWidget('w2') },
+          },
+        },
+      });
+    }
+
+    it("a drag in one Studio leaves a second Studio's identical rows fully droppable", () => {
+      const instanceA = twoWidgetHarness();
+      const instanceB = twoWidgetHarness();
+      const { container: containerA } = render(<StudioCanvas />, { wrapper: instanceA.wrapper });
+      const { container: containerB } = render(<StudioCanvas />, { wrapper: instanceB.wrapper });
+
+      setDraggingWidgetId(instanceA.controller, 'w1');
+      const arg = {
+        source: { data: canvasMoveItem('w1', 'page-1') as unknown as Record<string, unknown> },
+      };
+
+      // Partitioning the registered drop targets by which instance rendered them is the
+      // whole point of the test, and a drop target has no accessible role to query by —
+      // hence the container containment checks.
+      /* eslint-disable testing-library/no-container */
+      const inA = (t: RegisteredTarget) => containerA.contains(t.element);
+      const inB = (t: RegisteredTarget) => containerB.contains(t.element);
+      /* eslint-enable testing-library/no-container */
+      const [gapAfterW1InA] = gaps().filter(inA);
+      const [gapAfterW1InB] = gaps().filter(inB);
+
+      // A knows `w1` is mid-drag, so the gap right after it is a no-op target.
+      expect(gapAfterW1InA.canDrop(arg)).toBe(false);
+      // B is not part of that gesture and must not be affected by it.
+      expect(gapAfterW1InB.canDrop(arg)).toBe(true);
+
+      clearDraggingWidgetId(instanceA.controller);
+      expect(gapAfterW1InA.canDrop(arg)).toBe(true);
     });
   });
 });

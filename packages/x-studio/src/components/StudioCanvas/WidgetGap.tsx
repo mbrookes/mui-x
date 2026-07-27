@@ -5,8 +5,9 @@ import { Box } from '@mui/material';
 
 import type { StudioDragItem } from './studioWidgetDndTypes';
 import { useStudioDropTarget } from './useStudioDropTarget';
-import { MIN_SPAN, isAdjacentToDraggingWidget } from './canvasGridConstants';
+import { MIN_SPAN, isAdjacentToDraggingWidget, wouldOverflowRow } from './canvasGridConstants';
 import { RowResizeHandle } from './RowResizeHandle';
+import { useStudioController } from '../../context';
 
 interface WidgetGapProps {
   rowIndex: number;
@@ -60,10 +61,22 @@ export function WidgetGap({
   const posRef = React.useRef({ rowIndex, colIndex });
   posRef.current = { rowIndex, colIndex };
 
-  const canDrop = React.useCallback(() => {
-    const { rowIndex: myRow, colIndex: myCol } = posRef.current;
-    return !isAdjacentToDraggingWidget(myRow, myCol, widgetRowsRef);
-  }, [widgetRowsRef]);
+  const controller = useStudioController();
+
+  const canDrop = React.useCallback(
+    (item: StudioDragItem) => {
+      const { rowIndex: myRow, colIndex: myCol } = posRef.current;
+      if (isAdjacentToDraggingWidget(myRow, myCol, widgetRowsRef, controller)) {
+        return false;
+      }
+      // A gap always drops INTO this row, so it is capped by `MAX_PER_ROW`. Without this
+      // the row silently accepted a fifth widget, pushing every span below `MIN_SPAN` and
+      // wedging every resize handle in the row permanently. Reordering within a full row
+      // is unaffected — `wouldOverflowRow` only counts drops that actually grow the row.
+      return !wouldOverflowRow(myRow, widgetRowsRef, item);
+    },
+    [widgetRowsRef, controller],
+  );
 
   const handleDrop = React.useCallback(
     (item: StudioDragItem) => {

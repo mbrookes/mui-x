@@ -5,7 +5,12 @@ import { Box } from '@mui/material';
 
 import type { StudioDragItem } from './studioWidgetDndTypes';
 import { useStudioDropTarget } from './useStudioDropTarget';
-import { isAdjacentToDraggingWidget, isRedundantHorizontalDrop } from './canvasGridConstants';
+import {
+  isAdjacentToDraggingWidget,
+  isRedundantHorizontalDrop,
+  wouldOverflowRow,
+} from './canvasGridConstants';
+import { useStudioController } from '../../context';
 
 interface InsertionPointProps {
   rowIndex: number;
@@ -33,20 +38,35 @@ export function InsertionPoint({
   const ref = React.useRef<HTMLDivElement>(null);
   const posRef = React.useRef({ rowIndex, colIndex, orientation });
   posRef.current = { rowIndex, colIndex, orientation };
+  const controller = useStudioController();
 
-  const canDrop = React.useCallback(() => {
-    if (mode !== 'edit') {
-      return false;
-    }
-    const { rowIndex: myRow, colIndex: myCol, orientation: myOrientation } = posRef.current;
-    if (myOrientation === 'vertical' && isAdjacentToDraggingWidget(myRow, myCol, widgetRowsRef)) {
-      return false;
-    }
-    if (myOrientation === 'horizontal' && isRedundantHorizontalDrop(myRow, widgetRowsRef)) {
-      return false;
-    }
-    return true;
-  }, [mode, widgetRowsRef]);
+  const canDrop = React.useCallback(
+    (item: StudioDragItem) => {
+      if (mode !== 'edit') {
+        return false;
+      }
+      const { rowIndex: myRow, colIndex: myCol, orientation: myOrientation } = posRef.current;
+      if (myOrientation === 'vertical') {
+        if (isAdjacentToDraggingWidget(myRow, myCol, widgetRowsRef, controller)) {
+          return false;
+        }
+        // A vertical insertion point adds to an EXISTING row, so it inherits the row's
+        // `MAX_PER_ROW` capacity. Horizontal ones always create a brand-new row and can
+        // never overflow anything — which is exactly the escape hatch offered instead.
+        if (wouldOverflowRow(myRow, widgetRowsRef, item)) {
+          return false;
+        }
+      }
+      if (
+        myOrientation === 'horizontal' &&
+        isRedundantHorizontalDrop(myRow, widgetRowsRef, controller)
+      ) {
+        return false;
+      }
+      return true;
+    },
+    [mode, widgetRowsRef, controller],
+  );
 
   const handleDrop = React.useCallback(
     (item: StudioDragItem) => {

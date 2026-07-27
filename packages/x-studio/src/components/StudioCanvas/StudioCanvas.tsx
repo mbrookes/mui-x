@@ -31,7 +31,8 @@ import {
   DRAG_TYPE_COMPOSE_WIDGET,
   type StudioDragItem,
 } from './studioWidgetDndTypes';
-import { GRID_COLS, MIN_SPAN } from './canvasGridConstants';
+import { GRID_COLS, MAX_PER_ROW, MIN_SPAN } from './canvasGridConstants';
+import { resolveResizePair, resolveRowColSpans } from './rowColSpans';
 import { InsertionPoint } from './InsertionPoint';
 import { WidgetGap } from './WidgetGap';
 import { useStudioDropTarget } from './useStudioDropTarget';
@@ -71,6 +72,33 @@ function safeShouldHide(
   }
 }
 
+/**
+ * Splice `widgetId` into `rows[rowIndex]` at `colIndex`, respecting `MAX_PER_ROW`.
+ *
+ * Mutates `rows` in place (callers always pass a fresh copy). When the target row is
+ * already full, the widget goes onto a brand-new row directly below instead of
+ * overflowing — mirroring the fallback `moveWidgetInLayout` (keyboard) and
+ * `duplicateWidget` already use, and closing the one layout-mutating path that enforced no
+ * cap at all. `WidgetGap`/`InsertionPoint` refuse the drop before it gets here (see
+ * `wouldOverflowRow`), so under the real UI this branch is unreachable; it stands as
+ * defense in depth for programmatic drops and for a drop target belonging to another
+ * Studio instance whose rows this canvas never saw.
+ */
+function insertIntoRow(
+  rows: string[][],
+  rowIndex: number,
+  colIndex: number,
+  widgetId: string,
+): void {
+  const row = rows[rowIndex] ?? [];
+  if (row.length >= MAX_PER_ROW) {
+    rows.splice(rowIndex + 1, 0, [widgetId]);
+    return;
+  }
+  row.splice(colIndex, 0, widgetId);
+  rows[rowIndex] = row;
+}
+
 /** State describing an in-progress resize drag between two adjacent widgets in a row. */
 export interface LiveDragState {
   leftId: string;
@@ -90,21 +118,19 @@ export function computeGridLineLefts(
   widgetColSpans: Record<string, number> | undefined,
   liveDrag: LiveDragState,
 ): string[] {
-  const flexGrowDefault = Math.round(GRID_COLS / row.length);
+  // Same resolution the row itself renders from (missing entry = equal share, row scaled
+  // back into `GRID_COLS` when it overflows), so the divider lines can't drift from the
+  // widget edges they're supposed to mark. See `rowColSpans.ts` for the single meaning.
+  const resolved = resolveRowColSpans(row, widgetColSpans);
   let acc = 0;
-  const cumSpans = row.map((wId) => {
+  const cumSpans = row.map((wId, index) => {
     const start = acc;
     if (wId === liveDrag.leftId) {
       acc += liveDrag.leftSpanLive;
     } else if (wId === liveDrag.rightId) {
       acc += liveDrag.totalSpan - liveDrag.leftSpanLive;
     } else {
-      // `widgetColSpans` is a doc-authored record keyed by widget id: index it through the
-      // prototype-chain-safe `lookup` so an id named after an `Object.prototype` member
-      // ("constructor"/"toString"/…) resolves to `undefined` (and therefore `flexGrowDefault`)
-      // instead of an inherited function that `??` never replaces and that poisons the
-      // arithmetic below into `NaN`.
-      acc += lookup(widgetColSpans, wId) ?? flexGrowDefault;
+      acc += resolved[index];
     }
     return start;
   });
@@ -215,6 +241,10 @@ function StudioPageRows({
       if (data.type === DRAG_TYPE_COMPOSE_WIDGET && data.kind) {
         const sources = Object.values(controller.getState().runtime.dataSources);
         if (widgetKindRequiresDataSource(data.kind) && sources.length === 0) {
+          // The drop target highlighted, so the gesture LOOKED accepted; bailing without a
+          // word left a screen-reader (and every) user with no signal that nothing happened.
+          // The success branch below announces, so the failure branch must too.
+          announce(localeText.composeNoDataSources);
           return;
         }
         const newWidget = createDefaultWidget(data.kind);
@@ -224,9 +254,7 @@ function StudioPageRows({
         if (orientation === 'horizontal') {
           rows.splice(rowIndex, 0, [newWidget.id]);
         } else {
-          const row = rows[rowIndex] ?? [];
-          row.splice(colIndex, 0, newWidget.id);
-          rows[rowIndex] = row;
+          insertIntoRow(rows, rowIndex, colIndex, newWidget.id);
         }
         controller.insertWidgetAt(newWidget, pageId, rows);
         announce(localeText.canvasWidgetAddedAnnouncement);
@@ -260,9 +288,7 @@ function StudioPageRows({
         if (orientation === 'horizontal') {
           rows.splice(rowIndex, 0, [widgetId]);
         } else {
-          const row = rows[rowIndex] ?? [];
-          row.splice(adjustedColIndex, 0, widgetId);
-          rows[rowIndex] = row;
+          insertIntoRow(rows, rowIndex, adjustedColIndex, widgetId);
         }
         const cleaned = rows.filter((r) => r.length > 0);
 
@@ -318,6 +344,14 @@ function StudioPageRows({
         ) {
           return null;
         }
+        // One span resolution for the whole row, shared by edit mode's flex-grow, view
+        // mode's flex-basis, the resize handles and the divider overlay. Before this, each
+        // of those sites decided independently what a MISSING `widgetColSpans` entry meant
+        // — and view mode's answer (`flex: 1`, auto rather than a percentage basis)
+        // disagreed with the others, so an over-budget row rendered three-across in edit
+        // mode and wrapped the unspanned widget onto its own line in view mode. See
+        // `rowColSpans.ts`.
+        const resolvedSpans = resolveRowColSpans(row, widgetColSpans);
         return (
           // Keyed by the row's index within the page, not its membership (`row.join('-')`):
           // the row's identity shouldn't need to encode which widgets it currently holds.
@@ -352,13 +386,14 @@ function StudioPageRows({
                 // `context/selectors.ts`. Doubles as this card's error-boundary reset key:
                 // the store hands out a new widget object on every doc edit to it.
                 const widget = lookup(widgets, widgetId);
-                // Compute flex value, using live drag for the two resizing widgets
-                // Guarded record index (see `computeGridLineLefts`): an inherited
-                // `Object.prototype` member would survive `??` and produce
-                // `flex: 0 0 calc(NaN% - NaNpx)` — an invalid declaration the browser drops,
-                // collapsing the widget in view mode. Edit mode's `Number.isFinite(span)`
-                // check below already covered its own path; this covers both.
-                const storedSpan = lookup(widgetColSpans, widgetId) ?? null;
+                // The widget's effective span: an explicit `widgetColSpans` entry, or an
+                // equal share of the row when it has none — resolved once for the whole row
+                // above, so every consumer of "how wide is this widget" agrees. Always a
+                // finite positive number (`resolveRowColSpans` rejects NaN/Infinity/≤0 from a
+                // hostile serialized doc rather than letting it reach the `flex` shorthand),
+                // and never `null`: the "unknown width" case that used to fall through to
+                // `flex: 1` in view mode no longer exists.
+                const resolvedSpan = resolvedSpans[colIndex];
                 let liveSpan: number | null = null;
                 if (liveDrag) {
                   if (widgetId === liveDrag.leftId) {
@@ -367,54 +402,44 @@ function StudioPageRows({
                     liveSpan = liveDrag.totalSpan - liveDrag.leftSpanLive;
                   }
                 }
-                const span = liveSpan ?? storedSpan;
+                const span = liveSpan ?? resolvedSpan;
 
                 // Edit mode: use flex-grow proportional to column span (flex-basis: 0).
                 // View mode: three responsive tiers based on canvasWidth vs stackBreakpoint (B):
                 //   • canvasWidth ≥ 2B  → normal spans
                 //   • B ≤ canvasWidth < 2B → isHalfStacked: double each span (capped at GRID_COLS)
                 //   • canvasWidth < B   → isStacked: all widgets full-width
-                const defaultFlexGrow = Math.round(GRID_COLS / row.length);
-                let effectiveViewSpan: number | null = null;
-                if (span != null) {
-                  if (isStacked) {
-                    effectiveViewSpan = GRID_COLS;
-                  } else if (isHalfStacked) {
-                    effectiveViewSpan = Math.min(span * 2, GRID_COLS);
-                  } else {
-                    effectiveViewSpan = span;
-                  }
+                let effectiveViewSpan: number;
+                if (isStacked) {
+                  effectiveViewSpan = GRID_COLS;
+                } else if (isHalfStacked) {
+                  effectiveViewSpan = Math.min(span * 2, GRID_COLS);
+                } else {
+                  effectiveViewSpan = span;
                 }
                 const viewFlexBasis = (s: number): string => {
                   const pct = (s / GRID_COLS) * 100;
                   const gapAdj = 8 * (1 - s / GRID_COLS);
                   return gapAdj > 0.001 ? `calc(${pct}% - ${gapAdj}px)` : `${pct}%`;
                 };
-                let flexValue: string | number;
-                if (mode === 'edit') {
-                  // `span` derives from `page.widgetColSpans` (doc-authored). Guard locally at
-                  // the point of consumption rather than relying on the distant load-boundary
-                  // clamp: a non-finite span (NaN/Infinity from a hostile serialized doc) would
-                  // otherwise interpolate straight into the `flex` shorthand.
-                  const safeSpan = Number.isFinite(span) ? span : defaultFlexGrow;
-                  flexValue = `${safeSpan} 0 0`;
-                } else if (effectiveViewSpan != null) {
-                  flexValue = `0 0 ${viewFlexBasis(effectiveViewSpan)}`;
-                } else {
-                  flexValue = 1;
-                }
-                let maxWidth: string | undefined;
-                if (mode !== 'edit' && effectiveViewSpan != null) {
-                  maxWidth = viewFlexBasis(effectiveViewSpan);
-                }
+                const flexValue =
+                  mode === 'edit' ? `${span} 0 0` : `0 0 ${viewFlexBasis(effectiveViewSpan)}`;
+                const maxWidth = mode === 'edit' ? undefined : viewFlexBasis(effectiveViewSpan);
 
-                // Spans for the resize handle on the right of this widget
+                // Spans for the resize handle on the right of this widget. Deliberately NOT
+                // `resolvedSpans[colIndex]`/`[colIndex + 1]`: those describe how the row is
+                // RENDERED, while the handle decides what may be WRITTEN BACK, and a resize
+                // commit bypasses the reducer's row-sum sweep entirely. See
+                // `resolveResizePair`.
                 const nextId = row[colIndex + 1];
-                const nextStoredSpan = nextId ? (lookup(widgetColSpans, nextId) ?? null) : null;
-                const myEffectiveSpan = storedSpan ?? defaultFlexGrow;
-                const nextEffectiveSpan = nextId
-                  ? (nextStoredSpan ?? Math.round(GRID_COLS / row.length))
-                  : 0;
+                const nextMinSpan = nextId ? getWidgetMinSpan(lookup(widgets, nextId)) : MIN_SPAN;
+                const resizePair = resolveResizePair(
+                  row,
+                  widgetColSpans,
+                  colIndex,
+                  getWidgetMinSpan(widget),
+                  nextMinSpan,
+                );
 
                 const isResizing =
                   liveDrag && (widgetId === liveDrag.leftId || widgetId === liveDrag.rightId);
@@ -422,6 +447,11 @@ function StudioPageRows({
                 return (
                   <React.Fragment key={widgetId}>
                     <Box
+                      // The widget's resolved column span, out of `GRID_COLS`. Published as
+                      // a stable attribute because it is the single number both modes lay
+                      // the row out from (edit mode's flex-grow, view mode's flex-basis
+                      // percentage) — the thing that used to differ between them.
+                      data-widget-col-span={span}
                       sx={{
                         flex: flexValue,
                         maxWidth: maxWidth ?? undefined,
@@ -466,17 +496,17 @@ function StudioPageRows({
                         showResizeHandle={colIndex < row.length - 1}
                         leftId={widgetId}
                         rightId={nextId}
-                        leftSpan={myEffectiveSpan}
-                        rightSpan={nextEffectiveSpan}
+                        leftSpan={resizePair.leftSpan}
+                        rightSpan={resizePair.rightSpan}
                         leftMinSpan={getWidgetMinSpan(widget)}
-                        rightMinSpan={nextId ? getWidgetMinSpan(lookup(widgets, nextId)) : MIN_SPAN}
+                        rightMinSpan={nextMinSpan}
                         widgetRowsRef={widgetRowsRef}
                         onDragMove={(lId, rId, leftSpanLive) => {
                           setLiveDrag({
                             leftId: lId,
                             rightId: rId,
                             leftSpanLive,
-                            totalSpan: myEffectiveSpan + nextEffectiveSpan,
+                            totalSpan: resizePair.totalSpan,
                           });
                         }}
                         onDragEnd={(lId, rId, snappedLeft, snappedRight) => {
@@ -487,7 +517,7 @@ function StudioPageRows({
                             rId,
                             snappedRight,
                             getWidgetMinSpan(widget),
-                            nextId ? getWidgetMinSpan(lookup(widgets, nextId)) : MIN_SPAN,
+                            nextMinSpan,
                           );
                         }}
                         onDragCancel={() => setLiveDrag(null)}
@@ -653,6 +683,9 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
       if (data.type === DRAG_TYPE_COMPOSE_WIDGET && data.kind) {
         const sources = Object.values(controller.getState().runtime.dataSources);
         if (widgetKindRequiresDataSource(data.kind) && sources.length === 0) {
+          // Announce the refusal — the empty-state Paper highlighted on hover, so a silent
+          // bail reads as "the drop worked and produced nothing". Mirrors `handleDrop`.
+          announce(localeText.composeNoDataSources);
           return;
         }
         const newWidget = createDefaultWidget(data.kind);

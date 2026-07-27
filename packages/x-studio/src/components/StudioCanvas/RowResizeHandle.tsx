@@ -8,6 +8,8 @@ import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 import { useStudioAnnounce } from '../../internals/StudioLiveRegion';
 import { useStudioSelector } from '../../context';
 import type { StudioState } from '../../models';
+import type { StudioWidgetKind } from '../../models/baseTypes';
+import { useWidgetKindLabels } from '../StudioComposeDrawer/StudioComposeDrawerLabels';
 import { lookup } from '../../utils/safeLookup';
 
 interface RowResizeHandleProps {
@@ -56,8 +58,36 @@ export function RowResizeHandle({
     () => (state: StudioState) => lookup(state.doc.widgets, rightId)?.title ?? '',
     [rightId],
   );
-  const leftTitle = useStudioSelector(selectLeftTitle);
-  const rightTitle = useStudioSelector(selectRightTitle);
+  // Kinds, so an UNTITLED neighbour still contributes something to the accessible name.
+  // Selected as separate primitives rather than one `{ title, kind }` object per side:
+  // `useStudioSelector` compares by reference, so a freshly allocated object every render
+  // would defeat its bail-out.
+  const selectLeftKind = React.useMemo(
+    () => (state: StudioState) => lookup(state.doc.widgets, leftId)?.kind,
+    [leftId],
+  );
+  const selectRightKind = React.useMemo(
+    () => (state: StudioState) => lookup(state.doc.widgets, rightId)?.kind,
+    [rightId],
+  );
+  const widgetKindLabels = useWidgetKindLabels();
+  const describeNeighbour = (title: string, kind: StudioWidgetKind | undefined): string => {
+    if (title) {
+      return title;
+    }
+    if (!kind) {
+      return '';
+    }
+    // "Untitled Chart" — the same translated phrasing the edit dialog and the card header
+    // use for a widget with no title, rather than dropping the neighbour from the name.
+    return localeText.widgetUntitledLabel(lookup(widgetKindLabels, kind) ?? kind);
+  };
+  const leftStoredTitle = useStudioSelector(selectLeftTitle);
+  const rightStoredTitle = useStudioSelector(selectRightTitle);
+  const leftKind = useStudioSelector(selectLeftKind);
+  const rightKind = useStudioSelector(selectRightKind);
+  const leftTitle = describeNeighbour(leftStoredTitle, leftKind);
+  const rightTitle = describeNeighbour(rightStoredTitle, rightKind);
   const dragRef = React.useRef<{
     combinedLeft: number;
     combinedWidth: number;
@@ -73,15 +103,31 @@ export function RowResizeHandle({
   const [pendingLeft, setPendingLeft] = React.useState<number | null>(null);
 
   const minLeft = leftMinSpan;
-  const maxLeft = totalSpan - rightMinSpan;
+  // A pair whose two minimum spans exceed its combined span cannot be resized at all:
+  // `totalSpan - rightMinSpan` drops BELOW `leftMinSpan`, `stepSpan`'s
+  // `max(minLeft, min(maxLeft, …))` collapses to the constant `minLeft`, and every arrow
+  // key and pointer drag silently becomes a no-op — with `aria-valuemin > aria-valuemax`
+  // advertising an impossible range to assistive tech. `MAX_PER_ROW` on the drop paths
+  // removes the way users used to reach this (a 5th widget in a row), but a raised minimum
+  // can still create it after the fact — toggling a KPI's sparkline on lifts its min-span
+  // from 4 to 6. Report the state honestly (`aria-disabled`, a non-inverted range) and
+  // refuse the gesture rather than pretending to accept it.
+  const isResizable = totalSpan - rightMinSpan >= leftMinSpan;
+  const maxLeft = Math.max(leftMinSpan, totalSpan - rightMinSpan);
   // What the handle currently represents — the uncommitted keyboard value while a
   // keyboard session is open, otherwise the committed span.
   const effectiveLeft = pendingLeft ?? leftSpan;
+  // `leftSpan` is a prop derived from the doc; clamp before publishing it as
+  // `aria-valuenow` so it can never sit outside the min/max the same element advertises.
+  const ariaValueNow = Math.max(minLeft, Math.min(maxLeft, effectiveLeft));
 
   // Keyboard step: preview only. Never calls `onDragEnd`, so nothing reaches the undo stack
   // until the session is flushed below.
   const stepSpan = React.useCallback(
     (nextLeft: number) => {
+      if (!isResizable) {
+        return;
+      }
       const clamped = Math.max(minLeft, Math.min(maxLeft, nextLeft));
       if (clamped === effectiveLeft) {
         return;
@@ -90,7 +136,18 @@ export function RowResizeHandle({
       onDragMove(leftId, rightId, clamped);
       announce(localeText.canvasResizeAnnouncement(clamped, totalSpan));
     },
-    [minLeft, maxLeft, effectiveLeft, leftId, rightId, totalSpan, onDragMove, announce, localeText],
+    [
+      isResizable,
+      minLeft,
+      maxLeft,
+      effectiveLeft,
+      leftId,
+      rightId,
+      totalSpan,
+      onDragMove,
+      announce,
+      localeText,
+    ],
   );
 
   // End a keyboard session: commit the accumulated span as ONE mutation, or roll back if it
@@ -156,6 +213,11 @@ export function RowResizeHandle({
     (event: React.PointerEvent<HTMLDivElement>) => {
       event.preventDefault();
       event.stopPropagation();
+      // Nothing to redistribute — see `isResizable`. Starting the gesture would let the
+      // pointer move the divider visually and then commit a span the clamp can't honour.
+      if (!isResizable) {
+        return;
+      }
       const handle = event.currentTarget;
       // The handle sits inside a gap element; find the widget boxes on either side
       const gap = handle.parentElement;
@@ -196,7 +258,7 @@ export function RowResizeHandle({
       setActive(true);
       handle.setPointerCapture(event.pointerId);
     },
-    [totalSpan, cancelKeyboard],
+    [isResizable, totalSpan, cancelKeyboard],
   );
 
   const handlePointerMove = React.useCallback(
@@ -288,14 +350,22 @@ export function RowResizeHandle({
       // The translated action name, disambiguated by the widgets it sits between so each
       // handle on the page gets a distinct accessible name. Composed with punctuation only —
       // no untranslated words are introduced — matching how `StudioQuickFilterBar` builds
-      // "FieldLabel: summary". Falls back to the bare action name when neither neighbour has
-      // a title (untitled widgets), which is still the pre-existing behaviour.
+      // "FieldLabel: summary". An untitled neighbour contributes its translated kind
+      // ("Untitled Chart", via `describeNeighbour`) rather than dropping out; the bare
+      // action name is only reached when a neighbour is missing from the doc entirely.
       aria-label={flankingTitles ? `${resizeLabel}: ${flankingTitles}` : resizeLabel}
       aria-valuemin={minLeft}
       aria-valuemax={maxLeft}
       // Reflects the uncommitted keyboard value while a keyboard session is open, so a
       // screen reader tracks the preview rather than the last committed span.
-      aria-valuenow={effectiveLeft}
+      aria-valuenow={ariaValueNow}
+      // A bare "14" tells a screen-reader user nothing — 14 of what? Publish the same
+      // human-readable, translated "Column resized to N of M" string the live region
+      // announces on each step, so the value is intelligible on focus, not only on change.
+      aria-valuetext={localeText.canvasResizeAnnouncement(ariaValueNow, totalSpan)}
+      // Focusable (so it stays discoverable and its state is readable) but inoperable when
+      // the pair's minimums leave nothing to redistribute.
+      aria-disabled={isResizable ? undefined : true}
       tabIndex={0}
       onKeyDown={handleKeyDown}
       // Leaving the handle ends any open keyboard session — a Tab away must not strand an

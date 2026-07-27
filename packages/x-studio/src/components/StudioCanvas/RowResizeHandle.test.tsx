@@ -548,14 +548,66 @@ describe('RowResizeHandle — accessible name (a11y)', () => {
     expect(handle.getAttribute('aria-label')).toBe('Resize columns: Signups / Churn');
   });
 
-  it('falls back to the bare action name when neither neighbour has a title', () => {
+  it('describes an untitled neighbour by its widget kind rather than dropping it', () => {
     const { handle } = setup({
       leftSpan: 12,
       rightSpan: 12,
-      // `title` is a required `string` on `StudioWidget`, so "no title" is the empty string —
-      // which `flankingTitles`' `.filter(Boolean)` drops, leaving the bare action name.
-      widgets: { a: makeWidget('a', ''), b: makeWidget('b', '') },
+      // `title` is a required `string` on `StudioWidget`, so "no title" is the empty string.
+      // It used to be dropped by `flankingTitles`' `.filter(Boolean)`, degrading the whole
+      // name back to the bare, non-disambiguating action name.
+      widgets: { a: makeWidget('a', ''), b: makeWidget('b', 'Orders') },
     });
+    expect(handle.getAttribute('aria-label')).toBe('Resize columns: Untitled Text / Orders');
+  });
+
+  it('falls back to the bare action name only when a neighbour is absent from the doc', () => {
+    // No `a`/`b` entries at all: there is no kind to name either side by.
+    const { handle } = setup({ leftSpan: 12, rightSpan: 12, widgets: {} });
     expect(handle.getAttribute('aria-label')).toBe('Resize columns');
+  });
+
+  it('publishes a human-readable aria-valuetext alongside the numeric value', () => {
+    const { handle } = setup({ leftSpan: 9, rightSpan: 15 });
+    expect(handle.getAttribute('aria-valuenow')).toBe('9');
+    expect(handle.getAttribute('aria-valuetext')).toBe('Column resized to 9 of 24');
+  });
+});
+
+/**
+ * A pair whose two minimum spans exceed its combined span has nothing to redistribute.
+ * `maxLeft = totalSpan - rightMinSpan` then falls BELOW `minLeft`, so `stepSpan`'s clamp
+ * collapses to a constant: every arrow key and pointer drag becomes a silent no-op, and the
+ * element advertises `aria-valuemin > aria-valuemax`.
+ */
+describe('RowResizeHandle — unsatisfiable pair', () => {
+  it('reports a non-inverted range and aria-disabled instead of an impossible one', () => {
+    const { handle } = setup({ leftSpan: 5, rightSpan: 5, leftMinSpan: 6, rightMinSpan: 6 });
+    const min = Number(handle.getAttribute('aria-valuemin'));
+    const max = Number(handle.getAttribute('aria-valuemax'));
+    expect(min).toBeLessThanOrEqual(max);
+    expect(handle.getAttribute('aria-disabled')).toBe('true');
+    // `aria-valuenow` stays inside the range it advertises.
+    const now = Number(handle.getAttribute('aria-valuenow'));
+    expect(now).toBeGreaterThanOrEqual(min);
+    expect(now).toBeLessThanOrEqual(max);
+  });
+
+  it('refuses the keyboard gesture rather than pretending to accept it', () => {
+    const { handle, onDragMove, onDragEnd } = setup({
+      leftSpan: 5,
+      rightSpan: 5,
+      leftMinSpan: 6,
+      rightMinSpan: 6,
+    });
+    pressKey(handle, 'ArrowLeft');
+    pressKey(handle, 'Home');
+    pressKey(handle, 'Enter');
+    expect(onDragMove).not.toHaveBeenCalled();
+    expect(onDragEnd).not.toHaveBeenCalled();
+  });
+
+  it('is not aria-disabled for an ordinary resizable pair', () => {
+    const { handle } = setup({ leftSpan: 12, rightSpan: 12 });
+    expect(handle.getAttribute('aria-disabled')).toBe(null);
   });
 });

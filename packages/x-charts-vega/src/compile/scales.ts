@@ -582,9 +582,41 @@ function applySort(
  */
 const BAND_SCALE_MARKS = new Set(['bar', 'rect', 'boxplot', 'errorbar', 'rule']);
 
-/** `true` when any occurrence of the channel is drawn with a band-requiring mark. */
-function channelNeedsBandScale(occurrences: ChannelOccurrence[]): boolean {
-  return occurrences.some((occurrence) => BAND_SCALE_MARKS.has(occurrence.unit.mark.type));
+/**
+ * `true` when any occurrence of the channel is drawn with a band-requiring mark.
+ *
+ * A RANGED occurrence is exempt: a mark that also encodes the channel's `x2`/
+ * `y2` twin states its own start and end in data space and derives nothing from
+ * the band width, so it sits happily on a continuous scale. This matters most
+ * in a layered spec, where one ranged rect used to drag the whole shared axis
+ * onto a band scale — `layer_falkensee` draws two `x`→`x2` era-highlight
+ * rectangles behind a population line, and banding the axis for their sake
+ * spaced its irregular yearly readings evenly, visibly deforming the curve
+ * (1875→1950 taking the same width as 1990→2014). The exemption is per
+ * CHANNEL, so a Gantt-style span rule still bands its category axis (no `y2`)
+ * while leaving its time axis (`x`→`x2`) continuous.
+ */
+function channelNeedsBandScale(occurrences: ChannelOccurrence[], channel: 'x' | 'y'): boolean {
+  const twin = channel === 'x' ? 'x2' : 'y2';
+  const otherTwin = channel === 'x' ? 'y2' : 'x2';
+  return occurrences.some((occurrence) => {
+    if (!BAND_SCALE_MARKS.has(occurrence.unit.mark.type)) {
+      return false;
+    }
+    if (occurrence.unit.encoding[twin] != null) {
+      return false;
+    }
+    // `rule` is in this set only for the Gantt idiom — a span on ONE axis laid
+    // out per category on the other — so it needs a band solely on that
+    // category axis, i.e. when the OPPOSITE channel is the one carrying the
+    // span. A plain rule with no span at all is a zero-width marker line (the
+    // hover indicator in `interactive_multi_line_tooltip`) and derives nothing
+    // from a band, so it must not drag a time axis off its continuous scale.
+    if (occurrence.unit.mark.type === 'rule') {
+      return occurrence.unit.encoding[otherTwin] != null;
+    }
+    return true;
+  });
 }
 
 /**
@@ -636,8 +668,11 @@ export function forcesDiscreteBarCategory(
  * band/point path instead of a continuous time scale (bar/rect derive their
  * width from a band; boxplot/errorbar group their summary geometry per category).
  */
-function channelHasDiscreteTemporalMark(occurrences: ChannelOccurrence[]): boolean {
-  return channelNeedsBandScale(occurrences);
+function channelHasDiscreteTemporalMark(
+  occurrences: ChannelOccurrence[],
+  channel: 'x' | 'y',
+): boolean {
+  return channelNeedsBandScale(occurrences, channel);
 }
 
 /**
@@ -729,7 +764,7 @@ function resolveChannelAxis(
     // `scale.type` on any occurrence can request a specific discrete scale —
     // both the temporal continuous-vs-discrete decision below and the
     // band-vs-point decision further down depend on them.
-    const forcedDiscreteMark = channelHasDiscreteTemporalMark(occurrences);
+    const forcedDiscreteMark = channelHasDiscreteTemporalMark(occurrences, channel);
     const explicitDiscrete = explicitDiscreteScaleType(occurrences);
     const pairs: CategoryPair[] = [];
     const seen = new Set<string>();

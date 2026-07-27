@@ -412,4 +412,89 @@ describe('compileSpec (foundation pipeline)', () => {
     const gap = compiled.gaps.find((entry) => entry.code === 'data:string-values');
     expect(gap?.severity).to.equal('unsupported');
   });
+
+  describe('band scale vs continuous time for ranged marks', () => {
+    const years = [
+      { year: '1880-01-01', pop: 1, start: '1933-01-01', end: '1945-01-01' },
+      { year: '1950-01-01', pop: 2, start: '1933-01-01', end: '1945-01-01' },
+      { year: '2010-01-01', pop: 3, start: '1933-01-01', end: '1945-01-01' },
+    ];
+
+    it('keeps a temporal axis continuous when the only band-ish mark is RANGED', () => {
+      // `layer_falkensee`-shaped: two x->x2 era rectangles behind a population
+      // line. A ranged rect states its own start/end in data space and derives
+      // nothing from a band, so banding the shared axis for its sake spaced the
+      // line's irregular yearly readings evenly and deformed the curve.
+      const compiled = compileSpec({
+        data: { values: years },
+        layer: [
+          {
+            mark: 'rect',
+            encoding: { x: { field: 'start', type: 'temporal' }, x2: { field: 'end' } },
+          },
+          {
+            mark: 'line',
+            encoding: {
+              x: { field: 'year', type: 'temporal' },
+              y: { field: 'pop', type: 'quantitative' },
+            },
+          },
+        ],
+      } as unknown as VegaLiteSpec);
+      expect(compiled.xAxis?.config.scaleType).to.equal('time');
+      expect(compiled.gaps.map((gap) => gap.code)).to.not.include(
+        'scale:temporal-point-approximation',
+      );
+    });
+
+    it('still bands a temporal axis for a NON-ranged rect', () => {
+      const compiled = compileSpec({
+        data: { values: years },
+        mark: 'rect',
+        encoding: {
+          x: { field: 'year', type: 'temporal' },
+          y: { field: 'pop', type: 'quantitative' },
+        },
+      } as unknown as VegaLiteSpec);
+      expect(compiled.xAxis?.config.scaleType).to.equal('band');
+    });
+
+    it('leaves a temporal axis continuous for a plain (span-less) rule', () => {
+      // A hover-indicator rule is a zero-width marker line, not a Gantt span,
+      // so it must not drag the time axis off its continuous scale.
+      const compiled = compileSpec({
+        data: { values: years },
+        layer: [
+          {
+            mark: 'line',
+            encoding: {
+              x: { field: 'year', type: 'temporal' },
+              y: { field: 'pop', type: 'quantitative' },
+            },
+          },
+          { mark: 'rule', encoding: { x: { field: 'year', type: 'temporal' } } },
+        ],
+      } as unknown as VegaLiteSpec);
+      expect(compiled.xAxis?.config.scaleType).to.equal('time');
+    });
+
+    it('still bands the CATEGORY axis of a Gantt-style span rule', () => {
+      // The span is on x (x->x2), so y is the per-category axis and needs a band.
+      const compiled = compileSpec({
+        data: {
+          values: [
+            { task: 'A', start: 1, end: 3 },
+            { task: 'B', start: 3, end: 8 },
+          ],
+        },
+        mark: 'rule',
+        encoding: {
+          y: { field: 'task', type: 'nominal' },
+          x: { field: 'start', type: 'quantitative' },
+          x2: { field: 'end' },
+        },
+      } as unknown as VegaLiteSpec);
+      expect(compiled.yAxis?.config.scaleType).to.equal('band');
+    });
+  });
 });

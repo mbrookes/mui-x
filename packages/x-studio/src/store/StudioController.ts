@@ -81,8 +81,23 @@ const MAX_MUTATION_LOG = 20;
  *    view, by the AI assistant, or by an undo, while a dialog was open).
  *  - `cycle` — the write would close a circular dependency among expression fields, which
  *    would make `enrichRowsWithExpressions` recurse without bound at render time.
+ *  - `rank-conflict` — the write would put a SECOND rank (Top-N) filter in a page context that
+ *    already has one, violating the one-rank-filter-per-page invariant `addFilter`,
+ *    `updateFilter`, `duplicateWidget`, the move paths, the shared reducer and the filters
+ *    drawer all assume (M12). The stored filter is left untouched.
+ *  - `invalid` — the shared `applyMutation` reducer refused the payload. It returns the same
+ *    state reference for every refusal without saying which, so this one reason covers the
+ *    whole set it screens for: an unknown widget anchor (`widget`/`cross-filter`/`interactive`
+ *    scope naming a widget that does not exist), a `scope.pageId` naming a nonexistent page, a
+ *    non-`StudioFilterOperator` `operator`/`operator2`, a malformed/non-record `scope`, and a
+ *    non-string `id`. The caller's values were discarded.
  */
-export type StudioMutationRejectionReason = 'duplicate-id' | 'not-found' | 'cycle';
+export type StudioMutationRejectionReason =
+  | 'duplicate-id'
+  | 'not-found'
+  | 'cycle'
+  | 'rank-conflict'
+  | 'invalid';
 
 /**
  * The outcome of a controller mutation that can reject its caller's request.
@@ -113,6 +128,11 @@ const MUTATION_DUPLICATE_ID: StudioMutationResult = Object.freeze({
 });
 const MUTATION_NOT_FOUND: StudioMutationResult = Object.freeze({ ok: false, reason: 'not-found' });
 const MUTATION_CYCLE: StudioMutationResult = Object.freeze({ ok: false, reason: 'cycle' });
+const MUTATION_RANK_CONFLICT: StudioMutationResult = Object.freeze({
+  ok: false,
+  reason: 'rank-conflict',
+});
+const MUTATION_INVALID: StudioMutationResult = Object.freeze({ ok: false, reason: 'invalid' });
 
 /**
  * `Array.prototype.map` that returns the ORIGINAL array when no element's reference
@@ -604,6 +624,16 @@ export class StudioController {
       return;
     }
     const source = state.runtime.dataSources[sourceId];
+    // Key-wise reference no-op guard, mirroring `commitDocPatch` (1.6), `commitShellPatch` and
+    // `updateState` (2.4). This was the only commit helper without one (M12): `setDataSourceRows
+    // (id, sameArrayRef)` — a host poller re-injecting the SAME rows array from an effect — still
+    // rebuilt the source object AND the `dataSources` record, changing both references and
+    // notifying every subscriber for no actual change. `updateDataSourceField` had to grow its
+    // own guard for exactly this; putting it here covers every caller instead.
+    const keys = Object.keys(patch) as (keyof StudioDataSource)[];
+    if (keys.every((key) => patch[key] === source[key])) {
+      return;
+    }
     this.commitState(
       {
         ...state,
@@ -706,6 +736,9 @@ export class StudioController {
    *    effects a pure reducer intentionally does not own — React shell selection
    *    (`addWidget`/`removeWidget`) and live-data title inference
    *    (`updateWidgetConfig`).
+   *
+   * @returns `true` when the commit landed, `false` when the fold was a whole no-op —
+   *   see {@link commitMutations}.
    */
   private commitMutation = (
     mutation: StateMutation,
@@ -722,7 +755,7 @@ export class StudioController {
       /** Client-only state layering, applied AFTER the reducer. */
       transform?: (next: StudioState) => StudioState;
     },
-  ) => this.commitMutations([mutation], options);
+  ): boolean => this.commitMutations([mutation], options);
 
   /**
    * The multi-mutation sibling of {@link commitMutation}: folds an ORDERED
@@ -748,6 +781,13 @@ export class StudioController {
    * `.map(mutationLabel).join(' + ')` produces exactly `mutationLabel(mutation)`
    * (a one-element join has no separator), so every existing single-mutation
    * caller is byte-identical in observable behaviour.
+   *
+   * @returns `true` when the commit landed, `false` when the whole fold was a no-op (M12).
+   *   The reducer returns the SAME state reference for every payload it refuses — an unknown
+   *   widget anchor, a `scope.pageId` naming a nonexistent page, a duplicate filter id, a bad
+   *   operator, a malformed scope, its own rank gate — and a `void` return made all of those
+   *   indistinguishable from a successful write for callers that must report the outcome
+   *   (`addFilter`). Callers that cannot reject (every other one) simply ignore the boolean.
    */
   private commitMutations = (
     mutations: StateMutation[],
@@ -765,7 +805,7 @@ export class StudioController {
       /** Client-only state layering, applied AFTER the reducer fold. */
       transform?: (next: StudioState) => StudioState;
     },
-  ) => {
+  ): boolean => {
     const next = mutations.reduce(applyMutation, this.store.state);
     // `transform` must run even when the reducer fold itself was a no-op: some
     // callers (e.g. `updateWidget` re-triggering title inference via an
@@ -776,7 +816,7 @@ export class StudioController {
     // fast path.
     const transformed = options?.transform ? options.transform(next) : next;
     if (transformed === this.store.state) {
-      return;
+      return false;
     }
     const label =
       options?.label === null
@@ -790,6 +830,7 @@ export class StudioController {
       undoable,
       label,
     });
+    return true;
   };
 
   /**
@@ -852,6 +893,15 @@ export class StudioController {
 
   setMode = (mode: StudioMode) => {
     const state = this.store.state;
+    // Value-equality no-op guard (M12): `{ ...state.session, mode }` always allocates a fresh
+    // `session`, so re-setting the CURRENT mode (a toolbar toggle re-committing its own value,
+    // or a host effect re-applying a controlled `mode` prop) rebuilt `session` and notified
+    // every subscriber for nothing. `commitState` bails on `nextState === current`, but only
+    // after this rebuild has already changed the `session` reference. Same guard style as
+    // `setGlobalCrossFilterMode`/`setCrossFilterAllPages`.
+    if (state.session.mode === mode) {
+      return;
+    }
     // Mode is session-only and structurally non-undoable: a commit that changes only
     // `session` never pushes an undo entry (see commitState), so Ctrl+Z can no longer
     // flip view↔edit. `undoable: false` is belt-and-braces on top of that guarantee.
@@ -1075,6 +1125,46 @@ export class StudioController {
   };
 
   /**
+   * Evicts every cached adapter response for the given source ids (M11).
+   *
+   * The request `cacheKey` (`internals/queryDescriptor.ts`) is
+   * `${widget.sourceId}:${stableStringify({ select, filter, groupBy, aggregations, … })}` — it
+   * folds in NOTHING about the doc's expression fields or relationships, yet both demonstrably
+   * change the bytes a source returns: an expression field compiles into a `columnAliases`
+   * entry plus (for a cross-source `JoinFieldExpression`) a JOIN descriptor, and relationships
+   * supply the JOIN's `on` pair. Repointing `expr-country` from `customers.country` to
+   * `customers.city` therefore produces a byte-identical `cacheKey`, and the cache keeps
+   * serving PRE-EDIT rows for up to its 30s TTL — the axis is labelled "city" and shows
+   * countries.
+   *
+   * Invalidating by source id at the mutation boundary is the fix that stays inside this
+   * layer; the alternative (folding an expression/relationship digest into `cacheKeySource`)
+   * belongs to `internals/queryDescriptor.ts`. `invalidateSource` is generation-based, so
+   * invalidating a source with no cached entries is harmless.
+   */
+  private invalidateSources = (...sourceIds: (string | undefined)[]) => {
+    const seen = new Set<string>();
+    for (const sourceId of sourceIds) {
+      if (sourceId && !seen.has(sourceId)) {
+        seen.add(sourceId);
+        studioRequestCache.invalidateSource(sourceId);
+      }
+    }
+  };
+
+  /**
+   * Every source id a relationship can affect the query bytes of: both endpoints (either side
+   * can be the widget's own `sourceId`, and the JOIN's `on` pair comes from the relationship)
+   * plus the junction source for a `many-to-many`.
+   */
+  private static relationshipSourceIds = (
+    relationship: import('../models').StudioRelationship | undefined,
+  ): (string | undefined)[] =>
+    relationship
+      ? [relationship.sourceId, relationship.targetId, relationship.junctionSourceId]
+      : [];
+
+  /**
    * Adds a calculated (expression) field.
    *
    * @param field The field to add.
@@ -1113,6 +1203,12 @@ export class StudioController {
       }
       return MUTATION_CYCLE;
     }
+    // Evict the source's cached adapter responses (M11) — see `invalidateSources`. Defensive
+    // for a pure ADD (a field nothing references yet cannot change any existing response, and
+    // the widget that later selects it changes `select` and hence the `cacheKey`), but kept for
+    // parity with the update/remove siblings so no path through this class can leave a stale
+    // entry behind. Placed AFTER the guards so a rejected add never evicts anything.
+    this.invalidateSources(field.sourceId);
     this.commitDocPatch({ expressionFields: nextFields });
     return MUTATION_COMMITTED;
   };
@@ -1165,6 +1261,10 @@ export class StudioController {
       }
       return MUTATION_CYCLE;
     }
+    // Evict the cached adapter responses for BOTH the field's previous source and its new one
+    // (M11) — an edit can repoint `sourceId`, and the pre-edit source's cached rows are just as
+    // stale as the new one's. See `invalidateSources` for why the `cacheKey` cannot catch this.
+    this.invalidateSources(existing.sourceId, updatedField.sourceId);
     this.commitDocPatch({ expressionFields: nextFields });
     return MUTATION_COMMITTED;
   };
@@ -1248,6 +1348,15 @@ export class StudioController {
     const next = state.doc.expressionFields.filter(
       (ef: StudioExpressionField) => ef.id !== fieldId,
     );
+    if (next.length !== state.doc.expressionFields.length) {
+      // Evict the source's cached adapter responses (M11) — a widget still selecting the
+      // deleted field keeps its `cacheKey` (nothing about expression fields feeds the key) but
+      // its response no longer carries the column. Only on a REAL removal: an unknown id must
+      // stay a clean no-op. See `invalidateSources`.
+      this.invalidateSources(
+        state.doc.expressionFields.find((ef: StudioExpressionField) => ef.id === fieldId)?.sourceId,
+      );
+    }
     this.commitDocPatch({
       expressionFields:
         next.length === state.doc.expressionFields.length ? state.doc.expressionFields : next,
@@ -2080,7 +2189,20 @@ export class StudioController {
     this.warnOnOrphanedWidgets();
   };
 
-  addFilter = (filter: import('../models').StudioFilterState) => {
+  /**
+   * Adds a filter, stamping a `page`-scoped one with the currently active page.
+   *
+   * @returns {@link StudioMutationResult} — `duplicate-id` when a filter with this id is
+   *   already in the doc (the stored one wins; an add never overwrites), `rank-conflict` when
+   *   the page context already holds a rank (Top-N) filter, and `invalid` when the shared
+   *   reducer refuses the payload (unknown widget anchor, `scope.pageId` naming a nonexistent
+   *   page, bad operator, malformed scope). Every one of those used to be a silent `void`
+   *   return with at most a dev-only `console.warn` (M12), so a user switching a second filter
+   *   to Top-N saw the control snap back with no explanation and nothing at all in production.
+   *   Callers that surface the outcome to a user must branch on this rather than assuming the
+   *   write landed.
+   */
+  addFilter = (filter: import('../models').StudioFilterState): StudioMutationResult => {
     const state = this.store.state;
     // Stamp page filters with the current active page so they don't bleed
     // across pages when the user switches pages.
@@ -2088,12 +2210,26 @@ export class StudioController {
       filter.scope.kind === 'page'
         ? { ...filter, scope: { kind: 'page' as const, pageId: state.doc.dashboard.activePageId } }
         : filter;
+    // Duplicate-id check, hoisted out of the reducer so the caller can be TOLD (M12). The
+    // reducer is idempotent on a duplicate filter id (re-delivery of the same `addFilter` SSE
+    // event must not append a second entry) and signals that by returning the same state
+    // reference — indistinguishable from every other refusal below. Checked BEFORE the rank
+    // guard so the precedence matches the reducer's own ordering: `hasConflictingRankFilter`
+    // excludes the filter sharing the candidate's id, so a duplicate id whose stored twin is a
+    // rank filter would otherwise be misreported as a clean add.
+    if (state.doc.filters.some((f: StudioFilterState) => f.id === stampedFilter.id)) {
+      return MUTATION_DUPLICATE_ID;
+    }
     // Rank-filter uniqueness guard (2.6): `updateFilter` rejects switching a filter to
     // rank mode when another rank filter already occupies the same page context, but
     // `addFilter` historically didn't enforce the SAME invariant — a host call (or an
     // `add_page_filter` routed here) could add a second rank filter on a page and
     // violate the one-rank-per-page rule the update path guards. Apply the identical
     // shared check here so both entry points agree.
+    //
+    // The dev `console.warn` is KEPT alongside the returned `reason`, exactly as
+    // `addExpressionField`'s cycle guard does: host code and wire-replayed docs also reach
+    // this method and never inspect the result, so the warning stays their only signal.
     if (
       stampedFilter.filterMode === 'rank' &&
       hasConflictingRankFilter(stampedFilter.id, stampedFilter, state.doc.filters, state.doc.pages)
@@ -2104,13 +2240,16 @@ export class StudioController {
             'The added rank filter was rejected.',
         );
       }
-      return;
+      return MUTATION_RANK_CONFLICT;
     }
     // The page-scope stamping above is argument-shaping the controller does today
     // (not reducer duplication) and must survive; the append itself delegates to
-    // the shared reducer (which is idempotent on a duplicate filter id — appending
-    // a same-id filter twice was never desired behaviour).
-    this.commitMutation({ type: 'addFilter', args: { filter: stampedFilter } });
+    // the shared reducer, whose remaining refusals (unknown widget anchor, nonexistent
+    // `scope.pageId`, bad operator, malformed scope, its own rank gate) all surface as a
+    // whole-fold no-op — reported as `invalid` rather than swallowed.
+    return this.commitMutation({ type: 'addFilter', args: { filter: stampedFilter } })
+      ? MUTATION_COMMITTED
+      : MUTATION_INVALID;
   };
 
   /**
@@ -2134,6 +2273,10 @@ export class StudioController {
     if (exists) {
       return MUTATION_DUPLICATE_ID;
     }
+    // Evict both endpoints' (and any junction source's) cached adapter responses (M11): a new
+    // relationship makes a JOIN available that the previous responses were computed without,
+    // and nothing about relationships feeds the request `cacheKey`. See `invalidateSources`.
+    this.invalidateSources(...StudioController.relationshipSourceIds(relationship));
     this.commitDocPatch({ relationships: [...state.doc.relationships, relationship] });
     return MUTATION_COMMITTED;
   };
@@ -2168,6 +2311,14 @@ export class StudioController {
     if (patchKeys.every((key) => patch[key] === existing[key])) {
       return MUTATION_NOOP;
     }
+    // Evict the cached adapter responses for the endpoints of BOTH the pre-edit relationship
+    // and the patched one (M11): a patch can repoint `sourceId`/`targetId`/`junctionSourceId`,
+    // and the JOIN `on` pair a response was computed with is exactly what changed. Nothing
+    // about relationships feeds the request `cacheKey`. See `invalidateSources`.
+    this.invalidateSources(
+      ...StudioController.relationshipSourceIds(existing),
+      ...StudioController.relationshipSourceIds({ ...existing, ...patch }),
+    );
     // `mapPreservingIdentity` is retained for the (host-authored initial doc) case where two
     // entries share an id: only the ones that actually differ are rebuilt.
     this.commitDocPatch({
@@ -2180,13 +2331,30 @@ export class StudioController {
 
   removeRelationship = (id: string) => {
     const state = this.store.state;
+    const existing = state.doc.relationships.find((rel: StudioRelationship) => rel.id === id);
     const next = state.doc.relationships.filter((rel: StudioRelationship) => rel.id !== id);
+    if (next.length !== state.doc.relationships.length) {
+      // Evict both endpoints' cached adapter responses (M11): the removed JOIN was baked into
+      // them and nothing about relationships feeds the request `cacheKey`. Only on a REAL
+      // removal — an unknown id must stay a clean no-op. See `invalidateSources`.
+      this.invalidateSources(...StudioController.relationshipSourceIds(existing));
+    }
     this.commitDocPatch({
       relationships:
         next.length === state.doc.relationships.length ? state.doc.relationships : next,
     });
   };
 
+  /**
+   * Updates a filter.
+   *
+   * @returns {@link StudioMutationResult} — `not-found` when no filter carries `filterId`,
+   *   `rank-conflict` when the change would put a second rank (Top-N) filter in a page context
+   *   that already has one (M12 — previously a silent `void` return with a dev-only
+   *   `console.warn`, so the drawer's Top-N control snapped back with no explanation), and
+   *   `{ ok: true, committed: false }` when every changed key already holds its incoming value
+   *   (a deliberate no-op re-save, which a caller should treat as success).
+   */
   updateFilter = (
     filterId: string,
     changes: Partial<import('../models').StudioFilterState>,
@@ -2196,11 +2364,16 @@ export class StudioController {
     // field type — finding 2.12) reconcile the doc without pushing an unauthored undo
     // entry, mirroring `updateWidgetConfig`'s option used by `KpiSetupPanel` (finding 2.4).
     options?: { undoable?: boolean },
-  ) => {
+  ): StudioMutationResult => {
     const state = this.store.state;
     const target = state.doc.filters.find((f: StudioFilterState) => f.id === filterId);
-    const switchingToRank =
-      !!target && changes.filterMode === 'rank' && target.filterMode !== 'rank';
+    // Hoisted out of the `map` below (M12) so an absent id — previously visible only as "the
+    // array reference didn't change", i.e. indistinguishable from a value-equal re-save — is
+    // reported as the REJECTION it is.
+    if (!target) {
+      return MUTATION_NOT_FOUND;
+    }
+    const switchingToRank = changes.filterMode === 'rank' && target.filterMode !== 'rank';
     // The guard must also re-run when an ALREADY-rank filter is re-pointed to a
     // different page context via `changes.scope` (T3.3) — not just when switching INTO
     // rank mode. Without this, a rank filter moved to a page/widget that already has its
@@ -2209,7 +2382,7 @@ export class StudioController {
     // `scope` on an existing filter (`PageFilterRow`/`WidgetFilterRow`/`WidgetFiltersPanel`
     // only ever pass row-level deltas), so this is reachable only through this host API.
     const rankGuardApplies =
-      switchingToRank || (!!target && target.filterMode === 'rank' && 'scope' in changes);
+      switchingToRank || (target.filterMode === 'rank' && 'scope' in changes);
     // Per-page rank guard scoped to the target's page context, not dashboard-wide.
     // Shared with the filters-drawer rows via `../internals/rankFilterScope`.
     const rejectRankChange =
@@ -2221,38 +2394,48 @@ export class StudioController {
         state.doc.pages,
       );
 
-    // `mapPreservingIdentity` (1.6): an unknown `filterId` (no match) or a rejected
-    // rank change (returns `filter` unchanged) yields the ORIGINAL array, so
-    // `commitDocPatch` no-ops it — no fresh-but-identical `filters` array committed
-    // as an undoable, logged step.
+    // Hoisted out of the `map` too (M12): a rejected rank change and a value-equal re-save both
+    // used to return the original array reference and were therefore reported identically (as
+    // nothing at all). The dev `console.warn` is KEPT alongside the returned `reason` — host
+    // code also reaches this method and never inspects the result.
+    if (rejectRankChange) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn(
+          'MUI X Studio: Only one rank filter is allowed per page at a time. ' +
+            'The rank filter change was rejected.',
+        );
+      }
+      return MUTATION_RANK_CONFLICT;
+    }
+
+    // `mapPreservingIdentity` (1.6): a value-identical `changes` payload yields the ORIGINAL
+    // array, so `commitDocPatch` no-ops it — no fresh-but-identical `filters` array committed
+    // as an undoable, logged step. The per-element (rather than hoisted) value-equality check
+    // is deliberate: a host-authored doc can carry two filters sharing an id, and only the
+    // ones that actually differ should be rebuilt — the same reason `updateRelationship`
+    // retains its own `mapPreservingIdentity` pass.
+    const nextFilters = mapPreservingIdentity(state.doc.filters, (filter: StudioFilterState) => {
+      if (filter.id !== filterId) {
+        return filter;
+      }
+      // Value-equality no-op guard (2.6): `{ ...filter, ...changes }` always builds a fresh
+      // filter object, so a value-identical `changes` payload (a drawer control re-committing
+      // its current value on blur) would defeat `mapPreservingIdentity` (fresh array) and
+      // `commitDocPatch` (fresh `filters`), pushing a phantom redo-clearing undo entry. Return
+      // the SAME `filter` when every changed key already holds its incoming value, matching the
+      // sibling value-equality writers (`updateRelationship`).
+      const changeKeys = Object.keys(changes) as (keyof StudioFilterState)[];
+      if (changeKeys.every((key) => changes[key] === filter[key])) {
+        return filter;
+      }
+      return { ...filter, ...changes };
+    });
+    if (nextFilters === state.doc.filters) {
+      return MUTATION_NOOP;
+    }
+
     this.commitDocPatch(
-      {
-        filters: mapPreservingIdentity(state.doc.filters, (filter: StudioFilterState) => {
-          if (filter.id !== filterId) {
-            return filter;
-          }
-          if (rejectRankChange) {
-            if (process.env.NODE_ENV !== 'production') {
-              console.warn(
-                'MUI X Studio: Only one rank filter is allowed per page at a time. ' +
-                  'The rank filter change was rejected.',
-              );
-            }
-            return filter;
-          }
-          // Value-equality no-op guard (2.6): `{ ...filter, ...changes }` always builds a fresh
-          // filter object, so a value-identical `changes` payload (a drawer control re-committing
-          // its current value on blur) would defeat `mapPreservingIdentity` (fresh array) and
-          // `commitDocPatch` (fresh `filters`), pushing a phantom redo-clearing undo entry. Return
-          // the SAME `filter` when every changed key already holds its incoming value, matching the
-          // sibling value-equality writers (`updateRelationship`).
-          const changeKeys = Object.keys(changes) as (keyof StudioFilterState)[];
-          if (changeKeys.every((key) => changes[key] === filter[key])) {
-            return filter;
-          }
-          return { ...filter, ...changes };
-        }),
-      },
+      { filters: nextFilters },
       {
         // `{ undoable: false }` is ALSO the self-repair signal (finding 4): both
         // `PageFilterRow`/`WidgetFilterRow` pass it only from their render-time
@@ -2267,6 +2450,7 @@ export class StudioController {
         undoable: options?.undoable,
       },
     );
+    return MUTATION_COMMITTED;
   };
 
   removeFilter = (filterId: string) => {
@@ -2436,10 +2620,12 @@ export class StudioController {
     if (!Object.hasOwn(state.doc.widgets, sourceWidgetId)) {
       return;
     }
+    const isOwnInteractiveFilter = (f: StudioFilterState) =>
+      f.scope.kind === 'interactive' && f.scope.sourceWidgetId === sourceWidgetId;
     const existingFilters = state.doc.filters.filter(
-      (f: StudioFilterState) =>
-        !(f.scope.kind === 'interactive' && f.scope.sourceWidgetId === sourceWidgetId),
+      (f: StudioFilterState) => !isOwnInteractiveFilter(f),
     );
+    const existingOwn = state.doc.filters.filter(isOwnInteractiveFilter);
 
     const interactiveFilter: StudioFilterState = {
       id: createFilterId(),
@@ -2455,6 +2641,29 @@ export class StudioController {
       ...(options?.filterSourceId && { filterSourceId: options.filterSourceId }),
       ...(options?.fieldType && { fieldType: options.fieldType }),
     };
+
+    // Value-equality no-op guard (M12), the same one `applyCrossFilter` documents at length
+    // below. This commit is `{ undoable: false }`, so the undo/redo stacks were never at risk —
+    // but `createFilterId()` is minted unconditionally, so `commitDocPatch`'s REFERENCE-equality
+    // guard could never fire, and every identical re-emission (reachable from the slider control
+    // and from `DateRangeControl`'s 300ms-debounced commit) rebuilt `doc.filters`, notified every
+    // subscriber, re-ran L3 for every widget on the page, and swapped the filter's `id` out from
+    // under the drawer's disable affordance.
+    //
+    // `ignoreId: true` is the point (the candidate's id is new by construction);
+    // `isSameManagedFilterContent` compares field / operator / value / filterSourceId / fieldType
+    // / filterMode and the full `scope` (so `scope.pageId` is covered too). `disabled` is checked
+    // separately because that helper's fixed field list omits it: a DISABLED stored selection
+    // must not swallow the re-emission, since re-emitting is what re-enables it.
+    if (
+      existingOwn.length === 1 &&
+      !existingOwn[0].disabled &&
+      docTransforms.isSameManagedFilterContent(existingOwn[0], interactiveFilter, {
+        ignoreId: true,
+      })
+    ) {
+      return;
+    }
 
     this.commitDocPatch({ filters: [...existingFilters, interactiveFilter] }, { undoable: false });
   };
@@ -2606,13 +2815,31 @@ export class StudioController {
   clearPageFilters = () => {
     const state = this.store.state;
     const activePageId = state.doc.dashboard.activePageId;
+    // Retention predicate, identical to `docTransforms.applyFilterPreset`'s (H6): everything
+    // that is not page-scoped, every LEGACY pageId-less page filter (`scope: { kind: 'page' }`
+    // with no `pageId`, predating the per-page scope model — `selectFiltersForWidget`'s
+    // `!sv2.pageId` branch and `filterScoping.ts` both treat those as applying to EVERY page),
+    // and every page filter belonging to another page.
+    //
+    // Regression note: this used to retain only page filters whose `pageId` was BOTH set and
+    // different from `activePageId`. An all-pages filter satisfied neither disjunct, so
+    // "Clear all" on ONE page deleted it from the doc entirely and silently un-filtered every
+    // OTHER page too. Clearing the active page's filters must never touch an all-pages
+    // filter's effect on the rest of the dashboard — the exact invariant `applyFilterPreset`
+    // documents at its own `f.scope.pageId == null` disjunct.
     const next = state.doc.filters.filter(
       (f: StudioFilterState) =>
-        f.scope.kind !== 'page' || (f.scope.pageId != null && f.scope.pageId !== activePageId),
+        f.scope.kind !== 'page' || f.scope.pageId == null || f.scope.pageId !== activePageId,
     );
-    this.commitDocPatch({
-      filters: next.length === state.doc.filters.length ? state.doc.filters : next,
-    });
+    this.commitDocPatch(
+      {
+        filters: next.length === state.doc.filters.length ? state.doc.filters : next,
+      },
+      // Labeled like every other filter writer (`updateFilter:*`, `clearCrossFilter:*`) so a
+      // "Clear all" shows up in `getRecentMutations()` — the log the AI assistant reads back
+      // via `get_recent_changes`. Previously unlabeled, so the model never saw the clear.
+      { label: `clearPageFilters:${activePageId}` },
+    );
   };
 
   /**

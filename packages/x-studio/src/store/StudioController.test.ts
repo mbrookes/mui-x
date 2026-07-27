@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { MockInstance } from 'vitest';
 import { applyMutation } from '@mui/x-studio-schema';
 import type { SerializedStudioSession, SerializedStudioSnapshot } from '@mui/x-studio-schema';
 import { StudioController } from './StudioController';
@@ -4280,12 +4281,19 @@ describe('StudioController — identity-preserving no-op writers (1.6)', () => {
 
     const reordered = build();
     reordered.setDashboardTitle('anchor');
-    const undoBefore = reordered.canUndo();
     reordered.reorderPages(['page-2', 'page-1']);
     expect(Object.keys(reordered.getState().doc.pages)).toEqual(['page-2', 'page-1']);
-    expect(reordered.canUndo()).toBe(undoBefore); // still true — but a NEW step was added
-    reordered.undo(); // reverts the reorder
+    // L15: `expect(canUndo()).toBe(undoBefore)` used to stand here, and could not fail — it was
+    // `true` before AND after, whichever way the reorder went. What actually distinguishes "a
+    // new step was added" from "the reorder rode along on the anchor's step" is the DEPTH of the
+    // undo stack, so undo twice and assert each step reverts exactly one thing.
+    expect(reordered.undo()).toBe(true); // step 2: the reorder
     expect(Object.keys(reordered.getState().doc.pages)).toEqual(['page-1', 'page-2']);
+    expect(reordered.getState().doc.dashboard.title).toBe('anchor'); // the anchor step survives
+    expect(reordered.canUndo()).toBe(true);
+    expect(reordered.undo()).toBe(true); // step 1: the anchor title
+    expect(reordered.getState().doc.dashboard.title).not.toBe('anchor');
+    expect(reordered.canUndo()).toBe(false);
   });
 });
 
@@ -4635,13 +4643,25 @@ describe('StudioController — transient doc state across undo/redo (1.1)', () =
     ).toHaveLength(1);
   });
 
-  it('does not resurrect a cleared selection on undo', () => {
+  // L15: this used to be "does not resurrect a cleared selection on undo", which could not
+  // fail — `undo()` swaps only `doc`/`session`, the undo stack is typed `StudioDoc[]` (so it
+  // holds no session state to resurrect), and its ONE session transform
+  // (`normalizeSessionAfterDocSwap`) can only ever set `selectedWidgetId` to `null`, never to a
+  // value. There is no code path that could make that assertion go red. What IS observable —
+  // and is what `normalizeSessionAfterDocSwap` actually decides — is the branch it takes:
+  // leave a selection whose widget survived the swap alone, null one whose widget did not.
+  it('keeps a selection whose widget survives an undo and nulls one the undo removed', () => {
     const controller = new StudioController();
-    controller.addWidget(makeWidget('w1')); // selects w1
+    controller.addWidget(makeWidget('w1')); // selects w1; undoable
     controller.setDashboardTitle('New'); // undoable
-    controller.clearSelection();
+    expect(controller.getState().session.shell.selectedWidgetId).toBe('w1');
 
-    controller.undo();
+    controller.undo(); // reverts the title only — w1 is still in the doc
+    expect(controller.getState().doc.widgets.w1).toBeTruthy();
+    expect(controller.getState().session.shell.selectedWidgetId).toBe('w1');
+
+    controller.undo(); // reverts the addWidget — the selected widget is gone
+    expect(controller.getState().doc.widgets.w1).toBeUndefined();
     expect(controller.getState().session.shell.selectedWidgetId).toBeNull();
   });
 
@@ -4705,14 +4725,19 @@ describe('StudioController — transient doc state across undo/redo (1.1)', () =
     expect(controller.getState().doc.dashboard.activePageId).toBe('page-2');
   });
 
-  it('restores a deep-equal doc on undo when there is no transient state', () => {
+  it('restores the SAME doc reference on undo when there is no transient state', () => {
     const controller = new StudioController();
     controller.addWidget(makeWidget('w1'));
     const docAfterAdd = controller.getState().doc;
     controller.setDashboardTitle('New');
 
     controller.undo();
-    expect(controller.getState().doc).toEqual(docAfterAdd);
+    // L15: `toEqual` used to stand here and could not fail — with no transient state
+    // `carryTransientDocState` returns `incomingDoc` BY REFERENCE, so `toEqual` compared the
+    // snapshot to itself. `toBe` asserts the identity preservation the test's name implies:
+    // a transient-free history hands the snapshot straight back rather than rebuilding it
+    // (which would churn every `useStudioSelector` subscribed to a doc slice).
+    expect(controller.getState().doc).toBe(docAfterAdd);
   });
 
   it('still time-travels cross-filters (undoable), unlike interactive filters', () => {
@@ -5222,5 +5247,406 @@ describe('StudioController — inherited-key ids never resolve as real entries',
     // Nothing was written, and no prototype member was promoted to an own key.
     expect(controller.getState().runtime.dataSources).toBe(before);
     expect(Object.hasOwn(controller.getState().runtime.dataSources, protoKey)).toBe(false);
+  });
+});
+
+// ─── H6: clearPageFilters must not delete legacy "all pages" filters ──────────
+// A page filter with no `scope.pageId` predates the per-page scope model and applies to EVERY
+// page (`internals/filterScoping.ts`, `context/selectors.ts`, and the `!sv2.pageId` branch of
+// `selectFiltersForWidget` all honour that). `clearPageFilters` used to retain only page
+// filters whose `pageId` was BOTH set and different from the active page, so an all-pages
+// filter satisfied neither disjunct and "Clear all" on ONE page silently un-filtered every
+// other page. `docTransforms.applyFilterPreset` already had the correct predicate.
+
+describe('StudioController.clearPageFilters — all-pages filters (H6)', () => {
+  function twoPageController(filters: StudioFilterState[]) {
+    return new StudioController({
+      doc: {
+        dashboard: { id: 'd', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'P1', widgetRows: [] },
+          'page-2': { id: 'page-2', title: 'P2', widgetRows: [] },
+        },
+        filters,
+      },
+    });
+  }
+
+  it("preserves a legacy pageId-less filter while clearing the active page's own filters", () => {
+    const controller = twoPageController([
+      makeFilter({ id: 'all-pages', field: 'region', value: 'EMEA', scope: { kind: 'page' } }),
+      makeFilter({ id: 'page-1-own', scope: { kind: 'page', pageId: 'page-1' } }),
+      makeFilter({ id: 'page-2-own', scope: { kind: 'page', pageId: 'page-2' } }),
+    ]);
+
+    controller.clearPageFilters();
+
+    const ids = controller.getState().doc.filters.map((f) => f.id);
+    // The all-pages filter survives — page-2's widgets must stay filtered.
+    expect(ids).toContain('all-pages');
+    // Another page's own filter survives too.
+    expect(ids).toContain('page-2-own');
+    // Only the active page's own filter is cleared.
+    expect(ids).not.toContain('page-1-own');
+  });
+
+  it('is a clean no-op when the active page has only an all-pages filter', () => {
+    const controller = twoPageController([
+      makeFilter({ id: 'all-pages', scope: { kind: 'page' } }),
+    ]);
+    const before = controller.getState();
+
+    controller.clearPageFilters();
+
+    // Nothing to clear → the same state reference, no undo entry, no log line.
+    expect(controller.getState()).toBe(before);
+    expect(controller.canUndo()).toBe(false);
+    expect(controller.getRecentMutations()).toEqual([]);
+  });
+
+  it('records a labeled mutation so the AI assistant sees the clear', () => {
+    const controller = twoPageController([
+      makeFilter({ id: 'page-1-own', scope: { kind: 'page', pageId: 'page-1' } }),
+    ]);
+
+    controller.clearPageFilters();
+
+    expect(controller.getRecentMutations().map((m) => m.label)).toEqual([
+      'clearPageFilters:page-1',
+    ]);
+  });
+});
+
+// ─── M12: controller writers report their rejections ─────────────────────────
+
+describe('StudioController.addFilter / updateFilter — reported rejections (M12)', () => {
+  it('addFilter returns rank-conflict instead of silently dropping a second rank filter', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const controller = new StudioController({
+        doc: {
+          filters: [
+            makeFilter({ id: 'rank-1', filterMode: 'rank', rankDirection: 'top', value: 10 }),
+          ],
+        },
+      });
+
+      const result = controller.addFilter(
+        makeFilter({ id: 'rank-2', filterMode: 'rank', rankDirection: 'top', value: 5 }),
+      );
+
+      expect(result).toEqual({ ok: false, reason: 'rank-conflict' });
+      expect(controller.getState().doc.filters.map((f) => f.id)).toEqual(['rank-1']);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('addFilter returns duplicate-id when the id is already in the doc', () => {
+    const controller = new StudioController({ doc: { filters: [makeFilter({ id: 'f1' })] } });
+    expect(controller.addFilter(makeFilter({ id: 'f1', value: 'other' }))).toEqual({
+      ok: false,
+      reason: 'duplicate-id',
+    });
+    // The stored filter wins — an add never overwrites.
+    expect(controller.getState().doc.filters[0].value).toBe('');
+  });
+
+  it('addFilter returns invalid when the reducer refuses the payload', () => {
+    const controller = new StudioController();
+    // A `widget`-scoped filter naming a widget that does not exist: the shared reducer's
+    // orphan-anchor check rejects it, and `commitMutation` sees a whole-fold no-op.
+    const result = controller.addFilter(
+      makeFilter({ id: 'orphan', scope: { kind: 'widget', widgetId: 'nope' } }),
+    );
+    expect(result).toEqual({ ok: false, reason: 'invalid' });
+    expect(controller.getState().doc.filters).toHaveLength(0);
+  });
+
+  it('addFilter reports a committed write', () => {
+    const controller = new StudioController();
+    expect(controller.addFilter(makeFilter({ id: 'f1' }))).toEqual({ ok: true, committed: true });
+  });
+
+  it('updateFilter returns rank-conflict instead of silently snapping the control back', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const controller = new StudioController({
+        doc: {
+          filters: [
+            makeFilter({ id: 'rank-1', filterMode: 'rank', rankDirection: 'top', value: 10 }),
+            makeFilter({ id: 'condition-1', filterMode: 'condition', value: 'foo' }),
+          ],
+        },
+      });
+
+      const result = controller.updateFilter('condition-1', {
+        filterMode: 'rank',
+        rankDirection: 'top',
+        value: 5,
+      });
+
+      expect(result).toEqual({ ok: false, reason: 'rank-conflict' });
+      expect(controller.getState().doc.filters.find((f) => f.id === 'condition-1')).toMatchObject({
+        filterMode: 'condition',
+        value: 'foo',
+      });
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('updateFilter distinguishes an unknown id from a value-equal re-save', () => {
+    const controller = new StudioController({
+      doc: { filters: [makeFilter({ id: 'f1', value: 'keep' })] },
+    });
+    expect(controller.updateFilter('does-not-exist', { value: 'x' })).toEqual({
+      ok: false,
+      reason: 'not-found',
+    });
+    expect(controller.updateFilter('f1', { value: 'keep' })).toEqual({
+      ok: true,
+      committed: false,
+    });
+    expect(controller.updateFilter('f1', { value: 'changed' })).toEqual({
+      ok: true,
+      committed: true,
+    });
+  });
+});
+
+describe('StudioController.applyInteractiveFilter — value-equal re-emission guard (M12)', () => {
+  function filterWidgetController() {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('fw', { kind: 'filter' }));
+    return controller;
+  }
+
+  it('does not rebuild doc.filters (or re-mint the id) for an identical re-emission', () => {
+    const controller = filterWidgetController();
+    controller.applyInteractiveFilter('fw', 'category', 'in', ['Books']);
+    const stateAfterFirst = controller.getState();
+    const idAfterFirst = stateAfterFirst.doc.filters[0].id;
+
+    // A debounced date control / slider re-emitting the SAME selection.
+    controller.applyInteractiveFilter('fw', 'category', 'in', ['Books']);
+
+    // No commit at all — no subscriber notification, no L3 re-run, and the drawer's disable
+    // affordance keeps pointing at the same filter id.
+    expect(controller.getState()).toBe(stateAfterFirst);
+    expect(controller.getState().doc.filters[0].id).toBe(idAfterFirst);
+  });
+
+  it('still commits when the selection genuinely changes', () => {
+    const controller = filterWidgetController();
+    controller.applyInteractiveFilter('fw', 'category', 'in', ['Books']);
+    const before = controller.getState();
+
+    controller.applyInteractiveFilter('fw', 'category', 'in', ['Books', 'Games']);
+
+    expect(controller.getState()).not.toBe(before);
+    expect(controller.getState().doc.filters[0].value).toEqual(['Books', 'Games']);
+  });
+
+  it('re-emits (re-enabling) when the stored selection was disabled', () => {
+    const controller = filterWidgetController();
+    controller.applyInteractiveFilter('fw', 'category', 'in', ['Books']);
+    const filterId = controller.getState().doc.filters[0].id;
+    controller.toggleFilter(filterId);
+    expect(controller.getState().doc.filters[0].disabled).toBe(true);
+
+    controller.applyInteractiveFilter('fw', 'category', 'in', ['Books']);
+
+    expect(controller.getState().doc.filters[0].disabled).toBeUndefined();
+  });
+});
+
+describe('StudioController — no-op guards on session/runtime writers (M12)', () => {
+  function controllerWithSource(rows: Record<string, unknown>[]) {
+    return new StudioController({
+      runtime: {
+        dataSources: {
+          src1: {
+            id: 'src1',
+            label: 'Orders',
+            fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+            rows,
+          },
+        },
+      },
+    });
+  }
+
+  it('setDataSourceRows with the SAME rows reference does not rebuild the source', () => {
+    const rows = [{ amount: 1 }];
+    const controller = controllerWithSource(rows);
+    const before = controller.getState();
+
+    // A host poller re-injecting the identical array it already handed over.
+    controller.setDataSourceRows('src1', rows);
+
+    expect(controller.getState()).toBe(before);
+    expect(controller.getState().runtime.dataSources.src1).toBe(before.runtime.dataSources.src1);
+  });
+
+  it('setDataSourceRows with a different array still commits', () => {
+    const controller = controllerWithSource([{ amount: 1 }]);
+    const before = controller.getState();
+
+    controller.setDataSourceRows('src1', [{ amount: 2 }]);
+
+    expect(controller.getState()).not.toBe(before);
+    expect(controller.getState().runtime.dataSources.src1.rows).toEqual([{ amount: 2 }]);
+  });
+
+  it('setMode with the current mode does not rebuild session', () => {
+    const controller = new StudioController();
+    const before = controller.getState();
+
+    controller.setMode(before.session.mode);
+
+    expect(controller.getState()).toBe(before);
+    expect(controller.getState().session).toBe(before.session);
+  });
+
+  it('setMode with a different mode still commits', () => {
+    const controller = new StudioController();
+    controller.setMode('view');
+    expect(controller.getState().session.mode).toBe('view');
+    controller.setMode('edit');
+    expect(controller.getState().session.mode).toBe('edit');
+  });
+});
+
+// ─── M11: expression-field / relationship edits invalidate the request cache ──
+// The request `cacheKey` (`internals/queryDescriptor.ts`) is
+// `${widget.sourceId}:${stableStringify({ select, filter, groupBy, aggregations, … })}` — it
+// folds in nothing about expression fields or relationships, yet both change the bytes a
+// source returns. Without invalidation, repointing `expr-country` from `customers.country` to
+// `customers.city` produces a byte-identical key and the cache serves PRE-EDIT rows for up to
+// its 30s TTL: the axis is labelled "city" and shows countries.
+
+describe('StudioController — expression-field / relationship edits invalidate the cache (M11)', () => {
+  const relationship = {
+    id: 'rel1',
+    sourceId: 'orders',
+    sourceField: 'customer_id',
+    targetId: 'customers',
+    targetField: 'id',
+    type: 'many-to-one' as const,
+  };
+  const cacheExpressionField = {
+    id: 'ef1',
+    label: 'Margin',
+    expression: { operator: 'subtract' as const, inputs: [{ id: 'revenue' }, { id: 'cost' }] },
+    sourceId: 'orders',
+    type: 'number' as const,
+    isMeasure: false,
+  };
+
+  type InvalidateSpy = MockInstance<typeof studioRequestCache.invalidateSource>;
+
+  function withSpy(act: (spy: InvalidateSpy) => void) {
+    const spy = vi.spyOn(studioRequestCache, 'invalidateSource');
+    try {
+      act(spy);
+    } finally {
+      spy.mockRestore();
+    }
+  }
+
+  /** The source ids passed to `invalidateSource`, sorted for order-independent assertions. */
+  const invalidatedIds = (spy: InvalidateSpy) => spy.mock.calls.map(([id]) => id).sort();
+
+  it('updateExpressionField invalidates both the previous and the new source', () => {
+    const controller = new StudioController({
+      doc: { expressionFields: [{ ...cacheExpressionField, sourceId: 'customers' }] },
+    });
+    withSpy((spy) => {
+      controller.updateExpressionField('ef1', {
+        expression: { operator: 'add', inputs: [{ id: 'city' }, { id: 'zip' }] },
+        sourceId: 'cities',
+      });
+      expect(invalidatedIds(spy)).toEqual(['cities', 'customers']);
+    });
+  });
+
+  it('updateExpressionField does not invalidate for a rejected / no-op write', () => {
+    const controller = new StudioController({ doc: { expressionFields: [cacheExpressionField] } });
+    withSpy((spy) => {
+      controller.updateExpressionField('nope', { label: 'x' }); // not-found
+      controller.updateExpressionField('ef1', { label: cacheExpressionField.label }); // value-equal
+      expect(spy).not.toHaveBeenCalled();
+    });
+  });
+
+  it('addExpressionField / removeExpressionField invalidate the field source', () => {
+    const controller = new StudioController();
+    withSpy((spy) => {
+      controller.addExpressionField(cacheExpressionField);
+      expect(spy).toHaveBeenCalledWith('orders');
+      spy.mockClear();
+      controller.removeExpressionField('ef1');
+      expect(spy).toHaveBeenCalledWith('orders');
+      spy.mockClear();
+      controller.removeExpressionField('ef1'); // already gone → clean no-op
+      expect(spy).not.toHaveBeenCalled();
+    });
+  });
+
+  it('updateRelationship invalidates both endpoints, before and after the repoint', () => {
+    const controller = new StudioController({ doc: { relationships: [relationship] } });
+    withSpy((spy) => {
+      controller.updateRelationship('rel1', { targetId: 'accounts', targetField: 'id' });
+      expect(invalidatedIds(spy)).toEqual(['accounts', 'customers', 'orders']);
+    });
+  });
+
+  it('addRelationship / removeRelationship invalidate both endpoints', () => {
+    const controller = new StudioController();
+    withSpy((spy) => {
+      controller.addRelationship(relationship);
+      expect(invalidatedIds(spy)).toEqual(['customers', 'orders']);
+      spy.mockClear();
+      controller.removeRelationship('rel1');
+      expect(invalidatedIds(spy)).toEqual(['customers', 'orders']);
+      spy.mockClear();
+      controller.removeRelationship('rel1'); // already gone → clean no-op
+      expect(spy).not.toHaveBeenCalled();
+    });
+  });
+
+  it('updateRelationship does not invalidate for a rejected / no-op write', () => {
+    const controller = new StudioController({ doc: { relationships: [relationship] } });
+    withSpy((spy) => {
+      controller.updateRelationship('nope', { targetField: 'x' }); // not-found
+      controller.updateRelationship('rel1', { targetField: relationship.targetField }); // equal
+      expect(spy).not.toHaveBeenCalled();
+    });
+  });
+});
+
+// ─── M12: applyFilterPreset commits no phantom step on a value-equal re-apply ──
+
+describe('StudioController.applyFilterPreset — identity bail (M12)', () => {
+  it('re-applying the preset already in effect adds no undo entry and keeps redo intact', () => {
+    const controller = new StudioController({
+      doc: {
+        filters: [makeFilter({ id: 'f1', scope: { kind: 'page', pageId: 'page-1' } })],
+      },
+    });
+    const presetId = controller.saveFilterPreset('My view');
+    controller.applyFilterPreset(presetId);
+
+    controller.setDashboardTitle('anchor');
+    controller.undo(); // redo now holds the title change
+    expect(controller.canRedo()).toBe(true);
+    const before = controller.getState();
+
+    controller.applyFilterPreset(presetId); // the preset is already in effect
+
+    // Nothing committed: same state reference, and the pending redo survives.
+    expect(controller.getState()).toBe(before);
+    expect(controller.canRedo()).toBe(true);
   });
 });

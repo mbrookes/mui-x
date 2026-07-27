@@ -62,8 +62,15 @@ describe('docTransforms.buildDateRangeFilter', () => {
 });
 
 describe('docTransforms.setDashboardDateRange', () => {
-  it('adds a dashboard-date-range filter for the page', () => {
-    const doc = makeDoc();
+  it('adds a dashboard-date-range filter for the page, leaving unrelated filters untouched', () => {
+    // L15: `expect(next.pages).toBe(doc.pages)` / `.dashboard` used to stand here and could not
+    // fail — both are guaranteed by the `{ ...doc, filters }` spread on the line under test, so
+    // they asserted JS spread semantics rather than anything about this transform. The identity
+    // property this transform DOES own is that `withoutExisting` is a `.filter` pass, so every
+    // unrelated filter is carried over as the SAME object — which a future rewrite that mapped
+    // or re-normalized the array would break.
+    const unrelated = pageFilter('f-unrelated', 'page-1');
+    const doc = makeDoc({ filters: [unrelated] });
     const next = docTransforms.setDashboardDateRange(
       doc,
       'page-1',
@@ -77,9 +84,7 @@ describe('docTransforms.setDashboardDateRange', () => {
     );
     expect(added).toBeTruthy();
     expect(added!.id).toBe('dashboard-date-range-page-1');
-    // Unchanged fields keep their references.
-    expect(next.pages).toBe(doc.pages);
-    expect(next.dashboard).toBe(doc.dashboard);
+    expect(next.filters).toContain(unrelated);
   });
 
   it('replaces the existing dashboard-date-range filter for the page', () => {
@@ -426,6 +431,76 @@ describe('docTransforms preset family', () => {
       (f) => f.scope.kind === 'page' && f.scope.pageId === 'page-1',
     );
     expect(applied).toBeTruthy();
+  });
+
+  // M12: `applyFilterPreset` always rebuilt `{ ...doc, filters: [...] }`, and the fresh
+  // `createFilterId()`s it mints guarantee the array is never reference-equal to the old one —
+  // so `commitDocPatch`'s reference-equality guard could never fire and re-applying the preset
+  // a page already shows committed a phantom undoable step that also wiped the redo stack.
+  // Every sibling in this file has an identity bail; this one didn't.
+  it('applyFilterPreset returns the ORIGINAL doc when re-applying the preset already in effect', () => {
+    const preset: StudioFilterPreset = {
+      id: 'preset-1',
+      name: 'p',
+      filters: [pageFilter('preset-1-a'), pageFilter('preset-1-b')],
+    };
+    const doc = makeDoc({
+      filters: [pageFilter('current', 'page-1'), pageFilter('other', 'page-2')],
+      filterPresets: [preset],
+    });
+    const applied = docTransforms.applyFilterPreset(doc, 'preset-1');
+    expect(applied).not.toBe(doc);
+
+    // Re-applying the SAME preset to the SAME page changes nothing a user can see, so the
+    // original doc reference comes straight back.
+    expect(docTransforms.applyFilterPreset(applied, 'preset-1')).toBe(applied);
+  });
+
+  it('applyFilterPreset re-applies (does not bail) when the page filters have since diverged', () => {
+    const preset: StudioFilterPreset = {
+      id: 'preset-1',
+      name: 'p',
+      filters: [pageFilter('preset-1-a')],
+    };
+    const doc = makeDoc({ filterPresets: [preset] });
+    const applied = docTransforms.applyFilterPreset(doc, 'preset-1');
+
+    // The user edits the applied filter's value — the preset is no longer in effect.
+    const edited: StudioDoc = {
+      ...applied,
+      filters: applied.filters.map((f) => ({ ...f, value: 'edited' })),
+    };
+    const reapplied = docTransforms.applyFilterPreset(edited, 'preset-1');
+    expect(reapplied).not.toBe(edited);
+    expect(reapplied.filters[0].value).toBe('x');
+  });
+
+  it('applyFilterPreset bails on a value-equal re-apply whose payload key ORDER differs', () => {
+    // The compensating comparator this bail replaces lived in `StudioFiltersDrawer` and used
+    // `JSON.stringify`, which is key-ORDER sensitive: two filters carrying the same `value`
+    // object built by different code paths would compare unequal. The bail here compares by
+    // structural value, so key order is irrelevant.
+    const preset: StudioFilterPreset = {
+      id: 'preset-1',
+      name: 'p',
+      filters: [
+        {
+          ...pageFilter('preset-1-a'),
+          value: { from: '2024-01-01', to: '2024-02-01' },
+        } as StudioFilterState,
+      ],
+    };
+    const doc = makeDoc({ filterPresets: [preset] });
+    const applied = docTransforms.applyFilterPreset(doc, 'preset-1');
+    // Rebuild the live filter's `value` with the SAME entries in the opposite key order.
+    const reordered: StudioDoc = {
+      ...applied,
+      filters: applied.filters.map((f) => ({
+        ...f,
+        value: { to: '2024-02-01', from: '2024-01-01' },
+      })),
+    };
+    expect(docTransforms.applyFilterPreset(reordered, 'preset-1')).toBe(reordered);
   });
 
   it('applyFilterPreset mints distinct ids per page so the two copies stay independent (1.7)', () => {

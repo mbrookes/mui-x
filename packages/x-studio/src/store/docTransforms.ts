@@ -77,6 +77,95 @@ export function isSameManagedFilterContent(
 }
 
 /**
+ * Structural VALUE equality for the JSON-shaped payloads a filter carries (`value`, `scope`,
+ * nested records/arrays). Deliberately NOT `JSON.stringify` comparison: serialization is
+ * key-ORDER sensitive, so two filters carrying `{ from, to }` and `{ to, from }` — the same
+ * value, built by two different code paths — would compare unequal and defeat the caller's
+ * no-op guard. Treats an own key whose value is `undefined` as absent, so `{ dependsOn:
+ * undefined }` (which `applyFilterPreset` writes explicitly) equals a filter that simply never
+ * had the key. `Object.is` at the top makes `NaN` equal itself.
+ */
+function isDeepValueEqual(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) {
+    return true;
+  }
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return (
+      Array.isArray(a) &&
+      Array.isArray(b) &&
+      a.length === b.length &&
+      a.every((item, index) => isDeepValueEqual(item, b[index]))
+    );
+  }
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) {
+    return false;
+  }
+  const recordA = a as Record<string, unknown>;
+  const recordB = b as Record<string, unknown>;
+  const keysA = Object.keys(recordA).filter((key) => recordA[key] !== undefined);
+  const keysB = Object.keys(recordB).filter((key) => recordB[key] !== undefined);
+  return (
+    keysA.length === keysB.length &&
+    keysA.every(
+      (key) => Object.hasOwn(recordB, key) && isDeepValueEqual(recordA[key], recordB[key]),
+    )
+  );
+}
+
+/**
+ * Rewrites a `dependsOn` id list into the POSITIONS of the filters it references within its own
+ * array. Live filter ids and the fresh ids `applyFilterPreset` mints live in different id
+ * spaces, so a cascade encoded identically in two arrays never shares a literal id — comparing
+ * positions is id-space independent. Ids that don't resolve within the array are dropped, and an
+ * empty result normalizes to `undefined`, matching what `applyFilterPreset` itself stores.
+ */
+function dependsOnPositions(
+  dependsOn: string[] | undefined,
+  indexById: Map<string, number>,
+): number[] | undefined {
+  if (!Array.isArray(dependsOn)) {
+    return undefined;
+  }
+  const positions = dependsOn
+    .map((depId) => indexById.get(depId))
+    .filter((index): index is number => index !== undefined);
+  return positions.length > 0 ? positions : undefined;
+}
+
+/**
+ * True when applying a preset would produce a filter list that is VALUE-identical to the one
+ * already in the doc, ignoring the re-minted ids (and the `dependsOn` cascade rewritten through
+ * them). Used by {@link applyFilterPreset} for its identity bail — see the rationale there.
+ *
+ * Positional, not set-based: `applyFilterPreset` builds `[...retained, ...applied]` and both
+ * halves preserve their source order, so re-applying the same preset to the same page yields
+ * exactly the same positions. A genuinely different apply changes the length or the ordering
+ * and correctly fails this check.
+ */
+function isSamePresetApplication(current: StudioFilterState[], next: StudioFilterState[]): boolean {
+  if (current.length !== next.length) {
+    return false;
+  }
+  const currentIndexById = new Map(current.map((f, index) => [f.id, index]));
+  const nextIndexById = new Map(next.map((f, index) => [f.id, index]));
+  return current.every((a, index) => {
+    const b = next[index];
+    if (a === b) {
+      return true;
+    }
+    const { id: currentId, dependsOn: currentDependsOn, ...currentRest } = a;
+    const { id: nextId, dependsOn: nextDependsOn, ...nextRest } = b;
+    return (
+      isDeepValueEqual(currentRest, nextRest) &&
+      isDeepValueEqual(
+        dependsOnPositions(currentDependsOn, currentIndexById),
+        dependsOnPositions(nextDependsOn, nextIndexById),
+      )
+    );
+  });
+}
+
+/**
  * Builds one managed date-range `StudioFilterState`. Shared by the three date-range
  * setters below. A `'custom'` preset carries the explicit `{ from, to }` in `value`;
  * every other preset stores `value: null` and is resolved fresh at query time by
@@ -452,7 +541,20 @@ export function applyFilterPreset(doc: StudioDoc, presetId: string): StudioDoc {
     }
     applied.push(rematerialized);
   }
-  return { ...doc, filters: [...retained, ...applied] };
+  // Identity preservation (M12), the bail every sibling in this file already has. This
+  // function ALWAYS rebuilt `{ ...doc, filters: [...] }`, and the fresh `createFilterId()`s
+  // above guarantee the new array is never reference-equal to the old one — so
+  // `commitDocPatch`'s reference-equality guard could never fire and a value-equal RE-apply
+  // committed a phantom undoable step that also wiped the redo stack. Re-applying the preset a
+  // page already shows is exactly what a user does when they click the chip they are already
+  // on. The compensation used to live in the UI (`StudioFiltersDrawer` gating the click on its
+  // own `filtersEquivalent` comparator); putting the bail here makes it hold for every caller,
+  // including hosts calling `controller.applyFilterPreset` directly.
+  const nextFilters = [...retained, ...applied];
+  if (isSamePresetApplication(doc.filters, nextFilters)) {
+    return doc;
+  }
+  return { ...doc, filters: nextFilters };
 }
 
 /**

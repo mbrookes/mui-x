@@ -550,6 +550,11 @@ describe('buildWidgetDataSummary', () => {
       function makeRankFilter(overrides: Partial<StudioFilterState> = {}): StudioFilterState {
         return {
           id: 'rank1',
+          // `operator` is REQUIRED on every `StudioFilterState`, rank-mode entries included —
+          // the drawer stamps `equals` at creation and `buildModeReset` never clears it. Omitting
+          // it makes the entry one the doc screen drops (matching the wire boundary), silently
+          // disabling the rank these tests assert on.
+          operator: 'equals',
           filterMode: 'rank',
           rankDirection: 'top',
           scope: { kind: 'widget', widgetId: 'w1' },

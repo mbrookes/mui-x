@@ -116,7 +116,14 @@ describe('plain accessors', () => {
   it('selectFilters / selectWidgets / selectMode return the corresponding slices', () => {
     const filters = [filter({ id: 'a', scope: { kind: 'page' } })];
     const s = state({ filters, mode: 'view' });
-    expect(selectFilters(s)).toBe(filters);
+    // Identity is asserted against the state's OWN slice, not the caller's array:
+    // `createDefaultStudioState` screens `doc.filters` and so always hands back a fresh
+    // array. What the selector must guarantee is that it returns that slice by reference
+    // (so `useSyncExternalStore` sees a stable value between unrelated commits), which is
+    // exactly what this checks. The surviving ENTRY is still reference-stable.
+    expect(selectFilters(s)).toBe(s.doc.filters);
+    expect(selectFilters(s)).toEqual(filters);
+    expect(selectFilters(s)[0]).toBe(filters[0]);
     expect(selectWidgets(s)).toBe(s.doc.widgets);
     expect(selectMode(s)).toBe('view');
   });

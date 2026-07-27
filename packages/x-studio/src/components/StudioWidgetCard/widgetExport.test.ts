@@ -102,6 +102,12 @@ describe('runWidgetExport', () => {
     const rankFilter = {
       id: 'f-rank',
       field: 'amount',
+      // `operator` is REQUIRED on every `StudioFilterState`, rank-mode entries included: the
+      // drawer stamps `equals` when a filter is created and `buildModeReset` never clears it,
+      // so a rank filter with no operator is a shape production never produces. The doc screen
+      // drops it (matching the wire boundary), which silently disabled the rank this test is
+      // about.
+      operator: 'equals',
       filterMode: 'rank',
       value: 2,
       rankDirection: 'top',

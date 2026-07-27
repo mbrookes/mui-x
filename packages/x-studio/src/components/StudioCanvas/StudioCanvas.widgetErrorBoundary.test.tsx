@@ -87,13 +87,22 @@ describe('StudioCanvas per-widget error containment', () => {
     // the card's three internal boundaries. In view mode `StudioCanvas` itself never reads
     // `title`, so the throw originates strictly inside `StudioWidgetCard`.
     const exploding = makeWidget('bad', 'ok-kind', 'placeholder');
+    // The getter is ARMED only after the harness exists. `StudioController`'s constructor runs
+    // the shared `screenDoc`, which reads `widget.title` to screen it — an always-throwing
+    // getter would blow up there, before anything rendered, and prove nothing about render-time
+    // containment. Arming it post-construction reproduces the real shape of this bug: a doc
+    // that screened cleanly, whose card then throws while rendering.
+    let armed = false;
     Object.defineProperty(exploding, 'title', {
       get() {
-        throw new Error('card render exploded');
+        if (armed) {
+          throw new Error('card render exploded');
+        }
+        return 'placeholder';
       },
     });
 
-    const { wrapper } = createStudioHarness({
+    const { controller, wrapper } = createStudioHarness({
       initialState: {
         session: { mode: 'view' },
         doc: {
@@ -103,6 +112,9 @@ describe('StudioCanvas per-widget error containment', () => {
       },
       providerProps: { customWidgets: [OK_DEF] },
     });
+    // The screen keeps a well-formed widget by reference, so the doc holds this very object.
+    expect(controller.getState().doc.widgets.bad).toBe(exploding);
+    armed = true;
 
     render(<StudioCanvas />, { wrapper });
 

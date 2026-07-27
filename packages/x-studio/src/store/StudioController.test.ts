@@ -2350,6 +2350,10 @@ describe('StudioController expression fields', () => {
           w1: {
             id: 'w1',
             kind: 'chart',
+            // `title` is required — the canvas card reads it with no fallback, so the doc
+            // screen drops a title-less widget. Without it this widget never entered the
+            // doc and its `xField` reference went uncounted.
+            title: 'W1',
             sourceId: 'orders',
             config: { chartType: 'bar', xField: 'ef1' },
           } as never,
@@ -5083,17 +5087,38 @@ describe('StudioController — chart-type repair at every creation boundary', ()
 
   it('duplicateWidget repairs an invalid chartType rather than propagating it to the copy', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    // Seed the invalid widget directly into the doc so it bypasses the guarded create paths —
-    // exactly how a persisted pre-guard dashboard would arrive.
+    // Seeding the hostile config through the CONSTRUCTOR no longer reaches this guard: the
+    // constructor now runs the same shared `screenDoc` as the persistence load boundary, and
+    // that screen strips an unknown `chartType` outright. Nor does `updateWidget`, which
+    // sanitizes a wholesale `config` replacement against the widget's kind and chart type.
+    // The invalid chart type is therefore written straight onto the public `store` — the one
+    // remaining way a host can put a widget carrying one in front of `duplicateWidget` (a
+    // stale doc captured before a screen tightened, or a host driving the store directly).
+    // The guard is defense-in-depth, and this pins that it still fires.
     const controller = new StudioController({
       doc: {
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['src']] } },
         widgets: {
-          src: makeWidget('src', { kind: 'chart', config: hostileConfig }),
+          src: makeWidget('src', { kind: 'chart', config: {} as StudioWidgetConfig }),
         },
       },
     });
+    const seeded = controller.getState();
+    controller.store.setState({
+      ...seeded,
+      doc: {
+        ...seeded.doc,
+        widgets: {
+          src: { ...seeded.doc.widgets.src, config: hostileConfig },
+        },
+      },
+    });
+    // Precondition: the invalid chart type really is installed on the source widget, so the
+    // clone assertions below exercise the repair rather than a nothing-to-repair no-op.
+    expect((controller.getState().doc.widgets.src.config as StudioWidgetConfig).chartType).toBe(
+      '__proto__evil',
+    );
 
     controller.duplicateWidget('src');
 

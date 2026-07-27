@@ -8,22 +8,20 @@
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import type { ReadResourceRequest, ReadResourceResult } from '@modelcontextprotocol/sdk/types.js';
 import {
   ListResourcesRequestSchema,
   ReadResourceRequestSchema,
   SubscribeRequestSchema,
   UnsubscribeRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import {
-  buildAISystemPrompt,
-  sanitizeForPromptLine,
-  serializeFieldForAI,
-} from '../buildAISystemPrompt';
+import { buildAISystemPrompt, serializeFieldForAI } from '../buildAISystemPrompt';
 import { buildPageLayoutContext } from '../buildPageLayoutContext';
 import { projectStateForAI } from '../executeToolOnState';
 import type { StudioCustomWidgetDef } from '../models/studioTypes';
 import type { StudioAIEnrichedContext } from '../models/aiTypes';
 import { CONTEXT_ENRICHER_TIMEOUT_MS } from '../handleAIChat';
+import { capToolOutput } from '../internal/capToolOutput';
 import {
   checkAllowedTable,
   ownArrayEntry,
@@ -50,6 +48,21 @@ export interface ResourceHandlerDeps {
   /** Shared set of subscribed resource URIs (mutated by subscribe/unsubscribe). */
   subscribedUris: Set<string>;
   /**
+   * The EXACT set of tool names this MCP session advertises (what `tools/list`
+   * returns), threaded into `buildAISystemPrompt` for
+   * `studio://dashboard/system-prompt`.
+   *
+   * That parameter gates every dynamic tool mention in the prompt. MCP narrows its
+   * effective tool set — `allowedTools`, `MCP_UNSUPPORTED_TOOLS`, and the
+   * `query_data_source`-needs-`data` rule all remove tools — so omitting it made this
+   * resource emit hints naming tools the session would reject as `Unknown tool`,
+   * violating invariant 17 while the chat transport already honoured it.
+   *
+   * When omitted, hints are emitted unconditionally (the pre-gate behavior), which is
+   * only appropriate for unit tests constructing these handlers directly.
+   */
+  advertisedToolNames?: ReadonlySet<string>;
+  /**
    * Authorization gate for the two resource URI families that execute a LIVE data
    * query — `studio://data/{sourceId}` (raw row preview) and
    * `studio://dashboard/data-health` (per-source COUNT). Resource reads are a
@@ -70,11 +83,15 @@ export interface ResourceHandlerDeps {
    * one `sourceId`) or an `approvalHandler` that inspects `ctx.input` is no longer
    * blind on `studio://data/{sourceId}` reads — the consult sees which source is
    * being read.
-   * @param {{ sourceId?: string }} [input] Optional descriptor of the resource being read.
+   * @param {{ sourceId?: string, signal?: AbortSignal }} [input] Optional descriptor of the resource being read.
    * @param {string} [input.sourceId] The source id targeted by a `studio://data/{sourceId}` read, threaded into the policy consult; omitted for the multi-source `data-health` read.
+   * @param {AbortSignal} [input.signal] The reading request's abort signal, threaded into the policy consult so an abandoned `resources/read` stops waiting on a host policy at once (finding H1).
    * @returns {Promise<string | null>} A deny-reason string if the read is not authorized, or `null` if it may proceed.
    */
-  authorizeDataAccess?: (input?: { sourceId?: string }) => Promise<string | null>;
+  authorizeDataAccess?: (input?: {
+    sourceId?: string;
+    signal?: AbortSignal;
+  }) => Promise<string | null>;
   /**
    * Authorization gate for the resource URIs that expose the SAME dashboard-state
    * payload as the `get_dashboard_state` tool — `studio://dashboard/state` (the
@@ -86,9 +103,10 @@ export interface ResourceHandlerDeps {
    * the tool path uses. Resolves to a deny-reason string when the read is NOT
    * authorized, or `null` when it may proceed. When omitted, no gate is applied
    * (used only by unit tests that construct the handlers directly).
+   * @param {AbortSignal} [signal] The reading request's abort signal, threaded into the policy consult (finding H1).
    * @returns {Promise<string | null>} A deny-reason string if the read is not authorized, or `null` if it may proceed.
    */
-  authorizeStateAccess?: () => Promise<string | null>;
+  authorizeStateAccess?: (signal?: AbortSignal) => Promise<string | null>;
   /**
    * Upper bound on the number of distinct URIs `subscribedUris` may hold.
    * A prefix-validated URI (e.g. `studio://schema/<sourceId>`) is still an
@@ -96,9 +114,100 @@ export interface ResourceHandlerDeps {
    * garbage sourceIds. Once at capacity, subscribing to a URI that is not
    * already a member is rejected; re-subscribing an existing member always
    * succeeds.
+   *
+   * NOT host-configurable: `StudioMcpOptions` has no corresponding field and the
+   * composition root (`mcp.ts`) never passes one, so on a server built by
+   * `buildStudioMcpServer` this is always {@link DEFAULT_MAX_SUBSCRIBED_URIS}. It
+   * stays a dep so unit tests constructing these handlers directly can exercise the
+   * cap without registering 256 URIs.
    * @default 256
    */
   maxSubscribedUris?: number;
+}
+
+/**
+ * Run an authorization gate, converting a THROW into a REDACTED denial (finding H2).
+ *
+ * Every `authorizeStateAccess` / `authorizeDataAccess` call in this file and in
+ * `mcp/prompts.ts` goes through here. The gates the composition root wires up reach
+ * HOST code twice — the `toolPolicy` consult and, on `require-approval`, the
+ * `approvalHandler` — and neither `mcp.ts`'s `authorizeResourceDataAccess` nor its
+ * `authorizeResourceStateAccess` had a try/catch, while `resources/read` and
+ * `prompts/get` have none at any level either. The MCP SDK returns a thrown handler's
+ * `error.message` to the client verbatim, and most MCP clients splice that string
+ * straight into the model conversation.
+ *
+ * The concrete leak that closes: a host wires `toolPolicy` to a per-tenant rules table
+ * (which the docs invite), the database is down, a client sends
+ * `resources/read {"uri":"studio://dashboard/state"}`, and
+ * `password authentication failed for user "studio_ro" @ db-internal-7.corp:5432`
+ * comes back as the JSON-RPC error message — credentials, internal hostnames and SQL,
+ * the exact payload the redaction contract exists to withhold. The sibling `tools/call`
+ * path already wrapped the IDENTICAL host calls in `redactedHostErrorResult`; the
+ * resource and prompt surfaces reached the same code through a path with no wrapper.
+ *
+ * It is a SHARED helper rather than seven try blocks so the next gate added to either
+ * file inherits the redaction instead of having to remember it — the same reason
+ * `mcp/summarisePage.ts` funnels its own `authorizeSourceDataAccess` consult through
+ * one guarded wrapper.
+ *
+ * Fails CLOSED: a gate that throws denies. It reaches host code, and a host bug must
+ * refuse the read rather than wave it through. The returned reason is already
+ * redacted, so callers may surface it directly.
+ *
+ * @param gate    The gate to run, or `undefined` when no gate is wired (unit tests
+ *                that construct the handlers directly) — in which case the read proceeds.
+ * @param context SERVER-authored description of what was being authorized; echoed to
+ *                the caller, so never interpolate untrusted text into it.
+ * @param logger  Sink for the full, unredacted detail.
+ * @returns A deny-reason string, or `null` when the read may proceed.
+ */
+export async function runGuardedGate(
+  gate: (() => Promise<string | null>) | undefined,
+  context: string,
+  logger?: StudioMcpLogger,
+): Promise<string | null> {
+  if (!gate) {
+    return null;
+  }
+  try {
+    return await gate();
+  } catch (err) {
+    return redactedHostErrorMessage(context, err, logger);
+  }
+}
+
+/**
+ * Apply the shared `capToolOutput` budget to every text item of a `resources/read`
+ * result (finding M3) — the resource-surface twin of `mcp.ts`'s `capCallToolResult`.
+ *
+ * `resources/read` had NO output bound at all. `studio://data/{sourceId}` hard-codes
+ * `limit: 20`, but 20 rows of a ~1 MB `notes TEXT` column is a ~20 MB pretty-printed
+ * JSON document handed to an MCP client and, from there, into the model's context;
+ * `studio://dashboard/state` is likewise pretty-printed with no ceiling. Rows were
+ * bounded, bytes were not — the same gap `MAX_TOOL_OUTPUT_CELL_CHARS` closes on chat.
+ *
+ * Only `text` items are capped; a `blob` is base64 and slicing it would corrupt rather
+ * than truncate. An under-budget result is returned byte-identical.
+ */
+function capResourceResult(result: ReadResourceResult): ReadResourceResult {
+  if (!Array.isArray(result.contents)) {
+    return result;
+  }
+  let changed = false;
+  const contents = result.contents.map((item) => {
+    // `contents[]` is a text-OR-blob union; only the text arm is cappable.
+    if (!('text' in item) || typeof item.text !== 'string') {
+      return item;
+    }
+    const capped = capToolOutput(item.text);
+    if (capped === item.text) {
+      return item;
+    }
+    changed = true;
+    return { ...item, text: capped };
+  });
+  return changed ? { ...result, contents } : result;
 }
 
 /**
@@ -124,6 +233,7 @@ function isKnownResourceUri(uri: string): boolean {
   return false;
 }
 
+/** @see ResourceHandlerDeps.maxSubscribedUris — the effective value on every built server. */
 const DEFAULT_MAX_SUBSCRIBED_URIS = 256;
 
 /**
@@ -157,6 +267,7 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
     subscribedUris,
     authorizeDataAccess,
     authorizeStateAccess,
+    advertisedToolNames,
     maxSubscribedUris = DEFAULT_MAX_SUBSCRIBED_URIS,
   } = deps;
 
@@ -187,9 +298,18 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
     // description ends in a quoted `(sourceId: "…")` pair — so an unescaped newline
     // or `"` in a label could forge a sibling line or a sibling field, which escaping
     // `<`/`>` alone does not prevent.
+    //
+    // `safeIdentifier`, not a bare `sanitizeForPromptLine`: the sanitizer neutralizes
+    // structure but does NOT truncate, so a 5 MB `label` produced a 5 MB
+    // `resources/list` entry — an unbounded LLM-consumed metadata field. `safeIdentifier`
+    // is the shared sanitize-AND-cap choke point (`MAX_ECHOED_IDENTIFIER_LENGTH`, 200)
+    // already applied to every identifier echoed into MCP error prose. Only the display
+    // text is capped; the `uri` below keeps the RAW id, because it is an addressable
+    // identifier `resources/read` slices back out and truncating it would make the
+    // resource unreadable.
     const schemaResources = sources.map((s) => {
-      const safeLabel = sanitizeForPromptLine(s.label);
-      const safeId = sanitizeForPromptLine(s.id);
+      const safeLabel = safeIdentifier(s.label);
+      const safeId = safeIdentifier(s.id);
       return {
         uri: `studio://schema/${s.id}`,
         name: `${safeLabel} Schema`,
@@ -202,7 +322,8 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
       ? sources
           .filter((s) => s.tableName)
           .map((s) => {
-            const safeLabel = sanitizeForPromptLine(s.label);
+            // Capped as well as sanitized — see `schemaResources` above.
+            const safeLabel = safeIdentifier(s.label);
             return {
               uri: `studio://data/${s.id}`,
               name: `${safeLabel} Preview`,
@@ -249,7 +370,23 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
 
   // ── resources/read ───────────────────────────────────────────────────────
 
-  server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+  /**
+   * The `resources/read` body. Extracted from the registration below so all of its
+   * returns funnel through the single `capResourceResult` output-budget boundary
+   * (finding M3).
+   *
+   * `signal` is the SDK's per-request `RequestHandlerExtra.signal`, threaded into every
+   * authorization gate so an abandoned read stops waiting on a host `toolPolicy` at
+   * once instead of holding the consult until its deadline (finding H1).
+   *
+   * Every gate call below goes through `runGuardedGate`, so a THROW from host policy
+   * or approval code becomes a redacted denial rather than a verbatim JSON-RPC error
+   * message (finding H2). Nothing in this function may call a gate directly.
+   */
+  async function readResource(
+    request: ReadResourceRequest,
+    signal: AbortSignal | undefined,
+  ): Promise<ReadResourceResult> {
     const { uri } = request.params;
 
     if (uri === 'studio://dashboard/state') {
@@ -258,11 +395,13 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
       // payload, so excluding `get_dashboard_state` from `allowedTools` (or denying
       // it via `toolPolicy`) must block this read too — otherwise a host that hid the
       // tool would still leak the whole dashboard state through the resource surface.
-      if (authorizeStateAccess) {
-        const denied = await authorizeStateAccess();
-        if (denied) {
-          throw new Error(denied);
-        }
+      const denied = await runGuardedGate(
+        authorizeStateAccess && (() => authorizeStateAccess(signal)),
+        'the authorization check for studio://dashboard/state',
+        logger,
+      );
+      if (denied) {
+        throw new Error(denied);
       }
       // Serialize the AUTHORED document plus DATA-SOURCE METADATA ONLY — never the
       // raw `StudioState`. A host's state box can carry live `rows` (and a
@@ -289,15 +428,29 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
       // resource embeds the full `<dashboard_state>` block (the identical
       // `projectStateForAI` payload, just rendered as prompt text), so it must honor
       // the same authorization as the tool and the raw-state resource.
-      if (authorizeStateAccess) {
-        const denied = await authorizeStateAccess();
-        if (denied) {
-          throw new Error(denied);
-        }
+      const denied = await runGuardedGate(
+        authorizeStateAccess && (() => authorizeStateAccess(signal)),
+        'the authorization check for studio://dashboard/system-prompt',
+        logger,
+      );
+      if (denied) {
+        throw new Error(denied);
       }
 
+      // The `## Available data tools` section must name only tools this session
+      // actually advertises. `data` being configured is necessary but not sufficient:
+      // `allowedTools` narrows the data tools independently (that is exactly what lets a
+      // host expose `query_data_source` while hiding `describe_data_source`), so the
+      // hard-coded four listed every one of them regardless — the same invariant-17
+      // violation as the ungated hints below, one section higher.
+      const allDataToolNames = [
+        'query_data_source',
+        'describe_data_source',
+        'get_field_values',
+        'compute_field_stats',
+      ];
       const dataToolNames = data
-        ? ['query_data_source', 'describe_data_source', 'get_field_values', 'compute_field_stats']
+        ? allDataToolNames.filter((name) => !advertisedToolNames || advertisedToolNames.has(name))
         : undefined;
 
       // Distilled layout + cross-filter graph — pure structure, no rows needed.
@@ -307,19 +460,29 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
       // Best-effort server-side enrichment (row counts, schema comments).
       let enrichedContext: StudioAIEnrichedContext | undefined;
       if (contextEnricher) {
-        // The `contextEnricher` runs LIVE DB queries (per-dimension row counts —
-        // strictly finer-grained than the per-source COUNTs `data-health` returns), so
-        // it must pass the SAME data-access chokepoint as `data-health` and the row
-        // preview (finding 2.2). Only the ENRICHMENT is skipped when denied, not the
-        // whole resource — the state-derived prompt is still served (already gated for
-        // state access above), just without the extra live-query enrichment.
-        const enrichDenied = authorizeDataAccess ? await authorizeDataAccess() : null;
-        if (enrichDenied) {
-          logger?.log(
-            `[mcp] skipping contextEnricher for studio://dashboard/system-prompt: ${enrichDenied}`,
+        // The whole enrichment step — GATE INCLUDED — sits inside this try. The gate
+        // used to sit outside it, so a throwing gate failed the entire system-prompt
+        // read instead of degrading to "no enrichment", contradicting the best-effort
+        // enrichment invariant that the adjacent deny and timeout paths both honour.
+        // `runGuardedGate` already converts a gate throw into a denial, and this try is
+        // the second half of the same guarantee: nothing in here can fail the read.
+        try {
+          // The `contextEnricher` runs LIVE DB queries (per-dimension row counts —
+          // strictly finer-grained than the per-source COUNTs `data-health` returns), so
+          // it must pass the SAME data-access chokepoint as `data-health` and the row
+          // preview (finding 2.2). Only the ENRICHMENT is skipped when denied, not the
+          // whole resource — the state-derived prompt is still served (already gated for
+          // state access above), just without the extra live-query enrichment.
+          const enrichDenied = await runGuardedGate(
+            authorizeDataAccess && (() => authorizeDataAccess({ signal })),
+            'the data-access authorization check for the studio://dashboard/system-prompt enrichment',
+            logger,
           );
-        } else {
-          try {
+          if (enrichDenied) {
+            logger?.log(
+              `[mcp] skipping contextEnricher for studio://dashboard/system-prompt: ${enrichDenied}`,
+            );
+          } else {
             // Bounded by `CONTEXT_ENRICHER_TIMEOUT_MS` (finding T2-2, iteration 25) —
             // this `await` previously had no timeout, so a hung enrichment DB query
             // would block this resource read indefinitely. Enrichment is best-effort,
@@ -335,11 +498,11 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
               CONTEXT_ENRICHER_TIMEOUT_MS,
               'contextEnricher',
             );
-          } catch (err) {
-            logger?.error(
-              `[mcp] contextEnricher failed: ${err instanceof Error ? err.message : String(err)}`,
-            );
           }
+        } catch (err) {
+          logger?.error(
+            `[mcp] contextEnricher failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
       }
 
@@ -349,6 +512,10 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
             uri,
             text: buildAISystemPrompt(stateBox.current, customWidgets, undefined, undefined, {
               availableDataTools: dataToolNames,
+              // Invariant 17: gate every dynamic tool hint by this session's EFFECTIVE
+              // tool set. The chat transport has always passed its own; this call did
+              // not, so the resource advised the model to call tools MCP would reject.
+              advertisedToolNames,
               richContext,
               enrichedContext,
             }),
@@ -365,11 +532,13 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
       // Same authorization chokepoint the data TOOLS pass before running a live
       // query (finding 2.1): this resource runs one COUNT query per source, so it
       // must not bypass `allowedTools` / `toolPolicy`.
-      if (authorizeDataAccess) {
-        const denied = await authorizeDataAccess();
-        if (denied) {
-          throw new Error(denied);
-        }
+      const denied = await runGuardedGate(
+        authorizeDataAccess && (() => authorizeDataAccess({ signal })),
+        'the authorization check for studio://dashboard/data-health',
+        logger,
+      );
+      if (denied) {
+        throw new Error(denied);
       }
       // Null-prototype accumulators (finding L1): both are keyed by a source id, and
       // a source id is host/model-supplied — a `__proto__` key would otherwise be a
@@ -478,13 +647,19 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
       // `get_dashboard_state` from `allowedTools` (or denies it via `toolPolicy`) would
       // still leak the full schema catalogue — plus real sample data — by enumerating
       // `resources/list` (ungated by design) and reading `studio://schema/<id>` per source.
-      if (authorizeStateAccess) {
-        const denied = await authorizeStateAccess();
-        if (denied) {
-          throw new Error(denied);
-        }
-      }
       const sourceId = uri.slice('studio://schema/'.length);
+      // EXISTENCE FIRST, GATE SECOND. The gate is not free: it increments the session
+      // tool-call budget and can raise a HUMAN approval prompt, so consulting it before
+      // this purely local lookup let `resources/read studio://schema/<random>` × N burn
+      // N budget units and raise N approval prompts for sources that do not exist. The
+      // cheap in-memory check runs first so only a real source can reach host code.
+      //
+      // The ordering discloses nothing that is not already public: `resources/list`
+      // enumerates every non-hidden source ungated by design, and `hidden` is documented
+      // as a listing flag rather than an access-control boundary (a hidden source read
+      // by id is served deliberately), so "this id exists" was never the secret. The
+      // FIELD METADATA is, and that still sits behind the gate.
+      //
       // `dataSources` is a plain object, so a bare `!source` falsy check does not catch a
       // `sourceId` naming an `Object.prototype` member (e.g. "constructor", "toString"),
       // which resolves via the prototype chain to a truthy non-source value and would then
@@ -501,6 +676,14 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
         throw new Error(
           `Unknown data source: "${safeIdentifier(sourceId)}". Check studio://dashboard/state for available source IDs.`,
         );
+      }
+      const denied = await runGuardedGate(
+        authorizeStateAccess && (() => authorizeStateAccess(signal)),
+        'the authorization check for studio://schema',
+        logger,
+      );
+      if (denied) {
+        throw new Error(denied);
       }
       const source = stateBox.current.runtime.dataSources[sourceId];
       const visibleFields = source.fields.filter((f) => !f.hidden);
@@ -555,15 +738,12 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
       // consult (finding 2.3) — a per-source `toolPolicy` rule or an `approvalHandler`
       // that inspects `ctx.input` would otherwise be blind on this read.
       const sourceId = uri.slice('studio://data/'.length);
-      // Same authorization chokepoint the data TOOLS pass before returning rows
-      // (finding 2.1): this resource serves up to 20 raw rows, so it must not
-      // bypass `allowedTools` / `toolPolicy`.
-      if (authorizeDataAccess) {
-        const denied = await authorizeDataAccess({ sourceId });
-        if (denied) {
-          throw new Error(denied);
-        }
-      }
+      // EXISTENCE FIRST, GATE SECOND — see the identical reordering on
+      // `studio://schema/{id}` above. This branch is the sharper instance of the two:
+      // the gate here can bridge to a human approval prompt per read, so a client
+      // enumerating `studio://data/<random-N>` could raise N prompts and exhaust the
+      // session tool-call budget without ever naming a real source.
+      //
       // `Object.hasOwn`-guarded lookup (finding T2-1): a prototype-member sourceId
       // must not resolve an inherited value via the prototype chain.
       const dataSources = stateBox.current.runtime.dataSources;
@@ -574,6 +754,17 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
         throw new Error(
           `Unknown data source: "${safeIdentifier(sourceId)}". Check studio://dashboard/state for available source IDs.`,
         );
+      }
+      // Same authorization chokepoint the data TOOLS pass before returning rows
+      // (finding 2.1): this resource serves up to 20 raw rows, so it must not
+      // bypass `allowedTools` / `toolPolicy`. Still strictly BEFORE any live query.
+      const denied = await runGuardedGate(
+        authorizeDataAccess && (() => authorizeDataAccess({ sourceId, signal })),
+        'the authorization check for studio://data',
+        logger,
+      );
+      if (denied) {
+        throw new Error(denied);
       }
       // TYPE- and length-validate `source.tableName` before it is forwarded to the
       // host: the `!source.tableName` guard above is a TRUTHINESS check, and the
@@ -638,7 +829,13 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
     throw new Error(
       `Unknown resource URI: "${safeIdentifier(uri)}". Use resources/list to discover available URIs.`,
     );
-  });
+  }
+
+  server.setRequestHandler(ReadResourceRequestSchema, async (request, extra) =>
+    // The single resource-surface output-budget boundary (finding M3) — see
+    // `capResourceResult`.
+    capResourceResult(await readResource(request, extra.signal)),
+  );
 
   server.setRequestHandler(SubscribeRequestSchema, async (request) => {
     const { uri } = request.params;

@@ -10,22 +10,38 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { buildStudioMcpServer } from './mcp';
+import { TOOL_POLICY_TIMEOUT_MS } from './toolPolicy';
+import { MAX_TOOL_OUTPUT_CHARS } from './internal/capToolOutput';
 import { createDefaultStudioState } from './models/studioTypes';
 import type { StudioDataSource } from './models/studioTypes';
 import type { StudioDataQueryParams, StudioDataQueryResult } from './mcp';
 
-/** Access the internal handler map on the low-level Server object */
+/**
+ * Access the internal handler map on the low-level Server object.
+ *
+ * The returned wrapper supplies the SECOND argument the SDK always passes —
+ * `RequestHandlerExtra`, of which the handlers here read only `signal` (the per-request
+ * abort signal threaded into the host `toolPolicy` consult). An optional `signal`
+ * argument lets a test drive that abort path; omitted, it gets a signal that never
+ * fires, which is what an ordinary request looks like.
+ */
 function getHandler(
   server: Server,
   method: string,
-): (req: { params: Record<string, unknown>; method: string }) => Promise<unknown> {
+): (
+  req: { params: Record<string, unknown>; method: string },
+  signal?: AbortSignal,
+) => Promise<unknown> {
   // eslint-disable-next-line no-underscore-dangle
-  const handlers = (server as any)._requestHandlers as Map<string, (req: any) => Promise<unknown>>;
+  const handlers = (server as any)._requestHandlers as Map<
+    string,
+    (req: any, extra: any) => Promise<unknown>
+  >;
   const h = handlers?.get(method);
   if (!h) {
     throw new Error(`No handler registered for "${method}"`);
   }
-  return h;
+  return (req, signal) => h(req, { signal: signal ?? new AbortController().signal });
 }
 
 const LIST_RESOURCES = 'resources/list';
@@ -2550,5 +2566,200 @@ describe('buildStudioMcpServer — tools/call error redaction (finding H4)', () 
     expect(relayed).toMatch(/Unknown tool/);
     expect(relayed).toContain('&lt;script&gt;');
     expect(relayed.length).toBeLessThan(1_000);
+  });
+
+  it('sanitizes the client-supplied tool name written to the operator log', async () => {
+    // The entry/exit log lines run BEFORE `isToolAllowed`, so an unsanitized name lets a
+    // client forge audit-log entries: `x\n[mcp] remove_page` writes a second, fabricated
+    // line an operator reads as a real call.
+    const logger = { log: vi.fn(), error: vi.fn() };
+    const server = buildStudioMcpServer({ current: makeStableState() }, { logger });
+    await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'evil\n[mcp] remove_page', arguments: {} },
+      method: CALL_TOOL,
+    });
+    const logged = logger.log.mock.calls.flat().join('\n');
+    expect(logged).toContain('evil');
+    // The newline is rendered as an inert two-character escape, not a real line break.
+    expect(logged).not.toMatch(/evil\n/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// H1 — a hanging host toolPolicy must not wedge the session's mutation queue
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('buildStudioMcpServer — toolPolicy timeout (finding H1)', () => {
+  const CALL_TOOL = 'tools/call';
+
+  it('denies a never-settling toolPolicy without wedging subsequent calls', async () => {
+    vi.useFakeTimers();
+    try {
+      const stateBox = { current: makeStableState() };
+      // Hangs on the FIRST consult only — a per-tenant rules table behind a blackholed
+      // connection that later recovers. Every later call decides promptly.
+      let consults = 0;
+      const server = buildStudioMcpServer(stateBox, {
+        toolPolicy: () => {
+          consults += 1;
+          return consults === 1 ? new Promise<never>(() => {}) : ({ action: 'allow' } as const);
+        },
+      });
+      const call = getHandler(server, CALL_TOOL);
+
+      let first: any;
+      const firstPromise = call({
+        params: { name: 'add_page', arguments: { title: 'Stuck' } },
+        method: CALL_TOOL,
+      }).then((r) => {
+        first = r;
+      });
+
+      // Still waiting one tick short of the deadline…
+      await vi.advanceTimersByTimeAsync(TOOL_POLICY_TIMEOUT_MS - 1);
+      expect(first).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(1);
+      await firstPromise;
+
+      // Fails CLOSED: denied as a tool result, and the mutation was NOT applied.
+      expect(first.isError).toBe(true);
+      expect(JSON.parse(first.content[0].text).error).toMatch(/did not return an authorization/i);
+      expect(
+        Object.values(stateBox.current.doc.pages as Record<string, { title: string }>).some(
+          (p) => p.title === 'Stuck',
+        ),
+      ).toBe(false);
+
+      // …and, critically, the per-session `mutationChain` is not wedged behind it. This
+      // is the half that made one hung call fatal for the whole session: the consult runs
+      // INSIDE the critical section, so an unbounded await blocked every mutating call
+      // queued after it, forever.
+      const second = (await call({
+        params: { name: 'add_page', arguments: { title: 'Unblocked' } },
+        method: CALL_TOOL,
+      })) as any;
+      expect(second.isError).toBeFalsy();
+      expect(
+        Object.values(stateBox.current.doc.pages as Record<string, { title: string }>).some(
+          (p) => p.title === 'Unblocked',
+        ),
+      ).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('denies a never-settling toolPolicy on the read-only (no-mutex) path too', async () => {
+    vi.useFakeTimers();
+    try {
+      const server = buildStudioMcpServer(
+        { current: makeStableState() },
+        { toolPolicy: () => new Promise<never>(() => {}) },
+      );
+      let result: any;
+      const pending = getHandler(
+        server,
+        CALL_TOOL,
+      )({
+        params: { name: 'list_pages', arguments: {} },
+        method: CALL_TOOL,
+      }).then((r) => {
+        result = r;
+      });
+      await vi.advanceTimersByTimeAsync(TOOL_POLICY_TIMEOUT_MS);
+      await pending;
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(result.content[0].text).error).toMatch(/did not return an authorization/i);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops waiting on the policy when the client cancels the request', async () => {
+    const controller = new AbortController();
+    const server = buildStudioMcpServer(
+      { current: makeStableState() },
+      { toolPolicy: () => new Promise<never>(() => {}) },
+    );
+    const pending = getHandler(server, CALL_TOOL)(
+      { params: { name: 'add_page', arguments: { title: 'Cancelled' } }, method: CALL_TOOL },
+      controller.signal,
+    );
+    controller.abort();
+    const result = (await pending) as any;
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0].text).error).toMatch(/aborted/i);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// M3 — MCP tool results must be byte-bounded, like the chat transport's
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('buildStudioMcpServer — tools/call output budget (finding M3)', () => {
+  const CALL_TOOL = 'tools/call';
+
+  /** One row whose single cell dwarfs the whole per-call budget — the `notes TEXT` shape. */
+  function makeHugeCellQuery() {
+    return vi.fn(
+      async (_p: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
+        rows: Array.from({ length: 20 }, (_, i) => ({
+          id: `r${i}`,
+          notes: 'z'.repeat(1_000_000),
+        })),
+        rowCount: 20,
+      }),
+    );
+  }
+
+  it('caps an oversized query_data_source result', async () => {
+    // `maxQueryRows` bounds the ROW count; nothing bounded the BYTES per row, so this
+    // ~20 MB result reached the MCP client — and its model's context — in full.
+    // `capToolOutput` was imported in exactly one place, the chat agentic loop.
+    const server = buildStudioMcpServer(
+      { current: makeStableState() },
+      { data: { queryDataSource: makeHugeCellQuery(), allowedTables: '*' } },
+    );
+    const result = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'query_data_source', arguments: { sourceId: 'source-orders', limit: 20 } },
+      method: CALL_TOOL,
+    })) as any;
+
+    const text = result.content[0].text as string;
+    expect(text.length).toBeLessThanOrEqual(MAX_TOOL_OUTPUT_CHARS);
+    // Structurally trimmed, not sliced mid-token: the result is still parseable…
+    const payload = JSON.parse(text);
+    // …and the model is TOLD it is partial, so it does not answer from truncated data
+    // with full confidence.
+    expect(JSON.stringify(payload)).toContain('truncated');
+  });
+
+  it('leaves an ordinary result byte-identical', async () => {
+    const queryDataSource = vi.fn(
+      async (_p: StudioDataQueryParams): Promise<StudioDataQueryResult> => ({
+        rows: [{ id: 'o1', total: 100 }],
+        rowCount: 1,
+      }),
+    );
+    const server = buildStudioMcpServer(
+      { current: makeStableState() },
+      { data: { queryDataSource, allowedTables: '*' } },
+    );
+    const result = (await getHandler(
+      server,
+      CALL_TOOL,
+    )({
+      params: { name: 'query_data_source', arguments: { sourceId: 'source-orders' } },
+      method: CALL_TOOL,
+    })) as any;
+    const payload = JSON.parse(result.content[0].text);
+    expect(payload.rows).toEqual([{ id: 'o1', total: 100 }]);
+    expect(JSON.stringify(payload)).not.toContain('truncated');
   });
 });

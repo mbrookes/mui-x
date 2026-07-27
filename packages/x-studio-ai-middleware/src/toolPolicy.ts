@@ -118,6 +118,14 @@ export type ToolPolicyDecision =
  * twice, and it is caller-supplied rather than host-supplied precisely so this
  * contract holds.
  *
+ * DEADLINE CONTRACT — the consult is bounded by {@link TOOL_POLICY_TIMEOUT_MS}
+ * (overridable per call via {@link ToolPolicyConsultBounds.policyTimeoutMs}) and, when
+ * the transport supplies one, by the request's abort signal. Blowing either DENIES the
+ * call: this is an authorization decision, so it fails CLOSED, the opposite of the
+ * best-effort `onStateChange` persistence hook. A policy that legitimately needs to
+ * consult a slow external authority must do its own caching or raise the bound — it
+ * must not simply block.
+ *
  * @param {ToolPolicyContext} ctx - The tool call being authorized, including its proposed
  *   effects when they are known at consult time.
  * @returns {ToolPolicyDecision | Promise<ToolPolicyDecision>} The authorization decision,
@@ -126,6 +134,155 @@ export type ToolPolicyDecision =
 export type ToolPolicy = (
   ctx: ToolPolicyContext,
 ) => ToolPolicyDecision | Promise<ToolPolicyDecision>;
+
+// ── Bounding the host policy ──────────────────────────────────────────────────
+
+/**
+ * Default deadline (ms) on the host's `ToolPolicy`.
+ *
+ * `toolPolicy` is the ONLY host callback consulted on every `tools/call`,
+ * `resources/read` and `prompts/get`, and it was the one host callback in this
+ * package still awaited with no bound at all — while `approvalHandler`
+ * (`approvalTimeoutMs`), `contextEnricher` (`CONTEXT_ENRICHER_TIMEOUT_MS`),
+ * `onStateChange` (`persistTimeoutMs`) and every `queryDataSource` (`withTimeout`)
+ * were each closed in turn for the same reason. A policy that never settles is not
+ * hypothetical: `await fetch(authzService)` against a blackholed TCP connection, or
+ * a rules-table query with no client-side statement timeout, both produce it.
+ *
+ * The consequence is worse here than for any of the siblings. On MCP the consult in
+ * the mutating `tools/call` branch runs INSIDE the per-session `mutationChain`
+ * critical section, so one unsettled policy call wedges every subsequent mutating
+ * call for the lifetime of that session — one call is enough. On chat the same await
+ * hangs the SSE stream: `consultToolPolicyArgsOnlyGuarded` converts a policy THROW
+ * into a redacted deny, but nothing converted a HANG.
+ *
+ * 15s matches `CONTEXT_ENRICHER_TIMEOUT_MS`, `DEFAULT_PERSIST_TIMEOUT_MS` and the
+ * `queryDataSource` bound — an authorization decision that needs longer than a live
+ * analytical query is a broken policy, not a slow one.
+ */
+export const TOOL_POLICY_TIMEOUT_MS = 15_000;
+
+/**
+ * Per-call bounds on the host `ToolPolicy` consult, accepted by both chokepoints.
+ *
+ * Kept as a separate interface (intersected into each function's `opts`) so the two
+ * entry points cannot drift, and so a transport that gains a cancellation channel
+ * later only has to start passing `signal`.
+ */
+export interface ToolPolicyConsultBounds {
+  /**
+   * Deadline (ms) on the host policy for THIS consult. On expiry the call is DENIED
+   * — see {@link TOOL_POLICY_TIMEOUT_MS} for why this one fails closed while the
+   * persistence hook's deadline fails open.
+   * @default TOOL_POLICY_TIMEOUT_MS
+   */
+  policyTimeoutMs?: number;
+  /**
+   * Cancellation signal for the request this consult belongs to (MCP's per-request
+   * `RequestHandlerExtra.signal`, or the chat transport's request signal). Consulted
+   * so an abandoned request stops waiting on the policy immediately instead of
+   * holding the consult — and, on MCP's mutating branch, the mutation queue behind
+   * it — until the deadline elapses. An abort denies, for the same fail-closed
+   * reason a deadline does: no decision was ever returned.
+   */
+  signal?: AbortSignal;
+}
+
+/** Race sentinels — distinguishing which arm won without any error-identity check. */
+const POLICY_TIMED_OUT = Symbol('toolPolicy-timeout');
+const POLICY_ABORTED = Symbol('toolPolicy-abort');
+
+/** Deny reason for a policy that blew its deadline. Server-authored: nothing untrusted in it. */
+function policyDeadlineReason(timeoutMs: number): string {
+  return (
+    `MUI X Studio: The host toolPolicy did not return an authorization decision within ${timeoutMs}ms, ` +
+    'so this tool call was DENIED. An authorization decision fails CLOSED on its deadline — unlike ' +
+    'the best-effort persistence hook, a call that has not been authorized must not run — and on MCP ' +
+    "this consult holds the session's mutation queue, so waiting indefinitely would wedge every " +
+    'subsequent mutating call. Check the toolPolicy implementation for an unbounded await (an ' +
+    'authorization-service request or a database query with no client-side timeout).'
+  );
+}
+
+/** Deny reason for a consult cut short by the request's abort signal. */
+const POLICY_ABORTED_REASON =
+  'MUI X Studio: The request was aborted while the host toolPolicy was still deciding, so this tool ' +
+  'call was denied without running. No authorization was ever granted, so it must not proceed.';
+
+/**
+ * Await the host policy under a deadline and (when supplied) the request's abort
+ * signal, mapping either to a fail-CLOSED `deny` rather than an unbounded wait.
+ *
+ * Wrapping HERE rather than at each of the seven call sites is deliberate: this is
+ * the single point both chokepoints funnel through, so a transport added later
+ * inherits the bound instead of having to remember it.
+ *
+ * A policy THROW is deliberately NOT converted here. Every call site already has its
+ * own redaction wiring for that (chat's `consultToolPolicyArgsOnlyGuarded` /
+ * `executeToolWithPolicy` catch route the detail to `onToolError`; MCP's catches
+ * route it to `logger`), and swallowing the rejection in this module — which has no
+ * logger — would discard the server-side detail those sites exist to preserve. Only
+ * the two outcomes nobody else can observe (the deadline, the abort) are handled.
+ */
+async function consultPolicyBounded(
+  policy: ToolPolicy,
+  ctx: ToolPolicyContext,
+  bounds: ToolPolicyConsultBounds,
+): Promise<ToolPolicyDecision> {
+  const timeoutMs = bounds.policyTimeoutMs ?? TOOL_POLICY_TIMEOUT_MS;
+  const { signal } = bounds;
+
+  if (signal?.aborted) {
+    // Already abandoned — don't invoke the host at all.
+    return { action: 'deny', reason: POLICY_ABORTED_REASON };
+  }
+
+  const decisionPromise = Promise.resolve(policy(ctx));
+  // A `Promise.race` forwards only the WINNING promise's rejection, so a policy that
+  // rejects AFTER the deadline fired would otherwise be an unobserved rejection (an
+  // `unhandledRejection` crash under Node's default). This second, independent
+  // subscription swallows that case without affecting what the race below settles
+  // with — the same pattern `mcp.ts`'s `bridgeApproval` uses for `approvalPromise`.
+  decisionPromise.catch(() => {});
+
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  let outcome: ToolPolicyDecision | typeof POLICY_TIMED_OUT | typeof POLICY_ABORTED;
+  try {
+    outcome = await Promise.race([
+      decisionPromise,
+      new Promise<typeof POLICY_TIMED_OUT>((resolve) => {
+        timeoutId = setTimeout(() => resolve(POLICY_TIMED_OUT), timeoutMs);
+      }),
+      ...(signal
+        ? [
+            new Promise<typeof POLICY_ABORTED>((resolve) => {
+              onAbort = () => resolve(POLICY_ABORTED);
+              signal.addEventListener('abort', onAbort, { once: true });
+            }),
+          ]
+        : []),
+    ]);
+  } finally {
+    // Always tear both losers down: a fast-deciding policy must not leave a pending
+    // timer holding the event loop open, nor an abort listener pinned to a signal
+    // that outlives this consult (an MCP session signal outlives every call on it).
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+    if (signal && onAbort) {
+      signal.removeEventListener('abort', onAbort);
+    }
+  }
+
+  if (outcome === POLICY_TIMED_OUT) {
+    return { action: 'deny', reason: policyDeadlineReason(timeoutMs) };
+  }
+  if (outcome === POLICY_ABORTED) {
+    return { action: 'deny', reason: POLICY_ABORTED_REASON };
+  }
+  return outcome;
+}
 
 // ── Effect diffing ────────────────────────────────────────────────────────────
 
@@ -480,7 +637,7 @@ export async function executeToolWithPolicy(
     snapshotPageId?: string;
     transport: 'chat' | 'mcp';
     usage: { committedMutations: number; toolCalls: number };
-  },
+  } & ToolPolicyConsultBounds,
 ): Promise<ExecuteToolWithPolicyResult> {
   opts.usage.toolCalls += 1;
 
@@ -490,6 +647,12 @@ export async function executeToolWithPolicy(
   // `ToolPolicyContext` describes exactly that shape), which is `undefined` here on a
   // call that may well be mutating. Consulting it on that false premise silently bricked
   // every built-in tool for such a host, and double-invoked every host policy per call.
+  //
+  // Deliberately NOT routed through `consultPolicyBounded`: `preCheckPolicy` is
+  // CALLER-supplied (both transports pass their own synchronous budget chain), not a
+  // host callback, so it is not part of the boundary `TOOL_POLICY_TIMEOUT_MS` exists
+  // to bound. `opts.policy` — which is where the host's policy actually lives, whether
+  // passed bare or composed under `Policy.all` — is bounded below.
   if (opts.preCheckPolicy) {
     const preDecision = await opts.preCheckPolicy({
       transport: opts.transport,
@@ -531,7 +694,8 @@ export async function executeToolWithPolicy(
     usage: opts.usage,
   };
 
-  const decision = await opts.policy(ctx);
+  // Deadline- and abort-bounded, failing CLOSED — see `consultPolicyBounded`.
+  const decision = await consultPolicyBounded(opts.policy, ctx, opts);
 
   if (decision.action === 'deny') {
     return { kind: 'denied', reason: decision.reason };
@@ -603,7 +767,7 @@ export async function consultToolPolicyArgsOnly(
     transport: 'chat' | 'mcp';
     usage: { committedMutations: number; toolCalls: number };
     mayMutate?: boolean;
-  },
+  } & ToolPolicyConsultBounds,
 ): Promise<ConsultToolPolicyArgsOnlyResult> {
   opts.usage.toolCalls += 1;
 
@@ -618,7 +782,8 @@ export async function consultToolPolicyArgsOnly(
     usage: opts.usage,
   };
 
-  const decision = await opts.policy(ctx);
+  // Deadline- and abort-bounded, failing CLOSED — see `consultPolicyBounded`.
+  const decision = await consultPolicyBounded(opts.policy, ctx, opts);
 
   if (decision.action === 'deny') {
     return { kind: 'denied', reason: decision.reason };

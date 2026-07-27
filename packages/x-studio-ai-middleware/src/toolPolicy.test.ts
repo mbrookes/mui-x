@@ -15,6 +15,7 @@ import {
   createEffectsAwareToolPolicy,
   executeToolWithPolicy,
   Policy,
+  TOOL_POLICY_TIMEOUT_MS,
 } from './toolPolicy';
 import type { ToolPolicy, ToolPolicyContext } from './toolPolicy';
 import { executeToolOnState } from './executeToolOnState';
@@ -879,5 +880,159 @@ describe('consultToolPolicyArgsOnly', () => {
         usage,
       }),
     ).resolves.toEqual({ kind: 'needs-approval' });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// H1 — the host policy consult must be deadline- and abort-bounded, failing CLOSED
+//
+// Both transports reach the host policy through these two functions, so bounding
+// them here is what bounds both. `agenticLoop.test.ts` already proves the
+// provider-fetch hang is handled; the policy hang was covered on neither transport.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('host toolPolicy is bounded (finding H1)', () => {
+  /** A policy that never returns — `await fetch(authzService)` on a blackholed socket. */
+  const hangingPolicy: ToolPolicy = () => new Promise<never>(() => {});
+
+  it('exports a deadline matching the other host-callback bounds', () => {
+    // Same 15s the `contextEnricher`, `onStateChange` and `queryDataSource` bounds use —
+    // an authorization decision slower than a live analytical query is broken, not slow.
+    expect(TOOL_POLICY_TIMEOUT_MS).toBe(15_000);
+  });
+
+  it('denies a never-settling policy on the execute-then-gate path (chat)', async () => {
+    const state = makeTwoWidgetState();
+    const usage = { committedMutations: 0, toolCalls: 0 };
+
+    const outcome = await executeToolWithPolicy('set_dashboard_title', { title: 'X' }, state, {
+      policy: hangingPolicy,
+      transport: 'chat',
+      usage,
+      policyTimeoutMs: 20,
+    });
+
+    // Fails CLOSED — the opposite of the best-effort persistence hook, because nothing
+    // ever authorized this call.
+    expect(outcome.kind).toBe('denied');
+    expect((outcome as { reason: string }).reason).toMatch(/did not return an authorization/i);
+    expect((outcome as { reason: string }).reason).toMatch(/20ms/);
+    // The call still counted against the budget: it did reach the chokepoint.
+    expect(usage.toolCalls).toBe(1);
+    // …and nothing was committed.
+    expect(usage.committedMutations).toBe(0);
+  });
+
+  it('denies a never-settling policy on the args-only path (chat)', async () => {
+    const outcome = await consultToolPolicyArgsOnly('query_data_source', {}, makeTwoWidgetState(), {
+      policy: hangingPolicy,
+      transport: 'chat',
+      usage: { committedMutations: 0, toolCalls: 0 },
+      policyTimeoutMs: 20,
+    });
+
+    expect(outcome).toEqual({
+      kind: 'denied',
+      reason: expect.stringMatching(/did not return an authorization decision within 20ms/i),
+    });
+  });
+
+  it('denies on the MCP transport identically', async () => {
+    const outcome = await consultToolPolicyArgsOnly('query_data_source', {}, makeTwoWidgetState(), {
+      policy: hangingPolicy,
+      transport: 'mcp',
+      usage: { committedMutations: 0, toolCalls: 0 },
+      policyTimeoutMs: 20,
+    });
+    expect(outcome.kind).toBe('denied');
+  });
+
+  it('denies immediately when the request is already aborted, without calling the policy', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const policy = vi.fn<ToolPolicy>(() => ({ action: 'allow' }));
+
+    const outcome = await consultToolPolicyArgsOnly('q', {}, makeTwoWidgetState(), {
+      policy,
+      transport: 'mcp',
+      usage: { committedMutations: 0, toolCalls: 0 },
+      signal: controller.signal,
+    });
+
+    expect(outcome.kind).toBe('denied');
+    expect((outcome as { reason: string }).reason).toMatch(/aborted/i);
+    expect(policy).not.toHaveBeenCalled();
+  });
+
+  it('stops waiting as soon as the request aborts mid-consult', async () => {
+    const controller = new AbortController();
+    const outcome = consultToolPolicyArgsOnly('q', {}, makeTwoWidgetState(), {
+      policy: hangingPolicy,
+      transport: 'mcp',
+      usage: { committedMutations: 0, toolCalls: 0 },
+      signal: controller.signal,
+      // Deliberately far beyond this test's patience: the ABORT has to be what settles it.
+      policyTimeoutMs: 10 * 60_000,
+    });
+    controller.abort();
+    expect((await outcome).kind).toBe('denied');
+  });
+
+  it('still lets a policy THROW propagate, so call sites keep redacting it', async () => {
+    // Deliberately NOT converted to a denial inside the chokepoint: this module has no
+    // logger, and each call site's own catch is what routes the host's detail to
+    // `onToolError` / `logger` while returning a correlation id. Swallowing it here
+    // would discard exactly that detail.
+    const boom = new Error('password authentication failed for user "studio_ro"');
+    await expect(
+      consultToolPolicyArgsOnly('q', {}, makeTwoWidgetState(), {
+        policy: () => {
+          throw boom;
+        },
+        transport: 'mcp',
+        usage: { committedMutations: 0, toolCalls: 0 },
+      }),
+    ).rejects.toBe(boom);
+  });
+
+  it('leaves a promptly-deciding policy untouched (no regression)', async () => {
+    await expect(
+      executeToolWithPolicy('set_dashboard_title', { title: 'X' }, makeTwoWidgetState(), {
+        policy: async () => ({ action: 'allow' }),
+        transport: 'chat',
+        usage: { committedMutations: 0, toolCalls: 0 },
+        policyTimeoutMs: 20,
+      }),
+    ).resolves.toMatchObject({ kind: 'allowed' });
+  });
+
+  it('does not leave a pending timer behind when the policy wins the race', async () => {
+    // A dangling `setTimeout` would keep the Node event loop alive for the full deadline
+    // after every single tool call — the same bug `withTimeout` documents.
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
+    try {
+      await consultToolPolicyArgsOnly('q', {}, makeTwoWidgetState(), {
+        policy: () => ({ action: 'allow' }),
+        transport: 'mcp',
+        usage: { committedMutations: 0, toolCalls: 0 },
+      });
+      expect(clearTimeoutSpy).toHaveBeenCalled();
+    } finally {
+      clearTimeoutSpy.mockRestore();
+    }
+  });
+
+  it('removes its abort listener when the policy wins, so a session signal is not leaked', async () => {
+    // An MCP session signal outlives every call made on it; one retained listener per
+    // tool call is a slow leak.
+    const controller = new AbortController();
+    const removeSpy = vi.spyOn(controller.signal, 'removeEventListener');
+    await consultToolPolicyArgsOnly('q', {}, makeTwoWidgetState(), {
+      policy: () => ({ action: 'allow' }),
+      transport: 'mcp',
+      usage: { committedMutations: 0, toolCalls: 0 },
+      signal: controller.signal,
+    });
+    expect(removeSpy).toHaveBeenCalled();
   });
 });

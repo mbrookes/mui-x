@@ -23,6 +23,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { registerResourceHandlers } from './resources';
 import { buildStudioMcpServer } from '../mcp';
+import { MAX_TOOL_OUTPUT_CHARS } from '../internal/capToolOutput';
 import { createDefaultStudioState } from '../models/studioTypes';
 import { CONTEXT_ENRICHER_TIMEOUT_MS } from '../handleAIChat';
 import type { StudioDataSource } from '../models/studioTypes';
@@ -34,18 +35,30 @@ const READ = 'resources/read';
 const LIST = 'resources/list';
 const PAGE_ID = 'page-1';
 
-/** Access the internal handler map on the low-level Server object. */
+/**
+ * Access the internal handler map on the low-level Server object.
+ *
+ * The wrapper supplies the `RequestHandlerExtra` second argument the SDK always
+ * passes; `resources/read` reads `signal` from it to bound the host `toolPolicy`
+ * consult. Tests that don't care get a signal that never fires.
+ */
 function getHandler(
   server: Server,
   method: string,
-): (req: { params: Record<string, unknown>; method: string }) => Promise<unknown> {
+): (
+  req: { params: Record<string, unknown>; method: string },
+  signal?: AbortSignal,
+) => Promise<unknown> {
   // eslint-disable-next-line no-underscore-dangle
-  const handlers = (server as any)._requestHandlers as Map<string, (req: any) => Promise<unknown>>;
+  const handlers = (server as any)._requestHandlers as Map<
+    string,
+    (req: any, extra: any) => Promise<unknown>
+  >;
   const h = handlers?.get(method);
   if (!h) {
     throw new Error(`No handler registered for "${method}"`);
   }
-  return h;
+  return (req, signal) => h(req, { signal: signal ?? new AbortController().signal });
 }
 
 function makeSource(overrides?: Partial<StudioDataSource>): StudioDataSource {
@@ -1108,5 +1121,270 @@ describe('studio://schema/{id} fieldDistinctValues prototype guard (finding M1)'
     );
     expect(payload.fields[0].id).toBe('constructor');
     expect(payload.fields[0].sampleValues).toBeUndefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// H2 — a THROWING host authorization gate must never reach the client verbatim
+//
+// The existing redaction coverage above only exercises the two `data.queryDataSource`
+// catches. The gate is the OTHER host boundary on this surface — it reaches
+// `toolPolicy` and, on `require-approval`, `approvalHandler` — and neither the gate
+// wrappers nor `resources/read` had a try/catch at any level, so the MCP SDK returned
+// the host's `err.message` to the client, which most clients splice into the model
+// conversation.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('resource authorization-gate error redaction (finding H2)', () => {
+  /** The payload invariant 16 exists to withhold: credentials, host, SQL. */
+  const SECRET = 'password authentication failed for user "studio_ro" @ db-internal-7.corp:5432';
+
+  function makeThrowingPolicyServer() {
+    const logger = { log: vi.fn(), error: vi.fn() };
+    const server = buildStudioMcpServer(makeStateBox(), {
+      logger,
+      // A per-tenant rules table — which the docs explicitly invite — whose database
+      // is down.
+      toolPolicy: () => {
+        throw new Error(SECRET);
+      },
+      data: { queryDataSource: vi.fn(async () => ({ rows: [], rowCount: 0 })) },
+    });
+    return { server, logger };
+  }
+
+  it.each([
+    ['studio://dashboard/state'],
+    ['studio://dashboard/system-prompt'],
+    ['studio://schema/source-orders'],
+    ['studio://data/source-orders'],
+    ['studio://dashboard/data-health'],
+  ])('redacts a throwing toolPolicy on resources/read %s', async (uri) => {
+    const { server, logger } = makeThrowingPolicyServer();
+    const err = await readResource(server, uri).then(
+      () => {
+        throw new Error(`expected the read of ${uri} to be rejected`);
+      },
+      (readErr: Error) => readErr,
+    );
+    expect(err.message).not.toContain('studio_ro');
+    expect(err.message).not.toContain('db-internal-7.corp');
+    expect(err.message).toMatch(/withheld/i);
+    // The detail is not lost — it is exactly where an operator can look it up.
+    expect(logger.error.mock.calls.flat().join('\n')).toContain('studio_ro');
+  });
+
+  it('redacts a throwing toolPolicy on the prompts/get gate', async () => {
+    // `prompts/get` reaches the identical gate through `authorizeStateAccess`, on a
+    // path with no try/catch of its own either.
+    const { server, logger } = makeThrowingPolicyServer();
+    const err = await getHandler(
+      server,
+      'prompts/get',
+    )({
+      params: { name: 'query_data_source_examples', arguments: {} },
+      method: 'prompts/get',
+    }).then(
+      () => {
+        throw new Error('expected prompts/get to be rejected');
+      },
+      (getErr: Error) => getErr,
+    );
+    expect(err.message).not.toContain('studio_ro');
+    expect(err.message).toMatch(/withheld/i);
+    expect(logger.error.mock.calls.flat().join('\n')).toContain('studio_ro');
+  });
+
+  it('redacts a throwing approvalHandler reached through the gate', async () => {
+    // The gate reaches host code TWICE; the approval bridge is the second reach.
+    const logger = { log: vi.fn(), error: vi.fn() };
+    const server = buildStudioMcpServer(makeStateBox(), {
+      logger,
+      toolPolicy: () => ({ action: 'require-approval' }),
+      approvalHandler: async () => {
+        throw new Error(SECRET);
+      },
+    });
+    const err = await readResource(server, 'studio://dashboard/state').then(
+      () => {
+        throw new Error('expected the read to be rejected');
+      },
+      (readErr: Error) => readErr,
+    );
+    expect(err.message).not.toContain('studio_ro');
+    expect(err.message).toMatch(/withheld/i);
+  });
+
+  it('degrades the system-prompt enrichment to "no enrichment" rather than failing the read', async () => {
+    // The enrichment gate used to sit OUTSIDE the surrounding try, so a throwing gate
+    // failed the whole `system-prompt` read — contradicting the best-effort enrichment
+    // invariant the adjacent deny and timeout paths both honour.
+    const logger = { log: vi.fn(), error: vi.fn() };
+    const contextEnricher = vi.fn(async () => ({ notes: 'ENRICHED' }));
+    let consults = 0;
+    const server = buildStudioMcpServer(makeStateBox(), {
+      logger,
+      contextEnricher,
+      data: { queryDataSource: vi.fn(async () => ({ rows: [], rowCount: 0 })) },
+      // Allow the STATE gate (first consult), throw on the DATA gate the enrichment runs.
+      toolPolicy: () => {
+        consults += 1;
+        if (consults === 1) {
+          return { action: 'allow' } as const;
+        }
+        throw new Error(SECRET);
+      },
+    });
+
+    const result = await readResource(server, 'studio://dashboard/system-prompt');
+
+    // The resource is still served…
+    expect(result.contents[0].text.length).toBeGreaterThan(0);
+    // …just without the enrichment, and with nothing leaked into it.
+    expect(result.contents[0].text).not.toContain('ENRICHED');
+    expect(result.contents[0].text).not.toContain('studio_ro');
+    expect(contextEnricher).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// L7 — the gate must not be spent on a source that does not exist
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('resources/read checks existence before consulting the gate', () => {
+  it.each([['studio://schema/'], ['studio://data/']])(
+    'does not consult the policy for an unknown source under %s',
+    async (prefix) => {
+      // The gate is not free: it increments the session tool-call budget and can raise a
+      // HUMAN approval prompt. Consulting it first let `resources/read <prefix>/<random>`
+      // × N burn N budget units and raise N prompts for sources that do not exist.
+      const toolPolicy = vi.fn(() => ({ action: 'allow' }) as const);
+      const server = buildStudioMcpServer(makeStateBox(), {
+        toolPolicy,
+        data: { queryDataSource: vi.fn(async () => ({ rows: [], rowCount: 0 })) },
+      });
+      await expect(readResource(server, `${prefix}definitely-not-a-source`)).rejects.toThrow(
+        /Unknown data source/,
+      );
+      expect(toolPolicy).not.toHaveBeenCalled();
+    },
+  );
+
+  it('still gates a source that DOES exist', async () => {
+    const toolPolicy = vi.fn(() => ({ action: 'deny', reason: 'nope' }) as const);
+    const server = buildStudioMcpServer(makeStateBox(), {
+      toolPolicy,
+      data: { queryDataSource: vi.fn(async () => ({ rows: [], rowCount: 0 })) },
+    });
+    await expect(readResource(server, 'studio://data/source-orders')).rejects.toThrow(/nope/);
+    expect(toolPolicy).toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Invariant 17 — the system-prompt resource must gate its tool hints by the
+// EFFECTIVE MCP tool set, exactly as the chat transport does
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('studio://dashboard/system-prompt tool hints honour allowedTools', () => {
+  /** Two pages: the `list_pages` hint only renders when there IS another page to list. */
+  function makeTwoPageStateBox(): StudioStateBox {
+    return {
+      current: createDefaultStudioState({
+        doc: {
+          dashboard: { id: 'd1', title: 'Test', activePageId: PAGE_ID },
+          pages: {
+            [PAGE_ID]: { id: PAGE_ID, title: 'Page 1', widgetRows: [] },
+            'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [] },
+          },
+        },
+        runtime: { dataSources: { 'source-orders': makeSource() } },
+      }),
+    };
+  }
+
+  async function readPrompt(
+    allowedTools: string[] | undefined,
+    stateBox: StudioStateBox,
+    data?: StudioMcpData,
+  ) {
+    const server = buildStudioMcpServer(stateBox, { allowedTools, data });
+    return (await readResource(server, 'studio://dashboard/system-prompt')).contents[0].text;
+  }
+
+  it('omits a hint naming a tool this session does not advertise', async () => {
+    // MCP DOES narrow its effective tool set, so passing no `advertisedToolNames` made
+    // the resource advise the model to call `list_pages` even when `allowedTools`
+    // excludes it — a turn, a budget unit and a full conversation re-send spent to
+    // discover an `Unknown tool` rejection. The chat transport already gated this.
+    const hint = 'Use list_pages for structured access';
+    expect(
+      await readPrompt(['get_dashboard_state', 'list_pages'], makeTwoPageStateBox()),
+    ).toContain(hint);
+    expect(await readPrompt(['get_dashboard_state'], makeTwoPageStateBox())).not.toContain(hint);
+  });
+
+  it('lists only the data tools that are actually advertised', async () => {
+    // `data` being configured is necessary but not sufficient: `allowedTools` narrows the
+    // four data tools independently, which is exactly what lets a host expose
+    // `query_data_source` while hiding `describe_data_source`.
+    const data: StudioMcpData = { queryDataSource: vi.fn(async () => ({ rows: [], rowCount: 0 })) };
+    const prompt = await readPrompt(
+      ['get_dashboard_state', 'query_data_source'],
+      makeStateBox(),
+      data,
+    );
+    // Asserted on the BULLET entries of `## Available data tools`, not on bare
+    // substrings: that section's trailing static sentence in `buildAISystemPrompt.ts`
+    // names `describe_data_source` unconditionally, which is that file's own
+    // invariant-17 gap rather than this call site's.
+    expect(prompt).toContain('- `query_data_source`');
+    expect(prompt).not.toContain('- `describe_data_source`');
+    expect(prompt).not.toContain('- `compute_field_stats`');
+  });
+
+  it('advertises every data tool when allowedTools is omitted (no regression)', async () => {
+    const data: StudioMcpData = { queryDataSource: vi.fn(async () => ({ rows: [], rowCount: 0 })) };
+    const prompt = await readPrompt(undefined, makeStateBox(), data);
+    expect(prompt).toContain('- `describe_data_source`');
+    expect(prompt).toContain('- `compute_field_stats`');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// M3 — resources/read must be byte-bounded too
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('resources/read output budget (finding M3)', () => {
+  it('caps an oversized studio://data row preview', async () => {
+    // `limit: 20` is hard-coded, but 20 × a ~1 MB `notes TEXT` column is a ~20 MB
+    // pretty-printed document handed straight to the client and its model.
+    const server = buildStudioMcpServer(makeStateBox(), {
+      data: {
+        queryDataSource: vi.fn(async () => ({
+          rows: Array.from({ length: 20 }, (_, i) => ({
+            id: `r${i}`,
+            notes: 'z'.repeat(1_000_000),
+          })),
+          rowCount: 20,
+        })),
+      },
+    });
+    const result = await readResource(server, 'studio://data/source-orders');
+    expect(result.contents[0].text.length).toBeLessThanOrEqual(MAX_TOOL_OUTPUT_CHARS);
+    // Structurally trimmed, so still parseable, and explicitly flagged partial.
+    expect(JSON.stringify(JSON.parse(result.contents[0].text))).toContain('truncated');
+  });
+
+  it('leaves an ordinary resource read byte-identical', async () => {
+    const server = buildStudioMcpServer(makeStateBox(), {
+      data: {
+        queryDataSource: vi.fn(async () => ({ rows: [{ id: 'o1' }], rowCount: 1 })),
+      },
+    });
+    const result = await readResource(server, 'studio://data/source-orders');
+    const payload = JSON.parse(result.contents[0].text);
+    expect(payload.rows).toEqual([{ id: 'o1' }]);
+    expect(JSON.stringify(payload)).not.toContain('truncated');
   });
 });

@@ -53,7 +53,7 @@
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { CallToolRequest, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { mutationLabel, STUDIO_AI_TOOL_REGISTRY } from '@mui/x-studio-schema';
 import type { StudioAIToolFacts } from '@mui/x-studio-schema';
@@ -77,6 +77,7 @@ import {
   type ToolHandler,
 } from './mcp/helpers';
 import { isPackageAuthoredError } from './internal/packageError';
+import { capToolOutput } from './internal/capToolOutput';
 import {
   TOOL_TITLES,
   TOOL_ANNOTATIONS,
@@ -210,6 +211,49 @@ const READ_ONLY_NO_MUTEX_TOOLS = new Set(
     .filter(([, facts]) => facts.readOnly)
     .map(([name]) => name),
 );
+
+/**
+ * Apply the shared `capToolOutput` budget to every text content item of a
+ * `tools/call` result (finding M3).
+ *
+ * `capToolOutput` was imported in exactly ONE place — the `ToolDispatchOutcome.output`
+ * fold-in in `agenticLoop.ts` — so the byte budget it enforces was CHAT-ONLY, even
+ * though its own motivating scenario (`query_data_source({ limit: 1000 })` against a
+ * table with a ~1 MB `notes TEXT` column) applies verbatim here: `maxQueryRows` bounds
+ * the ROW count, but nothing bounded the bytes per row. Every dispatch-table data tool,
+ * `summarise_page`, `render_chart`'s raw SVG and `get_dashboard_state` reach MCP clients
+ * through this one return path, so capping here — rather than in each producer — is the
+ * MCP-side equivalent of that single fold-in point, and makes the transport-neutral
+ * claim in ARCHITECTURE.md's "Bounding what goes out" actually true.
+ *
+ * Only `type: 'text'` items are touched. An `image`/`audio` item's `data` is base64
+ * bounded by whatever produced it (`render_chart`'s `renderChartSvg`), and slicing
+ * base64 would corrupt it rather than truncate it.
+ *
+ * Same known limitation as on chat: the producer has already built its own JSON string
+ * by the time this runs, so this cannot prevent a `RangeError` inside a producer's own
+ * `JSON.stringify`.
+ */
+function capCallToolResult(result: CallToolResult): CallToolResult {
+  if (!Array.isArray(result.content)) {
+    return result;
+  }
+  let changed = false;
+  const content = result.content.map((item) => {
+    if (item.type !== 'text' || typeof item.text !== 'string') {
+      return item;
+    }
+    const capped = capToolOutput(item.text);
+    if (capped === item.text) {
+      return item;
+    }
+    changed = true;
+    return { ...item, text: capped };
+  });
+  // Returned byte-identical (same object) when nothing was over budget, so the
+  // overwhelming majority of results are never reshaped.
+  return changed ? { ...result, content } : result;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Core factory
@@ -399,6 +443,33 @@ export function buildStudioMcpServer(
   // extra tools (previously always-on). When omitted, every tool is allowed.
   const isToolAllowed = (name: string): boolean => !allowedTools || allowedTools.includes(name);
 
+  // Extra (non-STUDIO_AI_TOOLS) tools, gated by `allowedTools` when it is supplied —
+  // otherwise a host could not hide describe_data_source et al. Hoisted out of the
+  // `tools/list` handler so the advertised NAME set below is derived from the very same
+  // arrays that handler returns, rather than recomputed from the same inputs: the two
+  // must not be able to drift.
+  const advertisedDataTools = data
+    ? DATA_TOOL_DEFINITIONS.filter((d) => isToolAllowed(d.name))
+    : [];
+  const advertisedExtraTools = EXTRA_TOOL_DEFINITIONS.filter((d) => isToolAllowed(d.name));
+
+  /**
+   * The EXACT tool set this session advertises — the names `tools/list` returns.
+   *
+   * Threaded into `buildAISystemPrompt` for the `studio://dashboard/system-prompt`
+   * resource so its dynamic tool hints are gated by the effective set, exactly as the
+   * chat transport already gates them (invariant 17). MCP does narrow that set —
+   * `allowedTools`, `MCP_UNSUPPORTED_TOOLS` and the `query_data_source`-needs-`data`
+   * rule all remove tools — so without this the resource emitted prose telling the
+   * model to call tools this session would reject as `Unknown tool`, costing it a turn,
+   * a tool-call budget unit and a full conversation re-send to find out.
+   */
+  const advertisedToolNames: ReadonlySet<string> = new Set<string>([
+    ...registeredToolNames,
+    ...advertisedDataTools.map((d) => d.name),
+    ...advertisedExtraTools.map((d) => d.name),
+  ]);
+
   // ── tools/list ───────────────────────────────────────────────────────────
 
   server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -411,15 +482,7 @@ export function buildStudioMcpServer(
       annotations: TOOL_ANNOTATIONS[toolDef.function.name],
     }));
 
-    // Extra (non-STUDIO_AI_TOOLS) tools are also gated by `allowedTools` when it is
-    // supplied — otherwise a host could not hide describe_data_source et al.
-    return {
-      tools: [
-        ...builtinTools,
-        ...(data ? DATA_TOOL_DEFINITIONS.filter((d) => isToolAllowed(d.name)) : []),
-        ...EXTRA_TOOL_DEFINITIONS.filter((d) => isToolAllowed(d.name)),
-      ],
-    };
+    return { tools: [...builtinTools, ...advertisedDataTools, ...advertisedExtraTools] };
   });
 
   // ── tools/call ───────────────────────────────────────────────────────────
@@ -491,6 +554,18 @@ export function buildStudioMcpServer(
       }
 
       // Notify any subscribed clients that the dashboard state has changed.
+      //
+      // TWO of the five subscribable URI families, deliberately — not an oversight.
+      // A `StateMutation` only ever rewrites `doc` (see `applyMutation`), and exactly
+      // these two resources are rendered FROM `doc`: `studio://dashboard/state` is
+      // `projectStateForAI(stateBox.current)` and `studio://dashboard/system-prompt` is
+      // that same payload as prompt text. The other three are derived from
+      // `runtime.dataSources` and the live database — `studio://schema/{id}` reads a
+      // source's `fields`, `studio://data/{id}` and `studio://dashboard/data-health`
+      // issue fresh queries — none of which a dashboard mutation can change. Notifying
+      // them would tell every subscriber to re-read (and, for two of the three, re-run
+      // a live query) on every `add_widget`. Add a family here only when a mutation can
+      // actually alter its content.
       const urisToNotify = ['studio://dashboard/state', 'studio://dashboard/system-prompt'];
       for (const uri of urisToNotify) {
         if (subscribedUris.has(uri)) {
@@ -577,6 +652,7 @@ export function buildStudioMcpServer(
   async function runReadOnlyTool(
     toolName: string,
     args: Record<string, unknown> | undefined,
+    signal: AbortSignal | undefined,
   ): Promise<CallToolResult> {
     try {
       const outcome = await executeToolWithPolicy(toolName, args ?? {}, stateBox.current, {
@@ -585,6 +661,10 @@ export function buildStudioMcpServer(
         customWidgets,
         transport: 'mcp',
         usage: sessionUsage,
+        // Finding H1: bound the host policy consult. Defaults to
+        // `TOOL_POLICY_TIMEOUT_MS`; `signal` is the SDK's per-request
+        // `RequestHandlerExtra.signal`, so a cancelled request stops waiting at once.
+        signal,
       });
 
       if (outcome.kind === 'denied') {
@@ -713,10 +793,28 @@ export function buildStudioMcpServer(
   // stay concurrent — they never write the state box.
   let mutationChain: Promise<unknown> = Promise.resolve();
 
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  /**
+   * The `tools/call` body. Extracted from the registration below so every one of its
+   * many returns funnels through the single `capCallToolResult` boundary (finding M3)
+   * — the MCP-side analogue of the chat loop's one `capToolOutput` fold-in point.
+   *
+   * `signal` is the SDK's per-request `RequestHandlerExtra.signal`, threaded into the
+   * policy consults so an abandoned request stops waiting on a host policy at once
+   * rather than holding this call — and, on the mutating branch, the whole mutation
+   * queue behind it — until the policy deadline elapses (finding H1).
+   */
+  async function handleCallTool(
+    request: CallToolRequest,
+    signal: AbortSignal | undefined,
+  ): Promise<CallToolResult> {
     const { name: toolName, arguments: args } = request.params;
     const t0 = Date.now();
-    logger?.log(`[mcp] ${toolName}`);
+    // `safeIdentifier`, not the raw name: `toolName` is entirely client-supplied and
+    // unbounded at this point (this line runs BEFORE `isToolAllowed`), so an
+    // unsanitized interpolation lets a client forge lines in the operator's audit log
+    // — a `toolName` of `x\n[mcp] remove_page` writes a second, fabricated entry.
+    const safeToolName = safeIdentifier(toolName);
+    logger?.log(`[mcp] ${safeToolName}`);
 
     let threw = false;
     try {
@@ -787,6 +885,8 @@ export function buildStudioMcpServer(
             policy: sessionToolPolicy,
             transport: 'mcp',
             usage: sessionUsage,
+            // Finding H1 — see `runReadOnlyTool`.
+            signal,
           },
         );
         if (gate.kind === 'denied') {
@@ -806,7 +906,7 @@ export function buildStudioMcpServer(
       // outside `mutationChain` (see `READ_ONLY_NO_MUTEX_TOOLS`) so they stay
       // concurrent with any in-flight mutation, matching the documented contract.
       if (READ_ONLY_NO_MUTEX_TOOLS.has(toolName)) {
-        return await runReadOnlyTool(toolName, args);
+        return await runReadOnlyTool(toolName, args, signal);
       }
 
       // ── dashboard-mutation tools ──────────────────────────────────────────
@@ -828,6 +928,11 @@ export function buildStudioMcpServer(
             customWidgets,
             transport: 'mcp',
             usage: sessionUsage,
+            // Finding H1: THE consult this bound exists for — it runs inside the
+            // `mutationChain` critical section below, so an unsettled host policy used
+            // to wedge every subsequent mutating call in the session forever. Denying on
+            // the deadline (or on an abandoned request) keeps the queue advancing.
+            signal,
           });
 
           if (outcome.kind === 'denied') {
@@ -869,18 +974,25 @@ export function buildStudioMcpServer(
       return await pending;
     } catch (err) {
       threw = true;
+      // Sanitized like the entry log above — this line also runs for a name that never
+      // passed `isToolAllowed`, so the raw value must not reach the operator's log.
       logger?.error(
-        `[mcp] ${toolName} threw after ${Date.now() - t0}ms: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`,
+        `[mcp] ${safeToolName} threw after ${Date.now() - t0}ms: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`,
       );
       // Finding H4: the full detail is already in the log line above; the result the
       // model sees carries only the generic message + correlation id.
-      return redactedHostErrorResult(`tool "${safeIdentifier(toolName)}"`, err, logger);
+      return redactedHostErrorResult(`tool "${safeToolName}"`, err, logger);
     } finally {
       if (!threw) {
-        logger?.log(`[mcp] ${toolName} — ${Date.now() - t0}ms`);
+        logger?.log(`[mcp] ${safeToolName} — ${Date.now() - t0}ms`);
       }
     }
-  });
+  }
+
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra) =>
+    // The single MCP-side output-budget boundary (finding M3) — see `capCallToolResult`.
+    capCallToolResult(await handleCallTool(request, extra.signal)),
+  );
 
   // ── resources/* and prompts/* + completion/* ──────────────────────────────
 
@@ -907,6 +1019,8 @@ export function buildStudioMcpServer(
   async function authorizeResourceDataAccess(
     input: {
       sourceId?: string;
+      /** The reading request's abort signal, threaded into the policy consult (finding H1). */
+      signal?: AbortSignal;
     } = {},
   ): Promise<string | null> {
     const gatedToolName = 'query_data_source';
@@ -917,16 +1031,24 @@ export function buildStudioMcpServer(
         `allow-list as the data tools. Add '${gatedToolName}' to allowedTools to permit it.`
       );
     }
-    const gate = await consultToolPolicyArgsOnly(gatedToolName, input, stateBox.current, {
+    // `signal` is stripped from the consult INPUT — a host policy inspecting
+    // `ctx.input` should see the source being read, not an internal plumbing object —
+    // and passed as a bound instead.
+    const { signal, ...consultInput } = input;
+    const gate = await consultToolPolicyArgsOnly(gatedToolName, consultInput, stateBox.current, {
       policy: sessionToolPolicy,
       transport: 'mcp',
       usage: sessionUsage,
+      // Finding H1: bound the host policy here too. This gate is reached from
+      // `resources/read` and from `summarise_page`'s per-source fan-out, neither of
+      // which had any bound on the consult before.
+      signal,
     });
     if (gate.kind === 'denied') {
       return gate.reason;
     }
     if (gate.kind === 'needs-approval') {
-      const bridged = await bridgeApproval(gatedToolName, input);
+      const bridged = await bridgeApproval(gatedToolName, consultInput);
       if (!bridged.approved) {
         return bridged.reason;
       }
@@ -948,7 +1070,10 @@ export function buildStudioMcpServer(
    * blocks every equivalent resource/prompt read. Returns a deny-reason string, or
    * `null` to proceed.
    */
-  async function authorizeResourceStateAccess(): Promise<string | null> {
+  async function authorizeResourceStateAccess(
+    /** The reading request's abort signal, threaded into the policy consult (finding H1). */
+    signal?: AbortSignal,
+  ): Promise<string | null> {
     const gatedToolName = 'get_dashboard_state';
     if (!isToolAllowed(gatedToolName)) {
       return (
@@ -962,6 +1087,8 @@ export function buildStudioMcpServer(
       policy: sessionToolPolicy,
       transport: 'mcp',
       usage: sessionUsage,
+      // Finding H1 — see `authorizeResourceDataAccess`.
+      signal,
     });
     if (gate.kind === 'denied') {
       return gate.reason;
@@ -982,6 +1109,10 @@ export function buildStudioMcpServer(
     contextEnricher,
     logger,
     subscribedUris,
+    // Invariant 17: gate the system-prompt resource's dynamic tool hints by the set this
+    // session actually advertises — see `advertisedToolNames`. The chat transport already
+    // passes its effective set; MCP did not, so the two transports disagreed.
+    advertisedToolNames,
     authorizeDataAccess: authorizeResourceDataAccess,
     authorizeStateAccess: authorizeResourceStateAccess,
   });
@@ -992,6 +1123,10 @@ export function buildStudioMcpServer(
     // `query_data_source_examples` serves a per-source schema slice of the same
     // payload family, so it must honor the same allowedTools/toolPolicy chokepoint.
     authorizeStateAccess: authorizeResourceStateAccess,
+    // Finding H2: the gate reaches host code (`toolPolicy`, `approvalHandler`), and a
+    // throw from it must be redacted rather than returned verbatim through
+    // `prompts/get`. The redaction writes the full detail here.
+    logger,
   });
 
   return server;

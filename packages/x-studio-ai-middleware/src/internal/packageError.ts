@@ -17,9 +17,11 @@
  *
  * So package-authored errors carry a brand, and the redaction helpers relay a branded
  * error verbatim while still redacting everything else. The brand is a
- * `Symbol.for` registry symbol and is checked as an own property rather than by
- * `instanceof`, so it survives a duplicated copy of this module in the dependency
- * graph.
+ * `Symbol.for` registry symbol and is read with `Object.hasOwn` rather than by an
+ * `instanceof` check against a class from this module, so it survives a duplicated
+ * copy of this module in the dependency graph — and, because the read is
+ * own-property-only, a host cannot opt its own error text out of redaction by putting
+ * the symbol on a prototype.
  *
  * Internal to the package — not exported from `index.ts`.
  */
@@ -62,8 +64,9 @@ export class StudioTimeoutError extends Error {
  *
  * Only ever apply it to messages built purely from server-authored prose and
  * compile-time constants — there is nothing untrusted in those to leak. The brand is an
- * OWN property keyed by a `Symbol.for` registry symbol (never an `instanceof` check),
- * so it survives a duplicated copy of this module in the dependency graph.
+ * OWN property keyed by a `Symbol.for` registry symbol, read with `Object.hasOwn` and
+ * never via an `instanceof` check against a class from this module, so it survives a
+ * duplicated copy of this module in the dependency graph.
  */
 export function markPackageAuthored(err: Error): Error {
   (err as unknown as Record<symbol, unknown>)[PACKAGE_AUTHORED_ERROR] = true;
@@ -78,6 +81,21 @@ export function markPackageAuthored(err: Error): Error {
 export function isPackageAuthoredError(err: unknown): err is Error {
   return (
     err instanceof Error &&
+    // `Object.hasOwn`, not a bare `err[PACKAGE_AUTHORED_ERROR]` read: a plain property
+    // read walks the PROTOTYPE CHAIN, so a host that subclasses `Error` and puts the
+    // registry symbol on its prototype (a plausible "mark all my errors relayable"
+    // shortcut — the symbol is reachable via `Symbol.for`) would flip redaction OFF for
+    // its own error text, which is the one thing this predicate exists to keep ON. The
+    // brand is only ever written as an OWN property — `StudioTimeoutError`'s class field
+    // and `markPackageAuthored`'s assignment both produce one — so requiring an own
+    // property costs nothing and makes the doc's claim true.
+    //
+    // The `instanceof Error` precondition is about the error TYPE, not the brand: it is
+    // what makes the `err is Error` predicate honest for the `err.message` reads at
+    // every call site. `Error` is a global, identical across duplicated copies of this
+    // module, so it does not reintroduce the module-identity fragility the `Symbol.for`
+    // brand avoids.
+    Object.hasOwn(err, PACKAGE_AUTHORED_ERROR) &&
     (err as unknown as Record<symbol, unknown>)[PACKAGE_AUTHORED_ERROR] === true
   );
 }

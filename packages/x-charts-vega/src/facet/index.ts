@@ -83,13 +83,6 @@ const DEFAULT_TOTAL_HEIGHT = 400;
 /** Below these, sub-charts stop being legible; the grid clamps and reports it. */
 const MIN_CELL_WIDTH = 120;
 const MIN_CELL_HEIGHT = 100;
-// A Vega-like default per-cell size. A wrapped/matrix facet grows to fit cells
-// at this size (the grid may exceed the passed width/height and the card
-// scrolls) rather than shrinking every cell to divide a small total — which
-// otherwise squishes trellis cells until their marks collapse.
-const TARGET_CELL_WIDTH = 260;
-const TARGET_CELL_HEIGHT = 200;
-
 export interface FacetOptions {
   /** Host-provided rows overriding/standing in for `spec.data`. */
   data?: readonly DatasetRow[];
@@ -510,31 +503,6 @@ function injectSharedScales(
 function stripFacetChannels(encoding: VegaEncoding): VegaEncoding {
   const { row, column, facet, ...rest } = encoding;
   return rest;
-}
-
-/** Per-cell width/height, clamped to a minimum with a `partial` gap when hit. */
-function cellSize(
-  options: FacetOptions,
-  columns: number,
-  rows: number,
-  gaps: TranslationGap[],
-): { width: number; height: number } {
-  const rawWidth = Math.floor(options.width / columns);
-  const rawHeight = Math.floor(options.height / rows);
-  const width = Math.max(TARGET_CELL_WIDTH, rawWidth);
-  const height = Math.max(TARGET_CELL_HEIGHT, rawHeight);
-  if (rawWidth < MIN_CELL_WIDTH || rawHeight < MIN_CELL_HEIGHT) {
-    gaps.push({
-      code: 'facet:min-cell-size',
-      message:
-        `The ${columns}×${rows} facet grid does not fit in the available ` +
-        `${options.width}×${options.height} area; cells are clamped to a minimum size and ` +
-        'the grid overflows. Increase `width`/`height` or reduce the number of facets.',
-      severity: 'partial',
-      path: 'facet',
-    });
-  }
-  return { width, height };
 }
 
 // Vega-Lite's `config.view.continuousWidth/Height` default. A bare `vega-lite`
@@ -1455,6 +1423,25 @@ function repeatGapPlan(message: string): FacetPlan {
  * layered spec within each cell. Cells keep independent scales (see the module
  * header) — no shared domain is injected.
  */
+/**
+ * A repeat cell's size, taken from the cell's OWN spec the way Vega sizes it
+ * (`naturalConcatSize`, exactly as `planConcat` does) rather than by dividing
+ * the available area between the cells.
+ *
+ * `cellSize` splits `options.width`/`height` across the grid, so a 1x3 repeat
+ * handed the gallery's 440x340 gave each cell the full 340px height —
+ * `interactive_crossfilter` rendered 400px-tall cells against Vega's 200px
+ * ones, roughly 1.6x the reference's ink. Vega sizes a repeat child from its
+ * own encoding (defaulting to VEGA_DEFAULT_VIEW), independent of how many
+ * siblings it has.
+ */
+function repeatCellSize(
+  cellSpec: VegaLiteSpec,
+  rows: readonly DatasetRow[],
+): { width: number; height: number } {
+  return naturalConcatSize(cellSpec, rows);
+}
+
 function planRepeat(spec: VegaLiteSpec, options: FacetOptions): FacetPlan {
   const template = spec.spec as VegaLiteSpec | undefined;
   if (!template || typeof template !== 'object') {
@@ -1487,12 +1474,12 @@ function planRepeat(spec: VegaLiteSpec, options: FacetOptions): FacetPlan {
     }
     const columns = Math.max(1, numericSize(spec.columns) ?? defaultWrapColumns(fields.length));
     const gridRows = Math.max(1, Math.ceil(fields.length / columns) || 1);
-    const { width, height } = cellSize(options, columns, gridRows, gaps);
     const cells = fields.map((field, index) => {
       const substituted = substituteRepeat(template, { repeat: field }, gaps) as VegaLiteSpec;
       const cellSpec = templateHasData
         ? substituted
         : ({ ...substituted, data: cellData } as VegaLiteSpec);
+      const { width, height } = repeatCellSize(cellSpec, rootRows);
       return { key: `repeat-${index}`, spec: cellSpec, header: field, width, height };
     });
     return { columns, rows: gridRows, cells, gaps };
@@ -1518,8 +1505,6 @@ function planRepeat(spec: VegaLiteSpec, options: FacetOptions): FacetPlan {
   const colValues = colFields ?? [undefined];
   const columns = Math.max(1, colValues.length);
   const gridRows = Math.max(1, rowValues.length);
-  const { width, height } = cellSize(options, columns, gridRows, gaps);
-
   const cells: FacetCell[] = [];
   rowValues.forEach((rowField, rowIndex) => {
     colValues.forEach((colField, colIndex) => {
@@ -1549,6 +1534,7 @@ function planRepeat(spec: VegaLiteSpec, options: FacetOptions): FacetPlan {
         cellSpec = templateHasData ? copy : ({ ...copy, data: cellData } as VegaLiteSpec);
       }
       const header = [colField, rowField].filter(Boolean).join(' × ') || undefined;
+      const { width, height } = repeatCellSize(cellSpec, rootRows);
       cells.push({ key: `repeat-${rowIndex}-${colIndex}`, spec: cellSpec, header, width, height });
     });
   });

@@ -19,6 +19,7 @@ import { isRelativeDateValue } from './filterUtils';
 import { selectFiltersForWidget } from './filterScoping';
 import type { RelativeDateValue } from './filterTypes';
 import { formatFieldValue } from './numberFormat';
+import { getStudioLocale } from './studioLocale';
 import { escapeCsvCell } from './csvUtils';
 import { DEFAULT_STUDIO_LOCALE_TEXT, type StudioLocaleText } from './StudioUIConfigContext';
 import { TextWidgetIcon } from '../icons/TextWidgetIcon';
@@ -329,7 +330,7 @@ function formatAbsoluteDate(value: unknown): string {
   // calendar date matches the stored one regardless of the viewer's offset.
   if (typeof value === 'string' && DATE_ONLY_RE.test(value)) {
     const [year, month, day] = value.split('-').map(Number);
-    return new Date(year, month - 1, day).toLocaleDateString(undefined, {
+    return new Date(year, month - 1, day).toLocaleDateString(getStudioLocale(), {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
@@ -339,7 +340,11 @@ function formatAbsoluteDate(value: unknown): string {
   if (Number.isNaN(d.getTime())) {
     return String(value);
   }
-  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  return d.toLocaleDateString(getStudioLocale(), {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
 }
 
 /**

@@ -105,13 +105,13 @@ export function StudioDataDrawer({ sx }: StudioDataDrawerProps = {}) {
         .length;
     let rowsText: string;
     if (getDataSourceRowState(source) !== 'unavailable') {
-      rowsText = `${source.rows!.length} ${localeText.dataDrawerRowsLabel}`;
+      rowsText = localeText.dataDrawerRowsLabel(source.rows!.length);
     } else if (isAwaitingDataSourceRows(source)) {
       rowsText = localeText.widgetLoadingLabel;
     } else {
       rowsText = localeText.dataDrawerRowsUnknown;
     }
-    return `${rowsText} · ${fieldCount} ${localeText.dataDrawerFieldsLabel}`;
+    return `${rowsText} · ${localeText.dataDrawerFieldsLabel(fieldCount)}`;
   };
 
   const selectedSourceCounts = selectedSource ? describeSourceCounts(selectedSource) : null;

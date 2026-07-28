@@ -5,6 +5,7 @@ import {
   type StudioLocaleText,
 } from '../internals/StudioUIConfigContext';
 import { normalizeJoinKey } from '../internals/joinKeys';
+import { getStudioLocale } from '../internals/studioLocale';
 import { aggregateValues } from './gridGrouping';
 
 interface GridSummaryConfig {
@@ -126,7 +127,7 @@ export function computeGridSummary(
     const label = aggregationLabel(effectiveAgg, localeText);
 
     if (effectiveAgg === 'count' || effectiveAgg === 'count_distinct') {
-      result.set(fieldId, `${label} ${raw.toLocaleString()}`);
+      result.set(fieldId, `${label} ${raw.toLocaleString(getStudioLocale())}`);
     } else {
       const formatted = formatFieldValue(raw, fieldDef);
       result.set(fieldId, `${label} ${formatted}`);

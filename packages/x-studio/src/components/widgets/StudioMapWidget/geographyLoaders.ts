@@ -19,6 +19,8 @@ import {
   normalizeToAlpha2,
   normalizeToStateAbbr,
 } from './countryUtils';
+import { getStudioLocale } from '../../../internals/studioLocale';
+import type { StudioLocaleText } from '../../../internals/localeText';
 
 export type GeographyLoader = () => Promise<ExtendedFeatureCollection>;
 
@@ -163,8 +165,8 @@ async function loadEuropeGeography(): Promise<ExtendedFeatureCollection> {
  * Localizes a built-in geography's selector label via `Intl.DisplayNames` (region display
  * names) instead of hardcoding the English name — this is pure UI chrome (a dropdown
  * option in the Map Setup panel's "Map type" picker), not a data-derived proper noun, so
- * it should track the active locale the same way `internals/temporalUtils.ts` uses
- * `Intl.DateTimeFormat(undefined, …)` for month names rather than a hardcoded English table.
+ * it should track the active locale the same way `internals/temporalUtils.ts` localizes
+ * month names rather than reading them from a hardcoded English table.
  *
  * `regionCode` is a UN M49 / ISO 3166-1 region code understood by `Intl.DisplayNames`'s
  * `'region'` type: `'001'` ("World"), `'150'` ("Europe"), or an ISO 3166-1 alpha-2 country
@@ -173,7 +175,7 @@ async function loadEuropeGeography(): Promise<ExtendedFeatureCollection> {
  */
 function getRegionDisplayName(regionCode: string, fallback: string): string {
   try {
-    const name = new Intl.DisplayNames(undefined, { type: 'region' }).of(regionCode);
+    const name = new Intl.DisplayNames(getStudioLocale(), { type: 'region' }).of(regionCode);
     if (!name) {
       return fallback;
     }
@@ -190,33 +192,49 @@ function getRegionDisplayName(regionCode: string, fallback: string): string {
 /**
  * The built-in geography definitions keyed by map type name.
  *
- * `fieldLabel`/`fieldHint` remain English-only here: fully localizing them needs new
- * `StudioLocaleText` tokens (e.g. a per-geography field label/hint) added in
- * `internals/localeText.ts`, which is outside this file's ownership boundary. They already
- * fall back to the localized generic `mapSetupRegionFieldLabel`/`mapSetupRegionFieldHelperText`
- * tokens for any CONSUMER geography that omits them (see `MapSetupPanel.tsx`); only the
- * built-in geographies' own copy is not yet routed through that mechanism.
+ * A function of `localeText` rather than a module-level constant: the `label` is localized
+ * (via `Intl.DisplayNames`) but `fieldLabel`/`fieldHint` used to be English literals, so a
+ * French dashboard rendered "Country field" and "A field containing ISO alpha-2 codes…"
+ * directly beneath "Monde". Both now come from `StudioLocaleText`, which means they can
+ * only be resolved once the resolved locale text is in hand — hence a factory. A constant
+ * also froze `label` at module-import time, before `<Studio locale={…} />` could be read.
+ *
+ * Call it through `useStudioGeographies()`, which memoizes per locale text and merges the
+ * consumer's `geographies` over the result.
+ *
+ * @param localeText - Resolved Studio locale text supplying the region field label/hint.
+ * @returns The built-in geography definitions, localized.
  */
-export const BUILT_IN_GEOGRAPHY_DEFINITIONS: Record<string, StudioMapGeographyDefinition> = {
-  world: {
-    loader: loadWorldGeography,
-    label: getRegionDisplayName('001', 'World'),
-    fieldLabel: 'Country field',
-    fieldHint: 'A field containing ISO alpha-2 codes, alpha-3 codes, or full country names.',
-    normalizer: normalizeToAlpha2,
-  },
-  usa: {
-    loader: loadUsaGeography,
-    label: getRegionDisplayName('US', 'United States'),
-    fieldLabel: 'State field',
-    fieldHint: 'A field containing US state names or 2-letter postal abbreviations.',
-    normalizer: normalizeToStateAbbr,
-  },
-  europe: {
-    loader: loadEuropeGeography,
-    label: getRegionDisplayName('150', 'Europe'),
-    fieldLabel: 'Country field',
-    fieldHint: 'A field containing ISO alpha-2 codes, alpha-3 codes, or full country names.',
-    normalizer: normalizeToAlpha2,
-  },
-};
+export function getBuiltInGeographyDefinitions(
+  localeText: Pick<
+    StudioLocaleText,
+    | 'mapSetupCountryFieldLabel'
+    | 'mapSetupCountryFieldHelperText'
+    | 'mapSetupStateFieldLabel'
+    | 'mapSetupStateFieldHelperText'
+  >,
+): Record<string, StudioMapGeographyDefinition> {
+  return {
+    world: {
+      loader: loadWorldGeography,
+      label: getRegionDisplayName('001', 'World'),
+      fieldLabel: localeText.mapSetupCountryFieldLabel,
+      fieldHint: localeText.mapSetupCountryFieldHelperText,
+      normalizer: normalizeToAlpha2,
+    },
+    usa: {
+      loader: loadUsaGeography,
+      label: getRegionDisplayName('US', 'United States'),
+      fieldLabel: localeText.mapSetupStateFieldLabel,
+      fieldHint: localeText.mapSetupStateFieldHelperText,
+      normalizer: normalizeToStateAbbr,
+    },
+    europe: {
+      loader: loadEuropeGeography,
+      label: getRegionDisplayName('150', 'Europe'),
+      fieldLabel: localeText.mapSetupCountryFieldLabel,
+      fieldHint: localeText.mapSetupCountryFieldHelperText,
+      normalizer: normalizeToAlpha2,
+    },
+  };
+}

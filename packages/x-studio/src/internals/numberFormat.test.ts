@@ -1,10 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   formatFieldValue,
   formatNumber,
+  formatPercent,
   getFormatCacheSizes,
   MAX_FORMAT_CACHE_ENTRIES,
 } from './numberFormat';
+import { setActiveStudioLocale } from './studioLocale';
 
 // Assertions use pattern matching rather than exact locale strings so the tests
 // pass regardless of the system locale (Intl.NumberFormat(undefined, ...) follows
@@ -231,5 +233,66 @@ describe('formatFieldValue', () => {
   it('does not format a number without a field descriptor', () => {
     // Without field info, falls back to String()
     expect(formatFieldValue(123)).toBe('123');
+  });
+});
+
+// ─── `<Studio locale={…} />` ─────────────────────────────────────────────────
+//
+// Every formatter in this module used to pass `undefined` as its locale argument, and the
+// seven preset formatters were module-level `const`s built once at import time — so a
+// dashboard rendered with `localeText={frLocaleText}` printed French labels next to
+// `1,234.5`. `getStudioLocale()` (published by `StudioProvider` from the `locale` prop) now
+// feeds all of them.
+
+describe('formatNumber — honours the active Studio locale', () => {
+  afterEach(() => {
+    setActiveStudioLocale(undefined);
+  });
+
+  it('formats the preset (non-precision) paths against the active locale', () => {
+    setActiveStudioLocale('de-DE');
+    // German groups with '.' and decimalises with ','.
+    expect(formatNumber(1234567, 'integer')).toBe('1.234.567');
+    expect(formatNumber(1234.5, 'decimal')).toBe('1.234,50');
+    expect(formatNumber(1234.567)).toBe('1.234,57');
+
+    setActiveStudioLocale('en-US');
+    expect(formatNumber(1234567, 'integer')).toBe('1,234,567');
+    expect(formatNumber(1234.5, 'decimal')).toBe('1,234.50');
+    expect(formatNumber(1234.567)).toBe('1,234.57');
+  });
+
+  it('formats the precision path against the active locale', () => {
+    setActiveStudioLocale('de-DE');
+    expect(formatNumber(1234.5, undefined, undefined, false, 2)).toBe('1.234,50');
+    setActiveStudioLocale('en-US');
+    expect(formatNumber(1234.5, undefined, undefined, false, 2)).toBe('1,234.50');
+  });
+
+  it('formats currency against the active locale', () => {
+    setActiveStudioLocale('de-DE');
+    const de = formatNumber(1234, 'currency', 'EUR');
+    setActiveStudioLocale('en-US');
+    const en = formatNumber(1234, 'currency', 'EUR');
+    // Same amount, same currency — different locales must not produce the same string
+    // (German puts the symbol last and groups with '.').
+    expect(de).not.toBe(en);
+    expect(de).toMatch(/1\.234/);
+    expect(en).toMatch(/1,234/);
+  });
+
+  it('formats percent against the active locale', () => {
+    setActiveStudioLocale('de-DE');
+    expect(formatPercent(42.5)).toMatch(/42,5/);
+    setActiveStudioLocale('en-US');
+    expect(formatPercent(42.5)).toMatch(/42\.5/);
+  });
+
+  it('keeps the preset cache bounded across locales', () => {
+    for (let i = 0; i < MAX_FORMAT_CACHE_ENTRIES * 2; i += 1) {
+      setActiveStudioLocale(`de-DE-u-nu-latn-x-p${i}`);
+      formatNumber(1, 'integer');
+    }
+    expect(getFormatCacheSizes().preset).toBeLessThanOrEqual(MAX_FORMAT_CACHE_ENTRIES);
   });
 });

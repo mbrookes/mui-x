@@ -45,6 +45,7 @@ import {
   type HeatmapData,
 } from '../../internals/chartAggregation';
 import { canDetectAnomalies, detectChartDataAnomalies } from '../../internals/anomalyDetection';
+import { getStudioLocale } from '../../internals/studioLocale';
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
@@ -266,7 +267,11 @@ function buildNumericStats(
 }
 
 function formatDate(d: Date): string {
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  return d.toLocaleDateString(getStudioLocale(), {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
 }
 
 /**

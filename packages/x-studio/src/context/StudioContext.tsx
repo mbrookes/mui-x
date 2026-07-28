@@ -8,11 +8,13 @@ import {
   useStudioFeatures,
   useStudioUIConfig,
   useStudioLocaleText,
+  useStudioLocale,
   useStudioGeographies,
   useCustomWidgetMap,
   DEFAULT_STUDIO_LOCALE_TEXT,
 } from '../internals/StudioUIConfigContext';
 import type { StudioLocaleText } from '../internals/StudioUIConfigContext';
+import { setActiveStudioLocale } from '../internals/studioLocale';
 import type { StudioAIConfig } from '../components/StudioChatPanel/studioBackendAdapter';
 import type { StudioMapGeographyDefinition } from '../components/widgets/StudioMapWidget/geographyLoaders';
 
@@ -48,6 +50,13 @@ export interface StudioProviderProps {
    */
   localeText?: Partial<StudioLocaleText>;
   /**
+   * BCP-47 language tag used by every `Intl` formatter in the package — numbers,
+   * currencies, dates, month names, region names. Pair it with `localeText` so the
+   * formatted values agree with the translated labels beside them.
+   * Defaults to the runtime/browser locale.
+   */
+  locale?: string;
+  /**
    * AI/LLM configuration. When provided and `featureFlags.aiChat` is not `false`,
    * the "Describe a widget" prompt appears in the compose drawer and the AI assistant panel is available.
    */
@@ -75,10 +84,19 @@ export function StudioProvider(props: StudioProviderProps) {
     tableSourceMode = 'explicit',
     featureFlags = EMPTY_FLAGS,
     localeText,
+    locale,
     aiConfig,
     customWidgets,
     geographies,
   } = props;
+
+  // Publish the locale for the non-React `Intl` helpers (`internals/numberFormat`,
+  // `internals/temporalUtils`, …) during render rather than in an effect: those helpers
+  // run inside the very same render pass, while the children below are being rendered,
+  // so a `useEffect` would leave the first paint formatted against the browser locale
+  // and only correct it on the second. See `internals/studioLocale.ts` for why this is a
+  // module-level value at all.
+  setActiveStudioLocale(locale);
 
   const uiConfig = React.useMemo(
     () => ({
@@ -87,11 +105,12 @@ export function StudioProvider(props: StudioProviderProps) {
       localeText: localeText
         ? { ...DEFAULT_STUDIO_LOCALE_TEXT, ...localeText }
         : DEFAULT_STUDIO_LOCALE_TEXT,
+      locale,
       aiConfig: aiConfig ?? null,
       customWidgets,
       geographies,
     }),
-    [tableSourceMode, featureFlags, localeText, aiConfig, customWidgets, geographies],
+    [tableSourceMode, featureFlags, localeText, locale, aiConfig, customWidgets, geographies],
   );
 
   return (
@@ -125,6 +144,7 @@ export {
   useStudioFeatures,
   useStudioUIConfig,
   useStudioLocaleText,
+  useStudioLocale,
   useStudioGeographies,
   useCustomWidgetMap,
 };

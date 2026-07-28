@@ -106,6 +106,7 @@ export {
   useStudioFeatures,
   useStudioUIConfig,
   useStudioLocaleText,
+  useStudioLocale,
   useStudioGeographies,
   useCustomWidgetMap,
   CanvasScrollContext,

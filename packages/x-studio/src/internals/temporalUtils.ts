@@ -1,6 +1,7 @@
 import { truncateToPeriod } from '@mui/x-studio-schema';
 import type { StudioDataSource } from '../models';
 import { DEFAULT_STUDIO_LOCALE_TEXT, type StudioLocaleText } from './localeText';
+import { getStudioLocale } from './studioLocale';
 
 export type XGroupBy = 'day' | 'week' | 'month' | 'quarter' | 'year';
 
@@ -333,22 +334,25 @@ export function truncateToGranularity(value: unknown, granularity: XGroupBy): st
 
 /**
  * Locale-aware short month name (e.g. 'Jan', 'janv.', 'Ene') via `Intl.DateTimeFormat`,
- * mirroring the `toLocaleDateString(undefined, …)` pattern already used by
- * `formatTemporalAxisLabel`'s non-grouped branch below — `undefined` resolves to the
- * runtime's active locale instead of hardcoding English month abbreviations.
+ * mirroring the `toLocaleDateString` pattern already used by `formatTemporalAxisLabel`'s
+ * non-grouped branch below — the dashboard's locale (`<Studio locale={…} />`, falling back
+ * to the runtime default) instead of hardcoded English month abbreviations.
  *
  * Deliberately NOT memoized in a module-level cache. A cache of the 12 names can only be
  * reused when the locale it was built under still applies, and there is no cheap way to
- * read the runtime's current default locale — `Intl.DateTimeFormat().resolvedOptions()`
- * requires constructing the very formatter the cache exists to avoid. A cache that skips
- * that check is worse than no cache: whichever locale populates it first wins for the
- * rest of the process and every other locale silently renders English month names. Since
- * a correctly-keyed cache would pay the construction cost anyway, the cache buys nothing,
- * so the formatter is simply built per call — exactly what the `toLocaleDateString`
- * branch below already does for the non-grouped path.
+ * read the runtime's current default locale in the fallback case — `Intl.DateTimeFormat()
+ * .resolvedOptions()` requires constructing the very formatter the cache exists to avoid.
+ * A cache that skips that check is worse than no cache: whichever locale populates it
+ * first wins for the rest of the process and every other locale silently renders English
+ * month names. Since a correctly-keyed cache would pay the construction cost anyway, the
+ * cache buys nothing, so the formatter is simply built per call — exactly what the
+ * `toLocaleDateString` branch below already does for the non-grouped path.
  */
 function getShortMonthName(monthIndex: number): string {
-  const formatter = new Intl.DateTimeFormat(undefined, { month: 'short', timeZone: 'UTC' });
+  const formatter = new Intl.DateTimeFormat(getStudioLocale(), {
+    month: 'short',
+    timeZone: 'UTC',
+  });
   return formatter.format(new Date(Date.UTC(2000, monthIndex, 1)));
 }
 
@@ -570,7 +574,7 @@ export function formatTemporalAxisLabel(
     return grouped ? formatPeriodLabel(grouped, localeText) : dateValue.toISOString();
   }
 
-  return dateValue.toLocaleDateString(undefined, {
+  return dateValue.toLocaleDateString(getStudioLocale(), {
     timeZone: 'UTC',
     year: 'numeric',
     month: 'short',

@@ -70,6 +70,24 @@ import { ptBR as studioPtBR } from '@mui/x-studio';
 const theme = createTheme(studioPtBR, datePtBR);
 ```
 
+## Number and date formatting
+
+`localeText` chooses the **strings**. The `locale` prop chooses the **formatting**: it is a BCP-47 language tag that every `Intl` formatter in the dashboard resolves against — numbers, currencies, dates, month names, and map region names.
+
+Set both. With only `localeText`, the formatters fall back to the browser's locale, so a French dashboard opened in an `en-US` browser renders French labels next to `1,234.5` and `Jan 5, 2026`:
+
+```tsx
+import { Studio, frLocaleText } from '@mui/x-studio';
+
+<Studio localeText={frLocaleText} locale="fr-FR" initialState={myState} />;
+```
+
+Omit `locale` to keep the previous behavior and format against the browser's locale.
+
+:::warning
+`locale` is read by non-React formatting helpers shared across the package, so two `<Studio>` instances mounted at the same time with different `locale` values share the last one rendered. Render one dashboard per locale.
+:::
+
 ## Partial override
 
 You do not need to provide every string. Pass only the tokens you want to change:
@@ -133,14 +151,13 @@ Defaults are the English strings shown in the right column.
 
 ### Widget states
 
-| Token                      | Default                                                            |
-| :------------------------- | :----------------------------------------------------------------- |
-| `widgetConfigureChartHint` | `'Use the Setup tab to configure this chart.'`                     |
-| `widgetConfigureGaugeHint` | `'Use the Setup tab to choose a gauge value field.'`               |
-| `widgetConfigurePivotHint` | `'Use the Setup tab to configure row, column, and value fields.'`  |
-| `widgetConfigureMapHint`   | `'Use the Setup tab to choose a country field and a value field.'` |
-| `widgetNoData`             | `'No data to display.'`                                            |
-| `widgetLoadError`          | `'Failed to load data'`                                            |
+| Token                      | Default                                                           |
+| :------------------------- | :---------------------------------------------------------------- |
+| `widgetConfigureChartHint` | `'Use the Setup tab to configure this chart.'`                    |
+| `widgetConfigureGaugeHint` | `'Use the Setup tab to choose a gauge value field.'`              |
+| `widgetConfigurePivotHint` | `'Use the Setup tab to configure row, column, and value fields.'` |
+| `widgetNoData`             | `'No data to display.'`                                           |
+| `widgetLoadError`          | `'Failed to load data'`                                           |
 
 ### Quick filter bar
 
@@ -211,7 +228,6 @@ These tokens are retained as public API for consumers who call `generateDashboar
 | `aiRegenerateTooltip` | `'Regenerate'`          |
 | `aiCopyTooltip`       | `'Copy'`                |
 | `aiCopiedTooltip`     | `'Copied!'`             |
-| `aiCloseTooltip`      | `'Close'`               |
 
 ### Widget type names
 
@@ -239,7 +255,6 @@ These tokens are retained as public API for consumers who call `generateDashboar
 
 | Token                               | Default                                                            |
 | :---------------------------------- | :----------------------------------------------------------------- |
-| `composeDrawerTabSetup`             | `'Setup'`                                                          |
 | `composeChooseWidgetType`           | `'Choose a widget type'`                                           |
 | `composeNoDataSources`              | `'No data sources available yet. Only text widgets can be added.'` |
 | `composeOnThisPage`                 | `'On this page'`                                                   |
@@ -264,31 +279,31 @@ These tokens are retained as public API for consumers who call `generateDashboar
 
 ### Text format panel
 
-| Token                            | Default          |
-| :------------------------------- | :--------------- |
-| `textFormatFontFamilyLabel`      | `'Font family'`  |
-| `textFormatFontSizeLabel`        | `'Font size'`    |
-| `textFormatColorLabel`           | `'Color'`        |
-| `textFormatColorPlaceholder`     | `'Default'`      |
-| `textFormatAlignLeftAriaLabel`   | `'Align left'`   |
-| `textFormatAlignCenterAriaLabel` | `'Align center'` |
-| `textFormatAlignRightAriaLabel`  | `'Align right'`  |
+| Token                            | Default                  |
+| :------------------------------- | :----------------------- |
+| `textFormatFontFamilyLabel`      | `'Font family'`          |
+| `textFormatFontSizeLabel`        | `'Font size'`            |
+| `textFormatFontSizeOption`       | `(px: number) => string` |
+| `textFormatColorLabel`           | `'Color'`                |
+| `textFormatColorPlaceholder`     | `'Default'`              |
+| `textFormatAlignLeftAriaLabel`   | `'Align left'`           |
+| `textFormatAlignCenterAriaLabel` | `'Align center'`         |
+| `textFormatAlignRightAriaLabel`  | `'Align right'`          |
 
 ### Data drawer
 
-| Token                         | Default                                                                           |
-| :---------------------------- | :-------------------------------------------------------------------------------- |
-| `dataDrawerNoSources`         | `'No data sources configured. Add a widget from the canvas to load sample data.'` |
-| `dataDrawerViewLineage`       | `'View data lineage'`                                                             |
-| `dataDrawerLineageTitle`      | `'Data lineage'`                                                                  |
-| `dataDrawerLineageHelper`     | `'Click a node to preview its data. Click an edge to inspect join key fields.'`   |
-| `dataDrawerRowsLabel`         | `'rows'`                                                                          |
-| `dataDrawerFieldsLabel`       | `'fields'`                                                                        |
-| `dataDrawerBackAriaLabel`     | `'Back to lineage graph'`                                                         |
-| `dataDrawerCloseAriaLabel`    | `'Close data lineage'`                                                            |
-| `dataDrawerEditTooltip`       | `'Edit'`                                                                          |
-| `dataDrawerDeleteTooltip`     | `'Delete'`                                                                        |
-| `dataDrawerViewSourceTooltip` | `'View source data'`                                                              |
+| Token                      | Default                                                                           |
+| :------------------------- | :-------------------------------------------------------------------------------- |
+| `dataDrawerNoSources`      | `'No data sources configured. Add a widget from the canvas to load sample data.'` |
+| `dataDrawerViewLineage`    | `'View data lineage'`                                                             |
+| `dataDrawerLineageTitle`   | `'Data lineage'`                                                                  |
+| `dataDrawerLineageHelper`  | `'Click a node to preview its data. Click an edge to inspect join key fields.'`   |
+| `dataDrawerRowsLabel`      | `(count: number) => string`                                                       |
+| `dataDrawerFieldsLabel`    | `(count: number) => string`                                                       |
+| `dataDrawerBackAriaLabel`  | `'Back to lineage graph'`                                                         |
+| `dataDrawerCloseAriaLabel` | `'Close data lineage'`                                                            |
+| `dataDrawerEditTooltip`    | `'Edit'`                                                                          |
+| `dataDrawerDeleteTooltip`  | `'Delete'`                                                                        |
 
 ### Relationship management
 
@@ -499,7 +514,6 @@ These tokens are retained as public API for consumers who call `generateDashboar
 | `mapSetupLegendPositionLabel` | `'Legend position'`                  |
 | `mapSetupScaleFromZeroLabel`  | `'Scale from zero'`                  |
 | `mapSetupClickableLabel`      | `'Clickable (filter source)'`        |
-| `mapSetupCrossFilterLabel`    | `'Respond to cross-filters'`         |
 | `mapSetupColorBlues`          | `'Blues'`                            |
 | `mapSetupColorReds`           | `'Reds'`                             |
 | `mapSetupColorGreens`         | `'Greens'`                           |
@@ -562,53 +576,27 @@ These tokens are retained as public API for consumers who call `generateDashboar
 | `textSetupBodyLabel`      | `'Body'`                                            |
 | `textSetupBodyHelper`     | `'Main content of the widget; supports plain text'` |
 
-### Page config panel
-
-| Token                                   | Default                |
-| :-------------------------------------- | :--------------------- |
-| `pageConfigPageSectionTitle`            | `'Page'`               |
-| `pageConfigCardsSectionTitle`           | `'Cards'`              |
-| `pageConfigBackgroundColourLabel`       | `'Background colour'`  |
-| `pageConfigBackgroundColourPlaceholder` | `'e.g. #f5f5f5'`       |
-| `pageConfigCardBackgroundLabel`         | `'Card background'`    |
-| `pageConfigCardBackgroundPlaceholder`   | `'e.g. #ffffff'`       |
-| `pageConfigPaddingLabel`                | `'Padding'`            |
-| `pageConfigCornerRadiusLabel`           | `'Corner radius (px)'` |
-| `pageConfigCardBorderLabel`             | `'Card border'`        |
-| `pageConfigBorderColourLabel`           | `'Border colour'`      |
-| `pageConfigBorderColourPlaceholder`     | `'e.g. #e0e0e0'`       |
-| `pageConfigBorderWidthLabel`            | `'Border width (px)'`  |
-
-### AI insight types
-
-| Token                    | Default         |
-| :----------------------- | :-------------- |
-| `insightTypeSummary`     | `'Summary'`     |
-| `insightTypeAnalysis`    | `'Analysis'`    |
-| `insightTypeForecast`    | `'Forecast'`    |
-| `insightTypeAnomaly`     | `'Anomaly'`     |
-| `insightTypeCorrelation` | `'Correlation'` |
-
 ### AI chat suggestions
 
 These are the pre-filled suggestion chips shown when the AI chat panel is first opened.
 
-| Token                           | Default                                          |
-| :------------------------------ | :----------------------------------------------- |
-| `aiSuggestionBarChart`          | `(numericLabel, catLabel) => string`             |
-| `aiSuggestionKpi`               | `(fieldLabel) => string`                         |
-| `aiSuggestionTable`             | `(sourceLabel) => string`                        |
-| `aiSuggestionChangeToLine`      | `(widgetTitle) => string`                        |
-| `aiSuggestionAddSparkline`      | `(widgetTitle) => string`                        |
-| `aiSuggestionAddDateFilter`     | `'Add a date filter to show the trend'`          |
-| `aiSuggestionAddPage`           | `'Add a new page'`                               |
-| `aiSuggestionSummarisePage`     | `'Summarise this page'`                          |
-| `aiSuggestionWhatDataAvailable` | `'What data is available?'`                      |
-| `chatNewConversationName`       | `'New conversation'`                             |
-| `chatSwitchConversationTooltip` | `'Switch conversation'`                          |
-| `chatVoiceInputStart`           | `'Start voice input'`                            |
-| `chatVoiceInputStop`            | `'Stop voice input'`                             |
-| `chatVoiceInputNotSupported`    | `'Voice input is not supported in this browser'` |
+| Token                           | Default                                 |
+| :------------------------------ | :-------------------------------------- |
+| `aiSuggestionBarChart`          | `(numericLabel, catLabel) => string`    |
+| `aiSuggestionKpi`               | `(fieldLabel) => string`                |
+| `aiSuggestionTable`             | `(sourceLabel) => string`               |
+| `aiSuggestionChangeToLine`      | `(widgetTitle) => string`               |
+| `aiSuggestionAddSparkline`      | `(widgetTitle) => string`               |
+| `aiSuggestionAddDateFilter`     | `'Add a date filter to show the trend'` |
+| `aiSuggestionAddPage`           | `'Add a new page'`                      |
+| `aiSuggestionSummarisePage`     | `'Summarise this page'`                 |
+| `aiSuggestionWhatDataAvailable` | `'What data is available?'`             |
+| `chatNewConversationName`       | `'New conversation'`                    |
+| `chatSwitchConversationTooltip` | `'Switch conversation'`                 |
+| `chatVoiceInputStart`           | `'Start voice input'`                   |
+| `chatVoiceInputStop`            | `'Stop voice input'`                    |
+| `chatMessageTokenCount`         | `(count: number) => string`             |
+| `chatMessageTurnCount`          | `(count: number) => string`             |
 
 ### Chart cross-source error messages
 
@@ -641,19 +629,20 @@ These are the pre-filled suggestion chips shown when the AI chat panel is first 
 
 These tokens are used in the interactive filter widgets on the dashboard (multi-select, date range, slider).
 
-| Token                           | Default                     |
-| :------------------------------ | :-------------------------- |
-| `filterWidgetClearAriaLabel`    | `'Clear filter'`            |
-| `filterWidgetSelectAllLabel`    | `'Select all'`              |
-| `filterWidgetClearAllLabel`     | `'Clear all'`               |
-| `filterWidgetAllLabel`          | `'All'`                     |
-| `filterWidgetNoOptionsLabel`    | `'No options'`              |
-| `filterWidgetSelectedCount`     | `(count: number) => string` |
-| `filterWidgetExcludeLabel`      | `'Exclude'`                 |
-| `filterWidgetExcludingLabel`    | `'Excluding'`               |
-| `filterWidgetDateFromLabel`     | `'From'`                    |
-| `filterWidgetDateToLabel`       | `'To'`                      |
-| `filterWidgetNoFieldConfigured` | `'No field configured'`     |
+| Token                              | Default                     |
+| :--------------------------------- | :-------------------------- |
+| `filterWidgetClearAriaLabel`       | `'Clear filter'`            |
+| `filterWidgetSelectAllLabel`       | `'Select all'`              |
+| `filterWidgetClearAllLabel`        | `'Clear all'`               |
+| `filterWidgetAllLabel`             | `'All'`                     |
+| `filterWidgetNoOptionsLabel`       | `'No options found'`        |
+| `filterWidgetNoSearchMatchesLabel` | `'No matches'`              |
+| `filterWidgetSelectedCount`        | `(count: number) => string` |
+| `filterWidgetExcludeLabel`         | `'Exclude'`                 |
+| `filterWidgetExcludingLabel`       | `'Excluding'`               |
+| `filterWidgetDateFromLabel`        | `'From'`                    |
+| `filterWidgetDateToLabel`          | `'To'`                      |
+| `filterWidgetNoFieldConfigured`    | `'No field configured'`     |
 
 ### Widget-level filter conditions panel
 
@@ -773,12 +762,11 @@ These are passed as `unit` into `dateFilterLast` / `dateFilterNext` above.
 
 ### Pivot table
 
-| Token                        | Default                          |
-| :--------------------------- | :------------------------------- |
-| `pivotCornerHeaderAriaLabel` | `'Corner cell'`                  |
-| `pivotBlankValueLabel`       | `'(blank)'`                      |
-| `pivotTotalLabel`            | `'Total'`                        |
-| `pivotRowsColumnsLabel`      | `(rowCount, colCount) => string` |
+| Token                        | Default         |
+| :--------------------------- | :-------------- |
+| `pivotCornerHeaderAriaLabel` | `'Corner cell'` |
+| `pivotBlankValueLabel`       | `'(blank)'`     |
+| `pivotTotalLabel`            | `'Total'`       |
 
 ### Expression field preview
 
@@ -873,14 +861,16 @@ These are passed as `unit` into `dateFilterLast` / `dateFilterNext` above.
 
 ### Filter rank (Top-N / Bottom-N)
 
-| Token                   | Default     |
-| :---------------------- | :---------- |
-| `filterRankTop`         | `'Top'`     |
-| `filterRankBottom`      | `'Bottom'`  |
-| `filterRankAggSumLabel` | `'Sum'`     |
-| `filterRankAggAvgLabel` | `'Average'` |
-| `filterRankAggMaxLabel` | `'Max'`     |
-| `filterRankAggMinLabel` | `'Min'`     |
+| Token                   | Default                     |
+| :---------------------- | :-------------------------- |
+| `filterRankTop`         | `'Top'`                     |
+| `filterRankBottom`      | `'Bottom'`                  |
+| `filterRankTopCount`    | `(count: number) => string` |
+| `filterRankBottomCount` | `(count: number) => string` |
+| `filterRankAggSumLabel` | `'Sum'`                     |
+| `filterRankAggAvgLabel` | `'Average'`                 |
+| `filterRankAggMaxLabel` | `'Max'`                     |
+| `filterRankAggMinLabel` | `'Min'`                     |
 
 ### Relative date filter
 
@@ -933,11 +923,15 @@ These are passed as `unit` into `dateFilterLast` / `dateFilterNext` above.
 
 ### Map setup panel (additional tokens)
 
-| Token                           | Default                                      |
-| :------------------------------ | :------------------------------------------- |
-| `mapSetupAggregationLabel`      | `'Aggregation'`                              |
-| `mapSetupRegionFieldLabel`      | `'Region field'`                             |
-| `mapSetupRegionFieldHelperText` | `'Field containing country or region codes'` |
+| Token                            | Default                                                                         |
+| :------------------------------- | :------------------------------------------------------------------------------ |
+| `mapSetupAggregationLabel`       | `'Aggregation'`                                                                 |
+| `mapSetupRegionFieldLabel`       | `'Region field'`                                                                |
+| `mapSetupRegionFieldHelperText`  | `'A field containing region identifiers matching the geography feature IDs.'`   |
+| `mapSetupCountryFieldLabel`      | `'Country field'`                                                               |
+| `mapSetupCountryFieldHelperText` | `'A field containing ISO alpha-2 codes, alpha-3 codes, or full country names.'` |
+| `mapSetupStateFieldLabel`        | `'State field'`                                                                 |
+| `mapSetupStateFieldHelperText`   | `'A field containing US state names or 2-letter postal abbreviations.'`         |
 
 ### Filter setup panel (additional tokens)
 
@@ -978,12 +972,6 @@ Shown in the compose drawer widget type picker.
 | :------------------------------ | :-------------- |
 | `dataSourceClearFieldAriaLabel` | `'Clear field'` |
 
-### Date range bar (additional tokens)
-
-| Token                      | Default               |
-| :------------------------- | :-------------------- |
-| `dateRangePresetAriaLabel` | `'Date range preset'` |
-
 ### KPI setup panel (additional tokens)
 
 | Token                          | Default                                  |
@@ -994,7 +982,6 @@ Shown in the compose drawer widget type picker.
 | `kpiSetupFillAreaLabel`        | `'Fill area'`                            |
 | `kpiSetupCumulativeLabel`      | `'Cumulative'`                           |
 | `kpiSetupAutoDateFilterPrefix` | `'Last'`                                 |
-| `kpiSetupCalculatedField`      | `'Add calculated field'`                 |
 | `kpiSetupInvertColours`        | `'Invert colours (below target = good)'` |
 
 ## Adding a custom translation
@@ -1035,15 +1022,34 @@ function MyCustomWidget() {
 
 This ensures your custom components automatically pick up any locale overrides provided by the application.
 
+## `useStudioLocale` hook
+
+Custom components that build their own `Intl` formatters should read the dashboard's BCP-47 tag from `useStudioLocale()` rather than passing `undefined`, so their numbers and dates match the rest of the dashboard:
+
+```tsx
+import { useStudioLocale } from '@mui/x-studio';
+
+function MyCustomWidget({ value }: { value: number }) {
+  const locale = useStudioLocale();
+  return <p>{value.toLocaleString(locale)}</p>;
+}
+```
+
+It returns `undefined` when the host did not set the `locale` prop, which is the correct argument to pass through to `Intl` for "use the runtime default".
+
 ## `StudioDashboard` support
 
-`localeText` is also available on `StudioDashboard`:
+`localeText` and `locale` are also available on `StudioDashboard`:
 
 ```tsx
 import { StudioDashboard } from '@mui/x-studio';
 import { ptBRLocaleText } from '@mui/x-studio';
 
-<StudioDashboard config={dashboardState} localeText={ptBRLocaleText} />;
+<StudioDashboard
+  config={dashboardState}
+  localeText={ptBRLocaleText}
+  locale="pt-BR"
+/>;
 ```
 
 ## `DEFAULT_STUDIO_LOCALE_TEXT`

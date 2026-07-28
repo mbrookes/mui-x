@@ -42,8 +42,6 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   widgetConfigureGaugeHint:
     'Utilice la pestaña Configurar para elegir el campo de valor del medidor.',
   widgetConfigurePivotHint: 'Utilice la pestaña Configurar para configurar la tabla dinámica.',
-  widgetConfigureMapHint:
-    'Utilice la pestaña Configurar para elegir el campo de país y el campo de valor.',
   widgetNoData: 'Sin datos',
   widgetLoadError: 'No se pudieron cargar los datos',
   mapGeographyLoadError: 'No se pudieron cargar los datos del mapa. Inténtelo de nuevo.',
@@ -51,7 +49,6 @@ export const esLocaleText: Partial<StudioLocaleText> = {
 
   // Quick filter bar
   quickFilterBarOpenFilters: 'Abrir panel de filtros',
-  quickFilterBarCloseFilters: 'Cerrar panel de filtros',
   quickFilterBarClearAll: 'Borrar todos los filtros',
   dateRangeBarFieldLabel: 'Rango de fechas',
 
@@ -88,7 +85,6 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   // AI assistant
   aiAssistantOpenTooltip: 'Abrir asistente de IA',
   aiAssistantCloseTooltip: 'Cerrar asistente de IA',
-  aiCloseTooltip: 'Cerrar',
   aiAssistantPanelTitle: 'Asistente de IA',
 
   // Drawer panel / sidebar
@@ -144,7 +140,6 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   dataTypeDatetime: 'Fecha y hora',
 
   // Compose drawer / widget picker
-  composeDrawerTabSetup: 'Configurar',
   composeChooseWidgetType: 'Elija un tipo de widget',
   composeNoDataSources:
     'No hay fuente de datos disponible. Sólo se pueden agregar widgets de texto.',
@@ -178,6 +173,7 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   textFormatSerifFont: 'Serifa',
   textFormatMonospaceFont: 'monoespaciado',
   textFormatDefaultSize: 'Estándar',
+  textFormatFontSizeOption: (px) => `${px} px`,
   textFormatAlignmentLabel: 'Alineación',
 
   // Data drawer
@@ -187,13 +183,12 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   dataDrawerLineageTitle: 'Linaje de datos',
   dataDrawerLineageHelper:
     'Haga clic en un nodo para ver sus datos. Haga clic en un borde para inspeccionar los campos clave de unión.',
-  dataDrawerRowsLabel: 'pauta',
-  dataDrawerFieldsLabel: 'campos',
+  dataDrawerRowsLabel: (count) => `${count} ${count === 1 ? 'fila' : 'filas'}`,
+  dataDrawerFieldsLabel: (count) => `${count} ${count === 1 ? 'campo' : 'campos'}`,
   dataDrawerBackAriaLabel: 'Volver al gráfico de linaje',
   dataDrawerCloseAriaLabel: 'Cerrar linaje de datos',
   dataDrawerEditTooltip: 'Editar',
   dataDrawerDeleteTooltip: 'Borrar',
-  dataDrawerViewSourceTooltip: 'Ver datos de origen',
   dataDrawerAddCalculatedField: 'Agregar campo calculado',
   dataDrawerNoData: (sourceLabel) => `No hay datos disponibles para ${sourceLabel}.`,
   dataDrawerMoreRows: (count) => `${count} fila${count === 1 ? '' : 's'} más`,
@@ -305,6 +300,8 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   filterRankAggMinLabel: 'Mínimo de todas las series.',
   filterRankTop: 'Más grande',
   filterRankBottom: 'Menores',
+  filterRankTopCount: (count) => `${count} mayores`,
+  filterRankBottomCount: (count) => `${count} menores`,
 
   // Filter summary
   filterSummaryAnyValue: 'cualquier valor',
@@ -560,8 +557,6 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   chartSetupSeriesNumericSumHelperText: 'Campo numérico sumado o promediado por categoría',
   chartSetupMixedSeriesBar: 'Bar',
   chartSetupMixedSeriesLine: 'Línea',
-  chartSetupCalculatedField: 'Campo calculado…',
-  chartSetupCategoryFieldLabel: 'Campo de categoría',
   chartSetupRemoveSplitByTooltip:
     'Elimine campos de medidas adicionales para habilitar la división por',
   chartSetupInnerRingLabel: 'Categoría de anillo interior',
@@ -604,13 +599,12 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   kpiSetupFillAreaLabel: 'Rellenar área',
   kpiSetupCumulativeLabel: 'Acumulado (total acumulado)',
   kpiSetupAutoDateFilterPrefix: 'Usando filtro de fecha:',
-  kpiSetupCalculatedField: 'Campo calculado…',
   kpiSetupInvertColours: 'Invertir colores (cuanto más pequeño, mejor)',
-  kpiSetupFixedWindowLabel: 'Trend window',
-  kpiSetupFixedWindowNone: 'From date filter',
-  kpiSetupFixedWindowMonth: 'Last 30 days',
-  kpiSetupFixedWindowQuarter: 'Last 90 days',
-  kpiSetupFixedWindowYear: 'Last 365 days',
+  kpiSetupFixedWindowLabel: 'Ventana de tendencia',
+  kpiSetupFixedWindowNone: 'Del filtro de fechas',
+  kpiSetupFixedWindowMonth: 'Últimos 30 días',
+  kpiSetupFixedWindowQuarter: 'Últimos 90 días',
+  kpiSetupFixedWindowYear: 'Últimos 365 días',
 
   // KPI widget
   kpiGrandTotalTooltip:
@@ -670,7 +664,6 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   mapSetupLegendPositionLabel: 'Posición del título',
   mapSetupScaleFromZeroLabel: 'Escalar desde cero',
   mapSetupClickableLabel: 'Se puede hacer clic (fuente de filtro)',
-  mapSetupCrossFilterLabel: 'Responder a filtros cruzados',
   mapSetupColorBlues: 'Azul',
   mapSetupColorReds: 'rojos',
   mapSetupColorGreens: 'Verduras',
@@ -690,6 +683,12 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   mapSetupRegionFieldLabel: 'Campo de región',
   mapSetupRegionFieldHelperText:
     'Un campo que contiene identificadores de región correspondientes a ID de recursos geográficos.',
+  mapSetupCountryFieldLabel: 'Campo de país',
+  mapSetupCountryFieldHelperText:
+    'Un campo que contiene códigos ISO alfa-2, alfa-3 o nombres completos de países.',
+  mapSetupStateFieldLabel: 'Campo de estado',
+  mapSetupStateFieldHelperText:
+    'Un campo que contiene nombres de estados de EE. UU. o abreviaturas postales de 2 letras.',
   mapSetupUnreachableFieldWarning:
     'Este campo no proviene de la fuente del widget ni de una fuente directamente relacionada, por lo que no se puede resolver y el mapa se mostrará en blanco.',
 
@@ -773,37 +772,13 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   textSetupBodyLabel: 'Cuerpo',
   textSetupBodyHelper: 'Contenido principal del widget; soporta texto plano',
 
-  // Page config panel
-  pageConfigPageSectionTitle: 'Página',
-  pageConfigCardsSectionTitle: 'Tarjetas',
-  pageConfigBackgroundColourLabel: 'Color de fondo',
-  pageConfigBackgroundColourPlaceholder: 'por ejemplo: #f5f5f5',
-  pageConfigCardBackgroundLabel: 'Fondo de la tarjeta',
-  pageConfigCardBackgroundPlaceholder: 'por ejemplo: #ffffff',
-  pageConfigPaddingLabel: 'Relleno',
-  pageConfigCornerRadiusLabel: 'Radio de esquina (px)',
-  pageConfigCardBorderLabel: 'Borde de la tarjeta',
-  pageConfigBorderColourLabel: 'Color del borde',
-  pageConfigBorderColourPlaceholder: 'por ejemplo: #e0e0e0',
-  pageConfigBorderWidthLabel: 'Ancho del borde (px)',
-  pageConfigPaddingNone: 'Ninguno',
-  pageConfigPaddingSmall: 'Pequeño (8px)',
-  pageConfigPaddingMedium: 'Medio (16 píxeles)',
-  pageConfigPaddingLarge: 'Grande (24px)',
-
-  // AI insight panel
-  insightTypeSummary: 'Resumen',
-  insightTypeAnalysis: 'Análisis',
-  insightTypeForecast: 'Pronóstico',
-  insightTypeAnomaly: 'Explicación de anomalía',
-  insightTypeCorrelation: 'Análisis de correlación',
-
   // Filter widget controls
   filterWidgetClearAriaLabel: 'Limpiar filtro',
   filterWidgetSelectAllLabel: 'Seleccionar todo',
   filterWidgetClearAllLabel: 'Borrar todo',
   filterWidgetAllLabel: 'Todo',
   filterWidgetNoOptionsLabel: 'No se encontraron opciones',
+  filterWidgetNoSearchMatchesLabel: 'Sin coincidencias',
   filterWidgetSelectedCount: (count) => `${count} seleccionado${count === 1 ? '' : 's'}`,
   filterWidgetExcludeLabel: 'Eliminar seleccionado',
   filterWidgetExcludingLabel: '⊘ Eliminando seleccionado',
@@ -811,9 +786,6 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   filterWidgetDateToLabel: 'Hasta',
   filterWidgetNoFieldConfigured:
     'No hay campos configurados. Seleccione un campo en el panel Redactar.',
-
-  // Date range bar
-  dateRangePresetAriaLabel: 'Rango de fechas preestablecido',
 
   // Data source field select
   dataSourceClearFieldAriaLabel: 'Borrar campo',
@@ -845,9 +817,6 @@ export const esLocaleText: Partial<StudioLocaleText> = {
     `Vista previa (medida en ${count.toLocaleString('es')} filas)`,
   expressionPreviewFirstRowsLabel: (count) =>
     `Vista previa (primeras ${count.toLocaleString('es')} filas)`,
-
-  // Pivot widget
-  pivotRowsColumnsLabel: (rowCount, colCount) => `${rowCount} filas × ${colCount} columnas`,
 
   // Gantt chart
   ganttHiddenRowsLabel: (count) =>
@@ -961,7 +930,6 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   chatEmptyStateSubtitle: 'Puedo añadir widgets, analizar sus datos y más',
   chatVoiceInputStart: 'Iniciar entrada de voz',
   chatVoiceInputStop: 'Detener la entrada de voz',
-  chatVoiceInputNotSupported: 'La entrada de voz no es compatible con este navegador',
   chatMessageCopyTooltip: 'Copiar',
   chatMessageCopiedTooltip: '\u00a1Copiado!',
   chatMessageCopyAriaLabel: 'Copiar mensaje',
@@ -970,6 +938,9 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   chatReasoningSectionLabel: 'Razonamiento',
   chatComposerStopGeneratingLabel: 'Detener generación',
   chatComposerSendMessageLabel: 'Enviar mensaje',
+  chatMessageTokenCount: (count) =>
+    `${count.toLocaleString('es')} ${count === 1 ? 'token' : 'tokens'}`,
+  chatMessageTurnCount: (count) => `${count} ${count === 1 ? 'turno' : 'turnos'}`,
 
   // AI chat tool-call card titles
   chatToolLabelGetDashboardState: 'Obtener estado del panel',
@@ -1007,7 +978,7 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   // Grid summary labels
   gridSummaryLabelSum: 'Total:',
   gridSummaryLabelAvg: 'Promedio:',
-  gridSummaryLabelCount: 'Contar:',
+  gridSummaryLabelCount: 'Recuento:',
   gridSummaryLabelCountDistinct: 'Único:',
   gridSummaryLabelMin: 'Mín.:',
   gridSummaryLabelMax: 'Máximo:',
@@ -1162,7 +1133,6 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   textSetupPromptHelper:
     'Describa lo que la IA debe escribir — puede consultar las fuentes de datos de esta página',
   textSetupAiModeLabel: 'Modo IA',
-  textSetupAiModeHelper: 'Utilice su texto como instrucción para generar contenido de IA',
 
   // Accessible names for otherwise-unlabeled form controls
   exprNodeKindAriaLabel: 'Tipo de entrada',

@@ -58,3 +58,70 @@ describe('locale completeness', () => {
     expect(nullish, `${name} has null/undefined values for: ${nullish.join(', ')}`).toHaveLength(0);
   });
 });
+
+/**
+ * The KPI trend-window block ("Trend window", "From date filter", "Last 30 days", …) was
+ * byte-identical English in ALL FOUR bundles — five keys, one coherent feature, appended to
+ * `DEFAULT_STUDIO_LOCALE_TEXT` after the translation pass and copied verbatim into every
+ * translation. Four independent translators do not all leave "Last 30 days" in English.
+ *
+ * The completeness test above cannot catch this: the keys were present in every bundle, just
+ * untranslated. This guards the general shape — a non-English bundle whose value for a key is
+ * character-for-character the English default is either an oversight or a deliberate
+ * loanword, and the latter has to be declared.
+ */
+describe('locale translation coverage', () => {
+  /**
+   * Keys whose value legitimately matches English in a given bundle. Each entry is a real
+   * loanword, an invariant abbreviation, or a proper noun — not an untranslated string.
+   */
+  const ALLOWED_ENGLISH: Record<string, Set<string>> = {
+    // "Modulo" is the mathematical term in French and German too, and the "(%)" operator
+    // symbol is invariant — es/ptBR accent it ("Módulo") purely because Spanish/Portuguese
+    // orthography requires the accent, not because the word differs.
+    fr: new Set(['exprOpModulo']),
+    de: new Set(['exprOpModulo']),
+    es: new Set<string>(),
+    ptBR: new Set<string>(),
+  };
+
+  it.each(BUNDLES)('$name does not leave the KPI trend-window block in English', ({ locale }) => {
+    const windowKeys = [
+      'kpiSetupFixedWindowLabel',
+      'kpiSetupFixedWindowNone',
+      'kpiSetupFixedWindowMonth',
+      'kpiSetupFixedWindowQuarter',
+      'kpiSetupFixedWindowYear',
+    ] as const;
+    const untranslated = windowKeys.filter(
+      (key) => locale[key] === DEFAULT_STUDIO_LOCALE_TEXT[key],
+    );
+    expect(
+      untranslated,
+      `left in English: ${untranslated.map((k) => `${k}="${DEFAULT_STUDIO_LOCALE_TEXT[k]}"`).join(', ')}`,
+    ).toHaveLength(0);
+  });
+
+  it.each(BUNDLES)(
+    '$name translates every multi-word English default it defines',
+    ({ name, locale }) => {
+      const allowed = ALLOWED_ENGLISH[name] ?? new Set<string>();
+      const identical = Object.entries(locale)
+        .filter(([key, value]) => {
+          if (typeof value !== 'string' || allowed.has(key)) {
+            return false;
+          }
+          const english =
+            DEFAULT_STUDIO_LOCALE_TEXT[key as keyof typeof DEFAULT_STUDIO_LOCALE_TEXT];
+          // Single words are frequently identical across languages by coincidence
+          // ("Total", "Min.", "Max."); a multi-word English sentence is not.
+          return typeof english === 'string' && english === value && /\s/.test(english.trim());
+        })
+        .map(([key]) => key);
+      expect(
+        identical,
+        `${name} leaves ${identical.length} multi-word default(s) in English: ${identical.join(', ')}`,
+      ).toHaveLength(0);
+    },
+  );
+});

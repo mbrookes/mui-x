@@ -740,7 +740,11 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                   {activeRankFilter && (
                     <Chip
                       size="small"
-                      label={`${activeRankFilter.rankDirection === 'bottom' ? localeText.filterRankBottom : localeText.filterRankTop} ${activeRankFilter.value}`}
+                      label={
+                        activeRankFilter.rankDirection === 'bottom'
+                          ? localeText.filterRankBottomCount(Number(activeRankFilter.value))
+                          : localeText.filterRankTopCount(Number(activeRankFilter.value))
+                      }
                       color="primary"
                       variant="outlined"
                       sx={{ flexShrink: 0, height: 20, fontSize: 11 }}

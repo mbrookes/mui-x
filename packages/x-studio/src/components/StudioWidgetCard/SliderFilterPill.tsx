@@ -4,6 +4,7 @@ import CancelIcon from '@mui/icons-material/Cancel';
 
 import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 import { formatFieldValue } from '../../internals/numberFormat';
+import { getStudioLocale } from '../../internals/studioLocale';
 import { resolveFieldDef } from '../widgets/StudioChartWidget/chartWidgetHelpers';
 import type { StudioDataSource, StudioExpressionField } from '../../models';
 
@@ -56,7 +57,11 @@ export function SliderFilterPill({
       // An unparseable bound must not render "Invalid Date" in the chip.
       return Number.isNaN(date.getTime())
         ? String(v)
-        : date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+        : date.toLocaleDateString(getStudioLocale(), {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+          });
     }
     const numeric = typeof v === 'number' ? v : Number(v);
     if (!Number.isFinite(numeric)) {
@@ -73,7 +78,7 @@ export function SliderFilterPill({
           currencyCode: fieldDef.currencyCode,
           precision: fieldDef.precision,
         })
-      : numeric.toLocaleString();
+      : numeric.toLocaleString(getStudioLocale());
   };
 
   if (!val) {

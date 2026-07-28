@@ -6,6 +6,8 @@
 // existing deep imports of `StudioLocaleText` / `DEFAULT_STUDIO_LOCALE_TEXT`
 // from `internals/StudioUIConfigContext` continue to resolve unchanged.
 
+import { getStudioLocale } from './studioLocale';
+
 /**
  * All translatable string tokens used by the Studio UI.
  * Pass a `Partial<StudioLocaleText>` to `<Studio localeText={…} />` to override
@@ -63,7 +65,6 @@ export interface StudioLocaleText {
   widgetConfigureChartHint: string;
   widgetConfigureGaugeHint: string;
   widgetConfigurePivotHint: string;
-  widgetConfigureMapHint: string;
   widgetNoData: string;
   widgetLoadError: string;
   mapGeographyLoadError: string;
@@ -72,7 +73,6 @@ export interface StudioLocaleText {
 
   // ── Quick filter bar ───────────────────────────────────────────────────────
   quickFilterBarOpenFilters: string;
-  quickFilterBarCloseFilters: string;
   quickFilterBarClearAll: string;
   quickFilterBarEnableFilter: string;
   quickFilterBarDisableFilter: string;
@@ -139,8 +139,6 @@ export interface StudioLocaleText {
   // ── AI assistant ───────────────────────────────────────────────────────────
   aiAssistantOpenTooltip: string;
   aiAssistantCloseTooltip: string;
-  /** Tooltip on the close button inside the chat panel header. */
-  aiCloseTooltip: string;
   /** Title shown in the AI assistant chat panel header. */
   aiAssistantPanelTitle: string;
 
@@ -199,7 +197,6 @@ export interface StudioLocaleText {
   dataTypeDatetime: string;
 
   // ── Compose drawer / widget picker ─────────────────────────────────────────
-  composeDrawerTabSetup: string;
   composeChooseWidgetType: string;
   composeNoDataSources: string;
   composeOnThisPage: string;
@@ -236,6 +233,14 @@ export interface StudioLocaleText {
   textFormatSerifFont: string;
   textFormatMonospaceFont: string;
   textFormatDefaultSize: string;
+  /**
+   * A font-size option in the text-widget size picker, e.g. "12 px".
+   *
+   * A token rather than a literal `` `${px} px` `` in the component: the unit is an
+   * abbreviation that not every locale writes the same way or spaces the same way, and the
+   * "Default" option one line above it is already localized.
+   */
+  textFormatFontSizeOption: (px: number) => string;
   textFormatAlignmentLabel: string;
 
   // ── Data drawer ────────────────────────────────────────────────────────────
@@ -243,15 +248,22 @@ export interface StudioLocaleText {
   dataDrawerViewLineage: string;
   dataDrawerLineageTitle: string;
   dataDrawerLineageHelper: string;
-  /** Singular/plural label for the row count displayed in the data drawer, e.g. "rows". */
-  dataDrawerRowsLabel: string;
-  /** Singular/plural label for the field count displayed in the data drawer, e.g. "fields". */
-  dataDrawerFieldsLabel: string;
+  /**
+   * Row count displayed in the data drawer, e.g. "1 row" / "24 rows".
+   *
+   * Takes the count rather than returning a bare noun: the call sites used to build the
+   * caption as `` `${count} ${dataDrawerRowsLabel}` ``, which pins the number BEFORE the
+   * noun and offers no singular form, so every locale rendered "1 rows". Languages that
+   * inflect the noun (or order the two differently) cannot express the correct string
+   * through a bare noun at all.
+   */
+  dataDrawerRowsLabel: (count: number) => string;
+  /** Field count displayed in the data drawer, e.g. "1 field" / "12 fields". */
+  dataDrawerFieldsLabel: (count: number) => string;
   dataDrawerBackAriaLabel: string;
   dataDrawerCloseAriaLabel: string;
   dataDrawerEditTooltip: string;
   dataDrawerDeleteTooltip: string;
-  dataDrawerViewSourceTooltip: string;
   dataDrawerAddCalculatedField: string;
   dataDrawerNoData: (sourceLabel: string) => string;
   dataDrawerMoreRows: (count: number) => string;
@@ -370,6 +382,16 @@ export interface StudioLocaleText {
   filterRankAggMinLabel: string;
   filterRankTop: string;
   filterRankBottom: string;
+  /**
+   * Widget-card chip for an active "top N" / "bottom N" rank filter, e.g. "Top 5".
+   *
+   * Separate from the bare `filterRankTop`/`filterRankBottom` (still used standalone as the
+   * direction toggle's own button labels) because the chip glues the direction word to a
+   * number, and not every locale puts the number after the word — French says
+   * "5 premiers", not "Premiers 5".
+   */
+  filterRankTopCount: (count: number) => string;
+  filterRankBottomCount: (count: number) => string;
 
   // ── Filter summary (drawer row / quick-filter-bar chip condensed descriptions) ──
   /** Shown for a selection-mode filter with no values chosen, e.g. "any value" */
@@ -685,8 +707,6 @@ export interface StudioLocaleText {
   chartSetupSeriesNumericSumHelperText: string;
   chartSetupMixedSeriesBar: string;
   chartSetupMixedSeriesLine: string;
-  chartSetupCalculatedField: string;
-  chartSetupCategoryFieldLabel: string;
   chartSetupRemoveSplitByTooltip: string;
   chartSetupFieldlessCountSplitByTooltip: string;
   chartSetupInnerRingLabel: string;
@@ -731,7 +751,6 @@ export interface StudioLocaleText {
   kpiSetupFillAreaLabel: string;
   kpiSetupCumulativeLabel: string;
   kpiSetupAutoDateFilterPrefix: string;
-  kpiSetupCalculatedField: string;
   kpiSetupInvertColours: string;
   kpiSetupFixedWindowLabel: string;
   kpiSetupFixedWindowNone: string;
@@ -795,7 +814,6 @@ export interface StudioLocaleText {
   mapSetupLegendPositionLabel: string;
   mapSetupScaleFromZeroLabel: string;
   mapSetupClickableLabel: string;
-  mapSetupCrossFilterLabel: string;
   mapSetupInteractionsTitle: string;
   mapSetupInteractionsDescription: string;
   mapSetupColorBlues: string;
@@ -816,6 +834,19 @@ export interface StudioLocaleText {
   mapFormatLegendAlignRight: string;
   mapSetupRegionFieldLabel: string;
   mapSetupRegionFieldHelperText: string;
+  /**
+   * Region-field label/help text for the built-in `'world'` and `'europe'` geographies.
+   *
+   * These live on `StudioLocaleText` rather than as literals on
+   * `BUILT_IN_GEOGRAPHY_DEFINITIONS` because the built-ins' `label` is already localized
+   * (via `Intl.DisplayNames`), so English literals here put "Country field" directly under
+   * "Monde" in a French dashboard.
+   */
+  mapSetupCountryFieldLabel: string;
+  mapSetupCountryFieldHelperText: string;
+  /** Region-field label/help text for the built-in `'usa'` geography. */
+  mapSetupStateFieldLabel: string;
+  mapSetupStateFieldHelperText: string;
   /** Warning shown when the region or value field is not reachable from the widget's source. */
   mapSetupUnreachableFieldWarning: string;
 
@@ -898,40 +929,27 @@ export interface StudioLocaleText {
   textSetupPromptHelper: string;
   /** @default 'AI mode' */
   textSetupAiModeLabel: string;
-  /** @default 'Use your text as a prompt to generate AI content' */
-  textSetupAiModeHelper: string;
-
-  // ── Page config panel ─────────────────────────────────────────────────────
-  pageConfigPageSectionTitle: string;
-  pageConfigCardsSectionTitle: string;
-  pageConfigBackgroundColourLabel: string;
-  pageConfigBackgroundColourPlaceholder: string;
-  pageConfigCardBackgroundLabel: string;
-  pageConfigCardBackgroundPlaceholder: string;
-  pageConfigPaddingLabel: string;
-  pageConfigCornerRadiusLabel: string;
-  pageConfigCardBorderLabel: string;
-  pageConfigBorderColourLabel: string;
-  pageConfigBorderColourPlaceholder: string;
-  pageConfigBorderWidthLabel: string;
-  pageConfigPaddingNone: string;
-  pageConfigPaddingSmall: string;
-  pageConfigPaddingMedium: string;
-  pageConfigPaddingLarge: string;
-
-  // ── AI insight panel ──────────────────────────────────────────────────────
-  insightTypeSummary: string;
-  insightTypeAnalysis: string;
-  insightTypeForecast: string;
-  insightTypeAnomaly: string;
-  insightTypeCorrelation: string;
 
   // ── Filter widget controls ────────────────────────────────────────────────
   filterWidgetClearAriaLabel: string;
   filterWidgetSelectAllLabel: string;
   filterWidgetClearAllLabel: string;
   filterWidgetAllLabel: string;
+  /**
+   * Shown when the field a filter widget is bound to genuinely has no selectable values —
+   * an empty source, or every value filtered away upstream.
+   *
+   * Do NOT reuse this for an empty SEARCH result: it asserts the field has no options,
+   * which is false (and confusing) when the field has hundreds and the user simply typed a
+   * string none of them contain. Use `filterWidgetNoSearchMatchesLabel` there.
+   */
   filterWidgetNoOptionsLabel: string;
+  /**
+   * Shown when a filter widget's search box is non-empty and matches none of the field's
+   * options. Distinct from `filterWidgetNoOptionsLabel`, which claims the field itself is
+   * empty.
+   */
+  filterWidgetNoSearchMatchesLabel: string;
   /** Returns a label like "3 selected" for the multi-select control. */
   filterWidgetSelectedCount: (count: number) => string;
   filterWidgetExcludeLabel: string;
@@ -939,9 +957,6 @@ export interface StudioLocaleText {
   filterWidgetDateFromLabel: string;
   filterWidgetDateToLabel: string;
   filterWidgetNoFieldConfigured: string;
-
-  // ── Date range bar ────────────────────────────────────────────────────────
-  dateRangePresetAriaLabel: string;
 
   // ── Data source field select ──────────────────────────────────────────────
   dataSourceClearFieldAriaLabel: string;
@@ -973,10 +988,6 @@ export interface StudioLocaleText {
   expressionPreviewMeasureLabel: (count: number) => string;
   /** Returns label like "Preview (first 100 rows)" */
   expressionPreviewFirstRowsLabel: (count: number) => string;
-
-  // ── Pivot widget ──────────────────────────────────────────────────────────
-  /** Returns e.g. "12 rows × 5 columns" */
-  pivotRowsColumnsLabel: (rowCount: number, colCount: number) => string;
 
   // ── Gantt chart ───────────────────────────────────────────────────────────
   /** Returns e.g. "+3 more rows not shown: increase widget height to see all" */
@@ -1131,8 +1142,6 @@ export interface StudioLocaleText {
   chatVoiceInputStart: string;
   /** Tooltip on the mic button when voice input is active (click to stop) */
   chatVoiceInputStop: string;
-  /** Tooltip/aria-label shown when SpeechRecognition is not available */
-  chatVoiceInputNotSupported: string;
   /** Tooltip shown on the copy-message button before copying */
   chatMessageCopyTooltip: string;
   /** Tooltip shown on the copy-message button after copying (for ~2 s) */
@@ -1149,6 +1158,14 @@ export interface StudioLocaleText {
   chatComposerStopGeneratingLabel: string;
   /** aria-label on the composer send button when idle (click to send) */
   chatComposerSendMessageLabel: string;
+  /**
+   * Token count in the development-only metadata caption under an assistant message,
+   * e.g. "1,234 tokens". Takes the raw count so the locale controls both the plural form
+   * and where the number sits relative to the noun.
+   */
+  chatMessageTokenCount: (count: number) => string;
+  /** Agentic-loop iteration count in that same caption, e.g. "3 turns". */
+  chatMessageTurnCount: (count: number) => string;
 
   // ── AI chat tool-call card titles ─────────────────────────────────────────
   chatToolLabelGetDashboardState: string;
@@ -1447,7 +1464,6 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   widgetConfigureChartHint: 'Use the Setup tab to configure this chart.',
   widgetConfigureGaugeHint: 'Use the Setup tab to choose a gauge value field.',
   widgetConfigurePivotHint: 'Use the Setup tab to configure row, column, and value fields.',
-  widgetConfigureMapHint: 'Use the Setup tab to choose a country field and a value field.',
   widgetNoData: 'No data to display.',
   widgetLoadError: 'Failed to load data',
   mapGeographyLoadError: 'Failed to load map data. Please try again.',
@@ -1455,7 +1471,6 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
 
   // Quick filter bar
   quickFilterBarOpenFilters: 'Open filters panel',
-  quickFilterBarCloseFilters: 'Close filters panel',
   quickFilterBarClearAll: 'Clear all filters',
   quickFilterBarEnableFilter: 'Enable filter',
   quickFilterBarDisableFilter: 'Disable filter',
@@ -1501,7 +1516,6 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   // AI assistant
   aiAssistantOpenTooltip: 'Open AI assistant',
   aiAssistantCloseTooltip: 'Close AI assistant',
-  aiCloseTooltip: 'Close',
   aiAssistantPanelTitle: 'AI Assistant',
 
   // Drawer panel / sidebar
@@ -1557,7 +1571,6 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   dataTypeDatetime: 'Date & Time',
 
   // Compose drawer / widget picker
-  composeDrawerTabSetup: 'Setup',
   composeChooseWidgetType: 'Choose a widget type or drag onto the page',
   composeNoDataSources: 'No data sources available yet. Only text widgets can be added.',
   composeOnThisPage: 'On this page',
@@ -1590,6 +1603,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   textFormatSerifFont: 'Serif',
   textFormatMonospaceFont: 'Monospace',
   textFormatDefaultSize: 'Default',
+  textFormatFontSizeOption: (px) => `${px} px`,
   textFormatAlignmentLabel: 'Alignment',
 
   // Data drawer
@@ -1599,13 +1613,12 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   dataDrawerLineageTitle: 'Data lineage',
   dataDrawerLineageHelper:
     'Click a node to preview its data. Click an edge to inspect join key fields.',
-  dataDrawerRowsLabel: 'rows',
-  dataDrawerFieldsLabel: 'fields',
+  dataDrawerRowsLabel: (count) => `${count} ${count === 1 ? 'row' : 'rows'}`,
+  dataDrawerFieldsLabel: (count) => `${count} ${count === 1 ? 'field' : 'fields'}`,
   dataDrawerBackAriaLabel: 'Back to lineage graph',
   dataDrawerCloseAriaLabel: 'Close data lineage',
   dataDrawerEditTooltip: 'Edit',
   dataDrawerDeleteTooltip: 'Delete',
-  dataDrawerViewSourceTooltip: 'View source data',
   dataDrawerAddCalculatedField: 'Add calculated field',
   dataDrawerNoData: (sourceLabel) => `No data available for ${sourceLabel}.`,
   dataDrawerMoreRows: (count) => `${count} more ${count === 1 ? 'row' : 'rows'}`,
@@ -1716,6 +1729,8 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   filterRankAggMinLabel: 'Min of all series',
   filterRankTop: 'Top',
   filterRankBottom: 'Bottom',
+  filterRankTopCount: (count) => `Top ${count}`,
+  filterRankBottomCount: (count) => `Bottom ${count}`,
 
   // Filter summary
   filterSummaryAnyValue: 'any value',
@@ -1998,8 +2013,6 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chartSetupSeriesNumericSumHelperText: 'Numeric field summed or averaged per category',
   chartSetupMixedSeriesBar: 'Bar',
   chartSetupMixedSeriesLine: 'Line',
-  chartSetupCalculatedField: 'Calculated field…',
-  chartSetupCategoryFieldLabel: 'Category field',
   chartSetupRemoveSplitByTooltip: 'Remove extra measure fields to enable split-by',
   chartSetupFieldlessCountSplitByTooltip: 'Pick a measure field to enable split-by',
   chartSetupInnerRingLabel: 'Inner ring category',
@@ -2043,7 +2056,6 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   kpiSetupFillAreaLabel: 'Fill area',
   kpiSetupCumulativeLabel: 'Cumulative (running total)',
   kpiSetupAutoDateFilterPrefix: 'Using date filter:',
-  kpiSetupCalculatedField: 'Calculated field…',
   kpiSetupInvertColours: 'Invert colors (lower is better)',
   kpiSetupFixedWindowLabel: 'Trend window',
   kpiSetupFixedWindowNone: 'From date filter',
@@ -2109,7 +2121,6 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   mapSetupLegendPositionLabel: 'Legend position',
   mapSetupScaleFromZeroLabel: 'Scale from zero',
   mapSetupClickableLabel: 'Clickable (filter source)',
-  mapSetupCrossFilterLabel: 'Respond to cross-filters',
   mapSetupInteractionsTitle: 'Interactions',
   mapSetupInteractionsDescription: 'When other widgets are clicked, this map…',
   mapSetupColorBlues: 'Blues',
@@ -2131,6 +2142,12 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   mapSetupRegionFieldLabel: 'Region field',
   mapSetupRegionFieldHelperText:
     'A field containing region identifiers matching the geography feature IDs.',
+  mapSetupCountryFieldLabel: 'Country field',
+  mapSetupCountryFieldHelperText:
+    'A field containing ISO alpha-2 codes, alpha-3 codes, or full country names.',
+  mapSetupStateFieldLabel: 'State field',
+  mapSetupStateFieldHelperText:
+    'A field containing US state names or 2-letter postal abbreviations.',
   mapSetupUnreachableFieldWarning:
     'This field is not from the widget source or a directly related source, so it cannot be resolved and the map will render blank.',
 
@@ -2212,32 +2229,6 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   textSetupPromptHelper:
     'Describe what the AI should write — it can query the data sources on this page',
   textSetupAiModeLabel: 'AI mode',
-  textSetupAiModeHelper: 'Use your text as a prompt to generate AI content',
-
-  // Page config panel
-  pageConfigPageSectionTitle: 'Page',
-  pageConfigCardsSectionTitle: 'Cards',
-  pageConfigBackgroundColourLabel: 'Background color',
-  pageConfigBackgroundColourPlaceholder: 'e.g. #f5f5f5',
-  pageConfigCardBackgroundLabel: 'Card background',
-  pageConfigCardBackgroundPlaceholder: 'e.g. #ffffff',
-  pageConfigPaddingLabel: 'Padding',
-  pageConfigCornerRadiusLabel: 'Corner radius (px)',
-  pageConfigCardBorderLabel: 'Card border',
-  pageConfigBorderColourLabel: 'Border color',
-  pageConfigBorderColourPlaceholder: 'e.g. #e0e0e0',
-  pageConfigBorderWidthLabel: 'Border width (px)',
-  pageConfigPaddingNone: 'None',
-  pageConfigPaddingSmall: 'Small (8px)',
-  pageConfigPaddingMedium: 'Medium (16px)',
-  pageConfigPaddingLarge: 'Large (24px)',
-
-  // AI insight panel
-  insightTypeSummary: 'Summary',
-  insightTypeAnalysis: 'Analysis',
-  insightTypeForecast: 'Forecast',
-  insightTypeAnomaly: 'Anomaly Explanation',
-  insightTypeCorrelation: 'Correlation Analysis',
 
   // Filter widget controls
   filterWidgetClearAriaLabel: 'Clear filter',
@@ -2245,15 +2236,13 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   filterWidgetClearAllLabel: 'Clear all',
   filterWidgetAllLabel: 'All',
   filterWidgetNoOptionsLabel: 'No options found',
+  filterWidgetNoSearchMatchesLabel: 'No matches',
   filterWidgetSelectedCount: (count) => `${count} selected`,
   filterWidgetExcludeLabel: 'Exclude selected',
   filterWidgetExcludingLabel: '\u2298 Excluding selected',
   filterWidgetDateFromLabel: 'From',
   filterWidgetDateToLabel: 'To',
   filterWidgetNoFieldConfigured: 'No field configured. Select a field in the Compose panel.',
-
-  // Date range bar
-  dateRangePresetAriaLabel: 'Date range preset',
 
   // Data source field select
   dataSourceClearFieldAriaLabel: 'Clear field',
@@ -2281,11 +2270,10 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   widgetFiltersPanelAddButton: 'Add filter',
 
   // Expression field preview
-  expressionPreviewMeasureLabel: (count) => `Preview (measure over ${count.toLocaleString()} rows)`,
-  expressionPreviewFirstRowsLabel: (count) => `Preview (first ${count.toLocaleString()} rows)`,
-
-  // Pivot widget
-  pivotRowsColumnsLabel: (rowCount, colCount) => `${rowCount} rows \u00d7 ${colCount} columns`,
+  expressionPreviewMeasureLabel: (count) =>
+    `Preview (measure over ${count.toLocaleString(getStudioLocale())} rows)`,
+  expressionPreviewFirstRowsLabel: (count) =>
+    `Preview (first ${count.toLocaleString(getStudioLocale())} rows)`,
 
   // Gantt chart
   ganttHiddenRowsLabel: (count) =>
@@ -2381,7 +2369,6 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chatEmptyStateSubtitle: 'I can add widgets, analyse your data, and more',
   chatVoiceInputStart: 'Start voice input',
   chatVoiceInputStop: 'Stop voice input',
-  chatVoiceInputNotSupported: 'Voice input is not supported in this browser',
   chatMessageCopyTooltip: 'Copy',
   chatMessageCopiedTooltip: 'Copied!',
   chatMessageCopyAriaLabel: 'Copy message',
@@ -2390,6 +2377,9 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chatReasoningSectionLabel: 'Reasoning',
   chatComposerStopGeneratingLabel: 'Stop generating',
   chatComposerSendMessageLabel: 'Send message',
+  chatMessageTokenCount: (count) =>
+    `${count.toLocaleString(getStudioLocale())} ${count === 1 ? 'token' : 'tokens'}`,
+  chatMessageTurnCount: (count) => `${count} ${count === 1 ? 'turn' : 'turns'}`,
 
   // AI chat tool-call card titles
   chatToolLabelGetDashboardState: 'Get dashboard state',

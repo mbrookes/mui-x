@@ -8,6 +8,8 @@
  * Normalization is deterministic — no fuzzy matching.
  */
 
+import { getStudioLocale } from '../../../internals/studioLocale';
+
 /** ISO alpha-3 → alpha-2 mapping for the ~195 UN member states. */
 const ALPHA3_TO_ALPHA2: Record<string, string> = {
   AFG: 'AF',
@@ -902,28 +904,32 @@ export const EUROPEAN_ALPHA2_CODES = new Set<string>([
 
 // ─── Display-name helpers ─────────────────────────────────────────────────────
 
-/** Cached Intl.DisplayNames instance for region (country) names. */
-let regionDisplayNames: Intl.DisplayNames | null = null;
+/**
+ * Cached `Intl.DisplayNames` instance for region (country) names, keyed by the locale it
+ * was built under. Keying matters: a single un-keyed instance would pin every subsequent
+ * lookup to whichever locale happened to construct it first, which is precisely the class
+ * of bug the hardcoded `['en']` argument used to cause (finding 3.13).
+ */
+const regionDisplayNamesCache = new Map<string, Intl.DisplayNames | null>();
 
 function getRegionDisplayNames(): Intl.DisplayNames | null {
-  if (regionDisplayNames) {
-    return regionDisplayNames;
+  // The dashboard's locale (`<Studio locale={…} />`), falling back to the runtime default
+  // when the host did not set one — the same resolution every other `Intl.*` construction
+  // in this package uses (`internals/numberFormat.ts`, `internals/temporalUtils.ts`).
+  const locale = getStudioLocale();
+  const key = locale ?? '';
+  if (regionDisplayNamesCache.has(key)) {
+    return regionDisplayNamesCache.get(key)!;
   }
+  let instance: Intl.DisplayNames | null = null;
   try {
-    // Resolve the runtime's active locale (`undefined` locales arg), matching every
-    // other `Intl.*` construction in this package (`numberFormat.ts`,
-    // `toLocaleDateString(undefined, …)` in `kpiUtils.ts`/`temporalUtils.ts`/
-    // `StudioGanttChart.tsx`/`widgetUtils.tsx`) — none of them thread a locale code
-    // from `StudioLocaleText` (which only carries translated strings, not a BCP-47
-    // tag), they all defer to the browser/runtime default. Hardcoding `['en']` here
-    // was the one outlier, pinning region names to English regardless of the
-    // viewer's locale (finding 3.13).
-    // react-doctor-disable-next-line react-doctor/js-hoist-intl -- already lazy-cached at module scope
-    regionDisplayNames = new Intl.DisplayNames(undefined, { type: 'region' });
-    return regionDisplayNames;
+    // react-doctor-disable-next-line react-doctor/js-hoist-intl -- lazy-cached per locale at module scope
+    instance = new Intl.DisplayNames(locale, { type: 'region' });
   } catch {
-    return null;
+    instance = null;
   }
+  regionDisplayNamesCache.set(key, instance);
+  return instance;
 }
 
 /**

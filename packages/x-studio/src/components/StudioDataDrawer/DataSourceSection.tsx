@@ -129,7 +129,7 @@ export function DataSourceSection(props: {
   const awaitingRows = isAwaitingDataSourceRows(source);
   let rowCountText: string;
   if (rowState !== 'unavailable') {
-    rowCountText = `${source.rows!.length} ${localeText.dataDrawerRowsLabel}`;
+    rowCountText = localeText.dataDrawerRowsLabel(source.rows!.length);
   } else if (awaitingRows) {
     // An adapter is on its way with the real count.
     rowCountText = localeText.widgetLoadingLabel;
@@ -137,7 +137,7 @@ export function DataSourceSection(props: {
     // No rows, no adapter to deliver any — the count is simply unknown from here.
     rowCountText = localeText.dataDrawerRowsUnknown;
   }
-  const sectionSecondaryText = `${visibleFieldCount} ${localeText.dataDrawerFieldsLabel} · ${rowCountText}`;
+  const sectionSecondaryText = `${localeText.dataDrawerFieldsLabel(visibleFieldCount)} · ${rowCountText}`;
 
   return (
     <div>

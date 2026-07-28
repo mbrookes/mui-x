@@ -4,6 +4,7 @@ import * as React from 'react';
 import { Box, Typography } from '@mui/material';
 import { ChatMessage } from '@mui/x-chat';
 import { useMessageContext } from '@mui/x-chat/headless';
+import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 
 // ── StudioMessageRoot — message row wrapper that appends model/token metadata ──
 // Defined at module level (stable ref) so ChatBox doesn't re-mount on every render.
@@ -27,6 +28,7 @@ export function StudioMessageRoot({
 }) {
   // messageId is not forwarded as a prop to the root slot — it lives in MessageContextProvider.
   const { messageId, message } = useMessageContext();
+  const localeText = useStudioLocaleText();
   const metadata = message?.metadata as StudioMessageMetadata | undefined;
   const isAssistant = message?.role === 'assistant';
   const hasMetadata = Boolean(metadata?.model || metadata?.inputTokens != null);
@@ -64,12 +66,12 @@ export function StudioMessageRoot({
           )}
           {totalTokens > 0 && (
             <Typography variant="inherit" component="span">
-              {totalTokens.toLocaleString()} tokens
+              {localeText.chatMessageTokenCount(totalTokens)}
             </Typography>
           )}
           {metadata?.iterations != null && metadata.iterations > 1 && (
             <Typography variant="inherit" component="span">
-              {metadata.iterations} turns
+              {localeText.chatMessageTurnCount(metadata.iterations)}
             </Typography>
           )}
         </Box>

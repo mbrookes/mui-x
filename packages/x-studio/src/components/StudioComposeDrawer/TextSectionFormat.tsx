@@ -38,6 +38,9 @@ interface TextSectionFormatProps {
 
 const NAMED_FONTS = ['sans-serif', 'serif', 'monospace'];
 
+/** Font sizes (px) offered in the size picker, rendered via `textFormatFontSizeOption`. */
+const FONT_SIZES = [12, 14, 16, 18, 20, 24, 32, 40];
+
 export function TextSectionFormat(props: TextSectionFormatProps) {
   const {
     label,
@@ -96,14 +99,11 @@ export function TextSectionFormat(props: TextSectionFormatProps) {
             }}
           >
             <MenuItem value={0}>{localeText.textFormatDefaultSize}</MenuItem>
-            <MenuItem value={12}>12 px</MenuItem>
-            <MenuItem value={14}>14 px</MenuItem>
-            <MenuItem value={16}>16 px</MenuItem>
-            <MenuItem value={18}>18 px</MenuItem>
-            <MenuItem value={20}>20 px</MenuItem>
-            <MenuItem value={24}>24 px</MenuItem>
-            <MenuItem value={32}>32 px</MenuItem>
-            <MenuItem value={40}>40 px</MenuItem>
+            {FONT_SIZES.map((px) => (
+              <MenuItem key={px} value={px}>
+                {localeText.textFormatFontSizeOption(px)}
+              </MenuItem>
+            ))}
           </Select>
         </FormControl>
 

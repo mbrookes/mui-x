@@ -25,7 +25,7 @@ import type {
 } from '../models';
 import type { StudioAIConfig } from '../components/StudioChatPanel/studioBackendAdapter';
 import {
-  BUILT_IN_GEOGRAPHY_DEFINITIONS,
+  getBuiltInGeographyDefinitions,
   type StudioMapGeographyDefinition,
 } from '../components/widgets/StudioMapWidget/geographyLoaders';
 import { DEFAULT_STUDIO_LOCALE_TEXT } from './localeText';
@@ -60,6 +60,12 @@ interface StudioUIConfig {
    * override to change individual strings.
    */
   localeText: StudioLocaleText;
+  /**
+   * BCP-47 language tag every `Intl` formatter in the package resolves against
+   * (numbers, currencies, dates, month names, region names).
+   * `undefined` falls back to the runtime/browser locale.
+   */
+  locale?: string;
   /**
    * AI/LLM configuration for the natural language widget creator and AI chat assistant.
    * When provided, the "Describe a widget" prompt appears in the compose drawer.
@@ -135,7 +141,7 @@ export function useCustomWidgetMap(): CustomWidgetMap {
  * by registering a definition under the same key (`'world'`, `'usa'`, `'europe'`).
  */
 export function useStudioGeographies(): Record<string, StudioMapGeographyDefinition> {
-  const { geographies } = useStudioUIConfig();
+  const { geographies, localeText } = useStudioUIConfig();
   // Depend on `geographies` itself, not on a derived key list. A prior version keyed this
   // memo on `JSON.stringify(Object.keys(geographies ?? {}))` — a proxy that only tracked the
   // SET of registered geography keys. That went stale whenever a consumer updated a
@@ -147,9 +153,13 @@ export function useStudioGeographies(): Record<string, StudioMapGeographyDefinit
   // directly recomputes whenever the caller passes a new `geographies` value, which is the
   // correct signal for content changes (a consumer that mutates a definition in place without
   // producing a new object reference is already outside React's change-detection contract).
+  //
+  // `localeText` joins the dependency list because the built-ins' region field label/hint now
+  // come from it (they used to be English literals baked into the definitions module), so a
+  // locale change has to rebuild them.
   return React.useMemo(
-    () => ({ ...BUILT_IN_GEOGRAPHY_DEFINITIONS, ...geographies }),
-    [geographies],
+    () => ({ ...getBuiltInGeographyDefinitions(localeText), ...geographies }),
+    [geographies, localeText],
   );
 }
 
@@ -160,6 +170,20 @@ export function useStudioGeographies(): Record<string, StudioMapGeographyDefinit
 export function useStudioLocaleText(): StudioLocaleText {
   const { localeText } = useStudioUIConfig();
   return localeText;
+}
+
+/**
+ * Returns the BCP-47 tag passed as `<Studio locale={…} />`, or `undefined` when the host
+ * did not set one (formatters then resolve to the runtime/browser locale).
+ *
+ * Use this in React components that build their own `Intl` formatters. Non-React helpers
+ * should call `getStudioLocale()` from `internals/studioLocale` instead.
+ *
+ * @returns The active BCP-47 language tag, or `undefined`.
+ */
+export function useStudioLocale(): string | undefined {
+  const { locale } = useStudioUIConfig();
+  return locale;
 }
 
 /**

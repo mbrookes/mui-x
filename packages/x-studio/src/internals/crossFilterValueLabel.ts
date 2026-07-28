@@ -19,6 +19,8 @@
  * month names in a fixed DMY order no matter the dashboard's locale.
  */
 
+import { getStudioLocale } from './studioLocale';
+
 /**
  * The range bounds reaching this function are the plain `YYYY-MM-DD` strings produced by
  * `periodKeyToDateRange`. `new Date('YYYY-MM-DD')` parses as UTC midnight, so the formatter
@@ -33,7 +35,7 @@ function formatRangeBound(date?: string): string {
   if (Number.isNaN(parsed.getTime())) {
     return date;
   }
-  return parsed.toLocaleDateString(undefined, {
+  return parsed.toLocaleDateString(getStudioLocale(), {
     timeZone: 'UTC',
     year: 'numeric',
     month: 'short',

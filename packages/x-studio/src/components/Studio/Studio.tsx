@@ -190,6 +190,22 @@ export interface StudioProps extends StudioSlots {
    */
   localeText?: Partial<StudioLocaleText>;
   /**
+   * BCP-47 language tag used by every `Intl` formatter in the dashboard — numbers,
+   * currencies, dates, month names, and map region names.
+   *
+   * `localeText` chooses the STRINGS; this chooses the FORMATTING. Set both, or a French
+   * bundle in an `en-US` browser renders French labels next to `1,234.5` and
+   * `Jan 5, 2026`.
+   *
+   * Defaults to the runtime/browser locale.
+   * @example
+   * ```tsx
+   * import { frLocaleText } from '@mui/x-studio';
+   * <Studio localeText={frLocaleText} locale="fr-FR" />
+   * ```
+   */
+  locale?: string;
+  /**
    * Canvas width (in px) below which all widgets stack to full width in view mode.
    * Individual pages can override this via `StudioPage.stackBreakpoint`.
    * Set to `0` to disable responsive stacking entirely.
@@ -281,8 +297,15 @@ export const Studio = React.memo(
   // react-doctor-disable-next-line react-doctor/no-react19-deprecated-apis
   React.forwardRef<StudioHandle, StudioProps>(function Studio(inProps, ref) {
     const props = useThemeProps({ props: inProps, name: 'MuiStudio' });
-    const { initialState, onStateChange, tableSourceMode, featureFlags, localeText, ...slots } =
-      props;
+    const {
+      initialState,
+      onStateChange,
+      tableSourceMode,
+      featureFlags,
+      localeText,
+      locale,
+      ...slots
+    } = props;
     const aiConfig = (slots as { aiConfig?: StudioAIConfig | null }).aiConfig;
     const customWidgets = (slots as { customWidgets?: StudioCustomWidgetDef[] }).customWidgets;
     const geographies = (slots as { geographies?: Record<string, StudioMapGeographyDefinition> })
@@ -343,6 +366,7 @@ export const Studio = React.memo(
           tableSourceMode={tableSourceMode}
           featureFlags={featureFlags}
           localeText={localeText}
+          locale={locale}
           aiConfig={aiConfig}
           customWidgets={customWidgets}
           geographies={geographies}

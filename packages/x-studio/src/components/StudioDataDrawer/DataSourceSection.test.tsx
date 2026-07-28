@@ -373,4 +373,61 @@ describe('DataSourceSection', () => {
       expect(removeSpy).toHaveBeenCalledWith('e1');
     });
   });
+
+  // The header caption used to be assembled as `${count} ${localeText.dataDrawerRowsLabel}`
+  // with a bare plural noun, so it read "1 rows" and "1 fields" in EVERY locale — and no
+  // language that inflects the noun could ever produce the right string through that shape.
+  // The tokens now take the count.
+  describe('row/field count pluralization', () => {
+    function renderWith(source: StudioDataSource, providerProps?: { localeText?: any }) {
+      const { wrapper } = createStudioHarness({ providerProps });
+      return render(
+        <DataSourceSection
+          source={source}
+          expressionFields={[]}
+          dataSources={{ [source.id]: source }}
+          relationships={[]}
+          isEditMode={false}
+        />,
+        { wrapper },
+      );
+    }
+
+    it('uses the singular form for exactly one row and one field', () => {
+      renderWith({
+        id: 'orders',
+        label: 'Orders',
+        fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+        rows: [{ amount: 1 }],
+      });
+
+      expect(screen.getByText('1 field · 1 row')).not.toBe(null);
+      expect(screen.queryByText(/1 rows/)).toBe(null);
+      expect(screen.queryByText(/1 fields/)).toBe(null);
+    });
+
+    it('uses the plural form for other counts', () => {
+      renderWith(SOURCE);
+      expect(screen.getByText('2 fields · 1 row')).not.toBe(null);
+    });
+
+    it('lets a locale bundle place the number and inflect the noun itself', () => {
+      renderWith(
+        {
+          id: 'orders',
+          label: 'Orders',
+          fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+          rows: [{ amount: 1 }],
+        },
+        {
+          localeText: {
+            dataDrawerRowsLabel: (count: number) => `Zeilen: ${count}`,
+            dataDrawerFieldsLabel: (count: number) => `Felder: ${count}`,
+          },
+        },
+      );
+
+      expect(screen.getByText('Felder: 1 · Zeilen: 1')).not.toBe(null);
+    });
+  });
 });

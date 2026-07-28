@@ -86,6 +86,13 @@ export interface StudioDashboardProps {
    */
   localeText?: Partial<StudioLocaleText>;
   /**
+   * BCP-47 language tag used by every `Intl` formatter in the dashboard — numbers,
+   * currencies, dates, month names, and map region names. Pair it with `localeText`, or the
+   * formatters resolve to the browser's locale while the labels use the chosen bundle.
+   * Defaults to the runtime/browser locale.
+   */
+  locale?: string;
+  /**
    * Canvas width (in px) below which all widgets stack to full width.
    * @default 600
    */
@@ -134,6 +141,7 @@ export const StudioDashboard = React.memo(function StudioDashboard({
   onStateChange,
   featureFlags,
   localeText,
+  locale,
   stackBreakpoint,
   sidebarSide,
   customWidgets,
@@ -251,6 +259,7 @@ export const StudioDashboard = React.memo(function StudioDashboard({
         onStateChange={onStateChange}
         featureFlags={mergedFlags}
         localeText={localeText}
+        locale={locale}
         stackBreakpoint={stackBreakpoint}
         sidebarSide={sidebarSide}
         customWidgets={customWidgets}

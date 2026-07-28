@@ -41,7 +41,6 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   widgetConfigureChartHint: 'Use a aba Configurar para configurar este gráfico.',
   widgetConfigureGaugeHint: 'Use a aba Configurar para escolher o campo de valor do medidor.',
   widgetConfigurePivotHint: 'Use a aba Configurar para configurar a tabela dinâmica.',
-  widgetConfigureMapHint: 'Use a aba Configurar para escolher o campo de país e o campo de valor.',
   widgetNoData: 'Sem dados',
   widgetLoadError: 'Falha ao carregar dados',
   mapGeographyLoadError: 'Falha ao carregar dados do mapa. Tente novamente.',
@@ -49,7 +48,6 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
 
   // Quick filter bar
   quickFilterBarOpenFilters: 'Abrir painel de filtros',
-  quickFilterBarCloseFilters: 'Fechar painel de filtros',
   quickFilterBarClearAll: 'Limpar todos os filtros',
   dateRangeBarFieldLabel: 'Intervalo de datas',
 
@@ -86,7 +84,6 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   // AI assistant
   aiAssistantOpenTooltip: 'Abrir assistente de IA',
   aiAssistantCloseTooltip: 'Fechar assistente de IA',
-  aiCloseTooltip: 'Fechar',
   aiAssistantPanelTitle: 'Assistente de IA',
 
   // Drawer panel / sidebar
@@ -142,7 +139,6 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   dataTypeDatetime: 'Data e hora',
 
   // Compose drawer / widget picker
-  composeDrawerTabSetup: 'Configurar',
   composeChooseWidgetType: 'Escolha um tipo de widget',
   composeNoDataSources:
     'Nenhuma fonte de dados disponível. Apenas widgets de texto podem ser adicionados.',
@@ -176,6 +172,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   textFormatSerifFont: 'Serifa',
   textFormatMonospaceFont: 'Monoespaçada',
   textFormatDefaultSize: 'Padrão',
+  textFormatFontSizeOption: (px) => `${px} px`,
   textFormatAlignmentLabel: 'Alinhamento',
 
   // Data drawer
@@ -185,13 +182,12 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   dataDrawerLineageTitle: 'Linhagem de dados',
   dataDrawerLineageHelper:
     'Clique em um nó para visualizar seus dados. Clique em uma aresta para inspecionar os campos de chave de junção.',
-  dataDrawerRowsLabel: 'linhas',
-  dataDrawerFieldsLabel: 'campos',
+  dataDrawerRowsLabel: (count) => `${count} ${count === 1 ? 'linha' : 'linhas'}`,
+  dataDrawerFieldsLabel: (count) => `${count} ${count === 1 ? 'campo' : 'campos'}`,
   dataDrawerBackAriaLabel: 'Voltar ao grafo de linhagem',
   dataDrawerCloseAriaLabel: 'Fechar linhagem de dados',
   dataDrawerEditTooltip: 'Editar',
   dataDrawerDeleteTooltip: 'Excluir',
-  dataDrawerViewSourceTooltip: 'Ver dados da fonte',
   dataDrawerAddCalculatedField: 'Adicionar campo calculado',
   dataDrawerNoData: (sourceLabel) => `Sem dados disponíveis para ${sourceLabel}.`,
   dataDrawerMoreRows: (count) => `${count} ${count === 1 ? 'linha' : 'linhas'} a mais`,
@@ -303,6 +299,8 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   filterRankAggMinLabel: 'Mínimo de todas as séries',
   filterRankTop: 'Maiores',
   filterRankBottom: 'Menores',
+  filterRankTopCount: (count) => `${count} maiores`,
+  filterRankBottomCount: (count) => `${count} menores`,
 
   // Filter summary
   filterSummaryAnyValue: 'qualquer valor',
@@ -556,8 +554,6 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   chartSetupSeriesNumericSumHelperText: 'Campo numérico somado ou calculado em média por categoria',
   chartSetupMixedSeriesBar: 'Barra',
   chartSetupMixedSeriesLine: 'Linha',
-  chartSetupCalculatedField: 'Campo calculado…',
-  chartSetupCategoryFieldLabel: 'Campo de categoria',
   chartSetupRemoveSplitByTooltip: 'Remova campos de medida extras para ativar dividir por',
   chartSetupInnerRingLabel: 'Categoria do anel interno',
   chartSetupSplitByLabel: 'Dividir por (campo de série)',
@@ -600,13 +596,12 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   kpiSetupFillAreaLabel: 'Preencher área',
   kpiSetupCumulativeLabel: 'Acumulado (total cumulativo)',
   kpiSetupAutoDateFilterPrefix: 'Usando filtro de data:',
-  kpiSetupCalculatedField: 'Campo calculado…',
   kpiSetupInvertColours: 'Inverter cores (menor é melhor)',
-  kpiSetupFixedWindowLabel: 'Trend window',
-  kpiSetupFixedWindowNone: 'From date filter',
-  kpiSetupFixedWindowMonth: 'Last 30 days',
-  kpiSetupFixedWindowQuarter: 'Last 90 days',
-  kpiSetupFixedWindowYear: 'Last 365 days',
+  kpiSetupFixedWindowLabel: 'Janela de tendência',
+  kpiSetupFixedWindowNone: 'Do filtro de datas',
+  kpiSetupFixedWindowMonth: 'Últimos 30 dias',
+  kpiSetupFixedWindowQuarter: 'Últimos 90 dias',
+  kpiSetupFixedWindowYear: 'Últimos 365 dias',
 
   // KPI widget
   kpiGrandTotalTooltip:
@@ -665,7 +660,6 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   mapSetupLegendPositionLabel: 'Posição da legenda',
   mapSetupScaleFromZeroLabel: 'Escalar a partir do zero',
   mapSetupClickableLabel: 'Clicável (fonte de filtro)',
-  mapSetupCrossFilterLabel: 'Responder a filtros cruzados',
   mapSetupColorBlues: 'Azuis',
   mapSetupColorReds: 'Vermelhos',
   mapSetupColorGreens: 'Verdes',
@@ -685,6 +679,12 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   mapSetupRegionFieldLabel: 'Campo de região',
   mapSetupRegionFieldHelperText:
     'Um campo que contém identificadores de região correspondentes aos IDs dos recursos geográficos.',
+  mapSetupCountryFieldLabel: 'Campo de país',
+  mapSetupCountryFieldHelperText:
+    'Um campo contendo códigos ISO alfa-2, alfa-3 ou nomes completos de países.',
+  mapSetupStateFieldLabel: 'Campo de estado',
+  mapSetupStateFieldHelperText:
+    'Um campo contendo nomes de estados dos EUA ou abreviações postais de 2 letras.',
   mapSetupUnreachableFieldWarning:
     'Este campo não vem da fonte do widget nem de uma fonte diretamente relacionada, portanto não pode ser resolvido e o mapa será exibido em branco.',
 
@@ -767,46 +767,19 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   textSetupBodyLabel: 'Corpo',
   textSetupBodyHelper: 'Conteúdo principal do widget; suporta texto simples',
 
-  // Page config panel
-  pageConfigPageSectionTitle: 'Página',
-  pageConfigCardsSectionTitle: 'Cartões',
-  pageConfigBackgroundColourLabel: 'Cor de fundo',
-  pageConfigBackgroundColourPlaceholder: 'ex.: #f5f5f5',
-  pageConfigCardBackgroundLabel: 'Fundo do cartão',
-  pageConfigCardBackgroundPlaceholder: 'ex.: #ffffff',
-  pageConfigPaddingLabel: 'Preenchimento',
-  pageConfigCornerRadiusLabel: 'Raio do canto (px)',
-  pageConfigCardBorderLabel: 'Borda do cartão',
-  pageConfigBorderColourLabel: 'Cor da borda',
-  pageConfigBorderColourPlaceholder: 'ex.: #e0e0e0',
-  pageConfigBorderWidthLabel: 'Largura da borda (px)',
-  pageConfigPaddingNone: 'Nenhum',
-  pageConfigPaddingSmall: 'Pequeno (8px)',
-  pageConfigPaddingMedium: 'Médio (16px)',
-  pageConfigPaddingLarge: 'Grande (24px)',
-
-  // AI insight panel
-  insightTypeSummary: 'Resumo',
-  insightTypeAnalysis: 'Análise',
-  insightTypeForecast: 'Previsão',
-  insightTypeAnomaly: 'Explicação de anomalia',
-  insightTypeCorrelation: 'Análise de correlação',
-
   // Filter widget controls
   filterWidgetClearAriaLabel: 'Limpar filtro',
   filterWidgetSelectAllLabel: 'Selecionar tudo',
   filterWidgetClearAllLabel: 'Limpar tudo',
   filterWidgetAllLabel: 'Todos',
   filterWidgetNoOptionsLabel: 'Nenhuma opção encontrada',
+  filterWidgetNoSearchMatchesLabel: 'Nenhuma correspondência',
   filterWidgetSelectedCount: (count) => `${count} selecionado${count === 1 ? '' : 's'}`,
   filterWidgetExcludeLabel: 'Excluir selecionados',
   filterWidgetExcludingLabel: '\u2298 Excluindo selecionados',
   filterWidgetDateFromLabel: 'De',
   filterWidgetDateToLabel: 'Até',
   filterWidgetNoFieldConfigured: 'Nenhum campo configurado. Selecione um campo no painel Compor.',
-
-  // Date range bar
-  dateRangePresetAriaLabel: 'Predefinição de intervalo de datas',
 
   // Data source field select
   dataSourceClearFieldAriaLabel: 'Limpar campo',
@@ -838,9 +811,6 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
     `Pré-visualização (medida em ${count.toLocaleString('pt-BR')} linhas)`,
   expressionPreviewFirstRowsLabel: (count) =>
     `Pré-visualização (primeiras ${count.toLocaleString('pt-BR')} linhas)`,
-
-  // Pivot widget
-  pivotRowsColumnsLabel: (rowCount, colCount) => `${rowCount} linhas \u00d7 ${colCount} colunas`,
 
   // Gantt chart
   ganttHiddenRowsLabel: (count) =>
@@ -953,7 +923,6 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   chatEmptyStateSubtitle: 'Posso adicionar widgets, analisar seus dados e muito mais',
   chatVoiceInputStart: 'Iniciar entrada por voz',
   chatVoiceInputStop: 'Parar entrada por voz',
-  chatVoiceInputNotSupported: 'Entrada por voz não é suportada neste navegador',
   chatMessageCopyTooltip: 'Copiar',
   chatMessageCopiedTooltip: 'Copiado!',
   chatMessageCopyAriaLabel: 'Copiar mensagem',
@@ -962,6 +931,9 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   chatReasoningSectionLabel: 'Raciocínio',
   chatComposerStopGeneratingLabel: 'Parar geração',
   chatComposerSendMessageLabel: 'Enviar mensagem',
+  chatMessageTokenCount: (count) =>
+    `${count.toLocaleString('pt-BR')} ${count === 1 ? 'token' : 'tokens'}`,
+  chatMessageTurnCount: (count) => `${count} ${count === 1 ? 'turno' : 'turnos'}`,
 
   // AI chat tool-call card titles
   chatToolLabelGetDashboardState: 'Obter estado do painel',
@@ -1155,7 +1127,6 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   textSetupPromptHelper:
     'Descreva o que a IA deve escrever — ela pode consultar as fontes de dados desta página',
   textSetupAiModeLabel: 'Modo IA',
-  textSetupAiModeHelper: 'Use seu texto como um prompt para gerar conteúdo de IA',
 
   // Accessible names for otherwise-unlabeled form controls
   exprNodeKindAriaLabel: 'Tipo de entrada',

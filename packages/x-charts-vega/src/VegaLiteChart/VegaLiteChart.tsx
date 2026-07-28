@@ -199,11 +199,18 @@ const VEGA_DEFAULT_VIEW_HEIGHT = 340;
 // matches instead of collapsing.
 const AXIS_LABEL_CHAR_PX = 7;
 // y-axis: title(rotated) + tick marks + right overhang of the last x label.
-const Y_AXIS_BASE_ALLOWANCE = 72;
+// Measured, not estimated: with the allowance at 72/88 every standalone
+// cartesian chart's drawing area came out exactly 9px wide and 3px tall MORE
+// than the reference's — a constant, independent of the chart's size or its
+// label widths (449x343 vs 440x340, 309x203 vs 300x200, 109x343 vs 100x340,
+// 809x503 vs 800x500). The allowance has to equal what x-charts actually
+// consumes; overshooting it by a constant inflates the plot by that constant.
+// Trellis cells were already exact, which is why this only showed up here.
+const Y_AXIS_BASE_ALLOWANCE = 63;
 // x-axis: title + tick marks + one horizontal label row. x-charts' `height:'auto'`
 // axis reserves a generous bottom band (plus a small top pad), so this is sized
 // to let the plot survive it rather than the tighter space a label row implies.
-const X_AXIS_BASE_ALLOWANCE = 88;
+const X_AXIS_BASE_ALLOWANCE = 85;
 // Continuous axes carry no category array; assume ~6-char numeric labels ("20,000").
 const CONTINUOUS_LABEL_CHARS = 6;
 

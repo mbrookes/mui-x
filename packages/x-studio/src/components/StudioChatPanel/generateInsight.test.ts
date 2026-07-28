@@ -8,6 +8,7 @@ import type {
   StudioFilterState,
   StudioWidgetConfig,
   StudioExpressionField,
+  StudioExpression,
   StudioRelationship,
 } from '../../models';
 import { computeDateRangePreset } from '../../internals/dateRangeUtils';
@@ -20,11 +21,16 @@ import { computePreviousPeriodRange, toLocalYmd } from '../widgets/StudioKpiWidg
 // convenience shape is a test-only affordance — production `createDefaultStudioState`
 // deliberately requires the explicit nested partitions.
 function makeState(
-  overrides: { dataSources?: Record<string, StudioDataSource>; filters?: StudioFilterState[] } = {},
+  overrides: {
+    dataSources?: Record<string, StudioDataSource>;
+    filters?: StudioFilterState[];
+    expressionFields?: StudioExpressionField[];
+  } = {},
 ): StudioState {
   return createDefaultStudioState({
     doc: {
       ...(overrides.filters ? { filters: overrides.filters } : {}),
+      ...(overrides.expressionFields ? { expressionFields: overrides.expressionFields } : {}),
     },
     runtime: {
       ...(overrides.dataSources ? { dataSources: overrides.dataSources } : {}),
@@ -602,6 +608,58 @@ describe('buildWidgetDataSummary', () => {
         // summary, including its stats preamble.
         expect(result).not.toContain('US');
         expect(result).not.toContain('APAC');
+      });
+
+      it('evaluates a MEASURE heat value per cell, matching what the canvas renders', () => {
+        // A measure has no per-row value — `enrichRowsWithExpressions` deliberately skips
+        // measures, so `row['ef_avg']` is `undefined` on every row. `aggregateHeatmap` can
+        // still evaluate it, but only when handed the dashboard's `expressionFields`; the
+        // canvas path (`chartTypeDefs`) passes them and this summary did not. Every cell
+        // therefore finalized to `null` and the assistant was handed an empty grid for a
+        // heatmap the canvas draws fully populated — it reads that as "no data".
+        const fields = [
+          { id: 'region', label: 'Region', type: 'string' as const },
+          { id: 'day', label: 'Day', type: 'string' as const },
+          { id: 'amount', label: 'Amount', type: 'number' as const },
+        ];
+        const rows = [
+          { region: 'EU', day: 'Mon', amount: 100 },
+          { region: 'EU', day: 'Mon', amount: 300 },
+          { region: 'US', day: 'Mon', amount: 50 },
+        ];
+        const avgAmount: StudioExpressionField = {
+          id: 'ef_avg',
+          label: 'Avg amount',
+          type: 'number',
+          isMeasure: true,
+          sourceId: 'orders',
+          // A MEASURE expression is a field reference carrying an `aggregation`, not an
+          // operator node — the shape `StudioExpressionFieldDialog` writes for `avg(amount)`.
+          expression: { id: 'amount', aggregation: 'avg' } as unknown as StudioExpression,
+        };
+        const state = makeState({
+          dataSources: { orders: makeSource({ fields, rows }) },
+          expressionFields: [avgAmount],
+        });
+        const widget = makeWidget({
+          kind: 'chart',
+          config: {
+            chartType: 'heatmap',
+            xField: 'region',
+            heatYField: 'day',
+            yField: 'ef_avg',
+          },
+        });
+
+        const result = buildWidgetDataSummary(widget, state);
+        const lines = result.split('\n');
+        const euRow = lines.find((line) => line.startsWith('EU,'));
+        const usRow = lines.find((line) => line.startsWith('US,'));
+
+        // EU/Mon averages 100 and 300 → 200; US/Mon has the single row → 50. Both are real
+        // measurements, so neither cell may be blank.
+        expect(euRow).toBe('EU,200');
+        expect(usRow).toBe('US,50');
       });
 
       it('applies a bar chart rank once (post-aggregation), never also at L3', () => {

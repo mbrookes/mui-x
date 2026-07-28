@@ -1828,6 +1828,35 @@ export class StudioController {
           existingChartConfig,
         );
       }
+    } else if (definedChanges.kind === 'chart') {
+      // Kind-ONLY flip to 'chart' (no `config` key in `changes`). The branch above
+      // is gated on `Object.hasOwn(definedChanges, 'config')`, so this shape skips it
+      // entirely — and the reducer's kind-coherence pass does NOT close the gap,
+      // because it strips config keys not ALLOWED for the new kind and `chartType`
+      // is a perfectly allowed 'chart' key. Its VALUE is never checked. So a widget
+      // created as a non-chart kind carrying a bogus `config.chartType` (which
+      // `sanitizeWidgetForCreate` skips, returning early on `kind !== 'chart'`)
+      // becomes a chart widget with a chart type outside `StudioChartType`.
+      //
+      // Deliberately `sanitizeWidgetForCreate`, NOT `sanitizeWidgetConfigForKind`:
+      // the latter never re-validates the widget's STORED config, by design — a chart
+      // retains keys from previously-selected chart types (bar -> gauge -> bar keeps
+      // `xField`/`ySeries`), so running it over stored config would strip keys the
+      // user deliberately kept. `sanitizeWidgetForCreate` is the narrower repair this
+      // actually needs: it touches the config ONLY when an own, non-undefined
+      // `chartType` fails `isStudioChartType`, and is the same helper `addWidget` /
+      // `insertWidgetAt` / `duplicateWidget` already run — one implementation of the
+      // repair, not a second one that could drift.
+      const existingWidget = this.getWidget(widgetId);
+      if (existingWidget) {
+        const repaired = this.sanitizeWidgetForCreate({ ...existingWidget, kind: 'chart' });
+        // Same reference means nothing to repair — the overwhelmingly common case.
+        // Only then add `config` to the mutation, so an ordinary kind flip keeps its
+        // existing shape and cannot push a spurious undo entry.
+        if (repaired.config !== existingWidget.config) {
+          definedChanges.config = repaired.config as Record<string, unknown>;
+        }
+      }
     }
 
     // Re-infer titles when source changes, or when switching back to auto mode.

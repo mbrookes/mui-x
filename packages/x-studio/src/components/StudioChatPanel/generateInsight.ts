@@ -578,6 +578,22 @@ function buildChartWidgetSummary(
       heatValue,
       xGroupBy,
       singleSeriesYAggregation,
+      // Positional gap: `xOrder`/`yOrder`/`sortBy`/`sortDirection` are presentation-only
+      // (they order the rendered axes), and this summary prints its own `maxRows` slice —
+      // so they stay unset here while the last argument is supplied.
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      // `expressionFields` is what lets a MEASURE `heatValue` be evaluated per cell. Without
+      // it, `enrichRowsWithExpressions` has already skipped the measure (a measure has no
+      // per-row value), so every cell reads `undefined`, `coerceAggregateValue` rejects it,
+      // and the model is handed a grid of empty cells — which it reads as "no data" for a
+      // heatmap the canvas renders fully populated. Deliberately the SAME dashboard-wide list
+      // `chartTypeDefs` passes on the canvas path, not a source-scoped subset: the point of
+      // this argument is that the insight and the rendered chart agree, and narrowing it here
+      // would just reintroduce the divergence in the opposite direction.
+      state.doc.expressionFields,
     );
     const xSlice = result.xLabels.slice(0, maxRows);
     lines.push(

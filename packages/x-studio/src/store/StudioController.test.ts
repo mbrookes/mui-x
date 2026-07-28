@@ -5087,24 +5087,28 @@ describe('StudioController — chart-type repair at every creation boundary', ()
 
   it('duplicateWidget repairs an invalid chartType rather than propagating it to the copy', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    // This repair was reported as unreachable — the constructor and the persistence load
-    // boundary both run `screenDoc` (which strips an unknown `chartType` outright), and
-    // `updateWidget` sanitizes a wholesale `config` replacement against the widget's kind.
-    // It is NOT unreachable. Two ordinary public calls get there, no `store.setState`
-    // reach-in required, and this test walks that exact route:
+    // HISTORY, because it decides whether this test is still worth its weight.
     //
-    //  1. `insertWidgetAt` (equally `addWidget`, or `updateWidgetConfig`) with a NON-chart
-    //     kind. `sanitizeWidgetForCreate` returns early on `widget.kind !== 'chart'`, and
-    //     the shared reducer's `addWidget` handler deliberately knows nothing about chart
-    //     types — so a `text` widget carrying a bogus `chartType` is installed verbatim.
-    //  2. `updateWidget(id, { kind: 'chart' })` with NO `config` in `changes`. The
-    //     controller's chart-type guard is gated on `Object.hasOwn(changes, 'config')`,
-    //     so a kind-only change skips it entirely; the reducer's kind-coherence pass then
-    //     strips config keys not allowed for the new kind, and `chartType` IS an allowed
-    //     `'chart'` key — so it is explicitly RETAINED.
+    // This repair was first reported as unreachable, then shown to BE reachable through
+    // two ordinary public calls: create a NON-chart widget carrying a bogus
+    // `config.chartType` (`sanitizeWidgetForCreate` returns early on
+    // `kind !== 'chart'`), then `updateWidget(id, { kind: 'chart' })` with no `config`
+    // in `changes` — which used to skip the controller's chart-type guard, while the
+    // reducer's kind-coherence pass RETAINED `chartType` because it is a valid 'chart'
+    // key. That route is now CLOSED: `updateWidget` re-runs `sanitizeWidgetForCreate`
+    // on a kind-only flip to 'chart' (see the test below, which pins it).
     //
-    // The widget is now a chart with a chart type outside `StudioChartType`, reached
-    // through the supported API. `duplicateWidget`'s repair is live code on a live path.
+    // With that route closed, and `updateWidgetConfig` / `updateWidget`'s `changes.config`
+    // path both already screening an invalid `chartType`, no supported call sequence now
+    // reaches a chart-kind widget with a chart type outside `StudioChartType`. So this
+    // repair is DEFENSE IN DEPTH, and the test says so by reaching in with `store.setState`
+    // rather than pretending a public route exists.
+    //
+    // It is kept deliberately. `duplicateWidget` runs the SAME `sanitizeWidgetForCreate`
+    // that `addWidget`/`insertWidgetAt` run, and those ARE reachable with hostile input;
+    // dropping the call from one of the four create-shaped entry points would make the
+    // set inconsistent for no gain. If a future change re-opens a public route, this test
+    // still pins the behaviour.
     const controller = new StudioController({
       doc: {
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
@@ -5117,12 +5121,24 @@ describe('StudioController — chart-type repair at every creation boundary', ()
       'page-1',
       [['src']],
     );
-    controller.updateWidget('src', { kind: 'chart' });
+    // NOT a supported route — `updateWidget('src', { kind: 'chart' })` would now repair
+    // this on the way in. Reaching into the store is the honest way to construct the
+    // state a defense-in-depth guard exists for.
+    const reached = controller.getState();
+    controller.store.setState({
+      ...reached,
+      doc: {
+        ...reached.doc,
+        widgets: {
+          ...reached.doc.widgets,
+          src: { ...reached.doc.widgets.src, kind: 'chart' },
+        },
+      },
+    });
 
-    // Precondition: the two supported calls above really did leave an invalid chart type
-    // on a chart-kind widget, so the clone assertions below exercise the repair rather
-    // than a nothing-to-repair no-op. If a future screen closes this route, THIS is the
-    // assertion that fails first — and the repair can then be reconsidered as dead code.
+    // Precondition: the state really does hold an invalid chart type on a chart-kind
+    // widget, so the clone assertions below exercise the repair rather than a
+    // nothing-to-repair no-op.
     expect(controller.getState().doc.widgets.src.kind).toBe('chart');
     expect((controller.getState().doc.widgets.src.config as StudioWidgetConfig).chartType).toBe(
       '__proto__evil',
@@ -5137,6 +5153,80 @@ describe('StudioController — chart-type repair at every creation boundary', ()
     expect('sankeyTargetField' in cloneConfig).toBe(false);
     // The source widget is untouched — duplication is not a repair of the original.
     expect((widgets.src.config as StudioWidgetConfig).chartType).toBe('__proto__evil');
+
+    warnSpy.mockRestore();
+  });
+
+  it('updateWidget repairs an invalid stored chartType on a kind-only flip to chart', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // The gap this closes: `updateWidget`'s chart-type guard is gated on
+    // `Object.hasOwn(changes, 'config')`, so `{ kind: 'chart' }` with no `config` used to
+    // skip it. The reducer's kind-coherence pass does not cover it either — it strips keys
+    // not ALLOWED for the new kind, and `chartType` is an allowed 'chart' key, so a bogus
+    // VALUE was retained. Create a non-chart widget carrying one (which
+    // `sanitizeWidgetForCreate` skips), flip the kind, and the widget became a chart with a
+    // chart type outside `StudioChartType`.
+    const controller = new StudioController({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['src']] } },
+        widgets: {},
+      },
+    });
+    controller.insertWidgetAt(
+      makeWidget('src', { kind: 'text', config: hostileConfig }),
+      'page-1',
+      [['src']],
+    );
+    // Precondition: the bogus chart type really is on the stored widget, so the assertion
+    // below tests the repair rather than an already-clean config.
+    expect((controller.getState().doc.widgets.src.config as StudioWidgetConfig).chartType).toBe(
+      '__proto__evil',
+    );
+
+    controller.updateWidget('src', { kind: 'chart' });
+
+    const config = controller.getState().doc.widgets.src.config as StudioWidgetConfig;
+    expect(controller.getState().doc.widgets.src.kind).toBe('chart');
+    expect(config.chartType).toBe('bar');
+    // The repair drops keys authored for the bogus type, and keeps those valid for 'bar'.
+    expect('sankeyTargetField' in config).toBe(false);
+    expect(config.xField).toBe('a');
+
+    warnSpy.mockRestore();
+  });
+
+  it('updateWidget leaves a valid stored config untouched on a kind-only flip to chart', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // The other half of the guard: the repair must not fire when there is nothing to
+    // repair. `sanitizeWidgetForCreate` returns the SAME widget reference when the stored
+    // `chartType` is valid (or absent), and the controller only adds `config` to the
+    // mutation when that reference changed — so an ordinary kind flip keeps its existing
+    // shape and cannot push a spurious undo entry.
+    const controller = new StudioController({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['src']] } },
+        widgets: {},
+      },
+    });
+    controller.insertWidgetAt(
+      makeWidget('src', { kind: 'kpi', config: { kpiValueField: 'revenue' } }),
+      'page-1',
+      [['src']],
+    );
+
+    controller.updateWidget('src', { kind: 'chart' });
+
+    const config = controller.getState().doc.widgets.src.config as StudioWidgetConfig;
+    expect(controller.getState().doc.widgets.src.kind).toBe('chart');
+    // No `chartType` was invented — an ABSENT chart type is the sanctioned "defaults to
+    // bar" shape `resolveChartType` applies, and the repair deliberately does not touch it.
+    expect('chartType' in config).toBe(false);
+    // No repair warning fired, because nothing was repaired.
+    expect(warnSpy.mock.calls.some((call) => String(call[0]).includes('invalid chartType'))).toBe(
+      false,
+    );
 
     warnSpy.mockRestore();
   });

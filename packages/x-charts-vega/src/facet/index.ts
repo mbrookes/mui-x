@@ -725,12 +725,17 @@ function concatChannelDef(entry: VegaLiteSpec, channel: 'x' | 'y'): VegaChannelD
   if (isFieldDef(own)) {
     return own;
   }
-  const layer = (entry as { layer?: Array<{ encoding?: VegaEncoding }> }).layer;
+  const layer = (entry as { layer?: VegaLiteSpec[] }).layer;
   if (!Array.isArray(layer)) {
     return own;
   }
+  // Recurse: a layer child can itself be a layer composite (a `repeat.layer`
+  // cell wraps one substituted copy of the template PER repeated field, and
+  // each copy may be a layer in its own right). Looking only one level down
+  // found no positional def at all for `line_color_halo`, so its cell fell to
+  // the bare-step default and rendered a 28px-wide sliver.
   const fromLayer = layer
-    .map((child) => child.encoding?.[channel])
+    .map((child) => concatChannelDef(child, channel))
     .find((def): def is VegaChannelDef => isFieldDef(def));
   if (!fromLayer) {
     return own;

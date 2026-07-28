@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { createRenderer, screen, within } from '@mui/internal-test-utils';
+import { createRenderer, fireEvent, screen, within } from '@mui/internal-test-utils';
 import { describe, expect, it, vi } from 'vitest';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
@@ -314,5 +314,60 @@ describe('FilterBody', () => {
     await user2.click(screen.getAllByRole('combobox')[0]);
     await user2.click(within(screen.getByRole('listbox')).getByText('Before'));
     expect(onChange2).toHaveBeenCalledWith({ operator: 'less_than', value: '' });
+  });
+
+  // L17: a selection-mode filter's `operator` decides whether the checked values are included
+  // or excluded, and `not_in` is reachable here without `StudioFilterWidget` (host
+  // `initialState`, persisted docs, the wire `addFilter` mutation, `controller.addFilter` /
+  // `updateFilter`, and `applyFilterPreset`). The selection editor previously never read or
+  // wrote it, so the card's own summary said "is not: …" over a UI that looked like an
+  // include list.
+  it('surfaces a `not_in` selection filter as excluding (L17)', () => {
+    render(
+      <FilterBody
+        filter={makeFilter({
+          fieldType: 'string',
+          filterMode: 'selection',
+          operator: 'not_in',
+          value: ['DE'],
+        })}
+        fieldType="string"
+        operators={getOperators('string')}
+        activeOperator="not_in"
+        activeOperator2="equals"
+        fieldValues={['DE', 'FR']}
+        onModeChange={() => {}}
+        onChange={vi.fn()}
+      />,
+    );
+
+    const toggle = screen.getByRole('switch', { name: /Excluding selected/ }) as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+  });
+
+  it('writes the operator back when exclusion is toggled in selection mode (L17)', () => {
+    const onChange = vi.fn();
+    render(
+      <FilterBody
+        filter={makeFilter({
+          fieldType: 'string',
+          filterMode: 'selection',
+          // `buildModeReset` leaves `operator` untouched on a condition → selection switch, so
+          // a leftover `equals` is the ordinary case; toggling must normalize it.
+          operator: 'equals',
+          value: ['DE'],
+        })}
+        fieldType="string"
+        operators={getOperators('string')}
+        activeOperator="equals"
+        activeOperator2="equals"
+        fieldValues={['DE', 'FR']}
+        onModeChange={() => {}}
+        onChange={onChange}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Exclude selected' }));
+    expect(onChange).toHaveBeenCalledWith({ operator: 'not_in' });
   });
 });

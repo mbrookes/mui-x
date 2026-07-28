@@ -122,6 +122,94 @@ describe('FilterRow', () => {
     expect(onUpdate).toHaveBeenCalledWith({ operator: 'less_than' });
   });
 
+  it('resets a stranded scalar when the operator switches INTO between (H3)', async () => {
+    // Regression for H3: this row re-implemented the operator-change reset inline and fired it
+    // only when LEAVING `between`, so ENTERING `between` stranded the scalar. `amount equals
+    // 500` switched to "Between" rendered two EMPTY bound inputs over a stored `500` the user
+    // never cleared, and the first bound typed silently replaced it. The drawer has always run
+    // the reset in both directions through the shared `needsOperatorValueReset`.
+    const onUpdate = vi.fn();
+    const { user } = render(
+      <FilterRow
+        filter={makeFilter({
+          field: 'amount',
+          fieldType: 'number',
+          operator: 'equals',
+          value: 500,
+        })}
+        fieldOptions={[numberField]}
+        onRemove={() => {}}
+        onUpdate={onUpdate}
+      />,
+    );
+
+    await user.click(screen.getByRole('combobox', { name: 'Operator' }));
+    await user.click(within(screen.getByRole('listbox')).getByText('Between'));
+
+    expect(onUpdate).toHaveBeenCalledWith({ operator: 'between', value: '' });
+  });
+
+  it('resets a RelativeDateValue when the operator switches INTO between (H3)', async () => {
+    // A `RelativeDateValue` is a non-array object but a SCALAR, so entering `between` must
+    // reset it too. Without the reset, `betweenValue` WAS the relative object and the first
+    // bound committed a hybrid `{ relative, amount, unit, direction, from }` that
+    // `filterUtils`' loose `.relative === true` check then read as a relative date — the
+    // widget kept filtering on "3 months ago" while the dialog showed a date range.
+    const onUpdate = vi.fn();
+    const { user } = render(
+      <FilterRow
+        filter={makeFilter({
+          field: 'created',
+          fieldType: 'date',
+          operator: 'equals',
+          value: { relative: true, amount: 3, unit: 'month', direction: 'past' },
+        })}
+        fieldOptions={[dateField]}
+        onRemove={() => {}}
+        onUpdate={onUpdate}
+      />,
+    );
+
+    await user.click(screen.getByRole('combobox', { name: 'Operator' }));
+    await user.click(within(screen.getByRole('listbox')).getByText('Between'));
+
+    expect(onUpdate).toHaveBeenCalledWith({ operator: 'between', value: '' });
+  });
+
+  it('PICKS from/to rather than spreading the stored value when committing a bound (H3)', async () => {
+    // Regression for H3: the bound commit was `{ ...betweenValue, [key]: next }` with
+    // `betweenValue` being the RAW stored value, so any non-array object became the base of
+    // the next commit. Editing a `between` on top of a relative date minted a hybrid that is
+    // neither shape and that disarms every `between` ↔ scalar reset guard for good. The commit
+    // must contain only `from`/`to`.
+    const onUpdate = vi.fn();
+    render(
+      <FilterRow
+        filter={makeFilter({
+          field: 'created',
+          fieldType: 'date',
+          operator: 'between',
+          // A doc/AI/host-authored filter can hold this shape under `between` directly.
+          value: { relative: true, amount: 3, unit: 'month', direction: 'past' },
+        })}
+        fieldOptions={[dateField]}
+        onRemove={() => {}}
+        onUpdate={onUpdate}
+      />,
+    );
+
+    const fromInput = screen.getByRole('textbox', { name: 'From' });
+    fireEvent.change(fromInput, { target: { value: '2024-01-01' } });
+    fireEvent.blur(fromInput);
+
+    expect(onUpdate).toHaveBeenCalledWith({
+      value: { from: '2024-01-01', to: undefined },
+    });
+    const committed = onUpdate.mock.calls[0][0].value as Record<string, unknown>;
+    expect(committed.relative).toBe(undefined);
+    expect(Object.keys(committed).sort()).toEqual(['from', 'to']);
+  });
+
   it('falls back to a valid operator for display when the stored operator is invalid for the field type (2.16)', () => {
     // Regression for finding 2.16: an invalid stored operator (here a string `contains` on a
     // number field) used to render raw into the operator Select — an out-of-range value that

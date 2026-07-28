@@ -162,6 +162,23 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
   // no-op: the button couldn't reflect the user's intent and the choice was lost (finding T3.7).
   const [pendingExclude, setPendingExclude] = React.useState<boolean | null>(null);
 
+  // L16: the pending intent is scoped to the field (and control type) it was expressed on.
+  // Changing `config.filterWidgetField` does NOT remount this component, so an "Exclude"
+  // clicked with nothing selected used to survive the switch and silently commit the FIRST
+  // selection on the NEW field as `not_in`. Drop it whenever the target changes, using the
+  // render-time previous-value guard React documents for adjusting state on prop change (the
+  // same idiom as `FilterValueInput`'s `prevOperatorRef`) so the stale intent can never be
+  // read by the render that observes the new field.
+  const prevExcludeFieldRef = React.useRef(fieldId);
+  const prevExcludeTypeRef = React.useRef(filterWidgetType);
+  if (prevExcludeFieldRef.current !== fieldId || prevExcludeTypeRef.current !== filterWidgetType) {
+    prevExcludeFieldRef.current = fieldId;
+    prevExcludeTypeRef.current = filterWidgetType;
+    if (pendingExclude !== null) {
+      setPendingExclude(null);
+    }
+  }
+
   // Compute distinct values for select/toggle controls
   const distinctValues = React.useMemo(() => {
     if (

@@ -1,6 +1,6 @@
 'use client';
 import * as React from 'react';
-import { Button, Stack, Typography } from '@mui/material';
+import { Alert, Button, Stack, Typography } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import { createFilterId } from '@mui/x-studio-schema';
 import type { StudioFilterState, StudioDataField } from '../../models';
@@ -15,6 +15,7 @@ import {
   useStudioSelector,
 } from '../../context';
 import { getReachableSourceIds } from '../../internals/dataSourceGraph';
+import { filterMutationRejectionMessage } from '../StudioFiltersDrawer/filterDrawerUtils';
 import { FilterRow, type FieldOption } from './FilterRow';
 
 // ── Panel ─────────────────────────────────────────────────────────────────────
@@ -114,12 +115,17 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
   // would contradict every other authoring picker.
   const addableOwnFields = React.useMemo(() => ownFields.filter((f) => !f.hidden), [ownFields]);
 
+  // `addFilter`/`updateFilter` return a `StudioMutationResult`, so a refusal is no longer
+  // indistinguishable from a save. Without this the Add button did nothing visible and an
+  // edit silently snapped back.
+  const [mutationError, setMutationError] = React.useState<string | null>(null);
+
   const handleAdd = React.useCallback(() => {
     const firstField = addableOwnFields[0];
     if (!firstField) {
       return;
     }
-    controller.addFilter({
+    const result = controller.addFilter({
       // 3.11: `wf-${widgetId}-${Date.now()}` collides on a fast double-click (two adds in the
       // same millisecond), and `addFilter` is idempotent on `id`, so the reducer silently
       // drops the second filter as a re-delivery. Use the collision-resistant factory.
@@ -130,7 +136,9 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
       value: '',
       scope: { kind: 'widget', widgetId },
     });
-  }, [controller, addableOwnFields, widgetId]);
+    // `ok` with `committed: false` is a value-equal no-op, i.e. success — never an error.
+    setMutationError(result.ok ? null : filterMutationRejectionMessage(result.reason, localeText));
+  }, [controller, addableOwnFields, widgetId, localeText]);
 
   const handleRemove = React.useCallback(
     (filterId: string) => {
@@ -143,9 +151,18 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
   // a write caused by rendering must not push an undo entry the user never authored.
   const handleUpdate = React.useCallback(
     (filterId: string, patch: Partial<StudioFilterState>, options?: { undoable?: boolean }) => {
-      controller.updateFilter(filterId, patch, options);
+      const result = controller.updateFilter(filterId, patch, options);
+      // A non-undoable self-repair write comes from rendering, not a user gesture, so a
+      // rejection there is not user-facing — reporting it would put a banner on screen that
+      // no user action produced. Only surface rejections of real edits.
+      if (options?.undoable === false) {
+        return;
+      }
+      setMutationError(
+        result.ok ? null : filterMutationRejectionMessage(result.reason, localeText),
+      );
     },
-    [controller],
+    [controller, localeText],
   );
 
   if (!widget || !sourceId) {
@@ -161,6 +178,12 @@ export function WidgetFiltersPanel(props: { widgetId: string }) {
       <Typography variant="body2" color="text.secondary">
         {localeText.widgetFiltersPanelDescription}
       </Typography>
+
+      {mutationError && (
+        <Alert severity="error" data-testid="widget-filters-panel-error">
+          {mutationError}
+        </Alert>
+      )}
 
       {widgetFilters.length > 0 ? (
         <Stack spacing={1.5}>

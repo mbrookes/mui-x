@@ -1406,7 +1406,6 @@ describe("<StudioKpiWidget /> crossFilterMode resolution and the 'none'-mode bas
   });
 
   it('no longer renders the hover-only "ignoring filters" indicator, because nothing is ignored any more', () => {
-    // The `kpiGrandTotalTooltip` info icon existed only to explain the bug above, and it was
     // reachable by pointer hover alone (an `aria-hidden`, non-focusable MUI icon — M6). With
     // interactive filters honoured there is nothing left for it to explain.
     rowsHolder.current = [{ id: 's1', amount: 100, saleDate: '2026-07-01' }];

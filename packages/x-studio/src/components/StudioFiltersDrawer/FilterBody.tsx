@@ -135,6 +135,15 @@ export function FilterBody({
             values={fieldValues}
             selected={Array.isArray(filter.value) ? (filter.value as string[]) : []}
             onChange={(v) => onChange({ value: v })}
+            // L17: selection mode is the only mode whose stored `operator` this editor can
+            // meaningfully express, and `not_in` is reachable here (host `initialState`,
+            // persisted docs, the wire `addFilter` mutation, `controller.addFilter`/
+            // `updateFilter`, and `applyFilterPreset`, none of which validate operator against
+            // mode). Writing it back explicitly also normalizes the `equals`-left-over case
+            // that `buildModeReset` produces on a condition → selection switch, so the stored
+            // operator finally agrees with what the card summarizes and the pipeline applies.
+            exclude={filter.operator === 'not_in'}
+            onExcludeChange={(next) => onChange({ operator: next ? 'not_in' : 'in' })}
           />
           {dependencyOptions && dependencyOptions.length > 0 && onDependencyChange && (
             <div>

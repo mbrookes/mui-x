@@ -228,7 +228,16 @@ export const BUILTIN_WIDGET_DEFS = {
     setupPanel: FilterSetupPanelRender,
     aiInsight: false,
     capabilities: {
-      widgetFilters: true,
+      // H4: a filter widget CANNOT evaluate a widget-scoped filter. It deliberately never
+      // routes through `useWidgetRows`/`selectFiltersForWidget` — it reads rows straight from
+      // `getCachedNormalizedDataSource` (see the "DECLINED here, deliberately" note in
+      // `StudioFilterWidget.tsx`) — so a `scope.kind === 'widget'` filter on one is evaluated
+      // by nothing. Declaring `true` gave the widget edit dialog a Filters tab whose filters
+      // were inert AND then unreachable, since the filters drawer hides widget filters for
+      // this kind: exactly the "phantom card whose edits are silently discarded" hazard.
+      // If this widget ever gains a filter descriptor in `chartTypeRegistry.ts` and starts
+      // resolving rows through the pipeline, flip this back to `true`.
+      widgetFilters: false,
       minHeight: FILTER_WIDGET_MIN_HEIGHT,
       skeletonHeight: () => FILTER_WIDGET_MIN_HEIGHT - 48,
     },

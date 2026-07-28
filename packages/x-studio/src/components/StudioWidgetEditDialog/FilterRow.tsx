@@ -18,7 +18,10 @@ import {
   getOperatorLabel,
   getOperatorsForFieldType,
 } from '../StudioFiltersDrawer/filterOperatorMetadata';
-import { isRelativeDateValue } from '../StudioFiltersDrawer/filterDrawerUtils';
+import {
+  isRelativeDateValue,
+  needsOperatorValueReset,
+} from '../StudioFiltersDrawer/filterDrawerUtils';
 import { formatDateFilterLabel } from '../../internals/widgetUtils';
 
 export interface FieldOption {
@@ -173,10 +176,23 @@ export function FilterRow(props: {
   // A `between` filter's value is a `{ from, to }` object. Read the bounds defensively —
   // the value may be `null`/`undefined` or a legacy scalar if the filter was authored
   // under a different operator before switching to `between`.
-  const betweenValue =
+  //
+  // H3/M9: PICK the two bounds rather than keeping the stored object as the spread base.
+  // Spreading made every non-array object the base of the next commit, so editing a
+  // `between` on top of a relative date produced
+  // `{ relative: true, amount, unit, direction, from }` — a hybrid that is neither shape,
+  // that `filterUtils`' loose `.relative === true` check then mistakes for a scalar relative
+  // date (the widget keeps filtering on "3 months ago" while the dialog shows a range), and
+  // that disarms every `between` ↔ scalar reset guard for good. Mirrors the drawer's
+  // `FilterValueInput`.
+  const betweenSource =
     filter.value !== null && typeof filter.value === 'object' && !Array.isArray(filter.value)
       ? (filter.value as { from?: unknown; to?: unknown })
       : {};
+  const betweenValue: { from?: unknown; to?: unknown } = {
+    from: betweenSource.from,
+    to: betweenSource.to,
+  };
   const betweenInputType = resolvedFieldType === 'number' ? 'number' : 'text';
   const toBoundString = (v: unknown) => (v === undefined || v === null ? '' : String(v));
 
@@ -307,21 +323,20 @@ export function FilterRow(props: {
           value={activeOperator}
           onChange={(evt) => {
             const nextOperator = evt.target.value as StudioFilterOperator;
-            // 1.6: switching AWAY from `between` must not strand the `{ from, to }` object
-            // value — `toComparable` would yield NaN (matching nothing) and the value input
-            // would show "[object Object]". Reset the value when the new operator is
-            // shape-incompatible with the object shape `between` uses.
+            // 1.6 / 1.14 / H3: `between` carries a `{ from, to }` object value; every other
+            // operator carries a scalar. The reset has to run in BOTH directions and is the
+            // SHARED `needsOperatorValueReset` helper, never a per-handler copy — this row
+            // used to re-implement it inline and fire only when leaving `between`, so
+            // ENTERING `between` stranded the scalar: `amount equals 500` switched to
+            // "Between" rendered two empty bound inputs over a stored `500` the user never
+            // cleared, and a date filter holding a `RelativeDateValue` kept the relative
+            // object as the base of the next bound commit.
             //
-            // 1.14: a `RelativeDateValue` is also a non-array object but a valid scalar date
-            // value, so exclude it from the reset predicate — otherwise switching operator on
-            // a relative-date filter silently discards the configured relative value.
-            const valueIsBetweenShape =
-              filter.value !== null &&
-              typeof filter.value === 'object' &&
-              !Array.isArray(filter.value) &&
-              !isRelativeDateValue(filter.value);
+            // `activeOperator` — not `filter.operator` — is the "previous" operator, since it
+            // is what the row actually rendered when a stored operator was invalid for the
+            // field type. Same contract as the drawer's `FilterBody`.
             onUpdate(
-              nextOperator !== 'between' && valueIsBetweenShape
+              needsOperatorValueReset(activeOperator, nextOperator, filter.value)
                 ? { operator: nextOperator, value: '' }
                 : { operator: nextOperator },
             );

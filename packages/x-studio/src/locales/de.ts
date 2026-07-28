@@ -611,8 +611,6 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   kpiSetupFixedWindowYear: 'Letzte 365 Tage',
 
   // KPI widget
-  kpiGrandTotalTooltip:
-    'Gesamtsumme – Aktive Filter-Widgets werden nicht auf diesen KPI angewendet. Aktivieren Sie den Kreuzfiltermodus in den KPI-Einstellungen, um diese zu berücksichtigen.',
   kpiGranularityAutoLabel: 'Selbst',
 
   // Grid setup panel
@@ -781,6 +779,8 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   filterWidgetAllLabel: 'Alle',
   filterWidgetNoOptionsLabel: 'Keine Optionen gefunden',
   filterWidgetNoSearchMatchesLabel: 'Keine Treffer',
+  filterRankConflictMessage:
+    'Pro Seite ist nur ein Top-N- oder Bottom-N-Filter zulässig. Entfernen Sie zuerst den vorhandenen.',
   filterWidgetSelectedCount: (count) => `${count} ausgewählt`,
   filterWidgetExcludeLabel: 'Ausgewählte löschen',
   filterWidgetExcludingLabel: '⊘ Ausgewählte löschen',

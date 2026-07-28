@@ -157,6 +157,31 @@ describe('StudioWidgetEditDialog', () => {
     expect(screen.getByRole('tab', { name: 'Format' })).not.toBe(null);
   });
 
+  it('hides the Filters tab for filter widgets (H4)', () => {
+    // H4: `builtinWidgetDefs` declared the filter kind as `widgetFilters: true`, so this tab
+    // rendered — but `StudioFilterWidget` deliberately never routes through
+    // `useWidgetRows`/`selectFiltersForWidget` (it reads rows straight from
+    // `getCachedNormalizedDataSource`), so a widget-scoped filter on one is evaluated by
+    // nothing. The filters drawer then hid it too, making it unreachable to remove.
+    setup({
+      widgets: {
+        w1: {
+          id: 'w1',
+          kind: 'filter',
+          title: 'Region picker',
+          sourceId: 'src',
+          config: {
+            filterWidgetField: 'region',
+            filterWidgetType: 'multi-select',
+          } as StudioWidgetConfig,
+        },
+      },
+      dataSources: { src: CHART_SOURCE },
+    });
+    expect(screen.queryByRole('tab', { name: 'Filters' })).toBe(null);
+    expect(screen.getByRole('tab', { name: 'Setup' })).not.toBe(null);
+  });
+
   it('hides the Filters tab when the widgetFilters feature is disabled', () => {
     setup({
       widgets: { w1: chartWidget() },

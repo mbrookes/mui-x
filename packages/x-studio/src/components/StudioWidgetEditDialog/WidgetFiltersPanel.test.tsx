@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { createRenderer, screen } from '@mui/internal-test-utils';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { StudioFilterState, StudioWidget, StudioWidgetConfig } from '../../models';
 import { createStudioHarness } from '../../internals/test-utils';
 import { WidgetFiltersPanel } from './WidgetFiltersPanel';
@@ -221,5 +221,47 @@ describe('WidgetFiltersPanel reachable sources (finding 1)', () => {
     // `>` is the number-table label for `greater_than`. The string fallback used to render
     // "Equals" here while the engine kept applying `greater_than`.
     expect(screen.getByRole('combobox', { name: 'Operator' }).textContent).toBe('>');
+  });
+});
+
+// Wave 1 made `StudioController.addFilter`/`updateFilter` return a `StudioMutationResult`
+// instead of `void`. This panel ignored both, so the Add button could do nothing visible and an
+// edit could silently snap back.
+describe('WidgetFiltersPanel rejected mutations (wave 1 handoff)', () => {
+  function renderPanel() {
+    const harness = createStudioHarness({
+      initialState: {
+        doc: { widgets: { w1: chartWidget() } },
+        runtime: { dataSources: { src: SOURCE } },
+      },
+    });
+    const view = render(<WidgetFiltersPanel widgetId="w1" />, { wrapper: harness.wrapper });
+    return { ...view, controller: harness.controller };
+  }
+
+  it('reports a rejected add instead of leaving the button apparently inert', async () => {
+    const { controller, user } = renderPanel();
+    vi.spyOn(controller, 'addFilter').mockReturnValue({ ok: false, reason: 'rank-conflict' });
+
+    await user.click(screen.getByRole('button', { name: /add filter/i }));
+
+    expect(screen.getByTestId('widget-filters-panel-error')).not.toBe(null);
+  });
+
+  it('shows no error for an accepted add', async () => {
+    const { user } = renderPanel();
+
+    await user.click(screen.getByRole('button', { name: /add filter/i }));
+
+    expect(screen.queryByTestId('widget-filters-panel-error')).toBe(null);
+  });
+
+  it('treats a value-equal no-op (committed: false) as success', async () => {
+    const { controller, user } = renderPanel();
+    vi.spyOn(controller, 'addFilter').mockReturnValue({ ok: true, committed: false });
+
+    await user.click(screen.getByRole('button', { name: /add filter/i }));
+
+    expect(screen.queryByTestId('widget-filters-panel-error')).toBe(null);
   });
 });

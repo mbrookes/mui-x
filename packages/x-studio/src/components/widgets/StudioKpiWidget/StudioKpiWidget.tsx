@@ -1198,7 +1198,6 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   // Reading `filteredRowsNoCross` here was the KPI's copy of the bug `StudioGridWidget` fixed:
   // it additionally stripped interactive filters, so a page with a Filter widget set to "West"
   // showed West in the chart / grid / map / pivot while the KPI kept reporting the all-region
-  // total. That divergence was papered over with a `kpiGrandTotalTooltip` hover indicator
   // rather than fixed; the indicator is gone with the bug, since `crossFilterMode` governs
   // widget-to-widget cross-filtering only and never a control the user set explicitly.
   // The grand-total DEFAULT itself is unchanged and still deliberate: the KPI's own default

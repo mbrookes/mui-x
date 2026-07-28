@@ -159,6 +159,54 @@ describe('StudioFilterWidget', () => {
       });
     });
 
+    it('drops the pending Exclude intent when the field changes under it (L16)', () => {
+      // Regression for L16: the pending intent is scoped to the field it was expressed on, but
+      // changing `config.filterWidgetField` does NOT remount this component. An "Exclude"
+      // clicked with nothing selected therefore survived the switch and silently committed the
+      // FIRST selection on the NEW field as `not_in`.
+      const captured: {
+        onApply?: (...args: any[]) => void;
+        onExcludeChange?: (next: boolean) => void;
+        exclude?: boolean;
+      } = {};
+      function Stub(props: {
+        onApply?: (...args: any[]) => void;
+        onExcludeChange?: (next: boolean) => void;
+        exclude?: boolean;
+      }) {
+        captured.onApply = props.onApply;
+        captured.onExcludeChange = props.onExcludeChange;
+        captured.exclude = props.exclude;
+        return <div data-testid="control" />;
+      }
+      const { controller, wrapper } = createStudioHarness();
+      const applySpy = vi.spyOn(controller, 'applyInteractiveFilter');
+      const { setProps } = render(
+        <StudioFilterWidget
+          widget={filterWidget(config)}
+          dataSource={DATA_SOURCE}
+          pageId="page-1"
+          slots={{ multiSelectControl: Stub }}
+        />,
+        { wrapper },
+      );
+
+      // Exclude clicked on `country`, with nothing selected — intent held, nothing applied.
+      act(() => captured.onExcludeChange!(true));
+      expect(applySpy).not.toHaveBeenCalled();
+      expect(captured.exclude).toBe(true);
+
+      // The user re-points the widget at a different field. Same component instance.
+      setProps({
+        widget: filterWidget({ filterWidgetType: 'multi-select', filterWidgetField: 'amount' }),
+      });
+
+      // The stale intent is gone, so the first selection on the NEW field is a plain include.
+      expect(captured.exclude).toBe(false);
+      act(() => captured.onApply!(['10']));
+      expect(applySpy).toHaveBeenCalledWith('w1', 'amount', 'in', ['10'], expect.any(Object));
+    });
+
     // Architecture-review Tier 2 finding 1: `filterWidgetField` is doc/AI-authored with no
     // closed-enum validation, so a hostile value equal to an `Object.prototype` member name
     // used to resolve the inherited function instead of `undefined` from the

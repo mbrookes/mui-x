@@ -37,13 +37,18 @@ import {
   selectPages,
   selectCrossFilterAllPages,
 } from '../../context';
+import { useWidgetDefMap } from '../../internals/builtinWidgetDefs';
 import { getReachableSourceIds } from '../../internals/dataSourceGraph';
 import { buildFieldCatalog, buildFieldLabelMap } from '../../internals/fieldCatalog';
 import { StudioDrawerErrorBoundary } from '../../internals/StudioDrawerErrorBoundary';
 import { isWidgetOfKind } from '../../models';
 import type { StudioChartConfig, StudioFilterState } from '../../models';
 import type { SimpleField } from './filterDrawerTypes';
-import { buildFieldOptions, summarizeFilter } from './filterDrawerUtils';
+import {
+  buildFieldOptions,
+  filterMutationRejectionMessage,
+  summarizeFilter,
+} from './filterDrawerUtils';
 import { FilterSection, WidgetFilterSection } from './FilterSection';
 import { InteractiveFilterSection } from './InteractiveFilterSection';
 import { CrossFilterSection } from './CrossFilterSection';
@@ -161,6 +166,18 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
   const fieldOptions = React.useMemo(() => buildFieldOptions(dataSources), [dataSources]);
 
   const selectedWidget = selectedWidgetId ? widgets[selectedWidgetId] : null;
+
+  // H4: whether this widget kind can carry widget-scoped filters is the widget DEF's
+  // `capabilities.widgetFilters`, not a hardcoded list of kind strings here. The drawer used
+  // to exclude `'filter'` and `'text'` by name while `builtinWidgetDefs` declared `filter` as
+  // `widgetFilters: true`, so the widget edit dialog offered a Filters tab for a filter widget
+  // whose filters nothing evaluates — and which this section then hid, leaving them
+  // unreachable. Reading the single capability keeps the two surfaces from disagreeing again,
+  // and makes custom widgets that opt out behave consistently on both.
+  const widgetDefMap = useWidgetDefMap();
+  const selectedWidgetSupportsFilters =
+    selectedWidget != null &&
+    widgetDefMap.get(selectedWidget.kind)?.capabilities?.widgetFilters !== false;
 
   const widgetFieldOptions = React.useMemo(() => {
     if (!selectedWidget?.sourceId) {
@@ -322,32 +339,48 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
   // the search box has text would create an invisible filter (and an undo entry) under an
   // empty-state message reading "No matching filters". Clearing the search keeps the invariant
   // that what the user just added is what the user sees.
+  // `addFilter` returns a `StudioMutationResult`, so a refusal is no longer indistinguishable
+  // from a save. Both handlers used to clear the search box BEFORE the add, so a rejected add
+  // wiped the user's search for nothing and left no filter and no explanation. Commit first,
+  // then clear the search only on success.
+  const [addError, setAddError] = React.useState<string | null>(null);
+
   const handleAddPageFilter = () => {
     if (allFields.length === 0) {
       return;
     }
-    setFilterSearch('');
-    controller.addFilter({
+    const result = controller.addFilter({
       id: createFilterId(),
       field: '',
       operator: 'equals',
       value: '',
       scope: { kind: 'page' },
     });
+    if (!result.ok) {
+      setAddError(filterMutationRejectionMessage(result.reason, localeText));
+      return;
+    }
+    setAddError(null);
+    setFilterSearch('');
   };
 
   const handleAddWidgetFilter = () => {
     if (!selectedWidgetId || Object.keys(dataSources).length === 0) {
       return;
     }
-    setFilterSearch('');
-    controller.addFilter({
+    const result = controller.addFilter({
       id: createFilterId(),
       field: '',
       operator: 'equals',
       value: '',
       scope: { kind: 'widget', widgetId: selectedWidgetId },
     });
+    if (!result.ok) {
+      setAddError(filterMutationRejectionMessage(result.reason, localeText));
+      return;
+    }
+    setAddError(null);
+    setFilterSearch('');
   };
 
   // Defense-in-depth (this drawer had no error boundary at all): a render throw from any
@@ -389,6 +422,12 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
           />
         )}
 
+        {addError && (
+          <Alert severity="error" data-testid="filters-drawer-add-error">
+            {addError}
+          </Alert>
+        )}
+
         <FilterSection
           title={localeText.filtersSectionPageFiltersTitle}
           filters={visiblePageFilters}
@@ -400,9 +439,7 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
           emptyMessage={searchLower ? localeText.filtersSectionNoMatchingFilters : undefined}
         />
 
-        {selectedWidgetId &&
-        selectedWidget?.kind !== 'filter' &&
-        selectedWidget?.kind !== 'text' ? (
+        {selectedWidgetId && selectedWidgetSupportsFilters ? (
           <React.Fragment>
             <Divider />
             <WidgetFilterSection
@@ -572,9 +609,13 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
                         />
                       ) : (
                         // M20: `aria-current`, not `disabled` — see the default-view chip above.
-                        // Re-clicking the active preset is a no-op rather than a re-apply:
-                        // `applyFilterPreset` re-mints filter ids, so it would push an undo
-                        // entry for a change the user cannot see.
+                        // Re-clicking the active preset is a no-op rather than a re-apply
+                        // (`applyFilterPreset` re-mints filter ids, so it would push an undo
+                        // entry for a change the user cannot see) — but that is now enforced by
+                        // `docTransforms.applyFilterPreset`'s own identity bail, so the local
+                        // `if (!isActive)` guard here is gone. `isActive` still drives the chip's
+                        // `aria-current` and `color`, which is why `filtersEquivalent` /
+                        // `normalizeFilterForCompare` remain.
                         <Chip
                           icon={<BookmarkIcon sx={{ fontSize: '14px !important' }} />}
                           label={preset.name}
@@ -582,11 +623,7 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
                           color={isActive ? 'primary' : 'default'}
                           aria-current={isActive ? 'true' : undefined}
                           clickable
-                          onClick={() => {
-                            if (!isActive) {
-                              controller.applyFilterPreset(preset.id);
-                            }
-                          }}
+                          onClick={() => controller.applyFilterPreset(preset.id)}
                           sx={{ flexGrow: 1, justifyContent: 'flex-start' }}
                         />
                       )}

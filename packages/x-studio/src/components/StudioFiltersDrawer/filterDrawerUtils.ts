@@ -15,6 +15,32 @@ import { hasBetweenBound, isConditionComplete } from '../../internals/filterUtil
 import type { FieldOption, FieldType, FilterMode } from './filterDrawerTypes';
 import { getOperatorLabel, getOperatorsForFieldType } from './filterOperatorMetadata';
 
+// ─── Mutation rejections ──────────────────────────────────────────────────────
+
+/**
+ * Resolves the user-facing message for a rejected `addFilter`/`updateFilter`.
+ *
+ * `StudioController.addFilter`/`updateFilter` return a `StudioMutationResult` rather than
+ * `void`, so a refusal is no longer indistinguishable from a save. Every filter-authoring
+ * surface routes its rejection text through this one function so the drawer rows, the drawer's
+ * add buttons and the widget edit dialog's filters panel cannot drift apart.
+ *
+ * `rank-conflict` — a second Top-N filter on a page that already has one — is the reachable
+ * rejection here and gets its own message: `saveRejectedMessage` tells the user to close a
+ * dialog, which is wrong advice in a drawer. It falls back to `saveRejectedMessage` until the
+ * translation bundles carry `filterRankConflictMessage`.
+ */
+export function filterMutationRejectionMessage(
+  reason: 'duplicate-id' | 'not-found' | 'cycle' | 'rank-conflict' | 'invalid',
+  localeText: Partial<StudioLocaleText>,
+): string {
+  const generic = localeText.saveRejectedMessage ?? DEFAULT_STUDIO_LOCALE_TEXT.saveRejectedMessage;
+  if (reason === 'rank-conflict') {
+    return localeText.filterRankConflictMessage ?? generic;
+  }
+  return generic;
+}
+
 // ─── Operators ────────────────────────────────────────────────────────────────
 // Operator metadata (which operators are valid per field type, and their labels)
 // now lives in `filterOperatorMetadata.ts`, shared with

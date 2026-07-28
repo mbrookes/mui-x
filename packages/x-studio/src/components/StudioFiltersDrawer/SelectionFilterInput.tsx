@@ -4,8 +4,10 @@ import {
   Box,
   Checkbox,
   Divider,
+  FormControlLabel,
   InputAdornment,
   Stack,
+  Switch,
   TextField,
   Typography,
 } from '@mui/material';
@@ -17,10 +19,32 @@ export function SelectionFilterInput({
   values,
   selected,
   onChange,
+  exclude = false,
+  onExcludeChange,
 }: {
   values: string[];
   selected: string[];
   onChange: (v: string[]) => void;
+  /**
+   * L17: whether the stored `operator` is `not_in` — i.e. the checked values are EXCLUDED.
+   *
+   * This editor used to render a plain checkbox list that never read or wrote `operator`,
+   * while `summarizeFilter` branches on `not_in` and `compileRowTest` excludes on it. A
+   * `not_in` selection filter therefore rendered with its values CHECKED — looking exactly
+   * like an include list — above its own summary chip reading "is not: …", with the pipeline
+   * excluding them and no control anywhere to see or change it.
+   *
+   * That state is reachable without `StudioFilterWidget`: `screenFilters` accepts it from a
+   * host `initialState` or persisted doc, the wire `addFilter` mutation and both
+   * `controller.addFilter`/`updateFilter` apply zero operator/mode validation, and
+   * `applyFilterPreset` re-stamps preset filters into page scope with `operator` carried
+   * through verbatim. The mode-switch reset (`buildModeReset`) deliberately leaves `operator`
+   * untouched, and the operator self-repair effect bails out unless the mode is `condition`,
+   * so nothing repaired it away either.
+   */
+  exclude?: boolean;
+  /** Omit to render the toggle read-only-free (no exclude affordance at all). */
+  onExcludeChange?: (next: boolean) => void;
 }) {
   const localeText = useStudioLocaleText();
   const [search, setSearch] = React.useState('');
@@ -156,6 +180,29 @@ export function SelectionFilterInput({
           </React.Fragment>
         )}
       </Box>
+      {/* L17: surface the include/exclude sense of the checked values. Without it a `not_in`
+          filter is indistinguishable from an `in` one in this editor, while the card's own
+          summary and the pipeline both treat it as an exclusion. Rendered whenever the caller
+          can write `operator` back; `MultiSelectControl` uses the same two labels. */}
+      {onExcludeChange && (
+        <FormControlLabel
+          control={
+            <Switch
+              size="small"
+              checked={exclude}
+              onChange={(event) => onExcludeChange(event.target.checked)}
+            />
+          }
+          label={
+            <Typography variant="caption" color={exclude ? 'error.main' : 'text.secondary'}>
+              {exclude
+                ? localeText.filterWidgetExcludingLabel
+                : localeText.filterWidgetExcludeLabel}
+            </Typography>
+          }
+          sx={{ ml: 0 }}
+        />
+      )}
       {selected.length > 0 && (
         <Typography variant="caption" color="text.secondary">
           {localeText.filterSelectionSelectedCount(selected.length)}

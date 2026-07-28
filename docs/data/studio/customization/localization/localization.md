@@ -483,7 +483,6 @@ These tokens are retained as public API for consumers who call `generateDashboar
 | `kpiSetupGaugeMaxLabel`           | `'Target'`                                                           |
 | `kpiSetupTrendLabel`              | `'Trend'`                                                            |
 | `kpiSetupCompPeriodLabel`         | `'Comparison period'`                                                |
-| `kpiGrandTotalTooltip`            | `'Grand total — active filter widgets are not applied to this KPI…'` |
 
 ### Grid setup panel
 

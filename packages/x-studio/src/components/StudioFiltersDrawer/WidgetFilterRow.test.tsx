@@ -235,4 +235,54 @@ describe('WidgetFilterRow', () => {
       expect(screen.queryByTestId('filter-field-unresolved')).toBe(null);
     });
   });
+
+  // Wave 1 made `StudioController.updateFilter` return a `StudioMutationResult` instead of
+  // `void`. This row ignored it, so a refusal was indistinguishable from a save.
+  describe('rejected mutations (wave 1 handoff)', () => {
+    it('reports a rejected change instead of silently discarding it', async () => {
+      const filter = makeFilter();
+      const { controller, wrapper } = createStudioHarness({
+        initialState: { doc: { filters: [filter] } },
+      });
+      vi.spyOn(controller, 'updateFilter').mockReturnValue({
+        ok: false,
+        reason: 'rank-conflict',
+      });
+      const { user } = render(
+        <WidgetFilterRow
+          filter={filter}
+          fieldOptions={fieldOptions}
+          widgetSourceId="src"
+          onRemove={() => {}}
+        />,
+        { wrapper },
+      );
+
+      await user.click(screen.getAllByRole('combobox')[0]);
+      await user.click(within(screen.getByRole('listbox')).getAllByRole('option')[1]);
+
+      expect(screen.getByTestId('widget-filter-change-error')).not.toBe(null);
+    });
+
+    it('shows no error for an accepted change', async () => {
+      const filter = makeFilter();
+      const { wrapper } = createStudioHarness({
+        initialState: { doc: { filters: [filter] } },
+      });
+      const { user } = render(
+        <WidgetFilterRow
+          filter={filter}
+          fieldOptions={fieldOptions}
+          widgetSourceId="src"
+          onRemove={() => {}}
+        />,
+        { wrapper },
+      );
+
+      await user.click(screen.getAllByRole('combobox')[0]);
+      await user.click(within(screen.getByRole('listbox')).getAllByRole('option')[1]);
+
+      expect(screen.queryByTestId('widget-filter-change-error')).toBe(null);
+    });
+  });
 });

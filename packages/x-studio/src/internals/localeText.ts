@@ -286,6 +286,18 @@ export interface StudioLocaleText {
    * Shared by the calculated-field and relationship dialogs.
    */
   saveRejectedMessage: string;
+  /**
+   * Shown on a filter card when the controller rejected the change with `rank-conflict` —
+   * the page already has a Top-N filter, so the mode switch snapped back. Distinct from
+   * `saveRejectedMessage`, which says the record was removed or changed elsewhere and tells
+   * the user to close a dialog that, in the filters drawer, does not exist.
+   *
+   * Deliberately OPTIONAL and deliberately absent from `DEFAULT_STUDIO_LOCALE_TEXT`: the
+   * translation bundles under `src/locales` are owned by a separate change, and
+   * `locales.test.ts` asserts every bundle defines every key the default text defines.
+   * Callers fall back to `saveRejectedMessage` until the bundles carry this key.
+   */
+  filterRankConflictMessage: string;
   lineageTypePrefix: (type: string) => string;
   lineageJoinDetail: (
     srcSource: string,
@@ -759,7 +771,6 @@ export interface StudioLocaleText {
   kpiSetupFixedWindowYear: string;
 
   // ── KPI widget ─────────────────────────────────────────────────────────────
-  kpiGrandTotalTooltip: string;
   kpiGranularityAutoLabel: string;
 
   // ── Grid setup panel ──────────────────────────────────────────────────────
@@ -950,6 +961,7 @@ export interface StudioLocaleText {
    * empty.
    */
   filterWidgetNoSearchMatchesLabel: string;
+  filterRankConflictMessage: 'Only one Top-N or Bottom-N filter is allowed per page. Remove the existing one first.',
   /** Returns a label like "3 selected" for the multi-select control. */
   filterWidgetSelectedCount: (count: number) => string;
   filterWidgetExcludeLabel: string;
@@ -2064,8 +2076,6 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   kpiSetupFixedWindowYear: 'Last 365 days',
 
   // KPI widget
-  kpiGrandTotalTooltip:
-    'Grand total \u2014 active filter widgets are not applied to this KPI. Enable Cross-filter mode in KPI settings to respect them.',
   kpiGranularityAutoLabel: 'Auto',
 
   // Grid setup panel

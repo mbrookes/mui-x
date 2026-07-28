@@ -69,3 +69,47 @@ describe('DateValueInput absolute/relative toggle (finding 7)', () => {
     expect((onChange.mock.calls[0][0] as RelativeDateValue).relative).toBe(true);
   });
 });
+
+// Regression for M9: `onChange` routes straight into the undoable `controller.updateFilter`,
+// and a MUI date field publishes once per SECTION. While the user retypes over an already
+// filled date, an intermediate publish carries an INVALID date, which this input used to
+// commit as `value: ''` — every widget re-rendered unfiltered and back, and Ctrl+Z then walked
+// those blank states one section at a time. It was the only value editor in the drawer without
+// buffering. A partial/invalid edit must commit nothing; a genuine clear must still commit.
+describe('DateValueInput partial-edit buffering (M9)', () => {
+  it('does not commit an empty value for an intermediate invalid date', async () => {
+    const onChange = vi.fn();
+    // February 2023 has 28 days, so typing day "29" over this makes a fully-typed but INVALID
+    // date — exactly the publish that used to blank the filter.
+    const { user } = render(tree('2023-02-10', onChange));
+
+    const daySection = screen.getByRole('spinbutton', { name: 'Day' });
+    await user.click(daySection);
+    await user.keyboard('29');
+
+    expect(onChange).not.toHaveBeenCalledWith('');
+  });
+
+  it('still commits the date once the edit resolves to a valid one', async () => {
+    const onChange = vi.fn();
+    const { user } = render(tree('2023-02-10', onChange));
+
+    const daySection = screen.getByRole('spinbutton', { name: 'Day' });
+    await user.click(daySection);
+    await user.keyboard('21');
+
+    expect(onChange).toHaveBeenLastCalledWith('2023-02-21');
+  });
+
+  it('still commits an explicit clear', async () => {
+    const onChange = vi.fn();
+    const { user } = render(tree('2023-02-10', onChange));
+
+    // Deleting a filled section publishes `null` with NO validation error — a genuine
+    // emptying, not a partial edit, so it must still reach the store.
+    await user.click(screen.getByRole('spinbutton', { name: 'Day' }));
+    await user.keyboard('{Delete}');
+
+    expect(onChange).toHaveBeenCalledWith('');
+  });
+});

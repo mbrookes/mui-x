@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { createRenderer, screen } from '@mui/internal-test-utils';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type {
   CreateDefaultStudioStateOverrides,
   StudioFilterPreset,
@@ -9,6 +9,7 @@ import type {
 } from '../../models';
 import type { StudioLocaleText } from '../../internals/StudioUIConfigContext';
 import { createStudioHarness } from '../../internals/test-utils';
+import { BUILTIN_WIDGET_DEFS } from '../../internals/builtinWidgetDefs';
 import { StudioFiltersDrawer } from './StudioFiltersDrawer';
 
 const { render } = createRenderer();
@@ -40,7 +41,7 @@ function renderWithSelectedWidget(
       },
     },
   };
-  const { wrapper } = createStudioHarness({
+  const { controller, wrapper } = createStudioHarness({
     initialState,
     // The saved-views section wraps a disabled button in a Tooltip (a known MUI dev
     // warning); disable it so the strict console check doesn't trip on unrelated noise.
@@ -49,7 +50,7 @@ function renderWithSelectedWidget(
       ...(localeText ? { localeText } : {}),
     },
   });
-  return render(<StudioFiltersDrawer />, { wrapper });
+  return { ...render(<StudioFiltersDrawer />, { wrapper }), controller };
 }
 
 describe('<StudioFiltersDrawer /> widget filter section', () => {
@@ -72,6 +73,31 @@ describe('<StudioFiltersDrawer /> widget filter section', () => {
       config: {},
     });
     expect(screen.queryByText('Widget: Notes')).toBe(null);
+  });
+
+  // H4: the section used to exclude `'filter'` and `'text'` by hardcoded kind string while
+  // `builtinWidgetDefs` declared the filter kind as `widgetFilters: true`. The widget edit
+  // dialog reads that capability, so it offered a Filters tab for a filter widget whose
+  // filters nothing evaluates — and this section then hid them, leaving them unreachable.
+  // Both surfaces now read the one capability; these two assertions pin the pair together.
+  it('hides the widget filter section for a filter widget, from the widget def capability', () => {
+    renderWithSelectedWidget({
+      id: 'filter-1',
+      kind: 'filter',
+      title: 'Region picker',
+      sourceId: 'src',
+      config: { filterWidgetField: 'region', filterWidgetType: 'multi-select' },
+    });
+    expect(screen.queryByText('Widget: Region picker')).toBe(null);
+  });
+
+  it('declares widgetFilters: false for every kind whose section this drawer hides', () => {
+    // The drawer and the widget edit dialog must not be able to disagree again: any kind the
+    // drawer refuses to show widget filters for has to opt out in the def, and vice versa.
+    expect(BUILTIN_WIDGET_DEFS.filter.capabilities.widgetFilters).toBe(false);
+    expect(BUILTIN_WIDGET_DEFS.text.capabilities.widgetFilters).toBe(false);
+    expect(BUILTIN_WIDGET_DEFS.chart.capabilities.widgetFilters).toBe(true);
+    expect(BUILTIN_WIDGET_DEFS.grid.capabilities.widgetFilters).toBe(true);
   });
 });
 
@@ -110,6 +136,23 @@ describe('<StudioFiltersDrawer /> add filter while searching (finding 6)', () =>
     // The pre-existing filter is visible again, and so is the field-less one just added
     // (rendered as its field picker rather than a card).
     expect(screen.getByText('Region')).not.toBe(null);
+  });
+
+  // Wave 1 made `StudioController.addFilter` return a `StudioMutationResult` instead of `void`.
+  // This handler ignored it AND cleared the search box BEFORE the add, so a rejected add wiped
+  // the user's search for nothing and left no filter and no explanation. Commit first, clear
+  // the search only on success, and say so when it fails.
+  it('keeps the search and reports the failure when the add is rejected', async () => {
+    const { user, controller } = renderWithSelectedWidget(CHART, { filters: [EXISTING_FILTER] });
+    vi.spyOn(controller, 'addFilter').mockReturnValue({ ok: false, reason: 'invalid' });
+
+    const search = screen.getByPlaceholderText('Search filters…');
+    await user.type(search, 'nothing-matches-this');
+
+    await user.click(screen.getAllByRole('button', { name: 'Add filter' })[0]);
+
+    expect((search as HTMLInputElement).value).toBe('nothing-matches-this');
+    expect(screen.getByTestId('filters-drawer-add-error')).not.toBe(null);
   });
 });
 

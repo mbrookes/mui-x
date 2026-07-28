@@ -1,6 +1,6 @@
 'use client';
 import * as React from 'react';
-import { Box, IconButton, Stack } from '@mui/material';
+import { Alert, Box, IconButton, Stack } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import {
   useStudioController,
@@ -22,6 +22,7 @@ import {
   buildModeReset,
   isFilterEffective,
   isFilterFresh,
+  filterMutationRejectionMessage,
 } from './filterDrawerUtils';
 import { useFieldValues } from './useFieldValues';
 import { FilterModeToggle } from './FilterModeToggle';
@@ -132,8 +133,18 @@ export function PageFilterRow(props: PageFilterRowProps) {
   const disableRankMode =
     filter.filterMode !== 'rank' && hasConflictingRankFilter(filter.id, filter, filters, pages);
 
+  // `updateFilter` returns a `StudioMutationResult`, so a refusal is no longer
+  // indistinguishable from a save. The reachable refusal here is `rank-conflict`: switching
+  // this filter to Top-N when the page already has one. `disableRankMode` above normally
+  // pre-empts it, but a concurrent edit (the AI assistant, another view, an undo) landing
+  // between render and commit still gets through — and without this the Top-N control just
+  // snapped back with nothing on screen saying why.
+  //
+  // `ok` with `committed: false` is a value-equal no-op, i.e. success — never an error.
+  const [changeError, setChangeError] = React.useState<string | null>(null);
   const handleFilterChange = (changes: Partial<StudioFilterState>) => {
-    controller.updateFilter(filter.id, changes);
+    const result = controller.updateFilter(filter.id, changes);
+    setChangeError(result.ok ? null : filterMutationRejectionMessage(result.reason, localeText));
   };
 
   // 2.12: `activeOperator` above is a DISPLAY-ONLY fallback — when the stored operator is
@@ -201,6 +212,11 @@ export function PageFilterRow(props: PageFilterRowProps) {
 
     return (
       <Stack spacing={1}>
+        {changeError && (
+          <Alert severity="error" data-testid="page-filter-change-error">
+            {changeError}
+          </Alert>
+        )}
         <FilterModeToggle
           mode={currentMode}
           onChange={handleModeChange}
@@ -265,6 +281,13 @@ export function PageFilterRow(props: PageFilterRowProps) {
       disabled={filter.disabled}
       onToggleDisabled={() => controller.toggleFilter(filter.id)}
     >
+      {changeError && (
+        <Box sx={{ px: 1.5, pt: 1.5 }}>
+          <Alert severity="error" data-testid="page-filter-change-error">
+            {changeError}
+          </Alert>
+        </Box>
+      )}
       {isFieldUnresolved && (
         <Box sx={{ px: 1.5, pt: 1.5 }}>
           <UnresolvedFieldAlert

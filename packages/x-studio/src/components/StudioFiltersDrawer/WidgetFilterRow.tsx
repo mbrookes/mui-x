@@ -1,6 +1,6 @@
 'use client';
 import * as React from 'react';
-import { Autocomplete, Box, IconButton, Stack, TextField } from '@mui/material';
+import { Alert, Autocomplete, Box, IconButton, Stack, TextField } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import {
   useStudioController,
@@ -22,6 +22,7 @@ import {
   buildModeReset,
   isFilterEffective,
   isFilterFresh,
+  filterMutationRejectionMessage,
 } from './filterDrawerUtils';
 import { useFieldValues } from './useFieldValues';
 import { FilterModeToggle } from './FilterModeToggle';
@@ -97,6 +98,8 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
   const disableRankMode =
     filter.filterMode !== 'rank' && hasConflictingRankFilter(filter.id, filter, filters, pages);
 
+  const [changeError, setChangeError] = React.useState<string | null>(null);
+
   const handleFilterChange = (changes: Partial<StudioFilterState>) => {
     // 1.4: commit ONLY the delta. `controller.updateFilter` already merges the patch into
     // the CURRENT store filter, so passing the whole render-time `filter` snapshot let a
@@ -109,7 +112,13 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
       nextMode === 'rank' && chartXField && !nextField
         ? { ...changes, field: chartXField }
         : changes;
-    controller.updateFilter(filter.id, delta);
+    // `updateFilter` returns a `StudioMutationResult`, so a refusal is no longer
+    // indistinguishable from a save. The reachable refusal is `rank-conflict` (a second Top-N
+    // filter in a page context that already has one) landing between render and commit, which
+    // previously just snapped the Top-N control back with nothing on screen saying why.
+    // `ok` with `committed: false` is a value-equal no-op, i.e. success — never an error.
+    const result = controller.updateFilter(filter.id, delta);
+    setChangeError(result.ok ? null : filterMutationRejectionMessage(result.reason, localeText));
   };
 
   // 2.12: `activeOperator` above is a DISPLAY-ONLY fallback — when the stored operator is
@@ -188,6 +197,11 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
 
     return (
       <Stack spacing={1}>
+        {changeError && (
+          <Alert severity="error" data-testid="widget-filter-change-error">
+            {changeError}
+          </Alert>
+        )}
         <FilterModeToggle
           mode={currentMode}
           onChange={handleModeChange}
@@ -251,6 +265,13 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
       disabled={filter.disabled}
       onToggleDisabled={() => controller.toggleFilter(filter.id)}
     >
+      {changeError && (
+        <Box sx={{ px: 1.5, pt: 1.5 }}>
+          <Alert severity="error" data-testid="widget-filter-change-error">
+            {changeError}
+          </Alert>
+        </Box>
+      )}
       {isFieldUnresolved && (
         <Box sx={{ px: 1.5, pt: 1.5 }}>
           <UnresolvedFieldAlert

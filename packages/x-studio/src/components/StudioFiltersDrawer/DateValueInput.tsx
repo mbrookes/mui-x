@@ -89,7 +89,26 @@ export function DateValueInput({
         <DatePicker
           label={label ?? localeText.filterDateLabel}
           value={dayjsVal?.isValid() ? dayjsVal : null}
-          onChange={(d: Dayjs | null) => {
+          onChange={(d, context) => {
+            // M9: a MUI date field publishes `onChange` once per SECTION, and while the user
+            // retypes over an already-filled date each intermediate publish carries an INVALID
+            // date (see `useFieldState`'s "publish the date as newActiveDate to prevent error
+            // state oscillation" branch). Committing those straight through wrote `value: ''`
+            // two or three times before the real date landed: every widget re-rendered
+            // unfiltered and back, and because `onChange` reaches the undoable
+            // `controller.updateFilter`, Ctrl+Z then walked those blank states one section at a
+            // time. This was the only value editor in the drawer without buffering —
+            // `BufferedBoundInput`, `BufferedTextField`, `RankFilterInput` and
+            // `RelativeDateInput` all buffer.
+            //
+            // Distinguish "partial/in-progress" from "explicitly emptied": an in-progress edit
+            // reports `invalidDate`, whereas a genuine clear publishes `null` with no
+            // validation error. Only the latter is a real commit of an empty value. Other
+            // validation errors (min/max/shouldDisableDate) describe a fully-typed date the
+            // user did mean, so they are deliberately NOT swallowed here.
+            if (context.validationError === 'invalidDate') {
+              return;
+            }
             onChange(d?.isValid() ? d.format('YYYY-MM-DD') : '');
           }}
           slotProps={{ textField: { size: 'small' } }}

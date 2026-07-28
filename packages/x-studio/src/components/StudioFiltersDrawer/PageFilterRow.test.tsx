@@ -568,4 +568,85 @@ describe('PageFilterRow', () => {
       expect(updateSpy).not.toHaveBeenCalled();
     });
   });
+
+  // Wave 1 made `StudioController.updateFilter` return a `StudioMutationResult` instead of
+  // `void`, so a refusal is no longer indistinguishable from a save. This row ignored it, and
+  // the reachable refusal — `rank-conflict`, a second Top-N filter in a page context that
+  // already has one, landing between render and commit — just snapped the control back with
+  // nothing on screen saying why.
+  describe('rejected mutations (wave 1 handoff)', () => {
+    it('reports a rejected change instead of silently discarding it', async () => {
+      const filter = makeFilter();
+      const { controller, wrapper } = createStudioHarness({
+        initialState: { doc: { filters: [filter] } },
+      });
+      vi.spyOn(controller, 'updateFilter').mockReturnValue({
+        ok: false,
+        reason: 'rank-conflict',
+      });
+      const { user } = render(
+        <PageFilterRow
+          filter={filter}
+          fields={fields}
+          fieldOptions={fieldOptions}
+          onRemove={() => {}}
+          allPageFilters={[filter]}
+        />,
+        { wrapper },
+      );
+
+      await user.click(screen.getAllByRole('combobox')[0]);
+      // Pick any operator other than the stored one; which one is irrelevant here.
+      await user.click(within(screen.getByRole('listbox')).getAllByRole('option')[1]);
+
+      expect(screen.getByTestId('page-filter-change-error')).not.toBe(null);
+    });
+
+    it('shows no error for an accepted change', async () => {
+      const filter = makeFilter();
+      const { wrapper } = createStudioHarness({
+        initialState: { doc: { filters: [filter] } },
+      });
+      const { user } = render(
+        <PageFilterRow
+          filter={filter}
+          fields={fields}
+          fieldOptions={fieldOptions}
+          onRemove={() => {}}
+          allPageFilters={[filter]}
+        />,
+        { wrapper },
+      );
+
+      await user.click(screen.getAllByRole('combobox')[0]);
+      // Pick any operator other than the stored one; which one is irrelevant here.
+      await user.click(within(screen.getByRole('listbox')).getAllByRole('option')[1]);
+
+      expect(screen.queryByTestId('page-filter-change-error')).toBe(null);
+    });
+
+    it('treats a value-equal no-op (committed: false) as success, not an error', async () => {
+      const filter = makeFilter();
+      const { controller, wrapper } = createStudioHarness({
+        initialState: { doc: { filters: [filter] } },
+      });
+      vi.spyOn(controller, 'updateFilter').mockReturnValue({ ok: true, committed: false });
+      const { user } = render(
+        <PageFilterRow
+          filter={filter}
+          fields={fields}
+          fieldOptions={fieldOptions}
+          onRemove={() => {}}
+          allPageFilters={[filter]}
+        />,
+        { wrapper },
+      );
+
+      await user.click(screen.getAllByRole('combobox')[0]);
+      // Pick any operator other than the stored one; which one is irrelevant here.
+      await user.click(within(screen.getByRole('listbox')).getAllByRole('option')[1]);
+
+      expect(screen.queryByTestId('page-filter-change-error')).toBe(null);
+    });
+  });
 });

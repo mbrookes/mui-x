@@ -78,3 +78,60 @@ describe('SelectionFilterInput accessible names (finding 5)', () => {
     expect(onChange).toHaveBeenCalledWith(['DE', 'FR']);
   });
 });
+
+// Regression for L17: this editor rendered a plain checkbox list that never read or wrote
+// `operator`, while `summarizeFilter` branches on `not_in` and `compileRowTest` excludes on it.
+// A `not_in` selection filter therefore rendered with its values CHECKED — looking exactly like
+// an include list — above its own summary chip reading "is not: …", with the pipeline excluding
+// them and no control anywhere to see or change it.
+//
+// Reachability was verified rather than assumed: `screenFilters` accepts the shape from a host
+// `initialState` or a persisted doc, the wire `addFilter` mutation and both
+// `controller.addFilter`/`updateFilter` apply zero operator-vs-mode validation, and
+// `applyFilterPreset` re-stamps preset filters into page scope with `operator` carried through
+// verbatim. `buildModeReset` leaves `operator` untouched and the operator self-repair effect
+// bails out unless the mode is `condition`, so nothing repaired it away either.
+describe('SelectionFilterInput exclude state (L17)', () => {
+  it('renders no exclude affordance when the caller cannot write the operator back', () => {
+    render(<SelectionFilterInput values={['DE', 'FR']} selected={['DE']} onChange={vi.fn()} />);
+
+    expect(screen.queryByRole('switch', { name: 'Exclude selected' })).toBe(null);
+  });
+
+  it('surfaces an active `not_in` filter as excluding rather than including', () => {
+    render(
+      <SelectionFilterInput
+        values={['DE', 'FR']}
+        selected={['DE']}
+        onChange={vi.fn()}
+        exclude
+        onExcludeChange={vi.fn()}
+      />,
+    );
+
+    // The values stay checked (they are the chosen set) but the sense is now visible.
+    expect((screen.getByRole('checkbox', { name: 'DE' }) as HTMLInputElement).checked).toBe(true);
+    const toggle = screen.getByRole('switch', { name: /Excluding selected/ }) as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+  });
+
+  it('lets the user turn exclusion on and off', () => {
+    const onExcludeChange = vi.fn();
+    const { setProps } = render(
+      <SelectionFilterInput
+        values={['DE', 'FR']}
+        selected={['DE']}
+        onChange={vi.fn()}
+        exclude={false}
+        onExcludeChange={onExcludeChange}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Exclude selected' }));
+    expect(onExcludeChange).toHaveBeenCalledWith(true);
+
+    setProps({ exclude: true });
+    fireEvent.click(screen.getByRole('switch', { name: /Excluding selected/ }));
+    expect(onExcludeChange).toHaveBeenLastCalledWith(false);
+  });
+});

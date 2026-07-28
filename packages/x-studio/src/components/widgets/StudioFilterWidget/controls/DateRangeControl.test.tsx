@@ -289,5 +289,52 @@ describe('DateRangeControl', () => {
       await clock.tickAsync(DEBOUNCE_MS * 10);
       expect(onApply).not.toHaveBeenCalled();
     });
+
+    it('cancels a pending debounced apply when the value is cleared EXTERNALLY (M8)', async () => {
+      // Regression for M8: only this control's OWN Clear button cancelled the pending commit,
+      // so every other clear surface raced it. Clearing this widget's row from the drawer's
+      // Interactive filters section (`clearInteractiveFilter`) within the 300ms window emptied
+      // the store, the blur handler then declined to resync because `pendingApply.current !==
+      // null`, and the timer fired `onApply(value)` ~300ms later — re-creating the filter the
+      // user had just cleared.
+      const { user, onApply, setProps } = setup({
+        currentValue: { from: '2024-01-01', to: '2024-01-31' },
+      });
+
+      const fromField = getDateField(localeText.filterWidgetDateFromLabel);
+      await user.click(within(fromField).getByRole('spinbutton', { name: 'Month' }));
+      await user.keyboard('2');
+
+      // The apply really is pending: one tick short of the window leaves it unfired.
+      await clock.tickAsync(DEBOUNCE_MS - 1);
+      expect(onApply).not.toHaveBeenCalled();
+
+      // The external clear arrives as a new `currentValue` — no local Clear click involved.
+      setProps({ currentValue: null });
+
+      // Drain every remaining timer so a merely-rescheduled apply would still be caught.
+      await clock.tickAsync(DEBOUNCE_MS * 10);
+      expect(onApply).not.toHaveBeenCalled();
+    });
+
+    it('cancels a pending debounced apply when an external edit replaces the range (M8)', async () => {
+      // The same race for a non-null external transition — an undo/redo or a preset landing
+      // inside the window. The externally stored value is authoritative; the stale in-flight
+      // commit must not overwrite it moments later.
+      const { user, onApply, setProps } = setup({
+        currentValue: { from: '2024-01-01', to: '2024-01-31' },
+      });
+
+      const fromField = getDateField(localeText.filterWidgetDateFromLabel);
+      await user.click(within(fromField).getByRole('spinbutton', { name: 'Month' }));
+      await user.keyboard('2');
+      await clock.tickAsync(DEBOUNCE_MS - 1);
+      expect(onApply).not.toHaveBeenCalled();
+
+      setProps({ currentValue: { from: '2023-06-01', to: '2023-06-30' } });
+
+      await clock.tickAsync(DEBOUNCE_MS * 10);
+      expect(onApply).not.toHaveBeenCalled();
+    });
   });
 });

@@ -610,8 +610,6 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   kpiSetupFixedWindowYear: 'Les 365 derniers jours',
 
   // KPI widget
-  kpiGrandTotalTooltip:
-    'Grand Total — Les widgets de filtre actif ne sont pas appliqués à ce KPI. Activez le mode Cross Filter dans les paramètres des KPI pour les respecter.',
   kpiGranularityAutoLabel: 'Soi',
 
   // Grid setup panel
@@ -780,6 +778,8 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   filterWidgetAllLabel: 'Tous',
   filterWidgetNoOptionsLabel: 'Aucune option trouvée',
   filterWidgetNoSearchMatchesLabel: 'Aucun résultat',
+  filterRankConflictMessage:
+    'Un seul filtre Top-N ou Bottom-N est autorisé par page. Supprimez d’abord le filtre existant.',
   filterWidgetSelectedCount: (count) => `${count} sélectionné${count === 1 ? '' : 's'}`,
   filterWidgetExcludeLabel: 'Supprimer la sélection',
   filterWidgetExcludingLabel: '⊘ Suppression de la sélection',

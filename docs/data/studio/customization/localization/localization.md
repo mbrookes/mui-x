@@ -462,27 +462,27 @@ These tokens are retained as public API for consumers who call `generateDashboar
 
 ### KPI setup panel
 
-| Token                             | Default                                                              |
-| :-------------------------------- | :------------------------------------------------------------------- |
-| `kpiSetupChartLine`               | `'Line'`                                                             |
-| `kpiSetupChartBar`                | `'Bar'`                                                              |
-| `kpiSetupChartGauge`              | `'Gauge'`                                                            |
-| `kpiSetupCompPrevPeriod`          | `'Previous period (matching duration)'`                              |
-| `kpiSetupCompPrevCalendarPeriod`  | `'Previous calendar period'`                                         |
-| `kpiSetupCompSameLastYear`        | `'Same period last year'`                                            |
-| `kpiSetupInteractionsTitle`       | `'Interactions'`                                                     |
-| `kpiSetupInteractionsDescription` | `'When other widgets are clicked, this KPI…'`                        |
-| `kpiSetupTimeFieldLabel`          | `'Time field'`                                                       |
-| `kpiSetupGranularityLabel`        | `'Granularity'`                                                      |
-| `kpiSetupPlotTypeLabel`           | `'Plot type'`                                                        |
-| `kpiSetupMinLabel`                | `'Min'`                                                              |
-| `kpiSetupMaxLabel`                | `'Max'`                                                              |
-| `kpiSetupValueFieldLabel`         | `'Value field'`                                                      |
-| `kpiSetupValueFieldHelperText`    | `'Field to aggregate'`                                               |
-| `kpiSetupSparklineLabel`          | `'Sparkline'`                                                        |
-| `kpiSetupGaugeMaxLabel`           | `'Target'`                                                           |
-| `kpiSetupTrendLabel`              | `'Trend'`                                                            |
-| `kpiSetupCompPeriodLabel`         | `'Comparison period'`                                                |
+| Token                             | Default                                       |
+| :-------------------------------- | :-------------------------------------------- |
+| `kpiSetupChartLine`               | `'Line'`                                      |
+| `kpiSetupChartBar`                | `'Bar'`                                       |
+| `kpiSetupChartGauge`              | `'Gauge'`                                     |
+| `kpiSetupCompPrevPeriod`          | `'Previous period (matching duration)'`       |
+| `kpiSetupCompPrevCalendarPeriod`  | `'Previous calendar period'`                  |
+| `kpiSetupCompSameLastYear`        | `'Same period last year'`                     |
+| `kpiSetupInteractionsTitle`       | `'Interactions'`                              |
+| `kpiSetupInteractionsDescription` | `'When other widgets are clicked, this KPI…'` |
+| `kpiSetupTimeFieldLabel`          | `'Time field'`                                |
+| `kpiSetupGranularityLabel`        | `'Granularity'`                               |
+| `kpiSetupPlotTypeLabel`           | `'Plot type'`                                 |
+| `kpiSetupMinLabel`                | `'Min'`                                       |
+| `kpiSetupMaxLabel`                | `'Max'`                                       |
+| `kpiSetupValueFieldLabel`         | `'Value field'`                               |
+| `kpiSetupValueFieldHelperText`    | `'Field to aggregate'`                        |
+| `kpiSetupSparklineLabel`          | `'Sparkline'`                                 |
+| `kpiSetupGaugeMaxLabel`           | `'Target'`                                    |
+| `kpiSetupTrendLabel`              | `'Trend'`                                     |
+| `kpiSetupCompPeriodLabel`         | `'Comparison period'`                         |
 
 ### Grid setup panel
 

@@ -961,7 +961,6 @@ export interface StudioLocaleText {
    * empty.
    */
   filterWidgetNoSearchMatchesLabel: string;
-  filterRankConflictMessage: 'Only one Top-N or Bottom-N filter is allowed per page. Remove the existing one first.',
   /** Returns a label like "3 selected" for the multi-select control. */
   filterWidgetSelectedCount: (count: number) => string;
   filterWidgetExcludeLabel: string;
@@ -2247,6 +2246,8 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   filterWidgetAllLabel: 'All',
   filterWidgetNoOptionsLabel: 'No options found',
   filterWidgetNoSearchMatchesLabel: 'No matches',
+  filterRankConflictMessage:
+    'Only one Top-N or Bottom-N filter is allowed per page. Remove the existing one first.',
   filterWidgetSelectedCount: (count) => `${count} selected`,
   filterWidgetExcludeLabel: 'Exclude selected',
   filterWidgetExcludingLabel: '\u2298 Excluding selected',

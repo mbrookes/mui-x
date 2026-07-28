@@ -564,6 +564,9 @@ const CELL_X_AXIS_ALLOWANCE = 40;
 const AXIS_LABEL_CHAR_PX = 7;
 const CELL_Y_AXIS_ALLOWANCE_BASE = 38;
 
+/** Padding to leave beside an axis that is hidden (`axis: null`) — just a small margin. */
+const HIDDEN_AXIS_PAD = 8;
+
 /**
  * The uniform drawing-area margin every trellis cell keeps, so the cells' plots
  * line up even though only the edge cells draw axis labels (matching Vega-Lite,
@@ -617,6 +620,13 @@ function longestCategoryLabelChars(
 
 /** Left margin (px) a shared trellis y-axis needs for its longest category label. */
 function yAxisAllowance(def: VegaChannelDef | undefined, rows: readonly DatasetRow[]): number {
+  // `axis: null` draws no y axis at all, so there are no labels to fit and the
+  // cell only needs the small pad a hidden axis gets elsewhere. Budgeting the
+  // full label allowance made `facet_grid_bar` — whose y axis IS null — reserve
+  // 60px of empty gutter per cell.
+  if (isFieldDef(def) && (def as { axis?: unknown }).axis === null) {
+    return HIDDEN_AXIS_PAD;
+  }
   const chars = longestCategoryLabelChars(def, rows);
   // Capped well below the longest real-world label (e.g. "Wisconsin No. 38",
   // 17 chars): x-charts' own `width: 'auto'` measurement — not this margin —
@@ -698,13 +708,23 @@ function vegaCellSize(
   const plotWidth = vegaAxisPlotSize(sizing?.specWidth, sizing?.xDef, rows, sizing?.mark);
   const plotHeight = vegaAxisPlotSize(sizing?.specHeight, sizing?.yDef, rows, sizing?.mark);
   const yMargin = yAxisAllowance(sizing?.yDef, rows);
+  // The MIN_CELL floors are a safety net for INFERRED sizes; a spec that states
+  // its own size has already answered the question, and clamping overrode it.
+  // `facet_grid_bar` asks for a 60x24 plot (`width: 60`, `height: {step: 8}`)
+  // and got a 100px-tall cell — bars over twice Vega's thickness.
+  const explicitWidth = sizing?.specWidth !== undefined;
+  const explicitHeight = sizing?.specHeight !== undefined;
   return {
     // The cell has to cover the plot, the y axis on its left AND the margin the
     // shell keeps on its right — budgeting only the axis side left every cell's
     // plot exactly `FACET_CELL_MARGIN.right` short of Vega's (measured: a
     // `trellis_bar` cell rendered a 315px plot against Vega's 323px).
-    width: Math.max(MIN_CELL_WIDTH, plotWidth + yMargin + FACET_CELL_MARGIN.right),
-    height: Math.max(MIN_CELL_HEIGHT, plotHeight + CELL_X_AXIS_ALLOWANCE),
+    width: explicitWidth
+      ? plotWidth + yMargin + FACET_CELL_MARGIN.right
+      : Math.max(MIN_CELL_WIDTH, plotWidth + yMargin + FACET_CELL_MARGIN.right),
+    height: explicitHeight
+      ? plotHeight + CELL_X_AXIS_ALLOWANCE
+      : Math.max(MIN_CELL_HEIGHT, plotHeight + CELL_X_AXIS_ALLOWANCE),
     yAxisMargin: yMargin,
   };
 }
@@ -716,8 +736,6 @@ const CONCAT_SPACING = 15;
 // rendered geometry: an 80px-wide cell measured a 65px left margin and a 20px
 // right one, so budgeting only the left allowance left the plot at −5px.
 const CONCAT_PLOT_FAR_PAD = 24;
-/** Padding to leave beside an axis that is hidden (`axis: null`) — just a small margin. */
-const HIDDEN_AXIS_PAD = 8;
 
 /** Whether a channel draws its axis (shown unless `axis: null`), i.e. reserves label room. */
 function channelAxisShown(def: VegaChannelDef | undefined): boolean {

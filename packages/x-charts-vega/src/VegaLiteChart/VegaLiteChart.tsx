@@ -198,6 +198,12 @@ const VEGA_DEFAULT_VIEW_HEIGHT = 340;
 // little wider than the reference's, but the *plot* — the visual content —
 // matches instead of collapsing.
 const AXIS_LABEL_CHAR_PX = 7;
+// x-charts' own DEFAULT_MARGINS are 20 on every side, so a surface gives up
+// 40px horizontally before the axis takes its share. The allowance below covers
+// both, and the pinned axis width is therefore `allowance - 40`.
+const DEFAULT_CHART_MARGIN_X = 40;
+// Never pin the axis so tight that its labels cannot render at all.
+const MIN_PINNED_Y_AXIS_WIDTH = 30;
 // y-axis: title(rotated) + tick marks + right overhang of the last x label.
 // Measured, not estimated: with the allowance at 72/88 every standalone
 // cartesian chart's drawing area came out exactly 9px wide and 3px tall MORE
@@ -210,7 +216,7 @@ const Y_AXIS_BASE_ALLOWANCE = 63;
 // x-axis: title + tick marks + one horizontal label row. x-charts' `height:'auto'`
 // axis reserves a generous bottom band (plus a small top pad), so this is sized
 // to let the plot survive it rather than the tighter space a label row implies.
-const X_AXIS_BASE_ALLOWANCE = 85;
+const X_AXIS_BASE_ALLOWANCE = 83;
 // Continuous axes carry no category array; assume ~6-char numeric labels ("20,000").
 const CONTINUOUS_LABEL_CHARS = 6;
 
@@ -1143,8 +1149,35 @@ function SingleViewChart(props: VegaLiteChartProps) {
         ),
       ]
     : undefined;
+  // Pin the standalone y-axis to exactly the width the surface budgeted for it.
+  //
+  // `resolveVegaViewSize` sizes the surface as `plot + yAxisAllowance`, and
+  // x-charts then subtracts its default 20px left/right margins plus whatever
+  // the axis measures itself to be. Left on `width: 'auto'` that measurement is
+  // the chart's own, and for a discrete axis with long category labels it comes
+  // out NARROWER than the allowance estimated at 7px/char — the surplus lands in
+  // the plot, so the overshoot scaled with label length (+70px on barley site
+  // names, +140px on the longest). Pinning the axis to `allowance - margins`
+  // makes `plot === allowance - margins - axis` collapse to the spec's own plot
+  // size for ANY label width, which is the same determinism that already makes
+  // trellis cells pixel-exact.
+  //
+  // Only when this component sized the surface: an explicit `width` prop is the
+  // caller's, and the allowance was never added to it.
+  const pinStandaloneYAxisWidth = <T extends Record<string, unknown>>(config: T): T => {
+    if (cell || width !== undefined || (config as { position?: string }).position === 'none') {
+      return config;
+    }
+    return {
+      ...config,
+      width: Math.max(
+        MIN_PINNED_Y_AXIS_WIDTH,
+        yAxisAllowance(config as { data?: readonly unknown[] }) - DEFAULT_CHART_MARGIN_X,
+      ),
+    };
+  };
   const yAxis = compiled.yAxis
-    ? [dropAutoSize(compiled.yAxis.config, cell?.margin?.left)]
+    ? [pinStandaloneYAxisWidth(dropAutoSize(compiled.yAxis.config, cell?.margin?.left))]
     : undefined;
 
   // x-charts subtracts the axis's own width/height from the drawing area ON TOP

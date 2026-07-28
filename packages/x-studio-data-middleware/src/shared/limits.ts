@@ -90,3 +90,27 @@ export const MAX_STRING_VALUE_LENGTH = 8192;
  * 100,000).
  */
 export const MAX_PREDICATE_VALUES_PER_DESCRIPTOR = 2000;
+
+/**
+ * Hard ceiling on how deeply `semiJoins` may NEST inside one widget descriptor
+ * (`SemiJoinDescriptor.semiJoins`).
+ *
+ * `semiJoins` is the first descriptor field that is RECURSIVE, so it opens the
+ * one client-controlled input dimension no existing cap covers: nesting. Every
+ * other bound here is a count or a length, and neither says anything about
+ * depth — 200 semi-joins each nesting 200 deep satisfies both the per-array cap
+ * and the total-table cap while still demanding an exponentially-shaped
+ * validation walk and a SQL string with 200 levels of parentheses (which most
+ * engines reject only after parsing it). `sortedStringify`'s own
+ * `MAX_SORTED_STRINGIFY_DEPTH` would eventually stop the cache-key hash, but
+ * that is a backstop in a different module, not a bound on this field.
+ *
+ * The value is deliberately SMALL rather than generous, unlike the count caps.
+ * Depth 2 is exactly what the semantics need: one level expresses a direct
+ * one-to-many cross-source filter (widget → foreign), two levels express a
+ * two-hop many-to-many filter through a junction table (widget → junction →
+ * remote), which is the deepest shape `dataSourceGraph.findJoinPath` models
+ * (`hops: 2`). A descriptor asking for more is not a dashboard Studio can
+ * produce, so admitting it would only widen the input surface.
+ */
+export const MAX_SEMI_JOIN_DEPTH = 2;

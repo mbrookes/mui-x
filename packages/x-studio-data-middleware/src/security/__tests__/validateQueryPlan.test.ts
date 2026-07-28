@@ -911,6 +911,319 @@ describe('validateQueryPlan — wildcard and implicit projections', () => {
 });
 
 // ── One aggregate-function table, two enforcement sites ───────────────────────
+describe('validateQueryPlan — semi-joins', () => {
+  const base = (semiJoins: unknown): BatchWidgetDescriptor =>
+    ({ id: 'w1', table: 'customers', semiJoins }) as BatchWidgetDescriptor;
+
+  describe('plan resolution', () => {
+    it('qualifies the outer column with the PRIMARY table and the foreign column with its own table', () => {
+      const plan = validateQueryPlan(
+        base([
+          {
+            table: 'orders',
+            column: 'id',
+            foreignColumn: 'customer_id',
+            filters: [{ column: 'status', operator: 'eq', value: 'shipped' }],
+          },
+        ]),
+      );
+      expect(plan.semiJoins).toEqual([
+        {
+          table: 'orders',
+          column: 'customers.id',
+          // The subquery's FROM is `orders`, so its own references qualify
+          // against `orders` — NOT against the widget's primary table.
+          foreignColumn: 'orders.customer_id',
+          filters: [{ column: 'orders.status', operator: 'eq', value: 'shipped' }],
+          semiJoins: [],
+        },
+      ]);
+    });
+
+    it('qualifies a NESTED semi-join against its PARENT table, not the primary table', () => {
+      // The distinguishing case for qualifying on the plan rather than at
+      // emission time: `qualifyAgainst(plan.table, …)` — the rule every other
+      // emission site uses — would produce `customers.tag_id` here, silently
+      // testing a column of the wrong table.
+      const plan = validateQueryPlan(
+        base([
+          {
+            table: 'customer_tags',
+            column: 'id',
+            foreignColumn: 'customer_id',
+            semiJoins: [{ table: 'tags', column: 'tag_id', foreignColumn: 'id' }],
+          },
+        ]),
+      );
+      expect(plan.semiJoins[0].semiJoins[0]).toEqual({
+        table: 'tags',
+        column: 'customer_tags.tag_id',
+        foreignColumn: 'tags.id',
+        filters: [],
+        semiJoins: [],
+      });
+    });
+
+    it('resolves a semi-join column through columnAliases, like every other reference', () => {
+      const plan = validateQueryPlan({
+        id: 'w1',
+        table: 'customers',
+        columnAliases: { 'expr-status': 'orders.status' },
+        semiJoins: [
+          {
+            table: 'orders',
+            column: 'id',
+            foreignColumn: 'customer_id',
+            filters: [{ column: 'expr-status', operator: 'eq', value: 'shipped' }],
+          },
+        ],
+      });
+      expect(plan.semiJoins[0].filters[0].column).toBe('orders.status');
+    });
+
+    it('leaves the plan\'s "semiJoins" an empty array when the descriptor declares none', () => {
+      expect(validateQueryPlan({ id: 'w1', table: 'customers' }).semiJoins).toEqual([]);
+    });
+  });
+
+  describe('unconditional shape validation (no columnAllowlist)', () => {
+    it('rejects a non-array "semiJoins"', () => {
+      expect(() => validateQueryPlan(base({} as never))).toThrow(/"semiJoins".*must be an array/s);
+    });
+
+    it('rejects a null entry', () => {
+      expect(() => validateQueryPlan(base([null]))).toThrow(/Malformed entry in "semiJoins"/);
+    });
+
+    it.each([undefined, 42, ''])('rejects a %p "table"', (table) => {
+      expect(() =>
+        validateQueryPlan(base([{ table, column: 'id', foreignColumn: 'customer_id' }])),
+      ).toThrow(/Semi-join "table" must be a non-empty string/);
+    });
+
+    it.each(['column', 'foreignColumn'] as const)('rejects a missing "%s"', (field) => {
+      const entry: Record<string, unknown> = {
+        table: 'orders',
+        column: 'id',
+        foreignColumn: 'customer_id',
+      };
+      delete entry[field];
+      expect(() => validateQueryPlan(base([entry]))).toThrow(
+        new RegExp(`Semi-join "${field}" for table "orders" must be a non-empty string`),
+      );
+    });
+
+    it('rejects a non-array "filters"', () => {
+      expect(() =>
+        validateQueryPlan(
+          base([{ table: 'orders', column: 'id', foreignColumn: 'customer_id', filters: {} }]),
+        ),
+      ).toThrow(/Semi-join "filters" for table "orders" must be an array/);
+    });
+  });
+
+  describe('table-qualification convention (fail-closed, BOTH directions)', () => {
+    it('rejects an outer column qualified with a table that is not the enclosing one', () => {
+      expect(() =>
+        validateQueryPlan(
+          base([{ table: 'orders', column: 'orders.id', foreignColumn: 'customer_id' }]),
+        ),
+      ).toThrow(/outer column "orders\.id" qualified with table "orders" instead of "customers"/);
+    });
+
+    it('rejects a foreign column qualified with a table other than the semi-join table', () => {
+      // The dangerous direction: projecting some other table's column from the
+      // subquery compares an unrelated key space, admitting outer rows whose key
+      // merely collides with a value that was never a join key.
+      expect(() =>
+        validateQueryPlan(base([{ table: 'orders', column: 'id', foreignColumn: 'customers.id' }])),
+      ).toThrow(
+        /projects a foreign column "customers\.id" qualified with table "customers" instead of "orders"/,
+      );
+    });
+
+    it('rejects a NESTED outer column qualified with the PRIMARY table instead of the parent', () => {
+      expect(() =>
+        validateQueryPlan(
+          base([
+            {
+              table: 'customer_tags',
+              column: 'id',
+              foreignColumn: 'customer_id',
+              semiJoins: [{ table: 'tags', column: 'customers.tag_id', foreignColumn: 'id' }],
+            },
+          ]),
+        ),
+      ).toThrow(/qualified with table "customers" instead of "customer_tags"/);
+    });
+
+    it('accepts correctly-qualified references on both sides', () => {
+      expect(() =>
+        validateQueryPlan(
+          base([{ table: 'orders', column: 'customers.id', foreignColumn: 'orders.customer_id' }]),
+        ),
+      ).not.toThrow();
+    });
+  });
+
+  describe('nesting depth cap', () => {
+    it('accepts two levels (the two-hop many-to-many shape)', () => {
+      expect(() =>
+        validateQueryPlan(
+          base([
+            {
+              table: 'customer_tags',
+              column: 'id',
+              foreignColumn: 'customer_id',
+              semiJoins: [{ table: 'tags', column: 'tag_id', foreignColumn: 'id' }],
+            },
+          ]),
+        ),
+      ).not.toThrow();
+    });
+
+    it('rejects a third level', () => {
+      expect(() =>
+        validateQueryPlan(
+          base([
+            {
+              table: 'customer_tags',
+              column: 'id',
+              foreignColumn: 'customer_id',
+              semiJoins: [
+                {
+                  table: 'tags',
+                  column: 'tag_id',
+                  foreignColumn: 'id',
+                  semiJoins: [{ table: 'tag_groups', column: 'group_id', foreignColumn: 'id' }],
+                },
+              ],
+            },
+          ]),
+        ),
+      ).toThrow(/"semiJoins" nest more than 2 levels deep/);
+    });
+
+    it('does NOT reject an empty nested array at the depth boundary', () => {
+      // Depth is about how far the recursion actually goes, so an EMPTY
+      // `semiJoins: []` at the limit is not a third level.
+      expect(() =>
+        validateQueryPlan(
+          base([
+            {
+              table: 'customer_tags',
+              column: 'id',
+              foreignColumn: 'customer_id',
+              semiJoins: [{ table: 'tags', column: 'tag_id', foreignColumn: 'id', semiJoins: [] }],
+            },
+          ]),
+        ),
+      ).not.toThrow();
+    });
+  });
+
+  describe('column allowlist (fail-closed, recursive)', () => {
+    const ALLOWLIST = {
+      customers: ['id', 'lifetime_value'],
+      orders: ['customer_id', 'status'],
+    };
+
+    it('accepts references that are all allowlisted on their OWN table', () => {
+      expect(() =>
+        validateQueryPlan(
+          base([
+            {
+              table: 'orders',
+              column: 'id',
+              foreignColumn: 'customer_id',
+              filters: [{ column: 'status', operator: 'eq', value: 'shipped' }],
+            },
+          ]),
+          ALLOWLIST,
+        ),
+      ).not.toThrow();
+    });
+
+    it('rejects a projected foreign column that is not allowlisted on the FOREIGN table', () => {
+      // `lifetime_value` IS allowlisted — but on `customers`, not `orders`. If the
+      // inner references were checked against the primary table (the shape a naive
+      // implementation falls into), this would wrongly pass and then execute
+      // against `orders`.
+      expect(() =>
+        validateQueryPlan(
+          base([{ table: 'orders', column: 'id', foreignColumn: 'lifetime_value' }]),
+          ALLOWLIST,
+        ),
+      ).toThrow(
+        /Column "lifetime_value" on table "orders" is not in the column allowlist \(semiJoins\.foreignColumn\)/,
+      );
+    });
+
+    it('rejects a subquery filter column that is not allowlisted on the foreign table', () => {
+      expect(() =>
+        validateQueryPlan(
+          base([
+            {
+              table: 'orders',
+              column: 'id',
+              foreignColumn: 'customer_id',
+              filters: [{ column: 'internal_note', operator: 'eq', value: 'x' }],
+            },
+          ]),
+          ALLOWLIST,
+        ),
+      ).toThrow(
+        /Column "internal_note" on table "orders" is not in the column allowlist \(semiJoins\.filters\)/,
+      );
+    });
+
+    it('rejects an outer column that is not allowlisted on the ENCLOSING table', () => {
+      expect(() =>
+        validateQueryPlan(
+          base([{ table: 'orders', column: 'secret', foreignColumn: 'customer_id' }]),
+          ALLOWLIST,
+        ),
+      ).toThrow(
+        /Column "secret" on table "customers" is not in the column allowlist \(semiJoins\.column\)/,
+      );
+    });
+
+    it('rejects a semi-join table with NO allowlist entry at all (fail-closed)', () => {
+      expect(() =>
+        validateQueryPlan(
+          base([{ table: 'payroll', column: 'id', foreignColumn: 'customer_id' }]),
+          ALLOWLIST,
+        ),
+      ).toThrow(/Table "payroll" has no entry in the column allowlist/);
+    });
+
+    it('checks a NESTED semi-join too', () => {
+      expect(() =>
+        validateQueryPlan(
+          base([
+            {
+              table: 'orders',
+              column: 'id',
+              foreignColumn: 'customer_id',
+              semiJoins: [{ table: 'payroll', column: 'status', foreignColumn: 'id' }],
+            },
+          ]),
+          ALLOWLIST,
+        ),
+      ).toThrow(/Table "payroll" has no entry in the column allowlist/);
+    });
+  });
+
+  describe('direct-caller (no-validator) branch stays non-throwing', () => {
+    it("resolves a malformed semi-join without throwing, per toValidatedQueryPlan's contract", () => {
+      // `toValidatedQueryPlan`'s descriptor branch deliberately runs NO
+      // validators, so `buildPlan` must coerce rather than crash — the same
+      // tolerance it already applies to `join.type` / `orderBy[].direction`.
+      expect(() => toValidatedQueryPlan(base([{ table: 'orders' }] as never))).not.toThrow();
+    });
+  });
+});
+
 describe('AGGREGATE_SQL_FUNCTIONS', () => {
   it('declares exactly the five supported functions, mapped to their SQL name', () => {
     expect(AGGREGATE_SQL_FUNCTIONS).toEqual({

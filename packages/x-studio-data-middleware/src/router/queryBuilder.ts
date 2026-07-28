@@ -37,6 +37,7 @@ import {
   AGGREGATE_SQL_FUNCTIONS,
   toValidatedQueryPlan,
   type PlanAggregation,
+  type ResolvedSemiJoin,
   type ValidatedQueryPlan,
 } from '../security/validateQueryPlan';
 import { qualifiedTableOf, qualifyAgainst } from '../shared/columnValidation';
@@ -281,6 +282,14 @@ export function buildSecureQuery(
   });
   applyPredicates(query, qualifiedFilters, 'read');
 
+  // ── Phase 2b: Semi-joins ────────────────────────────────────────────────
+  // `column IN (SELECT foreignColumn FROM table WHERE …)`. Applied AFTER the
+  // outer user filters purely for readability of the emitted SQL — every
+  // predicate here is AND-ed, so order carries no semantics, and the SECURITY
+  // predicates (the ones whose ordering is load-bearing) were already applied to
+  // both the outer query above and each subquery inside `applySemiJoins`.
+  applySemiJoins(db, query, queryPlan.semiJoins, claims, policy);
+
   // ── Phase 3: Post-aggregation HAVING predicates ──────────────────────────
   // Only allowed against aggregation aliases (validated by handler.ts before
   // this function is called). Uses Knex parameterized havingRaw to prevent injection.
@@ -289,6 +298,105 @@ export function buildSecureQuery(
   }
 
   return query;
+}
+
+/**
+ * Apply every semi-join in `semiJoins` to `query` as
+ * `WHERE <column> IN (SELECT <foreignColumn> FROM <table> WHERE …)`.
+ *
+ * WHY A SEMI-JOIN EXISTS AT ALL. A cross-source filter across a relationship that
+ * is one-to-many from the querying widget's side cannot be expressed as a
+ * `JoinDescriptor` without changing the answer: `LEFT JOIN orders ON
+ * orders.customer_id = customers.id WHERE orders.status = 'shipped'` makes a
+ * customer with three shipped orders contribute three rows, so `SUM(lifetime_value)`
+ * reads 3× — wrong by a data-dependent factor, and invisible. The subquery form
+ * filters the outer row set without multiplying it, which is exactly what
+ * `dataSourceGraph.resolveRows` does in memory (group the cross-filters by foreign
+ * source, evaluate them with ONE conjunctive pass, then ONE semi-join). See
+ * `SemiJoinDescriptor` for why `IN (SELECT …)` rather than a correlated `EXISTS`.
+ *
+ * ── SECURITY: THE SUBQUERY IS A SECOND TABLE REFERENCE ──────────────────────
+ *
+ * Everything the join path guarantees for `joins[].table` must hold here, and the
+ * one that is easy to get wrong is the ROW-LEVEL-SECURITY PREDICATE'S PLACEMENT.
+ *
+ * It goes INSIDE the subquery — `applySecurityPredicates(sub, …)` below — not on
+ * the outer query. Scoping only the outer query would leave the inner SELECT
+ * UNSCOPED, so it returns EVERY tenant's foreign keys, and any outer row whose own
+ * (correctly tenant-scoped) key collides with one of them survives a filter it
+ * never matched. With the tenant column typically being a surrogate id, collisions
+ * are not hypothetical: `customers.id IN (SELECT customer_id FROM orders WHERE
+ * status = 'shipped')` over an unscoped subquery lets tenant A's customer #7 be
+ * admitted because tenant B's order references ITS customer #7. That is a
+ * cross-tenant information leak — the EXISTENCE and filterable attributes of
+ * another tenant's rows, read out through which of the caller's own rows survive —
+ * and it leaks without ever returning a foreign row, so no row-level inspection of
+ * the response would reveal it. The predicate is applied per NESTING LEVEL for the
+ * same reason: an unscoped junction subquery leaks in exactly the same way.
+ *
+ * The scope is resolved through `policy.forJoinedTable(table)`, the SAME resolver
+ * a `joins[].table` uses — so a semi-joined table is scoped BY DEFAULT (inheriting
+ * the primary table's resolved column names when it has no `perTable` entry), a
+ * per-dimension `null` drops just that dimension, and only an explicit whole-entry
+ * `perTable[table] = null` (the host declaring a genuinely shared lookup table)
+ * makes it unscoped. Reusing that resolver rather than re-deriving one is what
+ * keeps a semi-joined table and the same table reached through a join from being
+ * scoped differently.
+ *
+ * Predicate ORDER inside the subquery mirrors the outer query's invariant:
+ * security predicates first, user filters second, so a client filter can never
+ * be AND-ed ahead of — or in place of — the scope.
+ *
+ * Both column references arrive ALREADY table-qualified from the plan (see
+ * `ResolvedSemiJoin`): `column` with the enclosing table and `foreignColumn` with
+ * `table`. This function deliberately does not re-qualify them — the enclosing
+ * table of a nested semi-join is its parent's `table`, not `plan.table`, so the
+ * `qualifyAgainst(plan.table, …)` rule every other emission site applies would be
+ * wrong here at depth ≥ 2.
+ *
+ * @param db - Knex instance, needed to construct each subquery's own builder.
+ * @param query - The builder the `IN` predicate is attached to (the outer query,
+ *   or a parent subquery when recursing).
+ * @param semiJoins - Resolved semi-joins for THIS level.
+ * @param claims - Pre-verified security claims.
+ * @param policy - The compiled security policy every level resolves its scope through.
+ */
+function applySemiJoins(
+  db: any, // Knex.Knex
+  query: any,
+  semiJoins: ResolvedSemiJoin[],
+  claims: JwtSecurityClaims,
+  policy: CompiledSecurityPolicy,
+): void {
+  for (const semiJoin of semiJoins) {
+    const subquery = db(semiJoin.table);
+    // Exactly ONE projected column: `x IN (SELECT a, b …)` is a syntax error on
+    // every mainstream dialect, and the descriptor shape (a single
+    // `foreignColumn`) makes a multi-column projection unrepresentable.
+    subquery.select(semiJoin.foreignColumn);
+    // SECURITY FIRST, INSIDE the subquery — see this function's docblock. Resolved
+    // through the same `forJoinedTable` a joined table uses, so a semi-joined table
+    // is scoped by default and only a host-declared shared table joins unscoped.
+    applySecurityPredicates(
+      subquery,
+      semiJoin.table,
+      claims,
+      policy.forJoinedTable(semiJoin.table),
+      'read',
+    );
+    // User filters second. Columns are already qualified with `semiJoin.table` on
+    // the plan, so no re-resolution or re-qualification happens here — the same
+    // structural guarantee `buildSecureQuery`'s outer filter loop relies on.
+    applyPredicates(subquery, semiJoin.filters as FilterPredicate[], 'read');
+    // Nested levels (two-hop many-to-many) recurse into the SUBQUERY, so each
+    // level gets its own inner security predicate. Bounded by
+    // `MAX_SEMI_JOIN_DEPTH`, enforced fail-closed in `validateSemiJoins`.
+    applySemiJoins(db, subquery, semiJoin.semiJoins, claims, policy);
+    // Knex accepts a query builder as `whereIn`'s second argument and renders it
+    // as a subquery — the same `whereIn` the value-list form uses, so there is no
+    // second predicate-emission path to keep in sync.
+    query.whereIn(semiJoin.column, subquery);
+  }
 }
 
 /**

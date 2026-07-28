@@ -71,7 +71,11 @@ import {
   tierFromRowCount,
   TIER_CACHE_KEY_PREFIX,
 } from './router/tierDecision';
-import { assertQualifiedColumnsAllowed, assertTablesAllowed } from './shared/assertTablesAllowed';
+import {
+  assertQualifiedColumnsAllowed,
+  assertTablesAllowed,
+  collectSemiJoinTables,
+} from './shared/assertTablesAllowed';
 import { sanitizeBoundaryError } from './shared/sanitizeError';
 import {
   MAX_ARRAY_ITEMS_PER_DESCRIPTOR,
@@ -153,6 +157,154 @@ async function mapWithConcurrency<T, R>(
     }),
   );
   return results;
+}
+
+/**
+ * Enforce both value-size bounds on ONE filter-predicate array: the per-predicate
+ * `in`-list length cap, and the per-STRING length cap on each comparison value.
+ * Every counted value is added to the caller's shared `valueCount` accumulator so
+ * the summed `MAX_PREDICATE_VALUES_PER_DESCRIPTOR` cap spans every filter array in
+ * one widget, not just one of them.
+ *
+ * Extracted from `assertValidBatchQueryRequest`'s inline `filters` block so a
+ * `semiJoins[].filters` array — a predicate list with the identical shape, cost
+ * and cache-key exposure, just one nesting level down — is bounded by the SAME
+ * implementation rather than a second copy that could drift. `filters[].value` is
+ * NOT shape-validated here (that happens later, per widget, in
+ * `shared/predicates.ts`); only a PRESENT array value is length-capped, regardless
+ * of operator, so a pathological `in`-list cannot reach query building at all.
+ *
+ * @param filters - The candidate predicate array (ignored when not an array —
+ *   the array-shape rejection is the caller's, with its own message).
+ * @param index - The widget's index in the batch, for the error message.
+ * @param path - Where this array lives on the descriptor, e.g. `filters` or
+ *   `semiJoins[0].semiJoins[1].filters`.
+ * @param valueCount - Shared, mutable running total of comparison values.
+ */
+function checkFilterValueBounds(
+  filters: unknown,
+  index: number,
+  path: string,
+  valueCount: { total: number },
+): void {
+  if (!Array.isArray(filters)) {
+    return;
+  }
+  filters.forEach((predicate, predicateIndex) => {
+    const predicateValue = (predicate as { value?: unknown } | null)?.value;
+    // Count real comparison values: every element of an `in`/`between` list, or
+    // one for a present scalar. An absent `value` contributes nothing.
+    if (Array.isArray(predicateValue)) {
+      valueCount.total += predicateValue.length;
+    } else if (predicateValue !== undefined) {
+      valueCount.total += 1;
+    }
+    if (Array.isArray(predicateValue) && predicateValue.length > MAX_ARRAY_ITEMS_PER_DESCRIPTOR) {
+      throw new Error(
+        `MUI X Studio Server: Malformed widget descriptor at widgets[${index}] — "${path}[${predicateIndex}].value" ` +
+          `contains ${predicateValue.length} entries, which exceeds the maximum of ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR} ` +
+          `allowed per predicate. An unbounded "in" value list is unbounded query-building and execution work ` +
+          `driven entirely by client input. Reduce the number of entries to at most ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR}.`,
+      );
+    }
+    // Length cap on a scalar/"in"-element STRING value (Tier2 finding — resource
+    // exhaustion). A single scalar (or "in"-list element) string is folded into
+    // the query cache-key hash (`computeQueryHash`) and, uncached, reaches the
+    // database as a bound parameter. Uses the larger `MAX_STRING_VALUE_LENGTH`
+    // bound (not `MAX_STRING_LENGTH`): a filter value is business data, not an
+    // identifier, and may legitimately need more headroom.
+    const stringValues = Array.isArray(predicateValue) ? predicateValue : [predicateValue];
+    stringValues.forEach((v) => {
+      if (typeof v === 'string' && v.length > MAX_STRING_VALUE_LENGTH) {
+        throw new Error(
+          `MUI X Studio Server: Malformed widget descriptor at widgets[${index}] — "${path}[${predicateIndex}].value" ` +
+            `contains a string ${v.length} characters long, which exceeds the maximum of ${MAX_STRING_VALUE_LENGTH} ` +
+            `allowed. An unbounded value string is expensive to hash (it is folded into the query cache key) and, ` +
+            `once queried, expensive for the database to scan/index as a bound parameter. Shorten the value to at ` +
+            `most ${MAX_STRING_VALUE_LENGTH} characters.`,
+        );
+      }
+    });
+  });
+}
+
+/**
+ * Enforce the request-shape bounds on a `semiJoins` tree: the array shape, the
+ * TOTAL number of semi-join entries across every nesting level, and — via
+ * `checkFilterValueBounds` — each level's own subquery predicate values.
+ *
+ * WHY THE TOTAL, NOT JUST THE PER-ARRAY LENGTH. `semiJoins` is the descriptor's
+ * only RECURSIVE field, so the per-array cap every other collection relies on
+ * bounds one level and says nothing about the tree: 200 top-level entries each
+ * carrying 200 nested ones individually satisfies that cap while still demanding
+ * 40,000 allowlist-checked table references and 40,000 subquery builders for ONE
+ * widget. This is the same product gap `totalOnPairs` closes for `joins[].on` and
+ * the summed predicate-value cap closes for `filters[].value`, applied to the one
+ * dimension only this field opens. `validateSemiJoins` separately caps the DEPTH
+ * (`MAX_SEMI_JOIN_DEPTH`), which is a different bound: depth limits how far the
+ * recursion goes, this limits how wide the whole tree is.
+ *
+ * Deliberately does NOT reject a malformed entry itself — a non-object entry, a
+ * missing `table`, a bad qualification — beyond what it must to walk safely.
+ * `assertQualifiedColumnsAllowed` and `validateSemiJoins` own those rejections and
+ * report them precisely; duplicating them here would only make the caller's first
+ * error message the vaguer of the two.
+ *
+ * @param semiJoins - The candidate `semiJoins` value at this level.
+ * @param index - The widget's index in the batch, for the error message.
+ * @param path - Where this array lives on the descriptor, for the error message.
+ * @param valueCount - Shared, mutable running total of comparison values (see
+ *   `checkFilterValueBounds`).
+ * @param entryCount - Shared, mutable running total of semi-join entries.
+ */
+function checkSemiJoinBounds(
+  semiJoins: unknown,
+  index: number,
+  path: string,
+  valueCount: { total: number },
+  entryCount: { total: number },
+): void {
+  if (semiJoins === undefined) {
+    return;
+  }
+  if (!Array.isArray(semiJoins)) {
+    throw new Error(
+      `MUI X Studio Server: Malformed widget descriptor at widgets[${index}] — "${path}" must be an array, ` +
+        `but received ${JSON.stringify(semiJoins)}. A non-array value cannot be iterated to build the query's ` +
+        `subquery predicates and would otherwise throw a confusing internal error instead of a clean ` +
+        `validation failure. Ensure "${path}" is an array (or omit it) on every widget descriptor.`,
+    );
+  }
+  entryCount.total += semiJoins.length;
+  if (entryCount.total > MAX_ARRAY_ITEMS_PER_DESCRIPTOR) {
+    throw new Error(
+      `MUI X Studio Server: Malformed widget descriptor at widgets[${index}] — "semiJoins" contains ` +
+        `${entryCount.total} entries in total across every nesting level, which exceeds the maximum of ` +
+        `${MAX_ARRAY_ITEMS_PER_DESCRIPTOR} allowed per widget. Each entry is a separate table reference to ` +
+        `allowlist-check and a separate subquery to build, so a nested tree can stay under the per-array cap ` +
+        `at every level and still sum to an unbounded amount of work for a single widget. Reduce the total ` +
+        `number of semi-joins to at most ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR}.`,
+    );
+  }
+  semiJoins.forEach((semiJoin, semiJoinIndex) => {
+    if (typeof semiJoin !== 'object' || semiJoin === null) {
+      return;
+    }
+    const entryPath = `${path}[${semiJoinIndex}]`;
+    checkFilterValueBounds(
+      (semiJoin as { filters?: unknown }).filters,
+      index,
+      `${entryPath}.filters`,
+      valueCount,
+    );
+    checkSemiJoinBounds(
+      (semiJoin as { semiJoins?: unknown }).semiJoins,
+      index,
+      `${entryPath}.semiJoins`,
+      valueCount,
+      entryCount,
+    );
+  });
 }
 
 /**
@@ -270,78 +422,40 @@ function assertValidBatchQueryRequest(body: BatchQueryRequest): void {
         );
       }
     }
-    // Size cap for an `in`-predicate's value list. `filters` is validated as an
-    // array above (or absent), so it is safe to iterate here. `filters[].value` is
-    // NOT validated for shape yet (that happens later, per widget, via
-    // `isScalarComparisonValue`/`isPrimitivePredicateElement` in `shared/predicates.ts`)
-    // — only a PRESENT array value is length-capped here, regardless of operator,
-    // so a pathologically long `in`-list can't reach query building at all.
-    const filters = (widget as Partial<BatchWidgetDescriptor>).filters;
-    if (Array.isArray(filters)) {
-      // Aggregate cap on the TOTAL comparison values across every filter in this
-      // widget — the per-predicate cap below bounds each `in`-list independently,
-      // but not their PRODUCT with the `filters` array's own length cap. 200
-      // filters × 200 values each passes both individual caps yet still means
-      // 40,000 bound parameters for ONE widget (and 2,000,000 for a
-      // `MAX_WIDGETS_PER_BATCH`-sized batch), every one of which is canonicalized
-      // and hashed into the cache key before reaching the database. This is the
-      // same gap `totalOnPairs` closes for `joins[].on` just below; summed IN
-      // ADDITION TO the per-predicate cap, never instead of it.
-      let totalPredicateValues = 0;
-      filters.forEach((predicate, predicateIndex) => {
-        const predicateValue = (predicate as { value?: unknown } | null)?.value;
-        // Count real comparison values: every element of an `in`/`between` list,
-        // or one for a present scalar. An absent `value` contributes nothing.
-        if (Array.isArray(predicateValue)) {
-          totalPredicateValues += predicateValue.length;
-        } else if (predicateValue !== undefined) {
-          totalPredicateValues += 1;
-        }
-        if (
-          Array.isArray(predicateValue) &&
-          predicateValue.length > MAX_ARRAY_ITEMS_PER_DESCRIPTOR
-        ) {
-          throw new Error(
-            `MUI X Studio Server: Malformed widget descriptor at widgets[${index}] — "filters[${predicateIndex}].value" ` +
-              `contains ${predicateValue.length} entries, which exceeds the maximum of ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR} ` +
-              `allowed per predicate. An unbounded "in" value list is unbounded query-building and execution work ` +
-              `driven entirely by client input. Reduce the number of entries to at most ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR}.`,
-          );
-        }
-        // Length cap on a scalar/"in"-element STRING value (Tier2 finding —
-        // resource exhaustion). `filters[].value` had no cap on individual
-        // string length anywhere — a single scalar (or "in"-list element) string
-        // is folded into the query cache-key hash (`computeQueryHash`) and,
-        // uncached, reaches the database as a bound parameter. Uses the larger
-        // `MAX_STRING_VALUE_LENGTH` bound (not `MAX_STRING_LENGTH`): a filter
-        // value is business data, not an identifier, and may legitimately need
-        // more headroom. Only PRESENT string values are checked, whether the
-        // predicate carries a bare scalar or an array (`in`) of values — full
-        // shape validation still happens later, per widget, in
-        // `shared/predicates.ts`.
-        const stringValues = Array.isArray(predicateValue) ? predicateValue : [predicateValue];
-        stringValues.forEach((v) => {
-          if (typeof v === 'string' && v.length > MAX_STRING_VALUE_LENGTH) {
-            throw new Error(
-              `MUI X Studio Server: Malformed widget descriptor at widgets[${index}] — "filters[${predicateIndex}].value" ` +
-                `contains a string ${v.length} characters long, which exceeds the maximum of ${MAX_STRING_VALUE_LENGTH} ` +
-                `allowed. An unbounded value string is expensive to hash (it is folded into the query cache key) and, ` +
-                `once queried, expensive for the database to scan/index as a bound parameter. Shorten the value to at ` +
-                `most ${MAX_STRING_VALUE_LENGTH} characters.`,
-            );
-          }
-        });
-      });
-      if (totalPredicateValues > MAX_PREDICATE_VALUES_PER_DESCRIPTOR) {
-        throw new Error(
-          `MUI X Studio Server: Malformed widget descriptor at widgets[${index}] — "filters[].value" contains ` +
-            `${totalPredicateValues} comparison values in total across all filters, which exceeds the maximum of ` +
-            `${MAX_PREDICATE_VALUES_PER_DESCRIPTOR} allowed per widget. Each filter may individually stay under its ` +
-            `own per-predicate cap yet still sum to an unbounded number of bound parameters to hash into the cache ` +
-            `key and send to the database for a single widget. Reduce the total number of filter values to at most ` +
-            `${MAX_PREDICATE_VALUES_PER_DESCRIPTOR}.`,
-        );
-      }
+    // Size cap for an `in`-predicate's value list, plus the aggregate cap on the
+    // TOTAL comparison values a widget may carry. Both are counted across the
+    // widget's OWN `filters` AND every `semiJoins[].filters` at every nesting
+    // level (see `checkSemiJoinBounds`) through ONE shared accumulator — a
+    // subquery predicate is a bound parameter and a cache-key hash input exactly
+    // like a top-level one, so a per-array-only bound would let a descriptor
+    // smuggle the whole budget again inside each semi-join.
+    const predicateValueCount = { total: 0 };
+    checkFilterValueBounds(
+      (widget as Partial<BatchWidgetDescriptor>).filters,
+      index,
+      'filters',
+      predicateValueCount,
+    );
+    checkSemiJoinBounds(
+      (widget as Partial<BatchWidgetDescriptor>).semiJoins,
+      index,
+      'semiJoins',
+      predicateValueCount,
+      { total: 0 },
+    );
+    // Message kept byte-identical to the pre-semi-join one on purpose: a
+    // subquery predicate value is counted as one of the widget's filter values,
+    // not as a new class, so "across all filters" still describes it exactly and
+    // the extracted error code stays the same.
+    if (predicateValueCount.total > MAX_PREDICATE_VALUES_PER_DESCRIPTOR) {
+      throw new Error(
+        `MUI X Studio Server: Malformed widget descriptor at widgets[${index}] — "filters[].value" contains ` +
+          `${predicateValueCount.total} comparison values in total across all filters, which exceeds the maximum of ` +
+          `${MAX_PREDICATE_VALUES_PER_DESCRIPTOR} allowed per widget. Each filter may individually stay under its ` +
+          `own per-predicate cap yet still sum to an unbounded number of bound parameters to hash into the cache ` +
+          `key and send to the database for a single widget. Reduce the total number of filter values to at most ` +
+          `${MAX_PREDICATE_VALUES_PER_DESCRIPTOR}.`,
+      );
     }
     // Size cap for each JOIN's own "on" sub-array (Tier2 finding — resource
     // exhaustion). `joins` is validated as an array (and length-capped as a
@@ -619,6 +733,14 @@ async function processWidget(
         ...(descriptor.joins ?? [])
           .filter((j) => typeof j === 'object' && j !== null)
           .map((j) => j.table),
+        // A `semiJoins[].table` is a real FROM clause in a subquery, so it is a
+        // table the query TOUCHES and must clear the Zero-Knowledge Rule exactly
+        // like a joined table. Omitting it would make the subquery the one way to
+        // read an unallowlisted table's contents — not by returning its rows, but
+        // by choosing which of the caller's own rows survive the `IN` test.
+        // Collected recursively (a nested semi-join's table counts too) through
+        // the shared `collectSemiJoinTables`, the same helper the cache tags use.
+        ...collectSemiJoinTables(descriptor.semiJoins),
       ],
       schemaAllowlist,
     );
@@ -896,7 +1018,18 @@ async function runWidgetPipeline(
         // the documented no-mutation contract on `WidgetQueryResult.rows` and
         // `CacheProvider.set` still governs in-place row edits.
         { rows: [...rows], cachedAt: Date.now(), tier, rowCount },
-        { tags: [descriptor.table, ...(descriptor.joins?.map((j) => j.table) ?? [])] },
+        {
+          tags: [
+            descriptor.table,
+            ...(descriptor.joins?.map((j) => j.table) ?? []),
+            // A semi-joined table decides which outer rows survive, so a mutation
+            // to it changes this result exactly as a mutation to a joined table
+            // does — a customer stops matching the moment its last shipped order
+            // is deleted. Untagged, that result would keep being served for the
+            // whole TTL.
+            ...collectSemiJoinTables(descriptor.semiJoins),
+          ],
+        },
       );
     } catch (cacheErr) {
       console.warn(

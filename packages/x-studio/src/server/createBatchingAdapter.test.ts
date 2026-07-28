@@ -2629,7 +2629,7 @@ describe('createBatchingAdapter — cross-source filter fan-out', () => {
     });
   }
 
-  it('does not emit a row-multiplying LEFT JOIN for a filter on the "many" side', async () => {
+  it('emits a SEMI-JOIN, not a row-multiplying LEFT JOIN, for a filter on the "many" side', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
     const adapter = makeOneSideHarness(fetchFn);
@@ -2652,14 +2652,100 @@ describe('createBatchingAdapter — cross-source filter fan-out', () => {
     );
 
     const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
-      widgets: Array<{ joins?: unknown; filters?: unknown; columns?: string[] }>;
+      widgets: Array<{
+        joins?: unknown;
+        filters?: unknown;
+        semiJoins?: unknown;
+        columns?: string[];
+      }>;
     };
-    // `customers LEFT JOIN orders ... WHERE orders.status = 'shipped'` makes a customer with three
-    // shipped orders contribute three rows, so the KPI sum reads 3x. The wire protocol has no
-    // semi-join, so the reference is dropped with a warning instead.
+    // `customers LEFT JOIN orders … WHERE orders.status = 'shipped'` makes a customer with three
+    // shipped orders contribute three rows, so the KPI sum reads 3x. The semi-join form filters
+    // the customer rows without multiplying them — the same answer
+    // `dataSourceGraph.resolveRows` computes in memory.
     expect(body.widgets[0].joins).toBeUndefined();
+    expect(body.widgets[0].semiJoins).toEqual([
+      {
+        table: 'orders',
+        column: 'customers.id',
+        foreignColumn: 'orders.customerId',
+        filters: [{ column: 'orders.status', operator: 'eq', value: 'shipped' }],
+      },
+    ]);
+    // The predicate lives INSIDE the subquery, never as a top-level WHERE on the
+    // outer query (where it would reference a table the query does not join).
     expect(body.widgets[0].filters).toBeUndefined();
-    expect(warnSpy).toHaveBeenCalled();
+    // No divergence warning: the filter is now executed faithfully rather than dropped.
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('groups every predicate on one foreign source into ONE subquery (EXISTS(A AND B))', async () => {
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = makeOneSideHarness(fetchFn);
+
+    await adapter.getRows(
+      makeDescriptor({
+        sourceId: 'source-customers',
+        tableName: 'customers',
+        widgetId: 'w1',
+        select: ['lifetime_value'],
+        filter: {
+          type: 'group',
+          op: 'and',
+          children: [
+            { type: 'leaf', field: 'status', op: 'equals', value: 'shipped', fieldType: 'string' },
+            // `customerId` exists ONLY on `orders` — a field name shared with the widget's own
+            // source (like `id`) would resolve to the primary table instead.
+            {
+              type: 'leaf',
+              field: 'customerId',
+              op: 'greater_than',
+              value: 10,
+              fieldType: 'number',
+            },
+          ],
+        },
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ semiJoins?: Array<{ filters: unknown[] }> }>;
+    };
+    // ONE subquery carrying BOTH predicates — `EXISTS(order matching A AND B)`. Two subqueries
+    // would mean `EXISTS(A) AND EXISTS(B)`, satisfied by a customer whose order #1 is shipped and
+    // whose DIFFERENT order #2 has id > 10 — the exact divergence `dataSourceGraph.resolveRows`
+    // groups its cross-filters to avoid.
+    expect(body.widgets[0].semiJoins).toHaveLength(1);
+    expect(body.widgets[0].semiJoins![0].filters).toEqual([
+      { column: 'orders.status', operator: 'eq', value: 'shipped' },
+      { column: 'orders.customerId', operator: 'gt', value: 10 },
+    ]);
+  });
+
+  it('still drops a DISPLAY column on the "many" side, with a warning', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = makeOneSideHarness(fetchFn);
+
+    await adapter.getRows(
+      makeDescriptor({
+        sourceId: 'source-customers',
+        tableName: 'customers',
+        widgetId: 'w1',
+        // `status` lives on the "many" side. A semi-join filters rows; it cannot produce a VALUE,
+        // and in memory this picks ONE representative related value per row — a choice SQL cannot
+        // make without a rule nobody declared. So this stays a visible degradation.
+        select: ['lifetime_value', 'status'],
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ columns?: string[]; joins?: unknown; semiJoins?: unknown }>;
+    };
+    expect(body.widgets[0].columns).toEqual(['lifetime_value']);
+    expect(body.widgets[0].joins).toBeUndefined();
+    expect(body.widgets[0].semiJoins).toBeUndefined();
     warnSpy.mockRestore();
   });
 
@@ -2695,5 +2781,258 @@ describe('createBatchingAdapter — cross-source filter fan-out', () => {
     expect(body.widgets[0].filters).toEqual([
       { column: 'customers.lifetime_value', operator: 'gt', value: 100 },
     ]);
+  });
+
+  // ── Many-to-many ───────────────────────────────────────────────────────────
+  //
+  // An M:N relationship is one-to-many from BOTH sides, so it has no JOIN form that preserves the
+  // widget's rows at all — which is why `resolveField`'s direct-relationship loop skips it and why
+  // such a filter used to be dropped as plain `unresolved`. A semi-join works at either arity.
+  // The two shapes mirror `dataSourceGraph.findJoinPath`'s own arms exactly, so the in-memory and
+  // wire paths agree on which relationships are reachable.
+  describe('many-to-many', () => {
+    /** customers <-> tags, through the `customer_tags` junction, all on one endpoint. */
+    function makeManyToManyHarness(fetchFn: ReturnType<typeof makeOkFetch>) {
+      const endpoint = uid();
+      const sharedAdapter = createBatchingAdapter(endpoint, {
+        fetchFn: fetchFn as unknown as typeof fetch,
+        batchDelayMs: 0,
+      });
+      const dataSources: Record<string, StudioDataSource> = {
+        'source-customers': {
+          id: 'source-customers',
+          label: 'Customers',
+          tableName: 'customers',
+          fields: [field('id', 'number'), field('lifetime_value', 'number')],
+          adapter: sharedAdapter,
+        },
+        'source-tags': {
+          id: 'source-tags',
+          label: 'Tags',
+          tableName: 'tags',
+          fields: [field('tagId', 'number'), field('name')],
+          adapter: sharedAdapter,
+        },
+        'source-customer-tags': {
+          id: 'source-customer-tags',
+          label: 'Customer tags',
+          tableName: 'customer_tags',
+          fields: [field('cId', 'number'), field('tId', 'number'), field('assignedBy')],
+          adapter: sharedAdapter,
+        },
+      };
+      const relationships: StudioRelationship[] = [
+        {
+          id: 'rel-customers-tags',
+          type: 'many-to-many',
+          sourceId: 'source-customers',
+          sourceField: 'id',
+          targetId: 'source-tags',
+          targetField: 'tagId',
+          junctionSourceId: 'source-customer-tags',
+          junctionSourceField: 'cId',
+          junctionTargetField: 'tId',
+        },
+      ];
+      return createBatchingAdapter(endpoint, {
+        fetchFn: fetchFn as unknown as typeof fetch,
+        batchDelayMs: 0,
+        dataSources,
+        relationships,
+      });
+    }
+
+    it('emits a NESTED semi-join for a filter on the remote endpoint (two hops via the junction)', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+      const adapter = makeManyToManyHarness(fetchFn);
+
+      await adapter.getRows(
+        makeDescriptor({
+          sourceId: 'source-customers',
+          tableName: 'customers',
+          widgetId: 'w1',
+          select: ['lifetime_value'],
+          filter: { type: 'leaf', field: 'name', op: 'equals', value: 'vip', fieldType: 'string' },
+        }),
+      );
+
+      const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+        widgets: Array<{ joins?: unknown; filters?: unknown; semiJoins?: unknown }>;
+      };
+      expect(body.widgets[0].semiJoins).toEqual([
+        {
+          table: 'customer_tags',
+          column: 'customers.id',
+          foreignColumn: 'customer_tags.cId',
+          // The junction level links the two tables and carries no predicate of its own.
+          filters: [],
+          semiJoins: [
+            {
+              table: 'tags',
+              column: 'customer_tags.tId',
+              foreignColumn: 'tags.tagId',
+              filters: [{ column: 'tags.name', operator: 'eq', value: 'vip' }],
+            },
+          ],
+        },
+      ]);
+      expect(body.widgets[0].joins).toBeUndefined();
+      expect(body.widgets[0].filters).toBeUndefined();
+      expect(warnSpy).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+
+    it('emits a ONE-hop semi-join for a filter on the JUNCTION source itself', async () => {
+      const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+      const adapter = makeManyToManyHarness(fetchFn);
+
+      await adapter.getRows(
+        makeDescriptor({
+          sourceId: 'source-customers',
+          tableName: 'customers',
+          widgetId: 'w1',
+          select: ['lifetime_value'],
+          filter: {
+            type: 'leaf',
+            field: 'assignedBy',
+            op: 'equals',
+            value: 'admin',
+            fieldType: 'string',
+          },
+        }),
+      );
+
+      const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+        widgets: Array<{ semiJoins?: unknown }>;
+      };
+      // A junction table is never a relationship's own sourceId/targetId, only its
+      // `junctionSourceId`, so this is the arm `findJoinPath` resolves as `hops: 1`.
+      expect(body.widgets[0].semiJoins).toEqual([
+        {
+          table: 'customer_tags',
+          column: 'customers.id',
+          foreignColumn: 'customer_tags.cId',
+          filters: [{ column: 'customer_tags.assignedBy', operator: 'eq', value: 'admin' }],
+        },
+      ]);
+    });
+
+    it('groups two predicates on the remote endpoint into ONE nested subquery', async () => {
+      const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+      const adapter = makeManyToManyHarness(fetchFn);
+
+      await adapter.getRows(
+        makeDescriptor({
+          sourceId: 'source-customers',
+          tableName: 'customers',
+          widgetId: 'w1',
+          select: ['lifetime_value'],
+          filter: {
+            type: 'group',
+            op: 'and',
+            children: [
+              { type: 'leaf', field: 'name', op: 'equals', value: 'vip', fieldType: 'string' },
+              {
+                type: 'leaf',
+                field: 'tagId',
+                op: 'greater_than',
+                value: 5,
+                fieldType: 'number',
+              },
+            ],
+          },
+        }),
+      );
+
+      const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+        widgets: Array<{ semiJoins?: Array<{ semiJoins?: Array<{ filters: unknown[] }> }> }>;
+      };
+      expect(body.widgets[0].semiJoins).toHaveLength(1);
+      // Both predicates land on the INNERMOST level — the subquery against the source they
+      // actually filter — so this is `EXISTS(tag matching A AND B)`, not two independent EXISTS.
+      expect(body.widgets[0].semiJoins![0].semiJoins).toHaveLength(1);
+      expect(body.widgets[0].semiJoins![0].semiJoins![0].filters).toEqual([
+        { column: 'tags.name', operator: 'eq', value: 'vip' },
+        { column: 'tags.tagId', operator: 'gt', value: 5 },
+      ]);
+    });
+
+    it('does NOT push down a many-to-many reference that spans adapter endpoints', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+      const endpointA = uid();
+      const endpointB = uid();
+      const adapterA = createBatchingAdapter(endpointA, {
+        fetchFn: fetchFn as unknown as typeof fetch,
+        batchDelayMs: 0,
+      });
+      const adapterB = createBatchingAdapter(endpointB, {
+        fetchFn: fetchFn as unknown as typeof fetch,
+        batchDelayMs: 0,
+      });
+      const dataSources: Record<string, StudioDataSource> = {
+        'source-customers': {
+          id: 'source-customers',
+          label: 'Customers',
+          tableName: 'customers',
+          fields: [field('id', 'number'), field('lifetime_value', 'number')],
+          adapter: adapterA,
+        },
+        'source-tags': {
+          id: 'source-tags',
+          label: 'Tags',
+          tableName: 'tags',
+          fields: [field('tagId', 'number'), field('name')],
+          // A different database — a subquery cannot span one any more than a JOIN can.
+          adapter: adapterB,
+        },
+        'source-customer-tags': {
+          id: 'source-customer-tags',
+          label: 'Customer tags',
+          tableName: 'customer_tags',
+          fields: [field('cId', 'number'), field('tId', 'number')],
+          adapter: adapterA,
+        },
+      };
+      const relationships: StudioRelationship[] = [
+        {
+          id: 'rel-customers-tags',
+          type: 'many-to-many',
+          sourceId: 'source-customers',
+          sourceField: 'id',
+          targetId: 'source-tags',
+          targetField: 'tagId',
+          junctionSourceId: 'source-customer-tags',
+          junctionSourceField: 'cId',
+          junctionTargetField: 'tId',
+        },
+      ];
+      const adapter = createBatchingAdapter(endpointA, {
+        fetchFn: fetchFn as unknown as typeof fetch,
+        batchDelayMs: 0,
+        dataSources,
+        relationships,
+      });
+
+      await adapter.getRows(
+        makeDescriptor({
+          sourceId: 'source-customers',
+          tableName: 'customers',
+          widgetId: 'w1',
+          select: ['lifetime_value'],
+          filter: { type: 'leaf', field: 'name', op: 'equals', value: 'vip', fieldType: 'string' },
+        }),
+      );
+
+      const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+        widgets: Array<{ semiJoins?: unknown; filters?: unknown }>;
+      };
+      expect(body.widgets[0].semiJoins).toBeUndefined();
+      expect(body.widgets[0].filters).toBeUndefined();
+      // The visible-degradation path is kept for what stays genuinely unexpressible.
+      expect(warnSpy).toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
   });
 });

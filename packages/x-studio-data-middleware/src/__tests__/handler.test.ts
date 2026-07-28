@@ -4376,3 +4376,403 @@ describe('handleBatchQuery — host allowlist shape is validated at runtime', ()
     expect(dbSpy).not.toHaveBeenCalled();
   });
 });
+
+// ─── Semi-joins (cross-source filter across a one-to-many relationship) ───────
+//
+// The motivating shape: a KPI on `customers` filtered by `orders.status`, where
+// the relationship is one-to-many from the widget's side. Three DIFFERENT numbers
+// are reachable from this one fixture, and the whole point of the semi-join form
+// is which one comes back:
+//
+//   140  — the correct, semi-join answer. Each qualifying customer counted ONCE,
+//          exactly what `dataSourceGraph.resolveRows` computes in memory (group
+//          the cross-filters by foreign source, one conjunctive `applyFilters`,
+//          one semi-join).
+//   340  — what a `LEFT JOIN orders … WHERE orders.status = 'shipped'` returns:
+//          customer 1 has THREE shipped orders, so its 100 is summed three times.
+//          This is the fan-out the wire protocol used to force, and it is why the
+//          previous round dropped such a filter with a warning instead.
+//  1140  — what a semi-join whose SUBQUERY IS NOT TENANT-SCOPED returns: the
+//          inner SELECT would also yield globex's order for `customer_id` 7, so
+//          acme's customer 7 (worth 1000) is admitted by a filter no order of its
+//          own satisfies. A cross-tenant leak that returns no foreign row at all.
+describe('handleBatchQuery — semi-joins', () => {
+  const CUSTOMERS = [
+    { id: 1, tenant_id: 'acme', lifetime_value: 100 },
+    { id: 2, tenant_id: 'acme', lifetime_value: 40 },
+    // No shipped order of its own — must be excluded.
+    { id: 3, tenant_id: 'acme', lifetime_value: 7 },
+    // The cross-tenant collision probe: acme's customer 7 has NO acme order, but
+    // globex has a shipped order whose `customer_id` is also 7.
+    { id: 7, tenant_id: 'acme', lifetime_value: 1000 },
+    { id: 9, tenant_id: 'globex', lifetime_value: 999 },
+  ];
+  const ORDERS = [
+    { id: 'o1', tenant_id: 'acme', customer_id: 1, status: 'shipped' },
+    { id: 'o2', tenant_id: 'acme', customer_id: 1, status: 'shipped' },
+    { id: 'o3', tenant_id: 'acme', customer_id: 1, status: 'shipped' },
+    { id: 'o4', tenant_id: 'acme', customer_id: 2, status: 'shipped' },
+    { id: 'o5', tenant_id: 'acme', customer_id: 3, status: 'pending' },
+    { id: 'o6', tenant_id: 'globex', customer_id: 7, status: 'shipped' },
+    { id: 'o7', tenant_id: 'globex', customer_id: 9, status: 'shipped' },
+  ];
+  // Junction + remote tables for the two-hop (many-to-many) shape.
+  const CUSTOMER_TAGS = [
+    { id: 1, tenant_id: 'acme', customer_id: 1, tag_id: 10 },
+    { id: 2, tenant_id: 'acme', customer_id: 3, tag_id: 11 },
+    // globex's junction row points at the SAME tag and at a customer_id acme also
+    // uses — the leak probe for the MIDDLE level.
+    { id: 3, tenant_id: 'globex', customer_id: 7, tag_id: 10 },
+  ];
+  const TAGS = [
+    { id: 10, tenant_id: 'acme', name: 'vip' },
+    { id: 11, tenant_id: 'acme', name: 'standard' },
+  ];
+
+  const makeCustomersDb = () =>
+    createMockDb({
+      customers: CUSTOMERS,
+      orders: ORDERS,
+      customer_tags: CUSTOMER_TAGS,
+      tags: TAGS,
+    });
+
+  const SHIPPED_SEMI_JOIN = {
+    table: 'orders',
+    column: 'id',
+    foreignColumn: 'customer_id',
+    filters: [{ column: 'status', operator: 'eq' as const, value: 'shipped' }],
+  };
+
+  const OPTIONS = {
+    schemaAllowlist: ['customers', 'orders', 'customer_tags', 'tags'],
+    tenancy: MULTI_TENANT,
+  };
+
+  /** `sum(lifetime_value)` over one tenant's customers, with `semiJoins` applied. */
+  async function sumLifetimeValue(semiJoins: unknown, claims = ACME_CLAIMS) {
+    const result = await handleBatchQuery(
+      {
+        pageId: 'p1',
+        widgets: [
+          {
+            id: 'kpi',
+            table: 'customers',
+            aggregations: [{ column: 'lifetime_value', func: 'sum', alias: 'total' }],
+            semiJoins,
+          },
+        ],
+      } as unknown as BatchQueryRequest,
+      claims,
+      { db: makeCustomersDb(), ...OPTIONS, cacheProvider: new LRUCacheProvider() },
+    );
+    return result.results[0];
+  }
+
+  it('matches the in-memory semi-join answer — each qualifying customer counted ONCE', async () => {
+    const kpi = await sumLifetimeValue([SHIPPED_SEMI_JOIN]);
+    expect(kpi.error).toBeUndefined();
+    // Customers 1 (100) and 2 (40) each have >= 1 shipped acme order. Customer 3
+    // has only a pending one; customer 7 has none of its own.
+    expect(kpi.rows).toEqual([{ total: 140 }]);
+  });
+
+  it("does NOT fan out: customer 1's three shipped orders contribute its value once, not 3x", async () => {
+    const kpi = await sumLifetimeValue([SHIPPED_SEMI_JOIN]);
+    // 340 is what `LEFT JOIN orders ON … WHERE orders.status = 'shipped'` would
+    // return for this fixture (100x3 + 40). That number must be unreachable.
+    expect(kpi.rows[0].total).not.toBe(340);
+    expect(kpi.rows[0].total).toBe(140);
+  });
+
+  it("does not leak another tenant's foreign keys through the subquery", async () => {
+    const kpi = await sumLifetimeValue([SHIPPED_SEMI_JOIN]);
+    // 1140 = 140 + acme customer 7's 1000, admitted only if the inner SELECT
+    // returned globex's `customer_id` 7. The leak returns NO globex row, so it is
+    // invisible in the response rows — only the total gives it away.
+    expect(kpi.rows[0].total).not.toBe(1140);
+  });
+
+  it('returns each tenant only its own answer for the identical descriptor', async () => {
+    const acme = await sumLifetimeValue([SHIPPED_SEMI_JOIN], ACME_CLAIMS);
+    const globex = await sumLifetimeValue([SHIPPED_SEMI_JOIN], GLOBEX_CLAIMS);
+    expect(acme.rows).toEqual([{ total: 140 }]);
+    // globex's customer 9 (999) has its own shipped order; acme's customers are
+    // invisible to it in both the outer query and the subquery.
+    expect(globex.rows).toEqual([{ total: 999 }]);
+  });
+
+  it('scopes every level of a two-hop (many-to-many) semi-join', async () => {
+    const kpi = await sumLifetimeValue([
+      {
+        table: 'customer_tags',
+        column: 'id',
+        foreignColumn: 'customer_id',
+        semiJoins: [
+          {
+            table: 'tags',
+            column: 'tag_id',
+            foreignColumn: 'id',
+            filters: [{ column: 'name', operator: 'eq', value: 'vip' }],
+          },
+        ],
+      },
+    ]);
+    // Only acme's customer 1 is tagged `vip` through an ACME junction row. The
+    // globex junction row also points at tag 10 and at customer_id 7 — reachable
+    // only if the JUNCTION level were unscoped, which would add 1000.
+    expect(kpi.rows).toEqual([{ total: 100 }]);
+    expect(kpi.rows[0].total).not.toBe(1100);
+  });
+
+  it('filters raw (non-aggregation) rows without duplicating them', async () => {
+    const result = await handleBatchQuery(
+      {
+        pageId: 'p1',
+        widgets: [
+          {
+            id: 'grid',
+            table: 'customers',
+            columns: ['id', 'lifetime_value'],
+            semiJoins: [SHIPPED_SEMI_JOIN],
+          },
+        ],
+      } as unknown as BatchQueryRequest,
+      ACME_CLAIMS,
+      { db: makeCustomersDb(), ...OPTIONS, cacheProvider: new LRUCacheProvider() },
+    );
+    // Exactly two rows — customer 1 appears ONCE despite three matching orders.
+    expect(result.results[0].rows).toEqual([
+      { id: 1, lifetime_value: 100 },
+      { id: 2, lifetime_value: 40 },
+    ]);
+  });
+
+  it('applies the semi-join to the preflight COUNT(*) too, so the reported rowCount matches', async () => {
+    const result = await handleBatchQuery(
+      {
+        pageId: 'p1',
+        widgets: [
+          { id: 'grid', table: 'customers', columns: ['id'], semiJoins: [SHIPPED_SEMI_JOIN] },
+        ],
+      } as unknown as BatchQueryRequest,
+      ACME_CLAIMS,
+      { db: makeCustomersDb(), ...OPTIONS, cacheProvider: new LRUCacheProvider() },
+    );
+    // Unlike a join's COUNT(*), a semi-join's is not row-multiplied, so the
+    // preflight total and the returned row count agree exactly.
+    expect(result.results[0].rowCount).toBe(2);
+    expect(result.results[0].rows).toHaveLength(2);
+  });
+
+  it('rejects a semi-join table that is not in the schema allowlist, before touching the db', async () => {
+    const dbSpy = vi.fn((table: string) => makeCustomersDb()(table));
+    await expectWidgetError(
+      handleBatchQuery(
+        {
+          pageId: 'p1',
+          widgets: [
+            {
+              id: 'w1',
+              table: 'customers',
+              semiJoins: [{ table: 'payroll', column: 'id', foreignColumn: 'customer_id' }],
+            },
+          ],
+        } as unknown as BatchQueryRequest,
+        ACME_CLAIMS,
+        { db: dbSpy, schemaAllowlist: ['customers', 'orders'], tenancy: MULTI_TENANT },
+      ),
+      /Requested table\(s\) not in schema allowlist: payroll/,
+    );
+    expect(dbSpy).not.toHaveBeenCalled();
+  });
+
+  it('rejects a NESTED semi-join table that is not in the schema allowlist', async () => {
+    const result = await handleBatchQuery(
+      {
+        pageId: 'p1',
+        widgets: [
+          {
+            id: 'w1',
+            table: 'customers',
+            semiJoins: [
+              {
+                table: 'orders',
+                column: 'id',
+                foreignColumn: 'customer_id',
+                semiJoins: [{ table: 'payroll', column: 'id', foreignColumn: 'order_id' }],
+              },
+            ],
+          },
+        ],
+      } as unknown as BatchQueryRequest,
+      ACME_CLAIMS,
+      { db: makeCustomersDb(), schemaAllowlist: ['customers', 'orders'], tenancy: MULTI_TENANT },
+    );
+    expect(result.results[0].rows).toEqual([]);
+    expect(result.results[0].error).toMatch(
+      /Requested table\(s\) not in schema allowlist: payroll/,
+    );
+    // The allowlisted sibling table is not implicated — only the offending one is named.
+    expect(result.results[0].error).not.toMatch(/orders/);
+  });
+
+  it('rejects a qualified subquery filter column naming a non-allowlisted table', async () => {
+    const result = await handleBatchQuery(
+      {
+        pageId: 'p1',
+        widgets: [
+          {
+            id: 'w1',
+            table: 'customers',
+            semiJoins: [
+              {
+                table: 'orders',
+                column: 'id',
+                foreignColumn: 'customer_id',
+                filters: [{ column: 'payroll.salary', operator: 'gt', value: 1 }],
+              },
+            ],
+          },
+        ],
+      } as unknown as BatchQueryRequest,
+      ACME_CLAIMS,
+      { db: makeCustomersDb(), schemaAllowlist: ['customers', 'orders'], tenancy: MULTI_TENANT },
+    );
+    expect(result.results[0].rows).toEqual([]);
+    // Runs UNCONDITIONALLY — no `columnAllowlist` is configured here, so this is the
+    // Zero-Knowledge Rule reaching a reference that names a table only through a subquery
+    // predicate.
+    expect(result.results[0].error).toMatch(/names table "payroll", which is not in the/);
+  });
+
+  it('tags the cached result with every semi-joined table, so a mutation to it invalidates', async () => {
+    const tagged: string[][] = [];
+    const recordingCache = {
+      get: async () => undefined,
+      set: async (_key: string, _entry: unknown, opts?: { tags?: string[] }) => {
+        tagged.push(opts?.tags ?? []);
+      },
+      invalidatePrefix: async () => {},
+      deleteByTag: async () => {},
+    };
+    await handleBatchQuery(
+      {
+        pageId: 'p1',
+        widgets: [
+          {
+            id: 'grid',
+            table: 'customers',
+            columns: ['id'],
+            semiJoins: [
+              {
+                table: 'customer_tags',
+                column: 'id',
+                foreignColumn: 'customer_id',
+                semiJoins: [{ table: 'tags', column: 'tag_id', foreignColumn: 'id' }],
+              },
+            ],
+          },
+        ],
+      } as unknown as BatchQueryRequest,
+      ACME_CLAIMS,
+      { db: makeCustomersDb(), ...OPTIONS, cacheProvider: recordingCache as never },
+    );
+    // Both nesting levels are tagged: a mutation to either changes which outer
+    // rows the subquery admits, exactly as a mutation to a JOINED table does.
+    expect(tagged[0]).toEqual(['customers', 'customer_tags', 'tags']);
+  });
+
+  it('folds semiJoins into the cache key — two otherwise-identical widgets do not share an entry', () => {
+    const withoutSemiJoin = generateCacheKey(ACME_CLAIMS, { id: 'w1', table: 'customers' }, 'k');
+    const withSemiJoin = generateCacheKey(
+      ACME_CLAIMS,
+      { id: 'w1', table: 'customers', semiJoins: [SHIPPED_SEMI_JOIN] },
+      'k',
+    );
+    const withDifferentValue = generateCacheKey(
+      ACME_CLAIMS,
+      {
+        id: 'w1',
+        table: 'customers',
+        semiJoins: [
+          {
+            ...SHIPPED_SEMI_JOIN,
+            filters: [{ column: 'status', operator: 'eq' as const, value: 'pending' }],
+          },
+        ],
+      },
+      'k',
+    );
+    expect(withSemiJoin).not.toBe(withoutSemiJoin);
+    expect(withSemiJoin).not.toBe(withDifferentValue);
+  });
+
+  it('rejects a semiJoins tree whose TOTAL entry count exceeds the per-widget cap', async () => {
+    // Each level individually satisfies the per-array cap; only the SUM across
+    // levels exceeds it — the product gap the recursive walk closes.
+    const wide = Array.from({ length: 120 }, () => ({
+      table: 'orders',
+      column: 'id',
+      foreignColumn: 'customer_id',
+      semiJoins: [{ table: 'tags', column: 'id', foreignColumn: 'id' }],
+    }));
+    await expect(
+      handleBatchQuery(
+        {
+          pageId: 'p1',
+          widgets: [{ id: 'w1', table: 'customers', semiJoins: wide }],
+        } as unknown as BatchQueryRequest,
+        ACME_CLAIMS,
+        { db: makeCustomersDb(), ...OPTIONS },
+      ),
+    ).rejects.toThrow(
+      // Reported count is the running total at the moment the cap is crossed
+      // (201), not the tree's full size — the walk fails fast rather than
+      // finishing an already-over-budget traversal.
+      new RegExp(
+        `"semiJoins" contains ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR + 1} entries in total across every ` +
+          `nesting level, which exceeds the maximum of ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR}`,
+      ),
+    );
+  });
+
+  it('counts subquery predicate values against the widget-wide value budget', async () => {
+    // Neither array is over its own cap and the widget's own `filters` is empty —
+    // the total only exceeds the budget once the SUBQUERY predicates are counted.
+    const perFilterValues = Array.from({ length: 150 }, (_unused, i) => i);
+    const semiJoins = Array.from({ length: 20 }, () => ({
+      table: 'orders',
+      column: 'id',
+      foreignColumn: 'customer_id',
+      filters: [{ column: 'status', operator: 'in', value: perFilterValues }],
+    }));
+    await expect(
+      handleBatchQuery(
+        {
+          pageId: 'p1',
+          widgets: [{ id: 'w1', table: 'customers', semiJoins }],
+        } as unknown as BatchQueryRequest,
+        ACME_CLAIMS,
+        { db: makeCustomersDb(), ...OPTIONS },
+      ),
+    ).rejects.toThrow(
+      new RegExp(
+        `contains 3000 comparison values in total across all filters, which exceeds the maximum of ${MAX_PREDICATE_VALUES_PER_DESCRIPTOR}`,
+      ),
+    );
+  });
+
+  it('rejects a non-array "semiJoins" as a whole-request shape error', async () => {
+    await expect(
+      handleBatchQuery(
+        {
+          pageId: 'p1',
+          widgets: [{ id: 'w1', table: 'customers', semiJoins: 'nope' }],
+        } as unknown as BatchQueryRequest,
+        ACME_CLAIMS,
+        { db: makeCustomersDb(), ...OPTIONS },
+      ),
+    ).rejects.toThrow(/"semiJoins" must be an array/);
+  });
+});

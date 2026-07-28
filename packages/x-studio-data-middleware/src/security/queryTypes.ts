@@ -40,6 +40,93 @@ export interface JoinDescriptor {
 }
 
 /**
+ * SEMI-JOIN descriptor — "keep an outer row only when a matching row EXISTS in
+ * `table`", emitted as `<column> IN (SELECT <foreignColumn> FROM <table> WHERE …)`.
+ *
+ * WHY THIS EXISTS, AND WHY A `JoinDescriptor` CANNOT REPLACE IT. A cross-source
+ * filter across a relationship that is one-to-many from the querying widget's side
+ * — a widget on `customers` filtered by `orders.status = 'shipped'` — means, in
+ * SQL and in Studio's own in-memory pipeline (`dataSourceGraph.resolveRows`),
+ * "keep the customers having AT LEAST ONE matching order". Expressed as
+ * `LEFT JOIN orders ON orders.customer_id = customers.id WHERE orders.status = …`
+ * it instead FANS OUT: a customer with three shipped orders contributes three
+ * rows, so a `SUM(lifetime_value)` KPI reads 3×, and every count/average is wrong
+ * by an unpredictable, data-dependent factor. A subquery has no such
+ * multiplication — the outer row set is untouched, only filtered.
+ *
+ * WHY `IN (SELECT …)` RATHER THAN A CORRELATED `EXISTS`. The two are semantically
+ * equivalent for the positive (non-negated) form this package emits, and both are
+ * portable across pg/MySQL/SQLite. `IN (SELECT …)` wins on composition: the
+ * subquery is an ORDINARY Knex query builder, so the EXACT same
+ * `applySecurityPredicates` / `applyPredicates` used on the outer query apply to
+ * it verbatim — the row-level-security and user-filter translation stays one
+ * implementation with no clause-specific emitter (contrast the WHERE-vs-ON split,
+ * which needed `applySecurityPredicatesToJoinOn`). A correlated `EXISTS` would
+ * additionally need a raw `?? = ??` correlation fragment, adding a new raw-SQL
+ * site to a security boundary for no expressive gain.
+ *
+ * NULL SEMANTICS are safe for the positive form and are the reason the negated
+ * one is deliberately absent from this protocol: `x IN (…, NULL)` yields UNKNOWN
+ * rather than FALSE when `x` matches nothing, and a WHERE treats UNKNOWN as
+ * "exclude" — which is exactly what a semi-join wants. (`NOT IN` over a
+ * NULL-bearing subquery would instead exclude EVERY row, so there is no
+ * `NOT IN`/anti-join form here.) An outer row whose `column` is NULL is likewise
+ * excluded, matching `dataSourceGraph`'s `normalizeJoinKey(...) !== null` guard.
+ *
+ * SECURITY. `table` is a SECOND TABLE REFERENCE and carries every guarantee a
+ * `joins[].table` does: it is checked against `schemaAllowlist`
+ * (`assertTablesAllowed`), every column it names is checked against
+ * `columnAllowlist` and shape-validated, and — critically — the caller's
+ * row-level-security predicate is applied INSIDE the subquery, resolved through
+ * `CompiledSecurityPolicy.forJoinedTable` exactly like a joined table's. Applying
+ * it only to the outer query would leak the EXISTENCE of other tenants' rows: an
+ * unscoped inner SELECT returns other tenants' foreign keys, so an outer row
+ * whose key collides with one of them survives a filter it should not have
+ * matched. See `buildSecureQuery`'s `applySemiJoins`.
+ */
+export interface SemiJoinDescriptor {
+  /** The foreign table the subquery selects FROM. Must be in `schemaAllowlist`. */
+  table: string;
+  /**
+   * The OUTER column tested with `IN`. Unqualified references are qualified with
+   * the enclosing table — the widget's primary table at the top level, or the
+   * PARENT semi-join's `table` when nested. A qualified reference must name that
+   * same enclosing table (fail-closed — see `validateSemiJoins`).
+   */
+  column: string;
+  /**
+   * The column the subquery PROJECTS, on `table`. Unqualified references are
+   * qualified with `table`; a qualified reference must name `table` itself.
+   */
+  foreignColumn: string;
+  /**
+   * Predicates applied INSIDE the subquery, against `table`. Same shape,
+   * allowlist and operator rules as `BatchWidgetDescriptor.filters` — they are
+   * translated by the same `applyPredicates`.
+   */
+  filters?: FilterPredicate[];
+  /**
+   * Nested semi-joins, applied inside THIS subquery. One level of nesting
+   * expresses a two-hop many-to-many filter (widget → junction → remote), which
+   * `dataSourceGraph.findJoinPath` already models as `hops: 2`:
+   *
+   * ```sql
+   * customers.id IN (
+   *   SELECT customer_tags.customer_id FROM customer_tags
+   *   WHERE customer_tags.tenant_id = ?              -- inner tenancy, per level
+   *     AND customer_tags.tag_id IN (
+   *       SELECT tags.id FROM tags WHERE tags.tenant_id = ? AND tags.name = ?)
+   * )
+   * ```
+   *
+   * Nesting is bounded by `MAX_SEMI_JOIN_DEPTH` — nesting is a distinct
+   * client-controlled input dimension (see the Input bounds section of
+   * `ARCHITECTURE.md`) and must be capped like every other one.
+   */
+  semiJoins?: SemiJoinDescriptor[];
+}
+
+/**
  * Base interface for a Studio batch query widget descriptor.
  * Mirrors the shape sent from the client DataLoader.
  */
@@ -137,6 +224,21 @@ export interface BatchWidgetDescriptor {
    * unscoped.
    */
   joins?: JoinDescriptor[];
+  /**
+   * Optional SEMI-JOIN descriptors — `<column> IN (SELECT <foreignColumn> FROM
+   * <table> WHERE …)`.
+   *
+   * Use this, NOT a `joins[]` entry, whenever a related table is referenced only
+   * to FILTER the primary rows across a one-to-many relationship: a join
+   * row-multiplies the result and inflates every aggregate, while a semi-join
+   * leaves the outer row set untouched. See `SemiJoinDescriptor`.
+   *
+   * Every semi-join table is subject to the same `schemaAllowlist`,
+   * `columnAllowlist` and row-level-security guarantees a joined table is — with
+   * the security predicate applied INSIDE the subquery, which is what stops it
+   * from leaking the existence of other tenants' rows.
+   */
+  semiJoins?: SemiJoinDescriptor[];
 }
 
 /**

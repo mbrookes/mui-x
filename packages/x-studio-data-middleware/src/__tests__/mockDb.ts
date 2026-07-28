@@ -43,10 +43,32 @@ function isRawExpr(value: unknown): value is RawExpr {
   return typeof value === 'object' && value !== null && (value as RawExpr).kind === 'raw';
 }
 
+/**
+ * Is `value` another builder from this mock (a semi-join subquery), rather than a
+ * literal `whereIn` value list?
+ *
+ * Checks BOTH "not an array" and "thenable": an array is the ordinary value-list
+ * form and must never be mistaken for a subquery, and a plain object with no
+ * `then` cannot be drained.
+ */
+function isMockBuilder(value: unknown): value is MockQueryBuilder {
+  return (
+    !Array.isArray(value) &&
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as MockQueryBuilder).then === 'function'
+  );
+}
+
 interface MockQueryBuilder {
   where(column: string, op: string, value: unknown): MockQueryBuilder;
   where(column: string, value: unknown): MockQueryBuilder;
-  whereIn(column: string, values: unknown[]): MockQueryBuilder;
+  /**
+   * `values` is either a literal list OR — for a SEMI-JOIN
+   * (`buildSecureQuery`'s `applySemiJoins`) — another `MockQueryBuilder` standing
+   * in for Knex's `whereIn(column, subqueryBuilder)` subquery form.
+   */
+  whereIn(column: string, values: unknown[] | MockQueryBuilder): MockQueryBuilder;
   whereLike(column: string, pattern: string): MockQueryBuilder;
   whereBetween(column: string, range: [unknown, unknown]): MockQueryBuilder;
   whereNot?: (column: string, value: unknown) => MockQueryBuilder;
@@ -187,8 +209,50 @@ export function createMockDb(
         }
         return qb;
       },
-      whereIn(column: string, values: unknown[]) {
+      whereIn(column: string, values: unknown[] | MockQueryBuilder) {
         const key = rowKeyOf(column);
+        // SEMI-JOIN (`whereIn(column, subqueryBuilder)`). Knex renders a builder
+        // passed here as `column IN (SELECT … )`; this mock materializes the
+        // subquery's single projected column into the allowed-value set instead.
+        //
+        // Materialized LAZILY (inside the predicate, memoized) rather than now:
+        // `buildSecureQuery` attaches the subquery's own security predicates and
+        // filters BEFORE handing it to `whereIn`, but a NESTED semi-join's
+        // predicates are attached to the same builder in the same pass, so
+        // draining it eagerly would read a partially-built subquery. Every
+        // predicate closure in this mock already runs at `then()` time, by which
+        // point the whole tree is built.
+        if (isMockBuilder(values)) {
+          let allowed: unknown[] | null = null;
+          predicates.push((row) => {
+            if (allowed === null) {
+              const drained: unknown[] = [];
+              // `then` resolves synchronously in this mock.
+              values.then((subRows) => {
+                for (const subRow of subRows) {
+                  // The subquery projects exactly one column
+                  // (`applySemiJoins`'s `select(foreignColumn)`), so the row has
+                  // exactly one value — read it positionally rather than by name,
+                  // since the projected key is the foreign table's column name,
+                  // not the outer `column`.
+                  drained.push(Object.values(subRow)[0]);
+                }
+              });
+              allowed = drained;
+            }
+            // A NULL outer key matches nothing: SQL's `NULL IN (…)` is UNKNOWN,
+            // which a WHERE treats as "exclude" — the same rule
+            // `dataSourceGraph`'s `normalizeJoinKey(...) !== null` guard applies
+            // in memory. `sqlValueEquals` would otherwise report `null === null`
+            // for a subquery row carrying a NULL foreign key.
+            const outerValue = row[key];
+            if (outerValue === null || outerValue === undefined) {
+              return false;
+            }
+            return allowed.some((value) => sqlValueEquals(outerValue, value));
+          });
+          return qb;
+        }
         // Type-directed comparison rather than `values.includes(row[key])` — see
         // `sqlValueEquals`. An empty `values` still matches nothing, mirroring the
         // `1 = 0` Knex renders for `whereIn(col, [])`.

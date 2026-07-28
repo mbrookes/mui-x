@@ -20,7 +20,7 @@
  * BEFORE splitting, so aliased expression fields are validated against the real
  * physical table/column.
  */
-import type { BatchWidgetDescriptor } from '../security/types';
+import type { BatchWidgetDescriptor, SemiJoinDescriptor } from '../security/types';
 import { MAX_STRING_LENGTH } from './limits';
 import { assertStringArrayAllowlist } from './allowlistShape';
 
@@ -397,10 +397,18 @@ export function checkColumnAgainstAllowlist(
 /**
  * Validate every column reference in a read descriptor against `columnAllowlist`.
  *
- * Covers projection columns, filter predicates, ORDER BY, aggregations and BOTH
+ * Covers projection columns, filter predicates, ORDER BY, aggregations, BOTH
  * sides of every `join.on` pair — a join condition is an attacker-controlled
  * channel (`join foo ON secret.col = public.col`) that must be constrained to
- * allowlisted columns just like filters/columns.
+ * allowlisted columns just like filters/columns — and, recursively, every column
+ * reference inside every `semiJoins[]` entry.
+ *
+ * A semi-join is the same attacker-controlled channel one layer down: its
+ * subquery names a second table, projects one of its columns and filters on
+ * others (`WHERE id IN (SELECT secret FROM foo WHERE …)`). Skipping it would let
+ * a column the host never allowlisted be read out one bit at a time — the
+ * subquery's projection decides which outer rows survive, so a caller can probe
+ * an unlisted column by observing which rows come back.
  */
 export function validateDescriptorColumns(
   descriptor: BatchWidgetDescriptor,
@@ -463,6 +471,48 @@ export function validateDescriptorColumns(
       );
     }
   }
+
+  // SEMI-JOINS, recursively. Each reference is checked against the table it will
+  // actually resolve against when Knex builds the query — mirroring the
+  // left-is-primary / right-is-joined split the `join.on` loop above applies:
+  //   - the OUTER `column` against the ENCLOSING table (the primary table at the
+  //     top level, the parent semi-join's `table` when nested);
+  //   - the projected `foreignColumn` and every subquery `filters[].column`
+  //     against the semi-join's own `table`, since the subquery's FROM is that
+  //     table and Knex qualifies an unqualified reference against it.
+  // Using the primary table for the inner references — the shape a naive
+  // implementation falls into — would let a column allowlisted only on the
+  // primary table, but present and sensitive on the foreign table, pass
+  // validation and then execute against the foreign table.
+  const checkSemiJoins = (
+    semiJoins: SemiJoinDescriptor[] | undefined,
+    enclosingTable: string,
+  ): void => {
+    for (const semiJoin of semiJoins ?? []) {
+      checkColumnAgainstAllowlist(
+        resolveAlias(descriptor, semiJoin.column),
+        enclosingTable,
+        columnAllowlist,
+        'semiJoins.column',
+      );
+      checkColumnAgainstAllowlist(
+        resolveAlias(descriptor, semiJoin.foreignColumn),
+        semiJoin.table,
+        columnAllowlist,
+        'semiJoins.foreignColumn',
+      );
+      for (const pred of semiJoin.filters ?? []) {
+        checkColumnAgainstAllowlist(
+          resolveAlias(descriptor, pred.column),
+          semiJoin.table,
+          columnAllowlist,
+          'semiJoins.filters',
+        );
+      }
+      checkSemiJoins(semiJoin.semiJoins, semiJoin.table);
+    }
+  };
+  checkSemiJoins(descriptor.semiJoins, descriptor.table);
 }
 
 /**

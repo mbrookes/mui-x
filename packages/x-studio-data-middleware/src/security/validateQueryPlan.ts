@@ -38,6 +38,7 @@ import type {
   FilterPredicate,
   HavingPredicate,
   AggregationSpec,
+  SemiJoinDescriptor,
 } from './types';
 import {
   isWildcardReference,
@@ -52,6 +53,7 @@ import {
   validateWildcardProjection,
 } from '../shared/columnValidation';
 import { assertStringArrayAllowlist } from '../shared/allowlistShape';
+import { MAX_SEMI_JOIN_DEPTH } from '../shared/limits';
 
 /**
  * A physical SQL column reference that has ALREADY been alias-resolved (through
@@ -78,6 +80,30 @@ export interface ResolvedJoin {
   type?: 'inner' | 'left' | 'right';
   /** `[leftColumn, rightColumn]` pairs, both alias-resolved to physical columns. */
   on: [ColumnRef, ColumnRef][];
+}
+
+/**
+ * A resolved SEMI-JOIN — `column IN (SELECT foreignColumn FROM table WHERE …)`.
+ *
+ * Both column references are alias-resolved AND already table-qualified (`column`
+ * with the ENCLOSING table, `foreignColumn` with `table`), so `buildSecureQuery`
+ * hands them to Knex without re-deriving either rule. Qualifying here rather than
+ * at emission time matters more than for the other plan fields: the enclosing
+ * table of a NESTED semi-join is its parent's `table`, not the descriptor's
+ * primary table, so an emitter re-deriving the qualification would need to thread
+ * that context itself — and `qualifyAgainst(plan.table, …)` (the rule every other
+ * site uses) would be silently WRONG at depth ≥ 2.
+ */
+export interface ResolvedSemiJoin {
+  table: string;
+  /** Outer column, qualified with the enclosing table. */
+  column: ColumnRef;
+  /** Subquery projection column, qualified with `table`. */
+  foreignColumn: ColumnRef;
+  /** Predicates applied inside the subquery, columns alias-resolved and qualified with `table`. */
+  filters: ResolvedFilterPredicate[];
+  /** Nested semi-joins applied inside this subquery (two-hop many-to-many). */
+  semiJoins: ResolvedSemiJoin[];
 }
 
 /** A resolved projection column. */
@@ -167,6 +193,8 @@ export interface ValidatedQueryPlan {
   table: string;
   /** Resolved joins (both sides of every `on` pair alias-resolved). */
   joins: ResolvedJoin[];
+  /** Resolved semi-joins (`column IN (SELECT foreignColumn FROM table WHERE …)`). */
+  semiJoins: ResolvedSemiJoin[];
   /** Resolved user filter predicates (column alias-resolved). */
   filters: ResolvedFilterPredicate[];
   /** HAVING predicates (reference aggregation aliases, not columns — carried unchanged). */
@@ -388,6 +416,143 @@ function validateJoinOnPairs(descriptor: BatchWidgetDescriptor): void {
 }
 
 /**
+ * Validate every SEMI-JOIN against fail-closed shape, nesting-depth and
+ * table-qualification guards.
+ *
+ * SECURITY INVARIANT — runs UNCONDITIONALLY for every widget (independent of
+ * whether a `columnAllowlist` is configured), mirroring `validateJoinTypes` /
+ * `validateJoinOnPairs`. A `SemiJoinDescriptor` names a SECOND TABLE and two
+ * column references that `buildSecureQuery` hands straight to Knex, so it needs
+ * the same unconditional shape gate every other such reference class gets.
+ *
+ * What each rule closes:
+ *
+ * - **Shape.** `table` / `column` / `foreignColumn` are client JSON, so their
+ *   `string` types are not runtime guarantees. A missing/non-string `table`
+ *   reaches `db(undefined)` (an opaque driver error); a non-string `column`
+ *   reaches `qualifiedTableOf`'s `indexOf`. Both are rejected here with this
+ *   package's own message instead. An EMPTY-string table is rejected too: it
+ *   would pass `assertTablesAllowed` only if the host allowlisted `''`, but it
+ *   renders as `from ""`, an opaque failure rather than a clear one.
+ *
+ * - **Nesting depth.** `semiJoins` is the descriptor's only RECURSIVE field, so
+ *   it is the only one that opens the nesting dimension. Capped at
+ *   `MAX_SEMI_JOIN_DEPTH` (see `shared/limits.ts`), which is exactly the two
+ *   levels the semantics need (direct one-to-many, and two-hop many-to-many
+ *   through a junction).
+ *
+ * - **`filters` shape.** A present non-array `filters` reaches `applyPredicates`'
+ *   `for…of` and throws a raw `TypeError: … is not iterable`, pre-empting this
+ *   package's own error — the same gap `assertQualifiedColumnsAllowed` closes for
+ *   `joins[].on`.
+ *
+ * - **Table qualification, enforced in BOTH directions (fail-closed).** A
+ *   qualified `foreignColumn` must name `table`, and a qualified `column` must
+ *   name the ENCLOSING table (the descriptor's primary table at the top level,
+ *   the PARENT semi-join's `table` when nested). This is stricter than
+ *   `validateJoinOnPairs`'s left-hand rule, which admits any earlier-joined
+ *   table, and deliberately so: a semi-join's two column references have exactly
+ *   one correct pairing (outer key ↔ subquery projection), and getting either
+ *   wrong is not a syntax error but a SILENTLY DIFFERENT filter. Projecting a
+ *   column of some other table from the subquery would compare unrelated key
+ *   spaces — admitting outer rows whose key coincidentally collides with a value
+ *   from a column that was never the join key. Since the plan qualifies both
+ *   references itself, the only reference a client can supply that this rule
+ *   would reject is one it had no correct reason to write.
+ *
+ * References are resolved through `resolveAlias` first (matching every other
+ * validator), so a logical/expression-field id mapping to a qualified physical
+ * column is checked on the resolved name rather than the raw client string.
+ */
+function validateSemiJoins(
+  descriptor: BatchWidgetDescriptor,
+  semiJoins: SemiJoinDescriptor[] | undefined,
+  enclosingTable: string,
+  depth: number,
+): void {
+  if (semiJoins === undefined) {
+    return;
+  }
+  if (!Array.isArray(semiJoins)) {
+    throw new Error(
+      `MUI X Studio Server: "semiJoins" on table "${enclosingTable}" must be an array of semi-join ` +
+        `descriptors, but received ${JSON.stringify(semiJoins)}. A non-array value cannot be iterated to ` +
+        `build the subquery predicates and would otherwise throw a confusing internal error instead of a ` +
+        `clean validation failure. Provide "semiJoins" as an array (or omit it).`,
+    );
+  }
+  if (semiJoins.length > 0 && depth > MAX_SEMI_JOIN_DEPTH) {
+    throw new Error(
+      `MUI X Studio Server: "semiJoins" nest more than ${MAX_SEMI_JOIN_DEPTH} levels deep. ` +
+        `Each level adds a nested subquery whose tables, columns and predicates must all be ` +
+        `allowlist-checked and built, so unbounded nesting is unbounded work driven entirely by client ` +
+        `input — and no Studio dashboard produces more than two levels (a direct one-to-many filter, or a ` +
+        `two-hop many-to-many filter through a junction table). ` +
+        `Flatten the filter to at most ${MAX_SEMI_JOIN_DEPTH} levels of "semiJoins".`,
+    );
+  }
+  for (const semiJoin of semiJoins) {
+    if (typeof semiJoin !== 'object' || semiJoin === null) {
+      throw new Error(
+        `MUI X Studio Server: Malformed entry in "semiJoins" — expected a semi-join descriptor object with ` +
+          `"table", "column" and "foreignColumn" fields, but received ${JSON.stringify(semiJoin)}. ` +
+          `A null or non-object entry has no table or column references to validate. ` +
+          `Ensure every entry in "semiJoins" is an object with "table", "column" and "foreignColumn".`,
+      );
+    }
+    if (typeof semiJoin.table !== 'string' || semiJoin.table.length === 0) {
+      throw new Error(
+        `MUI X Studio Server: Semi-join "table" must be a non-empty string, but received ` +
+          `${JSON.stringify(semiJoin.table)}. The semi-join's subquery selects FROM that table, so a ` +
+          `missing or non-string value cannot be checked against the schema allowlist and would reach the ` +
+          `database driver as an opaque error. Give every "semiJoins" entry a string "table".`,
+      );
+    }
+    for (const field of ['column', 'foreignColumn'] as const) {
+      if (typeof semiJoin[field] !== 'string' || semiJoin[field].length === 0) {
+        throw new Error(
+          `MUI X Studio Server: Semi-join "${field}" for table "${semiJoin.table}" must be a non-empty ` +
+            `string, but received ${JSON.stringify(semiJoin[field])}. Both sides of a semi-join are emitted ` +
+            `as SQL identifiers ("column IN (SELECT foreignColumn …)"), so neither can be missing or ` +
+            `non-string. Give every "semiJoins" entry string "column" and "foreignColumn" fields.`,
+        );
+      }
+    }
+    if (semiJoin.filters !== undefined && !Array.isArray(semiJoin.filters)) {
+      throw new Error(
+        `MUI X Studio Server: Semi-join "filters" for table "${semiJoin.table}" must be an array, but ` +
+          `received ${JSON.stringify(semiJoin.filters)}. A non-array value cannot be iterated to build the ` +
+          `subquery's WHERE clause and would otherwise throw a confusing internal error instead of a clean ` +
+          `validation failure. Provide "filters" as an array (or omit it).`,
+      );
+    }
+    const outerTable = qualifiedTableOf(resolveAlias(descriptor, semiJoin.column));
+    if (outerTable !== undefined && outerTable !== enclosingTable) {
+      throw new Error(
+        `MUI X Studio Server: Semi-join on table "${semiJoin.table}" has an outer column ` +
+          `"${semiJoin.column}" qualified with table "${outerTable}" instead of "${enclosingTable}". ` +
+          `The outer side of a semi-join must reference the table the subquery filters — the widget's ` +
+          `primary table, or the enclosing semi-join's table when nested — so the "IN" test compares the ` +
+          `real join key rather than an unrelated column that happens to share a value space. ` +
+          `Qualify the outer column with "${enclosingTable}" (or leave it unqualified).`,
+      );
+    }
+    const foreignTable = qualifiedTableOf(resolveAlias(descriptor, semiJoin.foreignColumn));
+    if (foreignTable !== undefined && foreignTable !== semiJoin.table) {
+      throw new Error(
+        `MUI X Studio Server: Semi-join on table "${semiJoin.table}" projects a foreign column ` +
+          `"${semiJoin.foreignColumn}" qualified with table "${foreignTable}" instead of ` +
+          `"${semiJoin.table}". The subquery selects FROM "${semiJoin.table}", so projecting a column of a ` +
+          `different table either fails outright or silently compares an unrelated key space — admitting ` +
+          `outer rows whose key merely collides with a value from a column that was never the join key. ` +
+          `Qualify the foreign column with "${semiJoin.table}" (or leave it unqualified).`,
+      );
+    }
+    validateSemiJoins(descriptor, semiJoin.semiJoins, semiJoin.table, depth + 1);
+  }
+}
+
+/**
  * Validate the row LIMIT against a fail-closed non-negative-integer guard.
  *
  * SECURITY INVARIANT — runs UNCONDITIONALLY for every widget (finding 3.1),
@@ -553,6 +718,48 @@ function buildPlan(descriptor: BatchWidgetDescriptor): ValidatedQueryPlan {
     on: join.on.map(([left, right]): [ColumnRef, ColumnRef] => [resolve(left), resolve(right)]),
   }));
 
+  /**
+   * Resolve one nesting level of semi-joins, alias-resolving AND table-qualifying
+   * every column reference (see `ResolvedSemiJoin` for why qualification happens
+   * here rather than at emission time).
+   *
+   * Deliberately tolerant of a malformed entry — `buildPlan` is also reached from
+   * `toValidatedQueryPlan`'s direct-caller branch, which documents a no-throw,
+   * resolution-only contract and runs NO validators. On the request path
+   * `validateSemiJoins` has already rejected every shape this coerces.
+   */
+  const resolveQualified = (raw: unknown, table: string): ColumnRef => {
+    // `String(...)` on the non-string branch keeps the direct-caller path
+    // non-throwing (`qualifyAgainst` would crash on `undefined.includes`), the
+    // same tolerance `buildPlan` already applies to `join.type` / `ob.direction`.
+    const reference = typeof raw === 'string' ? resolveAlias(descriptor, raw) : String(raw);
+    return asColumnRef(qualifyAgainst(table, reference));
+  };
+  const resolveSemiJoins = (
+    entries: SemiJoinDescriptor[] | undefined,
+    enclosingTable: string,
+  ): ResolvedSemiJoin[] =>
+    (Array.isArray(entries) ? entries : []).map((semiJoin) => {
+      const table = String(semiJoin?.table);
+      return {
+        table,
+        column: resolveQualified(semiJoin?.column, enclosingTable),
+        foreignColumn: resolveQualified(semiJoin?.foreignColumn, table),
+        // A semi-join's own filters are scoped to its subquery, so they qualify
+        // against ITS table — not the primary table the outer `filters` use.
+        filters: (Array.isArray(semiJoin?.filters) ? semiJoin.filters : []).map(
+          (predicate) =>
+            ({
+              ...predicate,
+              column: resolveQualified(predicate?.column, table),
+            }) as ResolvedFilterPredicate,
+        ),
+        semiJoins: resolveSemiJoins(semiJoin?.semiJoins, table),
+      };
+    });
+
+  const semiJoins = resolveSemiJoins(descriptor.semiJoins, descriptor.table);
+
   const aggregations: PlanAggregation[] = (descriptor.aggregations ?? []).map((agg) => {
     const physical = resolve(agg.column);
     return {
@@ -589,6 +796,7 @@ function buildPlan(descriptor: BatchWidgetDescriptor): ValidatedQueryPlan {
   return {
     table: descriptor.table,
     joins,
+    semiJoins,
     filters,
     having: descriptor.having ?? [],
     columns,
@@ -631,6 +839,12 @@ function buildPlan(descriptor: BatchWidgetDescriptor): ValidatedQueryPlan {
  *   5a. `validateJoinOnPairs`       — UNCONDITIONAL (throws on a missing/empty
  *      `on` list — some database engines silently execute the resulting
  *      condition-less join as a CROSS JOIN, finding 2.1).
+ *   5b. `validateSemiJoins`        — UNCONDITIONAL (throws on a malformed
+ *      semi-join descriptor, a `semiJoins` chain nested past
+ *      `MAX_SEMI_JOIN_DEPTH`, or a column qualified with a table other than the
+ *      one it must belong to — a semi-join names a SECOND TABLE and two SQL
+ *      identifiers, so it needs the same unconditional shape gate the join
+ *      fields get).
  *   6. `validateLimit`               — UNCONDITIONAL (throws on a non-integer /
  *      negative `limit` — a malformed value can be silently coerced by the DB
  *      driver into returning every tenant-scoped row, finding 3.1).
@@ -719,6 +933,7 @@ export function validateQueryPlan(
   validateOrderByDirections(descriptor);
   validateJoinTypes(descriptor);
   validateJoinOnPairs(descriptor);
+  validateSemiJoins(descriptor, descriptor.semiJoins, descriptor.table, 1);
   validateLimit(descriptor);
   if (columnAllowlist) {
     validateDescriptorColumns(descriptor, columnAllowlist);

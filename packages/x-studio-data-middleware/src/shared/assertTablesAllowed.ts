@@ -6,7 +6,7 @@
  * (`handleBatchQuery`) and the write handler (`handleMutation`) so the check —
  * and its error text — live in exactly one place.
  */
-import type { BatchWidgetDescriptor, FilterPredicate } from '../security/types';
+import type { BatchWidgetDescriptor, FilterPredicate, SemiJoinDescriptor } from '../security/types';
 import {
   assertNoImplicitAlias,
   assertSingleDotReference,
@@ -238,6 +238,46 @@ function assertPredicateElementShape(
   }
 }
 
+/**
+ * Every table named by a descriptor's `semiJoins` tree, in declaration order,
+ * with duplicates removed.
+ *
+ * ONE definition with THREE consumers, deliberately — `handler.ts` feeds it to
+ * `assertTablesAllowed` (a semi-join table is a real FROM clause and must pass
+ * the Zero-Knowledge Rule exactly like a `joins[].table`) AND to the data-cache
+ * write's `tags` (a mutation to a semi-joined table changes which outer rows the
+ * subquery admits, so a cached result that ignored it would serve pre-mutation
+ * rows for the whole TTL — the same reasoning that made joined tables tagged).
+ * A fourth consumer would be a fourth chance for the recursion to be re-derived
+ * slightly differently.
+ *
+ * Deliberately TOLERANT of a malformed tree (non-array `semiJoins`, `null`
+ * entries, non-string `table`): it runs BEFORE `validateSemiJoins`, whose job is
+ * to reject those shapes with a precise message. Skipping a non-string `table`
+ * here rather than throwing is what lets that message be the one the caller sees;
+ * a skipped entry is never silently queried, because the same malformed entry
+ * fails validation moments later.
+ */
+export function collectSemiJoinTables(semiJoins: SemiJoinDescriptor[] | undefined): string[] {
+  const tables: string[] = [];
+  const visit = (entries: SemiJoinDescriptor[] | undefined): void => {
+    if (!Array.isArray(entries)) {
+      return;
+    }
+    for (const entry of entries) {
+      if (typeof entry !== 'object' || entry === null) {
+        continue;
+      }
+      if (typeof entry.table === 'string' && !tables.includes(entry.table)) {
+        tables.push(entry.table);
+      }
+      visit(entry.semiJoins);
+    }
+  };
+  visit(semiJoins);
+  return tables;
+}
+
 export function assertQualifiedColumnsAllowed(
   descriptor: BatchWidgetDescriptor,
   schemaAllowlist: string[],
@@ -328,6 +368,46 @@ export function assertQualifiedColumnsAllowed(
       checkQualifiedColumn(right, 'joins.on', schemaAllowlist);
     }
   }
+  // SEMI-JOINS: the subquery's own column references are the same class of
+  // qualified reference every field above carries, and reach the same
+  // `qualifyAgainst`/Knex identifier path. A qualified reference naming an
+  // unlisted table (`semiJoins[0].filters[0].column = "payroll.salary"`) would
+  // otherwise be the one shape that skipped the unconditional Zero-Knowledge
+  // check on a `schemaAllowlist`-only deployment — the exact gap this function's
+  // docblock records having had to close twice already, once for `aggregations`
+  // and once for `joins.on`. Walked recursively so a NESTED semi-join's
+  // references are covered too. `semiJoins[].table` itself is checked by
+  // `assertTablesAllowed` via `collectSemiJoinTables`.
+  const checkSemiJoinColumns = (entries: SemiJoinDescriptor[] | undefined): void => {
+    if (entries !== undefined && !Array.isArray(entries)) {
+      throw new Error(
+        `MUI X Studio Server: Malformed "semiJoins" — expected an array of semi-join descriptors, but ` +
+          `received ${JSON.stringify(entries)}. A non-array value cannot be iterated to validate its column ` +
+          `references against the schema allowlist, and would otherwise throw a confusing internal error ` +
+          `instead of a clean validation failure. Provide "semiJoins" as an array (or omit it).`,
+      );
+    }
+    for (const semiJoin of entries ?? []) {
+      assertPredicateElementShape(semiJoin, 'semiJoins', ['table', 'column', 'foreignColumn']);
+      checkQualifiedColumn(semiJoin.column, 'semiJoins.column', schemaAllowlist);
+      checkQualifiedColumn(semiJoin.foreignColumn, 'semiJoins.foreignColumn', schemaAllowlist);
+      if (semiJoin.filters !== undefined && !Array.isArray(semiJoin.filters)) {
+        throw new Error(
+          `MUI X Studio Server: Malformed "semiJoins[].filters" for table "${semiJoin.table}" — expected an ` +
+            `array of filter predicates, but received ${JSON.stringify(semiJoin.filters)}. A non-array value ` +
+            `cannot be iterated to validate its column references against the schema allowlist, and would ` +
+            `otherwise throw a confusing internal error instead of a clean validation failure. ` +
+            `Provide "filters" as an array (or omit it).`,
+        );
+      }
+      for (const predicate of semiJoin.filters ?? []) {
+        assertPredicateElementShape(predicate, 'semiJoins.filters');
+        checkQualifiedColumn(predicate.column, 'semiJoins.filters', schemaAllowlist);
+      }
+      checkSemiJoinColumns(semiJoin.semiJoins);
+    }
+  };
+  checkSemiJoinColumns(descriptor.semiJoins);
 }
 
 /**

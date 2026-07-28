@@ -25,6 +25,7 @@ export type {
   OrderBy,
   AggregationSpec,
   JoinDescriptor,
+  SemiJoinDescriptor,
   SecurityColumns,
   SecurityColumnOverride,
   SecurityColumnsConfig,

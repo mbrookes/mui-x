@@ -1607,3 +1607,323 @@ describe('buildSecureQuery', () => {
     });
   });
 });
+
+// ── SEMI-JOINS ───────────────────────────────────────────────────────────────
+//
+// Every assertion here renders through REAL Knex. The recording mock elsewhere in
+// this file cannot express a semi-join faithfully — its `db(table)` returns one
+// shared builder, so an outer query and its subquery would be the same object —
+// and, more importantly, what a semi-join must be pinned on IS the emitted SQL:
+// the whole reason the form exists is that a structurally similar `LEFT JOIN`
+// produces a DIFFERENT answer, and only the rendered string shows that.
+describe('buildSecureQuery — semi-joins', () => {
+  const realDb = Knex({ client: 'pg' });
+
+  const CUSTOMERS: JwtSecurityClaims = {
+    tenantId: 'acme',
+    userId: 'user-1',
+    roleIds: ['viewer'],
+  };
+  const MULTI = { mode: 'multi-tenant', tenantColumn: 'tenant_id' } as const;
+  const SINGLE = { mode: 'single-tenant' } as const;
+
+  /** A `customers` widget filtered by "has at least one shipped order". */
+  function customersFilteredByOrders(
+    overrides: Partial<BatchWidgetDescriptor> = {},
+  ): BatchWidgetDescriptor {
+    return {
+      id: 'w1',
+      table: 'customers',
+      semiJoins: [
+        {
+          table: 'orders',
+          column: 'id',
+          foreignColumn: 'customer_id',
+          filters: [{ column: 'status', operator: 'eq', value: 'shipped' }],
+        },
+      ],
+      ...overrides,
+    };
+  }
+
+  it('renders "IN (SELECT …)" with the subquery scoped to ITS OWN table', () => {
+    const query = buildSecureQuery(realDb, CUSTOMERS, customersFilteredByOrders(), {
+      tenancy: MULTI,
+    });
+    expect(query.toString()).toBe(
+      'select * from "customers" where "customers"."tenant_id" = \'acme\' ' +
+        'and "customers"."id" in (' +
+        'select "orders"."customer_id" from "orders" ' +
+        'where "orders"."tenant_id" = \'acme\' and "orders"."status" = \'shipped\')',
+    );
+  });
+
+  // THE TENANCY LEAK THIS FORM MUST NOT HAVE.
+  //
+  // A semi-join's subquery is a second table reference, so the caller's row-level
+  // security predicate has to be applied INSIDE it. Applied only to the outer
+  // query, the inner SELECT returns EVERY tenant's foreign keys, and any outer row
+  // whose own (correctly scoped) key collides with one of them survives a filter
+  // it never matched — a cross-tenant leak of the existence and filterable
+  // attributes of another tenant's rows, invisible in the returned rows because no
+  // foreign row is ever returned.
+  //
+  // Asserted three ways so a regression cannot slip past on wording: the inner
+  // predicate is present, it is INSIDE the parentheses (not merely somewhere in
+  // the string), and the leaking shape is pinned separately so what "wrong" looks
+  // like is on the record.
+  it('applies the tenancy predicate INSIDE the subquery, not only on the outer query', () => {
+    const sql = buildSecureQuery(realDb, CUSTOMERS, customersFilteredByOrders(), {
+      tenancy: MULTI,
+    }).toString();
+    const subquery = sql.slice(sql.indexOf('(select'), sql.lastIndexOf(')') + 1);
+    expect(subquery).toContain('"orders"."tenant_id" = \'acme\'');
+    // And the scope precedes the user filter inside the subquery, mirroring the
+    // outer query's "security predicates first" invariant.
+    expect(subquery.indexOf('"orders"."tenant_id"')).toBeLessThan(
+      subquery.indexOf('"orders"."status"'),
+    );
+  });
+
+  it('demonstrates the leaking shape an unscoped subquery would render', () => {
+    // Built directly through Knex (not through `buildSecureQuery`, which no longer
+    // produces it) purely to document the bug: the inner SELECT has no tenant
+    // predicate, so it returns every tenant's `customer_id`. An `acme` customer
+    // whose id happens to equal a `globex` order's `customer_id` is then admitted
+    // by a filter no order of its own satisfied.
+    const leaking = realDb('customers')
+      .where('customers.tenant_id', '=', 'acme')
+      .whereIn(
+        'customers.id',
+        realDb('orders').select('orders.customer_id').where('orders.status', '=', 'shipped'),
+      );
+    expect(leaking.toString()).toBe(
+      'select * from "customers" where "customers"."tenant_id" = \'acme\' ' +
+        'and "customers"."id" in (' +
+        'select "orders"."customer_id" from "orders" where "orders"."status" = \'shipped\')',
+    );
+    // The distinguishing feature, stated as the property rather than the string:
+    // the fixed shape scopes the subquery, this one does not.
+    expect(leaking.toString()).not.toContain('"orders"."tenant_id"');
+  });
+
+  it('scopes EVERY nesting level of a two-hop (many-to-many) semi-join', () => {
+    const query = buildSecureQuery(
+      realDb,
+      CUSTOMERS,
+      {
+        id: 'w1',
+        table: 'customers',
+        semiJoins: [
+          {
+            table: 'customer_tags',
+            column: 'id',
+            foreignColumn: 'customer_id',
+            semiJoins: [
+              {
+                table: 'tags',
+                column: 'tag_id',
+                foreignColumn: 'id',
+                filters: [{ column: 'name', operator: 'eq', value: 'vip' }],
+              },
+            ],
+          },
+        ],
+      },
+      { tenancy: MULTI },
+    );
+    // The junction level is scoped too — an unscoped junction leaks exactly the
+    // way an unscoped leaf does, one hop further out.
+    expect(query.toString()).toBe(
+      'select * from "customers" where "customers"."tenant_id" = \'acme\' ' +
+        'and "customers"."id" in (' +
+        'select "customer_tags"."customer_id" from "customer_tags" ' +
+        'where "customer_tags"."tenant_id" = \'acme\' ' +
+        'and "customer_tags"."tag_id" in (' +
+        'select "tags"."id" from "tags" ' +
+        'where "tags"."tenant_id" = \'acme\' and "tags"."name" = \'vip\'))',
+    );
+  });
+
+  it('resolves the subquery scope through forJoinedTable — a per-dimension null keeps tenant scoping', () => {
+    const query = buildSecureQuery(
+      realDb,
+      { ...CUSTOMERS, regionIds: [5] },
+      customersFilteredByOrders(),
+      {
+        tenancy: MULTI,
+        // `orders` carries `tenant_id` but no region column — the documented
+        // per-dimension opt-out. The tenant predicate must survive it.
+        securityColumns: { perTable: { orders: { region: null } } },
+      },
+    );
+    expect(query.toString()).toContain('"orders"."tenant_id" = \'acme\'');
+    expect(query.toString()).not.toContain('"orders"."region_id"');
+    // The OUTER table is still region-scoped — the override is per-table.
+    expect(query.toString()).toContain('"customers"."region_id" in (\'5\')');
+  });
+
+  it('joins a host-declared SHARED table unscoped, exactly as a joined table would', () => {
+    const query = buildSecureQuery(realDb, CUSTOMERS, customersFilteredByOrders(), {
+      tenancy: MULTI,
+      // The whole-entry `null` sentinel: the host explicitly declares `orders` a
+      // shared/lookup table with no tenant column. This is the ONLY way a
+      // semi-join subquery goes unscoped.
+      securityColumns: { perTable: { orders: null } },
+    });
+    expect(query.toString()).toBe(
+      'select * from "customers" where "customers"."tenant_id" = \'acme\' ' +
+        'and "customers"."id" in (' +
+        'select "orders"."customer_id" from "orders" where "orders"."status" = \'shipped\')',
+    );
+  });
+
+  it('renders the match-nothing "1 = 0" INSIDE the subquery for regionIds: []', () => {
+    // The `regionIds: []` distinction (authorized for ZERO regions, not
+    // "unscoped") must hold at every level. Dropping it inside a subquery would
+    // fail OPEN: the subquery would return every region's foreign keys.
+    const query = buildSecureQuery(
+      realDb,
+      { ...CUSTOMERS, regionIds: [] },
+      customersFilteredByOrders(),
+      { tenancy: SINGLE, securityColumns: { region: 'region_id' } },
+    );
+    expect(query.toString()).toBe(
+      'select * from "customers" where 1 = 0 and "customers"."id" in (' +
+        'select "orders"."customer_id" from "orders" ' +
+        'where 1 = 0 and "orders"."status" = \'shipped\')',
+    );
+  });
+
+  it('qualifies an unqualified outer column with the enclosing table, not the foreign one', () => {
+    const query = buildSecureQuery(realDb, CUSTOMERS, customersFilteredByOrders(), {
+      tenancy: SINGLE,
+    });
+    expect(query.toString()).toContain('"customers"."id" in (select "orders"."customer_id"');
+  });
+
+  it('leaves an explicitly-qualified column pair untouched', () => {
+    const query = buildSecureQuery(
+      realDb,
+      CUSTOMERS,
+      customersFilteredByOrders({
+        semiJoins: [
+          { table: 'orders', column: 'customers.id', foreignColumn: 'orders.customer_id' },
+        ],
+      }),
+      { tenancy: SINGLE },
+    );
+    expect(query.toString()).toBe(
+      'select * from "customers" where "customers"."id" in (' +
+        'select "orders"."customer_id" from "orders")',
+    );
+  });
+
+  it('applies every semi-join in the array (conjunctively)', () => {
+    const query = buildSecureQuery(
+      realDb,
+      CUSTOMERS,
+      customersFilteredByOrders({
+        semiJoins: [
+          { table: 'orders', column: 'id', foreignColumn: 'customer_id' },
+          { table: 'tickets', column: 'id', foreignColumn: 'customer_id' },
+        ],
+      }),
+      { tenancy: SINGLE },
+    );
+    expect(query.toString()).toBe(
+      'select * from "customers" where ' +
+        '"customers"."id" in (select "orders"."customer_id" from "orders") ' +
+        'and "customers"."id" in (select "tickets"."customer_id" from "tickets")',
+    );
+  });
+
+  // ── The reason this whole form exists ──────────────────────────────────────
+  //
+  // Pins the DIFFERENCE between the semi-join and the `LEFT JOIN` the wire
+  // protocol used to force. Both express "customers with a shipped order"; only
+  // one of them leaves the customer row set alone. The join's row multiplication
+  // is invisible in the SQL text, so this test states it as the structural
+  // property — the join adds a second table to the FROM/JOIN chain, the semi-join
+  // does not — which is exactly what makes `SUM(customers.lifetime_value)` read
+  // once per customer instead of once per matching order.
+  it('does not add the foreign table to the outer FROM/JOIN chain (the join does)', () => {
+    const semiJoinSql = buildSecureQuery(realDb, CUSTOMERS, customersFilteredByOrders(), {
+      tenancy: SINGLE,
+    }).toString();
+    const joinSql = buildSecureQuery(
+      realDb,
+      CUSTOMERS,
+      {
+        id: 'w1',
+        table: 'customers',
+        joins: [{ table: 'orders', type: 'left', on: [['customers.id', 'orders.customer_id']] }],
+        filters: [{ column: 'orders.status', operator: 'eq', value: 'shipped' }],
+      },
+      { tenancy: SINGLE },
+    ).toString();
+
+    expect(joinSql).toContain('left join "orders"');
+    expect(semiJoinSql).not.toContain('join "orders"');
+    // Both reference `orders`, but only the join's reference multiplies the outer
+    // rows — the semi-join's lives entirely inside a subquery.
+    expect(semiJoinSql).toContain('in (select "orders"."customer_id" from "orders"');
+  });
+
+  // The x-studio adapter (`createBatchingAdapter`'s `resolveField`) emits every semi-join column
+  // FULLY QUALIFIED, and qualifies a nested level's outer column with its PARENT's table rather
+  // than the widget's primary table. Pinning that exact wire shape here is what keeps the two
+  // packages' conventions from drifting apart silently — qualification is the one part of this
+  // protocol where a wrong-but-well-formed value produces a different ANSWER rather than an error.
+  it('accepts the fully-qualified two-hop shape the x-studio adapter emits', () => {
+    const query = buildSecureQuery(
+      realDb,
+      CUSTOMERS,
+      {
+        id: 'w1',
+        table: 'customers',
+        semiJoins: [
+          {
+            table: 'customer_tags',
+            column: 'customers.id',
+            foreignColumn: 'customer_tags.cId',
+            filters: [],
+            semiJoins: [
+              {
+                table: 'tags',
+                // Qualified with the PARENT (`customer_tags`), not with `customers`.
+                column: 'customer_tags.tId',
+                foreignColumn: 'tags.tagId',
+                filters: [{ column: 'tags.name', operator: 'eq', value: 'vip' }],
+              },
+            ],
+          },
+        ],
+      },
+      { tenancy: MULTI },
+    );
+    expect(query.toString()).toBe(
+      'select * from "customers" where "customers"."tenant_id" = \'acme\' ' +
+        'and "customers"."id" in (' +
+        'select "customer_tags"."cId" from "customer_tags" ' +
+        'where "customer_tags"."tenant_id" = \'acme\' ' +
+        'and "customer_tags"."tId" in (' +
+        'select "tags"."tagId" from "tags" ' +
+        'where "tags"."tenant_id" = \'acme\' and "tags"."name" = \'vip\'))',
+    );
+  });
+
+  it('applies the subquery to the COUNT(*) preflight shape too (no SELECT of its own)', () => {
+    // `runPreflight` builds through this same function and then calls `.count()`,
+    // so a semi-join must survive a descriptor with no projection.
+    const query = buildSecureQuery(realDb, CUSTOMERS, customersFilteredByOrders(), {
+      tenancy: MULTI,
+    });
+    expect(query.clone().count('* as count').toString()).toBe(
+      'select count(*) as "count" from "customers" where "customers"."tenant_id" = \'acme\' ' +
+        'and "customers"."id" in (' +
+        'select "orders"."customer_id" from "orders" ' +
+        'where "orders"."tenant_id" = \'acme\' and "orders"."status" = \'shipped\')',
+    );
+  });
+});

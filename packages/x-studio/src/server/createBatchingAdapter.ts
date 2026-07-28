@@ -731,6 +731,46 @@ interface JoinDescriptorInternal {
 }
 
 /**
+ * Internal SEMI-JOIN descriptor matching `SemiJoinDescriptor` in
+ * x-studio-data-middleware — `column IN (SELECT foreignColumn FROM table WHERE …)`.
+ *
+ * This is the wire form of "keep the widget rows having AT LEAST ONE matching
+ * related row", which is what `dataSourceGraph.resolveRows` computes in memory for
+ * a cross-source filter. It exists because a `JoinDescriptorInternal` cannot
+ * express it: across a relationship that is one-to-many from the widget's side, a
+ * LEFT JOIN multiplies the widget's rows by the number of matches, so every
+ * aggregate reads high by a data-dependent factor. See the orientation branch in
+ * `resolveField`.
+ */
+interface SemiJoinDescriptorInternal {
+  table: string;
+  column: string;
+  foreignColumn: string;
+  filters: FilterPredicate[];
+  /**
+   * Nested subquery, applied inside this one. Exactly one level of nesting is ever produced, for
+   * the two-hop many-to-many shape (widget → junction → remote) `dataSourceGraph.findJoinPath`
+   * models as `hops: 2`. The middleware caps nesting at the same two levels.
+   */
+  semiJoins?: SemiJoinDescriptorInternal[];
+}
+
+/**
+ * The DEEPEST level of a semi-join tree — where a predicate on the filtered source belongs.
+ *
+ * For a one-hop semi-join that is the descriptor itself; for the two-hop many-to-many shape it is
+ * the inner subquery against the REMOTE table, since the junction level exists only to link the
+ * widget to it and carries no predicate of its own.
+ */
+function innermostSemiJoin(descriptor: SemiJoinDescriptorInternal): SemiJoinDescriptorInternal {
+  let current = descriptor;
+  while (current.semiJoins && current.semiJoins.length > 0) {
+    current = current.semiJoins[0];
+  }
+  return current;
+}
+
+/**
  * Result of resolving a field ID to its SQL representation.
  *
  * - `column`: the logical ID to use in the `columns` array (unchanged for most fields).
@@ -755,10 +795,37 @@ interface ResolvedField {
    * True when the field WAS found on a related source, but only across a relationship that is
    * one-to-many from the widget's point of view (the widget sits on the "one" side of a
    * `many-to-one`). Always accompanied by `unresolved: true` — see the fan-out guard in
-   * `resolveField` for why such a reference has no correct form in this wire protocol at all.
-   * Callers use it only to phrase a more accurate warning.
+   * `resolveField` for why such a reference has no correct JOIN form.
+   *
+   * A FILTER on such a field IS expressible, as a semi-join (`semiJoin` below); every OTHER use
+   * — a display column, a groupBy, an aggregation source — is not, because a semi-join filters
+   * rows rather than producing a value, and in-memory those uses pick ONE representative related
+   * value per row (`enrichRowsWithRelatedFields`), which SQL cannot pick without a rule nobody
+   * declared. Those callers therefore still drop the reference and warn.
    */
   fanOut?: boolean;
+  /**
+   * Set together with `fanOut` — the semi-join that expresses a FILTER on this field faithfully.
+   * Only the filter path reads it; every other caller sees `unresolved` and degrades visibly.
+   */
+  semiJoin?: {
+    /**
+     * The FILTERED source's id. Used to GROUP every predicate targeting the same foreign source
+     * into ONE subquery, which is the whole semantics of a multi-predicate cross-source filter:
+     * `EXISTS(foreign matching A AND B)`, not `EXISTS(matching A) AND EXISTS(matching B)`. The
+     * latter admits a customer with one paid order and a DIFFERENT order over $100 — the exact
+     * divergence `dataSourceGraph.resolveRows`'s own grouping comment records having to fix.
+     */
+    sourceId: string;
+    /**
+     * The subquery tree linking the widget's table to the filtered one, with EMPTY `filters` at
+     * every level. The predicate is appended to `innermostSemiJoin(descriptor).filters` by the
+     * caller, so the first predicate for a source establishes the tree and later ones join it.
+     */
+    descriptor: SemiJoinDescriptorInternal;
+    /** The physical column, on the innermost table, that this predicate targets. */
+    filterColumn: string;
+  };
   /**
    * When skip=true because the join target lives on a different adapter endpoint,
    * this carries the information needed to enrich rows client-side after fetching
@@ -1039,13 +1106,40 @@ function resolveField(
         //     KPI reads 3× (the in-memory path runs a SEMI-join and reads 1×);
         //   - as a DISPLAY column, the same fan-out duplicates every grid row, while in-memory
         //     `enrichRowsWithRelatedFields` picks one representative related value per row.
-        // The faithful SQL is a semi-join (`WHERE id IN (SELECT customer_id FROM orders WHERE …)`),
-        // which this wire protocol cannot express — `JoinDescriptor` offers only inner/left/right
-        // joins. So the reference is reported as unresolved: callers drop it from SELECT and WHERE
-        // and warn, the module's standing "degrades visibly, never silently wrong" contract, rather
-        // than emitting a join whose every number is wrong by an unpredictable factor.
+        //
+        // The faithful SQL for the FILTER case is a semi-join
+        // (`WHERE customers.id IN (SELECT orders.customer_id FROM orders WHERE …)`), which the wire
+        // protocol now expresses as a `SemiJoinDescriptor` — the same shape, and the same answer,
+        // as the in-memory semi-join. `semiJoin` below carries everything the filter path needs to
+        // emit it; the middleware applies the caller's row-level-security predicate INSIDE the
+        // subquery, so it is scoped exactly as a joined table would be.
+        //
+        // Every OTHER use of the reference stays unresolved-with-a-warning. A semi-join filters
+        // rows; it does not produce a VALUE, so a display column / groupBy / aggregation source on
+        // the "many" side still has no faithful wire form — in memory those pick one representative
+        // related value per row, a choice SQL cannot make without a rule nobody declared. Hence
+        // `unresolved: true, fanOut: true` are KEPT alongside `semiJoin`: the filter path reads
+        // `semiJoin` first, everything else degrades visibly as before.
         if (rel.type === 'many-to-one' && rel.targetId === primarySourceId) {
-          return { column: fieldId, unresolved: true, fanOut: true };
+          const relatedTable = relatedSource.tableName ?? relatedSourceId;
+          return {
+            column: fieldId,
+            unresolved: true,
+            fanOut: true,
+            semiJoin: {
+              sourceId: relatedSourceId,
+              descriptor: {
+                table: relatedTable,
+                // The relationship's own fields, read in the SAME orientation the
+                // (unused here) LEFT JOIN branch below would: `rel.sourceField` is the FK on the
+                // related "many" table, `rel.targetField` the key on the widget's "one" table.
+                column: `${primaryTableName}.${rel.targetField}`,
+                foreignColumn: `${relatedTable}.${rel.sourceField}`,
+                filters: [],
+              },
+              filterColumn: `${relatedTable}.${fieldId}`,
+            },
+          };
         }
         const relatedTable = relatedSource.tableName ?? relatedSourceId;
         return {
@@ -1054,6 +1148,125 @@ function resolveField(
         };
       }
     }
+  }
+
+  // ── 4. Many-to-many cross-source field → a (possibly nested) SEMI-JOIN ──────
+  //
+  // An M:N relationship is one-to-many from BOTH sides, so it has no JOIN form that preserves the
+  // widget's rows at all — which is why the loop above skips `many-to-many` outright and why such
+  // a filter used to be dropped as plain `unresolved`. A semi-join has no such problem: it filters
+  // the widget's rows without multiplying them, at either arity.
+  //
+  // Two shapes, exactly the two `dataSourceGraph.findJoinPath` models (this mirrors its arms
+  // deliberately — the in-memory and wire paths must agree on which relationships are reachable):
+  //
+  //   - the field lives on the M:N's REMOTE endpoint → `hops: 2`, a NESTED semi-join through the
+  //     junction table (`widget.k IN (SELECT j.wk FROM j WHERE j.rk IN (SELECT r.k FROM r WHERE …))`);
+  //   - the field lives on the JUNCTION source itself → `hops: 1`, a plain semi-join against the
+  //     junction's own rows. A junction table is never a relationship's own `sourceId`/`targetId`,
+  //     only its `junctionSourceId`, so neither loop above can reach it.
+  //
+  // As with the one-to-many case above, `unresolved: true, fanOut: true` are kept alongside
+  // `semiJoin`: only the FILTER path can use a semi-join, and every other use of an M:N field
+  // (display column, groupBy, aggregation source) still has no faithful wire form.
+  for (const rel of relationships) {
+    if (rel.type !== 'many-to-many') {
+      continue;
+    }
+    if (!rel.junctionSourceId || !rel.junctionSourceField || !rel.junctionTargetField) {
+      continue; // incomplete M:N config — matches `findJoinPath`'s own completeness check
+    }
+    // Orient the relationship around the widget's source.
+    let remoteSourceId: string;
+    let widgetJoinField: string;
+    let junctionWidgetField: string;
+    let junctionRemoteField: string;
+    let remoteJoinField: string;
+    if (rel.sourceId === primarySourceId) {
+      remoteSourceId = rel.targetId;
+      widgetJoinField = rel.sourceField;
+      junctionWidgetField = rel.junctionSourceField;
+      junctionRemoteField = rel.junctionTargetField;
+      remoteJoinField = rel.targetField;
+    } else if (rel.targetId === primarySourceId) {
+      remoteSourceId = rel.sourceId;
+      widgetJoinField = rel.targetField;
+      junctionWidgetField = rel.junctionTargetField;
+      junctionRemoteField = rel.junctionSourceField;
+      remoteJoinField = rel.sourceField;
+    } else {
+      continue;
+    }
+
+    const junctionSource = dataSources[rel.junctionSourceId];
+    if (!junctionSource) {
+      continue;
+    }
+    // Both extra tables must live on the SAME adapter endpoint as the widget's own source — a
+    // subquery cannot span databases any more than a JOIN can. Mirrors the endpoint guards on the
+    // expression-field paths above.
+    const primaryEndpoint = getBatchingEndpoint(dataSources[primarySourceId]?.adapter);
+    const junctionEndpoint = getBatchingEndpoint(junctionSource.adapter);
+    if (primaryEndpoint && junctionEndpoint && primaryEndpoint !== junctionEndpoint) {
+      continue;
+    }
+    const junctionTable = junctionSource.tableName ?? rel.junctionSourceId;
+
+    // `hops: 1` — the filtered field is a column of the JUNCTION table itself.
+    if (junctionSource.fields.some((f) => f.id === fieldId)) {
+      return {
+        column: fieldId,
+        unresolved: true,
+        fanOut: true,
+        semiJoin: {
+          sourceId: rel.junctionSourceId,
+          descriptor: {
+            table: junctionTable,
+            column: `${primaryTableName}.${widgetJoinField}`,
+            foreignColumn: `${junctionTable}.${junctionWidgetField}`,
+            filters: [],
+          },
+          filterColumn: `${junctionTable}.${fieldId}`,
+        },
+      };
+    }
+
+    // `hops: 2` — the filtered field is a column of the REMOTE endpoint, reached through the
+    // junction.
+    const remoteSource = dataSources[remoteSourceId];
+    if (!remoteSource?.fields.some((f) => f.id === fieldId)) {
+      continue;
+    }
+    const remoteEndpoint = getBatchingEndpoint(remoteSource.adapter);
+    if (primaryEndpoint && remoteEndpoint && primaryEndpoint !== remoteEndpoint) {
+      continue;
+    }
+    const remoteTable = remoteSource.tableName ?? remoteSourceId;
+    return {
+      column: fieldId,
+      unresolved: true,
+      fanOut: true,
+      semiJoin: {
+        sourceId: remoteSourceId,
+        descriptor: {
+          table: junctionTable,
+          column: `${primaryTableName}.${widgetJoinField}`,
+          foreignColumn: `${junctionTable}.${junctionWidgetField}`,
+          // The junction level links the two tables and carries NO predicate of its own — the
+          // filter belongs to the remote source, so it lands in the nested level.
+          filters: [],
+          semiJoins: [
+            {
+              table: remoteTable,
+              column: `${junctionTable}.${junctionRemoteField}`,
+              foreignColumn: `${remoteTable}.${remoteJoinField}`,
+              filters: [],
+            },
+          ],
+        },
+        filterColumn: `${remoteTable}.${fieldId}`,
+      },
+    };
   }
 
   // Field not found anywhere — pass through unqualified but mark as unresolved so
@@ -1228,11 +1441,25 @@ function buildBatchWidgetDescriptor(
   // Cross-endpoint enrichments collected while resolving fields
   const enrichments: CrossEndpointEnrichment[] = [];
 
+  /**
+   * Semi-joins accumulated while resolving the server-pushable filter predicates, keyed by the
+   * FOREIGN SOURCE they filter so every predicate targeting one source lands in ONE subquery.
+   *
+   * The grouping is the semantics, not an optimization: one subquery per source means
+   * `EXISTS(foreign row matching A AND B)`, which is what SQL, every BI tool, and
+   * `dataSourceGraph.resolveRows`'s own grouped pass all compute. One subquery per PREDICATE would
+   * mean `EXISTS(matching A) AND EXISTS(matching B)` — satisfied by a customer whose order #1 is
+   * paid and whose DIFFERENT order #2 is over $100 — and would put the adapter path back in
+   * disagreement with the in-memory path on the same dashboard.
+   */
+  const semiJoinGroups = new Map<string, SemiJoinDescriptorInternal>();
+
   function resolve(fieldId: string): {
     column: string;
     skip?: boolean;
     unresolved?: boolean;
     fanOut?: boolean;
+    semiJoin?: ResolvedField['semiJoin'];
   } {
     const resolved = resolveField(
       fieldId,
@@ -1265,6 +1492,7 @@ function buildBatchWidgetDescriptor(
       skip: resolved.skip,
       unresolved: resolved.unresolved,
       fanOut: resolved.fanOut,
+      semiJoin: resolved.semiJoin,
     };
   }
 
@@ -1354,12 +1582,30 @@ function buildBatchWidgetDescriptor(
       );
       return [];
     }
+    if (r.semiJoin) {
+      // The predicate's field is reachable only across a relationship that is one-to-many from
+      // this widget's side. A LEFT JOIN there would multiply the widget's rows by the match count
+      // and inflate every aggregate; a SEMI-join filters them without multiplying, which is
+      // exactly what `dataSourceGraph.resolveRows` does in memory. Accumulate into the group for
+      // this foreign source rather than emitting one subquery per predicate — see
+      // `semiJoinGroups`.
+      let group = semiJoinGroups.get(r.semiJoin.sourceId);
+      if (!group) {
+        group = r.semiJoin.descriptor;
+        semiJoinGroups.set(r.semiJoin.sourceId, group);
+      }
+      // The predicate belongs to the DEEPEST level — the subquery against the source it actually
+      // filters. For a one-hop semi-join that is the descriptor itself; for a two-hop
+      // many-to-many one it is the nested level, since the junction exists only to link the two
+      // tables and carries no predicate of its own.
+      innermostSemiJoin(group).filters.push({ ...pred, column: r.semiJoin.filterColumn });
+      return [];
+    }
     if (r.fanOut) {
-      // The predicate's field IS reachable, but only across a relationship that is one-to-many
-      // from this widget's side, where the wire protocol's only tool — a LEFT JOIN — multiplies
-      // the row set instead of semi-joining it (see the orientation guard in `resolveField`).
-      // Dropping it makes the widget show MORE rows than the in-memory path; emitting the join
-      // would make every aggregate wrong by the per-row match count, which is worse and invisible.
+      // Reachable only across a one-to-many relationship AND not expressible as a semi-join —
+      // the residual case the orientation guard could not hand a `semiJoin` for. Dropping it
+      // makes the widget show MORE rows than the in-memory path; emitting the join would make
+      // every aggregate wrong by the per-row match count, which is worse and invisible.
       warnAdapterDivergence(
         warnDedupe,
         `A filter on "${pred.column}" for source "${d.sourceId}" targets a related source that has ` +
@@ -1422,6 +1668,9 @@ function buildBatchWidgetDescriptor(
       columns: columns.length > 0 ? columns : undefined,
       columnAliases: Object.keys(columnAliases).length > 0 ? columnAliases : undefined,
       joins: joinsMap.size > 0 ? [...joinsMap.values()] : undefined,
+      // `semiJoinGroups` is populated as a side effect of the `filters` flatMap above (which
+      // already ran, being a `const`), so this reads the complete set.
+      semiJoins: semiJoinGroups.size > 0 ? [...semiJoinGroups.values()] : undefined,
       aggregations,
       filters: filters.length > 0 ? filters : undefined,
       // Drop the ORDER BY when the groupBy field is `skip` (server-incompatible expression) OR

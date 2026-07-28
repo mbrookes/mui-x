@@ -2692,7 +2692,7 @@ describe('createBatchingAdapter — cross-source filter fan-out', () => {
         select: ['lifetime_value'],
         filter: {
           type: 'group',
-          op: 'and',
+          logic: 'and',
           children: [
             { type: 'leaf', field: 'status', op: 'equals', value: 'shipped', fieldType: 'string' },
             // `customerId` exists ONLY on `orders` — a field name shared with the widget's own
@@ -2930,7 +2930,7 @@ describe('createBatchingAdapter — cross-source filter fan-out', () => {
           select: ['lifetime_value'],
           filter: {
             type: 'group',
-            op: 'and',
+            logic: 'and',
             children: [
               { type: 'leaf', field: 'name', op: 'equals', value: 'vip', fieldType: 'string' },
               {

@@ -2106,9 +2106,28 @@ export class StudioController {
     //
     // The clone runs through the SAME `sanitizeWidgetForCreate` chart-type repair as
     // `addWidget`/`insertWidgetAt`: a duplicate is a widget CREATION, and without it a
-    // widget carrying an invalid `chartType` (installed before the guard existed, loaded
-    // from a persisted doc, or written by a call site that bypassed the guarded methods)
-    // propagated that chart type into every copy.
+    // widget carrying an invalid `chartType` propagated that chart type into every copy.
+    //
+    // This has been reported as unreachable — `screenDoc` guards both the constructor and
+    // the persistence load boundary, and `updateWidget` sanitizes a wholesale `config`
+    // replacement. It is NOT. Two ordinary public calls reach it (pinned by
+    // `StudioController.test.ts`, "duplicateWidget repairs an invalid chartType"):
+    //
+    //  1. `addWidget`/`insertWidgetAt`/`updateWidgetConfig` on a NON-chart-kind widget.
+    //     `sanitizeWidgetForCreate` returns early on `widget.kind !== 'chart'` and the
+    //     shared reducer knows nothing about chart types, so a `text` (or custom-kind)
+    //     widget carrying a bogus `config.chartType` is stored verbatim.
+    //  2. `updateWidget(id, { kind: 'chart' })` with NO `config` in `changes`. The
+    //     controller's guard is gated on `Object.hasOwn(changes, 'config')`, so a
+    //     kind-only change skips it; the reducer's kind-coherence pass then keeps
+    //     `chartType` because it IS a valid `'chart'` config key.
+    //
+    // Net: a chart widget can hold a chart type outside `StudioChartType` without any
+    // `store.setState` reach-in. Do not delete this as dead code. The narrower fix — make
+    // `updateWidget` re-sanitize the STORED config when `changes.kind` alone flips a
+    // widget into `'chart'` — belongs at that boundary and is deliberately left to the
+    // unit that owns it; this repair stays regardless, since it is the creation-boundary
+    // half of the same invariant.
     const clone = this.sanitizeWidgetForCreate({
       ...existing,
       id: newId,

@@ -5087,35 +5087,43 @@ describe('StudioController — chart-type repair at every creation boundary', ()
 
   it('duplicateWidget repairs an invalid chartType rather than propagating it to the copy', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    // Seeding the hostile config through the CONSTRUCTOR no longer reaches this guard: the
-    // constructor now runs the same shared `screenDoc` as the persistence load boundary, and
-    // that screen strips an unknown `chartType` outright. Nor does `updateWidget`, which
-    // sanitizes a wholesale `config` replacement against the widget's kind and chart type.
-    // The invalid chart type is therefore written straight onto the public `store` — the one
-    // remaining way a host can put a widget carrying one in front of `duplicateWidget` (a
-    // stale doc captured before a screen tightened, or a host driving the store directly).
-    // The guard is defense-in-depth, and this pins that it still fires.
+    // This repair was reported as unreachable — the constructor and the persistence load
+    // boundary both run `screenDoc` (which strips an unknown `chartType` outright), and
+    // `updateWidget` sanitizes a wholesale `config` replacement against the widget's kind.
+    // It is NOT unreachable. Two ordinary public calls get there, no `store.setState`
+    // reach-in required, and this test walks that exact route:
+    //
+    //  1. `insertWidgetAt` (equally `addWidget`, or `updateWidgetConfig`) with a NON-chart
+    //     kind. `sanitizeWidgetForCreate` returns early on `widget.kind !== 'chart'`, and
+    //     the shared reducer's `addWidget` handler deliberately knows nothing about chart
+    //     types — so a `text` widget carrying a bogus `chartType` is installed verbatim.
+    //  2. `updateWidget(id, { kind: 'chart' })` with NO `config` in `changes`. The
+    //     controller's chart-type guard is gated on `Object.hasOwn(changes, 'config')`,
+    //     so a kind-only change skips it entirely; the reducer's kind-coherence pass then
+    //     strips config keys not allowed for the new kind, and `chartType` IS an allowed
+    //     `'chart'` key — so it is explicitly RETAINED.
+    //
+    // The widget is now a chart with a chart type outside `StudioChartType`, reached
+    // through the supported API. `duplicateWidget`'s repair is live code on a live path.
     const controller = new StudioController({
       doc: {
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
         pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['src']] } },
-        widgets: {
-          src: makeWidget('src', { kind: 'chart', config: {} as StudioWidgetConfig }),
-        },
+        widgets: {},
       },
     });
-    const seeded = controller.getState();
-    controller.store.setState({
-      ...seeded,
-      doc: {
-        ...seeded.doc,
-        widgets: {
-          src: { ...seeded.doc.widgets.src, config: hostileConfig },
-        },
-      },
-    });
-    // Precondition: the invalid chart type really is installed on the source widget, so the
-    // clone assertions below exercise the repair rather than a nothing-to-repair no-op.
+    controller.insertWidgetAt(
+      makeWidget('src', { kind: 'text', config: hostileConfig }),
+      'page-1',
+      [['src']],
+    );
+    controller.updateWidget('src', { kind: 'chart' });
+
+    // Precondition: the two supported calls above really did leave an invalid chart type
+    // on a chart-kind widget, so the clone assertions below exercise the repair rather
+    // than a nothing-to-repair no-op. If a future screen closes this route, THIS is the
+    // assertion that fails first — and the repair can then be reconsidered as dead code.
+    expect(controller.getState().doc.widgets.src.kind).toBe('chart');
     expect((controller.getState().doc.widgets.src.config as StudioWidgetConfig).chartType).toBe(
       '__proto__evil',
     );

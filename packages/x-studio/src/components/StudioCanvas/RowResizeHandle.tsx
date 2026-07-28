@@ -329,14 +329,23 @@ export function RowResizeHandle({
   // so committing its spans would write a value the user never confirmed into a row that has
   // already changed shape. Kept in a ref updated each render so the effect can stay
   // mount-only and still see the live session state.
+  //
+  // Assigned in an effect rather than during render (matching `ColorSwatch`): a
+  // render-phase ref write is a side effect in the render body, which React may discard
+  // (a render that never commits) or run twice. The only reader is the mount-only
+  // effect's UNMOUNT cleanup below, which by definition runs after the last commit — so
+  // the closure the last COMMITTED render installed is exactly the one it should see.
+  // Declared BEFORE that effect so the ref is populated before it first registers.
   const cleanupRef = React.useRef<(() => void) | undefined>(undefined);
-  cleanupRef.current = () => {
-    if (pendingLeft === null && !dragRef.current) {
-      return;
-    }
-    dragRef.current = null;
-    onDragCancel(leftId, rightId);
-  };
+  React.useEffect(() => {
+    cleanupRef.current = () => {
+      if (pendingLeft === null && !dragRef.current) {
+        return;
+      }
+      dragRef.current = null;
+      onDragCancel(leftId, rightId);
+    };
+  });
   React.useEffect(() => () => cleanupRef.current?.(), []);
 
   const resizeLabel = localeText.canvasResizeColumnsAriaLabel;

@@ -204,11 +204,10 @@ const WITH_TIMEOUT_LABEL_MESSAGE =
  *
  * Scoped to these files rather than the whole package because the remaining `String(…)`
  * call sites there are error-formatting fallbacks in request/response plumbing
- * (`handleAIChat.ts`, `handleGenerateInsight.ts`, `mcp/queryTools.ts`,
- * `mcp/resources.ts`, `mcp.ts`, `internal/providerError.ts`) that are the same hazard
- * class but were out of scope for the change that added this rule. Widening the `files`
- * list is the intended way to finish the sweep — each addition should come with the
- * `asString` conversions that file needs.
+ * (`handleAIChat.ts`, `handleGenerateInsight.ts`, `mcp.ts`, `internal/providerError.ts`)
+ * that are the same hazard class but were out of scope for the change that added this
+ * rule. Widening the `files` list is the intended way to finish the sweep — each addition
+ * should come with the `asString` conversions that file needs.
  */
 const AI_MIDDLEWARE_SANITIZER_FILES = [
   'packages/x-studio-ai-middleware/src/buildAISystemPrompt.ts',
@@ -223,6 +222,11 @@ const AI_MIDDLEWARE_SANITIZER_FILES = [
   // straight out of the host's database. A JSON/JSONB column deserializes to an arbitrary
   // object, so the raw `String()` global is a live throw here, not a latent one.
   'packages/x-studio-ai-middleware/src/mcp/queryTools.ts',
+  // Two of the `withTimeout` labels here interpolate a client-supplied `tableName` into
+  // a BRANDED (relayed-verbatim) timeout message. Both call `safeIdentifier` today, but
+  // "remember to sanitize" is exactly the contract two sibling call sites already broke,
+  // so the rule — not the reviewer — holds them to `opLabel`.
+  'packages/x-studio-ai-middleware/src/mcp/resources.ts',
 ];
 
 export default defineConfig(
@@ -769,6 +773,32 @@ export default defineConfig(
     rules: {
       'react-compiler/react-compiler': 'off',
     },
+  },
+
+  {
+    // `react-hooks/refs` is `off` package-wide (see the "MUI X Overrides" block), so a
+    // render-phase ref write — a side effect in the render body, which React may discard
+    // for a render that never commits, or run twice — was never flagged and became a
+    // local convention. Inert today (nothing here renders under Suspense or a
+    // transition), but it is the kind of latent breakage that only shows up once one of
+    // those is introduced, at which point the cause is very hard to see.
+    //
+    // Turned on for the canvas subtree, where the whole cluster (10 writes across 6
+    // files: `useStudioDraggable` ×4, `useStudioDropTarget` ×2, `InsertionPoint`,
+    // `WidgetGap`, `RowResizeHandle`, `StudioCanvas`) has been converted to effect-based
+    // ref updates. Every reader there is a pragmatic-drag-and-drop event handler or an
+    // unmount cleanup, so none of them can observe `.current` before the first effect
+    // flush — which is what made the conversion safe rather than merely tidy.
+    //
+    // Deliberately NOT the whole package yet: 11 further render-phase WRITES remain
+    // (`StudioFiltersDrawer/FilterValueInput` ×4, `.../DateValueInput` ×2,
+    // `.../FilterCard` ×1, `StudioChatPanel/useChatThreads` ×2,
+    // `.../useSpeechRecognition` ×1, `StudioWidgetEditDialog/FilterRow` ×1), plus 20
+    // weaker "ref passed to a function" diagnostics. Widen the glob as each directory is
+    // cleaned — a rule that holds for part of the package is worth more than one that
+    // has to be reverted.
+    files: [`packages/x-studio/src/components/StudioCanvas/**/*${EXTENSION_TS}`],
+    rules: { 'react-hooks/refs': 'error' },
   },
 
   {

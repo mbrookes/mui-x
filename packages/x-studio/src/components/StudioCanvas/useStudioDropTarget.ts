@@ -41,9 +41,18 @@ export function useStudioDropTarget(params: UseStudioDropTargetParameters): bool
   const [isOver, setIsOver] = React.useState(false);
 
   const canDropRef = React.useRef(canDrop);
-  canDropRef.current = canDrop;
   const onDropRef = React.useRef(onDrop);
-  onDropRef.current = onDrop;
+
+  // Assigned in an effect rather than during render (matching `ColorSwatch` and
+  // `useStudioDraggable`): a render-phase ref write is a side effect in the render body,
+  // which React may discard (a render that never commits) or run twice. Both readers
+  // below are pragmatic-dnd callbacks fired by a live pointer gesture, so they can only
+  // run after a commit. Declared BEFORE the registration effect so the refs are current
+  // by the time it (re)registers on the same flush.
+  React.useEffect(() => {
+    canDropRef.current = canDrop;
+    onDropRef.current = onDrop;
+  });
 
   React.useEffect(() => {
     const element = ref.current;

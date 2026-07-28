@@ -39,13 +39,23 @@ export function useStudioDraggable(params: UseStudioDraggableParameters): void {
   // Keep the latest data/callbacks in refs so the effect only re-runs when
   // `canDrag` toggles, not on every render.
   const getDataRef = React.useRef(getData);
-  getDataRef.current = getData;
   const onDragStartRef = React.useRef(onDragStart);
-  onDragStartRef.current = onDragStart;
   const onDropRef = React.useRef(onDrop);
-  onDropRef.current = onDrop;
   const renderPreviewRef = React.useRef(renderPreview);
-  renderPreviewRef.current = renderPreview;
+
+  // Assigned in an effect rather than during render (matching `ColorSwatch`): a
+  // render-phase ref write is a side effect in the render body, which React may discard
+  // (a render that never commits, under Suspense or a transition) or run twice. Every
+  // reader below is a pragmatic-dnd event handler driven by a real pointer gesture, so
+  // it can only fire after a commit — reading what the last COMMITTED render wrote is
+  // both safe and correct. Declared BEFORE the `draggable` effect so the refs are
+  // already up to date by the time that effect (re)registers on the same flush.
+  React.useEffect(() => {
+    getDataRef.current = getData;
+    onDragStartRef.current = onDragStart;
+    onDropRef.current = onDrop;
+    renderPreviewRef.current = renderPreview;
+  });
 
   // Tracks whether a drag is currently in flight (started but not yet dropped) so the
   // effect cleanup can release drag side effects if the element unmounts — or `canDrag`

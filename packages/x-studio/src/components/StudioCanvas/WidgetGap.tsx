@@ -59,7 +59,14 @@ export function WidgetGap({
 }: WidgetGapProps) {
   const ref = React.useRef<HTMLDivElement>(null);
   const posRef = React.useRef({ rowIndex, colIndex });
-  posRef.current = { rowIndex, colIndex };
+  // Assigned in an effect rather than during render (matching `ColorSwatch`): a
+  // render-phase ref write is a side effect in the render body, which React may discard
+  // (a render that never commits) or run twice. `posRef` is read only from the
+  // pragmatic-dnd `canDrop`/`onDrop` callbacks below, which a pointer gesture can only
+  // reach after a commit, so the last COMMITTED render's position is the correct one.
+  React.useEffect(() => {
+    posRef.current = { rowIndex, colIndex };
+  });
 
   const controller = useStudioController();
 

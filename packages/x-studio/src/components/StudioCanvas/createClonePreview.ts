@@ -28,6 +28,29 @@ export function createClonePreview(
     const rect = source.getBoundingClientRect();
     const clone = source.cloneNode(true) as HTMLElement;
 
+    // `cloneNode(true)` copies the source card's `id`, `role` and `aria-label` verbatim,
+    // so for the duration of the drag the accessibility tree held TWO `role="group"`
+    // nodes with the same accessible name and a screen-reader user heard the widget
+    // announced twice. The ghost is decoration — a translucent snapshot that tracks the
+    // pointer — so it belongs out of the accessibility tree entirely:
+    //  - `aria-hidden` removes the clone and its whole subtree from that tree, which
+    //    neutralizes the duplicated `role`/`aria-label`/`aria-describedby` at every
+    //    depth, not just on the root.
+    //  - `inert` keeps the cloned toolbar buttons and grid cells out of the tab order.
+    //    A focusable element inside an `aria-hidden` subtree is itself a violation
+    //    (focus would land somewhere the screen reader cannot describe), so the two
+    //    attributes have to travel together.
+    //  - duplicated `id`s are stripped throughout: `getElementById` and every IDREF
+    //    lookup (`aria-labelledby`, `aria-describedby`, `<label for>`) resolve to the
+    //    FIRST match in document order, so a clone sharing the live card's ids can
+    //    silently re-point the real card's relationships at the ghost.
+    clone.setAttribute('aria-hidden', 'true');
+    clone.setAttribute('inert', '');
+    clone.removeAttribute('id');
+    clone.querySelectorAll<HTMLElement>('[id]').forEach((el) => {
+      el.removeAttribute('id');
+    });
+
     // A detached clone collapses without an explicit size, so pin its dimensions
     // (capped) to mirror the source.
     clone.style.width = `${Math.min(rect.width, GHOST_MAX_WIDTH)}px`;

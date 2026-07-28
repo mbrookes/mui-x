@@ -227,7 +227,16 @@ function StudioPageRows({
   } | null>(null);
 
   const widgetRowsRef = React.useRef(widgetRows);
-  widgetRowsRef.current = widgetRows;
+  // Assigned in an effect rather than during render (matching `ColorSwatch`): a
+  // render-phase ref write is a side effect in the render body, which React may discard
+  // (a render that never commits) or run twice. Every reader — `handleDrop` here, and
+  // `isAdjacentToDraggingWidget`/`wouldOverflowRow`/`isRedundantHorizontalDrop` inside
+  // `InsertionPoint`/`WidgetGap`'s `canDrop`/`onDrop` — runs from a pointer gesture,
+  // which can only reach them after a commit, so the last COMMITTED render's rows are
+  // the correct ones to see. No reader touches `.current` during render.
+  React.useEffect(() => {
+    widgetRowsRef.current = widgetRows;
+  });
 
   const handleDrop = React.useCallback(
     (

@@ -24,6 +24,8 @@ import { CONTEXT_ENRICHER_TIMEOUT_MS } from '../handleAIChat';
 import { capToolOutput } from '../internal/capToolOutput';
 import {
   checkAllowedTable,
+  describeErrorForLog,
+  opLabel,
   ownArrayEntry,
   redactedHostErrorMessage,
   safeIdentifier,
@@ -500,9 +502,13 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
             );
           }
         } catch (err) {
-          logger?.error(
-            `[mcp] contextEnricher failed: ${err instanceof Error ? err.message : String(err)}`,
-          );
+          // `describeErrorForLog`, not `String(err)`: the raw `String` global is not
+          // total over `JSON.parse` output — a host enricher that rejects with
+          // `{"toString": 1}` (or any null-prototype object) makes `String` throw
+          // `TypeError: Cannot convert object to primitive value` INSIDE this catch
+          // block, turning a best-effort logged failure into an unhandled one that
+          // fails the whole resource read. The helper is total and keeps the stack.
+          logger?.error(`[mcp] contextEnricher failed: ${describeErrorForLog(err)}`);
         }
       }
 
@@ -592,16 +598,16 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
                 limit: 1,
               }),
               15_000,
-              // Sanitized untrusted `tableName` in a BRANDED message (finding M2). A
-              // `withTimeout` label lands in a `StudioTimeoutError`, and
-              // `redactedHostErrorMessage` relays a BRANDED message VERBATIM on the
-              // premise that it contains only server-authored prose — so an
-              // un-sanitized `tableName` (client-supplied, and only string-and-length
-              // checked by `validateTableName`) reaches an LLM-consumed error with its
-              // newlines intact. Every sibling label in `queryTools.ts` and
-              // `summarisePage.ts` already routes through `safeIdentifier`; these two
-              // were the only ones that did not.
-              `data-health count query for ${safeIdentifier(tableName)}`,
+              // `opLabel`, not a raw template: a `withTimeout` label lands in a BRANDED
+              // `StudioTimeoutError`, and `redactedHostErrorMessage` relays a BRANDED
+              // message VERBATIM on the premise that it contains only server-authored
+              // prose — so an un-sanitized `tableName` (client-supplied, and only
+              // string-and-length checked by `validateTableName`) would reach an
+              // LLM-consumed error with its newlines intact (finding M2). The tagged
+              // template routes the hole through `safeIdentifier` so the call site
+              // cannot forget to; `no-restricted-syntax` in `eslint.config.mjs` keeps
+              // this file's labels structurally unable to regress.
+              opLabel`data-health count query for ${tableName}`,
             );
             const row = result.rows[0];
             counts[s.id] = Number(row?.count ?? result.rowCount ?? 0);
@@ -812,12 +818,11 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
             limit: 20,
           }),
           15_000,
-          // Sanitized untrusted `tableName` in a BRANDED message (finding M2) — see the
-          // `data-health` label above. This site is the more directly reachable of the
-          // two: the resulting message is thrown, and the SDK returns it as the
-          // JSON-RPC `error.message`, which most clients splice straight into the model
-          // conversation.
-          `row preview query for ${safeIdentifier(tableName)}`,
+          // `opLabel` for the same reason as the `data-health` label above (finding M2).
+          // This site is the more directly reachable of the two: the resulting message
+          // is thrown, and the SDK returns it as the JSON-RPC `error.message`, which
+          // most clients splice straight into the model conversation.
+          opLabel`row preview query for ${tableName}`,
         );
       } catch (err) {
         throw new Error(redactedHostErrorMessage('studio://data row preview query', err, logger));

@@ -140,3 +140,38 @@ describe('StudioGanttChart aria-label (finding 3)', () => {
     expect(ariaLabel).not.toMatch(/\d+ more/);
   });
 });
+
+/**
+ * M6: each bar's `<Tooltip>` wraps a plain `<Box>` — non-focusable, and inside the chart's
+ * `role="img"` subtree, so its contents are unreachable by keyboard and invisible to
+ * assistive technology. Everything else the tooltip shows (label, start, end, duration) is
+ * already in the chart-level `aria-label`; the colour CATEGORY was not, leaving it conveyed
+ * by bar fill colour alone with no legend (SC 1.4.1) and by a pointer-only tooltip (1.3.1).
+ */
+describe('StudioGanttChart colour category text alternative (M6)', () => {
+  const { render } = createRenderer();
+
+  const CATEGORIZED: GanttItem[] = [
+    { id: 0, label: 'Design', startMs: 0, endMs: 1000, colorCategory: 'Phase 1' },
+    { id: 1, label: 'Build', startMs: 1000, endMs: 3000, colorCategory: 'Phase 2' },
+  ];
+
+  it('names each bar colour category in the chart-level text alternative', () => {
+    const { wrapper } = createStudioHarness();
+    render(<StudioGanttChart items={CATEGORIZED} height={200} />, { wrapper });
+
+    const ariaLabel = screen.getByRole('img').getAttribute('aria-label')!;
+    expect(ariaLabel).toContain('Design (Phase 1)');
+    expect(ariaLabel).toContain('Build (Phase 2)');
+  });
+
+  it('leaves an uncategorized item label untouched', () => {
+    const { wrapper } = createStudioHarness();
+    const items: GanttItem[] = [{ id: 0, label: 'Design', startMs: 0, endMs: 1000 }];
+    render(<StudioGanttChart items={items} height={200} />, { wrapper });
+
+    const ariaLabel = screen.getByRole('img').getAttribute('aria-label')!;
+    expect(ariaLabel).toContain('Design:');
+    expect(ariaLabel).not.toContain('Design (');
+  });
+});

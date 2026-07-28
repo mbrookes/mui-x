@@ -238,3 +238,14 @@ describe('RelationshipDialog', () => {
     expect(junctionSourceSelect.textContent?.replace(/\u200B/g, '')).toBe('');
   });
 });
+
+// Same review claim as in `StudioExpressionFieldDialog.test.tsx`: MUI's `Dialog` was said
+// never to associate its `DialogTitle`. In @mui/material v9 it does, via `DialogContext`.
+// Pinned here so a regression (or a future MUI change) surfaces as a failing test rather
+// than a silently unnamed dialog.
+describe('<RelationshipDialog /> accessible name', () => {
+  it('names the dialog from its title', () => {
+    setup();
+    expect(screen.getByRole('dialog', { name: 'Add relationship' })).not.toBe(null);
+  });
+});

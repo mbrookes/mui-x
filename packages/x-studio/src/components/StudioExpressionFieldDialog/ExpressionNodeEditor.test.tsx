@@ -420,3 +420,57 @@ describe('<ExpressionBuilder /> dropped field reference', () => {
     expect(screen.getByText('removed_field')).toBeVisible();
   });
 });
+
+// None of the five operand-row `Select`s has an `InputLabel` to take a name from, so each
+// relies on an explicit `aria-label`. Two spellings reach the rendered `role="combobox"`
+// element in @mui/material v9 — a bare `aria-label` prop (which `InputBase` destructures and
+// forwards to the inner input, see `InputBase.js`) and `inputProps['aria-label']` (which
+// `Select` merges into the same place). These tests assert the OUTCOME — a named combobox —
+// rather than which spelling produced it, so they hold across either. Without them, a review
+// pass that "fixes" one spelling into the other has nothing pinning that the name still lands
+// on the combobox and not on the `InputBase` wrapper `<div>`.
+describe('<ExpressionBuilder /> combobox accessible names', () => {
+  function renderExpr(expression: StudioExpression, isMeasure = false) {
+    const { wrapper } = createStudioHarness();
+    return render(
+      <ExpressionBuilder
+        expression={expression}
+        sourceFields={SOURCE_FIELDS}
+        expressionFields={[]}
+        isMeasure={isMeasure}
+        onChange={() => {}}
+      />,
+      { wrapper },
+    );
+  }
+
+  it('names the operand kind and field pickers', () => {
+    renderExpr({ operator: 'negate', inputs: [{ id: 'amount' }] } as unknown as StudioExpression);
+    expect(screen.getByRole('combobox', { name: 'Input type' })).not.toBe(null);
+    expect(screen.getByRole('combobox', { name: 'Field' })).not.toBe(null);
+  });
+
+  it('names the aggregation picker on a measure field operand', () => {
+    renderExpr(
+      { operator: 'negate', inputs: [{ id: 'amount' }] } as unknown as StudioExpression,
+      true,
+    );
+    expect(screen.getByRole('combobox', { name: 'Aggregation' })).not.toBe(null);
+  });
+
+  it('names the literal type picker', () => {
+    renderExpr({
+      operator: 'negate',
+      inputs: [{ type: 'string', value: 'abc' }],
+    } as unknown as StudioExpression);
+    expect(screen.getByRole('combobox', { name: 'Literal type' })).not.toBe(null);
+  });
+
+  it('names the boolean literal value picker', () => {
+    renderExpr({
+      operator: 'negate',
+      inputs: [{ type: 'boolean', value: true }],
+    } as unknown as StudioExpression);
+    expect(screen.getByRole('combobox', { name: 'Boolean value' })).not.toBe(null);
+  });
+});

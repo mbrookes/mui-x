@@ -1,7 +1,6 @@
 'use client';
 import * as React from 'react';
 import { Box, Skeleton, Tooltip } from '@mui/material';
-import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 
 import type {
   StudioDataField,
@@ -30,7 +29,6 @@ import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOv
 import {
   useStudioSelector,
   useStudioLocaleText,
-  selectFilters,
   selectDataSources,
   selectRelationships,
   selectGlobalCrossFilterMode,
@@ -291,8 +289,9 @@ function computeFilterBasedTrend(params: {
   // computed under a NEWER filter list against a `currentValue` still computed from the older,
   // deferred rows. Everything the previous derivation enforced is preserved by the shared
   // resolution: the `pageId`/`disabled`/`dashboard-date-range`-sourceId checks, the
-  // `include` mode mirroring the rendered row scope ('no-cross' for `filteredRowsNoCross`,
-  // 'all' for `effectiveRows`), and the widget-scoped Top-N rank filter (which
+  // `include` mode mirroring the rendered row scope ('no-chart-cross' for
+  // `filteredRowsNoChartCross`, 'all' for `effectiveRows`), and the widget-scoped Top-N rank
+  // filter (which
   // `selectFiltersForWidget` drops by default, so a ranked current total would otherwise be
   // compared against an unranked previous one — finding 1).
   const dateFilter = findDateFilter(scopedFilters, widget.id, dataSource);
@@ -345,8 +344,8 @@ function computeFilterBasedTrend(params: {
   );
 
   // `scopedFilters` already reflects the current row scope (see above): for the
-  // 'none' mode it is page + widget only (matching filteredRowsNoCross), and for
-  // cross-filter mode it is every active scope (matching effectiveRows). Swapping
+  // 'none' mode it is page + widget + interactive (matching filteredRowsNoChartCross), and
+  // for cross-filter mode it is every active scope (matching effectiveRows). Swapping
   // the current date filter for the previous-period window below therefore keeps the
   // previous side under exactly the same non-date filters as the current headline.
   const allFilters = scopedFilters;
@@ -1123,7 +1122,6 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   const SparklineComponent = slots?.sparkline ?? KpiSparkline;
   const TrendComponent = slots?.trend ?? KpiTrend;
   const { config } = widget;
-  const filters = useStudioSelector(selectFilters);
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
   const localeText = useStudioLocaleText();
@@ -1164,7 +1162,8 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   const chartColors = usePageChartColors();
 
   // KPI cross-filter mode: 'none' (default) keeps the grand-total behaviour users expect
-  // from summary cards; 'cross-filter' opts in to context-sensitivity.
+  // from summary cards — a chart-click drilldown elsewhere on the page does NOT re-scope the
+  // card. 'cross-filter' opts in to context-sensitivity.
   // 'cross-highlight' is not applicable to KPIs (no visual row representation), but treat
   // it as 'cross-filter' for backward compatibility with any saved dashboard configs.
   //
@@ -1189,12 +1188,27 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     crossFilterModeRaw === 'cross-highlight' ? 'cross-filter' : (crossFilterModeRaw ?? 'none');
 
   // Current-period rows via the shared pipeline hook.
-  // When crossFilterMode is 'none' (default) we deliberately use filteredRowsNoCross so
-  // the KPI always shows the absolute total, ignoring chart-click selections.
+  //
+  // THE `'none'`-MODE BASELINE RULE (ARCHITECTURE.md, "The `'none'`-mode baseline rule"): a
+  // `'none'`-mode widget ignores ONLY chart-click cross-filters. Interactive (filter-widget)
+  // selections are ALWAYS hard filters — the BI convention `useWidgetRows.effectiveRows`,
+  // `StudioPipeline`'s `'none'` branch and `StudioGridWidget` all already implement — so the
+  // `'none'` baseline is `filteredRowsNoChartCross`, never `filteredRowsNoCross`.
+  //
+  // Reading `filteredRowsNoCross` here was the KPI's copy of the bug `StudioGridWidget` fixed:
+  // it additionally stripped interactive filters, so a page with a Filter widget set to "West"
+  // showed West in the chart / grid / map / pivot while the KPI kept reporting the all-region
+  // total. That divergence was papered over with a `kpiGrandTotalTooltip` hover indicator
+  // rather than fixed; the indicator is gone with the bug, since `crossFilterMode` governs
+  // widget-to-widget cross-filtering only and never a control the user set explicitly.
+  // The grand-total DEFAULT itself is unchanged and still deliberate: the KPI's own default
+  // mode stays `'none'` (unlike every other kind's `'cross-highlight'`), so a chart-click
+  // drilldown still leaves the card showing its unscoped total.
+  //
   // In 'cross-filter' or 'cross-highlight' mode we use effectiveRows, which respects
   // the active cross-filter (same as the chart widget does).
   const {
-    filteredRowsNoCross,
+    filteredRowsNoChartCross,
     effectiveRows,
     isLoading,
     isError,
@@ -1205,9 +1219,9 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     // stale L3 rows with a newer filter list, so the headline's L4 re-anchoring semi-join rendered
     // the intersection of two filter states (a transient flash toward empty) (finding 2.1).
     resolvedFiltersAll,
-    resolvedFiltersNoCross,
+    resolvedFiltersNoChartCross,
     // The widget's own WIDGET-scoped rank (Top-N) filters, from the same deferred snapshot.
-    // `useWidgetRows` builds `resolvedFiltersAll`/`resolvedFiltersNoCross` WITHOUT
+    // `useWidgetRows` builds `resolvedFiltersAll`/`resolvedFiltersNoChartCross` WITHOUT
     // `includeWidgetRank`, so a widget-scoped `filterMode: 'rank'` filter is absent from both —
     // even though the rows those sets are documented to pair with WERE produced with it (KPI is
     // a non-chart kind, so `shouldApplyWidgetRankAtL3` is `true`). Re-adding them here is what
@@ -1215,7 +1229,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     // finding 3 (a ranked current period compared against an unranked previous one).
     widgetScopedRankFilters,
   } = useWidgetRows(widget, dataSource, pageId);
-  const currentRows = crossFilterMode === 'none' ? filteredRowsNoCross : effectiveRows;
+  const currentRows = crossFilterMode === 'none' ? filteredRowsNoChartCross : effectiveRows;
   // True during a cold async-adapter fetch that hasn't produced any rows yet. Gates the
   // headline/sparkline rendering below so a fetch-in-progress never shows a confident
   // "0"/"$0" (`computeAggregate([], ...)` legitimately returns 0 for an empty row set,
@@ -1239,12 +1253,15 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   //     is appended here from the separately-exposed `widgetScopedRankFilters` — same deferred
   //     snapshot, so property 1 is preserved (finding 3).
   //
-  // `include` mirrors the row scope `currentRows` uses: 'no-cross' → filteredRowsNoCross,
-  // 'all' → effectiveRows.
+  // `include` mirrors the row scope `currentRows` uses: 'no-chart-cross' →
+  // filteredRowsNoChartCross, 'all' → effectiveRows. This is level 3 of the `'none'`-mode
+  // baseline rule (ARCHITECTURE.md): pairing `'none'`-mode rows with `resolvedFiltersNoCross`
+  // is a mismatch — the rows carry interactive filters the filter set omitted, so L4's
+  // anchor-scoped re-application would resurrect rows an interactive filter excluded.
   const kpiScopedFilters = React.useMemo(() => {
-    const base = crossFilterMode === 'none' ? resolvedFiltersNoCross : resolvedFiltersAll;
+    const base = crossFilterMode === 'none' ? resolvedFiltersNoChartCross : resolvedFiltersAll;
     return widgetScopedRankFilters.length > 0 ? [...base, ...widgetScopedRankFilters] : base;
-  }, [crossFilterMode, resolvedFiltersNoCross, resolvedFiltersAll, widgetScopedRankFilters]);
+  }, [crossFilterMode, resolvedFiltersNoChartCross, resolvedFiltersAll, widgetScopedRankFilters]);
 
   // Grain-aware rows for KPI value and sparkline computation (see useKpiGrainAnchoredRows).
   const { grainAnchoredRows, isGrainAnchored } = useKpiGrainAnchoredRows(
@@ -1355,22 +1372,6 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
 
   const showSparkline = (config.kpiSparkline ?? false) && hasData && !isInitialLoading;
 
-  // Show an indicator when crossFilterMode is 'none' and there are active interactive
-  // filters from other widgets that this KPI is intentionally ignoring. Also verify
-  // `pageId`/`disabled` — without them this previously flagged filters that could never
-  // actually apply to this page/widget in the first place (a disabled filter-widget
-  // selection, or one scoped to a different page), showing the icon with nothing real
-  // being ignored (finding 3.8).
-  const hasIgnoredInteractiveFilters =
-    crossFilterMode === 'none' &&
-    filters.some(
-      (f) =>
-        !f.disabled &&
-        f.scope.kind === 'interactive' &&
-        f.scope.sourceWidgetId !== widget.id &&
-        f.scope.pageId === pageId,
-    );
-
   return (
     <Box
       sx={{
@@ -1399,10 +1400,28 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
           <Skeleton variant="text" width={72} height={40} sx={{ flexShrink: 0 }} />
         ) : (
           <Tooltip
+            // `describeChild` (M6): without it MUI puts the title on the child as `aria-label`,
+            // which names nothing on a roleless `<span>` — assistive tech ignores `aria-label`
+            // outside the roles that take a name from the author, so the list of filters the
+            // value was computed under was reachable by hovering mouse only. `describeChild`
+            // emits a real `title` attribute (and `aria-describedby` while open), so the
+            // explanation is programmatically determinable without any pointer interaction
+            // (WCAG 1.3.1).
+            describeChild
             title={filterSubtitle || ''}
             disableHoverListener={!filterSubtitle}
+            disableFocusListener={!filterSubtitle}
+            disableTouchListener={!filterSubtitle}
             placement="top"
           >
+            {/* Deliberately NOT `tabIndex={0}`: a rendered number is not a control, and putting a
+                roleless element in the tab order trades one barrier for another (it is what
+                `jsx-a11y/no-noninteractive-tabindex` guards against — a screen-reader user lands
+                on a stop that announces no role or action). The `title`/`aria-describedby` pair
+                `describeChild` produces is what makes the subtitle available without a pointer.
+                Giving sighted keyboard-only users a visible affordance would mean a real control
+                — an `IconButton` disclosure — which needs a localized name this bundle does not
+                have yet. */}
             <span>
               <ValueComponent value={displayValue} hasData={hasData} {...slotProps?.value} />
             </span>
@@ -1423,13 +1442,6 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
             gaugeMax={config.kpiSparklineGaugeMax ?? 100}
             {...slotProps?.sparkline}
           />
-        )}
-        {hasIgnoredInteractiveFilters && (
-          <Tooltip title={localeText.kpiGrandTotalTooltip} placement="top">
-            <InfoOutlinedIcon
-              sx={{ fontSize: 14, color: 'text.disabled', flexShrink: 0, ml: 'auto' }}
-            />
-          </Tooltip>
         )}
       </Box>
       <TrendComponent

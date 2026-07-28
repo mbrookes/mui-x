@@ -638,3 +638,17 @@ describe('StudioExpressionFieldDialog', () => {
     });
   });
 });
+
+// An accessibility review flagged this dialog as unnamed on the grounds that MUI's `Dialog`
+// "never auto-associates its `DialogTitle`". That is not true of @mui/material v9: `Dialog`
+// generates an id via `useId(ariaLabelledbyProp)`, sets it as its own `aria-labelledby`, and
+// hands it to `DialogTitle` through `DialogContext` (`Dialog/Dialog.js`, `DialogTitle.js`).
+// The claim was worth pinning rather than "fixing", because the association is real but
+// fragile in one specific way: the title node here also holds a decorative `FunctionsIcon`,
+// and anything inside `DialogTitle` that is NOT `aria-hidden` would join the computed name.
+describe('StudioExpressionFieldDialog accessible name', () => {
+  it('names the dialog from its title, without the decorative icon leaking in', () => {
+    setup();
+    expect(screen.getByRole('dialog', { name: 'New Calculated Field' })).not.toBe(null);
+  });
+});

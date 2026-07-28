@@ -30,13 +30,14 @@ import { StudioKpiWidget } from './StudioKpiWidget';
 
 // The KPI widget reads its current-period rows through useWidgetRows. Route the mock
 // through a hoisted holder so each test can swap the fixture rows it returns.
-// `effective` defaults to mirroring `current` (so most tests, which don't care about
-// the `filteredRowsNoCross` vs `effectiveRows` distinction, are unaffected) — a test
-// exercising the `crossFilterMode` resolution (finding 3.8) can set it independently to
-// tell which one the widget actually picked.
+// `effective` and `noChartCross` both default to mirroring `current` (so most tests, which
+// don't care about the three baselines' distinction, are unaffected) — a test exercising the
+// `crossFilterMode` resolution (finding 3.8 / the `'none'`-mode baseline rule) can set them
+// independently to tell which one the widget actually picked.
 const rowsHolder = vi.hoisted(() => ({
   current: [] as Record<string, unknown>[],
   effective: null as Record<string, unknown>[] | null,
+  noChartCross: null as Record<string, unknown>[] | null,
   isLoading: false,
   // Simulates a DEFERRED render window: when set, `useWidgetRows` reports THIS filter set
   // (the snapshot the mocked rows were produced from) while the store's live `doc.filters`
@@ -69,6 +70,10 @@ vi.mock('../../../internals/useWidgetRows', () => ({
     } as const;
     return {
       filteredRowsNoCross: rowsHolder.current,
+      // The `'none'`-mode baseline (ARCHITECTURE.md): page + widget + interactive, no
+      // chart-click cross-filters. Distinct from `filteredRowsNoCross`, which also strips
+      // interactive (filter-widget) selections.
+      filteredRowsNoChartCross: rowsHolder.noChartCross ?? rowsHolder.current,
       effectiveRows: rowsHolder.effective ?? rowsHolder.current,
       isLoading: rowsHolder.isLoading,
       isError: false,
@@ -77,6 +82,10 @@ vi.mock('../../../internals/useWidgetRows', () => ({
       resolvedFiltersNoCross: selectFiltersForWidget(snapshotFilters, {
         ...base,
         include: 'no-cross',
+      }),
+      resolvedFiltersNoChartCross: selectFiltersForWidget(snapshotFilters, {
+        ...base,
+        include: 'no-chart-cross',
       }),
       // Mirrors the real hook: `selectFiltersForWidget` drops WIDGET-scoped rank filters unless
       // `includeWidgetRank` is set, and the two sets above are built without it — so they are
@@ -888,6 +897,54 @@ describe('<StudioKpiWidget /> sparkline and filter-tooltip scoping (finding 2.5)
     await expect(screen.findByRole('tooltip', {}, { timeout: 500 })).rejects.toThrow();
   });
 
+  // M6: the "which filters are applied" subtitle used to be pointer-only — without
+  // `describeChild` MUI attached the text as `aria-label` on a roleless `<span>`, which
+  // assistive technology ignores (a generic element takes no name from the author).
+  it('exposes the filter subtitle as a description, without hovering', () => {
+    rowsHolder.current = [{ id: 's1', amount: 100, saleDate: '2026-07-01' }];
+    const pageFilter: StudioFilterState = {
+      id: 'f-page-1',
+      field: 'saleDate',
+      fieldType: 'date',
+      scope: { kind: 'page', pageId: 'page-1' },
+      operator: 'greater_than_or_equal',
+      value: '2020-01-01',
+    } as unknown as StudioFilterState;
+    const widget = makeWidget({ kpiValueField: 'amount', kpiAggregation: 'sum' }, 'sales');
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { sales: salesSource },
+      filters: [pageFilter],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    const { container } = renderKpi(widget, salesSource);
+    // eslint-disable-next-line testing-library/no-container -- no accessible role/text on the empty ValueSpy-wrapped span
+    const wrapperSpan = container.querySelector('span')!;
+    expect(wrapperSpan.getAttribute('title')).toContain('Date');
+    // Not a NAME: `aria-label` on a roleless span is ignored by assistive technology, which
+    // is exactly how this text used to be exposed.
+    expect(wrapperSpan.getAttribute('aria-label')).toBe(null);
+    // And NOT a tab stop: a roleless focusable element is its own barrier
+    // (`jsx-a11y/no-noninteractive-tabindex`) — the description is what carries the fix.
+    expect(wrapperSpan.getAttribute('tabindex')).toBe(null);
+  });
+
+  it('adds no title when there are no filters to explain', () => {
+    rowsHolder.current = [{ id: 's1', amount: 100, saleDate: '2026-07-01' }];
+    const widget = makeWidget({ kpiValueField: 'amount', kpiAggregation: 'sum' }, 'sales');
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { sales: salesSource },
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    const { container } = renderKpi(widget, salesSource);
+    // eslint-disable-next-line testing-library/no-container -- no accessible role/text on the empty ValueSpy-wrapped span
+    const wrapperSpan = container.querySelector('span')!;
+    expect(wrapperSpan.getAttribute('title')).toBe(null);
+  });
+
   it("shows this page's filter in the KPI hover tooltip", async () => {
     rowsHolder.current = [
       { id: 's1', amount: 100, saleDate: '2026-07-01' },
@@ -1214,7 +1271,7 @@ describe('<StudioKpiWidget /> measure formula edit busts the cached headline + s
   });
 });
 
-describe('<StudioKpiWidget /> crossFilterMode resolution and grand-total indicator (finding 3.8)', () => {
+describe("<StudioKpiWidget /> crossFilterMode resolution and the 'none'-mode baseline (finding 3.8 / HIGH 2)", () => {
   beforeEach(() => {
     trendSpy.mockClear();
     valueSpy.mockClear();
@@ -1223,16 +1280,17 @@ describe('<StudioKpiWidget /> crossFilterMode resolution and grand-total indicat
 
   afterEach(() => {
     vi.clearAllMocks();
-    // Reset so later tests (which never set `.effective`) keep the default
+    // Reset so later tests (which never set these) keep the default
     // "mirrors `.current`" behaviour other describe blocks rely on.
     rowsHolder.effective = null;
+    rowsHolder.noChartCross = null;
   });
 
   it("a dashboard-wide globalCrossFilterMode overrides the widget's own 'none' setting, matching every other widget kind's precedence", () => {
-    // `filteredRowsNoCross` (the widget's local 'none' choice) sums to 100; `effectiveRows`
-    // (what a global override should route to) sums to 999. Pre-fix, the KPI's local
-    // `crossFilterMode` resolution ignored `globalCrossFilterMode` entirely and always
-    // used `filteredRowsNoCross` here, regardless of the dashboard-wide toggle.
+    // The 'none' baseline sums to 100; `effectiveRows` (what a global override should route
+    // to) sums to 999. Pre-fix, the KPI's local `crossFilterMode` resolution ignored
+    // `globalCrossFilterMode` entirely and always used the 'none' baseline here, regardless
+    // of the dashboard-wide toggle.
     rowsHolder.current = [{ id: 's1', amount: 100, saleDate: '2026-07-01' }];
     rowsHolder.effective = [{ id: 's2', amount: 999, saleDate: '2026-07-01' }];
     const widget = makeWidget(
@@ -1269,14 +1327,64 @@ describe('<StudioKpiWidget /> crossFilterMode resolution and grand-total indicat
     expect(lastValue()).toBe('100');
   });
 
-  it('shows the "ignoring filters" indicator for an enabled interactive filter from another widget on this page', () => {
+  // ── The `'none'`-mode baseline rule (ARCHITECTURE.md) ──────────────────────────────────
+  // `'none'` suppresses CHART-CLICK cross-filters only. An interactive (filter-widget)
+  // selection is an explicit user control and always hard-filters, so the `'none'` baseline
+  // is `filteredRowsNoChartCross` — never `filteredRowsNoCross`, which also strips
+  // interactive selections. The KPI used to read `filteredRowsNoCross` (and pair it with
+  // `resolvedFiltersNoCross`), so a page whose Filter widget was set to "West" showed West in
+  // the chart / grid / map / pivot while the KPI kept reporting the all-region total.
+
+  it("in 'none' mode reads the no-chart-cross baseline, so a filter-widget selection still applies", () => {
+    // Three distinguishable baselines: `filteredRowsNoCross` → 100, `filteredRowsNoChartCross`
+    // → 42, `effectiveRows` → 999. Only the middle one is correct in 'none' mode.
     rowsHolder.current = [{ id: 's1', amount: 100, saleDate: '2026-07-01' }];
+    rowsHolder.noChartCross = [{ id: 's2', amount: 42, saleDate: '2026-07-01' }];
+    rowsHolder.effective = [{ id: 's3', amount: 999, saleDate: '2026-07-01' }];
+    const widget = makeWidget(
+      { kpiValueField: 'amount', kpiAggregation: 'sum', crossFilterMode: 'none' },
+      'sales',
+    );
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { sales: salesSource },
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, salesSource);
+
+    expect(lastValue()).toBe('42');
+  });
+
+  it("applies the same baseline for a KPI with no crossFilterMode at all (the 'none' default createDefaultWidget writes)", () => {
+    rowsHolder.current = [{ id: 's1', amount: 100, saleDate: '2026-07-01' }];
+    rowsHolder.noChartCross = [{ id: 's2', amount: 42, saleDate: '2026-07-01' }];
+    rowsHolder.effective = [{ id: 's3', amount: 999, saleDate: '2026-07-01' }];
+    const widget = makeWidget({ kpiValueField: 'amount', kpiAggregation: 'sum' }, 'sales');
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { sales: salesSource },
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    renderKpi(widget, salesSource);
+
+    expect(lastValue()).toBe('42');
+  });
+
+  it("pairs 'none'-mode rows with the no-chart-cross FILTER set, so a filter-widget selection is listed in the hover subtitle", async () => {
+    // Level 3 of the baseline rule: the filter set handed to L4 must match the rows. Pre-fix
+    // `kpiScopedFilters` used `resolvedFiltersNoCross`, which drops interactive filters — so
+    // the subtitle both under-reported and (at L4) re-anchored against a set the rows did not
+    // come from.
+    rowsHolder.current = salesRows;
     const interactiveFilter: StudioFilterState = {
       id: 'f-interactive',
-      field: 'region',
-      operator: 'equals',
-      value: 'EMEA',
+      field: 'amount',
+      fieldType: 'number',
       scope: { kind: 'interactive', sourceWidgetId: 'other-widget', pageId: 'page-1' },
+      operator: 'greater_than',
+      value: 50,
     } as unknown as StudioFilterState;
     const widget = makeWidget(
       { kpiValueField: 'amount', kpiAggregation: 'sum', crossFilterMode: 'none' },
@@ -1289,48 +1397,26 @@ describe('<StudioKpiWidget /> crossFilterMode resolution and grand-total indicat
     });
     configureStudioContextMock({ getState: () => mockState });
 
-    renderKpi(widget, salesSource);
-
-    expect(screen.queryByTestId('InfoOutlinedIcon')).not.toBe(null);
+    const { container, user } = renderKpi(widget, salesSource);
+    // eslint-disable-next-line testing-library/no-container -- no accessible role/text on the empty ValueSpy-wrapped span
+    const wrapperSpan = container.querySelector('span')!;
+    await user.hover(wrapperSpan);
+    const tooltip = await screen.findByRole('tooltip');
+    expect(tooltip.textContent).toContain('Amount');
   });
 
-  it('does not show the indicator for an interactive filter scoped to a different page', () => {
-    // Pre-fix, `hasIgnoredInteractiveFilters` matched any interactive-scope filter from
-    // another widget with no `pageId` check, so a filter that could never apply to this
-    // page still showed the "ignoring filters" icon.
+  it('no longer renders the hover-only "ignoring filters" indicator, because nothing is ignored any more', () => {
+    // The `kpiGrandTotalTooltip` info icon existed only to explain the bug above, and it was
+    // reachable by pointer hover alone (an `aria-hidden`, non-focusable MUI icon — M6). With
+    // interactive filters honoured there is nothing left for it to explain.
     rowsHolder.current = [{ id: 's1', amount: 100, saleDate: '2026-07-01' }];
-    const otherPageFilter: StudioFilterState = {
-      id: 'f-other-page',
-      field: 'region',
-      operator: 'equals',
-      value: 'EMEA',
-      scope: { kind: 'interactive', sourceWidgetId: 'other-widget', pageId: 'page-2' },
-    } as unknown as StudioFilterState;
-    const widget = makeWidget(
-      { kpiValueField: 'amount', kpiAggregation: 'sum', crossFilterMode: 'none' },
-      'sales',
-    );
-    mockState = createState({
-      widgets: { 'kpi-1': widget },
-      dataSources: { sales: salesSource },
-      filters: [otherPageFilter],
-    });
-    configureStudioContextMock({ getState: () => mockState });
-
-    renderKpi(widget, salesSource);
-
-    expect(screen.queryByTestId('InfoOutlinedIcon')).toBe(null);
-  });
-
-  it('does not show the indicator for a disabled interactive filter', () => {
-    rowsHolder.current = [{ id: 's1', amount: 100, saleDate: '2026-07-01' }];
-    const disabledFilter: StudioFilterState = {
-      id: 'f-disabled',
-      field: 'region',
-      operator: 'equals',
-      value: 'EMEA',
+    const interactiveFilter: StudioFilterState = {
+      id: 'f-interactive',
+      field: 'amount',
+      fieldType: 'number',
       scope: { kind: 'interactive', sourceWidgetId: 'other-widget', pageId: 'page-1' },
-      disabled: true,
+      operator: 'greater_than',
+      value: 50,
     } as unknown as StudioFilterState;
     const widget = makeWidget(
       { kpiValueField: 'amount', kpiAggregation: 'sum', crossFilterMode: 'none' },
@@ -1339,7 +1425,7 @@ describe('<StudioKpiWidget /> crossFilterMode resolution and grand-total indicat
     mockState = createState({
       widgets: { 'kpi-1': widget },
       dataSources: { sales: salesSource },
-      filters: [disabledFilter],
+      filters: [interactiveFilter],
     });
     configureStudioContextMock({ getState: () => mockState });
 
@@ -2630,6 +2716,17 @@ describe('<StudioKpiWidget /> deferred filter snapshot consistency (M6)', () => 
     conjunction: 'and',
   } as unknown as StudioFilterState;
 
+  // The filter the DEFERRED snapshot still holds — on a differently-labelled field ('Amount'
+  // vs 'Date') so the subtitle test below can tell the two snapshots apart by rendered text.
+  const amountFilterAlreadySettled: StudioFilterState = {
+    id: 'f-settled',
+    field: 'amount',
+    fieldType: 'number',
+    scope: { kind: 'page', pageId: 'page-1' },
+    operator: 'greater_than',
+    value: 0,
+  } as unknown as StudioFilterState;
+
   it('does not compute a trend from a date filter the rendered rows have not caught up to', () => {
     // A date filter has just been added to the store, but React is still inside the deferred
     // window: `useWidgetRows` reports the PREVIOUS (empty) filter snapshot together with the
@@ -2685,8 +2782,15 @@ describe('<StudioKpiWidget /> deferred filter snapshot consistency (M6)', () => 
     // The hover subtitle was the third re-derivation site (`filterSubtitle`). It must describe
     // the filters the displayed value was actually computed under; during a deferred window
     // the live array names one the rendered rows do not yet reflect.
+    //
+    // Both snapshots are deliberately NON-EMPTY and name DIFFERENT fields. An earlier version
+    // of this test paired an empty deferred snapshot against a populated live store and
+    // asserted only that no tooltip opened — which distinguishes "empty subtitle" from
+    // "non-empty subtitle" but passes just as happily on a subtitle listing the WRONG filters,
+    // the actual failure mode. Asserting on the rendered text, with a live filter on a
+    // differently-labelled field, is what makes the live-array regression visible.
     rowsHolder.current = salesRows;
-    rowsHolder.deferredFilters = [];
+    rowsHolder.deferredFilters = [amountFilterAlreadySettled];
     const widget = makeWidget({ kpiValueField: 'amount', kpiAggregation: 'sum' }, 'sales');
     mockState = createState({
       widgets: { 'kpi-1': widget },
@@ -2699,8 +2803,31 @@ describe('<StudioKpiWidget /> deferred filter snapshot consistency (M6)', () => 
     // eslint-disable-next-line testing-library/no-container -- no accessible role/text on the empty ValueSpy-wrapped span
     const wrapperSpan = container.querySelector('span')!;
     await user.hover(wrapperSpan);
-    // Empty subtitle → `disableHoverListener` → no tooltip. Waited past MUI's 100ms
-    // `enterDelay` so the assertion can actually fail.
-    await expect(screen.findByRole('tooltip', {}, { timeout: 500 })).rejects.toThrow();
+    const tooltip = await screen.findByRole('tooltip');
+    // 'Amount' = the deferred snapshot's filter (the one the rows came from).
+    expect(tooltip.textContent).toContain('Amount');
+    // 'Date' = `dateFilterJustAdded`, live in the store but not yet reflected in the rows.
+    expect(tooltip.textContent).not.toContain('Date');
+  });
+
+  it('lists the live store filter once the deferred snapshot has caught up (contrast case)', async () => {
+    // Same setup with the deferred window closed, proving the assertion above pins the
+    // SNAPSHOT rather than merely "this filter never reaches the subtitle".
+    rowsHolder.current = salesRows;
+    rowsHolder.deferredFilters = null;
+    const widget = makeWidget({ kpiValueField: 'amount', kpiAggregation: 'sum' }, 'sales');
+    mockState = createState({
+      widgets: { 'kpi-1': widget },
+      dataSources: { sales: salesSource },
+      filters: [dateFilterJustAdded],
+    });
+    configureStudioContextMock({ getState: () => mockState });
+
+    const { container, user } = renderKpi(widget, salesSource);
+    // eslint-disable-next-line testing-library/no-container -- no accessible role/text on the empty ValueSpy-wrapped span
+    const wrapperSpan = container.querySelector('span')!;
+    await user.hover(wrapperSpan);
+    const tooltip = await screen.findByRole('tooltip');
+    expect(tooltip.textContent).toContain('Date');
   });
 });

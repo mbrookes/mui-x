@@ -190,7 +190,14 @@ export function StudioGanttChart({
         // localized `ganttChartAriaLabel`, so a literal `" to "` here meant every translation
         // announced a French/German/Spanish sentence containing English joiners (finding M21).
         localeText.ganttItemAriaLabel(
-          it.label,
+          // The colour category is otherwise conveyed by the bar's FILL COLOUR and by the
+          // per-bar hover tooltip alone — the tooltip wraps a plain `<Box>` inside this
+          // `role="img"` subtree, so it is unreachable by keyboard and invisible to assistive
+          // technology, and the chart has no legend. Folding the category into the item's label
+          // makes it the one text alternative that carries it (SC 1.4.1 / 1.3.1). It rides on
+          // the existing `label` slot rather than a new `ganttItemAriaLabel` parameter so no
+          // locale bundle has to change to keep the sentence grammatical.
+          it.colorCategory ? `${it.label} (${it.colorCategory})` : it.label,
           formatDate(it.startMs),
           formatDate(it.endMs),
           formatDuration(it.endMs - it.startMs, localeText),

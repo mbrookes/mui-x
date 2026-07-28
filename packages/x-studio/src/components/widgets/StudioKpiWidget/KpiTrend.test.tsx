@@ -2,6 +2,8 @@ import * as React from 'react';
 import { createRenderer, screen } from '@mui/internal-test-utils';
 import { describe, expect, it } from 'vitest';
 import { createStudioHarness } from '../../../internals/test-utils';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../../internals/StudioUIConfigContext';
+import { formatDateRangeLong } from './kpiUtils';
 import { KpiTrend, type KpiTrendResult } from './KpiTrend';
 
 const { render } = createRenderer();
@@ -101,5 +103,56 @@ describe('<KpiTrend /> host-supplied trendResult missing both comparisonLabel an
       render(<KpiTrend trendResult={hostTrendResult} needsDateFilter={false} />, { wrapper }),
     ).not.toThrow();
     expect(screen.getByText('vs.')).toBeVisible();
+  });
+});
+
+// M6: the previous-period date range was reachable by pointer hover ONLY. Without
+// `describeChild`, MUI attached the tooltip text to the child as `aria-label` — which
+// assistive technology ignores on a roleless `<div>`, since a generic element takes no name
+// from the author. `describeChild` makes it a real description instead (SC 1.3.1).
+describe('<KpiTrend /> tooltip accessibility (M6)', () => {
+  const DATED_TREND: KpiTrendResult = {
+    delta: 0.125,
+    previousValue: 800,
+    previousStart: new Date(2026, 4, 1),
+    previousEnd: new Date(2026, 4, 31),
+  };
+
+  it('exposes the previous-period range without any pointer interaction', () => {
+    const { wrapper } = createStudioHarness();
+    const { container } = render(<KpiTrend trendResult={DATED_TREND} needsDateFilter={false} />, {
+      wrapper,
+    });
+
+    // eslint-disable-next-line testing-library/no-container -- the trend badge has no role
+    const trigger = container.querySelector('[title]')!;
+    expect(trigger).not.toBe(null);
+    // `describeChild` renders the explanation as a real `title` attribute (a description,
+    // not a name), so it is programmatically determinable while the tooltip is closed.
+    // Built from the same formatter the component uses, so the expectation holds under
+    // whatever locale the test process runs in (same reasoning as the Intl assertions above).
+    expect(trigger.getAttribute('title')).toBe(
+      DEFAULT_STUDIO_LOCALE_TEXT.kpiTrendPreviousPeriodTooltip(
+        formatDateRangeLong(DATED_TREND.previousStart!, DATED_TREND.previousEnd!),
+      ),
+    );
+    // Not a NAME: `aria-label` on a roleless element is ignored by assistive technology,
+    // which is exactly how this text used to be exposed.
+    expect(trigger.getAttribute('aria-label')).toBe(null);
+  });
+
+  it('keeps the readout out of the tab order — the short period is visible text, not pointer-only', () => {
+    const { wrapper } = createStudioHarness();
+    const { container } = render(<KpiTrend trendResult={DATED_TREND} needsDateFilter={false} />, {
+      wrapper,
+    });
+
+    // A roleless tab stop is its own barrier (`jsx-a11y/no-noninteractive-tabindex`): a
+    // screen-reader user would land on a stop announcing no role and no action. Nothing is
+    // lost, because the caption below the badge already renders the period as visible text —
+    // the tooltip only widens "May 2026" to the exact range.
+    // eslint-disable-next-line testing-library/no-container -- the trend badge has no role
+    expect(container.querySelector('[tabindex]')).toBe(null);
+    expect(screen.getByText('vs. May 2026')).toBeVisible();
   });
 });

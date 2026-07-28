@@ -102,6 +102,14 @@ export function KpiTrend(props: KpiTrendProps) {
 
     return (
       <Tooltip
+        // `describeChild` (M6): the default puts the title on the child as `aria-label`, which
+        // names nothing on a roleless `<div>` — so the full comparison period was reachable by
+        // mouse hover alone. `describeChild` emits a real `title` attribute (and
+        // `aria-describedby` while open), making it programmatically determinable (WCAG 1.3.1).
+        // No `tabIndex`: the badge is a readout, not a control, and the SHORT period is already
+        // rendered as visible text in the "vs. {period}" caption below — the tooltip only widens
+        // it to the exact date range, so no information is pointer-exclusive.
+        describeChild
         title={localeText.kpiTrendPreviousPeriodTooltip(trendTooltip)}
         placement="bottom-start"
       >

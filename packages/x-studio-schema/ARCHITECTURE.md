@@ -52,8 +52,8 @@ they belong here, but the AI middleware never references them, so they live clie
   from it. Exported explicitly (not `export *`) because `StudioAIToolName` already surfaces
   through `aiTypes.ts` and a second blanket re-export would conflict.
 
-Two function modules are deliberately **package-internal** and absent from `index.ts`:
-`unsafeKeys.ts` and `internalGuards.ts`. So are `normalizePersistedPages` and `pruneDependsOn`,
+Three function modules are deliberately **package-internal** and absent from `index.ts`:
+`unsafeKeys.ts`, `internalGuards.ts` and `docScreening.ts`. So are `normalizePersistedPages` and `pruneDependsOn`,
 exported from `applyMutation.ts` solely for `statePersistence.ts` — load-boundary internals, not
 public API.
 
@@ -75,6 +75,7 @@ src/
   anomalyDetection.ts     detectAnomaliesIQR (+ private median helper)
   unsafeKeys.ts           The single shared prototype-hazard key denylist
   internalGuards.ts       isPlainRecord/stripUnsafeOwnKeys/repairFilterDependsOn — shared boundary helpers
+  docScreening.ts         The per-entry StudioDoc screens shared by the load boundary and the factory
   applyMutation.ts        The single mutation reducer; GRID_COLS/MIN_SPAN; two load-boundary internals
   parseStateMutation.ts   The runtime validation gate for wire-sourced mutations
   widgetTypeGuards.ts     Runtime narrowing + the three closed-union membership lists
@@ -84,11 +85,13 @@ src/
   index.ts                Public export surface
 ```
 
-Every runtime module has a co-located `*.test.ts` except `aiToolRegistry.ts` (a declarative
-facts table whose invariants are compile-time-enforced by the mapped types deriving from it)
-and `unsafeKeys.ts` (a fixed three-literal `Set` plus a one-line membership check, exercised
-indirectly by every prototype-hazard case in the three boundary suites). The pure type modules
-have no runtime behavior to test.
+Every runtime module has a co-located `*.test.ts` except three: `aiToolRegistry.ts` (a declarative
+facts table whose invariants are compile-time-enforced by the mapped types deriving from it),
+`unsafeKeys.ts` (a fixed three-literal `Set` plus a one-line membership check, exercised
+indirectly by every prototype-hazard case in the boundary suites), and `docScreening.ts` (whose
+screens are exercised through both of their callers — `statePersistence.test.ts` and
+`factories.test.ts` — since what matters is that the two boundaries agree on a payload, which only
+a per-caller test can assert). The pure type modules have no runtime behavior to test.
 
 ## Type modules
 
@@ -136,7 +139,7 @@ have no runtime behavior to test.
   > still applies. `StudioCrossFilterMode`'s doc comment spells this out, since `'none'` reads
   > at a glance like "always show the unfiltered dataset", which it is not.
 
-- **`expressionTypes.ts`** — `StudioExpressionOperator` (a closed 23-member union),
+- **`expressionTypes.ts`** — `StudioExpressionOperator` (a closed 22-member union),
   the four `StudioExpression` AST node variants
   (`StudioFunctionExpression`/`StudioValueExpression`/`StudioFieldExpression`/`StudioJoinFieldExpression`),
   and `StudioExpressionField` (a user-authored calculated column/measure).
@@ -322,33 +325,76 @@ migration exists to do so.
 Consequently, every reader of the narrow per-family types must gate on the resolved `chartType`
 rather than assume a stray other-family key can't be present. For narrow-typed readers the type
 system enforces this structurally, and a stray key is expected, not corrupt.
-`stripForeignFamilyKeys` (see [`configKeyValidation.ts`](#configkeyvalidationts--write-side-config-key-guards-two-levels-deep)) is the
-sanctioned way to reduce a stored config to its effective family when one must cross a boundary
-that validates per-family.
+
+**All three write boundaries PRESERVE foreign-family keys** — `deserializeState`, `applyMutation`'s
+config merge, and the wire boundary's `validateWidget`. The last of these used to strip them, which
+made round-tripping a stored widget through `addWidget`/`applyBulkUpdate.addedWidgets` (duplicating
+it, moving it across dashboards) destroy the very keys this feature exists to keep.
+`stripForeignFamilyKeys` (see [`configKeyValidation.ts`](#configkeyvalidationts--write-side-config-key-guards-two-levels-deep))
+still exists, but as an opt-in utility for a caller that genuinely wants a config reduced to one
+family — not as anything a boundary applies.
 
 ## Cross-cutting invariants
 
 These rules recur at nearly every call site in the package. They are stated once here; the
 per-module sections below reference them rather than re-arguing each one.
 
-### The three trust boundaries
+### The four trust boundaries
 
-A `StudioDoc` can be reached by untrusted input at exactly three places, and each has its own
+A `StudioDoc` can be reached by untrusted input at exactly four places, and each has its own
 guard layer:
 
-| Boundary               | Module                  | Input                                                                           |
-| :--------------------- | :---------------------- | :------------------------------------------------------------------------------ |
-| **Wire**               | `parseStateMutation.ts` | An SSE `state-mutation` event the client `JSON.parse`d                          |
-| **In-process reducer** | `applyMutation.ts`      | A server-built mutation from `executeToolOnState.ts`, which bypasses the parser |
-| **Persistence load**   | `statePersistence.ts`   | A `JSON.parse`d persisted, shared, or hand-edited doc                           |
+| Boundary               | Module                                    | Input                                                                                     |
+| :--------------------- | :---------------------------------------- | :---------------------------------------------------------------------------------------- |
+| **Wire**               | `parseStateMutation.ts`                   | An SSE `state-mutation` event the client `JSON.parse`d                                    |
+| **In-process reducer** | `applyMutation.ts`                        | A server-built mutation from `executeToolOnState.ts`, which bypasses the parser           |
+| **Persistence load**   | `statePersistence.ts` + `docScreening.ts` | A `JSON.parse`d persisted, shared, or hand-edited doc                                     |
+| **Factory overrides**  | `factories.ts` + `docScreening.ts`        | `createDefaultStudioState({ doc })`, reachable from the public `Studio initialState` prop |
 
-The governing rule is that **the three must agree on the same payload.** A shape the wire
+**The factory was the unscreened fourth producer**, and that is what `docScreening.ts` exists to
+close. The per-ENTRY screens used to live inside `deserializeState`, which made the persistence load
+boundary the only producer that applied them — yet `createDefaultStudioState` builds a doc from
+`overrides.doc`, and that bag is reachable straight from `Studio`'s public `initialState` prop via
+`new StudioController(initialState)`. Three defects traced through the hole, each already repaired
+per-entry by the load boundary: a filter with no `scope` threw `Cannot read properties of undefined
+(reading 'kind')` inside `serializeDoc` on the FIRST autosave and on every undo snapshot; a widget
+with `config: null` threw mid-reduce in `shallowRecordEqual`; and `ai.threads: 'junk'` threw
+`threads.map is not a function` on the first `renameAIThread`. Extracting the screens into a shared
+module — rather than duplicating them in the factory — is what keeps the two producers from
+drifting, the same reason `internalGuards.ts` exists.
+
+`screenDoc(partialDoc)` touches **only the keys the bag actually carries**. That rule is what makes
+it safe for the factory, whose documented merge contract is that an absent override field keeps the
+factory default: stamping `filters: []` / `ai: undefined` onto a bag naming neither would change the
+shape of every default doc in the codebase.
+
+Two of `deserializeState`'s behaviours are deliberately **not** applied by the factory:
+
+- **Stripping `cross-filter`/`interactive`-scoped filters** (`stripSessionScopes`). Those two kinds
+  are session-flavoured and `serializeDoc` never writes them, so one arriving from disk must not
+  install — an orphaned cross-filter would permanently filter its page, since the reducer's cleanup
+  for it fires only when the source widget is REMOVED and it was never present. The factory produces
+  LIVE state, and an in-process caller legitimately builds state carrying both kinds, so the bar is
+  on the disk boundary only.
+- **The orphan page/widget anchor probes** (`FilterAnchorProbes`). The load boundary has already
+  swept the page map and widget record and can tell an orphan anchor from a live one; the factory
+  merges its `pages`/`widgets` overrides onto the defaults AFTER the screen runs, so a filter
+  anchored to the default page would look like an orphan here and be wrongly dropped.
+
+**Known gap, worth stating rather than implying completeness:** the factory's `pages` override is
+still unscreened. The page sweep is `normalizePersistedPages`, which lives in `applyMutation.ts` and
+needs its layout/rank machinery; `docScreening.ts` cannot import it, because `factories.ts` imports
+`docScreening.ts` and moving it would cycle. The load boundary calls it directly. (The factory does
+separately uphold the "at least one page always exists" invariant, since a `doc.pages` override
+replaces the default page map wholesale.)
+
+The governing rule is that **all four must agree on the same payload.** A shape the wire
 rejects but the reducer accepts becomes _deferred data loss_: the value installs, renders fine,
 and is silently discarded by the next `deserializeState`. A shape the reducer accepts but the
 load boundary drops is the same bug seen from the other side. Wherever the boundaries differ in
 _response_, the difference is deliberate and noted at the site.
 
-Repair convention, uniform across all three:
+Repair convention, uniform across all of them:
 
 - A **required** field with a bad value ⇒ drop the whole entry (`kind`, `title`, a filter's
   `id`/`field`/`operator`, a thread's `id`).
@@ -397,11 +443,17 @@ They carry the guard anyway. The three explicit-`pageId` handlers share one reso
 legacy pageId-less fallback, preserving the `??` semantics) and `undefined` for any other
 non-string — so the caller no-ops instead of handing a number to the coercing existence check.
 
+`renameAIThread` now has the mirror of that resolver, `resolveTargetThreadId(ai, args.threadId)`,
+with the identical three-state shape: nullish falls back to `ai.activeThreadId`, a string passes
+through, anything else yields `undefined` and the handler no-ops. Written out inline, the same
+`args.threadId ?? activeThreadId` expression handed a non-string straight to the `t.id === threadId`
+scan — which can never match, so the mutation silently did nothing with no way to tell it apart from
+an unknown id.
+
 ### Prototype-hazard keys
 
 `UNSAFE_KEYS` (`'__proto__'`, `'constructor'`, `'prototype'`) and `isSafeKey` live in their own
-module so the three boundaries can never drift into three independently-maintained literal
-lists. Two distinct hazards, guarded separately:
+module so no boundary can drift into an independently-maintained literal list. Two distinct hazards, guarded separately:
 
 1. **A record KEY written from untrusted input.** `record[key] = value` with `key === '__proto__'`
    invokes the inherited setter and rewrites the record's prototype instead of adding an own key.
@@ -410,8 +462,8 @@ lists. Two distinct hazards, guarded separately:
    bracket assignment for the same reason.
 2. **An own DATA property named one of the three.** `JSON.parse('{"__proto__":…}')` produces
    exactly this. It round-trips through `serializeDoc` and then poisons a later
-   `Object.assign`/spread. `hasUnsafeOwnKeys` screens for it symmetrically at all three
-   boundaries, on the widget object, the filter object, the nested `filter.scope`, the page
+   `Object.assign`/spread. `hasUnsafeOwnKeys` screens for it symmetrically at every
+   boundary, on the widget object, the filter object, the nested `filter.scope`, the page
    object, and every config channel.
 
 Note the asymmetry in the response: `dashboard` and the `ai` container have their unsafe own
@@ -423,7 +475,7 @@ so an unscreened one would land on a live filter the next load then drops entire
 Both `Object.hasOwn` (never `in`) and lookups through a `Set` are used for the same reason
 everywhere a table is indexed by untrusted input: `MUTATION_HANDLERS`, the validator table,
 `BUILTIN_WIDGET_DEFAULTS`, `getAllowedConfigKeys`, `CHART_TYPE_CONFIG_KEYS`,
-`MERGEABLE_WIDGET_CHANGE_KEYS`, `RELATIONSHIP_TYPES`.
+`MERGEABLE_WIDGET_CHANGE_KEYS`, `STUDIO_RELATIONSHIP_TYPES`.
 
 ### `isPlainRecord` — the one "is this a usable bag" predicate
 
@@ -655,10 +707,10 @@ Three sharp edges, all handled by private helpers:
   fell through to the slow path, which can't parse it either, and the function returned `null`
   instead of the documented best-effort `'2024-06-01'`.
 
-### `unsafeKeys.ts` and `internalGuards.ts`
+### `unsafeKeys.ts`, `internalGuards.ts` and `docScreening.ts`
 
-Both are package-internal (absent from `index.ts`) and exist purely so their guards have exactly
-one implementation across the three trust boundaries.
+All three are package-internal (absent from `index.ts`) and exist purely so their guards have
+exactly one implementation across every trust boundary.
 
 - **`unsafeKeys.ts`** — `UNSAFE_KEYS`/`isSafeKey`. Imported by `applyMutation.ts` (as the local
   `isSafePatchKey` alias), `parseStateMutation.ts` (behind `isSafeId` and `hasUnsafeOwnKeys`),
@@ -671,6 +723,23 @@ one implementation across the three trust boundaries.
   earned its own test file once `isPlainRecord` gained a rule of its OWN (reject an exotic
   object) rather than being a byte-for-byte relocation of three call sites' checks: no call-site
   test naturally constructs a `Map` where a config is expected.
+- **`docScreening.ts`** — the per-ENTRY screens a `StudioDoc` must pass before it becomes live
+  state: `screenDashboard`, `screenWidgets`, `screenFilters`, `screenRelationships`,
+  `screenExpressionFields`, `screenFilterPresets`, `screenAIState`,
+  `screenOptionalWidgetScalars`, and the `screenDoc` roll-up over a partial doc. Shared by
+  `statePersistence.ts` and `factories.ts` — see
+  [the four trust boundaries](#the-four-trust-boundaries) for why the factory needs them and which
+  two load-boundary behaviours it deliberately does not take.
+
+  **Import-cycle constraint, load-bearing:** this module must not import `factories.ts`,
+  `applyMutation.ts` or `statePersistence.ts`, because `factories.ts` imports it. That is why the
+  load boundary keeps three things of its own rather than moving them here — the legacy leaf-shape
+  normalization (`normalizeGridColumn`/`normalizeChartSeries`, a persisted-shape concern rather than
+  a screen), `normalizePersistedPages` plus the rank-filter uniqueness sweep (which need
+  `applyMutation.ts`'s layout/rank machinery), and the `dashboard.activePageId` /
+  `ai.activeThreadId` reconciliations (which need the FINAL page map, assembled differently by each
+  caller). Reference stability holds throughout: every screen returns the SAME array/record/entry
+  object when nothing needed dropping or repairing, so a well-formed doc costs nothing.
 
 ### `applyMutation.ts` — the single mutation reducer
 
@@ -749,6 +818,7 @@ a no-op.
 | `dropWidgetScopedFilters`                      | Drop `widget`/`interactive`/`cross-filter` filters anchored to any removed widget                                                               |
 | `pruneDependsOn` / `pruneDependsOnAgainstSelf` | The SOLE `dependsOn` cascade prune (see [cascade pruning](#cascade-pruning-is-a-per-class-invariant))                                           |
 | `removeSpanEntries`                            | Prune `widgetColSpans` entries (`isSafeKey`-screening every surviving key), collapsing an emptied map to `undefined`                            |
+| `withSpans`                                    | The SOLE way a page's `widgetColSpans` is installed — writes the map, or DELETES the key when it is `undefined`                                 |
 | `stripWidgetIdsFromPages`                      | Strip a set of ids from every page's rows, dropping an emptied row and clearing a surviving row-mate's stale span when the row collapses 2+ → 1 |
 | `dedupeLayoutRows`                             | The SOLE layout-matrix dedup — first occurrence wins across the whole matrix, dropping any row it empties                                       |
 | `enforceLayoutColSpans`                        | The SOLE col-span invariant pass (2→1 collapse, row-overflow drop, orphaned-span drop)                                                          |
@@ -756,6 +826,18 @@ a no-op.
 | `removeWidgetIds`                              | The "genuinely gone" removal primitive (below)                                                                                                  |
 | `dropConflictingRankFilters`                   | Per-page rank-filter uniqueness sweep over a whole filter array                                                                                 |
 | `normalizePersistedPages`                      | The load-boundary layout sweep (documented under [`statePersistence.ts`](#statepersistencets--the-persistence-boundary))                        |
+
+**`withSpans(page, spans, overrides?)`** is what makes "drops" mean the same thing for
+`widgetColSpans` that it means everywhere else in this file. `removeSpanEntries` and
+`enforceLayoutColSpans` both correctly collapse an emptied map to `undefined`, but their callers
+then re-materialized it as an own key via `{ ...page, widgetColSpans: nextSpans }` — contradicting
+this file's own stated rule (see [`pruneDependsOn`](#cascade-pruning-is-a-per-class-invariant):
+"drops" means the KEY is `delete`d, never spread as an explicit `undefined`), so `Object.keys(page)`
+and `'widgetColSpans' in page` both still reported a span map on a page that has none. All **six**
+install sites now route through this one helper: `stripWidgetIdsFromPages`, `removeWidgetIds`,
+`normalizePersistedPages`, `setWidgetLayout`, `setWidgetColSpan`, and `applyBulkUpdate`. Nothing
+observes the difference today only because `JSON.stringify` erases it at the persistence
+boundary — which is exactly why it needed a structural fix rather than six remembered ones.
 
 **`removeWidgetIds(pages, widgets, filters, candidateIds)`** takes `pages` already carrying the
 caller's row edits, computes which candidates are _genuinely gone_ — no longer referenced on ANY
@@ -895,7 +977,7 @@ above; only what is specific to each is listed here.
   `screenOptionalWidgetScalars`, then `normalizeConfigChartSeries`. A non-string `kind`/`title`
   skips the entry whole; a non-string `subtitle`/`sourceId` or a non-`'auto'|'manual'`
   `titleMode`/`subtitleMode` has just its key stripped. That matches the load boundary's screens
-  exactly — see [the boundary-agreement rule](#the-three-trust-boundaries).
+  exactly — see [the boundary-agreement rule](#the-four-trust-boundaries).
 
   `coerceWidgetConfig` closes a deferred landmine rather than an immediate crash: a `config: null`
   widget renders fine until the next config-touching mutation, where
@@ -1086,6 +1168,18 @@ above; only what is specific to each is listed here.
   supplying `widgetRows` preserved placement but discarded the new title/config, while one omitting
   `widgetRows` genuinely deleted-then-reinserted the widget, losing its placement/filters/spans.
 
+  **The replace path value-compares before installing.** The insert loop's overwrite branch used to
+  assign the incoming widget with no comparison at all — the one add/update channel in this file that
+  did not (`addWidget`'s idempotency guard and the `updatedWidgets` loop's per-field comparisons both
+  do). Since the widget is already present, an at-least-once SSE re-delivery of the same
+  remove-and-re-add bulk installed a fresh, value-identical object, flipped `widgetsChanged` and
+  pushed a **phantom undo entry**. `widgetsValueEqual` compares every own top-level key by `===`
+  except `config`, which goes through the shared `shallowRecordEqual` core (the config bag is rebuilt
+  by `coerceWidgetConfig`/`normalizeConfigChartSeries` on every add, so it is never reference-equal
+  even when unchanged). It is shallow by design, matching that core's own contract: a re-delivery's
+  nested values are re-created by `JSON.parse` and so compare unequal, which conservatively treats
+  the widget as changed. A genuinely NEW insert has nothing to compare against and always installs.
+
   The `removeWidgetIds` exclusion is **explicit** rather than inferred from the surviving row.
   Handing the full `removedWidgetIds` in and relying on `stillReferenced` to classify the re-added
   id as live worked only for a PLACED widget: one in `doc.widgets` but on no page's rows has no row
@@ -1193,8 +1287,9 @@ guards documented above.
 
 It returns `{ ok: true; mutation }` or `{ ok: false; error }` with a descriptive string naming the
 offending field, so a dropped event has a loggable reason where the reducer's dispatch would
-silently no-op. It is very nearly a pure gate; the one exception is `validateWidget`'s
-`stripForeignFamilyKeys` normalization, which assigns back to `widget.config` in place (below).
+silently no-op. It is a **pure gate**: no validator rewrites its input. `validateWidget` used to be
+the one exception, normalizing `widget.config` in place via `stripForeignFamilyKeys`; it no longer
+does (below).
 
 - **Structure.** `value` must be a plain object; `value.type` must be a string that is an **own**
   key of the validator table; `value.args` must be a plain object. Per-variant checks live in a
@@ -1213,19 +1308,26 @@ silently no-op. It is very nearly a pure gate; the one exception is `validateWid
   optional `'auto'|'manual'`, `config` a plain record with no unsafe own key (checked even for a
   custom kind, where `validateConfigKeysForKind` imposes no restriction).
 
-  It then runs both config-key layers from `configKeyValidation.ts`: `validateConfigKeysForKind`
-  always, and for a chart widget `stripForeignFamilyKeys` against the effective chart type
-  (`config.chartType ?? 'bar'`, the same fallback `resolveChartType` and the middleware apply).
-  An explicit `chartType` that is not a real `StudioChartType` is fatal — there are no custom
-  chart types.
+  It then runs the kind-level `validateConfigKeysForKind` from `configKeyValidation.ts` always, and
+  for a chart widget additionally membership-checks an explicit `config.chartType`. An explicit
+  `chartType` that is not a real `StudioChartType` is fatal — there are no custom chart types. An
+  ABSENT one is legal and resolves to `'bar'` downstream.
 
-  Foreign-family keys are **stripped, not rejected**, which is what makes
-  [key retention](#key-retention-across-charttype-switches) survive a round trip through this
-  boundary: a stored, user-authored config legitimately retains other-family keys, so
-  re-submitting a stored widget (duplicating it, moving it across dashboards) used to fail
-  wholesale. The strip assigns back only when a key was actually dropped, so a clean config keeps
-  its object identity — the reducer's reference-equality contract depends on value-identical
-  configs staying value-identical. Genuinely unknown keys remain fatal.
+  Foreign-family keys are **preserved — neither rejected nor stripped.** This validator used to
+  rewrite `widget.config` in place through `stripForeignFamilyKeys`, which made the wire boundary
+  the ONE place such a key was deleted: `deserializeState` preserves them and so does
+  `applyMutation`'s config merge, so three boundaries disagreed about one `addWidget` payload.
+  Round-tripping a stored widget through `addWidget`/`applyBulkUpdate.addedWidgets` — duplicating
+  it, or moving it across dashboards — therefore silently destroyed exactly the keys
+  [key retention](#key-retention-across-charttype-switches) exists to keep. All three boundaries
+  now preserve, which is the semantics the other two, and the feature itself, already had. (Latent
+  rather than live: the only current producer, `buildWidgetFromArgs` in the AI middleware, rejects a
+  foreign-family key before the strip could have fired.) A useful side effect is that the validator
+  no longer touches its input at all, so a config that crosses it keeps its object identity and the
+  reducer's reference-equality no-op contract is unaffected.
+
+  Only the FAMILY distinction is soft. "Not a chart key at all" stays fatal — the kind-level check
+  rejects any key outside the union of every chart family.
 
 - **`validateFilter`** — the filter object's own keys are screened with `hasUnsafeOwnKeys`
   (mirrored on load), `id` must be a safe id, `scope` a valid `StudioFilterScope` (own-key-screened
@@ -1317,16 +1419,43 @@ runtime representation to check against.
   `StudioChartConfig` (whose keys are all present, so a bare `===` does not narrow it to a family).
   NOT needed against the closed `StudioChartWidgetConfig`, which narrows natively.
 
-Three closed unions publish a runtime membership list plus a predicate, and all three follow one
+Four closed unions publish a runtime membership list plus a predicate, and all four follow one
 pattern: `as const satisfies readonly Union[]` (which checks element validity), plus a separate
 `AssertAll…Listed` error-tuple lock that fail-closes **completeness** (which `satisfies` alone
 cannot), plus a runtime list-length pin in the tests.
 
-| List                          | Predicate                    | Gates                                                      |
-| :---------------------------- | :--------------------------- | :--------------------------------------------------------- |
-| `STUDIO_CHART_TYPES`          | `isStudioChartType`          | Every `addWidget`/`add_widget` boundary                    |
-| `STUDIO_FILTER_OPERATORS`     | `isStudioFilterOperator`     | `validateFilter`, `addFilter`, the load-boundary screen    |
-| `STUDIO_EXPRESSION_OPERATORS` | `isStudioExpressionOperator` | `isValidExpressionNode` at the persisted-doc load boundary |
+| List                          | Predicate                    | Members | Gates                                                            |
+| :---------------------------- | :--------------------------- | ------: | :--------------------------------------------------------------- |
+| `STUDIO_CHART_TYPES`          | `isStudioChartType`          |      16 | Every `addWidget`/`add_widget` boundary                          |
+| `STUDIO_FILTER_OPERATORS`     | `isStudioFilterOperator`     |      17 | `validateFilter`, `addFilter`, the load-boundary screen          |
+| `STUDIO_EXPRESSION_OPERATORS` | `isStudioExpressionOperator` |      22 | `isValidExpressionNode` at the persisted-doc load boundary       |
+| `STUDIO_RELATIONSHIP_TYPES`   | `isStudioRelationshipType`   |       3 | `isRelationshipSafe` at the load boundary, `screenRelationships` |
+
+**The fourth was the last one holding a runtime list with no compile lock.** `statePersistence.ts`
+carried a bare `new Set(['many-to-one', 'one-to-one', 'many-to-many'])` — no `satisfies`, no
+completeness assertion — so a FOURTH `StudioRelationship['type']` would have compiled cleanly while
+`isRelationshipSafe` silently DROPPED every persisted relationship using it at load. It now follows
+the same three-part pattern as its siblings, from the same file.
+
+**The list-LENGTH pins are runtime tests, and they close what the compile lock cannot.** Completeness
+itself has no runtime representation — a TypeScript union does not exist at runtime — which is why
+the `AssertAll…Listed` locks exist. But a lock passes when a union member is deleted by accident and
+the list is shortened to match, so `widgetTypeGuards.test.ts` pins each list's exact length
+(16 / 17 / 22 / 3). That also makes the "closed N-member union" claims in this document falsifiable
+rather than decorative — the claim that `StudioExpressionOperator` had 23 members stood here for
+several rounds while the type, the runtime list, the client's `ExpressionNodeEditor` option table and
+the evaluator's `switch` all agreed on 22.
+
+**All four lists get near-miss rejection coverage**, not only membership. Each predicate is
+`list.includes(value)`, so asserting `includes(x) === true` for every `x` drawn from that same list
+is a tautology that cannot fail and would keep passing if the list lost half its entries — the
+length pin and the compile lock are what hold the list. What the tests actually exercise is the
+rejection side: the plausible typos a hand-edited or foreign persisted doc carries
+(`'greaterThanOrEquals'`, `'donut-chart'`, `'bar100'`, `'not_equal'`, `'many_to_one'`, `''`),
+non-string values, and that nothing resolves up the prototype chain (`'toString'`, `'constructor'`,
+`'__proto__'`). Only `STUDIO_EXPRESSION_OPERATORS` had that coverage; the other three now share it,
+so the closed unions are held to one standard rather than only the newest one. Each list is also
+pinned for duplicate-free membership.
 
 Publishing the list, not just the type, is the whole point. Each of these was at some stage
 type-only, which forced its consumers to hand-maintain a parallel copy: the AI middleware's
@@ -1342,6 +1471,33 @@ like `isStudioChartType`) since they must also reject a non-string value.
 Unlike an unrecognized widget kind — a legitimate "custom kind, no restriction" case — there are
 no custom chart types, so an unrecognized `chartType` is a hard error at validation boundaries,
 not a permissive pass-through.
+
+#### The widget-field tuples
+
+The same "publish the list, lock it, derive from it" pattern is applied to `StudioWidgetOf`'s FIELD
+NAMES, which five sites were re-enumerating by hand: the reducer's `MERGEABLE_WIDGET_CHANGE_KEYS`
+allow-list, its `unsetFields` denylist and its optional-scalar screen, the wire boundary's
+`updateWidget.changes` per-field checks, and the load boundary's optional-scalar screen. None of the
+five was locked, so adding a field to `StudioWidgetOf` compiled cleanly while `updateWidget`
+silently no-opped on it forever (`MERGEABLE_WIDGET_CHANGE_KEYS.has(key)` is `false`) and neither
+boundary screened it.
+
+Three partition tuples are now the single source those five derive from, split by **value shape**
+because that is what the screening sites branch on: `WIDGET_STRING_FIELDS`
+(`kind`/`title`/`subtitle`/`sourceId`), `WIDGET_TITLE_MODE_FIELDS` (`titleMode`/`subtitleMode`), and
+`WIDGET_OTHER_FIELDS` (`id`/`config`). `STUDIO_WIDGET_FIELDS` composes all three, and
+`AssertAllWidgetFieldsListed` locks the composition against `keyof StudioWidgetOf` — a new field must
+land in exactly one partition or the build fails. `OPTIONAL_STUDIO_WIDGET_FIELDS` is locked the same
+way against the derived `OptionalWidgetField`, by `AssertAllOptionalWidgetFieldsListed`, so making a
+field optional (or required) forces the list to follow.
+
+Two further lists are **derived rather than re-listed**, and so cannot drift from either source:
+`REQUIRED_STUDIO_WIDGET_FIELDS` is `STUDIO_WIDGET_FIELDS` minus the optional set (exactly the
+reducer's `unsetFields` denylist — a widget must never be left without one), and
+`OPTIONAL_WIDGET_STRING_FIELDS` is `WIDGET_STRING_FIELDS` ∩ the optional set (the fields both the
+write boundary's `screenOptionalWidgetScalars` and the load boundary strip on a non-string value,
+rather than dropping the whole widget). The tests pin the derivations, since a derivation bug would
+silently un-screen a field with nothing to compile against.
 
 ### `configKeyValidation.ts` — write-side config-key guards, two levels deep
 
@@ -1383,10 +1539,14 @@ write-side validation style, and are consumed at three boundaries: the wire boun
 controller — see those packages' own `ARCHITECTURE.md`).
 
 **`stripForeignFamilyKeys(config, chartType)`** returns a copy retaining only the keys the chart
-type allows. It is the sanctioned way to reconcile
-[deliberate key retention](#key-retention-across-charttype-switches) with a per-family check, and
-`validateWidget` uses it directly. It inherits the same `Object.hasOwn` fail-closed guard through
-its call to `getAllowedChartConfigKeys`.
+type allows. It is **used by no trust boundary in this package**, deliberately: `validateWidget`
+used to call it, and that made the wire boundary the one place a foreign-family key was deleted
+while `deserializeState` and `applyMutation`'s config merge both preserved it — silently destroying
+exactly what [key retention](#key-retention-across-charttype-switches) exists to keep. All three
+boundaries now preserve. It stays exported for the opposite intent: a host or tool that genuinely
+wants a config REDUCED to one family (a "reset to this chart type's keys" affordance, an export that
+should not carry dormant keys) gets one implementation to call rather than hand-rolling one that
+drifts from `getAllowedChartConfigKeys` — whose `Object.hasOwn` fail-closed guard it inherits.
 
 ### `statePersistence.ts` — the persistence boundary
 
@@ -1444,7 +1604,10 @@ is a legacy pre-versioning doc (v0), and any other non-number is junk the repair
 ignores. Both are `migrateState`'s business.
 
 Past that gate the persisted fields become `doc` (stamping the current `schemaVersion`). The
-screens, in the order they run:
+per-ENTRY screens themselves live in `docScreening.ts` so the factory can apply the identical ones
+(see [the four trust boundaries](#the-four-trust-boundaries)); what stays here is the ORDER they run
+in, the two options only this boundary passes (`stripSessionScopes` and the anchor probes), and the
+three things that cannot move without an import cycle. The screens, in the order they run:
 
 - **`widgets`** — the record's own KEYS are screened against `isSafeKey` and non-record entries
   dropped before anything maps over them. Then per surviving entry:
@@ -1548,7 +1711,10 @@ screens, in the order they run:
     the evaluator resolves it to.
 
   - **`isRelationshipSafe`** requires `id` and all four endpoint ids/fields to be strings, and
-    `type` to be a member of the closed `StudioRelationship['type']` union (held in a `Set`). An
+    `type` to be a member of the closed `StudioRelationship['type']` union — via the shared
+    `isStudioRelationshipType`/`STUDIO_RELATIONSHIP_TYPES` pair, which replaced the bare local
+    `new Set([...])` that had no compile lock behind it (see
+    [the closed-union lists](#widgettypeguardsts--runtime-narrowing-and-closed-union-lists)). An
     unknown `type` FAILS OPEN into the `many-to-one` branch of every join builder and silently
     produces wrong joined rows — the same fail-open class the filter `operator` check closes one
     level up. The `id` check is the one both siblings already made and this predicate omitted:
@@ -1717,13 +1883,18 @@ nothing here touches React or the browser. Nine test files, one per runtime modu
   header comment, since `BUILTIN_WIDGET_DEFAULTS` is file-private — update them if the table
   changes); the custom-kind fallback; fresh-array-per-call; id uniqueness across a tight loop and
   across interleaved factories; `normalizeChartSeries` precedence and reference stability; the
-  per-partition merge semantics and page/`activePageId` reconciliation.
+  per-partition merge semantics and page/`activePageId` reconciliation, plus the `screenDoc` pass
+  over `overrides.doc` (including the two load-boundary behaviours it deliberately does not apply).
 - **`configKeyValidation.test.ts`** — both layers per kind and per chart type, the custom-kind
   `null` case, the total-over-`StudioChartType` behavior, and the fail-closed
   prototype-chain-`chartType` regressions.
-- **`widgetTypeGuards.test.ts`** — each closed-union list against its predicate plus near-miss
-  rejections. Completeness cannot be asserted at runtime (a TS union has no runtime
-  representation), which is why the compile-time locks exist.
+- **`widgetTypeGuards.test.ts`** — each of the four closed-union lists against its predicate, with
+  near-miss rejections, non-string rejections, prototype-chain rejections and a duplicate-free pin
+  for every one; the exact list-LENGTH pins (16 / 17 / 22 / 3); and the derived widget-field lists
+  (`STUDIO_WIDGET_FIELDS`'s partitioning, `REQUIRED_STUDIO_WIDGET_FIELDS`,
+  `OPTIONAL_WIDGET_STRING_FIELDS`). Completeness cannot be asserted at runtime (a TS union has no
+  runtime representation), which is why the compile-time locks exist; the length pins are what catch
+  the one case a lock cannot — a union member deleted by accident with the list shortened to match.
 - **`internalGuards.test.ts`** — `isPlainRecord`'s full contract: object literals, `JSON.parse`
   output, and `Object.create(null)` accepted; `null`/arrays/primitives rejected; and
   `Date`/`RegExp`/`Map`/`Set`/class instances rejected, every one of which the pre-prototype-clause

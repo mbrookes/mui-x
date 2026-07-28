@@ -36,7 +36,7 @@ import type { TranslationGap } from '../gaps';
 import { compileSpec } from '../compile';
 import { collectBindInputs } from '../compile/params';
 import { VegaOverlays, ArcLabelsPlot } from '../overlays';
-import { MAX_FACET_DEPTH, planFacets, resolveGridSize } from '../facet';
+import { FACET_CELL_MARGIN, MAX_FACET_DEPTH, planFacets, resolveGridSize } from '../facet';
 import { ParamInputs } from './ParamInputs';
 import { OverlayLegend } from './OverlayLegend';
 import { SizeLegend } from './SizeLegend';
@@ -174,12 +174,6 @@ function facetAxisTitle(def: VegaChannelDef | undefined): string | undefined {
   }
   return parts.length > 0 ? parts.join(' of ') : undefined;
 }
-
-// A uniform drawing-area margin for every trellis cell so their plot areas line
-// up even though only the edge cells draw axis labels (matching Vega-Lite, where
-// faceted cells share one x/y axis). The left/bottom reserve room for the shared
-// axis labels; inner cells keep the space empty.
-const FACET_CELL_MARGIN = { top: 6, right: 8, bottom: 34, left: 52 };
 
 /** Vega-Lite's default band `step` (px per discrete category) when none is given. */
 const VEGA_DEFAULT_STEP = 20;
@@ -784,6 +778,14 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
           <div
             style={{
               display: 'flex',
+              // `writing-mode: vertical-rl` rotates the flex axes: `row` now runs
+              // top-to-bottom, so the vertical centering this title wants is
+              // `justifyContent` (main axis), not `alignItems` (which centers it
+              // horizontally in its own 22px-wide column). With `alignItems`
+              // alone the text sat at the main-axis start — and the extra
+              // `rotate(180deg)` flipped that start to the BOTTOM, stranding
+              // "population" in the grid's bottom-left corner.
+              justifyContent: 'center',
               alignItems: 'center',
               fontSize: 12,
               padding: '0 2px',
@@ -1138,6 +1140,25 @@ function SingleViewChart(props: VegaLiteChartProps) {
     ? [dropAutoSize(compiled.yAxis.config, cell?.margin?.left)]
     : undefined;
 
+  // x-charts subtracts the axis's own width/height from the drawing area ON TOP
+  // OF the chart margin, so a cell that hands the same allowance to both (the
+  // `dropAutoSize` calls above pass `margin.left`/`margin.bottom` as the axis
+  // size, precisely so the axis's label-fit measurement has real room) spends it
+  // twice and halves its own plot. Measured on `trellis_bar`: a 431px cell with
+  // a 108px allowance put the plot's left edge at 217px, leaving 205px of plot
+  // where Vega draws 468px. The axis size is the half that both reserves space
+  // and informs label fitting, so it keeps the allowance and the margin drops to
+  // zero on that side. A hidden axis (`hideYAxis`/`hideXAxis` on inner cells)
+  // still contributes its width, so this holds for every cell in the grid and
+  // the edge/inner difference stays exactly `cellMargin.left - innerLeftMargin`.
+  const cellMarginProp = cell?.margin
+    ? {
+        ...cell.margin,
+        ...(yAxis ? { left: 0 } : null),
+        ...(xAxis ? { bottom: 0 } : null),
+      }
+    : cell?.margin;
+
   // Scale-bound interval selections enable gesture zoom/pan (the axis configs
   // carry `zoom: true`, read by the Premium provider). Clip the plotting area
   // so zoomed/panned marks don't overflow the drawing area, mirroring the
@@ -1251,7 +1272,7 @@ function SingleViewChart(props: VegaLiteChartProps) {
       colors={compiled.colors.slice()}
       width={resolvedWidth}
       height={resolvedHeight}
-      margin={cell?.margin}
+      margin={cellMarginProp}
     >
       <ChartsWrapper
         legendPosition={legendLayout?.position}

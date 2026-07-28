@@ -428,7 +428,15 @@ describe('scales & axes', () => {
           y: { field: 'v', type: 'quantitative', scale: { nice: true } },
         },
       });
-      expect(compiled.yAxis?.config.domainLimit).to.equal('nice');
+      // The wrapper nices linear domains itself (a `domainLimit` FUNCTION) so the
+      // rounding matches Vega's fixed d3 rule rather than x-charts' tick-count-
+      // relative one, which rounded the same data coarser in a small cell.
+      const limit = compiled.yAxis?.config.domainLimit;
+      expect(typeof limit).to.equal('function');
+      // d3's nice over a count peaking at 113 rounds to 120, not 200.
+      expect(
+        (limit as (a: number, b: number) => { min: number; max: number })(0, 113),
+      ).to.deep.equal({ min: 0, max: 120 });
       expect(compiled.gaps.some((g) => g.code === 'scale:nice-count')).to.equal(false);
     });
 
@@ -441,7 +449,7 @@ describe('scales & axes', () => {
           y: { field: 'v', type: 'quantitative', scale: { nice: 10 } },
         },
       });
-      expect(compiled.yAxis?.config.domainLimit).to.equal('nice');
+      expect(typeof compiled.yAxis?.config.domainLimit).to.equal('function');
       const gap = compiled.gaps.find((g) => g.code === 'scale:nice-count');
       expect(gap?.severity).to.equal('partial');
     });
@@ -552,7 +560,14 @@ describe('scales & axes', () => {
         },
       });
       expect((compiled.yAxis?.config as { min?: number }).min).to.equal(undefined);
-      expect(compiled.yAxis?.config.domainLimit).to.equal(undefined);
+      // Still nice-rounded (Vega nices regardless of `zero`), but with no zero
+      // pin: an extent well clear of the origin keeps its own lower bound.
+      const limit = compiled.yAxis?.config.domainLimit as (
+        a: number,
+        b: number,
+      ) => { min: number; max: number };
+      expect(typeof limit).to.equal('function');
+      expect(limit(46, 240)).to.deep.equal({ min: 40, max: 240 });
     });
 
     it('sets reverse from scale.reverse', () => {

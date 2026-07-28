@@ -1145,12 +1145,41 @@ function resolveChannelAxis(
     }
   }
 
+  // Take over the nice rounding on linear scales. x-charts' built-in `'nice'`
+  // rounds against the tick count the axis can FIT, so the identical data rounds
+  // coarser in a small composite cell than in a full-size chart; Vega always
+  // nices with d3's fixed count of 10. Handing x-charts a `domainLimit` FUNCTION
+  // is what makes this safe: x-charts invokes it with the extent IT computed —
+  // already stacked — so a stacked bar/area still nices against its true total.
+  // Computing a `max` here from the raw field values instead would clip every
+  // stack to its tallest single segment.
+  //
+  // The zero pin is applied inside the function so the rounding sees the same
+  // zero-based extent Vega rounds (Vega zeroes first, then nices); `min`/`max`
+  // below still win afterwards, and agree with what the function produced.
+  type DomainLimit = NonNullable<(XAxis | YAxis)['domainLimit']>;
+  const niceLimit: DomainLimit | undefined =
+    scaleType === 'linear' && domainLimit !== 'strict'
+      ? (dataMin, dataMax) => {
+          let lo = Number(dataMin.valueOf());
+          let hi = Number(dataMax.valueOf());
+          if (zeroMin !== undefined) {
+            lo = Math.min(zeroMin, lo);
+          }
+          if (zeroMax !== undefined) {
+            hi = Math.max(zeroMax, hi);
+          }
+          const nice = niceExtent(lo, hi);
+          return nice ? { min: nice[0], max: nice[1] } : { min: lo, max: hi };
+        }
+      : undefined;
+
   const config = {
     ...commonConfig,
     scaleType,
     min: explicitMin ?? zeroMin,
     max: explicitMax ?? zeroMax,
-    domainLimit,
+    domainLimit: niceLimit ?? domainLimit,
     // The symlog scale's linear-around-zero threshold (`scale.constant`) maps
     // straight to x-charts' symlog `constant`; Vega-Lite only reads it on
     // symlog, so it is ignored for other scale types.
@@ -1169,6 +1198,65 @@ function resolveChannelAxis(
     field,
     hasExplicitDomain: explicitMin !== undefined || explicitMax !== undefined,
   };
+}
+
+// d3's tick sizing, which Vega-Lite's `nice` rounding is built on. Reproduced
+// here (rather than reused from x-charts) because the two disagree in a way that
+// shows up as squashed marks: x-charts' `domainLimit: 'nice'` rounds relative to
+// the tick count the axis can FIT, so the same data in a small composite cell
+// rounds far coarser than in a full-size chart — a `repeat_histogram` cell whose
+// counts peak at 113 rounded up to 200 (bars at ~56% height) where Vega drew
+// 120. Vega always nices with d3's default count of 10 regardless of pixel size.
+const E10 = Math.sqrt(50);
+const E5 = Math.sqrt(10);
+const E2 = Math.sqrt(2);
+const NICE_TICK_COUNT = 10;
+
+function tickIncrement(start: number, stop: number, count: number): number {
+  const step = (stop - start) / Math.max(0, count);
+  const power = Math.floor(Math.log10(step));
+  const error = step / 10 ** power;
+  let factor = 1;
+  if (error >= E10) {
+    factor = 10;
+  } else if (error >= E5) {
+    factor = 5;
+  } else if (error >= E2) {
+    factor = 2;
+  }
+  return power >= 0 ? factor * 10 ** power : -(10 ** -power) / factor;
+}
+
+/**
+ * d3's `nice`: widen [start, stop] outward to the round values implied by a
+ * tick step, iterating until the step stops changing (rounding one end can
+ * change the span, and so the step). Returns the input unchanged for a degenerate
+ * or non-finite extent, so a single-value or empty channel is left to x-charts.
+ */
+function niceExtent(start: number, stop: number): [number, number] | undefined {
+  if (!Number.isFinite(start) || !Number.isFinite(stop) || start === stop) {
+    return undefined;
+  }
+  let lo = start;
+  let hi = stop;
+  let prestep: number | undefined;
+  for (let i = 0; i < 10; i += 1) {
+    const step = tickIncrement(lo, hi, NICE_TICK_COUNT);
+    if (step === prestep) {
+      return [lo, hi];
+    }
+    if (step > 0) {
+      lo = Math.floor(lo / step) * step;
+      hi = Math.ceil(hi / step) * step;
+    } else if (step < 0) {
+      lo = Math.ceil(lo * step) / step;
+      hi = Math.floor(hi * step) / step;
+    } else {
+      return undefined;
+    }
+    prestep = step;
+  }
+  return [lo, hi];
 }
 
 /**

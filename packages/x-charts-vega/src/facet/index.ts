@@ -528,6 +528,17 @@ const AXIS_LABEL_CHAR_PX = 7;
 const CELL_Y_AXIS_ALLOWANCE_BASE = 38;
 
 /**
+ * The uniform drawing-area margin every trellis cell keeps, so the cells' plots
+ * line up even though only the edge cells draw axis labels (matching Vega-Lite,
+ * where faceted cells share one x/y axis). Lives here rather than in the shell
+ * because `vegaCellSize` has to budget the same numbers when it sizes a cell —
+ * the shell imports it back. The x allowance above deliberately equals
+ * `bottom + top`, so a cell's height already covers both; the y allowance is the
+ * LEFT side only, and `vegaCellSize` adds `right` explicitly.
+ */
+export const FACET_CELL_MARGIN = { top: 6, right: 8, bottom: 34, left: 52 };
+
+/**
  * The longest tick-label length (chars) a shared y-axis will show, for margin
  * estimation. Nominal/ordinal axes measure their actual category strings; a
  * continuous quantitative axis has no fixed category array, but its tick
@@ -651,7 +662,11 @@ function vegaCellSize(
   const plotHeight = vegaAxisPlotSize(sizing?.specHeight, sizing?.yDef, rows, sizing?.mark);
   const yMargin = yAxisAllowance(sizing?.yDef, rows);
   return {
-    width: Math.max(MIN_CELL_WIDTH, plotWidth + yMargin),
+    // The cell has to cover the plot, the y axis on its left AND the margin the
+    // shell keeps on its right — budgeting only the axis side left every cell's
+    // plot exactly `FACET_CELL_MARGIN.right` short of Vega's (measured: a
+    // `trellis_bar` cell rendered a 315px plot against Vega's 323px).
+    width: Math.max(MIN_CELL_WIDTH, plotWidth + yMargin + FACET_CELL_MARGIN.right),
     height: Math.max(MIN_CELL_HEIGHT, plotHeight + CELL_X_AXIS_ALLOWANCE),
     yAxisMargin: yMargin,
   };

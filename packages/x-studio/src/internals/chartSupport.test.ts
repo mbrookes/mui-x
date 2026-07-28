@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   analyzeChartSupport,
   chartTypeSupportsMeasure,
+  getChartSupportMessage,
   resolveChartRowsForAggregation,
   CHART_TYPE_MEASURE_SUPPORT,
 } from './chartSupport';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from './localeText';
 import { MAX_ENTRIES_PER_ROWS } from './rowCacheLru';
 import type {
   StudioDataField,
@@ -403,8 +405,23 @@ describe('analyzeChartSupport — measure expression fields', () => {
     },
   );
 
-  it.each(['scatter', 'heatmap', 'funnel', 'sankey', 'gantt'])(
-    'reports measure_not_supported on %s rather than letting it aggregate nothing',
+  // Heatmap / funnel / sankey aggregate through the `internals/chartShapes/*` reducers, which
+  // used to read `row[valueField]` directly and so could not evaluate a measure at all. They now
+  // bucket rows per cell / stage / (source, target) pair and evaluate the measure over each
+  // bucket through the same shared `resolveMeasureAggregate`, so they answer `true` here.
+  it.each(['heatmap', 'funnel', 'sankey'])(
+    'supports a measure on %s, which now aggregates by bucket',
+    (chartType) => {
+      const result = analyze(chartType, ['aov']);
+      expect(result.supported).toBe(true);
+      expect(result.fieldOwners?.has('aov')).toBe(false);
+    },
+  );
+
+  // Scatter and gantt stay unsupported, and not for want of an implementation: both plot one
+  // mark per RAW row, so a value that only exists per bucket has no mark to attach to.
+  it.each(['scatter', 'gantt'])(
+    'reports measure_not_supported on %s, which plots raw per-row values',
     (chartType) => {
       const result = analyze(chartType, ['aov']);
       expect(result.supported).toBe(false);
@@ -446,6 +463,19 @@ describe('analyzeChartSupport — measure expression fields', () => {
     const result = analyze('bar', ['aov', 'credit'], { relationships: [rel] });
     expect(result.supported).toBe(false);
     expect(result.reason).toBe('mixed_cross_source_fields');
+  });
+
+  it('keeps the English support message and the locale string in sync', () => {
+    // Two surfaces render this reason: the canvas overlay and the compose-drawer alert, both
+    // through `localeText.chartUnsupportedMeasure`; the AI/insight and test paths read the
+    // non-localized `getChartSupportMessage`. They must not drift, and the message must not
+    // collapse back into the generic "not supported yet" it used to fall through to.
+    expect(getChartSupportMessage('measure_not_supported')).toBe(
+      DEFAULT_STUDIO_LOCALE_TEXT.chartUnsupportedMeasure,
+    );
+    expect(getChartSupportMessage('measure_not_supported')).not.toBe(
+      DEFAULT_STUDIO_LOCALE_TEXT.chartUnsupportedDefault,
+    );
   });
 
   it('leaves non-measure expression fields and plain fields alone', () => {

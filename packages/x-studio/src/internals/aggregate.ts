@@ -48,6 +48,25 @@ import { evaluateMeasure } from '../utils/expressionEvaluator';
  * `count_non_null` is deliberately NOT part of the persisted `StudioKpiAggregation` /
  * `StudioGridSummaryAggregation` unions: it exists here so the semantic has a name and
  * a single implementation, and so no path can quietly re-use `count` to mean it.
+ *
+ * Making it USER-SELECTABLE is a bigger change than widening those two unions, and widening them
+ * alone is worse than leaving it internal — a doc carrying `count_non_null` would then LOAD and
+ * be silently mis-answered. Everything below has to move in the same commit:
+ * - `utils/gridSummary.aggregationLabel` ends in `default: return ''`, so a grid summary cell
+ *   would render its number with no label at all;
+ * - `utils/gridSummary`'s non-numeric fallback (`agg !== 'count' && agg !== 'count_distinct'`)
+ *   silently downgrades anything else to `count` on a string column — a DIFFERENT number than
+ *   the user asked for, which is exactly the finding-M8 class this module exists to prevent;
+ * - `internals/chartTypeRegistry.AggFn` and `server/aggregationPushdown` are a separate union
+ *   and a separate client-only allow-list. Note the wire protocol's `count` already IS
+ *   `COUNT(column)`, so `count_non_null` is the one count that could push down faithfully —
+ *   `isClientOnlyAggFn` would need to say so rather than inherit `count`'s exclusion;
+ * - `components/StudioComposeDrawer/{KpiSetupPanel,GridSetupPanel}` and
+ *   `StudioExpressionFieldDialog/ExpressionNodeEditor` own the option lists, and
+ *   `x-studio-ai-middleware/studioAITools` enumerates the fns for the model.
+ * The KPI (`kpiUtils.computeAggregate`), the grid group-by (`gridGrouping.aggregateValues`) and
+ * the expression evaluator already route through `aggregateCellValues` and would answer
+ * correctly today; `StudioMapWidget` is unaffected (its own `SAFE_MAP_AGGREGATIONS` allow-list).
  */
 export type AggregateFn =
   | 'sum'

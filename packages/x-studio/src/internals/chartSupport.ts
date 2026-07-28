@@ -207,11 +207,13 @@ function findDirectFieldOwner(
  * - `true` — bar / line / area / pie / donut / mixed route through the three generic aggregators
  *   (`aggregators.ts`), which all take `expressionFields` and evaluate a measure per bucket; gauge
  *   evaluates it over the whole row set in `renderGauge` (`chartTypeDefs.tsx`), exactly like the
- *   KPI card does.
+ *   KPI card does. Heatmap / funnel / sankey aggregate through the `internals/chartShapes/*`
+ *   reducers, which now bucket rows per cell / stage / (source, target) pair and evaluate the
+ *   measure over each bucket through the same shared `resolveMeasureAggregate`.
  * - `false` — scatter plots RAW per-row coordinates, so a value that only exists per bucket has
- *   no coordinate to plot at all; gantt likewise reads raw per-row start/end/label values.
- *   Heatmap / funnel / sankey aggregate through the `internals/chartShapes/*` reducers, which read
- *   `row[valueField]` directly and have no measure path yet — a measure there accumulates nothing.
+ *   no coordinate to plot at all; gantt likewise reads raw per-row start/end/label values. These
+ *   two are not a missing implementation but a property of the families: they have no buckets to
+ *   aggregate a measure over.
  *
  * Offering a measure to a `false` family is what the `'measure_not_supported'` reason exists to
  * report: without it the picker offered every measure everywhere and the chart then drew a
@@ -230,10 +232,10 @@ export const CHART_TYPE_MEASURE_SUPPORT = {
   donut: true,
   mixed: true,
   gauge: true,
+  heatmap: true,
+  funnel: true,
+  sankey: true,
   scatter: false,
-  heatmap: false,
-  funnel: false,
-  sankey: false,
   gantt: false,
 } satisfies Record<StudioChartType, boolean>;
 
@@ -276,8 +278,14 @@ export function getChartSupportMessage(reason: ChartSupportReason): string {
       return 'This chart configuration mixes cross-source fields in a way that does not have a single safe aggregation grain yet.';
     case 'scatter_cross_source_not_supported':
       return 'Scatter charts do not support cross-source field combinations yet.';
+    // Kept verbatim in sync with `localeText.chartUnsupportedMeasure` — this English string is
+    // what non-localized callers (AI insight generation, tests) read, while the two UI surfaces
+    // (`StudioChartWidget`, `ChartSetupPanel`) render the locale key. Since heatmap / funnel /
+    // sankey gained a measure path, only TWO situations still reach this reason, and the wording
+    // names both: a measure placed in a DIMENSION slot (any family), and a measure on scatter /
+    // gantt, which plot one mark per raw row and so have no bucket to evaluate it over.
     case 'measure_not_supported':
-      return 'This chart type cannot use a measure field here. Measures have no per-row value, so they can only be used as the measure of a chart family that aggregates by bucket.';
+      return 'A measure field has no per-row value, so it can only be a chart value — never a category axis, split-by, colour or size — and scatter and Gantt charts, which plot one mark per raw row, cannot use one at all.';
     default:
       return 'This chart configuration is not supported yet.';
   }

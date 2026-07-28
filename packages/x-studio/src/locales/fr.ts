@@ -975,6 +975,8 @@ export const frLocaleText: Partial<StudioLocaleText> = {
     "Cette configuration de graphique mélange des champs provenant de différentes sources d'une manière qui ne dispose pas encore d'un seul grain d'agrégation sécurisé.",
   chartUnsupportedScatterCrossSource:
     'Les nuages ​​de points ne prennent pas encore en charge les combinaisons de champs entre sources.',
+  chartUnsupportedMeasure:
+    "Un champ de mesure n'a pas de valeur par ligne : il ne peut donc servir que de valeur d'un graphique — jamais d'axe de catégories, de répartition, de couleur ou de taille — et pas du tout dans les nuages de points ni les diagrammes de Gantt, qui tracent une marque par ligne brute.",
   chartUnsupportedDefault: "Cette configuration de graphique n'est pas encore prise en charge.",
   chartForecastSeriesLabel: 'Prévision',
 

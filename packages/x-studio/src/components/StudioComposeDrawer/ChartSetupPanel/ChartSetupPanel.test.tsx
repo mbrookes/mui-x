@@ -1684,13 +1684,25 @@ describe('ChartSetupPanel — measure expression fields', () => {
     );
   });
 
-  it('hides a measure from the Y measure picker of a chart family that cannot evaluate it', async () => {
-    // Heatmap aggregates through `chartShapes/heatmap.ts`, which reads `row[valueField]` — a
-    // measure has no per-row value, so every cell would accumulate nothing.
+  it('offers a measure as the heatmap colour value, which now aggregates by cell', async () => {
+    // `chartShapes/heatmap.ts` used to read `row[valueField]` — a measure has no per-row value,
+    // so every cell accumulated nothing and the picker had to hide it. It now buckets each
+    // cell's rows and evaluates the measure over them, so the picker offers it again.
     setConfig({ chartType: 'heatmap', xField: 'id', heatYField: 'id' });
     const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
 
     const names = await optionNames(user, 'Value / color field');
+    expect(names).toEqual(expect.arrayContaining([expect.stringContaining('Total')]));
+    expect(names).toEqual(expect.arrayContaining([expect.stringContaining('Avg order value')]));
+  });
+
+  it('still hides a measure from the Y measure picker of a family that cannot evaluate it', async () => {
+    // Scatter plots one mark per RAW row, so a value that only exists per bucket has no
+    // coordinate to plot — it is not a missing implementation but a property of the family.
+    setConfig({ chartType: 'scatter', xField: 'id' });
+    const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
+
+    const names = await optionNames(user, 'Y field (numeric)');
     expect(names).toEqual(expect.arrayContaining([expect.stringContaining('Total')]));
     expect(names.join('|')).not.toContain('Avg order value');
   });

@@ -2608,6 +2608,58 @@ describe('<StudioChartWidget />', () => {
         screen.queryByText(DEFAULT_STUDIO_LOCALE_TEXT.chartUnsupportedMixedCrossSource),
       ).toBeNull();
     });
+
+    // `measure_not_supported` used to fall through the reason → locale-key switch to
+    // `chartUnsupportedDefault` ("This chart configuration is not supported yet."), which is
+    // true but says nothing about WHY. It has its own string now, naming the two situations
+    // that still reach it: a measure in a dimension slot, and a measure on scatter/gantt.
+    it('shows the measure-specific message, not the generic one, for a measure on scatter', () => {
+      const measureSource: StudioDataSource = {
+        id: 'orders',
+        label: 'Orders',
+        fields: [
+          { id: 'region', label: 'Region', type: 'string' },
+          { id: 'total', label: 'Total', type: 'number' },
+        ],
+        rows: [{ id: 'o1', region: 'US', total: 100 }],
+      };
+
+      const widget: StudioWidgetOf<'chart'> = {
+        id: 'chart-measure-scatter',
+        kind: 'chart',
+        title: 'Scatter of a measure',
+        sourceId: 'orders',
+        // Scatter plots one mark per RAW row, so a value that only exists per bucket has no
+        // coordinate to plot at all — the one remaining "chart family" case for this reason.
+        config: { chartType: 'scatter', xField: 'region', yField: 'aov' },
+      };
+
+      mockState = createState({
+        widgets: { [widget.id]: widget },
+        dataSources: { orders: measureSource },
+        expressionFields: [
+          {
+            id: 'aov',
+            label: 'Avg order value',
+            sourceId: 'orders',
+            isMeasure: true,
+            type: 'number',
+            expression: {
+              operator: 'divide',
+              inputs: [
+                { id: 'total', aggregation: 'sum' },
+                { id: 'total', aggregation: 'count' },
+              ],
+            },
+          },
+        ],
+      });
+
+      renderChart(widget, measureSource);
+
+      expect(screen.getByText(DEFAULT_STUDIO_LOCALE_TEXT.chartUnsupportedMeasure)).toBeVisible();
+      expect(screen.queryByText(DEFAULT_STUDIO_LOCALE_TEXT.chartUnsupportedDefault)).toBeNull();
+    });
   });
 });
 

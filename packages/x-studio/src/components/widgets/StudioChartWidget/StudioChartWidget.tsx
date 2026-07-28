@@ -819,6 +819,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
                 return localeText.chartUnsupportedMixedCrossSource;
               case 'scatter_cross_source_not_supported':
                 return localeText.chartUnsupportedScatterCrossSource;
+              case 'measure_not_supported':
+                return localeText.chartUnsupportedMeasure;
               default:
                 return localeText.chartUnsupportedDefault;
             }

@@ -1205,6 +1205,15 @@ export interface StudioLocaleText {
   chartUnsupportedFieldNotFound: string;
   chartUnsupportedMixedCrossSource: string;
   chartUnsupportedScatterCrossSource: string;
+  /**
+   * Shown when a measure expression field is used somewhere it cannot be evaluated. Two
+   * situations reach it: a measure placed in a DIMENSION slot (category axis, split-by, colour,
+   * size, heatmap row axis, sankey target, gantt label/date), and a measure used as the value of
+   * scatter or gantt — the two families that plot one mark per raw row and so have no bucket to
+   * aggregate it over. Every other family (including heatmap, funnel and sankey) evaluates a
+   * measure per bucket; see `internals/chartSupport.CHART_TYPE_MEASURE_SUPPORT`.
+   */
+  chartUnsupportedMeasure: string;
   chartUnsupportedDefault: string;
   /** Label for the forecast trend series in the chart legend */
   chartForecastSeriesLabel: string;
@@ -2422,6 +2431,10 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
     'This chart configuration mixes cross-source fields in a way that does not have a single safe aggregation grain yet.',
   chartUnsupportedScatterCrossSource:
     'Scatter charts do not support cross-source field combinations yet.',
+  // Kept verbatim in sync with `chartSupport.getChartSupportMessage('measure_not_supported')`,
+  // the non-localized string the AI/insight and test paths read.
+  chartUnsupportedMeasure:
+    'A measure field has no per-row value, so it can only be a chart value — never a category axis, split-by, colour or size — and scatter and Gantt charts, which plot one mark per raw row, cannot use one at all.',
   chartUnsupportedDefault: 'This chart configuration is not supported yet.',
   chartForecastSeriesLabel: 'Forecast',
 

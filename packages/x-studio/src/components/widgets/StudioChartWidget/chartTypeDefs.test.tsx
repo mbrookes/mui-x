@@ -725,7 +725,10 @@ describe('chart-family renderers consult allChartData before bailing to EmptyCha
       aggregateHeatmapSpy.mockReturnValue({
         xLabels: ['a'],
         yLabels: ['b'],
-        cells: new Map([['a b', 1]]),
+        // `\x00` written as an ESCAPE, never as a literal NUL byte: a raw NUL is a legal JS
+        // string character, so tests pass either way, but it makes git treat this source file
+        // as binary (no diffs, no `git grep`).
+        cells: new Map([['a\x00b', 1]]),
         minValue: 1,
         maxValue: 1,
       } as unknown);

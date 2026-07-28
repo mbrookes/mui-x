@@ -1,3 +1,6 @@
+import type { StudioExpressionField } from '../../models';
+import { findMeasureExpressionField, resolveMeasureAggregate } from '../aggregate';
+
 type Row = Record<string, unknown>;
 
 /** Node + link data shaped for the `@mui/x-charts-pro` Sankey chart. */
@@ -25,31 +28,75 @@ export interface SankeyAggregateData {
  * @param sourceField - Field providing the source ("from") node id.
  * @param targetField - Field providing the target ("to") node id.
  * @param valueField - Numeric field summed per source→target pair.
+ * @param expressionFields - See the parameter's own doc: enables a MEASURE `valueField`.
  */
 export function aggregateSankey(
   rows: Row[],
   sourceField: string,
   targetField: string,
   valueField: string,
+  /**
+   * The dashboard's expression fields, so a MEASURE `valueField` can be evaluated.
+   *
+   * A measure (`isMeasure: true`) has NO per-row value — `enrichRowsWithExpressions` deliberately
+   * skips measures, so `row[measureId]` is `undefined` on every row. Read per-row (as this reducer
+   * used to), `Number(undefined)` is `NaN`, so the `Number.isFinite` guard below dropped EVERY row
+   * and the chart rendered nothing at all. When this is supplied and `valueField` resolves to a
+   * measure, each (source, target) pair keeps its contributing ROWS and the measure is evaluated
+   * over them via the shared `resolveMeasureAggregate` — the same entry point the KPI, the pivot
+   * and the generic chart aggregators use.
+   *
+   * The `> 0` requirement is unchanged and simply moves after the evaluation: the Sankey layout
+   * has no way to draw a zero-or-negative-width ribbon, so a pair whose measure is `null`
+   * (unevaluable) or non-positive is dropped exactly as a non-positive raw weight already was.
+   */
+  expressionFields?: StudioExpressionField[],
 ): SankeyAggregateData {
+  const measure = findMeasureExpressionField(valueField, expressionFields);
+
   // 1. Sum values per unique (source, target) pair, preserving first-seen order.
   const linkMap = new Map<string, { source: string; target: string; value: number }>();
+  // A measure's pairs keep their contributing ROWS instead, in the same first-seen order, and are
+  // evaluated once each into `linkMap` below (see the `expressionFields` param).
+  const pairRows = measure
+    ? new Map<string, { source: string; target: string; rows: Row[] }>()
+    : undefined;
   for (const row of rows) {
     const source = String(row[sourceField] ?? '');
     const target = String(row[targetField] ?? '');
     if (!source || !target || source === target) {
       continue;
     }
+    const key = `${source}\x00${target}`;
+    if (pairRows) {
+      const bucket = pairRows.get(key);
+      if (bucket) {
+        bucket.rows.push(row);
+      } else {
+        pairRows.set(key, { source, target, rows: [row] });
+      }
+      continue;
+    }
     const value = Number(row[valueField]);
     if (!Number.isFinite(value) || value <= 0) {
       continue;
     }
-    const key = `${source}\x00${target}`;
     const existing = linkMap.get(key);
     if (existing) {
       existing.value += value;
     } else {
       linkMap.set(key, { source, target, value });
+    }
+  }
+  if (pairRows) {
+    // Evaluated ONCE per pair — the DAG pass below iterates `linkMap` a single time and never
+    // re-reads a weight, so materializing here is all the memoization this shape needs.
+    for (const [key, pair] of pairRows) {
+      const value = resolveMeasureAggregate(pair.rows, valueField, expressionFields!);
+      if (value === null || !Number.isFinite(value) || value <= 0) {
+        continue;
+      }
+      linkMap.set(key, { source: pair.source, target: pair.target, value });
     }
   }
 

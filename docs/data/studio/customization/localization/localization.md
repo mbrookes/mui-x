@@ -604,6 +604,7 @@ These are the pre-filled suggestion chips shown when the AI chat panel is first 
 | `chartUnsupportedFieldNotFound`      | `'One or more fields are not available in the current data source'`  |
 | `chartUnsupportedMixedCrossSource`   | `'Mixed charts cannot combine fields from different data sources'`   |
 | `chartUnsupportedScatterCrossSource` | `'Scatter charts cannot combine fields from different data sources'` |
+| `chartUnsupportedMeasure`            | `'A measure field can only be used as a chart value'`                |
 | `chartUnsupportedDefault`            | `'This chart configuration is not supported'`                        |
 | `chartForecastSeriesLabel`           | `'Forecast'`                                                         |
 

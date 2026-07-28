@@ -1,4 +1,9 @@
-import { coerceAggregateValue } from '../aggregate';
+import type { StudioExpressionField } from '../../models';
+import {
+  coerceAggregateValue,
+  findMeasureExpressionField,
+  resolveMeasureAggregate,
+} from '../aggregate';
 import { detectAggregationType } from '../aggregators';
 
 type Row = Record<string, unknown>;
@@ -151,6 +156,7 @@ export interface FunnelStagesResult {
  * @param categoryOrderOverride - Explicit `funnelCategoryOrder` config, if set.
  * @param fieldOrderedValues - The stage field's `orderedValues`, used as the
  *   category order when `sortBy === 'category'` and no explicit override is set.
+ * @param expressionFields - See the parameter's own doc: enables a MEASURE `valueField`.
  */
 export function buildFunnelStages(
   rows: Row[],
@@ -160,6 +166,28 @@ export function buildFunnelStages(
   sortBy: string | undefined,
   categoryOrderOverride: string[] | undefined,
   fieldOrderedValues: string[] | undefined,
+  /**
+   * The dashboard's expression fields, so a MEASURE `valueField` can be evaluated.
+   *
+   * A measure (`isMeasure: true`) has NO per-row value — `enrichRowsWithExpressions` deliberately
+   * skips measures, so `row[measureId]` is `undefined` on every row. Read per-row (as this reducer
+   * used to), `coerceAggregateValue` rejected every cell and every stage summed to a flat 0, so
+   * the funnel drew equal-width sections carrying a confident zero. When this is supplied and
+   * `valueField` resolves to a measure, each stage keeps its contributing ROWS and the measure is
+   * evaluated over them via the shared `resolveMeasureAggregate` — the same entry point the KPI,
+   * the pivot and the generic chart aggregators use.
+   *
+   * A stage whose measure cannot be evaluated at all (`resolveMeasureAggregate` → `null`) is
+   * OMITTED rather than plotted at 0. `FunnelStage.value` is a `number` because a funnel section
+   * must have a width, and a fabricated 0 is not merely a wrong bar here: `labelFormat:
+   * 'percent' | 'conversion'` divides by the neighbouring stage, so a placeholder 0 publishes a
+   * precise "0% conversion" for a stage that was never measured. Omitting it leaves the stage out
+   * of the conversion chain instead of asserting a number about it; when NO stage is measurable
+   * the caller's existing `stages.length === 0` branch shows the shared "no data" overlay.
+   *
+   * `'count'` is unaffected: it tallies rows and ignores the measure entirely.
+   */
+  expressionFields?: StudioExpressionField[],
 ): FunnelStagesResult {
   // Auto-detect: fall back to counting rows only when the value field has values but NONE
   // of them is numeric. Delegated to the shared `detectAggregationType` rather than
@@ -168,12 +196,33 @@ export function buildFunnelStages(
   // numbers downgraded a genuine sum to a row count; and its `Number(v)` test scored an
   // empty-string cell as a numeric `0` (`Number('') === 0`), where `coerceAggregateValue`
   // correctly treats `''` as non-numeric.
-  const useCount = yAggregation === 'count' || detectAggregationType(rows, valueField) === 'count';
+  //
+  // A MEASURE `valueField` is resolved BEFORE the detection: `detectAggregationType` reads
+  // `row[valueField]`, which is `undefined` on every row for a measure, so it would report "no
+  // non-null values" and leave the configured fn alone — harmless today, but the explicit branch
+  // states the intent rather than relying on that coincidence.
+  const measure =
+    yAggregation === 'count' ? undefined : findMeasureExpressionField(valueField, expressionFields);
+  const useCount =
+    yAggregation === 'count' || (!measure && detectAggregationType(rows, valueField) === 'count');
   // Aggregate: sum value (or count rows) per stage category
   const stageMap = new Map<string, number>();
+  // A measure's stages keep their contributing ROWS instead (see the `expressionFields` param).
+  // Insertion order is first-seen, matching `stageMap`, so the `'natural'` ordering below is
+  // unaffected by which of the two paths filled it.
+  const measureRows = measure ? new Map<string, Row[]>() : undefined;
   for (const row of rows) {
     const label = String(row[stageField] ?? '');
     if (!label) {
+      continue;
+    }
+    if (measureRows) {
+      const bucket = measureRows.get(label);
+      if (bucket) {
+        bucket.push(row);
+      } else {
+        measureRows.set(label, [row]);
+      }
       continue;
     }
     const prev = stageMap.get(label) ?? 0;
@@ -185,6 +234,18 @@ export function buildFunnelStages(
       // === 0` inflating the sum. The label is still registered unconditionally so a stage whose
       // measures are all null/empty stays present (at 0) rather than disappearing (finding 2.17).
       stageMap.set(label, prev + (coerceAggregateValue(row[valueField]) ?? 0));
+    }
+  }
+  if (measureRows) {
+    // Evaluated ONCE per stage, into `stageMap`. The `'category'` ordering below breaks ties with
+    // `b.value - a.value` from inside a sort comparator, so an un-memoized evaluation here would
+    // re-walk each stage's rows O(n log n) times — the same reason the generic aggregators cache
+    // their per-bucket measure values.
+    for (const [label, bucketRows] of measureRows) {
+      const value = resolveMeasureAggregate(bucketRows, valueField, expressionFields!);
+      if (value !== null) {
+        stageMap.set(label, value);
+      }
     }
   }
   // Sort: 'natural' = insertion order; 'category' = orderedValues order (pre-sort, pass

@@ -612,6 +612,24 @@ function renderMixed(ctx: ChartRenderContext<'mixed'>): React.ReactElement {
   );
 }
 
+/**
+ * Cache-key fragment covering the FORMULA of `fieldId` when it is a measure expression field
+ * (`''` when it is not).
+ *
+ * A measure is never enriched onto a row, so editing its expression leaves `enrichedRows`
+ * reference-identical while changing every number derived from it. `cachedCompute` keys on the
+ * rows reference plus a string, so without this fragment a heatmap / funnel / sankey / gauge over
+ * a measure would keep serving the pre-edit result forever. Mirrors `useChartWidgetData`'s
+ * `measureFieldsKey`, scoped to the one field each of these renderers aggregates.
+ */
+function measureFormulaCacheKey(
+  fieldId: string,
+  expressionFields: StudioExpressionField[],
+): string {
+  const measure = findMeasureExpressionField(fieldId, expressionFields);
+  return measure ? JSON.stringify(measure.expression) : '';
+}
+
 // ── heatmap ───────────────────────────────────────────────────────────────────
 
 function renderHeatmap(ctx: ChartRenderContext<'heatmap'>): React.ReactElement {
@@ -665,6 +683,7 @@ function renderHeatmap(ctx: ChartRenderContext<'heatmap'>): React.ReactElement {
       config.heatSortDirection,
       xOrderedValues,
       yOrderedValues,
+      measureFormulaCacheKey(heatValueField, expressionFields),
     ]),
     () =>
       aggregateHeatmap(
@@ -678,6 +697,7 @@ function renderHeatmap(ctx: ChartRenderContext<'heatmap'>): React.ReactElement {
         yOrderedValues,
         config.heatSortBy,
         config.heatSortDirection,
+        expressionFields,
       ),
   );
   // Empty post-aggregation result — every row dropped for an empty x (or an empty y) value, so
@@ -803,6 +823,7 @@ function renderFunnel(ctx: ChartRenderContext<'funnel'>): React.ReactElement {
       config.chartSortBy,
       config.funnelCategoryOrder,
       fieldOrderedValues,
+      measureFormulaCacheKey(funnelValueField, expressionFields),
     ]),
     () =>
       buildFunnelStages(
@@ -813,6 +834,7 @@ function renderFunnel(ctx: ChartRenderContext<'funnel'>): React.ReactElement {
         config.chartSortBy,
         config.funnelCategoryOrder,
         fieldOrderedValues,
+        expressionFields,
       ),
   );
 
@@ -868,8 +890,21 @@ function renderSankey(ctx: ChartRenderContext<'sankey'>): React.ReactElement {
   const valueFieldDef = resolveFieldDef(sankeyValueField, dataSource, expressionFields);
   const sankeyData = cachedCompute(
     enrichedRows,
-    JSON.stringify(['sankey', sankeySourceField, sankeyTargetField, sankeyValueField]),
-    () => aggregateSankey(enrichedRows, sankeySourceField, sankeyTargetField, sankeyValueField),
+    JSON.stringify([
+      'sankey',
+      sankeySourceField,
+      sankeyTargetField,
+      sankeyValueField,
+      measureFormulaCacheKey(sankeyValueField, expressionFields),
+    ]),
+    () =>
+      aggregateSankey(
+        enrichedRows,
+        sankeySourceField,
+        sankeyTargetField,
+        sankeyValueField,
+        expressionFields,
+      ),
   );
   if (sankeyData.links.length === 0) {
     return renderEmptyChart(chartHeight, ctx.isLoading);
@@ -984,11 +1019,8 @@ function renderGauge(ctx: ChartRenderContext<'gauge'>): React.ReactElement {
       'gauge',
       gaugeValueField,
       gaugeMeasure ? 'measure' : gaugeAggregation,
-      // The measure's own formula is part of the result, and `cachedCompute` keys only on the
-      // rows reference plus this string — editing the expression leaves `enrichedRows` identical
-      // (measures are never enriched onto rows), so without this fragment the gauge would keep
-      // showing the pre-edit number. Mirrors `useChartWidgetData`'s `measureFieldsKey`.
-      gaugeMeasure ? JSON.stringify(gaugeMeasure.expression) : '',
+      // The measure's own formula is part of the result — see `measureFormulaCacheKey`.
+      measureFormulaCacheKey(gaugeValueField, expressionFields),
     ]),
     () =>
       gaugeMeasure

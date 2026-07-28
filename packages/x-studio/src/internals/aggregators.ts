@@ -871,6 +871,21 @@ export interface BlendedSeriesInput {
   rows: Row[];
   /** Per-series aggregation. @default 'sum' */
   yAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max';
+  /**
+   * Expression fields visible to THIS series, so a MEASURE `fieldId` can be evaluated over its
+   * own source's row buckets. See {@link aggregateByField}'s `expressionFields` param.
+   *
+   * Per-series rather than one list for the whole call, because that is the only form that is
+   * correct here: each blended series carries `rows` from a DIFFERENT source, and
+   * `findMeasureExpressionField` matches on `id` alone. Handing every series the dashboard-wide
+   * list would let a same-id measure defined on source A be evaluated against source B's rows —
+   * a confident number computed from the wrong table. Callers should pass the measures owned by
+   * `sourceId` (`expressionFields.filter((ef) => ef.sourceId === s.sourceId)`).
+   *
+   * Omit it and the series behaves exactly as before (a measure `fieldId` yields an all-`null`
+   * series, since `row[measureId]` is `undefined` on every row).
+   */
+  expressionFields?: StudioExpressionField[];
 }
 
 /**
@@ -884,6 +899,13 @@ export interface BlendedSeriesInput {
  * Unlike {@link aggregateMultipleSeries}, the returned `series` preserve the input
  * order and count 1:1 (no de-duplication by `fieldId`), so two series sharing a
  * field id across different sources remain distinct.
+ *
+ * A MEASURE series is evaluated per bucket through each series' own
+ * {@link BlendedSeriesInput.expressionFields} — the same shared `resolveMeasureAggregate` path the
+ * non-blended aggregators use. Before that was threaded through, this function called
+ * {@link aggregateByField} with no `expressionFields` at all, so a measure on a BLENDED mixed
+ * chart resolved to `undefined` on every row and the series came back all-`null`: a blank series
+ * where the identical measure on the same chart's non-blended sibling drew real values.
  */
 export function aggregateBlendedSeries(
   series: BlendedSeriesInput[],
@@ -907,6 +929,8 @@ export function aggregateBlendedSeries(
       undefined,
       undefined,
       localeText,
+      undefined,
+      s.expressionFields,
     ),
   );
 

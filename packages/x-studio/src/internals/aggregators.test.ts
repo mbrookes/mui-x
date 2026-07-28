@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  aggregateBlendedSeries,
   aggregateByField,
   aggregateByTwoFields,
   aggregateMultipleSeries,
@@ -434,5 +435,84 @@ describe('generic aggregators — measure expression y fields', () => {
       expressionFields,
     );
     expect(result.values).toEqual([2, 1]);
+  });
+});
+
+// ─── Measure expression fields on a BLENDED (cross-source) mixed chart ─────────
+//
+// `aggregateBlendedSeries` aggregates each series inside its OWN source's rows, and used to call
+// `aggregateByField` with no `expressionFields` at all. A measure series therefore resolved
+// `row[measureId]` — always `undefined` — on every row and came back all-`null`: a blank series,
+// where the identical measure on the same chart's single-source sibling drew real values.
+
+describe('aggregateBlendedSeries — measure expression series', () => {
+  const webAov: StudioExpressionField = {
+    id: 'aov',
+    label: 'Avg order value',
+    sourceId: 'web',
+    isMeasure: true,
+    expression: {
+      operator: 'divide',
+      inputs: [
+        { id: 'revenue', aggregation: 'sum' },
+        { id: 'revenue', aggregation: 'count' },
+      ],
+    },
+  };
+  // Same `id`, different source, and deliberately a DIFFERENT formula (a plain sum) so a
+  // cross-source mix-up produces a distinguishable number rather than a coincidentally equal one.
+  const storeAov: StudioExpressionField = {
+    ...webAov,
+    sourceId: 'store',
+    expression: { id: 'revenue', aggregation: 'sum' },
+  };
+
+  const webRows = [
+    { region: 'A', revenue: 100 },
+    { region: 'A', revenue: 300 },
+    { region: 'B', revenue: 50 },
+  ];
+  const storeRows = [
+    { region: 'A', revenue: 7 },
+    { region: 'B', revenue: 11 },
+  ];
+
+  it('evaluates a measure series against its own source rows instead of returning all-null', () => {
+    const result = aggregateBlendedSeries(
+      [
+        { fieldId: 'aov', sourceId: 'web', rows: webRows, expressionFields: [webAov] },
+        { fieldId: 'revenue', sourceId: 'store', rows: storeRows },
+      ],
+      'region',
+    );
+    expect(result.labels).toEqual(['A', 'B']);
+    // avg(100, 300) = 200; avg(50) = 50 — the same numbers the single-source aggregator gives.
+    expect(result.series[0].values).toEqual([200, 50]);
+    expect(result.series[1].values).toEqual([7, 11]);
+  });
+
+  it('keeps two same-id measures on different sources apart', () => {
+    // The reason `expressionFields` is PER SERIES rather than one dashboard-wide list:
+    // `findMeasureExpressionField` matches on `id` alone, so an unscoped list would let
+    // whichever definition came first be evaluated against BOTH sources' rows.
+    const result = aggregateBlendedSeries(
+      [
+        { fieldId: 'aov', sourceId: 'web', rows: webRows, expressionFields: [webAov] },
+        { fieldId: 'aov', sourceId: 'store', rows: storeRows, expressionFields: [storeAov] },
+      ],
+      'region',
+    );
+    expect(result.series[0].values).toEqual([200, 50]); // web: divide → average
+    expect(result.series[1].values).toEqual([7, 11]); // store: plain sum
+  });
+
+  it('still returns an all-null series when no expression fields are supplied', () => {
+    // The pre-fix behaviour, kept for callers that legitimately have no measures: honest
+    // (a gap, not a fabricated 0) but empty.
+    const result = aggregateBlendedSeries(
+      [{ fieldId: 'aov', sourceId: 'web', rows: webRows }],
+      'region',
+    );
+    expect(result.series[0].values).toEqual([null, null]);
   });
 });

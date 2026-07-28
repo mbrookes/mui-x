@@ -972,6 +972,8 @@ export const deLocaleText: Partial<StudioLocaleText> = {
     'Diese Diagrammkonfiguration mischt Felder aus verschiedenen Quellen auf eine Weise, die noch kein einziges sicheres Aggregationskorn aufweist.',
   chartUnsupportedScatterCrossSource:
     'Streudiagramme unterstützen noch keine Kombinationen von Feldern über mehrere Quellen hinweg.',
+  chartUnsupportedMeasure:
+    'Ein Kennzahlenfeld hat keinen Wert je Zeile. Es kann daher nur als Wert eines Diagramms verwendet werden – nie als Kategorieachse, Aufteilung, Farbe oder Größe – und in Streu- und Gantt-Diagrammen, die eine Markierung je Rohzeile zeichnen, überhaupt nicht.',
   chartUnsupportedDefault: 'Diese Diagrammkonfiguration wird noch nicht unterstützt.',
   chartForecastSeriesLabel: 'Vorhersage',
 

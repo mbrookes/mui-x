@@ -21,7 +21,12 @@ import {
 } from './chartAggregation';
 import type { MultiYSeriesData } from './chartAggregation';
 import { enrichRowsWithRelatedFields } from './dataSourceGraph';
-import type { StudioDataSource, StudioFilterState, StudioRelationship } from '../models';
+import type {
+  StudioDataSource,
+  StudioExpressionField,
+  StudioFilterState,
+  StudioRelationship,
+} from '../models';
 import { frLocaleText } from '../locales/fr';
 
 function makeFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
@@ -3574,5 +3579,205 @@ describe('buildFunnelStages aggregation policy', () => {
       undefined,
     );
     expect(stages.find((s) => s.label === 'Lead')?.value).toBe(2);
+  });
+});
+
+// ─── Measure expression fields in the chartShapes reducers ────────────────────
+//
+// Heatmap / funnel / sankey aggregate through `internals/chartShapes/*` rather than the generic
+// aggregators, and used to read `row[valueField]` directly. A measure (`isMeasure: true`) has NO
+// per-row value — `enrichRowsWithExpressions` deliberately skips measures — so each reducer
+// failed in its own way: the heatmap finalized every cell to `null` (a blank grid), the funnel
+// summed a flat 0 into every stage (equal-width sections carrying a confident zero), and the
+// sankey's `Number(undefined)` → `NaN` guard dropped every row (an empty chart). All three now
+// bucket their rows and evaluate the measure per bucket via the shared `resolveMeasureAggregate`.
+
+describe('chartShapes reducers — measure expression value fields', () => {
+  /** `sum(revenue) / count(*)` — an average, so it cannot be confused with a plain sum. */
+  const aov: StudioExpressionField = {
+    id: 'aov',
+    label: 'Avg order value',
+    sourceId: 'src',
+    isMeasure: true,
+    expression: {
+      operator: 'divide',
+      inputs: [
+        { id: 'revenue', aggregation: 'sum' },
+        { id: 'revenue', aggregation: 'count' },
+      ],
+    },
+  };
+  const expressionFields = [aov];
+
+  describe('aggregateHeatmap', () => {
+    const rows = [
+      { x: 'Jan', y: 'EU', revenue: 100 },
+      { x: 'Jan', y: 'EU', revenue: 300 },
+      { x: 'Feb', y: 'EU', revenue: 50 },
+    ];
+
+    it('evaluates the measure per cell instead of leaving every cell null', () => {
+      const data = aggregateHeatmap(
+        rows,
+        'x',
+        'y',
+        'aov',
+        undefined,
+        'sum',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        expressionFields,
+      );
+      expect(data.cells.get('Jan\x00EU')).toBe(200);
+      expect(data.cells.get('Feb\x00EU')).toBe(50);
+      // The colour domain is derived from the real values, not from a placeholder.
+      expect(data.minValue).toBe(50);
+      expect(data.maxValue).toBe(200);
+    });
+
+    it('leaves every cell null without expressionFields (the pre-fix behaviour)', () => {
+      const data = aggregateHeatmap(rows, 'x', 'y', 'aov', undefined, 'sum');
+      expect(data.cells.get('Jan\x00EU')).toBeNull();
+      expect(data.cells.get('Feb\x00EU')).toBeNull();
+    });
+
+    it("'count' still tallies rows and ignores the measure", () => {
+      const data = aggregateHeatmap(
+        rows,
+        'x',
+        'y',
+        'aov',
+        undefined,
+        'count',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        expressionFields,
+      );
+      expect(data.cells.get('Jan\x00EU')).toBe(2);
+      expect(data.cells.get('Feb\x00EU')).toBe(1);
+    });
+  });
+
+  describe('buildFunnelStages', () => {
+    const rows = [
+      { stage: 'Lead', revenue: 100 },
+      { stage: 'Lead', revenue: 300 },
+      { stage: 'Won', revenue: 50 },
+    ];
+
+    it('evaluates the measure per stage instead of summing a flat zero', () => {
+      const { stages } = buildFunnelStages(
+        rows,
+        'stage',
+        'aov',
+        undefined,
+        'natural',
+        undefined,
+        undefined,
+        expressionFields,
+      );
+      expect(stages).toEqual([
+        { label: 'Lead', value: 200 },
+        { label: 'Won', value: 50 },
+      ]);
+    });
+
+    it('omits a stage whose measure cannot be evaluated rather than plotting it at 0', () => {
+      // `min` over rows whose measure column is entirely null has no value at all. A 0 here
+      // would be published as a precise "0% conversion" by the percent/conversion label formats.
+      const minRevenue: StudioExpressionField = {
+        ...aov,
+        id: 'min_rev',
+        expression: { id: 'revenue', aggregation: 'min' },
+      };
+      const { stages } = buildFunnelStages(
+        [
+          { stage: 'Lead', revenue: 100 },
+          { stage: 'Won', revenue: null },
+        ],
+        'stage',
+        'min_rev',
+        undefined,
+        'natural',
+        undefined,
+        undefined,
+        [minRevenue],
+      );
+      expect(stages).toEqual([{ label: 'Lead', value: 100 }]);
+    });
+
+    it('preserves first-seen stage order for the natural sort', () => {
+      const { stages, sort } = buildFunnelStages(
+        [
+          { stage: 'Won', revenue: 50 },
+          { stage: 'Lead', revenue: 100 },
+        ],
+        'stage',
+        'aov',
+        undefined,
+        'natural',
+        undefined,
+        undefined,
+        expressionFields,
+      );
+      expect(stages.map((s) => s.label)).toEqual(['Won', 'Lead']);
+      expect(sort).toBe('none');
+    });
+  });
+
+  describe('aggregateSankey', () => {
+    const rows = [
+      { from: 'A', to: 'B', revenue: 100 },
+      { from: 'A', to: 'B', revenue: 300 },
+      { from: 'B', to: 'C', revenue: 50 },
+    ];
+
+    it('evaluates the measure per (source, target) pair instead of dropping every row', () => {
+      const result = aggregateSankey(rows, 'from', 'to', 'aov', expressionFields);
+      expect(result.nodes).toEqual([{ id: 'A' }, { id: 'B' }, { id: 'C' }]);
+      expect(result.links).toEqual([
+        { source: 'A', target: 'B', value: 200 },
+        { source: 'B', target: 'C', value: 50 },
+      ]);
+    });
+
+    it('returns nothing without expressionFields (the pre-fix behaviour)', () => {
+      expect(aggregateSankey(rows, 'from', 'to', 'aov')).toEqual({ nodes: [], links: [] });
+    });
+
+    it('still drops a pair whose measure is not positive', () => {
+      // The Sankey layout cannot draw a zero-or-negative-width ribbon; the `> 0` rule simply
+      // moves after the evaluation.
+      const result = aggregateSankey(
+        [
+          { from: 'A', to: 'B', revenue: 100 },
+          { from: 'A', to: 'C', revenue: -20 },
+        ],
+        'from',
+        'to',
+        'aov',
+        expressionFields,
+      );
+      expect(result.links).toEqual([{ source: 'A', target: 'B', value: 100 }]);
+      expect(result.nodes).toEqual([{ id: 'A' }, { id: 'B' }]);
+    });
+
+    it('still drops a link that would close a cycle', () => {
+      const result = aggregateSankey(
+        [
+          { from: 'A', to: 'B', revenue: 10 },
+          { from: 'B', to: 'A', revenue: 10 },
+        ],
+        'from',
+        'to',
+        'aov',
+        expressionFields,
+      );
+      expect(result.links).toEqual([{ source: 'A', target: 'B', value: 10 }]);
+    });
   });
 });

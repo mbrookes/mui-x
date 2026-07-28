@@ -972,6 +972,8 @@ export const esLocaleText: Partial<StudioLocaleText> = {
     'Esta configuración de gráfico mezcla campos de diferentes fuentes de una manera que aún no tiene un único grano de agregación seguro.',
   chartUnsupportedScatterCrossSource:
     'Los diagramas de dispersión aún no admiten combinaciones de campos entre fuentes.',
+  chartUnsupportedMeasure:
+    'Un campo de medida no tiene valor por fila, por lo que solo puede usarse como valor de un gráfico —nunca como eje de categorías, división, color o tamaño— y no puede usarse en absoluto en gráficos de dispersión ni de Gantt, que dibujan una marca por cada fila sin agregar.',
   chartUnsupportedDefault: 'Esta configuración de gráfico aún no es compatible.',
   chartForecastSeriesLabel: 'Pronóstico',
 

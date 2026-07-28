@@ -441,12 +441,20 @@ export function useChartWidgetData(
       // Default the resolved sourceId to the widget's primary source (mirroring the
       // `rows` fallback above) so the output always carries a concrete sourceId for
       // the (fieldId, sourceId) pair-matching consumers rely on (finding 2.12).
+      const resolvedSourceId = sid ?? widget.sourceId ?? '';
       return [
         {
           fieldId: s.fieldId,
-          sourceId: sid ?? widget.sourceId ?? '',
+          sourceId: resolvedSourceId,
           rows,
           yAggregation: s.yAggregation,
+          // Scoped to THIS series' own source, not the dashboard-wide list: each blended series
+          // carries rows from a different source, and `findMeasureExpressionField` matches on
+          // `id` alone, so an unscoped list would let a same-id measure defined on another
+          // source be evaluated against these rows. Without this the aggregator received no
+          // expression fields at all and a measure series came back all-`null` — a blank series
+          // on the blended chart where the same measure drew real values on a single-source one.
+          expressionFields: expressionFields.filter((ef) => ef.sourceId === resolvedSourceId),
         },
       ];
     });
@@ -481,6 +489,7 @@ export function useChartWidgetData(
     xFieldOrderedValues,
     widgetRankFilter,
     localeText,
+    expressionFields,
   ]);
 
   // seriesField data: one line per unique value of the series field

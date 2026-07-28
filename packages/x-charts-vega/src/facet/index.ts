@@ -53,6 +53,7 @@
 import type {
   DatasetRow,
   VegaAggregateOp,
+  VegaBinParams,
   VegaChannelDef,
   VegaEncoding,
   VegaFieldDef,
@@ -70,6 +71,7 @@ import { resolveFieldType, toDate, toNumber } from '../compile/fieldTypes';
 import { evaluateAggregate } from '../transforms/aggregateOps';
 import { applyTransforms } from '../transforms';
 import { applyInlineTimeUnit } from '../transforms/timeUnit';
+import { binOf, computeNiceBinning, isPreBinned } from '../transforms/bin';
 import { titleText } from '../normalize';
 
 /** Maximum levels of nested faceting/concat the shell will expand (gap beyond). */
@@ -344,18 +346,53 @@ function transformedRootRows(
  * marks) and merely leaves benign headroom for grouped/dodged marks. Grouping
  * on them instead would under-shoot a stack's height and clip every cell.
  */
-function collectGroupByFields(
+/**
+ * Group key a cell would aggregate by: the facet fields plus the opposite
+ * (category) positional channel.
+ *
+ * Returns a key FUNCTION rather than a field-name list because a binned category
+ * groups by its BIN, not by its raw value. `trellis_bar_histogram` counts cars
+ * per Horsepower bin: grouping by each distinct Horsepower put the shared
+ * domain's max at ~22, while the rendered bars — one per bin — reach 80, so
+ * every facet cell after the first clipped flat against the shared axis it does
+ * not draw.
+ */
+type GroupKeyFn = (row: DatasetRow) => string;
+
+function buildGroupKey(
   encoding: VegaEncoding,
   facetFields: string[],
   valueChannel: 'x' | 'y',
-): string[] {
-  const fields = new Set<string>(facetFields);
+  rows: readonly DatasetRow[],
+): GroupKeyFn {
+  const parts: GroupKeyFn[] = facetFields.map(
+    (facetField) => (row: DatasetRow) => String(row[facetField]),
+  );
   const categoryChannel = valueChannel === 'y' ? 'x' : 'y';
   const def = encoding[categoryChannel];
   if (isFieldDef(def) && def.field && def.aggregate === undefined) {
-    fields.add(def.field);
+    const field = def.field;
+    // Pre-binned data already carries its bucket in the field itself.
+    const binning =
+      def.bin && !isPreBinned(def.bin)
+        ? computeNiceBinning(
+            rows
+              .map((row) => toNumber(row[field]))
+              .filter((value): value is number => value != null),
+            def.bin === true ? undefined : (def.bin as VegaBinParams),
+          )
+        : null;
+    if (binning) {
+      parts.push((row: DatasetRow) => {
+        const value = toNumber(row[field]);
+        const bin = value == null ? null : binOf(value, binning);
+        return bin ? String(bin.index) : 'no-bin';
+      });
+    } else {
+      parts.push((row: DatasetRow) => String(row[field]));
+    }
   }
-  return [...fields];
+  return (row: DatasetRow) => parts.map((part) => part(row)).join('\u0000');
 }
 
 /**
@@ -367,7 +404,7 @@ function collectGroupByFields(
 function quantDomain(
   def: VegaFieldDef,
   rows: readonly DatasetRow[],
-  groupByFields: string[],
+  keyOf: GroupKeyFn,
 ): [number, number] | undefined {
   const field = def.field;
   const aggregate = typeof def.aggregate === 'string' ? def.aggregate : undefined;
@@ -382,7 +419,7 @@ function quantDomain(
   } else {
     const groups = new Map<string, unknown[]>();
     for (const row of rows) {
-      const key = groupByFields.map((groupField) => String(row[groupField])).join('\u0000');
+      const key = keyOf(row);
       let bucket = groups.get(key);
       if (!bucket) {
         bucket = [];
@@ -436,7 +473,7 @@ function injectSharedScales(
       if (Array.isArray(scale?.domain)) {
         continue; // respect an explicit domain
       }
-      const domain = quantDomain(def, rows, collectGroupByFields(encoding, facetFields, channel));
+      const domain = quantDomain(def, rows, buildGroupKey(encoding, facetFields, channel, rows));
       if (domain) {
         result[channel] = { ...def, scale: { ...(scale ?? {}), domain } };
       }
@@ -1162,8 +1199,8 @@ function collectConcatChannelOccurrences(
 /**
  * Union `[min, max]` domain for a channel across every entry/layer occurrence
  * `collectConcatChannelOccurrences` found, reusing the same aggregate-aware
- * `quantDomain`/`collectGroupByFields` facet's own shared-scale injection
- * uses (no faceting fields here, so `collectGroupByFields` only groups by the
+ * `quantDomain`/`buildGroupKey` facet's own shared-scale injection
+ * uses (no faceting fields here, so `buildGroupKey` only groups by the
  * occurrence's own other positional channel). An occurrence with its own
  * explicit `scale.domain` is skipped — its authored domain stands, and it
  * contributes nothing to the union. `undefined` when nothing quantitative
@@ -1184,7 +1221,7 @@ function concatSharedDomain(
     if (Array.isArray(scale?.domain)) {
       continue;
     }
-    const domain = quantDomain(def, rows, collectGroupByFields(encoding, [], channel));
+    const domain = quantDomain(def, rows, buildGroupKey(encoding, [], channel, rows));
     if (domain) {
       min = min === undefined ? domain[0] : Math.min(min, domain[0]);
       max = max === undefined ? domain[1] : Math.max(max, domain[1]);

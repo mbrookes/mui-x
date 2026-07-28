@@ -176,6 +176,35 @@ describe('planFacets', () => {
     expect(domainOf(plan.cells[0].spec, 'y')).to.deep.equal([0, 10]);
   });
 
+  it('groups the shared domain by BIN, not by each raw category value', () => {
+    // `trellis_bar_histogram`: counts per Horsepower BIN. Grouping by the raw
+    // field made every group a single distinct value, so the shared domain
+    // topped out near 1 while the rendered per-bin bars reach 4 — and every cell
+    // but the axis-drawing one clipped flat against a domain far too small.
+    const spec: VegaLiteSpec = {
+      data: {
+        values: [
+          { g: 'X', h: 1 },
+          { g: 'X', h: 2 },
+          { g: 'X', h: 3 },
+          { g: 'X', h: 4 },
+          { g: 'Y', h: 91 },
+          { g: 'Y', h: 99 },
+        ],
+      },
+      mark: 'bar',
+      encoding: {
+        x: { field: 'h', type: 'quantitative', bin: { maxbins: 10 } },
+        y: { aggregate: 'count', type: 'quantitative' },
+        row: { field: 'g', type: 'nominal' },
+      },
+    };
+    const plan = planFacets(spec, SIZE)!;
+    const domain = domainOf(plan.cells[0].spec, 'y') as [number, number];
+    // All four X rows land in one 0-10 bin, so the busiest bin holds 4.
+    expect(domain[1]).to.be.at.least(4);
+  });
+
   it('sums the shared domain across a stack-splitting channel (no clipping)', () => {
     const spec: VegaLiteSpec = {
       data: {

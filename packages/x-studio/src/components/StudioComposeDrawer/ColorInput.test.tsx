@@ -16,7 +16,7 @@ const { render } = createRenderer();
 describe('ColorInput (finding 2.9)', () => {
   it('does not call onChange while typing', () => {
     const onChange = vi.fn();
-    render(<ColorInput label="Color" value="" onChange={onChange} />);
+    render(<ColorInput label="Color" value="" identity="w1:color" onChange={onChange} />);
     const input = screen.getByLabelText('Color') as HTMLInputElement;
 
     fireEvent.change(input, { target: { value: '#' } });
@@ -29,7 +29,7 @@ describe('ColorInput (finding 2.9)', () => {
 
   it('commits the buffered value exactly once on blur', () => {
     const onChange = vi.fn();
-    render(<ColorInput label="Color" value="" onChange={onChange} />);
+    render(<ColorInput label="Color" value="" identity="w1:color" onChange={onChange} />);
     const input = screen.getByLabelText('Color') as HTMLInputElement;
 
     fireEvent.change(input, { target: { value: '#ff8800' } });
@@ -41,7 +41,7 @@ describe('ColorInput (finding 2.9)', () => {
 
   it('commits on Enter as well as blur', () => {
     const onChange = vi.fn();
-    render(<ColorInput label="Color" value="" onChange={onChange} />);
+    render(<ColorInput label="Color" value="" identity="w1:color" onChange={onChange} />);
     const input = screen.getByLabelText('Color') as HTMLInputElement;
 
     fireEvent.change(input, { target: { value: '#123456' } });
@@ -56,7 +56,7 @@ describe('ColorInput (finding 2.9)', () => {
 
   it('does not commit again on blur if nothing changed since the last commit', () => {
     const onChange = vi.fn();
-    render(<ColorInput label="Color" value="" onChange={onChange} />);
+    render(<ColorInput label="Color" value="" identity="w1:color" onChange={onChange} />);
     const input = screen.getByLabelText('Color') as HTMLInputElement;
 
     fireEvent.change(input, { target: { value: '#123456' } });
@@ -71,7 +71,7 @@ describe('ColorInput (finding 2.9)', () => {
 
   it('the Clear button commits immediately, not deferred to blur', () => {
     const onChange = vi.fn();
-    render(<ColorInput label="Color" value="#ff8800" onChange={onChange} />);
+    render(<ColorInput label="Color" value="#ff8800" identity="w1:color" onChange={onChange} />);
 
     fireEvent.click(
       screen.getByRole('button', {
@@ -85,7 +85,9 @@ describe('ColorInput (finding 2.9)', () => {
 
   it('resyncs the buffered text when the external value prop changes and nothing is being typed', () => {
     const onChange = vi.fn();
-    const { setProps } = render(<ColorInput label="Color" value="#ff8800" onChange={onChange} />);
+    const { setProps } = render(
+      <ColorInput label="Color" value="#ff8800" identity="w1:color" onChange={onChange} />,
+    );
 
     setProps({ value: '#abcdef' });
 
@@ -100,7 +102,9 @@ describe('ColorInput (finding 2.9)', () => {
   // `identity` change discards it (covered below).
   it('keeps in-flight typing when the external value changes mid-edit', () => {
     const onChange = vi.fn();
-    const { setProps } = render(<ColorInput label="Color" value="#ff8800" onChange={onChange} />);
+    const { setProps } = render(
+      <ColorInput label="Color" value="#ff8800" identity="w1:color" onChange={onChange} />,
+    );
     const input = screen.getByLabelText('Color') as HTMLInputElement;
 
     fireEvent.change(input, { target: { value: '#000000' } });
@@ -167,7 +171,7 @@ describe('ColorInput identity resync (M2)', () => {
 describe('ColorInput — no-op commit guard (finding 9)', () => {
   it('commits nothing when the text is typed and restored to the committed value', () => {
     const onChange = vi.fn();
-    render(<ColorInput label="Color" value="#ff0000" onChange={onChange} />);
+    render(<ColorInput label="Color" value="#ff0000" identity="w1:color" onChange={onChange} />);
     const input = screen.getByLabelText('Color') as HTMLInputElement;
 
     fireEvent.change(input, { target: { value: '#ff000' } });
@@ -179,7 +183,7 @@ describe('ColorInput — no-op commit guard (finding 9)', () => {
 
   it('still commits a genuine change', () => {
     const onChange = vi.fn();
-    render(<ColorInput label="Color" value="#ff0000" onChange={onChange} />);
+    render(<ColorInput label="Color" value="#ff0000" identity="w1:color" onChange={onChange} />);
     const input = screen.getByLabelText('Color') as HTMLInputElement;
 
     fireEvent.change(input, { target: { value: '#00ff00' } });

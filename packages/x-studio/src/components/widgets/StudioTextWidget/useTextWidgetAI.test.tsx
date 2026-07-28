@@ -949,3 +949,123 @@ describe('useTextWidgetAI', () => {
     });
   });
 });
+
+// ─── M15: the generation effect must not depend on the `aiConfig` OBJECT ────────
+//
+// `aiConfig` is a public prop passed straight through from `<Studio aiConfig={…}>` and is
+// documented as (and routinely written as) an inline object literal. The architecture doc
+// states the rule for the chat adapter — "No correctness property may depend on a host
+// memoizing a prop" — and this effect used to list `aiConfig` itself. Any host re-render
+// during the (long) generation therefore aborted the in-flight request and restarted it.
+describe('useTextWidgetAI aiConfig identity churn (M15)', () => {
+  /**
+   * Deliberately builds a NEW `aiConfig` (and a new UI-config value) on every render, the
+   * way a host writing `<Studio aiConfig={{ endpoint: '…' }} />` does. Contrast the hoisted
+   * `uiConfigValue` in `setup`/`setupWithController` above, which had to be stable
+   * precisely because of the defect this test pins.
+   */
+  function setupInlineAiConfig() {
+    const { wrapper: StudioWrapper } = createStudioHarness({ initialState: {} });
+    function wrapper(props: { children?: React.ReactNode }) {
+      return (
+        <StudioWrapper>
+          <StudioUIConfigContext.Provider
+            value={{
+              tableSourceMode: 'explicit' as const,
+              featureFlags: {},
+              localeText: DEFAULT_STUDIO_LOCALE_TEXT,
+              aiConfig: { endpoint: 'https://fake.test/api/ai' },
+            }}
+          >
+            {props.children}
+          </StudioUIConfigContext.Provider>
+        </StudioWrapper>
+      );
+    }
+    return wrapper;
+  }
+
+  it('does not abort and re-issue the request when the host re-renders with a fresh aiConfig', async () => {
+    const fetchMock = mockFetchSequence([
+      makeSseBody([{ type: 'text-delta', delta: 'First' }, { type: 'finish' }]),
+      makeSseBody([{ type: 'text-delta', delta: 'Second' }, { type: 'finish' }]),
+      makeSseBody([{ type: 'text-delta', delta: 'Third' }, { type: 'finish' }]),
+    ]);
+    const wrapper = setupInlineAiConfig();
+
+    const { result, rerender } = renderHook(
+      () => useTextWidgetAI('text-1', 'page-1', 'Summarize this page'),
+      { wrapper },
+    );
+
+    // Host re-renders while the generation is in flight — a new `aiConfig` object with
+    // identical contents each time.
+    rerender();
+    rerender();
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    // Exactly one `/chat` request for the whole generation. With `aiConfig` in the deps,
+    // each re-render tore the effect down (aborting the in-flight stream) and started a
+    // new one, so the answer the user finally saw came from a later attempt — and a host
+    // that re-renders often enough could restart the request indefinitely.
+    const chatCalls = fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/chat'));
+    expect(chatCalls).toHaveLength(1);
+    expect(result.current.markdown).toBe('First');
+  });
+
+  it('sends the CURRENT headers on a later request, not the ones present at mount', async () => {
+    const fetchMock = mockFetchSequence([
+      makeSseBody([{ type: 'text-delta', delta: 'First' }, { type: 'finish' }]),
+      makeSseBody([{ type: 'text-delta', delta: 'Second' }, { type: 'finish' }]),
+    ]);
+    const { wrapper: StudioWrapper } = createStudioHarness({ initialState: {} });
+    // `headers` is the other inline object on `aiConfig`, so it is read from a latest-ref
+    // rather than depended on. That must not degrade into "frozen at mount": a rotated auth
+    // token has to reach the next request.
+    let headers: Record<string, string> = { Authorization: 'token-1' };
+    function wrapper(props: { children?: React.ReactNode }) {
+      return (
+        <StudioWrapper>
+          <StudioUIConfigContext.Provider
+            value={{
+              tableSourceMode: 'explicit' as const,
+              featureFlags: {},
+              localeText: DEFAULT_STUDIO_LOCALE_TEXT,
+              aiConfig: { endpoint: 'https://fake.test/api/ai', headers },
+            }}
+          >
+            {props.children}
+          </StudioUIConfigContext.Provider>
+        </StudioWrapper>
+      );
+    }
+
+    const { result, rerender } = renderHook(
+      () => useTextWidgetAI('text-1', 'page-1', 'Summarize this page'),
+      { wrapper },
+    );
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.length).toBe(1);
+    });
+    expect(
+      (fetchMock.mock.calls[0][1] as RequestInit).headers as Record<string, string>,
+    ).toMatchObject({ Authorization: 'token-1' });
+
+    headers = { Authorization: 'token-2' };
+    rerender();
+    // `refresh()` bypasses the `localStorage` cache, forcing a genuine second request.
+    act(() => {
+      result.current.refresh();
+    });
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.length).toBe(2);
+    });
+    expect(
+      (fetchMock.mock.calls[1][1] as RequestInit).headers as Record<string, string>,
+    ).toMatchObject({ Authorization: 'token-2' });
+  });
+});

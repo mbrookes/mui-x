@@ -38,11 +38,15 @@ export function ColorInput({
    * Identifies the entity being edited (e.g. `` `${widgetId}:titleColor` ``). Changing it
    * discards any dirty buffer, so an uncommitted edit can never leak onto a different
    * entity that happens to hold the same value.
+   *
+   * REQUIRED (M13): it used to be optional with an `''` default, which silently disabled
+   * the discard for any caller that forgot it — the exact defect `identity` exists to
+   * prevent, made invisible. A missing identity is a caller bug, so it is a type error.
    */
-  identity?: string;
+  identity: string;
 }) {
   const localeText = useStudioLocaleText();
-  const { value: text, dirty, setValue, settle } = useBufferedInput(value, identity ?? '');
+  const { value: text, dirty, setValue, settle } = useBufferedInput(value, identity);
 
   const commit = () => {
     if (!dirty) {
@@ -64,6 +68,7 @@ export function ColorInput({
       <ColorSwatch
         value={value}
         onChange={onChange}
+        identity={identity}
         label={localeText.colorInputPickerAriaLabel(label)}
       />
       <TextField

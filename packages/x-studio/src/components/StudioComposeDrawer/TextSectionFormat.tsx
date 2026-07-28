@@ -23,8 +23,12 @@ interface TextSectionFormatProps {
    * Identifies the entity this section edits (e.g. `` `${widgetId}:title` ``), forwarded to
    * the buffered `ColorInput` so an uncommitted colour edit is discarded rather than leaked
    * onto a different widget/section holding the same value. See M2 in `ColorInput.tsx`.
+   *
+   * REQUIRED, mirroring `ColorInput.identity` (M13): forwarding an OPTIONAL identity into a
+   * required one would just re-open the hole one level up — an omitting caller would silently
+   * disable the discard again. All three `TextFormatPanel` call sites already pass it.
    */
-  identity?: string;
+  identity: string;
   /** A named keyword or a literal CSS font-family stack. */
   fontFamily?: string;
   fontSize?: number;

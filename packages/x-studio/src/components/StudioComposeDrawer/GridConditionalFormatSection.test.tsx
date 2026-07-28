@@ -285,6 +285,93 @@ describe('GridConditionalFormatSection resyncs on widget switch', () => {
   });
 });
 
+// ─── M13: buffered inputs are keyed on a stable per-rule identity, not an array index ──
+//
+// `useBufferedInput(committed, identity)` exists so that "same value, different entity"
+// cannot commit onto the wrong entity. Every other caller passes a stable id; these two
+// used to pass `` `${widgetId}:cfValue:${ruleIndex}` `` — an ARRAY INDEX, which survives
+// unchanged when the array is reordered or a rule is deleted, and the rows were keyed by
+// index too, so React re-used a mounted (possibly dirty) input for a different rule.
+//
+// Not mouse-reachable: clicking Delete blurs the input, which commits first. But the AI
+// chat's `update_widget` writes the whole `gridConditionalFormats` array while the compose
+// drawer is open, so it can reorder or splice rules mid-keystroke.
+describe('GridConditionalFormatSection stable rule identity (M13)', () => {
+  const ruleA = makeRule({ value: 10 });
+  const ruleB = makeRule({ value: 20 });
+
+  beforeEach(() => {
+    mockState.doc.widgets['widget-1'] = {
+      id: 'widget-1',
+      kind: 'grid',
+      sourceId: 'orders',
+      title: 'Orders',
+      config: { gridConditionalFormats: [ruleA, ruleB] } as StudioWidgetConfig,
+    };
+    controller.updateWidgetConfig.mockClear();
+    configureStudioContextMock({ getState: () => mockState, controller });
+  });
+
+  it('an uncommitted value follows its own rule when a concurrent write reorders the rules', () => {
+    const { setProps } = render(<GridConditionalFormatSection widgetId="widget-1" />);
+
+    const inputsBefore = screen.getAllByLabelText('Condition value') as HTMLInputElement[];
+    expect(inputsBefore.map((i) => i.value)).toEqual(['10', '20']);
+
+    // Typing into rule A's value, not yet blurred.
+    fireEvent.change(inputsBefore[0], { target: { value: '999' } });
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+
+    // A concurrent AI `update_widget` swaps the two rules — same rule OBJECTS, new order.
+    mockState.doc.widgets['widget-1'].config = {
+      gridConditionalFormats: [ruleB, ruleA],
+    } as StudioWidgetConfig;
+    setProps({ widgetId: 'widget-1' });
+
+    // The dirty buffer must have travelled with rule A to position 1, and rule B's row must
+    // show its own committed value. Under the old index-keyed rows/identity the dirty
+    // buffer stayed at position 0 and was now bound to rule B.
+    const inputsAfter = screen.getAllByLabelText('Condition value') as HTMLInputElement[];
+    expect(inputsAfter.map((i) => i.value)).toEqual(['20', '999']);
+
+    // And the commit must land on rule A, leaving rule B's stored value alone.
+    fireEvent.blur(inputsAfter[1]);
+    expect(controller.updateWidgetConfig).toHaveBeenCalledTimes(1);
+    const [, patch] = controller.updateWidgetConfig.mock.calls[0] as [
+      string,
+      { gridConditionalFormats: StudioConditionalFormat[] },
+    ];
+    expect(patch.gridConditionalFormats.map((r) => r.value)).toEqual([20, 999]);
+  });
+
+  it('discards an uncommitted value rather than committing it onto a rule inserted ahead of it', () => {
+    mockState.doc.widgets['widget-1'].config = {
+      gridConditionalFormats: [ruleA],
+    } as StudioWidgetConfig;
+    const { setProps } = render(<GridConditionalFormatSection widgetId="widget-1" />);
+
+    const valueInput = screen.getByLabelText('Condition value') as HTMLInputElement;
+    fireEvent.change(valueInput, { target: { value: '999' } });
+
+    // A concurrent write prepends a brand-new rule. At index 0 there is now a DIFFERENT
+    // rule carrying a different value, but the index-derived identity string was unchanged.
+    const inserted = makeRule({ value: 1 });
+    mockState.doc.widgets['widget-1'].config = {
+      gridConditionalFormats: [inserted, ruleA],
+    } as StudioWidgetConfig;
+    setProps({ widgetId: 'widget-1' });
+
+    const inputsAfter = screen.getAllByLabelText('Condition value') as HTMLInputElement[];
+    // Row 0 is the inserted rule and must show ITS value — never the stray "999".
+    expect(inputsAfter[0].value).toBe('1');
+    expect(inputsAfter[1].value).toBe('999');
+
+    // Blurring the inserted rule's (untouched, clean) input commits nothing.
+    fireEvent.blur(inputsAfter[0]);
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+  });
+});
+
 // Tier3 secondary fix: a persisted rule can reference a field id no longer present on the
 // source (schema drift after a field is removed/renamed). Before this fix, the fieldId
 // `Select` had no MenuItem matching the stale value, so MUI rendered it blank —

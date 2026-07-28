@@ -173,6 +173,24 @@ export function useTextWidgetAI(
   // and the full serialized `dashboardState` is never sent; only the prompt goes out,
   // with `privateMode` forwarded so the server can additionally refuse to comply.
   const privateMode = aiConfig?.privateMode === true;
+  // M15: the generation effect below must depend on the VALUES it uses, never on the
+  // `aiConfig` object. `aiConfig` comes straight from the public `<Studio aiConfig={…}>`
+  // prop and is documented as (and routinely passed as) an inline object literal, so its
+  // identity changes on every host re-render — see `StudioChatPanel`, which states the same
+  // rule for the chat adapter. Depending on the object meant any unrelated host re-render
+  // during a generation aborted the in-flight request and started it over; a long
+  // generation could be restarted indefinitely and never reach the `localStorage` cache
+  // that short-circuits subsequent mounts.
+  //
+  // `endpoint` is a string, so it can be a real dependency. `headers` is another inline
+  // object with the same churn, so it is read through a latest-ref at fetch time instead:
+  // a header change is picked up by the NEXT request rather than tearing down the current
+  // one, which is the right trade for a value that is normally a constant auth token.
+  const endpoint = aiConfig?.endpoint;
+  const headersRef = React.useRef(aiConfig?.headers);
+  React.useEffect(() => {
+    headersRef.current = aiConfig?.headers;
+  });
   // Subscribed by `pageId` — this widget's OWN page — NOT `dashboard.activePageId`.
   // The snapshot must describe the page this widget actually lives on, which is
   // stable for the widget's lifetime. Keying off the dashboard-wide active page
@@ -249,7 +267,7 @@ export function useTextWidgetAI(
   }, [cacheKey]);
 
   React.useEffect(() => {
-    if (!aiConfig?.endpoint || !prompt.trim()) {
+    if (!endpoint || !prompt.trim()) {
       return undefined;
     }
 
@@ -274,7 +292,7 @@ export function useTextWidgetAI(
     setLoading(true);
     setError(null);
 
-    const baseUrl = aiConfig.endpoint.replace(/\/?$/, '');
+    const baseUrl = endpoint.replace(/\/?$/, '');
     const chatUrl = `${baseUrl}/chat`;
     const approvalUrl = `${baseUrl}/approval`;
 
@@ -288,7 +306,7 @@ export function useTextWidgetAI(
         const response = await fetch(chatUrl, {
           method: 'POST',
           signal: abort.signal,
-          headers: { 'Content-Type': 'application/json', ...aiConfig.headers },
+          headers: { 'Content-Type': 'application/json', ...headersRef.current },
           body: JSON.stringify({
             messages: [{ id: 'prompt', role: 'user', parts: [{ type: 'text', text: prompt }] }],
             dashboardState: serializableState,
@@ -322,7 +340,7 @@ export function useTextWidgetAI(
             );
             fetch(approvalUrl, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json', ...aiConfig.headers },
+              headers: { 'Content-Type': 'application/json', ...headersRef.current },
               body: JSON.stringify({ id: sseEvent.toolCallId, approved }),
             }).catch(() => {});
           } else if (sseEvent.type === 'finish') {
@@ -365,11 +383,14 @@ export function useTextWidgetAI(
     })();
 
     return () => abort.abort();
+    // `aiConfig` is deliberately absent: only `endpoint` (a string) and `privateMode` (a
+    // boolean) can change what this request IS, and `headers` is read from a latest-ref —
+    // see the M15 note where `endpoint`/`headersRef` are derived.
   }, [
     cacheKey,
     hash,
     refreshState,
-    aiConfig,
+    endpoint,
     snapshot,
     prompt,
     controller,

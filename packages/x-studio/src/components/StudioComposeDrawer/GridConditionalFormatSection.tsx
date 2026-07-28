@@ -16,6 +16,33 @@ import { SetupSection } from './SetupSection';
 import { useBufferedInput } from './useBufferedInput';
 
 /**
+ * Stable per-rule identity (M13).
+ *
+ * `StudioConditionalFormat` carries no id and adding one is a persisted-schema change, so
+ * the identity is minted lazily against the rule OBJECT and memoised in a `WeakMap`. The
+ * doc stores rules by reference (`updateWidgetConfig` shallow-merges the config patch, the
+ * undo/redo stacks snapshot `StudioDoc` by reference, and nothing sanitises or rebuilds
+ * `gridConditionalFormats`), so a rule object survives every edit to a SIBLING rule — which
+ * is exactly the case an index cannot express. Editing a rule replaces its object and
+ * therefore mints a new id, which is the correct outcome: the row now describes a different
+ * condition and any half-typed value belongs to the old one.
+ *
+ * A `WeakMap` keeps the entry collectable with the rule, so nothing accumulates.
+ */
+const ruleIds = new WeakMap<StudioConditionalFormat, string>();
+let nextRuleId = 0;
+
+function getRuleId(rule: StudioConditionalFormat): string {
+  let id = ruleIds.get(rule);
+  if (id === undefined) {
+    nextRuleId += 1;
+    id = `cf${nextRuleId}`;
+    ruleIds.set(rule, id);
+  }
+  return id;
+}
+
+/**
  * Numeric conditional-format value input (architecture review finding 1.14):
  * `Number(raw)` on every keystroke ate the in-progress decimal point ("0." rendered
  * back as "0") and committed `undefined` for a bare "-" before the user could finish
@@ -24,18 +51,19 @@ import { useBufferedInput } from './useBufferedInput';
  */
 function ConditionalFormatValueInput(props: {
   widgetId: string;
-  /** Index of this rule within the widget's `gridConditionalFormats` array (rules have no
-   * stable id — see the `no-array-index-as-key` disable below), used together with
-   * `widgetId` to gate the resync so switching which rule/widget is being edited always
-   * resyncs the buffer, even when the two rules/widgets happen to share the same value. */
-  ruleIndex: number;
+  /** Stable identity of this rule (see `getRuleId`), used together with `widgetId` to gate
+   * the resync so switching which rule/widget is being edited always resyncs the buffer,
+   * even when the two rules/widgets happen to share the same value. Deliberately NOT the
+   * array index: deleting a rule renumbers its survivors without changing the identity
+   * string, so a still-dirty buffer would commit onto a different rule (M13). */
+  ruleId: string;
   value: unknown;
   ariaLabel: string;
   onCommit: (next: number | undefined) => void;
 }) {
-  const { widgetId, ruleIndex, value, ariaLabel, onCommit } = props;
+  const { widgetId, ruleId, value, ariaLabel, onCommit } = props;
   const initialText = value !== undefined && value !== null ? String(value) : '';
-  // Shared dirty-aware buffer (M15), keyed on widget AND rule index so switching to a
+  // Shared dirty-aware buffer (M15), keyed on widget AND rule identity so switching to a
   // different widget or a different rule carrying the same value still discards an
   // uncommitted edit.
   const {
@@ -43,7 +71,7 @@ function ConditionalFormatValueInput(props: {
     dirty,
     setValue,
     settle,
-  } = useBufferedInput(initialText, `${widgetId}:cfValue:${ruleIndex}`);
+  } = useBufferedInput(initialText, `${widgetId}:cfValue:${ruleId}`);
 
   const commit = () => {
     if (!dirty) {
@@ -95,16 +123,13 @@ function ConditionalFormatValueInput(props: {
  */
 function ConditionalFormatStringValueInput(props: {
   widgetId: string;
-  /** Index of this rule within the widget's `gridConditionalFormats` array (rules have no
-   * stable id — see the `no-array-index-as-key` disable below), used together with
-   * `widgetId` to gate the resync so switching which rule/widget is being edited always
-   * resyncs the buffer, even when the two rules/widgets happen to share the same value. */
-  ruleIndex: number;
+  /** Stable identity of this rule — see `ConditionalFormatValueInput` above (M13). */
+  ruleId: string;
   value: unknown;
   ariaLabel: string;
   onCommit: (next: string) => void;
 }) {
-  const { widgetId, ruleIndex, value, ariaLabel, onCommit } = props;
+  const { widgetId, ruleId, value, ariaLabel, onCommit } = props;
   const localeText = useStudioLocaleText();
   const initialText = value !== undefined && value !== null ? String(value) : '';
   // Shared dirty-aware buffer (M15) — see `ConditionalFormatValueInput` above.
@@ -113,7 +138,7 @@ function ConditionalFormatStringValueInput(props: {
     dirty,
     setValue,
     settle,
-  } = useBufferedInput(initialText, `${widgetId}:cfStringValue:${ruleIndex}`);
+  } = useBufferedInput(initialText, `${widgetId}:cfStringValue:${ruleId}`);
 
   const commit = () => {
     if (!dirty) {
@@ -213,6 +238,7 @@ export function GridConditionalFormatSection(props: { widgetId: string }) {
     <SetupSection title={localeText.gridSetupConditionalFormattingTitle}>
       <Stack spacing={1}>
         {conditionalFormats.map((rule, i) => {
+          const ruleId = getRuleId(rule);
           const noValueOp = rule.operator === 'is_empty' || rule.operator === 'is_not_empty';
           const fieldEntry = source.fields.find((f) => f.id === rule.fieldId);
           const preset = cfStylePresets.find(
@@ -222,8 +248,16 @@ export function GridConditionalFormatSection(props: { widgetId: string }) {
               p.style.fontWeight === rule.style.fontWeight,
           );
           return (
-            // react-doctor-disable-next-line react-doctor/no-array-index-as-key, react-doctor/no-array-index-key -- conditional format rules have no stable ID
-            <Box key={i} sx={{ display: 'flex', gap: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
+            // Keyed by the rule's stable identity, not its array index (M13). With an index
+            // key, deleting a rule renumbered the survivors and React RE-USED the surviving
+            // row's mounted inputs for a different rule — carrying a half-typed, still-dirty
+            // buffer across with them. The AI chat's `update_widget` can delete a rule while
+            // the user is typing, so this is reachable even though clicking Delete blurs
+            // (and therefore commits) first.
+            <Box
+              key={ruleId}
+              sx={{ display: 'flex', gap: 0.5, alignItems: 'center', flexWrap: 'wrap' }}
+            >
               <Select
                 size="small"
                 value={rule.fieldId}
@@ -281,7 +315,7 @@ export function GridConditionalFormatSection(props: { widgetId: string }) {
                 (fieldEntry?.type === 'number' ? (
                   <ConditionalFormatValueInput
                     widgetId={widgetId}
-                    ruleIndex={i}
+                    ruleId={ruleId}
                     value={rule.value}
                     ariaLabel={localeText.gridConditionValueAriaLabel}
                     onCommit={(v) => {
@@ -293,7 +327,7 @@ export function GridConditionalFormatSection(props: { widgetId: string }) {
                 ) : (
                   <ConditionalFormatStringValueInput
                     widgetId={widgetId}
-                    ruleIndex={i}
+                    ruleId={ruleId}
                     value={rule.value}
                     ariaLabel={localeText.gridConditionValueAriaLabel}
                     onCommit={(v) => {

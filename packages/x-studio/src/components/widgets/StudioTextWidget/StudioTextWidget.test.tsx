@@ -32,8 +32,16 @@ describe('StudioTextWidget', () => {
   });
 
   it('trims surrounding whitespace', () => {
-    render(<StudioTextWidget widget={makeWidget({ textBody: '   spaced   ' })} pageId="page-1" />);
-    expect(screen.getByText('spaced')).not.toBe(null);
+    const { container } = render(
+      <StudioTextWidget widget={makeWidget({ textBody: '   spaced   ' })} pageId="page-1" />,
+    );
+    // Asserted on `textContent`, not via `getByText`: Testing Library's DEFAULT matcher
+    // normalizer trims and collapses whitespace BEFORE comparing, so
+    // `getByText('spaced')` passed whether or not the component trimmed anything —
+    // deleting the trim left the test green. The trimming is genuinely user-visible: the
+    // body renders with `whiteSpace: 'pre-wrap'` (`StudioTextWidget.tsx`), so untrimmed
+    // leading/trailing spaces are painted rather than collapsed by the browser.
+    expect(container.textContent).toBe('spaced');
   });
 
   it('renders only the body when no subtitle is set', () => {
@@ -126,12 +134,17 @@ describe('StudioTextWidget CSS value validation (finding 1)', () => {
   });
 
   it('falls back to the theme default for a non-numeric textBodyFontSize', () => {
+    // A CSS-injecting payload rather than a bland `'evil'`: the old test asserted only
+    // that the body still rendered, which stayed green with `sanitizeFontSize` deleted
+    // entirely. Assert what its siblings in this describe assert — that the payload never
+    // reaches the DOM/stylesheet at all.
+    const fontSizeInjectionPayload = '12px;} .MuiCard-root{background:url(https://evil/leak)';
     render(
       <StudioTextWidget
         widget={
           makeWidget({
             textBody: 'Body copy',
-            textBodyFontSize: 'evil' as unknown as number,
+            textBodyFontSize: fontSizeInjectionPayload as unknown as number,
           }) as ReturnType<typeof makeWidget>
         }
         pageId="page-1"
@@ -140,6 +153,8 @@ describe('StudioTextWidget CSS value validation (finding 1)', () => {
     // No thrown error and the body text still renders — the invalid font size is simply
     // dropped rather than propagated into `sx`.
     expect(screen.getByText('Body copy')).not.toBe(null);
+    expect(document.documentElement.outerHTML).not.toContain(fontSizeInjectionPayload);
+    expect(document.documentElement.outerHTML).not.toContain('.MuiCard-root{background:url');
   });
 });
 

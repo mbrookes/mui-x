@@ -3,13 +3,14 @@ import * as React from 'react';
 import { ScatterChart } from '@mui/x-charts/ScatterChart';
 import type { ScatterChartProps } from '@mui/x-charts/ScatterChart';
 import { rainbowSurgePalette } from '@mui/x-charts';
-import { Box, useColorScheme, useTheme } from '@mui/material';
+import { useColorScheme, useTheme } from '@mui/material';
 import {
   buildScatterCategoryColorMap,
   type ScatterDataPoint,
   type ScatterSeriesData,
 } from '../../../internals/chartAggregation';
 import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
+import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
 import { buildChartDescription } from './chartA11y';
 
 const GHOST_SERIES_SUFFIX = '-ghost';
@@ -55,6 +56,18 @@ interface StudioScatterChartProps {
   xAxisLabel?: string;
   yAxisLabel?: string;
   /**
+   * Value formatters built from the x / y field's own `format` / `currencyCode` / `precision`
+   * (`chartWidgetHelpers.makeValueFormatter`), applied to the axis ticks and the tooltip.
+   *
+   * Scatter was the one chart family that shipped no value formatting at all, so a currency
+   * measure read `1234.5` here while the bar chart beside it read `€1,234.50` off the same field
+   * (MEDIUM 7). `undefined` (an unformatted field) is forwarded as `undefined` so the
+   * `ScatterChart`'s own default number rendering applies, rather than being forced through a
+   * bare `String(value)`.
+   */
+  xValueFormatter?: (value: number | null) => string;
+  yValueFormatter?: (value: number | null) => string;
+  /**
    * Accessible name for the chart graphic — forwarded to the `ScatterChart`'s `title` prop,
    * which becomes the chart container's `aria-label` (WCAG 1.1.1 / 4.1.2, finding M10).
    */
@@ -86,6 +99,8 @@ export function StudioScatterChart({
   colors,
   xAxisLabel,
   yAxisLabel,
+  xValueFormatter,
+  yValueFormatter,
   ariaTitle,
   slotProps,
   children,
@@ -148,16 +163,14 @@ export function StudioScatterChart({
   const hasData = hasFilteredData || hasGhostBaseline;
 
   if (!hasData) {
-    return (
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          height,
-        }}
-      />
-    );
+    // The labelled, announced overlay — NOT a bare `<Box>`. This branch is reached whenever rows
+    // exist but every point was dropped (a non-numeric x or y on every row), and it used to
+    // render an empty rectangle with no `role="status"`: nothing on screen for a sighted user,
+    // nothing announced for a screen-reader user, for a state every sibling chart family
+    // explains through `renderEmptyChart`/`StudioNoDataOverlay`. Scatter owns its own empty-state
+    // decision (its dispatcher entry has no `hasGhostData` bypass), so the overlay belongs here
+    // (MEDIUM 7).
+    return <StudioNoDataOverlay height={height} />;
   }
 
   // Stable per-category colors, keyed by category identity (not array index), so a
@@ -219,17 +232,31 @@ export function StudioScatterChart({
     return null;
   })();
 
+  // Tooltip formatting for a scatter series is per-POINT, not per-value: `ScatterChart`'s
+  // `valueFormatter` receives the whole `{x, y}` datum, so both axes' formatters are applied
+  // here in one place rather than being reachable from the axis config alone.
+  const pointValueFormatter = (value: { x: number; y: number } | null): string => {
+    if (value == null) {
+      return '';
+    }
+    const x = xValueFormatter ? xValueFormatter(value.x) : String(value.x);
+    const y = yValueFormatter ? yValueFormatter(value.y) : String(value.y);
+    return `(${x}, ${y})`;
+  };
+
   const highlightedSeries = colorSeries
     ? colorSeries.map((s) => ({
         id: s.id,
         label: s.label,
         data: s.data,
         color: categoryColorMap?.get(s.id),
+        valueFormatter: pointValueFormatter,
       }))
     : [
         {
           data: scatterData ?? [],
           color: resolvedPalette[0],
+          valueFormatter: pointValueFormatter,
         },
       ];
 
@@ -268,8 +295,8 @@ export function StudioScatterChart({
         colors={colors}
         hideLegend={!colorSeries}
         margin={{ top: 16, right: colorSeries ? 8 : 16, bottom: 30, left: 40 }}
-        xAxis={[{ label: xAxisLabel }]}
-        yAxis={[{ label: yAxisLabel }]}
+        xAxis={[{ label: xAxisLabel, valueFormatter: xValueFormatter }]}
+        yAxis={[{ label: yAxisLabel, valueFormatter: yValueFormatter }]}
         slotProps={{
           ...slotProps?.slotProps,
           legend: {

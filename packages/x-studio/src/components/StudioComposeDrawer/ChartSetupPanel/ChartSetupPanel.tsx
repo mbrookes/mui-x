@@ -32,14 +32,16 @@ import {
 } from '../../../context';
 import { useStudioFeatures } from '../../../internals/StudioUIConfigContext';
 import { fieldsForCapability } from '../../../utils/fieldCapabilities';
-import { analyzeChartSupport } from '../../../internals/chartAggregation';
+import { analyzeChartSupport, chartTypeSupportsMeasure } from '../../../internals/chartAggregation';
 import { getReachableSourceIds } from '../../../internals/dataSourceGraph';
 import { buildFieldCatalog } from '../../../internals/fieldCatalog';
+import { getChartTypeDef } from '../../widgets/StudioChartWidget/chartTypeDefs';
 import type {
   StudioChartType,
   StudioBarLayout,
   StudioChartConfig,
   StudioChartWidgetConfig,
+  StudioCrossFilterMode,
 } from '../../../models';
 import { ChartTypePicker } from '../ChartTypePicker';
 import { DataSourceFieldSelect } from '../DataSourceFieldSelect';
@@ -100,6 +102,20 @@ export function ChartSetupPanel(props: { widgetId: string }) {
     [dataSources, expressionFields],
   );
 
+  // Every field EXCEPT measure expression fields.
+  //
+  // A measure (`isMeasure: true`) has no per-row value at all — `enrichRowsWithExpressions`
+  // deliberately skips measures — so it can only ever be a chart's MEASURE, never its category
+  // axis, split-by, heatmap row axis, gantt label/date, scatter colour-by, or anything else that
+  // reads a value off a row. `buildFieldCatalog` defaults to `expression: 'all'` and stamps
+  // `type: ef.type ?? 'number'`, which handed every measure the `numeric`/`categorical`
+  // capability and therefore a slot in every picker in this panel (HIGH 1). This is the catalog
+  // every DIMENSION picker below draws from.
+  const dimensionFields = React.useMemo(
+    () => buildFieldCatalog(dataSources, expressionFields, { expression: 'non-measure' }),
+    [dataSources, expressionFields],
+  );
+
   // The shared top controls span several chart families (xField / xGroupBy / sort /
   // ySeries / seriesField / dualYAxis / annotations / crossFilterMode), so they read
   // through the flat `StudioChartConfig` patch type. `chartConfig` is the SAME object
@@ -113,6 +129,17 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   const chartConfig = rawConfig as StudioChartWidgetConfig;
   const widgetSourceId = widget?.sourceId;
 
+  const chartType: StudioChartType = config.chartType ?? 'bar';
+  const chartTypeDef = getChartTypeDef(chartType);
+  // Whether THIS chart family can actually evaluate a measure expression field as its measure —
+  // the single source of truth is `CHART_TYPE_MEASURE_SUPPORT` (`internals/chartSupport.ts`),
+  // the same table `analyzeChartSupport` fails closed on. Scatter/heatmap/funnel/sankey/gantt
+  // answer `false`, so their measure pickers must not offer a measure that would then be
+  // rejected by the support guard the moment it is picked (HIGH 1).
+  const measuresSupported = chartTypeSupportsMeasure(chartType);
+  // The catalog the MEASURE pickers draw from: measures only where they can be evaluated.
+  const measureCatalog = measuresSupported ? allFields : dimensionFields;
+
   // selectedXField is used to conditionally show the Group By control below, and its
   // `sourceId` anchors `reachableFields` for every other picker. Resolve it scoped to the
   // widget's OWN source first (finding 2.12): `buildFieldCatalog` sorts by source label, so a
@@ -120,11 +147,14 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   // field id and sorts earlier — re-anchoring the whole panel on the wrong source and hiding
   // the widget's own valid fields. Fall back to the unscoped lookup only when the widget has
   // no source yet (the X pick will then adopt one).
+  //
+  // Resolved against `dimensionFields`: the X field is a dimension, so a measure sharing its id
+  // must never be what the panel decides the current X field is.
   const selectedXField =
     (widgetSourceId
-      ? allFields.find((f) => f.id === config.xField && f.sourceId === widgetSourceId)
+      ? dimensionFields.find((f) => f.id === config.xField && f.sourceId === widgetSourceId)
       : undefined) ??
-    allFields.find((f) => f.id === config.xField) ??
+    dimensionFields.find((f) => f.id === config.xField) ??
     null;
   // Finding 4 (gantt): gantt hides the X-field picker entirely (`config.xField` is never
   // set — see `!isGauge && !isGantt` below), so `selectedXField` never resolves and
@@ -139,30 +169,43 @@ export function ChartSetupPanel(props: { widgetId: string }) {
     selectedXField?.sourceId ?? (config.chartType === 'gantt' ? widgetSourceId : undefined);
 
   // Once the X field anchors a source, restrict all other pickers to reachable sources.
+  // Applied to the MEASURE catalog, since `numericFields` (its only consumer) feeds the measure
+  // pickers; the dimension pickers get their own reachability-restricted list below.
   const reachableFields = React.useMemo(() => {
     if (!supportSourceId) {
-      return allFields;
+      return measureCatalog;
     }
     const reachableIds = getReachableSourceIds(supportSourceId, relationships);
-    return allFields.filter((f) => reachableIds.has(f.sourceId));
-  }, [allFields, relationships, supportSourceId]);
+    return measureCatalog.filter((f) => reachableIds.has(f.sourceId));
+  }, [measureCatalog, relationships, supportSourceId]);
+
+  const reachableDimensionFields = React.useMemo(() => {
+    if (!supportSourceId) {
+      return dimensionFields;
+    }
+    const reachableIds = getReachableSourceIds(supportSourceId, relationships);
+    return dimensionFields.filter((f) => reachableIds.has(f.sourceId));
+  }, [dimensionFields, relationships, supportSourceId]);
 
   const numericFields = React.useMemo(
     () => fieldsForCapability(reachableFields, 'numeric').sort(sortBySourceLabel),
     [reachableFields],
   );
 
+  // Split-by / colour-by / sankey-target are DIMENSIONS — never a measure, whatever type it
+  // declares (`buildFieldCatalog` stamps `type: ef.type ?? 'number'`, so a measure declared
+  // `type: 'string'` would otherwise land here with the `categorical` capability).
   const categoryFields = React.useMemo(
-    () => fieldsForCapability(reachableFields, 'categorical').sort(sortBySourceLabel),
-    [reachableFields],
+    () => fieldsForCapability(reachableDimensionFields, 'categorical').sort(sortBySourceLabel),
+    [reachableDimensionFields],
   );
 
   const dateFields = React.useMemo(
     () =>
-      reachableFields
+      reachableDimensionFields
         .filter((f) => f.type === 'date' || f.type === 'datetime')
         .sort(sortBySourceLabel),
-    [reachableFields],
+    [reachableDimensionFields],
   );
 
   // Heatmap Y axis: any field type, but restricted to the primary source so that
@@ -170,16 +213,16 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   // source yet the restriction would match NOTHING (`f.sourceId === undefined` is never
   // true), leaving this required picker empty on a brand-new heatmap — offer the whole
   // catalog instead, exactly as the X-field picker does, since the pick establishes the
-  // source it is then restricted to (H3).
+  // source it is then restricted to (H3). Drawn from `dimensionFields`: the heatmap row axis
+  // buckets rows by a per-row value, which a measure does not have.
   const heatYFields = React.useMemo(
     () =>
       widgetSourceId
-        ? allFields.filter((f) => f.sourceId === widgetSourceId).sort(sortBySourceLabel)
-        : [...allFields].sort(sortBySourceLabel),
-    [allFields, widgetSourceId],
+        ? dimensionFields.filter((f) => f.sourceId === widgetSourceId).sort(sortBySourceLabel)
+        : [...dimensionFields].sort(sortBySourceLabel),
+    [dimensionFields, widgetSourceId],
   );
 
-  const chartType: StudioChartType = config.chartType ?? 'bar';
   const isHorizontalBarChart =
     (chartType === 'bar' || chartType === 'bar-stacked' || chartType === 'bar-100') &&
     config.barLayout === 'horizontal';
@@ -509,6 +552,14 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   } else if (seriesFieldDisabled) {
     seriesFieldDisabledTooltip = localeText.chartSetupRemoveSplitByTooltip;
   }
+  // See the `CrossFilterModeSection` call site at the bottom of this file for the reasoning.
+  const crossFilterModes: StudioCrossFilterMode[] = chartTypeDef.supportsGhost
+    ? ['cross-highlight', 'cross-filter', 'none']
+    : ['cross-filter', 'none'];
+  const crossFilterDefaultMode: StudioCrossFilterMode = chartTypeDef.supportsGhost
+    ? 'cross-highlight'
+    : 'cross-filter';
+
   const isGauge = chartType === 'gauge';
   const isMixed = chartType === 'mixed';
   const isHeatmap = chartType === 'heatmap';
@@ -697,7 +748,10 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                   sourceId && sourceId !== widgetSourceId ? staleFilterIdsFor(sourceId) : undefined,
               });
             }}
-            fields={isScatter ? fieldsForCapability(allFields, 'numeric') : allFields}
+            // `dimensionFields`, not `allFields`: the X field is the chart's category (or, for
+            // scatter, its per-row horizontal coordinate) — both read a value off each row, which
+            // a measure has none of.
+            fields={isScatter ? fieldsForCapability(dimensionFields, 'numeric') : dimensionFields}
             getOptionDisabled={(option) => {
               // Finding 6: exempt the CURRENT selection from validation by id AND sourceId, not
               // id alone — an id-only check lets an invalid unrelated-source candidate that
@@ -1112,7 +1166,10 @@ export function ChartSetupPanel(props: { widgetId: string }) {
           // unrestricted `allFields` — the label-field picker was the one gantt picker that
           // bypassed the reachable-source filter entirely, offering every field from every
           // source regardless of the widget's already-adopted source.
-          allFields={reachableFields}
+          //
+          // Every gantt field (label / start / end / colour) is a per-row DIMENSION, so this is
+          // the dimension-only list.
+          allFields={reachableDimensionFields}
           // …but the stale-filter computation needs the FULL catalog: it asks "does this
           // filter's field resolve against the NEW source?", and `reachableFields` is
           // narrowed to the OLD anchor's reachability set, so every field of the source
@@ -1142,13 +1199,25 @@ export function ChartSetupPanel(props: { widgetId: string }) {
         chartType !== 'sankey' &&
         chartType !== 'heatmap' &&
         chartType !== 'funnel' && <AnnotationsEditorSection widgetId={widgetId} config={config} />}
-      {/* Interactions — cross-filter mode */}
+      {/* Interactions — cross-filter mode.
+
+          The offered modes come from the chart-type registry's `supportsGhost` flag rather than
+          being hardcoded here (HIGH 5). "Highlight" only differs from "Filter" for a family that
+          actually renders the dimmed un-cross-filtered baseline; mixed / heatmap / funnel /
+          sankey / gantt / gauge aggregate `enrichedRows`, which in `'cross-highlight'` mode
+          already IS the cross-filtered row set, so they re-aggregate to the filtered subset and
+          rebase their axis/colour scale — behaviour indistinguishable from "Filter", offered
+          under a second button claiming otherwise. Those families are offered
+          `['cross-filter', 'none']` and default to `'cross-filter'`, which is what the runtime
+          default of `'cross-highlight'` already does for them; `CrossFilterModeSection`'s own
+          legacy normalization displays a stored `'cross-highlight'` as "Filter" for exactly this
+          case (the pattern the KPI panel already uses). No config is rewritten. */}
       <CrossFilterModeSection
         widgetId={widgetId}
         title={localeText.chartSetupInteractionsTitle}
         description={localeText.chartSetupInteractionsDescription}
-        modes={['cross-highlight', 'cross-filter', 'none']}
-        defaultMode="cross-highlight"
+        modes={crossFilterModes}
+        defaultMode={crossFilterDefaultMode}
         value={config.crossFilterMode}
       />
     </Stack>

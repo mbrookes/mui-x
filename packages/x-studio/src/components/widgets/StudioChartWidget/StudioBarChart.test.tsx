@@ -74,6 +74,7 @@ type BarCallProps = {
   highlightedItem?: { seriesId: string; dataIndex: number } | null;
   highlightedAxis?: Array<{ axisId: string; dataIndex: number }>;
   slots?: { tooltip?: unknown; bar?: unknown };
+  disableKeyboardNavigation?: boolean;
   onHighlightChange?: (item: { seriesId: string; dataIndex: number } | null) => void;
   onAxisClick?: (
     event: { shiftKey?: boolean } | null,
@@ -160,6 +161,15 @@ describe('StudioBarChart', () => {
     barChartSpy.mockClear();
     capturedBarCtx = null;
     capturedSourceSelection = null;
+  });
+
+  // x-charts defaults `disableKeyboardNavigation` to `true`, so a studio chart that forgets to
+  // spread `CHART_KEYBOARD_NAV_PROPS` ships with no keyboard navigation at all. `chartA11y.test`
+  // used to "cover" this by asserting the constant equals its own literal, which could never
+  // catch a chart that failed to spread it — assert the props the chart ACTUALLY receives.
+  it('opts the rendered chart into x-charts keyboard navigation', () => {
+    renderChart(baseProps());
+    expect(lastBarProps().disableKeyboardNavigation).toBe(false);
   });
 
   // ── Multi-Y ────────────────────────────────────────────────────────────────

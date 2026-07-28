@@ -14,7 +14,6 @@ import {
   buildChartDescription,
   chartKeyboardActivationProps,
   ChartFocusTracker,
-  CHART_KEYBOARD_NAV_PROPS,
   MAX_ARIA_DESCRIPTION_ITEMS,
   type ChartFocusRef,
 } from './chartA11y';
@@ -150,10 +149,12 @@ describe('ChartFocusTracker', () => {
   });
 });
 
-describe('CHART_KEYBOARD_NAV_PROPS', () => {
-  // x-charts defaults `disableKeyboardNavigation` to `true`, so the studio charts had no
-  // keyboard navigation at all before this.
-  it('opts the chart into x-charts keyboard navigation', () => {
-    expect(CHART_KEYBOARD_NAV_PROPS.disableKeyboardNavigation).toBe(false);
-  });
-});
+// `CHART_KEYBOARD_NAV_PROPS` has no test here any more. The one it used to have —
+// `expect(CHART_KEYBOARD_NAV_PROPS.disableKeyboardNavigation).toBe(false)` — restated the object
+// literal it was asserting against (`chartA11y.tsx` is literally
+// `{ disableKeyboardNavigation: false } as const`), so it could only fail if someone edited both
+// halves of a tautology, and it verified nothing about whether any chart actually opts in.
+// The behaviour that matters — that the studio chart components SPREAD it onto their x-charts
+// component, since x-charts defaults `disableKeyboardNavigation` to `true` — is now asserted in
+// `StudioBarChart.test.tsx`, `StudioLineAreaChart.test.tsx` and `StudioPieChart.test.tsx`,
+// against the props their mocked chart actually receives.

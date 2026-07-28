@@ -1377,7 +1377,11 @@ describe('<StudioChartWidget />', () => {
     screen.getByText('Use the Setup tab to configure this chart.');
   });
 
-  it('renders an empty box for scatter when there is no data', () => {
+  // These two used to assert only `expect(<chart>Spy).not.toHaveBeenCalled()`, which a crash
+  // fallback — or rendering literally nothing — passes just as happily. The sibling above
+  // ("renders a setup placeholder when xField is not configured") gets it right by also
+  // asserting the hint text; assert what the widget actually shows here too.
+  it('shows the no-data overlay for scatter when there is no data', () => {
     const dataSource: StudioDataSource = {
       id: 'orders',
       label: 'Orders',
@@ -1408,9 +1412,10 @@ describe('<StudioChartWidget />', () => {
     renderChart(widget, dataSource);
 
     expect(scatterChartSpy).not.toHaveBeenCalled();
+    screen.getByText('No data to display.');
   });
 
-  it('renders an empty box for a bar chart when there is no data', () => {
+  it('shows the no-data overlay for a bar chart when there is no data', () => {
     const dataSource: StudioDataSource = {
       id: 'orders',
       label: 'Orders',
@@ -1441,6 +1446,7 @@ describe('<StudioChartWidget />', () => {
     renderChart(widget, dataSource);
 
     expect(barChartSpy).not.toHaveBeenCalled();
+    screen.getByText('No data to display.');
   });
 
   it('passes hoveredItem as highlightedItem when no cross-filter is active', () => {

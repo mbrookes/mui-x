@@ -49,6 +49,7 @@ type LineCallProps = {
   highlightedAxis?: Array<{ axisId: string; dataIndex: number }>;
   xAxis: XAxisEntry[];
   yAxis: Array<{ id?: string; position?: string }>;
+  disableKeyboardNavigation?: boolean;
 };
 
 function lastLineProps(): LineCallProps {
@@ -150,6 +151,14 @@ describe('StudioLineAreaChart', () => {
 
   beforeEach(() => {
     lineChartSpy.mockClear();
+  });
+
+  // See `StudioBarChart.test.tsx`'s copy: x-charts defaults `disableKeyboardNavigation` to
+  // `true`, so this asserts the chart actually spreads `CHART_KEYBOARD_NAV_PROPS` rather than
+  // that the constant equals its own literal.
+  it('opts the rendered chart into x-charts keyboard navigation', () => {
+    renderChart(baseProps());
+    expect(lastLineProps().disableKeyboardNavigation).toBe(false);
   });
 
   it('renders a single-series line with connectNulls and area=false', () => {

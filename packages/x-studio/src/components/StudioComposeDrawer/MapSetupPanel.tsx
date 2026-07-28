@@ -86,7 +86,10 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
     });
     // Include string expression fields (e.g. expr-order-country via join)
     expressionFields.forEach((ef) => {
-      if (ef.hidden || ef.type !== 'string') {
+      // A MEASURE (`isMeasure: true`) is excluded outright: it has no per-row value
+      // (`enrichRowsWithExpressions` skips measures), and the country field is read off each row
+      // to bucket it into a region. Nothing here could ever resolve it.
+      if (ef.hidden || ef.isMeasure || ef.type !== 'string') {
         return;
       }
       const ds = dataSources[ef.sourceId];
@@ -138,7 +141,14 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
       // `allStringFields`'s `ef.type !== 'string'` check. Offering a non-numeric expression
       // field routed into the map renderer's numeric coercion, which skips every row and
       // silently rendered a blank map (finding 2.1).
-      if (ef.hidden || ef.type !== 'number') {
+      //
+      // A MEASURE is excluded for the same reason one type deeper (HIGH 1): the map's per-region
+      // reducer (`StudioMapWidget`'s `aggregateValues`) reads `row[valueField]` per row, and a
+      // measure has no per-row value — it is produced by evaluating the expression over a row
+      // SET. A measure declared with an explicit `type: 'number'` was the one shape that slipped
+      // past the type check above, and it then painted every region from an empty value list.
+      // The map has no measure-evaluation path, so exclude rather than offer-and-fail.
+      if (ef.hidden || ef.isMeasure || ef.type !== 'number') {
         return;
       }
       const ds = dataSources[ef.sourceId];
@@ -417,12 +427,19 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
         label={localeText.mapSetupClickableLabel}
       />
 
+      {/* "Highlight" is deliberately NOT offered (HIGH 5). `StudioMapWidget` has no ghost/dim
+          path at all — it re-aggregates its regions from the cross-filtered rows and rebases its
+          colour scale, so `'cross-highlight'` produced a picture identical to `'cross-filter'`
+          under a button promising something else. `CrossFilterModeSection`'s own legacy
+          normalization displays an already-stored `'cross-highlight'` as "Filter" (the same
+          pattern the KPI panel uses), so no persisted config is rewritten and nothing about the
+          rendered map changes — only the claim the panel makes. */}
       <CrossFilterModeSection
         widgetId={widgetId}
         title={localeText.mapSetupInteractionsTitle}
         description={localeText.mapSetupInteractionsDescription}
-        modes={['cross-highlight', 'cross-filter', 'none']}
-        defaultMode="cross-highlight"
+        modes={['cross-filter', 'none']}
+        defaultMode="cross-filter"
         // `crossFilterMode` is a cross-kind key, read via the flat cross-kind config type.
         value={(config as StudioWidgetConfig).crossFilterMode}
       />

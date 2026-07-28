@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { createRenderer } from '@mui/internal-test-utils';
+import { createRenderer, screen } from '@mui/internal-test-utils';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ScatterDataPoint, ScatterSeriesData } from '../../../internals/chartAggregation';
@@ -26,7 +26,10 @@ type ScatterCallProps = {
     data: ScatterDataPoint[];
     markerSize?: number;
     color?: string;
+    valueFormatter?: (value: { x: number; y: number } | null) => string;
   }>;
+  xAxis?: Array<{ label?: string; valueFormatter?: (value: number | null) => string }>;
+  yAxis?: Array<{ label?: string; valueFormatter?: (value: number | null) => string }>;
   zAxis?: unknown[];
   margin: { right: number };
   slotProps?: {
@@ -54,7 +57,11 @@ describe('StudioScatterChart', () => {
     scatterSpy.mockClear();
   });
 
-  it('renders nothing when there is no data', () => {
+  // MEDIUM 7. These used to assert only `expect(scatterSpy).not.toHaveBeenCalled()` — which a
+  // crash fallback, or rendering literally nothing, passes just as happily. What the component
+  // must actually do is show the announced no-data overlay every sibling chart family shows,
+  // instead of the bare unlabelled `<Box>` it used to render.
+  it('shows the announced no-data overlay when there is no data', () => {
     renderScatter(
       <StudioScatterChart
         height={200}
@@ -69,6 +76,7 @@ describe('StudioScatterChart', () => {
       />,
     );
     expect(scatterSpy).not.toHaveBeenCalled();
+    expect(screen.getByRole('status').textContent).toContain('No data to display.');
   });
 
   it('renders a single hidden-legend series for ungrouped data', () => {
@@ -503,7 +511,7 @@ describe('StudioScatterChart', () => {
       expect(props.series[1].data).toEqual([]);
     });
 
-    it('still renders nothing when the filtered set is empty and shouldShowGhost is false', () => {
+    it('still shows the no-data overlay when the filtered set is empty and shouldShowGhost is false', () => {
       renderScatter(
         <StudioScatterChart
           height={200}
@@ -518,6 +526,7 @@ describe('StudioScatterChart', () => {
         />,
       );
       expect(scatterSpy).not.toHaveBeenCalled();
+      expect(screen.getByRole('status').textContent).toContain('No data to display.');
     });
 
     it('renders the ghost baseline when the filtered (grouped) series list is empty but allScatterSeries has points', () => {
@@ -548,7 +557,7 @@ describe('StudioScatterChart', () => {
       expect(props.series.map((s) => s.id)).toEqual(['a-ghost', 'b-ghost']);
     });
 
-    it('renders nothing for a grouped chart when both the filtered and baseline series lists are empty', () => {
+    it('shows the no-data overlay for a grouped chart when both series lists are empty', () => {
       renderScatter(
         <StudioScatterChart
           height={200}
@@ -564,6 +573,77 @@ describe('StudioScatterChart', () => {
         />,
       );
       expect(scatterSpy).not.toHaveBeenCalled();
+      expect(screen.getByRole('status').textContent).toContain('No data to display.');
+    });
+  });
+
+  // MEDIUM 7: scatter was the only chart family with no value formatting at all, so a currency
+  // measure read `1234.5` here while the bar chart beside it read "€1,234.50".
+  describe('value formatting', () => {
+    const currency = (value: number | null) => (value === null ? '' : `€${value.toFixed(2)}`);
+    const plain = (value: number | null) => (value === null ? '' : `${value} u`);
+
+    it('applies the axis formatters to both axes', () => {
+      renderScatter(
+        <StudioScatterChart
+          height={200}
+          scatterData={pointsA}
+          scatterSeries={null}
+          allScatterData={null}
+          allScatterSeries={null}
+          preserveXFieldBaseline
+          preserveSplitByBaseline
+          shouldShowGhost={false}
+          skipAnimation={false}
+          xValueFormatter={plain}
+          yValueFormatter={currency}
+        />,
+      );
+      const props = lastScatterProps();
+      expect(props.xAxis?.[0].valueFormatter?.(3)).toBe('3 u');
+      expect(props.yAxis?.[0].valueFormatter?.(4)).toBe('€4.00');
+    });
+
+    it("formats the tooltip's point through both axis formatters", () => {
+      renderScatter(
+        <StudioScatterChart
+          height={200}
+          scatterData={pointsA}
+          scatterSeries={null}
+          allScatterData={null}
+          allScatterSeries={null}
+          preserveXFieldBaseline
+          preserveSplitByBaseline
+          shouldShowGhost={false}
+          skipAnimation={false}
+          xValueFormatter={plain}
+          yValueFormatter={currency}
+        />,
+      );
+      const props = lastScatterProps();
+      expect(props.series[0].valueFormatter?.({ x: 1, y: 2 })).toBe('(1 u, €2.00)');
+    });
+
+    it('falls back to the raw value when no formatter is supplied', () => {
+      renderScatter(
+        <StudioScatterChart
+          height={200}
+          scatterData={pointsA}
+          scatterSeries={null}
+          allScatterData={null}
+          allScatterSeries={null}
+          preserveXFieldBaseline
+          preserveSplitByBaseline
+          shouldShowGhost={false}
+          skipAnimation={false}
+        />,
+      );
+      const props = lastScatterProps();
+      // The AXIS formatters stay `undefined` so the ScatterChart's own default tick formatting
+      // applies — passing `String(value)` would override it with something worse.
+      expect(props.xAxis?.[0].valueFormatter).toBe(undefined);
+      expect(props.yAxis?.[0].valueFormatter).toBe(undefined);
+      expect(props.series[0].valueFormatter?.({ x: 1, y: 2 })).toBe('(1, 2)');
     });
   });
 

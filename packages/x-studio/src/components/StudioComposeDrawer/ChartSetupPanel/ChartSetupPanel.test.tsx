@@ -1610,3 +1610,164 @@ describe('ChartSetupPanel source adoption from a non-anchor field pick (H3)', ()
     expect(controller.updateWidget).not.toHaveBeenCalled();
   });
 });
+
+// ─── Measure expression fields in the pickers (HIGH 1) ────────────────────────
+//
+// `buildFieldCatalog` defaults to `expression: 'all'` and stamps `type: ef.type ?? 'number'`, so
+// every measure got the `numeric` capability and a slot in every picker in this panel — including
+// the chart families whose aggregation path cannot evaluate one, and including dimension pickers
+// where a measure is meaningless whatever the chart type.
+describe('ChartSetupPanel — measure expression fields', () => {
+  const AOV = {
+    id: 'aov',
+    label: 'Avg order value',
+    sourceId: 'orders',
+    isMeasure: true,
+    type: 'number',
+    expression: {
+      operator: 'divide',
+      inputs: [
+        { id: 'total', aggregation: 'sum' },
+        { id: 'total', aggregation: 'count' },
+      ],
+    },
+  };
+
+  let previousWidget: (typeof mockState.doc.widgets)['widget-1'];
+  let previousExpressionFields: unknown[];
+  let previousOrdersFields: unknown[];
+
+  beforeEach(() => {
+    configureStudioContextMock({ getState: () => mockState, controller });
+    previousWidget = mockState.doc.widgets['widget-1'];
+    previousExpressionFields = mockState.doc.expressionFields;
+    previousOrdersFields = mockState.runtime.dataSources.orders.fields;
+    mockState.doc.expressionFields = [AOV] as never;
+    mockState.runtime.dataSources.orders = {
+      ...mockState.runtime.dataSources.orders,
+      fields: [
+        { id: 'id', label: 'Order ID', type: 'string' },
+        { id: 'total', label: 'Total', type: 'number' },
+      ],
+    };
+  });
+
+  afterEach(() => {
+    mockState.doc.widgets['widget-1'] = previousWidget;
+    mockState.doc.expressionFields = previousExpressionFields as never;
+    mockState.runtime.dataSources.orders = {
+      ...mockState.runtime.dataSources.orders,
+      fields: previousOrdersFields as never,
+    };
+  });
+
+  const setConfig = (config: Record<string, unknown>) => {
+    mockState.doc.widgets['widget-1'] = {
+      ...previousWidget,
+      sourceId: 'orders',
+      config: config as StudioWidgetConfig,
+    };
+  };
+
+  const optionNames = async (user: ReturnType<typeof render>['user'], label: string) => {
+    await user.click(screen.getByLabelText(label, { exact: false }));
+    const names = (await screen.findAllByRole('option')).map((o) => o.textContent ?? '');
+    return names;
+  };
+
+  it('offers a measure as the Y measure of a bar chart', async () => {
+    setConfig({ chartType: 'bar', xField: 'id' });
+    const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
+
+    expect(await optionNames(user, 'Y / Measure field')).toEqual(
+      expect.arrayContaining([expect.stringContaining('Avg order value')]),
+    );
+  });
+
+  it('hides a measure from the Y measure picker of a chart family that cannot evaluate it', async () => {
+    // Heatmap aggregates through `chartShapes/heatmap.ts`, which reads `row[valueField]` — a
+    // measure has no per-row value, so every cell would accumulate nothing.
+    setConfig({ chartType: 'heatmap', xField: 'id', heatYField: 'id' });
+    const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
+
+    const names = await optionNames(user, 'Value / color field');
+    expect(names).toEqual(expect.arrayContaining([expect.stringContaining('Total')]));
+    expect(names.join('|')).not.toContain('Avg order value');
+  });
+
+  it('never offers a measure as the X / category field, even on a measure-capable family', async () => {
+    setConfig({ chartType: 'bar', xField: 'id' });
+    const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
+
+    const names = await optionNames(user, 'X / Category field');
+    expect(names).toEqual(expect.arrayContaining([expect.stringContaining('Order ID')]));
+    expect(names.join('|')).not.toContain('Avg order value');
+  });
+
+  it('never offers a measure as the split-by field', async () => {
+    setConfig({ chartType: 'bar', xField: 'id' });
+    const { user } = render(<ChartSetupPanel widgetId="widget-1" />);
+
+    const names = await optionNames(user, 'Split by (series field)');
+    expect(names.join('|')).not.toContain('Avg order value');
+  });
+});
+
+// ─── Interactions modes derived from the chart-type registry (HIGH 5) ─────────
+describe('ChartSetupPanel — Interactions modes', () => {
+  let previousWidget: (typeof mockState.doc.widgets)['widget-1'];
+
+  beforeEach(() => {
+    configureStudioContextMock({ getState: () => mockState, controller });
+    previousWidget = mockState.doc.widgets['widget-1'];
+  });
+
+  afterEach(() => {
+    mockState.doc.widgets['widget-1'] = previousWidget;
+  });
+
+  const setChartType = (chartType: string, extra: Record<string, unknown> = {}) => {
+    mockState.doc.widgets['widget-1'] = {
+      ...previousWidget,
+      sourceId: 'orders',
+      config: { chartType, xField: 'id', ...extra } as StudioWidgetConfig,
+    };
+  };
+
+  it.each(['bar', 'line', 'pie', 'scatter'])(
+    'offers Highlight for %s, which renders a ghost baseline',
+    (chartType) => {
+      setChartType(chartType);
+      render(<ChartSetupPanel widgetId="widget-1" />);
+
+      expect(screen.getByRole('button', { name: 'Highlight', pressed: true })).toBeVisible();
+    },
+  );
+
+  it.each(['mixed', 'heatmap', 'funnel', 'sankey', 'gantt', 'gauge'])(
+    'hides Highlight for %s, whose renderer has no ghost path',
+    (chartType) => {
+      // Without a ghost, `'cross-highlight'` re-aggregates the cross-filtered rows and rebases
+      // the axis/colour scale — a picture identical to `'cross-filter'`, offered under a button
+      // claiming otherwise.
+      setChartType(chartType);
+      render(<ChartSetupPanel widgetId="widget-1" />);
+
+      expect(screen.queryByRole('button', { name: 'Highlight' })).toBe(null);
+      expect(screen.getByRole('button', { name: 'Filter', pressed: true })).toBeVisible();
+      expect(screen.getByRole('button', { name: 'None', pressed: false })).toBeVisible();
+    },
+  );
+
+  it('displays a legacy stored cross-highlight as Filter on a non-ghosting family', () => {
+    // Nothing rewrites the stored config, and nothing about the rendered chart changes — only
+    // the claim the panel makes about it.
+    setChartType('heatmap', { crossFilterMode: 'cross-highlight' });
+    controller.updateWidgetConfig.mockClear();
+
+    render(<ChartSetupPanel widgetId="widget-1" />);
+
+    expect(screen.getByRole('button', { name: 'Filter', pressed: true })).toBeVisible();
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
+  });
+});

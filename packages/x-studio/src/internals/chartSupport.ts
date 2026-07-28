@@ -4,6 +4,9 @@ import type {
   StudioFilterState,
   StudioRelationship,
 } from '../models';
+import type { StudioChartType } from '../models/baseTypes';
+import { lookup } from '../utils/safeLookup';
+import { findMeasureExpressionField } from './aggregate';
 import { findDirectRelationship } from './dataSourceGraph';
 import { effectiveFilterSourceId, resolveRowsAtGrain } from './grainResolution';
 import { filterFingerprint } from './resolvedRowsCache';
@@ -191,10 +194,70 @@ function findDirectFieldOwner(
   return null;
 }
 
+/**
+ * Which chart families can render a MEASURE expression field (`isMeasure: true`) as their
+ * y-measure.
+ *
+ * A measure has NO per-row value — `enrichRowsWithExpressions` deliberately skips measures, so
+ * `row[measureId]` is `undefined` on every row. It can only be produced by evaluating the whole
+ * expression over each bucket's ROW SET (`internals/aggregate.resolveMeasureAggregate`). A family
+ * therefore supports a measure exactly when its aggregation path keeps the contributing rows per
+ * bucket:
+ *
+ * - `true` — bar / line / area / pie / donut / mixed route through the three generic aggregators
+ *   (`aggregators.ts`), which all take `expressionFields` and evaluate a measure per bucket; gauge
+ *   evaluates it over the whole row set in `renderGauge` (`chartTypeDefs.tsx`), exactly like the
+ *   KPI card does.
+ * - `false` — scatter plots RAW per-row coordinates, so a value that only exists per bucket has
+ *   no coordinate to plot at all; gantt likewise reads raw per-row start/end/label values.
+ *   Heatmap / funnel / sankey aggregate through the `internals/chartShapes/*` reducers, which read
+ *   `row[valueField]` directly and have no measure path yet — a measure there accumulates nothing.
+ *
+ * Offering a measure to a `false` family is what the `'measure_not_supported'` reason exists to
+ * report: without it the picker offered every measure everywhere and the chart then drew a
+ * confident, wrong result (or nothing) with no explanation. `satisfies Record<StudioChartType, …>`
+ * makes answering the question a compile-time requirement for any new chart type.
+ */
+export const CHART_TYPE_MEASURE_SUPPORT = {
+  bar: true,
+  'bar-stacked': true,
+  'bar-100': true,
+  line: true,
+  area: true,
+  'area-stacked': true,
+  'area-100': true,
+  pie: true,
+  donut: true,
+  mixed: true,
+  gauge: true,
+  scatter: false,
+  heatmap: false,
+  funnel: false,
+  sankey: false,
+  gantt: false,
+} satisfies Record<StudioChartType, boolean>;
+
+/**
+ * Whether `chartType` can evaluate a measure expression field as its y-measure.
+ *
+ * `undefined` answers `true`: the non-chart callers (`resolveChartRowsForAggregation`'s internal
+ * re-check, the KPI widget's grain analysis) pass no chart type and must not have a chart-family
+ * restriction applied to them. An UNKNOWN (doc/AI-authored) chart type answers `false` — fail
+ * closed, and read through the prototype-chain-safe `lookup` so a key like `"constructor"` can't
+ * resolve an inherited truthy member off `Object.prototype`.
+ */
+export function chartTypeSupportsMeasure(chartType: string | undefined): boolean {
+  if (chartType === undefined) {
+    return true;
+  }
+  return lookup(CHART_TYPE_MEASURE_SUPPORT, chartType) ?? false;
+}
+
 export type ChartSupportReason =
   | 'field_not_found_or_not_direct'
   | 'mixed_cross_source_fields'
-  | 'scatter_cross_source_not_supported';
+  | 'scatter_cross_source_not_supported'
+  | 'measure_not_supported';
 
 export interface ChartSupportResult {
   supported: boolean;
@@ -213,6 +276,8 @@ export function getChartSupportMessage(reason: ChartSupportReason): string {
       return 'This chart configuration mixes cross-source fields in a way that does not have a single safe aggregation grain yet.';
     case 'scatter_cross_source_not_supported':
       return 'Scatter charts do not support cross-source field combinations yet.';
+    case 'measure_not_supported':
+      return 'This chart type cannot use a measure field here. Measures have no per-row value, so they can only be used as the measure of a chart family that aggregates by bucket.';
     default:
       return 'This chart configuration is not supported yet.';
   }
@@ -250,8 +315,51 @@ export function analyzeChartSupport(
     return { supported: true };
   }
 
+  const yFieldSet = new Set(yFields);
+
+  // ── Measure expression fields ──────────────────────────────────────────────
+  //
+  // A measure has no per-row value, so it can never be resolved by `findDirectFieldOwner`
+  // (`hasRowLevelField` explicitly excludes measures) and must never reach L4 re-anchoring —
+  // there is no column to join or enrich. Classify them up front instead: a measure that IS
+  // usable here is dropped from `requestedFields`/`fieldOwners` entirely (so L4 treats it as
+  // absent), and one that is NOT usable fails closed with a reason that names the real problem.
+  //
+  // Before this, EVERY measure fell through to `field_not_found_or_not_direct` — "fields that are
+  // not available on the widget source", said about a measure the panel had just offered and the
+  // KPI card beside it was already computing correctly. The measure-aware generic aggregators
+  // (`aggregators.ts`) were unreachable from charts as a result.
+  const measureYFields = new Set<string>();
+  for (const fieldId of requestedFields) {
+    const measure = findMeasureExpressionField(fieldId, expressionFields);
+    if (!measure) {
+      continue;
+    }
+    // A measure is a MEASURE and nothing else: it can never group, split, colour or size, because
+    // those dimensions read a per-row value that does not exist. Any non-y slot fails closed.
+    if (!yFieldSet.has(fieldId)) {
+      return { supported: false, reason: 'measure_not_supported' };
+    }
+    if (!chartTypeSupportsMeasure(chartType)) {
+      return { supported: false, reason: 'measure_not_supported' };
+    }
+    // A measure is evaluated over the WIDGET's own rows. A measure owned by another source would
+    // need that source's rows at that source's grain, which this analysis never produces — the
+    // same "not available on the widget source" answer the pre-existing owner lookup gives for
+    // any unreachable field.
+    if (measure.sourceId !== widgetSourceId) {
+      return { supported: false, reason: 'field_not_found_or_not_direct' };
+    }
+    measureYFields.add(fieldId);
+  }
+
   const fieldOwners = new Map<string, string>();
   for (const fieldId of requestedFields) {
+    if (measureYFields.has(fieldId)) {
+      // Deliberately absent from `fieldOwners`: `resolveRowsAtGrain` routes every entry through
+      // its enrichment/expansion joins, and a measure has no column for those to read.
+      continue;
+    }
     const owner = findDirectFieldOwner(
       widgetSourceId,
       fieldId,
@@ -272,7 +380,6 @@ export function analyzeChartSupport(
     return { supported: false, reason: 'scatter_cross_source_not_supported' };
   }
 
-  const yFieldSet = new Set(yFields);
   const ySourceIds = [
     ...new Set(
       yFields
@@ -417,6 +524,17 @@ export function analyzeChartSupport(
     anchorSourceId === widgetSourceId &&
     ySourceIds.filter((sourceId) => sourceId !== widgetSourceId).length > 1
   ) {
+    return { supported: false, reason: 'mixed_cross_source_fields' };
+  }
+
+  // A measure expression is written against the WIDGET source's rows at the widget's own grain
+  // (that is the row set `evaluateMeasure` is handed, and the row set the KPI card evaluates it
+  // over). Any re-anchor — a many-to-one anchor for a sibling cross-source measure, or an M:N
+  // junction anchor selected to fan a dimension out — hands the aggregators a row set that has
+  // been expanded or re-grained, so the same measure would silently return a different number
+  // here than on the KPI beside it. There is no combined grain, so fail closed rather than
+  // publish two answers to one question.
+  if (measureYFields.size > 0 && anchorSourceId !== widgetSourceId) {
     return { supported: false, reason: 'mixed_cross_source_fields' };
   }
 

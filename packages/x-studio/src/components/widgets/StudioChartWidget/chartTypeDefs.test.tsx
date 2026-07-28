@@ -22,7 +22,19 @@ const {
   buildGanttItemsSpy,
   computeAggregateSpy,
 } = vi.hoisted(() => ({
-  aggregateHeatmapSpy: vi.fn(() => ({ rows: [], cols: [], cells: [] }) as unknown),
+  // A real `HeatmapData` shape (an EMPTY one): `renderHeatmap` now bails to the no-data overlay
+  // when the post-aggregation grid has no axis labels, so the mock must answer the same
+  // questions the real `aggregateHeatmap` does. Tests that need the chart itself override this.
+  aggregateHeatmapSpy: vi.fn(
+    () =>
+      ({
+        xLabels: [],
+        yLabels: [],
+        cells: new Map<string, number | null>(),
+        minValue: 0,
+        maxValue: 0,
+      }) as unknown,
+  ),
   aggregateFunnelReachedSpy: vi.fn(() => ({ stages: [] }) as unknown),
   buildFunnelStagesSpy: vi.fn(() => ({ stages: [], sort: 'none' }) as unknown),
   aggregateSankeySpy: vi.fn(() => ({ nodes: [], links: [] }) as unknown),
@@ -67,6 +79,8 @@ import { StudioGanttChart } from './StudioGanttChart';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
 // eslint-disable-next-line import/first -- must follow the vi.mock calls above
 import { StudioGaugeChart } from './StudioGaugeChart';
+// eslint-disable-next-line import/first -- must follow the vi.mock calls above
+import { StudioHeatmapChart } from './StudioHeatmapChart';
 
 const dataSource: StudioDataSource = {
   id: 'src',
@@ -616,14 +630,153 @@ describe('chart-family renderers consult allChartData before bailing to EmptyCha
   // unresolvable measure, `useChartRows` short-circuits to `[]`, the gauge aggregates nothing
   // and renders a confident `0` where every other family explains the problem.
   describe('guard flags', () => {
-    it('runs the shared chart-support guard for the gauge', () => {
-      expect(CHART_TYPE_DEFS.gauge.runsSupportGuard).toBe(true);
-    });
-
+    // The gauge-specific assertion this used to carry (`CHART_TYPE_DEFS.gauge.runsSupportGuard`)
+    // was deleted: it restated a literal from `CHART_TYPE_DEFS` and was strictly subsumed by the
+    // every-family loop below, which fails for the gauge too.
     it('keeps the support guard on for every family', () => {
       for (const [chartType, def] of Object.entries(CHART_TYPE_DEFS)) {
         expect([chartType, def.runsSupportGuard]).toEqual([chartType, true]);
       }
+    });
+  });
+
+  // HIGH 5. `emitsCrossFilter` / `supportsGhost` are only worth declaring if they describe what
+  // the renderers actually DO — so verify them against the rendered output, not against the
+  // literal they were written as.
+  describe('cross-filter capability flags', () => {
+    // One representative config per family that reaches its real chart component.
+    const CASES: Array<{ chartType: keyof typeof CHART_TYPE_DEFS; config: StudioWidgetConfig }> = [
+      { chartType: 'bar', config: { chartType: 'bar', xField: 'category' } as StudioWidgetConfig },
+      {
+        chartType: 'line',
+        config: { chartType: 'line', xField: 'category' } as StudioWidgetConfig,
+      },
+      { chartType: 'pie', config: { chartType: 'pie', xField: 'category' } as StudioWidgetConfig },
+      {
+        chartType: 'scatter',
+        config: { chartType: 'scatter', xField: 'amount', yField: 'amount' } as StudioWidgetConfig,
+      },
+      {
+        chartType: 'gauge',
+        config: { chartType: 'gauge', yField: 'amount' } as StudioWidgetConfig,
+      },
+    ];
+
+    it.each(CASES)(
+      '$chartType forwards onItemClick exactly when emitsCrossFilter says so',
+      ({ chartType, config }) => {
+        const def = CHART_TYPE_DEFS[chartType];
+        const ctx = makeCtx(config, [{ category: 'a', amount: 1 }]);
+        // Give the bar/line/pie families data so they render their chart rather than the
+        // no-data overlay.
+        const view = def.render({
+          ...ctx,
+          chartData: { labels: ['a'], values: [1] },
+          allChartData: { labels: ['a'], values: [1] },
+          scatterData: [{ x: 1, y: 1, id: 0 }],
+        } as never);
+        const forwarded = (view.props as { onItemClick?: unknown }).onItemClick !== undefined;
+        expect([chartType, forwarded]).toEqual([chartType, def.emitsCrossFilter]);
+      },
+    );
+
+    it('declares a ghost only for the families whose renderer reads the baseline', () => {
+      // The ghost is what makes "Highlight" differ from "Filter". A family that never reads
+      // `ctx.all*` / `ctx.shouldShowGhost` re-aggregates the cross-filtered rows instead, which
+      // is exactly what "Filter" does.
+      const ghosting = Object.entries(CHART_TYPE_DEFS)
+        .filter(([, def]) => def.supportsGhost)
+        .map(([chartType]) => chartType)
+        .sort();
+      expect(ghosting).toEqual(
+        [
+          'area',
+          'area-100',
+          'area-stacked',
+          'bar',
+          'bar-100',
+          'bar-stacked',
+          'donut',
+          'line',
+          'pie',
+          'scatter',
+        ].sort(),
+      );
+    });
+  });
+
+  // MEDIUM 7: the heatmap was the one family with no post-aggregation empty guard, so an
+  // all-empty-x heatmap rendered bare, labelless axes where funnel/sankey/gantt all explain
+  // themselves through the shared overlay.
+  describe('renderHeatmap empty result', () => {
+    const heatmapConfig = {
+      chartType: 'heatmap',
+      xField: 'category',
+      heatYField: 'region',
+      yField: 'amount',
+    } as StudioWidgetConfig;
+
+    it('shows the no-data overlay when the aggregated grid has no axis labels', () => {
+      const view = CHART_TYPE_DEFS.heatmap.render(makeCtx(heatmapConfig, [{ amount: 1 }]));
+      expect(view.type).toBe(StudioNoDataOverlay);
+    });
+
+    it('still renders the chart when the grid has labels', () => {
+      aggregateHeatmapSpy.mockReturnValue({
+        xLabels: ['a'],
+        yLabels: ['b'],
+        cells: new Map([['a b', 1]]),
+        minValue: 1,
+        maxValue: 1,
+      } as unknown);
+      const view = CHART_TYPE_DEFS.heatmap.render(
+        makeCtx(heatmapConfig, [{ category: 'a', region: 'b', amount: 1 }]),
+      );
+      expect(view.type).toBe(StudioHeatmapChart);
+    });
+  });
+
+  // MEDIUM 7: scatter shipped no value formatting at all, so a currency measure read `1234.5`
+  // where the bar chart beside it read "€1,234.50".
+  describe('renderScatter value formatting', () => {
+    const scatterConfig = {
+      chartType: 'scatter',
+      xField: 'category',
+      yField: 'amount',
+    } as StudioWidgetConfig;
+
+    it("builds x/y formatters from each axis field's own number format", () => {
+      const ctx = makeCtx<'scatter'>(scatterConfig, []);
+      const view = CHART_TYPE_DEFS.scatter.render({
+        ...ctx,
+        dataSource: {
+          ...dataSource,
+          fields: [
+            { id: 'category', label: 'Category', type: 'number', precision: 2 },
+            {
+              id: 'amount',
+              label: 'Amount',
+              type: 'number',
+              format: 'currency',
+              currencyCode: 'EUR',
+            },
+          ] as never,
+        },
+      });
+      const props = view.props as {
+        xValueFormatter?: (v: number | null) => string;
+        yValueFormatter?: (v: number | null) => string;
+      };
+      // Compact notation, the same as every sibling family's axis/tooltip formatting.
+      expect(props.xValueFormatter!(1234.5)).toBe('1.23K');
+      expect(props.yValueFormatter!(1234.5)).toContain('€');
+    });
+
+    it('leaves an unformatted field to the chart default rather than String(value)', () => {
+      const view = CHART_TYPE_DEFS.scatter.render(makeCtx<'scatter'>(scatterConfig, []));
+      const props = view.props as { xValueFormatter?: unknown; yValueFormatter?: unknown };
+      expect(props.xValueFormatter).toBe(undefined);
+      expect(props.yValueFormatter).toBe(undefined);
     });
   });
 });
@@ -823,5 +976,92 @@ describe('renderGauge over an empty row set (M4)', () => {
 
     expect(view.type).not.toBe(StudioNoDataOverlay);
     expect(view.type).not.toBe(StudioGaugeChart);
+  });
+});
+
+// HIGH 1. A measure has no per-row value, so `computeAggregate` reduced a list of `undefined`s:
+// `sum`/`count` returned a confident `0` and `avg`/`min`/`max` returned `null`. A gauge on
+// `aov = sum(total)/count(total)` therefore pointed its needle at the bottom of the range with a
+// formatted `0` in the centre while the KPI card beside it, over the same measure and rows,
+// showed the right number.
+describe('renderGauge measure expression fields', () => {
+  const AOV = {
+    id: 'aov',
+    label: 'Avg order value',
+    sourceId: 'src',
+    isMeasure: true,
+    type: 'number',
+    expression: {
+      operator: 'divide',
+      inputs: [
+        { id: 'amount', aggregation: 'sum' },
+        { id: 'amount', aggregation: 'count' },
+      ],
+    },
+  } as never;
+
+  const gaugeConfig = { chartType: 'gauge', yField: 'aov' } as StudioWidgetConfig;
+  const rows = [{ amount: 100 }, { amount: 300 }];
+
+  it('evaluates the measure over the row set instead of reducing per-row undefineds', () => {
+    const ctx = makeCtx<'gauge'>(gaugeConfig, rows);
+    const view = CHART_TYPE_DEFS.gauge.render({
+      ...ctx,
+      enrichedRows: rows,
+      expressionFields: [AOV],
+    });
+
+    expect(view.type).toBe(StudioGaugeChart);
+    expect((view.props as { value: number }).value).toBe(200);
+    // `computeAggregate` is the per-row path; a measure must never reach it.
+    expect(computeAggregateSpy).not.toHaveBeenCalled();
+  });
+
+  it('re-evaluates when the measure formula changes but the rows array does not', () => {
+    // `cachedCompute` keys on the rows reference plus the key string, and a measure is never
+    // enriched onto rows — so the formula has to be part of the key or the gauge keeps showing
+    // the pre-edit number forever.
+    // Same `ctx`, same `rows` array reference on both calls — only the formula moves.
+    const ctx = makeCtx<'gauge'>(gaugeConfig, rows);
+    const gaugeValueWith = (measure: never): number => {
+      const view = CHART_TYPE_DEFS.gauge.render({
+        ...ctx,
+        enrichedRows: rows,
+        expressionFields: [measure],
+      });
+      return (view.props as { value: number }).value;
+    };
+
+    expect(gaugeValueWith(AOV)).toBe(200);
+
+    const summed = {
+      ...(AOV as unknown as Record<string, unknown>),
+      expression: { operator: 'add', inputs: [{ id: 'amount', aggregation: 'sum' }, 0] },
+    } as never;
+    expect(gaugeValueWith(summed)).toBe(400);
+  });
+
+  it('shows the no-data overlay when the measure cannot be evaluated', () => {
+    // `resolveMeasureAggregate` returns `null` — never `0` — for an unevaluable measure, and the
+    // existing `gaugeValue === null` bail renders that as "no data" rather than a needle at the
+    // bottom of the range.
+    const broken = {
+      ...(AOV as unknown as Record<string, unknown>),
+      expression: {
+        operator: 'divide',
+        inputs: [
+          { id: 'amount', aggregation: 'sum' },
+          { id: 'missing', aggregation: 'sum' },
+        ],
+      },
+    } as never;
+    const ctx = makeCtx<'gauge'>(gaugeConfig, rows);
+    const view = CHART_TYPE_DEFS.gauge.render({
+      ...ctx,
+      enrichedRows: rows,
+      expressionFields: [broken],
+    });
+
+    expect(view.type).toBe(StudioNoDataOverlay);
   });
 });

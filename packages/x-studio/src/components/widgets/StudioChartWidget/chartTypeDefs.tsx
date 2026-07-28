@@ -34,6 +34,7 @@ import {
 } from '../../../internals/chartAggregation';
 import type { StudioLocaleText } from '../../../internals/StudioUIConfigContext';
 import { cachedCompute } from '../../../internals/computedCache';
+import { findMeasureExpressionField, resolveMeasureAggregate } from '../../../internals/aggregate';
 import { computeAggregate } from '../StudioKpiWidget/kpiUtils';
 import { StudioFunnelChart } from './StudioFunnelChart';
 import { StudioGanttChart } from './StudioGanttChart';
@@ -47,6 +48,7 @@ import { StudioLineAreaChart } from './StudioLineAreaChart';
 import { StudioBarChart } from './StudioBarChart';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
 import { sanitizeFiniteNumber } from '../../../internals/cssValueValidation';
+import { lookup } from '../../../utils/safeLookup';
 import { makeValueFormatter, resolveFieldDef } from './chartWidgetHelpers';
 
 type HoverHighlightItem = HighlightItemIdentifier<'bar' | 'line' | 'pie'>;
@@ -199,6 +201,34 @@ export interface ChartTypeDef<T extends StudioChartType = StudioChartType> {
   runsSupportGuard: boolean;
   /** Whether the shared "no rows after filtering" guard applies to this type. */
   runsNoDataGuard: boolean;
+  /**
+   * Whether this type's renderer forwards `ctx.onItemClick`, i.e. whether clicking the chart can
+   * EMIT a cross-filter to its sibling widgets.
+   *
+   * Only `renderBar`, `renderPieDonut` and `renderLineArea` do. The remaining seven families
+   * (scatter, mixed, heatmap, funnel, sankey, gantt, gauge) receive `onItemClick` in their render
+   * context and drop it, so no click of theirs ever reaches `applyCrossFilter`. Declared here so
+   * a new chart type has to answer the question, and so the assertion is testable against the
+   * registry rather than re-derived by reading nine render functions.
+   */
+  emitsCrossFilter: boolean;
+  /**
+   * Whether this type can render the cross-highlight GHOST — the dimmed un-cross-filtered
+   * baseline behind the highlighted set — i.e. whether it reads `ctx.shouldShowGhost` /
+   * `ctx.all*` at all.
+   *
+   * This is what makes `'cross-highlight'` mean something different from `'cross-filter'`. Bar,
+   * pie/donut, line/area and scatter honour it. Mixed, heatmap, funnel, sankey, gantt and gauge
+   * do NOT: they aggregate `ctx.enrichedRows`, which in `'cross-highlight'` mode already IS the
+   * cross-filtered row set, so they silently re-aggregate to the filtered subset — behaviour
+   * identical to `'cross-filter'`, except the colour scale/axis rebases too. Setting a heatmap to
+   * "Highlight" and clicking a sibling bar produced exactly the same picture as "Filter", with
+   * two buttons claiming to do different things.
+   *
+   * `ChartSetupPanel` derives the Interactions control's offered modes from this flag, so a
+   * family that cannot highlight no longer advertises that it can (HIGH 5).
+   */
+  supportsGhost: boolean;
   // Declared as a METHOD (not an arrow property) so its `ctx` parameter is checked
   // bivariantly: this lets a family-narrow renderer (e.g. `renderBar`, typed for
   // `ChartRenderContext<'bar' | …>`) satisfy `Record<StudioChartType, ChartTypeDef>`
@@ -491,10 +521,29 @@ function renderScatter(ctx: ChartRenderContext<'scatter'>): React.ReactElement {
   // Mirror the `yField ?? ySeries[0].fieldId` fallback the scatter data memos use (finding 2.7)
   // so the y-axis label resolves for a chart authored via `ySeries` then switched to scatter.
   const scatterYField = config.yField ?? config.ySeries?.[0]?.fieldId;
-  const xAxisLabel =
-    resolveFieldDef(config.xField, ctx.dataSource, ctx.expressionFields)?.label ?? config.xField;
-  const yAxisLabel =
-    resolveFieldDef(scatterYField, ctx.dataSource, ctx.expressionFields)?.label ?? scatterYField;
+  const xFieldDef = resolveFieldDef(config.xField, ctx.dataSource, ctx.expressionFields);
+  const yFieldDef = resolveFieldDef(scatterYField, ctx.dataSource, ctx.expressionFields);
+  const xAxisLabel = xFieldDef?.label ?? config.xField;
+  const yAxisLabel = yFieldDef?.label ?? scatterYField;
+  // Scatter was the ONE chart family that rendered its measures completely unformatted: every
+  // sibling (bar, line/area, pie, heatmap, funnel, sankey, gauge, mixed) builds a
+  // `makeValueFormatter` from the field's own `format`/`currencyCode`/`precision`, so a currency
+  // measure read `€1,234.50` there and a bare `1234.5` on the scatter beside it — same field,
+  // same dashboard, two renderings (MEDIUM 7). `noFormatFallback: 'undefined'` leaves an
+  // unformatted field to the ScatterChart's own default rather than forcing a bare
+  // `String(value)`, matching `renderGauge`'s use of the same option.
+  const scatterXValueFormatter = makeValueFormatter(
+    xFieldDef?.format,
+    xFieldDef?.currencyCode,
+    xFieldDef?.precision,
+    { noFormatFallback: 'undefined' },
+  );
+  const scatterYValueFormatter = makeValueFormatter(
+    yFieldDef?.format,
+    yFieldDef?.currencyCode,
+    yFieldDef?.precision,
+    { noFormatFallback: 'undefined' },
+  );
 
   return (
     <StudioScatterChart
@@ -504,6 +553,8 @@ function renderScatter(ctx: ChartRenderContext<'scatter'>): React.ReactElement {
       sizeField={config.scatterSizeField}
       minRadius={config.scatterMinRadius}
       maxRadius={config.scatterMaxRadius}
+      xValueFormatter={scatterXValueFormatter}
+      yValueFormatter={scatterYValueFormatter}
       scatterData={ctx.scatterData}
       scatterSeries={ctx.scatterSeries}
       allScatterData={ctx.allScatterData}
@@ -629,6 +680,15 @@ function renderHeatmap(ctx: ChartRenderContext<'heatmap'>): React.ReactElement {
         config.heatSortDirection,
       ),
   );
+  // Empty post-aggregation result — every row dropped for an empty x (or an empty y) value, so
+  // there is no grid to draw. Without this the heatmap rendered bare, labelless axes: a blank
+  // rectangle that explains nothing, for exactly the condition `renderFunnel`/`renderSankey`/
+  // `renderGantt` all surface through `renderEmptyChart`. It was the last post-aggregation
+  // emptiness hole in this file (MEDIUM 7).
+  if (heatData.xLabels.length === 0 || heatData.yLabels.length === 0) {
+    return renderEmptyChart(chartHeight, ctx.isLoading);
+  }
+
   const heatFormatDef = valueFieldDef?.type
     ? (valueFieldDef as Pick<StudioDataField, 'type' | 'format' | 'currencyCode' | 'precision'>)
     : undefined;
@@ -904,10 +964,36 @@ function renderGauge(ctx: ChartRenderContext<'gauge'>): React.ReactElement {
   const gaugeAggregation = config.yField
     ? (config.yAggregation ?? 'sum')
     : (gaugeYSeries?.[0]?.yAggregation ?? config.yAggregation ?? 'sum');
+  // A MEASURE expression field (`isMeasure: true`) has no per-row value at all —
+  // `enrichRowsWithExpressions` deliberately skips measures, so `row[measureId]` is `undefined`
+  // on every row. Handing it to `computeAggregate` reduced a list of `undefined`s: `sum`/`count`
+  // returned a confident `0` (or the row count), and `avg`/`min`/`max` returned `null`. So a
+  // gauge on `avg_order = sum(total)/count()` pointed its needle at the bottom of the range with
+  // a formatted `0` in the centre while the KPI card beside it, over the same measure and the
+  // same rows, showed the right number. Route measures through the shared
+  // `resolveMeasureAggregate` — the same entry point the KPI, the pivot and all three chart
+  // aggregators use — so one measure has one value wherever it is placed. It returns `null`
+  // (never `0`) when the measure cannot be evaluated, which the existing bail below renders as
+  // "no data". A measure's own expression defines its aggregation, so `gaugeAggregation` does
+  // not apply to it (matching `aggregateByField`, which likewise ignores the configured fn for a
+  // measure y field).
+  const gaugeMeasure = findMeasureExpressionField(gaugeValueField, expressionFields);
   const gaugeValue = cachedCompute(
     enrichedRows,
-    JSON.stringify(['gauge', gaugeValueField, gaugeAggregation]),
-    () => computeAggregate(enrichedRows, gaugeValueField, gaugeAggregation),
+    JSON.stringify([
+      'gauge',
+      gaugeValueField,
+      gaugeMeasure ? 'measure' : gaugeAggregation,
+      // The measure's own formula is part of the result, and `cachedCompute` keys only on the
+      // rows reference plus this string — editing the expression leaves `enrichedRows` identical
+      // (measures are never enriched onto rows), so without this fragment the gauge would keep
+      // showing the pre-edit number. Mirrors `useChartWidgetData`'s `measureFieldsKey`.
+      gaugeMeasure ? JSON.stringify(gaugeMeasure.expression) : '',
+    ]),
+    () =>
+      gaugeMeasure
+        ? resolveMeasureAggregate(enrichedRows, gaugeValueField, expressionFields)
+        : computeAggregate(enrichedRows, gaugeValueField, gaugeAggregation),
   );
 
   // `null` = the gauge's measure had no measurable data (all-null avg/min/max). Rendering
@@ -966,89 +1052,132 @@ function renderGauge(ctx: ChartRenderContext<'gauge'>): React.ReactElement {
  *    not a static per-type one.
  */
 export const CHART_TYPE_DEFS = {
-  bar: { needsXField: true, runsSupportGuard: true, runsNoDataGuard: true, render: renderBar },
+  bar: {
+    needsXField: true,
+    runsSupportGuard: true,
+    runsNoDataGuard: true,
+    emitsCrossFilter: true,
+    supportsGhost: true,
+    render: renderBar,
+  },
   'bar-stacked': {
     needsXField: true,
     runsSupportGuard: true,
     runsNoDataGuard: true,
+    emitsCrossFilter: true,
+    supportsGhost: true,
     render: renderBar,
   },
   'bar-100': {
     needsXField: true,
     runsSupportGuard: true,
     runsNoDataGuard: true,
+    emitsCrossFilter: true,
+    supportsGhost: true,
     render: renderBar,
   },
   line: {
     needsXField: true,
     runsSupportGuard: true,
     runsNoDataGuard: true,
+    emitsCrossFilter: true,
+    supportsGhost: true,
     render: renderLineArea,
   },
   area: {
     needsXField: true,
     runsSupportGuard: true,
     runsNoDataGuard: true,
+    emitsCrossFilter: true,
+    supportsGhost: true,
     render: renderLineArea,
   },
   'area-stacked': {
     needsXField: true,
     runsSupportGuard: true,
     runsNoDataGuard: true,
+    emitsCrossFilter: true,
+    supportsGhost: true,
     render: renderLineArea,
   },
   'area-100': {
     needsXField: true,
     runsSupportGuard: true,
     runsNoDataGuard: true,
+    emitsCrossFilter: true,
+    supportsGhost: true,
     render: renderLineArea,
   },
   pie: {
     needsXField: true,
     runsSupportGuard: true,
     runsNoDataGuard: true,
+    emitsCrossFilter: true,
+    supportsGhost: true,
     render: renderPieDonut,
   },
   donut: {
     needsXField: true,
     runsSupportGuard: true,
     runsNoDataGuard: true,
+    emitsCrossFilter: true,
+    supportsGhost: true,
     render: renderPieDonut,
   },
   scatter: {
     needsXField: true,
     runsSupportGuard: true,
     runsNoDataGuard: true,
+    // `renderScatter` drops `ctx.onItemClick` — a scatter point click emits nothing.
+    emitsCrossFilter: false,
+    // …but `StudioScatterChart` DOES honour `shouldShowGhost`, drawing the un-cross-filtered
+    // points dimmed behind the highlighted set, so "Highlight" is a real, distinct mode here.
+    supportsGhost: true,
     render: renderScatter,
   },
   mixed: {
     needsXField: true,
     runsSupportGuard: true,
     runsNoDataGuard: true,
+    emitsCrossFilter: false,
+    // `renderMixed` reads only `multiYData` (derived from the cross-filtered `enrichedRows`) and
+    // never `ctx.all*` / `ctx.shouldShowGhost`, so "Highlight" would behave as a hard filter.
+    supportsGhost: false,
     render: renderMixed,
   },
   heatmap: {
     needsXField: true,
     runsSupportGuard: true,
     runsNoDataGuard: true,
+    emitsCrossFilter: false,
+    // `renderHeatmap` aggregates `enrichedRows` — already the cross-filtered set — so a
+    // "Highlight" heatmap re-aggregates AND rebases its colour scale, indistinguishable from
+    // "Filter" (HIGH 5's worked example).
+    supportsGhost: false,
     render: renderHeatmap,
   },
   funnel: {
     needsXField: true,
     runsSupportGuard: true,
     runsNoDataGuard: true,
+    emitsCrossFilter: false,
+    supportsGhost: false,
     render: renderFunnel,
   },
   gantt: {
     needsXField: false,
     runsSupportGuard: true,
     runsNoDataGuard: true,
+    emitsCrossFilter: false,
+    supportsGhost: false,
     render: renderGantt,
   },
   sankey: {
     needsXField: true,
     runsSupportGuard: true,
     runsNoDataGuard: true,
+    emitsCrossFilter: false,
+    supportsGhost: false,
     render: renderSankey,
   },
   gauge: {
@@ -1067,6 +1196,27 @@ export const CHART_TYPE_DEFS = {
     // — an unconfigured gauge is told to configure itself rather than being told "No data" —
     // while the renderer covers the emptiness case the shared guard would have covered.
     runsNoDataGuard: false,
+    emitsCrossFilter: false,
+    // A gauge is a single aggregate over `enrichedRows`; there is no per-category mark to dim.
+    supportsGhost: false,
     render: renderGauge,
   },
 } satisfies Record<StudioChartType, ChartTypeDef>;
+
+/**
+ * Look up a chart type's registry entry, defaulting to `bar` for an absent type and falling back
+ * to `bar` for an UNKNOWN (doc/AI-authored) one.
+ *
+ * `StudioChartType` is not validated at the load/AI-tool boundary, so the record is indexed
+ * through the prototype-chain-safe `lookup` — a value like `"constructor"`/`"toString"` would
+ * otherwise resolve an inherited `Object.prototype` member (truthy, so `??` never fires) and every
+ * caller would then read `undefined` flags off a function. Mirrors `StudioChartWidget.tsx`'s own
+ * render-time `Object.hasOwn(CHART_TYPE_DEFS, chartType)` dispatch guard for the same bug class.
+ */
+export function getChartTypeDef(chartType: StudioChartType | undefined): ChartTypeDef {
+  if (chartType === undefined) {
+    return CHART_TYPE_DEFS.bar;
+  }
+  const defs: Record<string, ChartTypeDef> = CHART_TYPE_DEFS;
+  return lookup(defs, chartType) ?? CHART_TYPE_DEFS.bar;
+}

@@ -115,8 +115,26 @@ export function FilterSetupPanel(props: { widgetId: string }) {
   // `<Studio>` instances never emit duplicate DOM ids.
   const controlTypeLabelId = React.useId();
 
+  // The FULL catalog — measures included. Used only to decide whether an existing widget-scoped
+  // filter still resolves after a source switch (`collectStaleWidgetFilterIds` below): that
+  // question is "does this field exist anywhere", so narrowing the catalog would make an existing
+  // filter on a measure look non-existent and get it silently deleted.
   const fieldCatalog = React.useMemo(
     () => buildFieldCatalog(dataSources, expressionFields),
+    [dataSources, expressionFields],
+  );
+
+  // The catalog this panel's field PICKER (and its type-compatibility check) draws from:
+  // `expression: 'non-measure'`.
+  //
+  // A filter widget filters ROWS by the value they carry for the chosen field, and a measure
+  // expression field (`isMeasure: true`) has no per-row value at all (`enrichRowsWithExpressions`
+  // deliberately skips measures, so `row[measureId]` is `undefined` everywhere). Offering one
+  // produced a control that could never filter anything: `MultiSelectControl` derives its option
+  // list from the distinct row values and so came up empty, a slider found no min/max, and
+  // nothing anywhere said why (HIGH 1).
+  const pickerCatalog = React.useMemo(
+    () => buildFieldCatalog(dataSources, expressionFields, { expression: 'non-measure' }),
     [dataSources, expressionFields],
   );
 
@@ -187,9 +205,9 @@ export function FilterSetupPanel(props: { widgetId: string }) {
   const pickerFields = React.useMemo(
     () =>
       fieldCapability
-        ? fieldCatalog.filter((f) => fieldHasCapability(f, fieldCapability))
-        : fieldCatalog,
-    [fieldCatalog, fieldCapability],
+        ? pickerCatalog.filter((f) => fieldHasCapability(f, fieldCapability))
+        : pickerCatalog,
+    [pickerCatalog, fieldCapability],
   );
 
   const sliderGetOptionDisabled =

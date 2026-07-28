@@ -252,20 +252,45 @@ describe('MapSetupPanel', () => {
   });
 
   // Pinning tests for the migration onto the shared CrossFilterModeSection (previously
-  // a hand-rolled two-way ToggleButtonGroup with no Highlight option, and a deselect
-  // no-op bug — see the regression test below).
-  it('renders all three interaction buttons, including Highlight', () => {
+  // a hand-rolled two-way ToggleButtonGroup, and a deselect no-op bug — see the regression
+  // test below).
+  //
+  // HIGH 5 — BEHAVIOUR CHANGE. These two used to assert that Map offered "Highlight" and
+  // defaulted to it. It does not any more: `StudioMapWidget` has no ghost/dim path, so
+  // `'cross-highlight'` re-aggregated the regions from the cross-filtered rows and rebased the
+  // colour scale — a picture identical to `'cross-filter'`, under a button promising otherwise.
+  it('offers only Filter and None — Map cannot render a cross-highlight ghost', () => {
     render(<MapSetupPanel widgetId="widget-1" />);
 
-    expect(screen.getByRole('button', { name: 'Highlight' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Highlight' })).toBe(null);
     expect(screen.getByRole('button', { name: 'Filter' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'None' })).toBeVisible();
   });
 
-  it('defaults to Highlight selected when no crossFilterMode is stored', () => {
+  it('defaults to Filter selected when no crossFilterMode is stored', () => {
     render(<MapSetupPanel widgetId="widget-1" />);
 
-    expect(screen.getByRole('button', { name: 'Highlight', pressed: true })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Filter', pressed: true })).toBeVisible();
+  });
+
+  // A dashboard saved before this change still carries `crossFilterMode: 'cross-highlight'`.
+  // Nothing rewrites it (the stored value is left alone), and the map renders exactly as it
+  // always did — so the panel must show the mode the widget is ACTUALLY in, i.e. "Filter",
+  // rather than falling back to the default and implying a mode the config does not hold.
+  it('displays a legacy stored cross-highlight as Filter without rewriting the config', () => {
+    mockState.doc.widgets['widget-1'] = {
+      ...mockState.doc.widgets['widget-1'],
+      config: {
+        ...mockState.doc.widgets['widget-1'].config,
+        crossFilterMode: 'cross-highlight',
+      },
+    };
+    controller.updateWidgetConfig.mockClear();
+
+    render(<MapSetupPanel widgetId="widget-1" />);
+
+    expect(screen.getByRole('button', { name: 'Filter', pressed: true })).toBeVisible();
+    expect(controller.updateWidgetConfig).not.toHaveBeenCalled();
   });
 
   // M16 — BEHAVIOUR CHANGE. This used to assert that clicking the already-selected toggle
@@ -320,6 +345,51 @@ describe('MapSetupPanel', () => {
     expect(await screen.findByRole('option', { name: /Margin$/ })).toBeVisible();
     // ...but the string expression field is NOT (it would coerce to NaN → blank map).
     expect(screen.queryByRole('option', { name: /Region Name$/ })).toBeNull();
+  });
+
+  // ─── HIGH 1 ─────────────────────────────────────────────────────────────────
+  // A measure declared with an explicit `type: 'number'` was the one shape that slipped past
+  // the type check above. `StudioMapWidget`'s per-region reducer reads `row[valueField]`, and a
+  // measure has no per-row value — every region then aggregated an empty value list.
+  it('excludes measure expression fields from the value and country field options', async () => {
+    mockState.doc.expressionFields = [
+      {
+        id: 'expr-num',
+        label: 'Margin',
+        type: 'number',
+        sourceId: 'orders',
+        isMeasure: false,
+        expression: { type: 'number', value: 0 },
+      },
+      {
+        id: 'aov',
+        label: 'Avg order value',
+        type: 'number',
+        sourceId: 'orders',
+        isMeasure: true,
+        expression: { type: 'number', value: 0 },
+      },
+      {
+        id: 'top-region',
+        label: 'Top region',
+        type: 'string',
+        sourceId: 'orders',
+        isMeasure: true,
+        expression: { type: 'number', value: 0 },
+      },
+    ] as unknown as typeof mockState.doc.expressionFields;
+    configureStudioContextMock({ getState: () => mockState, controller });
+
+    const { user } = render(<MapSetupPanel widgetId="widget-1" />);
+
+    await user.click(screen.getByLabelText('Value field'));
+    // The row-level calculated field is still offered — only the measures are excluded.
+    expect(await screen.findByRole('option', { name: /Margin$/ })).toBeVisible();
+    expect(screen.queryByRole('option', { name: /Avg order value$/ })).toBeNull();
+    await user.keyboard('{Escape}');
+
+    await user.click(screen.getByLabelText('Country field', { exact: false }));
+    expect(screen.queryByRole('option', { name: /Top region$/ })).toBeNull();
   });
 
   it('resets the aggregation to count when the value field is cleared', async () => {

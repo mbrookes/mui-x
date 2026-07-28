@@ -613,6 +613,38 @@ describe('FilterSetupPanel — calculated fields are selectable (finding 8)', ()
     expect(screen.queryByRole('option', { name: /Customer Tier$/ })).toBeNull();
     expect(screen.queryByRole('option', { name: /Amount$/ })).toBeNull();
   });
+
+  // HIGH 1. A calculated (row-level) expression field is filterable; a MEASURE is not. A measure
+  // has no per-row value at all (`enrichRowsWithExpressions` skips measures), so the control
+  // could never filter anything: `MultiSelectControl` derives its options from the distinct row
+  // values and came up empty, with nothing anywhere explaining why.
+  it('does not offer a measure expression field as a filter-widget field', async () => {
+    mockState.doc.expressionFields = [
+      ...(mockState.doc.expressionFields as unknown as unknown[]),
+      {
+        id: 'aov',
+        label: 'Avg order value',
+        sourceId: 'orders',
+        type: 'number',
+        isMeasure: true,
+        expression: {
+          operator: 'divide',
+          inputs: [
+            { id: 'amount', aggregation: 'sum' },
+            { id: 'amount', aggregation: 'count' },
+          ],
+        },
+      },
+    ] as unknown as typeof previousExpressionFields;
+
+    const { user } = render(<FilterSetupPanel widgetId="widget-1" />);
+
+    await user.click(screen.getByLabelText('Field', { exact: false, selector: 'input' }));
+
+    // The row-level calculated field is still offered — only the measure is excluded.
+    expect(await screen.findByRole('option', { name: /Customer Tier$/ })).toBeVisible();
+    expect(screen.queryByRole('option', { name: /Avg order value$/ })).toBeNull();
+  });
 });
 
 // ─── Finding 7: the stored filter source id must disambiguate the picker ───────

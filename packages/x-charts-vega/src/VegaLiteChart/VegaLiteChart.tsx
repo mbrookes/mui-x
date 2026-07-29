@@ -177,6 +177,8 @@ function facetAxisTitle(def: VegaChannelDef | undefined): string | undefined {
 
 /** Vega-Lite's default band `step` (px per discrete category) when none is given. */
 const VEGA_DEFAULT_STEP = 20;
+/** Vega-Lite's default `spacing` between the cells of a facet grid. */
+const FACET_SPACING = 20;
 // The continuous-axis plot size used when the spec gives no explicit size and
 // the caller passes no `width`/`height`. The gallery hands these same values to
 // the reference `vega-embed` view, so a chart with no spec size renders at the
@@ -688,8 +690,17 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
     // instead of the fixed default, so a long name like "Wisconsin No. 38"
     // isn't truncated.
     const cellMargin = { ...FACET_CELL_MARGIN, left: plan.yAxisMargin ?? FACET_CELL_MARGIN.left };
-    const innerLeftMargin = cellMargin.right;
-    const innerBottomMargin = cellMargin.top;
+    // The gap between two adjacent plots is the pair of margins facing each
+    // other, so an inner cell's dropped-axis margin is what sets the grid's
+    // pitch. Taking it from the cell's own opposite margin left rows 6+6=12px
+    // apart and columns 8+8=16px, against the 20px Vega-Lite leaves between
+    // faceted cells: the grid read tighter than the reference and every row
+    // after the first drifted up, `trellis_area`'s last one by 30px. Deriving
+    // the margin from the spacing instead keeps each plot the same size (the
+    // cell's width/height shrink by exactly what the margin drops) and only
+    // moves the cells apart.
+    const innerLeftMargin = Math.max(0, FACET_SPACING - cellMargin.right);
+    const innerBottomMargin = Math.max(0, FACET_SPACING - cellMargin.top);
     const leftReduction = cellMargin.left - innerLeftMargin;
     const bottomReduction = cellMargin.bottom - innerBottomMargin;
     const leftTrackWidth = plan.cells[0]?.width;

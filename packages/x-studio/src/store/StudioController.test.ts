@@ -2963,6 +2963,33 @@ describe('StudioController.loadSerializedState', () => {
     expect(result.success).toBe(false);
     expect(controller.getState().doc.dashboard.title).toBe('Untitled Dashboard'); // unchanged
   });
+
+  // `deserializeState` hardcodes `session.mode: 'edit'` (session is never persisted, so it
+  // has no mode to restore). `loadSerializedState` used to commit that session verbatim, so
+  // swapping the doc silently promoted a read-only embed to edit mode — cards became
+  // draggable, resize handles mounted, `shouldHide` stopped being consulted, and a viewer's
+  // grid header click started writing `gridSortField` into the persisted authored doc.
+  // Mode lives in the non-persisted `session` partition, so a doc swap must carry it
+  // forward untouched, exactly like `undo`/`redo` do.
+  it('preserves the current session mode across a load (view stays view)', () => {
+    const controller = new StudioController();
+    controller.setMode('view');
+    const serialized = controller.serializeState();
+
+    controller.loadSerializedState(serialized);
+
+    expect(controller.getState().session.mode).toBe('view');
+  });
+
+  it('preserves edit mode across a load too', () => {
+    const controller = new StudioController();
+    controller.setMode('edit');
+    const serialized = controller.serializeState();
+
+    controller.loadSerializedState(serialized);
+
+    expect(controller.getState().session.mode).toBe('edit');
+  });
 });
 
 describe('StudioController.getRecentMutations', () => {

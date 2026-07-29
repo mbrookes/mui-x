@@ -2,15 +2,25 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   buildCsvContent,
   createDefaultWidget,
+  createWidgetForKind,
   downloadCsv,
   exportChartToPng,
   exportGridToCsv,
   formatDateFilterLabel,
   inferKpiDateSubtitle,
   inferWidgetTitles,
+  isBuiltinWidgetKind,
+  resolveWidgetRequiresDataSource,
   widgetKindRequiresDataSource,
 } from './widgetUtils';
-import type { StudioDataField, StudioDataSource, StudioFilterState, StudioWidget } from '../models';
+import type {
+  StudioCustomWidgetDef,
+  StudioDataField,
+  StudioDataSource,
+  StudioFilterState,
+  StudioWidget,
+  StudioWidgetConfig,
+} from '../models';
 import type { StudioLocaleText } from '../internals/StudioUIConfigContext';
 
 const SOURCES: Record<string, StudioDataSource> = {
@@ -313,6 +323,82 @@ describe('widgetKindRequiresDataSource', () => {
 
   it('returns true for filter widgets', () => {
     expect(widgetKindRequiresDataSource('filter')).toBe(true);
+  });
+});
+
+// ─── isBuiltinWidgetKind / resolveWidgetRequiresDataSource / createWidgetForKind ──────
+//
+// The shared resolution + creation used by all three widget-picker creation sites (the compose
+// drawer's click-to-add, and both canvas drop handlers), which used to disagree about custom
+// kinds — see the comments on those exports.
+
+describe('isBuiltinWidgetKind', () => {
+  it('recognizes all seven built-in kinds', () => {
+    for (const kind of ['text', 'kpi', 'chart', 'grid', 'filter', 'pivot', 'map']) {
+      expect(isBuiltinWidgetKind(kind)).toBe(true);
+    }
+  });
+
+  it('rejects a custom kind', () => {
+    expect(isBuiltinWidgetKind('weather-tile')).toBe(false);
+  });
+
+  it('rejects prototype-chain keys (doc-authored kinds are untrusted)', () => {
+    expect(isBuiltinWidgetKind('constructor')).toBe(false);
+    expect(isBuiltinWidgetKind('hasOwnProperty')).toBe(false);
+  });
+});
+
+describe('resolveWidgetRequiresDataSource', () => {
+  it('honours an explicit `requiresDataSource` in either direction', () => {
+    expect(resolveWidgetRequiresDataSource('weather-tile', { requiresDataSource: true })).toBe(
+      true,
+    );
+    // An explicit `false` on a built-in wins too — that is how `text` opts out.
+    expect(resolveWidgetRequiresDataSource('text', { requiresDataSource: false })).toBe(false);
+  });
+
+  it('falls back to the kind-derived rule for built-in kinds with no declaration', () => {
+    expect(resolveWidgetRequiresDataSource('chart', undefined)).toBe(true);
+    expect(resolveWidgetRequiresDataSource('chart', {})).toBe(true);
+    expect(resolveWidgetRequiresDataSource('text', undefined)).toBe(false);
+  });
+
+  it('defaults a custom kind to false, per `StudioCustomWidgetDef.requiresDataSource`', () => {
+    // The kind-derived rule would answer `true` here (`kind !== 'text'`), which is what made a
+    // source-less custom widget click-addable but drop-refused.
+    expect(resolveWidgetRequiresDataSource('weather-tile', undefined)).toBe(false);
+    expect(resolveWidgetRequiresDataSource('weather-tile', { label: 'Weather' } as never)).toBe(
+      false,
+    );
+  });
+});
+
+describe('createWidgetForKind', () => {
+  const weatherDef = {
+    kind: 'weather-tile',
+    label: 'Weather tile',
+    defaultConfig: { units: 'metric' },
+    component: () => null,
+  } as unknown as StudioCustomWidgetDef;
+
+  it('applies a custom def label and defaultConfig', () => {
+    const created = createWidgetForKind('weather-tile', new Map([[weatherDef.kind, weatherDef]]));
+    expect(created.kind).toBe('weather-tile');
+    expect(created.title).toBe('Weather tile');
+    expect((created.config as StudioWidgetConfig).customConfig).toEqual({ units: 'metric' });
+  });
+
+  it('falls back to the kind string and an empty customConfig for an unregistered custom kind', () => {
+    const created = createWidgetForKind('weather-tile');
+    expect(created.title).toBe('weather-tile');
+    expect((created.config as StudioWidgetConfig).customConfig).toEqual({});
+  });
+
+  it('leaves built-in kinds exactly as `createDefaultWidget` builds them', () => {
+    const created = createWidgetForKind('kpi', new Map([[weatherDef.kind, weatherDef]]));
+    expect(created.title).toBe('');
+    expect(created.config).toEqual({ kpiAggregation: 'sum' });
   });
 });
 
@@ -724,9 +810,12 @@ describe('downloadCsv', () => {
 // handler, so it silently no-oped AND leaked the `URL.createObjectURL` object URL that
 // the (never-invoked) `onload` handler would otherwise have revoked.
 describe('exportChartToPng', () => {
+  // The chart surface is resolved by CLASS (`.MuiChartsSurface-root`, the class MUI X Charts
+  // puts on its root `<svg>`), not by "the first `<svg>` in the subtree" — see the
+  // `.MuiChartsSurface-root` scoping tests at the bottom of this suite for why.
   function makeChartContainer(): HTMLElement {
     const container = document.createElement('div');
-    container.innerHTML = '<svg width="100" height="50"></svg>';
+    container.innerHTML = '<svg class="MuiChartsSurface-root" width="100" height="50"></svg>';
     document.body.appendChild(container);
     return container;
   }
@@ -800,13 +889,14 @@ describe('exportChartToPng', () => {
     // `color` set on the root <svg> (not on <text>) so <text>'s computed 'color' is
     // inherited — this exercises a real computed-style read, not just an already-inline one.
     container.innerHTML =
-      '<svg width="100" height="50" style="color: rgb(9, 8, 7)"><text>Chart</text></svg>';
+      '<svg class="MuiChartsSurface-root" width="100" height="50" style="color: rgb(9, 8, 7)"><text>Chart</text></svg>';
     document.body.appendChild(container);
     const liveText = container.querySelector('text')!;
     expect(liveText.getAttribute('style')).toBeNull();
 
     const widget = makeWidget({ kind: 'chart', title: 'My Chart' });
-    exportChartToPng(widget, container);
+    // Guard against the assertion below passing vacuously because the export bailed early.
+    expect(exportChartToPng(widget, container)).toBe(true);
 
     // The live, on-screen <text> must be untouched — `inlineComputedStyles` only ever
     // wrote onto the (detached, since-discarded) clone used for rasterization.
@@ -853,7 +943,7 @@ describe('exportChartToPng', () => {
 
     const container = document.createElement('div');
     container.innerHTML = `
-      <svg width="100" height="50"></svg>
+      <svg class="MuiChartsSurface-root" width="100" height="50"></svg>
       <ul class="MuiChartsLegend-root">
         <li>
           <button class="MuiChartsLegend-series">
@@ -954,6 +1044,77 @@ describe('exportChartToPng', () => {
     } finally {
       Object.defineProperty(HTMLImageElement.prototype, 'src', srcDescriptor);
     }
+  });
+
+  // The surface lookup used to be an unscoped `chartContainer.querySelector('svg')`. `canExport`
+  // is kind-derived, so the PNG button is offered for a chart that has no chart at all — and both
+  // status overlays living inside `chartContainerRef` contain MUI `SvgIcon`s
+  // (`StudioNoDataOverlay`'s `InboxOutlinedIcon`, `StudioWidgetErrorOverlay`'s `ErrorIcon`). The
+  // unscoped lookup found those, so exporting a no-data or errored chart downloaded a 2x-scaled
+  // PNG of a 32px inbox/error icon and presented it as a successful export. Resolve the surface
+  // by class the same way `readLegendItems` resolves `.MuiChartsLegend-root`, and report failure
+  // so callers can surface it.
+  describe('chart surface scoping (.MuiChartsSurface-root)', () => {
+    function stubCanvas() {
+      vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fake-url');
+      vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+        scale: vi.fn(),
+        fillRect: vi.fn(),
+        drawImage: vi.fn(),
+        fillText: vi.fn(),
+      } as unknown as CanvasRenderingContext2D);
+    }
+
+    it('returns false for a null container', () => {
+      const widget = makeWidget({ kind: 'chart', title: 'My Chart' });
+      expect(exportChartToPng(widget, null)).toBe(false);
+    });
+
+    it('returns false (and rasterizes nothing) when only an overlay status icon is present', () => {
+      stubCanvas();
+      const createObjectURLSpy = vi.mocked(URL.createObjectURL);
+      const container = document.createElement('div');
+      // Exactly what a no-data / errored chart renders inside `chartContainerRef`: an
+      // `SvgIcon`, no `ChartsSurface`.
+      container.innerHTML =
+        '<div class="MuiSvgIcon-root"><svg viewBox="0 0 24 24"><path d="M0 0h24v24H0z"/></svg></div>';
+      document.body.appendChild(container);
+
+      const widget = makeWidget({ kind: 'chart', title: 'My Chart' });
+      expect(exportChartToPng(widget, container)).toBe(false);
+      expect(createObjectURLSpy).not.toHaveBeenCalled();
+    });
+
+    it('returns false when the chart is unconfigured (no svg at all)', () => {
+      stubCanvas();
+      const container = document.createElement('div');
+      container.innerHTML = '<p>Select a data source to configure this chart</p>';
+      document.body.appendChild(container);
+
+      const widget = makeWidget({ kind: 'chart', title: 'My Chart' });
+      expect(exportChartToPng(widget, container)).toBe(false);
+    });
+
+    it('returns true and rasterizes the ChartsSurface even when overlay icons precede it', () => {
+      stubCanvas();
+      const container = document.createElement('div');
+      // A tooltip/legend `SvgIcon` earlier in the subtree must not win over the real surface.
+      container.innerHTML =
+        '<div class="MuiSvgIcon-root"><svg viewBox="0 0 24 24"></svg></div>' +
+        '<svg class="MuiChartsSurface-root" width="100" height="50"></svg>';
+      document.body.appendChild(container);
+
+      const serializeSpy = vi.spyOn(XMLSerializer.prototype, 'serializeToString');
+
+      const widget = makeWidget({ kind: 'chart', title: 'My Chart' });
+      expect(exportChartToPng(widget, container)).toBe(true);
+
+      // The rasterized SVG is the chart surface, not the 24x24 icon.
+      const serialized = serializeSpy.mock.results[0].value as string;
+      expect(serialized).toContain('MuiChartsSurface-root');
+      expect(serialized).not.toContain('0 0 24 24');
+    });
   });
 });
 

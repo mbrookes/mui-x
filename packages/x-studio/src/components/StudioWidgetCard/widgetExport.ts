@@ -291,7 +291,16 @@ export function runWidgetExport({
 
     exportGridToCsv(widget, source, sortedRows, ownExpressionFields, crossSourceFieldDefs);
   } else if (widget.kind === 'chart') {
-    exportChartToPng(widget, chartContainer, chartBackgroundColor);
+    // `canExport` gates purely on kind — every chart widget declares `export: 'png'` — so the
+    // export button is offered for a chart with no chart surface on screen: an unconfigured
+    // chart renders a plain Box + Typography, and a no-data/errored chart renders a status
+    // overlay. `exportChartToPng` returns `false` in exactly those states (previously it just
+    // returned silently, so the click did literally nothing — indistinguishable from a failed
+    // download, and the only branch here that broke this module's "the export button never does
+    // nothing" rule). Report it through the same channel the other three branches use.
+    if (!exportChartToPng(widget, chartContainer, chartBackgroundColor)) {
+      downloadCsv(localeText.widgetExportUnavailableMessage, `${widget.title}_export.csv`);
+    }
   } else if (widget.kind === 'pivot' || isCustomKind) {
     // A pivot/custom widget exports through the handler it registered on `exportRef`. That ref
     // is null whenever the widget has nothing to export yet (the pivot nulls it while `matrix`

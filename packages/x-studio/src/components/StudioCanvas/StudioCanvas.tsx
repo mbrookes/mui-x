@@ -20,7 +20,7 @@ import { useStudioAnnounce } from '../../internals/StudioLiveRegion';
 import { StudioWidgetErrorBoundary } from '../../internals/StudioWidgetErrorBoundary';
 import { StudioWidgetCard } from '../StudioWidgetCard';
 import type { StudioWidgetCardProps } from '../StudioWidgetCard';
-import { createDefaultWidget, widgetKindRequiresDataSource } from '../../internals/widgetUtils';
+import { createWidgetForKind, resolveWidgetRequiresDataSource } from '../../internals/widgetUtils';
 import type { StudioWidget, StudioPage } from '../../models/widgetTypes';
 import { isWidgetOfKind } from '../../models';
 import type { StudioCustomWidgetDef } from '../../models';
@@ -249,14 +249,20 @@ function StudioPageRows({
 
       if (data.type === DRAG_TYPE_COMPOSE_WIDGET && data.kind) {
         const sources = Object.values(controller.getState().runtime.dataSources);
-        if (widgetKindRequiresDataSource(data.kind) && sources.length === 0) {
+        // `resolveWidgetRequiresDataSource`/`createWidgetForKind` (not the kind-derived
+        // `widgetKindRequiresDataSource` + a bare `createDefaultWidget`) so a dropped CUSTOM
+        // kind is created exactly as the picker's click path creates it: its documented
+        // `requiresDataSource` default of `false` is honored, and its `label`/`defaultConfig`
+        // reach the new widget instead of being silently dropped.
+        const def = customWidgetMap.get(data.kind);
+        if (resolveWidgetRequiresDataSource(data.kind, def) && sources.length === 0) {
           // The drop target highlighted, so the gesture LOOKED accepted; bailing without a
           // word left a screen-reader (and every) user with no signal that nothing happened.
           // The success branch below announces, so the failure branch must too.
           announce(localeText.composeNoDataSources);
           return;
         }
-        const newWidget = createDefaultWidget(data.kind);
+        const newWidget = createWidgetForKind(data.kind, customWidgetMap);
         // Canvas-side geometry: splice the new widget into the target page's rows at
         // the drop position. The reducer owns the actual state transform + span cleanup.
         const rows = currentRows.map((r) => [...r]);
@@ -305,7 +311,7 @@ function StudioPageRows({
         announce(localeText.canvasWidgetMovedAnnouncement);
       }
     },
-    [controller, announce, localeText, pageId],
+    [controller, announce, localeText, pageId, customWidgetMap],
   );
 
   if (!widgetRows || widgetRows.length === 0) {
@@ -691,13 +697,16 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
       }
       if (data.type === DRAG_TYPE_COMPOSE_WIDGET && data.kind) {
         const sources = Object.values(controller.getState().runtime.dataSources);
-        if (widgetKindRequiresDataSource(data.kind) && sources.length === 0) {
+        // Same shared resolution/creation as `StudioPageRows.handleDrop` and the picker's
+        // click path — see the comment there.
+        const def = customWidgetMap.get(data.kind);
+        if (resolveWidgetRequiresDataSource(data.kind, def) && sources.length === 0) {
           // Announce the refusal — the empty-state Paper highlighted on hover, so a silent
           // bail reads as "the drop worked and produced nothing". Mirrors `handleDrop`.
           announce(localeText.composeNoDataSources);
           return;
         }
-        const newWidget = createDefaultWidget(data.kind);
+        const newWidget = createWidgetForKind(data.kind, customWidgetMap);
         controller.insertWidgetAt(newWidget, activePageId, [[newWidget.id]]);
         announce(localeText.canvasWidgetAddedAnnouncement);
       } else if (data.type === DRAG_TYPE_CANVAS_WIDGET && data.widgetId) {
@@ -707,7 +716,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
         announce(localeText.canvasWidgetMovedAnnouncement);
       }
     },
-    [activePageId, controller, announce, localeText],
+    [activePageId, controller, announce, localeText, customWidgetMap],
   );
   const isEmptyPage = !activePage?.widgetRows?.length;
   const isOverEmptyPage = useStudioDropTarget({

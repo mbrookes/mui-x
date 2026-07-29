@@ -40,7 +40,9 @@ function makeController(widget: StudioWidget, dataSources: Record<string, Studio
 describe('runWidgetExport', () => {
   beforeEach(() => {
     vi.mocked(exportGridToCsv).mockClear();
-    vi.mocked(exportChartToPng).mockClear();
+    // `exportChartToPng` reports whether it found a chart surface to rasterize; the default
+    // for these tests is "yes, it exported".
+    vi.mocked(exportChartToPng).mockReset().mockReturnValue(true);
     vi.mocked(downloadCsv).mockClear();
     studioRequestCache.clear();
   });
@@ -778,10 +780,68 @@ describe('runWidgetExport', () => {
   });
 });
 
+// `canExport` is kind-derived — every chart widget advertises `export: 'png'` — so the export
+// button is offered in states with no chart surface at all (an unconfigured chart renders a
+// plain Box + Typography, a no-data/errored chart renders a status overlay). The chart branch
+// used to be a bare passthrough to `exportChartToPng`, which returned silently on both of its
+// guards, so the click did literally nothing: indistinguishable from a failed download, and the
+// only export branch that broke the module's own "the export button never does nothing" rule.
+describe('runWidgetExport chart with nothing to export', () => {
+  beforeEach(() => {
+    vi.mocked(exportGridToCsv).mockClear();
+    vi.mocked(exportChartToPng).mockReset().mockReturnValue(false);
+    vi.mocked(downloadCsv).mockClear();
+    studioRequestCache.clear();
+  });
+
+  const chartWidget: StudioWidget = {
+    id: 'w2',
+    kind: 'chart',
+    title: 'Chart',
+    sourceId: 's1',
+    config: { chartType: 'bar' } as StudioWidgetConfig,
+  };
+
+  it('downloads the unavailable message when there is no chart surface to rasterize', () => {
+    runWidgetExport({
+      widget: chartWidget,
+      source,
+      controller: makeController(chartWidget, { s1: source }),
+      pageId: 'page-1',
+      isCustomKind: false,
+      chartContainer: document.createElement('div'),
+      imperativeExport: null,
+      localeText: DEFAULT_STUDIO_LOCALE_TEXT,
+    });
+
+    expect(exportChartToPng).toHaveBeenCalledTimes(1);
+    expect(downloadCsv).toHaveBeenCalledTimes(1);
+    const [message, filename] = vi.mocked(downloadCsv).mock.calls[0];
+    expect(message).toBe(DEFAULT_STUDIO_LOCALE_TEXT.widgetExportUnavailableMessage);
+    expect(filename).toBe('Chart_export.csv');
+  });
+
+  it('downloads nothing extra once the PNG export succeeds', () => {
+    vi.mocked(exportChartToPng).mockReturnValue(true);
+    runWidgetExport({
+      widget: chartWidget,
+      source,
+      controller: makeController(chartWidget, { s1: source }),
+      pageId: 'page-1',
+      isCustomKind: false,
+      chartContainer: document.createElement('div'),
+      imperativeExport: null,
+      localeText: DEFAULT_STUDIO_LOCALE_TEXT,
+    });
+
+    expect(downloadCsv).not.toHaveBeenCalled();
+  });
+});
+
 // Shared reset for the suites below, mirroring the `runWidgetExport` suite's own.
 function resetExportMocks() {
   vi.mocked(exportGridToCsv).mockClear();
-  vi.mocked(exportChartToPng).mockClear();
+  vi.mocked(exportChartToPng).mockReset().mockReturnValue(true);
   vi.mocked(downloadCsv).mockClear();
   studioRequestCache.clear();
 }

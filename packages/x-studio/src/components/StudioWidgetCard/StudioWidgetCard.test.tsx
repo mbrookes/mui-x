@@ -2,6 +2,7 @@ import * as React from 'react';
 import { createRenderer, fireEvent, screen, act } from '@mui/internal-test-utils';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type {
+  StudioCustomWidgetDef,
   StudioDataSource,
   StudioExpressionField,
   StudioFilterState,
@@ -49,6 +50,7 @@ function setup(
     filters?: StudioFilterState[];
     dataSources?: Record<string, StudioDataSource>;
     expressionFields?: StudioExpressionField[];
+    customWidgets?: StudioCustomWidgetDef[];
   } = {},
 ) {
   const w = options.widget ?? widget();
@@ -65,6 +67,7 @@ function setup(
       },
       ...(options.dataSources ? { runtime: { dataSources: options.dataSources } } : {}),
     },
+    ...(options.customWidgets ? { providerProps: { customWidgets: options.customWidgets } } : {}),
   });
   const setSelectedSpy = vi.spyOn(controller, 'setSelectedWidget');
   render(
@@ -133,6 +136,41 @@ describe('StudioWidgetCard', () => {
     const onUnconfiguredClick = vi.fn();
     const { card } = setup({
       widget: widget({ kind: 'kpi', title: 'KPI', config: {} as StudioWidgetConfig }),
+      onUnconfiguredClick,
+    });
+    fireEvent.click(card);
+    expect(onUnconfiguredClick).toHaveBeenCalledWith('w1');
+  });
+
+  // `def?.requiresDataSource !== false` treated `undefined` as "requires a source", but
+  // `StudioCustomWidgetDef.requiresDataSource` is documented `@default false`. A source-less
+  // custom kind (banner/logo/iframe tile) was therefore routed to the "unconfigured, click to
+  // configure" affordance forever — it can never acquire a `sourceId`.
+  it('does not call onUnconfiguredClick for a custom kind that does not require a data source', () => {
+    const onUnconfiguredClick = vi.fn();
+    const { card } = setup({
+      widget: widget({ kind: 'banner', title: 'Banner', config: {} as StudioWidgetConfig }),
+      customWidgets: [
+        { kind: 'banner', label: 'Banner', component: () => <div>banner</div> },
+      ] as StudioCustomWidgetDef[],
+      onUnconfiguredClick,
+    });
+    fireEvent.click(card);
+    expect(onUnconfiguredClick).not.toHaveBeenCalled();
+  });
+
+  it('still calls onUnconfiguredClick for a custom kind that declares requiresDataSource', () => {
+    const onUnconfiguredClick = vi.fn();
+    const { card } = setup({
+      widget: widget({ kind: 'live-feed', title: 'Feed', config: {} as StudioWidgetConfig }),
+      customWidgets: [
+        {
+          kind: 'live-feed',
+          label: 'Live feed',
+          requiresDataSource: true,
+          component: () => <div>feed</div>,
+        },
+      ] as StudioCustomWidgetDef[],
       onUnconfiguredClick,
     });
     fireEvent.click(card);

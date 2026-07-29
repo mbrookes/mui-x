@@ -56,7 +56,7 @@ import type { StudioChartWidgetProps } from '../widgets/StudioChartWidget';
 import type { StudioKpiWidgetProps } from '../widgets/StudioKpiWidget/StudioKpiWidget';
 import type { StudioTextWidgetProps } from '../widgets/StudioTextWidget/StudioTextWidget';
 import type { StudioFilterWidgetProps } from '../widgets/StudioFilterWidget';
-import { inferKpiDateSubtitle } from '../../internals/widgetUtils';
+import { inferKpiDateSubtitle, resolveWidgetRequiresDataSource } from '../../internals/widgetUtils';
 import { canDetectAnomalies } from '../../internals/anomalyDetection';
 import { createStudioPipeline } from '../../internals/StudioPipeline';
 import { formatCrossFilterValueLabel } from '../../internals/crossFilterValueLabel';
@@ -265,6 +265,15 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   // and misclassify it as built-in (harmless today since dispatch goes through a `Map`, but
   // incorrect — prototype-chain key lookup fix).
   const isCustomKind = widget != null && !Object.hasOwn(BUILTIN_WIDGET_DEFS, widget.kind);
+  // Whether this widget needs a data source before it counts as configured — resolved by the
+  // shared helper rather than the old "not explicitly false" idiom, which read `undefined` as
+  // "requires a source". That inverted the documented `@default false` of
+  // `StudioCustomWidgetDef.requiresDataSource`, so a source-less custom widget (banner / logo /
+  // iframe tile) was routed to the "unconfigured, click to configure" affordance forever — it
+  // can never acquire a `sourceId`. Built-in behavior is unchanged: `text` declares
+  // `requiresDataSource: false`, and every other built-in falls back to the kind-derived rule.
+  // `false` with no widget — there is nothing to configure.
+  const requiresDataSource = widget ? resolveWidgetRequiresDataSource(widget.kind, def) : false;
 
   // Enrich the raw data source with expression-field values (L2 pipeline) for custom widgets.
   // Built-in widgets handle enrichment themselves via useWidgetRows; custom widgets receive
@@ -567,7 +576,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
             return;
           }
           controller.setSelectedWidget(widgetId);
-          if (onUnconfiguredClick && def?.requiresDataSource !== false && !widget.sourceId) {
+          if (onUnconfiguredClick && requiresDataSource && !widget.sourceId) {
             onUnconfiguredClick(widgetId);
           }
         }}
@@ -586,7 +595,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
             // default form submission) since both keys already activate the card.
             event.preventDefault();
             controller.setSelectedWidget(widgetId);
-            if (onUnconfiguredClick && def?.requiresDataSource !== false && !widget.sourceId) {
+            if (onUnconfiguredClick && requiresDataSource && !widget.sourceId) {
               onUnconfiguredClick(widgetId);
             }
           }

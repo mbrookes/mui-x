@@ -3468,6 +3468,18 @@ export class StudioController {
 
   /**
    * Loads a serialized state, applying migrations if needed.
+   *
+   * The current `session.mode` is carried across the load unchanged. Only the `doc` partition
+   * is persisted, so a serialized payload has no mode to restore — `deserializeState`
+   * hardcodes `'edit'` as the mode of a *freshly created* state. Committing that verbatim made
+   * a doc swap a mode change: `StudioDashboard`'s `config`-prop effect calls this with only
+   * `config.doc`, so an embed mounted in view mode silently became editable on the first swap
+   * (drag/resize handles appeared, the responsive-stacking observer and `shouldHide` switched
+   * off, and a viewer's grid header click started writing `gridSortField` into the persisted
+   * authored doc). Mode lives in the non-persisted, non-undoable `session` partition, so a doc
+   * swap must leave it alone — exactly as `undo`/`redo` do when they swap `doc` and carry
+   * `session` forward.
+   *
    * @returns The migration result with success/error information.
    */
   loadSerializedState = (
@@ -3483,7 +3495,13 @@ export class StudioController {
         this.store.state.runtime.dataSources,
         shellOverrides,
       );
-      this.commitState(fullState, { undoable: false, resetHistory: true });
+      this.commitState(
+        {
+          ...fullState,
+          session: { ...fullState.session, mode: this.store.state.session.mode },
+        },
+        { undoable: false, resetHistory: true },
+      );
     }
 
     return migrationResult;

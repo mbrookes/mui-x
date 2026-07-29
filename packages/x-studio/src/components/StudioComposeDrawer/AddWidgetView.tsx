@@ -11,9 +11,9 @@ import {
   useStudioLocaleText,
 } from '../../context';
 import {
-  createDefaultWidget,
+  createWidgetForKind,
+  resolveWidgetRequiresDataSource,
   WIDGET_TYPES,
-  widgetKindRequiresDataSource,
 } from '../../internals/widgetUtils';
 import type { StudioWidgetKind } from '../../models';
 import { getBuiltInWidgetKindInfo } from './StudioComposeDrawerLabels';
@@ -76,23 +76,16 @@ export function AddWidgetView() {
   const handleAdd = React.useCallback(
     (kind: StudioWidgetKind) => {
       const sources = Object.values(dataSources).filter((s) => !s.hidden);
-      const customDef = customWidgetMap.get(kind);
-      const requiresSource = customDef
-        ? (customDef.requiresDataSource ?? false)
-        : widgetKindRequiresDataSource(kind);
-      if (requiresSource && sources.length === 0) {
+      // Shared with both canvas drop paths (`StudioCanvas.tsx`) so click-to-add and
+      // drag-to-add can never again disagree about a custom kind's data-source requirement,
+      // title, or `defaultConfig`.
+      if (
+        resolveWidgetRequiresDataSource(kind, customWidgetMap.get(kind)) &&
+        sources.length === 0
+      ) {
         return;
       }
-      if (customDef) {
-        controller.addWidget(
-          createDefaultWidget(kind, {
-            title: customDef.label ?? kind,
-            customConfig: customDef.defaultConfig ?? {},
-          }),
-        );
-      } else {
-        controller.addWidget(createDefaultWidget(kind));
-      }
+      controller.addWidget(createWidgetForKind(kind, customWidgetMap));
       scrollToBottom();
     },
     [controller, customWidgetMap, dataSources, scrollToBottom],
@@ -165,10 +158,10 @@ export function AddWidgetView() {
         </Alert>
       )}
       {allWidgetTypes.map((wt) => {
-        const customDef = customWidgetMap.get(wt.kind);
-        const requiresSource = customDef
-          ? (customDef.requiresDataSource ?? false)
-          : widgetKindRequiresDataSource(wt.kind);
+        const requiresSource = resolveWidgetRequiresDataSource(
+          wt.kind,
+          customWidgetMap.get(wt.kind),
+        );
         const canAdd = !requiresSource || hasSources;
         return <WidgetTypeCard key={wt.kind} wt={wt} canAdd={canAdd} onSelect={handleSelectKind} />;
       })}

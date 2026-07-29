@@ -3,9 +3,15 @@ import { createRenderer, act, waitFor } from '@mui/internal-test-utils';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { MIN_SPAN } from '@mui/x-studio-schema';
 import { createStudioHarness } from '../../internals/test-utils';
+import type { StudioHarness } from '../../internals/test-utils';
 import { StudioLiveRegionProvider } from '../../internals/StudioLiveRegion';
 import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/localeText';
-import type { StudioWidget, StudioWidgetConfig, StudioDataSource } from '../../models';
+import type {
+  StudioCustomWidgetDef,
+  StudioWidget,
+  StudioWidgetConfig,
+  StudioDataSource,
+} from '../../models';
 import { StudioCanvas } from './StudioCanvas';
 import { resolveResizePair } from './rowColSpans';
 import {
@@ -830,6 +836,157 @@ describe('StudioCanvas drag-and-drop geometry (finding 4.1)', () => {
 
       clearDraggingWidgetId(instanceA.controller);
       expect(gapAfterW1InA.canDrop(arg)).toBe(true);
+    });
+  });
+
+  // ── Custom widget kinds: the drop path must create them exactly like the picker does.
+  // `WidgetTypeCard` registers a `DRAG_TYPE_COMPOSE_WIDGET` draggable for EVERY picker entry,
+  // built-in and custom alike, so a custom kind has two creation paths. The click path
+  // resolved `def.requiresDataSource ?? false` and passed `{ title: def.label, customConfig:
+  // def.defaultConfig }`; both drop paths called the kind-derived
+  // `widgetKindRequiresDataSource` (`kind !== 'text'`, i.e. `true` for every custom kind) and
+  // a bare `createDefaultWidget(kind)`. So a dropped custom widget lost its `defaultConfig`
+  // and got the raw kind string as its title (unrecoverable for a kind with no `setupPanel`),
+  // and a source-less custom kind was click-addable but its drop was refused.
+  describe('custom widget kinds: drop path matches the picker (createWidgetForKind)', () => {
+    const weatherDef: StudioCustomWidgetDef = {
+      kind: 'weather-tile',
+      label: 'Weather tile',
+      description: 'Current conditions',
+      defaultConfig: { units: 'metric', city: 'Paris' },
+      component: () => <div>weather</div>,
+    };
+    const feedDef: StudioCustomWidgetDef = {
+      kind: 'live-feed',
+      label: 'Live feed',
+      requiresDataSource: true,
+      component: () => <div>feed</div>,
+    };
+    const providerProps = { customWidgets: [weatherDef, feedDef] };
+
+    function populatedHarness(dataSources: Record<string, StudioDataSource> = {}) {
+      return createStudioHarness({
+        initialState: {
+          doc: {
+            pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['a']] } },
+            widgets: { a: makeWidget('a') },
+          },
+          runtime: { dataSources },
+        },
+        providerProps,
+      });
+    }
+
+    function emptyHarness(dataSources: Record<string, StudioDataSource> = {}) {
+      return createStudioHarness({
+        initialState: {
+          doc: { pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] } } },
+          runtime: { dataSources },
+        },
+        providerProps,
+      });
+    }
+
+    /** The single widget the drop just added. */
+    function addedWidget(controller: StudioHarness['controller'], before: Set<string>) {
+      const widgets = controller.getState().doc.widgets;
+      const id = Object.keys(widgets).find((wid) => !before.has(wid));
+      expect(id).toBeDefined();
+      return widgets[id!];
+    }
+
+    it('applies the def label and defaultConfig when dropped onto a populated page', () => {
+      // A data source exists so the assertions below isolate title/`defaultConfig` from the
+      // `requiresDataSource` default (covered separately).
+      const { controller, wrapper } = populatedHarness({ s1: makeSource('s1') });
+      render(<StudioCanvas />, { wrapper });
+
+      const before = new Set(Object.keys(controller.getState().doc.widgets));
+      const ips = insertionPoints();
+      act(() => {
+        expect(fireDrop(ips[ips.length - 1], composeItem('weather-tile'))).toBe(true);
+      });
+
+      const added = addedWidget(controller, before);
+      expect(added.kind).toBe('weather-tile');
+      expect(added.title).toBe('Weather tile');
+      expect((added.config as StudioWidgetConfig).customConfig).toEqual({
+        units: 'metric',
+        city: 'Paris',
+      });
+    });
+
+    it('applies the def label and defaultConfig when dropped onto an empty page', () => {
+      const { controller, wrapper } = emptyHarness({ s1: makeSource('s1') });
+      render(<StudioCanvas />, { wrapper });
+
+      const before = new Set(Object.keys(controller.getState().doc.widgets));
+      const [target] = Array.from(registry.values());
+      act(() => {
+        expect(fireDrop(target, composeItem('weather-tile'))).toBe(true);
+      });
+
+      const added = addedWidget(controller, before);
+      expect(added.title).toBe('Weather tile');
+      expect((added.config as StudioWidgetConfig).customConfig).toEqual({
+        units: 'metric',
+        city: 'Paris',
+      });
+    });
+
+    it('accepts a source-less custom kind with zero data sources (populated page)', () => {
+      const { controller, wrapper } = populatedHarness();
+      const insertWidgetAtSpy = vi.spyOn(controller, 'insertWidgetAt');
+      render(<StudioCanvas />, { wrapper });
+
+      const ips = insertionPoints();
+      act(() => {
+        expect(fireDrop(ips[ips.length - 1], composeItem('weather-tile'))).toBe(true);
+      });
+
+      expect(insertWidgetAtSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('accepts a source-less custom kind with zero data sources (empty page)', () => {
+      const { controller, wrapper } = emptyHarness();
+      const insertWidgetAtSpy = vi.spyOn(controller, 'insertWidgetAt');
+      render(<StudioCanvas />, { wrapper });
+
+      const [target] = Array.from(registry.values());
+      act(() => {
+        expect(fireDrop(target, composeItem('weather-tile'))).toBe(true);
+      });
+
+      expect(insertWidgetAtSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('still refuses a custom kind that declares requiresDataSource with zero sources', () => {
+      const { controller, wrapper } = populatedHarness();
+      const insertWidgetAtSpy = vi.spyOn(controller, 'insertWidgetAt');
+      render(<StudioCanvas />, { wrapper });
+
+      const ips = insertionPoints();
+      act(() => {
+        expect(fireDrop(ips[ips.length - 1], composeItem('live-feed'))).toBe(true);
+      });
+
+      expect(insertWidgetAtSpy).not.toHaveBeenCalled();
+    });
+
+    it('leaves built-in kinds untouched (no title/customConfig injection)', () => {
+      const { controller, wrapper } = populatedHarness({ s1: makeSource('s1') });
+      render(<StudioCanvas />, { wrapper });
+
+      const before = new Set(Object.keys(controller.getState().doc.widgets));
+      const ips = insertionPoints();
+      act(() => {
+        expect(fireDrop(ips[ips.length - 1], composeItem('kpi'))).toBe(true);
+      });
+
+      const added = addedWidget(controller, before);
+      expect(added.kind).toBe('kpi');
+      expect(added.title).toBe('');
+      expect((added.config as StudioWidgetConfig).customConfig).toBeUndefined();
     });
   });
 });

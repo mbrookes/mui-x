@@ -251,4 +251,32 @@ describe('StudioDashboard', () => {
     // The pre-existing source keeps its adapter too.
     expect(stateAfter.runtime.dataSources.orders.adapter).toBe(ordersAdapter);
   });
+
+  // Regression: an embed mounted in VIEW mode silently became EDITABLE on the first `config`
+  // prop swap. `deserializeState` hardcodes `session.mode: 'edit'` (session is never
+  // persisted) and `loadSerializedState` committed that whole session, while the config-swap
+  // effect passes only `config.doc`. `featureFlags.compose: false` does not compensate —
+  // every consumer gates on `session.mode` alone, so the swap enabled drag/resize, disabled
+  // the responsive stacking observer and `shouldHide`, and let a viewer's grid header click
+  // write `gridSortField` into the persisted authored doc.
+  it('keeps a view-mode embed in view mode across a `config` prop swap', async () => {
+    const viewConfig = (textBody: string): StudioState => ({
+      ...makeConfig(textBody),
+      session: { ...makeConfig(textBody).session, mode: 'view' },
+    });
+    const configA = viewConfig('A');
+    const configB = viewConfig('B');
+
+    const ref = React.createRef<StudioHandle>();
+    const { setProps } = render(<StudioDashboard ref={ref} config={configA} />);
+    expect(await screen.findByText('A')).not.toBe(null);
+    expect(ref.current!.getState().session.mode).toBe('view');
+
+    await act(async () => {
+      setProps({ config: configB });
+    });
+
+    expect(await screen.findByText('B')).not.toBe(null);
+    expect(ref.current!.getState().session.mode).toBe('view');
+  });
 });

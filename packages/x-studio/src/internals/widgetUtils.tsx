@@ -1,6 +1,8 @@
 import * as React from 'react';
 
 import type {
+  BuiltinStudioWidgetKind,
+  StudioCustomWidgetDef,
   StudioDataField,
   StudioDataSource,
   StudioChartConfig,
@@ -12,8 +14,10 @@ import type {
   StudioWidget,
   StudioWidgetConfig,
   StudioWidgetKind,
+  StudioWidgetOf,
 } from '../models';
 import { isWidgetOfKind } from '../models';
+import { createDefaultWidget } from './widgetFactory';
 import { lookup } from '../utils/safeLookup';
 import { isRelativeDateValue } from './filterUtils';
 import { selectFiltersForWidget } from './filterScoping';
@@ -45,7 +49,7 @@ import { PivotWidgetIcon } from '../icons/PivotWidgetIcon';
 import { MapWidgetIcon } from '../icons/MapWidgetIcon';
 
 // createDefaultWidget — pure factory, no React dependency.
-export { createDefaultWidget } from './widgetFactory';
+export { createDefaultWidget };
 
 export const WIDGET_TYPES: {
   kind: StudioWidgetKind;
@@ -97,8 +101,89 @@ export const WIDGET_TYPES: {
   },
 ];
 
+/**
+ * Kind-derived rule for the BUILT-IN widget kinds only: every built-in except `text` needs a
+ * data source. Do not call this with a custom kind — it answers `true` for anything it doesn't
+ * recognize, which is the opposite of `StudioCustomWidgetDef.requiresDataSource`'s documented
+ * `@default false`. Use {@link resolveWidgetRequiresDataSource} whenever a custom kind can
+ * reach the call site.
+ */
 export function widgetKindRequiresDataSource(kind: StudioWidgetKind) {
   return kind !== 'text';
+}
+
+/**
+ * The finite set of built-in widget kinds. Typed as `Record<BuiltinStudioWidgetKind, true>` so
+ * adding a built-in kind without listing it here is a compile error.
+ */
+const BUILTIN_WIDGET_KINDS: Record<BuiltinStudioWidgetKind, true> = {
+  text: true,
+  kpi: true,
+  chart: true,
+  grid: true,
+  filter: true,
+  pivot: true,
+  map: true,
+};
+
+/** Whether `kind` is one of the seven built-in widget kinds (as opposed to a custom kind). */
+export function isBuiltinWidgetKind(kind: StudioWidgetKind): kind is BuiltinStudioWidgetKind {
+  // `Object.hasOwn`, not `in`: `widget.kind` is doc-authored (and reachable from an AI tool
+  // call), so a bogus kind like `'constructor'` must not resolve through the prototype chain.
+  return Object.hasOwn(BUILTIN_WIDGET_KINDS, kind);
+}
+
+/**
+ * Single source of truth for "does creating/configuring a widget of this kind require a data
+ * source?", for built-in AND custom kinds.
+ *
+ * A widget definition that declares `requiresDataSource` always wins. Otherwise the kind-derived
+ * built-in rule applies to built-in kinds, and a custom kind falls back to `false` — matching
+ * `StudioCustomWidgetDef.requiresDataSource`'s documented `@default false`. The pre-existing
+ * `def?.requiresDataSource !== false` idiom got that backwards, refusing to create (and
+ * permanently marking as "unconfigured") every source-less custom widget — banner/logo/iframe
+ * tiles, the common case, which can never acquire a `sourceId`.
+ *
+ * @param kind The widget kind.
+ * @param def The widget definition for `kind`, from the custom-widget map or the unified
+ *   built-in+custom def map. `undefined` when the kind has no registered definition.
+ */
+export function resolveWidgetRequiresDataSource(
+  kind: StudioWidgetKind,
+  def: { requiresDataSource?: boolean } | undefined,
+): boolean {
+  if (def?.requiresDataSource !== undefined) {
+    return def.requiresDataSource;
+  }
+  return isBuiltinWidgetKind(kind) ? widgetKindRequiresDataSource(kind) : false;
+}
+
+/**
+ * Single source of truth for minting a new widget of `kind` from the widget picker — whether the
+ * user clicked the picker entry or dragged it onto the canvas.
+ *
+ * Both gestures used to have their own creation code: the click path threaded a custom kind's
+ * `label` and `defaultConfig` into `createDefaultWidget`, while the canvas drop paths called a
+ * bare `createDefaultWidget(kind)`. A dropped custom widget therefore came out with an empty
+ * `customConfig` (violating `StudioCustomWidgetDef.defaultConfig`'s contract — and unrecoverable
+ * for a kind with no `setupPanel`) and the raw kind string as its title instead of `def.label`.
+ *
+ * @param kind The widget kind to create.
+ * @param customWidgetMap The consumer-registered custom widget definitions, keyed by kind
+ *   (`useCustomWidgetMap()`). Built-in kinds are absent from it and get untouched defaults.
+ */
+export function createWidgetForKind<K extends StudioWidgetKind>(
+  kind: K,
+  customWidgetMap?: ReadonlyMap<string, StudioCustomWidgetDef>,
+): StudioWidgetOf<K> {
+  const def = customWidgetMap?.get(kind);
+  if (!def) {
+    return createDefaultWidget(kind);
+  }
+  return createDefaultWidget(kind, {
+    title: def.label ?? kind,
+    customConfig: def.defaultConfig ?? {},
+  });
 }
 
 /** Extracts the `fieldId` strings from a `StudioGridColumn[]` for callers that only need IDs. */
@@ -864,18 +949,36 @@ function readLegendItems(chartContainer: HTMLElement): ExportLegendItem[] {
   return items;
 }
 
+/**
+ * Rasterizes a chart widget's on-screen `ChartsSurface` (plus its legend) to a PNG and triggers
+ * the download.
+ *
+ * @returns `false` when there is nothing to export — no container, or no chart surface inside it
+ *   (an unconfigured chart renders plain text, a no-data/errored chart renders a status overlay)
+ *   — so the caller can surface that instead of appearing to succeed. `true` once rasterization
+ *   has been kicked off. Note that `true` is not a guarantee the file lands: the actual download
+ *   happens asynchronously in the `<img>` `onload` below (a load failure is reported there).
+ */
 export function exportChartToPng(
   widget: StudioWidget,
   chartContainer: HTMLElement | null,
   backgroundColor?: string,
-): void {
+): boolean {
   if (!chartContainer) {
-    return;
+    return false;
   }
 
-  const svg = chartContainer.querySelector('svg');
+  // Resolve the chart surface BY CLASS — the same way `readLegendItems` resolves
+  // `.MuiChartsLegend-root` — rather than taking the first `<svg>` in the subtree. `canExport`
+  // is kind-derived (every chart widget declares `export: 'png'`), so this runs in states with
+  // no chart surface at all, and both status overlays living inside `chartContainerRef` contain
+  // MUI `SvgIcon`s (`StudioNoDataOverlay`'s `InboxOutlinedIcon`, `StudioWidgetErrorOverlay`'s
+  // `ErrorIcon`). An unscoped `querySelector('svg')` found those, so exporting a no-data or
+  // errored chart downloaded a 2x-scaled PNG of a 32px inbox/error icon and presented it as a
+  // successful export.
+  const svg = chartContainer.querySelector<SVGSVGElement>('svg.MuiChartsSurface-root');
   if (!svg) {
-    return;
+    return false;
   }
 
   // Clone the SVG first, then inline computed styles onto the CLONE only — reading computed
@@ -930,7 +1033,7 @@ export function exportChartToPng(
 
   const ctx = canvas.getContext('2d');
   if (!ctx) {
-    return;
+    return false;
   }
 
   ctx.scale(scale, scale);
@@ -994,4 +1097,5 @@ export function exportChartToPng(
   };
 
   img.src = url;
+  return true;
 }

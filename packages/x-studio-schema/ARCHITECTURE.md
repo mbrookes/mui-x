@@ -99,7 +99,7 @@ a per-caller test can assert). The pure type modules have no runtime behavior to
   (the latter widens to `string & {}` so consumer-defined custom kinds typecheck),
   `StudioFilterWidgetType`, `StudioCrossFilterMode`, `StudioChartType` (16 members, CLOSED),
   `StudioBarLayout`, `StudioNumberFormat`, `StudioKpiAggregation`,
-  `StudioGridSummaryAggregation`, `StudioFilterOperator`. Intentionally small (~90 lines):
+  `StudioGridSummaryAggregation`, `StudioFilterOperator`. Intentionally small (~110 lines):
   every widget-config-shaped or data-model-shaped type lives in `widgetTypes.ts`/`dataTypes.ts`.
 
 - **`dataTypes.ts`** — `StudioDataField` (+ `FieldCapability`), `StudioFilterNode` (the wire
@@ -207,8 +207,8 @@ Three consequences worth stating plainly:
   survive `JSON.stringify`. A key **name** is the only way to void a field over the wire.
 
   `applyBulkUpdate.args` is a lost-update-safe **delta**: `removedWidgetIds` / `addedWidgets` /
-  `updatedWidgets` layered on the receiver's _current_ `widgets` record, plus optional
-  `widgetRows` / `widgetColSpans` / `activePageId` for the active page's layout. Because the
+  `updatedWidgets` layered on the receiver's _current_ `widgets` record, targeted at the required
+  `activePageId`, plus optional `widgetRows` / `widgetColSpans` for that page's layout. Because the
   deltas layer onto current state rather than a turn-start snapshot, a widget concurrently
   created or edited while an agentic turn runs keeps its record entry instead of being silently
   reverted. `widgetRows`/`widgetColSpans` are **optional** because an updates-only bulk has no
@@ -458,8 +458,10 @@ module so no boundary can drift into an independently-maintained literal list. T
 1. **A record KEY written from untrusted input.** `record[key] = value` with `key === '__proto__'`
    invokes the inherited setter and rewrites the record's prototype instead of adding an own key.
    Every key-by-key `Record` rebuild in the package screens with `isSafeKey`, and the two
-   load-boundary `pages` rebuilds use `Object.fromEntries` over surviving entries rather than
-   bracket assignment for the same reason.
+   load-boundary `widgets` rebuilds (`docScreening.ts`'s `screenWidgets` and
+   `statePersistence.ts`'s legacy-leaf-shape pass) plus the load-boundary `pages` rebuild
+   (`applyMutation.ts`'s `normalizePersistedPages`) all use `Object.fromEntries` over surviving
+   entries rather than bracket assignment for the same reason.
 2. **An own DATA property named one of the three.** `JSON.parse('{"__proto__":…}')` produces
    exactly this. It round-trips through `serializeDoc` and then poisons a later
    `Object.assign`/spread. `hasUnsafeOwnKeys` screens for it symmetrically at every
@@ -714,7 +716,8 @@ exactly one implementation across every trust boundary.
 
 - **`unsafeKeys.ts`** — `UNSAFE_KEYS`/`isSafeKey`. Imported by `applyMutation.ts` (as the local
   `isSafePatchKey` alias), `parseStateMutation.ts` (behind `isSafeId` and `hasUnsafeOwnKeys`),
-  and `statePersistence.ts` (screening persisted `pages`/`widgets` record keys). See
+  `internalGuards.ts` (`stripUnsafeOwnKeys`), and `docScreening.ts` (screening persisted
+  `pages`/`widgets` record keys, shared by `statePersistence.ts` and `factories.ts`). See
   [prototype-hazard keys](#prototype-hazard-keys).
 - **`internalGuards.ts`** — `isPlainRecord` (see
   [above](#isplainrecord--the-one-is-this-a-usable-bag-predicate)), `stripUnsafeOwnKeys`, and

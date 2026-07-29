@@ -1168,6 +1168,37 @@ describe('createBatchingAdapter — aggregation & filter push-down policy', () =
     ]);
   });
 
+  it('pushes count_non_null down as the wire `count`, which IS SQL COUNT(column)', async () => {
+    // `count_non_null` is the ONE count with a faithful wire form: the middleware's `count`
+    // emits `COUNT(column)`, which is exactly "how many rows had a value". It must therefore
+    // survive the push-down ladder and arrive spelled `count`. The counterpart — Studio's own
+    // `count` (`COUNT(*)`) being stripped to raw rows — is pinned by 'routes a plain count to
+    // raw rows' below. Together they are why the rename happens at the LAST moment: renaming
+    // `count_non_null` to `count` any earlier makes the two indistinguishable, and the ladder
+    // would strip this one too.
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    await adapter.getRows(
+      makeDescriptor({
+        widgetId: 'w1',
+        select: ['category', 'total'],
+        groupBy: 'category',
+        aggregations: [{ field: 'total', fn: 'count_non_null', alias: 'total' }],
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ aggregations?: Array<{ func: string }> }>;
+    };
+    expect(body.widgets[0].aggregations).toEqual([
+      { column: 'total', func: 'count', alias: 'total' },
+    ]);
+  });
+
   it('pushes a fully-bounded between whose lower bound is a genuine 0 (not treated as unset)', async () => {
     const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
     const adapter = createBatchingAdapter(uid(), {

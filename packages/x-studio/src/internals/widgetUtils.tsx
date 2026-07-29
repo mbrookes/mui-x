@@ -177,6 +177,7 @@ const KPI_AGG_PREFIXES_DEFAULT: Record<StudioKpiAggregation, keyof StudioLocaleT
   sum: 'widgetAggPrefixSum',
   avg: 'widgetAggPrefixAvg',
   count: 'widgetAggPrefixCount',
+  count_non_null: 'widgetAggPrefixCountValues',
   min: 'widgetAggPrefixMin',
   max: 'widgetAggPrefixMax',
   count_distinct: 'widgetAggPrefixCountDistinct',

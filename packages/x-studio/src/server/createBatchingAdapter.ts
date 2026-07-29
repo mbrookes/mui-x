@@ -49,6 +49,7 @@ import {
   decideAggregationPushdown,
   isClientOnlyAggFn,
 } from './aggregationPushdown';
+import type { AggFn } from '../internals/chartTypeRegistry';
 
 /** Structured filter predicate sent to the server (mirrors FilterPredicate in @mui/x-studio-data-middleware) */
 interface FilterPredicate {
@@ -2290,6 +2291,25 @@ function decideWireAggregations(
   dedupe: Set<string>,
   resolveColumn: (fieldId: string) => string | null,
 ): AggregationSpec[] | undefined {
+  /**
+   * Studio's aggregation name → the middleware's `AggregationSpec.func`.
+   *
+   * Only `count_non_null` differs, and it is the one aggregation whose Studio name and wire
+   * name disagree while the SEMANTICS match exactly: the middleware's `count` emits SQL
+   * `COUNT(column)`, which is precisely "how many rows had a value" — `count_non_null`. It
+   * therefore pushes down faithfully, where Studio's own `count` (`COUNT(*)`, rows including
+   * nulls) does NOT and is stripped by `isClientOnlyAggFn` above.
+   *
+   * Translating here rather than at descriptor-build time is load-bearing: `stripAggregations`
+   * runs its client-only check against `descriptor.aggregations[].fn`, so renaming
+   * `count_non_null` to `count` any earlier would make that check see Studio's row-count
+   * `count` and strip the whole push-down — silently turning a pushable aggregation into a
+   * full raw-row fetch.
+   */
+  const toWireAggFunc = (
+    fn: Exclude<AggFn, 'count' | 'count_distinct'>,
+  ): AggregationSpec['func'] => (fn === 'count_non_null' ? 'count' : fn);
+
   const decision = decideAggregationPushdown({ descriptor: d, hasUnpushableFilters });
   if (decision.reason) {
     warnAdapterDivergence(dedupe, aggregationPushdownWarning(d.sourceId, decision.reason));
@@ -2304,7 +2324,7 @@ function decideWireAggregations(
       return [];
     }
     const column = resolveColumn(a.field);
-    return column === null ? [] : [{ column, func: a.fn, alias: a.alias }];
+    return column === null ? [] : [{ column, func: toWireAggFunc(a.fn), alias: a.alias }];
   });
   return specs.length > 0 ? specs : undefined;
 }

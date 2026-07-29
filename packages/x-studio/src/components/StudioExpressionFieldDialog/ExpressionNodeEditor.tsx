@@ -153,6 +153,7 @@ function getAggregationOptions(
     { value: 'min', label: localeText.aggFnMin },
     { value: 'max', label: localeText.aggFnMax },
     { value: 'count', label: localeText.aggFnCount },
+    { value: 'count_non_null', label: localeText.aggFnCountValues },
   ];
 }
 

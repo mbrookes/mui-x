@@ -39,7 +39,8 @@ import { KpiSparklineOptions } from './KpiSparklineOptions';
 import { collectStaleWidgetFilterIds } from './collectStaleWidgetFilterIds';
 
 function getKpiAggregations(localeText: ReturnType<typeof useStudioLocaleText>) {
-  // `count_distinct` (like `count`) is meaningful for every field type — it operates on
+  // `count_non_null` and `count_distinct` (like `count`) are meaningful for every field type —
+  // each operates on
   // the raw cell value regardless of type (`computeAggregate`'s `count_distinct` branch
   // routes through `countDistinct` unconditionally, never the numeric coercion used by
   // sum/avg/min/max) — so it's offered everywhere `count` is, mirroring `gridSummary.ts`'s
@@ -52,26 +53,31 @@ function getKpiAggregations(localeText: ReturnType<typeof useStudioLocaleText>) 
       { value: 'sum', label: localeText.aggFnSum },
       { value: 'avg', label: localeText.aggFnAverage },
       { value: 'count', label: localeText.aggFnCount },
+      { value: 'count_non_null', label: localeText.aggFnCountValues },
       { value: 'count_distinct', label: localeText.widgetAggPrefixCountDistinct },
       { value: 'min', label: localeText.aggFnMin },
       { value: 'max', label: localeText.aggFnMax },
     ],
     string: [
       { value: 'count', label: localeText.aggFnCount },
+      { value: 'count_non_null', label: localeText.aggFnCountValues },
       { value: 'count_distinct', label: localeText.widgetAggPrefixCountDistinct },
     ],
     boolean: [
       { value: 'count', label: localeText.aggFnCount },
+      { value: 'count_non_null', label: localeText.aggFnCountValues },
       { value: 'count_distinct', label: localeText.widgetAggPrefixCountDistinct },
     ],
     date: [
       { value: 'count', label: localeText.aggFnCount },
+      { value: 'count_non_null', label: localeText.aggFnCountValues },
       { value: 'count_distinct', label: localeText.widgetAggPrefixCountDistinct },
       { value: 'min', label: localeText.kpiSetupDateAggEarliest },
       { value: 'max', label: localeText.kpiSetupDateAggLatest },
     ],
     datetime: [
       { value: 'count', label: localeText.aggFnCount },
+      { value: 'count_non_null', label: localeText.aggFnCountValues },
       { value: 'count_distinct', label: localeText.widgetAggPrefixCountDistinct },
       { value: 'min', label: localeText.kpiSetupDateAggEarliest },
       { value: 'max', label: localeText.kpiSetupDateAggLatest },

@@ -131,7 +131,13 @@ export interface StudioQueryDescriptor {
   /** For chart/KPI: aggregation functions to apply server-side */
   aggregations?: {
     field: string;
-    fn: 'sum' | 'avg' | 'count' | 'min' | 'max' | 'count_distinct';
+    /**
+     * `count_non_null` rides the wire as the middleware's `count`, which IS SQL
+     * `COUNT(column)` — see `createBatchingAdapter`'s `toWireAggFunc`. It is carried
+     * under its own name up to that point so `isClientOnlyAggFn` can tell it apart from
+     * Studio's `count` (`COUNT(*)`), which has no faithful wire form.
+     */
+    fn: 'sum' | 'avg' | 'count' | 'count_non_null' | 'min' | 'max' | 'count_distinct';
     alias: string;
   }[];
   /** Time-series bucketing granularity */

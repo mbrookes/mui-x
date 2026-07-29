@@ -235,7 +235,9 @@ export function makeFanoutSafeAggregationFunction(
     // underlying field (e.g. a currency column's count is a plain integer), so
     // the column's own value formatter must not apply — mirrors DataGridPremium's
     // native `size` function.
-    hasCellUnit: fn !== 'count' && fn !== 'count_distinct',
+    // All three counts are tallies, not quantities in the column's unit, so none of them
+    // carries the column's currency/percent formatting.
+    hasCellUnit: fn !== 'count' && fn !== 'count_non_null' && fn !== 'count_distinct',
   };
 }
 
@@ -661,8 +663,19 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         ...makeFanoutSafeAggregationFunction('count_distinct', crossSourceFkFields),
         label: localeText.gridSummaryLabelCountDistinct,
       },
+      // Also not a DataGridPremium built-in, and for the same reason as `count_distinct` it
+      // must be registered here or a `count_non_null` group aggregation renders nothing:
+      // `toGridAggFn` passes it through unchanged and the grid finds no matching function.
+      count_non_null: {
+        ...makeFanoutSafeAggregationFunction('count_non_null', crossSourceFkFields),
+        label: localeText.gridSummaryLabelCountValues,
+      },
     }),
-    [crossSourceFkFields, localeText.gridSummaryLabelCountDistinct],
+    [
+      crossSourceFkFields,
+      localeText.gridSummaryLabelCountDistinct,
+      localeText.gridSummaryLabelCountValues,
+    ],
   );
 
   // Build column defs for ALL data source fields (own source + expression fields +

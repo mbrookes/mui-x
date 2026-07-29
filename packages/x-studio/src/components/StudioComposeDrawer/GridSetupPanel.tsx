@@ -68,9 +68,17 @@ const NUMERIC_AGGREGATIONS: StudioGridSummaryAggregation[] = [
   'min',
   'max',
   'count',
+  'count_non_null',
   'count_distinct',
 ];
-const STRING_AGGREGATIONS: StudioGridSummaryAggregation[] = ['count', 'count_distinct'];
+// All three counts read the RAW cell, never the numeric coercion sum/avg/min/max apply, so
+// each is meaningful for a string column and all three are offered here — the same policy
+// `gridSummary.ts`'s non-numeric fallback and `KpiSetupPanel`'s per-type lists apply.
+const STRING_AGGREGATIONS: StudioGridSummaryAggregation[] = [
+  'count',
+  'count_non_null',
+  'count_distinct',
+];
 
 /**
  * Grid config keys that reference specific field IDs from the widget's data
@@ -140,6 +148,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
     sum: localeText.aggFnSum,
     avg: localeText.aggFnAverage,
     count: localeText.aggFnCount,
+    count_non_null: localeText.aggFnCountValues,
     count_distinct: localeText.gridSetupColumnAggUnique,
     min: localeText.aggFnMin,
     max: localeText.aggFnMax,

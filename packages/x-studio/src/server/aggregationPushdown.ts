@@ -45,6 +45,15 @@ const CLIENT_ONLY_AGG_FNS: ReadonlySet<AggFn> = new Set<AggFn>(['count', 'count_
  * to a plain `count` with a warning, but the downgrade could never produce a usable number: the
  * client re-aggregates the response, and a server-aggregated response has exactly one row per
  * group, so every group's distinct count rendered as `1` — an outcome the warning did not describe.
+ *
+ * `count_non_null` is deliberately NOT here, and it is the one count that isn't. The wire `count`
+ * IS SQL `COUNT(column)`, which is exactly `count_non_null`'s definition — so it pushes down
+ * faithfully and the server's number is the same number the client would have computed. That
+ * mismatch between Studio's `count` and the wire's is precisely why the two need separate names:
+ * without `count_non_null`, the only way to spell "how many rows have a value" was the wire's
+ * `count`, which no client aggregator agrees with. The rename to the wire spelling happens at the
+ * LAST moment, in `createBatchingAdapter`'s `toWireAggFunc`, so this check still sees the
+ * distinct Studio name.
  */
 export function isClientOnlyAggFn(fn: AggFn): fn is 'count' | 'count_distinct' {
   return CLIENT_ONLY_AGG_FNS.has(fn);

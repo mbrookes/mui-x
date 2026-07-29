@@ -50,7 +50,7 @@ export const KIND_CONFIG_LINES: Record<BuiltinStudioWidgetKind, string[]> = {
     'mixed: ySeries (array of {fieldId, label, type: bar|line, yAggregation, sourceId}), dualYAxis (boolean) — set a per-series sourceId to overlay a metric from a different source onto the shared categorical xField (the join key must exist with the same id in every source used);',
   ],
   kpi: [
-    'kpi: kpiValueField, kpiAggregation (sum|avg|count|min|max), kpiSparkline (boolean), kpiSparklinePlotType (line|bar|gauge), kpiSparklineGaugeMax, kpiSparklineCumulative (boolean), kpiSparklineGranularity ("day"|"week"|"month"|"quarter"|"year"),',
+    'kpi: kpiValueField, kpiAggregation (sum|avg|count|count_non_null|count_distinct|min|max; count counts ROWS, count_non_null counts rows having a value, count_distinct counts distinct values), kpiSparkline (boolean), kpiSparklinePlotType (line|bar|gauge), kpiSparklineGaugeMax, kpiSparklineCumulative (boolean), kpiSparklineGranularity ("day"|"week"|"month"|"quarter"|"year"),',
     '  kpiTrend (boolean), kpiTrendComparison ("previous-period"|"previous-calendar-period"|"year-over-year"), kpiTrendInvert (boolean — true if lower is better);',
   ],
   grid: [

@@ -379,14 +379,15 @@ These tokens are retained as public API for consumers who call `generateDashboar
 
 ### Aggregation functions
 
-| Token            | Default          |
-| :--------------- | :--------------- |
-| `aggFnSum`       | `'Sum'`          |
-| `aggFnCount`     | `'Count'`        |
-| `aggFnCountRows` | `'Count (rows)'` |
-| `aggFnAverage`   | `'Average'`      |
-| `aggFnMin`       | `'Min'`          |
-| `aggFnMax`       | `'Max'`          |
+| Token              | Default            |
+| :----------------- | :----------------- |
+| `aggFnSum`         | `'Sum'`            |
+| `aggFnCount`       | `'Count'`          |
+| `aggFnCountRows`   | `'Count (rows)'`   |
+| `aggFnCountValues` | `'Count (values)'` |
+| `aggFnAverage`     | `'Average'`        |
+| `aggFnMin`         | `'Min'`            |
+| `aggFnMax`         | `'Max'`            |
 
 ### Time granularity
 
@@ -659,14 +660,15 @@ These tokens appear in the **Filters** tab of the widget edit dialog when adding
 
 Tokens used by `computeGridSummary` and `aggregationLabel` for the summary row at the bottom of tables.
 
-| Token                           | Default      |
-| :------------------------------ | :----------- |
-| `gridSummaryLabelSum`           | `'Sum'`      |
-| `gridSummaryLabelAvg`           | `'Avg'`      |
-| `gridSummaryLabelCount`         | `'Count'`    |
-| `gridSummaryLabelCountDistinct` | `'Distinct'` |
-| `gridSummaryLabelMin`           | `'Min'`      |
-| `gridSummaryLabelMax`           | `'Max'`      |
+| Token                           | Default     |
+| :------------------------------ | :---------- |
+| `gridSummaryLabelSum`           | `'Total:'`  |
+| `gridSummaryLabelAvg`           | `'Avg:'`    |
+| `gridSummaryLabelCount`         | `'Count:'`  |
+| `gridSummaryLabelCountValues`   | `'Values:'` |
+| `gridSummaryLabelCountDistinct` | `'Unique:'` |
+| `gridSummaryLabelMin`           | `'Min:'`    |
+| `gridSummaryLabelMax`           | `'Max:'`    |
 
 ### Auto-generated widget titles
 
@@ -703,14 +705,15 @@ Studio auto-generates widget titles and subtitles when none has been set. Overri
 
 Applied as a prefix to the value field label in the KPI title (for example, `"Total Revenue"`, `"Average Age"`).
 
-| Token                          | Default      |
-| :----------------------------- | :----------- |
-| `widgetAggPrefixSum`           | `'Total'`    |
-| `widgetAggPrefixAvg`           | `'Average'`  |
-| `widgetAggPrefixCount`         | `'Count of'` |
-| `widgetAggPrefixMin`           | `'Min'`      |
-| `widgetAggPrefixMax`           | `'Max'`      |
-| `widgetAggPrefixCountDistinct` | `'Unique'`   |
+| Token                          | Default                |
+| :----------------------------- | :--------------------- |
+| `widgetAggPrefixSum`           | `'Total'`              |
+| `widgetAggPrefixAvg`           | `'Average'`            |
+| `widgetAggPrefixCount`         | `'Count of'`           |
+| `widgetAggPrefixMin`           | `'Min'`                |
+| `widgetAggPrefixMax`           | `'Max'`                |
+| `widgetAggPrefixCountValues`   | `'Count of values of'` |
+| `widgetAggPrefixCountDistinct` | `'Distinct'`           |
 
 #### Time-grouping prefixes (chart subtitle)
 

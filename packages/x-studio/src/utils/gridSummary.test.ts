@@ -158,6 +158,57 @@ describe('computeGridSummary', () => {
     expect(result.region).toBe(`${aggregationLabel('count_distinct')} 2`);
   });
 
+  // ─── count_non_null: COUNT(column), distinct from COUNT(*) ────────────────────
+
+  it('count_non_null counts only rows that have a value, unlike count', () => {
+    // The whole reason `count_non_null` needs its own name: over the SAME rows and the SAME
+    // column it must answer a different number than `count`. 5 rows, 3 with a value.
+    const rows = [
+      { id: '1', region: 'US' },
+      { id: '2', region: 'US' },
+      { id: '3', region: 'EU' },
+      { id: '4', region: null },
+      { id: '5' }, // missing key
+    ] as Record<string, unknown>[];
+
+    const nonNull = computeGridSummary(rows, [strField('region')], {
+      fields: { region: 'count_non_null' },
+    });
+    const allRows = computeGridSummary(rows, [strField('region')], {
+      fields: { region: 'count' },
+    });
+
+    expect(nonNull.region).toBe(`${aggregationLabel('count_non_null')} 3`);
+    expect(allRows.region).toBe(`${aggregationLabel('count')} 5`);
+  });
+
+  it('count_non_null on a STRING field is not downgraded to count (non-numeric fallback)', () => {
+    // The fallback rewrites a numeric aggregation to `count` on a non-numeric column. All three
+    // counts read the raw cell, so each must be exempt — letting `count_non_null` fall through
+    // would silently answer "how many rows" for a user who asked "how many have a value", and a
+    // string column is exactly where those two numbers differ most often.
+    const rows = [
+      { id: '1', name: 'Alpha' },
+      { id: '2', name: null },
+      { id: '3', name: 'Gamma' },
+    ] as Record<string, unknown>[];
+
+    const result = computeGridSummary(rows, [strField('name')], {
+      fields: { name: 'count_non_null' },
+    });
+
+    // 2, not 3 — and labelled as the aggregation actually requested.
+    expect(result.name).toBe(`${aggregationLabel('count_non_null')} 2`);
+  });
+
+  it('labels a count_non_null summary cell rather than rendering a bare number', () => {
+    // `aggregationLabel` ends in `default: return ''`, so a union member with no case renders
+    // its number with NO prefix at all — the failure mode that made widening the persisted
+    // union alone worse than leaving the aggregation internal.
+    expect(aggregationLabel('count_non_null')).toBe('Values:');
+    expect(aggregationLabel('count_non_null')).not.toBe('');
+  });
+
   it('avg over an all-null/non-numeric field is omitted, not shown as 0 (finding 2.13)', () => {
     const rows = [
       { id: '1', amount: null },

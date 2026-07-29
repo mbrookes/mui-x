@@ -105,11 +105,13 @@ export function computeGridSummary(
     const isNumeric = fieldDef?.type === 'number';
 
     // For non-numeric fields, numeric aggregations aren't meaningful — fall back to count.
-    // count_distinct is meaningful for any field type so it is exempt from the fallback.
+    // All THREE counts are meaningful for any field type (each reads the raw cell, never the
+    // numeric coercion sum/avg/min/max apply), so each is exempt from the fallback. Letting
+    // `count_non_null` fall through would silently answer a DIFFERENT question than the user
+    // asked — "how many rows" instead of "how many have a value" — on exactly the string
+    // columns where the two most often differ.
     const effectiveAgg: StudioGridSummaryAggregation =
-      !isNumeric && aggregation !== 'count' && aggregation !== 'count_distinct'
-        ? 'count'
-        : aggregation;
+      !isNumeric && !isCountAggregation(aggregation) ? 'count' : aggregation;
 
     // FK-dedup a fanned-out cross-source column before reducing (finding 1.2); a plain
     // column reads one value per row. The shared reducer applies the null-skip +
@@ -126,7 +128,9 @@ export function computeGridSummary(
 
     const label = aggregationLabel(effectiveAgg, localeText);
 
-    if (effectiveAgg === 'count' || effectiveAgg === 'count_distinct') {
+    // A count is a tally of rows/values, not a quantity of the column's unit, so it must not
+    // be run through the field's currency/percent formatter.
+    if (isCountAggregation(effectiveAgg)) {
       result.set(fieldId, `${label} ${raw.toLocaleString(getStudioLocale())}`);
     } else {
       const formatted = formatFieldValue(raw, fieldDef);
@@ -135,6 +139,22 @@ export function computeGridSummary(
   }
 
   return Object.fromEntries(result);
+}
+
+/**
+ * True for the three count aggregations — `count` (`COUNT(*)`), `count_non_null`
+ * (`COUNT(column)`) and `count_distinct` (`COUNT(DISTINCT column)`).
+ *
+ * They share two behaviours this module needs in different places, and keeping the membership
+ * test in ONE place is what stops the two lists drifting (they already did once: adding
+ * `count_non_null` to only the formatting check would have left it falling back to `count` on a
+ * string column, answering a different question than the one asked). Both callers below use it:
+ * counts are exempt from the non-numeric fallback, and counts are rendered unformatted.
+ */
+function isCountAggregation(
+  agg: StudioGridSummaryAggregation,
+): agg is 'count' | 'count_non_null' | 'count_distinct' {
+  return agg === 'count' || agg === 'count_non_null' || agg === 'count_distinct';
 }
 
 /** Short prefix label shown before the computed value in a summary cell. */
@@ -149,6 +169,8 @@ export function aggregationLabel(
       return localeText.gridSummaryLabelAvg;
     case 'count':
       return localeText.gridSummaryLabelCount;
+    case 'count_non_null':
+      return localeText.gridSummaryLabelCountValues;
     case 'count_distinct':
       return localeText.gridSummaryLabelCountDistinct;
     case 'min':

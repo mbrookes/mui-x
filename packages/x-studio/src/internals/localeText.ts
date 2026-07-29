@@ -577,6 +577,11 @@ export interface StudioLocaleText {
   aggFnSum: string;
   aggFnCount: string;
   aggFnCountRows: string;
+  /**
+   * Label for the `count_non_null` aggregation — SQL's `COUNT(column)`: how many rows had a
+   * usable value, as opposed to `aggFnCountRows`' `COUNT(*)` row tally.
+   */
+  aggFnCountValues: string;
   aggFnAverage: string;
   aggFnMin: string;
   aggFnMax: string;
@@ -1223,6 +1228,8 @@ export interface StudioLocaleText {
   gridSummaryLabelAvg: string;
   gridSummaryLabelCount: string;
   gridSummaryLabelCountDistinct: string;
+  /** Summary-cell prefix for the `count_non_null` aggregation. */
+  gridSummaryLabelCountValues: string;
   gridSummaryLabelMin: string;
   gridSummaryLabelMax: string;
   /** Shown when a grid cell edit fails to save (falls back to the adapter's error message when available) */
@@ -1264,6 +1271,8 @@ export interface StudioLocaleText {
   widgetAggPrefixMin: string;
   widgetAggPrefixMax: string;
   widgetAggPrefixCountDistinct: string;
+  /** Auto-title prefix for a KPI using the `count_non_null` aggregation. */
+  widgetAggPrefixCountValues: string;
   /** Time-grouping prefixes for chart auto-titles */
   widgetGroupByPrefixDay: string;
   widgetGroupByPrefixWeek: string;
@@ -1888,6 +1897,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   aggFnSum: 'Sum',
   aggFnCount: 'Count',
   aggFnCountRows: 'Count (rows)',
+  aggFnCountValues: 'Count (values)',
   aggFnAverage: 'Average',
   aggFnMin: 'Min',
   aggFnMax: 'Max',
@@ -2443,6 +2453,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   gridSummaryLabelAvg: 'Avg:',
   gridSummaryLabelCount: 'Count:',
   gridSummaryLabelCountDistinct: 'Unique:',
+  gridSummaryLabelCountValues: 'Values:',
   gridSummaryLabelMin: 'Min:',
   gridSummaryLabelMax: 'Max:',
   gridMutationError: 'Failed to save changes',
@@ -2470,6 +2481,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   widgetAggPrefixMin: 'Min',
   widgetAggPrefixMax: 'Max',
   widgetAggPrefixCountDistinct: 'Distinct',
+  widgetAggPrefixCountValues: 'Count of values of',
   widgetGroupByPrefixDay: 'Daily',
   widgetGroupByPrefixWeek: 'Weekly',
   widgetGroupByPrefixMonth: 'Monthly',

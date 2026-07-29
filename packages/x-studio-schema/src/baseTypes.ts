@@ -60,12 +60,32 @@ export type StudioBarLayout = 'grouped' | 'stacked' | 'horizontal';
 
 export type StudioNumberFormat = 'integer' | 'decimal' | 'percent' | 'currency';
 
-export type StudioKpiAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max' | 'count_distinct';
+/**
+ * `count` vs `count_non_null` vs `count_distinct` are three DIFFERENT numbers, and the
+ * distinction is the whole reason they have separate names:
+ * - `count` is SQL's `COUNT(*)` — how many ROWS landed in the bucket, whether or not this
+ *   particular measure had a usable value in them.
+ * - `count_non_null` is SQL's `COUNT(column)` — how many of those rows actually had a value.
+ * - `count_distinct` is `COUNT(DISTINCT column)` over the RAW values.
+ *
+ * All three are meaningful for EVERY field type (they read the raw cell, never the numeric
+ * coercion `sum`/`avg`/`min`/`max` apply), so any option list offering one must offer all
+ * three — see `GridSetupPanel`'s `STRING_AGGREGATIONS` and `KpiSetupPanel`'s per-type lists.
+ */
+export type StudioKpiAggregation =
+  | 'sum'
+  | 'avg'
+  | 'count'
+  | 'count_non_null'
+  | 'min'
+  | 'max'
+  | 'count_distinct';
 
 export type StudioGridSummaryAggregation =
   | 'sum'
   | 'avg'
   | 'count'
+  | 'count_non_null'
   | 'min'
   | 'max'
   | 'count_distinct';

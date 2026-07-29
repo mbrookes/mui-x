@@ -257,6 +257,37 @@ describe('applyMutation', () => {
     expect(Object.hasOwn(next.widgets, '__proto__')).toBe(false);
   });
 
+  // Architecture-audit gap: `addWidget` screened `widget.id` against the prototype-hazard
+  // denylist (the test above) but never screened the WIDGET OBJECT's own top-level keys —
+  // unlike `docScreening.ts`'s `screenWidgets` (Finding T2-1) and `parseStateMutation.ts`'s
+  // `validateWidget`, which both reject a widget carrying an own `__proto__`/`constructor`/
+  // `prototype` key outright. `JSON.parse` on a server-built widget (the
+  // `executeToolOnState` path bypasses `parseStateMutation` entirely) materializes such a
+  // key as a real own DATA property — an object literal never would — and `addWidget`
+  // installed it into `state.widgets` verbatim via `{ ...state.widgets, [id]: widget }`.
+  // The polluted widget then survived in memory but was silently DROPPED on the very next
+  // `serializeDoc`→`deserializeState` round-trip (the load boundary correctly rejects it) —
+  // deferred data loss, not an immediate crash. Reject (drop the whole widget) rather than
+  // strip-and-keep, matching this handler's own "missing required field ⇒ drop the whole
+  // entry" convention.
+  it('addWidget rejects a widget carrying an own __proto__ key (prototype-hazard own key)', () => {
+    const state = twoPageState('page-1');
+    // `JSON.parse` (not an object literal) is required to produce a real OWN `__proto__`
+    // data property — the same construction technique the sibling `addFilter` prototype-
+    // hazard tests use above.
+    const widget = JSON.parse(
+      '{"id":"w1","kind":"chart","title":"W","config":{"chartType":"bar"},"__proto__":{"polluted":true}}',
+    );
+    const next = applyDocMutation(state, {
+      type: 'addWidget',
+      args: { widget, pageId: 'page-1' } as never,
+    });
+    expect(next).toBe(state);
+    expect(Object.hasOwn(next.widgets, 'w1')).toBe(false);
+    // No global prototype pollution leaked out of the reducer.
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
   // Iteration-20 finding: only `isSafePatchKey` was checked on `widget.id`, not
   // `typeof widget.id === 'string'` — `addPage` already guards its own id this way, but
   // `addWidget`/`applyBulkUpdate.addedWidgets` didn't, so a non-string id (e.g. a number)
@@ -3868,6 +3899,41 @@ describe('applyMutation', () => {
       expect(Object.hasOwn(next.widgets, 'good')).toBe(true);
       // No own `__proto__` widget entry was created.
       expect(Object.hasOwn(next.widgets, '__proto__')).toBe(false);
+    });
+
+    // Architecture-audit gap: `isInsertableAddedWidget` — the ONE shared acceptance test
+    // both the `validRowIds` prediction step and the insert loop below defer to — screened
+    // `widget.id` against the prototype-hazard denylist but never screened the WIDGET
+    // OBJECT's own top-level keys. A `JSON.parse`-built `addedWidgets` entry carrying a real
+    // own `__proto__` DATA property therefore installed into `state.widgets` verbatim,
+    // survived in memory, and was silently dropped on the next `serializeDoc`→
+    // `deserializeState` round-trip (the load boundary's `screenWidgets` correctly rejects
+    // it) — deferred data loss. Fixing the shared predicate closes the gap for BOTH call
+    // sites in one place, keeping them in agreement per the file's own design.
+    it('applyBulkUpdate.addedWidgets rejects a widget carrying an own __proto__ key', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+      });
+      const widget = JSON.parse(
+        '{"id":"w1","kind":"chart","title":"W","config":{"chartType":"bar"},"__proto__":{"polluted":true}}',
+      );
+      const next = applyDocMutation(state, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: [],
+          addedWidgets: [widget],
+          updatedWidgets: [],
+          widgetRows: [['w1']],
+          widgetColSpans: {},
+          activePageId: 'page-1',
+        },
+      });
+      expect(Object.hasOwn(next.widgets, 'w1')).toBe(false);
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+      // `validRowIds` correctly predicted the insert loop's rejection: no phantom row
+      // naming the never-installed widget survived either.
+      expect(next.pages['page-1'].widgetRows).toEqual([]);
     });
 
     it('an update for a `constructor` widget id is a clean no-op, not a phantom-existing write', () => {

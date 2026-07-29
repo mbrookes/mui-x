@@ -439,6 +439,16 @@ function coerceWidgetConfig(widget: StudioWidget): StudioWidget {
 function isInsertableAddedWidget(widget: unknown): widget is StudioWidget {
   return (
     isPlainRecord(widget) &&
+    // Screen the WIDGET OBJECT's own top-level keys against the prototype-hazard
+    // denylist, symmetric with the wire boundary's `hasUnsafeOwnKeys(widget)` rejection
+    // in `validateWidget` and the load boundary's `screenWidgets` (Finding T2-1). A
+    // `JSON.parse`-built widget from a server-built mutation that bypasses
+    // `parseStateMutation` can materialize a real own `"__proto__"` DATA property (an
+    // object literal never would); installing it verbatim would round-trip through
+    // `serializeDoc` only to be dropped wholesale by `deserializeState`'s widget screen
+    // on the next load — deferred data loss. Drop the whole widget rather than strip
+    // and keep, matching this predicate's other required-field checks below.
+    !hasUnsafeOwnKeys(widget) &&
     typeof widget.id === 'string' &&
     isSafePatchKey(widget.id) &&
     typeof widget.kind === 'string' &&
@@ -1311,6 +1321,20 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       const { widget } = args;
       // Crash prevention: the `widget.id` read below throws on an absent/non-record widget.
       if (!isPlainRecord(widget)) {
+        return state;
+      }
+      // Screen the widget object's OWN top-level keys against the prototype-hazard
+      // denylist, symmetric with `isInsertableAddedWidget` (the same test
+      // `applyBulkUpdate.addedWidgets` applies) and with the wire/load boundaries'
+      // `hasUnsafeOwnKeys(widget)` rejections (`validateWidget`, `screenWidgets` — Finding
+      // T2-1). A `JSON.parse`-built widget from a server-built mutation that bypasses
+      // `parseStateMutation` can materialize a real own `"__proto__"` DATA property; the
+      // literal inserts below use define-semantics so there is no IMMEDIATE pollution
+      // risk, but installing such a widget verbatim would round-trip through
+      // `serializeDoc` only to be dropped wholesale by `deserializeState`'s widget screen
+      // on the next load — deferred data loss, not a crash. Drop the whole widget rather
+      // than strip and keep, matching the missing-required-field checks below.
+      if (hasUnsafeOwnKeys(widget)) {
         return state;
       }
       // Require a STRING id. `isSafePatchKey` alone accepts any non-string (it only denies

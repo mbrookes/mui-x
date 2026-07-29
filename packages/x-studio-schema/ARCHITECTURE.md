@@ -469,7 +469,9 @@ module so no boundary can drift into an independently-maintained literal list. T
    exactly this. It round-trips through `serializeDoc` and then poisons a later
    `Object.assign`/spread. `hasUnsafeOwnKeys` screens for it symmetrically at every
    boundary, on the widget object, the filter object, the nested `filter.scope`, the page
-   object, and every config channel.
+   object, and every config channel — including, on the REDUCER boundary, `addWidget`'s
+   handler and `applyBulkUpdate`'s `addedWidgets` admission (`isInsertableAddedWidget`),
+   which screen the widget object's own keys in addition to its `config`'s.
 
 Note the asymmetry in the response: `dashboard` and the `ai` container have their unsafe own
 keys **stripped** (keeping the rest); a widget, page, filter, relationship, expression field,
@@ -985,8 +987,18 @@ above; only what is specific to each is listed here.
   server-chosen `pageId` (falling back to the active page for legacy payloads) lands the widget on
   the page the model was told about, even if the client has since navigated elsewhere.
 
-  Both widget ADD channels (this and `applyBulkUpdate`'s `addedWidgets`) run the same screening
-  pipeline, in order: `coerceWidgetConfig` (a non-record `config` → `{}`),
+  Both widget ADD channels (this and `applyBulkUpdate`'s `addedWidgets`, the latter through the
+  shared `isInsertableAddedWidget` predicate) first screen the widget object's OWN top-level keys
+  against the prototype-hazard denylist via `hasUnsafeOwnKeys`, dropping the whole widget on a hit
+  — symmetric with the wire boundary's `validateWidget` and the load boundary's `screenWidgets`
+  (Finding T2-1). A `JSON.parse`-built widget from a server-built mutation that bypasses
+  `parseStateMutation` (the `executeToolOnState` path) can materialize a real own `"__proto__"`
+  DATA property that an object literal never would; installing it verbatim would otherwise
+  round-trip through `serializeDoc` only to be dropped wholesale by `deserializeState`'s widget
+  screen on the very next load — deferred data loss, not an immediate crash.
+
+  Both channels then run the same screening pipeline, in order: `coerceWidgetConfig` (a
+  non-record `config` → `{}`, plus a strip of the CONFIG's own unsafe keys),
   `screenOptionalWidgetScalars`, then `normalizeConfigChartSeries`. A non-string `kind`/`title`
   skips the entry whole; a non-string `subtitle`/`sourceId` or a non-`'auto'|'manual'`
   `titleMode`/`subtitleMode` has just its key stripped. That matches the load boundary's screens

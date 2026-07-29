@@ -265,7 +265,7 @@
 - Renders the official `@mui/x-charts-premium` Map (`GeoDataPlot`/`MapShapePlot`) — BL-182 replaced the custom `ChoroplethChart` with the upstream component
 - Pluggable geographies via `geographyLoaders` (`world` Natural Earth 110m, US states, Europe, or custom TopoJSON); topology lazy-loaded by dynamic `import`
 - 5 color ramps rendered via `ContinuousColorLegend`; tooltip on hover; alpha-2/alpha-3/name normalisation via `countryUtils`
-- Known limitation: cross-filter-on-click is unwired (unstable `MapShapePlot` forwards no per-shape click — BL-184)
+- Cross-filter-on-click is wired via `StudioMapShapePlot` (a thin wrapper forwarding per-shape clicks that the official `MapShapePlot` doesn't expose) — resolved by BL-184; toggle lives in `MapSetupPanel`
 
 ### W-09 · Gantt / timeline chart
 

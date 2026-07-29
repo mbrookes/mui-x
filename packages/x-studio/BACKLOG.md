@@ -42,6 +42,8 @@
 
 **Fixed** (`KpiSparkline.tsx`): Removed `Math.min(..., 100)` cap on `percentValue` so values exceeding the target display as, for example, 125%. Renamed `kpiSetupGaugeMaxLabel` to `'Target'` (and locale equivalents in de/es/fr/ptBR).
 
+**Superseded**: a later architecture-review finding (KpiSparkline.tsx) re-added the clamp for a documented reason — see that file's comment. This entry's 'Fixed' description no longer reflects shipped behavior.
+
 ✅ BL-214: The widget drag ghost image shows a cropped version of the widget toolbar. Hide the toolbar when dragging starts.
 
 **Fixed** (`createClonePreview.ts`): After cloning the source node, hide all `[data-widget-overlay]` elements in the clone so the toolbar is absent from the drag ghost image.

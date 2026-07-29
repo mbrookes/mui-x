@@ -10,10 +10,11 @@
 import type { StudioChartType, StudioWidgetKind } from '../models/baseTypes';
 import type { StudioWidgetConfig } from '../models/widgetTypes';
 import { lookup } from '../utils/safeLookup';
+import type { AggregateFn } from './aggregate';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
-export type AggFn = 'sum' | 'avg' | 'count' | 'count_non_null' | 'min' | 'max' | 'count_distinct';
+export type AggFn = AggregateFn;
 export type AggSpec = { field: string; fn: AggFn; alias: string };
 
 /**

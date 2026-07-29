@@ -86,6 +86,12 @@ import {
   MAX_STRING_VALUE_LENGTH,
 } from './shared/limits';
 import {
+  assertBoundedObjectField,
+  assertIdAndTableLength,
+  checkPredicateValueBounds,
+  type DescriptorRef,
+} from './shared/requestShapeGuards';
+import {
   isCacheEntryShape,
   type CacheEntry,
   type CacheProvider,
@@ -162,72 +168,23 @@ async function mapWithConcurrency<T, R>(
 }
 
 /**
- * Enforce both value-size bounds on ONE filter-predicate array: the per-predicate
- * `in`-list length cap, and the per-STRING length cap on each comparison value.
- * Every counted value is added to the caller's shared `valueCount` accumulator so
- * the summed `MAX_PREDICATE_VALUES_PER_DESCRIPTOR` cap spans every filter array in
- * one widget, not just one of them.
- *
- * Extracted from `assertValidBatchQueryRequest`'s inline `filters` block so a
- * `semiJoins[].filters` array — a predicate list with the identical shape, cost
- * and cache-key exposure, just one nesting level down — is bounded by the SAME
- * implementation rather than a second copy that could drift. `filters[].value` is
- * NOT shape-validated here (that happens later, per widget, in
- * `shared/predicates.ts`); only a PRESENT array value is length-capped, regardless
- * of operator, so a pathological `in`-list cannot reach query building at all.
- *
- * @param filters - The candidate predicate array (ignored when not an array —
- *   the array-shape rejection is the caller's, with its own message).
- * @param index - The widget's index in the batch, for the error message.
- * @param path - Where this array lives on the descriptor, e.g. `filters` or
- *   `semiJoins[0].semiJoins[1].filters`.
- * @param valueCount - Shared, mutable running total of comparison values.
+ * Widget-specific wording for the shared `checkPredicateValueBounds` (finding
+ * Tier2 — this algorithm used to be reimplemented, inline and byte-identical
+ * apart from these two details, by the write path's `assertValidBatchMutationRequest`).
+ * A widget's `filters`/`semiJoins[].filters` values ARE folded into the query
+ * cache key and feed both query building and execution — unlike a mutation's
+ * `where` values, which are validated here before a builder ever runs and are
+ * never cache-keyed at all (mutation results are invalidated by table tag).
  */
-function checkFilterValueBounds(
-  filters: unknown,
-  index: number,
-  path: string,
-  valueCount: { total: number },
-): void {
-  if (!Array.isArray(filters)) {
-    return;
-  }
-  filters.forEach((predicate, predicateIndex) => {
-    const predicateValue = (predicate as { value?: unknown } | null)?.value;
-    // Count real comparison values: every element of an `in`/`between` list, or
-    // one for a present scalar. An absent `value` contributes nothing.
-    if (Array.isArray(predicateValue)) {
-      valueCount.total += predicateValue.length;
-    } else if (predicateValue !== undefined) {
-      valueCount.total += 1;
-    }
-    if (Array.isArray(predicateValue) && predicateValue.length > MAX_ARRAY_ITEMS_PER_DESCRIPTOR) {
-      throw new Error(
-        `MUI X Studio Server: Malformed widget descriptor at widgets[${index}] — "${path}[${predicateIndex}].value" ` +
-          `contains ${predicateValue.length} entries, which exceeds the maximum of ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR} ` +
-          `allowed per predicate. An unbounded "in" value list is unbounded query-building and execution work ` +
-          `driven entirely by client input. Reduce the number of entries to at most ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR}.`,
-      );
-    }
-    // Length cap on a scalar/"in"-element STRING value (Tier2 finding — resource
-    // exhaustion). A single scalar (or "in"-list element) string is folded into
-    // the query cache-key hash (`computeQueryHash`) and, uncached, reaches the
-    // database as a bound parameter. Uses the larger `MAX_STRING_VALUE_LENGTH`
-    // bound (not `MAX_STRING_LENGTH`): a filter value is business data, not an
-    // identifier, and may legitimately need more headroom.
-    const stringValues = Array.isArray(predicateValue) ? predicateValue : [predicateValue];
-    stringValues.forEach((v) => {
-      if (typeof v === 'string' && v.length > MAX_STRING_VALUE_LENGTH) {
-        throw new Error(
-          `MUI X Studio Server: Malformed widget descriptor at widgets[${index}] — "${path}[${predicateIndex}].value" ` +
-            `contains a string ${v.length} characters long, which exceeds the maximum of ${MAX_STRING_VALUE_LENGTH} ` +
-            `allowed. An unbounded value string is expensive to hash (it is folded into the query cache key) and, ` +
-            `once queried, expensive for the database to scan/index as a bound parameter. Shorten the value to at ` +
-            `most ${MAX_STRING_VALUE_LENGTH} characters.`,
-        );
-      }
-    });
-  });
+const FILTER_VALUE_BOUNDS_OPTIONS = {
+  arrayLengthCostPhrase: 'query-building and execution work',
+  maxStringValueLength: MAX_STRING_VALUE_LENGTH,
+  valueEntersCacheKeyHash: true,
+} as const;
+
+/** Build the `DescriptorRef` a widget-descriptor error is reported against. */
+function widgetRef(index: number): DescriptorRef {
+  return { noun: 'widget', location: `widgets[${index}]` };
 }
 
 /**
@@ -256,7 +213,7 @@ function checkFilterValueBounds(
  * @param index - The widget's index in the batch, for the error message.
  * @param path - Where this array lives on the descriptor, for the error message.
  * @param valueCount - Shared, mutable running total of comparison values (see
- *   `checkFilterValueBounds`).
+ *   `checkPredicateValueBounds` in `shared/requestShapeGuards.ts`).
  * @param entryCount - Shared, mutable running total of semi-join entries.
  */
 function checkSemiJoinBounds(
@@ -293,11 +250,12 @@ function checkSemiJoinBounds(
       return;
     }
     const entryPath = `${path}[${semiJoinIndex}]`;
-    checkFilterValueBounds(
+    checkPredicateValueBounds(
       (semiJoin as { filters?: unknown }).filters,
-      index,
+      widgetRef(index),
       `${entryPath}.filters`,
       valueCount,
+      FILTER_VALUE_BOUNDS_OPTIONS,
     );
     checkSemiJoinBounds(
       (semiJoin as { semiJoins?: unknown }).semiJoins,
@@ -371,19 +329,14 @@ function assertValidBatchQueryRequest(body: BatchQueryRequest): void {
     // (`security/cacheKey.ts`) on every request and re-checked against the
     // schema allowlist per widget; an oversized "id" is echoed back into every
     // result and excluded from, but still present alongside, the same hash input.
-    for (const [field, value] of [
-      ['id', widget.id],
-      ['table', widget.table],
-    ] as const) {
-      if (value.length > MAX_STRING_LENGTH) {
-        throw new Error(
-          `MUI X Studio Server: Malformed widget descriptor at widgets[${index}] — "${field}" is ${value.length} ` +
-            `characters long, which exceeds the maximum of ${MAX_STRING_LENGTH} allowed. ` +
-            `An unbounded "${field}" string is expensive to hash and serialize repeatedly across a batch. ` +
-            `Shorten "${field}" to at most ${MAX_STRING_LENGTH} characters.`,
-        );
-      }
-    }
+    assertIdAndTableLength(
+      widgetRef(index),
+      [
+        ['id', widget.id],
+        ['table', widget.table],
+      ],
+      'hash',
+    );
     // Array-shape guard for the descriptor's collection fields. These are typed
     // as arrays, but the wire value is client JSON — a non-array (e.g.
     // `filters: {}`) would reach a `for...of` deeper in and throw a raw
@@ -432,11 +385,12 @@ function assertValidBatchQueryRequest(body: BatchQueryRequest): void {
     // like a top-level one, so a per-array-only bound would let a descriptor
     // smuggle the whole budget again inside each semi-join.
     const predicateValueCount = { total: 0 };
-    checkFilterValueBounds(
+    checkPredicateValueBounds(
       (widget as Partial<BatchWidgetDescriptor>).filters,
-      index,
+      widgetRef(index),
       'filters',
       predicateValueCount,
+      FILTER_VALUE_BOUNDS_OPTIONS,
     );
     checkSemiJoinBounds(
       (widget as Partial<BatchWidgetDescriptor>).semiJoins,
@@ -521,57 +475,36 @@ function assertValidBatchQueryRequest(body: BatchQueryRequest): void {
     // unbounded work" reasons as every other field here. Only a PRESENT value is
     // checked — the field is optional.
     const columnAliases = (widget as Partial<BatchWidgetDescriptor>).columnAliases;
-    if (columnAliases !== undefined) {
-      if (
-        typeof columnAliases !== 'object' ||
-        columnAliases === null ||
-        Array.isArray(columnAliases) ||
-        Object.values(columnAliases).some((value) => typeof value !== 'string')
-      ) {
-        throw new Error(
-          `MUI X Studio Server: Malformed widget descriptor at widgets[${index}] — "columnAliases" must be a plain ` +
-            `object mapping logical field ids to string column references, but received ` +
-            `${JSON.stringify(columnAliases)}. A non-object value (or one with non-string values) cannot be safely ` +
-            `resolved into column references and would otherwise throw a confusing internal error instead of a ` +
-            `clean validation failure. Ensure "columnAliases" is a { [logicalId: string]: string } object (or omit it).`,
-        );
-      }
-      const columnAliasesKeyCount = Object.keys(columnAliases).length;
-      if (columnAliasesKeyCount > MAX_ARRAY_ITEMS_PER_DESCRIPTOR) {
-        throw new Error(
-          `MUI X Studio Server: Malformed widget descriptor at widgets[${index}] — "columnAliases" contains ` +
-            `${columnAliasesKeyCount} keys, which exceeds the maximum of ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR} allowed ` +
-            `per widget. An unbounded number of column aliases is unbounded alias-resolution work (and an unbounded ` +
-            `cache-key hash input) driven entirely by client input. Reduce the number of keys in "columnAliases" to ` +
-            `at most ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR}.`,
-        );
-      }
-      // Length cap on each key/value STRING (Tier2 finding — resource
-      // exhaustion). The key-COUNT cap above bounds how many entries
-      // "columnAliases" may hold, but not how long any one key (the logical
-      // field id) or value (the physical column reference) may be — both are
-      // hashed unbounded in `computeQueryHash` (`security/cacheKey.ts`) and the
-      // value is additionally re-validated as a column reference downstream.
-      for (const [key, value] of Object.entries(columnAliases)) {
-        if (key.length > MAX_STRING_LENGTH) {
-          throw new Error(
-            `MUI X Studio Server: Malformed widget descriptor at widgets[${index}] — a "columnAliases" key is ` +
-              `${key.length} characters long, which exceeds the maximum of ${MAX_STRING_LENGTH} allowed for an ` +
-              `identifier. An unbounded key is expensive to hash (it is folded into the query cache key) and to ` +
-              `resolve repeatedly across a batch. Shorten the "columnAliases" key to at most ${MAX_STRING_LENGTH} characters.`,
-          );
-        }
-        if (value.length > MAX_STRING_LENGTH) {
-          throw new Error(
-            `MUI X Studio Server: Malformed widget descriptor at widgets[${index}] — "columnAliases" value for key ` +
-              `"${key.slice(0, 80)}…" is ${value.length} characters long, which exceeds the maximum of ` +
-              `${MAX_STRING_LENGTH} allowed for an identifier. An unbounded value is expensive to hash (it is folded ` +
-              `into the query cache key) and to resolve repeatedly across a batch. Shorten the "columnAliases" value ` +
-              `to at most ${MAX_STRING_LENGTH} characters.`,
-          );
-        }
-      }
-    }
+    // Length cap on each key/value STRING (Tier2 finding — resource
+    // exhaustion). The key-COUNT cap bounds how many entries "columnAliases"
+    // may hold, but not how long any one key (the logical field id) or value
+    // (the physical column reference) may be — both are hashed unbounded in
+    // `computeQueryHash` (`security/cacheKey.ts`) and the value is
+    // additionally re-validated as a column reference downstream.
+    assertBoundedObjectField(columnAliases, {
+      fieldName: 'columnAliases',
+      ref: widgetRef(index),
+      perDescriptorNoun: 'widget',
+      requireStringValues: true,
+      shapeDescription: 'object mapping logical field ids to string column references',
+      invalidShapeConsequence:
+        'A non-object value (or one with non-string values) cannot be safely resolved into column ' +
+        'references and would otherwise throw a confusing internal error instead of a clean validation failure.',
+      shapeCorrectiveInstruction:
+        'Ensure "columnAliases" is a { [logicalId: string]: string } object (or omit it).',
+      keyCountConsequence:
+        'An unbounded number of column aliases is unbounded alias-resolution work (and an unbounded ' +
+        'cache-key hash input) driven entirely by client input.',
+      keyLengthConsequence:
+        'An unbounded key is expensive to hash (it is folded into the query cache key) and to resolve ' +
+        'repeatedly across a batch.',
+      valueLengthLimit: MAX_STRING_LENGTH,
+      valueLengthIsIdentifierBound: true,
+      valueLengthConsequence:
+        'An unbounded value is expensive to hash (it is folded into the query cache key) and to resolve ' +
+        'repeatedly across a batch.',
+      valueShortenMentionsKey: false,
+    });
   });
 }
 

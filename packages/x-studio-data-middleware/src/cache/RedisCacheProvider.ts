@@ -87,7 +87,7 @@
  */
 
 import { isCacheEntryShape, type CacheProvider, type CacheEntry, type CacheSetOpts } from './types';
-import { DEL_BATCH_SIZE, delKeys, scanKeyPages, setEx } from './redisCompat';
+import { DEL_BATCH_SIZE, delKeys, readShapedEntry, scanKeyPages, setEx } from './redisCompat';
 
 /**
  * Escape Redis glob metacharacters so a literal key prefix matches only itself in
@@ -208,24 +208,15 @@ export class RedisCacheProvider implements CacheProvider {
   }
 
   async get(key: string): Promise<CacheEntry | undefined> {
-    const raw = await this.redis.get(this.prefix + key);
-    if (!raw) {
-      return undefined;
-    }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      return undefined;
-    }
-    // Validate the SHAPE, not just the JSON-ness (see `isCacheEntryShape`): a
-    // foreign value stored under a colliding key parses fine and would
-    // otherwise be served as a result set.
-    if (!isCacheEntryShape(parsed)) {
-      this.warnMalformedEntry(key);
-      return undefined;
-    }
-    return parsed;
+    // Shared parse+shape-check+warn-once sequence with
+    // `RedisTierCacheProvider.get` (`readShapedEntry`, in `./redisCompat`);
+    // this provider supplies its own shape guard (`isCacheEntryShape` — a
+    // foreign value stored under a colliding key parses fine as JSON and
+    // would otherwise be served as a result set) and its own warn-once
+    // wording/state (`warnMalformedEntry`).
+    return readShapedEntry(this.redis, this.prefix, key, isCacheEntryShape, (k) =>
+      this.warnMalformedEntry(k),
+    );
   }
 
   async set(key: string, value: CacheEntry, opts?: CacheSetOpts): Promise<void> {

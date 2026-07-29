@@ -71,9 +71,14 @@ import {
   MAX_ARRAY_ITEMS_PER_DESCRIPTOR,
   MAX_ITEMS_PER_BATCH,
   MAX_PREDICATE_VALUES_PER_DESCRIPTOR,
-  MAX_STRING_LENGTH,
   MAX_STRING_VALUE_LENGTH,
 } from '../shared/limits';
+import {
+  assertBoundedObjectField,
+  assertIdAndTableLength,
+  checkPredicateValueBounds,
+  type DescriptorRef,
+} from '../shared/requestShapeGuards';
 import {
   compileSecurityPolicy,
   type CompiledSecurityPolicy,
@@ -92,6 +97,25 @@ import { getDefaultCache } from '../cache/defaultProviders';
  * `assertValidBatchMutationRequest`) rather than silently truncated.
  */
 export const MAX_MUTATIONS_PER_BATCH = MAX_ITEMS_PER_BATCH;
+
+/**
+ * Mutation-specific wording for the shared `checkPredicateValueBounds`
+ * (`shared/requestShapeGuards.ts`) — a mutation's `where` values are never
+ * folded into a cache key (mutation results are invalidated by TABLE TAG, not
+ * by key) and are validated here BEFORE any builder runs, so their cost is
+ * query-building only, unlike the read path's cache-keyed, also-executed
+ * `filters`.
+ */
+const WHERE_VALUE_BOUNDS_OPTIONS = {
+  arrayLengthCostPhrase: 'query-building work',
+  maxStringValueLength: MAX_STRING_VALUE_LENGTH,
+  valueEntersCacheKeyHash: false,
+} as const;
+
+/** Build the `DescriptorRef` a mutation-descriptor error is reported against. */
+function mutationRef(index: number): DescriptorRef {
+  return { noun: 'mutation', location: `mutations[${index}]` };
+}
 
 /**
  * Opt-in transactional semantics for a mutation batch (finding M3).
@@ -214,19 +238,14 @@ function assertValidBatchMutationRequest(body: BatchMutationRequest): void {
     // Length cap on "id"/"table" (Tier2 finding — resource exhaustion). Both are
     // confirmed strings above, but neither had a bound on how long that string
     // could be, mirroring the read path's identical cap in `handler.ts`.
-    for (const [field, value] of [
-      ['id', mutation.id],
-      ['table', mutation.table],
-    ] as const) {
-      if (value.length > MAX_STRING_LENGTH) {
-        throw new Error(
-          `MUI X Studio Server: Malformed mutation descriptor at mutations[${index}] — "${field}" is ${value.length} ` +
-            `characters long, which exceeds the maximum of ${MAX_STRING_LENGTH} allowed. ` +
-            `An unbounded "${field}" string is expensive to validate and serialize repeatedly across a batch. ` +
-            `Shorten "${field}" to at most ${MAX_STRING_LENGTH} characters.`,
-        );
-      }
-    }
+    assertIdAndTableLength(
+      mutationRef(index),
+      [
+        ['id', mutation.id],
+        ['table', mutation.table],
+      ],
+      'validate',
+    );
     // A "where" field that is present but not an array (Tier3 iter26 finding 1)
     // — e.g. `where: {}` — passes the checks above (which only look at "id"/
     // "table") and previously reached the upfront
@@ -274,14 +293,12 @@ function assertValidBatchMutationRequest(body: BatchMutationRequest): void {
             `Reduce the number of entries in "where" to at most ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR}.`,
         );
       }
-      // Aggregate cap on the TOTAL comparison values across every predicate in
-      // this mutation — the per-predicate cap below bounds each `in`-list
-      // independently, but not its PRODUCT with the `where` array's own length
-      // cap. 200 predicates × 200 values each passes both individual caps yet
-      // still means 40,000 bound parameters for ONE mutation (and 2,000,000 for a
-      // `MAX_MUTATIONS_PER_BATCH`-sized batch). Mirrors the read path's identical
-      // `totalPredicateValues` accumulator on `filters[].value` in `handler.ts`.
-      let totalPredicateValues = 0;
+      // Element shape guard, kept HERE (not folded into the shared bounds
+      // check) because it is specific to the write path: `where`'s elements
+      // must be predicate objects before anything else runs against them, a
+      // rule `checkPredicateValueBounds` deliberately leaves to each caller
+      // (the read path's equivalent guard, `assertPredicateElementShape`, runs
+      // separately too — see `shared/assertTablesAllowed.ts`).
       where.forEach((predicate, predicateIndex) => {
         if (typeof predicate !== 'object' || predicate === null) {
           throw new Error(
@@ -292,50 +309,28 @@ function assertValidBatchMutationRequest(body: BatchMutationRequest): void {
               `Ensure every entry in "where" is a { column, operator, value } predicate.`,
           );
         }
-        // Size cap for an `in`-predicate's value list — only a PRESENT array value
-        // is length-capped here, regardless of operator (shape validation for
-        // `value` happens later, per mutation, inside `validateMutation`).
-        const predicateValue = (predicate as { value?: unknown }).value;
-        // Count real comparison values: every element of an `in` list, or one for
-        // a present scalar. An absent `value` contributes nothing.
-        if (Array.isArray(predicateValue)) {
-          totalPredicateValues += predicateValue.length;
-        } else if (predicateValue !== undefined) {
-          totalPredicateValues += 1;
-        }
-        if (
-          Array.isArray(predicateValue) &&
-          predicateValue.length > MAX_ARRAY_ITEMS_PER_DESCRIPTOR
-        ) {
-          throw new Error(
-            `MUI X Studio Server: Malformed mutation descriptor at mutations[${index}] — "where[${predicateIndex}].value" ` +
-              `contains ${predicateValue.length} entries, which exceeds the maximum of ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR} ` +
-              `allowed per predicate. An unbounded "in" value list is unbounded query-building work driven entirely by ` +
-              `client input. Reduce the number of entries to at most ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR}.`,
-          );
-        }
-        // Length cap on a scalar/"in"-element STRING value (Tier2 finding —
-        // resource exhaustion), mirroring the read path's identical cap on
-        // `filters[].value` in `handler.ts`. Uses the larger
-        // `MAX_STRING_VALUE_LENGTH` bound — a where-predicate value is business
-        // data, not an identifier. Only PRESENT string values are checked; full
-        // shape validation still happens later inside `validateMutation`.
-        const whereStringValues = Array.isArray(predicateValue) ? predicateValue : [predicateValue];
-        whereStringValues.forEach((v) => {
-          if (typeof v === 'string' && v.length > MAX_STRING_VALUE_LENGTH) {
-            throw new Error(
-              `MUI X Studio Server: Malformed mutation descriptor at mutations[${index}] — "where[${predicateIndex}].value" ` +
-                `contains a string ${v.length} characters long, which exceeds the maximum of ${MAX_STRING_VALUE_LENGTH} ` +
-                `allowed. An unbounded value string is expensive to hash and, once queried, expensive for the database ` +
-                `to scan/index as a bound parameter. Shorten the value to at most ${MAX_STRING_VALUE_LENGTH} characters.`,
-            );
-          }
-        });
       });
-      if (totalPredicateValues > MAX_PREDICATE_VALUES_PER_DESCRIPTOR) {
+      // Aggregate cap on the TOTAL comparison values across every predicate in
+      // this mutation — the per-predicate cap below bounds each `in`-list
+      // independently, but not its PRODUCT with the `where` array's own length
+      // cap. 200 predicates × 200 values each passes both individual caps yet
+      // still means 40,000 bound parameters for ONE mutation (and 2,000,000 for a
+      // `MAX_MUTATIONS_PER_BATCH`-sized batch). Mirrors the read path's identical
+      // `totalPredicateValues` accumulator on `filters[].value` in `handler.ts`
+      // — both now share `checkPredicateValueBounds`
+      // (`shared/requestShapeGuards.ts`) for the size-cap ALGORITHM itself.
+      const totalPredicateValues = { total: 0 };
+      checkPredicateValueBounds(
+        where,
+        mutationRef(index),
+        'where',
+        totalPredicateValues,
+        WHERE_VALUE_BOUNDS_OPTIONS,
+      );
+      if (totalPredicateValues.total > MAX_PREDICATE_VALUES_PER_DESCRIPTOR) {
         throw new Error(
           `MUI X Studio Server: Malformed mutation descriptor at mutations[${index}] — "where[].value" contains ` +
-            `${totalPredicateValues} comparison values in total across all predicates, which exceeds the maximum of ` +
+            `${totalPredicateValues.total} comparison values in total across all predicates, which exceeds the maximum of ` +
             `${MAX_PREDICATE_VALUES_PER_DESCRIPTOR} allowed per mutation. Each predicate may individually stay under ` +
             `its own per-predicate cap yet still sum to an unbounded number of bound parameters to build and send to ` +
             `the database for a single mutation. Reduce the total number of where-predicate values to at most ` +
@@ -354,67 +349,34 @@ function assertValidBatchMutationRequest(body: BatchMutationRequest): void {
     // (or an opaque downstream DB error) instead of a clean validation failure.
     // Mirrors the "where" array-shape check above exactly, for the object shape.
     const { values } = mutation as Partial<MutationDescriptor>;
-    if (
-      values !== undefined &&
-      (typeof values !== 'object' || values === null || Array.isArray(values))
-    ) {
-      throw new Error(
-        `MUI X Studio Server: Malformed mutation descriptor at mutations[${index}] — "values" must be a plain ` +
-          `object of column-value pairs when present, but received ${JSON.stringify(values)}. ` +
-          `A non-object "values" cannot be safely mapped to column-value pairs, and would otherwise silently ` +
-          `produce a degraded insert/update, or an opaque downstream database error, instead of a clean ` +
-          `validation failure. Set "values" to a { column: value, ... } object, or omit it entirely.`,
-      );
-    }
-    // Size cap on the "values" object's key count (finding Tier3 — resource
-    // exhaustion), mirroring the array-length caps above for the one mutation
-    // field that isn't an array.
-    if (
-      values !== undefined &&
-      typeof values === 'object' &&
-      values !== null &&
-      !Array.isArray(values) &&
-      Object.keys(values).length > MAX_ARRAY_ITEMS_PER_DESCRIPTOR
-    ) {
-      throw new Error(
-        `MUI X Studio Server: Malformed mutation descriptor at mutations[${index}] — "values" contains ` +
-          `${Object.keys(values).length} keys, which exceeds the maximum of ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR} ` +
-          `allowed per mutation. An unbounded object is unbounded query-building work driven entirely by client ` +
-          `input. Reduce the number of keys in "values" to at most ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR}.`,
-      );
-    }
-    // Length cap on each "values" KEY and, separately, each STRING value (Tier2
-    // finding — resource exhaustion). The key-COUNT cap above bounds how many
-    // column-value pairs "values" may hold, but not how long any one key (a
-    // column name — an identifier) or string value (business data being
-    // written) may be. Keys use the smaller `MAX_STRING_LENGTH` identifier
-    // bound; string values use the larger `MAX_STRING_VALUE_LENGTH` bound,
-    // mirroring the identifier-vs-value distinction used throughout this fix.
-    if (
-      values !== undefined &&
-      typeof values === 'object' &&
-      values !== null &&
-      !Array.isArray(values)
-    ) {
-      for (const [key, value] of Object.entries(values)) {
-        if (key.length > MAX_STRING_LENGTH) {
-          throw new Error(
-            `MUI X Studio Server: Malformed mutation descriptor at mutations[${index}] — a "values" key is ` +
-              `${key.length} characters long, which exceeds the maximum of ${MAX_STRING_LENGTH} allowed for an ` +
-              `identifier. An unbounded key is expensive to validate repeatedly across a batch. Shorten the ` +
-              `"values" key to at most ${MAX_STRING_LENGTH} characters.`,
-          );
-        }
-        if (typeof value === 'string' && value.length > MAX_STRING_VALUE_LENGTH) {
-          throw new Error(
-            `MUI X Studio Server: Malformed mutation descriptor at mutations[${index}] — "values" value for key ` +
-              `"${key.slice(0, 80)}…" is ${value.length} characters long, which exceeds the maximum of ` +
-              `${MAX_STRING_VALUE_LENGTH} allowed. An unbounded value string is expensive for the database to store ` +
-              `and index. Shorten the "values" value for "${key}" to at most ${MAX_STRING_VALUE_LENGTH} characters.`,
-          );
-        }
-      }
-    }
+    // Shape guard + key-count cap + per-entry length caps for "values", sharing
+    // the same algorithm as the read path's "columnAliases" via
+    // `assertBoundedObjectField` (`shared/requestShapeGuards.ts`). Unlike
+    // `columnAliases`, a "values" entry is arbitrary DATA being written, not an
+    // identifier: values are not required to be strings, and a string value is
+    // capped at the larger `MAX_STRING_VALUE_LENGTH` (business-data) bound
+    // rather than the identifier bound.
+    assertBoundedObjectField(values, {
+      fieldName: 'values',
+      ref: mutationRef(index),
+      perDescriptorNoun: 'mutation',
+      requireStringValues: false,
+      shapeDescription: 'object of column-value pairs when present',
+      invalidShapeConsequence:
+        'A non-object "values" cannot be safely mapped to column-value pairs, and would otherwise ' +
+        'silently produce a degraded insert/update, or an opaque downstream database error, instead of a ' +
+        'clean validation failure.',
+      shapeCorrectiveInstruction:
+        'Set "values" to a { column: value, ... } object, or omit it entirely.',
+      keyCountConsequence:
+        'An unbounded object is unbounded query-building work driven entirely by client input.',
+      keyLengthConsequence: 'An unbounded key is expensive to validate repeatedly across a batch.',
+      valueLengthLimit: MAX_STRING_VALUE_LENGTH,
+      valueLengthIsIdentifierBound: false,
+      valueLengthConsequence:
+        'An unbounded value string is expensive for the database to store and index.',
+      valueShortenMentionsKey: true,
+    });
   });
 }
 

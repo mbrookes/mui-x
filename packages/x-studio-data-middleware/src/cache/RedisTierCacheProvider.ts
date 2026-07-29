@@ -83,7 +83,7 @@
  */
 
 import { detectClientStyle, escapeRedisGlob, type RedisClient } from './RedisCacheProvider';
-import { delKeys, scanKeyPages, setEx } from './redisCompat';
+import { delKeys, readShapedEntry, scanKeyPages, setEx } from './redisCompat';
 import { isTierEntryShape, type TierCacheProvider, type TierEntry } from './types';
 
 export interface RedisTierCacheProviderOptions {
@@ -132,22 +132,13 @@ export class RedisTierCacheProvider implements TierCacheProvider {
   }
 
   async get(key: string): Promise<TierEntry | undefined> {
-    const raw = await this.redis.get(this.prefix + key);
-    if (!raw) {
-      return undefined;
-    }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      return undefined;
-    }
-    // Validate the SHAPE, not just the JSON-ness (see `isTierEntryShape`).
-    if (!isTierEntryShape(parsed)) {
-      this.warnMalformedEntry(key);
-      return undefined;
-    }
-    return parsed;
+    // Shared parse+shape-check+warn-once sequence with
+    // `RedisCacheProvider.get` (`readShapedEntry`, in `./redisCompat`); this
+    // provider supplies its own shape guard (`isTierEntryShape`) and its own
+    // warn-once wording/state (`warnMalformedEntry`).
+    return readShapedEntry(this.redis, this.prefix, key, isTierEntryShape, (k) =>
+      this.warnMalformedEntry(k),
+    );
   }
 
   async set(key: string, value: TierEntry, ttlMs?: number): Promise<void> {

@@ -17,6 +17,15 @@
  * their own byte-identical copies of both normalizations (finding 2.1). This
  * module is the single shared implementation; a future client-quirk fix only
  * needs to land here.
+ *
+ * The two providers' `get()` methods went through the same consolidation
+ * (Tier2 finding): fetch the raw string, treat a falsy reply as a miss,
+ * `JSON.parse` it (treating a parse failure as a miss too), shape-guard the
+ * parsed value, and warn once when the shape guard rejects it. `readShapedEntry`
+ * below is that shared SEQUENCE; each provider still supplies its own shape
+ * guard (`isCacheEntryShape` / `isTierEntryShape`) and its own warn-once
+ * callback, since the warning's wording and per-instance "have I already
+ * warned" state are provider-specific, not part of the shared algorithm.
  */
 
 import type { RedisClient } from './RedisCacheProvider';
@@ -132,4 +141,56 @@ export async function* scanKeyPages(
       yield page;
     }
   } while (cursor !== '0');
+}
+
+/**
+ * Read one Redis key and decode it into a shape-checked `T`, or `undefined` on
+ * any of: a missing/empty reply, a JSON parse failure, or a value that parses
+ * but fails `guard` — the shared parse+shape-check+dispatch sequence
+ * `RedisCacheProvider.get` and `RedisTierCacheProvider.get` used to each
+ * reimplement (Tier2 finding).
+ *
+ * A structurally invalid stored value (a keyspace collision with another
+ * writer, a partially-written entry, …) is deliberately treated the SAME as a
+ * cache miss rather than surfaced as an error — both callers degrade to
+ * re-fetching from the source of truth (the database) on a miss, which is
+ * exactly the right behavior for a value this provider cannot trust.
+ * `warnOnce` is called so the condition is still observable, but only once per
+ * caller-defined scope (each provider tracks that per its own instance).
+ *
+ * @param redis - The Redis client to read from.
+ * @param prefix - The provider's configured key prefix, prepended to `key`
+ *   before the read (mirrors both providers' own `this.prefix + key`).
+ * @param key - The UNPREFIXED cache key, also passed to `warnOnce` unprefixed
+ *   so each provider's own warning can format it (with its own prefix) however
+ *   it already does.
+ * @param guard - The provider's own shape predicate (`isCacheEntryShape` /
+ *   `isTierEntryShape`), deciding whether the parsed value is a `T`.
+ * @param warnOnce - The provider's own once-per-instance warning callback,
+ *   invoked with `key` when `guard` rejects a parsed value. Never called for a
+ *   missing reply or a JSON parse failure — only a value that WAS valid JSON
+ *   but the wrong shape is worth flagging as a likely keyspace collision.
+ */
+export async function readShapedEntry<T>(
+  redis: RedisClient,
+  prefix: string,
+  key: string,
+  guard: (value: unknown) => value is T,
+  warnOnce: (key: string) => void,
+): Promise<T | undefined> {
+  const raw = await redis.get(prefix + key);
+  if (!raw) {
+    return undefined;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (!guard(parsed)) {
+    warnOnce(key);
+    return undefined;
+  }
+  return parsed;
 }

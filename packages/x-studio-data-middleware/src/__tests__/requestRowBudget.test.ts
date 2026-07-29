@@ -54,6 +54,13 @@ function createRowSourceDb(totalRows: number, source = 'A') {
   const rows = Array.from({ length: totalRows }, (_, i) => ({ id: i, source }));
   /** The LIMIT each executed DATA query received (preflight COUNT(*) applies none). */
   const appliedLimits: number[] = [];
+  /**
+   * How many COUNT(*) PREFLIGHT round-trips were issued. Tracked separately from
+   * `appliedLimits` because the row budget's own docblock promises a starved
+   * widget fails "WITHOUT issuing a query at all" — a promise that data-query
+   * LIMITs alone cannot observe, since the preflight is the OTHER round-trip.
+   */
+  const preflights = { count: 0 };
 
   const db: any = () => {
     let limitValue: number | undefined;
@@ -68,6 +75,7 @@ function createRowSourceDb(totalRows: number, source = 'A') {
         return qb;
       },
       async first() {
+        preflights.count += 1;
         return { [countAlias ?? 'count']: totalRows };
       },
       then(resolve: (value: unknown) => void) {
@@ -98,7 +106,7 @@ function createRowSourceDb(totalRows: number, source = 'A') {
     return qb;
   };
   db.raw = () => ({});
-  return { db, appliedLimits };
+  return { db, appliedLimits, preflights };
 }
 
 /**
@@ -332,6 +340,44 @@ describe('handleBatchQuery — the row budget bounds the whole response (finding
     expect(small.error).toBeUndefined();
     expect(small.rows).toHaveLength(10);
     expect(totalRows(result.results)).toBeLessThanOrEqual(MAX_ROWS_PER_REQUEST);
+  });
+
+  it('issues NO query at all — not even the COUNT(*) preflight — once the budget is spent', async () => {
+    // `executeForTier` documents and enforces that a widget starved by earlier
+    // widgets in the same batch fails "WITHOUT issuing a query at all", because
+    // "emitting LIMIT 0 would cost a database round-trip per remaining widget,
+    // which is exactly the fan-out this budget exists to contain". On the request
+    // path that promise did not hold: `runWidgetPipeline` ran the tier decision —
+    // and therefore `runPreflight` — BEFORE `executeForTier` was ever called, so
+    // a starved widget still issued a full COUNT(*) built through
+    // `buildSecureQuery` with every join, semi-join subquery and filter, and with
+    // no LIMIT: typically the MORE expensive of the two round-trips the budget
+    // suppresses. The cache-HIT path was already guarded (it charges before
+    // returning), which is what made the miss path look like an oversight.
+    const { db, preflights } = createRowSourceDb(MAX_ROWS_PER_REQUEST + 20_000);
+    const { provider } = createRecordingCache();
+
+    // 12 distinct (so individually cache-missing) unbounded widgets against a
+    // table larger than the whole request budget. The first
+    // MAX_CONCURRENT_WIDGET_QUERIES (6) start before anything has been charged,
+    // so their preflights are legitimate; whichever of them completes FIRST
+    // charges MAX_ROWS_PER_REQUEST and leaves `remaining` at 0. Every widget the
+    // worker pool pulls after that — widgets 6..11 — is starved before it starts.
+    const result = await handleBatchQuery(
+      { pageId: 'p1', widgets: distinctWidgets(12) },
+      CLAIMS,
+      baseOptions(db, provider),
+    );
+
+    expect(preflights.count).toBe(6);
+    // …and the bound is still enforced: the starved widgets fail rather than
+    // returning a truncated result.
+    expect(totalRows(result.results)).toBeLessThanOrEqual(MAX_ROWS_PER_REQUEST);
+    const starved = result.results.slice(6);
+    expect(starved).toHaveLength(6);
+    for (const widget of starved) {
+      expect(widget.error).toMatch(/shared row budget is exhausted/);
+    }
   });
 });
 

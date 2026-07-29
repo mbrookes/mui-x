@@ -199,6 +199,24 @@ describe('LRUCacheProvider', () => {
       expect(await cache.get('k1')).toBeDefined();
     });
 
+    it('records an invalidation epoch even when the tag matched nothing to evict', async () => {
+      // `deleteByTag` can only evict keys that ALREADY exist, so a read in flight
+      // across a mutation would otherwise store pre-mutation rows under a key the
+      // eviction never saw. The epoch — stamped even for a tag with no members,
+      // which is exactly the racing case — is what lets the writer notice.
+      const cache = new LRUCacheProvider();
+      const readStartedAt = Date.now();
+      await cache.deleteByTag('sales');
+
+      expect(await cache.wereTagsInvalidatedSince(['sales'], readStartedAt)).toBe(true);
+      // A read that started AFTER the invalidation already saw the write, and a
+      // tag never invalidated has no epoch at all.
+      expect(await cache.wereTagsInvalidatedSince(['sales'], Date.now() + 1)).toBe(false);
+      expect(await cache.wereTagsInvalidatedSince(['orders'], 0)).toBe(false);
+      // Any ONE tag of a joined result is enough to disqualify the pending write.
+      expect(await cache.wereTagsInvalidatedSince(['orders', 'sales'], 0)).toBe(true);
+    });
+
     it('removes an entry tagged with multiple tags when any tag is deleted', async () => {
       const cache = new LRUCacheProvider();
       await cache.set('k1', entry(), { tags: ['sales', 'q4'] });
@@ -371,6 +389,70 @@ describe('LRUCacheProvider', () => {
       // must have been evicted.
       expect(await cache.get('third')).toBeDefined();
       expect(await cache.get('first')).toBeUndefined();
+    });
+  });
+
+  describe('the sampled rows are STRIDED, not a client-choosable prefix (finding — sampling bypass)', () => {
+    /**
+     * Row ORDER is fully client-controlled: `execute.ts` applies every `orderBy`
+     * entry of a widget descriptor before the LIMIT, so a caller decides which
+     * rows land at the front of a result set. While `sizeCalculation` sampled
+     * `rows[0..SIZE_SAMPLE_ROWS-1]` — a contiguous PREFIX — that meant the caller
+     * also decided which rows got MEASURED: a result whose leading rows are tiny
+     * scalars and whose tail carries a large TEXT/JSON column was estimated at
+     * the configured floor while really retaining orders of magnitude more, for
+     * the whole TTL.
+     *
+     * Sampling `rows[floor(i * rows.length / sampleSize)]` instead keeps the
+     * callback O(SIZE_SAMPLE_ROWS) but spreads the probes across the whole
+     * result, so no contiguous run of rows a caller can push to the front hides
+     * the rest.
+     */
+    const SAMPLE_ROWS = 20;
+
+    /**
+     * `total` rows where only the first `SAMPLE_ROWS` are tiny — exactly the
+     * window a prefix sample measured — and every later row carries a ~2KB payload.
+     */
+    function tinyHeadLargeTail(total: number): Record<string, unknown>[] {
+      return Array.from({ length: total }, (_, i) =>
+        i < SAMPLE_ROWS ? { v: i } : { blob: 'z'.repeat(2_000) },
+      );
+    }
+
+    it('accounts for large rows hidden behind a tiny leading window', async () => {
+      // 100 rows: 20 tiny + 80 x ~2KB, so ~161KB of real content per entry.
+      // Prefix sampling measured only the 20 tiny rows, so the estimate fell to
+      // the configured floor (100 x 50 + 64 = 5,064 bytes) and BOTH entries were
+      // admitted — roughly 322KB retained against a 200,000-byte budget.
+      const cache = new LRUCacheProvider({ maxSizeBytes: 200_000, avgBytesPerRow: 50 });
+      await cache.set('a', entry(tinyHeadLargeTail(100)));
+      await cache.set('b', entry(tinyHeadLargeTail(100)));
+
+      // With strided sampling each entry is estimated at roughly 161KB, so the
+      // second write cannot coexist with the first under the byte budget.
+      expect(await cache.get('b')).toBeDefined();
+      expect(await cache.get('a')).toBeUndefined();
+    });
+
+    it('estimates the same result set the same way however the caller orders it', async () => {
+      // The bypass, stated as the invariant it broke: two entries holding the
+      // SAME rows and differing only in ORDER must be accounted identically,
+      // because order is a client input while byte accounting is a server budget.
+      const rows = tinyHeadLargeTail(100);
+      const reversed = [...rows].reverse();
+
+      const outcome = async (ordered: Record<string, unknown>[]) => {
+        const cache = new LRUCacheProvider({ maxSizeBytes: 200_000, avgBytesPerRow: 50 });
+        await cache.set('a', entry(ordered));
+        await cache.set('b', entry([...ordered]));
+        return {
+          a: (await cache.get('a')) !== undefined,
+          b: (await cache.get('b')) !== undefined,
+        };
+      };
+
+      expect(await outcome(rows)).toEqual(await outcome(reversed));
     });
   });
 });

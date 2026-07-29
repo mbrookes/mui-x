@@ -230,8 +230,51 @@ export interface CacheProvider {
    * after a write to `sales` the host app can call `deleteByTag('sales')` to
    * evict every cached query that reads from that table — across all tenants
    * and query shapes — in a single call.
+   *
+   * An implementation that also implements `wereTagsInvalidatedSince` below must
+   * record this call's timestamp for `tag` EVEN WHEN THE TAG MATCHED NOTHING —
+   * that is precisely the case the invalidation epoch exists to cover.
    */
   deleteByTag(tag: string): Promise<void>;
+
+  /**
+   * OPTIONAL. Was any of `tags` invalidated (via `deleteByTag`) at or after
+   * `sinceMs` — a `Date.now()` timestamp the caller took before it read the rows
+   * it is now about to cache?
+   *
+   * WHY THIS EXISTS: `deleteByTag` can only evict keys that already exist, and a
+   * read in flight across a mutation writes its key AFTERWARDS. The ordering, all
+   * through public entry points: `handleBatchQuery` executes its SELECT and gets
+   * pre-mutation rows → `handleMutation` commits and calls `deleteByTag`, which
+   * finds no key for that not-yet-written result → the read completes and stores
+   * those stale rows under that key with that table's tag. Every reader sharing
+   * the security profile is then served pre-mutation rows for the whole TTL,
+   * which contradicts the invalidation contract's "a successful mutation ALWAYS
+   * invalidates". Eviction alone cannot close that window; the writer has to be
+   * able to ask whether it was overtaken. This is staleness, never a
+   * cross-tenant read: security predicates are applied at query time, so the
+   * stale rows are always in scope for whoever reads them.
+   *
+   * `handleBatchQuery` timestamps itself before executing a widget's query and
+   * SKIPS its `cacheProvider.set()` when this returns `true`. The rows are still
+   * returned to the client — only the cache write is dropped.
+   *
+   * OPTIONAL ON PURPOSE, WITH A DOCUMENTED FALLBACK. `CacheProvider` is
+   * host-pluggable, so a newly REQUIRED method would be a breaking change for
+   * every host implementation. A provider that omits it keeps the previous
+   * behavior exactly: the racing read re-caches pre-mutation rows and they are
+   * served until the TTL expires. Both shipped `CacheProvider`s implement it.
+   *
+   * COMPARISON IS `invalidatedAt >= sinceMs` — deliberately inclusive, so a
+   * same-millisecond collision is resolved by dropping the cache write rather
+   * than keeping a possibly-stale one. Implementations must fail in the same
+   * direction: when freshness cannot be established (backend unavailable,
+   * epoch record expired), return `true`.
+   *
+   * @param tags - The tags the pending entry would be written with.
+   * @param sinceMs - `Date.now()` as captured before the rows were read.
+   */
+  wereTagsInvalidatedSince?(tags: string[], sinceMs: number): Promise<boolean>;
 }
 
 /**

@@ -420,6 +420,55 @@ describe('RedisCacheProvider', () => {
     });
   });
 
+  // `deleteByTag` can only evict keys that already exist, so a read in flight
+  // across a mutation would otherwise store pre-mutation rows under a key the
+  // eviction never saw, hiding a committed write for a full TTL. The epoch is
+  // what lets `handleBatchQuery` detect that it was overtaken and drop its write.
+  describe('tag invalidation epoch (wereTagsInvalidatedSince)', () => {
+    it('records an epoch even for a tag that matched no keys at all', async () => {
+      // THE case that matters: nothing to evict, because the racing read has not
+      // written its key yet. If the epoch were only stamped when keys matched,
+      // the guard would be blind in exactly the situation it exists for.
+      const redis = makeRedisClientWithTags();
+      const provider = new RedisCacheProvider(redis);
+      const readStartedAt = Date.now();
+
+      await provider.deleteByTag('sales');
+
+      expect(redis.store.has('__taginv__:sales')).toBe(true);
+      expect(await provider.wereTagsInvalidatedSince(['sales'], readStartedAt)).toBe(true);
+    });
+
+    it('reports only the tags that were invalidated, and only since the given time', async () => {
+      const provider = new RedisCacheProvider(makeRedisClientWithTags());
+      await provider.deleteByTag('sales');
+      const afterInvalidation = Date.now() + 1;
+
+      // A read that STARTED after the invalidation already saw the write.
+      expect(await provider.wereTagsInvalidatedSince(['sales'], afterInvalidation)).toBe(false);
+      // A tag never invalidated has no epoch at all.
+      expect(await provider.wereTagsInvalidatedSince(['orders'], 0)).toBe(false);
+      // Any ONE tag of a joined result is enough to disqualify the write.
+      expect(await provider.wereTagsInvalidatedSince(['orders', 'sales'], 0)).toBe(true);
+    });
+
+    it('namespaces the epoch key with keyPrefix', async () => {
+      const redis = makeRedisClientWithTags();
+      const provider = new RedisCacheProvider(redis, { keyPrefix: 'studio:prod:' });
+      await provider.deleteByTag('sales');
+      expect([...redis.store.keys()]).toEqual(['studio:prod:__taginv__:sales']);
+    });
+
+    it('fails closed on a non-numeric epoch value rather than reading NaN as "not invalidated"', async () => {
+      // A foreign key colliding with ours in a shared keyspace. `NaN >= sinceMs`
+      // is false, so trusting it would silently answer "safe to cache".
+      const redis = makeRedisClientWithTags();
+      const provider = new RedisCacheProvider(redis);
+      await redis.set('__taginv__:sales', 'not-a-timestamp', 'EX', 300);
+      expect(await provider.wereTagsInvalidatedSince(['sales'], Date.now())).toBe(true);
+    });
+  });
+
   describe('invalidatePrefix', () => {
     it('removes only entries matching the prefix', async () => {
       const provider = new RedisCacheProvider(makeRedisClient());
@@ -700,8 +749,10 @@ describe('RedisCacheProvider', () => {
       expect(Math.max(...redis.delCallSizes)).toBeLessThanOrEqual(500);
       expect(await provider.get('k0')).toBeUndefined();
       expect(await provider.get(`k${KEY_COUNT - 1}`)).toBeUndefined();
-      // Every data key AND its reverse index is gone.
-      expect(redis.store.size).toBe(0);
+      // Every data key AND its reverse index is gone. The one remaining string is
+      // the tag's INVALIDATION EPOCH — a timestamp, deliberately outliving the
+      // eviction so a read still in flight cannot re-cache pre-mutation rows.
+      expect([...redis.store.keys()]).toEqual(['__taginv__:orders']);
       expect(redis.sets.has('__tag__:orders')).toBe(false);
     });
 

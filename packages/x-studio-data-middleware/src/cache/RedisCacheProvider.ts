@@ -59,7 +59,10 @@
  *
  * `deleteByTag(tag)` evicts all matching data keys, deletes each one's reverse
  * index (`__ktag__:<key>`) outright (it's meaningless once the data key is
- * gone), and deletes the forward index itself.
+ * gone), and deletes the forward index itself. It also stamps a third,
+ * timestamp-only key — `__taginv__:<tag>`, the tag's INVALIDATION EPOCH — which
+ * `wereTagsInvalidatedSince` reads so a read already in flight cannot re-cache
+ * pre-mutation rows under a key that did not exist when the eviction ran.
  * `invalidatePrefix(prefix)` uses the reverse index to remove stale tag entries
  * for every key it deletes, keeping the forward index clean, and scans for
  * matching keys via `SCAN` (never the blocking `KEYS` command), streaming one
@@ -149,6 +152,18 @@ export interface RedisClient {
   /** node-redis v4-style SREM. */
   sRem?(key: string, members: string | string[]): Promise<unknown>;
 }
+
+/**
+ * How long a tag's invalidation EPOCH (`__taginv__:<tag>`) is retained.
+ *
+ * The epoch only has to outlive the longest read that could still be in flight
+ * when the invalidation lands — see `CacheProvider.wereTagsInvalidatedSince`.
+ * Five minutes is generous against the 60s default data TTL and costs one small
+ * string per mutated table. An expired epoch is indistinguishable from "never
+ * invalidated", so this is deliberately far longer than it needs to be rather
+ * than tuned tight.
+ */
+const TAG_INVALIDATION_EPOCH_TTL_SECONDS = 300;
 
 export interface RedisCacheProviderOptions {
   /**
@@ -279,6 +294,17 @@ export class RedisCacheProvider implements CacheProvider {
   }
 
   async deleteByTag(tag: string): Promise<void> {
+    // Record the invalidation EPOCH first, and unconditionally — before the
+    // unsupported-client bail-out and before the "tag matched nothing" return
+    // below. A `deleteByTag` that evicts nothing is exactly the case
+    // `wereTagsInvalidatedSince` covers: the read whose rows this call is meant
+    // to invalidate has not written its key yet. Uses a plain SET, so it works
+    // even on a client with no set commands.
+    await this.redisSetEx(
+      this.tagEpochKey(tag),
+      String(Date.now()),
+      TAG_INVALIDATION_EPOCH_TTL_SECONDS,
+    );
     if (!(await this.tagOpsSupported())) {
       // Loudly note that tag-based invalidation cannot run, instead of a
       // silent no-op — the caller thinks the cache was invalidated.
@@ -304,9 +330,49 @@ export class RedisCacheProvider implements CacheProvider {
     await delKeys(this.redis, [...keys, ...ktagKeys, tagKey]);
   }
 
+  /**
+   * See `CacheProvider.wereTagsInvalidatedSince` for why this exists and for the
+   * inclusive (`>=`) comparison.
+   *
+   * CLOCK SKEW is the one caveat a remote provider adds: both sides of the
+   * comparison are `Date.now()` values taken in a MIDDLEWARE process (Redis only
+   * stores the number), so on a multi-node deployment the epoch may have been
+   * written by a different node's clock. A node whose clock runs behind the
+   * mutating node's by more than the in-flight read's duration can still
+   * re-cache pre-mutation rows; keep node clocks NTP-synced, which such
+   * deployments already require for TTL behavior to be predictable.
+   *
+   * An UNREADABLE epoch (client error) fails closed — reported as invalidated, so
+   * the pending cache write is dropped rather than possibly storing stale rows.
+   * A MISSING epoch is not an error: it means this tag has not been invalidated
+   * within the retention window.
+   */
+  async wereTagsInvalidatedSince(tags: string[], sinceMs: number): Promise<boolean> {
+    for (const tag of tags) {
+      // eslint-disable-next-line no-await-in-loop
+      const raw = await this.redis.get(this.tagEpochKey(tag));
+      if (raw === null || raw === undefined) {
+        continue;
+      }
+      const invalidatedAt = Number(raw);
+      // A non-numeric value is a foreign key colliding with ours; treat it the
+      // same way `get()` treats a malformed entry — as unusable — rather than
+      // letting `NaN >= sinceMs` silently answer "not invalidated".
+      if (!Number.isFinite(invalidatedAt) || invalidatedAt >= sinceMs) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /** Redis key for the forward tag→keys index. */
   private tagKey(tag: string): string {
     return `${this.prefix}__tag__:${tag}`;
+  }
+
+  /** Redis key for a tag's invalidation epoch (a `Date.now()` value). */
+  private tagEpochKey(tag: string): string {
+    return `${this.prefix}__taginv__:${tag}`;
   }
 
   /** Redis key for the reverse key→tags index. */

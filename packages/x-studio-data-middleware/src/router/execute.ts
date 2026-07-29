@@ -100,8 +100,14 @@ export function createRowBudget(maxRows: number = MAX_ROWS_PER_REQUEST): RowBudg
  * `handler.ts` turns it into that widget's `{ error }` result via
  * `sanitizeBoundaryError`, which passes this package's own `MUI X`-prefixed
  * messages through verbatim.
+ *
+ * EXPORTED for `handler.ts`'s own pre-pipeline budget check (see
+ * `executeForTier`'s exhaustion guard below): the request path has to fail a
+ * starved widget BEFORE the tier decision runs its COUNT(*) preflight, which is
+ * upstream of this module. Both sites raise the SAME error from the SAME factory
+ * so the two cannot drift on wording — the message is what the client sees.
  */
-function rowBudgetExhaustedError(remaining: number): Error {
+export function rowBudgetExhaustedError(remaining: number): Error {
   return new Error(
     `MUI X Studio Server: This widget's rows were dropped because the request's shared row budget is exhausted — ` +
       `${remaining} of ${MAX_ROWS_PER_REQUEST} rows are left for this batch and this widget's result does not fit. ` +
@@ -246,6 +252,17 @@ export async function executeForTier(
   // exists to contain — and an empty SUCCESS would tell the client "0 rows out
   // of <rowCount>", a starved result presented as the real answer. Only
   // reachable when a budget is threaded (the request path).
+  //
+  // NOT THE FIRST LINE OF DEFENCE ON THE REQUEST PATH — and it could not be.
+  // `handler.ts` runs the tier decision (and therefore `runPreflight`'s
+  // COUNT(*)) before it calls this function, so a check that lives only here
+  // suppressed the DATA round-trip while letting the PREFLIGHT one through, per
+  // starved widget — a full COUNT(*) with every join and semi-join subquery
+  // applied and no LIMIT, i.e. usually the more expensive of the two. That check
+  // now runs in `runWidgetPipeline` before the tier decision. This one STAYS as
+  // defense in depth: it covers direct callers that thread a budget without
+  // going through the handler, and exhaustion that happens between the handler's
+  // check and this point (concurrent widgets charge in between).
   if (rowBudget !== undefined && rowBudget.remaining <= 0) {
     throw rowBudgetExhaustedError(rowBudget.remaining);
   }

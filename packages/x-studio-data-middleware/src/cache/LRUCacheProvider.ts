@@ -9,12 +9,12 @@
  *   - Size-based eviction: `maxSize` in bytes + `sizeCalculation` callback
  *
  * Performance notes:
- *   - sizeCalculation samples a bounded prefix of rows (SIZE_SAMPLE_ROWS) and
- *     measures their real JSON.stringify size, extrapolated across every row and
- *     floored at the configured avgBytesPerRow — real per-row content (e.g. a
- *     large TEXT/JSON column) can only push the estimate UP from that baseline,
- *     never down, while still avoiding O(N) serialization of the whole result set
- *     on every cache write.
+ *   - sizeCalculation samples a bounded, STRIDED set of rows (SIZE_SAMPLE_ROWS,
+ *     spread evenly across the whole result) and measures their real
+ *     JSON.stringify size, extrapolated across every row and floored at the
+ *     configured avgBytesPerRow, while still avoiding O(N) serialization of the
+ *     whole result set on every cache write. Striding is what makes the estimate
+ *     independent of ROW ORDER, which is a client input — see the callback.
  *   - A secondary prefix index keeps invalidatePrefix() at O(N_matched) instead
  *     of scanning all keys. The index is kept in sync via the `dispose` callback.
  */
@@ -26,10 +26,35 @@ import { floorTtlMs } from './ttl';
  * Bounded sample size for the byte-size estimate below (Tier3 finding — byte-
  * accounting gap). Stringifying every row of a potentially huge result set on
  * every cache write would reintroduce the O(N) `JSON.stringify` cost the
- * count-only estimate was originally introduced to avoid — sampling a small,
- * fixed prefix keeps the estimate cheap regardless of `rows.length`.
+ * count-only estimate was originally introduced to avoid — measuring a small,
+ * fixed number of rows keeps the estimate cheap regardless of `rows.length`.
  */
 const SIZE_SAMPLE_ROWS = 20;
+
+/**
+ * Indices of the rows the size estimate measures: `SIZE_SAMPLE_ROWS` probes
+ * spread EVENLY across `[0, rowCount)`, not the first `SIZE_SAMPLE_ROWS` rows.
+ *
+ * WHY NOT A PREFIX (sampling-bypass finding). Row order is a CLIENT input —
+ * `execute.ts` applies every `orderBy` entry of a widget descriptor before the
+ * LIMIT — so sampling `rows[0..SIZE_SAMPLE_ROWS-1]` let the caller choose which
+ * rows the byte budget measured. A descriptor ordered so that tiny rows lead and
+ * a large TEXT/JSON tail follows was estimated at the `avgBytesPerRow` floor
+ * (with the defaults: a 100k-row result estimated at ~51 MB while retaining
+ * ~800 MB), so the 128 MB budget admitted several such entries and held each for
+ * the full TTL. The overshoot grew linearly with real row size.
+ *
+ * Striding does not make the estimate exact — nothing sub-O(N) can — but it
+ * removes the caller's ability to pick the measured rows: no contiguous run of
+ * rows that can be pushed to one end hides the rest, and reversing a result set
+ * cannot change its accounting. Cost is unchanged at O(SIZE_SAMPLE_ROWS).
+ *
+ * With `rowCount <= SIZE_SAMPLE_ROWS` the stride is 1 and every row is measured,
+ * so small entries are accounted exactly.
+ */
+function sampleRowIndex(i: number, rowCount: number, sampleSize: number): number {
+  return Math.min(rowCount - 1, Math.floor((i * rowCount) / sampleSize));
+}
 
 interface LRUCacheProviderOptions {
   /**
@@ -47,6 +72,25 @@ interface LRUCacheProviderOptions {
    * Default: 512. Tune upward for schemas with large text/blob columns.
    */
   avgBytesPerRow?: number;
+  /**
+   * Optional ceiling on the ESTIMATED size of a SINGLE entry. An entry estimated
+   * above it is not stored at all (the query still returns its rows; it is simply
+   * never cached), so one very large result cannot occupy most of
+   * `maxSizeBytes` and evict everything else on the way in.
+   *
+   * DISABLED BY DEFAULT, deliberately. `MAX_RESULT_ROWS` (100,000) is a
+   * legitimate, fully bounded result shape this cache exists to serve, so any
+   * fixed fraction of `maxSizeBytes` would silently make a class of legal
+   * queries permanently uncacheable — turning a byte-accounting correction into
+   * a re-query-every-request regression, which is the cost the cache is here to
+   * avoid. `lru-cache` also already prevents a single entry from durably
+   * exceeding the WHOLE budget: an entry estimated above `maxSize` is evicted by
+   * the size-eviction loop immediately after it is inserted. What this option
+   * adds is a tighter, host-chosen bound for deployments that would rather keep
+   * many medium results than one huge one; pick it relative to `maxSizeBytes`
+   * (for example a quarter of it) with that trade in mind.
+   */
+  maxEntryBytes?: number;
 }
 
 export class LRUCacheProvider implements CacheProvider {
@@ -73,11 +117,34 @@ export class LRUCacheProvider implements CacheProvider {
    */
   private keyTags = new Map<string, Set<string>>();
 
+  /**
+   * Invalidation epoch per tag (tag → `Date.now()` of its last `deleteByTag`).
+   *
+   * Recorded UNCONDITIONALLY, including when the tag matched no keys — a
+   * `deleteByTag` that evicted nothing is exactly the case
+   * `wereTagsInvalidatedSince` exists to detect (a read in flight is about to
+   * write the key that did not exist yet). Timestamps only, never row data.
+   *
+   * NOT PRUNED, and it does not need to be: tags are table names, which both
+   * writers validate against the schema allowlist before they reach a provider,
+   * so this map holds one number per table ever mutated — bounded by the schema,
+   * not by traffic or by keyspace.
+   */
+  private tagInvalidatedAt = new Map<string, number>();
+
   constructor(options: LRUCacheProviderOptions = {}) {
-    const { maxSizeBytes = 128 * 1024 * 1024, ttlMs = 30_000, avgBytesPerRow = 512 } = options;
+    const {
+      maxSizeBytes = 128 * 1024 * 1024,
+      ttlMs = 30_000,
+      avgBytesPerRow = 512,
+      maxEntryBytes,
+    } = options;
 
     this.cache = new LRUCache<string, CacheEntry>({
       maxSize: maxSizeBytes,
+      // Opt-in per-entry ceiling; `lru-cache` treats 0/undefined as "disabled",
+      // which is the default here on purpose (see `maxEntryBytes` above).
+      maxEntrySize: maxEntryBytes,
       // Floor an explicit `ttlMs: 0` to 1s — `lru-cache` otherwise treats
       // `ttl: 0` as "never expires" (see `./ttl.ts`), the opposite of what
       // `ttlMs: 0` means on the Redis-backed providers (finding 2.1).
@@ -97,18 +164,29 @@ export class LRUCacheProvider implements CacheProvider {
       // the process actually holds far more live memory than the cache
       // thinks it does.
       //
-      // TRADE-OFF: sample a BOUNDED prefix of rows (`SIZE_SAMPLE_ROWS`) and
-      // measure their REAL serialized size via `JSON.stringify`, instead of
-      // stringifying the whole (possibly huge) result set on every write —
-      // that would reintroduce the O(N) cost this callback exists to avoid.
-      // The sampled average is extrapolated across every row, so a result set
-      // whose sampled rows are unusually large (e.g. one big TEXT/JSON column)
-      // is estimated proportionally larger too. The estimate is floored at the
-      // CONFIGURED `avgBytesPerRow` (never lower than it) via `Math.max`, so a
-      // pathologically small/empty sample never under-reports a schema known
-      // to carry larger rows on average — this also keeps every existing
-      // small-row test byte-for-byte unchanged, since a tiny sampled row's
-      // real size never exceeds the configured default.
+      // TRADE-OFF: measure a BOUNDED number of rows (`SIZE_SAMPLE_ROWS`) for
+      // their REAL serialized size via `JSON.stringify`, instead of stringifying
+      // the whole (possibly huge) result set on every write — that would
+      // reintroduce the O(N) cost this callback exists to avoid. The sampled
+      // average is extrapolated across every row, so a result set whose sampled
+      // rows are unusually large (e.g. one big TEXT/JSON column) is estimated
+      // proportionally larger too.
+      //
+      // THE SAMPLE IS STRIDED, NOT A PREFIX (`sampleRowIndex`). Sampling
+      // `rows[0..19]` made the measured rows a CLIENT CHOICE, because a
+      // descriptor's `orderBy` decides which rows lead the result — so a caller
+      // could put small rows in front of a large tail and be accounted at the
+      // floor while retaining orders of magnitude more for the whole TTL.
+      //
+      // The `Math.max` floor below is exactly that — a floor relative to the
+      // CONFIGURED baseline. It guarantees the estimate is never BELOW
+      // `avgBytesPerRow` per row (so a pathologically small or unserializable
+      // sample cannot under-report a schema known to carry larger rows, and every
+      // existing small-row test's byte arithmetic is unchanged). It does NOT
+      // guarantee the estimate is at or above the entry's REAL size: outside the
+      // sampled rows this is still an extrapolation, and an adversarially skewed
+      // result set can still be under-estimated — just no longer by choosing the
+      // measured window.
       sizeCalculation: (value: CacheEntry) => {
         const { rows } = value;
         if (rows.length === 0) {
@@ -118,7 +196,7 @@ export class LRUCacheProvider implements CacheProvider {
         let sampledBytes = 0;
         for (let i = 0; i < sampleSize; i += 1) {
           try {
-            const serialized = JSON.stringify(rows[i]);
+            const serialized = JSON.stringify(rows[sampleRowIndex(i, rows.length, sampleSize)]);
             sampledBytes += serialized === undefined ? avgBytesPerRow : serialized.length;
           } catch {
             // A row that cannot be stringified (e.g. carries a BigInt field)
@@ -224,6 +302,10 @@ export class LRUCacheProvider implements CacheProvider {
   }
 
   async deleteByTag(tag: string): Promise<void> {
+    // Stamp the epoch BEFORE the early return below: a `deleteByTag` that
+    // matched nothing still has to be recorded, because the read whose rows this
+    // call is meant to invalidate may not have written its key yet.
+    this.tagInvalidatedAt.set(tag, Date.now());
     const keys = this.tagIndex.get(tag);
     if (!keys) {
       return;
@@ -234,6 +316,21 @@ export class LRUCacheProvider implements CacheProvider {
     }
     // tagIndex entry is cleaned up by dispose; force-clear in case of races
     this.tagIndex.delete(tag);
+  }
+
+  /**
+   * See `CacheProvider.wereTagsInvalidatedSince` for why this exists and for the
+   * inclusive (`>=`) comparison. In-process, so `sinceMs` and the recorded epoch
+   * come from the same clock and no skew is possible.
+   */
+  async wereTagsInvalidatedSince(tags: string[], sinceMs: number): Promise<boolean> {
+    for (const tag of tags) {
+      const invalidatedAt = this.tagInvalidatedAt.get(tag);
+      if (invalidatedAt !== undefined && invalidatedAt >= sinceMs) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

@@ -63,6 +63,7 @@ import {
   chargeRowBudgetOrThrow,
   createRowBudget,
   executeForTier,
+  rowBudgetExhaustedError,
   type RowBudget,
 } from './router/execute';
 import {
@@ -818,6 +819,42 @@ async function processWidget(
 }
 
 /**
+ * Was this pending cache entry overtaken by a mutation while its rows were being
+ * read? See `CacheProvider.wereTagsInvalidatedSince` for the race and for why the
+ * provider method is optional.
+ *
+ * TWO DEGRADATIONS, IN OPPOSITE DIRECTIONS, both deliberate:
+ *   - A provider that does NOT implement the hook answers `false` — the
+ *     documented fallback, which reproduces the previous behavior exactly rather
+ *     than refusing to cache for every host with a custom provider.
+ *   - A hook that THROWS answers `true`. Freshness could not be established, and
+ *     the fail-closed direction here is "don't cache", which costs a re-query;
+ *     the alternative costs a stale answer for the whole TTL. It is warned about
+ *     and never fails the widget, matching how every other cache-backend failure
+ *     on this path degrades (finding 2.6).
+ */
+async function tagsInvalidatedSinceRead(
+  cacheProvider: CacheProvider,
+  tags: string[],
+  rowsReadAt: number,
+): Promise<boolean> {
+  if (typeof cacheProvider.wereTagsInvalidatedSince !== 'function') {
+    return false;
+  }
+  try {
+    return await cacheProvider.wereTagsInvalidatedSince(tags, rowsReadAt);
+  } catch (cacheErr) {
+    console.warn(
+      `MUI X Studio Server: could not check whether a mutation invalidated this widget's tables while its rows ` +
+        `were being read; the result is still returned but is NOT being cached, so a just-committed write cannot ` +
+        `be hidden behind a stale entry. Subsequent requests will re-query the DB until the cache backend ` +
+        `recovers. Cause: ${describeCause(cacheErr)}`,
+    );
+    return true;
+  }
+}
+
+/**
  * The id-independent half of a widget's pipeline: cache lookup → tier decision →
  * execution → cache population.
  *
@@ -927,6 +964,29 @@ async function runWidgetPipeline(
     };
   }
 
+  // ── 1b. Budget exhausted? Fail before ANY round-trip ───────────────────
+  // `executeForTier` documents the rule this enforces: a widget starved by
+  // earlier widgets in the same batch fails "WITHOUT issuing a query at all",
+  // because a round-trip per remaining widget is exactly the fan-out the budget
+  // exists to contain. Its own check sits inside `executeForTier`, which runs
+  // AFTER the tier decision below — so before this guard existed a starved
+  // widget still issued a full COUNT(*) preflight: built through
+  // `buildSecureQuery` with every join, semi-join subquery and filter applied,
+  // and deliberately with no LIMIT, which makes it typically the MORE expensive
+  // of the two round-trips being suppressed. One request could spend
+  // `MAX_ROWS_PER_REQUEST` on widget 0 and still pay a full COUNT(*) for each of
+  // 49 distinct-shaped siblings.
+  //
+  // Placed after the data-cache read on purpose: a cache HIT costs no database
+  // work, and its own charge (above) already fails a widget whose cached rows no
+  // longer fit. This guard is about the round-trips a MISS is otherwise about to
+  // make. `executeForTier`'s check stays in place as defense in depth — the two
+  // are not redundant, since concurrent widgets can exhaust the budget in the
+  // window between them.
+  if (rowBudget !== undefined && rowBudget.remaining <= 0) {
+    throw rowBudgetExhaustedError(rowBudget.remaining);
+  }
+
   // ── 2 & 3. Tier decision: aggregation check → tier cache → COUNT(*) ───
   const hasAggregations = (descriptor.aggregations?.length ?? 0) > 0;
 
@@ -961,6 +1021,14 @@ async function runWidgetPipeline(
   // client's own `limit` — is what shortened this result, `executeForTier`
   // THROWS instead of returning the short slice, so the rows below are always a
   // complete answer for the limit the client asked for.
+  //
+  // Timestamped BEFORE the query runs: the rows about to be fetched reflect
+  // database state at or after this instant, so any `deleteByTag` for one of this
+  // entry's tags recorded at or after it may concern a write this query could
+  // have missed. Step 5 uses it to decide whether caching them is still safe.
+  // Taking it before (rather than after) execution is the conservative side —
+  // it can only widen the window, never narrow it.
+  const rowsReadAt = Date.now();
   const rows = await executeForTier(db, claims, descriptor, tier, queryOptions, plan, rowBudget);
 
   // For aggregation queries decideTier returns rowCount=0 (bypassed);
@@ -996,6 +1064,32 @@ async function runWidgetPipeline(
   // throws on any budget-driven degradation, so this line is only reached with a
   // result that is complete for the limit the client itself requested.
   if (tier !== 'db' || !hasAggregations) {
+    const tags = [
+      descriptor.table,
+      ...(descriptor.joins?.map((j) => j.table) ?? []),
+      // A semi-joined table decides which outer rows survive, so a mutation
+      // to it changes this result exactly as a mutation to a joined table
+      // does — a customer stops matching the moment its last shipped order
+      // is deleted. Untagged, that result would keep being served for the
+      // whole TTL.
+      ...collectSemiJoinTables(descriptor.semiJoins),
+    ];
+
+    // ONLY REACHED IF THIS READ WAS NOT OVERTAKEN BY A MUTATION. `deleteByTag`
+    // can only evict keys that ALREADY EXIST, and this one is being written now:
+    // a read that executed its SELECT before a mutation committed, and reaches
+    // this line after that mutation's `deleteByTag` ran, would store
+    // pre-mutation rows under a key the eviction never saw — making a committed
+    // write invisible to every reader sharing the security profile for the whole
+    // TTL, which is precisely what "a successful mutation always invalidates"
+    // says cannot happen. The rows are still RETURNED to this caller (its query
+    // genuinely saw them); only the cache write is dropped.
+    //
+    // Cost is one small read per cached widget, and only on a cache MISS.
+    if (await tagsInvalidatedSinceRead(cacheProvider, tags, rowsReadAt)) {
+      return { rows, tier, rowCount };
+    }
+
     // The rows are already in hand from the DB — a cache WRITE failure must not
     // discard them. Catch and degrade to "served, uncached" (finding 2.6).
     try {
@@ -1014,18 +1108,7 @@ async function runWidgetPipeline(
         // the documented no-mutation contract on `WidgetQueryResult.rows` and
         // `CacheProvider.set` still governs in-place row edits.
         { rows: [...rows], cachedAt: Date.now(), tier, rowCount },
-        {
-          tags: [
-            descriptor.table,
-            ...(descriptor.joins?.map((j) => j.table) ?? []),
-            // A semi-joined table decides which outer rows survive, so a mutation
-            // to it changes this result exactly as a mutation to a joined table
-            // does — a customer stops matching the moment its last shipped order
-            // is deleted. Untagged, that result would keep being served for the
-            // whole TTL.
-            ...collectSemiJoinTables(descriptor.semiJoins),
-          ],
-        },
+        { tags },
       );
     } catch (cacheErr) {
       console.warn(

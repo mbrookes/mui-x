@@ -56,6 +56,8 @@ import { hasConflictingRankFilter } from '../internals/rankFilterScope';
 import { hasExpressionCycle } from '../utils/expressionEvaluator';
 import { collectSelectFields } from '../internals/queryDescriptor';
 import { collectExpressionRefs } from '../internals/expressionRefs';
+import { resolveWidgetPageId as resolveWidgetPageIdInPages } from '../internals/widgetPageResolution';
+import { stripKeys, resolveEffectiveChartType } from '../internals/widgetConfigSanitization';
 import * as docTransforms from './docTransforms';
 
 // `MIN_SPAN_COLS` (the minimum widget column span) is imported from
@@ -1446,12 +1448,7 @@ export class StudioController {
     // same bogus type.
     const effectiveChartType: StudioChartType = 'bar';
     const invalidChartKeys = validateChartConfigKeysForType(effectiveChartType, configRecord);
-    const stripped: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(configRecord)) {
-      if (!invalidChartKeys.includes(key)) {
-        stripped[key] = value;
-      }
-    }
+    const stripped = stripKeys(configRecord, invalidChartKeys);
     return {
       ...widget,
       config: { ...stripped, chartType: effectiveChartType } as StudioWidget['config'],
@@ -1932,15 +1929,23 @@ export class StudioController {
    * incoming config" means, but the validation itself — strip config keys not
    * valid for `kind`, then (for a chart) strip keys not valid for the
    * effective chart type — is identical either way.
+   *
+   * Composes the same shared primitives `sanitizeWidgetConfigForChartType`
+   * (`internals/widgetConfigSanitization.ts`) is built from — `stripKeys` and
+   * `resolveEffectiveChartType` — directly, rather than calling that function,
+   * because this UPDATE path also needs to emit dev warnings naming exactly
+   * which keys were dropped and why, which a bare sanitized-config return
+   * can't carry back out.
    */
   private sanitizeWidgetConfigForKind = (
     kind: StudioWidget['kind'],
     config: Record<string, unknown>,
     widgetId: string,
     // The chart type to fall back to when `config` itself doesn't declare a
-    // `chartType` (i.e. the widget's CURRENT stored chart type). Only relevant
-    // when `kind === 'chart'`; omit when there's no sensible existing chart
-    // type to fall back to (e.g. `kind` is itself changing away from 'chart').
+    // (valid) `chartType` (i.e. the widget's CURRENT stored chart type). Only
+    // relevant when `kind === 'chart'`; omit when there's no sensible existing
+    // chart type to fall back to (e.g. `kind` is itself changing away from
+    // 'chart').
     existingChartConfig?: { chartType?: StudioChartType },
   ): Record<string, unknown> => {
     // Write-side kind guard: strip any config key that isn't valid for THIS
@@ -1949,23 +1954,18 @@ export class StudioController {
     // patch at runtime, so this is the runtime backstop. Matching the controller's
     // guard-and-continue style (never throw on bad input): warn in dev and drop
     // the offending keys rather than persisting a wrong-kind key.
-    let effectiveConfig = config;
-    const invalidKeys = validateConfigKeysForKind(kind, effectiveConfig);
-    if (invalidKeys.length > 0) {
-      if (process.env.NODE_ENV !== 'production') {
-        console.warn(
-          `MUI X Studio: Ignoring config key(s) not valid for a '${kind}' ` +
-            `widget (id '${widgetId}'): ${invalidKeys.join(', ')}. ` +
-            'These keys belong to a different widget kind and were dropped from the update.',
-        );
-      }
-      const stripped: Record<string, unknown> = {};
-      for (const [key, value] of Object.entries(effectiveConfig)) {
-        if (!invalidKeys.includes(key)) {
-          stripped[key] = value;
-        }
-      }
-      effectiveConfig = stripped;
+    const invalidKindKeys = validateConfigKeysForKind(kind, config);
+    if (invalidKindKeys.length > 0 && process.env.NODE_ENV !== 'production') {
+      console.warn(
+        `MUI X Studio: Ignoring config key(s) not valid for a '${kind}' ` +
+          `widget (id '${widgetId}'): ${invalidKindKeys.join(', ')}. ` +
+          'These keys belong to a different widget kind and were dropped from the update.',
+      );
+    }
+    const kindStrippedConfig = stripKeys(config, invalidKindKeys);
+
+    if (kind !== 'chart') {
+      return kindStrippedConfig;
     }
 
     // Write-side CHART-TYPE guard: a finer-grained layer under the kind guard
@@ -1976,32 +1976,42 @@ export class StudioController {
     // previously-selected chart type after switching types (bar -> gauge -> bar
     // keeps `xField`/`ySeries` around) — that's intentional UX, not a bug, so
     // re-validating stored keys on every unrelated patch would wrongly strip them.
-    // If the incoming config itself sets `chartType`, it's declaring a type switch,
-    // so its own keys are checked against the NEW type; otherwise fall back to the
-    // widget's CURRENT chart type (`existingChartConfig`).
-    if (kind === 'chart') {
-      const patchChartType = (effectiveConfig as { chartType?: StudioChartType }).chartType;
-      const effectiveChartType = patchChartType ?? resolveChartType(existingChartConfig ?? {});
-      const invalidChartKeys = validateChartConfigKeysForType(effectiveChartType, effectiveConfig);
-      if (invalidChartKeys.length > 0) {
-        if (process.env.NODE_ENV !== 'production') {
-          console.warn(
-            `MUI X Studio: Ignoring config key(s) not valid for chart type '${effectiveChartType}' ` +
-              `(widget id '${widgetId}'): ${invalidChartKeys.join(', ')}. ` +
-              'These keys belong to a different chart type and were dropped from the update.',
-          );
-        }
-        const stripped: Record<string, unknown> = {};
-        for (const [key, value] of Object.entries(effectiveConfig)) {
-          if (!invalidChartKeys.includes(key)) {
-            stripped[key] = value;
-          }
-        }
-        effectiveConfig = stripped;
-      }
+    // If the incoming config itself sets a VALID `chartType`, it's declaring a
+    // type switch, so its own keys are checked against the NEW type; otherwise
+    // fall back to the widget's CURRENT chart type (`existingChartConfig`). An
+    // explicit but INVALID `chartType` is dropped and also falls back to the
+    // existing type — warned about separately below, naming the bad value —
+    // rather than being used verbatim (which would fail closed against an empty
+    // allow-list and strip every remaining key).
+    const chartTypeFallback = resolveChartType(existingChartConfig ?? {});
+    const { chartType: effectiveChartType, wasInvalidExplicit } = resolveEffectiveChartType(
+      (kindStrippedConfig as { chartType?: unknown }).chartType,
+      chartTypeFallback,
+    );
+    if (wasInvalidExplicit && process.env.NODE_ENV !== 'production') {
+      console.warn(
+        `MUI X Studio: Ignoring an invalid chartType ` +
+          `'${String((kindStrippedConfig as { chartType?: unknown }).chartType)}' in the config ` +
+          `update for widget (id '${widgetId}'). Falling back to '${effectiveChartType}'.`,
+      );
+    }
+    const configForChartTypeCheck = wasInvalidExplicit
+      ? stripKeys(kindStrippedConfig, ['chartType'])
+      : kindStrippedConfig;
+
+    const invalidChartKeys = validateChartConfigKeysForType(
+      effectiveChartType,
+      configForChartTypeCheck,
+    );
+    if (invalidChartKeys.length > 0 && process.env.NODE_ENV !== 'production') {
+      console.warn(
+        `MUI X Studio: Ignoring config key(s) not valid for chart type '${effectiveChartType}' ` +
+          `(widget id '${widgetId}'): ${invalidChartKeys.join(', ')}. ` +
+          'These keys belong to a different chart type and were dropped from the update.',
+      );
     }
 
-    return effectiveConfig;
+    return stripKeys(configForChartTypeCheck, invalidChartKeys);
   };
 
   updateWidgetConfig = (
@@ -2635,17 +2645,14 @@ export class StudioController {
    * rather than `this.store.state.doc` — used by `carryTransientDocState` to
    * resolve a widget's page within the doc being swapped IN during undo/redo,
    * before that doc has been committed to the store.
+   *
+   * The scan-and-fallback algorithm itself lives in the shared, component-
+   * usable {@link resolveWidgetPageIdInPages} (`internals/widgetPageResolution.ts`)
+   * so `BuiltinWidgetPreview` doesn't have to re-implement it — see that
+   * module's doc comment.
    */
-  private static resolveWidgetPageIdInDoc = (doc: StudioDoc, widgetId: string): string => {
-    for (const [pageId, page] of Object.entries(doc.pages)) {
-      for (const row of page.widgetRows ?? []) {
-        if (row.includes(widgetId)) {
-          return pageId;
-        }
-      }
-    }
-    return doc.dashboard.activePageId;
-  };
+  private static resolveWidgetPageIdInDoc = (doc: StudioDoc, widgetId: string): string =>
+    resolveWidgetPageIdInPages(doc.pages, doc.dashboard.activePageId, widgetId);
 
   applyInteractiveFilter = (
     sourceWidgetId: string,

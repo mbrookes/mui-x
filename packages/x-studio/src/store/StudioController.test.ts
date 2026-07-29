@@ -1486,6 +1486,49 @@ describe('StudioController.updateWidget', () => {
       warnSpy.mockRestore();
     });
 
+    // Entropy-audit finding: an explicit-but-invalid chartType in the patch used to be
+    // used VERBATIM (no isStudioChartType check) as the "effective chart type" fed into
+    // validateChartConfigKeysForType, which fails closed to an EMPTY allow-list for an
+    // unrecognized chart type — flagging every remaining key (xField/yField included) as
+    // invalid and wiping the config to {}, not just dropping the bad chartType. The
+    // create-path sibling (createWidgetFromDescription.ts's sanitizeServerWidgetConfig)
+    // already validated this correctly (fall back, keep the rest); the update path did
+    // not. Pins the correct, now-shared behavior: only chartType is dropped, and the
+    // surviving keys are validated against the WIDGET'S EXISTING chart type ('bar' here).
+    it('falls back to the existing chartType and preserves the rest of the config when the patch chartType is invalid', () => {
+      const controller = new StudioController({
+        doc: {
+          widgets: {
+            chart1: {
+              id: 'chart1',
+              kind: 'chart',
+              title: 'Chart',
+              config: { chartType: 'bar', xField: 'category', yField: 'revenue' },
+            },
+          },
+        },
+      });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      controller.updateWidget('chart1', {
+        config: {
+          chartType: 'not-a-real-chart-type',
+          xField: 'region',
+          yField: 'profit',
+        } as unknown as StudioWidgetConfig,
+      });
+
+      const config = controller.getState().doc.widgets.chart1.config as StudioWidgetConfig;
+      // The bogus chartType is dropped, not re-inserted with the fallback value — same
+      // convention `sanitizeWidgetConfigForChartType`'s create-path caller already used
+      // (chartType absence resolves to 'bar' lazily via `resolveChartType` elsewhere).
+      expect(config.chartType).toBeUndefined();
+      expect(config.xField).toBe('region');
+      expect(config.yField).toBe('profit');
+
+      warnSpy.mockRestore();
+    });
+
     it('does not warn and applies changes.config untouched when every key is valid', () => {
       const controller = new StudioController({
         doc: {

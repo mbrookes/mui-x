@@ -9,6 +9,7 @@ import {
 } from '../../context';
 import { useWidgetDefMap } from '../../internals/builtinWidgetDefs';
 import { StudioWidgetErrorBoundary } from '../../internals/StudioWidgetErrorBoundary';
+import { resolveWidgetPageId } from '../../internals/widgetPageResolution';
 
 // ── Built-in widget preview ───────────────────────────────────────────────────
 
@@ -34,18 +35,13 @@ export function BuiltinWidgetPreview({ widgetId }: { widgetId: string }) {
   // page; only this preview did not, and `StudioWidgetEditDialog` is publicly exported and
   // takes only a `widgetId`, so a host can legitimately open it for an off-page widget.
   //
-  // Mirrors `StudioController.resolveWidgetPageIdInDoc`, including its "not in any layout"
-  // fallback to the active page (a widget created but not yet placed).
-  const pageId = React.useMemo(() => {
-    for (const [id, page] of Object.entries(pages)) {
-      for (const row of page.widgetRows ?? []) {
-        if (row.includes(widgetId)) {
-          return id;
-        }
-      }
-    }
-    return activePageId;
-  }, [pages, activePageId, widgetId]);
+  // Shares `resolveWidgetPageId` (`internals/widgetPageResolution.ts`) with
+  // `StudioController.resolveWidgetPageIdInDoc`, including its "not in any
+  // layout" fallback to the active page (a widget created but not yet placed).
+  const pageId = React.useMemo(
+    () => resolveWidgetPageId(pages, activePageId, widgetId),
+    [pages, activePageId, widgetId],
+  );
   const widgetDefMap = useWidgetDefMap();
   const def = widget ? widgetDefMap.get(widget.kind) : undefined;
 

@@ -1,16 +1,7 @@
-import {
-  validateConfigKeysForKind,
-  validateChartConfigKeysForType,
-  isStudioChartType,
-} from '@mui/x-studio-schema';
 import type { StudioController } from '../../store/StudioController';
-import type {
-  BuiltinStudioWidgetKind,
-  StudioChartType,
-  StudioWidget,
-  StudioWidgetKind,
-} from '../../models';
+import type { BuiltinStudioWidgetKind, StudioWidget, StudioWidgetKind } from '../../models';
 import { createDefaultWidget } from '../../internals/widgetUtils';
+import { sanitizeWidgetConfigForChartType } from '../../internals/widgetConfigSanitization';
 import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/localeText';
 import type { StudioLocaleText } from '../../internals/localeText';
 import type { StudioAIConfig } from './studioBackendAdapter';
@@ -53,44 +44,18 @@ function isValidWidgetKind(value: unknown): value is BuiltinStudioWidgetKind {
  * malformed or unexpected server response could inject arbitrary config keys.
  * This guard closes that gap, mirroring the shallow key-presence checks used
  * everywhere else in the package.
+ *
+ * Thin wrapper over the shared {@link sanitizeWidgetConfigForChartType}: this is
+ * a from-scratch CREATE (no prior widget to fall back on), so an absent/invalid
+ * `chartType` falls back to the factory default (`'bar'`) — unlike
+ * `StudioController.sanitizeWidgetConfigForKind`'s UPDATE path, which falls back
+ * to the existing widget's own stored chart type.
  */
 function sanitizeServerWidgetConfig(
   kind: StudioWidgetKind,
   rawConfig: Record<string, unknown>,
 ): Record<string, unknown> {
-  // Kind-level guard: e.g. a Chart-only key returned for a Grid widget. For a
-  // custom / unknown kind `validateConfigKeysForKind` returns `[]` (no restriction).
-  const invalidKindKeys = validateConfigKeysForKind(kind, rawConfig);
-  let config =
-    invalidKindKeys.length > 0
-      ? Object.fromEntries(
-          Object.entries(rawConfig).filter(([key]) => !invalidKindKeys.includes(key)),
-        )
-      : rawConfig;
-
-  if (kind !== 'chart') {
-    return config;
-  }
-
-  // Chart-type guard. An unknown / malformed `chartType` fails closed: drop it so
-  // the merged widget keeps the factory default ('bar') and its keys are validated
-  // against a real family rather than an empty allow-list that would strip everything.
-  const rawChartType = config.chartType;
-  let chartType: StudioChartType = 'bar';
-  if (typeof rawChartType === 'string' && isStudioChartType(rawChartType)) {
-    chartType = rawChartType;
-  } else if (rawChartType !== undefined) {
-    // Drop the bogus chartType so the merged widget keeps the valid factory default.
-    config = Object.fromEntries(Object.entries(config).filter(([key]) => key !== 'chartType'));
-  }
-
-  const invalidChartKeys = validateChartConfigKeysForType(chartType, config);
-  if (invalidChartKeys.length > 0) {
-    config = Object.fromEntries(
-      Object.entries(config).filter(([key]) => !invalidChartKeys.includes(key)),
-    );
-  }
-  return config;
+  return sanitizeWidgetConfigForChartType(kind, rawConfig, 'bar');
 }
 
 /**

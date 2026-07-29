@@ -202,6 +202,7 @@ const AXIS_LABEL_CHAR_PX = 7;
 // 40px horizontally before the axis takes its share. The allowance below covers
 // both, and the pinned axis width is therefore `allowance - 40`.
 const DEFAULT_CHART_MARGIN_X = 40;
+const DEFAULT_CHART_MARGIN_Y = 40;
 // Never pin the axis so tight that its labels cannot render at all.
 const MIN_PINNED_Y_AXIS_WIDTH = 30;
 // y-axis: title(rotated) + tick marks + right overhang of the last x label.
@@ -252,6 +253,7 @@ function resolveVegaViewSize(
     xAxis?: { config: { scaleType?: string; data?: readonly unknown[]; position?: string } };
     yAxis?: { config: { scaleType?: string; data?: readonly unknown[]; position?: string } };
     series?: readonly unknown[];
+    chartKind?: string;
   },
   fallbackWidth: number | undefined,
   fallbackHeight: number | undefined,
@@ -341,10 +343,30 @@ function resolveVegaViewSize(
   // margin for it would only widen/heighten the surface for nothing.
   const yAxisDrawn = compiled.yAxis && compiled.yAxis.config.position !== 'none';
   const xAxisDrawn = compiled.xAxis && compiled.xAxis.config.position !== 'none';
+  // x-charts takes its default 20px margins off every side whether or not an
+  // axis is drawn. The allowances above already cover them (that is why they are
+  // `40 + axis`), but a view with NO axis on that side was adding nothing at
+  // all and silently gave the margins up out of its own plot: `geo_choropleth`
+  // declares 500x300, so the map fitted into 460x260 and rendered at 0.89 of the
+  // reference in BOTH dimensions — the same uniform under-scale across every
+  // plain map. Budget the margins on their own when there is no axis to carry
+  // them.
+  // Only a geo view needs the bare-margin budget. A polar/arc view sizes its
+  // radius from the surface and already matched the reference exactly; giving it
+  // the same +40 pushed every pie and donut to 1.12x.
+  const isGeo = compiled.chartKind === 'geo';
   return {
     width:
-      width !== undefined && yAxisDrawn ? width + yAxisAllowance(compiled.yAxis!.config) : width,
-    height: height !== undefined && xAxisDrawn ? height + X_AXIS_BASE_ALLOWANCE : height,
+      width === undefined
+        ? width
+        : width +
+          (yAxisDrawn
+            ? yAxisAllowance(compiled.yAxis!.config)
+            : (isGeo && DEFAULT_CHART_MARGIN_X) || 0),
+    height:
+      height === undefined
+        ? height
+        : height + (xAxisDrawn ? X_AXIS_BASE_ALLOWANCE : (isGeo && DEFAULT_CHART_MARGIN_Y) || 0),
   };
 }
 

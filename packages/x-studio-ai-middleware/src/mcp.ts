@@ -73,6 +73,7 @@ import {
   jsonResult,
   redactedHostErrorResult,
   safeIdentifier,
+  sanitizeMaxQueryRows,
   withTimeout,
   type ToolHandler,
 } from './mcp/helpers';
@@ -308,7 +309,7 @@ export function buildStudioMcpServer(
     rateLimit,
   } = options;
 
-  const MAX_QUERY_ROWS = data?.maxQueryRows ?? 1000;
+  const MAX_QUERY_ROWS = sanitizeMaxQueryRows(data?.maxQueryRows);
 
   // Session-scoped usage, threaded into the policy context. `committedMutations` is
   // bumped only when a mutation is actually committed to `stateBox.current`.

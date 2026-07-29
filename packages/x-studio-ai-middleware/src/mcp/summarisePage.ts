@@ -22,6 +22,7 @@ import {
   MAX_CONCURRENT_HOST_QUERIES,
   opLabel,
   safeIdentifier,
+  sanitizeMaxQueryRows,
   validateTableName,
   withTimeout,
   type ToolHandler,
@@ -65,15 +66,6 @@ const ANOMALY_SAFE_AGGREGATIONS: ReadonlySet<string> = new Set([
   'sum',
   'count',
 ] satisfies StudioDataAggregation['func'][]);
-
-/**
- * Default `maxQueryRows` fallback when a caller constructs this handler without
- * threading one through (Tier 3 finding 6) — mirrors `mcp.ts`'s own
- * `data?.maxQueryRows ?? 1000` default for `MAX_QUERY_ROWS`, so this handler's
- * anomaly-aggregation query is bounded consistently with every other
- * `data.queryDataSource` call site even if a caller omits `maxQueryRows`.
- */
-const DEFAULT_MAX_QUERY_ROWS = 1000;
 
 /**
  * Hard upper bound on the number of widgets `summarise_page` fans out per-widget
@@ -154,8 +146,8 @@ export function createSummarisePageHandler(deps: {
    * `limit` (Tier 3 finding 6), mirroring `QueryToolDeps.maxQueryRows` (the same
    * host-configured bound `query_data_source` respects). Optional for backward
    * compatibility with existing callers/tests that don't pass it — falls back to
-   * `DEFAULT_MAX_QUERY_ROWS` when omitted, same default `mcp.ts` uses for
-   * `MAX_QUERY_ROWS` when the host supplies none.
+   * the shared `DEFAULT_MAX_QUERY_ROWS` (`./helpers`) when omitted, same default
+   * `mcp.ts` uses for `MAX_QUERY_ROWS` when the host supplies none.
    */
   maxQueryRows?: number;
   /**
@@ -190,13 +182,9 @@ export function createSummarisePageHandler(deps: {
   // unparseable one (`Number(process.env.MAX_QUERY_ROWS)` on an unset variable is
   // `NaN`) made the anomaly query's `Math.min(20_000, maxQueryRows)` evaluate to
   // `NaN` and handed the host `LIMIT NaN` — the exact failure the clamp exists to
-  // prevent, arriving through the clamp itself. The `?? DEFAULT` default only ever
-  // covered an OMITTED value, never an unusable one.
-  const rawMaxQueryRows = Math.trunc(Number(deps.maxQueryRows ?? DEFAULT_MAX_QUERY_ROWS));
-  const maxQueryRows =
-    Number.isFinite(rawMaxQueryRows) && rawMaxQueryRows > 0
-      ? rawMaxQueryRows
-      : DEFAULT_MAX_QUERY_ROWS;
+  // prevent, arriving through the clamp itself. `sanitizeMaxQueryRows` (`./helpers`)
+  // covers both an OMITTED value and an unusable-but-PRESENT one.
+  const maxQueryRows = sanitizeMaxQueryRows(deps.maxQueryRows);
 
   return async (args) => {
     const state = stateBox.current;

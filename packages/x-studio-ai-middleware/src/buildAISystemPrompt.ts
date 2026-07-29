@@ -14,6 +14,7 @@ import type {
 } from './models/aiTypes';
 import { WIDGET_KIND_DESCRIPTIONS, CHART_TYPE_DOCS, KPI_SPARKLINE_DOC } from './widgetConfigMeta';
 import { asString } from './internal/promptCaps';
+import { getWidget, getPage } from './internal/entityLookup';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -188,32 +189,20 @@ export function serializeFieldForAI(
 }
 
 /**
- * `Object.hasOwn`-guarded data-source lookup (mirrors `executeToolOnState.ts`'s
- * `getWidget`/`getPage`). `sources` is a plain object keyed by model-settable
- * `sourceId`s — `add_widget`/`update_widget` accept any string with no existence
- * check — so a bare `sources[id]` walks the prototype chain: an id like
- * `"__proto__"` or `"constructor"` resolves to a truthy inherited value and the
- * widget would be described with a phantom `source: "undefined" (undefined)`
- * instead of "no source" (finding T2-1).
+ * `Object.hasOwn`-guarded data-source lookup (mirrors the shared `getWidget`/`getPage`
+ * in `./internal/entityLookup`, which this file uses for its widget/page lookups —
+ * `sources` has no sibling duplicate elsewhere in the package, so it stays local).
+ * `sources` is a plain object keyed by model-settable `sourceId`s —
+ * `add_widget`/`update_widget` accept any string with no existence check — so a bare
+ * `sources[id]` walks the prototype chain: an id like `"__proto__"` or `"constructor"`
+ * resolves to a truthy inherited value and the widget would be described with a
+ * phantom `source: "undefined" (undefined)` instead of "no source" (finding T2-1).
  */
 function getSource(
   sources: Record<string, StudioDataSource>,
   id: string,
 ): StudioDataSource | undefined {
   return Object.hasOwn(sources, id) ? sources[id] : undefined;
-}
-
-/** `Object.hasOwn`-guarded page lookup (see `getSource`). */
-function getPage(
-  pages: StudioState['doc']['pages'],
-  id: string,
-): StudioState['doc']['pages'][string] | undefined {
-  return Object.hasOwn(pages, id) ? pages[id] : undefined;
-}
-
-/** `Object.hasOwn`-guarded widget lookup (see `getSource`). */
-function getWidget(widgets: StudioState['doc']['widgets'], id: string): StudioWidget | undefined {
-  return Object.hasOwn(widgets, id) ? widgets[id] : undefined;
 }
 
 /**
@@ -783,7 +772,7 @@ function buildDashboardState(
   focusedWidgetId?: string,
   advertisedToolNames?: ReadonlySet<string>,
 ): string {
-  const { dashboard, pages, widgets, filters } = state.doc;
+  const { dashboard, pages, filters } = state.doc;
   const { dataSources } = state.runtime;
   const { mode } = state.session;
 
@@ -791,13 +780,13 @@ function buildDashboardState(
   // `Object.hasOwn`-guarded lookup (finding T2-1): a crafted body
   // `activePageId: "__proto__"` would otherwise resolve to a truthy inherited
   // value and render a phantom `## Active page: "undefined"` block.
-  const activePage = getPage(pages, dashboard.activePageId);
+  const activePage = getPage(state, dashboard.activePageId);
   const activeWidgetIds = (activePage?.widgetRows ?? []).flat();
   const activeWidgets = activeWidgetIds
     // `Object.hasOwn`-guarded lookup (finding T2-1): a crafted body
     // `widgetRows: [["constructor"]]` would otherwise resolve to a truthy inherited
     // value and render a phantom widget, inflating the active-widget count.
-    .map((id) => getWidget(widgets, id))
+    .map((id) => getWidget(state, id))
     .filter((w): w is StudioWidget => w != null);
 
   const sourceList = Object.values(dataSources);
@@ -860,7 +849,7 @@ function buildDashboardState(
             // `Object.hasOwn`-guarded lookups (finding T2-1): a crafted id naming an
             // inherited member ("constructor", "__proto__") must not resolve `widgets`
             // or `widgetColSpans` to a truthy prototype value and render a phantom entry.
-            const w = getWidget(widgets, id);
+            const w = getWidget(state, id);
             const span = Object.hasOwn(widgetColSpans, id) ? widgetColSpans[id] : undefined;
             // `widgetColSpans` is client-asserted (part of the request body), so a
             // crafted `span` could carry a `</dashboard_state>`-style break — sanitize
@@ -924,7 +913,7 @@ function buildDashboardState(
     for (const page of otherPages) {
       const ids = (page.widgetRows ?? []).flat();
       const titles = ids
-        .map((id) => getWidget(widgets, id)?.title)
+        .map((id) => getWidget(state, id)?.title)
         .filter((t): t is string => Boolean(t))
         .map(sanitizeForPromptLine);
       const widgetSummary = titles.length > 0 ? titles.join(', ') : '(no widgets)';

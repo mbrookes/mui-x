@@ -17,12 +17,16 @@ import {
 } from '../toolPolicy';
 import type { StudioAISSEEvent, ApprovalEffectsSummary } from '../models/protocol';
 import { createDataToolHandlers } from '../mcp/dataTools';
-import { opLabel, redactedHostErrorMessage, safeIdentifier, withTimeout } from '../mcp/helpers';
+import {
+  opLabel,
+  redactedHostErrorMessage,
+  safeIdentifier,
+  withTimeout,
+  sanitizeMaxQueryRows,
+} from '../mcp/helpers';
 import { asString } from '../internal/promptCaps';
+import { getWidget, getPage } from '../internal/entityLookup';
 import type { AccumulatedToolCall } from './openaiWire';
-
-/** Default cap on rows `query_data_source` may request, mirroring `mcp.ts`'s default. */
-const DEFAULT_MAX_QUERY_ROWS = 1000;
 
 /**
  * Timeout (ms) for the chat-transport `query_data_source` call into the
@@ -396,19 +400,16 @@ export function buildApprovalDisplayInput(
   state: StudioState,
 ): unknown {
   const input = (toolInput ?? {}) as Record<string, unknown>;
-  // `Object.hasOwn`-guarded lookups (finding T2-1): a prototype-member id must not
-  // resolve to an inherited value via the prototype chain — display-only here, but
-  // kept consistent with the executor's own-property discipline.
-  const readWidget = (id: string): StudioState['doc']['widgets'][string] | undefined =>
-    Object.hasOwn(state.doc.widgets, id) ? state.doc.widgets[id] : undefined;
-  const readPage = (id: string): StudioState['doc']['pages'][string] | undefined =>
-    Object.hasOwn(state.doc.pages, id) ? state.doc.pages[id] : undefined;
+  // `Object.hasOwn`-guarded lookups (finding T2-1) via the shared `getWidget`/`getPage`
+  // (`../internal/entityLookup`): a prototype-member id must not resolve to an
+  // inherited value via the prototype chain — display-only here, but kept consistent
+  // with the executor's own-property discipline.
   if (toolName === 'remove_widget') {
-    const realTitle = readWidget(asString(input.widgetId))?.title;
+    const realTitle = getWidget(state, asString(input.widgetId))?.title;
     return realTitle !== undefined ? { ...input, widgetTitle: realTitle } : toolInput;
   }
   if (toolName === 'remove_page') {
-    const realTitle = readPage(asString(input.pageId))?.title;
+    const realTitle = getPage(state, asString(input.pageId))?.title;
     return realTitle !== undefined ? { ...input, pageTitle: realTitle } : toolInput;
   }
   if (toolName === 'apply_bulk_update') {
@@ -422,7 +423,7 @@ export function buildApprovalDisplayInput(
         ...input,
         widgetRemovals: removals.map((id) => {
           const widgetId = asString(id);
-          return { id: widgetId, title: readWidget(widgetId)?.title ?? '(unknown widget)' };
+          return { id: widgetId, title: getWidget(state, widgetId)?.title ?? '(unknown widget)' };
         }),
       };
     }
@@ -452,12 +453,10 @@ export function buildApprovalEffectsSummary(
   if (!effects) {
     return undefined;
   }
-  const widgetTitle = (id: string): string =>
-    (Object.hasOwn(state.doc.widgets, id) ? state.doc.widgets[id]?.title : undefined) ??
-    '(unknown widget)';
-  const pageTitle = (id: string): string =>
-    (Object.hasOwn(state.doc.pages, id) ? state.doc.pages[id]?.title : undefined) ??
-    '(unknown page)';
+  // `Object.hasOwn`-guarded lookups (finding T2-1) via the shared `getWidget`/`getPage`
+  // (`../internal/entityLookup`) — see `buildApprovalDisplayInput` above.
+  const widgetTitle = (id: string): string => getWidget(state, id)?.title ?? '(unknown widget)';
+  const pageTitle = (id: string): string => getPage(state, id)?.title ?? '(unknown page)';
 
   const summary: ApprovalEffectsSummary = {};
   if (effects.removedWidgetIds.length > 0) {
@@ -842,7 +841,7 @@ export async function* dispatchToolCall(
         const handlers = createDataToolHandlers({
           stateBox: { current: currentState },
           data: ctx.data,
-          maxQueryRows: ctx.data.maxQueryRows ?? DEFAULT_MAX_QUERY_ROWS,
+          maxQueryRows: sanitizeMaxQueryRows(ctx.data.maxQueryRows),
           recentChanges: [],
           logger: {
             log: () => {},

@@ -21,6 +21,7 @@ import {
   ownArrayEntry,
   redactedHostErrorResult,
   safeIdentifier,
+  sanitizeMaxQueryRows,
   validateTableName,
   withTimeout,
   type ToolHandler,
@@ -508,28 +509,6 @@ const MAX_DESCRIBE_DATA_SOURCE_NUMERIC_FIELDS = MAX_COMPUTE_FIELD_STATS_FIELDS;
  * which keyset pagination (a filter on the sort column) is the right tool anyway.
  */
 const MAX_QUERY_OFFSET = 1_000_000;
-
-/**
- * Fallback used when a host supplies a `maxQueryRows` that is not a usable positive
- * number (finding L2). `maxQueryRows` is host configuration, but it is configuration
- * — `Number(process.env.MAX_QUERY_ROWS)` on an unset variable is `NaN` — and it was
- * forwarded into `Math.min(Math.max(1, limit || maxQueryRows), maxQueryRows)`
- * unvalidated, which yields `NaN` and hands the host `LIMIT NaN`: the exact failure
- * the clamp exists to prevent, arriving through the clamp itself. Mirrors `mcp.ts`'s
- * own `data?.maxQueryRows ?? 1000` default and `summarisePage.ts`'s
- * `DEFAULT_MAX_QUERY_ROWS`.
- */
-const DEFAULT_MAX_QUERY_ROWS = 1000;
-
-/**
- * Coerce a host-supplied `maxQueryRows` to a usable positive integer, falling back to
- * {@link DEFAULT_MAX_QUERY_ROWS} — see that constant for why a host-supplied value
- * still needs validating.
- */
-function sanitizeMaxQueryRows(value: number): number {
-  const truncated = Math.trunc(Number(value));
-  return Number.isFinite(truncated) && truncated > 0 ? truncated : DEFAULT_MAX_QUERY_ROWS;
-}
 
 /** The shape of a resolved, queryable data source: guaranteed to have a `tableName`. */
 type ResolvedSource = StudioStateBox['current']['runtime']['dataSources'][string] & {

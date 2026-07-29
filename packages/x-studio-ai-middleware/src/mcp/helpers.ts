@@ -446,6 +446,33 @@ export async function mapWithConcurrency<T, R>(
   return results;
 }
 
+/**
+ * Default `maxQueryRows` fallback shared by every `data.queryDataSource` call site in
+ * this package (`mcp.ts`, `agenticLoop/toolDispatch.ts`, `mcp/queryTools.ts`,
+ * `mcp/summarisePage.ts`). `maxQueryRows` is host configuration, but it is
+ * configuration — `Number(process.env.MAX_QUERY_ROWS)` on an unset variable is
+ * `NaN` — so a bare `data?.maxQueryRows ?? 1000` fallback (as two of the four sites
+ * used to write it) only ever covers an OMITTED value, never an unusable one: a
+ * malformed but PRESENT config value (`NaN`, `0`, a negative number, a non-numeric
+ * string) sailed straight through the `??` and on into `Math.min`/`Math.max` clamps,
+ * yielding `NaN` and handing the host `LIMIT NaN` — the exact failure the clamp
+ * exists to prevent, arriving through the clamp itself.
+ */
+export const DEFAULT_MAX_QUERY_ROWS = 1000;
+
+/**
+ * Coerce a host-supplied `maxQueryRows` to a usable positive integer, falling back to
+ * {@link DEFAULT_MAX_QUERY_ROWS} for anything that isn't one — including `undefined`
+ * (an omitted value), so callers can pass a possibly-absent value straight through
+ * without an extra `?? DEFAULT_MAX_QUERY_ROWS` of their own. See
+ * {@link DEFAULT_MAX_QUERY_ROWS} for why a host-supplied value still needs validating
+ * rather than trusting its declared `number` type.
+ */
+export function sanitizeMaxQueryRows(value: unknown): number {
+  const truncated = Math.trunc(Number(value));
+  return Number.isFinite(truncated) && truncated > 0 ? truncated : DEFAULT_MAX_QUERY_ROWS;
+}
+
 declare const operationLabelBrand: unique symbol;
 
 /**

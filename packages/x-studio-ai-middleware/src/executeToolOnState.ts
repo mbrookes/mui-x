@@ -34,6 +34,7 @@ import type {
 } from './models/studioTypes';
 import type { StateMutation, StudioAIToolName } from './models/aiTypes';
 import { asString } from './internal/promptCaps';
+import { getWidget, getPage } from './internal/entityLookup';
 // `MAX_GENERATED_TITLE_LENGTH` must match `handleGenerateTitle`'s generated-title cap
 // (see the comment at its definition) — imported rather than duplicated as a bare
 // literal so the two can't silently drift apart.
@@ -1306,16 +1307,6 @@ export interface ExternalToolImpl {
  */
 function hasOwnEntity(map: object, id: string): boolean {
   return Object.hasOwn(map, id);
-}
-
-/** `Object.hasOwn`-guarded widget lookup (see `hasOwnEntity`). */
-function getWidget(state: StudioState, id: string): StudioWidget | undefined {
-  return Object.hasOwn(state.doc.widgets, id) ? state.doc.widgets[id] : undefined;
-}
-
-/** `Object.hasOwn`-guarded page lookup (see `hasOwnEntity`). */
-function getPage(state: StudioState, id: string): StudioState['doc']['pages'][string] | undefined {
-  return Object.hasOwn(state.doc.pages, id) ? state.doc.pages[id] : undefined;
 }
 
 /**

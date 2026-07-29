@@ -469,8 +469,10 @@ describe('planFacets', () => {
     } as unknown as VegaLiteSpec;
     const [cell] = planFacets(spec, SIZE)!.cells;
     // Two `study` categories at the default 20px step, plus the allowance the
-    // layer-supplied (and therefore genuinely drawn) x axis needs on both sides.
-    expect(cell.height).to.equal(2 * 20 + 40 + 24);
+    // layer-supplied (and therefore genuinely drawn) x axis needs on both sides,
+    // plus the extra line its title takes (Vega titles an axis with the field
+    // name unless the def opts out).
+    expect(cell.height).to.equal(2 * 20 + 40 + 24 + 22);
   });
 
   it('sizes an entirely absent positional channel of a concat cell as one implicit band', () => {
@@ -487,8 +489,9 @@ describe('planFacets', () => {
       ],
     } as unknown as VegaLiteSpec;
     const [cell] = planFacets(spec, SIZE)!.cells;
-    // 20px band + the drawn x-axis allowance, well under the 200px default view.
-    expect(cell.height).to.equal(20 + 40 + 24);
+    // 20px band + the drawn (and titled) x-axis allowance, well under the 200px
+    // default view.
+    expect(cell.height).to.equal(20 + 40 + 24 + 22);
     expect(cell.height).to.be.lessThan(200);
   });
 

@@ -1440,11 +1440,20 @@ export function resolveAxes(
   return { x, y, grid };
 }
 
-/** A one-category band axis for aggregate-only bars (implicit "all" category). */
+/**
+ * A one-category band axis for aggregate-only bars (implicit "all" category).
+ *
+ * Drawn as `position: 'none'`: the channel is absent from the spec, so
+ * Vega-Lite renders no axis guide for it at all, and the sole category is the
+ * empty string — there is nothing to label. Reserving axis space for it also
+ * shortened the plot by ~25px, which broke alignment with sibling concat cells
+ * (`concat_population_pyramid`'s age-label column rendered 355px tall against
+ * its neighbours' 381px, so the labels no longer lined up with their bars).
+ */
 function syntheticBandAxis(channel: 'x' | 'y'): AxisResolution {
   const category = '';
   return {
-    config: { id: `vega-${channel}`, scaleType: 'band', data: [category] },
+    config: { id: `vega-${channel}`, scaleType: 'band', data: [category], position: 'none' },
     fieldType: 'nominal',
     categories: [category],
     categoryKeys: [categoryKey(category)],

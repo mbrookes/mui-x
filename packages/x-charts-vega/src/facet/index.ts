@@ -712,10 +712,37 @@ const CONCAT_SPACING = 15;
 // rendered geometry: an 80px-wide cell measured a 65px left margin and a 20px
 // right one, so budgeting only the left allowance left the plot at −5px.
 const CONCAT_PLOT_FAR_PAD = 24;
+// A concat cell renders as its own chart with x-charts' DEFAULT_MARGINS (20 per
+// side), so an edge that draws NO axis still costs 20 — and both edges of that
+// dimension cost 40. The small `HIDDEN_AXIS_PAD` used for trellis cells is wrong
+// here because those override their margins via `FACET_CELL_MARGIN` and concat
+// cells do not: measured on `concat_population_pyramid`, a 208px budget for a
+// 200px plot with `axis: null` rendered 168px, exactly 40 short.
+const CONCAT_HIDDEN_AXIS_PAD = 40;
+// An axis title is a second line beyond the tick labels. Measured on the same
+// cells: a drawn x axis spans 23px with `title: ""` and 45px with a real title,
+// and a y axis is wider by the same amount for its rotated title.
+const AXIS_TITLE_ALLOWANCE = 22;
 
 /** Whether a channel draws its axis (shown unless `axis: null`), i.e. reserves label room. */
 function channelAxisShown(def: VegaChannelDef | undefined): boolean {
   return isFieldDef(def) && def.axis !== null;
+}
+
+/**
+ * Whether a drawn axis also renders a title. Vega-Lite defaults an axis title to
+ * the field name, so a field def is titled unless it opts out with `title: null`
+ * or `title: ""` — which is exactly how `concat_marginal_histograms` keeps its
+ * marginal count axes thin.
+ */
+function channelAxisTitled(def: VegaChannelDef | undefined): boolean {
+  if (!isFieldDef(def)) {
+    return false;
+  }
+  const title = (def as { title?: unknown }).title;
+  const axisTitle = (def.axis as { title?: unknown } | null | undefined)?.title;
+  const resolved = axisTitle !== undefined ? axisTitle : title;
+  return resolved !== null && resolved !== '';
 }
 
 /**
@@ -822,10 +849,18 @@ function naturalConcatSize(
     // x-charts rendered no marks whatsoever.
     width:
       plotWidth +
-      (channelAxisShown(yDef) ? yAxisAllowance(yDef, rows) + CONCAT_PLOT_FAR_PAD : HIDDEN_AXIS_PAD),
+      (channelAxisShown(yDef)
+        ? yAxisAllowance(yDef, rows) +
+          CONCAT_PLOT_FAR_PAD +
+          (channelAxisTitled(yDef) ? AXIS_TITLE_ALLOWANCE : 0)
+        : CONCAT_HIDDEN_AXIS_PAD),
     height:
       plotHeight +
-      (channelAxisShown(xDef) ? CELL_X_AXIS_ALLOWANCE + CONCAT_PLOT_FAR_PAD : HIDDEN_AXIS_PAD),
+      (channelAxisShown(xDef)
+        ? CELL_X_AXIS_ALLOWANCE +
+          CONCAT_PLOT_FAR_PAD +
+          (channelAxisTitled(xDef) ? AXIS_TITLE_ALLOWANCE : 0)
+        : CONCAT_HIDDEN_AXIS_PAD),
   };
 }
 

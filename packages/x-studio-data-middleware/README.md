@@ -1,6 +1,6 @@
 # `@mui/x-studio-data-middleware`
 
-Framework-agnostic server middleware for [MUI X Studio](https://mui.com/x/react-studio/) data pipelines.
+Framework-agnostic server middleware for [MUI X Studio](https://mui.com/x/react-studio/) data pipelines.
 
 Provides a single `handleBatchQuery()` pure function that accepts a batch of widget queries, applies multi-tenant row-level security predicates, routes each query through the optimal execution tier (client / server-memory / database), and returns cached results — all without any HTTP framework dependency.
 
@@ -281,11 +281,11 @@ Constructor options: `defaultTtlSeconds` (default `300`), `keyPrefix` (optional)
 
 ### `CacheProvider` interface
 
-Implement this interface to use a custom data cache backend (e.g. Redis). Methods: `get(key)`, `set(key, value, ttlSeconds?)`, `invalidatePrefix(prefix)`.
+Implement this interface to use a custom data cache backend (for example, Redis). Methods: `get(key)`, `set(key, value, ttlSeconds?)`, `invalidatePrefix(prefix)`.
 
 ### `TierCacheProvider` interface
 
-Implement this interface to use a custom tier routing cache backend (e.g. Redis for multi-node). Methods: `get(key)`, `set(key, value, ttlMs?)`, `invalidatePrefix(prefix)`. Built-in implementations: `MapTierCacheProvider` (in-process `Map` with per-entry TTL) and `RedisTierCacheProvider` (distributed).
+Implement this interface to use a custom tier routing cache backend (for example, Redis for multi-node). Methods: `get(key)`, `set(key, value, ttlMs?)`, `invalidatePrefix(prefix)`. Built-in implementations: `MapTierCacheProvider` (in-process `Map` with per-entry TTL) and `RedisTierCacheProvider` (distributed).
 
 ## Routing thresholds (benchmark baseline)
 
@@ -305,4 +305,4 @@ Default thresholds (`clientTier: 10_000`, `serverMemoryTier: 100_000`) are deriv
 
 ## License
 
-This package is part of [MUI X](https://github.com/mui/mui-x) and follows the same licensing terms.
+This package is part of [MUI X](https://github.com/mui/mui-x) and follows the same licensing terms.

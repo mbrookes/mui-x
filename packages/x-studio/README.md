@@ -1,7 +1,7 @@
-# MUI X Studio
+# MUI X Studio
 
 An embedded analytics studio for building interactive dashboards inside your app.
-It's part of [MUI X](https://mui.com/x/), an open-core extension of our Core libraries, with advanced components.
+It's part of [MUI X](https://mui.com/x/), an open-core extension of our Core libraries, with advanced components.
 
 ## Installation
 

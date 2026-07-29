@@ -111,7 +111,7 @@ badge below the headline value shows the percentage change and an up/down arrow.
 By default, an increase is positive (green) and a decrease is negative (red).
 
 For KPIs where a lower value is better (such as error rate or cost), set
-`invertTrend: true` to flip the colour logic.
+`invertTrend: true` to flip the color logic.
 
 ```ts
 const kpiConfig: StudioKpiConfig = {
@@ -147,7 +147,7 @@ not emit cross-filter events when clicked.
 
 ## Trend badge styling
 
-The trend badge is displayed as a pill chip: a semi-transparent background in the trend colour (8% alpha) and a 1 px solid border. Green indicates a positive trend, red indicates a negative trend (or vice-versa when `invertTrend` is set).
+The trend badge is displayed as a pill chip: a semi-transparent background in the trend color (8% alpha) and a 1 px solid border. Green indicates a positive trend, red indicates a negative trend (or vice-versa when `invertTrend` is set).
 
 ## Gauge sparkline
 
@@ -176,7 +176,7 @@ import { StudioKpiWidget } from '@mui/x-studio';
 <StudioKpiWidget config={kpiConfig} width={300} height={160} />;
 ```
 
-## Resize behaviour
+## Resize behavior
 
 KPI widgets can be resized horizontally via the drag handle that appears between adjacent widgets in edit mode.
 

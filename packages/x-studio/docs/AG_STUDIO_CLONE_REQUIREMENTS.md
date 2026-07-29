@@ -1,8 +1,8 @@
-# AG Studio Clone Requirements (MUI X + Material UI)
+# AG Studio Clone Requirements (MUI X + Material UI)
 
 ## 1. Document purpose
 
-This document defines a detailed feature and requirement specification for building an AG Studio-like experience using MUI X (Data Grid, Charts) and Material UI components.
+This document defines a detailed feature and requirement specification for building an AG Studio-like experience using MUI X (Data Grid, Charts) and Material UI components.
 
 It is organized for product, design, and engineering use, and includes:
 
@@ -48,12 +48,12 @@ Each requirement includes:
 - Priority: must, should, could.
 - Scope tier: MVP or Parity+.
 - Description.
-- Implementation notes (MUI X / Material UI direction).
+- Implementation notes (MUI X / Material UI direction).
 - Acceptance criteria.
 
 ## 4. Source review summary
 
-The requirements below are informed by public AG Studio product/docs/demo/API behavior patterns and mapped to MUI X + Material UI implementation strategy.
+The requirements below are informed by public AG Studio product/docs/demo/API behavior patterns and mapped to MUI X + Material UI implementation strategy.
 
 Publicly confirmed from https://www.ag-grid.com/studio/ as of 18 April 2026:
 
@@ -130,7 +130,7 @@ Principles:
 - Priority: must
 - Scope: MVP
 - Description: Main shell MUST expose dedicated Data, Compose, and Filters authoring surfaces. For this clone, these surfaces use collapsible drawers.
-- Implementation notes: Material UI Drawer components; drawers toggled via top bar buttons or keyboard shortcuts.
+- Implementation notes: Material UI Drawer components; drawers toggled via top bar buttons or keyboard shortcuts.
 - AG Studio docs: [Panels](https://www.ag-grid.com/studio/react/modes-layout/#panels) · [Configuring Panels](https://www.ag-grid.com/studio/react/modes-layout/#configuring-panels) · [Properties Reference (`panels`)](https://www.ag-grid.com/studio/react/studio-properties/#reference-layout)
 - Acceptance criteria:
   1. Each drawer (Data, Compose, Filters) can be opened and dismissed independently.
@@ -240,7 +240,7 @@ Principles:
 - Priority: must
 - Scope: MVP
 - Description: Provide widget gallery with core widget types.
-- Implementation notes: Material UI cards/list + category tabs.
+- Implementation notes: Material UI cards/list + category tabs.
 - AG Studio docs: [Customising Panel Content (`overrides.widgetTypes`)](https://www.ag-grid.com/studio/react/modes-layout/#customising-panel-content)
 - Acceptance criteria:
   1. Widget categories are discoverable.
@@ -281,13 +281,13 @@ Principles:
   1. Export action disabled when unsupported.
   2. Export output matches visible widget content.
 
-## 7D. Grid/table widget requirements (MUI X Data Grid)
+## 7D. Grid/table widget requirements (MUI X Data Grid)
 
 ### XS-GRID-001
 
 - Priority: must
 - Scope: MVP
-- Description: Table widget uses MUI X Data Grid with virtualization.
+- Description: Table widget uses MUI X Data Grid with virtualization.
 - Implementation notes: DataGridPro or equivalent capability set.
 - AG Studio docs: [Customising Panel Content (`overrides.widgets`)](https://www.ag-grid.com/studio/react/modes-layout/#customising-panel-content) · [State (`widgets[].type: 'grid'`)](https://www.ag-grid.com/studio/react/state/)
 - Acceptance criteria:
@@ -326,14 +326,14 @@ Principles:
 - Acceptance criteria:
   1. Pinned columns remain stable during horizontal scroll.
 
-## 7E. Chart widget requirements (MUI X Charts)
+## 7E. Chart widget requirements (MUI X Charts)
 
 ### XS-CHART-001
 
 - Priority: must
 - Scope: MVP
 - Description: Core chart types: bar, line, pie/donut.
-- Implementation notes: MUI X Charts components with unified config model.
+- Implementation notes: MUI X Charts components with unified config model.
 - AG Studio docs: [State (`widgets[].type: 'chart'`)](https://www.ag-grid.com/studio/react/state/) · [Data](https://www.ag-grid.com/studio/react/data/)
 - Acceptance criteria:
   1. User maps x/category and y/measure fields.
@@ -655,14 +655,14 @@ Principles:
   2. Assistant can explain proposed changes before applying them.
   3. AI actions are auditable and reversible.
 
-## 8. MUI X and Material UI mapping
+## 8. MUI X and Material UI mapping
 
-## 8.1 MUI X primary usage
+## 8.1 MUI X primary usage
 
 - Data Grid: table widget rendering, sorting, grouping, aggregation surfaces.
 - Charts: bar/line/pie/scatter/area and grouped/stacked variants where available.
 
-## 8.2 Material UI primary usage
+## 8.2 Material UI primary usage
 
 - App shell: top bar, menus, dialogs, tabs, drawers.
 - Panels/forms: setup and format controls, filters, validation messages.
@@ -730,7 +730,7 @@ MVP excludes:
 
 ### 11.1 Key risks
 
-1. Feature parity pressure can conflict with MUI X chart type availability.
+1. Feature parity pressure can conflict with MUI X chart type availability.
 2. Clone-specific drawer shell and structured layout choices may diverge from AG Studio's exact private implementation.
 3. Expression engine quality affects trust in calculated fields/measures.
 4. Production-ready code generation across four framework targets is a significant parity investment.
@@ -738,15 +738,15 @@ MVP excludes:
 
 ### 11.2 Assumptions
 
-1. MUI X components in the target environment are available at required tier/license.
+1. MUI X components in the target environment are available at required tier/license.
 2. Studio state persistence backend is provided by host application.
 3. Data source adapters are host-provided, studio consumes normalized contracts.
 
 ### 11.3 Open decisions
 
 1. Chart strategy for unsupported parity types:
-   - Option A: strict MUI X only.
-   - Option B: MUI X first with fallback extension chart adapters.
+   - Option A: strict MUI X only.
+   - Option B: MUI X first with fallback extension chart adapters.
 2. Exact data volume SLOs per environment.
 3. Export format commitments for MVP vs Parity+.
 4. Whether framework code generation is literal source generation or configuration export plus host wrappers.

@@ -22,7 +22,7 @@ axe-core / Lighthouse and a screen reader before sign-off.
 
 > Note on MUI baseline: MUI `Dialog`/`Modal`/`Drawer`/`Popover`/`Menu` bring
 > focus trapping, Escape handling, and focus restoration; `TextField`/`Select`
-> wrapped in `FormControl`+`InputLabel` are correctly labelled; `IconButton`s
+> wrapped in `FormControl`+`InputLabel` are correctly labeled; `IconButton`s
 > across the package generally carry real `aria-label`s backed by locale keys.
 > The findings below are where that baseline is **overridden, hand-rolled, or
 > bypassed** — not blanket MUI usage.
@@ -75,7 +75,7 @@ scattered one-offs. Fixing the patterns fixes most of the package.
 5. **Unlabeled form controls (Serious).** A number of `Select`, `Switch`, and
    `NumberField` controls render with no `InputLabel`/`aria-label`, so screen
    readers announce an unnamed combobox/spinbutton with no indication of
-   purpose. (The majority of the package's forms _are_ correctly labelled — these
+   purpose. (The majority of the package's forms _are_ correctly labeled — these
    are the exceptions.)
 
 Secondary themes: missing live regions for async/no-data/error states; color as
@@ -190,7 +190,7 @@ table/tab semantics (APG Tabs rail, heatmap grid, pivot header `scope`).
 
 > **Disclosure widgets (C-level via `CollapsibleSection`):** see S1 — the shared
 > `CollapsibleSection` toggle is keyboard-inoperable, which is Critical for any
-> content only reachable by expanding it (e.g. text-format panels). It is listed
+> content only reachable by expanding it (for example, text-format panels). It is listed
 > under Serious below because the same root fix resolves all instances.
 
 ---
@@ -409,7 +409,7 @@ onClick` header; the `Switch` (`:81-85`) has no associated label (visible
   `getAriaValueText={formatLabel}` + per-thumb `getAriaLabel`. — SC 4.1.2 (APG
   Slider)
 - **M12. Multi-select trigger `Select` has no accessible name** (only the outer
-  `role="group"` is labelled): `MultiSelectControl.tsx:80-97`. — SC 4.1.2
+  `role="group"` is labeled): `MultiSelectControl.tsx:80-97`. — SC 4.1.2
 - **M13. Insight type-switcher: no `aria-pressed`/`aria-current`, color-only
   active state, `cursor: 'default'`:** `StudioInsightPanel/StudioInsightPanel.tsx:100-120`.
   — SC 1.4.1, 4.1.2
@@ -485,7 +485,7 @@ onClick` header; the `Switch` (`:81-85`) has no associated label (visible
 ## Confirmed good (no action) — selected
 
 - `internals/NumberField.tsx` — label via `InputLabel htmlFor`, `aria-describedby`
-  always resolves, increment/decrement buttons `aria-label`led, Base UI spinbutton
+  always resolves, increment/decrement buttons `aria-label`led, Base UI spinbutton
   semantics.
 - `internals/StudioNoDataOverlay.tsx` (`role="status"`) and
   `StudioWidgetErrorOverlay.tsx` (`role="alert"`).
@@ -493,9 +493,9 @@ onClick` header; the `Switch` (`:81-85`) has no associated label (visible
   `defaultPrevented` / Alt; only intercepts undo/redo; no focus trap.
 - `StudioChatPanel` send/stop button, thread `Menu`, overlay close button —
   proper names + MUI focus management.
-- `StudioWidgetEditDialog` (MUI `Dialog` + labelled tabs + `role="tabpanel"`),
+- `StudioWidgetEditDialog` (MUI `Dialog` + labeled tabs + `role="tabpanel"`),
   delete-confirm dialog (`aria-labelledby`/`describedby` + focus return),
-  `FilterRow`/`WidgetFiltersPanel` (labelled MUI controls), `PivotTable` (real
+  `FilterRow`/`WidgetFiltersPanel` (labeled MUI controls), `PivotTable` (real
   `<table>`/`<th>` + CSV export `<Button>`).
 - The large majority of `Select`/`TextField` forms across the compose/data/filter
   drawers are correctly wrapped in `FormControl`+`InputLabel`, and icon-only
@@ -574,7 +574,7 @@ onClick` header; the `Switch` (`:81-85`) has no associated label (visible
 
 - **Sidebar `complementary` landmark** and a programmatic page heading (the
   canvas `<main>` landmark is done).
-- **m7 (broader)** — the chart _config_ surfaces (e.g. the large
+- **m7 (broader)** — the chart _config_ surfaces (for example, the large
   `StudioChartWidget`/setup panels) still contain hardcoded English unrelated to
   the accessible names; a dedicated i18n pass over those is out of scope here.
 - **Runtime audit** (axe-core + screen reader) to close all "needs verification"

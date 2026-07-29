@@ -7,7 +7,7 @@ Refer to @AGENTS.local.md for personal workflow preferences.
 
 ## Repository overview
 
-MUI X is a pnpm monorepo managed with Lerna. Public packages live under `packages/` and are published as `@mui/x-*`. The `examples/` directory holds standalone Vite/React apps that are **never published**.
+MUI X is a pnpm monorepo managed with Lerna. Public packages live under `packages/` and are published as `@mui/x-*`. The `examples/` directory holds standalone Vite/React apps that are **never published**.
 
 Key packages:
 

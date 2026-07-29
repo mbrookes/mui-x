@@ -277,11 +277,11 @@ const heatmapConfig: StudioWidgetConfig = {
 
 ### Legend
 
-Use `heatLegendPosition` and `heatLegendAlign` to show a colour-scale legend on the heatmap:
+Use `heatLegendPosition` and `heatLegendAlign` to show a color-scale legend on the heatmap:
 
 | Property             | Type                                                 | Default    | Description                                       |
 | :------------------- | :--------------------------------------------------- | :--------- | :------------------------------------------------ |
-| `heatLegendPosition` | `'bottom' \| 'top' \| 'left' \| 'right' \| 'hidden'` | `'hidden'` | Where to place the colour-scale legend.           |
+| `heatLegendPosition` | `'bottom' \| 'top' \| 'left' \| 'right' \| 'hidden'` | `'hidden'` | Where to place the color-scale legend.            |
 | `heatLegendAlign`    | `'start' \| 'center' \| 'end'`                       | `'center'` | Alignment of the legend within its position slot. |
 
 ```ts

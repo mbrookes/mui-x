@@ -94,7 +94,7 @@ No preset selector, no preset definitions anywhere in `packages/x-studio/src/`. 
 **Gaps:**
 
 - Edit mode does not adapt to narrow viewports; all three drawers still render unconditionally.
-- No collapsible-drawer behaviour on mobile in edit mode.
+- No collapsible-drawer behavior on mobile in edit mode.
 
 ---
 
@@ -211,7 +211,7 @@ Full implementation in `StudioKpiWidget.tsx`:
 
 **Gaps:**
 
-- No per-column date format picker (e.g. `dd/MM/yyyy` vs `MMM yyyy`).
+- No per-column date format picker (for example, `dd/MM/yyyy` vs `MMM yyyy`).
 - No per-column text alignment control (left/center/right).
 - Changes to formatting are not surfaced as UI controls in the Compose drawer's Format tab (only title/subtitle and compact mode appear in `FormatPanel`).
 
@@ -247,7 +247,7 @@ Beyond the spec, the implementation adds:
 - **Date grouping on X-axis** (day/week/month/quarter/year) for time-series charts.
 - **Multiple Y-series** support (up to N fields selectable as separate series).
 - **Split-by (color/series) field** producing a multi-series chart from a single Y-field grouped by a categorical dimension.
-- Type switching preserves compatible field mappings (e.g., bar → line keeps x/y fields).
+- Type switching preserves compatible field mappings (for example, bar → line keeps x/y fields).
 
 AG Studio's reference docs do not describe multi-series or date-grouping with this level of granularity.
 
@@ -257,8 +257,8 @@ AG Studio's reference docs do not describe multi-series or date-grouping with th
 
 **Status: ✅ Implemented**
 
-- **Tooltips** via MUI X Charts' built-in tooltip component (shown on hover).
-- **Series highlighting** on hover via MUI X Charts default behavior.
+- **Tooltips** via MUI X Charts' built-in tooltip component (shown on hover).
+- **Series highlighting** on hover via MUI X Charts default behavior.
 - **Cross-filter from click:** `onAxisClick` (bar/line/area) and `onItemClick` (pie) emit `crossFilter` updates to the store, filtering all other bound widgets. A "Clear cross-filter" button appears in the widget action bar when a cross-filter is active.
 
 ---
@@ -269,7 +269,7 @@ AG Studio's reference docs do not describe multi-series or date-grouping with th
 
 Heatmap (`StudioHeatmapWidget`), funnel (`StudioFunnelWidget`), Gantt (`StudioGanttWidget`), and gauge are all implemented — surpassing AG Studio's chart offering. Only histogram and treemap remain unimplemented.
 
-**Remaining gap:** Histogram and treemap chart types are absent. MUI X Charts does not yet ship these types; correctly deferred.
+**Remaining gap:** Histogram and Treemap chart types are absent. MUI X Charts does not yet ship these types; correctly deferred.
 
 ---
 
@@ -289,7 +289,7 @@ Heatmap (`StudioHeatmapWidget`), funnel (`StudioFunnelWidget`), Gantt (`StudioGa
 
 `StudioRelationship` model (`from`, `to`, `fromField`, `toField`, `type: 'many-to-one' | 'one-to-one'`) is defined and stored in `state.relationships`. `getReachableSourceIds(sourceId, relationships)` utility resolves the transitive join graph. This powers cross-source field access in chart multi-series and KPI sparkline configs.
 
-**Surpasses AG Studio:** AG Studio's reference page mentions a `sharedDataEngine` concept but does not detail a declarative relationship/join model at this level. The MUI X implementation's explicit relationship graph is more transparent.
+**Surpasses AG Studio:** AG Studio's reference page mentions a `sharedDataEngine` concept but does not detail a declarative relationship/join model at this level. The MUI X implementation's explicit relationship graph is more transparent.
 
 ---
 
@@ -327,7 +327,7 @@ AG Studio's docs mention `expressionFields` as a config key but provide no detai
 **Surpasses AG Studio:**
 
 - **Relative date values** (`RelativeDateValue` type): filter values like "5 days ago", "2 weeks from now" using `past`/`next` + unit — not in AG Studio's public filter API.
-- **`StudioMetricRef`** — filter values dynamically driven by an aggregated business metric from a named data source row (e.g. "filter where value > max(kpiSource, 'revenue')") — not documented in AG Studio.
+- **`StudioMetricRef`** — filter values dynamically driven by an aggregated business metric from a named data source row (for example, "filter where value > max(kpiSource, 'revenue')") — not documented in AG Studio.
 - **Rank filter mode** (`filterMode: 'rank'`): top-N / bottom-N rows by a measure field with configurable `rankDirection` and count — not in AG Studio docs.
 - **Selection filter mode** (`filterMode: 'selection'`): filter by a set of selected values (multi-value checkbox list) — not in AG Studio docs.
 - Filter counts shown as badge on the Filters drawer tab.
@@ -372,7 +372,7 @@ The Filters drawer groups filters into three collapsible sections: "Page filters
 
 **Gaps:**
 
-- No inline validation on filter field/operator/value inputs (e.g., no error shown for a blank value on an `equals` filter).
+- No inline validation on filter field/operator/value inputs (for example, no error shown for a blank value on an `equals` filter).
 - No comprehensive form validation on the Compose drawer inputs.
 - No accessible `role="alert"` live region for validation messages.
 
@@ -382,7 +382,7 @@ The Filters drawer groups filters into three collapsible sections: "Page filters
 
 **Status: ⚠️ Partially implemented**
 
-`utils/fieldCapabilities.ts` defines a typed capability system: each field carries `numeric`, `categorical`, `temporal`, `rankTarget` capabilities. The field pickers in Setup panels filter options by capability (e.g., only temporal fields appear in the date-group selector).
+`utils/fieldCapabilities.ts` defines a typed capability system: each field carries `numeric`, `categorical`, `temporal`, `rankTarget` capabilities. The field pickers in Setup panels filter options by capability (for example, only temporal fields appear in the date-group selector).
 
 **Gap:** No proactive "suggested mapping" UI. When a new widget is created and a source is selected, the app doesn't auto-suggest which field to map where. The spec calls for a short list of recommended fields shown at the top of each picker.
 
@@ -394,11 +394,11 @@ The Filters drawer groups filters into three collapsible sections: "Page filters
 
 `PageConfigPanel` in `StudioComposeDrawer.tsx` provides:
 
-- Page background colour (native `<input type="color">` + hex text field).
-- Card background colour.
+- Page background color (native `<input type="color">` + hex text field).
+- Card background color.
 - Card padding (None / Small / Medium / Large).
 - Card corner radius (px input).
-- Card border toggle, border colour, border width.
+- Card border toggle, border color, border width.
 
 All values persist in `StudioPageTheme` on `state.pages[id].theme`. Canvas reads theme in `StudioCanvas.tsx`.
 
@@ -622,7 +622,7 @@ Chart PNG export is implemented in `StudioChartWidget.tsx`. The chart SVG is ser
 
 ---
 
-## AG Studio features confirmed absent from MUI X Studio
+## AG Studio features confirmed absent from MUI X Studio
 
 These items appear in the AG Studio reference docs but have no counterpart in the current implementation:
 
@@ -648,7 +648,7 @@ These items appear in the AG Studio reference docs but have no counterpart in th
 
 ## Capabilities that surpass AG Studio
 
-These are present in the MUI X Studio implementation but are absent from or not described in AG Studio's public documentation:
+These are present in the MUI X Studio implementation but are absent from or not described in AG Studio's public documentation:
 
 | Feature                                               | Implementation location                                                           | Notes                                                                              |
 | :---------------------------------------------------- | :-------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------- |

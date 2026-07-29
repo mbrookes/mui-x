@@ -12,7 +12,7 @@ description: >-
 
 A repeatable, source-grounded methodology for reviewing UI code against
 **WCAG 2.2 AA** and the **ARIA Authoring Practices Guide (APG)**. Optimized for
-React + TypeScript codebases that use MUI (Material UI / MUI X), but the
+React + TypeScript codebases that use MUI (Material UI / MUI X), but the
 criteria are framework-agnostic.
 
 This skill is for **static (source-level) review**. It cannot replace a runtime
@@ -129,7 +129,7 @@ When a component implements one of these by hand, verify against the pattern:
 - **Tabs** – `role="tablist"` > `role="tab"` (`aria-selected`,
   `aria-controls`, roving tabIndex); `role="tabpanel"` (`aria-labelledby`,
   focusable). Left/Right arrows move between tabs.
-- **Dialog (modal)** – `role="dialog"` `aria-modal="true"`, labelled by title,
+- **Dialog (modal)** – `role="dialog"` `aria-modal="true"`, labeled by title,
   focus trapped, Escape closes, focus restored.
 - **Listbox / Select / Combobox** – correct roles, `aria-activedescendant` or
   roving focus, `aria-expanded` on the input, arrow-key navigation.
@@ -156,7 +156,7 @@ When a component implements one of these by hand, verify against the pattern:
   keyboard-accessible alternative (reorder buttons, menu, or arrow handling).
 - `Dialog`/`Drawer`/`Popover`/`Menu`/`Tooltip` from MUI bring focus management;
   custom absolutely-positioned panels usually don't.
-- Charts (MUI X Charts / SVG): purely visual; pair with an `aria-label`,
+- Charts (MUI X Charts / SVG): purely visual; pair with an `aria-label`,
   description, or an off-screen data table.
 - `autoFocus`, `tabIndex` > 0, and `aria-hidden` on a focusable ancestor are
   common regressions.

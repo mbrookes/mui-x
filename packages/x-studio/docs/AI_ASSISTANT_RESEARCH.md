@@ -76,7 +76,7 @@ In 2024–2026, AI moved from being a BI add-on to the primary interaction model
 
 **URL:** [ag-grid.com/studio/react/ai/](https://www.ag-grid.com/studio/react/ai/)
 
-**Summary:** The closest direct competitor to `@mui/x-studio`. A commercial embedded analytics dashboard builder with an **experimental multi-agent AI assistant** ("Agentic Experience / AX"). Requires "AG Studio Pro with AI" licence.[^1]
+**Summary:** The closest direct competitor to `@mui/x-studio`. A commercial embedded analytics dashboard builder with an **experimental multi-agent AI assistant** ("Agentic Experience / AX"). Requires "AG Studio Pro with AI" license.[^1]
 
 #### Architecture: 5-Agent System (AX)
 
@@ -272,7 +272,7 @@ Most analytics tools run in the cloud. Highcharts Orbit runs **entirely client-s
 ```
 
 - `fullChat` or `chatWidget` (floating button + popover) display modes
-- 100+ CSS custom properties for white-labelling
+- 100+ CSS custom properties for white-labeling
 - 12 languages localised
 - Initial AI-generated suggestions from dataset
 - Chart export (PNG/XLSX/CSV) from chat
@@ -547,7 +547,7 @@ ThoughtSpot MCP Server lets customers integrate Spotter into custom agents, Clau
 
 ### 2.18 Microsoft LIDA (Open Source)
 
-**URL:** [github.com/microsoft/lida](https://github.com/microsoft/lida)
+**URL:** [GitHub.com/microsoft/lida](https://github.com/microsoft/lida)
 
 **Summary:** Open-source Python library (ACL 2023) for automatic visualization generation using LLMs. Grammar-agnostic: works with matplotlib, seaborn, altair, D3, ggplot.[^31]
 
@@ -728,7 +728,7 @@ Source: `packages/x-studio/src/internals/buildAISystemPrompt.ts:90-221`[^36]
 > **Updated June 2026** — status reflects findings from `AI_ASSISTANT_OVERVIEW.md`.  
 > ✅ = implemented in `@mui/x-studio` 🟡 = partial (example app only) ❌ = not yet implemented
 
-### 🔴 Critical: Documented Features vs Code Reality
+### 🔴 Critical: Documented Features VS Code Reality
 
 The documentation claims several AI features that were not in the original code:[^37]
 
@@ -1069,7 +1069,7 @@ consumer-provided values. Now all props are merged correctly:
 Empty-thread state now shows Studio-appropriate text:
 
 - `threadNoMessagesLabel`: "Ask me anything about your dashboard"
-- `threadNoMessagesHelperText`: "I can add widgets, analyse your data, and more"
+- `threadNoMessagesHelperText`: "I can add widgets, analyze your data, and more"
 
 #### ~~8.5 `showToolCalls` config option~~ ✅ DONE
 
@@ -1090,7 +1090,7 @@ Empty-thread state now shows Studio-appropriate text:
 
 `agenticLoop.ts` now emits a `step-start` SSE event at the start of each iteration > 0.
 The adapter converts this to an x-chat `start-step` chunk, causing ChatBox to render a
-visual divider between agentic turns (e.g. "Turn 1" / "Turn 2" separators).
+visual divider between agentic turns (for example, "Turn 1" / "Turn 2" separators).
 
 #### ~~8.8 Per-tool icons~~ ✅ DONE
 
@@ -1231,7 +1231,7 @@ graph LR
 
 ## 9. Footnotes
 
-[^1]: [AG Grid Studio AI - ag-grid.com/studio/react/ai/](https://www.ag-grid.com/studio/react/ai/) — AI assistant overview and licence requirements
+[^1]: [AG Grid Studio AI - ag-grid.com/studio/react/ai/](https://www.ag-grid.com/studio/react/ai/) — AI assistant overview and license requirements
 
 [^2]: [AG Grid Studio AX (Agentic Experience) - ag-grid.com/studio/react/ai-ax/](https://www.ag-grid.com/studio/react/ai-ax/) — 5-agent architecture documentation
 
@@ -1291,7 +1291,7 @@ graph LR
 
 [^30]: [Observable AI - observablehq.com/ai](https://observablehq.com/ai) — Transparent AI canvas and "AI with receipts" approach
 
-[^31]: [Microsoft LIDA - github.com/microsoft/lida](https://github.com/microsoft/lida) — Full API, persona-aware goals, error rate <3.5%
+[^31]: [Microsoft LIDA - GitHub.com/microsoft/lida](https://github.com/microsoft/lida) — Full API, persona-aware goals, error rate <3.5%
 
 [^32]: `packages/x-studio/src/components/StudioChatPanel/studioAITools.ts` — tool definitions (the `StudioAIToolName` union type lives in `packages/x-studio/src/models/aiTypes.ts`)
 

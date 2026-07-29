@@ -34,11 +34,11 @@ convention, not a per-panel patch.
 | 5   | **High** | The ~220px drawer width breaks copy everywhere, with no consistent overflow handling: hard mid-word clipping with no ellipsis (Grid's "Select a data sou", Filter's Max/Step values rendering as "1("), inconsistent ellipsis truncation elsewhere. Critical values and qualifiers are unreadable in at least 5 of 7 panels. | Adopt one rule: labels/descriptions are written to fit the width (long qualifiers move to wrapping helper text), values always ellipsize with a tooltip revealing the full text, numeric inputs get a minimum width fitting 4–5 digits. |
 | 6   | Medium   | The Aggregation control's position, default value, and enabled/disabled logic differ across Chart, KPI, Map (disabled, defaults to Count) vs. Pivot (enabled, defaults to Sum, no helper text).                                                                                                                              | Standardize position, default, and disabled-state logic; give Pivot's Aggregation the same helper-text treatment as its neighbors.                                                                                                      |
 | 7   | Medium   | Grid and KPI show an explicit "Data source" picker; Chart, Map, Pivot, and Filter don't — the first configuration step differs per widget kind with no visual cue.                                                                                                                                                           | Needs a product decision (explicit vs. implicit source-selection model) rather than a pure bug fix — flagged here, not triaged as quick/structural.                                                                                     |
-| 8   | Medium   | UK/US spelling is mixed across panels (Map's "Colour scheme", KPI's "Invert colours" vs. Chart scatter's "Color by").                                                                                                                                                                                                        | Copy sweep to one spelling (recommend US, matching MUI's own API conventions); consider a lint rule grepping for "colour".                                                                                                              |
+| 8   | Medium   | UK/US spelling is mixed across panels (Map's "color scheme", KPI's "Invert colours" vs. Chart scatter's "Color by").                                                                                                                                                                                                         | Copy sweep to one spelling (recommend US, matching MUI's own API conventions); consider a lint rule grepping for "color".                                                                                                               |
 | 9   | Medium   | Switch-row layout has no shared convention — KPI right-aligns the switch, Map/Pivot/Text place it before the label, and long labels wrap awkwardly under the thumb in Map/Pivot but not KPI/Text.                                                                                                                            | One shared switch-row component with a reserved, wrap-safe text column.                                                                                                                                                                 |
 | 10  | Medium   | Helper-text placement/punctuation/presence is inconsistent (Map places it above the control instead of below; punctuation varies; Filter's "Field" picker has none at all).                                                                                                                                                  | One helper-text rule (position, punctuation, always-present) swept across all panels.                                                                                                                                                   |
 | 11  | Medium   | Disabled controls never explain why they're locked, in any panel (KPI's Sparkline/Trend/Date-range sections, Map's Aggregation, Chart's Aggregation/Split-by).                                                                                                                                                               | One shared "why is this disabled" convention (tooltip or helper line stating the unlock condition), implemented once.                                                                                                                   |
-| 12  | Medium   | The shared light-grey helper-text color appears to fall below WCAG 4.5:1 contrast in every panel, not just the ones flagged individually.                                                                                                                                                                                    | Fix once at the token level; verify with an automated contrast check.                                                                                                                                                                   |
+| 12  | Medium   | The shared light-gray helper-text color appears to fall below WCAG 4.5:1 contrast in every panel, not just the ones flagged individually.                                                                                                                                                                                    | Fix once at the token level; verify with an automated contrast check.                                                                                                                                                                   |
 | 13  | Low      | The measure/value concept has a different noun per panel ("Value field" in KPI/Map/Pivot, "Y / Measure field" in Chart, just "Field" in Filter); same for the category/dimension concept.                                                                                                                                    | Needs a product/IA decision on canonical vocabulary — flagged, not triaged.                                                                                                                                                             |
 
 ## Per-panel findings
@@ -67,7 +67,7 @@ convention, not a per-panel patch.
   two near-identical "×" affordances (clear field vs. remove series) sitting next
   to each other, low-contrast toggle-button text, an icon-only 19-tile chart-type
   grid with several near-identical glyphs, heatmap's two axes using mismatched
-  naming/helper-length conventions, inconsistent color/colour spelling, ALL-CAPS
+  naming/helper-length conventions, inconsistent color/color spelling, ALL-CAPS
   vs. sentence-case toggle labels, "Category field" naming the same concept twice
   in one panel, a disabled "+" add-series button with no explanatory tooltip.
 
@@ -121,7 +121,7 @@ convention, not a per-panel patch.
 - **High** — The Value-field label is truncated to "Value field (optional for…"
   in every state — its qualifying explanation is never fully readable
   (`map-basic`).
-- Medium — Colour-scheme options (Blues/Reds/Greens/Oranges/Purples) are plain
+- Medium — color-scheme options (Blues/Reds/Greens/Oranges/Purples) are plain
   text with no swatch/gradient preview, forcing a blind pick for a choropleth
   palette (`map-color-scheme-select-open`).
 - Medium — The required Country field carries no required indicator or
@@ -131,7 +131,7 @@ convention, not a per-panel patch.
   internal floating label (`map-empty`, `map-basic`).
 - Low — Disabled Aggregation has no explanation; the two cross-filter switches
   use mismatched terminology; clear-icon touch targets appear under 24×24px;
-  UK spelling in "Colour scheme".
+  UK spelling in "color scheme".
 
 ### Pivot (`PivotSetupPanel.tsx`) — 7 findings
 
@@ -202,10 +202,10 @@ value that's already MUI's own default and technically passes WCAG AA).
    field to sum, average, etc.").
 5. ✅ **Fixed.** Grid: removed the redundant Autocomplete helper text now that
    the info alert below it says the same thing.
-6. ✅ **Fixed.** Swept every user-visible "colour" string in
+6. ✅ **Fixed.** Swept every user-visible "color" string in
    `StudioUIConfigContext.ts`'s English defaults to "color" (10 values across
    Chart/KPI/Map/page-config strings). Left the internal locale _key names_
-   (e.g. `mapSetupColourSchemeLabel`) unchanged — they're invisible to users
+   (for example, `mapSetupColourSchemeLabel`) unchanged — they're invisible to users
    and renaming them would be pure churn.
 7. ✅ **Fixed.** Added `sx={{ textTransform: 'none' }}` to every
    `ToggleButton` that was missing it (Chart's sort-direction ×2, funnel
@@ -249,7 +249,7 @@ tests, all passing) and typecheck.
    only when two sources genuinely share a field label (`hasAmbiguousLabels`,
    replacing the old `hasMultipleSources` check), so an unambiguous field like
    "Department" now again shows as just "Department" at rest, while a real
-   collision (e.g. two "Country" fields) would still get the qualified label.
+   collision (for example, two "Country" fields) would still get the qualified label.
    Verified via the full x-studio suite (1543 tests, still all passing),
    typecheck, and re-captured screenshots — including a new
    `chart-x-field-reopen-when-filled` scenario added specifically to prove a
@@ -278,7 +278,7 @@ tests, all passing) and typecheck.
    dual-Y logic for a cosmetic nit. Text's hardcoded "Prompt" label/helper
    also got moved to locale text (`textSetupPromptLabel`/`textSetupPromptHelper`)
    as part of the same sweep. Verified: typecheck, full suite (1543 tests),
-   eslint, and manual diff review of all touched files.
+   ESLint, and manual diff review of all touched files.
 3. ✅ **Partially fixed — the other half was re-scoped, not a mechanical bug.**
    Map actually had two _functionally different_ switches, not a single
    toggle styled inconsistently: "Clickable (filter source)"
@@ -323,7 +323,7 @@ tests, all passing) and typecheck.
    `mapSetupValueFieldLabel` (the removed "for count" meaning moved to a new
    `mapSetupValueFieldHelperText`, "Leave empty to count rows"). Text is
    structurally exempt (free-text fields, no data-source dependency). Verified:
-   typecheck, full suite (1543 tests), eslint, and manual diff review — including
+   typecheck, full suite (1543 tests), ESLint, and manual diff review — including
    confirming Chart's rewritten test assertions correctly account for the
    asterisk's trailing text in `getByLabelText` lookups.
 5. ✅ **Partially fixed.** **Shared "why is this disabled" convention**
@@ -387,7 +387,7 @@ title` echoing the closed select's displayed text, including its
    either consume only the shared `DataSourceFieldSelect` or have no
    variable-length display text. Deliberately rejected: a new `OverflowText`
    primitive (2 call-sites in one file doesn't warrant a shared component) and
-   widening the drawer. Verified: typecheck, full suite (1543 tests), eslint,
+   widening the drawer. Verified: typecheck, full suite (1543 tests), ESLint,
    and manual diff review confirming every `slotProps` addition spreads the
    Autocomplete's existing wiring rather than replacing it.
 

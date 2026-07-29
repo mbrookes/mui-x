@@ -7,7 +7,7 @@ githubLabel: 'scope: studio'
 
 # Studio - Quickstart
 
-<p class="description">Install the MUI X Studio package and embed a working dashboard builder in minutes.</p>
+<p class="description">Install the MUI X Studio package and embed a working dashboard builder in minutes.</p>
 
 {{"component": "@mui/internal-core-docs/ComponentLinkHeader"}}
 
@@ -33,7 +33,7 @@ yarn add @mui/x-studio
 
 ### Peer dependencies
 
-#### Material UI
+#### Material UI
 
 Studio requires `@mui/material` and its emotion dependencies:
 
@@ -53,7 +53,7 @@ yarn add @mui/material @emotion/react @emotion/styled
 
 </codeblock>
 
-#### MUI X Charts and Data Grid Pro
+#### MUI X Charts and Data Grid Pro
 
 Widgets use Charts and Data Grid Pro internally:
 
@@ -73,7 +73,7 @@ yarn add @mui/x-charts @mui/x-data-grid-pro
 
 </codeblock>
 
-#### MUI X Date Pickers
+#### MUI X Date Pickers
 
 Date-range filter widgets require Date Pickers and a date adapter:
 
@@ -206,7 +206,7 @@ export default function App() {
 ```
 
 :::info
-Use functional state updates (e.g. `setMode((prev) => ...)`) to skip React re-renders when the value hasn't changed.
+Use functional state updates (for example, `setMode((prev) => ...)`) to skip React re-renders when the value hasn't changed.
 All six `setState` calls in `onStateChange` are batched into a single re-render in React 18+.
 :::
 

@@ -44,7 +44,7 @@ const partitioned = useStudioSelector(selectPartitionedFilters);
 const deferredPartitioned = React.useDeferredValue(partitioned);
 ```
 
-This lets React commit UI updates (e.g. highlighting the clicked bar) immediately while deferring the expensive row re-computation to a lower-priority render pass.
+This lets React commit UI updates (for example, highlighting the clicked bar) immediately while deferring the expensive row re-computation to a lower-priority render pass.
 `isRecomputing` is `true` in the gap between the two renders.
 
 ## Sync pipeline layers
@@ -161,7 +161,7 @@ const filtered = pipeline.resolveWidgetRows(
 ### `pipeline.resolveChartRows(filteredRows, sourceId, xField, yFields, seriesField)`
 
 L4 cross-source chart re-anchor.
-Call after `resolveWidgetRows` when generating chart data outside React (e.g. for a CSV export of a chart's aggregated data).
+Call after `resolveWidgetRows` when generating chart data outside React (for example, for a CSV export of a chart's aggregated data).
 
 ```ts
 const chartRows = pipeline.resolveChartRows(

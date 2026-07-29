@@ -1,12 +1,12 @@
 # Comprehensive UI Performance Review
 
-## For MUI X Studio (React + MUI + MUI X)
+## For MUI X Studio (React + MUI + MUI X)
 
 ---
 
 ## Executive Summary
 
-A thorough UI performance review for a React/MUI X dashboard app has five interlocking dimensions: **(1) Lab metrics** (Lighthouse scores, trace-based Core Web Vitals captured via the existing `chrome-devtools-mcp`); **(2) Real-user measurement** (RUM via the `web-vitals` library deployed in production); **(3) React-specific profiling** (`react-scan` for live re-render visibility, `@welldone-software/why-did-you-render` for root-cause analysis, React DevTools Profiler flamegraphs); **(4) Bundle analysis** (`rollup-plugin-visualizer` in Vite config); and **(5) MUI X-specific tuning** (DataGrid virtualization, `sx` prop avoidance on hot paths, chart `skipAnimation`, store-based context). The existing `chrome-devtools-mcp` already covers performance traces and heap snapshots. Three additional MCP servers — `@danielsogl/lighthouse-mcp`, `@playwright/mcp`, and `cdp-extended-mcp` — fill the gaps for Lighthouse scoring, test orchestration, and CPU profiling / CSS coverage respectively.
+A thorough UI performance review for a React/MUI X dashboard app has five interlocking dimensions: **(1) Lab metrics** (Lighthouse scores, trace-based Core Web Vitals captured via the existing `chrome-devtools-mcp`); **(2) Real-user measurement** (RUM via the `web-vitals` library deployed in production); **(3) React-specific profiling** (`react-scan` for live re-render visibility, `@welldone-software/why-did-you-render` for root-cause analysis, React DevTools Profiler flamegraphs); **(4) Bundle analysis** (`rollup-plugin-visualizer` in Vite config); and **(5) MUI X-specific tuning** (DataGrid virtualization, `sx` prop avoidance on hot paths, chart `skipAnimation`, store-based context). The existing `chrome-devtools-mcp` already covers performance traces and heap snapshots. Three additional MCP servers — `@danielsogl/lighthouse-mcp`, `@playwright/mcp`, and `cdp-extended-mcp` — fill the gaps for Lighthouse scoring, test orchestration, and CPU profiling / CSS coverage respectively.
 
 ---
 
@@ -19,7 +19,7 @@ A thorough UI performance review for a React/MUI X dashboard app has five interl
 5. [Real-User Monitoring (RUM)](#5-real-user-monitoring)
 6. [Core Web Vitals Reference](#6-core-web-vitals-reference)
 7. [React Performance Pitfalls Checklist](#7-react-performance-pitfalls-checklist)
-8. [MUI X-Specific Performance Guide](#8-mui-x-specific-performance-guide)
+8. [MUI X-Specific Performance Guide](#8-mui-x-specific-performance-guide)
 9. [Performance Review Session Playbook](#9-performance-review-session-playbook)
 10. [All Tools — Quick Reference](#10-all-tools-quick-reference)
 11. [Confidence Assessment](#confidence-assessment)
@@ -73,7 +73,7 @@ Records a Chrome DevTools-identical performance trace using CDP `Tracing` domain
 5. performance_analyze_insight(insightSetId="<id>", insightName="INP")
 ```
 
-For interaction-specific traces (e.g., profiling a DataGrid sort):
+For interaction-specific traces (for example, profiling a DataGrid sort):
 
 ```text
 1. navigate_page(url="http://localhost:3000")
@@ -171,16 +171,16 @@ Fills the Lighthouse performance gap. Provides 13 tools including **actual Light
 
 **Key tools:**
 
-| Tool                       | What It Returns                                          |
-| :------------------------- | :------------------------------------------------------- |
-| `get_performance_score`    | Lighthouse score + FCP, LCP, TBT, CLS, Speed Index, TTI  |
-| `get_core_web_vitals`      | LCP/INP/CLS with configurable pass/fail thresholds       |
-| `compare_mobile_desktop`   | Side-by-side score diff                                  |
-| `check_performance_budget` | Custom budget: `{ lcp: 2500, cls: 0.1, tbt: 200 }`       |
-| `get_lcp_opportunities`    | LCP element + specific actionable recommendations        |
-| `find_unused_javascript`   | Per-file: total KB, unused KB, unused %, recommendations |
-| `analyze_resources`        | All JS/CSS/image/font resources with size + priority     |
-| `run_audit`                | Full audit (perf + a11y + SEO + best practices)          |
+| Tool                       | What It Returns                                              |
+| :------------------------- | :----------------------------------------------------------- |
+| `get_performance_score`    | Lighthouse score + FCP, LCP, TBT, CLS, Speed Index, TTI      |
+| `get_core_web_vitals`      | LCP/INP/CLS with configurable pass/fail thresholds           |
+| `compare_mobile_desktop`   | Side-by-side score diff                                      |
+| `check_performance_budget` | Custom budget: `{ lcp: 2500, cls: 0.1, tbt: 200 }`           |
+| `get_lcp_opportunities`    | LCP element + specific actionable recommendations            |
+| `find_unused_javascript`   | Per-file: total KB, unused KB, unused %, recommendations     |
+| `analyze_resources`        | All JavaScript/CSS/image/font resources with size + priority |
+| `run_audit`                | Full audit (perf + a11y + SEO + best practices)              |
 
 **Important:** Both Lighthouse MCP and chrome-devtools-mcp can attach to the same Chrome instance via `--chrome-port 9222`. Launch Chrome with `--remote-debugging-port=9222` to enable this.
 
@@ -190,7 +190,7 @@ Fills the Lighthouse performance gap. Provides 13 tools including **actual Light
 
 **GitHub:** `microsoft/playwright-mcp` | **npm:** `@playwright/mcp` | **Stars:** 32,827[^7]
 
-Best for orchestrating realistic user flows before measuring performance (e.g., "log in, navigate to dashboard, open a filter, sort the grid, measure INP").
+Best for orchestrating realistic user flows before measuring performance (for example, "log in, navigate to dashboard, open a filter, sort the grid, measure INP").
 
 ```json
 {
@@ -247,7 +247,7 @@ Explicitly designed as a companion to chrome-devtools-mcp. Adds the 5 CDP domain
 | Fetch       | `fetch_enable` / `fetch_fulfill` / `fetch_fail` | Request interception for testing loading states                      |
 | Emulation   | `emulate_reduced_motion`                        | Test `prefers-reduced-motion` animation behavior                     |
 
-**CSS coverage is particularly relevant for MUI X** — Emotion generates many class names at runtime, and CSS coverage reveals how much of that generated CSS is actually applied.[^8]
+**CSS coverage is particularly relevant for MUI X** — Emotion generates many class names at runtime, and CSS coverage reveals how much of that generated CSS is actually applied.[^8]
 
 ---
 
@@ -520,7 +520,7 @@ export default defineConfig({
 | `network` | "Why is this library included?" (shows import graph) |
 | `list` | CI-diffable YAML output — commit and track over time |
 
-**Colour coding:** Blue = your code. Green = `node_modules`.
+**color coding:** Blue = your code. Green = `node_modules`.
 
 ### One-shot without modifying config
 
@@ -718,7 +718,7 @@ useEffect(() => {
 
 ---
 
-## 8. MUI X-Specific Performance Guide
+## 8. MUI X-Specific Performance Guide
 
 ### 8.1 DataGrid Virtualization
 
@@ -852,7 +852,7 @@ function App() {
 
 **Source:** `mui/mui-x:packages/x-charts`[^21]
 
-MUI X Charts renders with **SVG** (Canvas is a tracked future goal[^22]). Performance implications:
+MUI X Charts renders with **SVG** (Canvas is a tracked future goal[^22]). Performance implications:
 
 - SVG elements have per-node DOM cost — at > ~1,000 points per series, performance can degrade
 - Pre-aggregate/sample data before passing to charts for large datasets
@@ -868,7 +868,7 @@ MUI X Charts renders with **SVG** (Canvas is a tracked future goal[^22]). Perfor
 <ScatterChartPremium renderer="webgl" series={[{ data: twoHundredKPoints }]} />
 ```
 
-**Animation performance tip:** MUI X Charts uses imperative DOM attribute updates for animation frames (bypassing React reconciliation). Only initial render and data changes trigger React renders — animation frames are ~free from React's perspective.[^21]
+**Animation performance tip:** MUI X Charts uses imperative DOM attribute updates for animation frames (bypassing React reconciliation). Only initial render and data changes trigger React renders — animation frames are ~free from React's perspective.[^21]
 
 ### 8.6 Studio / Context Architecture
 

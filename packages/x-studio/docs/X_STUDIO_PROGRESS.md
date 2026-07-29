@@ -40,7 +40,7 @@
 | W-13  | Widget    | KPI: value, trend, sparkline, formatting           | ✅ Completed |
 | W-14  | Widget    | KPI: target line from business metrics             | ✅ Completed |
 | W-15  | Widget    | KPI: per-widget chart palette override             | 🚫 WONTFIX   |
-| W-16  | Widget    | Text: per-section font/colour/alignment            | ✅ Completed |
+| W-16  | Widget    | Text: per-section font/color/alignment             | ✅ Completed |
 | C-01  | Compose   | Widget setup and format tabs                       | ✅ Completed |
 | C-02  | Compose   | Chart type picker with icons                       | ✅ Completed |
 | C-03  | Compose   | Auto-inferred titles + manual override             | ✅ Completed |
@@ -144,7 +144,7 @@
 ### DB-01 · Multi-page dashboard with theming
 
 - Four pages: Overview, Products & Logistics, third page, Customers
-- Per-page theme: background colour, card background/padding/radius/border
+- Per-page theme: background color, card background/padding/radius/border
 - Bookmarkable page tabs via `?page=` URL query param
 
 ### DB-02 · Page-level and widget-level filters
@@ -209,8 +209,8 @@
 
 ### W-02 · Grid: conditional formatting
 
-- Rule-based cell colour (e.g. negative margin → red background)
-- Configurable in compose Format tab: field, operator, value, colour
+- Rule-based cell color (for example, negative margin → red background)
+- Configurable in compose Format tab: field, operator, value, color
 - Multiple rules per column; first-match wins
 
 ### W-03 · Grid: totals / summary row
@@ -235,9 +235,9 @@
 
 ### W-05 · Scatter chart configuration
 
-- `scatterColorField` config for categorical colour-by field
+- `scatterColorField` config for categorical color-by field
 - Dedicated single Y-field picker for scatter in compose panel
-- Optional colour-by field splits points into colour-coded series with legend
+- Optional color-by field splits points into color-coded series with legend
 - `prepareScatterDataGrouped` in chartUtils; stable category ordering from unfiltered rows
 
 ### W-06 · Pie / donut label formatting
@@ -261,16 +261,16 @@
 ### W-08 · Map / choropleth
 
 - `StudioMapWidget` component; `'map'` added to `StudioWidgetKind`
-- `MapSetupPanel` with region field, value field, aggregation, and colour scheme selectors
+- `MapSetupPanel` with region field, value field, aggregation, and color scheme selectors
 - Renders the official `@mui/x-charts-premium` Map (`GeoDataPlot`/`MapShapePlot`) — BL-182 replaced the custom `ChoroplethChart` with the upstream component
 - Pluggable geographies via `geographyLoaders` (`world` Natural Earth 110m, US states, Europe, or custom TopoJSON); topology lazy-loaded by dynamic `import`
-- 5 colour ramps rendered via `ContinuousColorLegend`; tooltip on hover; alpha-2/alpha-3/name normalisation via `countryUtils`
+- 5 color ramps rendered via `ContinuousColorLegend`; tooltip on hover; alpha-2/alpha-3/name normalisation via `countryUtils`
 - Known limitation: cross-filter-on-click is unwired (unstable `MapShapePlot` forwards no per-shape click — BL-184)
 
 ### W-09 · Gantt / timeline chart
 
 - `gantt` chart type rendered by `StudioGanttChart` component
-- Compose drawer: label field, start date field, end date field, optional colour-by category field
+- Compose drawer: label field, start date field, end date field, optional color-by category field
 - Horizontal swimlane layout; bars span start→end date range
 - Date axis, grid lines, tooltip showing label/dates/duration/category
 - Overflows truncated with "+N more" notice
@@ -278,13 +278,13 @@
 ### W-10 · Heatmap
 
 - `heatmap` chart type rendered by `StudioHeatmapChart` component
-- Compose drawer: column-axis field, row-axis field, value/colour field
-- Four colour schemes; `aggregateHeatmap()` sums value per (x, y) cell
+- Compose drawer: column-axis field, row-axis field, value/color field
+- Four color schemes; `aggregateHeatmap()` sums value per (x, y) cell
 - Per-cell tooltips showing exact values
 
 **Gaps:**
 
-- No custom colour-scale configuration (fixed sequential palettes only)
+- No custom color-scale configuration (fixed sequential palettes only)
 
 ### W-11 · Funnel chart
 
@@ -321,7 +321,7 @@
 ### W-16 · Text widget
 
 - Title, subtitle, body text sections
-- Per-section: font family, font size, colour, alignment
+- Per-section: font family, font size, color, alignment
 
 ### C-01–C-05 · Compose drawer
 
@@ -380,7 +380,7 @@
 ### F-01–F-03 · Filters
 
 - Condition, Selection, Rank modes with mode toggle
-- Relative date values (e.g. "3 months ago")
+- Relative date values (for example, "3 months ago")
 - Compound filters (second operator + AND/OR conjunction)
 - Metric refs: filter value driven by a business metric row
 
@@ -563,7 +563,7 @@
 
 - **Breaking change**: flat per-widget feature flags (`kpiSparkline`, `kpiTrend`, `kpiTarget`, `kpiCalculatedFields`, `chartAnnotations`, `chartCalculatedFields`, `gridGroupBy`, `gridSummary`, `gridConditionalFormats`, `gridCalculatedFields`) removed from `StudioFeatureFlags`
 - `kpi`, `chart`, and `grid` now accept `boolean | KpiFeatureFlags | ChartFeatureFlags | GridFeatureFlags`:
-  - `kpi: false` — disables KPI widget kind entirely (unchanged behaviour)
+  - `kpi: false` — disables KPI widget kind entirely (unchanged behavior)
   - `kpi: { sparkline: false, trend: false }` — KPI enabled, sparkline and trend disabled
 - New sub-flag interfaces `KpiFeatureFlags`, `ChartFeatureFlags`, `GridFeatureFlags` exported from the package
 - `useStudioFeatures()` now returns `ResolvedStudioFeatures` (flat booleans); internal consumers (`GridSetupPanel`, `KpiSetupPanel`, etc.) unchanged
@@ -726,9 +726,9 @@
 
 ### UX-34 · KPI trend styled as a pill chip (BL-133)
 
-- `KpiTrend` wraps the trend icon + percentage in an inline chip: semi-transparent background at 8% alpha of the trend colour, plus a 1 px solid border in the same colour
+- `KpiTrend` wraps the trend icon + percentage in an inline chip: semi-transparent background at 8% alpha of the trend color, plus a 1 px solid border in the same color
 - "vs. period" comparison text remains outside the chip for visual hierarchy
-- `getColor(theme)` helper resolves MUI palette token strings (e.g., `'success.main'`) to hex values for use with `alpha()`
+- `getColor(theme)` helper resolves MUI palette token strings (for example, `'success.main'`) to hex values for use with `alpha()`
 
 ### UX-35 · Tighter edit/delete buttons in data panel (BL-144)
 
@@ -750,7 +750,7 @@
 
 - Replaced HTML5 `draggable` tab reordering with pointer-event capture for smooth, native-feel tab dragging
 - 5 px drag threshold separates clicks from drags; dragged tab becomes invisible while a `position: fixed` ghost follows the cursor (rendered via React portal)
-- Peer tabs slide horizontally with a `translateX` CSS transition when the ghost crosses their midpoint — identical to Chrome's tab drag behaviour
+- Peer tabs slide horizontally with a `translateX` CSS transition when the ghost crosses their midpoint — identical to Chrome's tab drag behavior
 - Nearest-midpoint algorithm determines the target slot using original tab rects captured at drag start (unaffected by sibling animations)
 - `onClickCapture` with `stopPropagation` prevents click events from firing after a completed drag
 - Implemented in both `examples/x-studio` and `examples/x-studio-composed` `AppToolbar`
@@ -799,12 +799,12 @@
 - Added `apply_bulk_update` as the 17th AI tool in `studioAITools.ts`; accepts `widgetUpdates`, `widgetRemovals`, `widgetAdditions`, `layout`, and `colSpans`
 - `executeToolOnState.ts` (in `@mui/x-studio-ai-middleware`) implements `case 'apply_bulk_update'`: applies all sub-operations in order (removals → additions → config patches → layout → column spans) then commits atomically with `controller.setState()` — a single undo step
 - Title references in `layout` are resolved to newly-added widget IDs so the LLM can provide a layout that includes freshly created widgets
-- Failed sub-operations (e.g., unknown widget ID) are skipped and reported in `skipped[]`; successful operations proceed
+- Failed sub-operations (for example, unknown widget ID) are skipped and reported in `skipped[]`; successful operations proceed
 - `buildAISystemPrompt.ts` updated with a guideline: prefer `apply_bulk_update` over multiple individual tool calls when a prompt requires 3 or more related changes
 
 ### BUG-01 · NaN values in charts with non-numeric y-fields (BL-171)
 
-- `aggregateByField` now pre-scans the first non-null y-field value before entering the aggregation loop; if it is non-numeric (e.g. a string ID), the effective aggregation is promoted to `'count'` — preventing `NaN` from propagating into the rendered chart regardless of what `yAggregation` the caller passes
+- `aggregateByField` now pre-scans the first non-null y-field value before entering the aggregation loop; if it is non-numeric (for example, a string ID), the effective aggregation is promoted to `'count'` — preventing `NaN` from propagating into the rendered chart regardless of what `yAggregation` the caller passes
 - Funnel chart renderer (`StudioChartWidget`) now respects `config.yAggregation === 'count'` and performs the same non-numeric auto-detection, counting rows instead of summing `Number(row[valueField])` when appropriate
 - `salesDashboard.ts` config hardened with explicit aggregation settings: `yAggregation: 'count'` on Contacts by Department, Contacts by Role, and Deals by Stage; `yAggregation: 'avg'` on Margin % by Category (averaging per-product margin percentages per category is the correct metric)
 - Contacts by Department changed to a horizontal bar chart; Deals by Stage layout retained horizontal
@@ -902,7 +902,7 @@
 
 - New `packages/x-studio-ai-middleware/src/chartRenderer.ts`: pure TypeScript SVG chart renderer with no DOM, React, or runtime dependencies
 - Supports `bar`, `line` (single and multi-series with `xLabels + series`), and `pie` chart types
-- `renderChartSvg(input): string` produces a standalone `<svg>` with axes, grid lines, labels, legend, title, and a default 10-colour palette
+- `renderChartSvg(input): string` produces a standalone `<svg>` with axes, grid lines, labels, legend, title, and a default 10-color palette
 - `render_chart` MCP tool registered in `buildStudioMcpServer`: accepts `type`, `title`, `data`, `xLabels`, `series`, `width`, `height`, `colors`
 - Returns `{ type: 'image', data: base64(svg), mimeType: 'image/svg+xml' }` (visual in Claude Desktop + compatible MCP clients) plus a text fallback of the raw SVG
 - `renderChartSvg`, `ChartRendererInput`, `ChartDataPoint`, `ChartSeries`, `ChartType` all exported from middleware public API
@@ -947,7 +947,7 @@ See `packages/x-studio/docs/AI_ASSISTANT_RESEARCH.md` for the full gap analysis.
   immediately after `start`, before any real content arrives. The reasoning part closes when the first
   `text-delta` or `tool-activity` event arrives. A custom `partRenderers.reasoning` renderer shows
   "Thinking…" while streaming and collapses into an expandable "Reasoning" section when done.
-  Handles server-emitted `reasoning-start/delta/end` events too (e.g. Claude extended thinking).
+  Handles server-emitted `reasoning-start/delta/end` events too (for example, Claude extended thinking).
 - **Stop streaming button** — `ChatBox.slots.composerSendButton` is overridden with `StudioSendButton`:
   shows the normal paper-plane send icon when idle; switches to a red `StopCircleIcon` button that
   calls `useChat().stopStreaming()` during active streaming. Message receives `status: 'cancelled'`.
@@ -955,7 +955,7 @@ See `packages/x-studio/docs/AI_ASSISTANT_RESEARCH.md` for the full gap analysis.
   whether AI tool call cards are shown in the chat. Set to `false` in production to keep the
   conversation clean.
 - **Improved `localeText`** — Empty state now reads "Ask me anything about your dashboard" /
-  "I can add widgets, analyse your data, and more" instead of the generic x-chat defaults.
+  "I can add widgets, analyze your data, and more" instead of the generic x-chat defaults.
 - **SSE protocol expanded** — `StudioAISSEEvent` union now includes `reasoning-start`, `reasoning-delta`,
   `reasoning-end` events for server-emitted reasoning (models with extended thinking support).
 - **`adapter.stop()` implemented** — Cancels the active response body reader for immediate
@@ -998,7 +998,7 @@ See `packages/x-studio/docs/AI_ASSISTANT_RESEARCH.md` for the full gap analysis.
 
 - **Message metadata display** — `StudioMessageRoot` module-level component wraps `ChatMessage`
   and appends a caption row below completed assistant messages. Reads `message.metadata` via
-  `useMessage()` (no prop-drilling needed). Shows model name (e.g. `gpt-4o`), total token count,
+  `useMessage()` (no prop-drilling needed). Shows model name (for example, `gpt-4o`), total token count,
   and turn count for multi-turn responses. Wired via `ChatBox.slots.messageRoot`.
 - **Research doc comparison table fixed** — `AI_ASSISTANT_RESEARCH.md` table comparing x-studio
   to AG Grid Studio had many features marked `❌` that are now fully implemented. Corrected to `✅`

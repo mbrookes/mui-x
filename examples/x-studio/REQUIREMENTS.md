@@ -1,6 +1,6 @@
 # x-studio Demo: Requirements
 
-MUI X demo application (`examples/x-studio`) — a Sales Dashboard built on `@mui/x-studio`.
+MUI X demo application (`examples/x-studio`) — a Sales Dashboard built on `@mui/x-studio`.
 
 The purpose of this example is to showcase the Studio component with a realistic,
 production-like dataset and a credible multi-page dashboard.
@@ -54,4 +54,4 @@ _Nothing actively in flight._
 ## 🔭 Future
 
 - **State persistence** — auto-save dashboard config to `localStorage`; restore on reload with migration
-- **Additional demo pages** — e.g. Inventory (stock levels, reorder alerts, supplier breakdown)
+- **Additional demo pages** — for example, Inventory (stock levels, reorder alerts, supplier breakdown)

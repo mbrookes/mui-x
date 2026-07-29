@@ -17,7 +17,7 @@ are, how they fit, and which decisions are load-bearing.
 
 ## Overview
 
-`x-studio-schema` is the shared data model for MUI X Studio: every
+`x-studio-schema` is the shared data model for MUI X Studio: every
 `StudioState`/widget/data-source/filter/expression/AI-protocol type, plus the handful of pure
 functions both consuming packages must agree on bit-for-bit. This is the single place a
 `StudioState` shape change is made; `@mui/x-studio` and `@mui/x-studio-ai-middleware`
@@ -34,10 +34,10 @@ step is added.
 
 ### What belongs here
 
-| Belongs here                                                     | Stays in the consuming package                           |
-| :--------------------------------------------------------------- | :------------------------------------------------------- |
-| Pure state-shape transforms (mutation reducers, factories, math) | Anything touching React, MUI, the DOM, or in-memory rows |
-| Types both the client and the middleware read                    | UI-only prop types (e.g. `x-studio`'s `featureFlags.ts`) |
+| Belongs here                                                     | Stays in the consuming package                                   |
+| :--------------------------------------------------------------- | :--------------------------------------------------------------- |
+| Pure state-shape transforms (mutation reducers, factories, math) | Anything touching React, MUI, the DOM, or in-memory rows         |
+| Types both the client and the middleware read                    | UI-only prop types (for example, `x-studio`'s `featureFlags.ts`) |
 
 `featureFlags.ts` is the canonical example of the second column: those interfaces look like
 they belong here, but the AI middleware never references them, so they live client-side.
@@ -195,7 +195,7 @@ Three consequences worth stating plainly:
   - `StateMutation` — the discriminated union over all 14 mutation kinds.
   - `MutationEnvelope<T>` — wraps a mutation for SSE transport with a collision-resistant `id`
     and a production timestamp `at`. Envelope metadata, distinct from any domain field the
-    mutation itself persists (e.g. `renameAIThread.args.updatedAt`).
+    mutation itself persists (for example, `renameAIThread.args.updatedAt`).
 
   Four variants carry an explicit, server-chosen targeting field so the reducer never has to
   guess "whichever page/thread is active on the applying side": `addWidget.args.pageId`,
@@ -241,7 +241,7 @@ Three consequences worth stating plainly:
   `MCP_UNSUPPORTED_TOOLS`, the `executeToolOnState` switch) derives from it, so two of them
   cannot disagree.
 
-  `mcpDestructiveOverride` controls the MCP `destructiveHint` only. A tool carrying it (e.g.
+  `mcpDestructiveOverride` controls the MCP `destructiveHint` only. A tool carrying it (for example
   `remove_page_filter`) is destructive on MCP even though `destructive` is `false` for chat —
   MCP clients have no separate confirmation step. That does **not** mean the operation is
   unguarded on chat: the composed default chat policy gates filter removals through its own
@@ -269,7 +269,7 @@ the `StudioChartWidgetConfig` union, one level finer.
 The trailing `StudioWidgetOf<string & {}>` member makes consumer-defined custom kinds
 first-class — and its non-literal `kind: string` means **`StudioWidget` is not a TypeScript
 discriminated union**. A bare `if (widget.kind === 'chart')` does not narrow `widget.config`,
-because TS cannot rule out `string === 'chart'` for that member. This is a real TS limitation,
+because TypeScript cannot rule out `string === 'chart'` for that member. This is a real TypeScript limitation,
 not an oversight; it is exactly why `isWidgetOfKind()` exists.
 
 ### `StudioChartConfig` — the chart-type union (CLOSED)
@@ -891,13 +891,13 @@ that is not a real widget (or carries a prototype-hazard key) can never receive 
 Sharing this between `setWidgetColSpan` and `applyBulkUpdate`'s span merge is what makes an AI
 `set_widget_width` and an `apply_bulk_update` carrying the same width resolve an overflowing row
 identically. Without it the bulk path fell through to `enforceLayoutColSpans`' drop-EVERY-span
-rule, so setting one widget's width through the bulk tool erased its neighbour's.
+rule, so setting one widget's width through the bulk tool erased its neighbor's.
 
 `enforceLayoutColSpans(oldRows, newRows, spans)` is the invariant pass every layout path reaches:
 
 - **2→1 collapse** — a widget left alone in a row it previously shared has a stale
   multi-widget-era span, so the span is cleared. A widget that was _already_ a lone occupant keeps
-  its intentional span (e.g. an AI `set_widget_width` narrowing). This is why `oldRows` is a
+  its intentional span (for example, an AI `set_widget_width` narrowing). This is why `oldRows` is a
   parameter rather than derived.
 - **Row overflow** — a row summing past `GRID_COLS` with no explicit anchor to rebalance around
   has every span dropped, falling back to equal flex.
@@ -1722,13 +1722,12 @@ three things that cannot move without an import cycle. The screens, in the order
     `RelationshipPanel`'s delete button is `removeRelationship(rel.id)`, so an entry with no `id`
     loaded, rendered in the data drawer, and was permanently unremovable and unupdatable.
 
-        The three `junction*` fields are deliberately NOT screened for `type: 'many-to-many'`, even
-        though they are documented as required for it: `dataSourceGraph.ts`'s join builders guard every
-        read (`if (!rel.junctionSourceId || !rel.junctionSourceField || !rel.junctionTargetField)
-
-    { continue; }`), so an incomplete entry is SKIPPED, not dereferenced. There is no unguarded
-    read to protect, and dropping the whole relationship would lose an entry the data drawer can
-    still show and repair.
+    The three `junction*` fields are deliberately NOT screened for `type: 'many-to-many'`, even
+    though they are documented as required for it: `dataSourceGraph.ts`'s join builders guard
+    every read (`if (!rel.junctionSourceId || !rel.junctionSourceField || !rel.junctionTargetField) { continue; }`),
+    so an incomplete entry is SKIPPED, not dereferenced. There is no unguarded read to protect,
+    and dropping the whole relationship would lose an entry the data drawer can still show and
+    repair.
 
   Each predicate receives an already-record, already-own-key-screened entry, so it only checks the
   leaves consumers dereference unguarded; the rest stay optional/defaulted/display-only and follow
@@ -1892,7 +1891,7 @@ nothing here touches React or the browser. Nine test files, one per runtime modu
   near-miss rejections, non-string rejections, prototype-chain rejections and a duplicate-free pin
   for every one; the exact list-LENGTH pins (16 / 17 / 22 / 3); and the derived widget-field lists
   (`STUDIO_WIDGET_FIELDS`'s partitioning, `REQUIRED_STUDIO_WIDGET_FIELDS`,
-  `OPTIONAL_WIDGET_STRING_FIELDS`). Completeness cannot be asserted at runtime (a TS union has no
+  `OPTIONAL_WIDGET_STRING_FIELDS`). Completeness cannot be asserted at runtime (a TypeScript union has no
   runtime representation), which is why the compile-time locks exist; the length pins are what catch
   the one case a lock cannot — a union member deleted by accident with the list shortened to match.
 - **`internalGuards.test.ts`** — `isPlainRecord`'s full contract: object literals, `JSON.parse`

@@ -1,6 +1,6 @@
 # x-studio-dev-server
 
-A local development server for MUI X Studio that combines the data and AI middleware into a single Express app backed by SQLite (or any Knex-compatible database).
+A local development server for MUI X Studio that combines the data and AI middleware into a single Express app backed by SQLite (or any Knex-compatible database).
 
 ## What it does
 

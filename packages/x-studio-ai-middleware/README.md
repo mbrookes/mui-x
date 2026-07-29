@@ -1,6 +1,6 @@
 # @mui/x-studio-ai-middleware
 
-Server-side AI handler for MUI X Studio.
+Server-side AI handler for MUI X Studio.
 
 Provides a pure-function `handleAIChat` handler that:
 

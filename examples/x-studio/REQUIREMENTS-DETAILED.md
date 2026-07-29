@@ -20,7 +20,7 @@ For component-level planned features see the root `BACKLOG.md`.
 | DB-05 | Dashboard | Data refresh simulation                           | 📋 Planned |
 | DB-06 | Dashboard | Shareable filter links                            | 🔭 Future  |
 | DB-07 | Dashboard | State persistence (localStorage)                  | 🔭 Future  |
-| DB-08 | Dashboard | Additional demo pages (e.g. Inventory)            | 🔭 Future  |
+| DB-08 | Dashboard | Additional demo pages (for example, Inventory)    | 🔭 Future  |
 
 ---
 
@@ -36,8 +36,8 @@ For component-level planned features see the root `BACKLOG.md`.
 
 ### D-02 · Expression fields
 
-- Calculated columns: per-row scalar values (e.g. `margin %`, `discount %`, `expr-order-country`)
-- Measures: single aggregate values over the filtered dataset (e.g. `total revenue`, `avg order value`)
+- Calculated columns: per-row scalar values (for example, `margin %`, `discount %`, `expr-order-country`)
+- Measures: single aggregate values over the filtered dataset (for example, `total revenue`, `avg order value`)
 - Expression field dialog for authoring
 - Expression fields appear in all field pickers (chart, KPI, grid, filters)
 
@@ -150,7 +150,7 @@ For component-level planned features see the root `BACKLOG.md`.
   | W-13 | Widget | KPI: value, trend, sparkline, formatting | ✅ Done |
   | W-14 | Widget | KPI: target line from business metrics | 📋 Planned |
   | W-15 | Widget | KPI: per-widget chart palette override | 📋 Planned |
-  | W-16 | Widget | Text: per-section font/colour/alignment | ✅ Done |
+  | W-16 | Widget | Text: per-section font/color/alignment | ✅ Done |
   | C-01 | Compose | Widget setup and format tabs | ✅ Done |
   | C-02 | Compose | Chart type picker with icons | ✅ Done |
   | C-03 | Compose | Auto-inferred titles + manual override | ✅ Done |
@@ -203,9 +203,9 @@ For component-level planned features see the root `BACKLOG.md`.
 ### DB-01 · Multi-page dashboard with theming
 
 - Two pages: Overview and Products & Logistics
-- Per-page theme: background colour, card background/padding/radius/border
-- Chart palette per page (4 named palettes + custom colour list)
-- Crayon color swatches with contrast-aware icon colour
+- Per-page theme: background color, card background/padding/radius/border
+- Chart palette per page (4 named palettes + custom color list)
+- Crayon color swatches with contrast-aware icon color
 
 ### DB-02 · Page-level and widget-level filters
 
@@ -249,7 +249,7 @@ For component-level planned features see the root `BACKLOG.md`.
 ### W-16 · Text widget
 
 - Title, subtitle, body text sections
-- Per-section: font family (serif / monospace / default), font size, colour, alignment
+- Per-section: font family (serif / monospace / default), font size, color, alignment
 
 ### C-01–C-05 · Compose drawer
 
@@ -263,7 +263,7 @@ For component-level planned features see the root `BACKLOG.md`.
 ### F-01–F-03 · Filters
 
 - Condition, Selection, Rank modes with mode toggle
-- Relative date values (e.g. "3 months ago")
+- Relative date values (for example, "3 months ago")
 - Compound filters (second operator + AND/OR conjunction)
 - Metric refs: filter value driven by a business metric row
 
@@ -283,7 +283,7 @@ For component-level planned features see the root `BACKLOG.md`.
 - Charts: Customer Acquisition Over Time (bar by year), Revenue by Segment (donut), Top Customers by Revenue (horizontal bar, top 12), Quarterly Revenue by Segment (stacked area)
 - Grid: Top 20 customers by total revenue, grouped by company with order count + revenue sum
 - Cross-source join: order-based charts use `expr-order-company`, `expr-order-segment`, `expr-order-country` expression fields
-- Filter widgets pass `filterSourceId` so interactive filters apply cross-source (e.g. segment filter on customers → orders join)
+- Filter widgets pass `filterSourceId` so interactive filters apply cross-source (for example, segment filter on customers → orders join)
 - Bookmarkable tabs: page is navigable via URL hash (`#page-4`)
 - Page theme: `mangoFusion` chart palette
 
@@ -299,14 +299,14 @@ _Nothing actively in flight._
 
 ### DB-04 · Dashboard-level date range filter
 
-- Single date range picker (MUI X Date Pickers) pinned above the canvas or in a toolbar
+- Single date range picker (MUI X Date Pickers) pinned above the canvas or in a toolbar
 - Drives all KPI, chart, and grid widgets simultaneously as a page-level filter
 - Pre-sets: This month, Last 3 months, Last 12 months, Year to date, All time
 
 ### DB-05 · Drill-down / detail panel
 
 - Click a chart segment or grid row → slide-in right panel
-- Shows related child rows (e.g. order → its line items)
+- Shows related child rows (for example, order → its line items)
 - Resolves relationships automatically from the declared data model
 - Breadcrumb trail for multi-level drill
 
@@ -323,8 +323,8 @@ _Nothing actively in flight._
 
 ### W-02 · Grid: conditional formatting
 
-- Rule-based cell colour (e.g. negative margin → red background)
-- Configurable in compose Format tab: field, operator, value, colour
+- Rule-based cell color (for example, negative margin → red background)
+- Configurable in compose Format tab: field, operator, value, color
 - Multiple rules per column; first-match wins
 
 ### W-03 · Grid: totals / summary row
@@ -334,7 +334,7 @@ _Nothing actively in flight._
 
 ### W-05 · Scatter chart configuration
 
-- Expose X field, Y field, size field, and colour-by field in compose drawer
+- Expose X field, Y field, size field, and color-by field in compose drawer
 - Currently these are hardcoded in the demo dashboard config
 
 ### W-06 · Pie / donut label formatting
@@ -352,7 +352,7 @@ _Nothing actively in flight._
 ### W-15 · Per-widget chart palette override
 
 - Override the page-level palette on individual chart widgets
-- Uses the same colour picker UI as the page palette panel
+- Uses the same color picker UI as the page palette panel
 
 ### C-06 · Widget resize
 
@@ -390,7 +390,7 @@ _Nothing actively in flight._
 
 ### F-06 · Filter dependency (cascading)
 
-- When a parent filter is set (e.g. Country = US), child filter options (e.g. State) narrow automatically
+- When a parent filter is set (for example, Country = US), child filter options (for example, State) narrow automatically
 - Configured by declaring a dependency in the filter setup
 
 ---
@@ -411,7 +411,7 @@ _Nothing actively in flight._
 
 ### D-06 · Ad-hoc formula bar
 
-- Lightweight single-expression input in chart/KPI setup (e.g. `[revenue] / [units]`)
+- Lightweight single-expression input in chart/KPI setup (for example, `[revenue] / [units]`)
 - Creates a one-off expression field without opening the full dialog
 
 ### D-07 · Data lineage view
@@ -434,21 +434,21 @@ _Nothing actively in flight._
 ### W-07 · Mixed chart (bar + line)
 
 - Dual-series chart with one series as bars and another as a line overlay
-- Secondary Y axis for the line series (e.g. revenue bars + margin % line)
+- Secondary Y axis for the line series (for example, revenue bars + margin % line)
 
 ### W-08 · Map / choropleth
 
 - Country or region data plotted on a world/country map
-- Colour scale from a numeric field; tooltip with value on hover
+- color scale from a numeric field; tooltip with value on hover
 
 ### W-09 · Gantt / timeline chart
 
 - Useful for shipment delivery windows (estimated vs. actual)
-- Start/end date fields; optional colour-by status field
+- Start/end date fields; optional color-by status field
 
 ### W-10 · Heatmap
 
-- Two categorical axes + a numeric value → colour intensity grid
+- Two categorical axes + a numeric value → color intensity grid
 - Useful for: day-of-week × hour revenue, product × region sales
 
 ### W-11 · Funnel chart
@@ -468,7 +468,7 @@ _Nothing actively in flight._
 
 ### C-11 · Widget template library
 
-- Panel of pre-built chart/KPI configs (e.g. "Revenue over time", "Top products bar")
+- Panel of pre-built chart/KPI configs (for example, "Revenue over time", "Top products bar")
 - Drag a template onto the canvas; Studio auto-maps fields from the active source
 
 ### C-12 · Visual expression builder
@@ -486,7 +486,7 @@ _Nothing actively in flight._
 
 - `<StudioDashboard config={…} dataLoader={…} />` with sensible defaults
 - Zero-config mode: auto-discover sources and render a grid of KPIs
-- Published as a standalone npm package separate from the MUI X monorepo
+- Published as a standalone npm package separate from the MUI X monorepo
 
 ---
 

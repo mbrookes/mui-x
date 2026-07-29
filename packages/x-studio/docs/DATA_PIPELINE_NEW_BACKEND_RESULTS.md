@@ -104,7 +104,7 @@ No direct equivalent in the original benchmark.
 Historical real-SQLite reference from `DATA_PIPELINE_PERFORMANCE.md`:
 `0.07 ms` at 10k, `0.73 ms` at 100k (WAL-mode covering index).
 
-This bench uses `mockDb` (in-memory JS linear scan), so figures reflect the
+This bench uses `mockDb` (in-memory JavaScript linear scan), so figures reflect the
 JavaScript overhead of the pipeline — not the cost of a real SQL engine.
 
 | #   | Scale        | hz (ops/s) | mean (ms) | p75 (ms) | p99 (ms) |
@@ -162,7 +162,7 @@ the same for 5 minutes.
 
 > **Note on comparability.** Both benchmarks run on the same hardware (Apple M2,
 > 16 GB, macOS) with the same methodology (50 iterations, 5 warmup, `performance.now()`).
-> The original benchmark tests the _in-process_ synchronous pipeline (pure JS
+> The original benchmark tests the _in-process_ synchronous pipeline (pure JavaScript
 > arrays). This benchmark tests the new backend pipeline which adds security
 > validation, async cache lookups, and the `mockDb` layer. Results are
 > comparable in terms of JavaScript overhead, but the new backend targets a

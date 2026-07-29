@@ -659,7 +659,7 @@ The UI review doc framed x-studio performance work around five dimensions:
 2. real-user measurement via `web-vitals`
 3. React-specific profiling
 4. bundle analysis
-5. MUI / MUI X-specific tuning
+5. MUI / MUI X-specific tuning
 
 ### Tooling wired into the example app
 

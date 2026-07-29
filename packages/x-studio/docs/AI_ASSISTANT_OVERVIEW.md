@@ -1,4 +1,4 @@
-# MUI X Studio — AI Agent Reference
+# MUI X Studio — AI Agent Reference
 
 A comprehensive description of every AI-powered code path across the three `x-studio` example
 applications: `examples/x-studio`, `examples/x-studio-composed`, and `examples/x-studio-ai`.
@@ -259,7 +259,7 @@ in order and applies them sequentially — it has no knowledge of parallelism.
 | Skill tool with `parallel: true`                              | Concurrent with adjacent `parallel: true` tools via `Promise.all` |
 
 **`parallel: true`** is opt-in on `StudioAISkill.tool`. Use it for read-only/side-effect-free
-async operations (e.g., fetching live data for several widgets simultaneously). Never mark a
+async operations (for example, fetching live data for several widgets simultaneously). Never mark a
 tool `parallel: true` if it reads then mutates state.
 
 ---
@@ -510,7 +510,7 @@ Each widget type (`StudioChartWidget`, `StudioGridWidget`, `StudioKpiWidget`, et
 
 ### 8.1 Async adapter path
 
-When `dataSource.adapter` is set (e.g., `x-studio-composed`, `x-studio-ai`):
+When `dataSource.adapter` is set (for example, `x-studio-composed`, `x-studio-ai`):
 
 ```text
 buildQueryDescriptor(widget, filters, pageId)
@@ -567,7 +567,7 @@ Rank-mode widget filters are applied **post-aggregation** (inside `resolveRowsCa
 **Display:**
 
 - Streaming text deltas → `@mui/x-chat` renders into the chat thread in real time
-- Tool call events → `StudioChatPanel` renders a subtle inline indicator (e.g., "Adding widget…")
+- Tool call events → `StudioChatPanel` renders a subtle inline indicator (for example, "Adding widget…")
 - Tool results → stored in message history; used as context for the next LLM turn
 - Confirmation requests (`remove_widget`, `remove_page`) → `<ChatConfirmation>` component
   renders inline in the chat thread below the pending message

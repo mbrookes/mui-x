@@ -14,7 +14,7 @@ Produce clean, atomic commits from a possibly-messy working tree. Never assume t
 
 2. **Scope out contamination.** Only stage changes you made this session. If you are unsure whether a change is yours, ask before including it. Use hunk-level staging (`git add -p`) when a single file mixes session work with unrelated changes.
 
-3. **Group by logical concern.** Split the session changes into separate commits, one per coherent unit of work (e.g. a bug fix, a rename, a docs update). Don't bundle unrelated concerns into one commit.
+3. **Group by logical concern.** Split the session changes into separate commits, one per coherent unit of work (for example, a bug fix, a rename, a docs update). Don't bundle unrelated concerns into one commit.
 
 4. **Verify before each commit.** For the staged subset, run the relevant checks and read the output:
    - `pnpm typescript` (or the scoped `--filter` variant for the touched package)

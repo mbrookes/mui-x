@@ -1,11 +1,11 @@
 ---
 title: Studio — Map widget
-description: Display geographic data as a choropleth map with a configurable colour scale.
+description: Display geographic data as a choropleth map with a configurable color scale.
 ---
 
 # Studio — Map widget
 
-<p class="description">Display geographic data as a choropleth map with a configurable colour scale.</p>
+<p class="description">Display geographic data as a choropleth map with a configurable color scale.</p>
 
 {{"component": "@mui/internal-core-docs/ComponentLinkHeader", "design": false}}
 
@@ -13,9 +13,9 @@ description: Display geographic data as a choropleth map with a configurable col
 
 `StudioMapWidget` renders a choropleth map (`kind: 'map'`) from a Studio data source.
 It groups rows by region, aggregates an optional numeric value per region, and fills each
-region with a continuous colour scale.
+region with a continuous color scale.
 
-The widget is built on the official MUI X premium Map from `@mui/x-charts-premium`: it
+The widget is built on the official MUI X premium Map from `@mui/x-charts-premium`: it
 composes `ChartsGeoDataProviderPremium` with `GeoDataPlot` and `MapShapePlot`, a continuous
 `colorMap` on the chart's `zAxis`, and a `ContinuousColorLegend`. Because it depends on
 `@mui/x-charts-premium`, the map widget requires a **Premium** license. The provider is
@@ -63,7 +63,7 @@ interface StudioWidgetConfig {
 | `mapAggregation`     | Aggregation applied per region: `'sum'`, `'count'`, `'avg'`, `'min'`, or `'max'`. Defaults to `'sum'`.    |
 | `mapGeography`       | Which built-in map to render: `'world'`, `'usa'`, or `'europe'` (or a custom key). Defaults to `'world'`. |
 | `mapColorScheme`     | Sequential ramp: `'blues'`, `'reds'`, `'greens'`, `'oranges'`, or `'purples'`. Defaults to `'blues'`.     |
-| `mapLegendZeroMin`   | When `true`, clamp the colour-scale minimum to `0` instead of the lowest data value. Defaults to `false`. |
+| `mapLegendZeroMin`   | When `true`, clamp the color-scale minimum to `0` instead of the lowest data value. Defaults to `false`.  |
 | `mapLegendPosition`  | Legend placement: `'bottom'` (default), `'top'`, `'left'`, `'right'`, or `'hidden'`.                      |
 
 When `mapValueField` is omitted, set `mapAggregation: 'count'` to tally rows per region.
@@ -74,9 +74,9 @@ The country field and value field can each come from a different related source.
 Set `mapCountrySourceId` and `mapValueSourceId` when either field does not belong to the widget's primary `sourceId`.
 Studio resolves the join path through the declared [relationships](/x/react-studio/data/relationships/).
 
-## Colour scale and tooltip
+## color scale and tooltip
 
-The map ships with five sequential colour ramps, applied as a continuous `colorMap` across
+The map ships with five sequential color ramps, applied as a continuous `colorMap` across
 the aggregated value range. Regions with no data use a neutral fill and show **no tooltip**
 when hovered.
 

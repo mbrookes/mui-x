@@ -12,7 +12,8 @@ import {
   normalizeChartSeries,
 } from './factories';
 import { applyDocMutation } from './applyMutation';
-import { serializeDoc } from './statePersistence';
+import { deserializeState, serializeDoc } from './statePersistence';
+import { CURRENT_SCHEMA_VERSION } from './stateTypes';
 
 // The per-kind default title/config below is transcribed directly from the current
 // `BUILTIN_WIDGET_DEFAULTS` table in `factories.ts` (it is a file-private const, not
@@ -367,6 +368,53 @@ describe('createDefaultStudioState', () => {
     expect(Object.keys(state.doc.pages)).toEqual(['page-1']);
     expect(state.doc.dashboard.activePageId).toBe('page-1');
   });
+
+  it('heals a NUMERIC activePageId that Object.hasOwn would coerce into a match', () => {
+    // `Object.hasOwn(pages, 2)` coerces the key, so a numeric `activePageId: 2` "matches"
+    // the string-keyed page `"2"` and used to be treated as valid — installing a number
+    // into a string-typed field. Nothing downstream recovers: `removePage`'s strict `===`
+    // compare never matches it, so removing page `"2"` leaves `activePageId: 2` dangling
+    // and every legacy pageId-less mutation no-ops forever. Mirror the load boundary's
+    // `typeof === 'string'` clause instead.
+    const state = createDefaultStudioState({
+      doc: {
+        pages: { 2: { id: '2', title: 'Two', widgetRows: [] } },
+        dashboard: { activePageId: 2 } as any,
+      },
+    });
+    expect(typeof state.doc.dashboard.activePageId).toBe('string');
+    expect(state.doc.dashboard.activePageId).toBe('2');
+    // The consequence the guard exists to prevent: with the numeric value installed,
+    // `removePage`'s `!==` filter kept the page and the doc was stuck forever.
+    const afterRemove = applyDocMutation(state.doc, {
+      type: 'removePage',
+      args: { pageId: '2' },
+    } as any);
+    expect(Object.hasOwn(afterRemove.pages, afterRemove.dashboard.activePageId)).toBe(true);
+  });
+
+  it('stamps schemaVersion at CURRENT_SCHEMA_VERSION, ignoring a doc override that carries one', () => {
+    // Every other doc producer stamps the version: `deserializeState` writes
+    // `CURRENT_SCHEMA_VERSION` unconditionally and no reducer handler writes it at all.
+    // The factory used to let `{ ...baseDoc, ...docOverrides }` carry an override's value
+    // straight into live state — reachable via the realistic
+    // `initialState={{ doc: JSON.parse(saved) as StudioDoc }}` cast.
+    const state = createDefaultStudioState({ doc: { schemaVersion: 2 } as any });
+    expect(state.doc.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+  });
+
+  it('a doc override carrying a NEWER schemaVersion does not produce a permanently unloadable doc', () => {
+    // The end-to-end consequence: the disk value rides into live state, `serializeDoc`
+    // spreads it back out on the first autosave, and the NEXT load hits
+    // `deserializeState`'s deliberate newer-than-current throw — a doc this build made
+    // itself and can never read back.
+    const state = createDefaultStudioState({
+      doc: { schemaVersion: CURRENT_SCHEMA_VERSION + 1 } as any,
+    });
+    const saved = serializeDoc(state.doc);
+    expect(saved.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(() => deserializeState(saved, {})).not.toThrow();
+  });
 });
 
 // `createDefaultStudioState` is the third producer of a `StudioDoc`, and it was the only
@@ -500,6 +548,118 @@ describe('createDefaultStudioState screens its doc override', () => {
     ];
     const state = createDefaultStudioState({ doc: { filters } });
     // Per-entry reference stability: a clean filter keeps its object identity.
+    expect(state.doc.filters[0]).toBe(filters[0]);
+  });
+
+  // Rank-filter per-page uniqueness. The reducer enforces it on every live add
+  // (`addFilter`) and re-sweeps it in its three layout handlers precisely so a doc is never
+  // "live-valid and load-invalid"; the load boundary re-checks it too. The factory was the
+  // one producer that skipped it, so an `initialState` with two conflicting rank filters
+  // installed both and the next layout mutation (or reload) silently dropped one.
+  it('drops a later rank filter that conflicts with an earlier one on the same page context', () => {
+    const state = createDefaultStudioState({
+      doc: {
+        filters: [
+          {
+            id: 'r1',
+            field: 'x',
+            operator: 'equals',
+            value: 1,
+            filterMode: 'rank',
+            scope: { kind: 'page', pageId: 'page-1' },
+          },
+          {
+            id: 'r2',
+            field: 'y',
+            operator: 'equals',
+            value: 2,
+            filterMode: 'rank',
+            scope: { kind: 'page', pageId: 'page-1' },
+          },
+        ] as any,
+      },
+    });
+    // First-in-array-order wins, the exact tie-break the reducer and the load boundary use.
+    expect(state.doc.filters.map((f) => f.id)).toEqual(['r1']);
+    // Live-valid ⇒ load-valid: a round trip through the load boundary's own rank sweep
+    // must now be a no-op rather than a silent extra deletion.
+    expect(deserializeState(serializeDoc(state.doc), {}).doc.filters.map((f) => f.id)).toEqual([
+      'r1',
+    ]);
+  });
+
+  it('keeps rank filters that resolve to DIFFERENT page contexts', () => {
+    const state = createDefaultStudioState({
+      doc: {
+        pages: {
+          'page-a': { id: 'page-a', title: 'A', widgetRows: [] },
+          'page-b': { id: 'page-b', title: 'B', widgetRows: [] },
+        },
+        filters: [
+          {
+            id: 'r1',
+            field: 'x',
+            operator: 'equals',
+            value: 1,
+            filterMode: 'rank',
+            scope: { kind: 'page', pageId: 'page-a' },
+          },
+          {
+            id: 'r2',
+            field: 'y',
+            operator: 'equals',
+            value: 2,
+            filterMode: 'rank',
+            scope: { kind: 'page', pageId: 'page-b' },
+          },
+        ] as any,
+      },
+    });
+    // Rank uniqueness is PER PAGE — page-a's window does not block page-b's.
+    expect(state.doc.filters.map((f) => f.id)).toEqual(['r1', 'r2']);
+  });
+
+  it('leaves a non-rank-eligible scope alone even with filterMode: rank', () => {
+    // A `dashboard-date-range` scope resolves to the UNRESOLVABLE sentinel, so it must
+    // neither be dropped nor block the legitimate page rank filter after it — matching
+    // `hasConflictingRankFilter`'s own exclusion and the load boundary's identical gate.
+    const state = createDefaultStudioState({
+      doc: {
+        filters: [
+          {
+            id: 'dr',
+            field: 'd',
+            operator: 'equals',
+            value: 1,
+            filterMode: 'rank',
+            scope: { kind: 'dashboard-date-range', sourceId: 's1', pageId: 'page-1' },
+          },
+          {
+            id: 'r1',
+            field: 'x',
+            operator: 'equals',
+            value: 1,
+            filterMode: 'rank',
+            scope: { kind: 'page', pageId: 'page-1' },
+          },
+        ] as any,
+      },
+    });
+    expect(state.doc.filters.map((f) => f.id)).toEqual(['dr', 'r1']);
+  });
+
+  it('keeps the filters array reference-stable when no rank conflict exists', () => {
+    const filters = [
+      {
+        id: 'r1',
+        field: 'x',
+        operator: 'equals' as const,
+        value: 1,
+        filterMode: 'rank' as const,
+        scope: { kind: 'page' as const, pageId: 'page-1' },
+      },
+    ];
+    const state = createDefaultStudioState({ doc: { filters } });
     expect(state.doc.filters[0]).toBe(filters[0]);
   });
 });

@@ -77,6 +77,7 @@ src/
   wireLimits.ts           MAX_ARRAY_LENGTH/MAX_STRING_LENGTH — shared wire trust-boundary size caps
   internalGuards.ts       isPlainRecord/stripUnsafeOwnKeys/repairFilterDependsOn — shared boundary helpers
   docScreening.ts         The per-entry StudioDoc screens shared by the load boundary and the factory
+  rankFilterScope.ts      Rank-filter page-scope resolution + the uniqueness sweep, shared by all three producers
   applyMutation.ts        The single mutation reducer; GRID_COLS/MIN_SPAN; two load-boundary internals
   parseStateMutation.ts   The runtime validation gate for wire-sourced mutations
   widgetTypeGuards.ts     Runtime narrowing + the three closed-union membership lists
@@ -91,10 +92,11 @@ facts table whose invariants are compile-time-enforced by the mapped types deriv
 `unsafeKeys.ts` (a fixed three-literal `Set` plus a one-line membership check, exercised
 indirectly by every prototype-hazard case in the boundary suites), `wireLimits.ts` (two exported
 number constants, exercised indirectly by every size-cap case in `parseStateMutation.test.ts`,
-`applyMutation.test.ts`, and `statePersistence.test.ts`), and `docScreening.ts` (whose
+`applyMutation.test.ts`, and `statePersistence.test.ts`), `docScreening.ts` (whose
 screens are exercised through both of their callers — `statePersistence.test.ts` and
 `factories.test.ts` — since what matters is that the two boundaries agree on a payload, which only
-a per-caller test can assert). The pure type modules have no runtime behavior to test.
+a per-caller test can assert), and `rankFilterScope.ts` (same reasoning, across its three callers'
+suites). The pure type modules have no runtime behavior to test.
 
 ## Type modules
 
@@ -384,12 +386,47 @@ Two of `deserializeState`'s behaviours are deliberately **not** applied by the f
   merges its `pages`/`widgets` overrides onto the defaults AFTER the screen runs, so a filter
   anchored to the default page would look like an orphan here and be wrongly dropped.
 
+Everything else `deserializeState` does, the factory does too, and each of the three that are
+_reconciliations_ rather than per-entry screens is applied at the same point in the factory's own
+assembly — after the merge, once the final page map exists:
+
+- **`schemaVersion` is STAMPED, never taken from the override.** The factory used to let
+  `{ ...baseDoc, ...docOverrides }` carry an override's value through (`screenDoc` copies the field
+  untouched), making it the only doc producer that did: `deserializeState` writes
+  `CURRENT_SCHEMA_VERSION` unconditionally and ignores the persisted value, and no reducer handler
+  writes the field at all. The realistic path in is a cast —
+  `initialState={{ doc: JSON.parse(saved) as StudioDoc }}`, since the literal type blocks a direct
+  `schemaVersion: 2` — and the consequence is not cosmetic: `serializeDoc` spreads the value back
+  out on the first autosave, so the NEXT load hits `deserializeState`'s deliberate
+  newer-than-current throw (or `migrateState`'s matching refusal) on a doc **this build produced
+  itself**, permanently unloadable.
+- **`dashboard.activePageId` is reconciled with the same `typeof === 'string'` guard as the load
+  boundary.** See [string ids: the coercion-desync class](#string-ids-the-coercion-desync-class):
+  `Object.hasOwn` coerces its key, so a numeric `activePageId: 2` "matches" a string-keyed page
+  `"2"` and was waved through as valid, installing a number into a string-typed field.
+  `screenDashboard` deliberately does not check `activePageId` (it needs the final page map), so
+  this is the only screen it passes. Nothing downstream heals it: `removePage`'s strict `===`
+  compare never matches, so removing page `"2"` leaves `activePageId: 2` dangling and every legacy
+  pageId-less mutation no-ops forever.
+- **Rank-filter uniqueness is re-checked**, via the shared `dedupeRankFilters` — the reducer keeps
+  `dropConflictingRankFilters` in three handlers precisely so a doc is never "live-valid and
+  load-invalid", and the factory was the last producer that could still mint one. It runs after the
+  page map is final (the sweep needs the merged `pages` to resolve a `widget` scope's context, for
+  the same reason the anchor probes cannot run at screen time) and, unlike the reducer and the load
+  boundary, does NOT cascade the drops into the survivors' `dependsOn` — `pruneDependsOn` lives in
+  `applyMutation.ts`, out of reach, and the factory already leaves `dependsOn` alone after every
+  other drop `screenFilters` makes.
+
 **Known gap, worth stating rather than implying completeness:** the factory's `pages` override is
 still unscreened. The page sweep is `normalizePersistedPages`, which lives in `applyMutation.ts` and
-needs its layout/rank machinery; `docScreening.ts` cannot import it, because `factories.ts` imports
+needs its layout machinery; `docScreening.ts` cannot import it, because `factories.ts` imports
 `docScreening.ts` and moving it would cycle. The load boundary calls it directly. (The factory does
 separately uphold the "at least one page always exists" invariant, since a `doc.pages` override
-replaces the default page map wholesale.)
+replaces the default page map wholesale.) The rank sweep used to be blocked by the same cycle and
+is no longer: its two helpers needed nothing but `StudioDoc['pages']` and `StudioFilterState` as
+types, so hoisting them into the dependency-free [`rankFilterScope.ts`](#rankfilterscopets) freed
+them. `normalizePersistedPages` has no such easy hoist — it pulls in the span/row layout
+primitives.
 
 The governing rule is that **all four must agree on the same payload.** A shape the wire
 rejects but the reducer accepts becomes _deferred data loss_: the value installs, renders fine,
@@ -646,10 +683,17 @@ Reference-stable when every entry is already canonical.
 
   The merge is intentionally asymmetric: `doc.dashboard` and `session.shell` (including
   `shell.openDrawers`) are deep-merged so a partial override doesn't clobber siblings; every
-  other field replaces its default wholesale. Because a `doc.pages` override replaces the page
-  map wholesale, the factory then (a) falls back to the default page when the override is empty
-  (see ["at least one page"](#at-least-one-page-always-exists)) and (b) reassigns a dangling
-  `dashboard.activePageId` to the first page id — the same fallback `removePage` uses.
+  other field replaces its default wholesale. `schemaVersion` is the one field an override can
+  never supply — it is stamped from `CURRENT_SCHEMA_VERSION` after the spread, matching every
+  other doc producer.
+
+  The `doc` bag then goes through `screenDoc`, and three post-merge reconciliations run once the
+  page map is final: the default-page fallback for an empty `doc.pages` override (see
+  ["at least one page"](#at-least-one-page-always-exists)), the `dashboard.activePageId` fallback
+  to the first page id when it is not a string or names no page (the same fallback `removePage`
+  uses), and the shared `dedupeRankFilters` rank-uniqueness sweep. All four behaviours mirror the
+  load boundary — see [the four trust boundaries](#the-four-trust-boundaries) for each one's
+  failure mode and for the two load-boundary options the factory deliberately does not take.
 
 ### `anomalyDetection.ts`
 
@@ -750,11 +794,43 @@ exactly one implementation across every trust boundary.
   `applyMutation.ts` or `statePersistence.ts`, because `factories.ts` imports it. That is why the
   load boundary keeps three things of its own rather than moving them here — the legacy leaf-shape
   normalization (`normalizeGridColumn`/`normalizeChartSeries`, a persisted-shape concern rather than
-  a screen), `normalizePersistedPages` plus the rank-filter uniqueness sweep (which need
-  `applyMutation.ts`'s layout/rank machinery), and the `dashboard.activePageId` /
-  `ai.activeThreadId` reconciliations (which need the FINAL page map, assembled differently by each
-  caller). Reference stability holds throughout: every screen returns the SAME array/record/entry
-  object when nothing needed dropping or repairing, so a well-formed doc costs nothing.
+  a screen), `normalizePersistedPages` (which needs `applyMutation.ts`'s layout machinery), and the
+  `dashboard.activePageId` / `ai.activeThreadId` reconciliations (which need the FINAL page map,
+  assembled differently by each caller).
+
+  **Reference stability is per ENTRY, not per container.** A surviving well-formed entry keeps its
+  object identity, which is what the memoization downstream of a load actually depends on; the
+  CONTAINER is not always the same object. `screenWidgets` rebuilds through `Object.fromEntries`
+  and `screenFilters` through `.map().filter()` on every call, so both hand back a fresh
+  record/array even when nothing was dropped or repaired. The screens that DO return their input
+  container untouched in the clean case say so individually (`screenDashboard`,
+  `screenOptionalWidgetScalars`). Where whole-array stability matters it is arranged by the
+  CALLER, not the screen — `deserializeState`'s `pruneDependsOn` and the shared
+  `dedupeRankFilters` both return the same array they were given when nothing changed.
+
+### `rankFilterScope.ts`
+
+`resolveRankFilterPageId`, `hasConflictingRankFilter` and the array-wide `dedupeRankFilters`. See
+[rank-filter uniqueness](#rank-filter-uniqueness) for the semantics; this section is about why they
+live in a module of their own.
+
+All three began inside `applyMutation.ts`, beside the handlers that enforce the invariant. That home
+made them unreachable from `factories.ts` — the factory-overrides trust boundary — because
+`applyMutation.ts` imports `factories.ts` for `normalizeChartSeries`, so the arrow cannot run both
+ways. The factory was therefore the one producer of a doc that could not re-check rank uniqueness,
+and an `initialState` carrying two conflicting rank filters installed both.
+
+Splitting them out works because they need **nothing at runtime**: `StudioDoc['pages']` and
+`StudioFilterState` are type-only imports, so the module is dependency-free by construction and
+every boundary can import it. That is the general escape hatch for this class of constraint, and
+it is why the `pages` gap above is genuinely harder — `normalizePersistedPages` pulls in the
+row/span layout primitives, not just types.
+
+`dedupeRankFilters` returns `{ filters, changed }` rather than baking in what to do next, because
+the callers differ: the reducer and the load boundary cascade the drops into the survivors'
+`dependsOn` via `pruneDependsOn` (which lives in `applyMutation.ts`, out of this module's reach),
+while the factory takes the array as-is. All three share the loop, so the predicate and the
+array-order tie-break cannot drift.
 
 ### `applyMutation.ts` — the single mutation reducer
 
@@ -839,7 +915,7 @@ a no-op.
 | `enforceLayoutColSpans`                        | The SOLE col-span invariant pass (2→1 collapse, row-overflow drop, orphaned-span drop)                                                          |
 | `rebalanceRowSpans`                            | Fit ONE row's spans inside `GRID_COLS` around the widths a mutation explicitly asked for                                                        |
 | `removeWidgetIds`                              | The "genuinely gone" removal primitive (below)                                                                                                  |
-| `dropConflictingRankFilters`                   | Per-page rank-filter uniqueness sweep over a whole filter array                                                                                 |
+| `dropConflictingRankFilters`                   | The shared `dedupeRankFilters` sweep plus the `dependsOn` cascade (see [`rankFilterScope.ts`](#rankfilterscopets))                              |
 | `normalizePersistedPages`                      | The load-boundary layout sweep (documented under [`statePersistence.ts`](#statepersistencets--the-persistence-boundary))                        |
 
 **`withSpans(page, spans, overrides?)`** is what makes "drops" mean the same thing for
@@ -923,8 +999,9 @@ rule, so setting one widget's width through the bulk tool erased its neighbor's.
 Only one `filterMode: 'rank'` (Top-N) filter may occupy a page context. This used to be enforced
 only by `StudioController`'s five call sites — a UI-layer convenience, not a contract boundary —
 so a caller bypassing the controller could install two. The reducer enforces it directly, through
-two exported helpers that the client's `internals/rankFilterScope.ts` re-exports rather than
-hand-syncing, and that `statePersistence.ts` reuses at the load boundary.
+helpers in [`rankFilterScope.ts`](#rankfilterscopets) that the client's
+`internals/rankFilterScope.ts` re-exports rather than hand-syncing, and that
+`statePersistence.ts` and `factories.ts` reuse at their own boundaries.
 
 **`resolveRankFilterPageId(filter, pages)` is deliberately THREE-state**, and the three are not
 interchangeable:
@@ -951,10 +1028,11 @@ reject every legitimate rank filter dashboard-wide. Both sides enforce the restr
 `addFilter` skips the gate entirely for those scopes, and `hasConflictingRankFilter`'s
 existing-filter loop excludes them too.
 
-**`dropConflictingRankFilters(filters, pages)`** enforces uniqueness across a whole array, keeping
-the FIRST rank filter per page context in array order. It exists because `addFilter` can only gate
-the filter it is installing, against the context that filter resolves to AT THAT MOMENT — a later
-PLACEMENT can create a conflict after the fact. Three handlers run it:
+**`dedupeRankFilters(filters, pages)`** enforces uniqueness across a whole array, keeping the
+FIRST rank filter per page context in array order. It exists because `addFilter` can only gate the
+filter it is installing, against the context that filter resolves to AT THAT MOMENT — a later
+PLACEMENT can create a conflict after the fact. The reducer wraps it as
+`dropConflictingRankFilters`, which adds the `dependsOn` cascade, and three handlers run it:
 
 - **`setWidgetLayout`** and **`applyBulkUpdate`** — placing a widget whose rank filter previously
   resolved to UNRESOLVABLE can drop it onto a page that already has one.
@@ -962,10 +1040,14 @@ PLACEMENT can create a conflict after the fact. Three handlers run it:
   to `p2` once it does not. `removeWidgetIds` does not cover this: the widget survives on `p2`, so
   its filter survives too, carrying the stale resolution with it.
 
-All three use the SAME predicate and the SAME array-order tie-break as the load-boundary dedup, so
-the reducer and the load boundary agree at **commit** time. Without them the doc was live-valid
-and load-invalid: `deserializeState` silently deleted the user's filter and the next autosave
-persisted the loss.
+All three run the same shared sweep as the load-boundary dedup AND the factory's override screen,
+so all three boundaries agree at **commit** time on which filter survives. Without them the doc
+was live-valid and load-invalid: `deserializeState` silently deleted the user's filter and the next
+autosave persisted the loss.
+
+The **factory** runs the sweep too, but at a different point in its own assembly and without the
+`dependsOn` cascade — see [`factories.ts`](#factoriests) and
+[`rankFilterScope.ts`](#rankfilterscopets).
 
 #### Notable per-handler semantics
 
@@ -1674,8 +1756,8 @@ three things that cannot move without an import cycle. The screens, in the order
      naming a page that no longer exists — the page-anchor mirror of the widget-anchor check,
      needed because `removePage`'s cleanup only fires for a LIVE removal, never for a doc that
      already lacks the page. A legacy pageId-less `page` filter is left alone.
-  5. Re-check rank uniqueness with the same `hasConflictingRankFilter` and `page`/`widget` gate the
-     reducer uses.
+  5. Re-check rank uniqueness via the shared `dedupeRankFilters` — the same predicate,
+     `page`/`widget` gate and array-order tie-break the reducer and the factory use.
   6. **Once at the end**, cascade every drop above into the survivors' `dependsOn` via the shared
      `pruneDependsOn`. This was the LARGEST un-pruned filter-removal site; applying the prune once
      against the final surviving id set covers all six drops uniformly.
@@ -1907,8 +1989,11 @@ nothing here touches React or the browser. Nine test files, one per runtime modu
   header comment, since `BUILTIN_WIDGET_DEFAULTS` is file-private — update them if the table
   changes); the custom-kind fallback; fresh-array-per-call; id uniqueness across a tight loop and
   across interleaved factories; `normalizeChartSeries` precedence and reference stability; the
-  per-partition merge semantics and page/`activePageId` reconciliation, plus the `screenDoc` pass
-  over `overrides.doc` (including the two load-boundary behaviours it deliberately does not apply).
+  per-partition merge semantics and the four post-merge reconciliations (default-page fallback,
+  `activePageId` — including its numeric-coercion heal, `schemaVersion` stamping with a
+  serialize→deserialize round trip proving the doc stays loadable, and rank-filter uniqueness with
+  its per-page and non-rank-eligible negative cases), plus the `screenDoc` pass over `overrides.doc`
+  (including the two load-boundary behaviours it deliberately does not apply).
 - **`configKeyValidation.test.ts`** — both layers per kind and per chart type, the custom-kind
   `null` case, the total-over-`StudioChartType` behavior, and the fail-closed
   prototype-chain-`chartType` regressions.

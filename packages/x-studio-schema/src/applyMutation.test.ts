@@ -4,10 +4,11 @@ import {
   applyDocMutation,
   applyMutation,
   mutationLabel,
-  resolveRankFilterPageId,
-  hasConflictingRankFilter,
   normalizePersistedPages,
 } from './applyMutation';
+// Hoisted out of `applyMutation.ts` so `factories.ts` can reach them too — see
+// `rankFilterScope.ts`. The behaviour these tests pin is unchanged.
+import { resolveRankFilterPageId, hasConflictingRankFilter } from './rankFilterScope';
 import { serializeDoc, deserializeState } from './statePersistence';
 import {
   OPTIONAL_STUDIO_WIDGET_FIELDS,

@@ -14,6 +14,11 @@ import type {
 } from './widgetTypes';
 import { CURRENT_SCHEMA_VERSION } from './stateTypes';
 import { screenDoc } from './docScreening';
+// The per-page rank-uniqueness sweep, shared with the reducer's layout handlers and the
+// persistence load boundary. It lives in its own dependency-free module precisely so this
+// file can reach it: it began life in `applyMutation.ts`, which imports THIS file, so the
+// arrow cannot run both ways. See `rankFilterScope.ts`.
+import { dedupeRankFilters } from './rankFilterScope';
 import type { StudioDoc, StudioRuntime, StudioSession, StudioState } from './stateTypes';
 import type { StateMutation, MutationEnvelope } from './aiTypes';
 
@@ -293,6 +298,18 @@ export function createDefaultStudioState(
   const mergedDoc: StudioDoc = {
     ...baseDoc,
     ...docOverrides,
+    // Stamp the schema version AFTER the spread, never letting an override supply it. This
+    // was the one producer of a doc that did: `deserializeState` writes
+    // `CURRENT_SCHEMA_VERSION` unconditionally and ignores the persisted value, and no
+    // reducer handler writes the field at all. The realistic way an override carries one is
+    // `initialState={{ doc: JSON.parse(saved) as StudioDoc }}` (the literal type blocks a
+    // direct `schemaVersion: 2`, a cast does not) — and a stale-or-newer disk value riding
+    // into live state is not cosmetic: `serializeDoc` spreads it straight back out on the
+    // first autosave, so the NEXT load hits `deserializeState`'s deliberate
+    // newer-than-current throw (or `migrateState`'s matching refusal) on a doc this very
+    // build produced. Stamping here means the version always describes the shape this build
+    // actually wrote.
+    schemaVersion: CURRENT_SCHEMA_VERSION,
     dashboard: {
       ...baseDoc.dashboard,
       ...docOverrides?.dashboard,
@@ -318,12 +335,40 @@ export function createDefaultStudioState(
   // Fall back to the first page id, mirroring the exact fallback `removePage` uses when it
   // deletes the active page. The empty-map arm of that fallback is now unreachable (the
   // guard above guarantees a page), so `activePageId` is always a real page id.
-  if (!Object.hasOwn(mergedDoc.pages, mergedDoc.dashboard.activePageId)) {
+  //
+  // `typeof ... === 'string'` guards `Object.hasOwn` against its own key-coercion, mirroring
+  // the identical clause at the load boundary: `Object.hasOwn(pages, 2)` coerces, so a
+  // NUMERIC `activePageId: 2` "matches" a string-keyed page `"2"` and would be waved through
+  // as valid — installing a number into a string-typed field. `screenDashboard` deliberately
+  // does not check `activePageId` (it needs the FINAL page map), so this is the only screen it
+  // passes. Nothing downstream heals it: `removePage`'s strict `===` compare never matches,
+  // so removing page `"2"` leaves `activePageId: 2` dangling, and every legacy pageId-less
+  // mutation then resolves its target through an `Object.hasOwn` no id satisfies and no-ops
+  // forever — an unrecoverable doc for the rest of the session.
+  if (
+    typeof mergedDoc.dashboard.activePageId !== 'string' ||
+    !Object.hasOwn(mergedDoc.pages, mergedDoc.dashboard.activePageId)
+  ) {
     mergedDoc.dashboard = {
       ...mergedDoc.dashboard,
       activePageId: Object.keys(mergedDoc.pages)[0] ?? '',
     };
   }
+  // Re-check per-page rank-filter uniqueness, the same sweep the load boundary runs right
+  // after `screenFilters` and the reducer runs in its three layout handlers. Those handlers
+  // exist specifically so a doc is never "live-valid and load-invalid"; the factory was the
+  // last producer that could still mint one. An `initialState` carrying two `filterMode:
+  // 'rank'` filters that resolve to the same page context installed BOTH, and then the next
+  // layout mutation (or the next reload) silently dropped one and re-persisted the loss.
+  //
+  // Runs HERE, after the page map is final, rather than inside `screenFilters`: the sweep
+  // needs the merged `pages` to resolve a `widget` scope's page context, and `screenDoc` runs
+  // before the `pages` override is merged onto the defaults — the same reason the orphan
+  // anchor probes cannot be applied at screen time. Unlike the reducer and the load boundary
+  // this does NOT cascade the drops into the survivors' `dependsOn`: `pruneDependsOn` lives in
+  // `applyMutation.ts` and is unreachable from here, and the factory already leaves `dependsOn`
+  // alone after every other drop `screenFilters` makes, so the behaviour stays uniform.
+  mergedDoc.filters = dedupeRankFilters(mergedDoc.filters, mergedDoc.pages).filters;
 
   return {
     doc: mergedDoc,

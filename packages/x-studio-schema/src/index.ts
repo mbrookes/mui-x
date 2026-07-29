@@ -47,9 +47,11 @@ export {
   GRID_COLS,
   MIN_SPAN,
   MUTATION_TYPES,
-  resolveRankFilterPageId,
-  hasConflictingRankFilter,
 } from './applyMutation';
+// The rank-filter scope helpers moved out of `applyMutation.ts` into their own
+// dependency-free module so `factories.ts` (the factory-overrides trust boundary) can reach
+// them too — see `rankFilterScope.ts`. The public names are unchanged.
+export { resolveRankFilterPageId, hasConflictingRankFilter } from './rankFilterScope';
 export { parseStateMutation, PARSEABLE_MUTATION_TYPES } from './parseStateMutation';
 export type { ParseStateMutationResult } from './parseStateMutation';
 export {

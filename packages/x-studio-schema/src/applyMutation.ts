@@ -31,6 +31,11 @@ import {
 // The optional-scalar screen is shared with the persistence load boundary — see
 // `docScreening.ts`, which owns every per-entry screen a `StudioDoc` must pass.
 import { screenOptionalWidgetScalars } from './docScreening';
+// Rank-filter page-scope resolution and the per-page uniqueness sweep. These lived HERE until
+// the factory (the fourth trust boundary) needed them too and could not import this module —
+// `applyMutation.ts` imports `factories.ts`, so the arrow cannot run both ways. They now live
+// in a dependency-free module all four boundaries can read; see `rankFilterScope.ts`.
+import { dedupeRankFilters, hasConflictingRankFilter } from './rankFilterScope';
 // The three guards the wire boundary (`parseStateMutation.ts`), the load boundary
 // (`statePersistence.ts`) and this reducer all need, kept in `internalGuards.ts` as ONE
 // implementation each so the three trust boundaries cannot drift apart:
@@ -660,118 +665,13 @@ function stripWidgetIdsFromPages(
 }
 
 /**
- * Resolves the page a rank-eligible filter applies to, for the per-page rank-uniqueness
- * guard. The answer is THREE-state, and the two non-string states mean OPPOSITE things:
- *  - a `string` → the concrete page this filter's rank window applies to.
- *  - `null` → "applies EVERYWHERE": the legacy pageId-less `page` scope, active on every
- *    page, so it conflicts with — and is conflicted by — every rank filter.
- *  - `undefined` → "UNRESOLVABLE": there is no page context to compare against, so it
- *    conflicts with nothing and blocks nothing. Returned for a `widget` scope whose widget
- *    sits on no page's `widgetRows` (left in `doc.widgets` but unplaced — e.g. after a
- *    `setWidgetLayout`, or an `applyBulkUpdate` whose `activePageId` no longer exists), and
- *    for every non-rank-eligible scope kind.
- *
- * Keeping UNRESOLVABLE distinct from the `null` wildcard is what stops ONE unplaced-widget
- * rank filter — which nothing removes, since `dropWidgetScopedFilters` fires only on widget
- * REMOVAL — from "conflicting" with, and therefore silently rejecting, every rank
- * `addFilter` on every page.
- *
- * The mirror consequence is that an unresolvable filter is accepted with no page context to
- * check, so a later PLACEMENT can create the conflict `addFilter` could not see. That is
- * what {@link dropConflictingRankFilters} exists to catch in the layout handlers.
- *
- * Duplicated (not imported) from `@mui/x-studio`'s `internals/rankFilterScope.ts`: the
- * dependency arrow runs `x-studio` → `x-studio-schema`, never the reverse, so this
- * dependency-free package cannot import the client's copy. The reducer is the
- * mutation-semantics source of truth and must not depend on every caller
- * (`StudioController`'s five call sites) enforcing the invariant first.
- *
- * Exported so `statePersistence.ts`'s load boundary reuses the SAME resolution logic when
- * it re-checks rank uniqueness on a persisted doc — a hand-edited or foreign doc can
- * otherwise carry two conflicting rank filters on one page.
- */
-export function resolveRankFilterPageId(
-  filter: StudioFilterState,
-  pages: StudioDoc['pages'],
-): string | null | undefined {
-  const { scope } = filter;
-  if (scope.kind === 'page') {
-    return scope.pageId ?? null;
-  }
-  if (scope.kind === 'widget') {
-    for (const page of Object.values(pages)) {
-      if ((page.widgetRows ?? []).some((row) => row.includes(scope.widgetId))) {
-        return page.id;
-      }
-    }
-    // UNRESOLVABLE, not "everywhere": an unplaced widget's rank filter has no page
-    // context, so it must neither conflict with nor be conflicted by anything.
-    return undefined;
-  }
-  // Not rank-eligible at all — also unresolvable, never a wildcard.
-  return undefined;
-}
-
-/**
- * True when another rank filter already occupies `target`'s page context. Rank
- * uniqueness is per-page — a rank filter on page-1 does not block one on page-2 —
- * because page filters gate on `pageId === activePageId` and widget rank filters
- * are per-widget. A `null` resolved page (a pageId-less page filter, applied
- * everywhere) conflicts with — and is conflicted by — any other rank filter.
- *
- * An `undefined` resolved page ({@link resolveRankFilterPageId}'s UNRESOLVABLE sentinel)
- * is the opposite of the `null` wildcard:
- *  - an unresolvable TARGET conflicts with NOTHING (no page context to collide on, so the
- *    add is always allowed), and
- *  - an unresolvable OTHER filter is NON-conflicting (it cannot block anything).
- *
- * Only `page`/`widget` scopes are rank-eligible, so the existing-filter loop below excludes
- * every OTHER scope kind. `filterMode: 'rank'` on e.g. a `dashboard-date-range` or
- * `interactive` scope is wire-valid (the wire boundary never restricts `filterMode` to a
- * scope kind) but is not a rank window over a page, and treating it as one would make a
- * single such filter reject every legitimate `page`/`widget` rank filter thereafter.
- * `addFilter` mirrors the exclusion by skipping the gate entirely for those scopes, so this
- * loop's copy is what protects the OTHER callers — the layout handlers' sweep and the
- * load-boundary dedup in `statePersistence.ts`.
- *
- * Exported for reuse by that load-boundary dedup sweep.
- */
-export function hasConflictingRankFilter(
-  filterId: string,
-  target: StudioFilterState,
-  filters: StudioFilterState[],
-  pages: StudioDoc['pages'],
-): boolean {
-  const targetPageId = resolveRankFilterPageId(target, pages);
-  // An unresolvable target has no page context to collide on — it conflicts with nothing.
-  if (targetPageId === undefined) {
-    return false;
-  }
-  return filters.some((filter) => {
-    if (
-      filter.id === filterId ||
-      (filter.scope.kind !== 'page' && filter.scope.kind !== 'widget') ||
-      filter.filterMode !== 'rank'
-    ) {
-      return false;
-    }
-    const otherPageId = resolveRankFilterPageId(filter, pages);
-    // An unresolvable OTHER filter (an unplaced widget's rank filter) blocks nothing.
-    if (otherPageId === undefined) {
-      return false;
-    }
-    return targetPageId === null || otherPageId === null || otherPageId === targetPageId;
-  });
-}
-
-/**
  * Enforce per-page rank-filter uniqueness across a whole filter array, keeping the FIRST
  * rank filter for each page context in array order and dropping any later one that
  * conflicts with it (then cascading those drops into the survivors' `dependsOn`).
  *
  * `addFilter` can only gate the filter it is installing, against the page context that
  * filter resolves to AT THAT MOMENT. A `widget`-scoped rank filter whose widget sits on no
- * page resolves to {@link resolveRankFilterPageId}'s UNRESOLVABLE sentinel and is therefore
+ * page resolves to `resolveRankFilterPageId`'s UNRESOLVABLE sentinel and is therefore
  * accepted unconditionally — so a later PLACEMENT of that widget (a `setWidgetLayout`, or an
  * `applyBulkUpdate` carrying rows) can move it onto a page that already has a rank filter
  * and create the conflict after the fact. The layout handlers run this sweep so the
@@ -779,29 +679,18 @@ export function hasConflictingRankFilter(
  * valid but load-invalid until `deserializeState`'s identical dedup silently deletes the
  * filter on the next reload.
  *
- * Uses the SAME predicate and the SAME array-order tie-break as that load-boundary dedup
- * (`statePersistence.ts`), so the reducer and the load boundary always agree on which
- * filter survives. Reference-stable: returns the SAME array when nothing conflicts.
+ * The sweep itself is the shared `dedupeRankFilters` in `rankFilterScope.ts`, so the
+ * predicate and the array-order tie-break are byte-identical across all three enforcement
+ * sites (this one, `statePersistence.ts`'s load-boundary dedup, and `factories.ts`'s override
+ * screen) and cannot drift. What this wrapper adds is the `dependsOn` cascade, which only the
+ * reducer and the load boundary do (`pruneDependsOn` lives here, out of that module's reach).
+ * Reference-stable: returns the SAME array when nothing conflicts.
  */
 function dropConflictingRankFilters(
   filters: StudioFilterState[],
   pages: StudioDoc['pages'],
 ): StudioFilterState[] {
-  let changed = false;
-  const kept: StudioFilterState[] = [];
-  for (const filter of filters) {
-    // Only `page`/`widget` scopes are rank-eligible; every other scope kind is left alone
-    // (matching `addFilter`'s gate and `hasConflictingRankFilter`'s own exclusion).
-    if (
-      filter.filterMode === 'rank' &&
-      (filter.scope.kind === 'page' || filter.scope.kind === 'widget') &&
-      hasConflictingRankFilter(filter.id, filter, kept, pages)
-    ) {
-      changed = true;
-      continue;
-    }
-    kept.push(filter);
-  }
+  const { filters: kept, changed } = dedupeRankFilters(filters, pages);
   return changed ? pruneDependsOnAgainstSelf(kept) : filters;
 }
 

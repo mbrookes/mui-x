@@ -1,5 +1,9 @@
 import { createDefaultStudioState, normalizeGridColumn, normalizeChartSeries } from './factories';
-import { normalizePersistedPages, hasConflictingRankFilter, pruneDependsOn } from './applyMutation';
+import { normalizePersistedPages, pruneDependsOn } from './applyMutation';
+// The rank-uniqueness sweep is shared with the reducer's layout handlers AND with
+// `factories.ts` — see `rankFilterScope.ts` for why it lives in its own dependency-free
+// module rather than in `applyMutation.ts` where it started.
+import { dedupeRankFilters } from './rankFilterScope';
 import { isPlainRecord as isRecord } from './internalGuards';
 // The per-ENTRY screens a `StudioDoc` must pass are shared with the OTHER producer of a doc
 // (`createDefaultStudioState`, reachable from the public `Studio initialState` prop) — see
@@ -17,13 +21,7 @@ import {
   screenWidgets,
 } from './docScreening';
 import { CURRENT_SCHEMA_VERSION } from './stateTypes';
-import type {
-  StudioState,
-  StudioDoc,
-  StudioSession,
-  StudioRuntime,
-  StudioFilterState,
-} from './stateTypes';
+import type { StudioState, StudioDoc, StudioSession, StudioRuntime } from './stateTypes';
 import type { StudioExpressionField } from './expressionTypes';
 import type { StudioWidget, StudioWidgetConfig } from './widgetTypes';
 import type { StudioAIState } from './aiTypes';
@@ -768,31 +766,11 @@ export function deserializeState(
   // hand-edited/foreign doc could load with two conflicting rank filters on the same page
   // (or the legacy pageId-less "applies on every page" shape). Keep the FIRST rank filter
   // for each page context in array order and drop any later one that conflicts with it,
-  // reusing the exact predicate `addFilter` uses so load-time and live-mutation-time
-  // enforcement agree. Reference-stable: returns the SAME array when nothing conflicts.
-  let rankFiltersChanged = false;
-  const dedupedFilters: StudioFilterState[] = [];
-  for (const filter of screenedFilters) {
-    // Only `page`/`widget` scopes are rank-eligible (matching `hasConflictingRankFilter`'s
-    // doc comment and `addFilter`'s identical gate in `applyMutation.ts`): a hand-edited/
-    // foreign doc could carry a `filterMode: 'rank'` filter on a `dashboard-date-range`
-    // scope (the only other scope kind that reaches this point — `cross-filter`/
-    // `interactive` are already stripped above), which `resolveRankFilterPageId`'s
-    // catch-all resolves to a `null` page context. Without this gate, whether such a
-    // filter survives this dedup pass would depend on array order relative to any
-    // legitimate `page`/`widget` rank filter (a `null` page context conflicts with, and is
-    // conflicted by, every other rank filter) instead of being consistently left alone.
-    if (
-      filter.filterMode === 'rank' &&
-      (filter.scope.kind === 'page' || filter.scope.kind === 'widget') &&
-      hasConflictingRankFilter(filter.id, filter, dedupedFilters, normalizedPages)
-    ) {
-      rankFiltersChanged = true;
-      continue;
-    }
-    dedupedFilters.push(filter);
-  }
-  const rankScreenedFilters = rankFiltersChanged ? dedupedFilters : screenedFilters;
+  // reusing the exact sweep `addFilter`'s layout siblings and `createDefaultStudioState` use
+  // (`dedupeRankFilters`), so load-time, live-mutation-time and factory-time enforcement all
+  // agree on which filter survives. Reference-stable: returns the SAME array when nothing
+  // conflicts.
+  const { filters: rankScreenedFilters } = dedupeRankFilters(screenedFilters, normalizedPages);
 
   // Cascade every drop this whole filter pipeline made into the surviving filters'
   // `dependsOn`, via the SAME `pruneDependsOn` helper the reducer's removal paths use.

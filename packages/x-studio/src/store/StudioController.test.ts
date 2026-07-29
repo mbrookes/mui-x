@@ -2426,8 +2426,17 @@ describe('StudioController expression fields', () => {
   // Deleting a measure used ONLY as a rank's sort key previously reported 0 references,
   // silently stranding the rank filter.
   it('getExpressionFieldReferenceCount counts rankByField and rankMultiSeriesBy references', () => {
+    // The two rank filters are anchored to DIFFERENT pages on purpose. Rank uniqueness is
+    // per-page and `createDefaultStudioState` now enforces it over `initialState` (as the
+    // reducer and the load boundary already did), so two pageId-less `page` scopes — both
+    // resolving to the "applies everywhere" wildcard — would conflict and the second would
+    // legitimately be dropped before this count ever ran.
     const controller = new StudioController({
       doc: {
+        pages: {
+          'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] },
+          'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [] },
+        },
         expressionFields: [ef],
         filters: [
           {
@@ -2438,7 +2447,7 @@ describe('StudioController expression fields', () => {
             value: '',
             rankDirection: 'top',
             rankByField: 'ef1',
-            scope: { kind: 'page' },
+            scope: { kind: 'page', pageId: 'page-1' },
           } as never,
           {
             id: 'rankSeries',
@@ -2448,7 +2457,7 @@ describe('StudioController expression fields', () => {
             value: '',
             rankDirection: 'top',
             rankMultiSeriesBy: 'ef1',
-            scope: { kind: 'page' },
+            scope: { kind: 'page', pageId: 'page-2' },
           } as never,
         ],
       },

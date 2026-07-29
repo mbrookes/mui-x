@@ -667,7 +667,17 @@ export async function* dispatchToolCall(
     // any policy consult increments `usage.toolCalls`, so a hallucinated/injected call to
     // an unadvertised tool would otherwise dispatch for free against the budget.
     ctx.usage.toolCalls += 1;
-    return { kind: 'result', output: JSON.stringify({ error: `Unknown tool: ${name}` }) };
+    // `safeIdentifier`, not the raw `name`: this message is spliced straight back into
+    // the model conversation, and `name` is raw provider-supplied wire data, so it is an
+    // untrusted-string-into-prompt position exactly like the three other interpolations
+    // of this same value in this file (the policy-consult label, the server-tool-skill
+    // label and the `executeToolOnState` label), all of which already route through the
+    // shared sanitize-AND-cap chokepoint. This site was the outlier. `mcp.ts`'s two
+    // `Unknown tool:` messages do the same.
+    return {
+      kind: 'result',
+      output: JSON.stringify({ error: `Unknown tool: ${safeIdentifier(name)}` }),
+    };
   }
 
   // Registered server-tool skill — execute it server-side (may be sync or async).

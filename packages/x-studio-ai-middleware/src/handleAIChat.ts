@@ -163,12 +163,22 @@ export interface StudioAIHandlerOptions {
    * routing, security, and allowlisting — the same shape `buildStudioMcpServer`'s
    * `data` option accepts, so a single implementation covers both transports.
    *
+   * `allowedTables` is REQUIRED on this transport, not optional hardening: the
+   * data-source catalog reaches `handleAIChat` inside the client-supplied request
+   * body, so the middleware fails CLOSED without it and every `query_data_source`
+   * call returns "this server has not configured a table allowlist". See
+   * {@link StudioAIDataConfig.allowedTables}.
+   *
    * @example
    * ```ts
    * const stream = handleAIChat(body, {
    *   endpoint: process.env.OPENAI_ENDPOINT,
    *   apiKey: process.env.OPENAI_API_KEY,
    *   data: {
+   *     // Required — without it `query_data_source` is disabled (fail-closed).
+   *     // NOT `'*'`: that opt-out is only safe when `queryDataSource` re-derives the
+   *     // physical table itself, and this one forwards `params.tableName`.
+   *     allowedTables: schemaAllowlist,
    *     async queryDataSource(params) {
    *       const result = await handleBatchQuery(
    *         { pageId: 'chat', widgets: [{ id: 'q', table: params.tableName, ...params }] },

@@ -219,6 +219,31 @@ function isNonEmptyString(value: unknown): value is string {
 export const MAX_TOOL_CALL_ARGS_BUFFER_CHARS = 1_000_000;
 
 /**
+ * Hard ceiling on a single tool call's accumulated `name`, the one accumulation buffer
+ * in this file that escaped the package's "accumulation ceilings" invariant. Its three
+ * siblings were all bounded — `argsBuffer` by {@link MAX_TOOL_CALL_ARGS_BUFFER_CHARS},
+ * the slot count by {@link MAX_TOOL_CALLS_PER_TURN}, and `delta.content` by
+ * `MAX_TURN_TEXT_BUFFER_CHARS` in `agenticLoop.ts` — while `name` grew with no check
+ * anywhere.
+ *
+ * The exact-resend dedup below is NOT a bound: it suppresses only a fragment textually
+ * IDENTICAL to what has accumulated so far, so a gateway alternating `"a"`, `"b"`,
+ * `"a"`, … for one slot appends on every single delta and grows the name monotonically —
+ * multiplied by `MAX_TOOL_CALLS_PER_TURN` slots. `parseSSE`'s 10 MB cap does not cover
+ * it either: that bounds a single un-terminated LINE, not accumulation across chunks.
+ *
+ * The name is also amplified well past the accumulator itself: `agenticLoop.ts` re-sends
+ * `function: { name: tc.name }` to the provider on EVERY remaining turn (O(turns × size)
+ * request bodies) and puts `toolName: tc.name` into two `tool-activity` SSE frames per
+ * call straight to the browser — `capToolOutput` covers only the `output` field.
+ *
+ * Sized generously: the longest name in `STUDIO_AI_TOOLS` is `remove_widget_filter` (20
+ * chars), and host-declared server-tool skill names are ordinary identifiers, so 512 is
+ * ~25× the longest legitimate name and this only ever trips for a runaway stream.
+ */
+export const MAX_TOOL_CALL_NAME_CHARS = 512;
+
+/**
  * Hard ceiling on the number of DISTINCT tool-call slots (`reqToolCalls` entries)
  * a single turn's accumulator may hold (finding T2-1, iteration 25). Nothing else
  * bounds this: `accumulateToolCallDeltas` mints a new `reqToolCalls[idx]` entry for
@@ -354,7 +379,28 @@ export function accumulateToolCallDeltas(deltas: ToolCallDelta[], acc: ToolCallA
       // two cases in general, so this stays a deliberate best-effort tradeoff rather
       // than a bug fix.
       if (existingName !== fnName) {
-        acc.reqToolCalls[idx].name += fnName;
+        const nextName = existingName + fnName;
+        // Bound `name` growth per tool call, in the same shape as the `argsBuffer` cap
+        // just below: the dedup above only suppresses an EXACT resend, so an alternating
+        // fragment stream appends unboundedly. Thrown (rather than truncated) so the
+        // caller's enclosing try/catch turns this into a clean `{ type: 'error' }` SSE
+        // event instead of a slow memory leak plus an O(turns × size) re-send of the
+        // name to the provider and to the browser.
+        if (nextName.length > MAX_TOOL_CALL_NAME_CHARS) {
+          // Branded — same reason as the two caps below/above: this is OUR limit firing on
+          // a provider that IS responding, so it must be relayed verbatim rather than
+          // reported to the browser as "the provider was unreachable".
+          throw markPackageAuthored(
+            new Error(
+              `MUI X Studio: A streamed tool call's function name exceeded the maximum buffered ` +
+                `size (${MAX_TOOL_CALL_NAME_CHARS} chars). This can happen when a misbehaving ` +
+                "gateway streams a tool call's name deltas without ever completing the call, which " +
+                "would otherwise let a single request grow this process's memory (and every " +
+                "subsequent turn's request body) without bound. Aborting this request.",
+            ),
+          );
+        }
+        acc.reqToolCalls[idx].name = nextName;
       }
     }
     if (fnArgs !== undefined) {

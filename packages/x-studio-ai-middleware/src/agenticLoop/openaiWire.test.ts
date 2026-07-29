@@ -13,6 +13,7 @@ import {
   SYNTHETIC_INDEX_BASE,
   POSITIONAL_INDEX_BASE,
   MAX_TOOL_CALL_ARGS_BUFFER_CHARS,
+  MAX_TOOL_CALL_NAME_CHARS,
   MAX_TOOL_CALLS_PER_TURN,
   type ToolCallDelta,
 } from './openaiWire';
@@ -375,6 +376,55 @@ describe('accumulateToolCallDeltas', () => {
         ),
       ).not.toThrow();
       expect(acc.reqToolCalls[0].argsBuffer).toHaveLength(1000);
+    });
+  });
+
+  // Regression for the `name` accumulation ceiling: `argsBuffer`, the slot count and
+  // the per-turn text buffer were all capped, but the per-call `name` buffer was not —
+  // the one accumulation buffer that escaped the package's own "accumulation ceilings"
+  // invariant. The exact-resend dedup below only suppresses a fragment IDENTICAL to
+  // what has accumulated so far, so a gateway alternating `"a"`, `"b"`, `"a"`, … for one
+  // slot grew the name monotonically, times `MAX_TOOL_CALLS_PER_TURN` slots — and the
+  // result is re-sent to the provider on every remaining turn and echoed to the browser
+  // in two `tool-activity` frames per call, none of which bound it either.
+  describe('function name size cap', () => {
+    it("throws once a single tool call's accumulated name exceeds the cap", () => {
+      const acc = createToolCallAccumulator();
+      accumulateToolCallDeltas(
+        [{ index: 0, id: 'tc_1', function: { name: 'a'.repeat(MAX_TOOL_CALL_NAME_CHARS) } }],
+        acc,
+      );
+      expect(() => accumulateToolCallDeltas([{ index: 0, function: { name: 'b' } }], acc)).toThrow(
+        new RegExp(`exceeded the maximum buffered size \\(${MAX_TOOL_CALL_NAME_CHARS} chars\\)`),
+      );
+      // Not silently grown past the cap by the rejected delta.
+      expect(acc.reqToolCalls[0].name).toHaveLength(MAX_TOOL_CALL_NAME_CHARS);
+    });
+
+    it('bounds a gateway that alternates fragments to defeat the exact-resend dedup', () => {
+      const acc = createToolCallAccumulator();
+      expect(() => {
+        for (let i = 0; i <= MAX_TOOL_CALL_NAME_CHARS; i += 1) {
+          accumulateToolCallDeltas(
+            [{ index: 0, function: { name: i % 2 === 0 ? 'a' : 'b' } }],
+            acc,
+          );
+        }
+      }).toThrow(
+        new RegExp(`exceeded the maximum buffered size \\(${MAX_TOOL_CALL_NAME_CHARS} chars\\)`),
+      );
+      expect(acc.reqToolCalls[0].name.length).toBeLessThanOrEqual(MAX_TOOL_CALL_NAME_CHARS);
+    });
+
+    it('does not throw for a real tool name streamed incrementally', () => {
+      const acc = createToolCallAccumulator();
+      expect(() => {
+        accumulateToolCallDeltas([{ index: 0, id: 'tc_1', function: { name: 'remove_' } }], acc);
+        accumulateToolCallDeltas([{ index: 0, function: { name: 'widget_' } }], acc);
+        accumulateToolCallDeltas([{ index: 0, function: { name: 'filter' } }], acc);
+      }).not.toThrow();
+      // The longest name in `STUDIO_AI_TOOLS` (20 chars) is nowhere near the cap.
+      expect(acc.reqToolCalls[0].name).toBe('remove_widget_filter');
     });
   });
 

@@ -11,7 +11,12 @@ import {
 import type { Config } from '../config.js';
 import { error } from '../logger.js';
 import { resolveClaims } from '../middleware/claims.js';
-import { CRM_SCHEMA_ALLOWLIST, SAFE_IDENTIFIER, makeQueryDataSource } from '../dataQuery.js';
+import {
+  CRM_SCHEMA_ALLOWLIST,
+  SALES_SCHEMA_ALLOWLIST,
+  SAFE_IDENTIFIER,
+  makeQueryDataSource,
+} from '../dataQuery.js';
 
 /**
  * Builds an optional `contextEnricher` that attaches DB-side metadata to the AI
@@ -135,7 +140,22 @@ export function makeAIRouter(salesDb: Knex, crmDb: Knex, config: Config): Router
         apiKey: config.llm.apiKey,
         model: config.llm.model,
         approvalPending: pendingApprovals,
-        data: { queryDataSource: makeQueryDataSource(salesDb, crmDb, claims) },
+        data: {
+          queryDataSource: makeQueryDataSource(salesDb, crmDb, claims),
+          // REQUIRED on the chat transport, not optional hardening. There the
+          // data-source catalog arrives inside the client-supplied request body, so
+          // the middleware fails CLOSED without an allowlist: every
+          // `query_data_source` call returns "this server has not configured a table
+          // allowlist" while the tool stays advertised, burning a turn and a
+          // conversation re-send per attempt. Omitting this is what makes the tool
+          // look wired up and behave as permanently broken.
+          //
+          // The literal `'*'` opt-out would be WRONG here: it is only safe for a
+          // `queryDataSource` that re-derives the physical table from server-held
+          // config and ignores `params.tableName`, and `makeQueryDataSource` forwards
+          // `params.tableName` straight through as the query's table.
+          allowedTables: [...SALES_SCHEMA_ALLOWLIST, ...CRM_SCHEMA_ALLOWLIST],
+        },
         contextEnricher,
       });
 

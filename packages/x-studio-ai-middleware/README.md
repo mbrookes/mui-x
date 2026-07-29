@@ -213,8 +213,25 @@ interface StudioAIHandlerOptions {
   onToolError?: (toolName: string, error: Error) => void;
   /** AbortSignal for request cancellation. */
   signal?: AbortSignal;
+  /** Enables the `query_data_source` tool. `allowedTables` is required — see below. */
+  data?: StudioAIDataConfig;
 }
 ```
+
+To let the assistant query your data over the chat transport, pass **both** `data.queryDataSource` and `data.allowedTables`. `allowedTables` is required here, not optional hardening: on this transport the data-source catalog arrives inside the client-supplied request body, so the middleware fails closed without it and every `query_data_source` call returns `query_data_source is disabled: this server has not configured a table allowlist`.
+
+```ts
+const stream = handleAIChat(body, {
+  endpoint: process.env.OPENAI_ENDPOINT,
+  apiKey: process.env.OPENAI_API_KEY,
+  data: {
+    allowedTables: ['orders', 'customers', 'products'],
+    queryDataSource: myQueryDataSource,
+  },
+});
+```
+
+Use the literal `'*'` only when your `queryDataSource` re-derives the physical table from server-held configuration and ignores `params.tableName` — an implementation that forwards `params.tableName` to the database needs the explicit list.
 
 ---
 
@@ -362,6 +379,7 @@ queryDataSource: async (params) => {
 | `allowedTools`         | `string[]`                                      | all supported tools | Exact list of tool names to expose                                                                                                       |
 | `customWidgets`        | `StudioCustomWidgetDef[]`                       | `[]`                | Custom widget definitions for tool handling                                                                                              |
 | `data.queryDataSource` | `(params) => Promise<result>`                   | —                   | When provided, enables `query_data_source` tool, `summarise_page` synthesis, and data resources                                          |
+| `data.allowedTables`   | `string[] \| '*'`                               | —                   | Tables the assistant may query. Optional on MCP (server-held state); **required** by `handleAIChat`, which fails closed without it       |
 | `data.maxQueryRows`    | `number`                                        | `1000`              | Hard upper bound on rows the `query_data_source` tool may fetch. The model-supplied `limit` is clamped to this value before any DB query |
 | `onStateChange`        | `(state: StudioState) => void \| Promise<void>` | —                   | Called after every mutating tool call. Use to persist the session state to a database (see [State persistence](#state-persistence))      |
 

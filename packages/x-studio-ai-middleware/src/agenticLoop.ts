@@ -476,6 +476,16 @@ export async function* runAgenticLoop(
       return false;
     }
     if (t.function.name === 'query_data_source') {
+      // Deliberately gated on `data` alone, NOT on `data.allowedTables !== undefined`.
+      // A `data` config without `allowedTables` hits the fail-closed branch in
+      // `toolDispatch.ts` and every call returns "this server has not configured a table
+      // allowlist" — so advertising it does cost a turn per attempt. Withdrawing the
+      // advertisement instead would trade that bounded, self-announcing cost for a
+      // SILENT capability gap: the fail-closed message is written as remediation prose
+      // and is the only channel through which a mis-wired host learns what to fix, since
+      // this package has no other diagnostic path to the operator. A host that hits it
+      // gets a one-line fix; a host whose tool silently disappeared gets "the assistant
+      // can't see my data" and nothing to grep for. Documented rather than changed.
       return Boolean(data);
     }
     if (t.function.name === 'summarise_page') {

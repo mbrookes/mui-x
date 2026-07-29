@@ -15,6 +15,7 @@ import {
   resolveKpiDateField,
   toLocalYmd,
 } from './kpiUtils';
+import { setActiveStudioLocale } from '../../../internals/studioLocale';
 import type { StudioDataSource, StudioExpressionField, StudioFilterState } from '../../../models';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -1045,6 +1046,47 @@ describe('formatDateRangeLong', () => {
     expect(result).toContain('–');
     expect(result).toContain('Mar');
     expect(result).toContain('2026');
+  });
+});
+
+// ─── `<Studio locale={…} />` ─────────────────────────────────────────────────
+//
+// `monthAbbr` and `formatDateRangeLong` feed the KPI trend badge's "vs. {period}" caption and
+// tooltip (`KpiTrend.tsx`), rendered right beside the KPI's own value — which IS correctly
+// localized via `formatNumber`/`getStudioLocale()`. Both helpers called `toLocaleDateString`
+// with a bare `undefined` locale argument, so they always resolved to the runtime/browser
+// locale regardless of the active Studio locale.
+
+describe('formatPeriodShort — honours the active Studio locale', () => {
+  afterEach(() => {
+    setActiveStudioLocale(undefined);
+  });
+
+  it('formats the month abbreviation against the active locale', () => {
+    setActiveStudioLocale('de-DE');
+    expect(formatPeriodShort(new Date(2026, 2, 1), new Date(2026, 2, 31))).toBe('Mär 2026');
+
+    setActiveStudioLocale('en-US');
+    expect(formatPeriodShort(new Date(2026, 2, 1), new Date(2026, 2, 31))).toBe('Mar 2026');
+  });
+});
+
+describe('formatDateRangeLong — honours the active Studio locale', () => {
+  afterEach(() => {
+    setActiveStudioLocale(undefined);
+  });
+
+  it('formats both bounds against the active locale', () => {
+    setActiveStudioLocale('de-DE');
+    const de = formatDateRangeLong(new Date(2026, 2, 1), new Date(2026, 2, 31));
+    setActiveStudioLocale('en-US');
+    const en = formatDateRangeLong(new Date(2026, 2, 1), new Date(2026, 2, 31));
+
+    // Same range, different locales must not produce the same string — German abbreviates
+    // March as "Mär", English as "Mar".
+    expect(de).not.toBe(en);
+    expect(de).toContain('Mär');
+    expect(en).toContain('Mar');
   });
 });
 

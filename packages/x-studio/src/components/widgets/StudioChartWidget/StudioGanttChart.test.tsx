@@ -1,7 +1,8 @@
 import * as React from 'react';
 import { createRenderer, screen } from '@mui/internal-test-utils';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { createStudioHarness } from '../../../internals/test-utils';
+import { setActiveStudioLocale } from '../../../internals/studioLocale';
 import type { GanttItem } from '../../../internals/chartShapes/gantt';
 import { StudioGanttChart, msToPct } from './StudioGanttChart';
 
@@ -173,5 +174,50 @@ describe('StudioGanttChart colour category text alternative (M6)', () => {
     const ariaLabel = screen.getByRole('img').getAttribute('aria-label')!;
     expect(ariaLabel).toContain('Design:');
     expect(ariaLabel).not.toContain('Design (');
+  });
+});
+
+/**
+ * `formatDate` (axis-range/tooltip/aria-label dates) and `shortDate` (axis tick labels) called
+ * `toLocaleDateString` with a bare `undefined` locale argument, so both always resolved to the
+ * runtime/browser locale rather than the active Studio locale — in a file otherwise carefully
+ * localized (durations already route through `localeText`).
+ */
+describe('StudioGanttChart date formatting — honours the active Studio locale', () => {
+  const { render } = createRenderer();
+
+  afterEach(() => {
+    setActiveStudioLocale(undefined);
+  });
+
+  it('formats the axis tick label and the aria-label date range against the active locale', () => {
+    setActiveStudioLocale('de-DE');
+    // A single-instant item pins minMs === maxMs, so buildTicks produces exactly one tick at
+    // that instant — the same instant `formatDate` renders into the aria-label's date range.
+    const dateMs = Date.UTC(2024, 0, 15);
+    const items: GanttItem[] = [{ id: 1, label: 'Only item', startMs: dateMs, endMs: dateMs }];
+    // `createStudioHarness`'s `StudioProvider` publishes ITS OWN `locale` prop during
+    // render (see `StudioContext.tsx`'s `setActiveStudioLocale(locale)` call) — with no
+    // `providerProps.locale`, that call runs with `undefined` and overwrites the
+    // `setActiveStudioLocale('de-DE')` above before this component ever renders. Must be
+    // threaded through the harness, not just set directly.
+    const { wrapper } = createStudioHarness({ providerProps: { locale: 'de-DE' } });
+    const { container } = render(<StudioGanttChart items={items} height={200} />, { wrapper });
+
+    // Mirrors the component's `toDisplayDate`: reinterpret the UTC Y/M/D as a local date.
+    const displayDate = new Date(2024, 0, 15);
+    const expectedShort = displayDate.toLocaleDateString('de-DE', {
+      month: 'short',
+      day: 'numeric',
+    });
+    const expectedFull = displayDate.toLocaleDateString('de-DE', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+
+    expect(container.textContent).toContain(expectedShort);
+    const ariaLabel = screen.getByRole('img').getAttribute('aria-label')!;
+    expect(ariaLabel).toContain(expectedFull);
   });
 });

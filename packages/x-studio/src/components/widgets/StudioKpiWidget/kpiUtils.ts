@@ -13,6 +13,7 @@ import type {
 import { fillTemporalLabelGaps, normalizeToDate } from '../../../internals/temporalUtils';
 import { resolveDateRangePreset } from '../../../internals/filterUtils';
 import { aggregateCellValues } from '../../../internals/aggregate';
+import { getStudioLocale } from '../../../internals/studioLocale';
 import { evaluateMeasure } from '../../../utils/expressionEvaluator';
 import { lookup } from '../../../utils/safeLookup';
 import {
@@ -738,9 +739,14 @@ export function computeSparklineData(
  * Locale-aware short month abbreviation, e.g. "Mar" (en) / "mars" (fr) / "März" (de).
  * Mirrors the `toLocaleDateString` approach already used by the sibling
  * `formatDateRangeLong` below, rather than a hardcoded English month-name array.
+ *
+ * Feeds the KPI trend badge's "vs. {period}" caption and tooltip (`KpiTrend.tsx`), rendered
+ * right beside the KPI's own value — which IS correctly localized via `formatNumber`/
+ * `getStudioLocale()` — so this must resolve against the SAME active `<Studio locale={…} />`
+ * rather than the runtime/browser default.
  */
 function monthAbbr(date: Date): string {
-  return date.toLocaleDateString(undefined, { month: 'short' });
+  return date.toLocaleDateString(getStudioLocale(), { month: 'short' });
 }
 
 /** Format a date as a short human-readable label, e.g. "Mar 2026" or "Mar–Apr 2026". */
@@ -757,7 +763,7 @@ export function formatPeriodShort(start: Date, end: Date): string {
 /** Format a full date range for a tooltip, e.g. "Mar 1 – Mar 31, 2026". */
 export function formatDateRangeLong(start: Date, end: Date): string {
   const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
-  const startStr = start.toLocaleDateString(undefined, opts);
-  const endStr = end.toLocaleDateString(undefined, { ...opts, year: 'numeric' });
+  const startStr = start.toLocaleDateString(getStudioLocale(), opts);
+  const endStr = end.toLocaleDateString(getStudioLocale(), { ...opts, year: 'numeric' });
   return `${startStr} – ${endStr}`;
 }

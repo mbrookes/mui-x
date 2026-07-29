@@ -25,11 +25,11 @@ const EMPTY_EXPRESSION_FIELDS: StudioExpressionField[] = [];
  * The invariant this component upholds: the chip and the `SliderControl` that produced the
  * range must render the SAME range identically.
  *
- * - Dates go through `toLocaleDateString(undefined, …)`, the exact branch `SliderControl`
- *   uses. `dayjs(v).format('DD MMM YYYY')` was used here before; nothing in this package ever
- *   calls `dayjs.locale(...)`, so it always formatted through dayjs's unconfigured global
- *   default locale — fixed English month names in a fixed DMY order — while the control two
- *   lines below already resolved both from the runtime locale.
+ * - Dates go through `toLocaleDateString(getStudioLocale(), …)`, the exact branch
+ *   `SliderControl` uses. `dayjs(v).format('DD MMM YYYY')` was used here before; nothing in
+ *   this package ever calls `dayjs.locale(...)`, so it always formatted through dayjs's
+ *   unconfigured global default locale — fixed English month names in a fixed DMY order —
+ *   while the control two lines below resolves both from the active Studio locale.
  * - Numbers go through `formatFieldValue` with the resolved field def, so a currency slider's
  *   chip reads `$1,000` like the grid and KPI rather than a bare `1,000`.
  * - The label is prefixed with the field label, matching the rank chip ("Top 5") and the

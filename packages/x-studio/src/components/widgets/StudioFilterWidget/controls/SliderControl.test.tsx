@@ -1,15 +1,21 @@
 import * as React from 'react';
 import { act, createRenderer, screen, fireEvent } from '@mui/internal-test-utils';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createStudioHarness } from '../../../../internals/test-utils';
+import { setActiveStudioLocale } from '../../../../internals/studioLocale';
 import { SliderControl } from './SliderControl';
 
 const { render } = createRenderer();
 
-function setup(props: Partial<React.ComponentProps<typeof SliderControl>> = {}) {
+function setup(
+  props: Partial<React.ComponentProps<typeof SliderControl>> = {},
+  harnessOptions: { locale?: string } = {},
+) {
   const onApply = vi.fn();
   const onClear = vi.fn();
-  const { wrapper } = createStudioHarness();
+  const { wrapper } = createStudioHarness({
+    providerProps: harnessOptions.locale ? { locale: harnessOptions.locale } : undefined,
+  });
   const utils = render(
     <SliderControl
       label="Price"
@@ -106,5 +112,58 @@ describe('SliderControl', () => {
     const [lo, hi] = getThumbs();
     expect(lo.getAttribute('aria-label')).toBe('Price minimum');
     expect(hi.getAttribute('aria-label')).toBe('Price maximum');
+  });
+
+  // ─── `<Studio locale={…} />` ───────────────────────────────────────────────
+  //
+  // `formatLabel` fed `toLocaleDateString`/`toLocaleString` a bare `undefined` locale
+  // argument, so the thumb's value text (exposed via `getAriaValueText`, which MUI's Slider
+  // computes on every render as `aria-valuetext`) always resolved to the runtime/browser
+  // locale rather than the active Studio locale. `SliderFilterPill`'s header chip renders
+  // the SAME range and must match this exactly.
+  describe('honours the active Studio locale', () => {
+    afterEach(() => {
+      setActiveStudioLocale(undefined);
+    });
+
+    it('formats the date-mode thumb value text against the active locale', () => {
+      setActiveStudioLocale('de-DE');
+      const from = new Date(2024, 0, 15).getTime();
+      const to = new Date(2024, 5, 1).getTime();
+      // `setup`'s `createStudioHarness()` wraps in `StudioProvider`, which publishes its
+      // OWN `locale` prop during render (see `StudioContext.tsx`) — with no
+      // `providerProps.locale`, that overwrites the `setActiveStudioLocale('de-DE')`
+      // above with `undefined` before `SliderControl` ever renders.
+      setup(
+        { min: from, max: to, step: 86400000, isDate: true, currentValue: { from, to } },
+        { locale: 'de-DE' },
+      );
+
+      const [lo, hi] = getThumbs();
+      const expectedLo = new Date(from).toLocaleDateString('de-DE', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      });
+      const expectedHi = new Date(to).toLocaleDateString('de-DE', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      });
+      expect(lo.getAttribute('aria-valuetext')).toBe(expectedLo);
+      expect(hi.getAttribute('aria-valuetext')).toBe(expectedHi);
+    });
+
+    it('formats the numeric thumb value text against the active locale', () => {
+      setActiveStudioLocale('de-DE');
+      setup(
+        { min: 1000, max: 9000, step: 100, currentValue: { from: 1000, to: 9000 } },
+        { locale: 'de-DE' },
+      );
+
+      const [lo, hi] = getThumbs();
+      expect(lo.getAttribute('aria-valuetext')).toBe((1000).toLocaleString('de-DE'));
+      expect(hi.getAttribute('aria-valuetext')).toBe((9000).toLocaleString('de-DE'));
+    });
   });
 });

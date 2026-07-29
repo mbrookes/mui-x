@@ -5,6 +5,7 @@ import {
   useStudioLocaleText,
   type StudioLocaleText,
 } from '../../../internals/StudioUIConfigContext';
+import { getStudioLocale } from '../../../internals/studioLocale';
 import type { GanttItem } from '../../../internals/chartShapes/gantt';
 
 // Re-exported for backward compatibility with existing imports of this module.
@@ -53,7 +54,7 @@ function toDisplayDate(ms: number): Date {
 }
 
 function formatDate(ms: number): string {
-  return toDisplayDate(ms).toLocaleDateString(undefined, {
+  return toDisplayDate(ms).toLocaleDateString(getStudioLocale(), {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
@@ -89,7 +90,10 @@ function buildTicks(minMs: number, maxMs: number, maxTicks: number): number[] {
 }
 
 function shortDate(ms: number): string {
-  return toDisplayDate(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return toDisplayDate(ms).toLocaleDateString(getStudioLocale(), {
+    month: 'short',
+    day: 'numeric',
+  });
 }
 
 /**

@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { Box, Slider } from '@mui/material';
 import { useStudioLocaleText } from '../../../../internals/StudioUIConfigContext';
+import { getStudioLocale } from '../../../../internals/studioLocale';
 
 export interface StudioFilterSliderControlProps {
   label: string;
@@ -67,21 +68,23 @@ export function SliderControl(props: StudioFilterSliderControlProps) {
     }
   };
 
-  // Locale-aware date formatting via `Intl` (through `toLocaleDateString(undefined, …)`) —
-  // matching the pattern `internals/temporalUtils.ts`'s `formatTemporalAxisLabel` already uses
+  // Locale-aware date formatting via `Intl` (through `toLocaleDateString(getStudioLocale(), …)`)
+  // — matching the pattern `internals/temporalUtils.ts`'s `formatTemporalAxisLabel` already uses
   // for date-axis labels. `dayjs(v).format('DD MMM YYYY')` was previously used here, but this
   // codebase never calls `dayjs.locale(...)` anywhere (confirmed by search), so it always
   // formatted through dayjs's UNCONFIGURED global default locale (`'en'`) regardless of the
-  // dashboard's actual locale — `toLocaleDateString(undefined, …)` instead resolves both the
-  // month name AND the field order from the runtime's active locale.
+  // dashboard's actual locale. `getStudioLocale()` resolves both the month name AND the field
+  // order (and the numeric grouping, for the non-date branch) from the active `<Studio
+  // locale={…} />`, falling back to the runtime default when it isn't set — the SAME value
+  // `SliderFilterPill`'s header chip formats the identical range against.
   const formatLabel = (v: number) =>
     isDate
-      ? new Date(v).toLocaleDateString(undefined, {
+      ? new Date(v).toLocaleDateString(getStudioLocale(), {
           year: 'numeric',
           month: 'short',
           day: 'numeric',
         })
-      : v.toLocaleString();
+      : v.toLocaleString(getStudioLocale());
 
   return (
     /* Prevent drag-and-drop of the widget card when interacting with the slider */

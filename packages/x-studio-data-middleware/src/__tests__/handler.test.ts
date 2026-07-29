@@ -4737,6 +4737,43 @@ describe('handleBatchQuery — semi-joins', () => {
     );
   });
 
+  it('rejects a semi-join whose own "filters" array exceeds MAX_ARRAY_ITEMS_PER_DESCRIPTOR, even with no operator/value on any entry', async () => {
+    // Every predicate object is invisible to `checkPredicateValueBounds` — it has
+    // no "value" key at all, so it contributes 0 to the summed comparison-value
+    // budget checked elsewhere in this describe block. Only the ARRAY LENGTH
+    // itself — not the values inside it — should be what gets this rejected.
+    const oversizedFilters = Array.from({ length: MAX_ARRAY_ITEMS_PER_DESCRIPTOR + 1 }, () => ({
+      column: 'orders.status',
+    }));
+    await expect(
+      handleBatchQuery(
+        {
+          pageId: 'p1',
+          widgets: [
+            {
+              id: 'w1',
+              table: 'customers',
+              semiJoins: [
+                {
+                  table: 'orders',
+                  column: 'id',
+                  foreignColumn: 'customer_id',
+                  filters: oversizedFilters,
+                },
+              ],
+            },
+          ],
+        } as unknown as BatchQueryRequest,
+        ACME_CLAIMS,
+        { db: makeCustomersDb(), ...OPTIONS },
+      ),
+    ).rejects.toThrow(
+      new RegExp(
+        `"semiJoins\\[0\\]\\.filters" contains ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR + 1} entries, which exceeds the maximum of ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR}`,
+      ),
+    );
+  });
+
   it('counts subquery predicate values against the widget-wide value budget', async () => {
     // Neither array is over its own cap and the widget's own `filters` is empty —
     // the total only exceeds the budget once the SUBQUERY predicates are counted.

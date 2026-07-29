@@ -189,8 +189,10 @@ function widgetRef(index: number): DescriptorRef {
 
 /**
  * Enforce the request-shape bounds on a `semiJoins` tree: the array shape, the
- * TOTAL number of semi-join entries across every nesting level, and — via
- * `checkFilterValueBounds` — each level's own subquery predicate values.
+ * TOTAL number of semi-join entries across every nesting level, the shape and
+ * bounds of each level's own `filters` ARRAY (both individually and summed
+ * across the tree), and — via `checkPredicateValueBounds` — each level's own
+ * subquery predicate VALUES.
  *
  * WHY THE TOTAL, NOT JUST THE PER-ARRAY LENGTH. `semiJoins` is the descriptor's
  * only RECURSIVE field, so the per-array cap every other collection relies on
@@ -198,10 +200,25 @@ function widgetRef(index: number): DescriptorRef {
  * carrying 200 nested ones individually satisfies that cap while still demanding
  * 40,000 allowlist-checked table references and 40,000 subquery builders for ONE
  * widget. This is the same product gap `totalOnPairs` closes for `joins[].on` and
- * the summed predicate-value cap closes for `filters[].value`, applied to the one
- * dimension only this field opens. `validateSemiJoins` separately caps the DEPTH
- * (`MAX_SEMI_JOIN_DEPTH`), which is a different bound: depth limits how far the
- * recursion goes, this limits how wide the whole tree is.
+ * the summed predicate-value cap closes for `filters[].value`, applied to the two
+ * dimensions this field opens: the number of semi-join entries (`entryCount`) and
+ * — the gap this function also closes — the number of predicate OBJECTS each
+ * entry's own `filters` array holds (`filterCount`). `validateSemiJoins`
+ * separately caps the DEPTH (`MAX_SEMI_JOIN_DEPTH`), which is a different bound:
+ * depth limits how far the recursion goes, this limits how wide the whole tree is.
+ *
+ * WHY A SEPARATE `filterCount` FROM `checkPredicateValueBounds`'s `valueCount`.
+ * `checkPredicateValueBounds` only inspects each predicate's `.value` field — a
+ * predicate object with no `value` key (no `operator` either, e.g.
+ * `{ column: 'orders.status' }`) contributes 0 to that running total and is
+ * invisible to it, so the number of predicate OBJECTS in `filters` was previously
+ * unconstrained by any check. `assertTablesAllowed`'s `checkSemiJoinColumns` and
+ * `columnValidation`'s `checkSemiJoins` then both do unbounded O(N) allowlist work
+ * over that same array, and `computeQueryHash` unbounded O(N) hashing, before a
+ * malformed predicate is ever rejected at query-build time — all driven entirely
+ * by client input. Bounding the array's LENGTH here, independent of what any
+ * element contains, closes that gap the way `entryCount` closes it for the
+ * `semiJoins` array itself.
  *
  * Deliberately does NOT reject a malformed entry itself — a non-object entry, a
  * missing `table`, a bad qualification — beyond what it must to walk safely.
@@ -215,6 +232,8 @@ function widgetRef(index: number): DescriptorRef {
  * @param valueCount - Shared, mutable running total of comparison values (see
  *   `checkPredicateValueBounds` in `shared/requestShapeGuards.ts`).
  * @param entryCount - Shared, mutable running total of semi-join entries.
+ * @param filterCount - Shared, mutable running total of predicate OBJECTS across
+ *   every semi-join's own `filters` array, at every nesting level.
  */
 function checkSemiJoinBounds(
   semiJoins: unknown,
@@ -222,6 +241,7 @@ function checkSemiJoinBounds(
   path: string,
   valueCount: { total: number },
   entryCount: { total: number },
+  filterCount: { total: number },
 ): void {
   if (semiJoins === undefined) {
     return;
@@ -250,6 +270,45 @@ function checkSemiJoinBounds(
       return;
     }
     const entryPath = `${path}[${semiJoinIndex}]`;
+    // Per-array size cap on this semi-join's own "filters" (the resource-
+    // exhaustion gap `checkPredicateValueBounds` cannot close on its own — it
+    // only counts VALUES, so a predicate with no "operator"/"value" contributes
+    // nothing to that count and left the number of predicate OBJECTS unbounded).
+    // Mirrors the per-join "on" cap below and the per-array caps in
+    // `assertValidBatchQueryRequest` above: checked BEFORE `checkPredicateValueBounds`
+    // so an oversized array is rejected on its length alone, regardless of what
+    // (if anything) any single predicate contains.
+    const filters = (semiJoin as { filters?: unknown }).filters;
+    if (Array.isArray(filters)) {
+      if (filters.length > MAX_ARRAY_ITEMS_PER_DESCRIPTOR) {
+        throw new Error(
+          `MUI X Studio Server: Malformed widget descriptor at widgets[${index}] — "${entryPath}.filters" contains ` +
+            `${filters.length} entries, which exceeds the maximum of ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR} allowed per ` +
+            `semi-join. Each predicate is a separate table/column reference to allowlist-check, a separate cache-key ` +
+            `hash input, and a separate subquery predicate to build — regardless of whether it carries an ` +
+            `"operator"/"value" the comparison-value cap above can see — so an unbounded array is unbounded work ` +
+            `driven entirely by client input. Reduce the number of entries in "${entryPath}.filters" to at most ` +
+            `${MAX_ARRAY_ITEMS_PER_DESCRIPTOR}.`,
+        );
+      }
+      // Aggregate cap on the TOTAL predicate objects across every semi-join's own
+      // "filters" array in this tree (the same product gap `entryCount` closes
+      // for the "semiJoins" array itself and `totalOnPairs` closes for
+      // `joins[].on`): each semi-join's own "filters" may individually stay
+      // under the per-array cap above yet still sum to an unbounded number of
+      // predicates to allowlist-check and hash for a single widget.
+      filterCount.total += filters.length;
+      if (filterCount.total > MAX_ARRAY_ITEMS_PER_DESCRIPTOR) {
+        throw new Error(
+          `MUI X Studio Server: Malformed widget descriptor at widgets[${index}] — "semiJoins[].filters" contains ` +
+            `${filterCount.total} entries in total across every nesting level, which exceeds the maximum of ` +
+            `${MAX_ARRAY_ITEMS_PER_DESCRIPTOR} allowed per widget. Each semi-join's own "filters" array may ` +
+            `individually stay under its per-array cap yet still sum to an unbounded number of predicates to ` +
+            `allowlist-check, hash, and build for a single widget. Reduce the total number of semi-join filter ` +
+            `entries to at most ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR}.`,
+        );
+      }
+    }
     checkPredicateValueBounds(
       (semiJoin as { filters?: unknown }).filters,
       widgetRef(index),
@@ -263,6 +322,7 @@ function checkSemiJoinBounds(
       `${entryPath}.semiJoins`,
       valueCount,
       entryCount,
+      filterCount,
     );
   });
 }
@@ -397,6 +457,7 @@ function assertValidBatchQueryRequest(body: BatchQueryRequest): void {
       index,
       'semiJoins',
       predicateValueCount,
+      { total: 0 },
       { total: 0 },
     );
     // Message kept byte-identical to the pre-semi-join one on purpose: a

@@ -608,3 +608,21 @@ const [gaps, setGaps] = useState([]);
 ```
 
 Render gaps as warnings in your UI, or use them to fall back to a different visualization. The wrapper always attempts a best-effort render even when gaps are present.
+
+### Concat/repeat cell width overshoots by the y-axis label estimate
+
+A concat or repeat cell's width is budgeted against `yAxisAllowance`, which
+*estimates* tick-label width at ~7px/char. A standalone chart makes that
+estimate self-fulfilling by pinning its y axis to `allowance − margins`, so its
+plot lands on the spec's size for any label width. A cell does not pin, so
+wherever the estimate exceeds what the labels actually measure, the surplus
+widens the plot instead: `repeat_layer` renders a 516px plot against Vega's
+440px because its "US Gross" labels were budgeted for full digit groups but
+render compacted.
+
+Pinning a cell's axis the same way does close this (measured: `repeat_layer`
+440x341, and all three `concat_marginal_histograms` cells at Vega's exact
+sizes), but in testing it also shortened ~89 unrelated single-view specs by 2px
+of height — reproducible on freshly started dev servers and with a 3s settle,
+and not explicable from the code path, since a plain spec never receives a pin.
+The fix is therefore not applied pending an explanation of that coupling.

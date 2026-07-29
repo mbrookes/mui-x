@@ -288,3 +288,24 @@ describe('applyCalculateTransform', () => {
     expect(result[0].out).to.equal(null);
   });
 });
+
+describe('object literals', () => {
+  it('evaluates an inline lookup table indexed by a field', () => {
+    // `isotype_bar_chart_emoji`'s emoji map; without object-literal support the
+    // whole expression failed to parse and the chart rendered nothing.
+    const rows = applyCalculateTransform(
+      [{ animal: 'pigs' }, { animal: 'sheep' }, { animal: 'ostrich' }],
+      { calculate: "{'cattle': 'C', 'pigs': 'P', 'sheep': 'S'}[datum.animal]", as: 'code' },
+    );
+    // An unmatched key normalizes to null, as every missing value does here.
+    expect(rows.map((row) => row.code)).to.deep.equal(['P', 'S', null]);
+  });
+
+  it('accepts bare identifier keys and nested values', () => {
+    const rows = applyCalculateTransform([{ k: 'b', n: 2 }], {
+      calculate: '{a: 1, b: datum.n * 10}[datum.k]',
+      as: 'v',
+    });
+    expect(rows[0].v).to.equal(20);
+  });
+});

@@ -31,6 +31,7 @@ import { toDate } from '../compile/fieldTypes';
  *                | ident ('(' args ')')?
  *                | '(' ternary ')'
  *                | '[' (ternary (',' ternary)*)? ']'
+ *                | '{' ((ident|string) ':' ternary (',' ...)*)? '}'
  *
  * `datum` is the only recognized bare identifier; `datum.field` /
  * `datum['field']` reads a row property (including chained/nested access).
@@ -59,7 +60,7 @@ type Token =
 
 const TWO_CHAR_PUNCT = ['==', '!=', '<=', '>=', '&&', '||'];
 const THREE_CHAR_PUNCT = ['===', '!=='];
-const SINGLE_CHAR_PUNCT = '+-*/%()[].,?:<>!';
+const SINGLE_CHAR_PUNCT = '+-*/%()[].,?:<>!{}';
 
 function tokenize(source: string): Token[] {
   const tokens: Token[] = [];
@@ -162,7 +163,8 @@ type Node =
   | { kind: 'binary'; op: string; left: Node; right: Node }
   | { kind: 'logical'; op: '&&' | '||'; left: Node; right: Node }
   | { kind: 'conditional'; test: Node; consequent: Node; alternate: Node }
-  | { kind: 'array'; elements: Node[] };
+  | { kind: 'array'; elements: Node[] }
+  | { kind: 'object'; entries: Array<{ key: string; value: Node }> };
 
 const RELATIONAL_OPS = ['<', '<=', '>', '>='];
 const EQUALITY_OPS = ['==', '===', '!=', '!=='];
@@ -328,6 +330,32 @@ class Parser {
       }
       this.expectPunct(']');
       return { kind: 'array', elements };
+    }
+    // Object literal. Vega-Lite specs use one as an inline lookup table, indexed
+    // straight afterwards by the postfix `[...]` rule — `isotype_bar_chart_emoji`
+    // maps animal names to emoji with
+    // `{'cattle': '..', 'pigs': '..'}[datum.animal]`. Without this the whole
+    // expression failed to parse, the calculated field came out undefined, and
+    // the chart rendered nothing at all.
+    if (token.type === 'punct' && token.value === '{') {
+      this.advance();
+      const entries: Array<{ key: string; value: Node }> = [];
+      if (this.peekPunct() !== '}') {
+        do {
+          if (entries.length > 0) {
+            this.advance();
+          }
+          const keyToken = this.peek();
+          if (!keyToken || (keyToken.type !== 'str' && keyToken.type !== 'ident')) {
+            throw new ExpressionSyntaxError('Expected a property name in object literal');
+          }
+          this.advance();
+          this.expectPunct(':');
+          entries.push({ key: String(keyToken.value), value: this.parseTernary() });
+        } while (this.peekPunct() === ',');
+      }
+      this.expectPunct('}');
+      return { kind: 'object', entries };
     }
     if (token.type === 'ident') {
       this.advance();
@@ -682,6 +710,13 @@ function evaluateNode(
     }
     case 'array':
       return node.elements.map((element) => evaluateNode(element, datum, signals));
+    case 'object': {
+      const result: Record<string, unknown> = {};
+      for (const entry of node.entries) {
+        result[entry.key] = evaluateNode(entry.value, datum, signals);
+      }
+      return result;
+    }
     case 'binary': {
       const left = evaluateNode(node.left, datum, signals);
       const right = evaluateNode(node.right, datum, signals);

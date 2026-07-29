@@ -1,5 +1,5 @@
 /**
- * Cross-provider parity test for `ttlMs: 0` (finding 2.1 / ARCHITECTURE_REVIEW.md).
+ * Cross-provider parity test for `ttlMs: 0` (finding 2.1).
  *
  * Extends the existing Redis-only parity coverage — `RedisCacheProvider.test.ts`'s
  * "ttlMs: 0 (finding 10 — parity with RedisTierCacheProvider)" describe block —

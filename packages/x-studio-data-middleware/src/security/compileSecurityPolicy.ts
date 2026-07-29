@@ -1,7 +1,7 @@
 /**
  * Compile the row-level-security policy ONCE per request.
  *
- * Gap A (see the retrofit plan): the `(tenancy, securityColumns)` resolution
+ * Gap A: the `(tenancy, securityColumns)` resolution
  * chain — `perTable[table]?.X ?? default` — was executed fresh at every
  * enforcement site (`buildSecureQuery`, and four sites in `mutationBuilder.ts`),
  * with the raw options threaded as loose arguments and no single "compiled"

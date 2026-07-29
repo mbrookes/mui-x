@@ -14,9 +14,9 @@
  *     `[cursor, keys]` tuple; node-redis v4 returns `{ cursor, keys }`.
  *
  * `RedisCacheProvider` and `RedisTierCacheProvider` used to each implement
- * their own byte-identical copies of both normalizations (finding 2.1 in
- * `ARCHITECTURE_REVIEW.md`). This module is the single shared implementation;
- * a future client-quirk fix only needs to land here.
+ * their own byte-identical copies of both normalizations (finding 2.1). This
+ * module is the single shared implementation; a future client-quirk fix only
+ * needs to land here.
  */
 
 import type { RedisClient } from './RedisCacheProvider';
@@ -132,31 +132,4 @@ export async function* scanKeyPages(
       yield page;
     }
   } while (cursor !== '0');
-}
-
-/**
- * Accumulating wrapper over `scanKeyPages` — returns EVERY matching key in one
- * array.
- *
- * Prefer `scanKeyPages` for anything driven by client input or by cache
- * population: the matched set is unbounded, so materializing it whole is a
- * memory spike proportional to the keyspace. This wrapper exists for callers
- * that genuinely need the complete list (and know it is small).
- */
-export async function scanKeys(
-  redis: RedisClient,
-  style: RedisClientStyle,
-  pattern: string,
-  count: number,
-): Promise<string[]> {
-  const results: string[] = [];
-  for await (const page of scanKeyPages(redis, style, pattern, count)) {
-    // `push(...page)` would spread a page (sized by the caller's `scanCount`)
-    // into an argument list — the same unbounded-spread class this module exists
-    // to avoid. A plain loop has no argument-count ceiling.
-    for (const key of page) {
-      results.push(key);
-    }
-  }
-  return results;
 }

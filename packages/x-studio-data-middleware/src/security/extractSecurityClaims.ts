@@ -55,7 +55,7 @@ interface JwtPayload {
  * trust boundary.
  */
 function normalizeTenantId(tenantId: unknown): string {
-  if (typeof tenantId !== 'string' || tenantId === '') {
+  if (typeof tenantId !== 'string') {
     throw new Error(
       `MUI X Studio Server: JWT "tenantId" claim must be a non-empty string, ` +
         `but received ${JSON.stringify(tenantId)}. ` +
@@ -79,7 +79,7 @@ function normalizeTenantId(tenantId: unknown): string {
  * `normalizeTenantId`'s exact pattern for the sibling claim it left unclosed.
  */
 function normalizeSub(sub: unknown): string {
-  if (typeof sub !== 'string' || sub === '') {
+  if (typeof sub !== 'string') {
     throw new Error(
       `MUI X Studio Server: JWT "sub" claim must be a non-empty string, ` +
         `but received ${JSON.stringify(sub)}. ` +

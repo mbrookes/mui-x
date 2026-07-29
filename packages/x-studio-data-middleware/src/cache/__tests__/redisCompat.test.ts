@@ -9,7 +9,7 @@
  *     instead of accumulating every matching key.
  */
 import { describe, it, expect } from 'vitest';
-import { DEL_BATCH_SIZE, delKeys, scanKeyPages, scanKeys } from '../redisCompat';
+import { DEL_BATCH_SIZE, delKeys, scanKeyPages } from '../redisCompat';
 import type { RedisClient } from '../RedisCacheProvider';
 
 /** Records the argument count of every `del` call. */
@@ -131,11 +131,5 @@ describe('scanKeyPages', () => {
       pages.push(page);
     }
     expect(pages).toEqual([['a', 'b']]);
-  });
-
-  it('scanKeys still accumulates the same keys the pages carry', async () => {
-    const allKeys = Array.from({ length: 25 }, (_unused, i) => `k${i}`);
-    const { redis } = makeScanClient(allKeys, 10);
-    expect(await scanKeys(redis, 'ioredis', 'k*', 10)).toEqual(allKeys);
   });
 });

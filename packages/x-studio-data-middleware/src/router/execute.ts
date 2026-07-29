@@ -283,9 +283,11 @@ export async function executeForTier(
   const orderColumnOf = (ob: PlanOrderBy): string =>
     ob.aggAlias !== undefined ? ob.aggAlias : qualify(ob.physical as ColumnRef);
 
-  if (tier === 'client' || tier === 'server') {
-    // Return the filtered (but unaggregated) rows
-    const query = buildSecureQuery(db, claims, descriptor, options, queryPlan);
+  // Shared select → orderBy → runBounded sequence for the plain (non-aggregated)
+  // projection shape used by BOTH the client/server tiers and the
+  // aggregation-free 'db' tier fallback below — extracted so the two call sites
+  // cannot independently drift on how it is built.
+  const projectSelectOrderLimit = (query: any): Promise<Record<string, unknown>[]> => {
     if (queryPlan.columns.length > 0) {
       // Qualify unqualified column names to avoid ambiguity when JOINs are present.
       // Skip columns that are already qualified (contain a dot) to prevent double-qualification.
@@ -304,6 +306,12 @@ export async function executeForTier(
     // capped at `MAX_RESULT_ROWS` (finding T2) and at the request's remaining
     // row budget (finding H2) rather than left unbounded.
     return runBounded(query, queryPlan.limit, rowBudget);
+  };
+
+  if (tier === 'client' || tier === 'server') {
+    // Return the filtered (but unaggregated) rows
+    const query = buildSecureQuery(db, claims, descriptor, options, queryPlan);
+    return projectSelectOrderLimit(query);
   }
 
   // 'db' tier: DB push-down aggregation using explicit AggregationSpec[]
@@ -318,14 +326,7 @@ export async function executeForTier(
   // shape vs. what the client/server tiers return for the same descriptor.
   // Fall back to the SAME plain select/orderBy/limit shape those tiers produce.
   if (queryPlan.aggregations.length === 0) {
-    if (queryPlan.columns.length > 0) {
-      query.select(queryPlan.columns.map(projectColumn));
-    }
-    for (const ob of queryPlan.orderBy) {
-      query.orderBy(orderColumnOf(ob), ob.direction);
-    }
-    // Always apply an effective limit — see finding 3.1 / T2 / H2 above.
-    return runBounded(query, queryPlan.limit, rowBudget);
+    return projectSelectOrderLimit(query);
   }
 
   // Pure-measure columns are those whose aggregation alias equals the source

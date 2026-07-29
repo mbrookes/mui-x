@@ -1012,7 +1012,7 @@ describe('buildSecureQuery', () => {
   });
 
   describe('empty regionIds ([]) on the outer-join ON-clause path (Tier3 finding 3.1)', () => {
-    // Regression (coverage-only — see ARCHITECTURE_REVIEW.md finding 3.1): the
+    // Regression (coverage-only — see finding 3.1): the
     // WHERE-clause `regionIds: []` case is pinned above ("applies a
     // match-nothing region predicate when regionIds is an empty array"), and the
     // outer-join ON-clause path was previously only pinned with a NON-empty

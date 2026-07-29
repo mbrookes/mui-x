@@ -24,7 +24,7 @@ function resolvedTenantColumn(opts: SecurityPolicyOptions): string | undefined {
   return opts.tenancy.mode === 'multi-tenant' ? opts.tenancy.tenantColumn : undefined;
 }
 
-// Representative config matrix — the four shapes called out in the retrofit plan.
+// Representative config matrix — four representative shapes.
 const CONFIG_MATRIX: { name: string; opts: SecurityPolicyOptions }[] = [
   {
     name: 'multi-tenant, no securityColumns',

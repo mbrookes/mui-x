@@ -25,6 +25,34 @@ import { MAX_STRING_LENGTH } from './limits';
 import { assertStringArrayAllowlist } from './allowlistShape';
 
 /**
+ * Throw when a client-supplied identifier (a table name, a column reference, a
+ * `columnAliases` map key, …) exceeds `MAX_STRING_LENGTH` (Tier2 finding —
+ * resource exhaustion). The ONE canonical implementation of this check —
+ * previously reimplemented near-identically at three call sites (`resolveAlias`
+ * and `assertColumnReferenceShape` below, plus `assertTablesAllowed.ts`'s
+ * table-name check) — with each call site supplying its own `label` (what kind
+ * of identifier this is, e.g. `'Table name'` or `'Column reference'`) and
+ * `context` (where it came from, e.g. `'table'`, `'columns'`, `'where'`) so the
+ * error text stays specific to its call site without re-copying the check.
+ *
+ * @param value - The identifier string to check.
+ * @param label - Short noun phrase naming the kind of identifier, used at the
+ *   start of the error message (e.g. `'Table name'`, `'Column reference'`).
+ * @param context - Short label describing where the reference came from (e.g.
+ *   `'table'`, `'columns'`, `'columnAliases'`).
+ */
+export function assertIdentifierLength(value: string, label: string, context: string): void {
+  if (value.length > MAX_STRING_LENGTH) {
+    throw new Error(
+      `MUI X Studio Server: ${label} "${value.slice(0, 80)}…" (in ${context}) is ${value.length} characters ` +
+        `long, which exceeds the maximum of ${MAX_STRING_LENGTH} allowed for an identifier. ` +
+        `An unbounded identifier string is expensive to hash (it is folded into the query cache key) and to ` +
+        `validate/compare repeatedly across a batch. Shorten the identifier in "${context}" to at most ${MAX_STRING_LENGTH} characters.`,
+    );
+  }
+}
+
+/**
  * Resolve a logical column/field reference to its physical SQL column via the
  * descriptor's `columnAliases` map (a client-declared logical-ID → physical-column
  * mapping, derived from the dashboard's expression fields/relationships). Returns
@@ -56,13 +84,8 @@ export function resolveAlias(descriptor: BatchWidgetDescriptor, column: string):
   // check (rather than trusting the `string` parameter type) mirrors every
   // other defensive guard in this module, since the wire value's runtime type
   // is not guaranteed by the TS signature.
-  if (typeof column === 'string' && column.length > MAX_STRING_LENGTH) {
-    throw new Error(
-      `MUI X Studio Server: Column reference "${column.slice(0, 80)}…" is ${column.length} characters long, ` +
-        `which exceeds the maximum of ${MAX_STRING_LENGTH} allowed for an identifier. ` +
-        `An unbounded identifier string is expensive to hash (it is folded into the query cache key) and to ` +
-        `resolve repeatedly across a batch. Shorten the column reference to at most ${MAX_STRING_LENGTH} characters.`,
-    );
+  if (typeof column === 'string') {
+    assertIdentifierLength(column, 'Column reference', 'columnAliases');
   }
   const aliases = descriptor.columnAliases;
   // Gate on an OWN-property check BEFORE the lookup (finding 2.4). `column` is
@@ -301,13 +324,8 @@ export function assertColumnReferenceShape(reference: string, context: string): 
   // shape that never flows through `checkQualifiedColumn`'s own identical cap
   // (mutation values keys are never table-qualified, so they take a different
   // validation path). Checked first, before any parsing below.
-  if (typeof reference === 'string' && reference.length > MAX_STRING_LENGTH) {
-    throw new Error(
-      `MUI X Studio Server: Column reference "${reference.slice(0, 80)}…" (in ${context}) is ${reference.length} ` +
-        `characters long, which exceeds the maximum of ${MAX_STRING_LENGTH} allowed for an identifier. ` +
-        `An unbounded identifier string is expensive to hash and validate repeatedly across a batch. ` +
-        `Shorten the identifier in "${context}" to at most ${MAX_STRING_LENGTH} characters.`,
-    );
+  if (typeof reference === 'string') {
+    assertIdentifierLength(reference, 'Column reference', context);
   }
   // Reject a reference with MORE than one dot (`a.b.c` or deeper) before any
   // caller parses it at the FIRST dot. One shared implementation with

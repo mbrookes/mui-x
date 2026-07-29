@@ -76,9 +76,11 @@ import {
   assertTablesAllowed,
   collectSemiJoinTables,
 } from './shared/assertTablesAllowed';
+import { describeCause } from './shared/describeCause';
 import { sanitizeBoundaryError } from './shared/sanitizeError';
 import {
   MAX_ARRAY_ITEMS_PER_DESCRIPTOR,
+  MAX_ITEMS_PER_BATCH,
   MAX_PREDICATE_VALUES_PER_DESCRIPTOR,
   MAX_STRING_LENGTH,
   MAX_STRING_VALUE_LENGTH,
@@ -104,7 +106,7 @@ const DEFAULT_TIER_CACHE_TTL_MS = 30_000; // 30 seconds — aligned with data ca
  * separately by `MAX_CONCURRENT_WIDGET_QUERIES`, and how many rows they may
  * collectively materialize by the request's `RowBudget` (both finding H2).
  */
-export const MAX_WIDGETS_PER_BATCH = 50;
+export const MAX_WIDGETS_PER_BATCH = MAX_ITEMS_PER_BATCH;
 
 /**
  * Maximum number of widget pipelines (preflight `COUNT(*)` + data query) allowed
@@ -861,7 +863,7 @@ async function runWidgetPipeline(
     console.warn(
       `MUI X Studio Server: cache read failed for a widget; falling back to the database. ` +
         `The result is still served from the DB, but the cache backend should be checked. ` +
-        `Cause: ${cacheErr instanceof Error ? cacheErr.message : String(cacheErr)}`,
+        `Cause: ${describeCause(cacheErr)}`,
     );
   }
   // SHAPE-CHECK THE HIT (finding L5). A `CacheProvider` is host-pluggable and its
@@ -1035,7 +1037,7 @@ async function runWidgetPipeline(
       console.warn(
         `MUI X Studio Server: cache write failed for a widget; the result is still returned. ` +
           `Subsequent requests will re-query the DB until the cache backend recovers. ` +
-          `Cause: ${cacheErr instanceof Error ? cacheErr.message : String(cacheErr)}`,
+          `Cause: ${describeCause(cacheErr)}`,
       );
     }
   }

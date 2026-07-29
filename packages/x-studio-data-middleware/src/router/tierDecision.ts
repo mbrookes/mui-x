@@ -12,6 +12,7 @@
  *                        given), return result
  */
 import type { TierCacheProvider } from '../cache/types';
+import { describeCause } from '../shared/describeCause';
 
 /** Routing tiers */
 export type TierDecision =
@@ -109,7 +110,7 @@ export async function decideTierWithCache(
       console.warn(
         `MUI X Studio Server: tier-cache read failed for a widget; falling back to the preflight COUNT(*). ` +
           `The result is still served, but the tier-cache backend should be checked. ` +
-          `Cause: ${cacheErr instanceof Error ? cacheErr.message : String(cacheErr)}`,
+          `Cause: ${describeCause(cacheErr)}`,
       );
     }
     // SHAPE-CHECK THE HIT (finding L5, sibling of the data-cache guard in
@@ -169,7 +170,7 @@ export async function decideTierWithCache(
       console.warn(
         `MUI X Studio Server: tier-cache write failed for a widget; the tier decision is still returned. ` +
           `Subsequent requests will re-run the preflight COUNT(*) until the tier-cache backend recovers. ` +
-          `Cause: ${cacheErr instanceof Error ? cacheErr.message : String(cacheErr)}`,
+          `Cause: ${describeCause(cacheErr)}`,
       );
     }
   }

@@ -65,9 +65,11 @@ import {
   assertTablesAllowed,
   assertQualifiedWhereColumnsAllowed,
 } from '../shared/assertTablesAllowed';
+import { describeCause } from '../shared/describeCause';
 import { sanitizeBoundaryError } from '../shared/sanitizeError';
 import {
   MAX_ARRAY_ITEMS_PER_DESCRIPTOR,
+  MAX_ITEMS_PER_BATCH,
   MAX_PREDICATE_VALUES_PER_DESCRIPTOR,
   MAX_STRING_LENGTH,
   MAX_STRING_VALUE_LENGTH,
@@ -89,7 +91,7 @@ import { getDefaultCache } from '../cache/defaultProviders';
  * enforced limit. Exceeded requests are rejected outright (see
  * `assertValidBatchMutationRequest`) rather than silently truncated.
  */
-export const MAX_MUTATIONS_PER_BATCH = 50;
+export const MAX_MUTATIONS_PER_BATCH = MAX_ITEMS_PER_BATCH;
 
 /**
  * Opt-in transactional semantics for a mutation batch (finding M3).
@@ -656,7 +658,7 @@ async function invalidateTableCache(
       `MUI X Studio Server: post-mutation cache invalidation failed for table "${table}"; ` +
         `the mutation committed successfully and is reported as such. Cached reads for this table may be ` +
         `stale until their TTL expires — check the cache backend. ` +
-        `Cause: ${cacheErr instanceof Error ? cacheErr.message : String(cacheErr)}`,
+        `Cause: ${describeCause(cacheErr)}`,
     );
   }
 }

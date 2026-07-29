@@ -2,7 +2,7 @@
  * Compile + validate the COLUMN-REFERENCE resolution for one widget ONCE per
  * request — the read-path analogue of `compileSecurityPolicy`.
  *
- * Gap (see the retrofit plan): alias resolution (`resolveAlias`) and allowlist
+ * Gap: alias resolution (`resolveAlias`) and allowlist
  * validation (`checkColumnAgainstAllowlist`) were run at the TOP of
  * `handleBatchQuery`, but produced NO artifact — the same
  * `BatchWidgetDescriptor`, still carrying raw logical column names and a

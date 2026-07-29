@@ -8,29 +8,12 @@
  */
 import type { BatchWidgetDescriptor, FilterPredicate, SemiJoinDescriptor } from '../security/types';
 import {
+  assertIdentifierLength,
   assertNoImplicitAlias,
   assertSingleDotReference,
   qualifiedTableOf,
 } from './columnValidation';
-import { MAX_STRING_LENGTH } from './limits';
 import { assertStringArrayAllowlist } from './allowlistShape';
-
-/**
- * Throw when a client-supplied table/column identifier exceeds
- * `MAX_STRING_LENGTH` (Tier2 finding — resource exhaustion). Shared by
- * `assertTablesAllowed` (table names) and `checkQualifiedColumn` (column
- * references) below, so both identifier classes are capped identically.
- */
-function assertIdentifierLength(value: string, context: string): void {
-  if (value.length > MAX_STRING_LENGTH) {
-    throw new Error(
-      `MUI X Studio Server: "${value.slice(0, 80)}…" (in ${context}) is ${value.length} characters long, ` +
-        `which exceeds the maximum of ${MAX_STRING_LENGTH} allowed for an identifier. ` +
-        `An unbounded identifier string is expensive to hash (it is folded into the query cache key) and to ` +
-        `validate/compare repeatedly across a batch. Shorten the identifier in "${context}" to at most ${MAX_STRING_LENGTH} characters.`,
-    );
-  }
-}
 
 /**
  * Throw when any of `tables` is not present in `schemaAllowlist`.
@@ -55,7 +38,7 @@ export function assertTablesAllowed(tables: string[], schemaAllowlist: string[])
   // regardless of its type.
   for (const t of tables) {
     if (typeof t === 'string') {
-      assertIdentifierLength(t, 'table');
+      assertIdentifierLength(t, 'Table name', 'table');
     }
   }
   const invalidTables = tables.filter((t) => !schemaAllowlist.includes(t));
@@ -115,7 +98,7 @@ function checkQualifiedColumn(column: string, context: string, schemaAllowlist: 
   // bound on how long that string could be. Checked BEFORE the dot-count/
   // qualified-table logic below so it applies uniformly whether the reference
   // is qualified or not.
-  assertIdentifierLength(column, context);
+  assertIdentifierLength(column, 'Column reference', context);
   assertSingleDotReference(column, context);
   // Reject Knex's implicit `" as "` alias syntax (finding L2). Runs
   // UNCONDITIONALLY here — unlike `checkColumnAgainstAllowlist`, which only runs

@@ -9,7 +9,7 @@ import { sanitizeForPromptLine } from './buildAISystemPrompt';
 import { buildWidgetFromArgs, MAX_FILTER_STRING_LENGTH } from './executeToolOnState';
 import { withTimeout } from './mcp/helpers';
 import { LLM_FETCH_TIMEOUT_MS } from './agenticLoop';
-import { capText } from './internal/promptCaps';
+import { capText, MAX_GENERATED_TITLE_LENGTH } from './internal/promptCaps';
 import { linkAbortSignal, readBodyWithTimeout } from './internal/llmFetch';
 import { reportProviderHttpError } from './internal/providerError';
 import { isPackageAuthoredError, markPackageAuthored } from './internal/packageError';
@@ -68,14 +68,6 @@ export interface GenerateInsightOptions {
  * chat message is a sentence or two) so only a runaway/hostile payload trips it.
  */
 const MAX_INSIGHT_TEXT_CHARS = 10_000;
-
-/**
- * Hard cap on a generated chat-session title, matching `rename_thread`'s server-side
- * cap. Exported so `executeToolOnState.ts`'s `rename_thread` handler can import and
- * reuse this exact value instead of a bare literal, so the "must match" invariant is
- * enforced by the type system/import rather than by convention alone.
- */
-export const MAX_GENERATED_TITLE_LENGTH = 40;
 
 /**
  * Shape every one-shot handler expects back from an OpenAI-compatible endpoint.

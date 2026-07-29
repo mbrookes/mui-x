@@ -33,12 +33,14 @@ import type {
   StudioDataSource,
 } from './models/studioTypes';
 import type { StateMutation, StudioAIToolName } from './models/aiTypes';
-import { asString } from './internal/promptCaps';
-import { getWidget, getPage } from './internal/entityLookup';
 // `MAX_GENERATED_TITLE_LENGTH` must match `handleGenerateTitle`'s generated-title cap
 // (see the comment at its definition) — imported rather than duplicated as a bare
-// literal so the two can't silently drift apart.
-import { MAX_GENERATED_TITLE_LENGTH } from './handleGenerateInsight';
+// literal so the two can't silently drift apart. Imported from `internal/promptCaps`
+// (a neutral leaf module), NOT from `./handleGenerateInsight`, which itself imports
+// `buildWidgetFromArgs`/`MAX_FILTER_STRING_LENGTH` FROM this file — importing the
+// constant from there would form a two-node import cycle.
+import { asString, MAX_GENERATED_TITLE_LENGTH } from './internal/promptCaps';
+import { getWidget, getPage } from './internal/entityLookup';
 // Shared pure functions: the widget factory (so AI-created and UI-created widgets
 // share defaults) and the single mutation reducer (so the server-threaded state
 // and the client-applied state are computed by the exact same code).

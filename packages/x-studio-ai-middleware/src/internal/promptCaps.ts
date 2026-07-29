@@ -116,3 +116,25 @@ export function capTextList(values: unknown, maxCount: number, maxChars: number)
   }
   return values.slice(0, maxCount).map((v) => capText(v, maxChars));
 }
+
+/**
+ * Hard cap on a generated chat-session title, matching `rename_thread`'s server-side
+ * cap. Exported so both `executeToolOnState.ts`'s `rename_thread` handler and
+ * `handleGenerateInsight.ts`'s `handleGenerateTitle` can import and reuse this exact
+ * value instead of a bare literal, so the "must match" invariant is enforced by the
+ * type system/import rather than by convention alone.
+ *
+ * Lives here — in this neutral, leaf `internal/promptCaps.ts` module — specifically to
+ * avoid a two-node import cycle: a prior consolidation defined this constant in
+ * `handleGenerateInsight.ts` and had `executeToolOnState.ts` import it from there,
+ * while `handleGenerateInsight.ts` separately imports `buildWidgetFromArgs`/
+ * `MAX_FILTER_STRING_LENGTH` FROM `executeToolOnState.ts` — a genuine `A imports B
+ * imports A` cycle. It worked only because both bindings were read inside deferred
+ * function bodies rather than at module-evaluation time, but it inverted this
+ * package's documented dependency direction (`ARCHITECTURE.md` describes
+ * `executeToolOnState.ts` as the shared core both transports build on, and
+ * `handleGenerateInsight.ts` as a one-shot handler that depends on it, not the
+ * reverse). Both call sites now import this constant from a shared module with no
+ * back-reference to either of them, restoring the one-directional dependency.
+ */
+export const MAX_GENERATED_TITLE_LENGTH = 40;

@@ -296,16 +296,20 @@ describe('object literals', () => {
     const rows = applyCalculateTransform(
       [{ animal: 'pigs' }, { animal: 'sheep' }, { animal: 'ostrich' }],
       { calculate: "{'cattle': 'C', 'pigs': 'P', 'sheep': 'S'}[datum.animal]", as: 'code' },
+      createGapCollector(),
+      '$',
     );
     // An unmatched key normalizes to null, as every missing value does here.
     expect(rows.map((row) => row.code)).to.deep.equal(['P', 'S', null]);
   });
 
   it('accepts bare identifier keys and nested values', () => {
-    const rows = applyCalculateTransform([{ k: 'b', n: 2 }], {
-      calculate: '{a: 1, b: datum.n * 10}[datum.k]',
-      as: 'v',
-    });
+    const rows = applyCalculateTransform(
+      [{ k: 'b', n: 2 }],
+      { calculate: '{a: 1, b: datum.n * 10}[datum.k]', as: 'v' },
+      createGapCollector(),
+      '$',
+    );
     expect(rows[0].v).to.equal(20);
   });
 });

@@ -20,7 +20,15 @@ export function RadialLabelsOverlay(props: { overlay: Overlay }) {
   const { overlay } = props;
   const drawingArea = useDrawingArea();
 
-  const fullRadius = Math.min(drawingArea.width, drawingArea.height) / 2;
+  // Vega sizes a radial view's outer radius from the PLOT, not from the plot
+  // minus the chart margins — and the pie path already does the same
+  // (`Math.min(resolvedWidth, resolvedHeight) / 2` on the surface), which is why
+  // pies match exactly while `arc_radial` came out at 0.82 of the reference in
+  // both dimensions. The margins are symmetric, so the inset on one side
+  // reconstructs the surface without hard-coding x-charts' default.
+  const surfaceWidth = drawingArea.width + 2 * drawingArea.left;
+  const surfaceHeight = drawingArea.height + 2 * drawingArea.top;
+  const fullRadius = Math.min(surfaceWidth, surfaceHeight) / 2;
   const cx = drawingArea.left + drawingArea.width / 2;
   const cy = drawingArea.top + drawingArea.height / 2;
 

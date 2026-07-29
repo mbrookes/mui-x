@@ -1033,11 +1033,7 @@ export function normalizePersistedPages(
         present.add(id);
       }
     }
-    const spansWereRecord =
-      page.widgetColSpans === undefined ||
-      (typeof page.widgetColSpans === 'object' &&
-        page.widgetColSpans !== null &&
-        !Array.isArray(page.widgetColSpans));
+    const spansWereRecord = page.widgetColSpans === undefined || isPlainRecord(page.widgetColSpans);
     let nextSpans: Record<string, number> | undefined = spansWereRecord
       ? page.widgetColSpans
       : undefined;
@@ -2404,10 +2400,7 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         // present-but-junk value (`null`, an array, a primitive from a hand-built payload)
         // counts as ABSENT everywhere, so it can neither be read (`Object.keys` would
         // throw) nor flip the merge-vs-replace decision below.
-        const spansProvided =
-          widgetColSpans !== null &&
-          typeof widgetColSpans === 'object' &&
-          !Array.isArray(widgetColSpans);
+        const spansProvided = isPlainRecord(widgetColSpans);
         const safeSpans: Record<string, number> = spansProvided ? widgetColSpans : {};
         const clampedSpans: Record<string, number> = {};
         for (const key of Object.keys(safeSpans)) {

@@ -74,6 +74,7 @@ src/
   factories.ts            Id factories, createDefaultWidget/StudioState, envelope + leaf-shape normalizers
   anomalyDetection.ts     detectAnomaliesIQR (+ private median helper)
   unsafeKeys.ts           The single shared prototype-hazard key denylist
+  wireLimits.ts           MAX_ARRAY_LENGTH/MAX_STRING_LENGTH — shared wire trust-boundary size caps
   internalGuards.ts       isPlainRecord/stripUnsafeOwnKeys/repairFilterDependsOn — shared boundary helpers
   docScreening.ts         The per-entry StudioDoc screens shared by the load boundary and the factory
   applyMutation.ts        The single mutation reducer; GRID_COLS/MIN_SPAN; two load-boundary internals
@@ -85,10 +86,12 @@ src/
   index.ts                Public export surface
 ```
 
-Every runtime module has a co-located `*.test.ts` except three: `aiToolRegistry.ts` (a declarative
+Every runtime module has a co-located `*.test.ts` except four: `aiToolRegistry.ts` (a declarative
 facts table whose invariants are compile-time-enforced by the mapped types deriving from it),
 `unsafeKeys.ts` (a fixed three-literal `Set` plus a one-line membership check, exercised
-indirectly by every prototype-hazard case in the boundary suites), and `docScreening.ts` (whose
+indirectly by every prototype-hazard case in the boundary suites), `wireLimits.ts` (two exported
+number constants, exercised indirectly by every size-cap case in `parseStateMutation.test.ts`,
+`applyMutation.test.ts`, and `statePersistence.test.ts`), and `docScreening.ts` (whose
 screens are exercised through both of their callers — `statePersistence.test.ts` and
 `factories.test.ts` — since what matters is that the two boundaries agree on a payload, which only
 a per-caller test can assert). The pure type modules have no runtime behavior to test.
@@ -709,9 +712,9 @@ Three sharp edges, all handled by private helpers:
   fell through to the slow path, which can't parse it either, and the function returned `null`
   instead of the documented best-effort `'2024-06-01'`.
 
-### `unsafeKeys.ts`, `internalGuards.ts` and `docScreening.ts`
+### `unsafeKeys.ts`, `wireLimits.ts`, `internalGuards.ts` and `docScreening.ts`
 
-All three are package-internal (absent from `index.ts`) and exist purely so their guards have
+All four are package-internal (absent from `index.ts`) and exist purely so their guards have
 exactly one implementation across every trust boundary.
 
 - **`unsafeKeys.ts`** — `UNSAFE_KEYS`/`isSafeKey`. Imported by `applyMutation.ts` (as the local
@@ -719,6 +722,13 @@ exactly one implementation across every trust boundary.
   `internalGuards.ts` (`stripUnsafeOwnKeys`), and `docScreening.ts` (screening persisted
   `pages`/`widgets` record keys, shared by `statePersistence.ts` and `factories.ts`). See
   [prototype-hazard keys](#prototype-hazard-keys).
+- **`wireLimits.ts`** — `MAX_ARRAY_LENGTH`/`MAX_STRING_LENGTH`, the wire trust-boundary size caps.
+  Zero-dependency, mirroring `unsafeKeys.ts`. `parseStateMutation.ts` imports them for every
+  shape-and-size leaf predicate it defines (`isStringArray` and friends); `internalGuards.ts`
+  imports the SAME two constants for `repairFilterDependsOn`'s size cap, so the reducer/load
+  boundary's `dependsOn` repair (reachable by a server-built `addFilter` that bypasses the wire
+  parser, and by a persisted/shared doc) enforces the identical bound the wire boundary does,
+  rather than an independently-declared (and driftable) one.
 - **`internalGuards.ts`** — `isPlainRecord` (see
   [above](#isplainrecord--the-one-is-this-a-usable-bag-predicate)), `stripUnsafeOwnKeys`, and
   `repairFilterDependsOn`. It began as a pure dedup of three helpers previously defined

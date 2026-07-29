@@ -6,6 +6,7 @@ import {
   mutationLabel,
   resolveRankFilterPageId,
   hasConflictingRankFilter,
+  normalizePersistedPages,
 } from './applyMutation';
 import { serializeDoc, deserializeState } from './statePersistence';
 import {
@@ -898,6 +899,28 @@ describe('applyMutation', () => {
       value: 1,
       scope: { kind: 'page' as const, pageId: 'page-1' },
       dependsOn: 'not-an-array',
+    } as any;
+    const next = applyDocMutation(state, { type: 'addFilter', args: { filter } });
+    expect(next.filters).toHaveLength(1);
+    expect((next.filters[0] as { dependsOn?: unknown }).dependsOn).toBeUndefined();
+  });
+
+  // Entropy-audit finding: `repairFilterDependsOn` had a SHAPE check (`string[]`) but no
+  // SIZE cap, unlike `parseStateMutation.ts`'s `isStringArray`, which caps at
+  // `MAX_ARRAY_LENGTH` (500 entries). `addFilter` is a server-built mutation that bypasses
+  // the wire parser entirely, so an oversized `dependsOn` reached this repair as the ONLY
+  // guard standing between it and being installed verbatim — an unbounded array a hostile
+  // or buggy server-side caller could grow arbitrarily large.
+  it('addFilter repairs an oversized dependsOn array instead of installing it unbounded (dependsOn size cap)', () => {
+    const state = twoPageState('page-1');
+    const oversized = Array.from({ length: 501 }, (_, i) => `w${i}`);
+    const filter = {
+      id: 'f',
+      field: 'x',
+      operator: 'equals' as const,
+      value: 1,
+      scope: { kind: 'page' as const, pageId: 'page-1' },
+      dependsOn: oversized,
     } as any;
     const next = applyDocMutation(state, { type: 'addFilter', args: { filter } });
     expect(next.filters).toHaveLength(1);
@@ -2740,6 +2763,75 @@ describe('applyMutation', () => {
         {},
       );
       expect(Object.hasOwn(loaded.doc.pages['page-1'], 'widgetColSpans')).toBe(false);
+    });
+
+    it('drops an exotic (non-plain-object) widgetColSpans instead of crashing on it (isPlainRecord bypass)', () => {
+      // An own enumerable property whose getter THROWS when read — not when merely listed
+      // via `Object.keys`. The old `typeof widgetColSpans === 'object' && !== null &&
+      // !Array.isArray(...)` check classified any such exotic object as a usable span
+      // record (it does not check the prototype), so `Object.keys` would list `w1`, and
+      // the clamp loop reading `page.widgetColSpans.w1` to clamp it would then throw.
+      // `isPlainRecord` rejects it up front (its prototype isn't `Object.prototype`), so
+      // the span map is treated as absent and the throwing getter is never read.
+      class BoomSpans {
+        constructor() {
+          Object.defineProperty(this, 'w1', {
+            enumerable: true,
+            get(): number {
+              throw new Error('span boom');
+            },
+          });
+        }
+      }
+      const pages = {
+        'page-1': {
+          id: 'page-1',
+          title: 'P1',
+          widgetRows: [['w1']],
+          widgetColSpans: new BoomSpans(),
+        },
+      } as unknown as StudioDoc['pages'];
+      const widgets = {
+        w1: { id: 'w1', kind: 'chart', title: 'W', config: {} },
+      } as unknown as StudioDoc['widgets'];
+      let result!: StudioDoc['pages'];
+      expect(() => {
+        result = normalizePersistedPages(pages, widgets);
+      }).not.toThrow();
+      expect(Object.hasOwn(result['page-1'], 'widgetColSpans')).toBe(false);
+    });
+
+    it('treats an exotic applyBulkUpdate.args.widgetColSpans as absent instead of crashing on it (isPlainRecord bypass)', () => {
+      // Same shape as the normalizePersistedPages case above, exercised through the
+      // reducer's own `spansProvided` check instead of the load boundary's.
+      class BoomSpans {
+        constructor() {
+          Object.defineProperty(this, 'w1', {
+            enumerable: true,
+            get(): number {
+              throw new Error('span boom');
+            },
+          });
+        }
+      }
+      let next!: StudioDoc;
+      expect(() => {
+        next = applyDocMutation(spanned(), {
+          type: 'applyBulkUpdate',
+          args: {
+            removedWidgetIds: [],
+            addedWidgets: [],
+            updatedWidgets: [],
+            widgetRows: [['w1', 'w2']],
+            widgetColSpans: new BoomSpans(),
+            activePageId: 'page-1',
+          },
+        } as unknown as StateMutation);
+      }).not.toThrow();
+      // Treated as absent: the replace branch (rows AND spans both "provided") does not
+      // apply, so the page's EXISTING spans merge through unchanged rather than being
+      // wiped by an exotic value masquerading as an empty replacement map.
+      expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 12, w2: 12 });
     });
 
     it('still writes the key when a span map survives', () => {

@@ -1151,6 +1151,31 @@ describe('deserializeState', () => {
     expect(Object.hasOwn(state.doc.widgets, 'w2')).toBe(true);
   });
 
+  it('drops a widget value that is an exotic object masquerading as a valid record (isPlainRecord bypass)', () => {
+    // A class instance with own `id`/`kind`/`title`/`config` data properties that all pass
+    // their OWN individual checks. The old `widget !== null && typeof widget === 'object' &&
+    // !Array.isArray(widget)` check (no prototype check) accepted this as a usable widget
+    // record, and nothing downstream in `screenWidgets`' `.map()` step rebuilds a widget
+    // whose `id` already matches its key and whose `config` is already record-shaped — so
+    // the exotic instance would have been embedded DIRECTLY into `state.doc.widgets`,
+    // silently different from the plain-object shape every other widget has. `isPlainRecord`
+    // rejects it up front (its prototype isn't `Object.prototype`), dropping it like any
+    // other malformed widget entry instead.
+    class FakeWidget {
+      id = 'w1';
+      kind = 'chart';
+      title = 'Evil';
+      config = { chartType: 'bar' };
+    }
+    const serialized = {
+      ...minimalSerialized,
+      widgets: { w1: new FakeWidget() },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [] } },
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(Object.hasOwn(state.doc.widgets, 'w1')).toBe(false);
+  });
+
   // ── prototype-hazard keys in persisted maps (finding 1.2) ────────────────────
   it('drops a persisted "__proto__" page key and does not re-prototype the pages map (finding 1.2)', () => {
     const serialized = {
@@ -2068,6 +2093,43 @@ describe('deserializeState', () => {
     expect(f2.dependsOn).toBeUndefined();
     // A well-formed dependsOn is left untouched.
     expect(f3.dependsOn).toEqual(['f1']);
+  });
+
+  // Entropy-audit finding: this load screen shares its shape check with the wire boundary
+  // (`isStringArray`-equivalent), but had no SIZE cap of its own — a persisted/shared doc
+  // is exactly the untrusted boundary an unbounded `dependsOn` array is a DoS shape against.
+  //
+  // Every id in the oversized `dependsOn` below names a REAL filter this doc also carries
+  // (`w0`..`w500`), so the separate dangling-reference prune (`pruneDependsOn`, which runs
+  // AFTER this repair and would otherwise strip every entry as an orphan reference, masking
+  // whether the size cap itself did anything) cannot be what drops them — isolating the size
+  // cap as the only mechanism that can produce this test's expectation.
+  it('repairs (drops) an oversized dependsOn on a persisted filter (dependsOn size cap)', () => {
+    const dependsOnIds = Array.from({ length: 501 }, (_, i) => `w${i}`);
+    const serialized = {
+      ...minimalSerialized,
+      filters: [
+        {
+          id: 'f1',
+          field: 'x',
+          operator: 'equals',
+          value: '',
+          scope: { kind: 'page' },
+          dependsOn: dependsOnIds,
+        },
+        ...dependsOnIds.map((id) => ({
+          id,
+          field: 'y',
+          operator: 'equals',
+          value: '',
+          scope: { kind: 'page' },
+        })),
+      ],
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(state.doc.filters).toHaveLength(1 + dependsOnIds.length);
+    const f1 = state.doc.filters.find((f) => f.id === 'f1');
+    expect(f1?.dependsOn).toBeUndefined();
   });
 
   it('repairs (drops) a malformed dependsOn on a preset inner filter (T2 finding)', () => {

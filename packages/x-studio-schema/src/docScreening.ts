@@ -516,14 +516,7 @@ export function screenWidgets(value: unknown): StudioDoc['widgets'] {
   return Object.fromEntries(
     Object.entries(source)
       .filter(([id, widget]) => {
-        if (
-          !(
-            isSafeKey(id) &&
-            widget !== null &&
-            typeof widget === 'object' &&
-            !Array.isArray(widget)
-          )
-        ) {
+        if (!(isSafeKey(id) && isRecord(widget))) {
           return false;
         }
         // Screen the widget object's OWN top-level keys against the prototype-hazard

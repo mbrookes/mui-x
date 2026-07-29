@@ -37,6 +37,7 @@ import {
 } from './widgetTypeGuards';
 import { UNSAFE_KEYS, isSafeKey } from './unsafeKeys';
 import { isPlainRecord as isRecord } from './internalGuards';
+import { MAX_ARRAY_LENGTH, MAX_STRING_LENGTH } from './wireLimits';
 
 export type ParseStateMutationResult =
   | { ok: true; mutation: StateMutation }
@@ -64,8 +65,11 @@ export type ParseStateMutationResult =
 // explicit checks with a more specific message at the two record-array collections
 // (`addedWidgets`/`updatedWidgets`) that are validated by a per-entry loop rather
 // than one of the shared array predicates.
-const MAX_ARRAY_LENGTH = 500;
-const MAX_STRING_LENGTH = 10_000;
+//
+// `MAX_ARRAY_LENGTH`/`MAX_STRING_LENGTH` live in `wireLimits.ts`, not here, so
+// `internalGuards.ts`'s `repairFilterDependsOn` (the reducer/load-boundary defense-in-depth
+// repair for `dependsOn`, reachable by paths that never pass through this file) enforces the
+// SAME caps rather than being unbounded.
 
 // The caps above are BREADTH-only, and they are applied only to the fields routed through
 // the shared leaf predicates. Two gaps remained (Tier2 finding), both reachable with a

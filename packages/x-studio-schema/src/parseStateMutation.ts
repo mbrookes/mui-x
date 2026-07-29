@@ -944,9 +944,10 @@ export const PARSEABLE_MUTATION_TYPES = Object.keys(
  * returns a descriptive `error` string naming the field and why it was rejected (a
  * loggable reason where the reducer's dispatch would otherwise silently no-op).
  *
- * The one normalization it performs is in place, on the returned object: a full
- * widget's chart `config` has its foreign-chart-family keys stripped rather than being
- * rejected (see `validateWidget`). Nothing else is rewritten.
+ * It is a pure gate: no validator rewrites its input. `validateWidget` used to be the one
+ * exception, normalizing a full widget's chart `config` in place by stripping its
+ * foreign-chart-family keys (via `stripForeignFamilyKeys`) — it no longer does (see
+ * `validateWidget`'s own doc comment for why). Nothing here is rewritten.
  */
 export function parseStateMutation(value: unknown): ParseStateMutationResult {
   if (!isRecord(value)) {

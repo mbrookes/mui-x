@@ -557,20 +557,6 @@ function pruneDependsOnAgainstSelf(filters: StudioFilterState[]): StudioFilterSt
 }
 
 /**
- * Strip every id in `idsToRemove` from every page's `widgetRows`, dropping any row
- * left empty and clearing the stale span of a former row-mate a removal leaves as
- * the SOLE occupant of a row it used to share (that survivor's stored span is a
- * multi-widget-era leftover — mirrors `enforceLayoutColSpans`'s 2→1 collapse). A
- * pre-existing single-widget-row span is untouched (only a row that shrank FROM 2+
- * TO 1 because of this removal counts).
- *
- * Takes an id SET rather than a single id so `removeWidget` and
- * `applyBulkUpdate.removedWidgetIds` share the identical row-placement cleanup. Both must
- * run it: `removeWidgetIds`' "genuinely gone" check below reads the rows, so a removal
- * target still named on some page's rows would be classified as still-live and silently
- * survive.
- */
-/**
  * Rebuild a page with `overrides` applied and its `widgetColSpans` set to `spans` — or,
  * when `spans` is `undefined`, with the KEY DELETED rather than written as an explicit
  * `undefined`.
@@ -600,6 +586,20 @@ function withSpans(
   return next;
 }
 
+/**
+ * Strip every id in `idsToRemove` from every page's `widgetRows`, dropping any row
+ * left empty and clearing the stale span of a former row-mate a removal leaves as
+ * the SOLE occupant of a row it used to share (that survivor's stored span is a
+ * multi-widget-era leftover — mirrors `enforceLayoutColSpans`'s 2→1 collapse). A
+ * pre-existing single-widget-row span is untouched (only a row that shrank FROM 2+
+ * TO 1 because of this removal counts).
+ *
+ * Takes an id SET rather than a single id so `removeWidget` and
+ * `applyBulkUpdate.removedWidgetIds` share the identical row-placement cleanup. Both must
+ * run it: `removeWidgetIds`' "genuinely gone" check below reads the rows, so a removal
+ * target still named on some page's rows would be classified as still-live and silently
+ * survive.
+ */
 function stripWidgetIdsFromPages(
   pages: StudioDoc['pages'],
   idsToRemove: ReadonlySet<string>,

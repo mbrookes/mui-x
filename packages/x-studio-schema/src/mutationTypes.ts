@@ -117,6 +117,8 @@ export type StateMutation =
       args: {
         widgetId: string;
         columns: number | null;
+        /** Validated at the wire boundary but not read by the reducer — see the
+         *  `setWidgetColSpan` handler in `applyMutation.ts` for why. */
         rowWidgetIds: string[];
         /**
          * Explicit target page for the span change, chosen server-side. Mirrors

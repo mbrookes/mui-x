@@ -534,6 +534,10 @@ export function validateChartConfigKeysForType(
  * that should not carry dormant keys) has an implementation to call rather than hand-rolling
  * one that drifts from `getAllowedChartConfigKeys`. Shallow and key-presence-based, mirroring
  * the validators above.
+ *
+ * As of this audit it has zero callers anywhere in the monorepo (outside its own tests in
+ * `configKeyValidation.test.ts`) — confirmed by grepping `packages/` and `examples/`. That is
+ * expected, not a bug to fix: don't spend time hunting for a caller that doesn't exist.
  */
 export function stripForeignFamilyKeys(
   config: Record<string, unknown>,

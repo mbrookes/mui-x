@@ -24,6 +24,7 @@ import { hasUnsafeOwnKeys, isStringArray, isValidFilterScope } from './parseStat
 import { getAllowedConfigKeys } from './configKeyValidation';
 import {
   isStudioFilterOperator,
+  isTitleModeValue,
   REQUIRED_STUDIO_WIDGET_FIELDS,
   STUDIO_WIDGET_FIELDS,
 } from './widgetTypeGuards';
@@ -130,11 +131,22 @@ const isSafePatchKey = isSafeKey;
  * call sites had: a producer that spells "no explicit page" as JSON `null` still gets the
  * active-page fallback rather than a no-op.
  */
-function resolveTargetPageId(doc: StudioDoc, pageId: unknown): string | undefined {
-  if (pageId === undefined || pageId === null) {
-    return doc.dashboard.activePageId;
+/**
+ * Shared three-state resolution used by {@link resolveTargetPageId} and
+ * {@link resolveTargetThreadId}: nullish `id` ⇒ `fallback`, a `string` `id` ⇒ that id,
+ * anything else (a non-string, non-nullish value) ⇒ `undefined` so the caller no-ops
+ * rather than being handed to a COERCING lookup (see the callers' docs for why that
+ * matters).
+ */
+function resolveTargetId(id: unknown, fallback: string | undefined): string | undefined {
+  if (id === undefined || id === null) {
+    return fallback;
   }
-  return typeof pageId === 'string' ? pageId : undefined;
+  return typeof id === 'string' ? id : undefined;
+}
+
+function resolveTargetPageId(doc: StudioDoc, pageId: unknown): string | undefined {
+  return resolveTargetId(pageId, doc.dashboard.activePageId);
 }
 
 /**
@@ -150,10 +162,7 @@ function resolveTargetPageId(doc: StudioDoc, pageId: unknown): string | undefine
  * through this resolver makes the non-string case an explicit, documented no-op instead.
  */
 function resolveTargetThreadId(ai: StudioDoc['ai'], threadId: unknown): string | undefined {
-  if (threadId === undefined || threadId === null) {
-    return ai?.activeThreadId;
-  }
-  return typeof threadId === 'string' ? threadId : undefined;
+  return resolveTargetId(threadId, ai?.activeThreadId);
 }
 
 /**
@@ -1523,11 +1532,7 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
           // auto-title logic branches directly on them, and `deserializeState` strips any
           // other value on the next load. Skip the field rather than steer that logic with a
           // value the load boundary will discard anyway.
-          if (
-            (key === 'titleMode' || key === 'subtitleMode') &&
-            value !== 'auto' &&
-            value !== 'manual'
-          ) {
+          if ((key === 'titleMode' || key === 'subtitleMode') && !isTitleModeValue(value)) {
             continue;
           }
           // Scalar field (`title`/`subtitle`/`sourceId`/`kind`/`titleMode`/

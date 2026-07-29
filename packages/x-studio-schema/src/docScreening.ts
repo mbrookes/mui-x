@@ -48,6 +48,7 @@ import {
   isStudioExpressionOperator,
   isStudioFilterOperator,
   isStudioRelationshipType,
+  isTitleModeValue,
   OPTIONAL_WIDGET_STRING_FIELDS,
   WIDGET_TITLE_MODE_FIELDS,
 } from './widgetTypeGuards';
@@ -456,7 +457,7 @@ export const screenExpressionFields = (value: unknown): StudioExpressionField[] 
  * The ONE implementation, shared by the write boundary (`applyMutation`'s `addWidget` /
  * `applyBulkUpdate.addedWidgets`) and the doc screen below. The wire boundary's
  * `validateWidget` (`parseStateMutation.ts`) membership-checks all four — `subtitle`/
- * `sourceId` via `isOptionalString`, `titleMode`/`subtitleMode` via `isOptionalTitleMode` —
+ * `sourceId` via `isOptionalString`, `titleMode`/`subtitleMode` via `isTitleModeValue` —
  * but a server-built add bypassing the parser reaches the reducer directly, and this screen
  * would then drop the offending KEY on the next load anyway: the value is discarded either
  * way, just deferred. Repairing at write time keeps the boundaries agreeing.
@@ -473,7 +474,7 @@ export function screenOptionalWidgetScalars(widget: StudioWidget): StudioWidget 
   let base = widget;
   for (const modeKey of WIDGET_TITLE_MODE_FIELDS) {
     const modeValue = (base as unknown as Record<string, unknown>)[modeKey];
-    if (modeValue !== undefined && modeValue !== 'auto' && modeValue !== 'manual') {
+    if (!isTitleModeValue(modeValue)) {
       const nextBase = { ...base };
       delete (nextBase as unknown as Record<string, unknown>)[modeKey];
       base = nextBase as StudioWidget;

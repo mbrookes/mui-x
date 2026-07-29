@@ -72,7 +72,15 @@ export type StudioNumberFormat = 'integer' | 'decimal' | 'percent' | 'currency';
  * coercion `sum`/`avg`/`min`/`max` apply), so any option list offering one must offer all
  * three — see `GridSetupPanel`'s `STRING_AGGREGATIONS` and `KpiSetupPanel`'s per-type lists.
  */
-export type StudioKpiAggregation =
+/**
+ * The full 7-member value-aggregation union shared by KPI and Grid-summary fields — every
+ * aggregation that reads a raw cell (as opposed to {@link StudioSeriesAggregation}'s
+ * chart/pivot/map subset, which never distinguishes `count`/`count_non_null`/
+ * `count_distinct`). {@link StudioKpiAggregation} and {@link StudioGridSummaryAggregation}
+ * were previously two byte-for-byte-identical unions declared independently; both are kept
+ * as aliases of this one so existing imports of either name keep working unchanged.
+ */
+export type StudioValueAggregation =
   | 'sum'
   | 'avg'
   | 'count'
@@ -81,14 +89,18 @@ export type StudioKpiAggregation =
   | 'max'
   | 'count_distinct';
 
-export type StudioGridSummaryAggregation =
-  | 'sum'
-  | 'avg'
-  | 'count'
-  | 'count_non_null'
-  | 'min'
-  | 'max'
-  | 'count_distinct';
+export type StudioKpiAggregation = StudioValueAggregation;
+
+export type StudioGridSummaryAggregation = StudioValueAggregation;
+
+/**
+ * The 5-member aggregation-function subset offered by chart/map/pivot series fields
+ * (`yAggregation` on every chart family, `mapAggregation`, `pivotAggregation`): the raw
+ * cell-vs-value distinctions ({@link StudioValueAggregation}'s `count_non_null` /
+ * `count_distinct`) don't apply once values are already bucketed by a series key, so
+ * only `count`'s plain row-count reading is offered.
+ */
+export type StudioSeriesAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max';
 
 export type StudioFilterOperator =
   | 'equals'

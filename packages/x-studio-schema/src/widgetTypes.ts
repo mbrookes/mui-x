@@ -6,6 +6,7 @@ import type {
   StudioBarLayout,
   StudioCrossFilterMode,
   StudioKpiAggregation,
+  StudioSeriesAggregation,
   StudioChartType,
 } from './baseTypes';
 
@@ -88,7 +89,7 @@ export interface StudioChartSeries {
    */
   seriesType?: 'bar' | 'line';
   /** Aggregation function applied to this series. @default 'sum' */
-  yAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max';
+  yAggregation?: StudioSeriesAggregation;
   /**
    * Optional data source for this series, enabling cross-source blending on a
    * `'mixed'` chart. When set to a source other than the widget's primary
@@ -248,7 +249,7 @@ export interface StudioBarFamilyChartConfig extends StudioChartConfigBase, Studi
   /** Y-axis numeric field for single-series charts. Prefer `ySeries` for multi-series. */
   yField?: string;
   /** How to aggregate the y-axis values. Defaults to 'sum'. Use 'count' when yField is a string field. */
-  yAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max';
+  yAggregation?: StudioSeriesAggregation;
   /** Multiple Y-axis series (preferred over yField when present) */
   ySeries?: StudioChartSeries[];
   /** Secondary Y field for grouped/stacked charts */
@@ -312,7 +313,7 @@ export interface StudioLineAreaFamilyChartConfig
   /** Y-axis numeric field for single-series charts. Prefer `ySeries` for multi-series. */
   yField?: string;
   /** How to aggregate the y-axis values. Defaults to 'sum'. Use 'count' when yField is a string field. */
-  yAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max';
+  yAggregation?: StudioSeriesAggregation;
   /** Multiple Y-axis series (preferred over yField when present) */
   ySeries?: StudioChartSeries[];
   /** Secondary Y field for grouped/stacked charts */
@@ -349,7 +350,7 @@ export interface StudioMixedChartConfig extends StudioChartConfigBase, StudioCha
   /** Y-axis numeric field for single-series charts. Prefer `ySeries` for multi-series. */
   yField?: string;
   /** How to aggregate the y-axis values. Defaults to 'sum'. Use 'count' when yField is a string field. */
-  yAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max';
+  yAggregation?: StudioSeriesAggregation;
   /** Multiple Y-axis series (preferred over yField when present) */
   ySeries?: StudioChartSeries[];
   /** Secondary Y field for grouped/stacked charts */
@@ -393,7 +394,7 @@ export interface StudioHeatmapChartConfig extends StudioChartConfigBase {
   /** Colour-intensity value series; `ySeries[0].fieldId` is used as the value field fallback. */
   ySeries?: StudioChartSeries[];
   /** How to aggregate the colour-intensity value. @default 'sum' */
-  yAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max';
+  yAggregation?: StudioSeriesAggregation;
   /** Granularity to truncate the x-axis date/datetime field before grouping. */
   xGroupBy?: 'day' | 'week' | 'month' | 'quarter' | 'year';
   /**
@@ -441,7 +442,7 @@ export interface StudioFunnelChartConfig extends StudioChartConfigBase {
   /** Value series; `ySeries[0].fieldId` is used as the value field fallback. */
   ySeries?: StudioChartSeries[];
   /** How to aggregate the funnel stage value. Defaults to 'sum'. */
-  yAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max';
+  yAggregation?: StudioSeriesAggregation;
   /**
    * How to sort funnel stages (category / value / natural). Funnel has no sort
    * DIRECTION — `buildFunnelStages` reads only `chartSortBy`.
@@ -571,7 +572,7 @@ export interface StudioPieFamilyChartConfig extends StudioChartConfigBase, Studi
    * How to aggregate the slice values. Defaults to 'sum'; the compose drawer sets
    * this to `'count'` for a field-less pie/donut (a per-category row tally).
    */
-  yAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max';
+  yAggregation?: StudioSeriesAggregation;
   /** Value series (preferred over yField when present). */
   ySeries?: StudioChartSeries[];
   /** Group/series field used to split into multiple concentric rings. */
@@ -652,7 +653,7 @@ export interface StudioGaugeChartConfig extends StudioChartConfigBase {
   /** Value field whose aggregate drives the gauge needle. */
   yField?: string;
   /** How to aggregate the gauge value. @default 'sum' */
-  yAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max';
+  yAggregation?: StudioSeriesAggregation;
   /** Minimum value for gauge chart. @default 0 */
   gaugeMin?: number;
   /** Maximum value for gauge chart. @default 100 */
@@ -889,7 +890,7 @@ export interface StudioPivotConfig {
    * Aggregation function applied to `pivotValueField` per (row, column) cell.
    * @default 'sum'
    */
-  pivotAggregation?: 'sum' | 'avg' | 'count' | 'min' | 'max';
+  pivotAggregation?: StudioSeriesAggregation;
   /** When true, a Totals row and Totals column are shown. @default true */
   pivotShowTotals?: boolean;
 }
@@ -908,7 +909,7 @@ export interface StudioMapConfig {
   /** Source ID for mapValueField — required when the field comes from a related source. */
   mapValueSourceId?: string;
   /** Aggregation applied to mapValueField per country group. @default 'sum' */
-  mapAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max';
+  mapAggregation?: StudioSeriesAggregation;
   /**
    * Which built-in map to render, or a custom key registered via the `geographies` prop.
    * - `'world'`  → world countries (ISO alpha-2 feature IDs, e.g. `'US'`, `'FR'`)

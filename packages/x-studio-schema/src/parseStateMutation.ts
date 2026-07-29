@@ -31,6 +31,7 @@ import { validateConfigKeysForKind } from './configKeyValidation';
 import {
   isStudioChartType,
   isStudioFilterOperator,
+  isTitleModeValue,
   STUDIO_FILTER_OPERATORS,
   WIDGET_STRING_FIELDS,
   WIDGET_TITLE_MODE_FIELDS,
@@ -179,14 +180,6 @@ function isString(value: unknown): value is string {
  *  optional string field so a missing optional field never rejects a valid payload. */
 function isOptionalString(value: unknown): value is string | undefined {
   return value === undefined || (typeof value === 'string' && value.length <= MAX_STRING_LENGTH);
-}
-
-/** Absent, or one of the `'auto' | 'manual'` literals. Used for `titleMode`/
- *  `subtitleMode` in `updateWidget.changes`: a stricter check than `isOptionalString`
- *  so a junk value (e.g. `titleMode: 42`, or an arbitrary string) can't persist into a
- *  field the client's auto-title logic branches on. */
-function isOptionalTitleMode(value: unknown): value is 'auto' | 'manual' | undefined {
-  return value === undefined || value === 'auto' || value === 'manual';
 }
 
 /**
@@ -369,10 +362,10 @@ function validateWidget(widget: unknown, path: string): string | null {
   // `titleMode`/`subtitleMode` mirror the `updateWidget.changes` checks: without
   // these, a junk value (e.g. `titleMode: 42`) passes the wire gate and persists
   // into a field the client's auto-title logic branches on.
-  if (!isOptionalTitleMode(widget.titleMode)) {
+  if (!isTitleModeValue(widget.titleMode)) {
     return `${path}.titleMode must be 'auto' or 'manual' when present`;
   }
-  if (!isOptionalTitleMode(widget.subtitleMode)) {
+  if (!isTitleModeValue(widget.subtitleMode)) {
     return `${path}.subtitleMode must be 'auto' or 'manual' when present`;
   }
   if (!isRecord(widget.config)) {
@@ -702,7 +695,7 @@ const MUTATION_ARG_VALIDATORS: { [M in StateMutation as M['type']]: MutationArgV
         }
       }
       for (const field of WIDGET_TITLE_MODE_FIELDS) {
-        if (!isOptionalTitleMode(changesRecord[field])) {
+        if (!isTitleModeValue(changesRecord[field])) {
           return `updateWidget.args.changes.${field} must be 'auto' or 'manual' when present`;
         }
       }

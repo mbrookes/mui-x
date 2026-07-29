@@ -2465,7 +2465,7 @@ describe('deserializeState', () => {
   });
 
   // T3-1: the load boundary screens the widget-level `titleMode`/`subtitleMode`, symmetric
-  // with the wire boundary's `isOptionalTitleMode` gate. A persisted `titleMode: 42` loads
+  // with the wire boundary's `isTitleModeValue` gate. A persisted `titleMode: 42` loads
   // with the key DROPPED (mirroring the junk-`chartType` key-drop), the rest of the widget
   // intact, so the client's auto-title `'auto'` default applies.
   it('drops a non-auto/manual titleMode on a persisted widget, keeping the rest (T3-1)', () => {

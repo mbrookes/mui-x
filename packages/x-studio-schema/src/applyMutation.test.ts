@@ -5431,7 +5431,7 @@ describe('applyMutation', () => {
     });
 
     // Finding 2: `titleMode`/`subtitleMode` are guarded at the wire boundary
-    // (`parseStateMutation.ts`'s `isOptionalTitleMode`, only `'auto' | 'manual' |
+    // (`parseStateMutation.ts`'s `isTitleModeValue`, only `'auto' | 'manual' |
     // undefined`) and at the load boundary (`deserializeState` strips a bad value), but
     // the `updateWidget.changes` parser-bypass merge path was missing the equivalent
     // check — a numeric `titleMode`/`subtitleMode` would merge verbatim and steer the

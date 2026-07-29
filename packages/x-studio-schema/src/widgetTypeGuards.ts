@@ -357,6 +357,18 @@ export const WIDGET_TITLE_MODE_FIELDS = [
 ] as const satisfies readonly (keyof StudioWidgetOf<StudioWidgetKind>)[];
 
 /**
+ * Absent, or one of the `'auto' | 'manual'` literals — the value-shape check for the
+ * `WIDGET_TITLE_MODE_FIELDS` above (`titleMode`/`subtitleMode`). Shared by the three
+ * sites that each need this 2-way membership test on a different iteration shape
+ * (reject-on-invalid in the wire boundary's `parseStateMutation.ts`, strip-key in the
+ * load boundary's `docScreening.ts`, skip-in-merge-loop in the reducer's
+ * `applyMutation.ts`) so the closed set of valid values is declared exactly once.
+ */
+export function isTitleModeValue(value: unknown): value is 'auto' | 'manual' | undefined {
+  return value === undefined || value === 'auto' || value === 'manual';
+}
+
+/**
  * The widget fields that are neither a string nor a title mode: `id` (also the
  * `state.widgets` map key) and the `config` bag.
  */

@@ -78,8 +78,17 @@ import { titleText } from '../normalize';
 export const MAX_FACET_DEPTH = 2;
 
 /** Fallback grid dimensions when neither a prop nor a numeric spec size exists. */
-const DEFAULT_TOTAL_WIDTH = 600;
-const DEFAULT_TOTAL_HEIGHT = 400;
+/**
+ * The continuous-axis plot size a view gets when neither the spec nor the caller
+ * states one — the same default `<VegaLiteChart />` applies to a plain unit or
+ * layer spec, so a single-view composite is sized exactly like the unit spec it
+ * really is. Kept here (rather than only in the shell) because `planRepeat` has
+ * to size a layer-only repeat from the same numbers.
+ */
+export const VEGA_DEFAULT_VIEW_WIDTH = 440;
+export const VEGA_DEFAULT_VIEW_HEIGHT = 340;
+const DEFAULT_TOTAL_WIDTH = VEGA_DEFAULT_VIEW_WIDTH;
+const DEFAULT_TOTAL_HEIGHT = VEGA_DEFAULT_VIEW_HEIGHT;
 /** Below these, sub-charts stop being legible; the grid clamps and reports it. */
 const MIN_CELL_WIDTH = 120;
 const MIN_CELL_HEIGHT = 100;
@@ -644,6 +653,7 @@ function vegaAxisPlotSize(
   def: VegaChannelDef | undefined,
   rows: readonly DatasetRow[],
   mark: string | undefined,
+  defaultView: number = VEGA_DEFAULT_VIEW,
 ): number {
   if (typeof specSize === 'number') {
     return specSize;
@@ -673,7 +683,7 @@ function vegaAxisPlotSize(
       }
     }
   }
-  return VEGA_DEFAULT_VIEW;
+  return defaultView;
 }
 
 /** A trellis cell sized like Vega's cell (its plot size plus the axis allowance). */
@@ -805,6 +815,7 @@ function concatMarkType(entry: VegaLiteSpec): string | undefined {
 function naturalConcatSize(
   entry: VegaLiteSpec,
   rows: readonly DatasetRow[],
+  defaultView?: { width: number; height: number },
 ): { width: number; height: number } {
   const hconcat = (entry as { hconcat?: VegaLiteSpec[] }).hconcat;
   const vconcat =
@@ -812,7 +823,7 @@ function naturalConcatSize(
     (entry as { concat?: VegaLiteSpec[] }).concat;
   const children = hconcat ?? vconcat;
   if (Array.isArray(children) && children.length > 0) {
-    const sizes = children.map((child) => naturalConcatSize(child, rows));
+    const sizes = children.map((child) => naturalConcatSize(child, rows, defaultView));
     const gap = CONCAT_SPACING * (children.length - 1);
     if (hconcat) {
       return {
@@ -829,7 +840,15 @@ function naturalConcatSize(
   const mark = concatMarkType(entry);
   const xDef = concatChannelDef(entry, 'x');
   const yDef = concatChannelDef(entry, 'y');
-  const plotWidth = concatAxisPlotSize(entry.width, xDef, encoding, 'x', rows, mark);
+  const plotWidth = concatAxisPlotSize(
+    entry.width,
+    xDef,
+    encoding,
+    'x',
+    rows,
+    mark,
+    defaultView?.width,
+  );
   const plotHeight = concatAxisPlotSize(
     entry.height as VegaLiteSpec['width'],
     yDef,
@@ -837,7 +856,19 @@ function naturalConcatSize(
     'y',
     rows,
     mark,
+    defaultView?.height,
   );
+  // The chrome budgeted beside a drawn y axis, and the axis width the cell then
+  // pins so that `plot = width − margins − axis` lands back on `plotWidth`. The
+  // two MUST come from one expression: pinning against a tighter number than the
+  // budget let x-charts overflow the pin (it treats the width as a request, not
+  // a cap) and `concat_marginal_histograms`' heatmap fell to 174px from 198px.
+  const yShown = channelAxisShown(yDef);
+  const yChrome = yShown
+    ? yAxisAllowance(yDef, rows) +
+      CONCAT_PLOT_FAR_PAD +
+      (channelAxisTitled(yDef) ? AXIS_TITLE_ALLOWANCE : 0)
+    : 0;
   return {
     // The left y-axis widens the view; the bottom x-axis heightens it — but only
     // when that axis is actually drawn. A drawn axis also needs the OPPOSITE
@@ -847,13 +878,7 @@ function naturalConcatSize(
     // plot is a single 20px band (`concat_bar_scales_discretize`'s circle
     // strips) has no slack at all — the drawing area came out NEGATIVE, so
     // x-charts rendered no marks whatsoever.
-    width:
-      plotWidth +
-      (channelAxisShown(yDef)
-        ? yAxisAllowance(yDef, rows) +
-          CONCAT_PLOT_FAR_PAD +
-          (channelAxisTitled(yDef) ? AXIS_TITLE_ALLOWANCE : 0)
-        : CONCAT_HIDDEN_AXIS_PAD),
+    width: plotWidth + (yShown ? yChrome : CONCAT_HIDDEN_AXIS_PAD),
     height:
       plotHeight +
       (channelAxisShown(xDef)
@@ -881,6 +906,7 @@ function concatAxisPlotSize(
   channel: 'x' | 'y',
   rows: readonly DatasetRow[],
   mark: string | undefined,
+  defaultView?: number,
 ): number {
   if (typeof specSize !== 'number' && def === undefined && encoding[channel] === undefined) {
     const step =
@@ -891,7 +917,7 @@ function concatAxisPlotSize(
         : VEGA_DEFAULT_STEP;
     return step;
   }
-  return vegaAxisPlotSize(specSize, def, rows, mark);
+  return vegaAxisPlotSize(specSize, def, rows, mark, defaultView);
 }
 
 /** Default column count for a wrapping facet (roughly square). */
@@ -1490,12 +1516,44 @@ function repeatGapPlan(message: string): FacetPlan {
  * ones, roughly 1.6x the reference's ink. Vega sizes a repeat child from its
  * own encoding (defaulting to VEGA_DEFAULT_VIEW), independent of how many
  * siblings it has.
+ *
+ * `defaultView` overrides the 200px Vega default for an axis with no discrete
+ * step to size from — see `singleViewRepeat` for when that applies.
  */
 function repeatCellSize(
   cellSpec: VegaLiteSpec,
   rows: readonly DatasetRow[],
+  defaultView?: { width: number; height: number },
 ): { width: number; height: number } {
-  return naturalConcatSize(cellSpec, rows);
+  return naturalConcatSize(cellSpec, rows, defaultView);
+}
+
+/**
+ * The view size a `repeat` whose only axis is `layer` should size its continuous
+ * axes from, or `undefined` for a genuine grid.
+ *
+ * `repeat: {layer: […]}` with no `row`/`column` produces ONE view — the fields
+ * become layers of a single plot, not cells of a grid — so Vega-Lite applies the
+ * host's requested `width`/`height` to it just as it would to a plain layered
+ * spec. A real repeat grid is multi-view, where that request does not apply and
+ * each cell falls back to the 200px default (which is why `trellis_anscombe`'s
+ * cells measure 200x200 against a host asking for 440x340).
+ *
+ * Measured against `vega-embed` given the gallery's 440x340: `repeat_layer` and
+ * `line_color_halo` draw a 440x340 plot, and `bar_grouped_repeated` draws
+ * 660x340 — its discrete x still step-sizes past the request, exactly as
+ * `vegaAxisPlotSize` already models. Sizing all three from the 200px default
+ * instead left them near half-size (228x203, 228x203 and 316x201).
+ */
+function singleViewRepeat(
+  rowFields: string[] | undefined,
+  colFields: string[] | undefined,
+  layerFields: string[] | undefined,
+  options: FacetOptions,
+): { width: number; height: number } | undefined {
+  return !rowFields && !colFields && layerFields
+    ? { width: options.width, height: options.height }
+    : undefined;
 }
 
 function planRepeat(spec: VegaLiteSpec, options: FacetOptions): FacetPlan {
@@ -1590,7 +1648,11 @@ function planRepeat(spec: VegaLiteSpec, options: FacetOptions): FacetPlan {
         cellSpec = templateHasData ? copy : ({ ...copy, data: cellData } as VegaLiteSpec);
       }
       const header = [colField, rowField].filter(Boolean).join(' × ') || undefined;
-      const { width, height } = repeatCellSize(cellSpec, rootRows);
+      const { width, height } = repeatCellSize(
+        cellSpec,
+        rootRows,
+        singleViewRepeat(rowFields, colFields, layerFields, options),
+      );
       cells.push({ key: `repeat-${rowIndex}-${colIndex}`, spec: cellSpec, header, width, height });
     });
   });

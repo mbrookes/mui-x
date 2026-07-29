@@ -169,14 +169,38 @@ function lookupPerTableOverride(
 }
 
 /**
- * Resolve the security column names for the PRIMARY table of a query/mutation.
- *
- * The tenant column is `perTable[table]?.tenant ?? resolvedTenantColumn`, where
+ * Build a `SecurityColumns` from an already-looked-up per-table `override` — the
+ * IDENTICAL 3-field construction `resolvePrimarySecurityColumns` and
+ * `resolveJoinSecurityColumns` below used to each reimplement (Tier2 finding): the
+ * tenant column is `override?.tenant ?? resolvedTenantColumn`, where
  * `resolvedTenantColumn` is derived from the caller's `TenancyConfig`
  * (`tenancy.tenantColumn` for multi-tenant, `undefined` for single-tenant) — a
  * per-table override still wins for a table using a different tenant-column name.
  * The region/department names fall back to the historical hardcoded defaults
  * (`region_id`, `department`).
+ *
+ * Deliberately does NOT handle the whole-table opt-out (`override === null`) — the
+ * two callers return a DIFFERENT shape for that case (`{}` vs `undefined`, see
+ * each caller's own doc comment for why), so that branch stays with each public
+ * function rather than being flattened into one shared return shape here.
+ */
+function resolveSecurityColumns(
+  override: SecurityColumnOverride | null | undefined,
+  config: SecurityColumnsConfig | undefined,
+  resolvedTenantColumn: string | undefined,
+): SecurityColumns {
+  return {
+    tenant: resolveDimension(override?.tenant, resolvedTenantColumn),
+    region: resolveDimension(override?.region, config?.region ?? 'region_id'),
+    department: resolveDimension(override?.department, config?.department ?? 'department'),
+  };
+}
+
+/**
+ * Resolve the security column names for the PRIMARY table of a query/mutation.
+ *
+ * See {@link resolveSecurityColumns} for the tenant/region/department resolution
+ * itself.
  *
  * WHOLE-TABLE OPT-OUT (finding 2.3) — `perTable[table] = null` returns an empty
  * `SecurityColumns` (no predicates), so a host-declared shared/lookup table behaves
@@ -203,11 +227,7 @@ export function resolvePrimarySecurityColumns(
   if (override === null) {
     return {};
   }
-  return {
-    tenant: resolveDimension(override?.tenant, resolvedTenantColumn),
-    region: resolveDimension(override?.region, config?.region ?? 'region_id'),
-    department: resolveDimension(override?.department, config?.department ?? 'department'),
-  };
+  return resolveSecurityColumns(override, config, resolvedTenantColumn);
 }
 
 /**
@@ -259,11 +279,7 @@ export function resolveJoinSecurityColumns(
   // Default: inherit the primary table's resolved security columns (fail-closed),
   // letting an explicit per-table entry rename individual columns or drop an
   // individual dimension via a per-dimension `null` (see `resolveDimension`).
-  return {
-    tenant: resolveDimension(override?.tenant, resolvedTenantColumn),
-    region: resolveDimension(override?.region, config?.region ?? 'region_id'),
-    department: resolveDimension(override?.department, config?.department ?? 'department'),
-  };
+  return resolveSecurityColumns(override, config, resolvedTenantColumn);
 }
 
 /**

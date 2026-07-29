@@ -128,6 +128,14 @@ export interface FacetPlan {
    * emptier/smaller than Vega's. Only set for a shared nominal/ordinal y-axis.
    */
   yAxisMargin?: number;
+  /**
+   * True when each cell's `header` names its ROW (a `row` facet with no
+   * `column`). Vega draws a row header to the LEFT of its cell, vertically
+   * centered; drawing it above instead adds the header's height to every row's
+   * pitch, which is what made `trellis_area_seattle`'s 24 rows twice Vega's
+   * pitch and the isotype charts ~1.15x too tall.
+   */
+  rowHeaders?: boolean;
   /** Facet-level gaps (min cell size, empty data, malformed operator, …). */
   gaps: TranslationGap[];
 }
@@ -952,7 +960,15 @@ function buildFacetGrid(params: GridParams): FacetPlan {
       });
     });
   });
-  return { columns, rows: gridRows, cells, gaps, sharedAxes: true, yAxisMargin };
+  return {
+    columns,
+    rows: gridRows,
+    cells,
+    gaps,
+    sharedAxes: true,
+    yAxisMargin,
+    rowHeaders: Boolean(rowField) && !colField,
+  };
 }
 
 /** True when the spec uses the `facet` operator (`facet` + `spec`). */

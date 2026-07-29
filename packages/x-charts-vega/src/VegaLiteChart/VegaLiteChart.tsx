@@ -654,6 +654,7 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
     // plot areas line up, and hoist a single legend beside the grid. Concat and
     // repeat cells stay independent (their own axes and legends).
     const shared = plan.sharedAxes === true;
+    const rowHeaders = plan.rowHeaders === true;
     // The hoisted legend must list every color group, but a facet whose facet
     // field equals its color field (e.g. `row: gender` + `color: gender`) leaves
     // each cell holding only one group — so the legend proxy compiles against
@@ -765,14 +766,32 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
           const cellWidth = shared && !isLeftColumn ? cell.width - leftReduction : cell.width;
           const cellHeight = shared && hasCellBelow ? cell.height - bottomReduction : cell.height;
           return (
-            <div key={cell.key} style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+            <div
+              key={cell.key}
+              style={{
+                display: 'flex',
+                // A `row` facet's header names its ROW, and Vega draws that to
+                // the LEFT of the cell, vertically centered. Stacking it above
+                // instead added the header's height to every row's pitch —
+                // `trellis_area_seattle`'s 24 rows came out at ~59px against
+                // Vega's ~26px, and the isotype charts ~1.15x too tall.
+                flexDirection: rowHeaders ? 'row' : 'column',
+                alignItems: rowHeaders ? 'center' : 'stretch',
+                minWidth: 0,
+              }}
+            >
               {cell.header != null && (
                 <div
                   style={{
                     fontSize: 12,
                     fontWeight: 600,
-                    textAlign: 'center',
-                    padding: '2px 0',
+                    textAlign: rowHeaders ? 'right' : 'center',
+                    padding: rowHeaders ? '0 4px' : '2px 0',
+                    // A FIXED gutter, as Vega uses: sized to the content the
+                    // headers would otherwise each take a different width
+                    // ("Female" vs "Male"), shifting every row's cell to a
+                    // different x and breaking the grid's left alignment.
+                    ...(rowHeaders ? { flex: '0 0 64px' } : null),
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',

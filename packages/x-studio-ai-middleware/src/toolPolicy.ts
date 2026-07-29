@@ -522,6 +522,24 @@ export function createEffectsAwareToolPolicy(options?: {
 // ── Composable policy combinators ────────────────────────────────────────────
 
 /**
+ * Wraps `fn` so it fires at most once, no matter how many times the returned
+ * function is called. Shared by `mutationBudget` and `toolCallBudget` below,
+ * which are otherwise different policies (different comparison operator,
+ * different trigger condition) that both independently need an `onExceeded`
+ * callback to fire exactly once per breach rather than once per subsequent
+ * denied call.
+ */
+function onceLatch(fn?: () => void): () => void {
+  let fired = false;
+  return () => {
+    if (!fired) {
+      fired = true;
+      fn?.();
+    }
+  };
+}
+
+/**
  * A small combinator library for building up a `ToolPolicy` from independent
  * concerns (a mutation-rate budget, a host's own approval rules, …) without each
  * concern needing to know about the others.
@@ -581,14 +599,11 @@ export const Policy = {
     reason: (committed: number, max: number) => string;
   }): ToolPolicy {
     const { max, getCommitted, onExceeded, reason } = opts;
-    let exceededFired = false;
+    const fireExceeded = onceLatch(onExceeded);
     return (ctx) => {
       const committed = getCommitted(ctx);
       if ((ctx.proposed || ctx.mayMutate) && max !== undefined && committed >= max) {
-        if (!exceededFired) {
-          exceededFired = true;
-          onExceeded?.();
-        }
+        fireExceeded();
         return { action: 'deny', reason: reason(committed, max) };
       }
       return { action: 'allow' };
@@ -616,14 +631,11 @@ export const Policy = {
     reason: (calls: number, max: number) => string;
   }): ToolPolicy {
     const { max, getCalls, onExceeded, reason } = opts;
-    let exceededFired = false;
+    const fireExceeded = onceLatch(onExceeded);
     return (ctx) => {
       const calls = getCalls(ctx);
       if (max !== undefined && calls > max) {
-        if (!exceededFired) {
-          exceededFired = true;
-          onExceeded?.();
-        }
+        fireExceeded();
         return { action: 'deny', reason: reason(calls, max) };
       }
       return { action: 'allow' };

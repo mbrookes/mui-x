@@ -34,7 +34,6 @@ function installUnscreened<T extends object>(target: T, key: string, value: unkn
   return target;
 }
 
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function makeState(): StudioState {
@@ -4047,18 +4046,6 @@ describe('capIncomingDashboardState: prototype-named map keys (finding L1)', () 
    * for a request body containing one. An object LITERAL cannot express this:
    * `{ __proto__: v }` sets the prototype instead of creating a property.
    */
-
-
-  function withProtoKey<T>(value: T): Record<string, T> {
-    const map: Record<string, T> = {};
-    Object.defineProperty(map, '__proto__', {
-      value,
-      enumerable: true,
-      writable: true,
-      configurable: true,
-    });
-    return map;
-  }
 
   it('retains a widget/page/data-source keyed `__proto__` instead of dropping it', () => {
     const state = createDefaultStudioState({

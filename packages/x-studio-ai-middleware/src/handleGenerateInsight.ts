@@ -69,8 +69,13 @@ export interface GenerateInsightOptions {
  */
 const MAX_INSIGHT_TEXT_CHARS = 10_000;
 
-/** Hard cap on a generated chat-session title, matching `rename_thread`'s server-side cap. */
-const MAX_GENERATED_TITLE_LENGTH = 40;
+/**
+ * Hard cap on a generated chat-session title, matching `rename_thread`'s server-side
+ * cap. Exported so `executeToolOnState.ts`'s `rename_thread` handler can import and
+ * reuse this exact value instead of a bare literal, so the "must match" invariant is
+ * enforced by the type system/import rather than by convention alone.
+ */
+export const MAX_GENERATED_TITLE_LENGTH = 40;
 
 /**
  * Shape every one-shot handler expects back from an OpenAI-compatible endpoint.
@@ -285,14 +290,14 @@ export async function handleGenerateTitle(
   // NUMBER content parsed CLEANLY into a number and flowed on as a "parsed" response.
   const content = data.choices?.[0]?.message?.content;
   if (typeof content !== 'string') {
-    return { title: cappedFirstMessage.slice(0, 40), description: '' };
+    return { title: cappedFirstMessage.slice(0, MAX_GENERATED_TITLE_LENGTH), description: '' };
   }
 
   try {
     const parsed: unknown = JSON.parse(content);
     return normalizeGeneratedTitle(parsed, cappedFirstMessage);
   } catch {
-    return { title: cappedFirstMessage.slice(0, 40), description: '' };
+    return { title: cappedFirstMessage.slice(0, MAX_GENERATED_TITLE_LENGTH), description: '' };
   }
 }
 

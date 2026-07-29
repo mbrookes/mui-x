@@ -106,6 +106,35 @@ const DEFAULT_MAX_TOOL_CALLS_PER_REQUEST = 50;
  */
 export const MAX_TURN_TEXT_BUFFER_CHARS = 2_000_000;
 
+/**
+ * T1-2 — state-reading tools whose output would defeat `privateMode`. In private
+ * mode the `<dashboard_state>` block is withheld from the system prompt so
+ * sensitive business data is never sent to the provider, but these tools return
+ * that same data (field distinct values, widget configs, filter values, source
+ * labels) which then round-trips back to the provider in the tool-result
+ * message. `query_data_source` belongs here for the same reason: when `data` is
+ * configured it returns live database rows straight to the provider as tool
+ * output — at least as sensitive as dashboard structure or field values — so
+ * private mode must withhold it too, even when `data` is configured. We use
+ * approach (a) from the review — exclude them from the advertised built-in list
+ * entirely — rather than redacting tool output, keeping the fix self-contained
+ * to this file. Combined with the T1-1 dispatch-time gate, an injected call to
+ * one of these is rejected as an unadvertised tool.
+ *
+ * Derived from `STUDIO_AI_TOOL_REGISTRY`'s `privateModeExcluded` fact
+ * (`@mui/x-studio-schema`) rather than hand-maintained here, so this set can't
+ * silently drift from the registry.
+ *
+ * Module-scope (like the sibling `DESTRUCTIVE_TOOLS`, `MCP_UNSUPPORTED_TOOLS`,
+ * and `READ_ONLY_NO_MUTEX_TOOLS` sets derived the same way) since the registry
+ * is static — no need to rebuild this on every `runAgenticLoop` call.
+ */
+const PRIVATE_MODE_EXCLUDED_TOOLS = new Set(
+  (Object.entries(STUDIO_AI_TOOL_REGISTRY) as Array<[string, StudioAIToolFacts]>)
+    .filter(([, facts]) => facts.privateModeExcluded)
+    .map(([name]) => name),
+);
+
 // ── Loop options ──────────────────────────────────────────────────────────────
 
 export interface AgenticLoopOptions {
@@ -426,29 +455,6 @@ export async function* runAgenticLoop(
     !collidesWithBuiltIn(entry) && !excludedByAllowedTools(entry);
   const effectiveSkills = (skills ?? []).filter(skillIsEffective);
   const effectiveSkillHandlers = skillHandlers.filter(skillIsEffective);
-
-  // T1-2 — state-reading tools whose output would defeat `privateMode`. In
-  // private mode the `<dashboard_state>` block is withheld from the system prompt
-  // so sensitive business data is never sent to the provider, but these tools
-  // return that same data (field distinct values, widget configs, filter values,
-  // source labels) which then round-trips back to the provider in the tool-result
-  // message. `query_data_source` belongs here for the same reason: when `data`
-  // is configured it returns live database rows straight to the provider as tool
-  // output — at least as sensitive as dashboard structure or field values — so
-  // private mode must withhold it too, even when `data` is configured. We use
-  // approach (a) from the review — exclude them from the advertised built-in
-  // list entirely — rather than redacting tool output, keeping the fix
-  // self-contained to this file. Combined with the T1-1 dispatch-time gate, an
-  // injected call to one of these is rejected as an unadvertised tool.
-  //
-  // Derived from `STUDIO_AI_TOOL_REGISTRY`'s `privateModeExcluded` fact
-  // (`@mui/x-studio-schema`) rather than hand-maintained here, so this set
-  // can't silently drift from the registry.
-  const PRIVATE_MODE_EXCLUDED_TOOLS = new Set(
-    (Object.entries(STUDIO_AI_TOOL_REGISTRY) as Array<[string, StudioAIToolFacts]>)
-      .filter(([, facts]) => facts.privateModeExcluded)
-      .map(([name]) => name),
-  );
 
   // Build effective tool list.
   //

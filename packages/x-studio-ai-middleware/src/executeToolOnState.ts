@@ -34,6 +34,10 @@ import type {
 } from './models/studioTypes';
 import type { StateMutation, StudioAIToolName } from './models/aiTypes';
 import { asString } from './internal/promptCaps';
+// `MAX_GENERATED_TITLE_LENGTH` must match `handleGenerateTitle`'s generated-title cap
+// (see the comment at its definition) — imported rather than duplicated as a bare
+// literal so the two can't silently drift apart.
+import { MAX_GENERATED_TITLE_LENGTH } from './handleGenerateInsight';
 // Shared pure functions: the widget factory (so AI-created and UI-created widgets
 // share defaults) and the single mutation reducer (so the server-threaded state
 // and the client-applied state are computed by the exact same code).
@@ -3055,7 +3059,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
           nextState: state,
         };
       }
-      const trimmed = name.trim().slice(0, 40);
+      const trimmed = name.trim().slice(0, MAX_GENERATED_TITLE_LENGTH);
       // Stamp the thread the request belongs to (the active thread in the request's
       // state snapshot) so the reducer renames THAT thread on the client, even if
       // the user has since switched threads while the model was running. Falls back

@@ -6,7 +6,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { runAgenticLoop, MAX_TURN_TEXT_BUFFER_CHARS } from './agenticLoop';
 import { MAX_TOOL_OUTPUT_CHARS } from './internal/capToolOutput';
-import type { PendingApproval } from './agenticLoop/toolDispatch';
+import { isApprovalThreadIdAuthorized, type PendingApproval } from './agenticLoop/toolDispatch';
 import { createEffectsAwareToolPolicy, type ToolPolicy } from './toolPolicy';
 import { createDefaultStudioState } from './models/studioTypes';
 import type { StudioState } from './models/studioTypes';
@@ -1027,6 +1027,67 @@ describe('runAgenticLoop — provider-omitted tool-call ids (T3-5)', () => {
 
     expect(startId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
     expect(startId).not.toMatch(/^call-/);
+  });
+
+  // Round 4 finding F5 — the id minting above fires ONLY for a call the provider left
+  // un-id'd, which no mainstream gateway does. In the normal case the `approvalPending`
+  // key is the gateway's own `tool_calls[].id`, so its entropy is the PROVIDER's, not
+  // this package's. The docs claimed the opposite ("`toolCallId`s are also now generated
+  // with `crypto.randomUUID()` … an id alone is no longer practically guessable") and
+  // therefore described the `threadId` binding as defense in depth on top of a property
+  // that does not hold. This pins the real behavior so the claim cannot drift back.
+  it('keys approvalPending by the PROVIDER-supplied id when the gateway sent one', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('remove_widget', { widgetId: 'w1' }))
+      .mockResolvedValueOnce(textResponse('done', 10, 5));
+
+    const state = createDefaultStudioState();
+    const activePageId = state.doc.dashboard.activePageId;
+    const seeded = {
+      ...state,
+      doc: {
+        ...state.doc,
+        widgets: {
+          w1: { id: 'w1', kind: 'chart' as const, title: 'W1', sourceId: 's', config: {} },
+        },
+        pages: {
+          ...state.doc.pages,
+          [activePageId]: { ...state.doc.pages[activePageId], widgetRows: [['w1']] },
+        },
+      },
+    };
+
+    const approvalPending = new Map<string, PendingApproval>();
+    let keysWhilePaused: string[] = [];
+    let entryThreadId: string | undefined | symbol = Symbol('unset');
+
+    for await (const ev of runAgenticLoop(
+      [userMsg('Remove it')],
+      seeded,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { ...BASE_OPTIONS, approvalPending, approvalTimeoutMs: 60_000 },
+    )) {
+      if ((ev as { type: string }).type === 'tool-approval-request') {
+        keysWhilePaused = [...approvalPending.keys()];
+        entryThreadId = approvalPending.get(keysWhilePaused[0])?.threadId;
+        approvalPending.get(keysWhilePaused[0])!.resolve(true);
+      }
+    }
+
+    // The gateway's `tc_1` is the map key verbatim — NOT a package-minted UUID.
+    expect(keysWhilePaused).toEqual(['tc_1']);
+    expect(keysWhilePaused[0]).not.toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
+    // And with no `doc.ai.activeThreadId` in the request state, the entry is UNBOUND,
+    // so `isApprovalThreadIdAuthorized` authorises any resolver unconditionally.
+    expect(entryThreadId).toBeUndefined();
+    expect(isApprovalThreadIdAuthorized({ threadId: entryThreadId as undefined }, undefined)).toBe(
+      true,
+    );
   });
 });
 

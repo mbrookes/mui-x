@@ -253,11 +253,21 @@ export interface StudioAIHandlerOptions {
    * callback. `threadId` (the AI chat thread the approval was raised under, when
    * known) lets your approval endpoint refuse a resolution presented for the wrong
    * conversation instead of trusting the id alone — important because an id can be
-   * observed or guessed by another caller. `toolCallId`s are also now generated with
-   * `crypto.randomUUID()` (not a predictable scheme), so an id alone is no longer
-   * practically guessable either; the `threadId` check is defense in depth on top of
-   * that, and requires your route to also thread a thread/session identifier through
-   * your approval UI. IMPORTANT: when `entry.threadId` is set, your route MUST
+   * observed or guessed by another caller.
+   *
+   * SECURITY: **the key's entropy is the PROVIDER's, not this package's** (finding F5).
+   * `crypto.randomUUID()` mints a `toolCallId` only for a tool call the provider left
+   * un-id'd, which no mainstream gateway does — so in the normal case the key is the
+   * gateway's own `tool_calls[].id`, and a gateway numbering them `call_1`, `call_2`, …
+   * makes this shared map enumerable. Treat the `threadId` binding below as
+   * LOAD-BEARING rather than defense in depth: it is the only thing between a guessed
+   * id and a resolved approval. It also only binds when there is something to bind to —
+   * a request whose `dashboardState.doc.ai.activeThreadId` is absent produces an
+   * UNBOUND entry (`threadId: undefined`), for which `isApprovalThreadIdAuthorized`
+   * returns `true` unconditionally. So: authenticate your approval route exactly as you
+   * authenticate your chat route, and thread a real `activeThreadId` through.
+   *
+   * IMPORTANT: when `entry.threadId` is set, your route MUST
    * require the resolution request to present a MATCHING `threadId` — reject the
    * request (missing OR mismatched) rather than skipping the check, or a resolver
    * could bypass thread-binding entirely simply by omitting `threadId` from its

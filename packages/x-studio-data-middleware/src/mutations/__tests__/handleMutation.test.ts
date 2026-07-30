@@ -70,6 +70,11 @@ function createMutableMockDb(initialTables: Record<string, Row[]>) {
         pendingDelete = true;
         return qb;
       },
+      // Knex's per-query statement timeout (F2) — accepted and ignored; this
+      // mock resolves synchronously.
+      timeout() {
+        return qb;
+      },
       then(resolve: (v: unknown) => void, reject?: (err: Error) => void) {
         try {
           tables[table] ??= [];
@@ -325,8 +330,18 @@ describe('handleMutation — successful operations', () => {
   // directly (the shared `createMutableMockDb` above always resolves
   // `[rows.length]`, which never exercises the empty-array case).
   it('reports rowsAffected=1 for a Postgres-style insert that resolves to an empty array', async () => {
+    // Knex's `insert()` returns a BUILDER (thenable), not a bare promise — the
+    // write path applies its statement timeout to it (F2) before awaiting, so the
+    // stand-in has to be builder-shaped too.
     const pgLikeDb: any = () => ({
-      insert: async (_values: Row) => [],
+      insert: (_values: Row) => ({
+        timeout() {
+          return this;
+        },
+        then(resolve: (v: unknown) => void) {
+          resolve([]);
+        },
+      }),
     });
     const body: BatchMutationRequest = {
       mutations: [

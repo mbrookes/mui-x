@@ -22,6 +22,7 @@ import type {
   SecurityPolicyOptions,
 } from '../security/compileSecurityPolicy';
 import type { ValidatedQueryPlan } from '../security/validateQueryPlan';
+import { DEFAULT_QUERY_TIMEOUT_MS, applyQueryTimeout } from '../shared/queryTimeout';
 
 interface PreflightResult {
   rowCount: number;
@@ -42,6 +43,11 @@ interface PreflightResult {
  *   `buildSecureQuery`. REQUIRED — an explicit tenancy decision is always threaded through.
  * @param plan - Pre-compiled `ValidatedQueryPlan` (request path). Omitted by direct callers, in which case
  *   `buildSecureQuery` resolves one from `descriptor`.
+ * @param queryTimeoutMs - Per-query statement timeout in milliseconds (F2), resolved once per request from
+ *   `HandleBatchQueryOptions.queryTimeoutMs`. This round-trip needs it MORE than the data query does: the
+ *   count deliberately carries no LIMIT, so its cost is unbounded by construction and a slow one pins a
+ *   pooled connection for as long as the database takes. Omitted by direct callers, who get
+ *   `DEFAULT_QUERY_TIMEOUT_MS`; `0` opts out.
  */
 export async function runPreflight(
   db: any, // Knex.Knex
@@ -49,6 +55,7 @@ export async function runPreflight(
   descriptor: BatchWidgetDescriptor,
   options: CompiledSecurityPolicy | SecurityPolicyOptions,
   plan?: ValidatedQueryPlan,
+  queryTimeoutMs: number = DEFAULT_QUERY_TIMEOUT_MS,
 ): Promise<PreflightResult> {
   // JOIN ROW-MULTIPLICATION (Tier3, iter24 finding, evaluated/not fixed) — for a
   // descriptor with a 1:many `join` (e.g. one `sales` row matching several
@@ -79,6 +86,10 @@ export async function runPreflight(
   //
   // Build the query without column selection — only security + user filters
   const query = buildSecureQuery(db, claims, descriptor, options, plan).count('* as row_count');
+  // Applied here, not by the caller, for the same reason `runBounded` owns the
+  // LIMIT (F2): this is the single site that executes the preflight, so no caller
+  // can issue an untimed COUNT(*). See `shared/queryTimeout.ts`.
+  applyQueryTimeout(query, queryTimeoutMs);
 
   const result = (await query.first()) as { row_count: number | string } | undefined;
   const rowCount = Number(result?.row_count ?? 0);

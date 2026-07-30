@@ -37,6 +37,9 @@ function countDb(firstResult: { row_count: number | string } | undefined) {
     'select',
     'orderBy',
     'limit',
+    // Knex's per-query statement timeout (F2) — every round-trip now goes
+    // through `applyQueryTimeout`, so a builder without it throws.
+    'timeout',
     'groupBy',
   ];
   for (const method of methods) {
@@ -96,6 +99,9 @@ function createRecordingDb() {
     'select',
     'orderBy',
     'limit',
+    // Knex's per-query statement timeout (F2) — every round-trip now goes
+    // through `applyQueryTimeout`, so a builder without it throws.
+    'timeout',
     'groupBy',
     'sum',
     'avg',

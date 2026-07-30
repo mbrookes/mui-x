@@ -74,6 +74,11 @@ function createRowSourceDb(totalRows: number, source = 'A') {
         limitValue = n;
         return qb;
       },
+      // Knex's statement timeout (F2) — accepted and ignored; this mock resolves
+      // synchronously.
+      timeout() {
+        return qb;
+      },
       async first() {
         preflights.count += 1;
         return { [countAlias ?? 'count']: totalRows };

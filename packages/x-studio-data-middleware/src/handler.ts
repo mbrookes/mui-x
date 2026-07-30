@@ -78,6 +78,7 @@ import {
   collectSemiJoinTables,
 } from './shared/assertTablesAllowed';
 import { describeCause } from './shared/describeCause';
+import { resolveQueryTimeoutMs } from './shared/queryTimeout';
 import { sanitizeBoundaryError } from './shared/sanitizeError';
 import {
   MAX_ARRAY_ITEMS_PER_DESCRIPTOR,
@@ -603,6 +604,11 @@ export async function handleBatchQuery(
     schemaAllowlist,
   });
   const cacheProvider = options.cacheProvider ?? getDefaultCache();
+  // Validated ONCE, here at the option boundary, rather than at each query site
+  // (F2): a bad `queryTimeoutMs` is a host misconfiguration, so it must reject the
+  // whole request with one clear error instead of surfacing as the same
+  // `{ error }` on all 50 widgets.
+  const queryTimeoutMs = resolveQueryTimeoutMs(options.queryTimeoutMs);
   const tierCacheTtlMs = options.tierCacheTtlMs ?? DEFAULT_TIER_CACHE_TTL_MS;
   const tierCacheProvider =
     tierCacheTtlMs > 0 ? (options.tierCacheProvider ?? getDefaultTierCache()) : null;
@@ -637,6 +643,7 @@ export async function handleBatchQuery(
     schemaAllowlist,
     columnAllowlist,
     cacheScope,
+    queryTimeoutMs,
     rowBudget: createRowBudget(),
     inFlight: new Map(),
   };
@@ -672,6 +679,13 @@ interface BatchRequestContext {
   schemaAllowlist: HandleBatchQueryOptions['schemaAllowlist'];
   columnAllowlist: HandleBatchQueryOptions['columnAllowlist'];
   cacheScope: HandleBatchQueryOptions['cacheScope'];
+  /**
+   * Per-query statement timeout in milliseconds, already validated and defaulted
+   * by `resolveQueryTimeoutMs` (F2). Threaded into `runPreflight` and
+   * `executeForTier`, which apply it inside their single execution helpers so no
+   * exit path can issue an untimed query.
+   */
+  queryTimeoutMs: number;
   /**
    * Shared, mutable row allowance for the whole request (finding H2). Threaded
    * into every `executeForTier` call, which caps its LIMIT at what is left and
@@ -869,8 +883,16 @@ async function runWidgetPipeline(
   plan: ReturnType<typeof validateQueryPlan>,
   cacheKey: string,
 ): Promise<WidgetQueryOutcome> {
-  const { db, claims, cacheProvider, tierCacheProvider, tierCacheTtlMs, thresholds, rowBudget } =
-    context;
+  const {
+    db,
+    claims,
+    cacheProvider,
+    tierCacheProvider,
+    tierCacheTtlMs,
+    thresholds,
+    rowBudget,
+    queryTimeoutMs,
+  } = context;
   const queryOptions = context.policy;
 
   // Resolved ONCE, before the cache read, because BOTH planes need them: the
@@ -995,7 +1017,10 @@ async function runWidgetPipeline(
     // Namespace the tier plane's key so it can never collide with the data
     // plane's entry for the same widget on a shared Redis client (finding 2.1).
     TIER_CACHE_KEY_PREFIX + cacheKey,
-    () => runPreflight(db, claims, descriptor, queryOptions, plan).then((p) => p.rowCount),
+    () =>
+      runPreflight(db, claims, descriptor, queryOptions, plan, queryTimeoutMs).then(
+        (p) => p.rowCount,
+      ),
     tierCacheProvider,
     resolvedThresholds,
     tierCacheTtlMs,
@@ -1029,7 +1054,16 @@ async function runWidgetPipeline(
   // Taking it before (rather than after) execution is the conservative side —
   // it can only widen the window, never narrow it.
   const rowsReadAt = Date.now();
-  const rows = await executeForTier(db, claims, descriptor, tier, queryOptions, plan, rowBudget);
+  const rows = await executeForTier(
+    db,
+    claims,
+    descriptor,
+    tier,
+    queryOptions,
+    plan,
+    rowBudget,
+    queryTimeoutMs,
+  );
 
   // For aggregation queries decideTier returns rowCount=0 (bypassed);
   // use the actual number of result groups instead.

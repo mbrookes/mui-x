@@ -22,6 +22,7 @@ import {
   type ValidatedQueryPlan,
 } from '../security/validateQueryPlan';
 import { qualifyAgainst } from '../shared/columnValidation';
+import { DEFAULT_QUERY_TIMEOUT_MS, applyQueryTimeout } from '../shared/queryTimeout';
 
 type RoutingTier = 'client' | 'server' | 'db';
 
@@ -194,15 +195,25 @@ function effectiveLimit(clientLimit: number | undefined, budget: RowBudget | und
  * and refunding them would let the next widget re-issue the identical
  * about-to-be-truncated query, burning a round-trip per remaining widget to
  * produce the same error.
+ *
+ * THE STATEMENT TIMEOUT IS APPLIED HERE, for the same structural reason the LIMIT
+ * is (F2): this is the one place `executeForTier`'s three exit paths converge, so
+ * a fourth exit path cannot ship an untimed query. An untimed query pins a pooled
+ * Knex connection for as long as the database takes, and `handler.ts`'s
+ * `MAX_CONCURRENT_WIDGET_QUERIES` bounds one REQUEST, not one caller — so
+ * concurrent batches could hold more connections than the host's whole pool has
+ * and starve the host's own traffic. See `shared/queryTimeout.ts`.
  */
 async function runBounded(
   query: any,
   clientLimit: number | undefined,
   budget: RowBudget | undefined,
+  queryTimeoutMs: number,
 ): Promise<Record<string, unknown>[]> {
   const ownLimit = widgetLimit(clientLimit);
   const appliedLimit = effectiveLimit(clientLimit, budget);
   query.limit(appliedLimit);
+  applyQueryTimeout(query, queryTimeoutMs);
   const rows = (await query) as Record<string, unknown>[];
   const returned = Array.isArray(rows) ? rows.length : 0;
   chargeRowBudgetOrThrow(budget, returned);
@@ -234,6 +245,10 @@ async function runBounded(
  *   `MAX_WIDGETS_PER_BATCH × MAX_RESULT_ROWS` can no longer multiply into a single-request OOM. THROWS
  *   rather than returning a shortened result when the budget is what shortened it — see `runBounded`.
  *   Direct callers omit it, which restores the previous per-widget-only `MAX_RESULT_ROWS` cap.
+ * @param queryTimeoutMs - Per-query statement timeout in milliseconds (F2), resolved once per request
+ *   from `HandleBatchQueryOptions.queryTimeoutMs` by `resolveQueryTimeoutMs`. Omitted by direct callers,
+ *   who get `DEFAULT_QUERY_TIMEOUT_MS` — an omitted timeout must default to a REAL bound, never to
+ *   "unbounded", since unbounded is the failure mode this parameter exists to remove. `0` opts out.
  */
 export async function executeForTier(
   db: any,
@@ -243,6 +258,7 @@ export async function executeForTier(
   options: CompiledSecurityPolicy | SecurityPolicyOptions,
   plan?: ValidatedQueryPlan,
   rowBudget?: RowBudget,
+  queryTimeoutMs: number = DEFAULT_QUERY_TIMEOUT_MS,
 ): Promise<Record<string, unknown>[]> {
   const queryPlan = plan ?? toValidatedQueryPlan(descriptor);
 
@@ -322,7 +338,7 @@ export async function executeForTier(
     // rows" request (finding 3.1), and an omitted or excessive client `limit` is
     // capped at `MAX_RESULT_ROWS` (finding T2) and at the request's remaining
     // row budget (finding H2) rather than left unbounded.
-    return runBounded(query, queryPlan.limit, rowBudget);
+    return runBounded(query, queryPlan.limit, rowBudget, queryTimeoutMs);
   };
 
   if (tier === 'client' || tier === 'server') {
@@ -402,5 +418,5 @@ export async function executeForTier(
     query.orderBy(orderColumnOf(ob), ob.direction);
   }
   // Always apply an effective limit — see finding 3.1 / T2 / H2 above.
-  return runBounded(query, queryPlan.limit, rowBudget);
+  return runBounded(query, queryPlan.limit, rowBudget, queryTimeoutMs);
 }

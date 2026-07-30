@@ -3403,6 +3403,11 @@ describe('handleBatchQuery — partial batch failure recovery', () => {
           limit() {
             return this;
           },
+          // Knex's per-query statement timeout (F2) — every round-trip goes
+          // through `applyQueryTimeout`, so a builder without it throws.
+          timeout() {
+            return this;
+          },
           sum() {
             return this;
           },

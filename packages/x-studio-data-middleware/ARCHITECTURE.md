@@ -12,6 +12,7 @@ Internal reference for how `@mui/x-studio-data-middleware` is put together. For 
 - [Write path](#write-path)
 - [Security model](#security-model)
 - [Query construction](#query-construction)
+- [Query timeouts](#query-timeouts)
 - [Mutation builders](#mutation-builders)
 - [Caching layer](#caching-layer)
 - [Input bounds](#input-bounds)
@@ -65,6 +66,7 @@ Everything under `router/`, `shared/`, `mutations/mutationBuilder.ts`, and the i
 | `shared/predicates.ts`              | The single source of truth for row-level security and structured-filter translation, shared by the read and write builders.                                                                                                                                                                                                                                               |
 | `shared/columnValidation.ts`        | `resolveAlias`, `qualifyAgainst`, `qualifiedTableOf`, `assertSingleDotReference`, `assertNoImplicitAlias`, `assertColumnReferenceShape`, `isWildcardReference`, `validateWildcardProjection`, `checkColumnAgainstAllowlist`, `validateDescriptorColumns`, `validateProjectionKeyCollisions`, `validateHavingAliases`, `validateAggregationAliases`, `SAFE_ALIAS_PATTERN`. |
 | `shared/assertTablesAllowed.ts`     | `assertTablesAllowed`, `assertQualifiedColumnsAllowed` (read), `assertQualifiedWhereColumnsAllowed` (write) — all three sharing one `checkQualifiedColumn` implementation — plus `collectSemiJoinTables`, which flattens a `semiJoins` tree to every table it references at every nesting level (the one helper both the allowlist check and the cache-tag write call).   |
+| `shared/queryTimeout.ts`            | `DEFAULT_QUERY_TIMEOUT_MS` (30_000), `resolveQueryTimeoutMs` (option-boundary validation), `applyQueryTimeout` (dialect-gated `.timeout(ms, { cancel })`).                                                                                                                                                                                                                |
 | `shared/sanitizeError.ts`           | `sanitizeBoundaryError` — per-item boundary error classification.                                                                                                                                                                                                                                                                                                         |
 | `shared/allowlistShape.ts`          | `assertStringArrayAllowlist`, `assertPerTableAllowlist` — the runtime shape guards for the host-supplied allowlists.                                                                                                                                                                                                                                                      |
 | `shared/limits.ts`                  | `MAX_ARRAY_ITEMS_PER_DESCRIPTOR` (200), `MAX_STRING_LENGTH` (1024), `MAX_STRING_VALUE_LENGTH` (8192), `MAX_PREDICATE_VALUES_PER_DESCRIPTOR` (2000), `MAX_SEMI_JOIN_DEPTH` (2).                                                                                                                                                                                            |
@@ -110,10 +112,14 @@ That second check runs **unconditionally**, independent of `columnAllowlist`. Th
 
 ### 3. Bounded, deduplicated fan-out
 
-Widgets are processed **concurrently but boundedly** via `mapWithConcurrency(body.widgets, MAX_CONCURRENT_WIDGET_QUERIES, …)`, an order-preserving worker pool of 6. All widgets share one `BatchRequestContext` carrying the compiled policy and three request-wide governors:
+Widgets are processed **concurrently but boundedly** via `mapWithConcurrency(body.widgets, MAX_CONCURRENT_WIDGET_QUERIES, …)`, an order-preserving worker pool of 6. All widgets share one `BatchRequestContext` carrying the compiled policy and four request-wide governors:
 
 - **`rowBudget`** — the shared `RowBudget` (see [The row budget](#the-row-budget)).
 - **the worker pool** — a bare `Promise.all` let one request start all 50 widgets at once, so the only thing limiting real concurrency was the host's Knex pool, which the host sizes for its whole application rather than for one request. One caller could drain it out from under every other request in the process.
+
+  **The pool cap bounds ONE request, not one caller** — which is why it is not on its own sufficient. Ten concurrent batches of six distinct widgets each still put 60 queries in flight against a pool whose Knex default is `max: 10` / `acquireConnectionTimeout: 60_000`, and the host's own non-Studio traffic then fails on connection acquisition. That residual exposure is what `queryTimeoutMs` closes.
+
+- **`queryTimeoutMs`** — the per-query statement timeout (see [Query timeouts](#query-timeouts)), resolved and validated once per request.
 - **`inFlight`** — a single-flight map keyed by `cacheKey`. The widget `id` is deliberately excluded from the query hash, so N structurally identical widgets resolve to one key; they used to all start together, all miss the not-yet-populated cache, and each run its own preflight plus query. They now share one in-progress `runWidgetPipeline()` promise — the id-independent half of the pipeline (cache read → tier decision → execute → cache write) — and each caller re-attaches its own `{ id }`. The derived promise (including its `.finally` cleanup) is what is stored, so every awaiter observes the same promise and a rejection can never surface as an unhandled rejection.
 
 None of this weakens **per-widget error isolation**: a failed widget returns `{ id, rows: [], tier: 'db', rowCount: 0, error }`. The `error` string is classified through `sanitizeBoundaryError` — this package's own `MUI X`-prefixed messages pass through verbatim (deliberate, actionable, safe), while any other thrown value, notably a raw driver message like `no such column: orders.secret`, is a schema oracle: it is `console.warn`-ed server-side and replaced with a generic client-facing message, even when no `columnAllowlist` is configured.
@@ -550,7 +556,7 @@ Resolves `queryPlan = plan ?? toValidatedQueryPlan(descriptor)` and reads pre-re
 
 `MAX_RESULT_ROWS` (100_000) bounds one widget's query and `MAX_WIDGETS_PER_BATCH` (50) bounds how many widgets a request may contain — but nothing bounded their **product**: 50 unbounded widgets could put 5,000,000 rows in the `results` array and serialize them all again into the JSON body. `MAX_ROWS_PER_REQUEST` (deliberately `=== MAX_RESULT_ROWS`) is the request-wide ceiling that makes the per-widget limits **compose rather than multiply**.
 
-**Every one of `executeForTier`'s three exit paths goes through one `runBounded(query, clientLimit, budget)` helper**, which applies the effective limit, runs the query, and charges the rows returned. Routing them through a single helper is what stops them drifting on how the limit is derived, forgetting to charge, or returning a silently-shortened result.
+**Every one of `executeForTier`'s three exit paths goes through one `runBounded(query, clientLimit, budget, queryTimeoutMs)` helper**, which applies the effective limit AND the statement timeout, runs the query, and charges the rows returned. Routing them through a single helper is what stops them drifting on how the limit is derived, forgetting to charge, forgetting to bound the query in TIME (see [Query timeouts](#query-timeouts)), or returning a silently-shortened result.
 
 ```text
 widgetLimit(clientLimit)   = clamp(clientLimit ?? MAX_RESULT_ROWS, 0, MAX_RESULT_ROWS)
@@ -576,6 +582,28 @@ The reason is that a truncated result is undetectable data loss. It is indisting
 > **This is post-hoc accounting, not up-front reservation, and that is deliberate.** Reserving each query's full limit would make the peak exact — but since `MAX_ROWS_PER_REQUEST` equals `MAX_RESULT_ROWS`, the first widget with no client `limit` would reserve the **entire** request budget and starve every sibling on a page whose widgets simply omit `limit`, which dashboard pages routinely do. A bounded transient overshoot behind an already-capped concurrency window is the far better failure.
 
 A direct caller (unit tests) omits the budget entirely, which reproduces the previous per-widget-only `MAX_RESULT_ROWS` behavior exactly.
+
+### Query timeouts
+
+Every database round-trip this package issues is bounded in **time** as well as in rows, through `shared/queryTimeout.ts`.
+
+**Why the concurrency cap was not enough.** `MAX_CONCURRENT_WIDGET_QUERIES` (6) bounds **one request**, not one caller. Ten concurrent batches of six distinct widgets each still put 60 queries in flight against a pool the host sized for its whole application — Knex's defaults are `max: 10` and `acquireConnectionTimeout: 60_000` — and the preflight `COUNT(*)` deliberately carries **no LIMIT**, so its cost is unbounded by construction. Without a timeout, a handful of slow counts pins every pooled connection and the host's own non-Studio traffic starts failing with `KnexTimeoutError` on connection acquisition: a middleware-local problem escalating into a host-wide outage. A timeout keeps the blast radius inside the middleware, as a clean per-widget `{ error }` / per-mutation `{ ok: false }`.
+
+**One knob, applied at the execution helpers.** `queryTimeoutMs` exists on **both** `HandleBatchQueryOptions` and `HandleMutationOptions`, defaults to `DEFAULT_QUERY_TIMEOUT_MS` (30_000), and `0` opts out for hosts that enforce a timeout at the driver or database level (`statement_timeout`, `MAX_EXECUTION_TIME`). It is validated **once per request** at the option boundary — an invalid value rejects the whole request rather than producing the identical `{ error }` on all 50 widgets, because it is a host misconfiguration, not a per-widget fault.
+
+It is then applied from exactly three places, each of which is the single site that EXECUTES its query — the same structural discipline `runBounded` already enforced for LIMIT, so a new exit path cannot forget it:
+
+| Site                                               | Bounds                                                         |
+| :------------------------------------------------- | :------------------------------------------------------------- |
+| `runBounded` (`router/execute.ts`)                 | Every read-path data query, all three `executeForTier` exits.  |
+| `runPreflight` (`router/preflight.ts`)             | The LIMIT-less `COUNT(*)` — the round-trip that needs it most. |
+| `runMutationQuery` (`mutations/handleMutation.ts`) | All three write operations, inside and outside `atomic`.       |
+
+**Cancellation is dialect-gated, and that gating is load-bearing.** Knex's `.timeout(ms, { cancel: true })` calls `client.assertCanCancelQuery()` **synchronously at builder time** and **throws** (`Query cancelling not supported for this dialect`) for any client reporting `canCancelQuery === false` — which includes sqlite3 and better-sqlite3. Requesting cancellation unconditionally would break every SQLite deployment outright at query-build time: the same class of dialect-specific defect as the `whereLike`/`COLLATE utf8_bin` bug in [Predicates](#predicates-sharedpredicatests), and just as invisible to a mock-DB suite. So `applyQueryTimeout` feature-detects and falls back to a plain `.timeout(ms)`.
+
+Without cancellation Knex still bounds the wait and marks the connection `__knex__disposed`, so the pool destroys and replaces it instead of handing back a socket still busy with the abandoned query — **the pool slot, which is the resource at stake, is reclaimed either way**. Cancellation additionally kills the query server-side, which is strictly better where the dialect can do it.
+
+Inside an `atomic: true` batch the timeout bounds each **statement**, not the whole transaction; a statement that times out fails and the transaction rolls back, which is the intended outcome.
 
 ## Mutation builders
 
@@ -692,6 +720,7 @@ No shape a client can send may drive unbounded work, and **each dimension needs 
 |                  | `MAX_ARRAY_ITEMS_PER_DESCRIPTOR` on the **sum** of `semiJoins` entries across every nesting level                                                                                       | Total semi-joins per widget. A nested tree can sit under the per-array cap at every individual level and still sum to an unbounded number of table references to allowlist-check and subqueries to build, so the depth cap alone does not bound it.                                                                                                                                                                                                                                 |
 |                  | `MAX_ARRAY_ITEMS_PER_DESCRIPTOR` on each `semiJoins[].filters` array **and** on its **sum** across every nesting level                                                                  | A semi-join's own `filters` array length, capped independently of `MAX_PREDICATE_VALUES_PER_DESCRIPTOR` above: that cap only counts a predicate's `.value`, so a predicate with no `operator`/`value` (for example `{ column: 'orders.status' }`) contributes nothing to it and left the number of predicate _objects_ unbounded — unbounded allowlist-check, cache-key-hash, and subquery-build work per widget before a malformed predicate is ever rejected at query-build time. |
 |                  | `MAX_ROWS_PER_REQUEST`                                                                                                                                                                  | `widgets × rows` — see [The row budget](#the-row-budget).                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| **Duration**     | `queryTimeoutMs` (default 30_000)                                                                                                                                                       | Wall-clock time any single query — read, preflight or write — may hold a pooled connection. See [Query timeouts](#query-timeouts). The concurrency cap below bounds one REQUEST; this is what bounds one CALLER against the host's shared pool.                                                                                                                                                                                                                                     |
 | **Simultaneity** | `MAX_CONCURRENT_WIDGET_QUERIES` (6)                                                                                                                                                     | In-flight widget pipelines.                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 Why each of the less obvious ones exists:

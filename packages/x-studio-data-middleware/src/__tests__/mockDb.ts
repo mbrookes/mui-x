@@ -77,6 +77,13 @@ interface MockQueryBuilder {
   select(columns: string | (string | RawExpr)[]): MockQueryBuilder;
   orderBy(column: string, dir?: string): MockQueryBuilder;
   limit(n: number): MockQueryBuilder;
+  /**
+   * Knex's per-query statement timeout (F2). Applied by `runBounded` /
+   * `runPreflight` / the mutation dispatch helper to EVERY round-trip, so a mock
+   * that lacks it fails with "timeout is not a function" — which is deliberate:
+   * a builder this mock does not model must not silently pass.
+   */
+  timeout(ms: number, opts?: { cancel?: boolean }): MockQueryBuilder;
   sum(expr: string | Record<string, string>): MockQueryBuilder;
   avg(expr: string | Record<string, string>): MockQueryBuilder;
   min(expr: string | Record<string, string>): MockQueryBuilder;
@@ -391,6 +398,12 @@ export function createMockDb(
       },
       limit(n: number) {
         limitValue = n;
+        return qb;
+      },
+      // Recorded-and-ignored: this mock resolves synchronously, so there is
+      // nothing to time out. Its presence is what lets the real code path apply
+      // the statement timeout (F2) without the mock throwing.
+      timeout() {
         return qb;
       },
       groupBy(columns: string | string[]) {

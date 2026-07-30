@@ -66,6 +66,7 @@ import {
   assertQualifiedWhereColumnsAllowed,
 } from '../shared/assertTablesAllowed';
 import { describeCause } from '../shared/describeCause';
+import { applyQueryTimeout, resolveQueryTimeoutMs } from '../shared/queryTimeout';
 import { sanitizeBoundaryError } from '../shared/sanitizeError';
 import {
   MAX_ARRAY_ITEMS_PER_DESCRIPTOR,
@@ -395,6 +396,10 @@ export async function handleMutation(
 ): Promise<BatchMutationResponse> {
   assertValidBatchMutationRequest(body);
   const { schemaAllowlist, tenancy, securityColumns, columnAllowlist, writableColumns } = options;
+  // Validated ONCE, at the option boundary (F2): a bad `queryTimeoutMs` is a host
+  // misconfiguration, so it rejects the whole batch here rather than surfacing as
+  // an identical `{ ok: false }` on every mutation in it.
+  const queryTimeoutMs = resolveQueryTimeoutMs(options.queryTimeoutMs);
 
   // ── Compile the row-level-security policy ONCE for the whole batch ─────────
   // The single compiled object is threaded into every mutation builder in place
@@ -449,7 +454,9 @@ export async function handleMutation(
 
   // ── Opt-in all-or-nothing batch (finding M3) ──────────────────────────────
   if (options.atomic) {
-    return { results: await runAtomicBatch(body.mutations, claims, options, policy) };
+    return {
+      results: await runAtomicBatch(body.mutations, claims, options, policy, queryTimeoutMs),
+    };
   }
 
   // ── Per-mutation processing — SEQUENTIAL with error isolation ─────────────
@@ -467,6 +474,7 @@ export async function handleMutation(
       await processMutation(descriptor, claims, options, policy, {
         db: options.db,
         invalidateCache: true,
+        queryTimeoutMs,
       }),
     );
   }
@@ -500,6 +508,7 @@ async function runAtomicBatch(
   claims: JwtSecurityClaims,
   options: HandleMutationOptions & AtomicMutationOptions,
   policy: CompiledSecurityPolicy,
+  queryTimeoutMs: number,
 ): Promise<MutationResult[]> {
   if (typeof options.db?.transaction !== 'function') {
     throw new Error(
@@ -523,6 +532,7 @@ async function runAtomicBatch(
         const result = await processMutation(descriptor, claims, options, policy, {
           db: trx,
           invalidateCache: false,
+          queryTimeoutMs,
         });
         running.push(result);
         if (!result.ok) {
@@ -643,6 +653,13 @@ interface ProcessMutationContext {
    * about to roll back.
    */
   invalidateCache: boolean;
+  /**
+   * Per-query statement timeout in milliseconds (F2), already validated and
+   * defaulted by `resolveQueryTimeoutMs` at the handler boundary. Applied by the
+   * single `runMutationQuery` dispatch helper below so no operation arm can issue
+   * an untimed write.
+   */
+  queryTimeoutMs: number;
 }
 
 async function processMutation(
@@ -653,7 +670,15 @@ async function processMutation(
   context: ProcessMutationContext,
 ): Promise<MutationResult> {
   const { writableColumns, columnAllowlist } = options;
-  const { db } = context;
+  const { db, queryTimeoutMs } = context;
+
+  // ONE dispatch helper for all three operation arms (F2), mirroring the read
+  // path's `runBounded`: the statement timeout is applied where the builder is
+  // executed, so a fourth operation arm cannot ship an untimed write. An untimed
+  // UPDATE/DELETE holds a pooled Knex connection — and, inside an `atomic` batch,
+  // an open transaction and its row locks — for as long as the database takes.
+  const runMutationQuery = (query: unknown): Promise<unknown> =>
+    applyQueryTimeout(query, queryTimeoutMs) as Promise<unknown>;
 
   try {
     // Validate operation type
@@ -676,7 +701,7 @@ async function processMutation(
 
     switch (descriptor.operation) {
       case 'insert': {
-        const result = await buildInsertMutation(db, claims, descriptor, policy);
+        const result = await runMutationQuery(buildInsertMutation(db, claims, descriptor, policy));
         // Knex INSERT's return shape is driver-dependent and does NOT reliably
         // carry a row count (Tier3 iter26 finding 3, correcting the previous
         // comment here): SQLite/MySQL resolve to `[lastInsertId]` (length 1,
@@ -697,12 +722,12 @@ async function processMutation(
         break;
       }
       case 'update': {
-        const result = await buildUpdateMutation(db, claims, descriptor, policy);
+        const result = await runMutationQuery(buildUpdateMutation(db, claims, descriptor, policy));
         rowsAffected = typeof result === 'number' ? result : 0;
         break;
       }
       case 'delete': {
-        const result = await buildDeleteMutation(db, claims, descriptor, policy);
+        const result = await runMutationQuery(buildDeleteMutation(db, claims, descriptor, policy));
         rowsAffected = typeof result === 'number' ? result : 0;
         break;
       }

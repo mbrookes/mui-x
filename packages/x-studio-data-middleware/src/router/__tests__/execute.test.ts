@@ -32,6 +32,9 @@ function createRecordingDb() {
     'select',
     'orderBy',
     'limit',
+    // Knex's per-query statement timeout (F2) — every round-trip now goes
+    // through `applyQueryTimeout`, so a builder without it throws.
+    'timeout',
     'groupBy',
     'sum',
     'avg',
@@ -444,6 +447,8 @@ describe('executeForTier — per-request row budget (finding H2)', () => {
       limits.push(n);
       return builder;
     };
+    // Knex's per-query statement timeout (F2) — accepted and ignored here.
+    builder.timeout = () => builder;
     builder.then = (resolve: (rows: Record<string, unknown>[]) => void) => {
       queriesRun += 1;
       const appliedLimit = limits[limits.length - 1] ?? rowCount;

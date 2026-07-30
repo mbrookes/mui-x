@@ -97,6 +97,11 @@ function createGatedDb(initialRows: Record<string, unknown>[]) {
       limit() {
         return qb;
       },
+      // Knex's per-query statement timeout (F2) — accepted and ignored; this mock
+      // resolves synchronously, so there is nothing to time out.
+      timeout() {
+        return qb;
+      },
       async first() {
         tables[table] ??= [];
         return {

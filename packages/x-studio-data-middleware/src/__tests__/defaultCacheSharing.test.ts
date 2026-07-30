@@ -72,6 +72,11 @@ function createSharedMutableDb(initialRows: Record<string, unknown>[]) {
       limit() {
         return qb;
       },
+      // Knex's per-query statement timeout (F2) — accepted and ignored; this mock
+      // resolves synchronously, so there is nothing to time out.
+      timeout() {
+        return qb;
+      },
       async first() {
         tables[table] ??= [];
         const rows = tables[table].filter((r) => predicates.every((p) => p(r)));

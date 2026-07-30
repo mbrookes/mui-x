@@ -55,3 +55,11 @@ export type { RedisTierCacheProviderOptions } from './cache/RedisTierCacheProvid
 // ─── Main handlers ────────────────────────────────────────────────────────────
 export { handleBatchQuery } from './handler';
 export { handleMutation } from './mutations/handleMutation';
+
+// ─── Query bounds ─────────────────────────────────────────────────────────────
+/**
+ * Default value of `queryTimeoutMs` on both handler option shapes (F2). Exported
+ * so a host can log or reason about the bound it is running under without
+ * hard-coding the number.
+ */
+export { DEFAULT_QUERY_TIMEOUT_MS } from './shared/queryTimeout';

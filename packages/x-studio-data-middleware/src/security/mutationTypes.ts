@@ -153,6 +153,23 @@ export interface HandleMutationOptions {
    * evict.
    */
   cacheProvider?: import('../cache/types').CacheProvider;
+  /**
+   * Per-query statement timeout, in milliseconds, applied to every INSERT /
+   * UPDATE / DELETE this handler issues.
+   *
+   * Mirrors `HandleBatchQueryOptions.queryTimeoutMs` — see there for why an
+   * untimed query is a host-wide availability problem rather than a
+   * middleware-local one. A timed-out mutation becomes that item's
+   * `{ ok: false, error }` instead of holding a pooled connection open.
+   *
+   * ATOMIC BATCHES: this bounds each STATEMENT, not the whole transaction. A
+   * statement that times out inside an `atomic: true` batch fails, and the
+   * transaction rolls back — the intended outcome.
+   *
+   * @default 30_000 (30 seconds). `0` disables it, for hosts that enforce a
+   *   timeout at the driver or database level.
+   */
+  queryTimeoutMs?: number;
 }
 
 /**
@@ -302,4 +319,29 @@ export interface HandleBatchQueryOptions {
    * @default 30_000 (30 seconds — aligned with the data cache default)
    */
   tierCacheTtlMs?: number;
+  /**
+   * Per-query statement timeout, in milliseconds, applied to EVERY round-trip
+   * this handler issues — both the preflight `COUNT(*)` and the data query.
+   *
+   * WHY THIS IS NOT OPTIONAL BY DEFAULT. `MAX_CONCURRENT_WIDGET_QUERIES` (6)
+   * bounds one REQUEST, not one caller. Ten concurrent batches of six distinct
+   * widgets each put 60 queries in flight against a pool the host sized for its
+   * whole application (Knex's default is `max: 10`), and the preflight carries
+   * no LIMIT by design — so without a timeout a handful of slow counts pins
+   * every pooled connection and the host's own non-Studio traffic starts failing
+   * with `KnexTimeoutError` on connection acquisition. A bounded query turns
+   * that into a clean per-widget `{ error }` instead.
+   *
+   * Cancellation is requested where the dialect supports it (mysql/mysql2, pg);
+   * sqlite clients cannot cancel, so they get a plain bounded wait and the
+   * pooled connection is discarded rather than reused.
+   *
+   * Must be a non-negative finite number — an invalid value rejects the whole
+   * request, since it is a host misconfiguration rather than a per-widget fault.
+   *
+   * @default 30_000 (30 seconds). `0` disables it, for hosts that enforce a
+   *   timeout at the driver or database level (`statement_timeout`,
+   *   `MAX_EXECUTION_TIME`, …).
+   */
+  queryTimeoutMs?: number;
 }

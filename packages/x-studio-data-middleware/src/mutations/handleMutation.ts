@@ -684,7 +684,10 @@ async function processMutation(
     // Validate operation type
     if (!['insert', 'update', 'delete'].includes(descriptor.operation)) {
       throw new Error(
-        `MUI X Studio Server: Unknown mutation operation "${descriptor.operation}". Allowed: insert, update, delete`,
+        `MUI X Studio Server: Unknown mutation operation "${descriptor.operation}". ` +
+          `The operation selects which builder runs, so an unrecognized one has no query to build — and guessing ` +
+          `at the intent could write or delete rows the caller never asked to change, so the mutation is rejected. ` +
+          `Use "insert", "update" or "delete".`,
       );
     }
 

@@ -491,6 +491,30 @@ describe('handleMutation — per-mutation error isolation', () => {
     expect(results.find((r) => r.id === 'bad')?.ok).toBe(false);
     expect(results.find((r) => r.id === 'good')?.ok).toBe(true);
   });
+
+  // AGENTS.md requires every error thrown from a public package to say what
+  // happened, WHY IT IS A PROBLEM, and how to fix it. This one named the bad
+  // operation and listed the allowed set but never stated the consequence (F6).
+  it('explains the consequence of an unknown mutation operation, not just the allowed set', async () => {
+    const db = createMutableMockDb({ orders: [] });
+    const body: BatchMutationRequest = {
+      mutations: [
+        { id: 'bad', operation: 'upsert' as any, table: 'orders', values: { status: 'ok' } },
+      ],
+    };
+    const { results } = await handleMutation(body, CLAIMS, {
+      db,
+      schemaAllowlist: ALLOWLIST,
+      tenancy: SINGLE_TENANT,
+    });
+    const error = results[0].error ?? '';
+    // What happened…
+    expect(error).toMatch(/Unknown mutation operation "upsert"/);
+    // …why it is a problem…
+    expect(error).toMatch(/no query to build/);
+    // …and how to fix it.
+    expect(error).toMatch(/Use "insert", "update" or "delete"/);
+  });
 });
 
 // ── Cache invalidation ────────────────────────────────────────────────────────

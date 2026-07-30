@@ -533,7 +533,11 @@ function applyHaving(
   // the same fail-closed allowlist posture as `SAFE_OPERATORS` on the filter path.
   if (!Object.prototype.hasOwnProperty.call(opMap, h.operator)) {
     throw new Error(
-      `MUI X Studio Server: Unsupported HAVING operator "${h.operator}". Allowed: eq, gt, lt, gte, lte.`,
+      `MUI X Studio Server: Unsupported HAVING operator "${h.operator}". ` +
+        `The operator becomes the comparison in the emitted HAVING fragment, so one outside the supported set has ` +
+        `no comparison to compile to — admitting it would either build malformed SQL or drop the predicate, ` +
+        `returning every aggregation group as though the filter had matched them all. ` +
+        `Use one of: eq, gt, lt, gte, lte.`,
     );
   }
   const op = opMap[h.operator];

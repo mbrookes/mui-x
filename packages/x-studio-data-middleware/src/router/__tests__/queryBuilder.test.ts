@@ -1432,6 +1432,27 @@ describe('buildSecureQuery', () => {
         expect(calls.some((c) => c.method === 'havingRaw')).toBe(false);
       },
     );
+
+    // AGENTS.md requires every error thrown from a public package to say what
+    // happened, WHY IT IS A PROBLEM, and how to fix it. This one named the bad
+    // operator and listed the allowed set but never stated the consequence (F6).
+    it('explains the consequence of an unsupported HAVING operator, not just the allowed set', () => {
+      const { db } = createRecordingDb();
+      let message = '';
+      try {
+        buildSecureQuery(db, BASE_CLAIMS, havingDescriptor('between'), {
+          tenancy: SINGLE_TENANT,
+        });
+      } catch (err) {
+        message = (err as Error).message;
+      }
+      // What happened…
+      expect(message).toMatch(/Unsupported HAVING operator "between"/);
+      // …why it is a problem…
+      expect(message).toMatch(/no comparison to compile to/);
+      // …and how to fix it.
+      expect(message).toMatch(/Use one of: eq, gt, lt, gte, lte/);
+    });
   });
 
   it('queries the descriptor table and returns the builder', () => {

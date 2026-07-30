@@ -134,11 +134,26 @@ export function makeAIRouter(salesDb: Knex, crmDb: Knex, config: Config): Router
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
 
+    // Client-disconnect propagation. Without this the whole request ran to
+    // completion after the browser had gone: `res.write()` on a destroyed socket
+    // returns `false` and does NOT throw, so the pump below happily read every
+    // remaining chunk. That meant every remaining agentic turn was requested from
+    // (and billed by) the LLM provider, every `query_data_source` call hit the
+    // live database, and any pending tool approval was held — pinning its
+    // `pendingApprovals` entry — for the full `approvalTimeoutMs` window.
+    //
+    // `handleAIChat` accepts a `signal` precisely for this: aborting it stops the
+    // agentic loop, aborts the in-flight provider fetch, and resolves any pending
+    // approval as `aborted`. `reader.cancel()` additionally tears down the SSE
+    // `ReadableStream` so its `start()` producer stops pushing.
+    const abortController = new AbortController();
+
     try {
       const stream = handleAIChat(req.body, {
         endpoint: config.llm.endpoint,
         apiKey: config.llm.apiKey,
         model: config.llm.model,
+        signal: abortController.signal,
         approvalPending: pendingApprovals,
         data: {
           queryDataSource: makeQueryDataSource(salesDb, crmDb, claims),
@@ -161,6 +176,16 @@ export function makeAIRouter(salesDb: Knex, crmDb: Knex, config: Config): Router
 
       const reader = stream.getReader();
 
+      // Registered only once the reader exists, so `close` can always cancel it.
+      // Express emits `close` on a client disconnect AND on a normal end-of-response;
+      // both are safe here — by the latter the stream is already done, so the abort
+      // and the cancel are no-ops. `cancel()` rejects if the stream already errored,
+      // hence the swallow.
+      res.on('close', () => {
+        abortController.abort();
+        reader.cancel().catch(() => {});
+      });
+
       const pump = async (): Promise<void> => {
         const { done, value } = await reader.read();
         if (done) {
@@ -176,6 +201,13 @@ export function makeAIRouter(salesDb: Knex, crmDb: Knex, config: Config): Router
 
       await pump();
     } catch (err) {
+      // A disconnect makes `reader.read()` reject with the cancel reason. That is the
+      // expected end of an abandoned request, not a server fault: log it quietly and
+      // do not try to write an SSE error frame to a socket that is already gone.
+      if (res.writableEnded || res.destroyed || abortController.signal.aborted) {
+        error('[ai] Stream ended early (client disconnected)');
+        return;
+      }
       error('[ai] Stream error:', err);
       const message = err instanceof Error ? err.message : String(err);
       res.write(`data: ${JSON.stringify({ type: 'error', message })}\n\n`);

@@ -33,6 +33,14 @@ const CACHE_PREFIX = 'studio:textAI:v1';
 const READ_ONLY_TOOL_NAMES = ['query_data_source', 'summarise_page'] as const;
 
 /**
+ * An error carrying a message the SERVER authored and meant for the user — the `message`
+ * of an SSE `error` event. It is rendered verbatim; every other error reaching the catch
+ * block is an internal/transport failure whose message is a developer string, not a
+ * user-facing one, and is replaced by `localeText.aiTextWidgetGenerationError`.
+ */
+class TextWidgetServerError extends Error {}
+
+/**
  * Cap on the number of cached AI responses kept in `localStorage` under
  * {@link CACHE_PREFIX}. Without a cap, every distinct (dashboard, page, widget,
  * prompt+data hash) combination a user ever generates leaves behind its own
@@ -318,7 +326,11 @@ export function useTextWidgetAI(
         });
 
         if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
+          throw new Error(
+            `MUI X Studio: The AI endpoint responded with HTTP ${response.status} for a text widget.
+The widget has no generated content to render and shows its generation-failure message instead.
+Check the endpoint URL, its authentication headers, and the server logs for this status.`,
+          );
         }
 
         let content = '';
@@ -349,8 +361,12 @@ export function useTextWidgetAI(
             // The thrown message is rendered verbatim to the user (`setError` →
             // `StudioTextWidget`'s red body text), so the fallback must come from locale
             // text — the same key already used as the fallback at both catch sites below —
-            // not a hardcoded English literal.
-            throw new Error(String(sseEvent.message ?? localeText.aiTextWidgetGenerationError));
+            // not a hardcoded English literal. Tagged as server-authored so the catch below
+            // keeps showing it, rather than replacing it with the generic locale message
+            // the way it does for internal/transport errors.
+            throw new TextWidgetServerError(
+              String(sseEvent.message ?? localeText.aiTextWidgetGenerationError),
+            );
           }
           return undefined;
         });
@@ -378,7 +394,18 @@ export function useTextWidgetAI(
           return;
         }
         setLoading(false);
-        setError(err instanceof Error ? err.message : localeText.aiTextWidgetGenerationError);
+        // Only a SERVER-authored `error` event message is user-facing and gets rendered
+        // verbatim. Everything else is an internal/transport failure whose message used to
+        // be surfaced raw, so a 500 painted the English literal `HTTP 500` into the widget
+        // in every locale — while the empty-completion branch above rendered the properly
+        // localized string for the same class of failure. Show the localized message and
+        // keep the raw detail for the developer, since nothing else now carries it.
+        if (err instanceof TextWidgetServerError) {
+          setError(err.message);
+        } else {
+          console.error(err);
+          setError(localeText.aiTextWidgetGenerationError);
+        }
       }
     })();
 

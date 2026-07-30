@@ -124,7 +124,12 @@ export function useStudioController() {
   const controller = React.use(StudioContext);
 
   if (controller == null) {
-    throw new Error('useStudioController must be used within a StudioProvider.');
+    throw new Error(
+      `MUI X Studio: \`useStudioController\` was called outside of a \`<StudioProvider>\`.
+There is no controller to read or mutate, so the component cannot render any dashboard state.
+Wrap the tree in \`<Studio>\` (which renders \`StudioProvider\` for you) or in \`<StudioProvider controller={…}>\`.
+See https://mui.com/x/react-studio/.`,
+    );
   }
 
   return controller;

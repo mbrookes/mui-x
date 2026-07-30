@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { createRenderer } from '@mui/internal-test-utils';
-import { afterEach, describe, expect, it } from 'vitest';
-import { StudioProvider } from './StudioContext';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { StudioProvider, useStudioController } from './StudioContext';
 import { useStudioUIConfig, useStudioLocale } from '../internals/StudioUIConfigContext';
 import { getStudioLocale, setActiveStudioLocale } from '../internals/studioLocale';
 import { formatNumber } from '../internals/numberFormat';
@@ -113,5 +113,27 @@ describe('StudioProvider — locale prop', () => {
     );
 
     expect(formattedDuringRender).toBe('1.234.567');
+  });
+});
+
+// `useStudioController` is a documented public export, so its "used outside a provider"
+// throw is the package's highest-traffic error. It said only what happened — no `MUI X`
+// prefix, no consequence, no doc link — against the AGENTS.md error-message contract that
+// `sseUtils.ts:140` and `createSimpleAdapter.ts` already follow.
+describe('useStudioController outside a provider', () => {
+  it('throws a prefixed, actionable error', () => {
+    function Consumer() {
+      useStudioController();
+      return null;
+    }
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      expect(() => render(<Consumer />, { strict: false })).to.throw(
+        /^MUI X Studio: .*https:\/\/mui\.com\/x\//s,
+      );
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 });

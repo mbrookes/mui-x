@@ -1443,3 +1443,47 @@ describe('createBackendChatAdapter: addToolApprovalResponse', () => {
     vi.unstubAllGlobals();
   });
 });
+
+// `HTTP 500: <body>` says what happened but names neither the package nor a next step.
+describe('createBackendChatAdapter: HTTP failure messages', () => {
+  it('prefixes and explains the sendMessage transport failure', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        statusText: 'Internal Server Error',
+        text: () => Promise.resolve('Upstream failure'),
+      }),
+    );
+
+    const config: StudioAIConfig = { endpoint: 'https://fake.test/api/ai' };
+    const adapter = createBackendChatAdapter(config, makeController());
+    const stream = await adapter.sendMessage(makeSendInput([]));
+
+    await expect(collectChunks(stream)).rejects.toThrow(/^MUI X Studio: .*500.*Upstream failure/s);
+
+    vi.unstubAllGlobals();
+  });
+
+  it('prefixes and explains the tool-approval transport failure', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 410,
+        statusText: 'Gone',
+        text: () => Promise.resolve('Approval expired'),
+      }),
+    );
+
+    const config: StudioAIConfig = { endpoint: 'https://fake.test/api/ai' };
+    const adapter = createBackendChatAdapter(config, makeController());
+
+    await expect(
+      adapter.addToolApprovalResponse!({ id: 'call-1', approved: true }),
+    ).rejects.toThrow(/^MUI X Studio: .*410.*Approval expired/s);
+
+    vi.unstubAllGlobals();
+  });
+});

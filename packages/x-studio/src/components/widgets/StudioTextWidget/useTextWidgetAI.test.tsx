@@ -1068,4 +1068,32 @@ describe('useTextWidgetAI aiConfig identity churn (M15)', () => {
       (fetchMock.mock.calls[1][1] as RequestInit).headers as Record<string, string>,
     ).toMatchObject({ Authorization: 'token-2' });
   });
+
+  // The catch block surfaced `err.message` verbatim, so a 500 painted the raw transport
+  // string `HTTP 500` into the widget in EVERY locale — while the adjacent
+  // empty-completion path one branch up renders the properly localized message.
+  it('shows the localized generation error for a failed request, never the raw transport string', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({ ok: false, status: 500, statusText: 'Server Error' }),
+      );
+
+      const { result } = renderHook(
+        () => useTextWidgetAI('text-err', 'page-1', 'Summarize this page'),
+        { wrapper: setup() },
+      );
+
+      await waitFor(() => {
+        expect(result.current.error).not.toBe(null);
+      });
+      expect(result.current.error).toBe(DEFAULT_STUDIO_LOCALE_TEXT.aiTextWidgetGenerationError);
+      expect(result.current.error).not.toContain('HTTP');
+      // The raw transport detail is still available to a developer, just not on screen.
+      expect(errorSpy).toHaveBeenCalled();
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
 });

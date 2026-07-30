@@ -317,3 +317,14 @@ describe('parseSSEStream buffer cap', () => {
     expect(probe.cancelSpy).not.toHaveBeenCalled();
   });
 });
+
+// AGENTS.md: an error must say what happened, why it is a problem, and how to fix it,
+// behind a `MUI X`/`MUI X <Package>` prefix. The buffer-cap throw 70 lines below already
+// did all three; this one said only `No response body.`
+describe('parseSSEStream: missing body', () => {
+  it('throws a prefixed, actionable error when the response carries no body', async () => {
+    await expect(parseSSEStream({ body: null } as unknown as Response, () => {})).rejects.toThrow(
+      /^MUI X Studio: /,
+    );
+  });
+});

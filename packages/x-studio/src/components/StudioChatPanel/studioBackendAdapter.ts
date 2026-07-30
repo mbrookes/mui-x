@@ -388,7 +388,11 @@ export function createBackendChatAdapter(
           if (!response.ok) {
             endReasoning(streamController);
             const errText = await response.text().catch(() => response.statusText);
-            errorStream(new Error(`HTTP ${response.status}: ${errText}`));
+            errorStream(
+              new Error(`MUI X Studio: The AI endpoint responded with HTTP ${response.status}: ${errText}
+The request never reached the model, so the conversation cannot continue.
+Check the endpoint URL, its authentication headers, and the server logs for this status.`),
+            );
             return;
           }
 
@@ -667,7 +671,9 @@ export function createBackendChatAdapter(
       // the non-ok handling in `sendMessage` above.
       if (!response.ok) {
         const errText = await response.text().catch(() => response.statusText);
-        throw new Error(`HTTP ${response.status}: ${errText}`);
+        throw new Error(`MUI X Studio: The AI endpoint responded with HTTP ${response.status}: ${errText}
+The request never reached the model, so the conversation cannot continue.
+Check the endpoint URL, its authentication headers, and the server logs for this status.`);
       }
     },
   };

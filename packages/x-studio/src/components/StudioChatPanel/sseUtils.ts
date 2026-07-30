@@ -64,7 +64,11 @@ export async function parseSSEStream(
 ): Promise<void> {
   const reader = response.body?.getReader();
   if (!reader) {
-    throw new Error('No response body.');
+    throw new Error(
+      `MUI X Studio: The AI endpoint returned a response with no readable body.
+There is no SSE stream to parse, so the request produces no assistant output at all.
+Check that the endpoint streams \`text/event-stream\` and that no proxy is buffering or stripping the response body.`,
+    );
   }
   options?.onReader?.(reader);
 

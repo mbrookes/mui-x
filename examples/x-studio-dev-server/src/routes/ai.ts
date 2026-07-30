@@ -250,7 +250,12 @@ export function makeAIRouter(salesDb: Knex, crmDb: Knex, config: Config): Router
       return;
     }
     pendingApprovals.delete(id);
-    entry.resolve(approved, reason);
+    // Forward `threadId` as the third argument so `waitForApproval` re-checks the
+    // binding at the resolver too (finding F8). The route check above is the one that
+    // can deny a MISSING id — only a host knows whether it wired passthrough — and this
+    // makes a MISMATCHED id fail closed inside the middleware as well, so the two checks
+    // can't drift apart.
+    entry.resolve(approved, reason, threadId);
     res.json({ ok: true });
   });
 

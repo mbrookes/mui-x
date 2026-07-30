@@ -132,6 +132,64 @@ describe('waitForApproval', () => {
     pending.get('id1')!.resolve(true);
     await promise;
   });
+
+  // Finding F8 (round 3): ARCHITECTURE.md claimed `isApprovalThreadIdAuthorized` was
+  // "wired into `toolDispatch.ts` itself". It was only DEFINED there — `waitForApproval`
+  // stored `threadId` and never checked it, so the only enforcement anywhere was in the
+  // host's own route. These pin down the half the package CAN enforce without a
+  // breaking API change: a resolution that ASSERTS a thread id must present a matching
+  // one, checked at the resolver rather than trusted to the caller.
+  describe('thread-id enforcement at the resolver (finding F8)', () => {
+    it('refuses a resolution that asserts a mismatched threadId, failing closed', async () => {
+      const pending = new Map<string, PendingApproval>();
+      const promise = waitForApproval('id1', pending, undefined, 1000, 'thread-a');
+      pending.get('id1')!.resolve(true, 'approved by the wrong conversation', 'thread-b');
+      const outcome = (await promise) as { kind: string; approved: boolean; reason: string };
+      expect(outcome.kind).toBe('resolved');
+      // Fails CLOSED: the destructive tool does not run.
+      expect(outcome.approved).toBe(false);
+      expect(outcome.reason).toMatch(/thread/i);
+      // The caller's own reason is not echoed back as if it had been honoured.
+      expect(outcome.reason).not.toMatch(/approved by the wrong conversation/);
+      expect(pending.has('id1')).toBe(false);
+    });
+
+    it('refuses a DENIAL from the wrong thread too, rather than letting it through', async () => {
+      const pending = new Map<string, PendingApproval>();
+      const promise = waitForApproval('id1', pending, undefined, 1000, 'thread-a');
+      pending.get('id1')!.resolve(false, 'nope', 'thread-b');
+      const outcome = (await promise) as { approved: boolean; reason: string };
+      expect(outcome.approved).toBe(false);
+      expect(outcome.reason).toMatch(/thread/i);
+    });
+
+    it('honours a resolution that asserts the matching threadId', async () => {
+      const pending = new Map<string, PendingApproval>();
+      const promise = waitForApproval('id1', pending, undefined, 1000, 'thread-a');
+      pending.get('id1')!.resolve(true, 'looks good', 'thread-a');
+      expect(await promise).toEqual({ kind: 'resolved', approved: true, reason: 'looks good' });
+    });
+
+    it('honours a resolution that asserts a threadId when the entry has none', async () => {
+      const pending = new Map<string, PendingApproval>();
+      const promise = waitForApproval('id1', pending, undefined, 1000, undefined);
+      pending.get('id1')!.resolve(true, 'ok', 'thread-whatever');
+      expect(await promise).toEqual({ kind: 'resolved', approved: true, reason: 'ok' });
+    });
+
+    // Deliberately unchanged, and the reason is the point: the package cannot tell a
+    // host that never wired thread-id passthrough (for whom omitting it is correct, and
+    // resolving by id alone is the documented contract) from an attacker who dropped the
+    // field to dodge the check. Refusing here would silently break every such host. The
+    // host route's `isApprovalThreadIdAuthorized` closes that half, which is exactly why
+    // it denies on a MISSING id and this resolver does not.
+    it('still honours a resolution that omits threadId, leaving that half to the host route', async () => {
+      const pending = new Map<string, PendingApproval>();
+      const promise = waitForApproval('id1', pending, undefined, 1000, 'thread-a');
+      pending.get('id1')!.resolve(true, 'ok');
+      expect(await promise).toEqual({ kind: 'resolved', approved: true, reason: 'ok' });
+    });
+  });
 });
 
 // ── isApprovalThreadIdAuthorized (finding 5, Tier 3) ────────────────────────────

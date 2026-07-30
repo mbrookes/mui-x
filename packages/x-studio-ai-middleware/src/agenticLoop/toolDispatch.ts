@@ -77,9 +77,21 @@ type ApprovalOutcome =
  * one. A check of the shape `entry.threadId !== undefined && threadId !== undefined
  * && entry.threadId !== threadId` is bypassable simply by omitting `threadId` from
  * the request body, since it degrades to a no-op the moment `threadId` is absent.
+ *
+ * `resolve`'s optional third argument is the resolving request's asserted thread id
+ * (finding F8). Forward it and `waitForApproval` re-checks the binding AT THE
+ * RESOLVER — a mismatch fails closed as `approved: false` rather than being trusted
+ * to the caller — so a host that forwards the wrong conversation's id cannot approve
+ * a destructive tool even if its own route check is missing or wrong. Omitting the
+ * argument keeps the historical behavior, deliberately: the package cannot tell a
+ * host that never wired thread-id passthrough (for whom omitting it is CORRECT, per
+ * the paragraph above) from an attacker who dropped the field to dodge the check,
+ * and refusing would silently break every such host. That is the half only the host
+ * route can close, which is why `isApprovalThreadIdAuthorized` denies on a MISSING
+ * id and this resolver does not.
  */
 export interface PendingApproval {
-  resolve: (approved: boolean, reason?: string) => void;
+  resolve: (approved: boolean, reason?: string, resolvingThreadId?: string) => void;
   threadId?: string;
 }
 
@@ -117,6 +129,15 @@ export function isApprovalThreadIdAuthorized(
  * approval callback against the abort signal and a timeout so an abandoned prompt
  * can't hang the stream and leak the map entry forever. The `approvalPending`
  * entry is always removed once the race settles.
+ *
+ * The registered resolver also RE-CHECKS the thread binding it was created with
+ * (finding F8), rather than only recording it. `isApprovalThreadIdAuthorized` was
+ * exported for host routes to call, and every real call site was a host route — so
+ * the binding was enforced entirely outside the package and not at all within it. A
+ * resolution that ASSERTS a thread id now has to present a matching one here too, or
+ * it is refused as `approved: false` (fail closed, exactly like the duplicate-id
+ * guard below). See `PendingApproval` for why an OMITTED id is still honoured and
+ * why that half necessarily belongs to the host route.
  */
 export function waitForApproval(
   toolCallId: string,
@@ -143,7 +164,28 @@ export function waitForApproval(
   let onAbort: (() => void) | undefined;
   return new Promise<ApprovalOutcome>((resolve) => {
     approvalPending.set(toolCallId, {
-      resolve: (a, r) => resolve({ kind: 'resolved', approved: a, reason: r }),
+      resolve: (a, r, resolvingThreadId) => {
+        // Finding F8 — enforce the binding here, not merely record it. Only when the
+        // resolver ASSERTS a thread id: `isApprovalThreadIdAuthorized` also denies a
+        // MISSING one, which is right for a host route (an attacker can drop a field)
+        // but wrong here, where an omitted argument is indistinguishable from a host
+        // that never wired passthrough at all. `r` is deliberately NOT echoed — a
+        // refused resolution must not read as if the caller's decision was honoured.
+        if (
+          resolvingThreadId !== undefined &&
+          !isApprovalThreadIdAuthorized({ threadId }, resolvingThreadId)
+        ) {
+          resolve({
+            kind: 'resolved',
+            approved: false,
+            reason:
+              'the resolving request named a different chat thread than the one this approval ' +
+              'was raised under — approval refused',
+          });
+          return;
+        }
+        resolve({ kind: 'resolved', approved: a, reason: r });
+      },
       threadId,
     });
     timeoutId = setTimeout(() => resolve({ kind: 'timeout' }), timeoutMs);

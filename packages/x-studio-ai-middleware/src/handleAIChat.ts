@@ -266,7 +266,10 @@ export interface StudioAIHandlerOptions {
    *     return res.status(403).json({ error: 'This approval belongs to a different chat thread.' });
    *   }
    *   pendingApprovals.delete(id);
-   *   entry.resolve(approved, reason);
+   *   // Pass `threadId` through as the third argument: `waitForApproval` re-checks the
+   *   // binding at the resolver, so a MISMATCHED id fails closed inside the middleware
+   *   // too and the two checks cannot drift apart.
+   *   entry.resolve(approved, reason, threadId);
    *   res.json({ ok: true });
    * });
    * ```

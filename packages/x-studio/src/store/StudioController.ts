@@ -1847,10 +1847,15 @@ export class StudioController {
       // is gated on `Object.hasOwn(definedChanges, 'config')`, so this shape skips it
       // entirely — and the reducer's kind-coherence pass does NOT close the gap,
       // because it strips config keys not ALLOWED for the new kind and `chartType`
-      // is a perfectly allowed 'chart' key. Its VALUE is never checked. So a widget
-      // created as a non-chart kind carrying a bogus `config.chartType` (which
-      // `sanitizeWidgetForCreate` skips, returning early on `kind !== 'chart'`)
-      // becomes a chart widget with a chart type outside `StudioChartType`.
+      // is a perfectly allowed 'chart' key. Its VALUE is never checked, and that is still
+      // true today — this branch is the only thing that repairs a kind-only flip.
+      //
+      // The original way to REACH the bad state (create the widget as a non-chart kind
+      // carrying a bogus `config.chartType`, which `sanitizeWidgetForCreate` skips) is now
+      // closed upstream: the shared reducer screens `config.chartType` on every channel
+      // regardless of kind (`screenOptionalWidgetScalars`). The guard stays because the
+      // reducer's kind-coherence pass still does not cover this shape, and because the
+      // controller's `store` field is public — anything writing state directly lands here.
       //
       // Deliberately `sanitizeWidgetForCreate`, NOT `sanitizeWidgetConfigForKind`:
       // the latter never re-validates the widget's STORED config, by design — a chart
@@ -2165,26 +2170,29 @@ export class StudioController {
     // `addWidget`/`insertWidgetAt`: a duplicate is a widget CREATION, and without it a
     // widget carrying an invalid `chartType` propagated that chart type into every copy.
     //
-    // This has been reported as unreachable — `screenDoc` guards both the constructor and
-    // the persistence load boundary, and `updateWidget` sanitizes a wholesale `config`
-    // replacement. It is NOT. Two ordinary public calls reach it (pinned by
-    // `StudioController.test.ts`, "duplicateWidget repairs an invalid chartType"):
+    // On the recurring "is this dead code?" question. It once had a two-call public route
+    // in: create a NON-chart widget carrying a bogus `config.chartType` (this helper returns
+    // early on `kind !== 'chart'`), then `updateWidget(id, { kind: 'chart' })` with no
+    // `config` in `changes`. BOTH halves are now closed — `updateWidget` re-sanitizes on a
+    // kind-only flip (see that branch), and the shared reducer screens `config.chartType` on
+    // every channel via `screenOptionalWidgetScalars`/`stripInvalidChartType`, regardless of
+    // the widget's kind, so the PLANTING step no longer works either. For a widget that got
+    // here through supported mutations there is now nothing left to repair.
     //
-    //  1. `addWidget`/`insertWidgetAt`/`updateWidgetConfig` on a NON-chart-kind widget.
-    //     `sanitizeWidgetForCreate` returns early on `widget.kind !== 'chart'` and the
-    //     shared reducer knows nothing about chart types, so a `text` (or custom-kind)
-    //     widget carrying a bogus `config.chartType` is stored verbatim.
-    //  2. `updateWidget(id, { kind: 'chart' })` with NO `config` in `changes`. The
-    //     controller's guard is gated on `Object.hasOwn(changes, 'config')`, so a
-    //     kind-only change skips it; the reducer's kind-coherence pass then keeps
-    //     `chartType` because it IS a valid `'chart'` config key.
+    // Keep it anyway, on two grounds that are not "defense in depth" hand-waving:
     //
-    // Net: a chart widget can hold a chart type outside `StudioChartType` without any
-    // `store.setState` reach-in. Do not delete this as dead code. The narrower fix — make
-    // `updateWidget` re-sanitize the STORED config when `changes.kind` alone flips a
-    // widget into `'chart'` — belongs at that boundary and is deliberately left to the
-    // unit that owns it; this repair stays regardless, since it is the creation-boundary
-    // half of the same invariant.
+    //  1. The same helper is genuinely LIVE on the other two creation entry points. A
+    //     CHART-kind widget handed to `addWidget`/`insertWidgetAt` with a bogus `chartType`
+    //     is ordinary public API and is repaired here, not by the reducer. Dropping the call
+    //     from one of the three create-shaped paths would make the set inconsistent for no
+    //     gain, and `duplicateWidget` IS a creation.
+    //  2. It does strictly more than the reducer's screen, so the two are not redundant: the
+    //     reducer DELETES an invalid `chartType` key, while this repairs it to `'bar'` and
+    //     strips the config keys authored for the bogus type. A clone whose source config
+    //     arrived by any route the reducer did not mediate (`controller.store` is public)
+    //     would otherwise propagate both.
+    //
+    // Pinned by `StudioController.test.ts`, "duplicateWidget repairs an invalid chartType".
     const clone = this.sanitizeWidgetForCreate({
       ...existing,
       id: newId,

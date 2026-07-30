@@ -5172,20 +5172,29 @@ describe('StudioController — chart-type repair at every creation boundary', ()
     // `kind !== 'chart'`), then `updateWidget(id, { kind: 'chart' })` with no `config`
     // in `changes` — which used to skip the controller's chart-type guard, while the
     // reducer's kind-coherence pass RETAINED `chartType` because it is a valid 'chart'
-    // key. That route is now CLOSED: `updateWidget` re-runs `sanitizeWidgetForCreate`
-    // on a kind-only flip to 'chart' (see the test below, which pins it).
+    // key. BOTH halves of that route are now closed, in two separate places:
+    //  - `updateWidget` re-runs `sanitizeWidgetForCreate` on a kind-only flip to 'chart'
+    //    (the test below pins it), and
+    //  - the shared reducer now screens `config.chartType` on EVERY channel
+    //    (`screenOptionalWidgetScalars` on the two ADD channels, `stripInvalidChartType` on
+    //    the three UPDATE ones), so the PLANTING step no longer works either: an invalid
+    //    `chartType` is stripped on the way in regardless of the widget's `kind`, which is
+    //    why this test can no longer set up via `insertWidgetAt` on a `text` widget.
     //
-    // With that route closed, and `updateWidgetConfig` / `updateWidget`'s `changes.config`
-    // path both already screening an invalid `chartType`, no supported call sequence now
-    // reaches a chart-kind widget with a chart type outside `StudioChartType`. So this
-    // repair is DEFENSE IN DEPTH, and the test says so by reaching in with `store.setState`
-    // rather than pretending a public route exists.
+    // So no supported call sequence now reaches a chart-kind widget with a chart type
+    // outside `StudioChartType`, and this repair is DEFENSE IN DEPTH. The test says so by
+    // reaching in through the controller's PUBLIC `store` field rather than pretending a
+    // mutation route exists.
     //
-    // It is kept deliberately. `duplicateWidget` runs the SAME `sanitizeWidgetForCreate`
-    // that `addWidget`/`insertWidgetAt` run, and those ARE reachable with hostile input;
-    // dropping the call from one of the four create-shaped entry points would make the
-    // set inconsistent for no gain. If a future change re-opens a public route, this test
-    // still pins the behaviour.
+    // The repair is emphatically NOT dead code, for two reasons worth stating so nobody
+    // deletes it on a redundancy argument:
+    //  1. It is live and reachable for a CHART-kind widget at all three creation entry
+    //     points — the `insertWidgetAt` test above exercises exactly that, through the
+    //     public API, with no reach-in.
+    //  2. It does strictly MORE than the reducer's screen. The reducer DELETES an invalid
+    //     `chartType` key; this repairs it to `'bar'` AND strips the config keys authored
+    //     for the bogus type (`sankeyTargetField` below). Remove it and the reducer alone
+    //     leaves a chart with no `chartType` and a stray sankey key.
     const controller = new StudioController({
       doc: {
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
@@ -5193,14 +5202,11 @@ describe('StudioController — chart-type repair at every creation boundary', ()
         widgets: {},
       },
     });
-    controller.insertWidgetAt(
-      makeWidget('src', { kind: 'text', config: hostileConfig }),
-      'page-1',
-      [['src']],
-    );
-    // NOT a supported route — `updateWidget('src', { kind: 'chart' })` would now repair
-    // this on the way in. Reaching into the store is the honest way to construct the
-    // state a defense-in-depth guard exists for.
+    controller.insertWidgetAt(makeWidget('src', { kind: 'text' }), 'page-1', [['src']]);
+    // NOT a supported route — every mutation channel screens `config.chartType` now, and
+    // `updateWidget('src', { kind: 'chart' })` would additionally repair it on the way in.
+    // Reaching into the store is the honest way to construct the state a defense-in-depth
+    // guard exists for.
     const reached = controller.getState();
     controller.store.setState({
       ...reached,
@@ -5208,7 +5214,7 @@ describe('StudioController — chart-type repair at every creation boundary', ()
         ...reached.doc,
         widgets: {
           ...reached.doc.widgets,
-          src: { ...reached.doc.widgets.src, kind: 'chart' },
+          src: { ...reached.doc.widgets.src, kind: 'chart', config: hostileConfig },
         },
       },
     });
@@ -5238,11 +5244,21 @@ describe('StudioController — chart-type repair at every creation boundary', ()
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     // The gap this closes: `updateWidget`'s chart-type guard is gated on
     // `Object.hasOwn(changes, 'config')`, so `{ kind: 'chart' }` with no `config` used to
-    // skip it. The reducer's kind-coherence pass does not cover it either — it strips keys
+    // skip it. The reducer's kind-coherence pass STILL does not cover it — it strips keys
     // not ALLOWED for the new kind, and `chartType` is an allowed 'chart' key, so a bogus
-    // VALUE was retained. Create a non-chart widget carrying one (which
-    // `sanitizeWidgetForCreate` skips), flip the kind, and the widget became a chart with a
-    // chart type outside `StudioChartType`.
+    // VALUE is retained. This controller-side repair is the only thing that fixes it, which
+    // is why the guard stays even though the state below now needs a reach-in to build.
+    //
+    // The SETUP changed, the guard did not. The original route in was
+    // `insertWidgetAt` a `text` widget carrying the bogus `chartType` (which
+    // `sanitizeWidgetForCreate` skips on `kind !== 'chart'`) and then flip the kind. The
+    // shared reducer now screens `config.chartType` on every channel regardless of the
+    // widget's kind (`screenOptionalWidgetScalars`), so the plant is stripped on the way in
+    // and that precondition is unreachable through any mutation. Build it through the
+    // controller's public `store` field instead — same state, honestly labelled — rather
+    // than delete a guard whose failure mode (a chart rendering blank, then every later AI
+    // `update_widget` hard-erroring on the unknown stored chartType) is still live for
+    // anything that writes state directly.
     const controller = new StudioController({
       doc: {
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
@@ -5250,16 +5266,24 @@ describe('StudioController — chart-type repair at every creation boundary', ()
         widgets: {},
       },
     });
-    controller.insertWidgetAt(
-      makeWidget('src', { kind: 'text', config: hostileConfig }),
-      'page-1',
-      [['src']],
-    );
+    controller.insertWidgetAt(makeWidget('src', { kind: 'text' }), 'page-1', [['src']]);
+    const reached = controller.getState();
+    controller.store.setState({
+      ...reached,
+      doc: {
+        ...reached.doc,
+        widgets: {
+          ...reached.doc.widgets,
+          src: { ...reached.doc.widgets.src, config: hostileConfig },
+        },
+      },
+    });
     // Precondition: the bogus chart type really is on the stored widget, so the assertion
     // below tests the repair rather than an already-clean config.
     expect((controller.getState().doc.widgets.src.config as StudioWidgetConfig).chartType).toBe(
       '__proto__evil',
     );
+    expect(controller.getState().doc.widgets.src.kind).toBe('text');
 
     controller.updateWidget('src', { kind: 'chart' });
 
@@ -5371,25 +5395,84 @@ describe('StudioController — inherited-key ids never resolve as real entries',
     },
   );
 
-  // A page legitimately NAMED `constructor` must not be dropped by the "append omitted pages"
-  // fallback, which read back a truthy inherited function from the fresh `{}` accumulator.
-  it('keeps a page whose id is itself an Object.prototype member name', () => {
-    const controller = new StudioController({
-      doc: {
-        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
-        pages: {
-          'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] },
-          constructor: { id: 'constructor', title: 'Odd', widgetRows: [] },
+  // A page legitimately NAMED with a prototype member must not be dropped by the "append
+  // omitted pages" fallback, which read back a truthy inherited function from the fresh `{}`
+  // accumulator and silently skipped the page.
+  //
+  // WHICH names, exactly. `PROTO_KEYS` above mixes two populations, and they get different
+  // answers — this test covers the KEEP half, the one below covers the DROP half:
+  //
+  //  - `toString`/`valueOf`/`hasOwnProperty` are `Object.prototype` members and nothing else.
+  //    They are what the package-wide conversion to `Object.hasOwn` was FOR: no lookup
+  //    resolves them up the chain any more, so there is no reason to drop a user's page named
+  //    one of them, and no boundary does.
+  //  - `constructor`/`prototype`/`__proto__` are `UNSAFE_KEYS` (`unsafeKeys.ts`) — the
+  //    three-name pollution denylist every boundary in `@mui/x-studio-schema` screens against.
+  //
+  // This test used to assert `constructor` was KEPT. It was only ever true of the factory,
+  // which was the one page producer with no screen at all; the load boundary
+  // (`normalizePersistedPages`) has always dropped it, so the page this asserted we kept
+  // vanished on the very next reload. See the sibling test below.
+  it.each(['toString', 'valueOf', 'hasOwnProperty'])(
+    'keeps a page whose id is the Object.prototype member name "%s"',
+    (protoKey) => {
+      const controller = new StudioController({
+        doc: {
+          dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+          pages: {
+            'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] },
+            [protoKey]: { id: protoKey, title: 'Odd', widgetRows: [] },
+          },
         },
-      },
-    });
+      });
 
-    controller.reorderPages(['page-1']);
+      controller.reorderPages(['page-1']);
 
-    const pages = controller.getState().doc.pages;
-    expect(Object.keys(pages).sort()).toEqual(['constructor', 'page-1']);
-    expect(pages.constructor).toMatchObject({ id: 'constructor', title: 'Odd' });
-  });
+      const pages = controller.getState().doc.pages;
+      expect(Object.keys(pages).sort()).toEqual([protoKey, 'page-1'].sort());
+      expect(pages[protoKey]).toMatchObject({ id: protoKey, title: 'Odd' });
+    },
+  );
+
+  // The DROP half, and the reason the test above no longer claims `constructor`.
+  //
+  // `constructor`/`prototype`/`__proto__` are dropped by EVERY boundary that can produce a
+  // `doc`: the wire boundary rejects the id (`parseStateMutation`'s `isValidId`), the reducer
+  // refuses to mint the page (`addPage`'s `isSafePatchKey` gate — whose comment names deferred
+  // data loss as the motive), the persistence loader drops it (`normalizePersistedPages`), and
+  // as of the round-3 `screenPagesShape` fix so does this factory. Before that fix the factory
+  // was the ONLY producer that kept such a page, which is the worse failure mode, not the
+  // better one: the page lived until the first save/reload and then disappeared with no error.
+  //
+  // The tradeoff is real and deliberate — a hand-authored `initialState` naming a page
+  // `constructor` loses that page — and is accepted because one consistent answer at four
+  // boundaries beats three different ones. Note this is NOT a prototype-pollution claim about
+  // `constructor`: the maps are rebuilt with `Object.fromEntries`/spread (define semantics),
+  // so it could not pollute here any more than `toString` could. It is denylist membership.
+  it.each(['constructor', 'prototype', '__proto__'])(
+    'drops a page keyed with the pollution-denylist name "%s", matching the load boundary',
+    (unsafeKey) => {
+      const controller = new StudioController({
+        doc: {
+          dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+          // `JSON.parse`, not an object literal: `{ __proto__: … }` in a literal invokes the
+          // setter instead of creating the own key this screen is about.
+          pages: JSON.parse(
+            `{"page-1":{"id":"page-1","title":"Page 1","widgetRows":[]},` +
+              `"${unsafeKey}":{"id":"${unsafeKey}","title":"Odd","widgetRows":[]}}`,
+          ),
+        },
+      });
+
+      controller.reorderPages(['page-1']);
+
+      const pages = controller.getState().doc.pages;
+      expect(Object.keys(pages)).toEqual(['page-1']);
+      expect(Object.hasOwn(pages, unsafeKey)).toBe(false);
+      // The map itself is untouched — nothing was re-prototyped on the way through.
+      expect(Object.getPrototypeOf(pages)).toBe(Object.prototype);
+    },
+  );
 
   it.each(PROTO_KEYS)('setActivePage("%s") does not navigate anywhere', (protoKey) => {
     const controller = makeTwoPageController();

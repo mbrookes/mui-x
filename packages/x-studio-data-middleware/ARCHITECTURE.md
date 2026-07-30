@@ -556,6 +556,26 @@ Resolves `queryPlan = plan ?? toValidatedQueryPlan(descriptor)` and reads pre-re
 
   Knex's object/alias-map form (`{ [alias]: column }`) routes both the column and the alias through Knex's own identifier-wrapping, rather than building a `` `col as alias` `` fragment by interpolation.
 
+#### Aggregate results are normalized on the way out
+
+Aggregate values cross the driver boundary carrying the DRIVER's choice of JavaScript type, and the three supported drivers disagree — verified against the installed parsers, not assumed:
+
+| Aggregate                   | PostgreSQL (`pg`)         | MySQL (`mysql2`)        | SQLite   |
+| :-------------------------- | :------------------------ | :---------------------- | :------- |
+| `SUM(int)` / `SUM(numeric)` | `string` (bigint/numeric) | `string` (`NEWDECIMAL`) | `number` |
+| `AVG(…)`                    | `string` (numeric)        | `string` (`NEWDECIMAL`) | `number` |
+| `COUNT(…)`                  | `string` (bigint)         | `number` (`LONGLONG`)   | `number` |
+
+`pg-types` maps OID 20 (`int8`) and OID 1700 (`numeric`) to the identity string parser; `mysql2`'s text parser reads `DECIMAL`/`NEWDECIMAL` as an ASCII string unless `decimalNumbers` is set (default `false`), while `LONGLONG` goes through `parseLengthCodedInt(supportBigNumbers = false)` and comes back a number. So one descriptor delivered `{ total: '250' }` on two dialects and `{ total: 250 }` on the third, and `COUNT` diverged the other way — a KPI doing arithmetic got string concatenation or `NaN`, silently, on two of three engines. The package already knew: `runPreflight` types its count `number | string` and `Number(...)`s it, for the one value the middleware itself reads and none the client reads.
+
+`executeForTier` therefore normalizes the aggregation branch's output before returning it. **Only `sum`/`avg`/`count` output keys**, and only a string that parses finite:
+
+- **`min`/`max` are excluded** — they return the SOURCE COLUMN's type (a date, a padded SKU, a boolean) and this package holds no schema metadata to tell which, so `MIN(sku) = '00123'` must not become `123`.
+- **Raw projection columns are never touched** — a BIGINT id is a string on `pg` precisely so it is not lossily narrowed.
+- **NULL passes through** — `SUM` over a group with no non-NULL values is NULL everywhere, and `Number(null) === 0` would report "nothing contributed" as a real zero. A blank or non-numeric string passes through too, rather than becoming `NaN` (which JSON-serializes to `null` and would erase the value).
+
+Accepted limit: a sum beyond `Number.MAX_SAFE_INTEGER` loses precision as a JavaScript number. That is not a new loss — SQLite already returned these as JavaScript numbers — so the coercion makes the three dialects agree on the least-precise one's behavior rather than leaving two of them silently string-typed.
+
 ### The row budget
 
 `MAX_RESULT_ROWS` (100_000) bounds one widget's query and `MAX_WIDGETS_PER_BATCH` (50) bounds how many widgets a request may contain — but nothing bounded their **product**: 50 unbounded widgets could put 5,000,000 rows in the `results` array and serialize them all again into the JSON body. `MAX_ROWS_PER_REQUEST` (deliberately `=== MAX_RESULT_ROWS`) is the request-wide ceiling that makes the per-widget limits **compose rather than multiply**.

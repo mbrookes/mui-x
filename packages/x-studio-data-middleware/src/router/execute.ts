@@ -17,6 +17,7 @@ import {
   AGGREGATE_SQL_FUNCTIONS,
   toValidatedQueryPlan,
   type ColumnRef,
+  type PlanAggregation,
   type PlanOrderBy,
   type PlanProjectionColumn,
   type ValidatedQueryPlan,
@@ -219,6 +220,97 @@ async function runBounded(
   chargeRowBudgetOrThrow(budget, returned);
   if (appliedLimit < ownLimit && returned >= appliedLimit) {
     throw rowBudgetExhaustedError(budget === undefined ? 0 : budget.remaining);
+  }
+  return rows;
+}
+
+/**
+ * The aggregate functions whose SQL result is NUMERIC BY DEFINITION, and whose
+ * output is therefore safe to normalize to a JS number (F2).
+ *
+ * `min`/`max` are deliberately absent: they return the SOURCE COLUMN's type — a
+ * date, a padded SKU string, a boolean — and this package holds no schema
+ * metadata to tell which. Coercing `MIN(sku) = '00123'` to `123` would silently
+ * corrupt it, so min/max output is passed through exactly as the driver produced
+ * it and stays dialect-shaped. `sum`/`avg` accept only numeric input in SQL and
+ * `count` is an integer, so no such ambiguity exists for these three.
+ */
+const NUMERIC_AGGREGATE_FUNCTIONS = new Set<PlanAggregation['func']>(['sum', 'avg', 'count']);
+
+/**
+ * Normalize the JS type of numeric-aggregate output columns so a widget gets the
+ * SAME type from every dialect (F2).
+ *
+ * THE PROBLEM. Aggregate results cross the driver boundary carrying the driver's
+ * choice of JS type, not the middleware's, and the three supported drivers
+ * disagree. Verified against the installed parsers, not assumed:
+ *   - `pg-types` maps OID 20 (`int8`/BIGINT) and OID 1700 (`numeric`/DECIMAL) to
+ *     the identity STRING parser — deliberately, since neither fits a JS number
+ *     — so PostgreSQL's `SUM(int)` (bigint), `SUM(numeric)`, `AVG(…)` (numeric)
+ *     and `COUNT(…)` (bigint) all arrive as strings.
+ *   - `mysql2`'s text parser reads `DECIMAL`/`NEWDECIMAL` as an ASCII string
+ *     unless `decimalNumbers` is enabled (it defaults to `false`), so MySQL's
+ *     `SUM`/`AVG` are strings — while `LONGLONG`/BIGINT goes through
+ *     `parseLengthCodedInt(supportBigNumbers = false)`, making `COUNT` a NUMBER.
+ *   - SQLite returns a number for all of them.
+ * So one descriptor — `{ aggregations: [{ column: 'amount', func: 'sum', alias:
+ * 'total' }] }` — delivered `{ total: '250' }` on PostgreSQL AND MySQL but
+ * `{ total: 250 }` on SQLite, and `COUNT` diverged the other way. A KPI or chart
+ * doing arithmetic on that got string CONCATENATION ('250' + '75' = '25075') or
+ * `NaN` on two of the three dialects, with no error anywhere.
+ *
+ * This package already knew: `runPreflight` types its count `number | string` and
+ * coerces with `Number(...)` for exactly this reason — applied to the one value
+ * the middleware itself reads, and to none of the values the CLIENT reads.
+ *
+ * WHAT IS AND IS NOT TOUCHED. Only keys that are an `agg.alias` of a
+ * numeric-output aggregation (`NUMERIC_AGGREGATE_FUNCTIONS`), and only when the
+ * driver handed back a string that parses to a finite number:
+ *   - RAW PROJECTION COLUMNS ARE NEVER TOUCHED. A BIGINT id arrives as a string on
+ *     pg precisely so it is not lossily narrowed to a JS number; normalizing it
+ *     would corrupt exactly the values the driver protected.
+ *   - NULL/undefined pass through. `SUM(x)` over a group with no non-NULL values
+ *     is NULL in every dialect, and `Number(null)` is `0` — reporting "nothing
+ *     contributed" as a genuine zero total is a different fact.
+ *   - A string that does not parse finite passes through unchanged rather than
+ *     becoming `NaN`, which JSON-serializes to `null` and would erase the value.
+ *
+ * KNOWN, ACCEPTED PRECISION LIMIT. A `SUM` beyond `Number.MAX_SAFE_INTEGER` loses
+ * precision once it is a JS number. That is not a NEW loss: SQLite already
+ * returned these as JS numbers, so the coercion makes the three dialects agree on
+ * the behavior the least-precise one already had, rather than leaving two of them
+ * silently string-typed. A deployment that needs exact big-integer sums should
+ * read them as a `min`/`max`-style passthrough column or post-process host-side.
+ */
+function normalizeAggregateValues(
+  rows: Record<string, unknown>[],
+  aggregations: PlanAggregation[],
+): Record<string, unknown>[] {
+  const numericAliases = aggregations
+    .filter((agg) => NUMERIC_AGGREGATE_FUNCTIONS.has(agg.func))
+    .map((agg) => agg.alias);
+  if (numericAliases.length === 0 || !Array.isArray(rows)) {
+    return rows;
+  }
+  for (const row of rows) {
+    if (row === null || typeof row !== 'object') {
+      continue;
+    }
+    for (const alias of numericAliases) {
+      const value = row[alias];
+      // Only a STRING is a candidate — a number is already normal, and a Date /
+      // Buffer / bigint is not something `Number()` should be asked about. A
+      // blank string is excluded explicitly: `Number('')` and `Number(' ')` are
+      // both a finite `0`, so the guard below would turn "no value" into a real
+      // zero, the same mistake the NULL passthrough above avoids.
+      if (typeof value !== 'string' || value.trim() === '') {
+        continue;
+      }
+      const coerced = Number(value);
+      if (Number.isFinite(coerced)) {
+        row[alias] = coerced;
+      }
+    }
   }
   return rows;
 }
@@ -433,5 +525,6 @@ export async function executeForTier(
     query.orderBy(orderColumnOf(ob), ob.direction);
   }
   // Always apply an effective limit — see finding 3.1 / T2 / H2 above.
-  return runBounded(query, queryPlan.limit, rowBudget, queryTimeoutMs);
+  const aggregatedRows = await runBounded(query, queryPlan.limit, rowBudget, queryTimeoutMs);
+  return normalizeAggregateValues(aggregatedRows, queryPlan.aggregations);
 }

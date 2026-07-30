@@ -71,6 +71,43 @@ function createRecordingDb() {
   return { db, calls };
 }
 
+/**
+ * A Knex stand-in that resolves to a FIXED row set, so a test can pin what
+ * `executeForTier` does to the driver's rows on the way out.
+ *
+ * Every real driver decides the JS type of an aggregate itself — pg hands back
+ * `int8`/`numeric` as STRINGS, mysql2 hands back `DECIMAL` as a string and
+ * `BIGINT` as a number, SQLite hands back a number — so the rows a stand-in
+ * resolves to are the only honest way to model that boundary in jsdom.
+ */
+function createRowsDb(rows: Record<string, unknown>[]) {
+  const builder: any = {};
+  const passthrough = [
+    'where',
+    'whereIn',
+    'whereLike',
+    'whereBetween',
+    'count',
+    'select',
+    'orderBy',
+    'limit',
+    'timeout',
+    'groupBy',
+    'sum',
+    'avg',
+    'min',
+    'max',
+    'havingRaw',
+  ];
+  for (const method of passthrough) {
+    builder[method] = () => builder;
+  }
+  builder.then = (resolve: (value: Record<string, unknown>[]) => void) => resolve(rows);
+  const db = () => builder;
+  (db as any).raw = (_sql: string, bindings: unknown[]) => ({ kind: 'raw', bindings });
+  return db;
+}
+
 const BASE_CLAIMS: JwtSecurityClaims = {
   tenantId: 'acme',
   userId: 'user-1',
@@ -226,6 +263,123 @@ describe('executeForTier — "db" tier', () => {
       { tenancy: SINGLE_TENANT },
     );
     expect(calls).toContainEqual({ method: 'limit', args: [0] });
+  });
+});
+
+/**
+ * Regression suite for F2 — aggregate results crossed the driver boundary as
+ * STRINGS on PostgreSQL/MySQL and NUMBERS on SQLite, and nothing normalized them.
+ *
+ * Verified against the installed drivers' own parsers rather than guessed:
+ * `pg-types@2.2.0` maps OID 20 (`int8`/BIGINT) and OID 1700 (`numeric`/DECIMAL)
+ * to the identity string parser, so PostgreSQL's `SUM(int)` (→ bigint),
+ * `SUM(numeric)`, `AVG(...)` (→ numeric) and `COUNT(...)` (→ bigint) all arrive as
+ * strings. `mysql2@3.22.5`'s text parser reads `DECIMAL`/`NEWDECIMAL` as an ASCII
+ * string unless `decimalNumbers` is set (it defaults to `false`), so MySQL's
+ * `SUM`/`AVG` are strings — while `LONGLONG`/BIGINT goes through
+ * `parseLengthCodedInt(false)`, making `COUNT` a number. `node:sqlite` returns
+ * numbers for all of them. So `{ total: '250' }` on two dialects and
+ * `{ total: 250 }` on the third, for the same descriptor.
+ */
+describe('executeForTier — aggregate result normalization (F2)', () => {
+  it('coerces numeric-aggregate output columns to numbers', async () => {
+    const db = createRowsDb([{ category: 'electronics', total: '250', n: '2' }]);
+    const rows = await executeForTier(
+      db,
+      BASE_CLAIMS,
+      descriptor({
+        columns: ['category'],
+        aggregations: [
+          { column: 'amount', func: 'sum', alias: 'total' },
+          { column: 'amount', func: 'count', alias: 'n' },
+        ],
+      }),
+      'db',
+      { tenancy: SINGLE_TENANT },
+    );
+    expect(rows).toEqual([{ category: 'electronics', total: 250, n: 2 }]);
+  });
+
+  it('leaves a NULL aggregate as NULL rather than coercing it to 0', async () => {
+    // `SUM(x)` over a group with no non-NULL values is NULL in every dialect.
+    // `Number(null)` is `0`, which would report "no rows contributed" as a real
+    // zero total — a different fact.
+    const db = createRowsDb([{ category: 'books', total: null }]);
+    const rows = await executeForTier(
+      db,
+      BASE_CLAIMS,
+      descriptor({
+        columns: ['category'],
+        aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+      }),
+      'db',
+      { tenancy: SINGLE_TENANT },
+    );
+    expect(rows).toEqual([{ category: 'books', total: null }]);
+  });
+
+  it('leaves a non-numeric aggregate string untouched instead of producing NaN', async () => {
+    // Defensive: a driver/dialect that hands back something that is not a numeric
+    // literal must not be turned into `NaN`, which serializes to `null` in JSON
+    // and would erase the value entirely.
+    const db = createRowsDb([{ total: 'not-a-number' }]);
+    const rows = await executeForTier(
+      db,
+      BASE_CLAIMS,
+      descriptor({ aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }] }),
+      'db',
+      { tenancy: SINGLE_TENANT },
+    );
+    expect(rows).toEqual([{ total: 'not-a-number' }]);
+  });
+
+  it('does NOT coerce min/max output, whose type is the source column type', async () => {
+    // `MIN`/`MAX` return the COLUMN's type — a date, a string, a padded SKU — and
+    // this package holds no schema metadata to tell which. Coercing `'00123'` to
+    // `123` would silently corrupt it.
+    const db = createRowsDb([{ first_sku: '00123', last_sale: '2024-01-04' }]);
+    const rows = await executeForTier(
+      db,
+      BASE_CLAIMS,
+      descriptor({
+        aggregations: [
+          { column: 'sku', func: 'min', alias: 'first_sku' },
+          { column: 'sale_date', func: 'max', alias: 'last_sale' },
+        ],
+      }),
+      'db',
+      { tenancy: SINGLE_TENANT },
+    );
+    expect(rows).toEqual([{ first_sku: '00123', last_sale: '2024-01-04' }]);
+  });
+
+  it('does NOT coerce a RAW projection column that happens to look numeric', async () => {
+    // A BIGINT id arrives as a string on pg precisely so it is not lossily
+    // narrowed to a JS number. Only aggregate OUTPUT keys are normalized.
+    const db = createRowsDb([{ id: '9007199254740993', total: '250' }]);
+    const rows = await executeForTier(
+      db,
+      BASE_CLAIMS,
+      descriptor({
+        columns: ['id'],
+        aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+      }),
+      'db',
+      { tenancy: SINGLE_TENANT },
+    );
+    expect(rows).toEqual([{ id: '9007199254740993', total: 250 }]);
+  });
+
+  it('leaves rows untouched for a NON-aggregation db-tier descriptor', async () => {
+    const db = createRowsDb([{ id: '42', amount: '250' }]);
+    const rows = await executeForTier(
+      db,
+      BASE_CLAIMS,
+      descriptor({ columns: ['id', 'amount'] }),
+      'db',
+      { tenancy: SINGLE_TENANT },
+    );
+    expect(rows).toEqual([{ id: '42', amount: '250' }]);
   });
 });
 

@@ -11,7 +11,28 @@ export interface AggregationSpec {
   column: string;
   /** Aggregation function */
   func: 'sum' | 'avg' | 'count' | 'min' | 'max';
-  /** Output alias — used as the key in the result rows */
+  /**
+   * Output alias — used as the key in the result rows.
+   *
+   * VALUE-TYPE CONTRACT (F2). For `sum` / `avg` / `count`, the value under this
+   * key is always a JS `number` (or `null` when the aggregate itself is NULL,
+   * e.g. `SUM` over a group with no non-NULL values) — the SAME type on every
+   * dialect. Drivers do not agree on this by themselves: `pg` returns `int8` and
+   * `numeric` as STRINGS, `mysql2` returns `DECIMAL` as a string but `BIGINT` as
+   * a number, SQLite returns numbers, so the same descriptor used to deliver
+   * `'250'` on two dialects and `250` on the third and a chart doing arithmetic
+   * got string concatenation or `NaN`. `router/execute.ts` normalizes these
+   * outputs; a value beyond `Number.MAX_SAFE_INTEGER` loses precision, which is
+   * the behavior SQLite always had.
+   *
+   * `min` / `max` are EXCLUDED from that contract: they return the source
+   * COLUMN's type (a date, a padded id string, a boolean) and are passed through
+   * exactly as the driver produced them, since this package has no schema
+   * metadata with which to tell a numeric column from a textual one.
+   *
+   * RAW (non-aggregated) `columns` are never coerced either — a BIGINT id arrives
+   * as a string on `pg` precisely so it is not lossily narrowed.
+   */
   alias: string;
 }
 

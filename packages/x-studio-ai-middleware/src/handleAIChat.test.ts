@@ -532,6 +532,36 @@ describe('handleAIChat', () => {
       expect(fetch).not.toHaveBeenCalled();
     });
 
+    // Round 4 finding F4: the `toolName` type check above only ran WHEN THE FIELD WAS
+    // PRESENT, so an ABSENT `toolName` was waved through and produced exactly the
+    // malformed message this validator exists to prevent — `JSON.stringify` drops the
+    // `undefined`, so the emitted `tool_calls[0].function` has no `name` at all and the
+    // provider answers with the same opaque 400.
+    it('rejects a `dynamic-tool` part whose `toolInvocation.toolName` is absent', async () => {
+      const body = makeBody({
+        messages: [
+          {
+            id: 'm1',
+            role: 'assistant',
+            parts: [
+              {
+                type: 'dynamic-tool',
+                toolInvocation: { toolCallId: 'tc_1', input: {}, output: { ok: true } },
+              },
+            ],
+          } as unknown as StudioAIRequest['messages'][number],
+        ],
+      });
+
+      const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+      const errorEvent = events.find(
+        (event): event is { type: 'error'; message: string } => event.type === 'error',
+      );
+      expect(errorEvent?.message).toMatch(/^MUI X Studio:/);
+      expect(errorEvent?.message).toMatch(/`toolInvocation\.toolName` is not a string/);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
     // Regression for finding F2 (Tier 3): `session`/`runtime` previously went
     // unchecked, so a body with a valid `doc` but no `session`/`runtime` passed
     // validation and only crashed once `buildAISystemPrompt.ts` destructured

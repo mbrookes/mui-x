@@ -1014,9 +1014,17 @@ export function validateStudioAIRequestBody(body: unknown): string | undefined {
         }
         // Finding F5 (Tier 3): `toOpenAIMessages` reads `toolInvocation.toolName` into an
         // OpenAI `function.name` — a non-string value produces a malformed OpenAI message
-        // and an opaque provider 400 instead of a clean validation error. Require it to be
-        // a string when present (it is optional on the wire; only its TYPE is enforced).
-        if (toolInvocation.toolName !== undefined && typeof toolInvocation.toolName !== 'string') {
+        // and an opaque provider 400 instead of a clean validation error.
+        //
+        // Round 4 finding F4: required UNCONDITIONALLY, not merely "when present". The
+        // earlier `!== undefined &&` guard exempted the ABSENT case, which produces the
+        // very message this check exists to prevent: `JSON.stringify` drops an `undefined`
+        // property, so a `toolName`-less part serialises to
+        // `{"id":"tc-1","type":"function","function":{"arguments":"{}"}}` — a `function`
+        // object with no `name`, rejected by the provider with the same opaque 400 as a
+        // non-string one. `toolName` is not optional in practice: it is the only thing
+        // that tells the provider which tool the replayed call invoked.
+        if (typeof toolInvocation.toolName !== 'string') {
           return (
             `MUI X Studio: \`messages[${i}].parts[${j}]\` is a \`dynamic-tool\` part whose ` +
             '`toolInvocation.toolName` is not a string (`ChatMessage.parts[number].toolInvocation.toolName`). ' +

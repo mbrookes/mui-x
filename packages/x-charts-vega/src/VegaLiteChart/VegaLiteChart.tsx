@@ -285,6 +285,26 @@ function resolveVegaViewSize(
       return Boolean(enc && typeof enc === 'object' && (enc as { bin?: unknown }).bin);
     });
   };
+  // A `timeUnit` on a TEMPORAL channel keeps a time scale in Vega-Lite: the
+  // buckets get real positions along it, so the view sizes continuously and
+  // takes the requested width. Only an explicitly discrete `type` turns those
+  // buckets into categories that step-size instead. The wrapper renders both as
+  // a band axis (it needs the buckets as a domain either way), so without this
+  // the temporal ones were also step-sized and came out at `12 x 20 = 240px`
+  // against Vega's 440 — `bar_month_temporal_initial` and `_band_center` at
+  // barely half width, while the `type: "ordinal"` siblings
+  // (`stacked_bar_weather`, `selection_layer_bar_month`, …) were right at 240.
+  const isTemporalTimeUnit = (channel: 'x' | 'y'): boolean => {
+    const units = Array.isArray(spec.layer) ? [spec, ...spec.layer] : [spec];
+    return units.some((unit) => {
+      const enc = (unit as { encoding?: Record<string, unknown> }).encoding?.[channel];
+      if (!enc || typeof enc !== 'object') {
+        return false;
+      }
+      const def = enc as { timeUnit?: unknown; type?: unknown };
+      return def.timeUnit != null && def.type !== 'ordinal' && def.type !== 'nominal';
+    });
+  };
   // Whether the channel is genuinely encoded (vs. a synthetic single-category
   // axis the compiler adds so a 1-D strip's ticks have somewhere to sit). A
   // synthetic axis must not drive step-based sizing — otherwise a `tick` strip
@@ -315,6 +335,7 @@ function resolveVegaViewSize(
     const isDiscrete =
       (scaleType === 'band' || scaleType === 'point') &&
       !isBinned(channel) &&
+      !isTemporalTimeUnit(channel) &&
       channelEncoded(channel);
     const count = axis?.config.data?.length ?? 0;
     if (isDiscrete && count > 0) {

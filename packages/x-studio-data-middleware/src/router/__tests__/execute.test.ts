@@ -165,6 +165,41 @@ describe('executeForTier — "db" tier', () => {
     expect(calls.some((c) => c.method === 'sum')).toBe(true);
   });
 
+  // Regression (F1): a column that is BOTH projected AND aggregated must never
+  // land in GROUP BY, whatever the aggregation's alias is. The rule used to be
+  // `agg.alias === resultKeyOf(physical)` — an alias-NAME heuristic, not "is this
+  // column aggregated" — so the exact shape `queryTypes.ts` documents
+  // (`{ column: 'revenue', func: 'sum', alias: 'total_revenue' }`) grouped by the
+  // MEASURE as well as the dimension: `group by orders.category, orders.amount`,
+  // i.e. one row per (category, amount) with a per-value total instead of one row
+  // per category. Well-formed SQL, silently the wrong grain, and only visible when
+  // a measure has more than one distinct value inside a group.
+  it('keeps an aggregated column out of GROUP BY when its alias differs from the column (F1)', async () => {
+    const { db, calls } = createRecordingDb();
+    await executeForTier(
+      db,
+      BASE_CLAIMS,
+      descriptor({
+        table: 'orders',
+        columns: ['category', 'amount'],
+        aggregations: [{ column: 'amount', func: 'sum', alias: 'total_revenue' }],
+      }),
+      'db',
+      { tenancy: SINGLE_TENANT },
+    );
+    const groupByCalls = calls.filter((c) => c.method === 'groupBy');
+    expect(groupByCalls).toHaveLength(1);
+    // Only the dimension is grouped — the measure is projected by `sum()` alone.
+    expect(groupByCalls[0].args[0]).toEqual(['orders.category']);
+    // …and it is not SELECT-ed as a dimension either, which would re-introduce the
+    // per-row measure value alongside the aggregate.
+    const selected = calls
+      .filter((c) => c.method === 'select')
+      .flatMap((c) => c.args[0] as unknown[]);
+    expect(selected).toEqual(['orders.category']);
+    expect(calls.some((c) => c.method === 'sum')).toBe(true);
+  });
+
   // Regression (finding 3.1): all three tier branches used to gate `.limit()` on
   // truthiness (`if (queryPlan.limit) {...}`), so `limit: 0` — a legitimate
   // "return zero rows" request — was silently treated as "no limit" and never

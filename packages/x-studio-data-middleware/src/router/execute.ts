@@ -362,18 +362,33 @@ export async function executeForTier(
     return projectSelectOrderLimit(query);
   }
 
-  // Pure-measure columns are those whose aggregation alias equals the source
-  // column (e.g. SUM(total) AS total). They must not appear in GROUP BY —
-  // only in the aggregation clause. Dimension columns (date, category, …)
-  // remain in both SELECT and GROUP BY.
-  // Compare on PRIMARY-TABLE-QUALIFIED physicals (finding 2.2): a pure measure may
+  // MEASURE columns are the columns this descriptor AGGREGATES. They must not
+  // appear in GROUP BY — only inside the aggregation clause. Dimension columns
+  // (date, category, …) remain in both SELECT and GROUP BY, which is what
+  // `queryTypes.ts` documents: "Non-aggregated `columns` entries become GROUP BY".
+  //
+  // MEMBERSHIP IS "IS THIS COLUMN AGGREGATED", NOT "IS ITS ALIAS SHAPED LIKE THE
+  // COLUMN'S NAME" (F1). The rule used to be `a.pureMeasure` — `agg.alias ===
+  // resultKeyOf(a.physical)` — an alias-NAME heuristic. Under it, the exact shape
+  // `security/queryTypes.ts` documents (`{ column: 'revenue', func: 'sum', alias:
+  // 'total_revenue' }`) alongside a projection of the same column emitted
+  // `group by orders.category, orders.amount`: one row per (category, amount)
+  // carrying a per-VALUE total, instead of one row per category. Well-formed SQL
+  // on every dialect, silently the wrong grain, and only visible once a measure
+  // has more than one distinct value inside a group. Renaming the alias to the
+  // column's own name was the only way to get the right answer.
+  //
+  // Compare on PRIMARY-TABLE-QUALIFIED physicals (finding 2.2): an aggregation may
   // be qualified (`orders.amount`) while the matching projection column is not
   // (`amount`), or vice-versa, so a raw-string `.has(c.physical)` would miss the
   // match and leave the measure column in GROUP BY (wrong grain). Qualifying both
   // sides makes the membership test grain-correct.
-  const measureColSet = new Set(
-    queryPlan.aggregations.filter((a) => a.pureMeasure).map((a) => qualify(a.physical)),
-  );
+  //
+  // `validateQueryPlan` computes the SAME set (over `descriptor.aggregations`,
+  // with the same `qualifyAgainst` rule) to drop an aggregated column from the
+  // projection-key list its collision checks run over — the two must agree, since
+  // a column dropped from the dimensions here yields no result-row key there.
+  const measureColSet = new Set(queryPlan.aggregations.map((a) => qualify(a.physical)));
   const dimensionColumns = queryPlan.columns.filter((c) => !measureColSet.has(qualify(c.physical)));
 
   if (dimensionColumns.length > 0) {

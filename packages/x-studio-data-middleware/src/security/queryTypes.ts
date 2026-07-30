@@ -160,7 +160,21 @@ export interface BatchWidgetDescriptor {
   /**
    * Aggregation specs for DB push-down queries.
    *
-   * Non-aggregated `columns` entries become GROUP BY clauses.
+   * Non-aggregated `columns` entries become GROUP BY clauses. A `columns` entry
+   * that IS aggregated is a MEASURE, not a dimension: it is projected only inside
+   * its aggregate clause and never joins the GROUP BY, whatever its `alias` is
+   * spelled as. So `columns: ['category', 'amount']` with
+   * `{ column: 'amount', func: 'sum', alias: 'total_revenue' }` groups by
+   * `category` alone and returns `{ category, total_revenue }` — one row per
+   * category. (Clients are expected to list measure columns here: the client and
+   * server tiers return raw rows and need those columns present.)
+   *
+   * A CONSEQUENCE worth stating: a descriptor whose ONLY `columns` entry is the
+   * column it aggregates has no dimension left and is a GLOBAL aggregate. "How
+   * many rows per group" is therefore spelled by counting a NOT NULL column that
+   * is NOT the group key (this protocol has no `COUNT(*)` — see
+   * `AggregationSpec.column`).
+   *
    * When not set, the db tier returns a plain raw-row slice (the same select/
    * orderBy/limit shape the client/server tiers return for the same descriptor) —
    * NOT grouped rows without aggregation. See `router/execute.ts`'s

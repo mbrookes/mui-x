@@ -136,18 +136,19 @@ describe('validateQueryPlan — alias-resolution parity', () => {
         );
       });
 
-      it('resolves aggregation columns and pure-measure flags identically', () => {
+      it('resolves aggregation columns identically and carries func/alias unchanged', () => {
         expect(plan.aggregations.map((a) => a.physical)).toEqual(
           (descriptor.aggregations ?? []).map((a) => resolveAlias(descriptor, a.column)),
         );
-        // A pure measure is `FUNC(col) AS <col's own result key>` — the alias equals
-        // the LAST dot-segment of the resolved physical column (finding 2.2), so a
-        // qualified measure like `SUM(orders.amount) AS amount` still counts.
-        expect(plan.aggregations.map((a) => a.pureMeasure)).toEqual(
-          (descriptor.aggregations ?? []).map(
-            (a) => a.alias === (resolveAlias(descriptor, a.column).split('.').pop() ?? ''),
-          ),
+        expect(plan.aggregations.map(({ func, alias }) => ({ func, alias }))).toEqual(
+          (descriptor.aggregations ?? []).map(({ func, alias }) => ({ func, alias })),
         );
+        // No derived "pure measure" flag any more (F1): whether an aggregated
+        // column also belongs in GROUP BY is decided by membership in
+        // `aggregations`, not by how the alias happens to be spelled.
+        for (const agg of plan.aggregations) {
+          expect(agg).not.toHaveProperty('pureMeasure');
+        }
       });
 
       it('splits orderBy into agg-alias vs. resolved physical column identically', () => {
@@ -231,11 +232,16 @@ describe('validateQueryPlan — validation parity (reuses the shared validators)
 
   it('rejects an aggregation alias colliding with a projection output alias (finding 3.4)', () => {
     // `revenue` is a renamed expression-field projection (output alias) AND an
-    // aggregation alias — both SELECT-ed under the same result-row key.
+    // aggregation alias — both SELECT-ed under the same result-row key. The
+    // aggregation targets a DIFFERENT physical column, so `revenue` really is a
+    // GROUP BY dimension and really does collide (F1: were it the same column,
+    // the dimension would not be projected at all and there would be no collision
+    // — pinned by 'accepts a projected expression field aggregated under its own
+    // logical id' below).
     const descriptor: BatchWidgetDescriptor = {
       id: 'w1',
       table: 'sales',
-      columnAliases: { revenue: 'amount' },
+      columnAliases: { revenue: 'gross_amount' },
       columns: ['revenue'],
       aggregations: [{ column: 'amount', func: 'sum', alias: 'revenue' }],
     };
@@ -316,10 +322,11 @@ describe('validateQueryPlan — validation parity (reuses the shared validators)
     expect(() => validateQueryPlan(descriptor)).not.toThrow();
   });
 
-  it('recognises a table-qualified pure measure and keeps it out of GROUP BY (finding 2.2)', () => {
-    // `SUM(orders.amount) AS amount` is a pure measure even though `agg.column` is
-    // qualified — the old raw-string `alias === column` test could never match a
-    // dotted column, wrongly leaving it a GROUP BY dimension.
+  it('resolves a table-qualified aggregation column (finding 2.2)', () => {
+    // `SUM(orders.amount) AS amount` aggregates a QUALIFIED column; the plan must
+    // carry the resolved physical so `execute.ts` can match it against the
+    // projection (whose entry may be written unqualified) and keep it out of
+    // GROUP BY. The grain behavior itself is pinned in `router/__tests__/execute.test.ts`.
     const plan = validateQueryPlan({
       id: 'w1',
       table: 'orders',
@@ -328,7 +335,41 @@ describe('validateQueryPlan — validation parity (reuses the shared validators)
       aggregations: [{ column: 'orders.amount', func: 'sum', alias: 'amount' }],
     });
     const amountAgg = plan.aggregations.find((a) => a.alias === 'amount');
-    expect(amountAgg?.pureMeasure).toBe(true);
+    expect(amountAgg?.physical).toBe('orders.amount');
+  });
+
+  // Regression (F1, mirror half): the alias-NAME heuristic ALSO failed closed.
+  // When a projected expression field is aggregated under its OWN logical id, the
+  // aggregated column contributes no separate projection key — `execute.ts`
+  // projects it inside the aggregate clause only — so there is nothing for the
+  // alias to collide with. The pre-fix `resultKeyOf(physical)` test compared the
+  // alias against the PHYSICAL column's last segment (`amount`), decided this was
+  // not a measure, left `expr-1` in the projection-key list and hard-rejected the
+  // widget with "Aggregation alias "expr-1" collides with a projected column."
+  it('accepts a projected expression field aggregated under its own logical id (F1)', () => {
+    expect(() =>
+      validateQueryPlan({
+        id: 'w1',
+        table: 'orders',
+        columns: ['category', 'expr-1'],
+        columnAliases: { 'expr-1': 'orders.amount' },
+        aggregations: [{ column: 'expr-1', func: 'sum', alias: 'expr-1' }],
+      }),
+    ).not.toThrow();
+  });
+
+  // Regression (F1): an aggregated column contributes NO projection key, so an
+  // alias naming a DIFFERENT projected column must still be rejected — the
+  // exclusion must be scoped to the aggregated column itself.
+  it('still rejects an alias colliding with a non-aggregated projected column (F1)', () => {
+    expect(() =>
+      validateQueryPlan({
+        id: 'w1',
+        table: 'orders',
+        columns: ['category', 'amount'],
+        aggregations: [{ column: 'amount', func: 'sum', alias: 'category' }],
+      }),
+    ).toThrow(/Aggregation alias "category" collides with a projected column/);
   });
 
   // Regression for finding 3.4: an expression-field OUTPUT alias used to reach

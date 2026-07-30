@@ -2636,7 +2636,12 @@ describe('handleBatchQuery — aggregation push-down', () => {
     expect((rows[0].total as number) >= (rows[1].total as number)).toBe(true);
   });
 
-  it('counts occurrences per group (same column in columns and aggregations)', async () => {
+  // "How many rows per group" — this protocol has no `COUNT(*)` (see
+  // `validateQueryPlan`'s wildcard rejection), so it is spelled by counting a
+  // NOT NULL column that is NOT the group key. Counting the GROUP KEY ITSELF asks
+  // a different question (see the test below): an AGGREGATED column is a measure,
+  // never also a GROUP BY dimension.
+  it('counts occurrences per group by counting a non-dimension column', async () => {
     const body: BatchQueryRequest = {
       pageId: 'p1',
       widgets: [
@@ -2644,7 +2649,7 @@ describe('handleBatchQuery — aggregation push-down', () => {
           id: 'w1',
           table: 'sales',
           columns: ['product'],
-          aggregations: [{ column: 'product', func: 'count', alias: 'count' }],
+          aggregations: [{ column: 'id', func: 'count', alias: 'count' }],
           orderBy: [{ column: 'count', direction: 'desc' }],
         },
       ],
@@ -2663,6 +2668,71 @@ describe('handleBatchQuery — aggregation push-down', () => {
     // All ACME products accounted for
     const totalCount = rows.reduce((sum, r) => sum + (r.count as number), 0);
     expect(totalCount).toBe(4); // 4 ACME rows
+  });
+
+  // Regression (F1): an AGGREGATED column is a measure — never also a GROUP BY
+  // dimension — whatever the aggregation's alias is spelled as. A descriptor whose
+  // ONLY projected column is the one it aggregates therefore has NO dimension left
+  // and is a GLOBAL aggregate. The pre-F1 rule keyed off
+  // `agg.alias === <column's last dot-segment>`, so this very descriptor grouped or
+  // did not group purely according to how the alias happened to be named.
+  it('treats a column that is both projected and aggregated as a measure, not a dimension (F1)', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['product'],
+          aggregations: [{ column: 'product', func: 'count', alias: 'count' }],
+        },
+      ],
+    };
+
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenancy: MULTI_TENANT,
+    });
+
+    const { rows, tier } = result.results[0];
+    expect(tier).toBe('db');
+    expect(rows).toEqual([{ count: 4 }]);
+  });
+
+  // Regression (F1): the exact `AggregationSpec` shape `security/queryTypes.ts`
+  // documents — a measure aliased to something OTHER than its own column name —
+  // projected alongside a dimension. Before F1 this emitted
+  // `group by sales.region, sales.amount` and returned one row per DISTINCT AMOUNT
+  // carrying a per-value total, silently at the wrong grain.
+  it('groups by the dimension only when the measure is aliased differently (F1)', async () => {
+    const body: BatchQueryRequest = {
+      pageId: 'p1',
+      widgets: [
+        {
+          id: 'w1',
+          table: 'sales',
+          columns: ['region', 'amount'],
+          aggregations: [{ column: 'amount', func: 'sum', alias: 'total_revenue' }],
+          orderBy: [{ column: 'region', direction: 'asc' }],
+        },
+      ],
+    };
+
+    const result = await handleBatchQuery(body, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenancy: MULTI_TENANT,
+    });
+
+    const { rows } = result.results[0];
+    // One row per REGION (not one per region+amount), and the measure is not also
+    // projected as a raw per-row value beside its own aggregate.
+    expect(rows).toEqual([
+      { region: 'east', total_revenue: 200 },
+      { region: 'north', total_revenue: 75 },
+      { region: 'west', total_revenue: 250 },
+    ]);
   });
 
   it('global aggregation (no columns) returns a single summary row', async () => {

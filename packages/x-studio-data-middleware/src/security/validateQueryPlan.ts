@@ -127,16 +127,6 @@ export interface PlanAggregation {
   func: AggregationSpec['func'];
   /** Output alias — already validated as a safe identifier by `validateAggregationAliases`. */
   alias: string;
-  /**
-   * True when the aggregation's alias equals its column's RESULT KEY — the last
-   * dot-segment of the resolved physical column (a pure measure such as
-   * `SUM(total) AS total` or `SUM(orders.amount) AS amount`). Such columns go only
-   * in the aggregation clause, never in GROUP BY. Computed on the last dot-segment
-   * (not the raw `agg.column`) so a table-qualified measure is still recognised
-   * (finding 2.2) — `SAFE_ALIAS_PATTERN` forbids '.', so a raw-string `alias === column`
-   * test could never match a qualified column and left it wrongly in GROUP BY.
-   */
-  pureMeasure: boolean;
 }
 
 /**
@@ -760,23 +750,18 @@ function buildPlan(descriptor: BatchWidgetDescriptor): ValidatedQueryPlan {
 
   const semiJoins = resolveSemiJoins(descriptor.semiJoins, descriptor.table);
 
-  const aggregations: PlanAggregation[] = (descriptor.aggregations ?? []).map((agg) => {
-    const physical = resolve(agg.column);
-    return {
-      physical,
-      func: agg.func,
-      alias: agg.alias,
-      // A pure measure is `FUNC(col) AS <col's own name>` — the alias equals the
-      // column's RESULT KEY (its last dot-segment), NOT the raw `agg.column` string
-      // (finding 2.2). `SAFE_ALIAS_PATTERN` forbids '.', so a qualified `agg.column`
-      // (`orders.amount`) could never equal a valid alias under the old raw-string
-      // `agg.alias === agg.column` test — structurally killing the pure-measure dedup
-      // for exactly the qualified refs the join docs tell clients to use, so the
-      // measure landed in GROUP BY (wrong grain). Comparing on the last segment
-      // restores it: `SUM(orders.amount) AS amount` is recognised as a pure measure.
-      pureMeasure: agg.alias === resultKeyOf(physical),
-    };
-  });
+  // NO PRE-COMPUTED "is this a pure measure" FLAG (F1). The plan used to carry
+  // `pureMeasure: agg.alias === resultKeyOf(physical)`, which `execute.ts` used to
+  // decide whether an aggregated column also belonged in GROUP BY — an alias-NAME
+  // heuristic standing in for "is this column aggregated", and wrong whenever the
+  // alias was not simply the column's own name. The GROUP BY split now keys off
+  // membership in `aggregations` itself, so there is no derived flag left to drift
+  // from that question.
+  const aggregations: PlanAggregation[] = (descriptor.aggregations ?? []).map((agg) => ({
+    physical: resolve(agg.column),
+    func: agg.func,
+    alias: agg.alias,
+  }));
 
   const orderBy: PlanOrderBy[] = (descriptor.orderBy ?? []).map((ob) => {
     // Normalize the direction (on the request path already validated by
@@ -887,22 +872,32 @@ export function validateQueryPlan(
   //     logical id, so its key is that id (`?? as ??`);
   //   - a direct column lands under the last dot-segment of its resolved physical
   //     name (`orders.category` → `category`).
-  // A projected column that IS an aggregation's own pure measure is EXCLUDED here:
-  // `execute.ts` projects it only inside the aggregate clause (not as a SELECT
-  // dimension), so it yields no separate key and must not count as a collision.
+  // A projected column this descriptor AGGREGATES is EXCLUDED here: `execute.ts`
+  // projects it only inside the aggregate clause (not as a SELECT dimension), so
+  // it yields no separate result-row key and must not count as a collision.
   // Membership is compared on primary-table-qualified physicals, exactly as
   // `execute.ts`'s `measureColSet` / `dimensionColumns` split does, so an
   // unqualified column and its qualified aggregation still match.
+  //
+  // EVERY aggregation registers, not only those whose alias happens to equal the
+  // column's own name (F1). The old `agg.alias === resultKeyOf(physical)` test was
+  // the same alias-NAME heuristic `execute.ts` used for the GROUP BY split, and it
+  // failed CLOSED on this side: a projected expression field aggregated under its
+  // own logical id (`columnAliases: { 'expr-1': 'orders.amount' }`, `alias:
+  // 'expr-1'`) compared `expr-1` against the PHYSICAL column's last segment
+  // (`amount`), kept `expr-1` in the key list, and hard-rejected the widget with
+  // "Aggregation alias … collides with a projected column" — a collision that
+  // cannot happen, because the column is never SELECT-ed as a dimension.
   const qualify = (physical: string): string => qualifyAgainst(descriptor.table, physical);
   const measurePhysicals = new Set<string>();
   for (const agg of descriptor.aggregations ?? []) {
-    // Optional-chained (finding L1): this pure-measure pre-pass runs BEFORE
+    // Optional-chained (finding L1): this pre-pass runs BEFORE
     // `validateAggregationAliases` (which owns the fail-closed shape rejection),
     // so a malformed element must not crash it with a raw `TypeError` before that
     // validator can report the real problem. A malformed entry simply doesn't
-    // register as a pure measure and is rejected a few lines below.
+    // register as a measure and is rejected a few lines below.
     const physical = resolveAlias(descriptor, agg?.column as string);
-    if (typeof physical === 'string' && agg?.alias === resultKeyOf(physical)) {
+    if (typeof physical === 'string') {
       measurePhysicals.add(qualify(physical));
     }
   }

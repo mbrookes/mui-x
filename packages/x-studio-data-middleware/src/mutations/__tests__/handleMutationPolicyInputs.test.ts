@@ -58,6 +58,11 @@ function makeDb() {
       insert: () => qb,
       update: () => qb,
       delete: () => qb,
+      // Modelled because every query the middleware issues is time-bounded via
+      // `applyQueryTimeout`. Without it the built mutation rejects before it is
+      // ever awaited, and these tests would pass only because they assert on
+      // `compileSecurityPolicy`'s inputs, which are captured earlier.
+      timeout: () => qb,
       then: (resolve: (v: unknown) => void) => resolve(1),
     };
     return qb;

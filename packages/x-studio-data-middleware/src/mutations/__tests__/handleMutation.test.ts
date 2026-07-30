@@ -449,6 +449,10 @@ describe('handleMutation — per-mutation error isolation', () => {
         insert: () => qb,
         update: () => qb,
         delete: () => qb,
+        // Modelled so the query is actually awaited and rejects with the driver
+        // error below. Without it the builder throws at `applyQueryTimeout`
+        // first and this test would pass without `secret_col` ever being in play.
+        timeout: () => qb,
         then: (_resolve: unknown, reject?: (err: Error) => void) => {
           reject?.(new Error('insert into "orders" — no such column: secret_col'));
         },

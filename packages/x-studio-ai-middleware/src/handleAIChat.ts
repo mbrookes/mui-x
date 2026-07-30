@@ -66,6 +66,7 @@ import type {
   StudioAISkill,
   StudioAIDataConfig,
   StudioAIRateLimit,
+  StudioAIUsage,
   StudioAIRichContext,
   StudioAIEnrichedContext,
 } from './models/aiTypes';
@@ -215,6 +216,31 @@ export interface StudioAIHandlerOptions {
    * ```
    */
   rateLimit?: StudioAIRateLimit;
+  /**
+   * Called EXACTLY ONCE per request, on every exit path, with the total token usage the
+   * provider billed for the turns that actually ran.
+   *
+   * Use this — not the `usage` SSE event — for per-tenant quota accounting. The SSE
+   * events reach the BROWSER, so they only exist on paths that still have a live stream
+   * to write to, and `rateLimit.onLimitReached` fires only when a limit is actually
+   * reached. Neither can report an ABORT, yet an abort is the normal outcome of a user
+   * closing the tab: this handler's own teardown aborts the request controller on every
+   * exit. Before this hook, an abandoned chat and a provider hiccup both billed real
+   * tokens upstream and reported zero (finding F1).
+   *
+   * A throw from this callback is caught and routed to `onToolError('onUsage', err)`
+   * rather than being allowed to break the response.
+   *
+   * @example
+   * ```ts
+   * const stream = handleAIChat(body, {
+   *   endpoint: process.env.OPENAI_ENDPOINT,
+   *   onUsage: (usage) => quotaStore.record(tenantId, usage),
+   * });
+   * ```
+   * @param {StudioAIUsage} usage The request's cumulative token and iteration totals.
+   */
+  onUsage?: (usage: StudioAIUsage) => void;
   /**
    * Shared map for human-in-the-loop tool approval.
    *
@@ -1601,6 +1627,7 @@ export function handleAIChat(
               data: options.data,
               privateMode: effectivePrivateMode,
               rateLimit: options.rateLimit,
+              onUsage: options.onUsage,
               toolPolicy: options.toolPolicy,
               approvalPending: options.approvalPending,
               approvalFallback: options.approvalFallback,

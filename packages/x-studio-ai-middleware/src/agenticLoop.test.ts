@@ -3305,3 +3305,172 @@ describe('runAgenticLoop — hostile provider usage counts', () => {
     expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
   });
 });
+
+// Round 4 finding F1 — token usage was reported on THREE exit paths only (natural
+// finish, token budget, max turns). Every failure and abort path returned without a
+// `usage` SSE event, without `message-metadata`, and without firing any host callback,
+// so the tokens a provider had already billed for the completed turns were invisible to
+// per-tenant quota accounting. An abort is the NORMAL outcome of closing a tab, which
+// makes "abandoned chats are free" the common case rather than the edge case.
+describe('runAgenticLoop — usage accounting on failure and abort paths', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** A turn that calls `list_pages` and reports 4000 prompt / 800 completion tokens. */
+  function billedToolTurn(): Response {
+    return makeSseResponse([
+      {
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                { index: 0, id: `call_${Math.random()}`, function: { name: 'list_pages' } },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+      { choices: [], usage: { prompt_tokens: 4000, completion_tokens: 800 } },
+    ]);
+  }
+
+  function usageEvents(events: unknown[]) {
+    return events.filter((ev) => (ev as { type: string }).type === 'usage') as Array<{
+      inputTokens: number;
+      outputTokens: number;
+      iterations: number;
+    }>;
+  }
+
+  it('reports the tokens already billed when a mid-conversation fetch fails', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(billedToolTurn())
+      .mockResolvedValueOnce(billedToolTurn())
+      .mockResolvedValueOnce(billedToolTurn())
+      .mockRejectedValueOnce(new TypeError('fetch failed'));
+
+    const seen: Array<{ inputTokens: number; outputTokens: number; iterations: number }> = [];
+    const events = await collectEvents(
+      runAgenticLoop([userMsg('Go')], INITIAL_STATE, undefined, undefined, undefined, undefined, {
+        ...BASE_OPTIONS,
+        onUsage: (u) => seen.push(u),
+      }),
+    );
+
+    // The provider billed 3 × 4800 tokens before the fourth turn failed.
+    expect(seen).toEqual([{ inputTokens: 12_000, outputTokens: 2_400, iterations: 3 }]);
+    expect(usageEvents(events)).toEqual([
+      { type: 'usage', inputTokens: 12_000, outputTokens: 2_400, iterations: 3 },
+    ]);
+    expect(events.some((ev) => (ev as { type: string }).type === 'error')).toBe(true);
+  });
+
+  it('reports the tokens already billed when the provider returns a non-2xx', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(billedToolTurn())
+      .mockResolvedValueOnce(new Response('rate limited', { status: 429 }));
+
+    const seen: Array<{ inputTokens: number; outputTokens: number }> = [];
+    const events = await collectEvents(
+      runAgenticLoop([userMsg('Go')], INITIAL_STATE, undefined, undefined, undefined, undefined, {
+        ...BASE_OPTIONS,
+        onUsage: (u) => seen.push(u),
+      }),
+    );
+
+    expect(seen).toEqual([{ inputTokens: 4_000, outputTokens: 800, iterations: 1 }]);
+    expect(usageEvents(events)).toHaveLength(1);
+    expect(usageEvents(events)[0]).toMatchObject({ inputTokens: 4_000, outputTokens: 800 });
+  });
+
+  it('reports the tokens already billed when the stream drops mid-response', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(billedToolTurn())
+      .mockResolvedValueOnce(
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.error(new TypeError('terminated'));
+            },
+          }),
+          { status: 200 },
+        ),
+      );
+
+    const seen: Array<{ inputTokens: number; outputTokens: number }> = [];
+    const events = await collectEvents(
+      runAgenticLoop([userMsg('Go')], INITIAL_STATE, undefined, undefined, undefined, undefined, {
+        ...BASE_OPTIONS,
+        onUsage: (u) => seen.push(u),
+      }),
+    );
+
+    expect(seen).toEqual([{ inputTokens: 4_000, outputTokens: 800, iterations: 1 }]);
+    expect(usageEvents(events)[0]).toMatchObject({ inputTokens: 4_000, outputTokens: 800 });
+  });
+
+  it('reports the tokens already billed when the client aborts mid-conversation', async () => {
+    const ac = new AbortController();
+    let turns = 0;
+    vi.mocked(fetch).mockImplementation(async () => {
+      turns += 1;
+      if (turns > 3) {
+        ac.abort();
+      }
+      return billedToolTurn();
+    });
+
+    const seen: Array<{ inputTokens: number; outputTokens: number; iterations: number }> = [];
+    await collectEvents(
+      runAgenticLoop([userMsg('Go')], INITIAL_STATE, undefined, undefined, undefined, undefined, {
+        ...BASE_OPTIONS,
+        signal: ac.signal,
+        onUsage: (u) => seen.push(u),
+      }),
+    );
+
+    // An abort cannot deliver an SSE frame — the host-side callback is the only
+    // channel that can carry the already-billed tokens out.
+    expect(seen).toHaveLength(1);
+    expect(seen[0].inputTokens).toBeGreaterThanOrEqual(12_000);
+  });
+
+  it('fires onUsage exactly once on the natural-finish path too', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(textResponse('done', 100, 20));
+
+    const seen: unknown[] = [];
+    await collectEvents(
+      runAgenticLoop([userMsg('Hi')], INITIAL_STATE, undefined, undefined, undefined, undefined, {
+        ...BASE_OPTIONS,
+        onUsage: (u) => seen.push(u),
+      }),
+    );
+
+    expect(seen).toEqual([{ inputTokens: 100, outputTokens: 20, iterations: 1 }]);
+  });
+
+  it('does not let a throwing onUsage escape the loop', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(textResponse('done', 100, 20));
+    const onToolError = vi.fn();
+
+    const events = await collectEvents(
+      runAgenticLoop([userMsg('Hi')], INITIAL_STATE, undefined, undefined, undefined, undefined, {
+        ...BASE_OPTIONS,
+        onToolError,
+        onUsage: () => {
+          throw new Error('quota store unreachable');
+        },
+      }),
+    );
+
+    expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
+    expect(onToolError).toHaveBeenCalledWith('onUsage', expect.any(Error));
+  });
+});

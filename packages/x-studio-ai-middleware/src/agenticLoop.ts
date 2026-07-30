@@ -177,6 +177,36 @@ export interface AgenticLoopOptions {
    */
   rateLimit?: StudioAIRateLimit;
   /**
+   * Called EXACTLY ONCE per request, on every exit path, with the total token usage the
+   * provider billed for the turns that actually ran.
+   *
+   * This is the accounting channel (finding F1). The `usage` / `message-metadata` SSE
+   * events reach the browser and are therefore only emitted on paths that still have a
+   * live stream to write to — and `rateLimit.onLimitReached` fires only when a limit is
+   * reached, which most requests never do. Neither can carry usage out of an ABORT, yet
+   * an abort is the normal outcome of closing a tab: `handleAIChat`'s `finally` aborts
+   * the request controller on every teardown. Without this hook, an abandoned chat and a
+   * provider hiccup both bill real tokens upstream and report zero, so per-tenant quota
+   * accounting built on the SSE events undercounts by exactly the traffic most likely to
+   * be adversarial.
+   *
+   * Invoked from a `finally` around the whole turn loop, so it fires on natural finish,
+   * token-budget stop, max-turns stop, provider fetch failure, non-2xx, mid-stream read
+   * error, and every abort path alike. A throw from this callback is caught and routed to
+   * `onToolError('onUsage', err)` rather than being allowed to escape the generator — a
+   * failing quota store must not take the chat response down with it.
+   *
+   * @example
+   * ```ts
+   * runAgenticLoop(messages, state, undefined, undefined, undefined, undefined, {
+   *   endpoint,
+   *   onUsage: (usage) => quotaStore.record(tenantId, usage),
+   * });
+   * ```
+   * @param {StudioAIUsage} usage The request's cumulative token and iteration totals.
+   */
+  onUsage?: (usage: StudioAIUsage) => void;
+  /**
    * Per-call authorization policy — the single chokepoint every built-in mutating
    * tool call passes through. Defaults to `createDefaultToolPolicy()`, which
    * requires approval for `DESTRUCTIVE_TOOLS` and allows everything else (the
@@ -291,6 +321,24 @@ function isUsableDeltaText(value: unknown): value is string {
 
 // ── Main loop ─────────────────────────────────────────────────────────────────
 
+/** The `usage` SSE frame for a running total. */
+function usageEvent(usage: StudioAIUsage): StudioAISSEEvent {
+  return {
+    type: 'usage',
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    iterations: usage.iterations,
+  };
+}
+
+/**
+ * `AgenticLoopOptions` plus the request-scoped usage accumulator `runAgenticLoop`
+ * owns, so the turn loop reports into an object that outlives it (finding F1).
+ */
+interface TurnLoopOptions extends AgenticLoopOptions {
+  usage: StudioAIUsage;
+}
+
 /**
  * Runs the full agentic loop and yields `StudioAISSEEvent` objects.
  *
@@ -305,6 +353,55 @@ export async function* runAgenticLoop(
   allowedTools: string[] | undefined,
   skills: SerializableSkill[] | undefined,
   options: AgenticLoopOptions,
+): AsyncGenerator<StudioAISSEEvent> {
+  // Owned HERE, not inside the turn loop, so the `finally` below can read the real
+  // total no matter how the loop ended (finding F1). `runAgenticLoopTurns` mutates it
+  // in place as each turn's usage chunk arrives.
+  const usage: StudioAIUsage = { inputTokens: 0, outputTokens: 0, iterations: 0 };
+  try {
+    yield* runAgenticLoopTurns(
+      messages,
+      initialState,
+      customWidgets,
+      focusedWidgetId,
+      allowedTools,
+      skills,
+      { ...options, usage },
+    );
+  } finally {
+    // The ONE report that fires on every exit path — natural finish, token budget,
+    // max turns, provider fetch failure, non-2xx, mid-stream read error, and every
+    // abort, including a consumer that simply stops iterating (which runs this
+    // `finally` via the generator's return completion). The SSE `usage` frame cannot
+    // cover the abort paths: by then there is no live stream to write to.
+    if (options.onUsage) {
+      try {
+        options.onUsage({ ...usage });
+      } catch (err) {
+        // A failing quota store must not take the chat response down with it, and this
+        // runs in a `finally` where a throw would REPLACE whatever outcome the loop
+        // produced. Route it to the one server-side error channel this transport has.
+        options.onToolError?.(
+          'onUsage',
+          err instanceof Error ? err : /* minify-error-disabled */ new Error(String(err)),
+        );
+      }
+    }
+  }
+}
+
+/**
+ * The turn loop proper. Split from `runAgenticLoop` (finding F1) purely so that
+ * function can wrap it in a `try`/`finally` and report usage on every exit path.
+ */
+async function* runAgenticLoopTurns(
+  messages: ChatMessage[],
+  initialState: StudioState,
+  customWidgets: StudioCustomWidgetDef[] | undefined,
+  focusedWidgetId: string | undefined,
+  allowedTools: string[] | undefined,
+  skills: SerializableSkill[] | undefined,
+  options: TurnLoopOptions,
 ): AsyncGenerator<StudioAISSEEvent> {
   const {
     endpoint,
@@ -337,10 +434,13 @@ export async function* runAgenticLoop(
   // below reads it to enforce `rateLimit.maxMutationsPerRequest`.
   const toolUsage = { committedMutations: 0, toolCalls: 0 };
 
-  // Token/iteration usage accumulator across all iterations. Declared here (before the
-  // budget wrapper closes over it) so the `onLimitReached('mutations', …)` call can
-  // report the token usage at the point of the breach.
-  const usage: StudioAIUsage = { inputTokens: 0, outputTokens: 0, iterations: 0 };
+  // Token/iteration usage accumulator across all iterations, owned by `runAgenticLoop`
+  // and threaded in here (finding F1) so its `finally` can report the real total on
+  // every exit path — including the ones that never reach a `return` in this function,
+  // such as a consumer abandoning the generator on abort. The budget wrapper below and
+  // the `onLimitReached('mutations', …)` call read it to report usage at the point of a
+  // breach.
+  const { usage } = options;
 
   // Mutation budget. Layered as a policy that runs BEFORE the host policy via
   // `Policy.all`: once the committed-mutation count reaches the cap, any further
@@ -625,6 +725,9 @@ export async function* runAgenticLoop(
       // server-side and give the untrusted client only a correlation id.
       const report = reportProviderFetchError('LLM provider request', err);
       onToolError?.('llm-provider', new Error(report.detail));
+      // Finding F1 — the turns that already ran were billed; report them before ending
+      // the stream, exactly as the token-budget and max-turns stops do.
+      yield usageEvent(usage);
       yield { type: 'error', message: report.clientMessage };
       return;
     }
@@ -663,6 +766,8 @@ export async function* runAgenticLoop(
       );
       onToolError?.('llm-provider', new Error(report.detail));
       fetchAbort.dispose();
+      // Finding F1 — see the fetch-error path above.
+      yield usageEvent(usage);
       yield { type: 'error', message: report.clientMessage };
       return;
     }
@@ -677,13 +782,14 @@ export async function* runAgenticLoop(
     // alongside `tool_calls` for exactly this reason.
     let turnTextBuffer = '';
 
-    // Per-TURN usage, captured from the LAST usage-bearing chunk of this response rather
-    // than summed across chunks (finding T3-4b). The OpenAI wire contract emits usage once
-    // (in the final chunk under `stream_options: include_usage`), but some gateways repeat
-    // a CUMULATIVE usage on every chunk; summing those would multiply the real token count
-    // by the chunk count and trip `maxTokensPerRequest` far too early. Assign-from-last-seen
-    // is correct for both shapes: a single final chunk and a repeated-cumulative stream both
-    // leave the true per-turn total in these locals, which we fold into `usage` once below.
+    // The LAST usage figures this turn reported, NOT a running sum across chunks
+    // (finding T3-4b). The OpenAI wire contract emits usage once (in the final chunk
+    // under `stream_options: include_usage`), but some gateways repeat a CUMULATIVE
+    // usage on every chunk; summing those would multiply the real token count by the
+    // chunk count and trip `maxTokensPerRequest` far too early. These locals exist so
+    // the read site below can fold the DELTA against them into `usage`, which keeps
+    // last-seen-wins semantics for both stream shapes while leaving `usage` correct at
+    // every suspension point (finding F1).
     let turnInputTokens = 0;
     let turnOutputTokens = 0;
 
@@ -740,12 +846,25 @@ export async function* runAgenticLoop(
           | { prompt_tokens?: unknown; completion_tokens?: unknown }
           | undefined;
         if (chunkUsage) {
-          turnInputTokens = isUsableTokenCount(chunkUsage.prompt_tokens)
+          // Finding F1 — fold into the request total AS THE CHUNK ARRIVES, by applying
+          // the delta against the last value this turn reported, rather than summing at
+          // the end of the turn. `usage` is then correct at EVERY suspension point of
+          // this generator, so a turn that reports its usage and then fails (or is
+          // abandoned) still contributes the tokens the provider already billed for it.
+          // The last-seen-wins semantics of the previous end-of-turn fold are preserved
+          // exactly: `usage` moves by `next - turnInputTokens`, so a gateway repeating a
+          // CUMULATIVE usage on every chunk still contributes each turn's true total
+          // once (finding T3-4b), not once per chunk.
+          const nextInput = isUsableTokenCount(chunkUsage.prompt_tokens)
             ? chunkUsage.prompt_tokens
             : turnInputTokens;
-          turnOutputTokens = isUsableTokenCount(chunkUsage.completion_tokens)
+          const nextOutput = isUsableTokenCount(chunkUsage.completion_tokens)
             ? chunkUsage.completion_tokens
             : turnOutputTokens;
+          usage.inputTokens += nextInput - turnInputTokens;
+          usage.outputTokens += nextOutput - turnOutputTokens;
+          turnInputTokens = nextInput;
+          turnOutputTokens = nextOutput;
         }
 
         if (!choices?.length) {
@@ -826,6 +945,9 @@ export async function* runAgenticLoop(
       // "the stream stalled" vs "the connection dropped" distinction survives.
       const report = reportProviderFetchError('LLM response stream', err);
       onToolError?.('llm-provider', new Error(report.detail));
+      // Finding F1 — a stream that reported its usage chunk and THEN dropped (or hit one
+      // of this package's buffer caps) still billed those tokens.
+      yield usageEvent(usage);
       yield { type: 'error', message: report.clientMessage };
       return;
     }
@@ -833,9 +955,8 @@ export async function* runAgenticLoop(
     // long-lived host signal doesn't accumulate one listener per turn.
     fetchAbort.dispose();
 
-    // Fold this turn's usage into the cumulative per-request total ONCE (finding T3-4b).
-    usage.inputTokens += turnInputTokens;
-    usage.outputTokens += turnOutputTokens;
+    // NOTE: this turn's usage is ALREADY folded into `usage` — the read site above does
+    // it per chunk (finding F1), so there is deliberately no end-of-turn fold here.
 
     const rawToolCallEntries = Object.entries(acc.reqToolCalls);
     // Mint a synthetic id for any tool call the provider left un-id'd (finding T3-5).
@@ -880,12 +1001,7 @@ export async function* runAgenticLoop(
           iterations: usage.iterations,
         },
       };
-      yield {
-        type: 'usage',
-        inputTokens: usage.inputTokens,
-        outputTokens: usage.outputTokens,
-        iterations: usage.iterations,
-      };
+      yield usageEvent(usage);
       yield { type: 'finish', finishReason: finishReason ?? 'stop' };
       return;
     }
@@ -918,12 +1034,7 @@ export async function* runAgenticLoop(
       usage.inputTokens + usage.outputTokens >= rateLimit.maxTokensPerRequest
     ) {
       rateLimit.onLimitReached?.('tokens', { ...usage });
-      yield {
-        type: 'usage',
-        inputTokens: usage.inputTokens,
-        outputTokens: usage.outputTokens,
-        iterations: usage.iterations,
-      };
+      yield usageEvent(usage);
       yield {
         type: 'error',
         message:
@@ -1044,12 +1155,7 @@ export async function* runAgenticLoop(
 
   // Exceeded max turns
   rateLimit?.onLimitReached?.('turns', { ...usage });
-  yield {
-    type: 'usage',
-    inputTokens: usage.inputTokens,
-    outputTokens: usage.outputTokens,
-    iterations: usage.iterations,
-  };
+  yield usageEvent(usage);
   yield {
     type: 'error',
     message: `MUI X Studio: Agentic loop exceeded maximum turn limit (${maxTurns}).`,

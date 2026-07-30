@@ -1985,3 +1985,44 @@ describe('handleAIChat: abort on completion (finding M5)', () => {
     expect(requestSignal!.aborted).toBe(true);
   });
 });
+
+// Round 4 finding F1 — the host-facing half of the usage-accounting fix: `onUsage` must
+// be forwarded to the loop and must fire even when the consumer stops reading (a closed
+// tab), which is the case the `usage` SSE frame provably cannot cover.
+describe('handleAIChat — onUsage', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('forwards onUsage and reports the billed tokens on a normal response', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(textResponse('hello', 100, 20));
+    const onUsage = vi.fn();
+
+    await readAll(handleAIChat(makeBody(), { ...OPTIONS, onUsage }));
+
+    expect(onUsage).toHaveBeenCalledTimes(1);
+    expect(onUsage).toHaveBeenCalledWith({ inputTokens: 100, outputTokens: 20, iterations: 1 });
+  });
+
+  it('reports the billed tokens when the consumer cancels the stream mid-response', async () => {
+    // Turn 1 bills 200/50 and asks for a tool; the consumer then walks away without
+    // reading the rest, exactly as a closed tab does.
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('list_pages', {}))
+      .mockImplementation(() => new Promise<Response>(() => {}));
+    const onUsage = vi.fn();
+
+    const stream = handleAIChat(makeBody(), { ...OPTIONS, onUsage });
+    const reader = stream.getReader();
+    await reader.read();
+    await reader.cancel();
+    // Let the aborted producer unwind.
+    await vi.waitFor(() => expect(onUsage).toHaveBeenCalled());
+
+    expect(onUsage.mock.calls[0][0]).toMatchObject({ inputTokens: 200, outputTokens: 50 });
+  });
+});

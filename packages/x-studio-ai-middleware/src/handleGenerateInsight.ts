@@ -9,7 +9,7 @@ import { sanitizeForPromptLine } from './buildAISystemPrompt';
 import { buildWidgetFromArgs, MAX_FILTER_STRING_LENGTH } from './executeToolOnState';
 import { withTimeout } from './mcp/helpers';
 import { LLM_FETCH_TIMEOUT_MS } from './agenticLoop';
-import { capText, MAX_GENERATED_TITLE_LENGTH } from './internal/promptCaps';
+import { asString, capText, MAX_GENERATED_TITLE_LENGTH } from './internal/promptCaps';
 import { linkAbortSignal, readBodyWithTimeout } from './internal/llmFetch';
 import { reportProviderHttpError } from './internal/providerError';
 import { isPackageAuthoredError, markPackageAuthored } from './internal/packageError';
@@ -125,9 +125,15 @@ export async function readChatCompletionBody(
     }
     options.onError?.(
       onErrorContext,
-      // A template string, not `new Error(String(err))`: the error minifier only accepts
-      // literal/template messages, and a bare `String(err)` argument is unminifyable.
-      err instanceof Error ? err : new Error(`Non-Error rejection: ${String(err)}`),
+      // A template string, not `new Error(asString(err))`: the error minifier only accepts
+      // literal/template messages, and a bare variable argument is unminifyable.
+      //
+      // `asString`, not the raw `String` global (same hazard as finding F7 in
+      // `handleAIChat.ts`): `String(x)` is not total — `String({ toString: 1 })` throws
+      // `TypeError: Cannot convert object to primitive value`. This runs in a catch over
+      // an arbitrary rejection, so it must not be able to throw a second, worse error out
+      // of the best-effort logging path it exists to serve.
+      err instanceof Error ? err : new Error(`Non-Error rejection: ${asString(err)}`),
     );
     throw markPackageAuthored(
       new Error(
@@ -202,94 +208,109 @@ export async function handleGenerateTitle(
   // additionally ABORTS the request on timeout or on the caller's own signal
   // (finding M5); `withTimeout` alone only stopped this function waiting.
   const fetchAbort = linkAbortSignal(options.signal, LLM_FETCH_TIMEOUT_MS);
-  let response: Response;
   try {
-    response = await withTimeout(
-      fetch(endpoint, {
-        method: 'POST',
-        signal: fetchAbort.signal,
-        headers: {
-          'Content-Type': 'application/json',
-          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-          ...extraHeaders,
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            {
-              role: 'system',
-              content:
-                'Generate a short title (max 6 words) and a one-sentence description for a ' +
-                "dashboard analytics chat session based on the user's first message. " +
-                'Respond ONLY with valid JSON: {"title": "...", "description": "..."}',
-            },
-            { role: 'user', content: cappedFirstMessage },
-          ],
-          max_tokens: maxTokens,
-          temperature: 0.3,
+    let response: Response;
+    try {
+      response = await withTimeout(
+        fetch(endpoint, {
+          method: 'POST',
+          signal: fetchAbort.signal,
+          headers: {
+            'Content-Type': 'application/json',
+            ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+            ...extraHeaders,
+          },
+          body: JSON.stringify({
+            model,
+            messages: [
+              {
+                role: 'system',
+                content:
+                  'Generate a short title (max 6 words) and a one-sentence description for a ' +
+                  "dashboard analytics chat session based on the user's first message. " +
+                  'Respond ONLY with valid JSON: {"title": "...", "description": "..."}',
+              },
+              { role: 'user', content: cappedFirstMessage },
+            ],
+            max_tokens: maxTokens,
+            temperature: 0.3,
+          }),
         }),
-      }),
-      LLM_FETCH_TIMEOUT_MS,
-      'MUI X Studio: Title generation request',
-    );
-  } finally {
-    fetchAbort.dispose();
-  }
+        LLM_FETCH_TIMEOUT_MS,
+        'MUI X Studio: Title generation request',
+      );
+      // Finding F6 — `clearTimer()` here, `dispose()` in the outer `finally` below.
+      // `dispose()` clears the deadline timer AND unsubscribes from `options.signal`
+      // (`internal/llmFetch.ts`), and this block runs the moment the fetch RESOLVES — so
+      // disposing here disconnected the caller's own signal from headers-received onward
+      // and left the body read bounded only by the 120 s timeout. Once headers are in the
+      // DEADLINE genuinely no longer applies (`readBodyWithTimeout` owns the body from
+      // there), but the external-abort link must stay alive until the body is fully read.
+      // This is the same split the chat loop makes in `agenticLoop.ts`.
+    } finally {
+      fetchAbort.clearTimer();
+    }
 
-  if (!response.ok) {
-    // Finding H4 — status only, never the provider's body (see `reportProviderHttpError`).
-    // This handler already relayed status-only; the report adds a correlation id and
-    // routes the body to `onError` so an operator can still diagnose it.
-    const errText = await readBodyWithTimeout(
+    if (!response.ok) {
+      // Finding H4 — status only, never the provider's body (see `reportProviderHttpError`).
+      // This handler already relayed status-only; the report adds a correlation id and
+      // routes the body to `onError` so an operator can still diagnose it.
+      const errText = await readBodyWithTimeout(
+        response,
+        () => response.text(),
+        LLM_FETCH_TIMEOUT_MS,
+        'MUI X Studio: Title generation error response body',
+      ).catch(() => undefined);
+      const report = reportProviderHttpError(
+        'Title generation request',
+        response.status,
+        response.statusText,
+        errText,
+      );
+      options.onError?.('handleGenerateTitle', new Error(report.detail));
+      throw new Error(report.clientMessage);
+    }
+
+    // Bounded by `LLM_FETCH_TIMEOUT_MS` (finding 2, iteration 24) — the fetch-level
+    // timeout above only bounds the wait for HEADERS to arrive; a gateway that returns
+    // 2xx headers then stalls the body would otherwise hang this call forever. The body
+    // is CANCELLED on a timeout (finding M5) rather than left unread on a live socket.
+    // A 200 whose body is NOT JSON is turned into a branded, provider-text-free error
+    // rather than a raw `SyntaxError` quoting the body (finding L4).
+    const data = await readChatCompletionBody(
       response,
-      () => response.text(),
-      LLM_FETCH_TIMEOUT_MS,
-      'MUI X Studio: Title generation error response body',
-    ).catch(() => undefined);
-    const report = reportProviderHttpError(
-      'Title generation request',
-      response.status,
-      response.statusText,
-      errText,
+      'Title generation',
+      options,
+      'handleGenerateTitle',
     );
-    options.onError?.('handleGenerateTitle', new Error(report.detail));
-    throw new Error(report.clientMessage);
-  }
 
-  // Bounded by `LLM_FETCH_TIMEOUT_MS` (finding 2, iteration 24) — the fetch-level
-  // timeout above only bounds the wait for HEADERS to arrive; a gateway that returns
-  // 2xx headers then stalls the body would otherwise hang this call forever. The body
-  // is CANCELLED on a timeout (finding M5) rather than left unread on a live socket.
-  // A 200 whose body is NOT JSON is turned into a branded, provider-text-free error
-  // rather than a raw `SyntaxError` quoting the body (finding L4).
-  const data = await readChatCompletionBody(
-    response,
-    'Title generation',
-    options,
-    'handleGenerateTitle',
-  );
+    // `data.choices?.[0]` guards against a provider/rate-limit stub that returns
+    // `{ choices: [] }` with a 200 status (no `!response.ok` to catch it) — without
+    // the optional chaining, `data.choices[0].message.content` throws an opaque
+    // TypeError instead of falling back like every other malformed-response case
+    // here does.
+    //
+    // `typeof !== 'string'`, not `=== undefined`: `content` is raw provider JSON and its
+    // declared type guarantees nothing (invariant 15). A non-string reached `JSON.parse`,
+    // which coerces — `JSON.parse({} as any)` parses the string "[object Object]" and
+    // throws a `SyntaxError` that happened to land in the fallback below by luck, while a
+    // NUMBER content parsed CLEANLY into a number and flowed on as a "parsed" response.
+    const content = data.choices?.[0]?.message?.content;
+    if (typeof content !== 'string') {
+      return { title: cappedFirstMessage.slice(0, MAX_GENERATED_TITLE_LENGTH), description: '' };
+    }
 
-  // `data.choices?.[0]` guards against a provider/rate-limit stub that returns
-  // `{ choices: [] }` with a 200 status (no `!response.ok` to catch it) — without
-  // the optional chaining, `data.choices[0].message.content` throws an opaque
-  // TypeError instead of falling back like every other malformed-response case
-  // here does.
-  //
-  // `typeof !== 'string'`, not `=== undefined`: `content` is raw provider JSON and its
-  // declared type guarantees nothing (invariant 15). A non-string reached `JSON.parse`,
-  // which coerces — `JSON.parse({} as any)` parses the string "[object Object]" and
-  // throws a `SyntaxError` that happened to land in the fallback below by luck, while a
-  // NUMBER content parsed CLEANLY into a number and flowed on as a "parsed" response.
-  const content = data.choices?.[0]?.message?.content;
-  if (typeof content !== 'string') {
-    return { title: cappedFirstMessage.slice(0, MAX_GENERATED_TITLE_LENGTH), description: '' };
-  }
-
-  try {
-    const parsed: unknown = JSON.parse(content);
-    return normalizeGeneratedTitle(parsed, cappedFirstMessage);
-  } catch {
-    return { title: cappedFirstMessage.slice(0, MAX_GENERATED_TITLE_LENGTH), description: '' };
+    try {
+      const parsed: unknown = JSON.parse(content);
+      return normalizeGeneratedTitle(parsed, cappedFirstMessage);
+    } catch {
+      return { title: cappedFirstMessage.slice(0, MAX_GENERATED_TITLE_LENGTH), description: '' };
+    }
+  } finally {
+    // Every exit path — the parsed result, a thrown provider/validation error, an
+    // abort — passes through here, so the external-abort listener is removed exactly
+    // once and a long-lived host signal cannot accumulate one per request.
+    fetchAbort.dispose();
   }
 }
 
@@ -487,140 +508,155 @@ export async function handleCreateWidget(
   // additionally ABORTS the request on timeout or on the caller's own signal
   // (finding M5); `withTimeout` alone only stopped this function waiting.
   const fetchAbort = linkAbortSignal(options.signal, LLM_FETCH_TIMEOUT_MS);
-  let response: Response;
   try {
-    response = await withTimeout(
-      fetch(endpoint, {
-        method: 'POST',
-        signal: fetchAbort.signal,
-        headers: {
-          'Content-Type': 'application/json',
-          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-          ...extraHeaders,
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: description },
-          ],
-          max_tokens: maxTokens,
-          temperature: 0.2,
+    let response: Response;
+    try {
+      response = await withTimeout(
+        fetch(endpoint, {
+          method: 'POST',
+          signal: fetchAbort.signal,
+          headers: {
+            'Content-Type': 'application/json',
+            ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+            ...extraHeaders,
+          },
+          body: JSON.stringify({
+            model,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: description },
+            ],
+            max_tokens: maxTokens,
+            temperature: 0.2,
+          }),
         }),
-      }),
-      LLM_FETCH_TIMEOUT_MS,
-      'MUI X Studio: Widget creation request',
+        LLM_FETCH_TIMEOUT_MS,
+        'MUI X Studio: Widget creation request',
+      );
+      // Finding F6 — `clearTimer()` here, `dispose()` in the outer `finally` below.
+      // `dispose()` clears the deadline timer AND unsubscribes from `options.signal`
+      // (`internal/llmFetch.ts`), and this block runs the moment the fetch RESOLVES — so
+      // disposing here disconnected the caller's own signal from headers-received onward
+      // and left the body read bounded only by the 120 s timeout. Once headers are in the
+      // DEADLINE genuinely no longer applies (`readBodyWithTimeout` owns the body from
+      // there), but the external-abort link must stay alive until the body is fully read.
+      // This is the same split the chat loop makes in `agenticLoop.ts`.
+    } finally {
+      fetchAbort.clearTimer();
+    }
+
+    if (!response.ok) {
+      // Finding H4 — status + correlation id only; the provider's body goes to
+      // `onError` (see `reportProviderHttpError`).
+      const errText = await readBodyWithTimeout(
+        response,
+        () => response.text(),
+        LLM_FETCH_TIMEOUT_MS,
+        'MUI X Studio: Widget creation error response body',
+      ).catch(() => undefined);
+      const report = reportProviderHttpError(
+        'Widget creation request',
+        response.status,
+        response.statusText,
+        errText,
+      );
+      options.onError?.('handleCreateWidget', new Error(report.detail));
+      throw new Error(report.clientMessage);
+    }
+
+    // Bounded by `LLM_FETCH_TIMEOUT_MS` (finding 2, iteration 24) — the fetch-level
+    // timeout above only bounds the wait for HEADERS to arrive; a gateway that returns
+    // 2xx headers then stalls the body would otherwise hang this call forever. The body
+    // is CANCELLED on a timeout (finding M5) rather than left unread on a live socket.
+    // A 200 whose body is NOT JSON is turned into a branded, provider-text-free error
+    // rather than a raw `SyntaxError` quoting the body (finding L4).
+    const data = await readChatCompletionBody(
+      response,
+      'Widget creation',
+      options,
+      'handleCreateWidget',
     );
+
+    // `data.choices?.[0]` guards against a provider/rate-limit stub that returns
+    // `{ choices: [] }` with a 200 status — without the optional chaining,
+    // `data.choices[0].message.content` throws an opaque TypeError instead of the
+    // descriptive `MUI X Studio:`-prefixed error this function otherwise guarantees.
+    //
+    // `typeof !== 'string'` rather than `=== undefined` for the same reason
+    // `handleGenerateTitle` uses it: `content` is raw provider JSON, so a number there
+    // would otherwise `JSON.parse` cleanly and flow on as a "valid" widget response.
+    const content = data.choices?.[0]?.message?.content;
+    if (typeof content !== 'string') {
+      throw new Error(
+        'MUI X Studio: The AI widget-creation request returned no usable message content. ' +
+          'This prevents the client from building a widget from the model output. ' +
+          'Check that the LLM endpoint/model returned a valid chat-completion response with at least one choice whose message content is a string.',
+      );
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      // Finding L4 — this was the one throw in these handlers with neither the mandated
+      // `MUI X Studio:` prefix nor the "what / why / how to fix" shape AGENTS.md requires,
+      // so a caller surfacing it to a user got a bare, unattributable sentence. Branded:
+      // it is built entirely from package prose, and deliberately quotes NONE of the
+      // model-authored `content` it failed to parse (invariant 16).
+      //
+      // Finding L3 — the remediation used to tell the operator to check "the
+      // `response_format: json_object` option this request sends", but the request body
+      // built above sets no `response_format` at all, so that was a dead end: the
+      // operator would go looking for an option that does not exist. The guidance now
+      // names the lever that actually governs this failure — the system prompt — and
+      // says plainly that no structured-output option is in play.
+      throw markPackageAuthored(
+        new Error(
+          'MUI X Studio: The AI widget-creation response was not valid JSON. ' +
+            'This prevents the client from building a widget from the model output. ' +
+            'This request does not send a `response_format` option, so JSON-only output depends ' +
+            'entirely on the model obeying the system prompt: check that the configured model is ' +
+            'capable of replying with a single JSON object and nothing else (no prose, no code ' +
+            'fences), and switch to one that is if it is not.',
+        ),
+      );
+    }
+
+    assertValidCreateWidgetResponse(parsed);
+
+    // Shape validation alone (kind/title non-empty, config an object) is NOT enough
+    // (finding T3-6): `handleCreateWidget` is exported publicly, so a hostile or
+    // hallucinated LLM response could name an unknown `kind` or smuggle a config key that
+    // belongs to a different widget kind (or a chart config key invalid for its chartType)
+    // straight into a client that trusts the middleware. Run the parsed response through
+    // `buildWidgetFromArgs` — the SAME kind-allow-list + config-key + config-value +
+    // chart-config-key validators every server-side widget path (`add_widget`,
+    // `apply_bulk_update`) already runs — and fail closed on any rejection. Custom kinds
+    // aren't registered on this path, so only the built-in kinds pass, matching the
+    // system prompt's advertised kinds.
+    const built = buildWidgetFromArgs(parsed);
+    if ('error' in built) {
+      throw new Error(
+        `MUI X Studio: The AI widget-creation response failed validation: ${built.error} ` +
+          'This prevents an invalid or cross-kind widget definition from reaching the client. ' +
+          'Ensure the model returns a supported "kind" and a "config" whose keys match that kind.',
+      );
+    }
+    // Return the VALIDATED/NORMALIZED widget fields (title capped, config merged
+    // with kind defaults) rather than the raw `parsed` response — otherwise the
+    // `buildWidgetFromArgs` validation above is pure ceremony: an unbounded title
+    // or an untouched hallucinated config key would still reach the client via
+    // `parsed` even though `built` already caught and normalized it.
+    return {
+      kind: built.widget.kind,
+      title: built.widget.title,
+      sourceId: built.widget.sourceId,
+      config: built.widget.config as Record<string, unknown>,
+    };
   } finally {
+    // Every exit path — the parsed result, a thrown provider/validation error, an
+    // abort — passes through here, so the external-abort listener is removed exactly
+    // once and a long-lived host signal cannot accumulate one per request.
     fetchAbort.dispose();
   }
-
-  if (!response.ok) {
-    // Finding H4 — status + correlation id only; the provider's body goes to
-    // `onError` (see `reportProviderHttpError`).
-    const errText = await readBodyWithTimeout(
-      response,
-      () => response.text(),
-      LLM_FETCH_TIMEOUT_MS,
-      'MUI X Studio: Widget creation error response body',
-    ).catch(() => undefined);
-    const report = reportProviderHttpError(
-      'Widget creation request',
-      response.status,
-      response.statusText,
-      errText,
-    );
-    options.onError?.('handleCreateWidget', new Error(report.detail));
-    throw new Error(report.clientMessage);
-  }
-
-  // Bounded by `LLM_FETCH_TIMEOUT_MS` (finding 2, iteration 24) — the fetch-level
-  // timeout above only bounds the wait for HEADERS to arrive; a gateway that returns
-  // 2xx headers then stalls the body would otherwise hang this call forever. The body
-  // is CANCELLED on a timeout (finding M5) rather than left unread on a live socket.
-  // A 200 whose body is NOT JSON is turned into a branded, provider-text-free error
-  // rather than a raw `SyntaxError` quoting the body (finding L4).
-  const data = await readChatCompletionBody(
-    response,
-    'Widget creation',
-    options,
-    'handleCreateWidget',
-  );
-
-  // `data.choices?.[0]` guards against a provider/rate-limit stub that returns
-  // `{ choices: [] }` with a 200 status — without the optional chaining,
-  // `data.choices[0].message.content` throws an opaque TypeError instead of the
-  // descriptive `MUI X Studio:`-prefixed error this function otherwise guarantees.
-  //
-  // `typeof !== 'string'` rather than `=== undefined` for the same reason
-  // `handleGenerateTitle` uses it: `content` is raw provider JSON, so a number there
-  // would otherwise `JSON.parse` cleanly and flow on as a "valid" widget response.
-  const content = data.choices?.[0]?.message?.content;
-  if (typeof content !== 'string') {
-    throw new Error(
-      'MUI X Studio: The AI widget-creation request returned no usable message content. ' +
-        'This prevents the client from building a widget from the model output. ' +
-        'Check that the LLM endpoint/model returned a valid chat-completion response with at least one choice whose message content is a string.',
-    );
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    // Finding L4 — this was the one throw in these handlers with neither the mandated
-    // `MUI X Studio:` prefix nor the "what / why / how to fix" shape AGENTS.md requires,
-    // so a caller surfacing it to a user got a bare, unattributable sentence. Branded:
-    // it is built entirely from package prose, and deliberately quotes NONE of the
-    // model-authored `content` it failed to parse (invariant 16).
-    //
-    // Finding L3 — the remediation used to tell the operator to check "the
-    // `response_format: json_object` option this request sends", but the request body
-    // built above sets no `response_format` at all, so that was a dead end: the
-    // operator would go looking for an option that does not exist. The guidance now
-    // names the lever that actually governs this failure — the system prompt — and
-    // says plainly that no structured-output option is in play.
-    throw markPackageAuthored(
-      new Error(
-        'MUI X Studio: The AI widget-creation response was not valid JSON. ' +
-          'This prevents the client from building a widget from the model output. ' +
-          'This request does not send a `response_format` option, so JSON-only output depends ' +
-          'entirely on the model obeying the system prompt: check that the configured model is ' +
-          'capable of replying with a single JSON object and nothing else (no prose, no code ' +
-          'fences), and switch to one that is if it is not.',
-      ),
-    );
-  }
-
-  assertValidCreateWidgetResponse(parsed);
-
-  // Shape validation alone (kind/title non-empty, config an object) is NOT enough
-  // (finding T3-6): `handleCreateWidget` is exported publicly, so a hostile or
-  // hallucinated LLM response could name an unknown `kind` or smuggle a config key that
-  // belongs to a different widget kind (or a chart config key invalid for its chartType)
-  // straight into a client that trusts the middleware. Run the parsed response through
-  // `buildWidgetFromArgs` — the SAME kind-allow-list + config-key + config-value +
-  // chart-config-key validators every server-side widget path (`add_widget`,
-  // `apply_bulk_update`) already runs — and fail closed on any rejection. Custom kinds
-  // aren't registered on this path, so only the built-in kinds pass, matching the
-  // system prompt's advertised kinds.
-  const built = buildWidgetFromArgs(parsed);
-  if ('error' in built) {
-    throw new Error(
-      `MUI X Studio: The AI widget-creation response failed validation: ${built.error} ` +
-        'This prevents an invalid or cross-kind widget definition from reaching the client. ' +
-        'Ensure the model returns a supported "kind" and a "config" whose keys match that kind.',
-    );
-  }
-  // Return the VALIDATED/NORMALIZED widget fields (title capped, config merged
-  // with kind defaults) rather than the raw `parsed` response — otherwise the
-  // `buildWidgetFromArgs` validation above is pure ceremony: an unbounded title
-  // or an untouched hallucinated config key would still reach the client via
-  // `parsed` even though `built` already caught and normalized it.
-  return {
-    kind: built.widget.kind,
-    title: built.widget.title,
-    sourceId: built.widget.sourceId,
-    config: built.widget.config as Record<string, unknown>,
-  };
 }

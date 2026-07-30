@@ -664,3 +664,86 @@ describe('handleGenerateTitle / handleCreateWidget: provider error disclosure (f
     expect(loggedError.message).toContain('sk-proj-LEAKED');
   });
 });
+
+// ── Finding F6 (round 3): the caller's abort link died at headers ────────────
+//
+// Both one-shot handlers wrapped their fetch in `finally { fetchAbort.dispose(); }`,
+// which runs the moment the fetch RESOLVES — i.e. as soon as headers arrive.
+// `dispose()` clears the deadline timer AND unsubscribes from `options.signal`
+// (`internal/llmFetch.ts`), so from headers-received onward the caller's own signal was
+// disconnected and the body read was bounded only by the 120 s timeout. The chat loop
+// deliberately uses `clearTimer()` at exactly this point for exactly this reason: the
+// deadline no longer applies once headers are in, but an external abort must still tear
+// the response down.
+describe('external abort after headers (finding F6)', () => {
+  beforeEach(() => {
+    vi.useRealTimers();
+  });
+
+  /**
+   * Faithful stand-in for `fetch`'s real abort plumbing: resolves headers
+   * immediately, then keeps the body pending until the request's OWN signal aborts.
+   */
+  function stubFetchStallingBody() {
+    const fn = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const signal = init!.signal!;
+      const abortError = () => new DOMException('The operation was aborted.', 'AbortError');
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: () =>
+          new Promise((_resolve, reject) => {
+            if (signal.aborted) {
+              reject(abortError());
+              return;
+            }
+            signal.addEventListener('abort', () => reject(abortError()), { once: true });
+          }),
+        text: async () => '',
+        body: { cancel: async () => {} },
+      };
+    });
+    vi.stubGlobal('fetch', fn);
+    return fn;
+  }
+
+  /** Resolves to `'hung'` if `promise` has not settled within `ms`. */
+  async function settleOrHang(promise: Promise<unknown>, ms = 250): Promise<string> {
+    return Promise.race([
+      promise.then(
+        () => 'resolved',
+        () => 'rejected',
+      ),
+      new Promise<string>((resolve) => {
+        setTimeout(() => resolve('hung'), ms);
+      }),
+    ]);
+  }
+
+  it('handleGenerateTitle stops the body read when the caller aborts after headers', async () => {
+    stubFetchStallingBody();
+    const external = new AbortController();
+    const promise = handleGenerateTitle('hello', { ...OPTIONS, signal: external.signal });
+    // Let the fetch resolve and the body read start.
+    await new Promise((resolve) => {
+      setTimeout(resolve, 10);
+    });
+    external.abort();
+    await expect(settleOrHang(promise)).resolves.toBe('rejected');
+  });
+
+  it('handleCreateWidget stops the body read when the caller aborts after headers', async () => {
+    stubFetchStallingBody();
+    const external = new AbortController();
+    const promise = handleCreateWidget(
+      { description: 'a chart', sources: [] },
+      { ...OPTIONS, signal: external.signal },
+    );
+    await new Promise((resolve) => {
+      setTimeout(resolve, 10);
+    });
+    external.abort();
+    await expect(settleOrHang(promise)).resolves.toBe('rejected');
+  });
+});

@@ -340,7 +340,8 @@ describe('runAgenticLoop — rate limiting', () => {
     const errorEvent = events.find((ev) => (ev as { type: string }).type === 'error') as {
       message: string;
     };
-    expect(errorEvent.message).toMatch(/maximum turn limit/i);
+    expect(errorEvent.message).toMatch(/used all 1 of its allowed tool-calling turns/i);
+    expect(errorEvent.message).toMatch(/rateLimit\.maxTurnsPerRequest/);
 
     expect(onLimitReached).toHaveBeenCalledOnce();
     expect(onLimitReached.mock.calls[0][0]).toBe('turns');
@@ -1183,7 +1184,7 @@ describe('runAgenticLoop — malformed tool arguments', () => {
         (ev as { phase?: string }).phase === 'complete',
     ) as { output?: string } | undefined;
     expect(complete).toBeDefined();
-    expect(String(complete?.output)).toContain('invalid tool arguments');
+    expect(String(complete?.output)).toContain('are not valid JSON');
 
     // The loop recovers and finishes on the follow-up turn.
     expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
@@ -1955,7 +1956,9 @@ describe('runAgenticLoop — request-body skill name collides with a built-in to
         (ev as { phase?: string }).phase === 'complete',
     ) as { output?: string } | undefined;
     expect(complete).toBeDefined();
-    expect(JSON.parse(complete!.output!)).toEqual({ error: 'Unknown tool: query_data_source' });
+    expect((JSON.parse(complete!.output!) as { error: string }).error).toMatch(
+      /^MUI X Studio: The tool "query_data_source" is not available in this request/,
+    );
     expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
   });
 
@@ -2225,7 +2228,7 @@ describe('runAgenticLoop — tool gating enforcement (T1-1)', () => {
     ) as { output?: string } | undefined;
     expect(complete).toBeDefined();
     const parsed = JSON.parse(complete!.output!) as { error?: string };
-    expect(parsed.error).toMatch(/unknown tool/i);
+    expect(parsed.error).toMatch(/is not available in this request/i);
     expect(parsed.error).toContain('remove_page');
 
     // The loop recovers and finishes on the follow-up turn.
@@ -2261,7 +2264,7 @@ describe('runAgenticLoop — tool gating enforcement (T1-1)', () => {
         (ev as { toolName?: string }).toolName === 'query_data_source',
     ) as { output?: string } | undefined;
     expect(complete).toBeDefined();
-    expect(JSON.parse(complete!.output!).error).toMatch(/unknown tool/i);
+    expect(JSON.parse(complete!.output!).error).toMatch(/is not available in this request/i);
   });
 });
 
@@ -2341,7 +2344,7 @@ describe('runAgenticLoop — privateMode tool gating (T1-2)', () => {
         (ev as { toolName?: string }).toolName === 'get_dashboard_state',
     ) as { output?: string } | undefined;
     expect(complete).toBeDefined();
-    expect(JSON.parse(complete!.output!).error).toMatch(/unknown tool/i);
+    expect(JSON.parse(complete!.output!).error).toMatch(/is not available in this request/i);
 
     // The tool result fed back to the provider on the next turn is the rejection,
     // not the dashboard JSON that privateMode promised to withhold.
@@ -2349,7 +2352,7 @@ describe('runAgenticLoop — privateMode tool gating (T1-2)', () => {
       messages: { role: string; content: string }[];
     };
     const toolMsg = secondBody.messages.find((m) => m.role === 'tool');
-    expect(toolMsg?.content).toMatch(/unknown tool/i);
+    expect(toolMsg?.content).toMatch(/is not available in this request/i);
 
     expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
   });
@@ -2907,9 +2910,9 @@ describe('runAgenticLoop — allowedTools bounds server-tool skills', () => {
         (ev as { type: string }).type === 'tool-activity' &&
         (ev as { phase?: string }).phase === 'complete',
     ) as { output?: string } | undefined;
-    expect(JSON.parse(complete!.output!)).toEqual({
-      error: 'Unknown tool: force_rename',
-    });
+    expect((JSON.parse(complete!.output!) as { error: string }).error).toMatch(
+      /^MUI X Studio: The tool "force_rename" is not available in this request/,
+    );
   });
 
   it('keeps the skill available when its tool name IS listed in allowedTools', async () => {
@@ -3104,7 +3107,9 @@ describe('allowedTools parity between the chat and MCP transports', () => {
         (ev as { phase?: string }).phase === 'complete',
     ) as { output?: string } | undefined;
     // Same rejection, for the same reason, on both surfaces.
-    expect((JSON.parse(complete!.output!) as { error: string }).error).toMatch(/Unknown tool/);
+    expect((JSON.parse(complete!.output!) as { error: string }).error).toMatch(
+      /is not available in this request/,
+    );
   });
 });
 
@@ -3533,5 +3538,63 @@ describe('runAgenticLoop — usage accounting on failure and abort paths', () =>
 
     expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
     expect(onToolError).toHaveBeenCalledWith('onUsage', expect.any(Error));
+  });
+});
+
+// Round 4 finding F7 — the two loop-TERMINATING messages are the ones an end user is
+// most likely to see in the chat panel, and both were the terse outliers in a package
+// whose other errors all carry remediation prose (AGENTS.md's third rule: say what
+// happened, why it matters, and how to fix it). Neither named the option to raise, nor
+// suggested narrowing or splitting the request.
+describe('runAgenticLoop — loop-terminating messages carry remediation', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function errorMessage(events: unknown[]): string {
+    const ev = events.find((event) => (event as { type: string }).type === 'error') as
+      | { message: string }
+      | undefined;
+    return ev?.message ?? '';
+  }
+
+  it('token-budget stop names the option to raise and what else to try', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(toolCallResponse('list_pages', {}));
+
+    const message = errorMessage(
+      await collectEvents(
+        runAgenticLoop([userMsg('Go')], INITIAL_STATE, undefined, undefined, undefined, undefined, {
+          ...BASE_OPTIONS,
+          rateLimit: { maxTokensPerRequest: 10 },
+        }),
+      ),
+    );
+
+    expect(message).toMatch(/^MUI X Studio:/);
+    expect(message).toMatch(/token budget exceeded/);
+    // What happened is already there; these are the two halves that were missing.
+    expect(message).toMatch(/rateLimit\.maxTokensPerRequest/);
+    expect(message).toMatch(/no further turns|nothing further|was not completed/i);
+  });
+
+  it('max-turns stop names the option to raise and what else to try', async () => {
+    vi.mocked(fetch).mockImplementation(async () => toolCallResponse('list_pages', {}));
+
+    const message = errorMessage(
+      await collectEvents(
+        runAgenticLoop([userMsg('Go')], INITIAL_STATE, undefined, undefined, undefined, undefined, {
+          ...BASE_OPTIONS,
+          rateLimit: { maxTurnsPerRequest: 2 },
+        }),
+      ),
+    );
+
+    expect(message).toMatch(/^MUI X Studio:/);
+    expect(message).toMatch(/rateLimit\.maxTurnsPerRequest/);
+    expect(message).toMatch(/smaller steps|narrower|split/i);
   });
 });

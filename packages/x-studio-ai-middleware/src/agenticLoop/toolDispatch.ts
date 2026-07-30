@@ -769,9 +769,18 @@ export async function* dispatchToolCall(
     ctx.usage.toolCalls += 1;
     const rawArgs = tc.argsBuffer ?? '';
     const snippet = rawArgs.length > 200 ? `${rawArgs.slice(0, 200)}…` : rawArgs;
+    // Finding F7 — carries the `MUI X Studio:` prefix every sibling budget denial in
+    // this file already carries, and tells the model what to do next rather than only
+    // naming the fault. A tool result is the model's ONLY feedback channel, so a bare
+    // fragment is a wasted turn.
     return {
       kind: 'result',
-      output: JSON.stringify({ error: `invalid tool arguments: ${snippet}` }),
+      output: JSON.stringify({
+        error:
+          `MUI X Studio: The arguments streamed for "${safeIdentifier(name)}" are not valid ` +
+          `JSON, so the tool was not run: ${snippet}. Re-issue the call with a complete, ` +
+          'valid JSON object matching the tool schema.',
+      }),
     };
   }
 
@@ -794,9 +803,16 @@ export async function* dispatchToolCall(
     // label and the `executeToolOnState` label), all of which already route through the
     // shared sanitize-AND-cap chokepoint. This site was the outlier. `mcp.ts`'s two
     // `Unknown tool:` messages do the same.
+    // Finding F7 — same prefix and same remediation-carrying shape as the
+    // parse-failure result above.
     return {
       kind: 'result',
-      output: JSON.stringify({ error: `Unknown tool: ${safeIdentifier(name)}` }),
+      output: JSON.stringify({
+        error:
+          `MUI X Studio: The tool "${safeIdentifier(name)}" is not available in this request, ` +
+          'so it was not run. Use only the tools listed in this request and choose the ' +
+          'closest available one.',
+      }),
     };
   }
 
@@ -1024,7 +1040,14 @@ export async function* dispatchToolCall(
     return {
       kind: 'result',
       output: JSON.stringify({
-        error: `server-tool skill '${name}' has no registered handler on the server.`,
+        // Finding F7 — prefixed and remediation-carrying like its siblings above. The
+        // audience here is really the OPERATOR reading it back off the transcript: the
+        // model cannot register a handler, so name the option that fixes it.
+        error:
+          `MUI X Studio: The server-tool skill "${safeIdentifier(name)}" was declared to ` +
+          'the model but has no registered handler on the server, so it could not run. ' +
+          "Register a matching handler in `skillHandlers`, or stop declaring the skill's " +
+          'tool. Continue without this tool.',
       }),
     };
   }

@@ -1039,7 +1039,10 @@ async function* runAgenticLoopTurns(
         type: 'error',
         message:
           'MUI X Studio: Request stopped — token budget exceeded. ' +
-          `Used ${usage.inputTokens + usage.outputTokens} tokens (limit: ${rateLimit.maxTokensPerRequest}).`,
+          `Used ${usage.inputTokens + usage.outputTokens} tokens (limit: ${rateLimit.maxTokensPerRequest}). ` +
+          'The assistant had more work queued, so its answer was not completed and no ' +
+          'further turns will run. Ask for a narrower change, split the task across ' +
+          'several messages, or raise `rateLimit.maxTokensPerRequest` on the server.',
       };
       return;
     }
@@ -1158,6 +1161,10 @@ async function* runAgenticLoopTurns(
   yield usageEvent(usage);
   yield {
     type: 'error',
-    message: `MUI X Studio: Agentic loop exceeded maximum turn limit (${maxTurns}).`,
+    message:
+      `MUI X Studio: Request stopped — the assistant used all ${maxTurns} of its ` +
+      'allowed tool-calling turns without finishing. Its answer is incomplete, and any ' +
+      'changes already applied were kept. Ask for the remaining work in smaller steps, ' +
+      'or raise `rateLimit.maxTurnsPerRequest` on the server.',
   };
 }

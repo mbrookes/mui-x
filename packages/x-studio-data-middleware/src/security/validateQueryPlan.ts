@@ -310,6 +310,91 @@ function validateOrderByDirections(descriptor: BatchWidgetDescriptor): void {
   }
 }
 
+/**
+ * Validate every ORDER BY TARGET of an AGGREGATION widget against the query's
+ * actual grain (F4).
+ *
+ * CORRECTNESS INVARIANT — runs UNCONDITIONALLY for every widget (independent of
+ * whether a `columnAllowlist` is configured), and is a no-op for a descriptor
+ * with no `aggregations` (without a GROUP BY there is no grain to violate: every
+ * row has its own value for any column, so any orderable column stays legal).
+ *
+ * `execute.ts`'s `orderColumnOf` qualifies ANY non-alias order target with the
+ * primary table and emits it verbatim, with no check against the GROUP BY
+ * dimensions. So
+ *
+ *   { columns: ['category'],
+ *     aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+ *     orderBy: [{ column: 'created_at', direction: 'desc' }] }
+ *
+ * emitted `… group by "orders"."category" order by "orders"."created_at" desc`.
+ * Each result row is a whole GROUP, and `created_at` has no single value inside
+ * one: PostgreSQL rejects the query (42803) and MySQL under the default
+ * `ONLY_FULL_GROUP_BY` raises `ER_MIX_OF_GROUP_FUNC_AND_FIELDS` — both then
+ * masked by `sanitizeBoundaryError` into the generic per-widget error, so the
+ * client cannot tell what it sent wrong. SQLite is the dangerous one: it ACCEPTS
+ * the query and sorts each group by an ARBITRARY member row's value, handing back
+ * nondeterministic order presented as sorted data.
+ *
+ * This is the same class of failure `validateOrderByDirections` exists to prevent
+ * (a silently wrong ordering rather than an error), and `validateHavingAliases`
+ * already enforces the analogous rule for the other post-aggregation clause — so
+ * this throws in the same shape, listing what IS orderable.
+ *
+ * A legal target is a declared aggregation ALIAS, or a projected column that is a
+ * GROUP BY DIMENSION — that is, a projected column the descriptor does NOT
+ * aggregate (F1). Membership is compared on primary-table-qualified physicals,
+ * exactly as `execute.ts`'s `measureColSet` / `dimensionColumns` split does, so a
+ * qualified dimension and an unqualified order target still match.
+ */
+function validateOrderByTargets(descriptor: BatchWidgetDescriptor): void {
+  const aggregations = descriptor.aggregations ?? [];
+  const orderBy = descriptor.orderBy ?? [];
+  if (aggregations.length === 0 || orderBy.length === 0) {
+    return;
+  }
+  const qualify = (physical: string): string => qualifyAgainst(descriptor.table, physical);
+  const aggAliases = new Set(aggregations.map((agg) => agg?.alias));
+  // Every AGGREGATED column, so a projected measure is not mistaken for a
+  // dimension — `execute.ts` keeps it out of GROUP BY, so it is exactly as
+  // unorderable as a column that was never projected at all.
+  const measurePhysicals = new Set<string>();
+  for (const agg of aggregations) {
+    const physical = resolveAlias(descriptor, agg?.column as string);
+    if (typeof physical === 'string') {
+      measurePhysicals.add(qualify(physical));
+    }
+  }
+  const dimensions = new Set<string>();
+  for (const column of descriptor.columns ?? []) {
+    const physical = resolveAlias(descriptor, column);
+    if (typeof physical === 'string' && !measurePhysicals.has(qualify(physical))) {
+      dimensions.add(qualify(physical));
+    }
+  }
+  for (const ob of orderBy) {
+    if (typeof ob?.column !== 'string' || aggAliases.has(ob.column)) {
+      // A non-string column is left to the allowlist/shape validators, which own
+      // the fail-closed rejection and report the real problem.
+      continue;
+    }
+    const physical = resolveAlias(descriptor, ob.column);
+    if (typeof physical === 'string' && dimensions.has(qualify(physical))) {
+      continue;
+    }
+    throw new Error(
+      `MUI X Studio Server: ORDER BY column "${ob.column}" is neither a GROUP BY dimension nor an aggregation ` +
+        `alias of this widget. Orderable here: ${[...dimensions, ...aggAliases].join(', ') || '(none)'}. ` +
+        `Each row of an aggregation query is a whole GROUP, so a column outside the grouping has no single value ` +
+        `to sort by: PostgreSQL and MySQL (under the default ONLY_FULL_GROUP_BY) reject the query outright, while ` +
+        `SQLite accepts it and sorts each group by an ARBITRARY member row — returning nondeterministic order ` +
+        `presented as sorted data. ` +
+        `Order by one of the projected non-aggregated columns or by an aggregation alias, or add "${ob.column}" ` +
+        `to "columns" to make it part of the grouping.`,
+    );
+  }
+}
+
 /** Accepts only the three canonical SQL join types (case-insensitive). */
 const SAFE_JOIN_TYPE = /^(inner|left|right)$/i;
 
@@ -881,6 +966,12 @@ function buildPlan(descriptor: BatchWidgetDescriptor): ValidatedQueryPlan {
  *      driver into returning every tenant-scoped row, finding 3.1).
  *   7. `validateDescriptorColumns`   — ONLY when a `columnAllowlist` is supplied
  *      (throws fail-closed on an unlisted table/column).
+ *   8. `validateOrderByTargets`      — UNCONDITIONAL (throws when an AGGREGATION
+ *      widget orders by something that is neither a GROUP BY dimension nor a
+ *      declared aggregation alias — pg/MySQL reject that query outright while
+ *      SQLite sorts each group by an ARBITRARY member row, F4). Deliberately
+ *      LAST, after the allowlist check: a column that is both unlisted and not a
+ *      dimension should be reported as the allowlist violation it also is.
  * then resolves every column reference into the plan and replaces an IMPLICIT
  * projection (no `columns`, no `aggregations` — which would make Knex emit a bare
  * `SELECT *`) with an explicit single-table one: from the allowlist when a
@@ -983,6 +1074,14 @@ export function validateQueryPlan(
   if (columnAllowlist) {
     validateDescriptorColumns(descriptor, columnAllowlist);
   }
+  // Runs LAST, deliberately AFTER the allowlist check (F4). An ORDER BY column
+  // that is both unlisted and not a dimension violates two rules at once, and the
+  // ALLOWLIST one is the more fundamental — "that column is not yours to
+  // reference" outranks "that column is at the wrong grain", and reporting the
+  // grain problem first would coach a client into adding an unlisted column to
+  // `columns` only to be rejected again. Still unconditional: with no
+  // `columnAllowlist` configured there is no earlier check to defer to.
+  validateOrderByTargets(descriptor);
   const plan = buildPlan(descriptor);
   // An IMPLICIT projection (no `columns`, no `aggregations`) makes `execute.ts`
   // skip `.select()` entirely, so Knex emits a bare `SELECT *`. Both branches

@@ -494,6 +494,12 @@ A consequence worth stating: a descriptor whose ONLY projected column is the one
 
     For a join `on` pair the **left** side is validated against the primary table and the **right** against `join.table`, matching the `[primaryColumn, joinedColumn]` convention, so an unqualified right-side column is checked against the allowlist for the table Knex will actually resolve it against. The check is **fail-closed**: a referenced table with no allowlist entry at all rejects the request (a table opts out by listing `['*']`). An `orderBy[].column` naming a declared aggregation alias is skipped — an alias is never going to appear in a host's list of physical columns, and it is separately charset-validated.
 
+11. **`validateOrderByTargets`** — for a widget that declares `aggregations`, every `orderBy[].column` must be a declared aggregation **alias** or a projected **GROUP BY dimension** (a projected column the descriptor does not itself aggregate — see [`ValidatedQueryPlan`](#validatedqueryplan-securityvalidatequeryplants)). Membership is compared on primary-table-qualified physicals, so a qualified dimension and an unqualified order target still match. No-op for a descriptor without aggregations: with no GROUP BY there is no grain to violate.
+
+    `execute.ts`'s `orderColumnOf` qualifies **any** non-alias order target and emits it verbatim, so `{ columns: ['category'], aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }], orderBy: [{ column: 'created_at', direction: 'desc' }] }` emitted `… group by "orders"."category" order by "orders"."created_at" desc`. Each row is a whole GROUP and `created_at` has no single value inside one: PostgreSQL raises 42803 and MySQL under the default `ONLY_FULL_GROUP_BY` raises `ER_MIX_OF_GROUP_FUNC_AND_FIELDS` — both then masked by `sanitizeBoundaryError` into the generic per-widget error — while **SQLite accepts it and sorts each group by an arbitrary member row**, returning nondeterministic order presented as sorted data. This is the same class of failure `validateOrderByDirections` exists to prevent, and the analogue of what `validateHavingAliases` already enforces for the other post-aggregation clause.
+
+    It runs **after** `validateDescriptorColumns`, deliberately: a column that is both unlisted and not a dimension breaks two rules, and the allowlist violation is the more fundamental of the two to report.
+
 Because every resolution path funnels through `resolveAlias` and `checkColumnAgainstAllowlist` validates whatever physical column comes out, **an alias can only ever relabel a column the caller could already reach — never escalate past the allowlist**.
 
 ### Wildcards and projection keys
@@ -556,6 +562,12 @@ Resolves `queryPlan = plan ?? toValidatedQueryPlan(descriptor)` and reads pre-re
   `agg.func` is client-JSON-sourced, so its TypeScript type is not a runtime guarantee: membership is checked as an **own property** of the shared `AGGREGATE_SQL_FUNCTIONS` table before dispatch, and anything else fails closed. Silently omitting the aggregation would surface as a confusing, silently-incomplete result rather than a clear error. The table's five keys _are_ the five Knex builder method names, so the dispatch reads straight off it — and it is the same table `applyHaving` uses, so the SELECT and HAVING paths cannot drift on which aggregate functions exist. This replaced a five-arm `switch` annotated "same five as execute.ts" from the other side of that pair.
 
   Knex's object/alias-map form (`{ [alias]: column }`) routes both the column and the alias through Knex's own identifier-wrapping, rather than building a `` `col as alias` `` fragment by interpolation.
+
+#### NULL ordering is dialect-native
+
+The emitted ORDER BY carries **no `NULLS FIRST` / `NULLS LAST` clause** — verified against the pinned `knex@3.2.10` on all three dialects — so where NULLs land is whatever the engine does by default. PostgreSQL treats NULL as larger than any value (NULLs LAST on `asc`, FIRST on `desc`); MySQL and SQLite treat it as smaller (NULLs FIRST on `asc`, LAST on `desc`). A widget with a `limit` over a NULL-bearing sort column therefore shows a **different first page** on PostgreSQL than on MySQL/SQLite.
+
+This is deliberate, and the same stance as [`like`](#predicates-sharedpredicatests): an ordering keyword means whatever the dialect means by it, rather than this middleware imposing one engine's answer on the others. Normalizing it would mean emitting `NULLS LAST` everywhere — which MySQL does not support at all (it wants an `ISNULL(col)` sort key instead), so "portable" would mean a per-dialect emitter for a preference no part of the protocol lets a client express in the first place. A host that needs a deterministic answer filters NULLs out with a predicate, or makes the sort column NOT NULL.
 
 #### Aggregate results are normalized on the way out
 

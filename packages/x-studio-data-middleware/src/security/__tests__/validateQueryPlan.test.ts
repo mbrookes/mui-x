@@ -358,6 +358,85 @@ describe('validateQueryPlan — validation parity (reuses the shared validators)
     ).not.toThrow();
   });
 
+  // Regression (F4): `orderColumnOf` qualifies any non-alias ORDER BY target with
+  // no check against the GROUP BY dimensions, so an aggregation widget could sort
+  // by a column that is neither. SQLite ACCEPTS
+  // `… group by "orders"."category" order by "orders"."created_at" desc` and
+  // sorts each group by an ARBITRARY member row's value — nondeterministic order
+  // presented as sorted data; PostgreSQL raises 42803 and MySQL (default
+  // ONLY_FULL_GROUP_BY) raises ER_MIX_OF_GROUP_FUNC_AND_FIELDS, both then masked
+  // by `sanitizeBoundaryError` into the generic per-widget error.
+  it('rejects an ORDER BY that is neither a dimension nor an aggregation alias (F4)', () => {
+    expect(() =>
+      validateQueryPlan({
+        id: 'w1',
+        table: 'orders',
+        columns: ['category'],
+        aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+        orderBy: [{ column: 'created_at', direction: 'desc' }],
+      }),
+    ).toThrow(
+      /ORDER BY column "created_at" is neither a GROUP BY dimension nor an aggregation alias/,
+    );
+  });
+
+  it('rejects an ORDER BY on the MEASURE column of an aggregation widget (F4)', () => {
+    // `amount` is projected, but it is aggregated — so it is a measure, not a
+    // GROUP BY dimension (F1), and sorting by it has the same problem.
+    expect(() =>
+      validateQueryPlan({
+        id: 'w1',
+        table: 'orders',
+        columns: ['category', 'amount'],
+        aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+        orderBy: [{ column: 'amount', direction: 'desc' }],
+      }),
+    ).toThrow(/ORDER BY column "amount" is neither a GROUP BY dimension nor an aggregation alias/);
+  });
+
+  it.each([
+    ['a projected dimension', 'category'],
+    ['an aggregation alias', 'total'],
+  ])('accepts an ORDER BY on %s (F4)', (_label, column) => {
+    expect(() =>
+      validateQueryPlan({
+        id: 'w1',
+        table: 'orders',
+        columns: ['category'],
+        aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+        orderBy: [{ column, direction: 'asc' }],
+      }),
+    ).not.toThrow();
+  });
+
+  it('accepts a qualified/unqualified mismatch between the dimension and the ORDER BY (F4)', () => {
+    // The dimension is written qualified and the ORDER BY unqualified (or the
+    // reverse): both address the same column, so the check compares
+    // primary-table-qualified physicals, exactly as the GROUP BY split does.
+    expect(() =>
+      validateQueryPlan({
+        id: 'w1',
+        table: 'orders',
+        columns: ['orders.category'],
+        aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+        orderBy: [{ column: 'category', direction: 'asc' }],
+      }),
+    ).not.toThrow();
+  });
+
+  it('leaves ORDER BY unconstrained for a NON-aggregation descriptor (F4)', () => {
+    // Without a GROUP BY there is no grain to violate — every row has its own
+    // value for any column, so any orderable column stays legal.
+    expect(() =>
+      validateQueryPlan({
+        id: 'w1',
+        table: 'orders',
+        columns: ['category'],
+        orderBy: [{ column: 'created_at', direction: 'desc' }],
+      }),
+    ).not.toThrow();
+  });
+
   // Regression (F3): `validateWildcardProjection` runs over `descriptor.columns`
   // ONLY, so a wildcard hidden in `aggregations[].column` reached `execute.ts`'s
   // `qualify()` and emitted `count("orders".*)` — a syntax error on SQLite

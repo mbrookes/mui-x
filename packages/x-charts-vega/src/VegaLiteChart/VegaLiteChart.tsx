@@ -353,10 +353,13 @@ function resolveVegaViewSize(
   // reference in BOTH dimensions — the same uniform under-scale across every
   // plain map. Budget the margins on their own when there is no axis to carry
   // them.
-  // Only a geo view needs the bare-margin budget. A polar/arc view sizes its
-  // radius from the surface and already matched the reference exactly; giving it
-  // the same +40 pushed every pie and donut to 1.12x.
-  const isGeo = compiled.chartKind === 'geo';
+  // Every view gives up those margins, not just a geo one: a cartesian view
+  // that draws no axis (`isotype_grid` hides both) was handed its spec size as
+  // the whole SURFACE, so its 400x400 plot rendered at 360x360. The one
+  // exception is a polar/arc view, which sizes its radius from the surface and
+  // already matched the reference exactly — budgeting the same +40 for it
+  // pushed every pie and donut to 1.12x.
+  const budgetsBareMargins = compiled.chartKind !== 'polar';
   return {
     width:
       width === undefined
@@ -364,11 +367,12 @@ function resolveVegaViewSize(
         : width +
           (yAxisDrawn
             ? yAxisAllowance(compiled.yAxis!.config)
-            : (isGeo && DEFAULT_CHART_MARGIN_X) || 0),
+            : (budgetsBareMargins && DEFAULT_CHART_MARGIN_X) || 0),
     height:
       height === undefined
         ? height
-        : height + (xAxisDrawn ? X_AXIS_BASE_ALLOWANCE : (isGeo && DEFAULT_CHART_MARGIN_Y) || 0),
+        : height +
+          (xAxisDrawn ? X_AXIS_BASE_ALLOWANCE : (budgetsBareMargins && DEFAULT_CHART_MARGIN_Y) || 0),
   };
 }
 

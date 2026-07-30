@@ -14,6 +14,8 @@ import {
   resolvePrimarySecurityColumns,
   resolveJoinSecurityColumns,
   applyPredicates,
+  applySecurityPredicates,
+  applySecurityPredicatesToJoinOn,
 } from '../predicates';
 import type { SecurityColumnsConfig, FilterPredicate } from '../../security/types';
 
@@ -503,5 +505,97 @@ describe('applyPredicates — "like" renders as plain LIKE on every dialect (F1)
     const compiled = query.toSQL();
     expect(compiled.sql).toBe('select * from `orders` where `orders`.`name` like ?');
     expect(compiled.bindings).toEqual(["%o'--"]);
+  });
+});
+
+// ── Security-predicate columns route through `qualifyAgainst` (F3) ────────────
+//
+// `emitSecurityPredicates` built its three column references with a bare
+// `${table}.${securityColumns.X}` template — a second, divergent implementation
+// of the qualification rule `qualifyAgainst` (`shared/columnValidation.ts`) owns.
+// The two disagree on exactly one input: an ALREADY-QUALIFIED configured column
+// name. `qualifyAgainst` leaves it alone; the template always prefixed, so a host
+// configuring `securityColumns: { region: 'customers.region_id' }` emitted the
+// three-segment `orders.customers.region_id` and every read AND write for that
+// deployment failed with a driver error (which `sanitizeBoundaryError` then
+// masked). Config-only and fail-closed — but ARCHITECTURE.md claims all three
+// security-predicate dimensions go through the single helper, and now they do.
+describe('emitSecurityPredicates — qualification goes through qualifyAgainst (F3)', () => {
+  const CLAIMS = { tenantId: 'acme', regionIds: [5], department: 'sales' } as any;
+
+  /** Records the column reference handed to each Knex primitive. */
+  function recordingQuery() {
+    const calls: Array<{ method: string; args: unknown[] }> = [];
+    const q: any = {};
+    for (const method of ['where', 'whereIn']) {
+      q[method] = (...args: unknown[]) => {
+        calls.push({ method, args });
+        return q;
+      };
+    }
+    return { q, calls };
+  }
+
+  it.each([
+    ['tenant', { tenant: 'customers.tenant_id' }, 'customers.tenant_id'],
+    ['region', { region: 'customers.region_id' }, 'customers.region_id'],
+    ['department', { department: 'customers.department' }, 'customers.department'],
+  ])(
+    'leaves an already-qualified %s column untouched (never double-prefixes)',
+    (_dimension, securityColumns, expected) => {
+      const { q, calls } = recordingQuery();
+      applySecurityPredicates(q, 'orders', CLAIMS, securityColumns, 'read');
+      const columns = calls.map((c) => c.args[0]);
+      expect(columns).toContain(expected);
+      expect(columns.every((c) => String(c).split('.').length === 2)).toBe(true);
+    },
+  );
+
+  it('still qualifies an UNQUALIFIED column with the owning table (normal path)', () => {
+    const { q, calls } = recordingQuery();
+    applySecurityPredicates(
+      q,
+      'orders',
+      CLAIMS,
+      { tenant: 'tenant_id', region: 'region_id', department: 'department' },
+      'read',
+    );
+    expect(calls.map((c) => c.args[0])).toEqual([
+      'orders.tenant_id',
+      'orders.region_id',
+      'orders.department',
+    ]);
+  });
+
+  it('applies to the ON-clause emitter too (both emitters share one rule)', () => {
+    const calls: Array<unknown[]> = [];
+    const onBuilder: any = {
+      andOnVal: (...args: unknown[]) => {
+        calls.push(args);
+        return onBuilder;
+      },
+      andOnIn: (...args: unknown[]) => {
+        calls.push(args);
+        return onBuilder;
+      },
+    };
+    applySecurityPredicatesToJoinOn(
+      onBuilder,
+      'orders',
+      CLAIMS,
+      { tenant: 'customers.tenant_id', region: 'region_id' },
+      'read',
+    );
+    expect(calls.map((c) => c[0])).toEqual(['customers.tenant_id', 'orders.region_id']);
+  });
+
+  it('renders a single, valid two-segment identifier through real Knex', () => {
+    const realDb = Knex({ client: 'pg' });
+    const query = realDb('orders');
+    applySecurityPredicates(query, 'orders', CLAIMS, { tenant: 'customers.tenant_id' }, 'read');
+    // Not `"orders"."customers"."tenant_id"`, which every driver rejects.
+    expect(query.toString()).toBe(
+      'select * from "orders" where "customers"."tenant_id" = \'acme\'',
+    );
   });
 });

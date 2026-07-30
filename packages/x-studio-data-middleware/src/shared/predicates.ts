@@ -33,6 +33,7 @@ import type {
   SecurityColumnOverride,
   SecurityColumnsConfig,
 } from '../security/types';
+import { qualifyAgainst } from './columnValidation';
 
 /**
  * Resolve ONE security dimension's column name from a per-table override.
@@ -500,6 +501,18 @@ function willEmitSecurityPredicates(
 // the empty-string department distinction, or the region comparison type.
 // The callers (`emitEq`/`emitIn`) supply only the two Knex primitives — `.where`/
 // `.andOnVal` and `.whereIn`/`.andOnIn` respectively — that differ between clauses.
+//
+// TABLE QUALIFICATION goes through the shared `qualifyAgainst` (F3), like every
+// other column reference in this package that reaches raw SQL. All three
+// dimensions used to build their reference with a bare
+// `${table}.${securityColumns.X}` template — a second, divergent copy of the
+// rule. The two disagree on exactly one input: an ALREADY-QUALIFIED configured
+// column name. `qualifyAgainst` leaves it alone, the template always prefixed, so
+// `securityColumns: { region: 'customers.region_id' }` emitted the three-segment
+// `orders.customers.region_id` and broke every read AND write for that
+// deployment with a driver error `sanitizeBoundaryError` then masked. Config-only
+// and fail-closed, but the divergence is exactly what the single helper exists to
+// prevent — and what ARCHITECTURE.md already claimed was true here.
 function emitSecurityPredicates(
   table: string,
   claims: JwtSecurityClaims,
@@ -513,7 +526,7 @@ function emitSecurityPredicates(
   }
 
   if (securityColumns.tenant) {
-    emitEq(`${table}.${securityColumns.tenant}`, claims.tenantId);
+    emitEq(qualifyAgainst(table, securityColumns.tenant), claims.tenantId);
   }
 
   // Distinguish "no region scoping" (undefined) from "authorized for zero
@@ -535,7 +548,7 @@ function emitSecurityPredicates(
     // `[].map(...)` stays `[]`, so the empty-scope `1 = 0` behavior above is
     // unaffected.
     const regionMatchValues = claims.regionIds.map((id) => String(id));
-    emitIn(`${table}.${securityColumns.region}`, regionMatchValues);
+    emitIn(qualifyAgainst(table, securityColumns.region), regionMatchValues);
   }
 
   // `!== undefined` (not truthiness) — finding 3.3. `claims.department === ''`
@@ -548,7 +561,7 @@ function emitSecurityPredicates(
   // always emits a real predicate, which — for a table with no literal
   // empty-string department value — matches no rows rather than every row.
   if (securityColumns.department && claims.department !== undefined) {
-    emitEq(`${table}.${securityColumns.department}`, claims.department);
+    emitEq(qualifyAgainst(table, securityColumns.department), claims.department);
   }
 }
 

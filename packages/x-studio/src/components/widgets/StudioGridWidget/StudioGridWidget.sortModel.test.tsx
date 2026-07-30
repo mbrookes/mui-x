@@ -214,7 +214,49 @@ describe('StudioGridWidget — interactive header-click sorting commits back int
     expect(gridConfig().gridSortDirection).toBeUndefined();
   });
 
-  it('commits the sort without pushing an undo entry, so one asc/desc/none cycle is not three undo steps', async () => {
+  // Regression (F2): the edit-mode header sort used to commit with `{ undoable: false }` so
+  // that DataGridPremium's three-call asc/desc/none cycle didn't cost three undo steps. That
+  // made it a standalone NON-undoable write into `doc.widgets`, which `carryTransientDocState`
+  // does not carry (it carries only `filters`, three `dashboard` keys, and `ai`) — so an
+  // unrelated Ctrl+Z swapped in a doc snapshotted before the sort and silently discarded it,
+  // with no redo entry to recover from. The cycle is now coalesced instead: each click commits
+  // UNDOABLY and continuation clicks fold into the gesture's first undo entry via
+  // `foldUndoHistorySince`, so the sort lives on the undo timeline like every other authored
+  // edit and one gesture is still exactly one Ctrl+Z.
+  it('is not silently discarded by an unrelated undo', async () => {
+    const { controller, widget } = await setup();
+
+    const gridConfig = () =>
+      controller.getState().doc.widgets[widget.id].config as StudioWidgetConfig;
+
+    // (1) A real authored edit.
+    act(() => {
+      controller.setDashboardTitle('Authored');
+    });
+
+    // (2) A header sort.
+    const amountHeader = screen.getByRole('columnheader', { name: /amount/i });
+    fireEvent.click(amountHeader);
+    await waitFor(() => {
+      expect(gridConfig().gridSortField).toBe('amount');
+    });
+
+    // (3) One Ctrl+Z reverts the MOST RECENT edit — the sort — and leaves (1) intact.
+    act(() => {
+      controller.undo();
+    });
+    expect(gridConfig().gridSortField).toBeUndefined();
+    expect(controller.getState().doc.dashboard.title).toBe('Authored');
+
+    // (4) … and the sort is recoverable, because it is on the timeline.
+    act(() => {
+      controller.redo();
+    });
+    expect(gridConfig().gridSortField).toBe('amount');
+    expect(gridConfig().gridSortDirection).toBe('asc');
+  });
+
+  it('costs exactly one undo step for a full asc/desc/none cycle', async () => {
     const { controller, widget, container } = await setup();
 
     const gridConfig = () =>
@@ -243,11 +285,68 @@ describe('StudioGridWidget — interactive header-click sorting commits back int
     });
     expect(getRowIdsInOrder(container)).toEqual(['r1', 'r2', 'r3']);
 
-    // A single undo must land back on the pre-title state, not unwind three sort clicks.
+    // The three clicks collapsed into ONE undo entry: the first Ctrl+Z reverts the whole
+    // gesture (which had no net effect here) and keeps the authored title …
+    act(() => {
+      controller.undo();
+    });
+    expect(gridConfig().gridSortField).toBeUndefined();
+    expect(controller.getState().doc.dashboard.title).toBe('Authored');
+
+    // … and the SECOND Ctrl+Z is the one that reverts the title. Three sort clicks did not
+    // bury it under three undo steps.
     act(() => {
       controller.undo();
     });
     expect(controller.getState().doc.dashboard.title).not.toBe('Authored');
+    expect(controller.canUndo()).toBe(false);
+  });
+
+  it('never folds an unrelated edit made between two clicks of the same column', async () => {
+    // The coalescing window is guarded on doc identity: a continuation click only folds when
+    // the doc is still exactly the one this widget's previous sort commit produced. Without
+    // that guard, `foldUndoHistorySince` would truncate the undo stack past the intervening
+    // edit and destroy it — a far worse bug than the one being fixed.
+    const { controller, widget } = await setup();
+
+    const gridConfig = () =>
+      controller.getState().doc.widgets[widget.id].config as StudioWidgetConfig;
+
+    const amountHeader = screen.getByRole('columnheader', { name: /amount/i });
+    fireEvent.click(amountHeader);
+    await waitFor(() => {
+      expect(gridConfig().gridSortDirection).toBe('asc');
+    });
+
+    // An unrelated authored edit lands mid-"gesture".
+    act(() => {
+      controller.setDashboardTitle('Authored');
+    });
+
+    fireEvent.click(amountHeader);
+    await waitFor(() => {
+      expect(gridConfig().gridSortDirection).toBe('desc');
+    });
+
+    // Undo the second sort click …
+    act(() => {
+      controller.undo();
+    });
+    expect(gridConfig().gridSortDirection).toBe('asc');
+    // … the intervening edit is still there (it was NOT swallowed) …
+    expect(controller.getState().doc.dashboard.title).toBe('Authored');
+
+    act(() => {
+      controller.undo();
+    });
+    expect(controller.getState().doc.dashboard.title).not.toBe('Authored');
+    expect(gridConfig().gridSortDirection).toBe('asc');
+
+    // … and the first sort click is still its own step underneath.
+    act(() => {
+      controller.undo();
+    });
+    expect(gridConfig().gridSortField).toBeUndefined();
     expect(controller.canUndo()).toBe(false);
   });
 });

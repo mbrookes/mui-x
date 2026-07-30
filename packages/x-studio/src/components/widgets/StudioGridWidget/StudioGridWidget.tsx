@@ -18,6 +18,7 @@ import type {
   StudioConditionalFormat,
   StudioDataField,
   StudioDataSource,
+  StudioDoc,
   StudioExpressionField,
   StudioGridSummaryAggregation,
   StudioRelationship,
@@ -865,10 +866,23 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   // `handleSortModelChange`).
   const [viewSortModel, setViewSortModel] = React.useState<GridSortModel | null>(null);
 
+  // Open edit-mode sort gesture, if any: the doc reference to fold back to, the column the
+  // cycle belongs to, and the doc reference our own last commit produced. See
+  // `handleSortModelChange`. Never read during render — only inside the event handler.
+  const sortGestureRef = React.useRef<{
+    field: string;
+    baselineDoc: StudioDoc;
+    committedDoc: StudioDoc;
+  } | null>(null);
+
   // Switching modes drops any viewer-local sort so the grid re-reads the authored
   // config, rather than resurrecting a stale view-mode sort on the next view/edit toggle.
+  // It also closes any open edit-mode sort gesture (see `sortGestureRef`) — a mode toggle is
+  // a gesture boundary. The gesture's own doc-identity guard would already refuse to fold
+  // across one, but leaving a stale baseline pinned in the ref is needless.
   React.useEffect(() => {
     setViewSortModel(null);
+    sortGestureRef.current = null;
   }, [mode]);
 
   const sortModel = mode === 'edit' ? configSortModel : (viewSortModel ?? configSortModel);
@@ -893,13 +907,34 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   //
   // - edit mode: commit into `gridSortField`/`gridSortDirection`, the same two config keys
   //   `GridSetupPanel`'s sort controls write, so an author's header click is a real edit
-  //   that survives a save. It is committed with `{ undoable: false }` because one logical
-  //   sort gesture is DataGridPremium's asc -> desc -> none cycle: three separate
-  //   `onSortModelChange` calls, which as undoable commits would bury the author's previous
-  //   real edit under three no-op undo steps and discard the redo stack on each click.
+  //   that survives a save — and, like every other authored edit, an UNDOABLE one.
   // - view mode: keep it in component state only. `doc` is the persisted, undoable
   //   partition; a read-only viewer's transient sort must not be baked into the authored
   //   dashboard, must not push undo entries, and must not clear a pending redo.
+  //
+  // Coalescing (F2). One logical sort gesture is DataGridPremium's asc -> desc -> none cycle:
+  // three separate `onSortModelChange` calls. This used to be committed `{ undoable: false }`
+  // so the cycle didn't cost three Ctrl+Z's — but that made it a standalone NON-undoable write
+  // into `doc.widgets`, and `carryTransientDocState` carries only `filters`, three `dashboard`
+  // keys and `ai` across an undo's doc swap. So an unrelated Ctrl+Z swapped in a doc
+  // snapshotted before the sort and silently discarded it, with no redo entry to get it back
+  // (and `getRecentMutations()` kept reporting a sort the doc no longer held, because a
+  // non-undoable commit has no paired `undoMutationLog` entry for `undo()` to retract).
+  //
+  // Carrying the two keys in `carryTransientDocState` the way `doc.ai` is carried would not
+  // work here: unlike `ai`, these keys are ALSO written undoably by `GridSetupPanel`'s sort
+  // controls, so overlaying the current value onto every swapped-in doc would make those edits
+  // un-undoable. Instead the gesture is coalesced at the source: every click commits normally
+  // (undoable, labeled), and a click that CONTINUES the same gesture folds itself into the
+  // gesture's first undo entry via `foldUndoHistorySince`. Net effect: the sort is a first-class
+  // citizen of the undo timeline, and one gesture is still exactly one Ctrl+Z.
+  //
+  // "Continues the same gesture" is deliberately strict — `foldUndoHistorySince` truncates the
+  // undo stack past its baseline, so a stale baseline would DESTROY any edit made in between.
+  // Both must hold: the click targets the same column the open gesture does, and the current
+  // doc is still exactly the one our previous commit produced (so nothing — an unrelated edit,
+  // an AI mutation, an undo — has landed since). Otherwise the click simply starts a new
+  // gesture and costs its own undo step.
   const handleSortModelChange = React.useCallback(
     (model: GridSortModel) => {
       if (mode !== 'edit') {
@@ -907,19 +942,30 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         return;
       }
       const [first] = model;
-      controller.updateWidgetConfig(
-        widget.id,
-        {
-          gridSortField: first?.field,
-          gridSortDirection: first?.sort ?? undefined,
-        },
-        // Non-undoable for the coalescing reason above, but `logAsUserEdit` keeps the
-        // mutation-log line: this is the author's own change, and `getRecentMutations()`
-        // is how the assistant learns what the user just did.
-        { undoable: false, logAsUserEdit: true },
-      );
+      // The column whose cycle this event belongs to. On the cycle's final "none" call the
+      // model is empty, so fall back to the field that is still sorted in the config.
+      const cycleField = first?.field ?? widget.config.gridSortField;
+      const preCommitDoc = controller.getState().doc;
+      const gesture = sortGestureRef.current;
+      const continues =
+        gesture !== null && gesture.field === cycleField && gesture.committedDoc === preCommitDoc;
+      const baselineDoc = continues ? gesture.baselineDoc : preCommitDoc;
+
+      controller.updateWidgetConfig(widget.id, {
+        gridSortField: first?.field,
+        gridSortDirection: first?.sort ?? undefined,
+      });
+
+      if (continues) {
+        controller.foldUndoHistorySince(baselineDoc);
+      }
+      // A completed cycle (empty model) closes the gesture; anything else stays open so the
+      // next click on the same column can fold into it.
+      sortGestureRef.current = first
+        ? { field: first.field, baselineDoc, committedDoc: controller.getState().doc }
+        : null;
     },
-    [controller, widget.id, mode],
+    [controller, widget.id, widget.config.gridSortField, mode],
   );
 
   // Drive column visibility externally so toggling always reflects widget config,

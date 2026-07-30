@@ -4165,24 +4165,18 @@ describe('StudioController — self-repair commits do not pollute the recent-mut
     ]);
   });
 
-  // `{ undoable: false }` carried BOTH meanings — "no undo entry" and "not a user edit, do
-  // not log". `StudioGridWidget`'s edit-mode header sort needs only the first: it is
-  // non-undoable because DataGridPremium's asc/desc/none cycle fires three commits per
-  // gesture, but it IS an authored change that survives a save. Suppressing its log line hid
-  // an author's sort from `getRecentMutations()` — the assistant's only view of what the user
-  // just did — which is the same blind spot the `updateWidget`/`duplicateWidget` labels close.
-  it('updateWidgetConfig with logAsUserEdit logs while still staying out of the undo timeline', () => {
+  // A default (undoable) `updateWidgetConfig` — the shape `StudioGridWidget`'s edit-mode
+  // header sort now uses (F2) — both logs AND lands on the undo timeline. The previous
+  // `logAsUserEdit` escape hatch (log, but stay off the timeline) existed only for that
+  // caller; a non-undoable write into `doc.widgets` was silently reverted by any unrelated
+  // undo, since `carryTransientDocState` does not carry widget config.
+  it('updateWidgetConfig logs AND is undoable by default', () => {
     const controller = new StudioController();
     controller.addWidget(makeWidget('grid1', { kind: 'grid' }));
     expect(controller.getRecentMutations().map((m) => m.label)).toEqual(['addWidget:grid:grid1']);
 
-    controller.updateWidgetConfig(
-      'grid1',
-      { gridSortField: 'revenue', gridSortDirection: 'desc' },
-      { undoable: false, logAsUserEdit: true },
-    );
+    controller.updateWidgetConfig('grid1', { gridSortField: 'revenue', gridSortDirection: 'desc' });
 
-    // Logged, unlike a bare `{ undoable: false }` self-repair.
     expect(controller.getRecentMutations().map((m) => m.label)).toEqual([
       'addWidget:grid:grid1',
       'updateWidget:grid1',
@@ -4192,10 +4186,14 @@ describe('StudioController — self-repair commits do not pollute the recent-mut
       gridSortDirection: 'desc',
     });
 
-    // Still non-undoable: the sort pushed no entry, so undo reverts the preceding
-    // `addWidget` rather than the sort.
+    // Undo reverts the SORT (its own step), not the preceding `addWidget` …
     controller.undo();
-    expect(controller.getState().doc.widgets.grid1).toBeUndefined();
+    expect(controller.getState().doc.widgets.grid1).toBeTruthy();
+    expect(controller.getState().doc.widgets.grid1.config).not.toMatchObject({
+      gridSortField: 'revenue',
+    });
+    // … and the log line goes with it.
+    expect(controller.getRecentMutations().map((m) => m.label)).toEqual(['addWidget:grid:grid1']);
   });
 
   it('updateWidgetConfig self-repair ({ undoable: false }) logs nothing; a genuine call still logs', () => {

@@ -2017,7 +2017,7 @@ export class StudioController {
   updateWidgetConfig = (
     widgetId: string,
     config: Partial<import('../models').StudioWidgetConfig>,
-    options?: { undoable?: boolean; logAsUserEdit?: boolean },
+    options?: { undoable?: boolean },
   ) => {
     const existingWidget = this.getWidget(widgetId);
     const effectiveConfig = existingWidget
@@ -2052,21 +2052,22 @@ export class StudioController {
     // label ONLY for the self-repair (`undoable === false`) case; a genuine user-initiated
     // call (default/explicit `undoable: true`) keeps its normal reducer-default label.
     //
-    // `logAsUserEdit` separates the two meanings for the one caller that needs BOTH: an edit
-    // can be non-undoable for coalescing reasons and still be the user's own. `StudioGridWidget`'s
-    // edit-mode header sort is that case — DataGridPremium's asc/desc/none cycle fires three
-    // commits per gesture, so undoable would bury the author's previous real edit, but the sort
-    // IS an authored change that survives a save. Without this flag it wrote no mutation-log
-    // line, so `getRecentMutations()` hid an author's sort from the assistant — the same blind
-    // spot the `updateWidget`/`duplicateWidget` labels fixed, reached through the other meaning
-    // of this one flag.
+    // `{ undoable: false }` therefore means BOTH "no undo entry" and "not a user edit, do not
+    // log", and every current caller wants both. There used to be a `logAsUserEdit` escape
+    // hatch that separated them for `StudioGridWidget`'s edit-mode header sort (non-undoable
+    // for gesture-coalescing reasons, yet an authored change worth logging). That caller is
+    // gone (F2): the sort now commits undoably and coalesces its own gesture through
+    // `foldUndoHistorySince`, because a non-undoable write into `doc.widgets` was silently
+    // reverted by any unrelated undo — `carryTransientDocState` does not carry widget config —
+    // and had no paired `undoMutationLog` entry for `undo()` to retract. If a caller ever needs
+    // the split again, re-derive it; do not reach for `{ undoable: false }` to coalesce.
     this.commitMutation(
       {
         type: 'updateWidget',
         args: { widgetId, config: effectiveConfig as StudioWidget['config'] },
       },
       {
-        label: options?.undoable === false && !options?.logAsUserEdit ? null : undefined,
+        label: options?.undoable === false ? null : undefined,
         undoable: options?.undoable,
         transform: (next) => {
           // Guard on the widget's actual presence (1.3) — see `updateWidget`. The

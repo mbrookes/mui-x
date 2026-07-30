@@ -358,6 +358,63 @@ describe('validateQueryPlan — validation parity (reuses the shared validators)
     ).not.toThrow();
   });
 
+  // Regression (F3): `validateWildcardProjection` runs over `descriptor.columns`
+  // ONLY, so a wildcard hidden in `aggregations[].column` reached `execute.ts`'s
+  // `qualify()` and emitted `count("orders".*)` — a syntax error on SQLite
+  // (`near "*": syntax error`) and MySQL, and on PostgreSQL a valid
+  // composite-type argument answering a different question than the one asked.
+  // On the rejecting engines `sanitizeBoundaryError` masked it into the generic
+  // per-widget error. Only a CONCRETE `columnAllowlist` rejected it; a
+  // `schemaAllowlist`-only deployment and `columnAllowlist: { orders: ['*'] }`
+  // both accepted it.
+  it.each(['*', 'orders.*'])(
+    'rejects a wildcard aggregation column %j with no columnAllowlist (F3)',
+    (column) => {
+      expect(() =>
+        validateQueryPlan({
+          id: 'w1',
+          table: 'orders',
+          aggregations: [{ column, func: 'count', alias: 'n' }],
+        }),
+      ).toThrow(/Aggregation column .* is a wildcard/);
+    },
+  );
+
+  it('rejects a wildcard aggregation column under the ["*"] allowlist opt-out (F3)', () => {
+    expect(() =>
+      validateQueryPlan(
+        {
+          id: 'w1',
+          table: 'orders',
+          aggregations: [{ column: '*', func: 'count', alias: 'n' }],
+        },
+        { orders: ['*'] },
+      ),
+    ).toThrow(/Aggregation column .* is a wildcard/);
+  });
+
+  it('rejects a wildcard aggregation column reached through columnAliases (F3)', () => {
+    expect(() =>
+      validateQueryPlan({
+        id: 'w1',
+        table: 'orders',
+        columnAliases: { everything: 'orders.*' },
+        aggregations: [{ column: 'everything', func: 'count', alias: 'n' }],
+      }),
+    ).toThrow(/Aggregation column .* is a wildcard/);
+  });
+
+  it('still accepts an aggregation on a concrete column (F3)', () => {
+    expect(() =>
+      validateQueryPlan({
+        id: 'w1',
+        table: 'orders',
+        columns: ['category'],
+        aggregations: [{ column: 'id', func: 'count', alias: 'n' }],
+      }),
+    ).not.toThrow();
+  });
+
   // Regression (F1): an aggregated column contributes NO projection key, so an
   // alias naming a DIFFERENT projected column must still be rejected — the
   // exclusion must be scoped to the aggregated column itself.

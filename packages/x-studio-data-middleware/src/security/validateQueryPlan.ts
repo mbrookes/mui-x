@@ -230,6 +230,49 @@ function resultKeyOf(physical: string): string {
   return dot === -1 ? value : value.slice(dot + 1);
 }
 
+/**
+ * Reject a WILDCARD in `aggregations[].column` (F3).
+ *
+ * CORRECTNESS INVARIANT — runs UNCONDITIONALLY for every widget (independent of
+ * whether a `columnAllowlist` is configured), mirroring
+ * `validateWildcardProjection`, which is the guard this one completes.
+ * `validateWildcardProjection` runs over `descriptor.columns` ONLY, so
+ * `{ column: '*', func: 'count', alias: 'n' }` slipped past every check and
+ * reached `execute.ts`'s `qualify()`, which emitted `count("orders".*)` on all
+ * three dialects. SQLite rejects that with `near "*": syntax error` and MySQL
+ * likewise — both then masked by `sanitizeBoundaryError` into the generic
+ * per-widget error, so the client is told nothing about what it got wrong.
+ * PostgreSQL is the worse case: it PARSES `count(orders.*)` as a composite-type
+ * argument, which succeeds and answers a different question than the one asked.
+ *
+ * A `columnAllowlist` naming concrete columns already rejected this (`"*"` is not
+ * in the list), but the two other supported postures did not: a
+ * `schemaAllowlist`-only deployment (the README quick-start shape) has no column
+ * list to fail against, and `columnAllowlist: { orders: ['*'] }` — the documented
+ * "allow all of this table's columns" opt-out — admits the literal `"*"`.
+ *
+ * References are resolved through `resolveAlias` first (matching every other
+ * validator), so a wildcard reached through `columnAliases` is caught too. A
+ * non-string `column` is left to `validateAggregationAliases`, which owns the
+ * fail-closed shape rejection and reports the real problem.
+ */
+function validateAggregationColumns(descriptor: BatchWidgetDescriptor): void {
+  for (const agg of descriptor.aggregations ?? []) {
+    const physical = resolveAlias(descriptor, agg?.column as string);
+    if (typeof physical !== 'string' || !isWildcardReference(physical)) {
+      continue;
+    }
+    throw new Error(
+      `MUI X Studio Server: Aggregation column "${agg.column}" is a wildcard reference. ` +
+        `An aggregate takes ONE value per row, while a wildcard stands for a whole set of columns, so this ` +
+        `emits SQL such as COUNT("${descriptor.table}".*) — which SQLite and MySQL reject as a syntax error, ` +
+        `and which PostgreSQL silently accepts as a composite-type argument answering a different question. ` +
+        `COUNT(*) is not expressible in this protocol: aggregate a concrete column instead, counting a NOT NULL ` +
+        `column when you want the number of rows.`,
+    );
+  }
+}
+
 /** Accepts only the two canonical SQL sort directions (case-insensitive). */
 const SAFE_ORDER_BY_DIRECTION = /^(asc|desc)$/i;
 
@@ -806,6 +849,9 @@ function buildPlan(descriptor: BatchWidgetDescriptor): ValidatedQueryPlan {
  *      aggregation — its result keys are unknowable, so no collision check can
  *      cover it). Runs FIRST of the projection checks so the key list below
  *      contains only real, comparable keys.
+ *   1a1. `validateAggregationColumns`     — UNCONDITIONAL (throws on a wildcard
+ *      in `aggregations[].column`, which `validateWildcardProjection` cannot see
+ *      — it reads `columns` only — and which emits `COUNT(<table>.*)`, F3).
  *   1a. `validateProjectionKeyCollisions`  — UNCONDITIONAL (throws when two
  *      projected columns share a result-row key, e.g. `orders.category` and
  *      `customers.category` both keying as `category` — one would silently
@@ -865,6 +911,10 @@ export function validateQueryPlan(
     }),
     (descriptor.aggregations ?? []).length,
   );
+  // The other half of the wildcard guard (F3): `validateWildcardProjection` above
+  // only sees `descriptor.columns`, so a wildcard in `aggregations[].column`
+  // reached query construction and emitted `count(<table>.*)`.
+  validateAggregationColumns(descriptor);
   // Compute the RESULT-ROW KEY of every projected column (findings 2.1 / 3.4) so
   // `validateAggregationAliases` can reject an `agg.alias` that would collide with
   // one on the row object:

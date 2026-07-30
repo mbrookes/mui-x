@@ -135,6 +135,132 @@ describe('toOpenAIMessages', () => {
     const assistant = result[1] as { tool_calls: Array<{ function: { arguments: string } }> };
     expect(assistant.tool_calls[0].function.arguments).toBe('{}');
   });
+
+  // Round 4 finding F3 — a multi-turn agentic run arrives back as ONE assistant
+  // `ChatMessage` whose `parts` are in arrival order (`x-chat-headless` appends parts to
+  // the same message for the whole stream). Joining every text part and emitting every
+  // tool call in one message collapsed the N turns into one AND placed the final answer
+  // BEFORE the tool results that produced it — a conversation that never happened, and
+  // the opposite of what `agenticLoop.ts` builds in flight.
+  describe('multi-turn assistant message replay (finding F3)', () => {
+    const threeTurnRun = {
+      id: 'msg-multi',
+      role: 'assistant',
+      parts: [
+        { type: 'text', text: 'Checking pages.' },
+        {
+          type: 'dynamic-tool',
+          toolInvocation: {
+            toolCallId: 'c1',
+            toolName: 'list_pages',
+            input: { a: 1 },
+            output: { pages: [] },
+            state: 'output-available',
+          },
+        },
+        { type: 'text', text: 'Added the chart.' },
+        {
+          type: 'dynamic-tool',
+          toolInvocation: {
+            toolCallId: 'c2',
+            toolName: 'add_widget',
+            input: { kind: 'chart' },
+            output: { ok: true },
+            state: 'output-available',
+          },
+        },
+        { type: 'text', text: 'Done.' },
+      ],
+    } as unknown as ChatMessage;
+
+    it('emits one assistant turn per text→tool run, in arrival order', () => {
+      expect(toOpenAIMessages('SYS', [threeTurnRun])).toEqual([
+        { role: 'system', content: 'SYS' },
+        {
+          role: 'assistant',
+          content: 'Checking pages.',
+          tool_calls: [
+            {
+              id: 'c1',
+              type: 'function',
+              function: { name: 'list_pages', arguments: JSON.stringify({ a: 1 }) },
+            },
+          ],
+        },
+        { role: 'tool', tool_call_id: 'c1', content: JSON.stringify({ pages: [] }) },
+        {
+          role: 'assistant',
+          content: 'Added the chart.',
+          tool_calls: [
+            {
+              id: 'c2',
+              type: 'function',
+              function: { name: 'add_widget', arguments: JSON.stringify({ kind: 'chart' }) },
+            },
+          ],
+        },
+        { role: 'tool', tool_call_id: 'c2', content: JSON.stringify({ ok: true }) },
+        { role: 'assistant', content: 'Done.' },
+      ]);
+    });
+
+    it('never places a text run after the tool results it precedes on the wire', () => {
+      const result = toOpenAIMessages('SYS', [threeTurnRun]);
+      const finalAnswerIdx = result.findIndex(
+        (m) => m.role === 'assistant' && (m as { content?: unknown }).content === 'Done.',
+      );
+      const lastToolIdx = result.map((m) => m.role).lastIndexOf('tool');
+      expect(finalAnswerIdx).toBeGreaterThan(lastToolIdx);
+    });
+
+    it('keeps consecutive tool calls with no text between them in a single turn', () => {
+      const parallel = {
+        id: 'msg-parallel',
+        role: 'assistant',
+        parts: [
+          { type: 'text', text: 'Looking.' },
+          {
+            type: 'dynamic-tool',
+            toolInvocation: { toolCallId: 'p1', toolName: 't1', input: {}, output: 1 },
+          },
+          {
+            type: 'dynamic-tool',
+            toolInvocation: { toolCallId: 'p2', toolName: 't2', input: {}, output: 2 },
+          },
+        ],
+      } as unknown as ChatMessage;
+      const result = toOpenAIMessages('SYS', [parallel]);
+      expect(result.map((m) => m.role)).toEqual(['system', 'assistant', 'tool', 'tool']);
+      expect(
+        (result[1] as { tool_calls: Array<{ id: string }> }).tool_calls.map((t) => t.id),
+      ).toEqual(['p1', 'p2']);
+    });
+
+    it('emits a trailing tool run with no preceding text as content: null', () => {
+      const toolFirst = {
+        id: 'msg-tool-first',
+        role: 'assistant',
+        parts: [
+          {
+            type: 'dynamic-tool',
+            toolInvocation: { toolCallId: 'x1', toolName: 't', input: {}, output: 'r' },
+          },
+          { type: 'text', text: 'All set.' },
+        ],
+      } as unknown as ChatMessage;
+      const result = toOpenAIMessages('SYS', [toolFirst]);
+      expect(result).toEqual([
+        { role: 'system', content: 'SYS' },
+        {
+          role: 'assistant',
+          content: null,
+          tool_calls: [{ id: 'x1', type: 'function', function: { name: 't', arguments: '{}' } }],
+        },
+        { role: 'tool', tool_call_id: 'x1', content: JSON.stringify('r') },
+        { role: 'assistant', content: 'All set.' },
+      ]);
+    });
+  });
 });
 
 describe('createToolCallAccumulator', () => {

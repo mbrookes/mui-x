@@ -46,36 +46,70 @@ export type OpenAIMessage =
 
 // ── Conversation serialisation ────────────────────────────────────────────────
 
+interface DynamicToolPart {
+  type: 'dynamic-tool';
+  toolInvocation: {
+    toolCallId: string;
+    toolName: string;
+    input: unknown;
+    output: unknown;
+    state: string;
+  };
+}
+
+/**
+ * Serialises the client's `ChatMessage[]` history back into the OpenAI
+ * chat-completions shape the next request replays.
+ *
+ * Finding F3 — an assistant message's `parts` are walked IN ORDER, starting a new
+ * assistant turn at every text→tool transition, rather than being flattened into one
+ * message. A multi-turn agentic run comes back as a SINGLE assistant `ChatMessage`:
+ * `x-chat-headless` appends parts to the same message for the whole stream, so a
+ * three-turn run arrives as `[text, tool, text, tool, text]`. Joining every text part
+ * and emitting every `dynamic-tool` part in one message produced a history that:
+ *
+ * - asserted the model said its FINAL answer before receiving either tool result — a
+ *   conversation that never happened, and the exact inverse of what `agenticLoop.ts`
+ *   builds while the request is in flight (assistant+tool_calls, tool replies, repeat);
+ * - ran turn-boundary text together with no separator ("Checking pages.Done.");
+ * - discarded the provider-side prefix cache for turns 2..N, because the replayed shape
+ *   no longer matched the bytes those turns were actually sent as.
+ *
+ * Consecutive tool parts with no text between them stay in ONE turn — that is a genuine
+ * parallel tool call, not a turn boundary.
+ */
 export function toOpenAIMessages(systemPrompt: string, messages: ChatMessage[]): OpenAIMessage[] {
   const result: OpenAIMessage[] = [{ role: 'system', content: systemPrompt }];
 
   for (const msg of messages) {
-    const textParts = msg.parts.flatMap((p) => (p.type === 'text' ? [p.text] : [])).join('');
-
-    const toolParts = msg.parts.filter((p) => p.type === 'dynamic-tool') as Array<{
-      type: 'dynamic-tool';
-      toolInvocation: {
-        toolCallId: string;
-        toolName: string;
-        input: unknown;
-        output: unknown;
-        state: string;
-      };
-    }>;
-
     if (msg.role === 'user') {
-      if (textParts) {
-        result.push({ role: 'user', content: textParts });
+      // User messages carry no tool parts, so there is no turn structure to preserve:
+      // join their text exactly as before.
+      const userText = msg.parts.flatMap((p) => (p.type === 'text' ? [p.text] : [])).join('');
+      if (userText) {
+        result.push({ role: 'user', content: userText });
       }
-    } else if (msg.role === 'assistant') {
-      if (toolParts.length > 0) {
+      continue;
+    }
+    if (msg.role !== 'assistant') {
+      continue;
+    }
+
+    // The turn currently being accumulated: the text streamed so far, and the tool calls
+    // that followed it. A text part arriving while `toolRun` is non-empty means the
+    // model spoke again AFTER those results came back — i.e. a new turn.
+    let textRun = '';
+    let toolRun: DynamicToolPart[] = [];
+
+    const flushTurn = () => {
+      if (toolRun.length > 0) {
         result.push({
           // Preserve any assistant text alongside the tool calls — OpenAI allows a
           // `tool_calls` message to also carry `content`, and dropping it loses the
           // model's own reasoning/commentary from the replayed history.
           role: 'assistant',
-          content: textParts || null,
-          tool_calls: toolParts.map((p) => ({
+          content: textRun || null,
+          tool_calls: toolRun.map((p) => ({
             id: p.toolInvocation.toolCallId,
             type: 'function' as const,
             function: {
@@ -84,7 +118,7 @@ export function toOpenAIMessages(systemPrompt: string, messages: ChatMessage[]):
             },
           })),
         });
-        for (const p of toolParts) {
+        for (const p of toolRun) {
           // OpenAI requires every `tool_calls` entry to be followed by a matching
           // tool message. A result that is still pending (`output === undefined`)
           // would otherwise be skipped, leaving an unmatched tool call and a 400 on
@@ -98,10 +132,24 @@ export function toOpenAIMessages(systemPrompt: string, messages: ChatMessage[]):
                 : JSON.stringify({ status: 'unknown' }),
           });
         }
-      } else if (textParts) {
-        result.push({ role: 'assistant', content: textParts });
+      } else if (textRun) {
+        result.push({ role: 'assistant', content: textRun });
+      }
+      textRun = '';
+      toolRun = [];
+    };
+
+    for (const part of msg.parts) {
+      if (part.type === 'text') {
+        if (toolRun.length > 0) {
+          flushTurn();
+        }
+        textRun += part.text;
+      } else if (part.type === 'dynamic-tool') {
+        toolRun.push(part as unknown as DynamicToolPart);
       }
     }
+    flushTurn();
   }
 
   return result;

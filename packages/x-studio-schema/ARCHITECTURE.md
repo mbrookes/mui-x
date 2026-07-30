@@ -2012,6 +2012,24 @@ It is fail-closed at every step:
 - **`findMissingRequiredField`** validates the post-migration (and already-current) result, so a
   doc that would CRASH a downstream no-optional-chaining read is rejected by name here rather than
   crashing later.
+- **The `schemaVersion` post-condition.** After the loop, the migrated state must actually report
+  `CURRENT_SCHEMA_VERSION`. This enforces the registry's own contract clause — "the function must
+  return a new object with `schemaVersion` set to N+1" — which was the ONE clause with no check
+  behind it while every step above was fail-closed. A future migration that forgot the stamp would
+  otherwise return `{ success: true, toVersion: N+1 }` carrying `schemaVersion: N`, and a caller
+  persisting `migrateState(...).state` DIRECTLY — both reference hosts
+  (`examples/x-studio-dev-server/src/routes/mcp.ts`, `examples/x-studio-composed/src/App.tsx`) do —
+  would write the under-stamped doc back to disk and re-run that migration on every subsequent
+  load, forever. Latent today (the only entry is the well-behaved `0 → 1` identity, and a doc going
+  through `deserializeState` is re-stamped there anyway), but self-healing on one of two paths is
+  not the same as enforced, and a version number that lies about the shape it describes is exactly
+  what the rest of this function refuses to produce.
+
+  The registry is exported as `MIGRATION_REGISTRY_FOR_TESTS` (from `statePersistence.ts` only —
+  deliberately not from `index.ts`) so the tests can register a misbehaving migration. Every
+  guarantee in this list is about what a REGISTERED migration may do wrong, and all of them are
+  unreachable from outside while the single registered entry is well-behaved — which is precisely
+  how this post-condition came to be missing in the first place.
 
 **The `0 → 1` identity migration is deliberate, and `CURRENT_SCHEMA_VERSION` deliberately stays at 1.** v0 is a PRE-RELEASE version: `@mui/x-studio` has never shipped a released state format, so no
 persisted doc anywhere is at v0. In particular the reshape `StudioFilterScope`'s

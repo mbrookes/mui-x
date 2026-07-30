@@ -192,6 +192,22 @@ const migrations: Record<number, MigrationFn> = {
 export const REGISTERED_MIGRATION_VERSIONS = Object.keys(migrations).map(Number);
 
 /**
+ * The migration registry itself, exported for TESTS ONLY (deliberately NOT re-exported from
+ * `index.ts`, unlike every other name in this file's public surface).
+ *
+ * `migrateState`'s fail-closed guarantees are about what a REGISTERED migration may do wrong
+ * — throw, leave a required field missing, forget to stamp `schemaVersion` — and every one of
+ * those is unreachable from the outside while the only registered entry is the well-behaved
+ * `0 → 1` identity. A test that cannot register a misbehaving migration cannot exercise those
+ * guards at all, which is how the `schemaVersion` post-condition came to be the one clause of
+ * the registry's documented contract with no check behind it.
+ *
+ * A test that mutates this MUST restore the original entry afterwards (the object is shared
+ * module state).
+ */
+export const MIGRATION_REGISTRY_FOR_TESTS = migrations;
+
+/**
  * Validates that a state object has the minimum required structure
  */
 function validateStateStructure(state: unknown): state is Record<string, unknown> {
@@ -488,6 +504,39 @@ export function migrateState(state: unknown): MigrationResult {
   const missing = findMissingRequiredField(currentState);
   if (missing) {
     errors.push(`Invalid persisted state: missing required field "${missing}".`);
+    return {
+      success: false,
+      state: null,
+      fromVersion,
+      toVersion: CURRENT_SCHEMA_VERSION,
+      errors,
+    };
+  }
+
+  // Enforce the registry's own contract clause — "the function must return a new object with
+  // `schemaVersion` set to N+1" — which was the ONE clause with no post-condition check while
+  // every other step here is fail-closed (a registry gap, a throwing migration, and a missing
+  // required field all return `success: false`).
+  //
+  // A future migration that forgets the stamp would otherwise return `success: true` with
+  // `toVersion: N+1` while the state it carries still says `schemaVersion: N`. Callers that
+  // persist `migrateState(...).state` DIRECTLY — the reference hosts in
+  // `examples/x-studio-dev-server/src/routes/mcp.ts` and `examples/x-studio-composed/src/App.tsx`
+  // both do — would then write the under-stamped doc back to disk and re-run that same
+  // migration on every subsequent load, forever.
+  //
+  // Latent today: the only registered entry is the `0 → 1` identity, which does stamp, and a
+  // doc going through `deserializeState` is re-stamped there anyway. But "self-healing on one
+  // of the two paths" is not the same as enforced, and a version that lies about the shape it
+  // describes is exactly what the rest of this function refuses to produce.
+  const stampedVersion = currentState.schemaVersion;
+  if (stampedVersion !== CURRENT_SCHEMA_VERSION) {
+    errors.push(
+      `Migration to v${CURRENT_SCHEMA_VERSION} did not stamp "schemaVersion": the migrated state reports ` +
+        `${JSON.stringify(stampedVersion)}. ` +
+        'Each migration must return a new object with "schemaVersion" set to the version it migrates TO, ' +
+        'or the doc is persisted under a version that does not describe its shape and is migrated again on every load.',
+    );
     return {
       success: false,
       state: null,

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CURRENT_SCHEMA_VERSION,
+  MIGRATION_REGISTRY_FOR_TESTS,
   REGISTERED_MIGRATION_VERSIONS,
   deserializeState,
   migrateState,
@@ -3611,5 +3612,64 @@ describe('serializeDoc prunes dependsOn against the filters it keeps (R3-F4)', (
     const serialized = serializeDoc(doc);
     expect(serialized.filters[1]).toBe(doc.filters[1]);
     expect(serialized.filters[1].dependsOn).toEqual(['f2']);
+  });
+});
+
+// R3-F6: every other step of `migrateState` is fail-closed (a registry gap, a throwing
+// migration and a missing required field all return `success: false`), but the registry's own
+// contract clause — "the function must return a new object with `schemaVersion` set to N+1" —
+// had no post-condition check. A migration that forgot the stamp returned
+// `{ success: true, toVersion: N+1 }` carrying `schemaVersion: N`, and any caller persisting
+// `migrateState(...).state` directly (both reference hosts do) re-ran that migration on every
+// subsequent load, forever.
+describe('migrateState enforces that a migration stamped schemaVersion (R3-F6)', () => {
+  const v0Doc = () => ({
+    schemaVersion: 0,
+    dashboard: { id: 'd', title: 'T', activePageId: 'p1' },
+    pages: { p1: { id: 'p1', title: 'P', widgetRows: [] } },
+    widgets: {},
+    filters: [],
+  });
+
+  // Swap the registered 0→1 entry for a forgetful one, run, and always restore.
+  function withForgetfulMigration<T>(run: () => T): T {
+    const original = MIGRATION_REGISTRY_FOR_TESTS[0];
+    MIGRATION_REGISTRY_FOR_TESTS[0] = (state) => ({ ...state });
+    try {
+      return run();
+    } finally {
+      MIGRATION_REGISTRY_FOR_TESTS[0] = original;
+    }
+  }
+
+  it('fails closed when a migration returns state still stamped with the OLD version', () => {
+    const result = withForgetfulMigration(() => migrateState(v0Doc()));
+    expect(result.success).toBe(false);
+    expect(result.state).toBeNull();
+    expect(result.errors).toHaveLength(1);
+    // The message names the clause that was violated and the version actually found, so the
+    // author of the offending migration can act on it.
+    expect(result.errors[0]).toContain('schemaVersion');
+    expect(result.errors[0]).toContain(String(CURRENT_SCHEMA_VERSION));
+  });
+
+  it('fails closed on a migration that stamps a WRONG version, not just a missing one', () => {
+    const original = MIGRATION_REGISTRY_FOR_TESTS[0];
+    MIGRATION_REGISTRY_FOR_TESTS[0] = (state) => ({ ...state, schemaVersion: 99 });
+    try {
+      const result = migrateState(v0Doc());
+      expect(result.success).toBe(false);
+      expect(result.state).toBeNull();
+    } finally {
+      MIGRATION_REGISTRY_FOR_TESTS[0] = original;
+    }
+  });
+
+  it('the real registered migration still passes the post-condition', () => {
+    const result = migrateState(v0Doc());
+    expect(result.success).toBe(true);
+    expect(result.errors).toEqual([]);
+    expect(result.toVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(result.state?.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
   });
 });

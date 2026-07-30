@@ -176,6 +176,29 @@ describe('truncateToPeriod', () => {
   });
 });
 
+// R4 finding: `String(-5).padStart(4, '0')` yields `'00-5'`, so a negative (BCE) year
+// produced keys like `'00-5-06-15'` / `'00-1-W52'` — the sign ended up buried inside
+// the padding, violating the documented `YYYY-…` key shape and destroying sort order.
+describe('negative (BCE) year handling', () => {
+  it('pads a negative year with the sign kept in front', () => {
+    expect(truncateToPeriod('-000005-06-15', 'day')).toBe('-0005-06-15');
+    expect(truncateToPeriod('-000005-06-15', 'month')).toBe('-0005-06');
+    expect(truncateToPeriod('-000005-06-15', 'quarter')).toBe('-0005-Q2');
+    expect(truncateToPeriod('-000005-06-15', 'year')).toBe('-0005');
+  });
+
+  it('pads a negative year for week granularity too', () => {
+    expect(truncateToPeriod('-000005-06-15', 'week')).toMatch(/^-\d{4}-W\d{2}$/);
+  });
+
+  it('never buries the sign inside the padding for a negative timestamp', () => {
+    // A millisecond timestamp before 1 CE, as some DB drivers emit.
+    const key = truncateToPeriod(-62_170_000_000_000, 'day');
+    expect(key).not.toBeNull();
+    expect(key).toMatch(/^-\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
 describe('isoWeek', () => {
   it('computes the correct ISO year/week for a mid-year date', () => {
     expect(isoWeek(new Date('2024-06-15'))).toEqual({ year: 2024, week: 24 });

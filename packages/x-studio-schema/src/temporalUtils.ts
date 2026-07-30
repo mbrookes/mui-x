@@ -34,9 +34,14 @@ export function isoWeek(d: Date): { year: number; week: number } {
 
 /** Zero-pads a year to at least 4 digits (e.g. `5` → `'0005'`) so a truncated-period
  *  key sorts and displays correctly for years 0–999, matching the `MM`/`DD` padding
- *  every other component of these keys already gets. */
+ *  every other component of these keys already gets.
+ *
+ *  A negative (BCE) year is padded by MAGNITUDE with the sign kept in front (`-5` →
+ *  `'-0005'`): `String(-5).padStart(4, '0')` counts the `-` toward the width and yields
+ *  `'00-5'`, burying the sign inside the padding and producing keys like `'00-5-06-15'`
+ *  that violate this file's documented `YYYY-…` key shape. */
 function padYear(year: number): string {
-  return String(year).padStart(4, '0');
+  return year < 0 ? `-${String(-year).padStart(4, '0')}` : String(year).padStart(4, '0');
 }
 
 /**

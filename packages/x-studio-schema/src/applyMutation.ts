@@ -20,7 +20,12 @@ import type { StudioChartSeries, StudioWidget } from './widgetTypes';
 import type { StateMutation } from './aiTypes';
 import { normalizeChartSeries } from './factories';
 import { isSafeKey } from './unsafeKeys';
-import { hasUnsafeOwnKeys, isStringArray, isValidFilterScope } from './parseStateMutation';
+import {
+  hasInvalidChartTypeInConfig,
+  hasUnsafeOwnKeys,
+  isStringArray,
+  isValidFilterScope,
+} from './parseStateMutation';
 import { getAllowedConfigKeys } from './configKeyValidation';
 import {
   isStudioFilterOperator,
@@ -352,6 +357,38 @@ function normalizeConfigChartSeries<C extends object>(config: C): C {
     return normalized;
   });
   return changed ? ({ ...config, ySeries: nextSeries } as C) : config;
+}
+
+/**
+ * Delete an INCOMING config's `chartType` when it is present but not a member of the closed
+ * `StudioChartType` union, using the wire boundary's own `hasInvalidChartTypeInConfig`
+ * predicate (`parseStateMutation.ts`) rather than a re-spelled copy.
+ *
+ * The reducer was the ONLY one of the four trust boundaries with no `chartType` membership
+ * screen, so one payload got three different answers: the wire boundary REJECTED
+ * `config: { chartType: 'trendline' }` / `{ chartType: 42 }`, this reducer installed it
+ * VERBATIM, and the next `deserializeState` STRIPPED the key. That is the deferred-data-loss
+ * class, not a cosmetic asymmetry — the widget renders blank, every later AI `update_widget`
+ * hard-errors in `executeToolOnState` on the unknown stored chartType, and the widget then
+ * silently becomes a bar chart on the next reload.
+ *
+ * Applied to the three UPDATE-shaped channels (`updateWidget`'s `config` patch and
+ * `changes.config`, and `applyBulkUpdate.updatedWidgets[].config`) — exactly the three the
+ * wire boundary routes through the same predicate. The two ADD channels get the equivalent
+ * strip from the shared `screenOptionalWidgetScalars`, which is also the load boundary's own
+ * screen, so all four boundaries now answer identically.
+ *
+ * `chartType: undefined` is left alone: in a patch it is the sanctioned delete of the key,
+ * and in a wholesale replacement it resolves through `resolveChartType`'s `'bar'` default.
+ * Reference-stable when there is nothing to strip.
+ */
+function stripInvalidChartType<C extends object>(config: C): C {
+  if (!hasInvalidChartTypeInConfig(config as unknown as Record<string, unknown>)) {
+    return config;
+  }
+  const next = { ...config } as Record<string, unknown>;
+  delete next.chartType;
+  return next as C;
 }
 
 /**
@@ -1354,7 +1391,11 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         // (it is otherwise only normalized at the load boundary in
         // `deserializeState`). Scoped to the patch — a pre-existing alias the patch
         // doesn't touch is left as-is so a no-op patch stays a no-op.
-        const patch = normalizeConfigChartSeries(config);
+        // …and drop an unknown `chartType` from the patch, the same membership screen the
+        // wire boundary applies to this exact channel (see `stripInvalidChartType`). Scoped
+        // to the PATCH, so a pre-existing stored `chartType` the patch doesn't name is left
+        // for the load boundary — the reducer only refuses to INSTALL a new bad one.
+        const patch = stripInvalidChartType(normalizeConfigChartSeries(config));
         const nextConfig = { ...existing.config } as Record<string, unknown>;
         // Track whether any key actually changed (a deletion of a PRESENT key, or a
         // value that differs from the existing one). A patch that changes nothing
@@ -1439,7 +1480,9 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
               // screen the `config`-patch loop applies per-key. An unsafe key surviving as an
               // own config property makes the next load drop the whole widget.
               const safeValue = stripUnsafeConfigKeys(value as Record<string, unknown>);
-              const normalized = normalizeConfigChartSeries(safeValue);
+              // …and drop an unknown `chartType`, the same membership screen the wire
+              // boundary applies to this exact channel (see `stripInvalidChartType`).
+              const normalized = stripInvalidChartType(normalizeConfigChartSeries(safeValue));
               // Every key of a wholesale replacement is INCOMING for the kind-coherence
               // screen below, whether or not the replacement differs by value from the
               // config it replaces — same reasoning as the patch loop above.
@@ -2663,10 +2706,15 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
           // Strip prototype-polluting own keys from the merge result before installing — the
           // same screen `updateWidget`'s config-patch loop applies per-key. An unsafe key
           // surviving as an own config property makes the next load drop the whole widget.
+          //
+          // An unknown `chartType` is dropped from the INCOMING patch, BEFORE the merge, not
+          // from the merge result: the same membership screen the wire boundary applies to
+          // this exact channel (see `stripInvalidChartType`), while leaving the widget's
+          // existing VALID `chartType` in place rather than clearing it too.
           const mergedConfig = normalizeConfigChartSeries(
             stripUnsafeConfigKeys({
               ...existing.config,
-              ...update.config,
+              ...stripInvalidChartType(update.config),
             }),
           ) as StudioWidget['config'];
           if (

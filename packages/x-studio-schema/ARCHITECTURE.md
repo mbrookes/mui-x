@@ -1108,9 +1108,27 @@ above; only what is specific to each is listed here.
   Both channels then run the same screening pipeline, in order: `coerceWidgetConfig` (a
   non-record `config` → `{}`, plus a strip of the CONFIG's own unsafe keys),
   `screenOptionalWidgetScalars`, then `normalizeConfigChartSeries`. A non-string `kind`/`title`
-  skips the entry whole; a non-string `subtitle`/`sourceId` or a non-`'auto'|'manual'`
-  `titleMode`/`subtitleMode` has just its key stripped. That matches the load boundary's screens
-  exactly — see [the boundary-agreement rule](#the-four-trust-boundaries).
+  skips the entry whole; a non-string `subtitle`/`sourceId`, a non-`'auto'|'manual'`
+  `titleMode`/`subtitleMode`, or an unknown `config.chartType` has just its key stripped. That
+  matches the load boundary's screens exactly — see
+  [the boundary-agreement rule](#the-four-trust-boundaries).
+
+  The `chartType` strip lives INSIDE `screenOptionalWidgetScalars` for that reason. It used to be
+  a second block in `screenWidgets` alone, which made the reducer the only one of the four
+  boundaries with no `config.chartType` membership screen — and the claim that the add channels
+  matched the load boundary "exactly" false by one repair. One payload therefore got three
+  answers: the wire boundary REJECTED `config: { chartType: 'trendline' }`, the reducer installed
+  it VERBATIM, and the next load STRIPPED the key. Deferred data loss, and the expensive kind: the
+  widget renders blank, every later AI `update_widget` hard-errors in `executeToolOnState` on the
+  unknown stored chartType, and the widget then silently becomes a bar chart on the next reload.
+  The three UPDATE-shaped channels (`updateWidget`'s `config` patch and `changes.config`,
+  `applyBulkUpdate.updatedWidgets[].config`) get the same screen through
+  `stripInvalidChartType`, a thin wrapper over the wire boundary's own
+  `hasInvalidChartTypeInConfig` — the same predicate, not a re-spelled copy, since the two
+  boundaries must not disagree about which chart types exist. For the merge-shaped channels the
+  strip is applied to the INCOMING patch rather than the merge result, so the widget's existing
+  valid `chartType` survives an update that carries a bad one. A `chartType: undefined` still
+  performs the sanctioned patch-delete of the key.
 
   `coerceWidgetConfig` closes a deferred landmine rather than an immediate crash: a `config: null`
   widget renders fine until the next config-touching mutation, where
@@ -1519,7 +1537,10 @@ does (below).
   (`updateWidget.args.config`, `.changes.config`, `updatedWidgets[].config`), which carry no
   `kind`/`chartType` of their own and cannot be family-validated here; they get a narrower
   membership-only check (a present `chartType` must be a real `StudioChartType`), and the full
-  check is covered in-process by the controller and by the middleware.
+  check is covered in-process by the controller and by the middleware. That membership predicate,
+  `hasInvalidChartTypeInConfig`, is EXPORTED and reused by the reducer on the same three channels
+  (via `stripInvalidChartType`), so the wire boundary and the reducer cannot come to disagree
+  about which chart types exist.
 
 - **Depth of interpretation.** Validation is deliberately shallow at the leaves: it checks what
   other code keys or iterates on (ids; `string[]`/`string[][]` layouts via real `Array.isArray`

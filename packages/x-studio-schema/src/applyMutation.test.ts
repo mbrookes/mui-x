@@ -6674,3 +6674,116 @@ describe('updateWidget.changes key allow-list (M6)', () => {
     });
   });
 });
+
+// R3-F3: the reducer was the ONLY one of the four trust boundaries with no
+// `config.chartType` membership screen, so one payload got three different answers — the
+// wire boundary REJECTED it, the reducer installed it VERBATIM, and the next load STRIPPED
+// the key. That is the deferred-data-loss class: the widget renders blank, wedges every
+// later AI `update_widget` (`executeToolOnState` hard-errors on an unknown stored
+// chartType), then silently becomes a bar chart on the next reload.
+describe('the reducer screens config.chartType like the other three boundaries (R3-F3)', () => {
+  const chartDoc = () =>
+    makeDoc({
+      widgets: {
+        w1: { id: 'w1', kind: 'chart', title: 'W', config: { chartType: 'bar' } },
+      },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+    });
+
+  it('addWidget drops an unknown chartType instead of installing it verbatim', () => {
+    const next = applyDocMutation(chartDoc(), {
+      type: 'addWidget',
+      args: {
+        widget: {
+          id: 'w2',
+          kind: 'chart',
+          title: 'X',
+          config: { chartType: 'trendline', xField: 'a' },
+        },
+        pageId: 'page-1',
+      },
+    } as unknown as StateMutation);
+    // The load boundary's own answer for the byte-identical payload: key stripped, so
+    // `resolveChartType`'s `'bar'` fallback applies. The rest of the config survives.
+    expect(next.widgets.w2.config).toEqual({ xField: 'a' });
+  });
+
+  it('updateWidget config patch drops a non-string chartType', () => {
+    const next = applyDocMutation(chartDoc(), {
+      type: 'updateWidget',
+      args: { widgetId: 'w1', config: { chartType: 42, xField: 'a' } },
+    } as unknown as StateMutation);
+    // The patch's bad `chartType` never installs; the widget keeps its stored one.
+    expect(next.widgets.w1.config).toEqual({ chartType: 'bar', xField: 'a' });
+  });
+
+  it('updateWidget changes.config drops an unknown chartType', () => {
+    const next = applyDocMutation(chartDoc(), {
+      type: 'updateWidget',
+      args: { widgetId: 'w1', changes: { config: { chartType: 'sunburst', xField: 'a' } } },
+    } as unknown as StateMutation);
+    // A wholesale replacement, so the stored `chartType` goes with it — but the unknown one
+    // does not take its place.
+    expect(next.widgets.w1.config).toEqual({ xField: 'a' });
+  });
+
+  it('a VALID chartType still installs through every update channel', () => {
+    const patched = applyDocMutation(chartDoc(), {
+      type: 'updateWidget',
+      args: { widgetId: 'w1', config: { chartType: 'line' } },
+    });
+    expect(patched.widgets.w1.config).toEqual({ chartType: 'line' });
+    const replaced = applyDocMutation(chartDoc(), {
+      type: 'updateWidget',
+      args: { widgetId: 'w1', changes: { config: { chartType: 'donut' } } },
+    });
+    expect(replaced.widgets.w1.config).toEqual({ chartType: 'donut' });
+  });
+
+  it('applyBulkUpdate.addedWidgets drops an unknown chartType', () => {
+    const next = applyDocMutation(chartDoc(), {
+      type: 'applyBulkUpdate',
+      args: {
+        addedWidgets: [
+          { id: 'w3', kind: 'chart', title: 'Y', config: { chartType: 'sunburst', xField: 'a' } },
+        ],
+        activePageId: 'page-1',
+      },
+    } as unknown as StateMutation);
+    expect(next.widgets.w3.config).toEqual({ xField: 'a' });
+  });
+
+  it('applyBulkUpdate.updatedWidgets drops an unknown chartType but keeps the stored one', () => {
+    const next = applyDocMutation(chartDoc(), {
+      type: 'applyBulkUpdate',
+      args: {
+        updatedWidgets: [{ widgetId: 'w1', config: { chartType: 'sunburst', xField: 'a' } }],
+        activePageId: 'page-1',
+      },
+    } as unknown as StateMutation);
+    expect(next.widgets.w1.config).toEqual({ chartType: 'bar', xField: 'a' });
+  });
+
+  it('a chartType: undefined patch still DELETES the key (the sanctioned patch-delete)', () => {
+    const next = applyDocMutation(chartDoc(), {
+      type: 'updateWidget',
+      args: { widgetId: 'w1', config: { chartType: undefined } },
+    } as unknown as StateMutation);
+    expect(next.widgets.w1.config).not.toHaveProperty('chartType');
+  });
+
+  it('a widget installed through the reducer round-trips a serialize/load unchanged', () => {
+    // The point of the fix: the write channels and the load boundary must agree, so a
+    // reload can no longer silently change the widget's chart type.
+    const next = applyDocMutation(chartDoc(), {
+      type: 'addWidget',
+      args: {
+        widget: { id: 'w2', kind: 'chart', title: 'X', config: { chartType: 'trendline' } },
+        pageId: 'page-1',
+      },
+    } as unknown as StateMutation);
+    const loaded = deserializeState(JSON.parse(JSON.stringify(serializeDoc(next))), {});
+    expect(loaded.doc.widgets.w2.config).toEqual(next.widgets.w2.config);
+  });
+});

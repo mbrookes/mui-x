@@ -285,8 +285,15 @@ export function hasUnsafeOwnKeys(record: object): boolean {
  * kind/existing-widget state, unlike the (genuinely stateful) chart-family-key
  * check, which stays out of scope for a bare patch. `chartType: undefined` stays
  * legal — it is the sanctioned patch-delete of the key.
+ *
+ * Exported so `applyMutation.ts` applies the SAME membership test to the SAME three
+ * update-shaped channels. The reducer was the only one of the four trust boundaries with
+ * no `chartType` screen at all, so one payload got three different answers (wire: reject,
+ * reducer: install verbatim, load: strip the key) — the deferred-data-loss class. Sharing
+ * this predicate rather than re-spelling it is what stops the wire boundary and the reducer
+ * disagreeing about which chart types exist.
  */
-function hasInvalidChartTypeInConfig(config: Record<string, unknown>): boolean {
+export function hasInvalidChartTypeInConfig(config: Record<string, unknown>): boolean {
   if (!Object.hasOwn(config, 'chartType') || config.chartType === undefined) {
     return false;
   }

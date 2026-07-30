@@ -451,8 +451,8 @@ export const screenExpressionFields = (value: unknown): StudioExpressionField[] 
   screenRecordArray<StudioExpressionField>(value, isExpressionFieldSafe);
 
 /**
- * Screen the four OPTIONAL widget scalars: delete a non-string `subtitle`/`sourceId` and a
- * non-`'auto'|'manual'` `titleMode`/`subtitleMode`.
+ * Screen the four OPTIONAL widget scalars — delete a non-string `subtitle`/`sourceId` and a
+ * non-`'auto'|'manual'` `titleMode`/`subtitleMode` — plus an unknown `config.chartType`.
  *
  * The ONE implementation, shared by the write boundary (`applyMutation`'s `addWidget` /
  * `applyBulkUpdate.addedWidgets`) and the doc screen below. The wire boundary's
@@ -462,9 +462,21 @@ export const screenExpressionFields = (value: unknown): StudioExpressionField[] 
  * would then drop the offending KEY on the next load anyway: the value is discarded either
  * way, just deferred. Repairing at write time keeps the boundaries agreeing.
  *
+ * `config.chartType` is screened HERE rather than only in `screenWidgets` for exactly that
+ * reason. The reducer was the only one of the four trust boundaries with no `chartType`
+ * membership screen, so one payload got three different answers: the wire boundary REJECTED
+ * `config: { chartType: 'trendline' }`, the reducer installed it VERBATIM, and the next load
+ * STRIPPED the key. That is the deferred-data-loss class — the widget renders blank, wedges
+ * every later AI `update_widget` (`executeToolOnState` hard-errors on an unknown stored
+ * chartType), then silently becomes a bar chart on the next reload. Folding it into this
+ * shared screen makes both ADD channels agree with the load boundary by construction; the
+ * three UPDATE channels get the same strip in `applyMutation.ts` via
+ * `hasInvalidChartTypeInConfig`, the wire boundary's own predicate.
+ *
  * Strips the KEY rather than sinking the whole widget (these fields are optional, so an
- * invalid value degrades to the field's default). Reference-stable when all four are valid
- * or absent, the only shape the wire boundary itself lets through.
+ * invalid value degrades to the field's default — `'auto'`, or `resolveChartType`'s `'bar'`).
+ * Reference-stable when every screened field is valid or absent, the only shape the wire
+ * boundary itself lets through.
  *
  * The two field lists are DERIVED from the compile-locked `StudioWidgetOf` partitions in
  * `widgetTypeGuards.ts`, so a new optional widget field cannot be added without this screen
@@ -487,6 +499,20 @@ export function screenOptionalWidgetScalars(widget: StudioWidget): StudioWidget 
       delete (nextBase as unknown as Record<string, unknown>)[stringKey];
       base = nextBase as StudioWidget;
     }
+  }
+  // `isRecord` guard: this screen is reached with a record `config` on all three call sites
+  // (both reducer channels run `coerceWidgetConfig` first, and `screenWidgets` coerces a
+  // non-record config to `{}` before calling), but a boundary screen must repair or no-op
+  // rather than throw on `Object.hasOwn(null, …)`.
+  const config = base.config as StudioWidgetConfig | undefined;
+  if (
+    isRecord(config) &&
+    Object.hasOwn(config, 'chartType') &&
+    !(typeof config.chartType === 'string' && isStudioChartType(config.chartType))
+  ) {
+    const nextConfig = { ...config };
+    delete nextConfig.chartType;
+    base = { ...base, config: nextConfig } as StudioWidget;
   }
   return base;
 }
@@ -561,22 +587,12 @@ export function screenWidgets(value: unknown): StudioDoc['widgets'] {
         if (!isRecord(rawConfig)) {
           base = { ...base, config: {} } as StudioWidget;
         }
+        // Also membership-checks the closed `chartType` union — that strip now lives INSIDE
+        // `screenOptionalWidgetScalars` (it used to be a second block here) so the reducer's
+        // two ADD channels, which call the same shared screen, get it too. See that
+        // function's doc for why the reducer having no `chartType` screen was a
+        // deferred-data-loss bug rather than a cosmetic asymmetry.
         base = screenOptionalWidgetScalars(base);
-        // Membership-check the closed `chartType` union (Finding 2), symmetric with the wire
-        // boundary's `isStudioChartType` gate. A hand-edited `chartType: 'trendline'` would
-        // otherwise render a blank/default chart AND wedge the next AI `update_widget` (the
-        // middleware hard-errors on an unknown stored chartType). Drop the offending key so
-        // `resolveChartType`'s `'bar'` fallback applies — the same "leave junk for the
-        // fallback" treatment junk `columns` gets, not a widget-dropping coercion.
-        const config = base.config as StudioWidgetConfig;
-        if (
-          Object.hasOwn(config, 'chartType') &&
-          !(typeof config.chartType === 'string' && isStudioChartType(config.chartType))
-        ) {
-          const nextConfig = { ...config };
-          delete nextConfig.chartType;
-          base = { ...base, config: nextConfig } as StudioWidget;
-        }
         return [id, base];
       }),
   ) as StudioDoc['widgets'];

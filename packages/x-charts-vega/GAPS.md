@@ -626,3 +626,39 @@ sizes), but in testing it also shortened ~89 unrelated single-view specs by 2px
 of height — reproducible on freshly started dev servers and with a 3s settle,
 and not explicable from the code path, since a plain spec never receives a pin.
 The fix is therefore not applied pending an explanation of that coupling.
+
+### Parallel-coordinate axes span the full plot width
+
+A `point` scale in Vega-Lite insets its first and last points by half a step
+(its default `padding` of 0.5), so `parallel_coordinate`'s four axes sit at
+75/225/375/525 within a 600px plot and span ~450. x-charts builds its point
+scale with no outer padding, so ours sit at 0/200/400/600 and span the whole
+600. Measured on the marks alone (excluding text, which is what made this look
+like a sizing problem): ours 608x324 against Vega's 458x306.
+
+The band axis config takes a `categoryGapRatio`, but the `point` config exposes
+no padding or gap input — only a computed `scale` — so matching Vega's inset
+needs x-charts to expose outer padding for point scales. Not fixable from the
+wrapper.
+
+### What is NOT wrong: ternary overlay layout
+
+Recorded because it was twice reported as a sizing defect. Measuring painted
+marks only, `ternary` is 521x469 on BOTH sides — an exact match. The earlier
+0.94x0.82 came entirely from text: city labels and axis titles, which extend
+past the marks by different amounts in each renderer. The polygon/point overlay
+geometry is correct and needs no change.
+
+### Geo extents that remain
+
+`geo_choropleth` (1.00x1.00) and `geo_layer` (1.00x0.98) confirm the surface
+sizing is right. What is left is inside the map provider's own projection fit,
+which this wrapper does not control:
+
+- `geo_params_projections` now draws the correct `equalEarth` projection and
+  matches Vega's height exactly (247px), but over-fills the plot horizontally
+  by 46px.
+- `geo_trellis` differs on width only; its heights match.
+- `geo_layer_line_london` has the correct 700x500 surface, with ~4% of ink
+  spilling past the plot from line caps and labels.
+- `geo_repeat`'s template declares 500x300 while Vega's cells measure 440x300.

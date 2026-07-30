@@ -2,7 +2,7 @@
  * Pure utility functions for KPI widget computations.
  * Extracted here so they can be unit-tested independently of the React component.
  */
-import { isoWeek } from '@mui/x-studio-schema';
+import { truncateToPeriod } from '@mui/x-studio-schema';
 import type {
   StudioDataSource,
   StudioFilterState,
@@ -607,36 +607,24 @@ export function computeAggregate(
  * back to the PREVIOUS calendar day for any viewer west of UTC (negative offset),
  * misclassifying the row into the wrong sparkline bucket (T2-3). `toDayKey` above
  * already sidesteps this same trap for its own bare-date case by returning the literal
- * string; reading UTC components here achieves the equivalent — the day the canonical
- * string names — without needing a separate raw-string special case.
+ * string; reading UTC components achieves the equivalent — the day the canonical string
+ * names — without needing a separate raw-string special case.
+ *
+ * This DELEGATES to `@mui/x-studio-schema`'s `truncateToPeriod` rather than repeating its
+ * logic. The hand-rolled version had drifted from it in two ways for years below 1000
+ * (R4-F5): its `week` arm rebuilt the date with `new Date(Date.UTC(y, m, d))`, which
+ * silently reads a year in [0, 99] as `1900 + year` — the very quirk schema's
+ * `utcDateFromYMD` exists to avoid — and it never zero-padded the year, so `0099-12-31`
+ * produced the mutually contradictory pair `99-12-31` (day) and `1999-W52` (week). Only
+ * observable for pre-1000 CE data, but a parallel implementation of a shared helper is how
+ * that kind of divergence appears in the first place, so the copy is gone.
+ *
+ * `Granularity`'s five members are exactly the granularities `truncateToPeriod` recognises,
+ * and the sole caller (`computeSparklineData`) discards an unparseable date before calling,
+ * so `null` is unreachable for well-typed input; the `?? ''` keeps the signature total.
  */
 export function getBucketKey(date: Date, granularity: Granularity): string {
-  const y = date.getUTCFullYear();
-  const m = date.getUTCMonth();
-  const d = date.getUTCDate();
-  switch (granularity) {
-    case 'day':
-      return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-    case 'week': {
-      // Use the shared ISO-week helper (also used by `internals/temporalUtils.ts`'s
-      // `truncateToGranularity` for the same purpose) so the key is
-      // `{year}-W{weekNumber}` and sorts chronologically regardless of month
-      // boundaries — a hand-rolled `{year}-W{dayOfMonth}-{month}` key (the previous
-      // approach) sorts lexicographically, not chronologically, whenever a week
-      // falls in a month whose day-of-month digits compare out of order across a
-      // month boundary (see finding 1.11).
-      const { year, week } = isoWeek(new Date(Date.UTC(y, m, d)));
-      return `${year}-W${String(week).padStart(2, '0')}`;
-    }
-    case 'month':
-      return `${y}-${String(m + 1).padStart(2, '0')}`;
-    case 'quarter':
-      return `${y}-Q${Math.floor(m / 3) + 1}`;
-    case 'year':
-      return `${y}`;
-    default:
-      return `${y}-${String(m + 1).padStart(2, '0')}`;
-  }
+  return truncateToPeriod(date, granularity) ?? '';
 }
 
 export function computeSparklineData(

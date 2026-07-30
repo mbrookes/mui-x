@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import dayjs from 'dayjs';
+import { truncateToPeriod } from '@mui/x-studio-schema';
 import {
   extractDateRange,
   filterRowsByDateRange,
@@ -800,6 +801,36 @@ describe('getBucketKey', () => {
     expect(janKey).toBe('2026-W05');
     expect(febKey).toBe('2026-W06');
     expect([febKey, janKey].sort()).toEqual([janKey, febKey]);
+  });
+
+  // R4-F5: `getBucketKey` hand-rolled what `@mui/x-studio-schema`'s `truncateToPeriod`
+  // already does, and in doing so reintroduced the exact `Date.UTC` two-digit-year quirk
+  // that schema's file-private `utcDateFromYMD` exists to prevent (a year in [0, 99] is
+  // silently read as 1900 + year), and it skipped `padYear` entirely. It must agree with
+  // the shared implementation for every granularity.
+  it('agrees with the shared truncateToPeriod for every granularity', () => {
+    for (const iso of ['2026-03-05', '2026-01-26', '1999-12-31', '2024-02-29']) {
+      const value = new Date(iso);
+      for (const granularity of ['day', 'week', 'month', 'quarter', 'year'] as const) {
+        expect(getBucketKey(value, granularity), `${iso} ${granularity}`).toBe(
+          truncateToPeriod(value, granularity),
+        );
+      }
+    }
+  });
+
+  it('does not read a year below 100 as 1900 + year, and zero-pads it', () => {
+    const y99 = new Date('0099-12-31');
+    expect(y99.getUTCFullYear()).toBe(99);
+    // Was '1999-W52' — the `Date.UTC(99, ...)` quirk — while the DAY key for that very same
+    // date said year 99 ('99-12-31'). One function, two different years.
+    expect(getBucketKey(y99, 'week')).toBe('0099-W53');
+    expect(getBucketKey(y99, 'day')).toBe('0099-12-31');
+    expect(getBucketKey(y99, 'year')).toBe('0099');
+
+    const y5 = new Date('0005-06-15');
+    expect(getBucketKey(y5, 'week')).toBe('0005-W24');
+    expect(getBucketKey(y5, 'month')).toBe('0005-06');
   });
 });
 

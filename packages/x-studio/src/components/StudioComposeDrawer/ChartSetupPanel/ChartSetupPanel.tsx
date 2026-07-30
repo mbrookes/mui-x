@@ -946,11 +946,16 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                         : localeText.chartSetupAddSeries
                     }
                   >
+                    {/* The Tooltip wraps a `<span>` (the MUI idiom for keeping a tooltip on a
+                        disabled control), so the name Tooltip generates lands on the roleless
+                        span and never reaches the button — which therefore announced as a bare
+                        "button" even when enabled (WCAG 4.1.2). Name the button directly. */}
                     <span>
                       <IconButton
                         size="small"
                         onClick={handleAddSeries}
                         disabled={usedYFieldIds.length >= numericFields.length}
+                        aria-label={localeText.chartSetupAddSeries}
                       >
                         <AddIcon fontSize="small" />
                       </IconButton>

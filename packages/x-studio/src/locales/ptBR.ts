@@ -25,6 +25,7 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
 
   // Filters drawer
   filterSearchPlaceholder: 'Pesquisar filtros\u2026',
+  filterSearchClearAriaLabel: 'Limpar a pesquisa de filtros',
   filtersSectionPageFiltersTitle: 'Filtros da página',
   filtersSectionNoFilters: 'Nenhum filtro aplicado.',
   filtersSectionNoMatchingFilters: 'Nenhum filtro correspondente.',

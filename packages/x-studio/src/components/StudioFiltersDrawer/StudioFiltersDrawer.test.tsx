@@ -8,6 +8,7 @@ import type {
   StudioWidget,
 } from '../../models';
 import type { StudioLocaleText } from '../../internals/StudioUIConfigContext';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/localeText';
 import { createStudioHarness } from '../../internals/test-utils';
 import { BUILTIN_WIDGET_DEFS } from '../../internals/builtinWidgetDefs';
 import { StudioFiltersDrawer } from './StudioFiltersDrawer';
@@ -153,6 +154,23 @@ describe('<StudioFiltersDrawer /> add filter while searching (finding 6)', () =>
 
     expect((search as HTMLInputElement).value).toBe('nothing-matches-this');
     expect(screen.getByTestId('filters-drawer-add-error')).not.toBe(null);
+  });
+
+  // WCAG 4.1.2: 64 of the package's 66 `IconButton`s take their accessible name from a
+  // wrapping `<Tooltip title={string}>`. This one had neither a Tooltip nor an
+  // `aria-label`, so it announced as a bare "button" — while the sibling input one line
+  // above already carries an explicit `htmlInput: { 'aria-label': ... }`.
+  it('names the search-clear button', async () => {
+    const { user } = renderWithSelectedWidget(CHART, { filters: [EXISTING_FILTER] });
+
+    const search = screen.getByPlaceholderText('Search filters…');
+    await user.type(search, 'reg');
+
+    const clearButton = screen.getByRole('button', {
+      name: DEFAULT_STUDIO_LOCALE_TEXT.filterSearchClearAriaLabel,
+    });
+    await user.click(clearButton);
+    expect((search as HTMLInputElement).value).toBe('');
   });
 });
 

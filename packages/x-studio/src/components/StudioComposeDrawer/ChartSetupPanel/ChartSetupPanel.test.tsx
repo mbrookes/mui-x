@@ -1771,6 +1771,37 @@ describe('ChartSetupPanel — Interactions modes', () => {
     },
   );
 
+  // WCAG 4.1.2: the "add series" IconButton takes its name from a wrapping `<Tooltip>`,
+  // but that Tooltip wraps a `<span>` (the MUI idiom for keeping a tooltip on a disabled
+  // control), so the generated `aria-label` lands on the roleless span and the button
+  // itself stays unnamed — even when it is enabled.
+  it('names the add-series button', () => {
+    const previousConfig = mockState.doc.widgets['widget-1'].config;
+    const previousOrdersFields = mockState.runtime.dataSources.orders.fields;
+
+    try {
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
+        fields: [
+          { id: 'id', label: 'Order ID', type: 'string' },
+          { id: 'total', label: 'Total', type: 'number' },
+          { id: 'revenue', label: 'Revenue', type: 'number' },
+        ],
+      };
+
+      render(<ChartSetupPanel widgetId="widget-1" />);
+
+      const addSeries = screen.getByRole('button', { name: 'Add series' });
+      expect(addSeries.getAttribute('disabled')).toBe(null);
+    } finally {
+      mockState.doc.widgets['widget-1'].config = { ...previousConfig };
+      mockState.runtime.dataSources.orders = {
+        ...mockState.runtime.dataSources.orders,
+        fields: previousOrdersFields,
+      };
+    }
+  });
+
   it('displays a legacy stored cross-highlight as Filter on a non-ghosting family', () => {
     // Nothing rewrites the stored config, and nothing about the rendered chart changes — only
     // the claim the panel makes about it.

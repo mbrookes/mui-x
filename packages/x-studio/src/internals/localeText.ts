@@ -47,6 +47,8 @@ export interface StudioLocaleText {
 
   // ── Filters drawer ─────────────────────────────────────────────────────────
   filterSearchPlaceholder: string;
+  /** Accessible name for the icon-only button that clears the filter-search box */
+  filterSearchClearAriaLabel: string;
   filtersSectionPageFiltersTitle: string;
   filtersSectionNoFilters: string;
   filtersSectionNoMatchingFilters: string;
@@ -1483,6 +1485,7 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
 
   // Filters drawer
   filterSearchPlaceholder: 'Search filters\u2026',
+  filterSearchClearAriaLabel: 'Clear filter search',
   filtersSectionPageFiltersTitle: 'Page filters',
   filtersSectionNoFilters: 'No filters applied.',
   filtersSectionNoMatchingFilters: 'No matching filters.',

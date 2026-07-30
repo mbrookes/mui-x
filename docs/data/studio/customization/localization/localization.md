@@ -136,6 +136,7 @@ Defaults are the English strings shown in the right column.
 | Token                             | Default                                                    |
 | :-------------------------------- | :--------------------------------------------------------- |
 | `filterSearchPlaceholder`         | `'Search filters…'`                                        |
+| `filterSearchClearAriaLabel`      | `'Clear filter search'`                                    |
 | `filtersSectionPageFiltersTitle`  | `'Page filters'`                                           |
 | `filtersSectionNoFilters`         | `'No filters applied.'`                                    |
 | `filtersSectionNoMatchingFilters` | `'No matching filters.'`                                   |

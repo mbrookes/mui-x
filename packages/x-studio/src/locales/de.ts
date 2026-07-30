@@ -25,6 +25,7 @@ export const deLocaleText: Partial<StudioLocaleText> = {
 
   // Filters drawer
   filterSearchPlaceholder: 'Filter suchen…',
+  filterSearchClearAriaLabel: 'Filtersuche löschen',
   filtersSectionPageFiltersTitle: 'Seitenfilter',
   filtersSectionNoFilters: 'Keine Filter angewendet.',
   filtersSectionNoMatchingFilters: 'Keine passenden Filter.',

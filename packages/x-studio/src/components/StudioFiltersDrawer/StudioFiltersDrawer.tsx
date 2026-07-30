@@ -412,7 +412,15 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
                 ),
                 endAdornment: filterSearch ? (
                   <InputAdornment position="end">
-                    <IconButton size="small" onClick={() => setFilterSearch('')} edge="end">
+                    {/* Icon-only, and NOT wrapped in a `<Tooltip title={string}>` — which is
+                        how the other 64 `IconButton`s in this package get their accessible
+                        name — so it announced as a bare "button" (WCAG 4.1.2). */}
+                    <IconButton
+                      size="small"
+                      onClick={() => setFilterSearch('')}
+                      edge="end"
+                      aria-label={localeText.filterSearchClearAriaLabel}
+                    >
                       <ClearIcon fontSize="small" />
                     </IconButton>
                   </InputAdornment>

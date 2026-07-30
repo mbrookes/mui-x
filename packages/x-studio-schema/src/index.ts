@@ -51,7 +51,16 @@ export {
 // The rank-filter scope helpers moved out of `applyMutation.ts` into their own
 // dependency-free module so `factories.ts` (the factory-overrides trust boundary) can reach
 // them too — see `rankFilterScope.ts`. The public names are unchanged.
-export { resolveRankFilterPageId, hasConflictingRankFilter } from './rankFilterScope';
+// `buildRankFilterWidgetPageIndex` ships alongside them because both now take that index as
+// an OPTIONAL trailing argument: a caller resolving many filters against one immutable page
+// map builds it once and threads it, turning the sweep from O(R²·W) into O(W + R²). Omitting
+// it keeps the original self-contained scan, so every existing call site stays correct.
+export {
+  resolveRankFilterPageId,
+  hasConflictingRankFilter,
+  buildRankFilterWidgetPageIndex,
+} from './rankFilterScope';
+export type { RankFilterWidgetPageIndex } from './rankFilterScope';
 export { parseStateMutation, PARSEABLE_MUTATION_TYPES } from './parseStateMutation';
 export type { ParseStateMutationResult } from './parseStateMutation';
 export {

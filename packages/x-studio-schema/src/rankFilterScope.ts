@@ -22,6 +22,57 @@
 import type { StudioDoc, StudioFilterState } from './stateTypes';
 
 /**
+ * A widget-id → owning-page-id lookup, built once per sweep so the `widget` branch of
+ * {@link resolveRankFilterPageId} is an O(1) hit instead of a fresh walk of every page's
+ * `widgetRows`.
+ */
+export type RankFilterWidgetPageIndex = ReadonlyMap<string, string>;
+
+/**
+ * Builds the {@link RankFilterWidgetPageIndex} for a page map in ONE O(widgets) pass.
+ *
+ * Why this exists: `resolveRankFilterPageId`'s `widget` branch scans `Object.values(pages)`
+ * × rows on every call, `hasConflictingRankFilter` calls it once for the target plus once
+ * per already-kept filter, and `dedupeRankFilters` calls THAT once per filter — so the
+ * layout walk ran O(R²) times over a `pages` map that is immutable for the whole sweep.
+ * On a legitimate 100-page / 5 000-widget doc with 100 rank filters that is ~120ms inside a
+ * SYNCHRONOUS reducer call (`setWidgetLayout`, `removePage`, `applyBulkUpdate`), and it is
+ * far worse at the load boundary, which sweeps the UN-deduped array from untrusted input
+ * where the one-rank-filter-per-page invariant does not hold: 1 000 rank filters over that
+ * same doc took more than a second in a single `deserializeState`.
+ *
+ * The tie-break MUST match the scan it replaces: that scan returns the FIRST page (in
+ * `Object.values(pages)` order) whose `widgetRows` contain the widget, so this builder
+ * iterates in the same order and never overwrites a key that is already present. A widget
+ * duplicated across pages therefore still resolves to the page it resolved to before.
+ *
+ * A missing key yields `undefined` from `Map.get`, which is exactly the UNRESOLVABLE
+ * sentinel the scan returns for an unplaced widget — so the indexed and un-indexed paths
+ * agree on all three states with no extra mapping.
+ */
+export function buildRankFilterWidgetPageIndex(
+  pages: StudioDoc['pages'],
+): RankFilterWidgetPageIndex {
+  const index = new Map<string, string>();
+  for (const page of Object.values(pages)) {
+    // A null/undefined page value is dropped by `screenPagesShape` / `normalizePersistedPages`
+    // before any caller gets here; skipping rather than dereferencing keeps this builder from
+    // becoming the one place a malformed override could still throw.
+    if (!page) {
+      continue;
+    }
+    for (const row of page.widgetRows ?? []) {
+      for (const widgetId of row) {
+        if (!index.has(widgetId)) {
+          index.set(widgetId, page.id);
+        }
+      }
+    }
+  }
+  return index;
+}
+
+/**
  * Resolves the page a rank-eligible filter applies to, for the per-page rank-uniqueness
  * guard. The answer is THREE-state, and the two non-string states mean OPPOSITE things:
  *  - a `string` → the concrete page this filter's rank window applies to.
@@ -52,12 +103,18 @@ import type { StudioDoc, StudioFilterState } from './stateTypes';
 export function resolveRankFilterPageId(
   filter: StudioFilterState,
   pages: StudioDoc['pages'],
+  widgetPageIndex?: RankFilterWidgetPageIndex,
 ): string | null | undefined {
   const { scope } = filter;
   if (scope.kind === 'page') {
     return scope.pageId ?? null;
   }
   if (scope.kind === 'widget') {
+    if (widgetPageIndex) {
+      // A miss is `undefined`, which IS the UNRESOLVABLE sentinel documented above — the
+      // same answer the scan below gives for a widget that sits on no page's `widgetRows`.
+      return widgetPageIndex.get(scope.widgetId);
+    }
     for (const page of Object.values(pages)) {
       if ((page.widgetRows ?? []).some((row) => row.includes(scope.widgetId))) {
         return page.id;
@@ -99,8 +156,9 @@ export function hasConflictingRankFilter(
   target: StudioFilterState,
   filters: StudioFilterState[],
   pages: StudioDoc['pages'],
+  widgetPageIndex?: RankFilterWidgetPageIndex,
 ): boolean {
-  const targetPageId = resolveRankFilterPageId(target, pages);
+  const targetPageId = resolveRankFilterPageId(target, pages, widgetPageIndex);
   // An unresolvable target has no page context to collide on — it conflicts with nothing.
   if (targetPageId === undefined) {
     return false;
@@ -113,7 +171,7 @@ export function hasConflictingRankFilter(
     ) {
       return false;
     }
-    const otherPageId = resolveRankFilterPageId(filter, pages);
+    const otherPageId = resolveRankFilterPageId(filter, pages, widgetPageIndex);
     // An unresolvable OTHER filter (an unplaced widget's rank filter) blocks nothing.
     if (otherPageId === undefined) {
       return false;
@@ -146,6 +204,10 @@ export function dedupeRankFilters(
 ): { filters: StudioFilterState[]; changed: boolean } {
   let changed = false;
   const kept: StudioFilterState[] = [];
+  // `pages` is immutable for the whole sweep, so the widget→page lookup is built ONCE here
+  // and threaded down instead of being rediscovered by a full layout walk on every one of
+  // the O(R²) resolves this loop performs. See `buildRankFilterWidgetPageIndex`.
+  const widgetPageIndex = buildRankFilterWidgetPageIndex(pages);
   for (const filter of filters) {
     // Only `page`/`widget` scopes are rank-eligible; every other scope kind is left alone
     // (matching `addFilter`'s gate and `hasConflictingRankFilter`'s own exclusion). A
@@ -155,7 +217,7 @@ export function dedupeRankFilters(
     if (
       filter.filterMode === 'rank' &&
       (filter.scope.kind === 'page' || filter.scope.kind === 'widget') &&
-      hasConflictingRankFilter(filter.id, filter, kept, pages)
+      hasConflictingRankFilter(filter.id, filter, kept, pages, widgetPageIndex)
     ) {
       changed = true;
       continue;

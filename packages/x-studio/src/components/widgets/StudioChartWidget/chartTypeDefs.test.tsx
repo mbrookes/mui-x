@@ -13,6 +13,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { StudioChartType, StudioDataSource, StudioWidgetConfig } from '../../../models';
 import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../../internals/StudioUIConfigContext';
+import { setActiveStudioLocale } from '../../../internals/studioLocale';
 
 const {
   aggregateHeatmapSpy,
@@ -819,9 +820,19 @@ describe('renderGauge naming and value formatting', () => {
     expect(formatted).not.toContain('1,234,567');
   });
 
-  it('supplies no formatter for a field with no format config, leaving the Gauge default', () => {
-    const view = renderGaugeProps({ id: 'amount', label: 'Amount', type: 'number' });
-    expect(view.valueFormatter).toBe(undefined);
+  it('still supplies a locale-aware formatter for a field with no format config', () => {
+    // Leaving `valueFormatter` undefined handed the centre number to the Gauge's own
+    // `value.toLocaleString()` default, which takes NO locale argument — so a
+    // `<Studio locale="de-DE">` dashboard printed the BROWSER's `1,234.568` in the arc
+    // while the KPI card on the same measure printed `1234,6`.
+    setActiveStudioLocale('de-DE');
+    try {
+      const view = renderGaugeProps({ id: 'amount', label: 'Amount', type: 'number' });
+      expect(view.valueFormatter).toBeTypeOf('function');
+      expect(view.valueFormatter!(1234.5678)).toBe('1234,6');
+    } finally {
+      setActiveStudioLocale(undefined);
+    }
   });
 });
 

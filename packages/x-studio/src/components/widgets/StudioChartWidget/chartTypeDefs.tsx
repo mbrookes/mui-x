@@ -1037,14 +1037,17 @@ function renderGauge(ctx: ChartRenderContext<'gauge'>): React.ReactElement {
 
   // The arc's centre number is the gauge's whole payload, so it must carry the measure's own
   // format — `resolveFieldDef` (native + expression fields) then the shared formatter, exactly
-  // like the KPI card on the same measure. `noFormatFallback: 'undefined'` leaves an unformatted
-  // field to the Gauge's own `toLocaleString()` default rather than a bare `String(value)`.
+  // like the KPI card on the same measure. An unformatted field must still get a formatter:
+  // omitting one hands the centre number to `GaugeValueText`'s `value.toLocaleString()`
+  // default, which passes NO locale argument and so renders the BROWSER's locale rather than
+  // `<Studio locale>`. `noFormatFallback: 'localized'` keeps the arc and the KPI card in
+  // agreement on both the locale and the digit count.
   const gaugeFieldDef = resolveFieldDef(gaugeValueField, dataSource, expressionFields);
   const gaugeValueFormatter = makeValueFormatter(
     gaugeFieldDef?.format,
     gaugeFieldDef?.currencyCode,
     gaugeFieldDef?.precision,
-    { noFormatFallback: 'undefined' },
+    { noFormatFallback: 'localized' },
   );
 
   return (

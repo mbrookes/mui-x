@@ -516,12 +516,22 @@ export interface MakeValueFormatterOptions {
   compact?: boolean;
   /**
    * What to return when there is no explicit `format`/`precision` config:
-   * - `'string'` (default): a formatter that falls back to `String(value)` — most
-   *   chart call sites always need *a* formatter to pass to MUI Charts.
+   * - `'localized'` (default): a formatter that routes the value through
+   *   {@link formatNumber} with no `format`, i.e. the same locale-aware `Intl`
+   *   presentation the KPI / map / pivot widgets give the very same field. `format`
+   *   is OPTIONAL on `StudioDataField` and real docs routinely omit it, so this is
+   *   the common case, not an edge case.
+   * - `'string'`: a formatter that falls back to `String(value)`. Locale-blind, and
+   *   it leaks binary floating-point noise (`String(0.1 + 0.2)` is
+   *   `'0.30000000000000004'`), so only pick it when a *raw* value is genuinely
+   *   wanted — it is not appropriate for anything a user reads.
    * - `'undefined'`: return `undefined` so the caller can omit `valueFormatter`
-   *   entirely and let MUI Charts apply its own default number formatting.
+   *   entirely and let MUI Charts apply its own default number formatting. Note that
+   *   several of those defaults (e.g. `Gauge`'s `value.toLocaleString()`) take no
+   *   locale argument at all and therefore ignore `<Studio locale>`; prefer
+   *   `'localized'` for anything rendered as a value the user reads.
    */
-  noFormatFallback?: 'string' | 'undefined';
+  noFormatFallback?: 'localized' | 'string' | 'undefined';
 }
 
 /**
@@ -534,6 +544,13 @@ export interface MakeValueFormatterOptions {
  * keeps its historical "always returns a formatter" type, while callers that
  * explicitly opt into `noFormatFallback: 'undefined'` (e.g. `lineSeries.ts`) get an
  * accurately optional return type.
+ *
+ * The unformatted-field fallback is locale-aware by default. It used to be
+ * `String(value)`, which made no `Intl` call at all: for a `type: 'number'` field with
+ * no `format` — the shape the repo's own fixtures use — a chart series/tooltip printed
+ * `1234.5678` while the KPI card on the same measure printed `1234,6` under
+ * `<Studio locale="de-DE">`. Routing the fallback through `formatNumber` gives every
+ * widget family one presentation of one number.
  */
 export function makeValueFormatter(
   format?: StudioNumberFormat,
@@ -550,7 +567,7 @@ export function makeValueFormatter(
   format: StudioNumberFormat | undefined,
   currencyCode: string | undefined,
   precision: number | undefined,
-  options: MakeValueFormatterOptions & { noFormatFallback?: 'string' },
+  options: MakeValueFormatterOptions & { noFormatFallback?: 'localized' | 'string' },
 ): (value: number | null) => string;
 export function makeValueFormatter(
   format?: StudioNumberFormat,
@@ -564,7 +581,11 @@ export function makeValueFormatter(
     if (options?.noFormatFallback === 'undefined') {
       return undefined;
     }
-    return (value: number | null) => (value === null ? '' : String(value));
+    if (options?.noFormatFallback === 'string') {
+      return (value: number | null) => (value === null ? '' : String(value));
+    }
+    return (value: number | null) =>
+      value === null ? '' : formatNumber(value, undefined, undefined, compact);
   }
 
   return (value: number | null) => {

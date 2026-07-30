@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { DEFAULT_STUDIO_LOCALE_TEXT, type StudioLocaleText } from '../../../internals/localeText';
+import { setActiveStudioLocale } from '../../../internals/studioLocale';
 import {
   buildGhostBarContext,
   computeControlledHighlight,
@@ -111,9 +112,38 @@ describe('normalizeCrossFilterValue', () => {
 // ─── makeValueFormatter ───────────────────────────────────────────────────────
 
 describe('makeValueFormatter', () => {
-  it('falls back to String(value) when there is no format/precision (default)', () => {
+  afterEach(() => {
+    setActiveStudioLocale(undefined);
+  });
+
+  it('falls back to locale-aware Intl formatting when there is no format/precision (default)', () => {
     const formatter = makeValueFormatter();
-    expect(formatter(1234)).toBe('1234');
+    expect(formatter(1234)).toBe('1.2K');
+    expect(formatter(null)).toBe('');
+  });
+
+  it('honours <Studio locale> for an unformatted field', () => {
+    // A `StudioDataField` with `type: 'number'` and no `format` is the repo's own fixture
+    // shape. It used to reach `String(value)` here — no `Intl` call at all — so a chart
+    // tooltip rendered `1234.5678` beside a KPI card rendering `1234,6` for the same
+    // measure on the same `<Studio locale="de-DE">` dashboard.
+    setActiveStudioLocale('de-DE');
+    const formatter = makeValueFormatter();
+    expect(formatter(1234.5678)).toBe('1234,6');
+  });
+
+  it('does not leak binary floating-point noise for an unformatted measure', () => {
+    // `String(0.1 + 0.2)` is `'0.30000000000000004'`; a `sum` aggregation over such rows
+    // rendered that verbatim in a chart tooltip while the KPI card rendered `0.3`.
+    const formatter = makeValueFormatter();
+    expect(formatter(0.1 + 0.2)).toBe('0.3');
+  });
+
+  it('falls back to String(value) only when explicitly asked', () => {
+    const formatter = makeValueFormatter(undefined, undefined, undefined, {
+      noFormatFallback: 'string',
+    });
+    expect(formatter(1234.5678)).toBe('1234.5678');
     expect(formatter(null)).toBe('');
   });
 

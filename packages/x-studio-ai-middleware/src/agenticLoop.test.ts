@@ -3598,3 +3598,107 @@ describe('runAgenticLoop — loop-terminating messages carry remediation', () =>
     expect(message).toMatch(/smaller steps|narrower|split/i);
   });
 });
+
+// Round 4 finding F2 — every INPUT to the conversation is capped, but nothing bounded
+// their SUM. `currentMessages` grows by one assistant message plus N tool results every
+// turn and is re-POSTed IN FULL on the next one, so the caps multiply exactly the way
+// they did before `MAX_SYSTEM_PROMPT_CHARS` was introduced for the system prompt. With
+// pure defaults and no host cooperation (`maxToolCallsPerRequest` 50, `maxTurns` 10,
+// `MAX_TOOL_OUTPUT_CHARS` 200_000, `pageSnapshot` at its documented 100_000-char cap),
+// a gateway asking for five `summarise_page` calls per turn — a tool that returns the
+// snapshot verbatim — POSTs tens of megabytes across the request.
+describe('runAgenticLoop — aggregate conversation bound (finding F2)', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** `n` parallel `summarise_page` calls in one turn. */
+  function nSummariseCalls(n: number): Response {
+    return makeSseResponse([
+      {
+        choices: [
+          {
+            delta: {
+              tool_calls: Array.from({ length: n }, (_, i) => ({
+                index: i,
+                id: `call_${Math.random()}`,
+                function: { name: 'summarise_page', arguments: '{}' },
+              })),
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+      { choices: [], usage: { prompt_tokens: 10, completion_tokens: 5 } },
+    ]);
+  }
+
+  function totalPostedBytes(): number {
+    return vi
+      .mocked(fetch)
+      .mock.calls.reduce((sum, call) => sum + String(call[1]?.body ?? '').length, 0);
+  }
+
+  it('bounds the total bytes POSTed across a request under pure defaults', async () => {
+    vi.mocked(fetch).mockImplementation(async () => nSummariseCalls(5));
+
+    const events = await collectEvents(
+      runAgenticLoop([userMsg('Go')], INITIAL_STATE, undefined, undefined, undefined, undefined, {
+        ...BASE_OPTIONS,
+        // The documented cap `handleAIChat` already enforces on this field.
+        pageSnapshot: 'x'.repeat(100_000),
+      }),
+    );
+
+    // Before the aggregate bound this reached ~23 MB across ten turns, with a final
+    // turn of ~4.5 MB (roughly 1.1M prompt tokens).
+    expect(totalPostedBytes()).toBeLessThan(8_000_000);
+    const lastBody = String(
+      vi.mocked(fetch).mock.calls[vi.mocked(fetch).mock.calls.length - 1][1]?.body ?? '',
+    );
+    expect(lastBody.length).toBeLessThan(3_000_000);
+    // Stopping must be self-announcing, never silent.
+    const error = events.find((ev) => (ev as { type: string }).type === 'error') as
+      | { message: string }
+      | undefined;
+    expect(error?.message).toMatch(/^MUI X Studio:/);
+    expect(error?.message).toMatch(/conversation/i);
+  });
+
+  it("fires onLimitReached('conversation') exactly once when the bound trips", async () => {
+    vi.mocked(fetch).mockImplementation(async () => nSummariseCalls(5));
+    const onLimitReached = vi.fn();
+
+    await collectEvents(
+      runAgenticLoop([userMsg('Go')], INITIAL_STATE, undefined, undefined, undefined, undefined, {
+        ...BASE_OPTIONS,
+        pageSnapshot: 'x'.repeat(100_000),
+        rateLimit: { onLimitReached },
+      }),
+    );
+
+    const conversationCalls = onLimitReached.mock.calls.filter((c) => c[0] === 'conversation');
+    expect(conversationCalls).toHaveLength(1);
+    expect(conversationCalls[0][1]).toMatchObject({ iterations: expect.any(Number) });
+  });
+
+  it('leaves an ordinary conversation completely untouched', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('list_pages', {}))
+      .mockResolvedValueOnce(textResponse('done', 10, 5));
+
+    const events = await collectEvents(
+      runAgenticLoop([userMsg('Go')], INITIAL_STATE, undefined, undefined, undefined, undefined, {
+        ...BASE_OPTIONS,
+      }),
+    );
+
+    expect(events.some((ev) => (ev as { type: string }).type === 'error')).toBe(false);
+    expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
+  });
+});

@@ -32,6 +32,7 @@ import {
   accumulateToolCallDeltas,
   dedupeToolCallEntriesById,
   type OpenAIAssistantMessage,
+  type OpenAIMessage,
   type OpenAIToolResultMessage,
   type ToolCallDelta,
 } from './agenticLoop/openaiWire';
@@ -106,6 +107,41 @@ const DEFAULT_MAX_TOOL_CALLS_PER_REQUEST = 50;
  * exact cap rather than a hardcoded duplicate of this constant.
  */
 export const MAX_TURN_TEXT_BUFFER_CHARS = 2_000_000;
+
+/**
+ * Hard ceiling on the TOTAL serialized size of the in-flight conversation — the
+ * `messages` array this loop re-POSTs, in full, on every remaining turn (finding F2).
+ *
+ * This is the direct analogue of `MAX_SYSTEM_PROMPT_CHARS` in `buildAISystemPrompt.ts`,
+ * and it exists for the identical reason: **every individual input is capped, but the
+ * caps multiply, and nothing bounded their SUM.** `capToolOutput` bounds ONE tool result
+ * at `MAX_TOOL_OUTPUT_CHARS` (200,000) and says so in its own comment; the conversation
+ * accumulates `maxToolCallsPerRequest` (default 50) of them across `maxTurnsPerRequest`
+ * (default 10) turns, and each turn re-sends everything before it. With pure defaults
+ * and no host cooperation — a `pageSnapshot` at its documented 100,000-char cap and a
+ * gateway asking for five `summarise_page` calls a turn (that tool returns the snapshot
+ * verbatim) — the measured total was 22.9 MB POSTed across the request, with a final
+ * turn of ~1.1M prompt tokens. A host `server-tool` skill returning 190 KB, comfortably
+ * under `MAX_TOOL_OUTPUT_CHARS`, reached 43 MB.
+ *
+ * `rateLimit.maxTokensPerRequest` is not this bound: it is optional, off by default, and
+ * documented above as silently inert against a gateway that omits usage chunks — the
+ * same gateway most likely to drive this growth.
+ *
+ * Tripping it STOPS the request with an `error` event rather than evicting old messages.
+ * Eviction would have to drop whole `tool_calls`↔`tool` pairs to keep the wire format
+ * valid, and a conversation that silently forgets what it just did produces confidently
+ * wrong follow-up work; a stop is self-announcing, which is how every other budget in
+ * this loop behaves.
+ *
+ * Sized at 2,000,000 chars — roughly 500K tokens at ~4 chars/token, already beyond most
+ * models' context windows, so a conversation this large has failed regardless. It is
+ * twice `MAX_SYSTEM_PROMPT_CHARS` because the conversation legitimately carries the
+ * whole system prompt plus history.
+ *
+ * Exported (mirroring the constants above) so tests can assert against the exact cap.
+ */
+export const MAX_CONVERSATION_CHARS = 2_000_000;
 
 /**
  * T1-2 — state-reading tools whose output would defeat `privateMode`. In private
@@ -672,6 +708,12 @@ async function* runAgenticLoopTurns(
   let currentMessages = toOpenAIMessages(systemPrompt, messages);
   let currentState = initialState;
 
+  // Running serialized size of `currentMessages` (finding F2). Seeded from the incoming
+  // conversation — which `handleAIChat` already bounds via
+  // `MAX_REQUEST_MESSAGES_TOTAL_CHARS`, but `runAgenticLoop` is a public export a
+  // consumer may drive directly, so this must not assume that check ran.
+  let conversationChars = currentMessages.reduce((sum, m) => sum + JSON.stringify(m).length, 0);
+
   const maxTurns = rateLimit?.maxTurnsPerRequest ?? 10;
 
   // Safety limit on agentic turns
@@ -1143,8 +1185,7 @@ async function* runAgenticLoopTurns(
     }
 
     // Build follow-up messages for next LLM turn
-    currentMessages = [
-      ...currentMessages,
+    const appended: OpenAIMessage[] = [
       assistantToolCallMsg,
       ...toolResults.map(
         (r): OpenAIToolResultMessage => ({
@@ -1154,6 +1195,24 @@ async function* runAgenticLoopTurns(
         }),
       ),
     ];
+    currentMessages = [...currentMessages, ...appended];
+    // Finding F2 — the aggregate bound on the in-flight conversation. Measured on the
+    // SERIALIZED messages, which is exactly what the next turn POSTs.
+    conversationChars += appended.reduce((sum, m) => sum + JSON.stringify(m).length, 0);
+    if (conversationChars > MAX_CONVERSATION_CHARS) {
+      rateLimit?.onLimitReached?.('conversation', { ...usage });
+      yield usageEvent(usage);
+      yield {
+        type: 'error',
+        message:
+          'MUI X Studio: Request stopped — the conversation grew past the maximum size ' +
+          `this request may send to the model (${MAX_CONVERSATION_CHARS} characters). ` +
+          "The assistant's answer is incomplete, and any changes already applied were " +
+          'kept. This usually means tools returned far more data than the task needed: ' +
+          'ask for a narrower change, or split the task across several messages.',
+      };
+      return;
+    }
   }
 
   // Exceeded max turns

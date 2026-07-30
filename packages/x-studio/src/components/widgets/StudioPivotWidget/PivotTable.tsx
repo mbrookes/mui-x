@@ -89,6 +89,22 @@ export function PivotTable({ matrix, aggFn, valueField, showTotals, height }: Pi
     zIndex: 2,
   };
 
+  // `buildPivotMatrix` caps each axis at `MAX_PIVOT_CATEGORIES` so a high-cardinality
+  // Rows/Columns pick can't materialize an unbounded table (and hang the tab). Truncation
+  // must be visible: a `<caption>` is the table's own accessible description, so it is
+  // read out before the data rather than dropping categories off the bottom in silence.
+  const truncationNotices: string[] = [];
+  if (matrix.rowValueCount > matrix.rowValues.length) {
+    truncationNotices.push(
+      localeText.pivotRowsTruncatedNotice(matrix.rowValues.length, matrix.rowValueCount),
+    );
+  }
+  if (matrix.colValueCount > matrix.colValues.length) {
+    truncationNotices.push(
+      localeText.pivotColumnsTruncatedNotice(matrix.colValues.length, matrix.colValueCount),
+    );
+  }
+
   return (
     <Box sx={{ height, overflow: 'auto', position: 'relative' }}>
       <table
@@ -97,6 +113,19 @@ export function PivotTable({ matrix, aggFn, valueField, showTotals, height }: Pi
           minWidth: LABEL_W + matrix.colValues.length * CELL_W,
         }}
       >
+        {truncationNotices.length > 0 && (
+          <caption
+            style={{
+              captionSide: 'top',
+              textAlign: 'left',
+              padding: '4px 8px',
+              color: vars.text.secondary,
+              fontSize: '0.75rem',
+            }}
+          >
+            {truncationNotices.join(' ')}
+          </caption>
+        )}
         <thead>
           <tr>
             <th style={cornerStyle} aria-label={localeText.pivotCornerHeaderAriaLabel} />

@@ -863,6 +863,10 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   pivotCornerHeaderAriaLabel: 'Zeilen-/Spaltenüberschrift',
   pivotBlankValueLabel: '(leer)',
   pivotTotalLabel: 'Gesamt',
+  pivotRowsTruncatedNotice: (shown, total) =>
+    `Es werden die ersten ${shown} von ${total} Zeilenkategorien angezeigt.`,
+  pivotColumnsTruncatedNotice: (shown, total) =>
+    `Es werden die ersten ${shown} von ${total} Spaltenkategorien angezeigt.`,
 
   // Expression dialog
   exprDialogEditTitle: 'Berechnetes Feld bearbeiten',

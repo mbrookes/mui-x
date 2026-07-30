@@ -9,6 +9,7 @@ import {
   resolvePivotAggregation,
   resolvePivotCellValue,
   formatPivotCellValue,
+  MAX_PIVOT_CATEGORIES,
   type PivotMatrix,
 } from './pivotUtils';
 
@@ -509,5 +510,72 @@ describe('downloadCsv (re-exported from internals/widgetUtils)', () => {
     // Sanitized the same way the grid's CSV export is (finding 3.3) — the pivot
     // path previously downloaded `widget.title` completely unsanitized.
     expect(link.download).toBe('my_pivot.csv');
+  });
+});
+
+/**
+ * `PivotSetupPanel` offers EVERY string/boolean field as Rows/Columns with no cardinality
+ * filter, and `PivotTable` materializes `rowValues × colValues` as DOM with no
+ * virtualization. Picking a high-cardinality id column (e.g. `Order ID` on a 50k-row
+ * source) asked for 50 001 `<th>` plus `rows × 50 000` `<td>` inside a 300px scroll box —
+ * the tab hangs with no error, no truncation and no affordance. Every other unbounded
+ * derived list in the package is capped (`MAX_FILLED_TEMPORAL_LABELS`,
+ * `MAX_FORECAST_PERIODS`, `ARIA_LABEL_MAX_LINKS`, `MAX_STATS_ROWS`); this one was not.
+ */
+describe('pivot category cap', () => {
+  function wideRows(count: number) {
+    return Array.from({ length: count }, (_, index) => ({
+      r: `row-${String(index).padStart(5, '0')}`,
+      c: `col-${String(index).padStart(5, '0')}`,
+      v: 1,
+    }));
+  }
+
+  it('caps both axes at MAX_PIVOT_CATEGORIES', () => {
+    const total = MAX_PIVOT_CATEGORIES + 137;
+    const matrix = buildPivotMatrix(wideRows(total), 'r', 'c', 'v');
+    expect(matrix.rowValues).toHaveLength(MAX_PIVOT_CATEGORIES);
+    expect(matrix.colValues).toHaveLength(MAX_PIVOT_CATEGORIES);
+  });
+
+  it('reports the full pre-truncation category counts', () => {
+    const total = MAX_PIVOT_CATEGORIES + 137;
+    const matrix = buildPivotMatrix(wideRows(total), 'r', 'c', 'v');
+    expect(matrix.rowValueCount).toBe(total);
+    expect(matrix.colValueCount).toBe(total);
+  });
+
+  it('truncates deterministically, after the natural sort', () => {
+    const total = MAX_PIVOT_CATEGORIES + 137;
+    const shuffled = wideRows(total).slice().reverse();
+    const matrix = buildPivotMatrix(shuffled, 'r', 'c', 'v');
+    expect(matrix.rowValues[0]).toBe('row-00000');
+    expect(matrix.rowValues[MAX_PIVOT_CATEGORIES - 1]).toBe(
+      `row-${String(MAX_PIVOT_CATEGORIES - 1).padStart(5, '0')}`,
+    );
+  });
+
+  it('leaves an ordinary pivot untouched and reports counts equal to the rendered lists', () => {
+    const matrix = buildPivotMatrix(ROWS, 'region', 'product', 'amount');
+    expect(matrix.rowValues).toEqual(['APAC', 'EMEA']);
+    expect(matrix.rowValueCount).toBe(matrix.rowValues.length);
+    expect(matrix.colValueCount).toBe(matrix.colValues.length);
+  });
+
+  it('caps the measure-expression variant the same way', () => {
+    const measureField: StudioExpressionField = {
+      id: 'm',
+      label: 'M',
+      sourceId: 's',
+      isMeasure: true,
+      expression: { id: 'v', aggregation: 'sum' },
+    };
+    const total = MAX_PIVOT_CATEGORIES + 5;
+    const matrix = buildPivotMatrix(wideRows(total), 'r', 'c', undefined, {
+      measureField,
+      expressionFields: [measureField],
+    });
+    expect(matrix.colValues).toHaveLength(MAX_PIVOT_CATEGORIES);
+    expect(matrix.colValueCount).toBe(total);
   });
 });

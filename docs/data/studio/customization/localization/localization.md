@@ -765,11 +765,13 @@ These are passed as `unit` into `dateFilterLast` / `dateFilterNext` above.
 
 ### Pivot table
 
-| Token                        | Default         |
-| :--------------------------- | :-------------- |
-| `pivotCornerHeaderAriaLabel` | `'Corner cell'` |
-| `pivotBlankValueLabel`       | `'(blank)'`     |
-| `pivotTotalLabel`            | `'Total'`       |
+| Token                         | Default                                                                            |
+| :---------------------------- | :--------------------------------------------------------------------------------- |
+| `pivotCornerHeaderAriaLabel`  | `'Corner cell'`                                                                    |
+| `pivotBlankValueLabel`        | `'(blank)'`                                                                        |
+| `pivotTotalLabel`             | `'Total'`                                                                          |
+| `pivotRowsTruncatedNotice`    | `(shown, total) => string` → `"Showing the first 200 of 5,000 row categories."`    |
+| `pivotColumnsTruncatedNotice` | `(shown, total) => string` → `"Showing the first 200 of 5,000 column categories."` |
 
 ### Expression field preview
 

@@ -1072,6 +1072,13 @@ export interface StudioLocaleText {
   pivotBlankValueLabel: string;
   /** Label shown for the totals row/column */
   pivotTotalLabel: string;
+  /**
+   * Table caption disclosing that the row axis was capped at `MAX_PIVOT_CATEGORIES`
+   * (receives the number shown and the total number of distinct categories).
+   */
+  pivotRowsTruncatedNotice: (shown: number, total: number) => string;
+  /** Same disclosure for the column axis */
+  pivotColumnsTruncatedNotice: (shown: number, total: number) => string;
 
   // ── Expression field dialog ───────────────────────────────────────────────
   /** Dialog title when editing an existing calculated field */
@@ -2344,6 +2351,10 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   pivotCornerHeaderAriaLabel: 'Row / column header',
   pivotBlankValueLabel: '(blank)',
   pivotTotalLabel: 'Total',
+  pivotRowsTruncatedNotice: (shown, total) =>
+    `Showing the first ${shown} of ${total} row categories.`,
+  pivotColumnsTruncatedNotice: (shown, total) =>
+    `Showing the first ${shown} of ${total} column categories.`,
 
   // Expression field dialog
   exprDialogEditTitle: 'Edit Calculated Field',

@@ -11,6 +11,8 @@ import type {
   StudioWidgetOf,
 } from '../../../models';
 import { createStudioHarness } from '../../../internals/test-utils';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../../internals/localeText';
+import { MAX_PIVOT_CATEGORIES } from './pivotUtils';
 import { StudioPivotWidget } from './StudioPivotWidget';
 
 const { render } = createRenderer();
@@ -249,5 +251,56 @@ describe('StudioPivotWidget — cell formatting', () => {
     expect(screen.getAllByText('—').length).toBeGreaterThan(0);
     expect(screen.queryByText('10')).toBe(null);
     expect(screen.queryByText('30')).toBe(null);
+  });
+});
+
+/**
+ * A high-cardinality Rows/Columns pick (the setup panel offers every string/boolean field
+ * with no cardinality filter) used to materialize one `<th>`/`<td>` per category with no
+ * cap and no virtualization, hanging the tab. The categories are now bounded, and the
+ * truncation must be DISCLOSED rather than silently dropping data off the bottom.
+ */
+describe('StudioPivotWidget category truncation', () => {
+  function wideSource(count: number): StudioDataSource {
+    return {
+      id: 'sales',
+      label: 'Sales',
+      fields: [
+        { id: 'region', label: 'Region', type: 'string' },
+        { id: 'product', label: 'Product', type: 'string' },
+        { id: 'amount', label: 'Amount', type: 'number' },
+      ],
+      rows: Array.from({ length: count }, (_, index) => ({
+        region: `region-${String(index).padStart(5, '0')}`,
+        product: 'A',
+        amount: 1,
+      })),
+    };
+  }
+
+  it('renders a bounded number of row headers and discloses the truncation', () => {
+    renderWidget(
+      { pivotRowField: 'region', pivotColField: 'product', pivotValueField: 'amount' },
+      wideSource(MAX_PIVOT_CATEGORIES + 40),
+    );
+
+    // Excludes the "Total" row header, which `showTotals` renders by default.
+    const categoryRowHeaders = screen
+      .getAllByRole('rowheader')
+      .filter((th) => th.textContent !== DEFAULT_STUDIO_LOCALE_TEXT.pivotTotalLabel);
+    expect(categoryRowHeaders).toHaveLength(MAX_PIVOT_CATEGORIES);
+    expect(
+      screen.getByText(
+        DEFAULT_STUDIO_LOCALE_TEXT.pivotRowsTruncatedNotice(
+          MAX_PIVOT_CATEGORIES,
+          MAX_PIVOT_CATEGORIES + 40,
+        ),
+      ),
+    ).not.to.equal(null);
+  });
+
+  it('shows no truncation notice for an ordinary pivot', () => {
+    renderWidget({ pivotRowField: 'region', pivotColField: 'product', pivotValueField: 'amount' });
+    expect(document.querySelector('caption')).to.equal(null);
   });
 });

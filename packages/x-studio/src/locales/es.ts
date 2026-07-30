@@ -862,6 +862,10 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   pivotCornerHeaderAriaLabel: 'Encabezado de fila/columna',
   pivotBlankValueLabel: '(blanco)',
   pivotTotalLabel: 'Total',
+  pivotRowsTruncatedNotice: (shown, total) =>
+    `Mostrando las primeras ${shown} de ${total} categorías de filas.`,
+  pivotColumnsTruncatedNotice: (shown, total) =>
+    `Mostrando las primeras ${shown} de ${total} categorías de columnas.`,
 
   // Expression dialog
   exprDialogEditTitle: 'Editar campo calculado',

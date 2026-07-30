@@ -81,14 +81,50 @@ export function resolveAgg(agg: AggState | undefined, fn: PivotAggregation): num
   return finalizeAccumulator(agg?.acc, fn);
 }
 
+/**
+ * Hard cap on the number of row / column categories a pivot matrix will hand back, per axis.
+ *
+ * The categories are DATA-DERIVED (`new Set` over every filtered row) and `PivotSetupPanel`
+ * offers every string/boolean field as Rows/Columns with no cardinality filter, while
+ * `PivotTable` materializes `rowValues × colValues` as plain DOM with no virtualization.
+ * Choosing a high-cardinality id column on a 50k-row source therefore asked for 50 001
+ * `<th>` plus `rows × 50 000` `<td>` on a table ~4.5M px wide inside a 300px scroll box —
+ * the tab hangs, with no error and no affordance to recover. Past this cap the table is
+ * unreadable anyway, so the useful behaviour is to show a bounded, deterministic prefix and
+ * say so, mirroring every other bounded derived list in the package
+ * (`MAX_FILLED_TEMPORAL_LABELS`, `MAX_FORECAST_PERIODS`, `ARIA_LABEL_MAX_LINKS`,
+ * `MAX_STATS_ROWS`).
+ */
+export const MAX_PIVOT_CATEGORIES = 200;
+
 export interface PivotMatrix {
+  /** Row categories to render — capped at {@link MAX_PIVOT_CATEGORIES}. */
   rowValues: string[];
+  /** Column categories to render — capped at {@link MAX_PIVOT_CATEGORIES}. */
   colValues: string[];
+  /**
+   * Distinct row categories present in the data, BEFORE the {@link MAX_PIVOT_CATEGORIES}
+   * cap. Greater than `rowValues.length` exactly when the axis was truncated, which is
+   * what `PivotTable` discloses in its caption.
+   */
+  rowValueCount: number;
+  /** Distinct column categories present in the data, before the cap. */
+  colValueCount: number;
   /** cells[rowVal][colVal] */
   cells: Map<string, Map<string, AggState>>;
   rowTotals: Map<string, AggState>;
   colTotals: Map<string, AggState>;
   grandTotal: AggState;
+}
+
+/**
+ * Sorts a category set with {@link naturalCompare} and then takes the first
+ * {@link MAX_PIVOT_CATEGORIES} entries, so truncation is deterministic (a stable prefix of
+ * the same order the user sees) rather than dependent on row arrival order.
+ */
+function toCategoryAxis(values: Set<string>): { values: string[]; total: number } {
+  const sorted = [...values].sort(naturalCompare);
+  return { values: sorted.slice(0, MAX_PIVOT_CATEGORIES), total: sorted.length };
 }
 
 /**
@@ -193,9 +229,14 @@ export function buildPivotMatrix(
     addToAgg(grandTotal, v);
   }
 
+  const rowAxis = toCategoryAxis(rowSet);
+  const colAxis = toCategoryAxis(colSet);
+
   return {
-    rowValues: [...rowSet].sort(naturalCompare),
-    colValues: [...colSet].sort(naturalCompare),
+    rowValues: rowAxis.values,
+    colValues: colAxis.values,
+    rowValueCount: rowAxis.total,
+    colValueCount: colAxis.total,
     cells,
     rowTotals,
     colTotals,
@@ -287,9 +328,14 @@ function buildMeasurePivotMatrix(
     colTotals.set(cv, toAgg(bucketRows));
   }
 
+  const rowAxis = toCategoryAxis(rowSet);
+  const colAxis = toCategoryAxis(colSet);
+
   return {
-    rowValues: [...rowSet].sort(naturalCompare),
-    colValues: [...colSet].sort(naturalCompare),
+    rowValues: rowAxis.values,
+    colValues: colAxis.values,
+    rowValueCount: rowAxis.total,
+    colValueCount: colAxis.total,
     cells,
     rowTotals,
     colTotals,

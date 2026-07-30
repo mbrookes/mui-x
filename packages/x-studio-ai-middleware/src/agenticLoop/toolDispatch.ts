@@ -179,6 +179,13 @@ export interface ToolDispatchContext {
    *  once per request so a same-turn `set_active_page` can't misdirect `summarise_page`. */
   snapshotPageId?: string;
   /**
+   * Whether the request runs under `privateMode` (finding F4). `PRIVATE_MODE_EXCLUDED_TOOLS`
+   * withdraws the read tools; this threads the flag down to the WRITE tools that stay
+   * advertised, so their rejection strings state the constraint instead of the withheld
+   * state — see `ToolPlanContext.privateMode` in `executeToolOnState.ts`.
+   */
+  privateMode?: boolean;
+  /**
    * The AI chat thread (`state.doc.ai?.activeThreadId`) captured once from the
    * request's initial state, mirroring how `snapshotPageId` captures the
    * active page. Threaded into `waitForApproval` so a pending approval this
@@ -931,6 +938,7 @@ export async function* dispatchToolCall(
       customWidgets: ctx.customWidgets,
       pageSnapshot: ctx.pageSnapshot,
       snapshotPageId: ctx.snapshotPageId,
+      privateMode: ctx.privateMode,
       transport: 'chat',
       usage: ctx.usage,
       // Same rationale as the args-only consult above: the deadline bounds a host policy

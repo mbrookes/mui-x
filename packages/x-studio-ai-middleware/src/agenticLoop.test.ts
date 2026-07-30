@@ -2242,6 +2242,53 @@ describe('runAgenticLoop — privateMode tool gating (T1-2)', () => {
 
     expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
   });
+
+  // Finding F4 — the advertisement lever only covers tools whose PURPOSE is to return
+  // state. `set_widget_forecast` stays advertised in private mode (withdrawing it would
+  // remove real capability) and its rejections used to interpolate `widget.kind` /
+  // `chartType` — withheld widget config — into the tool result, which this transport
+  // then re-sends to the provider on every remaining turn. This asserts the whole thread
+  // (`runAgenticLoop` → `ToolDispatchContext` → `executeToolWithPolicy` →
+  // `ToolPlanContext`), not just the leaf branch the unit tests cover.
+  it('does not leak a widget chartType into a set_widget_forecast rejection in privateMode', async () => {
+    const state = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'p1' },
+        pages: { p1: { id: 'p1', title: 'P1', widgetRows: [['w1']] } },
+        widgets: {
+          w1: {
+            id: 'w1',
+            kind: 'chart',
+            title: 'W1',
+            sourceId: 's1',
+            config: { chartType: 'bar' },
+          },
+        },
+        filters: [],
+      },
+    });
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('set_widget_forecast', { widgetId: 'w1' }))
+      .mockResolvedValueOnce(textResponse('ok', 10, 5));
+
+    await collectEvents(
+      runAgenticLoop([userMsg('Forecast it')], state, undefined, undefined, undefined, undefined, {
+        ...BASE_OPTIONS,
+        privateMode: true,
+      }),
+    );
+
+    const secondBody = JSON.parse(vi.mocked(fetch).mock.calls[1][1]!.body as string) as {
+      messages: { role: string; content: string }[];
+    };
+    const toolMsg = secondBody.messages.find((m) => m.role === 'tool');
+    expect(toolMsg?.content).toBeDefined();
+    // The withheld config value never reaches the wire...
+    expect(toolMsg!.content).not.toMatch(/bar/);
+    // ...but the model is still told what it has to satisfy.
+    expect(toolMsg!.content).toMatch(/line/);
+  });
 });
 
 // ── Tool policy (chokepoint) ─────────────────────────────────────────────────────

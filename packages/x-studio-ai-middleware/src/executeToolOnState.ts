@@ -1264,6 +1264,25 @@ export interface ToolPlanContext {
    * (finding 2-2).
    */
   snapshotPageId?: string;
+  /**
+   * Whether this request runs under `privateMode` (finding F4).
+   *
+   * `PRIVATE_MODE_EXCLUDED_TOOLS` (`agenticLoop.ts`) handles the read tools by simply
+   * not advertising them, but that lever only works for a tool whose whole purpose is
+   * to return state. The write tools here stay advertised — withdrawing
+   * `set_widget_forecast`/`set_widget_width`/`set_widget_layout` in private mode would
+   * remove real capability — while their rejection paths interpolated withheld state
+   * (`widget.kind`, `chartType`, which page owns a widget, which ids are foreign)
+   * straight into the error string. On the chat transport a tool result is not a
+   * one-shot value: it is appended to the conversation and re-sent to the provider on
+   * EVERY remaining turn, so an error string is the same egress as a tool output.
+   *
+   * Where this is set, a rejection states the CONSTRAINT the model has to satisfy
+   * instead of the state that violates it — the shape `set_widget_layout`'s unknown-id
+   * branch already uses for a related reason. The rejections stay actionable; they
+   * just stop being an oracle for probing the dashboard this mode exists to withhold.
+   */
+  privateMode?: boolean;
 }
 
 /**
@@ -1964,7 +1983,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
 
   set_widget_layout: {
     effect: 'pure',
-    plan: (args, { state }) => {
+    plan: (args, { state, privateMode }) => {
       const rawRows = args.rows;
       // Validate the SHAPE, not just `Array.isArray`: a flat `["w1","w2"]` (the
       // exact mistake the system prompt warns about) is a valid array but corrupts
@@ -2075,10 +2094,18 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       if (foreignPageIds.length > 0) {
         return {
           output: JSON.stringify({
-            error:
-              `set_widget_layout received widget IDs that live on another page: ${joinIdsForError(foreignPageIds)}. ` +
-              'A layout call only arranges the active page; call set_active_page for the page that ' +
-              'contains them before rearranging them.',
+            // Finding F4 — WHICH of the submitted ids live elsewhere is a state-derived
+            // fact, not something the caller told us: naming the subset partitions the
+            // model's ids by page, which is exactly the structure private mode withholds
+            // (and this string is re-sent to the provider every remaining turn). The
+            // constraint and its remediation are unchanged; only the id list is dropped.
+            error: privateMode
+              ? 'set_widget_layout received widget IDs that are not on the active page. A layout ' +
+                'call only arranges the active page; call set_active_page for the page that holds ' +
+                'them before rearranging them, or submit only IDs already in the layout you were given.'
+              : `set_widget_layout received widget IDs that live on another page: ${joinIdsForError(foreignPageIds)}. ` +
+                'A layout call only arranges the active page; call set_active_page for the page that ' +
+                'contains them before rearranging them.',
           }),
           nextState: state,
         };
@@ -2097,7 +2124,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
 
   set_widget_width: {
     effect: 'pure',
-    plan: (args, { state }) => {
+    plan: (args, { state, privateMode }) => {
       const { widgetId, columns } = args as { widgetId: string; columns: unknown };
       if (typeof widgetId !== 'string') {
         return {
@@ -2147,21 +2174,35 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // work and silently revert on reload. Either way the tool would otherwise read back
       // `null` and report `{ success: true, columns: null }`, telling the model a width took
       // effect that never did. Both cases are reported as errors, with the remediation that
-      // actually applies to each.
+      // actually applies to each — EXCEPT in private mode (finding F4), where telling the
+      // two apart is precisely the disclosure: "on another page" vs "on no page at all"
+      // is dashboard structure this mode withholds from the prompt and from every
+      // `privateModeExcluded` read tool, and it turns this still-advertised write tool
+      // into a probe. One combined message covers both remediations without ever
+      // revealing which applies.
       const currentRow = activePage.widgetRows?.find((row) => row.includes(widgetId));
       if (currentRow === undefined) {
         const onAnotherPage = Object.values(state.doc.pages).some((page) =>
           (page.widgetRows ?? []).some((row) => row.includes(widgetId)),
         );
+        let notPlacedError: string;
+        if (privateMode) {
+          notPlacedError =
+            `Widget ${widgetId} is not in a row on the active page, so its width cannot be ` +
+            'set here. Call set_active_page for the page that holds it, or place it on the ' +
+            'active page with set_widget_layout, then set its width.';
+        } else if (onAnotherPage) {
+          notPlacedError =
+            `Widget ${widgetId} is not on the active page, so its width cannot be set here. ` +
+            'Call set_active_page for the page that contains it first.';
+        } else {
+          notPlacedError =
+            `Widget ${widgetId} is not placed on any page, so a width set for it would be ` +
+            'discarded when the dashboard is saved. Place it with set_widget_layout first, ' +
+            'then set its width.';
+        }
         return {
-          output: JSON.stringify({
-            error: onAnotherPage
-              ? `Widget ${widgetId} is not on the active page, so its width cannot be set here. ` +
-                'Call set_active_page for the page that contains it first.'
-              : `Widget ${widgetId} is not placed on any page, so a width set for it would be ` +
-                'discarded when the dashboard is saved. Place it with set_widget_layout first, ' +
-                'then set its width.',
-          }),
+          output: JSON.stringify({ error: notPlacedError }),
           nextState: state,
         };
       }
@@ -3088,7 +3129,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
 
   set_widget_forecast: {
     effect: 'pure',
-    plan: (args, { state }) => {
+    plan: (args, { state, privateMode }) => {
       const { widgetId, enabled, periods, showConfidenceBands } = args as {
         widgetId?: string;
         enabled?: unknown;
@@ -3108,10 +3149,20 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
           nextState: state,
         };
       }
+      // Finding F4 — in private mode, say WHAT is required, never what the target
+      // currently is. `widget.kind` and `chartType` are exactly the widget config the
+      // mode withholds from `<dashboard_state>` and from every `privateModeExcluded`
+      // read tool, and this string is re-sent to the provider on every remaining turn.
+      // Outside private mode the concrete value is kept: it is the single most useful
+      // thing the model can be told here, and there is nothing to withhold.
       if (!isWidgetOfKind(widget, 'chart')) {
         return {
           output: JSON.stringify({
-            error: `set_widget_forecast only supports chartType 'line' or 'area'. Widget '${widgetId}' has kind '${widget.kind}'.`,
+            error: privateMode
+              ? `set_widget_forecast only supports chart widgets whose chartType is 'line' or 'area'. ` +
+                `Widget '${widgetId}' does not qualify. Use a line or area chart widget, or change ` +
+                'this widget with set_widget_config before adding a forecast.'
+              : `set_widget_forecast only supports chartType 'line' or 'area'. Widget '${widgetId}' has kind '${widget.kind}'.`,
           }),
           nextState: state,
         };
@@ -3120,7 +3171,11 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       if (chartType !== 'line' && chartType !== 'area') {
         return {
           output: JSON.stringify({
-            error: `set_widget_forecast only supports chartType 'line' or 'area'. Widget '${widgetId}' has chartType '${chartType ?? '(none)'}'.`,
+            error: privateMode
+              ? `set_widget_forecast only supports chart widgets whose chartType is 'line' or 'area'. ` +
+                `Widget '${widgetId}' does not qualify. Use a line or area chart widget, or change ` +
+                'this widget with set_widget_config before adding a forecast.'
+              : `set_widget_forecast only supports chartType 'line' or 'area'. Widget '${widgetId}' has chartType '${chartType ?? '(none)'}'.`,
           }),
           nextState: state,
         };
@@ -3223,6 +3278,7 @@ export function executeToolOnState(
   customWidgets?: StudioCustomWidgetDef[],
   pageSnapshot?: string,
   snapshotPageId?: string,
+  privateMode?: boolean,
 ): ToolExecutionResult {
   const args = (input ?? {}) as Record<string, unknown>;
   // `Object.hasOwn`-guard the lookup so a model-supplied `toolName` that is an
@@ -3234,7 +3290,7 @@ export function executeToolOnState(
     : undefined;
 
   if (impl?.effect === 'pure') {
-    return impl.plan(args, { state, customWidgets, pageSnapshot, snapshotPageId });
+    return impl.plan(args, { state, customWidgets, pageSnapshot, snapshotPageId, privateMode });
   }
 
   return { output: JSON.stringify({ error: `Unknown tool: ${toolName}` }), nextState: state };

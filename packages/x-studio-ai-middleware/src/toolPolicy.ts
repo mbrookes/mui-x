@@ -716,6 +716,12 @@ export async function executeToolWithPolicy(
     pageSnapshot?: string;
     /** Page the `pageSnapshot` covers (request-time active page) — see `ToolPlanContext`. */
     snapshotPageId?: string;
+    /**
+     * Whether the request runs under `privateMode` — see `ToolPlanContext.privateMode`
+     * (finding F4). Forwarded so a still-advertised WRITE tool's rejection states the
+     * constraint rather than the withheld state that violates it.
+     */
+    privateMode?: boolean;
     transport: 'chat' | 'mcp';
     usage: { committedMutations: number; toolCalls: number };
   } & ToolPolicyConsultBounds,
@@ -756,6 +762,7 @@ export async function executeToolWithPolicy(
     opts.customWidgets,
     opts.pageSnapshot,
     opts.snapshotPageId,
+    opts.privateMode,
   );
 
   const effects = result.mutation

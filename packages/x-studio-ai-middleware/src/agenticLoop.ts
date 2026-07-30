@@ -546,6 +546,13 @@ export async function* runAgenticLoop(
     // than the threaded active page, which a same-turn `set_active_page` mutates
     // (finding 2-2).
     snapshotPageId: initialState.doc.dashboard.activePageId,
+    // Finding F4 — `PRIVATE_MODE_EXCLUDED_TOOLS` above withdraws the READ tools, which
+    // is the whole lever for a tool that exists to return state. It does nothing for a
+    // still-advertised WRITE tool that interpolates withheld state into its rejection
+    // string, and on this transport a tool result is re-sent to the provider on every
+    // remaining turn. Thread the flag down so those rejections state the constraint
+    // instead — see `ToolPlanContext.privateMode`.
+    privateMode,
     // Same identity `rename_thread` (`executeToolOnState.ts`) stamps onto mutations —
     // captured once from the request's initial state, mirroring `snapshotPageId`, so a
     // pending approval this request raises can be bound to the conversation that

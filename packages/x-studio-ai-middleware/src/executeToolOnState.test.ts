@@ -4869,3 +4869,150 @@ describe('capIncomingDashboardState: remaining uncapped prompt strings (finding 
     expect('operator' in capped.doc.filters[0]).toBe(false);
   });
 });
+
+// ── Finding F4 (round 3): private mode was not enforced on tool-result EGRESS ──
+//
+// Under `privateMode` the `<dashboard_state>` block is withheld from the system
+// prompt and the four `privateModeExcluded` read tools are never advertised. But
+// three WRITE tools that stay advertised interpolated withheld state straight into
+// their rejection strings — and a tool result is not a one-shot value on the chat
+// transport: it is appended to the conversation and re-sent to the provider on every
+// remaining turn. The rejections are still actionable, they just have to state the
+// CONSTRAINT rather than the current state, exactly as `set_widget_layout`'s
+// unknown-id branch already does.
+describe('executeToolOnState: privateMode tool-result egress (finding F4)', () => {
+  function privately(toolName: string, args: Record<string, unknown>, state: StudioState) {
+    return parseOutput(
+      executeToolOnState(toolName, args, state, undefined, undefined, undefined, true).output,
+    );
+  }
+
+  describe('set_widget_forecast', () => {
+    it('does not disclose the widget kind when the target is not a chart', () => {
+      const base = makeState();
+      const state: StudioState = {
+        ...base,
+        doc: {
+          ...base.doc,
+          widgets: {
+            'widget-1': { id: 'widget-1', kind: 'grid', title: 'T', sourceId: 'src1', config: {} },
+          },
+        },
+      } as unknown as StudioState;
+
+      const error = privately('set_widget_forecast', { widgetId: 'widget-1' }, state) as {
+        error: string;
+      };
+      expect(error.error).not.toMatch(/grid/);
+      // Still actionable: it names the constraint the model has to satisfy.
+      expect(error.error).toMatch(/line/);
+    });
+
+    it('does not disclose the widget chartType when it is not line/area', () => {
+      // makeState's widget is a chart with chartType 'bar'.
+      const error = privately('set_widget_forecast', { widgetId: 'widget-1' }, makeState()) as {
+        error: string;
+      };
+      expect(error.error).not.toMatch(/bar/);
+      expect(error.error).toMatch(/line/);
+    });
+
+    it('still discloses the kind/chartType when NOT in private mode', () => {
+      const result = executeToolOnState(
+        'set_widget_forecast',
+        { widgetId: 'widget-1' },
+        makeState(),
+      );
+      expect((parseOutput(result.output) as { error: string }).error).toMatch(/bar/);
+    });
+  });
+
+  describe('set_widget_width', () => {
+    it('does not disclose that the widget lives on another page', () => {
+      const state = makeMultiPageState();
+      const error = privately('set_widget_width', { widgetId: 'widget-2', columns: 12 }, state) as {
+        error: string;
+      };
+      expect(error.error).not.toMatch(/another page|not on the active page/i);
+      expect(error.error).toMatch(/set_widget_layout|set_active_page/);
+    });
+
+    it('does not disclose that the widget is unplaced', () => {
+      const base = makeMultiPageState();
+      const state: StudioState = {
+        ...base,
+        doc: {
+          ...base.doc,
+          pages: {
+            'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['widget-1']] },
+            'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [] },
+          },
+        },
+      };
+      const error = privately('set_widget_width', { widgetId: 'widget-2', columns: 12 }, state) as {
+        error: string;
+      };
+      expect(error.error).not.toMatch(/not placed on any page/i);
+    });
+
+    it('produces the SAME message for the other-page and unplaced cases in private mode', () => {
+      const onOtherPage = privately(
+        'set_widget_width',
+        { widgetId: 'widget-2', columns: 12 },
+        makeMultiPageState(),
+      ) as { error: string };
+
+      const base = makeMultiPageState();
+      const unplacedState: StudioState = {
+        ...base,
+        doc: {
+          ...base.doc,
+          pages: {
+            'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['widget-1']] },
+            'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [] },
+          },
+        },
+      };
+      const unplaced = privately(
+        'set_widget_width',
+        { widgetId: 'widget-2', columns: 12 },
+        unplacedState,
+      ) as { error: string };
+
+      // Two different withheld facts must not be distinguishable from the result text.
+      expect(onOtherPage.error).toBe(unplaced.error);
+    });
+
+    it('still distinguishes the two cases when NOT in private mode', () => {
+      const result = executeToolOnState(
+        'set_widget_width',
+        { widgetId: 'widget-2', columns: 12 },
+        makeMultiPageState(),
+      );
+      expect((parseOutput(result.output) as { error: string }).error).toMatch(
+        /not on the active page/i,
+      );
+    });
+  });
+
+  describe('set_widget_layout', () => {
+    it('does not disclose WHICH ids live on another page', () => {
+      const error = privately(
+        'set_widget_layout',
+        { rows: [['widget-1', 'widget-2']] },
+        makeMultiPageState(),
+      ) as { error: string };
+      expect(error.error).not.toMatch(/widget-2/);
+      expect(error.error).toMatch(/set_active_page/);
+    });
+
+    it('still names the foreign ids when NOT in private mode', () => {
+      const result = executeToolOnState(
+        'set_widget_layout',
+        { rows: [['widget-1', 'widget-2']] },
+        makeMultiPageState(),
+      );
+      expect((parseOutput(result.output) as { error: string }).error).toMatch(/widget-2/);
+    });
+  });
+});

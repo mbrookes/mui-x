@@ -507,6 +507,8 @@ describe('executeToolWithPolicy', () => {
         'get_dashboard_state',
         {},
         state,
+        // customWidgets, pageSnapshot, snapshotPageId, privateMode — none configured here.
+        undefined,
         undefined,
         undefined,
         undefined,

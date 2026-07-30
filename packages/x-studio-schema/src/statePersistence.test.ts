@@ -3494,3 +3494,122 @@ describe('deserializeState expression-field interior screen', () => {
     expect(load(entries).doc.expressionFields.map((ef) => ef.id)).toEqual(['deep-ok']);
   });
 });
+
+// R3-F4: `serializeDoc` strips cross-filter/interactive entries but used to leave the
+// survivors' `dependsOn` pointing at them. `deserializeState`'s own `pruneDependsOn` then
+// removed the now-dangling reference, so a user-authored cascade was silently SHORTENED by
+// a reload. ARCHITECTURE.md's "every path that drops a filter prunes `dependsOn` against
+// the survivors" enumerated the drop paths and omitted this one, which is also a drop path.
+describe('serializeDoc prunes dependsOn against the filters it keeps (R3-F4)', () => {
+  const docWithCascade = () =>
+    createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'p1' },
+        pages: { p1: { id: 'p1', title: 'P1', widgetRows: [['w1']] } },
+        widgets: {
+          w1: { id: 'w1', kind: 'chart', title: 'W', config: { chartType: 'bar' } },
+        } as unknown as StudioDoc['widgets'],
+        filters: [
+          {
+            id: 'x1',
+            field: 'a',
+            operator: 'equals',
+            value: 1,
+            scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'p1' },
+          },
+          {
+            id: 'f2',
+            field: 'b',
+            operator: 'equals',
+            value: 2,
+            scope: { kind: 'page', pageId: 'p1' },
+          },
+          {
+            id: 'f1',
+            field: 'c',
+            operator: 'equals',
+            value: 3,
+            scope: { kind: 'page', pageId: 'p1' },
+            dependsOn: ['x1', 'f2'],
+          },
+        ],
+      },
+    }).doc;
+
+  it('drops a dependsOn reference to a stripped cross-filter entry', () => {
+    const doc = docWithCascade();
+    // Live state legitimately carries the cross-filter reference.
+    expect(doc.filters.find((f) => f.id === 'f1')?.dependsOn).toEqual(['x1', 'f2']);
+    const serialized = serializeDoc(doc);
+    // The serialized doc is self-consistent: no `dependsOn` names a filter it does not carry.
+    expect(serialized.filters.find((f) => f.id === 'f1')?.dependsOn).toEqual(['f2']);
+  });
+
+  it('what a reload restores now equals what was written', () => {
+    const serialized = JSON.parse(JSON.stringify(serializeDoc(docWithCascade())));
+    const loaded = deserializeState(serialized, {});
+    expect(loaded.doc.filters.find((f) => f.id === 'f1')?.dependsOn).toEqual(
+      serialized.filters.find((f: { id: string }) => f.id === 'f1').dependsOn,
+    );
+  });
+
+  it('deletes the dependsOn KEY when the prune empties it, never writes dependsOn: []', () => {
+    const doc = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'p1' },
+        pages: { p1: { id: 'p1', title: 'P1', widgetRows: [['w1']] } },
+        widgets: {
+          w1: { id: 'w1', kind: 'chart', title: 'W', config: { chartType: 'bar' } },
+        } as unknown as StudioDoc['widgets'],
+        filters: [
+          {
+            id: 'x1',
+            field: 'a',
+            operator: 'equals',
+            value: 1,
+            scope: { kind: 'cross-filter', sourceWidgetId: 'w1', pageId: 'p1' },
+          },
+          {
+            id: 'f1',
+            field: 'c',
+            operator: 'equals',
+            value: 3,
+            scope: { kind: 'page', pageId: 'p1' },
+            dependsOn: ['x1'],
+          },
+        ],
+      },
+    }).doc;
+    const survivor = serializeDoc(doc).filters.find((f) => f.id === 'f1')!;
+    expect('dependsOn' in survivor).toBe(false);
+  });
+
+  it('leaves a well-formed doc alone, keeping every filter entry reference-stable', () => {
+    const doc = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'p1' },
+        pages: { p1: { id: 'p1', title: 'P1', widgetRows: [] } },
+        filters: [
+          {
+            id: 'f2',
+            field: 'b',
+            operator: 'equals',
+            value: 2,
+            scope: { kind: 'page', pageId: 'p1' },
+          },
+          {
+            id: 'f1',
+            field: 'c',
+            operator: 'equals',
+            value: 3,
+            scope: { kind: 'page', pageId: 'p1' },
+            dependsOn: ['f2'],
+          },
+        ],
+      },
+    }).doc;
+    const serialized = serializeDoc(doc);
+    expect(serialized.filters[1]).toBe(doc.filters[1]);
+    expect(serialized.filters[1].dependsOn).toEqual(['f2']);
+  });
+});

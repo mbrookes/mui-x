@@ -607,7 +607,22 @@ The prune began life INLINE in `removeFilter`, which is exactly why it covered o
 path and no other. Extracting it turned the invariant from something each handler had to remember
 into something the shared primitives enforce. The paths are: `removeFilter`,
 `dropWidgetScopedFilters` (via `removeWidget`/`applyBulkUpdate`), `removePage`'s page-anchor drop,
-`dropConflictingRankFilters`, and the whole load-boundary filter screen.
+`dropConflictingRankFilters`, the whole load-boundary filter screen, and — the one this list used
+to omit — **`serializeDoc`'s cross-filter/interactive strip.**
+
+That last one is a drop path like any other, and omitting it cost a user-authored cascade on every
+reload. `serializeDoc` removed the session-scoped entries but left the survivors' `dependsOn`
+pointing at them; `deserializeState`'s own prune, which runs against the ids the LOADED array
+carries, then deleted those references for good:
+
+```text
+live        f1.dependsOn = ['x1', 'f2']   (x1 = a cross-filter entry)
+serialized  f1.dependsOn = ['x1', 'f2']
+loaded      f1.dependsOn = ['f2']
+```
+
+Pruning at serialize time makes the written doc self-consistent, so what a reload restores is what
+was written rather than what survived a second, later prune.
 
 ### "At least one page always exists"
 

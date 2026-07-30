@@ -523,14 +523,35 @@ export function migrateState(state: unknown): MigrationResult {
  * them across undo/redo); interactive entries are carried across undo/redo by
  * `StudioController.carryTransientDocState`. Either way, neither belongs in on-disk
  * state, so both are stripped at this persistence boundary.
+ *
+ * The strip is a filter-DROP path, so it cascades into the survivors' `dependsOn` like
+ * every other one — see {@link pruneDependsOn} and the body comment below for the
+ * user-visible cascade this used to shorten on every reload.
  */
 export function serializeDoc(doc: StudioDoc): SerializedStudioState {
   const { filters, ...rest } = doc;
+  const keptFilters = filters.filter(
+    (f) => f.scope.kind !== 'cross-filter' && f.scope.kind !== 'interactive',
+  );
   return {
     ...rest,
-    filters: filters.filter(
-      (f) => f.scope.kind !== 'cross-filter' && f.scope.kind !== 'interactive',
-    ),
+    // Cascade the strip into the survivors' `dependsOn`, via the SAME `pruneDependsOn`
+    // helper every other filter-dropping path uses — this one is a drop path too, and was
+    // the one that did not enforce the invariant.
+    //
+    // Without it a user-authored cascade was silently SHORTENED by a reload rather than
+    // preserved: the strip left `dependsOn` pointing at the cross-filter/interactive entries
+    // it had just removed, and `deserializeState`'s own `pruneDependsOn` — which prunes
+    // against the ids the loaded array actually carries — then deleted those references for
+    // good.
+    //
+    //   live        f1.dependsOn = ['x1', 'f2']   (x1 = a cross-filter entry)
+    //   serialized  f1.dependsOn = ['x1', 'f2']
+    //   loaded      f1.dependsOn = ['f2']
+    //
+    // Pruning HERE makes the serialized doc self-consistent, so what a reload restores is
+    // what was written rather than what survived a second, later prune.
+    filters: pruneDependsOn(keptFilters, new Set(keptFilters.map((f) => f.id))),
     relationships: doc.relationships.length > 0 ? doc.relationships : undefined,
     expressionFields: doc.expressionFields.length > 0 ? doc.expressionFields : undefined,
     filterPresets: (doc.filterPresets?.length ?? 0) > 0 ? doc.filterPresets : undefined,

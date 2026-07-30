@@ -208,13 +208,19 @@ export const REGISTERED_MIGRATION_VERSIONS = Object.keys(migrations).map(Number)
 export const MIGRATION_REGISTRY_FOR_TESTS = migrations;
 
 /**
- * Validates that a state object has the minimum required structure
+ * Validates that a persisted state value has the minimum required structure to be read as a
+ * record — the shape guard `migrateState` runs before any keyed access.
+ *
+ * Delegates to the SHARED `isPlainRecord`, like every other boundary in this package. The
+ * hand-rolled `!state || typeof state !== 'object'` it used to be made the
+ * `state is Record<string, unknown>` predicate UNSOUND: an array and an exotic object
+ * (`Date`/`Map`/class instance) both pass `typeof … === 'object'`, so both were narrowed to
+ * a plain record they are not. Harmless in practice — `findMissingRequiredField` rejects an
+ * array on the very next line, for a missing `"dashboard"` — but an unsound predicate is a
+ * trap for the next reader, and this was the one boundary not reading the shared guard.
  */
 function validateStateStructure(state: unknown): state is Record<string, unknown> {
-  if (!state || typeof state !== 'object') {
-    return false;
-  }
-  return true;
+  return isRecord(state);
 }
 
 /**

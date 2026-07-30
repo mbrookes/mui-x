@@ -3673,3 +3673,30 @@ describe('migrateState enforces that a migration stamped schemaVersion (R3-F6)',
     expect(result.state?.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
   });
 });
+
+// R3-F7: `validateStateStructure`'s `state is Record<string, unknown>` predicate was
+// hand-rolled as `!state || typeof state !== 'object'`, which is true for an ARRAY and for
+// an exotic object — so the predicate narrowed values that are not plain records. Harmless
+// today (`findMissingRequiredField` rejects them on the next line) but unsound, and it was
+// the one boundary in the package not reading the shared `isPlainRecord`.
+describe('migrateState rejects non-record state through the shared record guard (R3-F7)', () => {
+  it.each([
+    ['an array', [] as unknown],
+    ['a populated array', [{ dashboard: {} }] as unknown],
+    ['a Date', new Date() as unknown],
+    ['a Map', new Map() as unknown],
+    ['null', null as unknown],
+    ['a string', 'junk' as unknown],
+    ['a number', 42 as unknown],
+  ])('rejects %s', (_label, value) => {
+    const result = migrateState(value as Parameters<typeof migrateState>[0]);
+    expect(result.success).toBe(false);
+    expect(result.state).toBeNull();
+    expect(result.errors.length).toBeGreaterThan(0);
+  });
+
+  it('accepts an Object.create(null) bag, which IS a legitimate plain record', () => {
+    const bag = Object.assign(Object.create(null), completeSerialized({ schemaVersion: 1 }));
+    expect(migrateState(bag).success).toBe(true);
+  });
+});

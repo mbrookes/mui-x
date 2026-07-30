@@ -79,6 +79,14 @@ export {
   // cannot offer silently evaluates to `null` after a reload.
   isStudioExpressionOperator,
   STUDIO_EXPRESSION_OPERATORS,
+  // The FOURTH closed union, published for exactly the same reason as the three above —
+  // "publishing the list, not just the type, is the whole point" applies to all four
+  // equally, and this was the only one of the four still type-only. A consumer branching
+  // on `StudioRelationship['type']` (a relationship editor's option table, a join-path
+  // resolver) had no runtime list to read and had to hand-copy the three members, which is
+  // precisely the per-package drift this package exists to eliminate.
+  isStudioRelationshipType,
+  STUDIO_RELATIONSHIP_TYPES,
 } from './widgetTypeGuards';
 export { isoWeek, truncateToPeriod } from './temporalUtils';
 // `CURRENT_SCHEMA_VERSION` is re-exported via `stateTypes.ts` above (its source

@@ -203,11 +203,17 @@ function isSafeId(value: unknown): value is string {
  *  `MAX_ARRAY_LENGTH` entries, each no longer than `MAX_STRING_LENGTH` (Tier2
  *  finding): every field routed through this predicate (`dependsOn`, `unsetFields`,
  *  `unsetConfigKeys`, `rowWidgetIds`, `removedWidgetIds`) is a producer-controlled
- *  list with no legitimate reason to approach either cap. Exported so
- *  `statePersistence.ts`'s load-boundary screen can apply the SAME array-shape check
- *  to persisted `filters[].dependsOn` that this file already applies to a live
- *  `addFilter` mutation (T2 finding) — the wire boundary and the load boundary must
- *  agree on what counts as a well-formed `dependsOn`. */
+ *  list with no legitimate reason to approach either cap.
+ *
+ *  Exported for `applyMutation.ts`, its one consumer, which needs the same array-shape
+ *  check on `unsetFields`/`unsetConfigKeys` that this file applies on the way in.
+ *
+ *  The load boundary does NOT import this: `statePersistence.ts` reaches the same
+ *  `dependsOn` verdict through `internalGuards.repairFilterDependsOn`, which checks the
+ *  array-shape and size conditions directly rather than calling here — `internalGuards.ts`
+ *  cannot import this module (`parseStateMutation.ts` imports IT, for `isPlainRecord`), so
+ *  that would cycle. The two agree because both read the SAME `MAX_ARRAY_LENGTH`/
+ *  `MAX_STRING_LENGTH` from `wireLimits.ts`, not because they share this function. */
 export function isStringArray(value: unknown): value is string[] {
   return (
     Array.isArray(value) &&

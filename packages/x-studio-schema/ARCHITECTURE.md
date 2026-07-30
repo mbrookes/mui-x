@@ -551,6 +551,14 @@ discarding whatever it carried with no error anywhere. The tightening changes no
 values the predicate was ever meant to accept: every object literal and every `JSON.parse` output
 already has `Object.prototype`, and an explicit `Object.create(null)` bag is accepted too.
 
+"Every trust boundary" was one short until recently: `statePersistence.ts`'s
+`validateStateStructure` kept a hand-rolled `!state || typeof state !== 'object'`, which is true
+for an ARRAY and for every exotic object — so its `state is Record<string, unknown>` predicate
+narrowed values that are not plain records. It never produced a wrong ANSWER (an array fails
+`findMissingRequiredField` on the very next line, for a missing `"dashboard"`), but an unsound
+predicate is a trap for the next reader and a hand-rolled one cannot receive the next tightening.
+It now delegates like everything else.
+
 ### Reference-equality no-op contract
 
 **Every** handler and helper returns its input reference unchanged when nothing changed. This is
@@ -1668,6 +1676,14 @@ evaluator's arity/kind tables. A hand-copy is exactly the per-package drift this
 eliminate — an operator added here but missed in a copy makes the editor and the load boundary
 disagree about which operators exist, and an expression the editor cannot offer silently
 evaluates to `null` after a reload.
+
+**"Published" means re-exported from `index.ts`, and all four now are.**
+`STUDIO_RELATIONSHIP_TYPES`/`isStudioRelationshipType` were the last pair still reachable only by
+a deep import — the argument above applies to all four equally, and there is no reason a consumer
+branching on `StudioRelationship['type']` should be the one forced back to a hand-copy.
+`widgetTypeGuards.test.ts` pins all four pairs against the PUBLIC entry point and asserts each is
+the SAME binding as the source module's, so a dropped re-export fails rather than silently
+regressing.
 
 `isStudioFilterOperator` and `isStudioExpressionOperator` are `unknown`-typed (not `string`-typed
 like `isStudioChartType`) since they must also reject a non-string value.

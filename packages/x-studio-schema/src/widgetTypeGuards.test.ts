@@ -194,3 +194,42 @@ describe('widget field lists', () => {
     expect([...OPTIONAL_WIDGET_STRING_FIELDS].sort()).toEqual(['sourceId', 'subtitle']);
   });
 });
+
+// R3-F7: `STUDIO_RELATIONSHIP_TYPES`/`isStudioRelationshipType` were the only one of the
+// four compile-locked closed-union lists NOT re-exported from the package index, while
+// ARCHITECTURE.md's "publishing the list, not just the type, is the whole point" argument
+// applies to all four equally. Asserted against the PUBLIC entry point, so the pin fails if
+// the re-export is ever dropped.
+describe('all four closed-union runtime lists are published from the package index (R3-F7)', () => {
+  it('exports every list and its predicate, all four identical to the source module', async () => {
+    const publicApi = await import('./index');
+    const pairs = [
+      ['STUDIO_CHART_TYPES', 'isStudioChartType', STUDIO_CHART_TYPES, isStudioChartType],
+      [
+        'STUDIO_FILTER_OPERATORS',
+        'isStudioFilterOperator',
+        STUDIO_FILTER_OPERATORS,
+        isStudioFilterOperator,
+      ],
+      [
+        'STUDIO_EXPRESSION_OPERATORS',
+        'isStudioExpressionOperator',
+        STUDIO_EXPRESSION_OPERATORS,
+        isStudioExpressionOperator,
+      ],
+      [
+        'STUDIO_RELATIONSHIP_TYPES',
+        'isStudioRelationshipType',
+        STUDIO_RELATIONSHIP_TYPES,
+        isStudioRelationshipType,
+      ],
+    ] as const;
+    for (const [listName, predicateName, list, predicate] of pairs) {
+      expect(publicApi, `${listName} must be published`).toHaveProperty(listName);
+      expect(publicApi, `${predicateName} must be published`).toHaveProperty(predicateName);
+      // Same binding, not a re-declared copy — the whole point of publishing the list.
+      expect((publicApi as Record<string, unknown>)[listName]).toBe(list);
+      expect((publicApi as Record<string, unknown>)[predicateName]).toBe(predicate);
+    }
+  });
+});

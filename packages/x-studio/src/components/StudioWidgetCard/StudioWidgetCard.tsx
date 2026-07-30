@@ -22,7 +22,7 @@ import {
   selectFilters,
   selectDataSources,
   selectRelationships,
-  selectExpressionFields,
+  makeSelectExpressionFieldsForSources,
   selectCrossFilterAllPages,
   makeSelectPartitionedBaseFiltersForPage,
   makeSelectWidget,
@@ -59,6 +59,7 @@ import type { StudioFilterWidgetProps } from '../widgets/StudioFilterWidget';
 import { inferKpiDateSubtitle, resolveWidgetRequiresDataSource } from '../../internals/widgetUtils';
 import { canDetectAnomalies } from '../../internals/anomalyDetection';
 import { createStudioPipeline } from '../../internals/StudioPipeline';
+import { getReachableSourceIds } from '../../internals/dataSourceGraph';
 import { formatCrossFilterValueLabel } from '../../internals/crossFilterValueLabel';
 import { resolveFieldDef } from '../widgets/StudioChartWidget/chartWidgetHelpers';
 import { useWidgetKindLabels } from '../StudioComposeDrawer/StudioComposeDrawerLabels';
@@ -177,6 +178,12 @@ function DefaultLoadingOverlay() {
   );
 }
 
+/**
+ * Stable empty set for a widget with no `sourceId`, so `makeSelectExpressionFieldsForSources`
+ * is not re-created (and its memo not discarded) on every render.
+ */
+const EMPTY_SOURCE_IDS: ReadonlySet<string> = new Set<string>();
+
 export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: StudioWidgetCardProps) {
   const [hovered, setHovered] = React.useState(false);
   const {
@@ -227,7 +234,26 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const crossFilterAllPages = useStudioSelector(selectCrossFilterAllPages);
   const allDataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
-  const expressionFields = useStudioSelector(selectExpressionFields);
+  // Own source plus every one-hop related source — the `relevantSourceIds` +
+  // `makeSelectExpressionFieldsForSources` pattern `useWidgetRows`, the grid, the map, the
+  // KPI and the chart already use. This card wraps EVERY widget on every mounted page, and
+  // it used to subscribe to `selectExpressionFields`, which hands back
+  // `state.doc.expressionFields` by reference: adding a calculated field to an unrelated
+  // source replaced that array and re-rendered every card's chrome (including
+  // `inferKpiDateSubtitle`, which scans `allFilters`) for an edit none of them can reach.
+  // Both consumers below — the cross-filter chip's `resolveFieldDef` and
+  // `SliderFilterPill` — only ever resolve a field on this widget's own or a reachable
+  // source, so the narrowed set is complete for them.
+  const relevantSourceIds = React.useMemo(
+    () =>
+      widget?.sourceId ? getReachableSourceIds(widget.sourceId, relationships) : EMPTY_SOURCE_IDS,
+    [widget?.sourceId, relationships],
+  );
+  const selectScopedExpressionFields = React.useMemo(
+    () => makeSelectExpressionFieldsForSources(relevantSourceIds),
+    [relevantSourceIds],
+  );
+  const expressionFields = useStudioSelector(selectScopedExpressionFields);
   const localeText = useStudioLocaleText();
   const widgetKindLabels = useWidgetKindLabels();
   const widgetDefMap = useWidgetDefMap();

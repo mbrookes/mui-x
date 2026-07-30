@@ -46,6 +46,7 @@ import { selectPartitionedFilters, selectPartitionedBaseFilters } from '../conte
 import { studioRequestCache } from './StudioRequestCache';
 import { createDefaultWidget } from './widgetFactory';
 import { StudioKpiWidget } from '../components/widgets/StudioKpiWidget';
+import { StudioWidgetCard } from '../components/StudioWidgetCard';
 
 // ─── Module-level mutable state (replaced by vi.mock) ─────────────────────────
 
@@ -478,5 +479,85 @@ describe('UI render performance — store-driven re-renders', () => {
     });
 
     expect(valueRenders).toBeGreaterThan(paintCountBeforeMutation);
+  });
+
+  // The two cases above render `StudioKpiWidget` STANDALONE, bypassing the card that wraps
+  // EVERY widget in the real tree — so they could not see that `StudioWidgetCard` itself
+  // subscribed to `selectExpressionFields`, a whole-slice selector returning
+  // `state.doc.expressionFields` by reference. `addExpressionField({ sourceId: 'unrelated' })`
+  // replaces that array, so every mounted card on every mounted page re-rendered its chrome
+  // (including `inferKpiDateSubtitle`, whose deps include `allFilters`) for an edit it can
+  // never reach. Mount THROUGH the card so the ARCHITECTURE.md claim is actually pinned.
+  it('does not re-render the widget CARD when an expression field is added for an unrelated source', async () => {
+    let cardCommits = 0;
+
+    render(
+      <ThemeProvider theme={theme}>
+        <React.Profiler
+          id="card"
+          onRender={() => {
+            cardCommits += 1;
+          }}
+        >
+          <StudioWidgetCard widgetId="w-kpi-1" pageId="page-1" />
+        </React.Profiler>
+      </ThemeProvider>,
+      { strict: false },
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const commitsBeforeMutation = cardCommits;
+    expect(commitsBeforeMutation).toBeGreaterThan(0);
+
+    await act(async () => {
+      controller.addExpressionField({
+        id: 'ef-elsewhere',
+        sourceId: 'source-2',
+        label: 'Elsewhere',
+        expression: { kind: 'literal', value: 1 },
+      } as any);
+    });
+
+    // Sanity: the write really landed, so a stable commit count means "filtered out",
+    // not "nothing happened".
+    expect(controller.getState().doc.expressionFields).toHaveLength(1);
+    expect(cardCommits).toBe(commitsBeforeMutation);
+  });
+
+  it('does re-render the widget CARD when an expression field is added for its OWN source', async () => {
+    // Counterpart to the case above, so a selector frozen forever cannot pass it.
+    let cardCommits = 0;
+
+    render(
+      <ThemeProvider theme={theme}>
+        <React.Profiler
+          id="card"
+          onRender={() => {
+            cardCommits += 1;
+          }}
+        >
+          <StudioWidgetCard widgetId="w-kpi-1" pageId="page-1" />
+        </React.Profiler>
+      </ThemeProvider>,
+      { strict: false },
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const commitsBeforeMutation = cardCommits;
+
+    await act(async () => {
+      controller.addExpressionField({
+        id: 'ef-own',
+        sourceId: 'source-1',
+        label: 'Doubled',
+        expression: { kind: 'literal', value: 1 },
+      } as any);
+    });
+
+    expect(cardCommits).toBeGreaterThan(commitsBeforeMutation);
   });
 });

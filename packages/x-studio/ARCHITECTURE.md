@@ -909,7 +909,7 @@ Hooks: `useStudioLocaleText()` for the merged locale object; `useStudioFeatures(
 
 Exported from `src/index.ts`:
 
-- **Root components** — `Studio` (full authoring UI, imperative `StudioHandle` ref) and `StudioDashboard` (embed-first, view-oriented wrapper taking a pre-built `config: StudioState` + `dataAdapters` map, for displaying a live dashboard without the authoring UI).
+- **Root components** — `Studio` (full authoring UI, imperative `StudioHandle` ref) and `StudioDashboard` (embed-first, view-oriented wrapper taking a pre-built `config: StudioState` + `dataAdapters` map, for displaying a live dashboard without the authoring UI — see [its view-mode default](#studiodashboards-view-mode-default)).
 - **Layout** — `StudioCanvas`, `StudioDateRangeBar`, `StudioWidgetCard`, `StudioWidgetEditDialog`, `StudioNoDataOverlay`, `DrawerPanel`/`DrawerPanelContext`, `TabbedSidebar`.
 - **Widgets** — all seven, plus `CHART_MIN_HEIGHT`, the filter-control prop types, and `GeographyLoader`/`StudioMapGeographyDefinition`.
 - **Drawers/dialogs** — `StudioDataDrawer`, `StudioComposeDrawer` (+ `InlineFormulaBar`, `DataSourceFieldSelect`), `StudioFiltersDrawer`, `StudioExpressionFieldDialog`.
@@ -917,6 +917,21 @@ Exported from `src/index.ts`:
 - **Locales**, **widget utilities** (`WIDGET_TYPES`, `createDefaultWidget`, `normalizeGridColumn`), **controller/state** (`StudioController`, `createStudioController`, `createDefaultStudioState`, the persistence functions, `CURRENT_SCHEMA_VERSION`, `computeDateRangePreset` — which uses dayjs subtraction so a `last_3_months`/`last_12_months` window clamps day-of-month on a month-end rollover), **AI/chat** (`StudioChatPanel`, `createBackendChatAdapter`, `applyStateMutation`, `useSpeechRecognition`, the client protocol type subset), **server adapters**, **models** (the full type surface re-exported from the schema package plus local feature-flag types), and **brand** (`StudioWordmark`).
 
 `StudioController`'s concrete class and `internals/` are reachable but not meant to be constructed directly outside `Studio`'s imperative `StudioHandle` ref (`undo`/`redo`/`canUndo`/`canRedo`, `setMode`, `setActivePage`, `removePage`, `reorderPages`, `getState`, `serializeState`/`loadSerializedState`, `serializeSession`/`restoreSession`, `setDataSourceAdapter`, `setDataSourceRows`, `upsertDataSource`).
+
+### `StudioDashboard`'s view-mode default
+
+`StudioDashboard` being "view-oriented" is enforced by **two independent switches**, and only one of them used to exist:
+
+- `DEFAULT_EMBED_FLAGS` (`compose: false`, `dataManagement: false`, merged under the host's `featureFlags`) hides the compose and data drawers.
+- `mode?: StudioMode`, defaulting to `'view'`, seeds `session.mode`.
+
+The second one is the load-bearing half. `features.compose` only removes drawers; **`session.mode` is what gates every destructive affordance**: `StudioWidgetCard`'s edit-action row (Edit / Duplicate / Move to page / Delete) and its `canDrag`, `StudioCanvas`'s `InsertionPoint`s and `RowResizeHandle`s, the responsive stacking observer (enabled only when `mode !== 'edit'`), and whether a grid header click is a transient viewer sort or an authored `gridSortField` write into the persisted doc. None of those consult a feature flag.
+
+Before the `mode` prop existed, `initialState={config}` was handed straight to `new StudioController(...)`, whose `createDefaultStudioState` seeds `baseSession.mode: 'edit'` and merges `config.session` over it — so an embed was fully editable whenever the host omitted `session`, _and_ when it passed the `getState()` snapshot the `config` prop's own docs recommend (that snapshot is taken in the authoring UI, where the mode is `'edit'`).
+
+Precedence: the prop always wins over `config.session.mode`. `session` is the never-persisted partition, so there is nothing in a saved dashboard for it to contradict, and inheriting an authoring snapshot's mode is exactly the failure above. The value is seeded at mount (captured once into a ref — `Studio` reads `initialState` only at mount, and a fresh object per render would defeat its `React.memo`) and re-applied by an effect when the prop changes; `setMode`'s value-equality guard makes both no-ops when nothing changed. It is deliberately **not** a controlled prop — between prop changes, `ref.setMode()` and (with `compose: true`) the toolbar toggle still work.
+
+A `config` swap does not disturb the mode either: `loadSerializedState` carries the current `session.mode` across the doc swap by design.
 
 ### `StudioDashboard`'s config-swap protocol
 

@@ -280,3 +280,87 @@ describe('StudioDashboard', () => {
     expect(ref.current!.getState().session.mode).toBe('view');
   });
 });
+
+// ─── `mode` defaults to `'view'` (finding F1) ─────────────────────────────────
+//
+// Regression: `StudioDashboard` documented itself as rendering "in view-only mode by
+// default", but nothing ever set `session.mode`. `DEFAULT_EMBED_FLAGS` only turns off
+// `compose`/`dataManagement`, and the controller was seeded with `initialState={config}` —
+// so the mode came from `config.session.mode`, which `createDefaultStudioState` (and
+// therefore every `getState()` snapshot taken in the authoring UI, exactly what the `config`
+// prop's own JSDoc steers hosts toward) sets to `'edit'`.
+//
+// `session.mode` — NOT `features.compose` — is what gates every destructive affordance:
+// `StudioWidgetCard`'s edit-action row (Edit / Duplicate / Move-to-page / Delete) and its
+// drag wiring, `StudioCanvas`'s insertion points and row-resize handles, the responsive
+// stacking observer (`mode !== 'edit'`), and the grid header click that writes
+// `gridSortField` into the persisted doc. An embed therefore mounted fully editable.
+describe('StudioDashboard — mode', () => {
+  it("mounts in view mode by default, even though `config.session.mode` is 'edit'", async () => {
+    const config = makeConfig('Embedded');
+    // The shape a host actually passes: `createDefaultStudioState`/`getState()` say 'edit'.
+    expect(config.session.mode).toBe('edit');
+
+    const ref = React.createRef<StudioHandle>();
+    render(<StudioDashboard ref={ref} config={config} />);
+    expect(await screen.findByText('Embedded')).not.toBe(null);
+
+    expect(ref.current!.getState().session.mode).toBe('view');
+  });
+
+  it('honours an explicit `mode="edit"` for hosts that opt into authoring', async () => {
+    const config = makeConfig('Editable');
+    const ref = React.createRef<StudioHandle>();
+    render(
+      <StudioDashboard ref={ref} config={config} mode="edit" featureFlags={{ compose: true }} />,
+    );
+    expect(await screen.findByText('Editable')).not.toBe(null);
+
+    expect(ref.current!.getState().session.mode).toBe('edit');
+  });
+
+  it("keeps the default view mode even when `config.session.mode` is explicitly 'edit'", async () => {
+    // The prop is the contract; the config's session partition is never persisted and is not
+    // a mode source for an embed.
+    const base = makeConfig('Embedded');
+    const config: StudioState = { ...base, session: { ...base.session, mode: 'edit' } };
+    const ref = React.createRef<StudioHandle>();
+    render(<StudioDashboard ref={ref} config={config} />);
+    expect(await screen.findByText('Embedded')).not.toBe(null);
+
+    expect(ref.current!.getState().session.mode).toBe('view');
+  });
+
+  it('applies a later `mode` prop change', async () => {
+    const config = makeConfig('Embedded');
+    const ref = React.createRef<StudioHandle>();
+    const { setProps } = render(<StudioDashboard ref={ref} config={config} />);
+    expect(await screen.findByText('Embedded')).not.toBe(null);
+    expect(ref.current!.getState().session.mode).toBe('view');
+
+    await act(async () => {
+      setProps({ mode: 'edit' });
+    });
+    expect(ref.current!.getState().session.mode).toBe('edit');
+
+    await act(async () => {
+      setProps({ mode: 'view' });
+    });
+    expect(ref.current!.getState().session.mode).toBe('view');
+  });
+
+  it('stays in view mode across a `config` prop swap', async () => {
+    const configA = makeConfig('A');
+    const configB = makeConfig('B');
+    const ref = React.createRef<StudioHandle>();
+    const { setProps } = render(<StudioDashboard ref={ref} config={configA} />);
+    expect(await screen.findByText('A')).not.toBe(null);
+    expect(ref.current!.getState().session.mode).toBe('view');
+
+    await act(async () => {
+      setProps({ config: configB });
+    });
+    expect(await screen.findByText('B')).not.toBe(null);
+    expect(ref.current!.getState().session.mode).toBe('view');
+  });
+});

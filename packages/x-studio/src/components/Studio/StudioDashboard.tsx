@@ -7,6 +7,7 @@ import type { StudioHandle, StudioProps } from './Studio';
 import type {
   StudioDataSourceAdapter,
   StudioFeatureFlags,
+  StudioMode,
   StudioState,
   StudioCustomWidgetDef,
 } from '../../models';
@@ -42,6 +43,29 @@ export interface StudioDashboardProps {
    * dashboard is always reset to the provided `config` when the prop updates.
    */
   config: StudioState;
+  /**
+   * Mode the embedded dashboard runs in.
+   *
+   * `'view'` is the default and is what makes `StudioDashboard` an *embed*: mode — not
+   * `featureFlags.compose` — is what gates the destructive per-widget affordances
+   * (Edit / Duplicate / Move to page / **Delete**), widget drag-and-drop, the canvas
+   * insertion points and row-resize handles, the responsive stacking observer, and whether
+   * a grid header click is a transient viewer sort or an authored write into the persisted
+   * document. Pass `mode="edit"` (usually together with `featureFlags={{ compose: true }}`)
+   * to embed the authoring experience instead.
+   *
+   * This prop always wins over `config.session.mode`: `session` is the never-persisted
+   * partition, and the `config` a host has to hand is typically a `getState()` snapshot
+   * taken inside the authoring UI, where the mode is `'edit'`. An embed must not inherit
+   * that.
+   *
+   * The value is applied when the dashboard mounts and again whenever the prop changes.
+   * In between, the mode can still be switched imperatively (`ref.setMode(…)`) or, when
+   * `featureFlags.compose` is on, by the user — this is a default, not a controlled prop.
+   *
+   * @default 'view'
+   */
+  mode?: StudioMode;
   /**
    * Map of source ID → async data adapter.
    * Adapters are registered automatically whenever the component mounts or the map changes.
@@ -125,18 +149,27 @@ const DEFAULT_EMBED_FLAGS: StudioFeatureFlags = {
   dataManagement: false,
 };
 
+/** Mode an embed mounts in unless the host explicitly asks for another one. */
+const DEFAULT_EMBED_MODE: StudioMode = 'view';
+
 /**
  * Embed-first Studio component.
  *
- * Renders a pre-built dashboard with live data adapters in view-only mode by default.
- * The authoring UI (compose drawer, data drawer) is hidden unless explicitly enabled
- * via `featureFlags`.
+ * Renders a pre-built dashboard with live data adapters in view-only mode by default:
+ * `session.mode` is seeded to `'view'` (see the `mode` prop) AND the authoring drawers
+ * are switched off via `DEFAULT_EMBED_FLAGS`. Both halves are needed — the feature flags
+ * hide the compose/data drawers, while the mode is what actually removes the per-widget
+ * delete/duplicate/drag affordances and keeps a viewer's interactions out of the
+ * persisted document.
+ *
+ * Pass `mode="edit"` (and the matching `featureFlags`) to embed the authoring experience.
  *
  * @see `Studio` for the full authoring component.
  */
 export const StudioDashboard = React.memo(function StudioDashboard({
   ref,
   config,
+  mode,
   dataAdapters,
   onStateChange,
   featureFlags,
@@ -155,10 +188,39 @@ export const StudioDashboard = React.memo(function StudioDashboard({
     [featureFlags],
   );
 
+  const resolvedMode = mode ?? DEFAULT_EMBED_MODE;
+
   const innerRef = React.useRef<StudioHandle>(null);
 
   // Expose the underlying handle to the caller's ref
   React.useImperativeHandle(ref, () => innerRef.current!, []);
+
+  // Seed the controller's mode (F1). `Studio` builds its `StudioController` ONCE from
+  // `initialState`, and `createDefaultStudioState`'s `baseSession.mode` is `'edit'` with
+  // `config.session` merged on top — so handing `config` through verbatim made every embed
+  // mount editable, and an embed built from a `getState()` snapshot taken in the authoring
+  // UI (what the `config` prop's JSDoc recommends) carried `'edit'` explicitly. Override it
+  // here so `StudioDashboard`'s documented view-only contract is true by construction.
+  //
+  // Captured lazily into a ref rather than recomputed per render: `initialState` is read
+  // exactly once (at mount) by `Studio`, and a fresh object each render would defeat
+  // `Studio`'s `React.memo`. Later `mode` changes are applied through the effect below.
+  const initialStateRef = React.useRef<StudioState | null>(null);
+  if (initialStateRef.current === null) {
+    initialStateRef.current = {
+      ...config,
+      session: { ...config.session, mode: resolvedMode },
+    };
+  }
+
+  // Keep the mode in sync when the host changes the prop after mount. `setMode` no-ops when
+  // the value is already current, so the mount run (the seed above already applied it) and
+  // any re-run with an unchanged value cost nothing. Deliberately NOT a controlled prop:
+  // between prop changes the host's `ref.setMode()` and the compose toolbar remain free to
+  // switch modes.
+  React.useEffect(() => {
+    innerRef.current?.setMode(resolvedMode);
+  }, [resolvedMode]);
 
   // Latest `dataAdapters` map, read by the config-swap effect (1.1) so it can re-apply
   // adapters after a reload without taking `dataAdapters` as an effect dependency (hosts
@@ -255,7 +317,7 @@ export const StudioDashboard = React.memo(function StudioDashboard({
     <Box sx={sx}>
       <Studio
         ref={innerRef}
-        initialState={config}
+        initialState={initialStateRef.current}
         onStateChange={onStateChange}
         featureFlags={mergedFlags}
         localeText={localeText}

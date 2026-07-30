@@ -688,8 +688,8 @@ function applyPredicate(query: any, predicate: FilterPredicate, mode: 'read' | '
       query.where(column, '>=', value);
       break;
     case 'like':
-      // Runtime-guard the string shape (finding 3.1). `query.whereLike` expects a
-      // text pattern; a non-string (`['a','b']`, an object, a number) reaches Knex
+      // Runtime-guard the string shape (finding 3.1). A `like` expects a text
+      // pattern; a non-string (`['a','b']`, an object, a number) reaches Knex
       // as a confusing DB error. Fail closed with a clear message, mirroring the
       // `in`/`between` guards. The pattern still stays parameterized.
       if (typeof value !== 'string') {
@@ -701,7 +701,27 @@ function applyPredicate(query: any, predicate: FilterPredicate, mode: 'read' | '
             `Provide a string pattern (e.g. { operator: "like", value: "%abc%" }).`,
         );
       }
-      query.whereLike(column, value);
+      // THE 3-ARG `.where(col, 'like', ?)` FORM, NOT `.whereLike(col, ?)` (F1).
+      // The two look interchangeable and compile identically on pg and
+      // better-sqlite3, but Knex's MySQL query compiler hard-codes a trailing
+      // `COLLATE utf8_bin` on `whereLike`
+      // (`knex/lib/dialects/mysql/query/mysql-querycompiler.js`). On MySQL 8,
+      // whose default charset is utf8mb4, an explicit `utf8_bin` collation
+      // against a utf8mb4 operand raises `ER_CANT_AGGREGATE_2COLLATIONS` /
+      // `ER_COLLATION_CHARSET_MISMATCH` — and `sanitizeBoundaryError` then masks
+      // that driver message behind the generic "query for this widget could not
+      // be completed", so `like` was silently dead on every MySQL deployment,
+      // on the read AND the write path, with no diagnostic.
+      //
+      // `.whereILike` was rejected as the alternative: it renders pg's `ilike`,
+      // which would make one dialect case-insensitive and the others not. The
+      // 3-arg form emits a plain `like ?` everywhere, so `like` now follows the
+      // COLUMN'S OWN collation on MySQL (case-insensitive under the usual
+      // `utf8mb4_0900_ai_ci`) rather than a forced binary comparison — the same
+      // "whatever the dialect's LIKE means" semantics pg and SQLite already had.
+      // Pinned by real-Knex SQL assertions in `__tests__/predicates.test.ts`;
+      // the mock-DB suites record method names and cannot see a dialect bug.
+      query.where(column, 'like', value);
       break;
     case 'between': {
       // Runtime-guard the array shape (finding 3.1). A `between` needs exactly two

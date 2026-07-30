@@ -222,9 +222,11 @@ describe('applyPredicates — value-shape guards (finding 3.1)', () => {
       { column: 'notes', operator: 'like', value: 'urgent%' },
     ] as unknown as FilterPredicate[];
     expect(() => applyPredicates(q, validPredicates, 'read')).not.toThrow();
-    // Four `.where(...)` scalar comparisons + one `.whereLike(...)`.
-    expect(calls.filter((c) => c.method === 'where')).toHaveLength(4);
-    expect(calls.filter((c) => c.method === 'whereLike')).toHaveLength(1);
+    // Four `.where(...)` scalar comparisons + the `like`, which also routes to the
+    // 3-arg `.where(column, 'like', pattern)` rather than `.whereLike` (F1).
+    expect(calls.filter((c) => c.method === 'where')).toHaveLength(5);
+    expect(calls.filter((c) => c.method === 'whereLike')).toHaveLength(0);
+    expect(calls).toContainEqual({ method: 'where', args: ['notes', 'like', 'urgent%'] });
   });
 });
 
@@ -436,5 +438,70 @@ describe('resolvers ignore host-side Object.prototype pollution (finding 2.2 —
     expect(resolveJoinSecurityColumns(POLLUTED_TABLE, config, TENANT_COLUMN)).toEqual(
       DEFAULT_COLUMNS,
     );
+  });
+});
+
+// ── `like` must render as a plain `LIKE ?` on every supported dialect (F1) ────
+//
+// `query.whereLike(column, value)` looks dialect-neutral, but Knex's MySQL query
+// compiler hard-codes a trailing `COLLATE utf8_bin` on `whereLike` (see
+// `knex/lib/dialects/mysql/query/mysql-querycompiler.js`). On MySQL 8 — whose
+// server/table default charset is utf8mb4 — comparing a utf8mb4 column against an
+// explicitly `utf8_bin`-collated operand raises
+// `ER_CANT_AGGREGATE_2COLLATIONS` / `ER_COLLATION_CHARSET_MISMATCH`, and
+// `sanitizeBoundaryError` then masks the driver message behind the generic
+// "query for this widget could not be completed". The net effect was that `like`
+// — one of the nine `SAFE_OPERATORS`, on BOTH the read path (`buildSecureQuery`)
+// and the write path (`buildUpdateMutation`/`buildDeleteMutation`) — was silently
+// dead deployment-wide on MySQL, with no diagnostic.
+//
+// The mock-DB suites cannot catch this: they record the METHOD NAME, not the SQL
+// a dialect compiles it to. These assertions render through the real Knex query
+// compilers instead, which is the only place the divergence is observable.
+describe('applyPredicates — "like" renders as plain LIKE on every dialect (F1)', () => {
+  it('does not emit a COLLATE clause on mysql2', () => {
+    const realDb = Knex({ client: 'mysql2' });
+    const query = realDb('orders');
+    applyPredicates(query, [{ column: 'orders.name', operator: 'like', value: '%a%' }], 'read');
+    expect(query.toString()).toBe("select * from `orders` where `orders`.`name` like '%a%'");
+    expect(query.toString()).not.toMatch(/COLLATE/i);
+  });
+
+  it('renders the same shape on pg and better-sqlite3', () => {
+    const pgDb = Knex({ client: 'pg' });
+    const pgQuery = pgDb('orders');
+    applyPredicates(pgQuery, [{ column: 'orders.name', operator: 'like', value: '%a%' }], 'read');
+    // Case-SENSITIVE `like`, never pg's `ilike` — the operator's documented
+    // semantics are the dialect's own `LIKE`, not a forced case-insensitive match.
+    expect(pgQuery.toString()).toBe('select * from "orders" where "orders"."name" like \'%a%\'');
+
+    const sqliteDb = Knex({ client: 'better-sqlite3', connection: { filename: ':memory:' } });
+    const sqliteQuery = sqliteDb('orders');
+    applyPredicates(
+      sqliteQuery,
+      [{ column: 'orders.name', operator: 'like', value: '%a%' }],
+      'read',
+    );
+    expect(sqliteQuery.toString()).toBe("select * from `orders` where `orders`.`name` like '%a%'");
+  });
+
+  it('applies on the WRITE path too (update/delete `where` predicates)', () => {
+    const realDb = Knex({ client: 'mysql2' });
+    const updateQuery = realDb('orders');
+    applyPredicates(
+      updateQuery,
+      [{ column: 'orders.name', operator: 'like', value: 'a%' }],
+      'write',
+    );
+    expect(updateQuery.update({ status: 'x' }).toString()).not.toMatch(/COLLATE/i);
+  });
+
+  it('keeps the pattern parameterized (never inlined into the SQL text)', () => {
+    const realDb = Knex({ client: 'mysql2' });
+    const query = realDb('orders');
+    applyPredicates(query, [{ column: 'orders.name', operator: 'like', value: "%o'--" }], 'read');
+    const compiled = query.toSQL();
+    expect(compiled.sql).toBe('select * from `orders` where `orders`.`name` like ?');
+    expect(compiled.bindings).toEqual(["%o'--"]);
   });
 });

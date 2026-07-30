@@ -291,7 +291,12 @@ describe('buildSecureQuery', () => {
       expect(calls).toContainEqual({ method: 'whereIn', args: ['sales.product', []] });
     });
 
-    it('maps "like" to whereLike', () => {
+    // Deliberately the 3-arg `.where(column, 'like', pattern)` and NOT
+    // `.whereLike(column, pattern)`: Knex's MySQL compiler appends `COLLATE
+    // utf8_bin` to `whereLike` only, which is an error against a utf8mb4 column
+    // on MySQL 8 (F1 — see `shared/__tests__/predicates.test.ts` for the
+    // real-Knex SQL pins).
+    it('maps "like" to the 3-arg .where(column, \'like\', pattern) form', () => {
       const { db, calls } = createRecordingDb();
       buildSecureQuery(
         db,
@@ -301,7 +306,8 @@ describe('buildSecureQuery', () => {
         }),
         { tenancy: SINGLE_TENANT },
       );
-      expect(calls).toContainEqual({ method: 'whereLike', args: ['sales.name', 'Ac%'] });
+      expect(calls).toContainEqual({ method: 'where', args: ['sales.name', 'like', 'Ac%'] });
+      expect(calls.some((c) => c.method === 'whereLike')).toBe(false);
     });
 
     it('maps "between" to whereBetween with a [lo, hi] tuple', () => {
@@ -374,9 +380,9 @@ describe('buildSecureQuery', () => {
       );
       // The WHERE clause targets the validated physical column `amount`,
       // table-qualified with the primary table (finding 2.1)…
-      expect(calls).toContainEqual({ method: 'whereLike', args: ['sales.amount', '123%'] });
+      expect(calls).toContainEqual({ method: 'where', args: ['sales.amount', 'like', '123%'] });
       // …and never the raw, non-allowlisted logical name `ssn`.
-      expect(calls.some((c) => c.method === 'whereLike' && c.args[0] === 'ssn')).toBe(false);
+      expect(calls.some((c) => c.args[0] === 'ssn')).toBe(false);
     });
 
     it('resolves aliases for every operator, including qualified physical columns', () => {

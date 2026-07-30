@@ -307,6 +307,13 @@ What each inclusion buys:
 The single source of truth for row-level security and structured-filter translation, used identically by `buildSecureQuery` (reads) and `buildUpdateMutation`/`buildDeleteMutation` (writes). Every caller applies security predicates **first**, then user filters, so the scope can never be overridden or AND-ed away.
 
 - **`SAFE_OPERATORS`** — the only filter operators ever translated to SQL: `eq`, `neq`, `in`, `lt`, `lte`, `gt`, `gte`, `like`, `between`. Anything outside always throws, on both paths — never silently dropped.
+
+  **`like` emits the 3-arg `.where(column, 'like', pattern)`, never `.whereLike(column, pattern)`.** The two Knex builders look interchangeable and compile identically on pg and better-sqlite3, but Knex's MySQL query compiler hard-codes a trailing `COLLATE utf8_bin` on `whereLike` only. On MySQL 8, whose default charset is utf8mb4, an explicit `utf8_bin` collation against a utf8mb4 operand raises `ER_CANT_AGGREGATE_2COLLATIONS` / `ER_COLLATION_CHARSET_MISMATCH` — which `sanitizeBoundaryError` then classifies as a driver message and replaces with the generic per-widget error, so `like` was silently dead on every MySQL deployment, on the read _and_ write paths, with no diagnostic.
+
+  Consequence for hosts: **on MySQL, `like` now follows the column's own collation** — case-**insensitive** under the usual `utf8mb4_0900_ai_ci` default — rather than the forced binary comparison the `utf8_bin` suffix imposed. That matches what pg (case-sensitive `LIKE`) and SQLite (ASCII-case-insensitive `LIKE`) already did: `like` means "whatever the dialect's `LIKE` means for this column". `whereILike` was deliberately **not** used as the fix — it renders pg's `ilike`, which would make one dialect case-insensitive by fiat while leaving the others alone.
+
+  This is pinned by real-Knex SQL-string assertions (mysql2 / pg / better-sqlite3) in `shared/__tests__/predicates.test.ts`. The mock-DB suites record the Knex **method name**, not the SQL a dialect compiles it to, and structurally cannot catch a dialect bug — which is why this one survived. `applyPredicate`'s `switch` is the only site that translates the operator, so read and write got the fix together.
+
 - **`resolvePrimarySecurityColumns` / `resolveJoinSecurityColumns`** — resolve tenant/region/department column names for the primary and joined tables respectively.
 
   Joined tables are scoped **by default**: a joined table with no `perTable` entry inherits the primary table's resolved column names, so an unregistered join cannot fan out to every tenant's rows. The concrete leak is a tenant-filtered primary `LEFT JOIN`ed on a non-unique key like `region_id`, pulling in other tenants' rows.

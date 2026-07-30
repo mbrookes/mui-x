@@ -109,6 +109,18 @@ function rowKeyOf(column: string): string {
 }
 
 /**
+ * Model SQL's `LIKE` pattern semantics (`%` → any run, `_` → any single char).
+ *
+ * Shared by the 3-arg `.where(column, 'like', pattern)` form the pipeline now
+ * emits (F1) and the legacy `.whereLike(column, pattern)` builder this mock still
+ * exposes, so the two can never disagree about what a pattern matches.
+ */
+function likeMatches(rowValue: unknown, pattern: string): boolean {
+  const regex = new RegExp(`^${pattern.replace(/%/g, '.*').replace(/_/g, '.')}$`, 'i');
+  return regex.test(String(rowValue));
+}
+
+/**
  * Compare one row value against one bound predicate value the way a SQL engine
  * would, rather than with JS `===`.
  *
@@ -203,6 +215,19 @@ export function createMockDb(
             predicates.push((row) => (row[key] as number) > (value as number));
           } else if (op === '>=') {
             predicates.push((row) => (row[key] as number) >= (value as number));
+          } else if (op === 'like') {
+            // `applyPredicate`'s `like` branch emits the 3-arg form rather than
+            // `.whereLike` — Knex's MySQL compiler appends `COLLATE utf8_bin` to
+            // `whereLike` only (F1). Without this branch the mock silently
+            // dropped every `like` filter and returned the unfiltered table.
+            predicates.push((row) => likeMatches(row[key], value as string));
+          } else {
+            // FAIL CLOSED on an operator this mock does not model. The `else`
+            // used to fall through, pushing NO predicate — so a production change
+            // to an unmodeled operator (exactly what F1's `whereLike` → `.where(…,
+            // 'like', …)` switch was) turned into "the filter matched every row"
+            // rather than a test failure.
+            throw new Error(`mockDb: unsupported where operator "${op}"`);
           }
         } else {
           predicates.push((row) => row[key] === opOrValue);
@@ -261,8 +286,7 @@ export function createMockDb(
       },
       whereLike(column: string, pattern: string) {
         const key = rowKeyOf(column);
-        const regex = new RegExp(`^${pattern.replace(/%/g, '.*').replace(/_/g, '.')}$`, 'i');
-        predicates.push((row) => regex.test(String(row[key])));
+        predicates.push((row) => likeMatches(row[key], pattern));
         return qb;
       },
       whereBetween(column: string, [lo, hi]: [unknown, unknown]) {

@@ -20,6 +20,11 @@ import type { MutationDescriptor } from '../../security/types';
 
 type Row = Record<string, unknown>;
 
+/** SQL `LIKE` pattern → regex, shared by the 3-arg `.where(col,'like',?)` form and `.whereLike`. */
+function likePattern(pattern: string): RegExp {
+  return new RegExp(`^${pattern.replace(/%/g, '.*')}$`, 'i');
+}
+
 function createMutableMockDb(initialTables: Record<string, Row[]>) {
   const tables: Record<string, Row[]> = Object.fromEntries(
     Object.entries(initialTables).map(([k, v]) => [k, v.map((r) => ({ ...r }))]),
@@ -47,6 +52,15 @@ function createMutableMockDb(initialTables: Record<string, Row[]>) {
             predicates.push((r) => (r[key] as number) > (val as number));
           } else if (op === '>=') {
             predicates.push((r) => (r[key] as number) >= (val as number));
+          } else if (op === 'like') {
+            // `applyPredicate` emits the 3-arg form for `like` (F1) — see
+            // `shared/predicates.ts`. Mirrors `__tests__/mockDb.ts`.
+            predicates.push((r) => likePattern(val as string).test(String(r[key])));
+          } else {
+            // Fail closed on an unmodeled operator rather than pushing no
+            // predicate — a silently-dropped WHERE would make an over-broad
+            // UPDATE/DELETE look like a passing test.
+            throw new Error(`mutable mockDb: unsupported where operator "${op}"`);
           }
         } else {
           predicates.push((r) => r[key] === op);
@@ -84,8 +98,7 @@ function createMutableMockDb(initialTables: Record<string, Row[]>) {
         return qb;
       },
       whereLike(col: string, pattern: string) {
-        const regex = new RegExp(`^${pattern.replace(/%/g, '.*')}$`, 'i');
-        predicates.push((r) => regex.test(String(r[col])));
+        predicates.push((r) => likePattern(pattern).test(String(r[col])));
         return qb;
       },
       insert(values: Row) {

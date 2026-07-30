@@ -40,6 +40,7 @@ import {
 import { useWidgetDefMap } from '../../internals/builtinWidgetDefs';
 import { getReachableSourceIds } from '../../internals/dataSourceGraph';
 import { buildFieldCatalog, buildFieldLabelMap } from '../../internals/fieldCatalog';
+import { buildRankFilterWidgetPageIndex } from '../../internals/rankFilterScope';
 import { StudioDrawerErrorBoundary } from '../../internals/StudioDrawerErrorBoundary';
 import { isWidgetOfKind } from '../../models';
 import type { StudioChartConfig, StudioFilterState } from '../../models';
@@ -240,6 +241,14 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
       ];
     });
   }, [selectedWidget, dataSources]);
+
+  // R4 F8: `hasConflictingRankFilter` resolves a `widget`-scoped filter's page context by
+  // walking every page's `widgetRows`, and BOTH row components call it once per rendered row
+  // to decide whether their Rank toggle is disabled. `pages` is one immutable snapshot for the
+  // whole render, so R rows were re-deriving the identical widget→page mapping R times — the
+  // same O(R·W) sweep the schema package already collapsed inside `dedupeRankFilters`. Build
+  // it ONCE here, where the drawer owns the page snapshot, and thread it into every row.
+  const rankFilterPageIndex = React.useMemo(() => buildRankFilterWidgetPageIndex(pages), [pages]);
 
   // M11: memoized, not re-`.filter()`ed on every render. `pageFilters` in particular is handed
   // down as `allFilters` → `PageFilterRow`'s `allPageFilters`, where it keys the `parentFilters`
@@ -442,6 +451,7 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
           allFilters={pageFilters}
           fields={allFields}
           fieldOptions={fieldOptions}
+          rankFilterPageIndex={rankFilterPageIndex}
           onAddFilter={handleAddPageFilter}
           onRemoveFilter={(id) => controller.removeFilter(id)}
           emptyMessage={searchLower ? localeText.filtersSectionNoMatchingFilters : undefined}
@@ -457,6 +467,7 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
               filters={visibleWidgetFilters}
               widgetSourceId={selectedWidget?.sourceId}
               fieldOptions={widgetFieldOptions}
+              rankFilterPageIndex={rankFilterPageIndex}
               dataSources={dataSources}
               onAddFilter={handleAddWidgetFilter}
               onRemoveFilter={(id) => controller.removeFilter(id)}

@@ -5,8 +5,10 @@ import type {
   CreateDefaultStudioStateOverrides,
   StudioFilterPreset,
   StudioFilterState,
+  StudioPage,
   StudioWidget,
 } from '../../models';
+import { hasConflictingRankFilter } from '../../internals/rankFilterScope';
 import type { StudioLocaleText } from '../../internals/StudioUIConfigContext';
 import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/localeText';
 import { createStudioHarness } from '../../internals/test-utils';
@@ -514,5 +516,190 @@ describe('<StudioFiltersDrawer /> saved-view active chip with cascading filters 
     const chip = screen.getByText('My view').closest('.MuiChip-root');
     expect(chip).not.toBe(null);
     expect(chip!.getAttribute('aria-current')).toBe(null);
+  });
+});
+
+// Regression coverage for architecture-review finding R4 F8: `hasConflictingRankFilter`
+// resolves a `widget`-scoped filter's page context by walking EVERY page's `widgetRows`, and
+// both drawer rows (`PageFilterRow`/`WidgetFilterRow`) call it once per RENDERED ROW. `pages`
+// is one immutable snapshot for the whole render, so R rows re-derived the identical
+// widget→page mapping R times — the same O(R·W) sweep the schema package already replaced
+// with `buildRankFilterWidgetPageIndex` inside `dedupeRankFilters`. The drawer now builds that
+// index ONCE and threads it into every row.
+//
+// A wall-clock assertion would be flaky, so — exactly like the schema package's own index
+// test — each page's `widgetRows` is an instrumented getter and the test counts LAYOUT WALKS:
+// the count must stay flat as the row count grows instead of scaling with it.
+describe('<StudioFiltersDrawer /> rank-conflict page index (finding R4 F8)', () => {
+  const PAGE_COUNT = 8;
+  const CHART: StudioWidget = {
+    id: 'chart-1',
+    kind: 'chart',
+    title: 'Revenue',
+    sourceId: 'src',
+    config: { chartType: 'bar', xField: 'region' },
+  };
+
+  /** Pages whose `widgetRows` reads are counted. The selected widget sits on the LAST page,
+   * so an un-indexed resolve walks all `PAGE_COUNT` of them before it resolves. */
+  function instrumentedPages() {
+    const counter = { reads: 0 };
+    const countingPage = (id: string, widgetRows: string[][]): StudioPage => ({
+      id,
+      title: id,
+      get widgetRows() {
+        counter.reads += 1;
+        return widgetRows;
+      },
+    });
+    const pages: Record<string, StudioPage> = {};
+    for (let index = 0; index < PAGE_COUNT; index += 1) {
+      const id = `page-${index + 1}`;
+      pages[id] = countingPage(id, index === PAGE_COUNT - 1 ? [[CHART.id]] : [[`other-${index}`]]);
+    }
+    return {
+      pages,
+      readCount: () => counter.reads,
+      resetReads: () => {
+        counter.reads = 0;
+      },
+    };
+  }
+
+  function countLayoutWalks(rowCount: number) {
+    const { pages, readCount, resetReads } = instrumentedPages();
+    // Plain (non-rank) widget filters: the per-row `disableRankMode` check runs for exactly
+    // these, and a non-rank entry inside the predicate's own loop short-circuits before it
+    // resolves — so every walk counted here is a row re-deriving the SAME target mapping.
+    const filters: StudioFilterState[] = Array.from({ length: rowCount }, (_, index) => ({
+      id: `wf-${index}`,
+      field: 'region',
+      fieldType: 'string' as const,
+      operator: 'equals' as const,
+      value: `v${index}`,
+      scope: { kind: 'widget' as const, widgetId: CHART.id },
+    }));
+    const { wrapper } = createStudioHarness({
+      initialState: {
+        doc: { pages, widgets: { [CHART.id]: CHART }, filters },
+        runtime: { dataSources: { src: SOURCE } },
+        session: {
+          shell: {
+            openDrawers: { data: false, compose: false, filters: true },
+            selectedWidgetId: CHART.id,
+            selectedFieldId: null,
+            selectedSourceId: null,
+          },
+        },
+      },
+      providerProps: { featureFlags: { savedFilterViews: false } },
+    });
+    // Ignore the factory's own construction-time sweep (`dedupeRankFilters`); only the
+    // render is under test.
+    resetReads();
+    render(<StudioFiltersDrawer />, { wrapper });
+    return readCount();
+  }
+
+  it('walks the page layout a bounded number of times regardless of how many rows render', () => {
+    const fewRows = countLayoutWalks(2);
+    const manyRows = countLayoutWalks(16);
+
+    // The invariant that matters: the layout walk is a function of the PAGE count, not the
+    // row count. Before the hoist these were 32 and 256 — exactly rows × pages × the two
+    // StrictMode render passes, i.e. strictly linear in the number of rows on screen.
+    expect(manyRows).toBe(fewRows);
+    // One index build per render pass; `createRenderer` renders under `StrictMode`, which
+    // deliberately double-invokes the `useMemo` factory, hence the × 2.
+    expect(manyRows).toBeLessThanOrEqual(PAGE_COUNT * 2);
+  });
+});
+
+// The indexed path must answer EXACTLY what the un-indexed walk answers — the schema package
+// pins this on the helper (`hasConflictingRankFilter agrees with and without an index`), and
+// these two pin it on what the user actually sees: the drawer's Rank toggle.
+describe('<StudioFiltersDrawer /> rank toggle matches the un-indexed predicate', () => {
+  const PAGES: Record<string, StudioPage> = {
+    'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['chart-1']] },
+    'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [['chart-2']] },
+  };
+
+  function renderWithRankFilterOn(widgetId: string) {
+    // Field-less page filter → phase 1, which always renders the mode toggle (no card to
+    // expand first). It lives on `page-1`, the default active page.
+    const pageFilter: StudioFilterState = {
+      id: 'pf-1',
+      field: '',
+      operator: 'equals',
+      value: '',
+      scope: { kind: 'page', pageId: 'page-1' },
+    };
+    const rankFilter: StudioFilterState = {
+      id: 'rank-1',
+      field: 'region',
+      fieldType: 'string',
+      operator: 'equals',
+      value: 5,
+      filterMode: 'rank',
+      rankDirection: 'top',
+      // No widget is selected, so this one is not rendered — it only supplies the conflict.
+      scope: { kind: 'widget', widgetId },
+    };
+    const filters = [pageFilter, rankFilter];
+    const { wrapper } = createStudioHarness({
+      initialState: {
+        doc: {
+          pages: PAGES,
+          widgets: {
+            'chart-1': {
+              id: 'chart-1',
+              kind: 'chart',
+              title: 'A',
+              sourceId: 'src',
+              config: { chartType: 'bar', xField: 'region' },
+            },
+            'chart-2': {
+              id: 'chart-2',
+              kind: 'chart',
+              title: 'B',
+              sourceId: 'src',
+              config: { chartType: 'bar', xField: 'region' },
+            },
+          },
+          filters,
+        },
+        runtime: { dataSources: { src: SOURCE } },
+        session: {
+          shell: {
+            openDrawers: { data: false, compose: false, filters: true },
+            selectedWidgetId: null,
+            selectedFieldId: null,
+            selectedSourceId: null,
+          },
+        },
+      },
+      providerProps: { featureFlags: { savedFilterViews: false } },
+    });
+    render(<StudioFiltersDrawer />, { wrapper });
+    const rankToggle = screen.getByRole('button', {
+      name: DEFAULT_STUDIO_LOCALE_TEXT.filterModeRank,
+    });
+    return {
+      renderedDisabled: (rankToggle as HTMLButtonElement).disabled,
+      // The reference answer, computed the un-indexed way the rows used to compute it.
+      unindexed: hasConflictingRankFilter(pageFilter.id, pageFilter, filters, PAGES),
+    };
+  }
+
+  it('disables Rank when the conflicting widget rank filter sits on the active page', () => {
+    const { renderedDisabled, unindexed } = renderWithRankFilterOn('chart-1');
+    expect(unindexed).toBe(true);
+    expect(renderedDisabled).toBe(unindexed);
+  });
+
+  it('leaves Rank enabled when that widget rank filter sits on another page', () => {
+    const { renderedDisabled, unindexed } = renderWithRankFilterOn('chart-2');
+    expect(unindexed).toBe(false);
+    expect(renderedDisabled).toBe(unindexed);
   });
 });

@@ -12,7 +12,10 @@ import {
   useStudioLocaleText,
 } from '../../context';
 import type { StudioFilterState } from '../../models';
-import { hasConflictingRankFilter } from '../../internals/rankFilterScope';
+import {
+  hasConflictingRankFilter,
+  type RankFilterWidgetPageIndex,
+} from '../../internals/rankFilterScope';
 import type { FieldOption, FilterMode, SimpleField } from './filterDrawerTypes';
 import {
   getOperators,
@@ -41,10 +44,16 @@ interface PageFilterRowProps {
   onRemove: (id: string) => void;
   /** All page filters on the current page — used to compute cascading dependency options. */
   allPageFilters: StudioFilterState[];
+  /**
+   * Widget→page lookup for the rank-conflict check below, built ONCE per drawer render from
+   * the same `pages` snapshot this row reads (finding R4 F8). Optional: an absent index falls
+   * back to `hasConflictingRankFilter`'s own layout walk, which answers identically.
+   */
+  rankFilterPageIndex?: RankFilterWidgetPageIndex;
 }
 
 export function PageFilterRow(props: PageFilterRowProps) {
-  const { fields, fieldOptions, filter, onRemove, allPageFilters } = props;
+  const { fields, fieldOptions, filter, onRemove, allPageFilters, rankFilterPageIndex } = props;
   const localeText = useStudioLocaleText();
   const controller = useStudioController();
 
@@ -131,7 +140,8 @@ export function PageFilterRow(props: PageFilterRowProps) {
   // (a rank filter on another page is permitted), instead of the old dashboard-wide scan
   // that disabled rank mode more aggressively than the controller actually rejects it.
   const disableRankMode =
-    filter.filterMode !== 'rank' && hasConflictingRankFilter(filter.id, filter, filters, pages);
+    filter.filterMode !== 'rank' &&
+    hasConflictingRankFilter(filter.id, filter, filters, pages, rankFilterPageIndex);
 
   // `updateFilter` returns a `StudioMutationResult`, so a refusal is no longer
   // indistinguishable from a save. The reachable refusal here is `rank-conflict`: switching

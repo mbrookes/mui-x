@@ -12,7 +12,10 @@ import {
   useStudioLocaleText,
 } from '../../context';
 import type { StudioFilterState } from '../../models';
-import { hasConflictingRankFilter } from '../../internals/rankFilterScope';
+import {
+  hasConflictingRankFilter,
+  type RankFilterWidgetPageIndex,
+} from '../../internals/rankFilterScope';
 import type { FieldOption, FilterMode } from './filterDrawerTypes';
 import {
   getOperators,
@@ -42,6 +45,12 @@ interface WidgetFilterRowProps {
   chartYFieldLabel?: string;
   /** Available series for multi-series charts — enables "Rank by" selector in rank mode. */
   availableSeries?: AvailableSeries[];
+  /**
+   * Widget→page lookup for the rank-conflict check below, built ONCE per drawer render from
+   * the same `pages` snapshot this row reads (finding R4 F8). Optional: an absent index falls
+   * back to `hasConflictingRankFilter`'s own layout walk, which answers identically.
+   */
+  rankFilterPageIndex?: RankFilterWidgetPageIndex;
 }
 
 export function WidgetFilterRow(props: WidgetFilterRowProps) {
@@ -53,6 +62,7 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
     chartXField,
     chartYFieldLabel,
     availableSeries,
+    rankFilterPageIndex,
   } = props;
   const controller = useStudioController();
   const localeText = useStudioLocaleText();
@@ -96,7 +106,8 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
   // (a rank filter on another page is permitted), instead of the old dashboard-wide scan
   // that disabled rank mode more aggressively than the controller actually rejects it.
   const disableRankMode =
-    filter.filterMode !== 'rank' && hasConflictingRankFilter(filter.id, filter, filters, pages);
+    filter.filterMode !== 'rank' &&
+    hasConflictingRankFilter(filter.id, filter, filters, pages, rankFilterPageIndex);
 
   const [changeError, setChangeError] = React.useState<string | null>(null);
 

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { StudioFilterState, StudioPage } from '../models';
-import { hasConflictingRankFilter, resolveRankFilterPageId } from './rankFilterScope';
+import {
+  buildRankFilterWidgetPageIndex,
+  hasConflictingRankFilter,
+  resolveRankFilterPageId,
+} from './rankFilterScope';
 
 function makeFilter(
   overrides: Partial<StudioFilterState> & { scope?: StudioFilterState['scope'] },
@@ -175,5 +179,66 @@ describe('hasConflictingRankFilter', () => {
     // same page → conflict
     const target2 = makeFilter({ id: 't', scope: { kind: 'widget', widgetId: 'w2' } });
     expect(hasConflictingRankFilter('t', target2, filters, pages)).toBe(true);
+  });
+});
+
+// The drawer builds this index ONCE per render and threads it into every filter row (finding
+// R4 F8), so the client re-export has to answer EXACTLY what the un-indexed layout walk
+// answers — including the UNRESOLVABLE (`undefined`) sentinel for an unplaced widget. The
+// schema package pins the same equivalence on its own copy; this pins the re-export the rows
+// actually import, so a future divergence shows up on this side of the package boundary too.
+describe('buildRankFilterWidgetPageIndex parity with the un-indexed walk', () => {
+  const pages = {
+    'page-1': makePage('page-1', [['w1'], ['w3']]),
+    'page-2': makePage('page-2', [['w2']]),
+  };
+
+  it('resolves every widget — placed and unplaced — the same way as the walk', () => {
+    const index = buildRankFilterWidgetPageIndex(pages);
+    for (const widgetId of ['w1', 'w2', 'w3', 'ghost']) {
+      const filter = makeFilter({ scope: { kind: 'widget', widgetId } });
+      expect(resolveRankFilterPageId(filter, pages, index)).toBe(
+        resolveRankFilterPageId(filter, pages),
+      );
+    }
+    expect(
+      resolveRankFilterPageId(
+        makeFilter({ scope: { kind: 'widget', widgetId: 'ghost' } }),
+        pages,
+        index,
+      ),
+    ).toBe(undefined);
+  });
+
+  it('reports the same conflicts with and without the index', () => {
+    const index = buildRankFilterWidgetPageIndex(pages);
+    const rankFilters = [
+      makeFilter({ id: 'r-page-1', filterMode: 'rank', scope: { kind: 'page', pageId: 'page-1' } }),
+      makeFilter({ id: 'r-everywhere', filterMode: 'rank', scope: { kind: 'page' } }),
+      makeFilter({ id: 'r-w2', filterMode: 'rank', scope: { kind: 'widget', widgetId: 'w2' } }),
+      makeFilter({
+        id: 'r-ghost',
+        filterMode: 'rank',
+        scope: { kind: 'widget', widgetId: 'ghost' },
+      }),
+    ];
+    const targets = [
+      makeFilter({ id: 't', scope: { kind: 'page', pageId: 'page-1' } }),
+      makeFilter({ id: 't', scope: { kind: 'page', pageId: 'page-2' } }),
+      makeFilter({ id: 't', scope: { kind: 'page' } }),
+      makeFilter({ id: 't', scope: { kind: 'widget', widgetId: 'w1' } }),
+      makeFilter({ id: 't', scope: { kind: 'widget', widgetId: 'w2' } }),
+      makeFilter({ id: 't', scope: { kind: 'widget', widgetId: 'ghost' } }),
+    ];
+
+    for (const target of targets) {
+      // Each rank filter alone, then all of them together — the drawer's rows see the whole
+      // `doc.filters` array, not a curated one.
+      for (const existing of [...rankFilters.map((f) => [f]), rankFilters]) {
+        expect(hasConflictingRankFilter('t', target, existing, pages, index)).toBe(
+          hasConflictingRankFilter('t', target, existing, pages),
+        );
+      }
+    }
   });
 });

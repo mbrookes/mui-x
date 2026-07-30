@@ -3,6 +3,7 @@ import { Stack, Typography } from '@mui/material';
 import { useStudioLocaleText } from '../../context';
 import type { StudioDataSource, StudioFilterState } from '../../models';
 import type { FieldOption, SimpleField } from './filterDrawerTypes';
+import type { RankFilterWidgetPageIndex } from '../../internals/rankFilterScope';
 import type { AvailableSeries } from './RankFilterInput';
 import { PageFilterRow } from './PageFilterRow';
 import { WidgetFilterRow } from './WidgetFilterRow';
@@ -27,6 +28,12 @@ interface FilterSectionProps {
   allFilters: StudioFilterState[];
   fields: SimpleField[];
   fieldOptions: FieldOption[];
+  /**
+   * Widget→page lookup for the per-row rank-conflict check, built ONCE by the drawer from the
+   * render's `pages` snapshot (finding R4 F8). Optional: every row falls back to the un-indexed
+   * layout walk when it is absent, which is what the standalone row tests exercise.
+   */
+  rankFilterPageIndex?: RankFilterWidgetPageIndex;
   onAddFilter: () => void;
   onRemoveFilter: (id: string) => void;
   /** Overrides the default "No filters applied." empty message. Use when search is active. */
@@ -39,6 +46,7 @@ export function FilterSection(props: FilterSectionProps) {
     fieldOptions,
     filters,
     allFilters,
+    rankFilterPageIndex,
     onAddFilter,
     onRemoveFilter,
     title,
@@ -68,6 +76,7 @@ export function FilterSection(props: FilterSectionProps) {
               fieldOptions={fieldOptions}
               onRemove={onRemoveFilter}
               allPageFilters={allFilters}
+              rankFilterPageIndex={rankFilterPageIndex}
             />
           ))}
         </Stack>
@@ -83,6 +92,8 @@ interface WidgetFilterSectionProps {
   filters: StudioFilterState[];
   widgetSourceId?: string;
   fieldOptions: FieldOption[];
+  /** See {@link FilterSectionProps.rankFilterPageIndex}. */
+  rankFilterPageIndex?: RankFilterWidgetPageIndex;
   dataSources: Record<string, StudioDataSource>;
   onAddFilter: () => void;
   onRemoveFilter: (id: string) => void;
@@ -99,6 +110,7 @@ export function WidgetFilterSection(props: WidgetFilterSectionProps) {
     filters,
     widgetSourceId,
     fieldOptions,
+    rankFilterPageIndex,
     dataSources,
     onAddFilter,
     onRemoveFilter,
@@ -135,6 +147,7 @@ export function WidgetFilterSection(props: WidgetFilterSectionProps) {
               chartXField={chartXField}
               chartYFieldLabel={chartYFieldLabel}
               availableSeries={chartAvailableSeries}
+              rankFilterPageIndex={rankFilterPageIndex}
             />
           ))}
         </Stack>

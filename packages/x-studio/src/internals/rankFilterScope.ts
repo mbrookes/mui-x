@@ -10,4 +10,9 @@
  * of maintaining a second hand-synced implementation that can silently drift
  * from the reducer's actual semantics.
  */
-export { resolveRankFilterPageId, hasConflictingRankFilter } from '@mui/x-studio-schema';
+export {
+  resolveRankFilterPageId,
+  hasConflictingRankFilter,
+  buildRankFilterWidgetPageIndex,
+} from '@mui/x-studio-schema';
+export type { RankFilterWidgetPageIndex } from '@mui/x-studio-schema';

@@ -353,7 +353,16 @@ function findMissingRequiredField(state: Record<string, unknown>): string | null
 }
 
 /**
- * Migrates state from an older schema version to the current version
+ * Migrates state from an older schema version to the current version.
+ *
+ * Every string this returns in `MigrationResult.errors` is prefixed `MUI X Studio:` and
+ * follows the same what-happened / why-it-matters / how-to-fix shape as a THROWN error,
+ * even though these are returned data rather than thrown (so they carry no error code and
+ * are not minified). The newer-version case in particular reuses `deserializeState`'s
+ * thrown text verbatim: it is the one failure both entry points can report, `migrateState`
+ * is the entry point the reference hosts actually call, and the two had drifted — the
+ * returned copy had lost both the prefix and the "upgrade @mui/x-studio" clause that tells
+ * the user what to do about it.
  */
 export function migrateState(state: unknown): MigrationResult {
   const errors: string[] = [];
@@ -364,7 +373,7 @@ export function migrateState(state: unknown): MigrationResult {
       state: null,
       fromVersion: 0,
       toVersion: CURRENT_SCHEMA_VERSION,
-      errors: ['Invalid state structure: expected an object'],
+      errors: ['MUI X Studio: Invalid state structure: expected an object.'],
     };
   }
 
@@ -383,7 +392,7 @@ export function migrateState(state: unknown): MigrationResult {
       fromVersion: 0,
       toVersion: CURRENT_SCHEMA_VERSION,
       errors: [
-        `Invalid persisted state: "schemaVersion" must be an integer or absent, ` +
+        `MUI X Studio: Invalid persisted state: "schemaVersion" must be an integer or absent, ` +
           `received ${typeof rawVersion === 'number' ? String(rawVersion) : JSON.stringify(rawVersion)}. ` +
           `A non-integer version cannot be matched to a migration step, so the doc cannot be safely upgraded.`,
       ],
@@ -400,8 +409,11 @@ export function migrateState(state: unknown): MigrationResult {
       fromVersion,
       toVersion: CURRENT_SCHEMA_VERSION,
       errors: [
-        `Cannot migrate from schema version ${fromVersion} to ${CURRENT_SCHEMA_VERSION}. ` +
-          'The state was created with a newer version of X Studio.',
+        `MUI X Studio: Cannot migrate from schema version ${fromVersion} to ${CURRENT_SCHEMA_VERSION}. ` +
+          'The state was created with a newer version of X Studio. ' +
+          'Loading it here would read only the fields this version knows, drop the rest, and re-save the ' +
+          'result at the older version, permanently losing the newer data. ' +
+          'Upgrade @mui/x-studio to a version that understands this schema.',
       ],
     };
   }
@@ -439,7 +451,7 @@ export function migrateState(state: unknown): MigrationResult {
       fromVersion,
       toVersion: CURRENT_SCHEMA_VERSION,
       errors: [
-        `Failed to clone state for migration: ${
+        `MUI X Studio: Failed to clone state for migration: ${
           error instanceof Error ? error.message : String(error)
         }. Persisted state must be JSON-serializable (no functions, class instances, or other non-cloneable values).`,
       ],
@@ -457,7 +469,7 @@ export function migrateState(state: unknown): MigrationResult {
         state: null,
         fromVersion,
         toVersion: CURRENT_SCHEMA_VERSION,
-        errors: [`Invalid persisted state: missing required field "${missing}".`],
+        errors: [`MUI X Studio: Invalid persisted state: missing required field "${missing}".`],
       };
     }
     return {
@@ -476,7 +488,7 @@ export function migrateState(state: unknown): MigrationResult {
       // A gap in the registry is a HARD failure — never a silent version bump, which
       // would ship un-transformed state stamped under a newer version number.
       errors.push(
-        `No migration registered from v${version} to v${version + 1}. ` +
+        `MUI X Studio: No migration registered from v${version} to v${version + 1}. ` +
           'Every version step needs an explicit migration entry (an identity migration when no transform is required).',
       );
       return {
@@ -491,7 +503,7 @@ export function migrateState(state: unknown): MigrationResult {
       currentState = migrateFn(currentState);
     } catch (error) {
       errors.push(
-        `Migration from v${version} to v${version + 1} failed: ${
+        `MUI X Studio: Migration from v${version} to v${version + 1} failed: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
@@ -509,7 +521,7 @@ export function migrateState(state: unknown): MigrationResult {
   // synthesizes a required field still passes and a genuinely-partial doc fails here.
   const missing = findMissingRequiredField(currentState);
   if (missing) {
-    errors.push(`Invalid persisted state: missing required field "${missing}".`);
+    errors.push(`MUI X Studio: Invalid persisted state: missing required field "${missing}".`);
     return {
       success: false,
       state: null,
@@ -538,7 +550,7 @@ export function migrateState(state: unknown): MigrationResult {
   const stampedVersion = currentState.schemaVersion;
   if (stampedVersion !== CURRENT_SCHEMA_VERSION) {
     errors.push(
-      `Migration to v${CURRENT_SCHEMA_VERSION} did not stamp "schemaVersion": the migrated state reports ` +
+      `MUI X Studio: Migration to v${CURRENT_SCHEMA_VERSION} did not stamp "schemaVersion": the migrated state reports ` +
         `${JSON.stringify(stampedVersion)}. ` +
         'Each migration must return a new object with "schemaVersion" set to the version it migrates TO, ' +
         'or the doc is persisted under a version that does not describe its shape and is migrated again on every load.',

@@ -3784,3 +3784,119 @@ describe('migrateState rejects non-record state through the shared record guard 
     expect(migrateState(bag).success).toBe(true);
   });
 });
+
+// R4-F3: `MigrationResult.errors` and the equivalent THROWN message had drifted. The
+// newer-version condition produced two different texts for one failure — the thrown one
+// (registered as error code 451) carries the `MUI X Studio:` prefix, the consequence and the
+// fix ("Upgrade @mui/x-studio…"), while the returned one carried neither. `migrateState` is
+// the path the reference hosts actually call, so the thinner message is the one users see.
+describe('migrateState error strings stay consistent with the thrown ones (R4-F3)', () => {
+  const v0Doc = () => ({
+    schemaVersion: 0,
+    dashboard: { id: 'd', title: 'T', activePageId: 'p1' },
+    pages: { p1: { id: 'p1', title: 'P', widgetRows: [] } },
+    widgets: {},
+    filters: [],
+  });
+
+  function withRegistryEntry<T>(entry: unknown, run: () => T): T {
+    const original = MIGRATION_REGISTRY_FOR_TESTS[0];
+    MIGRATION_REGISTRY_FOR_TESTS[0] = entry as (typeof MIGRATION_REGISTRY_FOR_TESTS)[0];
+    try {
+      return run();
+    } finally {
+      MIGRATION_REGISTRY_FOR_TESTS[0] = original;
+    }
+  }
+
+  // Every reachable `success: false` return of `migrateState`, one per failure condition.
+  function everyFailure(): Array<{ label: string; errors: string[] }> {
+    return [
+      { label: 'invalid structure', errors: migrateState('junk').errors },
+      {
+        label: 'non-integer schemaVersion',
+        errors: migrateState({ schemaVersion: 0.5 }).errors,
+      },
+      {
+        label: 'newer version',
+        errors: migrateState({ schemaVersion: CURRENT_SCHEMA_VERSION + 1 }).errors,
+      },
+      {
+        label: 'un-cloneable state',
+        errors: migrateState({
+          schemaVersion: CURRENT_SCHEMA_VERSION,
+          dashboard: { id: 'd', title: 'T', activePageId: 'p' },
+          pages: {},
+          widgets: {},
+          filters: [],
+          stray: () => undefined,
+        }).errors,
+      },
+      {
+        label: 'missing required field at current version',
+        errors: migrateState({
+          schemaVersion: CURRENT_SCHEMA_VERSION,
+          dashboard: { id: 'd', title: 'T', activePageId: 'p' },
+          pages: {},
+          widgets: {},
+        }).errors,
+      },
+      {
+        label: 'registry gap',
+        errors: withRegistryEntry(undefined, () => migrateState(v0Doc()).errors),
+      },
+      {
+        label: 'throwing migration',
+        errors: withRegistryEntry(
+          () => {
+            throw new Error('boom');
+          },
+          () => migrateState(v0Doc()).errors,
+        ),
+      },
+      {
+        label: 'missing required field after migration',
+        errors: migrateState({ schemaVersion: 0 }).errors,
+      },
+      {
+        label: 'migration forgot the schemaVersion stamp',
+        errors: withRegistryEntry(
+          (state: Record<string, unknown>) => ({ ...state }),
+          () => migrateState(v0Doc()).errors,
+        ),
+      },
+    ];
+  }
+
+  it('reaches every failure condition (guards the cases below against silently passing)', () => {
+    for (const { label, errors } of everyFailure()) {
+      expect(errors.length, label).toBeGreaterThan(0);
+    }
+  });
+
+  it('prefixes every returned error with `MUI X Studio:`', () => {
+    for (const { label, errors } of everyFailure()) {
+      for (const message of errors) {
+        expect(message, `${label}: ${message}`).toMatch(/^MUI X Studio: /);
+      }
+    }
+  });
+
+  it('returns the SAME newer-version text `deserializeState` throws', () => {
+    const returned = migrateState({ schemaVersion: CURRENT_SCHEMA_VERSION + 1 }).errors[0];
+    let thrown = '';
+    try {
+      deserializeState({ schemaVersion: CURRENT_SCHEMA_VERSION + 1 } as never, {} as never);
+    } catch (error) {
+      thrown = (error as Error).message;
+    }
+    expect(thrown).not.toBe('');
+    expect(returned).toBe(thrown);
+  });
+
+  it('keeps the actionable how-to-fix clause on the returned newer-version error', () => {
+    const [message] = migrateState({ schemaVersion: CURRENT_SCHEMA_VERSION + 1 }).errors;
+    expect(message).toContain('newer version of X Studio');
+    expect(message).toContain('Upgrade @mui/x-studio');
+  });
+});

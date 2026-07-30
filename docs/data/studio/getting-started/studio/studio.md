@@ -226,6 +226,8 @@ interface StudioFeatureFlags {
 
 `StudioDashboard` uses embed-first defaults with `compose: false` and `dataManagement: false`; pass `featureFlags={{ compose: true }}` to re-enable authoring features there. Feature flags only control what users can _see_ in the UI — they are not a server-side access-control mechanism.
 
+Feature flags are only half of `StudioDashboard`'s view-only default. They hide the compose and data drawers, but the per-widget destructive actions (Edit, Duplicate, Move to page, Delete), widget drag-and-drop, the canvas resize handles, and whether a grid header click is a transient sort or an authored document write are all gated on the mode instead. `StudioDashboard` therefore also defaults its `mode` prop to `'view'`, whatever `config.session.mode` says; pass `mode="edit"` alongside `featureFlags={{ compose: true }}` to embed the authoring experience.
+
 ### `slotProps`
 
 ```ts

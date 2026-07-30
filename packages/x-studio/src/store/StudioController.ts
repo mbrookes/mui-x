@@ -1538,27 +1538,42 @@ export class StudioController {
   };
 
   /**
-   * Rearranges widgets on the active page by replacing `widgetRows` wholesale.
+   * Rearranges the widgets of ONE page by replacing its `widgetRows` wholesale.
    * Each entry in `newRows` is an array of widget IDs that will appear
    * side-by-side on the same row.
    *
-   * Throws if any ID in `newRows` is not on the active page, or if any widget
-   * on the active page is omitted from `newRows`.
+   * Throws if any ID in `newRows` is not on the target page, or if any widget
+   * on the target page is omitted from `newRows`.
+   *
+   * `pageId` defaults to the active page. It exists because the validation and the caller's
+   * row computation must resolve the SAME page (F3): `StudioWidgetCard`'s keyboard reorder
+   * builds its rows from `pages[pageId]` — the card's own page, a public prop — while this
+   * method used to validate (and stamp the mutation) against `getActivePage()`. The two
+   * agreed only because `StudioCanvas` renders non-active pages `inert`, a rendering
+   * guarantee three files away from the invariant it upheld; a host rendering an exported
+   * `StudioWidgetCard` for a non-active page got an uncaught throw out of a DOM event
+   * handler, where `StudioWidgetErrorBoundary` cannot reach it.
+   *
+   * @param {string[][]} newRows The page's complete new row matrix.
+   * @param {string} [pageId] Page to rearrange. Defaults to the active page.
    */
-  setWidgetLayout = (newRows: string[][]): void => {
-    const activePage = this.getActivePage();
-    if (!activePage) {
+  setWidgetLayout = (newRows: string[][], pageId?: string): void => {
+    const page = pageId === undefined ? this.getActivePage() : this.getPage(pageId);
+    if (!page) {
       return;
     }
-    const currentIds = new Set((activePage.widgetRows ?? []).flat());
+    const currentIds = new Set((page.widgetRows ?? []).flat());
     const incomingIds = newRows.flat();
 
-    // Validate: no unknown IDs
+    // Validate: no unknown IDs. Both messages name the page they validated against and keep
+    // ONE interpolation (the page id is folded into the same expression as the id list), so
+    // the extracted error code keeps its single `%s` argument.
     const unknown = incomingIds.filter((id) => !currentIds.has(id));
     if (unknown.length > 0) {
+      const detail = `page "${page.id}": ${unknown.join(', ')}`;
       throw new Error(
-        `MUI X Studio: set_widget_layout received unknown widget IDs: ${unknown.join(', ')}.` +
-          ' Call get_dashboard_state to get the current widget IDs.',
+        `MUI X Studio: setWidgetLayout received widget IDs that are not on ${detail}.` +
+          ' Pass the rows of the page being rearranged, and pass its pageId when it is not the active page.',
       );
     }
 
@@ -1566,9 +1581,10 @@ export class StudioController {
     const incomingSet = new Set(incomingIds);
     const orphaned = [...currentIds].filter((id) => !incomingSet.has(id));
     if (orphaned.length > 0) {
+      const detail = `page "${page.id}": ${orphaned.join(', ')}`;
       throw new Error(
-        `MUI X Studio: set_widget_layout omitted widget IDs: ${orphaned.join(', ')}.` +
-          ' Include every widget on the page, or use remove_widget first.',
+        `MUI X Studio: setWidgetLayout omitted widget IDs from ${detail}.` +
+          ' Include every widget on the page, or remove them first.',
       );
     }
 
@@ -1578,13 +1594,14 @@ export class StudioController {
     // The throwing validation above (unknown / orphaned ids) stays a
     // controller-only layer — the reducer's graceful no-op behaviour and this
     // strict validation are complementary. The state transform itself delegates
-    // to the shared reducer, stamping the active page explicitly (D6). Delegating
-    // here also runs the reducer's `enforceLayoutColSpans` cleanup, so the
-    // keyboard-driven reorder path (`StudioWidgetCard`) now prunes/rebalances
-    // stale column spans exactly like the pointer drag-and-drop path already did.
+    // to the shared reducer, stamping the resolved page explicitly (D6) — the SAME
+    // page the validation above used, which is the whole point of the `pageId`
+    // parameter. Delegating here also runs the reducer's `enforceLayoutColSpans`
+    // cleanup, so the keyboard-driven reorder path (`StudioWidgetCard`) prunes/
+    // rebalances stale column spans exactly like the pointer drag-and-drop path.
     this.commitMutation({
       type: 'setWidgetLayout',
-      args: { rows: sanitisedRows, pageId: activePage.id },
+      args: { rows: sanitisedRows, pageId: page.id },
     });
   };
 

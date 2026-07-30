@@ -320,17 +320,23 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   );
 
   // Keyboard-accessible canvas reorder (the drag-and-drop path is pointer-only).
+  // The rows come from THIS card's page (`pageId`, a public prop), so `setWidgetLayout` is
+  // given that same `pageId` rather than being left to resolve the ACTIVE page (F3): under
+  // `StudioCanvas` the two always coincide (non-active pages render `inert`), but a host
+  // rendering the exported `StudioWidgetCard` for a non-active page otherwise handed
+  // `setWidgetLayout` another page's ids and got an uncaught throw from inside a DOM event
+  // handler — past every error boundary.
   const widgetRows = React.useMemo(() => pages[pageId]?.widgetRows ?? [], [pages, pageId]);
   const announce = useStudioAnnounce();
   const handleMoveWidget = React.useCallback(
     (direction: WidgetMoveDirection) => {
       const next = moveWidgetInLayout(widgetRows, widgetId, direction);
       if (next) {
-        controller.setWidgetLayout(next);
+        controller.setWidgetLayout(next, pageId);
         announce(localeText.canvasWidgetMovedAnnouncement);
       }
     },
-    [widgetRows, widgetId, controller, announce, localeText],
+    [widgetRows, widgetId, pageId, controller, announce, localeText],
   );
   const moveWidgetDisabled = React.useMemo(
     () => ({

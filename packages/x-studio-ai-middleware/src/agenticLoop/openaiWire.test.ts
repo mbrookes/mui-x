@@ -15,6 +15,7 @@ import {
   MAX_TOOL_CALL_ARGS_BUFFER_CHARS,
   MAX_TOOL_CALL_NAME_CHARS,
   MAX_TOOL_CALLS_PER_TURN,
+  dedupeToolCallEntriesById,
   type ToolCallDelta,
 } from './openaiWire';
 
@@ -202,6 +203,59 @@ describe('accumulateToolCallDeltas', () => {
     );
     expect(acc.reqToolCalls[0].name).toBe('real');
     expect(acc.reqToolCalls[SYNTHETIC_INDEX_BASE].name).toBe('synthetic');
+  });
+
+  // Finding F1 (round 3) — `isUsableToolCallIndex` takes priority over the id path and
+  // the id-only branch was the ONLY writer of `idToIdx`. So a delta carrying BOTH an
+  // `index` and an `id` never registered its id, and a later delta carrying only that
+  // `id` missed `idToIdx` and minted a SECOND slot for the same call: two `tool_calls`
+  // entries sharing one id (the second nameless), two `role: 'tool'` messages with the
+  // same `tool_call_id` on the next turn — a malformed conversation the provider 400s —
+  // plus duplicate `tool-activity`/`tool-approval-request` frames to the browser.
+  it('keeps an index+id delta and a later id-only delta for the same call in ONE slot', () => {
+    const acc = createToolCallAccumulator();
+    accumulateToolCallDeltas(
+      [{ index: 0, id: 'call_1', function: { name: 'remove_page', arguments: '{"pageId":' } }],
+      acc,
+    );
+    accumulateToolCallDeltas([{ id: 'call_1', function: { arguments: '"p1"}' } }], acc);
+    expect(Object.keys(acc.reqToolCalls)).toHaveLength(1);
+    expect(acc.reqToolCalls[0]).toEqual({
+      id: 'call_1',
+      name: 'remove_page',
+      argsBuffer: '{"pageId":"p1"}',
+    });
+    // The id-keyed lookup now resolves to the real provider index, not a synthetic one.
+    expect(acc.idToIdx.call_1).toBe(0);
+    expect(acc.nextAutoIdx).toBe(SYNTHETIC_INDEX_BASE);
+  });
+
+  it('does not merge an id-only delta into an index-keyed slot that carries a DIFFERENT id', () => {
+    const acc = createToolCallAccumulator();
+    accumulateToolCallDeltas([{ index: 0, id: 'call_1', function: { name: 'a' } }], acc);
+    accumulateToolCallDeltas([{ id: 'call_2', function: { name: 'b' } }], acc);
+    expect(acc.reqToolCalls[0]).toEqual({ id: 'call_1', name: 'a', argsBuffer: '' });
+    expect(acc.reqToolCalls[SYNTHETIC_INDEX_BASE]).toEqual({
+      id: 'call_2',
+      name: 'b',
+      argsBuffer: '',
+    });
+  });
+
+  // A provider that reuses one `index` for two DIFFERENT ids leaves the first id's
+  // `idToIdx` entry pointing at a slot that no longer carries it. A later id-only
+  // fragment for that first id must not be folded into the second call.
+  it('mints a fresh slot when an id-keyed lookup resolves to a slot that no longer carries that id', () => {
+    const acc = createToolCallAccumulator();
+    accumulateToolCallDeltas([{ index: 0, id: 'call_1', function: { name: 'a' } }], acc);
+    accumulateToolCallDeltas([{ index: 0, id: 'call_2', function: { name: 'b' } }], acc);
+    accumulateToolCallDeltas([{ id: 'call_1', function: { arguments: '{}' } }], acc);
+    expect(acc.reqToolCalls[0].id).toBe('call_2');
+    expect(acc.reqToolCalls[SYNTHETIC_INDEX_BASE]).toEqual({
+      id: 'call_1',
+      name: '',
+      argsBuffer: '{}',
+    });
   });
 
   it('falls back to a positional index (offset by POSITIONAL_INDEX_BASE) when a delta has neither index nor id', () => {
@@ -611,5 +665,30 @@ describe('accumulateToolCallDeltas — prototype pollution', () => {
     const acc = createToolCallAccumulator();
     expect(Object.getPrototypeOf(acc.reqToolCalls)).toBeNull();
     expect(Object.getPrototypeOf(acc.idToIdx)).toBeNull();
+  });
+});
+
+// Finding F1 (round 3) — the defensive half. Even with the accumulator fixed, the
+// assistant `tool_calls` message and the per-call dispatch loop must never be built
+// from two entries sharing one `tool_call_id`: OpenAI requires exactly one `role:'tool'`
+// reply per `tool_calls` entry, so a duplicated id makes the NEXT turn's request body
+// malformed (provider 400) and double-fires this call's browser-visible frames.
+describe('dedupeToolCallEntriesById', () => {
+  it('drops a later entry that repeats an earlier id, keeping the first', () => {
+    const entries: Array<[string, { id: string; name: string; argsBuffer: string }]> = [
+      ['0', { id: 'call_1', name: 'remove_page', argsBuffer: '{"pageId":' }],
+      ['1000000', { id: 'call_1', name: '', argsBuffer: '"p1"}' }],
+    ];
+    expect(dedupeToolCallEntriesById(entries)).toEqual([
+      ['0', { id: 'call_1', name: 'remove_page', argsBuffer: '{"pageId":' }],
+    ]);
+  });
+
+  it('keeps distinct ids in their original order', () => {
+    const entries: Array<[string, { id: string; name: string; argsBuffer: string }]> = [
+      ['0', { id: 'call_1', name: 'a', argsBuffer: '{}' }],
+      ['1', { id: 'call_2', name: 'b', argsBuffer: '{}' }],
+    ];
+    expect(dedupeToolCallEntriesById(entries)).toEqual(entries);
   });
 });

@@ -313,9 +313,35 @@ export function accumulateToolCallDeltas(deltas: ToolCallDelta[], acc: ToolCallA
     // below, which mints a safe synthetic index.
     if (isUsableToolCallIndex(tcIndex)) {
       idx = tcIndex;
+      // Register the id → slot mapping HERE too (finding F1), not only on the id-only
+      // branch below. The index branch takes priority, so a delta carrying BOTH an
+      // `index` and an `id` — the shape every mainstream gateway opens a tool call
+      // with — used to leave `idToIdx` empty for that id. A later delta carrying only
+      // that `id` (the shape several gateways use for continuation fragments) then
+      // missed the lookup and minted a SECOND slot for the SAME call: two
+      // `tool_calls` entries sharing one id, the second nameless and holding the
+      // argument tail. Downstream that becomes an assistant message with a duplicated
+      // `tool_call_id` plus two `role: 'tool'` replies for it — a conversation the
+      // provider rejects with a 400 on the next turn — and duplicate
+      // `tool-activity`/`tool-approval-request` frames to the browser.
+      //
+      // Only ever WRITTEN when absent: a gateway that reuses one id across two
+      // different indices must not be able to re-point an already-established
+      // mapping and thereby redirect a later continuation fragment into a different
+      // call's slot.
+      if (tcId !== undefined && acc.idToIdx[tcId] === undefined) {
+        acc.idToIdx[tcId] = idx;
+      }
     } else if (tcId !== undefined) {
-      if (acc.idToIdx[tcId] !== undefined) {
-        idx = acc.idToIdx[tcId];
+      // Prefer an existing slot ONLY while it still carries this id. A gateway that
+      // reuses one `index` for two different ids leaves the first id's mapping
+      // pointing at a slot the second call has since taken over; folding a
+      // continuation fragment for the first id into it would merge two distinct
+      // calls — the outcome `SYNTHETIC_INDEX_BASE`/`POSITIONAL_INDEX_BASE` exist to
+      // rule out. Re-verify rather than trusting the map alone.
+      const mapped = acc.idToIdx[tcId];
+      if (mapped !== undefined && acc.reqToolCalls[mapped]?.id === tcId) {
+        idx = mapped;
       } else {
         idx = acc.nextAutoIdx;
         acc.idToIdx[tcId] = idx;
@@ -423,4 +449,41 @@ export function accumulateToolCallDeltas(deltas: ToolCallDelta[], acc: ToolCallA
       acc.reqToolCalls[idx].argsBuffer = nextArgsBuffer;
     }
   }
+}
+
+/**
+ * Drop any accumulator entry whose `id` repeats one already seen, keeping the FIRST
+ * (finding F1). Order-preserving; the input is `Object.entries(acc.reqToolCalls)`.
+ *
+ * The accumulator itself is what should prevent one tool call from occupying two
+ * slots — {@link accumulateToolCallDeltas} now registers `idToIdx` on the index
+ * branch as well as the id-only one, which closes the known split. This is the
+ * belt-and-braces half, applied where the consequence lands rather than where the
+ * cause was: the OpenAI wire format requires EXACTLY ONE `role: 'tool'` reply per
+ * `tool_calls[]` entry, keyed by `tool_call_id`. Two entries sharing an id therefore
+ * produce a conversation the provider rejects with a 400 on the very next turn —
+ * ending the chat — and, before that, duplicate `tool-activity` and
+ * `tool-approval-request` frames for one call to the browser, plus a duplicate
+ * `approvalPending` key (which `waitForApproval`'s cross-request collision guard
+ * refuses outright).
+ *
+ * Keeping the FIRST entry keeps the one that actually carries the tool's `name`: a
+ * split call's continuation fragments are nameless by construction, so the later
+ * duplicate is precisely the unusable half.
+ *
+ * Callers must mint ids for un-id'd entries BEFORE calling this — `agenticLoop.ts`
+ * does — otherwise every entry the provider left un-id'd shares the seeded `''` and
+ * all but the first would be dropped here.
+ */
+export function dedupeToolCallEntriesById<T extends { id: string }>(
+  entries: Array<[string, T]>,
+): Array<[string, T]> {
+  const seen = new Set<string>();
+  return entries.filter(([, tc]) => {
+    if (seen.has(tc.id)) {
+      return false;
+    }
+    seen.add(tc.id);
+    return true;
+  });
 }

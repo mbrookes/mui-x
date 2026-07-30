@@ -30,6 +30,7 @@ import {
   toOpenAIMessages,
   createToolCallAccumulator,
   accumulateToolCallDeltas,
+  dedupeToolCallEntriesById,
   type OpenAIAssistantMessage,
   type OpenAIToolResultMessage,
   type ToolCallDelta,
@@ -829,7 +830,7 @@ export async function* runAgenticLoop(
     usage.inputTokens += turnInputTokens;
     usage.outputTokens += turnOutputTokens;
 
-    const toolCallEntries = Object.entries(acc.reqToolCalls);
+    const rawToolCallEntries = Object.entries(acc.reqToolCalls);
     // Mint a synthetic id for any tool call the provider left un-id'd (finding T3-5).
     // The accumulator seeds `id: ''` when a delta carries no `id`; two such calls in one
     // turn would both address as `toolCallId: ''`, so the second is wrongly rejected by the
@@ -842,11 +843,22 @@ export async function* runAgenticLoop(
     // call AND cryptographically unpredictable, closing that hole while keeping the
     // OpenAI-wire-protocol `tool_calls[].id` field (which this same value fills) a plain
     // opaque string, exactly as the wire format requires.
-    for (const [, tc] of toolCallEntries) {
+    for (const [, tc] of rawToolCallEntries) {
       if (!tc.id) {
         tc.id = randomUUID();
       }
     }
+    // Finding F1 — collapse any two slots that ended up sharing one `tool_call_id`.
+    // AFTER the id minting above, so entries the provider left un-id'd (all seeded
+    // `''`) are compared by their freshly minted unique ids rather than collapsing
+    // into one. The accumulator is what should prevent a split in the first place;
+    // this guarantees the invariant the OpenAI wire format actually requires — one
+    // `role: 'tool'` reply per `tool_calls[]` entry — holds no matter what the
+    // gateway streamed, since a duplicated id makes the NEXT turn's request body
+    // malformed (provider 400, chat over) and double-fires this call's browser
+    // frames. Applied to the entry list itself, not just to `assistantToolCallMsg`,
+    // so the dispatch loop below stays in lockstep with the message it answers.
+    const toolCallEntries = dedupeToolCallEntriesById(rawToolCallEntries);
     usage.iterations += 1;
 
     if (toolCallEntries.length === 0) {

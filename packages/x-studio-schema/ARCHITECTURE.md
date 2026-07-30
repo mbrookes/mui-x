@@ -417,16 +417,32 @@ assembly — after the merge, once the final page map exists:
   `applyMutation.ts`, out of reach, and the factory already leaves `dependsOn` alone after every
   other drop `screenFilters` makes.
 
-**Known gap, worth stating rather than implying completeness:** the factory's `pages` override is
-still unscreened. The page sweep is `normalizePersistedPages`, which lives in `applyMutation.ts` and
-needs its layout machinery; `docScreening.ts` cannot import it, because `factories.ts` imports
-`docScreening.ts` and moving it would cycle. The load boundary calls it directly. (The factory does
-separately uphold the "at least one page always exists" invariant, since a `doc.pages` override
-replaces the default page map wholesale.) The rank sweep used to be blocked by the same cycle and
-is no longer: its two helpers needed nothing but `StudioDoc['pages']` and `StudioFilterState` as
-types, so hoisting them into the dependency-free [`rankFilterScope.ts`](#rankfilterscopets) freed
-them. `normalizePersistedPages` has no such easy hoist — it pulls in the span/row layout
-primitives.
+**Known gap, worth stating rather than implying completeness:** the factory's `pages` override gets
+only a SHAPE screen, not the layout sweep. `screenPagesShape` coerces a non-record `pages` to `{}`
+and drops a prototype-hazard page key, a non-record page value, and a page carrying a
+prototype-hazard own key — the subset that needs no import `docScreening.ts` cannot have. The full
+sweep is `normalizePersistedPages`, which lives in `applyMutation.ts` and needs its layout
+machinery; `docScreening.ts` cannot import it, because `factories.ts` imports `docScreening.ts` and
+moving it would cycle. The load boundary calls it directly, so a factory `pages` override's
+`widgetRows` / `widgetColSpans` / `title` / `id` are still unswept. (The factory does separately
+uphold the "at least one page always exists" invariant, since a `doc.pages` override replaces the
+default page map wholesale.) The rank sweep used to be blocked by the same cycle and is no longer:
+its two helpers needed nothing but `StudioDoc['pages']` and `StudioFilterState` as types, so
+hoisting them into the dependency-free [`rankFilterScope.ts`](#rankfilterscopets) freed them.
+`normalizePersistedPages` has no such easy hoist — it pulls in the span/row layout primitives.
+
+The shape screen is what makes the repair convention below true of `pages` too. `pages` used to be
+the ONE `StudioDoc` field `screenDoc` skipped entirely, and therefore the one field where a `doc`
+override could make a boundary **throw**, all three reachable from the public `Studio initialState`
+prop: `{ pages: undefined }` (which type-checks — `Partial<StudioDoc>` accepts an explicit
+`undefined`, and every OTHER field with one was already repaired) threw
+`Cannot convert undefined or null to object` from the factory's own zero-page check;
+`{ pages: { p1: null } }` plus any widget-scoped rank filter threw
+`Cannot read properties of null (reading 'widgetRows')` from `resolveRankFilterPageId`, via the
+`dedupeRankFilters` sweep the factory itself runs — the load boundary is immune only because
+`normalizePersistedPages` drops the null page BEFORE that sweep; and `{ pages: 'junk' }` installed
+the string AS the page map (with `activePageId: '0'`), after which the reducer threw on the first
+`addWidget`.
 
 The governing rule is that **all four must agree on the same payload.** A shape the wire
 rejects but the reducer accepts becomes _deferred data loss_: the value installs, renders fine,
@@ -792,8 +808,8 @@ exactly one implementation across every trust boundary.
   object) rather than being a byte-for-byte relocation of three call sites' checks: no call-site
   test naturally constructs a `Map` where a config is expected.
 - **`docScreening.ts`** — the per-ENTRY screens a `StudioDoc` must pass before it becomes live
-  state: `screenDashboard`, `screenWidgets`, `screenFilters`, `screenRelationships`,
-  `screenExpressionFields`, `screenFilterPresets`, `screenAIState`,
+  state: `screenDashboard`, `screenPagesShape`, `screenWidgets`, `screenFilters`,
+  `screenRelationships`, `screenExpressionFields`, `screenFilterPresets`, `screenAIState`,
   `screenOptionalWidgetScalars`, and the `screenDoc` roll-up over a partial doc. Shared by
   `statePersistence.ts` and `factories.ts` — see
   [the four trust boundaries](#the-four-trust-boundaries) for why the factory needs them and which
@@ -803,9 +819,10 @@ exactly one implementation across every trust boundary.
   `applyMutation.ts` or `statePersistence.ts`, because `factories.ts` imports it. That is why the
   load boundary keeps three things of its own rather than moving them here — the legacy leaf-shape
   normalization (`normalizeGridColumn`/`normalizeChartSeries`, a persisted-shape concern rather than
-  a screen), `normalizePersistedPages` (which needs `applyMutation.ts`'s layout machinery), and the
-  `dashboard.activePageId` / `ai.activeThreadId` reconciliations (which need the FINAL page map,
-  assembled differently by each caller).
+  a screen), `normalizePersistedPages` (which needs `applyMutation.ts`'s layout machinery — only
+  its shape-only subset lives here, as `screenPagesShape`), and the `dashboard.activePageId` /
+  `ai.activeThreadId` reconciliations (which need the FINAL page map, assembled differently by each
+  caller).
 
   **Reference stability is per ENTRY, not per container.** A surviving well-formed entry keeps its
   object identity, which is what the memoization downstream of a load actually depends on; the

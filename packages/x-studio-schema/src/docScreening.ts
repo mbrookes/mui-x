@@ -842,6 +842,50 @@ export function screenDashboard(value: unknown): StudioDoc['dashboard'] {
 }
 
 /**
+ * Screen the SHAPE of a `pages` record: coerce a non-record `pages` to `{}`, and drop a
+ * prototype-hazard page KEY, a non-record page VALUE, and a page carrying a
+ * prototype-hazard OWN key.
+ *
+ * This is deliberately the shape-only SUBSET of `normalizePersistedPages`
+ * (`applyMutation.ts`), which additionally sweeps `widgetRows`/`widgetColSpans`, re-stamps
+ * `page.id` from the record key and coerces `page.title`. Those steps need the layout
+ * primitives and are therefore out of this module's reach (see the import-cycle note at the
+ * top of this file); the load boundary calls the full sweep directly. What lives here is
+ * exactly what closes the CRASHES, and it needs no import this module cannot have.
+ *
+ * `pages` used to be skipped by `screenDoc` entirely, which made it the ONE `StudioDoc`
+ * field where an override could make a boundary THROW rather than repair — the deliberate
+ * exception the repair convention allows is a doc claiming a newer `schemaVersion`, nothing
+ * else. Three reachable throws, all through the public `Studio initialState` prop:
+ *  - `{ doc: { pages: undefined } }` (which type-checks: `Partial<StudioDoc>` accepts an
+ *    explicit `undefined`) → `TypeError: Cannot convert undefined or null to object` from
+ *    the factory's own `Object.keys(mergedDoc.pages)` zero-page check;
+ *  - `{ doc: { pages: { p1: null } } }` plus any widget-scoped rank filter →
+ *    `Cannot read properties of null (reading 'widgetRows')` from `resolveRankFilterPageId`,
+ *    via the factory's `dedupeRankFilters` sweep. The load boundary is immune only because
+ *    `normalizePersistedPages` drops the null page BEFORE that sweep runs;
+ *  - `{ doc: { pages: 'junk' } }` installed the string AS the page map (with
+ *    `activePageId: '0'`, its first "key"), and the reducer then threw on the first
+ *    `addWidget`.
+ *
+ * Reference-STABLE: returns the SAME record when every page survives.
+ */
+export function screenPagesShape(value: unknown): StudioDoc['pages'] {
+  if (!isRecord(value)) {
+    return {} as StudioDoc['pages'];
+  }
+  const source = value as StudioDoc['pages'];
+  const entries = Object.entries(source);
+  const kept = entries.filter(
+    ([pageId, page]) => isSafeKey(pageId) && isRecord(page) && !hasUnsafeOwnKeys(page),
+  );
+  if (kept.length === entries.length) {
+    return source;
+  }
+  return Object.fromEntries(kept) as StudioDoc['pages'];
+}
+
+/**
  * Run every screen above over a PARTIAL `StudioDoc`, touching only the fields the bag
  * actually carries.
  *
@@ -850,9 +894,11 @@ export function screenDashboard(value: unknown): StudioDoc['dashboard'] {
  * this stamped `filters: []`/`ai: undefined` onto a bag that named neither, it would change
  * the shape of every default doc in the codebase.
  *
- * `pages` is deliberately NOT screened here (see this module's import-cycle note): the page
- * sweep is `normalizePersistedPages` in `applyMutation.ts`, which this module cannot import.
- * The load boundary calls it directly.
+ * `pages` gets only the SHAPE screen ({@link screenPagesShape}); the full layout sweep is
+ * `normalizePersistedPages` in `applyMutation.ts`, which this module cannot import (see the
+ * import-cycle note at the top of this file). The load boundary calls that one directly, so
+ * the factory's `pages` override remains unswept for layout — a documented gap — but can no
+ * longer make a boundary throw.
  */
 export function screenDoc(doc: Partial<StudioDoc> | undefined): Partial<StudioDoc> | undefined {
   if (doc === undefined) {
@@ -864,6 +910,9 @@ export function screenDoc(doc: Partial<StudioDoc> | undefined): Partial<StudioDo
   const next: Record<string, unknown> = { ...doc };
   if (Object.hasOwn(doc, 'dashboard')) {
     next.dashboard = screenDashboard(doc.dashboard);
+  }
+  if (Object.hasOwn(doc, 'pages')) {
+    next.pages = screenPagesShape(doc.pages);
   }
   if (Object.hasOwn(doc, 'widgets')) {
     next.widgets = screenWidgets(doc.widgets);

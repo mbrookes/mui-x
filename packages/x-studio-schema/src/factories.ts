@@ -289,8 +289,12 @@ export function createDefaultStudioState(
   // DISK, but an in-process caller legitimately builds live state carrying them), and the
   // orphan page/widget anchor checks are skipped (a `pages`/`widgets` override is merged onto
   // the factory defaults AFTER this runs, so a filter anchored to the default page would look
-  // like an orphan). `pages` itself is screened by `normalizePersistedPages`, which lives in
-  // `applyMutation.ts` and cannot be reached from here without an import cycle.
+  // like an orphan). `pages` gets only the SHAPE screen (`screenPagesShape`: a non-record map
+  // coerced to `{}`, an unsafe page key / non-record page value dropped) — enough that no
+  // `pages` override can make this factory THROW, which it previously could three ways (see
+  // that function's doc). The full LAYOUT sweep is `normalizePersistedPages`, which lives in
+  // `applyMutation.ts` and cannot be reached from here without an import cycle, so a `pages`
+  // override's `widgetRows`/`widgetColSpans`/`title`/`id` remain unswept — a documented gap.
   const docOverrides = screenDoc(overrides?.doc);
   const sessionOverrides = overrides?.session;
   const runtimeOverrides = overrides?.runtime;

@@ -14,6 +14,7 @@ import {
 import { applyDocMutation } from './applyMutation';
 import { deserializeState, serializeDoc } from './statePersistence';
 import { CURRENT_SCHEMA_VERSION } from './stateTypes';
+import type { StudioDoc } from './stateTypes';
 
 // The per-kind default title/config below is transcribed directly from the current
 // `BUILTIN_WIDGET_DEFAULTS` table in `factories.ts` (it is a file-private const, not
@@ -661,5 +662,93 @@ describe('createDefaultStudioState screens its doc override', () => {
     ];
     const state = createDefaultStudioState({ doc: { filters } });
     expect(state.doc.filters[0]).toBe(filters[0]);
+  });
+});
+
+// R3-F2: `pages` was the ONE `StudioDoc` field `screenDoc` skipped, which made it the one
+// field where a `doc` override could make the factory THROW rather than repair — the repair
+// convention's only sanctioned throw is a doc claiming a newer `schemaVersion`. All three
+// payloads below are reachable from the public `Studio initialState` prop.
+describe('createDefaultStudioState screens its pages override shape (R3-F2)', () => {
+  it('an explicit `pages: undefined` falls back to the default page instead of throwing', () => {
+    // Type-checks cleanly: `Partial<StudioDoc>` accepts an explicit `undefined`. Every OTHER
+    // field with an explicit `undefined` was already repaired by `screenDoc`.
+    const partial: Partial<StudioDoc> = {
+      pages: undefined,
+      widgets: undefined,
+      filters: undefined,
+    };
+    let state!: ReturnType<typeof createDefaultStudioState>;
+    // Used to throw `TypeError: Cannot convert undefined or null to object` from the
+    // factory's own `Object.keys(mergedDoc.pages)` zero-page check.
+    expect(() => {
+      state = createDefaultStudioState({ doc: partial });
+    }).not.toThrow();
+    expect(Object.keys(state.doc.pages).length).toBeGreaterThan(0);
+    expect(Object.hasOwn(state.doc.pages, state.doc.dashboard.activePageId)).toBe(true);
+  });
+
+  it('a non-record `pages` coerces to the default page map instead of installing verbatim', () => {
+    // `pages: 'junk'` used to install the STRING as the page map, with `activePageId: '0'`
+    // (its first "key"); the reducer then threw on the first `addWidget`.
+    const state = createDefaultStudioState({
+      doc: { pages: 'junk' as unknown as StudioDoc['pages'] },
+    });
+    expect(typeof state.doc.pages).toBe('object');
+    expect(Object.keys(state.doc.pages).length).toBeGreaterThan(0);
+    expect(Object.hasOwn(state.doc.pages, state.doc.dashboard.activePageId)).toBe(true);
+    expect(() =>
+      applyDocMutation(state.doc, {
+        type: 'addWidget',
+        args: { widget: { id: 'w1', kind: 'chart', title: 'T', config: { chartType: 'bar' } } },
+      } as any),
+    ).not.toThrow();
+  });
+
+  it('drops a null page value, so the rank-filter sweep the factory itself runs cannot throw', () => {
+    // The crash site: `resolveRankFilterPageId` reads `page.widgetRows` with no optional
+    // chaining, reached via the factory's own `dedupeRankFilters` sweep. The load boundary is
+    // immune only because `normalizePersistedPages` drops the null page BEFORE that sweep.
+    let state!: ReturnType<typeof createDefaultStudioState>;
+    expect(() => {
+      state = createDefaultStudioState({
+        doc: {
+          pages: { p1: null } as unknown as StudioDoc['pages'],
+          filters: [
+            {
+              id: 'f1',
+              field: 'x',
+              operator: 'equals',
+              value: 1,
+              filterMode: 'rank',
+              scope: { kind: 'widget', widgetId: 'w1' },
+            },
+          ] as any,
+        },
+      });
+    }).not.toThrow();
+    expect(state.doc.pages).not.toHaveProperty('p1');
+    // The map emptied by the drop, so the "at least one page always exists" invariant
+    // re-synthesizes the default page.
+    expect(Object.keys(state.doc.pages).length).toBeGreaterThan(0);
+  });
+
+  it('drops a prototype-hazard page key and a page carrying a prototype-hazard own key', () => {
+    const state = createDefaultStudioState({
+      doc: {
+        pages: JSON.parse(
+          '{"p1":{"id":"p1","title":"Keep","widgetRows":[]},' +
+            '"constructor":{"id":"constructor","title":"Bad","widgetRows":[]},' +
+            '"p2":{"id":"p2","title":"Bad","widgetRows":[],"__proto__":{"polluted":true}}}',
+        ) as StudioDoc['pages'],
+      },
+    });
+    expect(Object.keys(state.doc.pages)).toEqual(['p1']);
+  });
+
+  it('keeps the pages record reference-stable when every page survives', () => {
+    const pages = { p1: { id: 'p1', title: 'P1', widgetRows: [] } };
+    const state = createDefaultStudioState({ doc: { pages } });
+    expect(state.doc.pages).toBe(pages);
   });
 });

@@ -13,13 +13,28 @@
  * single SSE event. `handleGenerateInsight.ts` already got this right (it relays
  * the status only); this makes every other provider-error site consistent with it.
  *
- * The client gets status + statusText + a correlation id; the operator finds the
- * body in their logs by that id.
+ * The client gets the status, a SANITIZED and BOUNDED status text, and a correlation
+ * id; the operator finds the body in their logs by that id.
+ *
+ * **`statusText` is far-side text too** (finding F5). This comment used to say the
+ * client "gets status + statusText", contradicting ARCHITECTURE.md's "two untrusted
+ * frontiers" rule that far-side text is never relayed onward — and the code matched the
+ * comment rather than the rule: the gateway-authored reason phrase reached the browser's
+ * SSE `error` frame verbatim and UNBOUNDED, with only `body` capped. HTTP/1.1 lets a
+ * server put an arbitrary reason phrase on the status line and `fetch` surfaces it
+ * as-is, so it is a place to plant a multi-megabyte string, a forged sibling line of
+ * prose, or an instruction addressed to whoever renders the frame. It now routes
+ * through {@link safeIdentifier} — this package's one sanitize-and-cap chokepoint for
+ * untrusted text echoed into prose — so it can only ever occupy the position it is
+ * given. The same sanitized value goes into `detail`: a reason phrase is one short line
+ * by definition, so there is no operator fidelity to trade away, and the raw body is
+ * already there in full.
  *
  * Internal to the package — not exported from `index.ts`.
  */
 import { randomUUID } from 'node:crypto';
-import { capText } from './promptCaps';
+import { safeIdentifier } from '../mcp/helpers';
+import { asString, capText } from './promptCaps';
 import { isPackageAuthoredError } from './packageError';
 
 /**
@@ -60,7 +75,14 @@ export function reportProviderHttpError(
   body?: string,
 ): ProviderErrorReport {
   const correlationId = randomUUID();
-  const statusPart = statusText ? `HTTP ${status} ${statusText}` : `HTTP ${status}`;
+  // Finding F5 — sanitize + cap before interpolation, not after. `safeIdentifier`
+  // coerces through the total `asString` (a `statusText` typed `string` still arrives
+  // off the wire), caps at `MAX_ECHOED_IDENTIFIER_LENGTH`, and neutralizes the line
+  // breaks, angle brackets and quotes that would otherwise let this one field forge
+  // prose around itself. An empty/whitespace-only phrase drops out of the message
+  // entirely, exactly as before.
+  const safeStatusText = safeIdentifier(statusText);
+  const statusPart = safeStatusText ? `HTTP ${status} ${safeStatusText}` : `HTTP ${status}`;
   return {
     correlationId,
     detail:
@@ -91,7 +113,12 @@ export function reportProviderHttpError(
  */
 export function reportProviderFetchError(context: string, err: unknown): ProviderErrorReport {
   const correlationId = randomUUID();
-  const raw = err instanceof Error ? err.message : String(err);
+  // `asString`, not the raw `String` global (same hazard as finding F7 in
+  // `handleAIChat.ts`): `String(x)` is not total — `String({ toString: 1 })` throws
+  // `TypeError: Cannot convert object to primitive value`. A reporter that throws on
+  // the input class it exists to neutralize is worse than no reporter, and this one
+  // runs inside catch blocks where the thrown value is entirely arbitrary.
+  const raw = err instanceof Error ? err.message : asString(err);
   if (isPackageAuthoredError(err)) {
     // Most branded messages already open with the package prefix; `withTimeout`'s does
     // not, because it composes a bare label with a duration. Prepending unconditionally

@@ -45,6 +45,8 @@ Two consequences are applied everywhere:
 - **A declared TypeScript type says nothing about what arrives.** `ToolCallDelta.index` is typed `number` and arrived as `"__proto__"`; `StudioDataSource.tableName` is typed `string` and arrived as `{ orders: 'secrets' }`.
 - **Text authored on the far side of either frontier is never relayed onward.** A provider or host error body goes to the server log; the client gets a correlation id. See [Bounding what goes out](#bounding-what-goes-out-tool-output-and-error-text).
 
+  > The rule holds for the response **body**; the status **line** was the exception nobody named. `internal/providerError.ts`'s own doc comment said the client "gets status + statusText", and the code matched that comment rather than this rule — `response.statusText` reached the browser's SSE `error` frame verbatim and unbounded, with only `body` capped, and both one-shot handlers threw it too. HTTP/1.1 lets a server write an arbitrary reason phrase on the status line and `fetch` surfaces it as-is, so it is gateway-authored text like any other. It now routes through `safeIdentifier` (sanitize + cap) before interpolation, and the doc comment says so.
+
 ### Dependencies
 
 Runtime: `@mui/x-studio-schema` only (the shared, zero-dependency data model and mutation reducer). Dev-only: `@mui/x-chat-headless` (for the `ChatMessage` type) and `@modelcontextprotocol/sdk` (only `buildStudioMcpServer` and `mcp/` use it functionally).
@@ -677,7 +679,7 @@ Error text that crossed the **host or provider** boundary is never relayed to th
 
   All seven gate calls — six in `mcp/resources.ts`, one in `mcp/prompts.ts` — now go through the single `runGuardedGate` helper rather than seven local `try` blocks, so the next gate added inherits the redaction. It fails **closed**: a throwing gate denies, matching how `mcp/summarisePage.ts` already treats its own `authorizeSourceDataAccess` consult. The one exception is the `system-prompt` enrichment gate, which is best-effort by [invariant 6](#key-design-invariants) — it degrades to "no enrichment" and the prompt is still served. That gate also had to move INSIDE the surrounding `try`; sitting outside it, a throw failed the whole read instead of just the enrichment.
 
-- `internal/providerError.ts`'s `reportProviderHttpError`/`reportProviderFetchError` for the LLM provider — the `detail` goes to `onToolError` / `GenerateInsightOptions.onError`, the `clientMessage` carries status/statusText plus the id.
+- `internal/providerError.ts`'s `reportProviderHttpError`/`reportProviderFetchError` for the LLM provider — the `detail` goes to `onToolError` / `GenerateInsightOptions.onError`, the `clientMessage` carries the status, a `safeIdentifier`-sanitized status text, and the id.
 
 **The correlation id resolves to something on chat, too.** `toolDispatch.ts` constructed `createDataToolHandlers` without a `logger`, so on chat the redacted detail was written nowhere and the id in the model-visible message pointed at nothing an operator could look up. It now passes a capturing logger sink and hands the captured detail to the host's `onToolError` — the one server-side error channel this transport has.
 
@@ -1008,7 +1010,8 @@ The registry carries only classification facts, not JSON-schema parameters, so t
     | `choices[0].message.content`                       | the three one-shot handlers | `typeof === 'string'`, then `JSON.parse` in a `try`                             |
     | 2xx response BODY                                  | the three one-shot handlers | `readChatCompletionBody` — non-JSON becomes a branded, provider-text-free error |
     | non-2xx response body                              | every provider call         | never relayed; `reportProviderHttpError` (invariant 16)                         |
-    | `response.status` / `.statusText`                  | every provider call         | platform-typed, not wire JSON                                                   |
+    | `response.status`                                  | every provider call         | platform-typed, not wire JSON                                                   |
+    | `response.statusText`                              | every provider call         | `safeIdentifier` — sanitize + cap before it is relayed (finding F5)             |
 
 16. **Host- and provider-authored error text is never relayed; package-authored error text always is.** Text that crossed either boundary — a DB driver error, a `queryDataSource`/`toolPolicy`/`approvalHandler` throw, a provider error body, a transport rejection — carries credentials, SQL, and internal hostnames, and is unbounded; it goes to the server log under a correlation id and the model/browser get a generic sentence naming that id. Text this package authored carries nothing untrusted and is relayed verbatim (bounded, still logged). The line is the `PACKAGE_AUTHORED_ERROR` brand, checked as an own property rather than by `instanceof` so a duplicated module copy cannot silently flip an error to the redacted side.
 

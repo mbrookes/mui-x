@@ -555,6 +555,15 @@ anything": each incoming field is compared against the widget's current value be
 is rewrapped, so a `changes: { title: 'Same' }` on an already-`'Same'` widget returns the SAME
 state reference.
 
+Per-field comparison alone is not sufficient for `updateWidget`, because its five layered steps
+can each rewrap the widget and then have that write **reversed by a later step in the same
+mutation** — the kind-coherence screen stripping exactly the config key the patch loop just
+installed is the canonical case. Its closing check therefore compares the final widget against
+the original by VALUE (`widgetsValueEqual`, shared with `applyBulkUpdate.addedWidgets`' replace
+path) rather than by identity. `widgetsValueEqual` is shallow, so a re-delivery whose nested
+config value is re-created by `JSON.parse` still compares unequal and is conservatively treated
+as a change — the same documented limit `shallowRecordEqual` carries everywhere else.
+
 ### Cascade pruning is a per-CLASS invariant
 
 `StudioFilterState.dependsOn` lists the other filter ids a filter cascades from. Its own doc
@@ -1095,13 +1104,43 @@ above; only what is specific to each is listed here.
      `config` is treated as ABSENT.
   2. **A shallow `changes` merge onto the widget**, `isPlainRecord`-gated. A `config` key inside
      `changes` **wholesale-replaces** the already-patched config rather than merging with it.
-  3. **A kind-coherence reconciliation**, run only when the merge actually changed `kind`: it
-     strips any config key not in the NEW kind's allow-list, reusing `getAllowedConfigKeys`.
-     Without it a `changes.kind` flip left the config exactly as steps 1–2 produced it — a grid
-     widget still holding a chart-only `xField`, with nothing downstream to reconcile the mismatch.
-     A custom kind (allow-list `null`) is left untouched.
+  3. **A kind-coherence reconciliation**, run on **every** config-touching path, against the
+     FINAL `updated.kind`: it strips config keys not in that kind's allow-list, reusing
+     `getAllowedConfigKeys`. Without it a `changes.kind` flip left the config exactly as
+     steps 1–2 produced it — a grid widget still holding a chart-only `xField`, with nothing
+     downstream to reconcile the mismatch (`screenWidgets` does no per-kind key check, and
+     `serializeDoc` persists it forever). A custom kind (allow-list `null`) and a non-record
+     live `config` are both left untouched — the latter guarded by `isPlainRecord` so the step
+     repairs or no-ops rather than throwing on `Object.keys(null)`.
+
+     **The SCOPE of the screen depends on whether `kind` changed; that it RUNS does not.** A
+     `kind` flip screens the WHOLE config (every key authored under the old kind is foreign
+     now). An unchanged `kind` screens only the keys THIS mutation named, tracked across both
+     config-touching paths in an `incomingConfigKeys` set — a stored config legitimately
+     carries keys retained across a chartType switch (see `StudioChartConfig`'s doc, and the
+     wire boundary's matching "preserve, never strip" stance), so an unrelated edit must not
+     sweep them, but it must not INSTALL a fresh foreign one either.
+
+     Gating the whole step on `updated.kind !== existing.kind` — what it used to do — made
+     one mutation that BOTH flips `kind` and supplies a config non-idempotent in the worst
+     direction. First delivery: the gate is true, so it stripped the keys steps 1–2 had just
+     installed. Second delivery: `kind` no longer changes, the gate is false, and the SAME
+     foreign keys installed **permanently**. Both `{ changes: { kind }, config }` and
+     `{ changes: { kind, config } }` reproduced it, and both pass `parseStateMutation`. SSE is
+     at-least-once, so that is a routine re-delivery, not an exotic payload — the
+     client-applied doc diverged from the server-threaded one and landed in exactly the
+     mismatch this step exists to prevent.
+
   4. **`unsetConfigKeys`** — delete the named keys from the post-merge config.
   5. **`unsetFields`** — delete the named top-level widget keys.
+
+  The closing no-op check compares by **value** (`widgetsValueEqual`), not by identity. Steps
+  1–5 can each rewrap the widget and then have their effect reversed by a LATER step in the
+  same mutation — step 3 stripping exactly the config key step 1 installed is the canonical
+  case — leaving a fresh but value-identical object, and a bare `updated === existing` then
+  returned a new doc reference for a mutation that changed nothing. That pushed a phantom undo
+  entry on an at-least-once re-delivery, violating the
+  [reference-equality no-op contract](#reference-equality-no-op-contract).
 
   The `changes` merge is **fail-closed on the key itself**: only a member of
   `MERGEABLE_WIDGET_CHANGE_KEYS` (`kind`, `title`, `titleMode`, `subtitle`, `subtitleMode`,

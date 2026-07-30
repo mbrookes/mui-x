@@ -1328,6 +1328,15 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       }
       const existing = state.widgets[widgetId];
       let updated: StudioWidget = existing;
+      // The config keys THIS mutation installs, collected across BOTH config-touching
+      // paths (the `config` patch loop and a wholesale `changes.config`) so the
+      // kind-coherence step below can screen them against the FINAL `updated.kind`
+      // — a kind this handler may not know yet while those paths run, because
+      // `changes.kind` is merged after the patch. Screening only the INCOMING keys
+      // (rather than the whole config) is what keeps the pre-existing
+      // retention-across-chartType-switch keys a stored config legitimately carries
+      // (see `StudioChartConfig`'s doc) untouched by an unrelated edit.
+      const incomingConfigKeys = new Set<string>();
       // Order of operations (documented, load-bearing): config patch → changes
       // merge → config-key unsets → field unsets. Unsets are applied LAST so an
       // explicit clear always wins over a set of the same key in the same mutation.
@@ -1367,7 +1376,15 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
               delete nextConfig[key];
               changedConfig = true;
             }
-          } else if (!Object.hasOwn(nextConfig, key) || nextConfig[key] !== value) {
+            continue;
+          }
+          // Every non-deleting key this patch names is INCOMING for the kind-coherence
+          // screen below — including one re-set to its CURRENT value. On an
+          // at-least-once re-delivery of a kind-flipping mutation the key is already
+          // installed, so counting only the keys that CHANGED is exactly what let a
+          // foreign key survive the second delivery permanently.
+          incomingConfigKeys.add(key);
+          if (!Object.hasOwn(nextConfig, key) || nextConfig[key] !== value) {
             nextConfig[key] = value;
             changedConfig = true;
           }
@@ -1423,6 +1440,12 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
               // own config property makes the next load drop the whole widget.
               const safeValue = stripUnsafeConfigKeys(value as Record<string, unknown>);
               const normalized = normalizeConfigChartSeries(safeValue);
+              // Every key of a wholesale replacement is INCOMING for the kind-coherence
+              // screen below, whether or not the replacement differs by value from the
+              // config it replaces — same reasoning as the patch loop above.
+              for (const configKey of Object.keys(normalized)) {
+                incomingConfigKeys.add(configKey);
+              }
               if (!shallowRecordEqual(updated.config as Record<string, unknown>, normalized)) {
                 definedChanges.config = normalized;
               }
@@ -1464,19 +1487,52 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // Kind-coherence reconciliation. `changes.kind` can flip a widget's `kind` (e.g.
       // chart → grid) while the config keeps whatever the branches above produced, which may
       // still carry the OLD kind's keys (a grid widget left with a chart-only `xField`) —
-      // a config/kind mismatch nothing downstream reconciles. Strips any config key not
-      // valid for the NEW kind, using `getAllowedConfigKeys` (`configKeyValidation.ts`), the
-      // same per-kind allow-list `validateConfigKeysForKind`/`stripForeignFamilyKeys` are
-      // built from. `null` means a custom/consumer-defined kind, which has no built-in key
+      // a config/kind mismatch nothing downstream reconciles (`screenWidgets` does no
+      // per-kind key check, and `serializeDoc` persists it forever). Strips the offending
+      // config keys using `getAllowedConfigKeys` (`configKeyValidation.ts`), the same
+      // per-kind allow-list `validateConfigKeysForKind`/`stripForeignFamilyKeys` are built
+      // from. `null` means a custom/consumer-defined kind, which has no built-in key
       // restriction, so its config is left untouched.
-      if (updated.kind !== existing.kind) {
-        const allowedKeys = getAllowedConfigKeys(updated.kind);
-        if (allowedKeys !== null) {
-          const reconciledConfig: Record<string, unknown> = {};
-          for (const [key, value] of Object.entries(updated.config as Record<string, unknown>)) {
-            if (allowedKeys.has(key)) {
-              reconciledConfig[key] = value;
-            }
+      //
+      // IDEMPOTENCY IS WHY THIS IS NOT GATED ON `updated.kind !== existing.kind`. It used to
+      // be, and the gate made one mutation that BOTH flips `kind` and supplies a config
+      // non-idempotent in the worst direction: the first delivery stripped the config keys
+      // the branches above had just installed, so the SECOND delivery — where `kind` no
+      // longer changes and the gate is false — installed those same foreign keys
+      // PERMANENTLY. Both `{ changes: { kind }, config }` and
+      // `{ changes: { kind, config } }` reproduce it, and both pass `parseStateMutation`. SSE
+      // is at-least-once (see this file's header), so the client-applied doc diverged from
+      // the server-threaded one and landed in exactly the mismatch this step exists to
+      // prevent.
+      //
+      // The two screens differ in SCOPE, and deliberately:
+      //  - `kind` changed ⇒ screen the WHOLE config. Keys authored under the old kind are
+      //    all foreign now, whether or not this mutation touched them.
+      //  - `kind` unchanged ⇒ screen only the keys THIS mutation named
+      //    (`incomingConfigKeys`). A stored config legitimately carries keys retained
+      //    across a chartType switch (see `StudioChartConfig`'s doc, and the wire boundary's
+      //    matching "preserve, never strip" stance), so an unrelated edit must not sweep
+      //    them — but it must not INSTALL a fresh foreign one either.
+      //
+      // `isPlainRecord` guard: a live widget whose `config` is not a record (never produced
+      // by the add channels, which run `coerceWidgetConfig`, but reachable for a doc built
+      // outside them) would otherwise THROW here on `Object.keys(null)` — and a boundary
+      // must repair or no-op, never throw.
+      const allowedKeys = getAllowedConfigKeys(updated.kind);
+      if (allowedKeys !== null && isPlainRecord(updated.config)) {
+        const currentConfig = updated.config as Record<string, unknown>;
+        const keysToScreen =
+          updated.kind !== existing.kind ? Object.keys(currentConfig) : incomingConfigKeys;
+        const foreignKeys: string[] = [];
+        for (const key of keysToScreen) {
+          if (!allowedKeys.has(key) && Object.hasOwn(currentConfig, key)) {
+            foreignKeys.push(key);
+          }
+        }
+        if (foreignKeys.length > 0) {
+          const reconciledConfig = { ...currentConfig };
+          for (const key of foreignKeys) {
+            delete reconciledConfig[key];
           }
           updated = { ...updated, config: reconciledConfig as StudioWidget['config'] };
         }
@@ -1538,10 +1594,23 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
           updated = nextWidget as unknown as StudioWidget;
         }
       }
-      // Reference-equality no-op: if no branch above changed the widget (an empty or
-      // identical-value config patch, an unset of absent keys, …), return the SAME
-      // state reference so `commitDocPatch`'s no-op guard skips pushing an undo entry.
-      if (updated === existing) {
+      // No-op check: if no branch above changed the widget (an empty or identical-value
+      // config patch, an unset of absent keys, …), return the SAME state reference so
+      // `commitDocPatch`'s no-op guard skips pushing an undo entry.
+      //
+      // A VALUE comparison (`widgetsValueEqual`, the same helper
+      // `applyBulkUpdate.addedWidgets` uses for its replace path), not the bare
+      // `updated === existing` this used to be. The branches above can each rewrap the
+      // widget and then have their effect undone by a LATER branch in the same mutation —
+      // the kind-coherence screen stripping exactly the config key the patch loop just
+      // installed is the canonical case — leaving a fresh, value-identical object. That
+      // returned a new doc reference for a mutation that changed nothing, so an
+      // at-least-once SSE re-delivery pushed a phantom undo entry, violating this file's
+      // reference-equality no-op contract ("EVERY handler returns its input reference
+      // unchanged when nothing changed"). Shallow by design, matching every other
+      // value-compare in this file: a re-delivery whose nested config value is re-created
+      // by `JSON.parse` compares unequal and is conservatively treated as a change.
+      if (widgetsValueEqual(updated, existing)) {
         return state;
       }
       return {

@@ -2023,6 +2023,141 @@ describe('applyMutation', () => {
       expect(next.widgets.w1.config).toEqual({ chartType: 'bar', xField: 'month' });
     });
 
+    // R3-F1: the kind-coherence step was gated on `updated.kind !== existing.kind`, which
+    // made ONE mutation that both flips `kind` AND supplies a config non-idempotent in the
+    // worst direction. First delivery: the gate is true, so it strips the config keys the
+    // patch/merge branches just installed. SECOND delivery: `kind` no longer changes, the
+    // gate is false, and the SAME foreign keys install permanently — the exact config/kind
+    // mismatch the step exists to prevent, which nothing downstream reconciles
+    // (`screenWidgets` does no per-kind key check; `serializeDoc` persists it forever).
+    // SSE is at-least-once, so a re-delivery is expected, not exotic.
+    describe('kind flip + config is idempotent (R3-F1)', () => {
+      const chartToGridDoc = () =>
+        makeDoc({
+          widgets: {
+            w1: {
+              id: 'w1',
+              kind: 'chart',
+              title: 'W',
+              config: { chartType: 'bar', xField: 'a' },
+            },
+          },
+        });
+
+      it('`{ changes: { kind }, config }` — a re-delivery re-installs nothing', () => {
+        const mutation: StateMutation = {
+          type: 'updateWidget',
+          args: { widgetId: 'w1', changes: { kind: 'grid' }, config: { xField: 'b' } },
+        };
+        const first = applyDocMutation(chartToGridDoc(), mutation);
+        expect(first.widgets.w1.kind).toBe('grid');
+        expect(first.widgets.w1.config).toEqual({});
+        // The re-delivery must be a TRUE no-op — same doc reference, so `commitDocPatch`
+        // skips a phantom undo entry (reference-equality no-op contract).
+        const second = applyDocMutation(first, mutation);
+        expect(second).toBe(first);
+        expect(applyDocMutation(second, mutation)).toBe(second);
+      });
+
+      it('`{ changes: { kind, config } }` — a re-delivery re-installs nothing', () => {
+        const mutation: StateMutation = {
+          type: 'updateWidget',
+          args: {
+            widgetId: 'w1',
+            changes: { kind: 'grid', config: { xField: 'b', gridSortField: 's' } },
+          },
+        };
+        const first = applyDocMutation(chartToGridDoc(), mutation);
+        expect(first.widgets.w1.kind).toBe('grid');
+        expect(first.widgets.w1.config).toEqual({ gridSortField: 's' });
+        const second = applyDocMutation(first, mutation);
+        expect(second).toBe(first);
+      });
+
+      it('a config patch cannot install a key foreign to the CURRENT kind of the widget', () => {
+        // No `kind` flip at all: a plain config patch naming a chart-only key on a grid
+        // widget. The old gate skipped the screen entirely here.
+        const state = makeDoc({
+          widgets: {
+            w1: { id: 'w1', kind: 'grid', title: 'T', config: { columns: [] } },
+          } as unknown as StudioDoc['widgets'],
+        });
+        const next = applyDocMutation(state, {
+          type: 'updateWidget',
+          args: { widgetId: 'w1', config: { xField: 'b', gridSortField: 's' } },
+        });
+        expect(next.widgets.w1.config).not.toHaveProperty('xField');
+        expect(next.widgets.w1.config).toEqual({ columns: [], gridSortField: 's' });
+      });
+
+      it('a value-neutral update returns the SAME doc reference (value comparison, not identity)', () => {
+        // The config patch re-wraps the widget and the kind-coherence screen then reverses
+        // it, leaving a fresh but value-identical object. The closing no-op check compares
+        // by VALUE, so this is still a no-op.
+        const state = makeDoc({
+          widgets: {
+            w1: { id: 'w1', kind: 'grid', title: 'T', config: { columns: [] } },
+          } as unknown as StudioDoc['widgets'],
+        });
+        const next = applyDocMutation(state, {
+          type: 'updateWidget',
+          args: { widgetId: 'w1', config: { xField: 'b' } },
+        });
+        expect(next).toBe(state);
+      });
+
+      it('a kind flip still sweeps config keys this mutation never touched', () => {
+        // The unchanged-kind screen is scoped to the INCOMING keys, but a kind FLIP must
+        // still screen the whole config — keys authored under the old kind are all foreign.
+        const next = applyDocMutation(chartToGridDoc(), {
+          type: 'updateWidget',
+          args: { widgetId: 'w1', changes: { kind: 'grid' } },
+        });
+        expect(next.widgets.w1.config).toEqual({});
+      });
+
+      it('an unrelated edit does NOT sweep pre-existing retained config keys', () => {
+        // Retention-across-chartType-switch is a documented, permanent feature (see
+        // `StudioChartConfig`'s doc and the wire boundary's matching stance), so an edit
+        // that names none of those keys must leave them alone. Only `columns` here is
+        // kind-foreign, and this mutation does not name it.
+        const state = makeDoc({
+          widgets: {
+            w1: {
+              id: 'w1',
+              kind: 'chart',
+              title: 'W',
+              config: { chartType: 'bar', xField: 'a', columns: [] },
+            },
+          } as unknown as StudioDoc['widgets'],
+        });
+        const next = applyDocMutation(state, {
+          type: 'updateWidget',
+          args: { widgetId: 'w1', config: { yField: 'r' } },
+        });
+        expect(next.widgets.w1.config).toEqual({
+          chartType: 'bar',
+          xField: 'a',
+          columns: [],
+          yField: 'r',
+        });
+      });
+
+      it('a non-record live config no-ops rather than throwing in the coherence screen', () => {
+        const state = makeDoc({
+          widgets: {
+            w1: { id: 'w1', kind: 'chart', title: 'W', config: null },
+          } as unknown as StudioDoc['widgets'],
+        });
+        expect(() =>
+          applyDocMutation(state, {
+            type: 'updateWidget',
+            args: { widgetId: 'w1', changes: { kind: 'grid' } },
+          }),
+        ).not.toThrow();
+      });
+    });
+
     it('unsetConfigKeys deletes the named keys from the merged config', () => {
       const state = makeDoc({
         widgets: {

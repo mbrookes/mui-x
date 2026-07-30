@@ -944,7 +944,21 @@ export function normalizePersistedPages(
     // persisted doc is an untrusted boundary: `JSON.parse` can produce an own
     // `"__proto__"` page key or a `null`/primitive page value, either of which would
     // corrupt the rebuild or crash the sweep below.
-    if (!isSafePatchKey(pid) || page === null || typeof page !== 'object' || Array.isArray(page)) {
+    //
+    // `isPlainRecord`, not a hand-rolled `typeof === 'object' && !null && !isArray`: this
+    // was the LAST page/widget screen still spelling the check out by hand, and the two
+    // differ exactly on the EXOTIC-object case (a `Date`/`Map`/class instance is a non-null
+    // non-array `object`). The factory's own `pages` screen (`screenPagesShape`) and the
+    // widget channel (`screenWidgets`) both route through `isPlainRecord` already, so an
+    // exotic page value was DROPPED by the factory and KEPT — verbatim, same reference,
+    // still a class instance — by this loader. That is the boundary-disagreement class:
+    // downstream every page is treated as a plain data bag (spread by `withSpans`, read by
+    // arbitrary key, re-serialized), and an exotic one embedded straight into `doc.pages`
+    // silently differs in shape from every other page. It also could not be repaired here:
+    // the rebuild below is skipped precisely when the instance's `id`/`title`/`widgetRows`
+    // already look valid. Delegating makes the four boundaries answer identically and lets
+    // the next tightening of `isPlainRecord` land here too.
+    if (!isSafePatchKey(pid) || !isPlainRecord(page)) {
       pagesChanged = true;
       continue;
     }

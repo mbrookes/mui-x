@@ -1177,6 +1177,41 @@ describe('deserializeState', () => {
     expect(Object.hasOwn(state.doc.widgets, 'w1')).toBe(false);
   });
 
+  it('drops a PAGE value that is an exotic object masquerading as a valid record (isPlainRecord bypass)', () => {
+    // The page-channel twin of the widget test above, and the last screen in the package that
+    // still spelled the record check out by hand: `normalizePersistedPages` used
+    // `page === null || typeof page !== 'object' || Array.isArray(page)`, which is FALSE for a
+    // class instance, so the exotic page passed. Nothing downstream repaired it either — the
+    // sweep's rebuild is skipped precisely when `id`/`title`/`widgetRows` already look valid,
+    // so the instance was embedded into `doc.pages` by REFERENCE.
+    //
+    // That made the four boundaries disagree on one byte-identical input: the FACTORY
+    // (`screenPagesShape`, which routes through `isPlainRecord`) dropped it, this LOADER kept
+    // it. Both now drop.
+    class FakePage {
+      id = 'p-exotic';
+      title = 'Exotic';
+      widgetRows: string[][] = [];
+    }
+    const serialized = {
+      ...minimalSerialized,
+      widgets: {},
+      pages: {
+        'page-1': { id: 'page-1', title: 'P1', widgetRows: [] },
+        'p-exotic': new FakePage(),
+      },
+    } as unknown as typeof minimalSerialized;
+    const state = deserializeState(serialized, {});
+    expect(Object.hasOwn(state.doc.pages, 'p-exotic')).toBe(false);
+    expect(state.doc.pages['page-1']).toBeDefined();
+    // Every surviving page is a plain data bag, the shape every consumer assumes.
+    expect(
+      Object.values(state.doc.pages).every(
+        (page) => Object.getPrototypeOf(page) === Object.prototype,
+      ),
+    ).toBe(true);
+  });
+
   // ── prototype-hazard keys in persisted maps (finding 1.2) ────────────────────
   it('drops a persisted "__proto__" page key and does not re-prototype the pages map (finding 1.2)', () => {
     const serialized = {
@@ -1196,6 +1231,55 @@ describe('deserializeState', () => {
     expect((state.doc.pages as Record<string, unknown>).title).toBeUndefined();
     expect(state.doc.pages['page-1']).toBeDefined();
   });
+
+  // The exact line the denylist draws, pinned on the PAGE channel because that is where the
+  // "we converted every lookup to `Object.hasOwn`, so a prototype-member-named id is safe to
+  // KEEP" argument keeps resurfacing. Both halves are deliberate:
+  //
+  //  - The three `UNSAFE_KEYS` are dropped. `constructor`/`prototype` cannot pollute through
+  //    the `Object.fromEntries` rebuild any more than `toString` can — the reason they go is
+  //    that the WIRE boundary rejects them (`isValidId`) and the REDUCER refuses to mint them
+  //    (`addPage`'s `isSafePatchKey` gate, whose own comment names deferred data loss as the
+  //    motive). A boundary that KEPT them here would be the only one, and would hand a page
+  //    back to a doc that no supported edit can reach. The tradeoff is stated plainly: this
+  //    IS data loss for a page a hand-edit named `constructor`, accepted so that all four
+  //    boundaries give one answer instead of three.
+  //  - Every OTHER `Object.prototype` member name is KEPT. That is what the `Object.hasOwn`
+  //    conversion bought, and it is the reason `isSafeKey` is a three-element denylist rather
+  //    than "anything that appears on `Object.prototype`".
+  it.each(['constructor', 'prototype'])(
+    'drops a persisted "%s" page key, matching the wire and reducer boundaries',
+    (key) => {
+      const serialized = {
+        ...minimalSerialized,
+        widgets: { w1: chart('w1') },
+        pages: JSON.parse(
+          `{"page-1":{"id":"page-1","title":"P1","widgetRows":[["w1"]]},` +
+            `"${key}":{"id":"${key}","title":"Odd","widgetRows":[]}}`,
+        ),
+      } as unknown as typeof minimalSerialized;
+      const state = deserializeState(serialized, {});
+      expect(Object.hasOwn(state.doc.pages, key)).toBe(false);
+      expect(state.doc.pages['page-1']).toBeDefined();
+    },
+  );
+
+  it.each(['toString', 'valueOf', 'hasOwnProperty', 'isPrototypeOf'])(
+    'KEEPS a persisted page legitimately keyed "%s" (not a pollution vector)',
+    (key) => {
+      const serialized = {
+        ...minimalSerialized,
+        widgets: { w1: chart('w1') },
+        pages: JSON.parse(
+          `{"page-1":{"id":"page-1","title":"P1","widgetRows":[["w1"]]},` +
+            `"${key}":{"id":"${key}","title":"Odd","widgetRows":[]}}`,
+        ),
+      } as unknown as typeof minimalSerialized;
+      const state = deserializeState(serialized, {});
+      expect(Object.keys(state.doc.pages).sort()).toEqual([key, 'page-1'].sort());
+      expect(state.doc.pages[key]).toMatchObject({ id: key, title: 'Odd' });
+    },
+  );
 
   it('drops a persisted "__proto__" widget key from the widgets map (finding 1.2)', () => {
     const serialized = {

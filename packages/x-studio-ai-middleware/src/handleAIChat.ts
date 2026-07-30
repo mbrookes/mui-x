@@ -59,7 +59,7 @@ import type { PendingApproval } from './agenticLoop/toolDispatch';
 import type { ToolPolicy } from './toolPolicy';
 import { redactedHostErrorMessage, withTimeout } from './mcp/helpers';
 import { capIncomingDashboardState, MAX_FILTER_STRING_LENGTH } from './executeToolOnState';
-import { capMaybeText, capText } from './internal/promptCaps';
+import { asString, capMaybeText, capText } from './internal/promptCaps';
 import type { StudioAIRequest, StudioAISSEEvent } from './models/protocol';
 import type {
   SerializableSkill,
@@ -1558,7 +1558,16 @@ export function handleAIChat(
             } catch (err) {
               options.onToolError?.(
                 'contextEnricher',
-                err instanceof Error ? err : new Error(String(err)),
+                // Finding F7 — `asString`, not the raw `String` global. `String(x)` is
+                // NOT total: `String({ toString: 1 })` throws
+                // `TypeError: Cannot convert object to primitive value`. A
+                // `contextEnricher` rejecting with such a value made this CATCH throw,
+                // so the failure escaped the best-effort handler into `start()`'s outer
+                // try and killed the chat with an error frame — the exact opposite of
+                // the "failures never abort the chat" contract documented on
+                // `contextEnricher`. The degradation promise is only as total as the
+                // coercion that implements it.
+                err instanceof Error ? err : new Error(`Non-Error rejection: ${asString(err)}`),
               );
             }
           }
@@ -1623,7 +1632,10 @@ export function handleAIChat(
             error: (...args: unknown[]) => {
               options.onToolError?.(
                 'handleAIChat',
-                /* minify-error-disabled */ new Error(args.map((a) => String(a)).join(' ')),
+                // `asString`, not `String` (finding F7's class): this runs in the
+                // OUTERMOST catch of the whole request, the one place a second throw has
+                // nothing left to catch it.
+                /* minify-error-disabled */ new Error(args.map((a) => asString(a)).join(' ')),
               );
             },
           });

@@ -841,6 +841,27 @@ describe('handleAIChat', () => {
     expect(events.at(-1)?.type).toBe('finish');
   });
 
+  // Finding F7 (round 3) — the degradation promise was only as total as the coercion
+  // that implements it. `new Error(String(err))` is NOT total: `String({ toString: 1 })`
+  // throws `TypeError: Cannot convert object to primitive value`, so a `contextEnricher`
+  // rejecting with such a value made the CATCH throw, escaping past the best-effort
+  // handler into `start()`'s outer try and killing the chat with an error frame —
+  // exactly the opposite of the documented "failures never abort the chat".
+  it('continues the chat when contextEnricher rejects with a value that cannot be stringified', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(textResponse('ok'));
+    const onToolError = vi.fn();
+    // `toString` is a NUMBER, so `String(value)` throws instead of coercing.
+    const contextEnricher = vi.fn().mockRejectedValue({ toString: 1 });
+
+    const events = parseEvents(
+      await readAll(handleAIChat(makeBody(), { ...OPTIONS, contextEnricher, onToolError })),
+    );
+
+    expect(onToolError).toHaveBeenCalledWith('contextEnricher', expect.any(Error));
+    expect(events.map((event) => event.type)).not.toContain('error');
+    expect(events.at(-1)?.type).toBe('finish');
+  });
+
   // Regression for finding T2-2 (Tier 2, iteration 25): `contextEnricher` was awaited
   // with no timeout, so a hung enricher (e.g. a stalled DB query) would block the
   // entire chat response before the first LLM call — the client would see a dead

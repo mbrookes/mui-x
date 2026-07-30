@@ -977,8 +977,15 @@ export function buildStudioMcpServer(
       threw = true;
       // Sanitized like the entry log above — this line also runs for a name that never
       // passed `isToolAllowed`, so the raw value must not reach the operator's log.
+      // `describeErrorForLog`, not a hand-rolled `err instanceof Error ? … : String(err)`
+      // (finding F7's class, and the last raw `String` in this family): `String(x)` is
+      // not total, and a logging line inside a catch must not be able to throw a second,
+      // worse error over the one it is reporting. The helper keeps the stack for a real
+      // `Error` and degrades through `asString` → JSON → runtime shape for anything else,
+      // so this line still says something useful. The two sibling sites in this file
+      // already used it.
       logger?.error(
-        `[mcp] ${safeToolName} threw after ${Date.now() - t0}ms: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`,
+        `[mcp] ${safeToolName} threw after ${Date.now() - t0}ms: ${describeErrorForLog(err)}`,
       );
       // Finding H4: the full detail is already in the log line above; the result the
       // model sees carries only the generic message + correlation id.

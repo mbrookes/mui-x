@@ -202,20 +202,27 @@ const WITH_TIMEOUT_LABEL_MESSAGE =
  * the modules that coerce untrusted `JSON.parse` output to a string on the way into a
  * prompt, an SVG, an error message, or an approval payload.
  *
- * Scoped to these files rather than the whole package because the remaining `String(…)`
- * call sites there are error-formatting fallbacks in request/response plumbing
- * (`handleAIChat.ts`, `handleGenerateInsight.ts`, `mcp.ts`, `internal/providerError.ts`)
- * that are the same hazard class but were out of scope for the change that added this
- * rule. Widening the `files` list is the intended way to finish the sweep — each addition
- * should come with the `asString` conversions that file needs.
+ * The four request/response-plumbing files that carried the remaining raw `String(…)`
+ * error-formatting fallbacks — `handleAIChat.ts`, `handleGenerateInsight.ts`, `mcp.ts`,
+ * `internal/providerError.ts` — were deliberately out of scope for the change that added
+ * this rule, and are now IN it (finding F7). Every one of those fallbacks sat inside a
+ * catch, the one place a second throw has nothing left to catch it, and one of them
+ * (`handleAIChat.ts`'s `contextEnricher` handler) demonstrably killed the chat for a
+ * rejection value of `{ toString: 1 }` while promising best-effort degradation. The sweep
+ * this comment used to describe as future work is finished; the rule, not a reviewer,
+ * keeps it that way.
  */
 const AI_MIDDLEWARE_SANITIZER_FILES = [
   'packages/x-studio-ai-middleware/src/buildAISystemPrompt.ts',
   'packages/x-studio-ai-middleware/src/chartRenderer.ts',
   'packages/x-studio-ai-middleware/src/executeToolOnState.ts',
   'packages/x-studio-ai-middleware/src/generateFieldDescriptions.ts',
+  'packages/x-studio-ai-middleware/src/handleAIChat.ts',
+  'packages/x-studio-ai-middleware/src/handleGenerateInsight.ts',
+  'packages/x-studio-ai-middleware/src/mcp.ts',
   'packages/x-studio-ai-middleware/src/agenticLoop/toolDispatch.ts',
   'packages/x-studio-ai-middleware/src/internal/promptCaps.ts',
+  'packages/x-studio-ai-middleware/src/internal/providerError.ts',
   'packages/x-studio-ai-middleware/src/mcp/helpers.ts',
   'packages/x-studio-ai-middleware/src/mcp/summarisePage.ts',
   // `query_data_source`'s chart-data builder labels each slice with a row value read

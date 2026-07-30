@@ -838,7 +838,18 @@ export function capIncomingSkills(
       name: capText(skill.name, MAX_REQUEST_STRING_LENGTH),
       mode: capText(skill.mode, MAX_REQUEST_STRING_LENGTH) as SerializableSkill['mode'],
       promptFragment: capText(skill.promptFragment, MAX_SKILL_PROMPT_FRAGMENT_CHARS),
-      ...(cappedTool !== undefined ? { tool: cappedTool } : {}),
+      // Finding F3 (round 3): assigned UNCONDITIONALLY, not through a
+      // `...(cappedTool !== undefined ? { tool } : {})` spread. The conditional spread
+      // read as "leave `tool` alone when there was nothing to cap", but this object is
+      // built on top of `...skill` — so when `isPlainRecord(tool)` FAILED (`tool` was a
+      // string, an array, a number, …) the spread added nothing and the RAW, unusable
+      // value survived from the base spread. It then passed `agenticLoop.ts`'s
+      // `s.tool` truthiness filter and produced `function: {}` on the wire. Writing
+      // `undefined` here overwrites it, so a `tool` this function refuses to cap is a
+      // `tool` no downstream reader can see. `validateStudioAIRequestBody` rejects that
+      // shape outright before this runs; this keeps the cap sound on its own for any
+      // caller that reaches it another way.
+      tool: cappedTool,
     };
   });
 }
@@ -1262,6 +1273,31 @@ export function validateStudioAIRequestBody(body: unknown): string | undefined {
       'there are none, or pass an array of `SerializableSkill` objects (each shaped like ' +
       '`{ name, mode, promptFragment, tool? }`).'
     );
+  }
+  // Finding F3 (round 3): the check above validated the ENVELOPE (`name`) but never
+  // `tool`, the one sub-object that leaves this package on the wire. `agenticLoop.ts`
+  // selects server-tool skills on a bare `s.tool` truthiness test and then reads
+  // `s.tool!.name`/`.description`/`.parameters` — so `tool: 'anything'` or `tool: []`
+  // is truthy, yields `undefined` for all three, and serialises as
+  // `{"type":"function","function":{}}` in the request body: an opaque provider 400 on
+  // EVERY turn of the request. Validate it here so the failure is one clean, actionable
+  // SSE error frame instead, matching how `pageSnapshot` and `customWidgets` are handled.
+  if (Array.isArray(skills)) {
+    for (let i = 0; i < skills.length; i += 1) {
+      const { tool } = skills[i] as { tool?: unknown };
+      if (
+        tool !== undefined &&
+        (!isObject(tool) || typeof (tool as { name?: unknown }).name !== 'string')
+      ) {
+        return (
+          `MUI X Studio: \`skills[${i}].tool\` must be an object with a string \`name\` ` +
+          '(`SerializableSkill["tool"]`) when provided. This prevents a malformed tool ' +
+          'definition from being advertised to the model as `{"type":"function","function":{}}`, ' +
+          'which the provider rejects with an opaque 400 on every turn of the request. Omit ' +
+          '`tool` for an instruction-only skill, or pass `{ name, description, parameters }`.'
+        );
+      }
+    }
   }
   // Finding F6 (Tier 3): a truthy non-string `pageSnapshot` both enables the
   // `summarise_page` tool advertisement and is returned VERBATIM as that tool's output

@@ -20,7 +20,7 @@ import {
 } from './handleAIChat';
 import { createDefaultStudioState } from './models/studioTypes';
 import type { StudioDataSource, StudioCustomWidgetDef } from './models/studioTypes';
-import type { StudioAISkill } from './models/aiTypes';
+import type { StudioAISkill, SerializableSkill } from './models/aiTypes';
 import type { StudioAIRequest, StudioAISSEEvent } from './models/protocol';
 
 // ── LLM SSE response helpers (mirrors agenticLoop.test.ts) ──────────────────────
@@ -717,6 +717,49 @@ describe('handleAIChat', () => {
           (event): event is { type: 'error'; message: string } => event.type === 'error',
         );
         expect(errorEvent?.message).toMatch(/`skills` must be an array of skill objects/);
+        expect(fetch).not.toHaveBeenCalled();
+      });
+
+      // Finding F3 (round 3): the validator checked only that each skill is an object
+      // with a string `name`, so `tool` was never shape-validated. A non-plain-object
+      // `tool` survived `capIncomingSkills` untouched (its `cappedTool` stayed
+      // `undefined`, so the conditional spread added nothing and the raw value rode
+      // through the `{ ...skill }` spread), passed `agenticLoop.ts`'s truthiness
+      // filter, and produced `{"type":"function","function":{}}` in the request body —
+      // an opaque provider 400 on every turn.
+      it.each([
+        ['a string', 'anything'],
+        ['an array', []],
+        ['a number', 7],
+        ['null', null],
+      ])('rejects a `skills` entry whose `tool` is %s', async (_desc, badTool) => {
+        const body = makeBody({
+          skills: [
+            { name: 'x', mode: 'server-tool', promptFragment: 'f', tool: badTool },
+          ] as unknown as StudioAIRequest['skills'],
+        });
+
+        const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+        const errorEvent = events.find(
+          (event): event is { type: 'error'; message: string } => event.type === 'error',
+        );
+        expect(errorEvent?.message).toMatch(/^MUI X Studio:/);
+        expect(errorEvent?.message).toMatch(/`skills\[0\]\.tool`/);
+        expect(fetch).not.toHaveBeenCalled();
+      });
+
+      it('rejects a `skills` entry whose `tool` has no string `name`', async () => {
+        const body = makeBody({
+          skills: [
+            { name: 'x', mode: 'server-tool', promptFragment: 'f', tool: { description: 'd' } },
+          ] as unknown as StudioAIRequest['skills'],
+        });
+
+        const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+        const errorEvent = events.find(
+          (event): event is { type: 'error'; message: string } => event.type === 'error',
+        );
+        expect(errorEvent?.message).toMatch(/`skills\[0\]\.tool`/);
         expect(fetch).not.toHaveBeenCalled();
       });
 
@@ -1698,6 +1741,27 @@ describe('capIncomingSkills (finding H1a)', () => {
   it('returns undefined input unchanged', () => {
     expect(capIncomingSkills(undefined)).toBeUndefined();
   });
+
+  // Finding F3 (round 3) — the caps are the LAST line of defense, and this one leaked.
+  // When `isPlainRecord(tool)` failed, `cappedTool` stayed `undefined` so the
+  // conditional `...(cappedTool !== undefined ? { tool: cappedTool } : {})` added
+  // nothing — and the raw, unusable value survived anyway via the `{ ...skill }`
+  // spread it sits on top of. It then passed `agenticLoop.ts`'s `s.tool` truthiness
+  // filter and produced `function: {}` in the request body.
+  it.each([
+    ['a string', 'anything'],
+    ['an array', []],
+    ['a number', 7],
+  ])(
+    'drops a non-plain-object `tool` (%s) instead of carrying it through the spread',
+    (_desc, badTool) => {
+      const capped = capIncomingSkills([
+        { name: 'x', mode: 'server-tool', promptFragment: 'f', tool: badTool },
+      ] as unknown as SerializableSkill[])!;
+      expect(capped[0].tool).toBeUndefined();
+      expect(Object.hasOwn(capped[0], 'tool')).toBe(true);
+    },
+  );
 
   it('dedupes by name, keeping the first entry (finding H3)', () => {
     const capped = capIncomingSkills([

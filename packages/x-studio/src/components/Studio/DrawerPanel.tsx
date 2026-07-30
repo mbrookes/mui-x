@@ -16,6 +16,7 @@ import {
   type DrawerSubheaderContextValue,
 } from './DrawerPanelContext';
 import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
+import { useStudioAnnounce } from '../../internals/StudioLiveRegion';
 
 export interface DrawerPanelProps {
   drawer: StudioDrawer;
@@ -52,17 +53,74 @@ export function DrawerPanel(props: DrawerPanelProps) {
   );
   const subheader = subheaderProp ?? injectedSubheader;
 
+  // ── Focus and announcements across the open/closed swap ────────────────────
+  //
+  // The two branches below are mutually exclusive trees: closed renders the collapsed
+  // rail, open renders a panel with the rail unmounted. So the control the user just
+  // activated is removed from the DOM BY its own activation — focus fell back to
+  // `<body>` and the next Tab restarted from the top of the document (WCAG 2.4.3). This
+  // is the DEFAULT layout (`sidebarLayout` defaults to `'stacked'`); the tabbed layout
+  // keeps one persistent tab strip and never had the problem.
+  const announce = useStudioAnnounce();
+  const railRef = React.useRef<HTMLDivElement>(null);
+  const closeButtonRef = React.useRef<HTMLButtonElement>(null);
+  // Which side of the swap to focus once it has committed. Set ONLY by this component's
+  // own controls, so a programmatic open/close (a keyboard shortcut, the AI panel, the
+  // host's `StudioHandle`) never yanks focus away from wherever the user actually is.
+  const pendingFocusRef = React.useRef<'rail' | 'panel' | null>(null);
+
+  React.useLayoutEffect(() => {
+    const pending = pendingFocusRef.current;
+    if (!pending) {
+      return;
+    }
+    pendingFocusRef.current = null;
+    const target = pending === 'panel' ? closeButtonRef.current : railRef.current;
+    target?.focus();
+  }, [open]);
+
+  // Opening/closing a side panel is a substantial change with no focus move of its own
+  // for pointer users, so it must also be announced (WCAG 4.1.3) — the same two locale
+  // keys `TabbedSidebar` announces, which until now were its sole consumer.
+  const isFirstRenderRef = React.useRef(true);
+  React.useEffect(() => {
+    if (isFirstRenderRef.current) {
+      isFirstRenderRef.current = false;
+      return;
+    }
+    announce(
+      open
+        ? localeText.sidebarPanelOpenedAnnouncement(title)
+        : localeText.sidebarPanelClosedAnnouncement,
+    );
+    // Only re-run when this panel's open state flips; `announce` is stable and the
+    // locale strings are derived from it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const openPanel = () => {
+    pendingFocusRef.current = 'panel';
+    controller.setDrawerOpen(drawer, true);
+  };
+
+  const closePanel = () => {
+    pendingFocusRef.current = 'rail';
+    controller.setDrawerOpen(drawer, false);
+  };
+
   if (!open) {
     return (
       <Box
+        ref={railRef}
         role="button"
         tabIndex={0}
         aria-label={localeText.drawerPanelOpenAriaLabel(title)}
-        onClick={() => controller.setDrawerOpen(drawer, true)}
+        aria-expanded={open}
+        onClick={openPanel}
         onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
-            controller.setDrawerOpen(drawer, true);
+            openPanel();
           }
         }}
         sx={{
@@ -169,9 +227,11 @@ export function DrawerPanel(props: DrawerPanelProps) {
             <Badge badgeContent={badge} color="primary" sx={{ mr: 1 }} />
           )}
           <IconButton
+            ref={closeButtonRef}
             size="small"
-            onClick={() => controller.setDrawerOpen(drawer, false)}
+            onClick={closePanel}
             aria-label={localeText.drawerPanelCloseNamedAriaLabel(title)}
+            aria-expanded={open}
           >
             {side === 'right' ? (
               <ChevronLeftIcon fontSize="small" />

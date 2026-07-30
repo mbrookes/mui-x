@@ -1,7 +1,9 @@
 import * as React from 'react';
-import { createRenderer, screen } from '@mui/internal-test-utils';
+import { createRenderer, screen, waitFor } from '@mui/internal-test-utils';
 import { describe, expect, it } from 'vitest';
 import { createStudioHarness } from '../../internals/test-utils';
+import { StudioLiveRegionProvider } from '../../internals/StudioLiveRegion';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/localeText';
 import { DrawerPanel } from './DrawerPanel';
 
 const { render } = createRenderer();
@@ -44,5 +46,84 @@ describe('DrawerPanel collapsed rail', () => {
     const { user, controller } = renderCollapsed();
     await user.click(screen.getByRole('button', { name: 'Open Compose panel' }));
     expect(controller.getState().session.shell.openDrawers.compose).toBe(true);
+  });
+});
+
+/**
+ * The stacked layout (the DEFAULT — `sidebarLayout` defaults to `'stacked'`) swaps between
+ * two mutually exclusive trees: closed renders the collapsed rail, open renders a different
+ * tree with the rail unmounted. Whichever control the user just activated is therefore
+ * removed from the DOM by its own activation, focus resets to `<body>`, and the next Tab
+ * restarts from the top of the document (WCAG 2.4.3). Nothing was announced either
+ * (WCAG 4.1.3) — the two `sidebarPanel*Announcement` locale keys existed and were
+ * translated in all five bundles, but the only consumer was `TabbedSidebar`, the
+ * NON-default layout.
+ */
+describe('DrawerPanel focus management and announcements', () => {
+  function renderPanel(open: boolean) {
+    const harness = createStudioHarness({
+      initialState: {
+        session: { shell: { openDrawers: { compose: open } } } as never,
+      },
+    });
+    const view = render(
+      <StudioLiveRegionProvider>
+        <DrawerPanel drawer="compose" title="Compose">
+          <div>panel body</div>
+        </DrawerPanel>
+      </StudioLiveRegionProvider>,
+      { wrapper: harness.wrapper },
+    );
+    return { ...view, ...harness };
+  }
+
+  function liveRegionText() {
+    return document.querySelector('[aria-live="polite"]')?.textContent ?? '';
+  }
+
+  it('reports its expanded state on the collapsed rail', () => {
+    renderPanel(false);
+    expect(screen.getByRole('button', { name: 'Open Compose panel' })).to.have.attribute(
+      'aria-expanded',
+      'false',
+    );
+  });
+
+  it('moves focus into the opened panel instead of dropping it on <body>', async () => {
+    const { user } = renderPanel(false);
+    const rail = screen.getByRole('button', { name: 'Open Compose panel' });
+    rail.focus();
+    await user.keyboard('{Enter}');
+
+    const collapseButton = screen.getByRole('button', { name: 'Close Compose panel' });
+    expect(document.activeElement).to.equal(collapseButton);
+  });
+
+  it('returns focus to the rail when the panel is collapsed', async () => {
+    const { user } = renderPanel(true);
+    const collapseButton = screen.getByRole('button', { name: 'Close Compose panel' });
+    collapseButton.focus();
+    await user.keyboard('{Enter}');
+
+    const rail = screen.getByRole('button', { name: 'Open Compose panel' });
+    expect(document.activeElement).to.equal(rail);
+  });
+
+  it('announces the panel opening', async () => {
+    const { user } = renderPanel(false);
+    await user.click(screen.getByRole('button', { name: 'Open Compose panel' }));
+    await waitFor(() => {
+      expect(liveRegionText()).to.equal(
+        DEFAULT_STUDIO_LOCALE_TEXT.sidebarPanelOpenedAnnouncement('Compose'),
+      );
+    });
+  });
+
+  it('announces the panel closing', async () => {
+    const { user } = renderPanel(true);
+    await user.click(screen.getByRole('button', { name: 'Close Compose panel' }));
+    await waitFor(() => {
+      expect(liveRegionText()).to.equal(DEFAULT_STUDIO_LOCALE_TEXT.sidebarPanelClosedAnnouncement);
+    });
   });
 });

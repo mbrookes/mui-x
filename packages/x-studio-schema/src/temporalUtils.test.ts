@@ -119,6 +119,35 @@ describe('truncateToPeriod', () => {
       expect(truncateToPeriod('2024-06-01Tgarbage-more', 'month')).toBe('2024-06');
     });
 
+    // R4 finding: ISO 8601 also allows the HOUR-ONLY offset form (`±HH`), which is
+    // exactly what PostgreSQL emits for a `timestamptz` rendered as text
+    // (`2024-06-01 00:00:00+05`). The offset guard used to require FOUR offset digits, so
+    // an hour-only offset took the fast path, sliced `YYYY-MM-DD` off the front and threw
+    // the offset away — bucketing the value one period off, and making `+05` and `+05:00`
+    // spellings of the SAME instant land in different buckets.
+    it('converts an hour-only positive offset to UTC (crosses back a day)', () => {
+      // +05 → 2024-05-31T19:00:00Z, so the UTC day is May 31.
+      expect(truncateToPeriod('2024-06-01 00:00:00+05', 'day')).toBe('2024-05-31');
+    });
+
+    it('converts an hour-only negative offset to UTC (crosses forward a day)', () => {
+      // -05 → 2024-06-02T04:00:00Z, so the UTC day is June 2.
+      expect(truncateToPeriod('2024-06-01 23:00:00-05', 'day')).toBe('2024-06-02');
+    });
+
+    it('converts an hour-only negative offset that crosses a year boundary', () => {
+      // -05 → 2025-01-01T01:00:00Z.
+      expect(truncateToPeriod('2024-12-31 20:00:00-05', 'day')).toBe('2025-01-01');
+      expect(truncateToPeriod('2024-12-31 20:00:00-05', 'month')).toBe('2025-01');
+      expect(truncateToPeriod('2024-12-31 20:00:00-05', 'year')).toBe('2025');
+    });
+
+    it('buckets the `±HH` and `±HH:MM` spellings of one instant identically', () => {
+      expect(truncateToPeriod('2024-06-01 00:00:00+05', 'day')).toBe(
+        truncateToPeriod('2024-06-01T00:00:00+05:00', 'day'),
+      );
+    });
+
     it('still converts a REAL offset even when preceded by unrelated hyphenated text', () => {
       // The offset itself is a real `-05:00` at the end of the tail — must still
       // trigger the slow (`new Date`) path and convert to UTC, not be short-circuited

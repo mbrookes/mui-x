@@ -44,8 +44,9 @@ function padYear(year: number): string {
  * `null` if the value can't be interpreted as a date.
  *
  * Fast-paths canonical, OFFSET-FREE ISO strings (`YYYY-MM-DD`, or a datetime whose
- * time carries no explicit `±HH:MM` offset) by slicing directly instead of allocating
- * a `Date`. An offset-carrying string (`2024-06-01T01:00:00+05:00`) and any other
+ * time carries no explicit `±HH:MM`/`±HHMM`/`±HH` offset) by slicing directly instead of
+ * allocating a `Date`. An offset-carrying string (`2024-06-01T01:00:00+05:00`, or the
+ * hour-only `2024-06-01 00:00:00+05` PostgreSQL renders `timestamptz` as) and any other
  * format fall back to `new Date(...)`, which converts to UTC — slicing the written
  * components there would bucket the value into the wrong UTC day.
  */
@@ -53,16 +54,23 @@ function toUtcYMD(value: unknown): { y: number; m: number; day: number } | null 
   if (typeof value === 'string' && value.length >= 10 && value[4] === '-' && value[7] === '-') {
     // Take the fast path only when there is no explicit UTC offset in the tail after
     // the date: a bare date (nothing after position 10) or a time ending in `Z`/no
-    // offset. A REAL offset (`+05:00`, `-0500`, …) always trails the time-of-day
+    // offset. A REAL offset (`+05:00`, `-0500`, `+05`, …) always trails the time-of-day
     // component with nothing after it, so it is anchored to the END of the tail —
-    // `/[+-]\d{2}:?\d{2}$/`. Checking for a bare `+`/`-` ANYWHERE in the tail (as a
+    // `/[+-]\d{2}(:?\d{2})?$/`. Checking for a bare `+`/`-` ANYWHERE in the tail (as a
     // plain `.includes` would) contradicts the "non-offset garbage tail is ignored"
     // behavior documented below: a malformed-but-canonical-prefixed value like
     // `2024-06-01Tgarbage-more` carries a `-` inside the garbage, not a timezone
     // offset, and must still fast-path off the leading `YYYY-MM-DD` rather than fall
     // through to `new Date(...)` (which can't parse it either, returning `null`).
+    //
+    // The minutes are OPTIONAL because ISO 8601 also allows the hour-only `±HH` form,
+    // and that is exactly what PostgreSQL emits for a `timestamptz` rendered as text
+    // (`2024-06-01 00:00:00+05`). Requiring four offset digits let those values slip
+    // onto the fast path, which sliced the written `YYYY-MM-DD` off the front and
+    // discarded the offset — bucketing the row one period off, and putting the `+05`
+    // and `+05:00` spellings of the SAME instant into different buckets.
     const tail = value.slice(10);
-    if (!/[+-]\d{2}:?\d{2}$/.test(tail)) {
+    if (!/[+-]\d{2}(:?\d{2})?$/.test(tail)) {
       const y = Number(value.slice(0, 4));
       const m = Number(value.slice(5, 7)) - 1;
       const day = Number(value.slice(8, 10));

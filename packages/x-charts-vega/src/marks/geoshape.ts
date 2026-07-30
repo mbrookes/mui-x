@@ -281,6 +281,47 @@ function albersUsaWithRotateShim(): GeoProjection {
  * @param {UnitContext} ctx The unit context.
  * @returns {string | GeoProjection} A d3 named projection (defaults to `mercator`).
  */
+/**
+ * The projection type, resolving the `{expr}` form against the param values.
+ *
+ * Vega-Lite lets `projection.type` be an expression so a bound param can switch
+ * projections (`geo_params_projections` offers fifteen in a select box). We read
+ * only a plain string, so that spec fell silently to the `mercator` default
+ * while Vega drew its `equalEarth` initial value — a different projection, not a
+ * different fit, which is why the map came out at a 1.51 aspect against Vega's
+ * 2.02 inside the same 500x300 plot.
+ *
+ * Only a bare param reference is resolved: that is the form the grammar uses
+ * here, and a computed expression would need the full evaluator plus a rule for
+ * what to do when it yields a non-projection.
+ * @param {UnitContext} ctx The unit context, carrying resolved param values.
+ * @param {unknown} type The raw `projection.type` from the spec.
+ * @returns {unknown} The resolved type, a string when it could be resolved.
+ */
+function resolveProjectionType(ctx: UnitContext, type: unknown): unknown {
+  if (typeof type !== 'object' || type === null) {
+    return type;
+  }
+  const expr = (type as { expr?: unknown }).expr;
+  if (typeof expr !== 'string') {
+    return type;
+  }
+  const resolved = ctx.signals?.[expr.trim()];
+  if (typeof resolved === 'string') {
+    return resolved;
+  }
+  ctx.gaps.add({
+    code: 'projection:expr',
+    message:
+      `The projection type is the expression \`${expr}\`, which this wrapper resolves only ` +
+      'when it names a param directly; the projection falls back to ' +
+      `"${DEFAULT_PROJECTION}". Set \`projection.type\` to a projection name instead.`,
+    severity: 'partial',
+    path: `${ctx.unit.path}.projection`,
+  });
+  return undefined;
+}
+
 export function resolveGeoProjection(ctx: UnitContext): string | GeoProjection {
   const projection = ctx.unit.projection;
   if (!projection || typeof projection !== 'object') {
@@ -299,7 +340,7 @@ export function resolveGeoProjection(ctx: UnitContext): string | GeoProjection {
     });
   }
 
-  const type = projection.type;
+  const type = resolveProjectionType(ctx, projection.type);
   if (typeof type !== 'string') {
     return DEFAULT_PROJECTION;
   }

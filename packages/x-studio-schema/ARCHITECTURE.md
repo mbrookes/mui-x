@@ -965,11 +965,16 @@ a no-op.
 then re-materialized it as an own key via `{ ...page, widgetColSpans: nextSpans }` — contradicting
 this file's own stated rule (see [`pruneDependsOn`](#cascade-pruning-is-a-per-class-invariant):
 "drops" means the KEY is `delete`d, never spread as an explicit `undefined`), so `Object.keys(page)`
-and `'widgetColSpans' in page` both still reported a span map on a page that has none. All **six**
-install sites now route through this one helper: `stripWidgetIdsFromPages`, `removeWidgetIds`,
-`normalizePersistedPages`, `setWidgetLayout`, `setWidgetColSpan`, and `applyBulkUpdate`. Nothing
-observes the difference today only because `JSON.stringify` erases it at the persistence
-boundary — which is exactly why it needed a structural fix rather than six remembered ones.
+and `'widgetColSpans' in page` both still reported a span map on a page that has none. All **eight**
+install sites now route through this one helper, across six handlers/helpers:
+`stripWidgetIdsFromPages`, `removeWidgetIds`, `normalizePersistedPages`, `setWidgetLayout`,
+`setWidgetColSpan`, and **both** of `applyBulkUpdate`'s (its pre-strip span prune and its layout
+rebuild). Counting by HANDLER rather than by call site is what let the claim stand while it was
+false: `applyBulkUpdate`'s pre-strip prune still did the bare
+`{ ...strippedActivePage, widgetColSpans: spansPruned }`, and `removeWidgetIds`' later pass never
+healed it because that pass short-circuits on `if (!spans) return spans`. Nothing observes the
+difference today only because `JSON.stringify` erases it at the persistence boundary — which is
+exactly why it needed a structural fix rather than eight remembered ones.
 
 **`removeWidgetIds(pages, widgets, filters, candidateIds)`** takes `pages` already carrying the
 caller's row edits, computes which candidates are _genuinely gone_ — no longer referenced on ANY

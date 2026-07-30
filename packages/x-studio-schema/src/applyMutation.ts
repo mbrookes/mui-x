@@ -2337,14 +2337,23 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
           // it does not rebuild here. The active page's object was just rebuilt above, so it
           // needs the pruning applied directly. `removeSpanEntries` is reference-stable, so a
           // bulk that touched none of this page's spans still returns the SAME page object.
+          //
+          // Installed through `withSpans`, like every other span-install site. The bare
+          // `{ ...page, widgetColSpans: spansPruned }` this used to do RE-MATERIALIZES the key
+          // as an own property when `removeSpanEntries` collapsed the map to `undefined`, so
+          // `Object.keys(page)` and `'widgetColSpans' in page` both still reported a span map
+          // on a page that has none — the exact shape `withSpans` exists to eliminate, and the
+          // one install site that still produced it. `removeWidgetIds`' later pass never
+          // healed it either: it short-circuits on `if (!spans) return spans`. In-memory only
+          // (`JSON.stringify` erases an `undefined` value), which is precisely why it needed a
+          // structural fix rather than a remembered one.
           const strippedActivePage = layoutPages[activePageId];
           const spansPruned = removeSpanEntries(strippedActivePage.widgetColSpans, idsToPreStrip);
-          const finalActivePage =
-            spansPruned === strippedActivePage.widgetColSpans
-              ? strippedActivePage
-              : { ...strippedActivePage, widgetColSpans: spansPruned };
-          if (finalActivePage !== strippedActivePage) {
-            layoutPages = { ...layoutPages, [activePageId]: finalActivePage };
+          if (spansPruned !== strippedActivePage.widgetColSpans) {
+            layoutPages = {
+              ...layoutPages,
+              [activePageId]: withSpans(strippedActivePage, spansPruned),
+            };
           }
         }
       }

@@ -6787,3 +6787,64 @@ describe('the reducer screens config.chartType like the other three boundaries (
     expect(loaded.doc.widgets.w2.config).toEqual(next.widgets.w2.config);
   });
 });
+
+// R3-F5: `applyBulkUpdate`'s pre-strip span prune was the one span-install site that did not
+// route through `withSpans`. `{ ...page, widgetColSpans: spansPruned }` re-materializes the
+// key as an own property when `removeSpanEntries` collapsed the map to `undefined`, so
+// `Object.keys(page)` and `'widgetColSpans' in page` both reported a span map on a page that
+// has none — contradicting this file's own "'drops' means the KEY is deleted" rule, and
+// ARCHITECTURE.md's claim that all six install sites route through the one helper.
+// `removeWidgetIds`' later pass never healed it (it short-circuits on `if (!spans)`).
+describe('applyBulkUpdate installs pruned spans through withSpans (R3-F5)', () => {
+  const spannedDoc = () =>
+    makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'p1' },
+      pages: { p1: { id: 'p1', title: 'P1', widgetRows: [['w1']], widgetColSpans: { w1: 12 } } },
+    });
+
+  it('DELETES widgetColSpans rather than leaving an own key with an undefined value', () => {
+    const next = applyDocMutation(spannedDoc(), {
+      type: 'applyBulkUpdate',
+      args: { removedWidgetIds: ['w1'], activePageId: 'p1' },
+    } as unknown as StateMutation);
+    const page = next.pages.p1;
+    expect('widgetColSpans' in page).toBe(false);
+    expect(Object.keys(page)).not.toContain('widgetColSpans');
+  });
+
+  it('still installs a NON-empty pruned span map normally', () => {
+    const doc = makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'p1' },
+      pages: {
+        p1: {
+          id: 'p1',
+          title: 'P1',
+          widgetRows: [['w1', 'w2']],
+          widgetColSpans: { w1: 12, w2: 12 },
+        },
+      },
+    });
+    const next = applyDocMutation(doc, {
+      type: 'applyBulkUpdate',
+      args: { removedWidgetIds: ['w1'], activePageId: 'p1', widgetRows: [['w2']] },
+    } as unknown as StateMutation);
+    expect(next.pages.p1.widgetColSpans).toBeUndefined();
+    expect('widgetColSpans' in next.pages.p1).toBe(false);
+  });
+
+  it('leaves a page whose spans were untouched reference-stable', () => {
+    const doc = makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'p1' },
+      pages: {
+        p1: { id: 'p1', title: 'P1', widgetRows: [['w1']], widgetColSpans: { w1: 12 } },
+        p2: { id: 'p2', title: 'P2', widgetRows: [['w2']], widgetColSpans: { w2: 12 } },
+      },
+    });
+    const next = applyDocMutation(doc, {
+      type: 'applyBulkUpdate',
+      args: { removedWidgetIds: ['w1'], activePageId: 'p1' },
+    } as unknown as StateMutation);
+    // p2 held neither the removed id nor a stale span for it, so its object is untouched.
+    expect(next.pages.p2).toBe(doc.pages.p2);
+  });
+});

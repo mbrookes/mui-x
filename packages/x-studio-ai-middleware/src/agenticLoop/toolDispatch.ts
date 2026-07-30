@@ -125,10 +125,44 @@ export function isApprovalThreadIdAuthorized(
 }
 
 /**
- * Waits for a destructive tool's approval, but never unconditionally: races the
- * approval callback against the abort signal and a timeout so an abandoned prompt
- * can't hang the stream and leak the map entry forever. The `approvalPending`
- * entry is always removed once the race settles.
+ * A registered pending approval: the outcome promise to await, plus an explicit
+ * release for a caller that abandons the wait before it settles.
+ */
+export interface ApprovalRegistration {
+  /**
+   * Safe to call more than once — it hands back one promise, not a fresh race per call.
+   *
+   * @returns {Promise<ApprovalOutcome>} Settles with the human's decision, the abort,
+   * or the timeout.
+   */
+  wait: () => Promise<ApprovalOutcome>;
+  /**
+   * Drops the `approvalPending` entry, the timer and the abort listener without
+   * waiting. For a caller that registered an approval and then decided not to pause on
+   * it (e.g. its generator was returned early); a no-op once the race has settled,
+   * since settling already released all three.
+   */
+  release: () => void;
+}
+
+/**
+ * Registers a destructive tool's pending approval and starts its timeout/abort race,
+ * returning a handle to await.
+ *
+ * Split out of `waitForApproval` for finding F6: `runApprovalFlow` must be able to
+ * make the `approvalPending` entry visible BEFORE it yields the
+ * `tool-approval-request` event. When registration happened inside the await, a
+ * consumer driving `runAgenticLoop` directly (the documented "consumers who want to
+ * build custom loops" path) — or any in-process auto-approver — saw the event, looked
+ * the id up, and found an empty map: `approvalPending.get(id)` was `undefined`, so the
+ * decision never reached the loop and the call blocked the full `approvalTimeoutMs`
+ * before returning `{ denied: true, reason: 'approval timed out' }`. Through
+ * `handleAIChat` the queue between producer and consumer happened to let the producer
+ * run ahead to the await first, which is why only direct consumers hit it.
+ *
+ * The race is never unconditional: the approval callback runs against the abort signal
+ * and a timeout so an abandoned prompt can't hang the stream and leak the map entry
+ * forever. The `approvalPending` entry is always removed once the race settles.
  *
  * The registered resolver also RE-CHECKS the thread binding it was created with
  * (finding F8), rather than only recording it. `isApprovalThreadIdAuthorized` was
@@ -139,13 +173,13 @@ export function isApprovalThreadIdAuthorized(
  * guard below). See `PendingApproval` for why an OMITTED id is still honoured and
  * why that half necessarily belongs to the host route.
  */
-export function waitForApproval(
+export function registerApproval(
   toolCallId: string,
   approvalPending: Map<string, PendingApproval>,
   signal: AbortSignal | undefined,
   timeoutMs: number,
   threadId: string | undefined,
-): Promise<ApprovalOutcome> {
+): ApprovalRegistration {
   // Cross-request collision guard: `approvalPending` is a host-shared, module-level
   // map keyed by bare `toolCallId`. If another in-flight request already registered
   // a resolver under this id, registering ours would overwrite theirs — their request
@@ -153,16 +187,28 @@ export function waitForApproval(
   // call. Refuse the duplicate instead: resolve immediately as not-approved WITHOUT
   // touching (or, via the early return, deleting) the existing entry.
   if (approvalPending.has(toolCallId)) {
-    return Promise.resolve({
+    const refused: ApprovalOutcome = {
       kind: 'resolved',
       approved: false,
       reason:
         'duplicate toolCallId across concurrent requests — approval refused to prevent misrouting',
-    });
+    };
+    return { wait: () => Promise.resolve(refused), release: () => {} };
   }
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   let onAbort: (() => void) | undefined;
-  return new Promise<ApprovalOutcome>((resolve) => {
+  const release = () => {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+      timeoutId = undefined;
+    }
+    if (signal && onAbort) {
+      signal.removeEventListener('abort', onAbort);
+      onAbort = undefined;
+    }
+    approvalPending.delete(toolCallId);
+  };
+  const settled = new Promise<ApprovalOutcome>((resolve) => {
     approvalPending.set(toolCallId, {
       resolve: (a, r, resolvingThreadId) => {
         // Finding F8 — enforce the binding here, not merely record it. Only when the
@@ -197,15 +243,26 @@ export function waitForApproval(
         signal.addEventListener('abort', onAbort, { once: true });
       }
     }
-  }).finally(() => {
-    if (timeoutId !== undefined) {
-      clearTimeout(timeoutId);
-    }
-    if (signal && onAbort) {
-      signal.removeEventListener('abort', onAbort);
-    }
-    approvalPending.delete(toolCallId);
-  });
+  }).finally(release);
+  return { wait: () => settled, release };
+}
+
+/**
+ * Registers a pending approval and awaits its outcome in one step —
+ * `registerApproval(...).wait()`.
+ *
+ * Kept for callers that have nothing to do between the two halves. `runApprovalFlow`
+ * deliberately does NOT use it: it must register before yielding the
+ * `tool-approval-request` event and await after (finding F6).
+ */
+export function waitForApproval(
+  toolCallId: string,
+  approvalPending: Map<string, PendingApproval>,
+  signal: AbortSignal | undefined,
+  timeoutMs: number,
+  threadId: string | undefined,
+): Promise<ApprovalOutcome> {
+  return registerApproval(toolCallId, approvalPending, signal, timeoutMs, threadId).wait();
 }
 
 // ── Tool dispatch ─────────────────────────────────────────────────────────────
@@ -588,21 +645,35 @@ async function* runApprovalFlow(
       }),
     };
   }
-  yield {
-    type: 'tool-approval-request',
-    toolCallId,
-    toolName,
-    input: displayInput,
-    ...(effectsSummary ? { effects: effectsSummary } : {}),
-    ...(policyReason ? { reason: policyReason } : {}),
-  };
-  const outcome = await waitForApproval(
+  // Finding F6 — register BEFORE the event is observable, not after. A consumer
+  // driving `runAgenticLoop` directly resumes this generator only after handling the
+  // yielded event, so registering inside the await below meant the entry did not exist
+  // at the one moment the consumer had the `toolCallId` in hand: an in-process
+  // auto-approver read `undefined` from the map, its decision never arrived, and the
+  // call sat out the full `approvalTimeoutMs` before failing closed as "approval timed
+  // out". `release()` in the `finally` covers the consumer that abandons the generator
+  // between the yield and the await, so an unobserved approval can't outlive the flow.
+  const approval = registerApproval(
     toolCallId,
     ctx.approvalPending,
     ctx.signal,
     ctx.approvalTimeoutMs,
     ctx.threadId,
   );
+  let outcome: ApprovalOutcome;
+  try {
+    yield {
+      type: 'tool-approval-request',
+      toolCallId,
+      toolName,
+      input: displayInput,
+      ...(effectsSummary ? { effects: effectsSummary } : {}),
+      ...(policyReason ? { reason: policyReason } : {}),
+    };
+    outcome = await approval.wait();
+  } finally {
+    approval.release();
+  }
   if (outcome.kind === 'aborted') {
     return { kind: 'aborted' };
   }

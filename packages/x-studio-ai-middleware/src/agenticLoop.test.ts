@@ -1342,6 +1342,56 @@ describe('runAgenticLoop — tool approval', () => {
     };
   }
 
+  // Round 4 finding F6 — the `approvalPending` entry must exist the INSTANT the
+  // `tool-approval-request` event is observable. The registration used to happen
+  // inside `waitForApproval`, i.e. only once the dispatch generator resumed past the
+  // `yield`, so a consumer driving `runAgenticLoop` directly (the documented "build
+  // your own loop" path) or an in-process auto-approver that resolved on the spot found
+  // an EMPTY map and crashed with `Cannot read properties of undefined (reading
+  // 'resolve')` — then the call blocked the full `approvalTimeoutMs` and returned
+  // `{ denied: true, reason: 'approval timed out' }`. The `setTimeout(…, 0)` dance the
+  // sibling approval tests above perform is the workaround this closes.
+  it('registers the pending approval BEFORE yielding tool-approval-request', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('remove_widget', { widgetId: 'w1' }))
+      .mockResolvedValueOnce(textResponse('removed', 10, 5));
+
+    const approvalPending = new Map<string, PendingApproval>();
+    const observed: Array<{ id: string; registered: boolean }> = [];
+
+    const events: unknown[] = [];
+    for await (const ev of runAgenticLoop(
+      [userMsg('Remove the widget')],
+      seedWidgetState(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { ...BASE_OPTIONS, approvalPending, approvalTimeoutMs: 60_000 },
+    )) {
+      events.push(ev);
+      if ((ev as { type: string }).type === 'tool-approval-request') {
+        const id = (ev as { toolCallId: string }).toolCallId;
+        observed.push({ id, registered: approvalPending.has(id) });
+        // Resolve SYNCHRONOUSLY, with no tick of slack — this is what an in-process
+        // auto-approver does, and it must not throw.
+        approvalPending.get(id)!.resolve(true);
+      }
+    }
+
+    expect(observed).toHaveLength(1);
+    expect(observed[0].registered).toBe(true);
+    // The synchronous approval was honoured: the removal actually ran.
+    expect(events.some((ev) => (ev as { type: string }).type === 'state-mutation')).toBe(true);
+    const complete = events.find(
+      (ev) =>
+        (ev as { type: string; phase?: string }).type === 'tool-activity' &&
+        (ev as { phase?: string }).phase === 'complete',
+    ) as { output?: string } | undefined;
+    expect(String(complete?.output)).not.toMatch(/approval timed out/);
+    expect(approvalPending.size).toBe(0);
+  });
+
   it('1.3 — require-approval with no approvalPending is DENIED by default (fail-closed)', async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(toolCallResponse('remove_widget', { widgetId: 'w1' }))

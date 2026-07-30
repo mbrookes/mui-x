@@ -537,6 +537,39 @@ everywhere a table is indexed by untrusted input: `MUTATION_HANDLERS`, the valid
 `BUILTIN_WIDGET_DEFAULTS`, `getAllowedConfigKeys`, `CHART_TYPE_CONFIG_KEYS`,
 `MERGEABLE_WIDGET_CHANGE_KEYS`, `STUDIO_RELATIONSHIP_TYPES`.
 
+#### A prototype-member-named id is not the same thing as a hazard key
+
+This distinction is re-litigated often enough to be worth stating outright, because the two halves
+have **opposite** answers and a plausible-sounding argument gets the second half wrong.
+
+- **A page/widget id that merely names an `Object.prototype` member — `toString`, `valueOf`,
+  `hasOwnProperty`, `isPrototypeOf` — is KEPT, everywhere.** That is precisely what converting
+  every table read to `Object.hasOwn` bought. Nothing resolves such an id up the chain any more,
+  so there is no reason to drop a user's page or widget over it, and no boundary does. This is
+  also why `isSafeKey` is a **three-name denylist** and not "reject anything that appears on
+  `Object.prototype`" — the latter would be over-broad and would cost real data.
+- **An id that IS one of the three `UNSAFE_KEYS` is DROPPED, everywhere.** All four boundaries
+  agree, and have to: the wire boundary rejects it (`parseStateMutation`'s `isValidId`), the
+  reducer refuses to mint it (`addPage`'s and `addWidget`'s `isSafePatchKey` gates), the
+  persistence loader drops it (`normalizePersistedPages`, `screenWidgets`), and the factory drops
+  it (`screenPagesShape`, `screenWidgets`).
+
+Note that `'constructor'`/`'prototype'` cannot actually pollute anything through these particular
+rebuilds — they all use `Object.fromEntries` or spread, which are define-semantics. Their
+membership is denylist policy, not a live vector: they travel with `'__proto__'` so that one
+predicate covers every channel and no boundary has to reason about which of the three it is
+looking at.
+
+**The tradeoff, stated rather than implied: dropping is silent data loss** for a hand-authored or
+foreign doc that legitimately names a page/widget `constructor`. It is accepted because the
+alternative is worse in the specific way this package keeps getting bitten by — _deferred_ data
+loss. Until round 3 the factory (`createDefaultStudioState`) was the one producer with no `pages`
+screen at all, so an `initialState` naming a page `constructor` installed it, rendered it, let the
+user edit it, and then lost it on the first save/reload when `normalizePersistedPages` swept it —
+with no error anywhere. One consistent answer at four boundaries beats three different ones. If
+this policy is ever revisited, it has to be revisited at **all four boundaries at once**, plus the
+`x-studio` controller tests that mirror them.
+
 ### `isPlainRecord` — the one "is this a usable bag" predicate
 
 Every trust boundary routes through `internalGuards.ts`'s `isPlainRecord`, so a tightening lands
@@ -558,6 +591,18 @@ narrowed values that are not plain records. It never produced a wrong ANSWER (an
 `findMissingRequiredField` on the very next line, for a missing `"dashboard"`), but an unsound
 predicate is a trap for the next reader and a hand-rolled one cannot receive the next tightening.
 It now delegates like everything else.
+
+The last hand-rolled holdout was `normalizePersistedPages`' per-page value check
+(`page === null || typeof page !== 'object' || Array.isArray(page)`), and unlike the one above it
+DID produce a wrong answer. The factory's `pages` screen (`screenPagesShape`) routes through
+`isPlainRecord`, so a page value that is an exotic object — a class instance with own
+`id`/`title`/`widgetRows` data properties — was **dropped by the factory and kept by the loader**,
+for byte-identical input. Nothing downstream repaired it either: the sweep's rebuild is skipped
+exactly when `id` already matches the record key and `title`/`widgetRows` already look valid, so
+the instance was embedded into `doc.pages` **by reference**, then spread by `withSpans` and
+re-serialized as if it were a plain bag. It now delegates too, which is what makes the page channel
+match the widget channel (`screenWidgets`, whose own `isPlainRecord` bypass was closed earlier) and
+the factory.
 
 ### Reference-equality no-op contract
 

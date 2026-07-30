@@ -338,6 +338,35 @@ export function resolveCrossSourceFieldDefs(
 }
 
 /**
+ * Row id stamped onto the single pinned bottom row that carries the grid's summary.
+ * Its cells hold pre-formatted strings from `computeGridSummary` (which returns a
+ * `Record<string, string>`), so they must bypass the columns' own value formatting.
+ */
+export const GRID_SUMMARY_ROW_ID = '__summary__';
+
+/**
+ * Reads a cell as a number for display formatting, or `null` when it is not numeric.
+ *
+ * CSV/JSON sources have no native number type, so a `type: 'number'` measure routinely
+ * arrives as a numeric string (see `coerceAggregateValue`'s note in `aggregate.ts`), and
+ * L1 `normalizeDataSourceRows` canonicalizes only `date`/`datetime` — numbers are never
+ * coerced. Deliberately narrower than `coerceAggregateValue`: booleans are left alone
+ * here, because rendering `true` as `$1.00` in a cell would invent a quantity rather than
+ * present one.
+ */
+function readCellNumber(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isNaN(value) ? null : value;
+  }
+  // `Number('')` and `Number('  ')` are both `0`, so a blank cell must not become a zero.
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+  return null;
+}
+
+/**
  * Builds the grid's `GridColDef[]` for the given (already-ordered) field ids,
  * resolving each field's definition from — in priority order — the widget's own
  * data source, its (own-source) expression fields, and finally
@@ -379,13 +408,19 @@ export function buildGridColumnDefs(
       editable: isEditable && fieldName !== pkField && !crossSourceField,
       valueFormatter:
         fieldType === 'number' && fieldFormat
-          ? (value: unknown) => {
-              // Summary row cells contain pre-formatted strings (e.g. "Total: $1,234").
-              // Pass them through as-is; only apply numeric formatting to actual numbers.
-              if (typeof value === 'string') {
-                return value;
+          ? (value: unknown, row: GridValidRowModel) => {
+              // Discriminate on the ROW, not on the value's runtime type. The pinned
+              // summary row's cells hold pre-formatted strings (e.g. "Total: $1,234") and
+              // must pass through untouched — but so did every ordinary data cell holding a
+              // numeric STRING, which is exactly how CSV/JSON sources deliver measures. The
+              // body then rendered a bare `1234.5` while the summary row and a KPI over the
+              // same field both rendered `$1,234.50`.
+              // eslint-disable-next-line no-underscore-dangle -- internal grid row identity
+              if (row?.__rowId === GRID_SUMMARY_ROW_ID) {
+                return typeof value === 'string' ? value : String(value ?? '');
               }
-              return formatFieldValue(value, {
+              const numericValue = readCellNumber(value);
+              return formatFieldValue(numericValue ?? value, {
                 type: 'number',
                 format: fieldFormat,
                 precision: fieldPrecision,
@@ -1065,7 +1100,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   const handleCellClick = React.useCallback(
     (params: GridCellParams) => {
       // Don't cross-filter from the summary pinned row
-      if (params.id === '__summary__') {
+      if (params.id === GRID_SUMMARY_ROW_ID) {
         return;
       }
       // Only leaf rows carry real field values. A grouping cell (with `gridGroupByField`,
@@ -1169,7 +1204,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
 
   const getCellClassName = React.useCallback(
     (params: GridCellParams) => {
-      if (params.id === '__summary__' || conditionalFormats.length === 0) {
+      if (params.id === GRID_SUMMARY_ROW_ID || conditionalFormats.length === 0) {
         return '';
       }
       const classes: string[] = [];
@@ -1273,7 +1308,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     if (!summaryValues) {
       return undefined;
     }
-    return { bottom: [{ ...summaryValues, __rowId: '__summary__' }] };
+    return { bottom: [{ ...summaryValues, __rowId: GRID_SUMMARY_ROW_ID }] };
   }, [summaryValues]);
 
   return (
@@ -1324,7 +1359,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         }}
         getCellClassName={getCellClassName}
         getRowClassName={(params: GridRowClassNameParams) => {
-          if (params.id === '__summary__') {
+          if (params.id === GRID_SUMMARY_ROW_ID) {
             return '';
           }
           // Incoming chart cross-highlight: dim rows that don't match the cross-filter.

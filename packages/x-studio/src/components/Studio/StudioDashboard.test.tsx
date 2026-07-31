@@ -349,6 +349,49 @@ describe('StudioDashboard — mode', () => {
     expect(ref.current!.getState().session.mode).toBe('view');
   });
 
+  // Every case above reads `getState().session.mode` AFTER mount, so the mount-time seed in
+  // `initialStateRef` can be deleted and they all still pass — the `setMode` effect alone
+  // satisfies them one commit later. But the point of the seed is that the FIRST render must
+  // already be view mode: `Studio` builds its controller once from `initialState`, and
+  // `createDefaultStudioState`'s session says `'edit'`, so without the seed an embed's first
+  // painted frame is the full authoring UI (insertion points, drag wiring, edit-action rows)
+  // before the effect swaps it out.
+  //
+  // Observed on the first commit's DOM: React completes the mutation phase for the whole
+  // commit before ANY layout effect runs, and `setMode` lives in a passive `useEffect` that
+  // runs strictly later — so a layout effect mounted alongside the dashboard sees exactly
+  // what the first frame shows. An empty page is used because its hint text is mode-gated
+  // without needing hover or selection.
+  it('paints view mode on the very FIRST commit, not one effect later', async () => {
+    const config = createDefaultStudioState({
+      doc: { widgets: {}, pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] } } },
+    });
+    // The shape a host actually passes: `createDefaultStudioState`/`getState()` say 'edit'.
+    expect(config.session.mode).toBe('edit');
+
+    let firstCommitHtml: string | null = null;
+    function FirstCommitProbe() {
+      React.useLayoutEffect(() => {
+        firstCommitHtml = document.body.innerHTML;
+      }, []);
+      return null;
+    }
+
+    const ref = React.createRef<StudioHandle>();
+    render(
+      <React.Fragment>
+        <StudioDashboard ref={ref} config={config} />
+        <FirstCommitProbe />
+      </React.Fragment>,
+    );
+
+    expect(firstCommitHtml).not.toBe(null);
+    expect(firstCommitHtml!).toContain('Switch to Edit mode to add widgets.');
+    expect(firstCommitHtml!).not.toContain('Use the Compose panel to add widgets or drag them');
+    // …and it is still view mode afterwards (the effect did not undo the seed).
+    expect(ref.current!.getState().session.mode).toBe('view');
+  });
+
   it('stays in view mode across a `config` prop swap', async () => {
     const configA = makeConfig('A');
     const configB = makeConfig('B');

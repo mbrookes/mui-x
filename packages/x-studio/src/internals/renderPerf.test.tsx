@@ -115,6 +115,51 @@ function buildInitialState(): CreateDefaultStudioStateOverrides {
 
 const theme = createTheme();
 
+// ─── Render counting for the mounted card ────────────────────────────────────
+//
+// Counts RENDER passes of the mounted subtree, not React commits.
+//
+// `mockUseStudioSelector` is called only from a component's render body, so its cumulative
+// call count moves exactly when something in the mounted tree re-renders — and only the
+// card (plus its own children) is mounted in these cases. A commit count, which is what
+// this used to use via `React.Profiler`, measures something React is free to vary: under
+// CPU contention (14 concurrent vitest workers in the repo's project sweep) React batches
+// differently and can commit a subtree that did not re-render, which made the exact-equality
+// assertion below fail once under load and pass 3/3 in isolation with identical code.
+//
+// Renders are the right unit anyway: what the selector narrowing controls is whether
+// `useSyncExternalStore` sees a CHANGED snapshot for this component — i.e. whether it
+// re-renders — not how React groups the resulting work into commits.
+function cardRenderCount(): number {
+  return mockUseStudioSelector.mock.calls.length;
+}
+
+/**
+ * Flushes until the mounted card stops re-rendering on its own, then returns the settled
+ * render count.
+ *
+ * The other half of the load-sensitivity: row resolution lands asynchronously, so a single
+ * fixed `await Promise.resolve()` is not a guarantee that mount-time work has finished. Under
+ * contention it could land AFTER the baseline was captured, and get attributed to the
+ * mutation. Looping until two consecutive turns agree removes the wall-clock dependency
+ * without weakening the assertion that follows.
+ *
+ * @returns {Promise<number>} The render count once no further self-driven renders occur.
+ */
+async function quiesceCard(): Promise<number> {
+  let previous = -1;
+  for (let i = 0; i < 20 && previous !== cardRenderCount(); i += 1) {
+    previous = cardRenderCount();
+    // eslint-disable-next-line no-await-in-loop -- the turns must be sequential
+    await act(async () => {
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
+    });
+  }
+  return cardRenderCount();
+}
+
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 const { render } = createRenderer();
@@ -489,27 +534,18 @@ describe('UI render performance — store-driven re-renders', () => {
   // (including `inferKpiDateSubtitle`, whose deps include `allFilters`) for an edit it can
   // never reach. Mount THROUGH the card so the ARCHITECTURE.md claim is actually pinned.
   it('does not re-render the widget CARD when an expression field is added for an unrelated source', async () => {
-    let cardCommits = 0;
-
     render(
       <ThemeProvider theme={theme}>
-        <React.Profiler
-          id="card"
-          onRender={() => {
-            cardCommits += 1;
-          }}
-        >
-          <StudioWidgetCard widgetId="w-kpi-1" pageId="page-1" />
-        </React.Profiler>
+        <StudioWidgetCard widgetId="w-kpi-1" pageId="page-1" />
       </ThemeProvider>,
       { strict: false },
     );
 
-    await act(async () => {
-      await Promise.resolve();
-    });
-    const commitsBeforeMutation = cardCommits;
-    expect(commitsBeforeMutation).toBeGreaterThan(0);
+    // `quiesceCard()` returns a render COUNT, not the result of `render()`; the rule cannot
+    // tell the two apart from the call site alone (same disable as the counters above).
+    // eslint-disable-next-line testing-library/render-result-naming-convention
+    const passesBeforeMutation = await quiesceCard();
+    expect(passesBeforeMutation).toBeGreaterThan(0);
 
     await act(async () => {
       controller.addExpressionField({
@@ -520,34 +556,25 @@ describe('UI render performance — store-driven re-renders', () => {
       } as any);
     });
 
-    // Sanity: the write really landed, so a stable commit count means "filtered out",
+    // Sanity: the write really landed, so a stable render count means "filtered out",
     // not "nothing happened".
     expect(controller.getState().doc.expressionFields).toHaveLength(1);
-    expect(cardCommits).toBe(commitsBeforeMutation);
+    expect(cardRenderCount()).toBe(passesBeforeMutation);
   });
 
   it('does re-render the widget CARD when an expression field is added for its OWN source', async () => {
     // Counterpart to the case above, so a selector frozen forever cannot pass it.
-    let cardCommits = 0;
-
     render(
       <ThemeProvider theme={theme}>
-        <React.Profiler
-          id="card"
-          onRender={() => {
-            cardCommits += 1;
-          }}
-        >
-          <StudioWidgetCard widgetId="w-kpi-1" pageId="page-1" />
-        </React.Profiler>
+        <StudioWidgetCard widgetId="w-kpi-1" pageId="page-1" />
       </ThemeProvider>,
       { strict: false },
     );
 
-    await act(async () => {
-      await Promise.resolve();
-    });
-    const commitsBeforeMutation = cardCommits;
+    // `quiesceCard()` returns a render COUNT, not the result of `render()`; the rule cannot
+    // tell the two apart from the call site alone (same disable as the counters above).
+    // eslint-disable-next-line testing-library/render-result-naming-convention
+    const passesBeforeMutation = await quiesceCard();
 
     await act(async () => {
       controller.addExpressionField({
@@ -558,6 +585,95 @@ describe('UI render performance — store-driven re-renders', () => {
       } as any);
     });
 
-    expect(cardCommits).toBeGreaterThan(commitsBeforeMutation);
+    expect(cardRenderCount()).toBeGreaterThan(passesBeforeMutation);
+  });
+});
+
+// ─── The card must not UNDER-subscribe either (one-hop related sources) ───────
+//
+// `relevantSourceIds` is `getReachableSourceIds(widget.sourceId, relationships)` — the own
+// source PLUS every one-hop related source. The block above pins only the over-subscription
+// half ("an unrelated source's field does not re-render me"), and it uses a widget with NO
+// relationships at all, so narrowing `relevantSourceIds` to just the widget's own source
+// passes every one of those cases. The narrowed version is a real bug: the card's
+// cross-filter chip resolves its field definition through `resolveFieldDef` over
+// `expressionFields`, so a calculated field authored on a RELATED source (the standard
+// cross-source widget-filter setup) would never reach the chip and it would keep rendering
+// the raw field id — or nothing — until some other edit happened to re-render the card.
+describe('UI render performance — the widget card subscribes to RELATED sources too', () => {
+  beforeEach(() => {
+    studioRequestCache.clear();
+    controller = new StudioController({
+      ...buildInitialState(),
+      doc: {
+        ...buildInitialState().doc,
+        // `source-2` is one hop from the widget's `source-1`.
+        relationships: [
+          {
+            id: 'rel-1',
+            type: 'many-to-one',
+            sourceId: 'source-1',
+            sourceField: 'id',
+            targetId: 'source-2',
+            targetField: 'id',
+          },
+        ],
+      },
+    });
+    syncState();
+    configureStudioContextMock({ store: controller.store, getController: () => controller });
+  });
+
+  it('re-renders when an expression field is added for a one-hop RELATED source', async () => {
+    render(
+      <ThemeProvider theme={theme}>
+        <StudioWidgetCard widgetId="w-kpi-1" pageId="page-1" />
+      </ThemeProvider>,
+      { strict: false },
+    );
+
+    // `quiesceCard()` returns a render COUNT, not the result of `render()`; the rule cannot
+    // tell the two apart from the call site alone (same disable as the counters above).
+    // eslint-disable-next-line testing-library/render-result-naming-convention
+    const passesBeforeMutation = await quiesceCard();
+    expect(passesBeforeMutation).toBeGreaterThan(0);
+
+    await act(async () => {
+      controller.addExpressionField({
+        id: 'ef-related',
+        sourceId: 'source-2',
+        label: 'Related',
+        expression: { kind: 'literal', value: 1 },
+      } as any);
+    });
+
+    expect(cardRenderCount()).toBeGreaterThan(passesBeforeMutation);
+  });
+
+  it('still ignores an expression field on a source that is NOT reachable', async () => {
+    // The other side of the same selector, so "subscribes to related sources" can't be
+    // satisfied by subscribing to everything again.
+    render(
+      <ThemeProvider theme={theme}>
+        <StudioWidgetCard widgetId="w-kpi-1" pageId="page-1" />
+      </ThemeProvider>,
+      { strict: false },
+    );
+
+    // `quiesceCard()` returns a render COUNT, not the result of `render()`; the rule cannot
+    // tell the two apart from the call site alone (same disable as the counters above).
+    // eslint-disable-next-line testing-library/render-result-naming-convention
+    const passesBeforeMutation = await quiesceCard();
+
+    await act(async () => {
+      controller.addExpressionField({
+        id: 'ef-far-away',
+        sourceId: 'source-3',
+        label: 'Far away',
+        expression: { kind: 'literal', value: 1 },
+      } as any);
+    });
+
+    expect(cardRenderCount()).toBe(passesBeforeMutation);
   });
 });

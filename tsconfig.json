@@ -65,8 +65,6 @@
       "@mui/x-virtualizer/*": ["./packages/x-virtualizer/src/*"],
       "@mui/x-studio": ["./packages/x-studio/src"],
       "@mui/x-studio/*": ["./packages/x-studio/src/*"],
-      "@mui/x-studio-ai-middleware": ["./packages/x-studio-ai-middleware/src"],
-      "@mui/x-studio-ai-middleware/*": ["./packages/x-studio-ai-middleware/src/*"],
       "x-studio-example": ["./examples/x-studio"],
       "x-studio-example/*": ["./examples/x-studio/*"],
       "x-studio-shared": ["./examples/x-studio-shared"],

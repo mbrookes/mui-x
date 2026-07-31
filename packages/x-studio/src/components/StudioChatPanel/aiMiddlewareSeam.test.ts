@@ -24,15 +24,24 @@
  * the far end and the HTTP transport in the middle (a stubbed `fetch` that hands
  * the server's own `ReadableStream` to the client's own SSE parser).
  *
- * The middleware is reached through the workspace's `@mui/x-studio-ai-middleware`
- * source alias rather than a package dependency: `@mui/x-studio` does not (and must
- * not) depend on it, since the whole point of the protocol is that the two ship
- * independently. The coupling exists only in this test file.
+ * The middleware is reached by a RELATIVE SOURCE IMPORT, the same way
+ * `x-studio-data-middleware`'s `clientWireSeam.test.ts` reaches this package, and for the same
+ * reason: `@mui/x-studio` does not (and must not) depend on it, since the whole point of the
+ * protocol is that the two ship independently. The coupling exists only in this test file.
+ *
+ * NOT via a `paths` entry in the workspace `tsconfig.json`. That is how it was first written, and
+ * it silently removed the dependency-direction guard for the WHOLE repo: `packages/x-studio` does
+ * not list the middleware in any dependency field and it is absent from its `node_modules`, so a
+ * production `import … from '@mui/x-studio-ai-middleware'` used to fail `tsc`. With the mapping in
+ * place it typechecked from any file in the repo, and nothing else stood in the way — the vitest
+ * alias is global, and the `no-restricted-imports` block for package sources only bans three-level
+ * deep `@mui` subpaths and self-imports. A relative import needs no mapping, so the guard stays.
  */
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import type { ChatMessage, ChatMessageChunk } from '@mui/x-chat/headless';
 import { ChatStore } from '@mui/x-chat-headless/store';
 import { processStream } from '@mui/x-chat-headless/stream';
+/* eslint-disable import/no-relative-packages */
 import {
   handleAIChat,
   isApprovalThreadIdAuthorized,
@@ -40,7 +49,8 @@ import {
   type OpenAIMessage,
   type StudioAIHandlerOptions,
   type PendingApproval,
-} from '@mui/x-studio-ai-middleware';
+} from '../../../../x-studio-ai-middleware/src';
+/* eslint-enable import/no-relative-packages */
 import { createBackendChatAdapter, type StudioAIConfig } from './studioBackendAdapter';
 import { StudioController } from '../../store/StudioController';
 import type { CreateDefaultStudioStateOverrides } from '../../models';
@@ -653,9 +663,7 @@ describe('x-studio ⇄ x-studio-ai-middleware seam: abort during an open approva
     // …and the call never completed, so nothing re-asserted the real arguments by the
     // ordinary `tool-activity` `complete` route.
     expect(
-      result.clientChunks.some(
-        (c) => c.type === 'tool-output-available' || c.type === 'finish',
-      ),
+      result.clientChunks.some((c) => c.type === 'tool-output-available' || c.type === 'finish'),
     ).toBe(false);
 
     // The defect: the enriched object was replayed as the model's own tool arguments.

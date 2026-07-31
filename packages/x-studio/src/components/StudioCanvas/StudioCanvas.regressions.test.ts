@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { StudioWidget, StudioWidgetConfig } from '../../models';
 import { getWidgetMinSpan } from './StudioCanvas';
+import { MIN_SPAN } from './canvasGridConstants';
 
 /**
  * Regression tests for BL-155 (KPI minimum column span).
@@ -33,14 +34,36 @@ describe('getWidgetMinSpan (BL-155)', () => {
     expect(getWidgetMinSpan(makeWidget('text'))).toBe(6);
   });
 
-  it('returns 4 for a KPI widget without sparkline (kpiSparkline undefined)', () => {
-    expect(getWidgetMinSpan(makeWidget('kpi'))).toBe(4);
+  // R6 F4: this used to pin 4 — the unfloored `KPI_NO_SPARKLINE_MIN_SPAN`. The canvas was
+  // offering a span the DOCUMENT cannot hold: `RowResizeHandle` published
+  // `aria-valuemin="4"` and announced "4 of 24", but the reducer's `clampSpan` raises
+  // anything below `MIN_SPAN` (6) on every write and again at the load boundary, so
+  // `setAdjacentWidgetColSpans('k1', 4, 'w2', 20, 4, 6)` committed `{ k1: 6, w2: 18 }`.
+  // The controller's floor is the correct one; the canvas vocabulary was wrong (and the
+  // `aria-valuemin` was an a11y defect). Do NOT re-pin 4 by lowering the reducer's
+  // `MIN_SPAN`.
+  it('floors a sparkline-less KPI at MIN_SPAN (6), not the preferred 4', () => {
+    expect(getWidgetMinSpan(makeWidget('kpi'))).toBe(6);
   });
 
-  it('returns 4 for a KPI widget with sparkline explicitly disabled', () => {
+  it('floors a KPI with sparkline explicitly disabled at MIN_SPAN (6)', () => {
     expect(getWidgetMinSpan(makeWidget('kpi', { kpiSparkline: false } as StudioWidgetConfig))).toBe(
-      4,
+      6,
     );
+  });
+
+  // The floor is the schema constant, not a copy of it: nothing `getWidgetMinSpan` returns
+  // may be narrower than what the document can represent.
+  it('never returns a span below the reducer MIN_SPAN for any kind or config', () => {
+    const kinds: StudioWidget['kind'][] = ['chart', 'grid', 'map', 'filter', 'text', 'kpi'];
+    for (const kind of kinds) {
+      for (const config of [{}, { kpiSparkline: true }, { kpiSparkline: false }]) {
+        expect(
+          getWidgetMinSpan(makeWidget(kind, config as StudioWidgetConfig)),
+        ).toBeGreaterThanOrEqual(MIN_SPAN);
+      }
+    }
+    expect(getWidgetMinSpan(undefined)).toBeGreaterThanOrEqual(MIN_SPAN);
   });
 
   it('returns MIN_SPAN (6) for a KPI widget with sparkline enabled', () => {

@@ -39,15 +39,38 @@ import { useStudioDropTarget } from './useStudioDropTarget';
 import { sanitizeCssColor } from '../../internals/cssValueValidation';
 import { lookup } from '../../utils/safeLookup';
 
-/** Minimum column span for a KPI widget without a sparkline (narrower is fine without the chart). */
+/**
+ * The narrower minimum a sparkline-less KPI would PREFER (BL-155): without the chart it
+ * still reads fine at a sixth of a row. It is a preference, not a floor — see
+ * {@link getWidgetMinSpan}.
+ */
 const KPI_NO_SPARKLINE_MIN_SPAN = 4;
 
-/** Return the minimum resize column span for a widget based on its kind and config. */
+/**
+ * The minimum resize column span for a widget, based on its kind and config.
+ *
+ * Floored at the reducer's `MIN_SPAN` (R6 F4). This function is the canvas's resize
+ * VOCABULARY — it feeds `resolveResizePair`, which sets `RowResizeHandle`'s `minLeft`,
+ * its published `aria-valuemin`, and the value announced by `canvasResizeAnnouncement` —
+ * while the DOCUMENT's floor is the shared reducer's `MIN_SPAN` (6), applied by
+ * `clampSpan` on every write and again at the load boundary. Returning the unfloored
+ * `KPI_NO_SPARKLINE_MIN_SPAN` (4) made the canvas offer a span the document cannot hold:
+ * the handle let the user drag a sparkline-less KPI to 4, announced "4 of 24", published
+ * `aria-valuemin="4"` — and `setAdjacentWidgetColSpans('k1', 4, 'w2', 20, 4, 6)` then
+ * committed `{ k1: 6, w2: 18 }`, because it floors each caller minimum at `MIN_SPAN` for
+ * exactly this reason. The controller's floor is correct; this was the wrong end of the
+ * pair. It is also an a11y defect — `aria-valuemin` was announcing a bound the widget
+ * cannot actually take.
+ *
+ * The KPI preference is kept rather than deleted so the intent survives if `MIN_SPAN` ever
+ * drops; do NOT "fix" the mismatch by lowering the reducer's `MIN_SPAN` instead.
+ */
 export function getWidgetMinSpan(widget: StudioWidget | undefined): number {
-  if (widget && isWidgetOfKind(widget, 'kpi') && !widget.config.kpiSparkline) {
-    return KPI_NO_SPARKLINE_MIN_SPAN;
-  }
-  return MIN_SPAN;
+  const preferred =
+    widget && isWidgetOfKind(widget, 'kpi') && !widget.config.kpiSparkline
+      ? KPI_NO_SPARKLINE_MIN_SPAN
+      : MIN_SPAN;
+  return Math.max(preferred, MIN_SPAN);
 }
 
 /**

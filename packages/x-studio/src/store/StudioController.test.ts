@@ -13,6 +13,7 @@ import type {
 } from '../models';
 import { resolveDateRangePreset } from '../internals/filterUtils';
 import { GRID_COLS, MIN_SPAN } from '../components/StudioCanvas/canvasGridConstants';
+import { getWidgetMinSpan } from '../components/StudioCanvas/StudioCanvas';
 import { createChatTurnMutationLedger } from '../components/StudioChatPanel/chatTurnMutations';
 
 function makeFilter(
@@ -6406,5 +6407,38 @@ describe('StudioController.updateActivePage — payload screen (R6 F2)', () => {
       committed: true,
     });
     expect(controller.getState().doc.pages[pageId].title).toBe('Renamed');
+  });
+});
+
+// ─── R6 F4: the canvas may not offer a span the document cannot hold ─────────
+
+describe('setAdjacentWidgetColSpans — canvas min-span vocabulary matches the doc floor', () => {
+  it('commits exactly the minimum getWidgetMinSpan offers for a sparkline-less KPI', () => {
+    const kpi = makeWidget('k1', { kind: 'kpi', config: {} });
+    const controller = new StudioController({
+      doc: {
+        widgets: { k1: kpi, w2: makeWidget('w2') },
+        pages: {
+          'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['k1', 'w2']] },
+        },
+        dashboard: { activePageId: 'page-1' } as never,
+      },
+    });
+
+    // The exact number `RowResizeHandle` publishes as `aria-valuemin` and announces.
+    const offeredMin = getWidgetMinSpan(kpi);
+    controller.setAdjacentWidgetColSpans(
+      'k1',
+      offeredMin,
+      'w2',
+      GRID_COLS - offeredMin,
+      offeredMin,
+      MIN_SPAN,
+    );
+
+    // Before R6 F4 the canvas offered 4 while the reducer's `clampSpan` committed 6, so the
+    // handle's `aria-valuemin` and its announcement both described a width the document
+    // cannot represent.
+    expect(controller.getState().doc.pages['page-1'].widgetColSpans?.k1).toBe(offeredMin);
   });
 });

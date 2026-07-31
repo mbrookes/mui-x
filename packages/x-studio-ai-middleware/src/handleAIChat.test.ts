@@ -911,8 +911,15 @@ describe('handleAIChat', () => {
         handleAIChat(makeBody(), { ...OPTIONS, contextEnricher, onToolError }),
       );
 
-      // Advance past the timeout window; the awaited promise never settles on its own.
-      await vi.advanceTimersByTimeAsync(CONTEXT_ENRICHER_TIMEOUT_MS);
+      // Advance to one tick BEFORE the deadline: nothing has given up yet. Without this
+      // half the assertion below holds for ANY value of `CONTEXT_ENRICHER_TIMEOUT_MS`,
+      // because it advances by the very constant it is meant to pin — a self-referential
+      // test that a 100x change to the deadline would sail straight through.
+      await vi.advanceTimersByTimeAsync(CONTEXT_ENRICHER_TIMEOUT_MS - 1);
+      expect(onToolError).not.toHaveBeenCalled();
+
+      // ...and one tick past it, the wait is abandoned.
+      await vi.advanceTimersByTimeAsync(1);
 
       const events = parseEvents(await streamPromise);
       expect(onToolError).toHaveBeenCalledWith(
@@ -2320,6 +2327,16 @@ describe('handleAIChat — the producer stops when the consumer stops reading', 
 });
 
 // ── Two request-validation gaps ───────────────────────────────────────────────
+// The deadline itself, pinned as a literal. The suite's timing case advances by the
+// imported constant, so it stays green for any value the constant happens to hold — a
+// 15s → 25min change would be invisible. Spelling the number out once here is what
+// makes the constant itself a tested value rather than an untested one.
+describe('CONTEXT_ENRICHER_TIMEOUT_MS', () => {
+  it('is 15 seconds', () => {
+    expect(CONTEXT_ENRICHER_TIMEOUT_MS).toBe(15_000);
+  });
+});
+
 describe('handleAIChat — request validation boundaries', () => {
   beforeEach(() => {
     vi.spyOn(global, 'fetch');

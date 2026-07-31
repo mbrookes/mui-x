@@ -107,17 +107,6 @@ export function capMaybeText(value: unknown, maxChars: number): unknown {
 }
 
 /**
- * Cap both the LENGTH of a string array and the length of each of its entries.
- * Returns a new array; non-string entries are coerced by {@link capText}.
- */
-export function capTextList(values: unknown, maxCount: number, maxChars: number): string[] {
-  if (!Array.isArray(values)) {
-    return [];
-  }
-  return values.slice(0, maxCount).map((v) => capText(v, maxChars));
-}
-
-/**
  * Hard cap on a generated chat-session title, matching `rename_thread`'s server-side
  * cap. Exported so both `executeToolOnState.ts`'s `rename_thread` handler and
  * `handleGenerateInsight.ts`'s `handleGenerateTitle` can import and reuse this exact

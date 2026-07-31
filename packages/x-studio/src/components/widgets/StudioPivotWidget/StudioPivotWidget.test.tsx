@@ -299,6 +299,47 @@ describe('StudioPivotWidget category truncation', () => {
     ).not.to.equal(null);
   });
 
+  /** Mirror of `wideSource`, with the high-cardinality field on the COLUMN axis instead. */
+  function tallSource(count: number): StudioDataSource {
+    return {
+      id: 'sales',
+      label: 'Sales',
+      fields: [
+        { id: 'region', label: 'Region', type: 'string' },
+        { id: 'product', label: 'Product', type: 'string' },
+        { id: 'amount', label: 'Amount', type: 'number' },
+      ],
+      rows: Array.from({ length: count }, (_, index) => ({
+        region: 'EMEA',
+        product: `product-${String(index).padStart(5, '0')}`,
+        amount: 1,
+      })),
+    };
+  }
+
+  // The COLUMN axis has the same cap and the same disclosure, and neither had a test —
+  // `pivotColumnsTruncatedNotice` was never rendered anywhere in the suite, so the whole
+  // `matrix.colValueCount > matrix.colValues.length` branch could be deleted and a
+  // high-cardinality Columns pick would silently drop categories off the right-hand side.
+  it('renders a bounded number of column headers and discloses the truncation', () => {
+    renderWidget(
+      { pivotRowField: 'region', pivotColField: 'product', pivotValueField: 'amount' },
+      tallSource(MAX_PIVOT_CATEGORIES + 40),
+    );
+
+    expect(
+      screen.getByText(
+        DEFAULT_STUDIO_LOCALE_TEXT.pivotColumnsTruncatedNotice(
+          MAX_PIVOT_CATEGORIES,
+          MAX_PIVOT_CATEGORIES + 40,
+        ),
+      ),
+    ).not.to.equal(null);
+    // The row axis is single-valued here, so its notice must NOT appear — the two branches
+    // are independent, and this pins that the right one fired.
+    expect(document.querySelector('caption')!.textContent).not.to.contain('row categories');
+  });
+
   it('shows no truncation notice for an ordinary pivot', () => {
     renderWidget({ pivotRowField: 'region', pivotColField: 'product', pivotValueField: 'amount' });
     expect(document.querySelector('caption')).to.equal(null);

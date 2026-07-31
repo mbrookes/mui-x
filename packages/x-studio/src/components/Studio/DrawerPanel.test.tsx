@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { createRenderer, screen, waitFor } from '@mui/internal-test-utils';
+import { createRenderer, screen, waitFor, act } from '@mui/internal-test-utils';
 import { describe, expect, it } from 'vitest';
 import { createStudioHarness } from '../../internals/test-utils';
 import { StudioLiveRegionProvider } from '../../internals/StudioLiveRegion';
@@ -77,6 +77,25 @@ describe('DrawerPanel focus management and announcements', () => {
     return { ...view, ...harness };
   }
 
+  /** Same tree, plus a focusable control OUTSIDE the panel to stand in for "wherever the user is". */
+  function renderPanelWithOutsideControl(open: boolean) {
+    const harness = createStudioHarness({
+      initialState: {
+        session: { shell: { openDrawers: { compose: open } } } as never,
+      },
+    });
+    const view = render(
+      <StudioLiveRegionProvider>
+        <button type="button">Outside</button>
+        <DrawerPanel drawer="compose" title="Compose">
+          <div>panel body</div>
+        </DrawerPanel>
+      </StudioLiveRegionProvider>,
+      { wrapper: harness.wrapper },
+    );
+    return { ...view, ...harness };
+  }
+
   function liveRegionText() {
     return document.querySelector('[aria-live="polite"]')?.textContent ?? '';
   }
@@ -125,5 +144,40 @@ describe('DrawerPanel focus management and announcements', () => {
     await waitFor(() => {
       expect(liveRegionText()).to.equal(DEFAULT_STUDIO_LOCALE_TEXT.sidebarPanelClosedAnnouncement);
     });
+  });
+
+  // The negative half of the same contract. `pendingFocusRef` is set ONLY by this
+  // component's own rail/close controls, so the layout effect moves focus only for a swap
+  // the user caused here. Both positive directions are covered above; without the ref gate
+  // the effect would focus on every `open` flip and they would all still pass — while a
+  // keyboard shortcut, the AI panel, or the host's `StudioHandle` opening a drawer would rip
+  // focus out of whatever the user was actually typing in.
+  it('a PROGRAMMATIC open does not yank focus away from the user', async () => {
+    const { controller } = renderPanelWithOutsideControl(false);
+    const outside = screen.getByRole('button', { name: 'Outside' });
+    outside.focus();
+    expect(document.activeElement).to.equal(outside);
+
+    await act(async () => {
+      controller.setDrawerOpen('compose', true);
+    });
+
+    // The panel really did open …
+    expect(screen.getByRole('button', { name: 'Close Compose panel' })).not.toBe(null);
+    // … and focus stayed where the user put it.
+    expect(document.activeElement).to.equal(outside);
+  });
+
+  it('a PROGRAMMATIC close does not yank focus away from the user', async () => {
+    const { controller } = renderPanelWithOutsideControl(true);
+    const outside = screen.getByRole('button', { name: 'Outside' });
+    outside.focus();
+
+    await act(async () => {
+      controller.setDrawerOpen('compose', false);
+    });
+
+    expect(screen.getByRole('button', { name: 'Open Compose panel' })).not.toBe(null);
+    expect(document.activeElement).to.equal(outside);
   });
 });

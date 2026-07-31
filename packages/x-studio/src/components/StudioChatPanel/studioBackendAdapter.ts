@@ -474,6 +474,41 @@ export const MAX_TOOL_ID_LENGTH = 256;
 export const MAX_TURN_TOOL_PARTS = 64;
 
 /**
+ * The slice of {@link MAX_TURN_TOOL_PARTS} that ONLY `tool-approval-request` may spend, and
+ * {@link MAX_TURN_TOOL_ACTIVITY_PARTS} the slice `tool-activity` `start` is left with.
+ *
+ * Sharing one part budget between the two doors is right — a part either door creates is
+ * indistinguishable from one the other created — but sharing it FIRST-COME is not, because the
+ * two doors do not cost the same thing when they lose. A `tool-activity` `start` that is
+ * refused loses a read-only card nobody was waiting on. A `tool-approval-request` that is
+ * refused loses the APPROVE BUTTON for a destructive call: no part is created, so `ToolPart`
+ * has nothing to render, the human is never asked, and the server blocks for the whole of its
+ * 120-second approval timeout before failing the call closed.
+ *
+ * Measured on the un-reserved budget: 64 `tool-activity` `start` events — every one of them a
+ * read-only `query_data_source`, every one individually legal — followed by a `remove_page`
+ * approval, and the approval card does not exist. Cheap traffic evicting the one card that
+ * must not be evictable, with a `console.warn` as the only trace.
+ *
+ * So the destructive door gets headroom the cheap door cannot reach: `tool-activity` may open
+ * at most `MAX_TURN_TOOL_ACTIVITY_PARTS` (48) parts, leaving 16 that only an approval can
+ * claim. Both numbers are DERIVED from {@link MAX_TURN_TOOL_PARTS} rather than declared, so
+ * the message-level bound the worst-case arithmetic quotes is unchanged: the two doors still
+ * add at most 64 parts between them.
+ *
+ * 48 is still comfortably above `x-studio-ai-middleware`'s own
+ * `DEFAULT_MAX_TOOL_CALLS_PER_REQUEST` — the reference server cannot reach the reserve with
+ * legitimate traffic — and 16 pending approvals in one assistant turn is far past any real
+ * agentic run, which gates one or two destructive calls at most.
+ *
+ * Exported for the tests only — see {@link MAX_METADATA_KEY_LENGTH}.
+ */
+export const MAX_TURN_APPROVAL_PARTS = MAX_TURN_TOOL_PARTS / 4;
+
+/** The slice of {@link MAX_TURN_TOOL_PARTS} `tool-activity` may spend — see above. */
+export const MAX_TURN_TOOL_ACTIVITY_PARTS = MAX_TURN_TOOL_PARTS - MAX_TURN_APPROVAL_PARTS;
+
+/**
  * Largest `input` one `tool-activity` `start` may carry — the model's OWN tool arguments —
  * and {@link MAX_TURN_TOOL_INPUT_SIZE} the turn-wide total.
  *
@@ -951,13 +986,52 @@ export function createBackendChatAdapter(
         toolCallId: string,
         errorText: string,
       ) => {
-        if (
-          wireStringSize(toolCallId) > MAX_TOOL_ID_LENGTH ||
-          !turnToolPartIds.has(toolCallId)
-        ) {
+        if (wireStringSize(toolCallId) > MAX_TOOL_ID_LENGTH || !turnToolPartIds.has(toolCallId)) {
           return;
         }
         streamController.enqueue({ type: 'tool-output-error', toolCallId, errorText });
+      };
+
+      // …and an approval this client REFUSED for budget is told to the human, not to the
+      // console, because it is the one refusal on this boundary whose consequence is a
+      // question that never gets asked. `warnApprovalOnce` reaches a developer's devtools; the
+      // person holding the deny button sees an assistant turn that simply stops, while the
+      // server counts down its 120-second approval timeout.
+      //
+      // Two shapes, because the id may or may not already own a part:
+      //  - it does (a `tool-activity` `start` opened one): resolve THAT part, so the spinner
+      //    the drop would otherwise strand becomes a stated failure.
+      //  - it does not: mint ONE notice part for the whole turn, under an adapter-owned id, so
+      //    the refusal is visible without handing a server that is already over budget an
+      //    unbounded supply of new parts. One per turn is what keeps this from being the next
+      //    uncapped door — the message grows by exactly one part, whatever the server sends.
+      const approvalNoticeToolCallId = 'studio-approval-unshowable';
+      let approvalNoticeEmitted = false;
+      const reportApprovalCannotBeShown = (
+        streamController: ReadableStreamDefaultController<ChatMessageChunk>,
+        toolCallId: string,
+        toolName: string,
+        errorText: string,
+      ) => {
+        if (turnToolPartIds.has(toolCallId)) {
+          failVisiblyIfCardIsOnScreen(streamController, toolCallId, errorText);
+          return;
+        }
+        if (approvalNoticeEmitted) {
+          return;
+        }
+        approvalNoticeEmitted = true;
+        streamController.enqueue({
+          type: 'tool-input-start',
+          toolCallId: approvalNoticeToolCallId,
+          toolName,
+          dynamic: true,
+        });
+        streamController.enqueue({
+          type: 'tool-output-error',
+          toolCallId: approvalNoticeToolCallId,
+          errorText,
+        });
       };
 
       // Helper: close the synthetic "Thinking…" reasoning part once real content arrives.
@@ -1270,17 +1344,22 @@ Check the endpoint URL, its authentication headers, and the server logs for this
               // the re-assert beside it only fires for a gated id the approval door has
               // already counted. Charging it there too would spend the budget on parts that
               // do not exist.
+              //
+              // This door may spend only `MAX_TURN_TOOL_ACTIVITY_PARTS` of the shared
+              // `MAX_TURN_TOOL_PARTS`; the remainder is reserved for approvals, which lose an
+              // approve BUTTON when they lose the budget while this door loses a read-only
+              // card. See {@link MAX_TURN_APPROVAL_PARTS}.
               if (
                 phase === 'start' &&
                 !turnToolPartIds.has(toolCallId) &&
-                turnToolPartIds.size >= MAX_TURN_TOOL_PARTS
+                turnToolPartIds.size >= MAX_TURN_TOOL_ACTIVITY_PARTS
               ) {
                 warnApprovalOnce(
                   'tool-part-budget',
-                  `The AI server reported more than ${MAX_TURN_TOOL_PARTS} different tool calls ` +
-                    `in one response. Each one is stored in the saved dashboard, so the extra ` +
-                    `ones were dropped and will not appear in the conversation. Check whether ` +
-                    `the endpoint's tool-call limit is set higher than this client's.`,
+                  `The AI server reported more than ${MAX_TURN_TOOL_ACTIVITY_PARTS} different ` +
+                    `tool calls in one response. Each one is stored in the saved dashboard, so ` +
+                    `the extra ones were dropped and will not appear in the conversation. Check ` +
+                    `whether the endpoint's tool-call limit is set higher than this client's.`,
                 );
                 return undefined;
               }
@@ -1339,6 +1418,27 @@ Check the endpoint URL, its authentication headers, and the server logs for this
                   input: toolInput ?? {},
                 });
               } else if (phase === 'complete') {
+                // CHARGE ONLY WHAT PERSISTS. `tool-output-available` passes a null initial
+                // part to `withToolInvocation`, so a `complete` naming an id no part was ever
+                // created for writes NOTHING to the message — measured: 500 such events
+                // persist 0 parts and 160 JSON characters. The part budget already exempts
+                // them (`phase === 'start' &&` above); the OUTPUT budget did not, and charged
+                // `MAX_TURN_TOOL_OUTPUT_SIZE` for text no document ever held.
+                //
+                // That is not a hostile-server-only defect. A server running more tool calls
+                // than `MAX_TURN_TOOL_ACTIVITY_PARTS` has the `start` of the extras dropped
+                // HERE, by this client — so their `complete`s are exactly these ghosts, and
+                // they used to burn the whole turn output budget on nothing, leaving the calls
+                // that DID get a card showing a marker and no result. Measured: 3 ghost
+                // completes of 200 000 characters each reduced the next legitimate at-cap
+                // result from 200 000 stored characters to 178 — the truncation marker alone.
+                //
+                // Nothing below this line can reach the persisted message for an unknown id
+                // either (the re-assert fires only for a gated id, which the approval door has
+                // already counted), so the whole phase is skipped rather than merely uncharged.
+                if (!turnToolPartIds.has(toolCallId)) {
+                  return undefined;
+                }
                 // Restore the model's own arguments over the approval card's
                 // display-enriched ones before the call is recorded as finished, so the
                 // next request replays what the model actually said rather than a
@@ -1581,6 +1681,18 @@ Check the endpoint URL, its authentication headers, and the server logs for this
                     `dashboard, so the extra requests were dropped and those tool calls will not ` +
                     `show an approval card. Check whether the endpoint's tool-call limit is set ` +
                     `higher than this client's.`,
+                );
+                // …and told to the person who would have answered it, not only to the console.
+                // A refused approval is a question that is never asked while the server counts
+                // down its approval timeout, so "nothing happened" is exactly the wrong thing
+                // for the turn to look like. See `reportApprovalCannotBeShown`.
+                reportApprovalCannotBeShown(
+                  streamController,
+                  approvalToolCallId,
+                  approvalToolName,
+                  'MUI X Studio: This tool call asked for your approval, but this response has ' +
+                    'already used the number of tool cards the browser stores for one answer, ' +
+                    'so the request could not be shown. Nothing was approved and nothing ran.',
                 );
                 return undefined;
               }

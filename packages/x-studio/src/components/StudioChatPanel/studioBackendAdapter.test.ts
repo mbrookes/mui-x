@@ -12,6 +12,8 @@ import {
   MAX_METADATA_KEY_LENGTH,
   MAX_TURN_APPROVAL_INPUT_SIZE,
   MAX_TURN_TOOL_PARTS,
+  MAX_TURN_TOOL_ACTIVITY_PARTS,
+  MAX_TURN_APPROVAL_PARTS,
   MAX_TURN_APPROVAL_SIZE,
   MAX_TURN_METADATA_SIZE,
   MAX_TURN_TOOL_INPUT_SIZE,
@@ -1671,7 +1673,11 @@ describe('createBackendChatAdapter: tool-activity size limits', () => {
       Array.from({ length: MAX_TURN_TOOL_PARTS * 4 }, (_unused, i) => startEvent(i)),
     );
 
-    expect(chunks.filter((c) => c.type === 'tool-input-start')).toHaveLength(MAX_TURN_TOOL_PARTS);
+    // This door's slice of the shared budget, not the whole of it: the remainder is reserved
+    // for approvals, which lose an approve button where this door loses a read-only card.
+    expect(chunks.filter((c) => c.type === 'tool-input-start')).toHaveLength(
+      MAX_TURN_TOOL_ACTIVITY_PARTS,
+    );
     expect(warnSpy).toHaveBeenCalledTimes(1);
     warnSpy.mockRestore();
   });
@@ -1679,15 +1685,17 @@ describe('createBackendChatAdapter: tool-activity size limits', () => {
   it('charges the part budget per DISTINCT toolCallId, so start+complete of one call costs one', async () => {
     // The ordinary agentic shape: `start` then `complete` for the same id is ONE part, and
     // `withToolInvocation` updates it in place — so it must cost the shared budget once.
-    const events = Array.from({ length: MAX_TURN_TOOL_PARTS }, (_unused, i) => [
+    const events = Array.from({ length: MAX_TURN_TOOL_ACTIVITY_PARTS }, (_unused, i) => [
       startEvent(i),
       completeEvent(i),
     ]).flat();
     const chunks = await collectAllTurnChunks(events);
 
-    expect(chunks.filter((c) => c.type === 'tool-input-start')).toHaveLength(MAX_TURN_TOOL_PARTS);
+    expect(chunks.filter((c) => c.type === 'tool-input-start')).toHaveLength(
+      MAX_TURN_TOOL_ACTIVITY_PARTS,
+    );
     expect(chunks.filter((c) => c.type === 'tool-output-available')).toHaveLength(
-      MAX_TURN_TOOL_PARTS,
+      MAX_TURN_TOOL_ACTIVITY_PARTS,
     );
   });
 
@@ -1698,8 +1706,8 @@ describe('createBackendChatAdapter: tool-activity size limits', () => {
   it('lets a repeat of an already-open call through even after the part budget is FULL', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const chunks = await collectAllTurnChunks([
-      // Fill the shared budget with distinct ids…
-      ...Array.from({ length: MAX_TURN_TOOL_PARTS }, (_unused, i) => startEvent(i)),
+      // Fill this door's slice of the shared budget with distinct ids…
+      ...Array.from({ length: MAX_TURN_TOOL_ACTIVITY_PARTS }, (_unused, i) => startEvent(i)),
       // …then a NEW id, which must be refused…
       startEvent(9_999),
       // …a REPEAT of an already-open id, which must not be: `withToolInvocation` updates that
@@ -1707,20 +1715,20 @@ describe('createBackendChatAdapter: tool-activity size limits', () => {
       // This is the event the per-EVENT charge drops and the per-DISTINCT-id charge does not.
       startEvent(0, { input: { table: 'orders', retry: true } }),
       // …and every already-open call settling, which must not be either.
-      ...Array.from({ length: MAX_TURN_TOOL_PARTS }, (_unused, i) => completeEvent(i)),
+      ...Array.from({ length: MAX_TURN_TOOL_ACTIVITY_PARTS }, (_unused, i) => completeEvent(i)),
     ]);
 
     const starts = chunks.filter((c) => c.type === 'tool-input-start') as {
       toolCallId: string;
     }[];
-    // 64 openings + the repeat of `call-0`; the 65th distinct id is not among them.
-    expect(starts).toHaveLength(MAX_TURN_TOOL_PARTS + 1);
+    // 48 openings + the repeat of `call-0`; the 49th distinct id is not among them.
+    expect(starts).toHaveLength(MAX_TURN_TOOL_ACTIVITY_PARTS + 1);
     expect(starts.some((c) => c.toolCallId === 'call-9999')).toBe(false);
     expect(starts.at(-1)!.toolCallId).toBe('call-0');
     // Every card that was opened also resolves — none is stranded on a spinner by a budget
     // its own `start` already paid.
     expect(chunks.filter((c) => c.type === 'tool-output-available')).toHaveLength(
-      MAX_TURN_TOOL_PARTS,
+      MAX_TURN_TOOL_ACTIVITY_PARTS,
     );
     warnSpy.mockRestore();
   });
@@ -1728,11 +1736,11 @@ describe('createBackendChatAdapter: tool-activity size limits', () => {
   // The part budget is ONE budget across BOTH doors, because both add parts to the same
   // message and a part either door creates is indistinguishable from one the other created.
   // Two budgets of 64 would bound each door at 64 and the message at 128.
-  it('shares ONE part budget with the approval door', async () => {
+  it('shares ONE part budget with the approval door, minus the approvals reserve', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const chunks = await collectAllTurnChunks([
       ...Array.from({ length: MAX_TURN_TOOL_PARTS }, (_unused, i) => startEvent(i)),
-      ...Array.from({ length: 20 }, (_unused, i) => ({
+      ...Array.from({ length: MAX_TURN_APPROVAL_PARTS * 2 }, (_unused, i) => ({
         type: 'tool-approval-request',
         toolCallId: `approval-only-${i}`,
         toolName: 'remove_widget',
@@ -1740,10 +1748,155 @@ describe('createBackendChatAdapter: tool-activity size limits', () => {
       })),
     ]);
 
-    // The tool-activity events spent the whole shared budget…
-    expect(chunks.filter((c) => c.type === 'tool-input-start')).toHaveLength(MAX_TURN_TOOL_PARTS);
-    // …so the approval events, which name NEW ids, get no parts of their own.
-    expect(chunks.filter((c) => c.type === 'tool-approval-request')).toHaveLength(0);
+    // The tool-activity events spent every part they are allowed…
+    expect(chunks.filter((c) => c.type === 'tool-input-start')).toHaveLength(
+      MAX_TURN_TOOL_ACTIVITY_PARTS + 1, // + the one notice part the refused approvals earn
+    );
+    // …and the approvals, which name NEW ids, still get the reserve — the whole point of it.
+    expect(chunks.filter((c) => c.type === 'tool-approval-request')).toHaveLength(
+      MAX_TURN_APPROVAL_PARTS,
+    );
+    // …but not one part more: the two doors add at most MAX_TURN_TOOL_PARTS between them.
+    expect(
+      new Set(
+        (
+          chunks.filter(
+            (c) => c.type === 'tool-input-start' || c.type === 'tool-approval-request',
+          ) as { toolCallId: string }[]
+        ).map((c) => c.toolCallId),
+      ).size,
+    ).toBeLessThanOrEqual(MAX_TURN_TOOL_PARTS + 1);
+    warnSpy.mockRestore();
+  });
+
+  // …and the reserve exists for ONE case, so that case is pinned on its own: cheap read-only
+  // traffic must not be able to delete a destructive call's approve button. Before the
+  // reserve, 64 `query_data_source` cards — every one of them individually legal — spent the
+  // shared budget and the `remove_page` card that followed did not exist: no part, no button,
+  // one `console.warn`, and the server blocking for its 120-second approval timeout.
+  it('cannot have a destructive approval card evicted by cheap read-only tool traffic', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const chunks = await collectAllTurnChunks([
+      ...Array.from({ length: MAX_TURN_TOOL_PARTS }, (_unused, i) => startEvent(i)),
+      {
+        type: 'tool-approval-request',
+        toolCallId: 'destructive-1',
+        toolName: 'remove_page',
+        input: { pageId: 'page-1' },
+        effects: { willRemovePages: [{ id: 'page-1', title: 'Finance' }] },
+      },
+    ]);
+
+    const approval = chunks.find((c) => c.type === 'tool-approval-request') as {
+      toolCallId: string;
+      effects: unknown;
+    };
+    expect(approval).not.toBe(undefined);
+    expect(approval.toolCallId).toBe('destructive-1');
+    // …with its real impact summary, so the human answers against the server's own titles.
+    expect(approval.effects).toEqual({ willRemovePages: [{ id: 'page-1', title: 'Finance' }] });
+    warnSpy.mockRestore();
+  });
+
+  // And when even the reserve is spent, "the card cannot be shown" reaches the person who
+  // would have answered it — not only `console.warn`. Exactly ONE notice part per turn, so
+  // the visibility does not become the next unbounded part factory.
+  it('SHOWS that an approval could not be displayed, once, when the reserve is spent too', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const chunks = await collectAllTurnChunks([
+      ...Array.from({ length: MAX_TURN_TOOL_ACTIVITY_PARTS }, (_unused, i) => startEvent(i)),
+      ...Array.from({ length: MAX_TURN_APPROVAL_PARTS + 10 }, (_unused, i) => ({
+        type: 'tool-approval-request',
+        toolCallId: `destructive-${i}`,
+        toolName: 'remove_page',
+        input: {},
+      })),
+    ]);
+
+    const notices = chunks.filter((c) => c.type === 'tool-output-error') as {
+      toolCallId: string;
+      errorText: string;
+    }[];
+    expect(notices).toHaveLength(1);
+    expect(notices[0].errorText).toContain('could not be shown');
+    // It resolves a part of its own — an adapter-minted id, so it cannot collide with, or
+    // overwrite, a card the server actually earned.
+    expect(notices[0].toolCallId).not.toContain('destructive-');
+    expect(
+      chunks.some(
+        (c) =>
+          c.type === 'tool-input-start' &&
+          (c as { toolCallId: string }).toolCallId === notices[0].toolCallId,
+      ),
+    ).toBe(true);
+    warnSpy.mockRestore();
+  });
+
+  // ── charge only what persists ──────────────────────────────────────────────
+  //
+  // `tool-output-available` passes a NULL initial part to `withToolInvocation`, so a
+  // `complete` naming an id no part was ever created for writes nothing to the message. The
+  // part budget already knew that (`phase === 'start' &&`); the OUTPUT budget did not, and
+  // charged the turn's whole allowance for text no document ever held — so a client-side part
+  // budget destroyed the results of the calls it had itself accepted.
+  it('spends no output budget on a `complete` for a call that never got a part', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const ghostOutput = 'g'.repeat(MAX_TOOL_OUTPUT_SIZE);
+    const realOutput = 'r'.repeat(MAX_TOOL_OUTPUT_SIZE);
+    const chunks = await collectAllTurnChunks([
+      // Three completes whose `start` never arrived — 600 000 characters that persist NOTHING.
+      ...Array.from({ length: 3 }, (_unused, i) => ({
+        type: 'tool-activity',
+        phase: 'complete',
+        toolCallId: `ghost-${i}`,
+        toolName: 'query_data_source',
+        output: ghostOutput,
+      })),
+      // …then one ordinary call, at the per-call cap and well inside the turn total.
+      startEvent(100),
+      completeEvent(100, { output: realOutput }),
+    ]);
+
+    const outputs = chunks.filter((c) => c.type === 'tool-output-available') as {
+      toolCallId: string;
+      output: string;
+    }[];
+    // The ghosts produce no chunk at all: nothing to store, so nothing to charge.
+    expect(outputs.map((c) => c.toolCallId)).toEqual(['call-100']);
+    // …and the real call keeps its whole result, unmarked.
+    expect(outputs[0].output).toBe(realOutput);
+    expect(outputs[0].output).not.toContain('truncated');
+    warnSpy.mockRestore();
+  });
+
+  // The same starvation without a hostile server: a server running more calls than this
+  // client stores has the `start` of the extras dropped HERE, so their `complete`s are exactly
+  // those ghosts — and used to burn the turn budget belonging to the calls that DID get cards.
+  it('does not let calls this client itself dropped starve the calls it accepted', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const atCap = 'r'.repeat(MAX_TOOL_OUTPUT_SIZE);
+    const chunks = await collectAllTurnChunks([
+      // One accepted call whose result must survive…
+      startEvent(0),
+      // …then enough distinct calls to exhaust this door's part budget, so the extras'
+      // `start` events are dropped and their `complete` events name unknown ids.
+      ...Array.from({ length: MAX_TURN_TOOL_ACTIVITY_PARTS + 3 }, (_unused, i) =>
+        startEvent(i + 1),
+      ),
+      ...Array.from({ length: 3 }, (_unused, i) =>
+        completeEvent(MAX_TURN_TOOL_ACTIVITY_PARTS + i, { output: atCap }),
+      ),
+      completeEvent(0, { output: atCap }),
+    ]);
+
+    const first = (
+      chunks.filter((c) => c.type === 'tool-output-available') as {
+        toolCallId: string;
+        output: string;
+      }[]
+    ).find((c) => c.toolCallId === 'call-0')!;
+    expect(first.output).toBe(atCap);
+    expect(first.output).not.toContain('truncated');
     warnSpy.mockRestore();
   });
 
@@ -1801,7 +1954,7 @@ describe('createBackendChatAdapter: tool-activity size limits', () => {
   it('TRUNCATES and MARKS an over-cap tool output instead of dropping it, over many events', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const chunks = await collectAllTurnChunks(
-      Array.from({ length: 50 }, (_unused, i) => [
+      Array.from({ length: MAX_TURN_TOOL_ACTIVITY_PARTS }, (_unused, i) => [
         startEvent(i),
         completeEvent(i, { output: 'o'.repeat(2_000_000) }),
       ]).flat(),
@@ -1811,7 +1964,7 @@ describe('createBackendChatAdapter: tool-activity size limits', () => {
       output: string;
     }[];
     // Every call still resolves — the card never sits on a spinner nothing will clear.
-    expect(outputs).toHaveLength(50);
+    expect(outputs).toHaveLength(MAX_TURN_TOOL_ACTIVITY_PARTS);
     // …and the truncation is stated, so neither the human nor the model (which replays this
     // through `toOpenAIMessages`) mistakes a partial result for a whole one.
     expect(outputs[0].output).toContain('truncated');
@@ -1972,7 +2125,7 @@ describe('createBackendChatAdapter: tool-activity size limits', () => {
         jsonChars(TOOL_OUTPUT_TRUNCATED_SUFFIX) * MAX_TURN_TOOL_PARTS,
     );
     // Each term is really binding, so the total is not passing by accident.
-    expect(starts).toHaveLength(MAX_TURN_TOOL_PARTS);
+    expect(starts).toHaveLength(MAX_TURN_TOOL_ACTIVITY_PARTS);
     expect(outputs.at(-1)!.output).toContain('truncated');
     warnSpy.mockRestore();
   });

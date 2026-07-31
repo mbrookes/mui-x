@@ -29,12 +29,17 @@ import {
   createBatchingAdapter,
   MAX_BATCH_WIDGETS_PER_REQUEST,
 } from '../../../x-studio/src/server/createBatchingAdapter';
+// The OTHER side of the same document: the L3 layer whose answer the wire plan must be compared
+// against. Asserting only what the client emits is what let a semi-join that returns a different
+// row set than memory ship as "exactly what `resolveRows` does".
+import { resolveRows } from '../../../x-studio/src/internals/dataSourceGraph';
 import type {
   StudioDataSource,
   StudioQueryDescriptor,
   StudioRelationship,
 } from '../../../x-studio-schema/src/dataTypes';
 import type { StudioExpressionField } from '../../../x-studio-schema/src/expressionTypes';
+import type { StudioFilterState } from '../../../x-studio-schema/src/stateTypes';
 /* eslint-enable import/no-relative-packages */
 import { validateQueryPlan } from '../security/validateQueryPlan';
 import { handleBatchQuery, MAX_WIDGETS_PER_BATCH } from '../handler';
@@ -392,12 +397,20 @@ function leftJoinRowCount(
   return rows.length;
 }
 
+/**
+ * Row ORDER is load-bearing here. The in-memory path resolves a join expression through
+ * `expressionEvaluator`'s per-key index, which holds ONE representative related row — the FIRST
+ * one for that key. The wire path emits `EXISTS`. The two semantics coincide whenever the
+ * matching related row happens to be that representative, so the non-matching order is placed
+ * FIRST deliberately: with `west`/`5` leading, every assertion in the semantics block below
+ * passes under either semantics and proves nothing.
+ */
 const FANOUT_TABLES = {
-  customers: [{ id: 1, lifetime_value: 100 }],
+  customers: [{ id: 1, name: 'Acme', lifetime_value: 100 }],
   orders: [
+    { order_id: 11, customer_id: 1, region: 'east', region_id: 'r1', amount: 9 },
     { order_id: 10, customer_id: 1, region: 'west', region_id: 'r1', amount: 5 },
-    { order_id: 11, customer_id: 1, region: 'east', region_id: 'r1', amount: 7 },
-    { order_id: 12, customer_id: 1, region: 'west', region_id: 'r1', amount: 9 },
+    { order_id: 12, customer_id: 1, region: 'west', region_id: 'r1', amount: 7 },
   ],
   regions: [{ region_id: 'r1', region_name: 'West', hq_customer_id: 1 }],
   profiles: [{ profile_id: 'p1', customer_id: 1, tier: 'gold' }],
@@ -509,6 +522,251 @@ describe('seam — fan-out orientation guard', () => {
     expect(widget.semiJoins).toBeUndefined();
     expect(widget.columnAliases).toEqual({ 'expr-tier': 'profiles.tier' });
     expect(widget.columns).toContain('expr-tier');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// R7-F1 — semi-join ANSWER vs the in-memory answer
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The block above proves the client never emits a row-MULTIPLYING plan. That is a different
+ * claim from "the plan returns the rows the same dashboard returns in memory", and the two were
+ * conflated: the round-6 fan-out guard's comment asserted the semi-join "is exactly what
+ * `dataSourceGraph.resolveRows` does in memory" for every branch that emits one, which is true
+ * for a plain cross-source field and false for a join-expression field.
+ *
+ * Nothing caught it because the fan-out assertions above stop at "server accepts it", "no row
+ * multiplication" and "descriptor has this shape" — none of which runs the OTHER side of the
+ * document. These tests do: same sources, same relationships, same expression fields, same
+ * filter, evaluated once through the client's emitted wire plan and once through
+ * `resolveRows`, then compared.
+ */
+
+/** Apply one emitted wire predicate to a row of its own table. */
+function matchesPredicate(row: Record<string, unknown>, pred: FilterPredicateLike): boolean {
+  const value = row[pred.column.slice(pred.column.indexOf('.') + 1)];
+  switch (pred.operator) {
+    case 'eq':
+      return value === pred.value;
+    case 'neq':
+      return value !== pred.value;
+    case 'in':
+      return (pred.value as unknown[]).includes(value);
+    case 'gt':
+      return (value as number) > (pred.value as number);
+    case 'gte':
+      return (value as number) >= (pred.value as number);
+    case 'lt':
+      return (value as number) < (pred.value as number);
+    case 'lte':
+      return (value as number) <= (pred.value as number);
+    default:
+      // Never silently pass an operator this interpreter does not model — that would turn a
+      // real divergence into a green test.
+      throw new Error(`clientWireSeam: unmodelled wire operator "${pred.operator}"`);
+  }
+}
+
+interface FilterPredicateLike {
+  column: string;
+  operator: string;
+  value?: unknown;
+}
+interface SemiJoinLike {
+  table: string;
+  column: string;
+  foreignColumn: string;
+  filters: FilterPredicateLike[];
+  semiJoins?: SemiJoinLike[];
+}
+
+/** `EXISTS (SELECT 1 FROM sj.table WHERE sj.foreignColumn = outer[sj.column] AND …)`. */
+function semiJoinHolds(
+  outerRow: Record<string, unknown>,
+  semiJoin: SemiJoinLike,
+  tables: Record<string, Record<string, unknown>[]>,
+): boolean {
+  const outerKey = outerRow[semiJoin.column.slice(semiJoin.column.indexOf('.') + 1)];
+  const innerKeyColumn = semiJoin.foreignColumn.slice(semiJoin.foreignColumn.indexOf('.') + 1);
+  return (tables[semiJoin.table] ?? []).some(
+    (inner) =>
+      inner[innerKeyColumn] === outerKey &&
+      semiJoin.filters.every((pred) => matchesPredicate(inner, pred)) &&
+      (semiJoin.semiJoins ?? []).every((nested) => semiJoinHolds(inner, nested, tables)),
+  );
+}
+
+/**
+ * Evaluate a client-emitted plan's WHERE clause — top-level predicates AND semi-joins — under
+ * standard SQL semantics and return the surviving primary-table rows. The sibling of
+ * `leftJoinRowCount`, and for the same reason: `mockDb` models neither joins nor subqueries.
+ */
+function wireRows(
+  widget: BatchWidgetDescriptor,
+  tables: Record<string, Record<string, unknown>[]>,
+): Record<string, unknown>[] {
+  return tables[widget.table].filter(
+    (row) =>
+      (widget.filters ?? []).every((pred) => matchesPredicate(row, pred as FilterPredicateLike)) &&
+      ((widget.semiJoins as SemiJoinLike[] | undefined) ?? []).every((semiJoin) =>
+        semiJoinHolds(row, semiJoin, tables),
+      ),
+  );
+}
+
+/** The same `SOURCES`, carrying `FANOUT_TABLES` as in-memory rows for `resolveRows`. */
+const FANOUT_SOURCES: Record<string, StudioDataSource> = Object.fromEntries(
+  Object.entries(SOURCES).map(([id, source]) => [
+    id,
+    { ...source, rows: FANOUT_TABLES[id as keyof typeof FANOUT_TABLES] },
+  ]),
+);
+
+function pageFilter(overrides: Partial<StudioFilterState>): StudioFilterState {
+  return {
+    id: `f-${overrides.field}`,
+    field: '',
+    operator: 'equals',
+    value: undefined,
+    scope: { kind: 'page', pageId: 'p1' },
+    ...overrides,
+  } as StudioFilterState;
+}
+
+/** The in-memory answer for the same document, as the L3 layer computes it. */
+function memoryRows(
+  sourceId: string,
+  filters: StudioFilterState[],
+  relationships: StudioRelationship[],
+  expressionFields: StudioExpressionField[],
+): Record<string, unknown>[] {
+  return resolveRows(
+    FANOUT_TABLES[sourceId as keyof typeof FANOUT_TABLES],
+    sourceId,
+    filters,
+    FANOUT_SOURCES,
+    relationships,
+    expressionFields,
+  );
+}
+
+describe('seam — semi-join answer vs the in-memory answer', () => {
+  it('agrees with memory for a plain cross-source field on the "one" side', async () => {
+    // Section 3's semi-join. In memory a cross-filter on a physical field of a fan-out related
+    // source takes `resolveRows`' cross-filter arm, which IS a semi-join — so both sides answer
+    // `EXISTS` and the customer survives even though its FIRST order is `east`. This is the
+    // control: it is what makes the two failures below attributable to the EXPRESSION branches
+    // rather than to the fixture.
+    const relationships = [REL_ORDERS_CUSTOMERS];
+    const widget = await captureWidget(
+      descriptor({
+        select: ['id'],
+        filter: { type: 'leaf', field: 'region', op: 'equals', value: 'west' },
+      }),
+      { dataSources: SOURCES, relationships },
+    );
+
+    expectServerAccepts(widget);
+    expect(wireRows(widget, FANOUT_TABLES)).toHaveLength(1);
+    expect(
+      memoryRows(
+        'customers',
+        [pageFilter({ field: 'region', value: 'west', filterSourceId: 'orders' })],
+        relationships,
+        [],
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('announces that a one-hop join-expression filter answers a different question', async () => {
+    const relationships = [REL_ORDERS_CUSTOMERS];
+    const expressionFields = [exprField('expr-order-region', 'customers', 'orders', 'region')];
+    const filter = { type: 'leaf', field: 'expr-order-region', op: 'equals', value: 'west' };
+    let widget: BatchWidgetDescriptor;
+    // `mockRestore` also CLEARS `mock.calls`, so the messages are read out before restoring.
+    let warnings = '';
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      widget = await captureWidget(descriptor({ select: ['id'], filter: filter as never }), {
+        dataSources: SOURCES,
+        relationships,
+        expressionFields,
+      });
+    } finally {
+      warnings = warn.mock.calls.flat().join('\n');
+      warn.mockRestore();
+    }
+
+    // Sanity: the in-memory path IS evaluating this filter — against the representative order,
+    // whose region is `east`.
+    expect(
+      memoryRows(
+        'customers',
+        [pageFilter({ field: 'expr-order-region', value: 'east' })],
+        relationships,
+        expressionFields,
+      ),
+    ).toHaveLength(1);
+
+    const memory = memoryRows(
+      'customers',
+      [pageFilter({ field: 'expr-order-region', value: 'west' })],
+      relationships,
+      expressionFields,
+    );
+    const wire = wireRows(widget!, FANOUT_TABLES);
+
+    // The divergence itself: `EXISTS` on the wire, representative-row comparison in memory.
+    expect(wire).toHaveLength(1);
+    expect(memory).toHaveLength(0);
+    // …and it is ANNOUNCED. Every other arm of the adapter's filter `flatMap` warns when it
+    // diverges; this arm shipped silent, which is what made a wrong number invisible.
+    expect(warnings).toContain('expr-order-region');
+    expect(warnings).toContain('at least one matching related row');
+  });
+
+  it('announces the same for the two-hop shape', async () => {
+    // widget = `customers`, hop 1 to `regions` (one-to-one), hop 2 to `orders` (fan-out).
+    const relationships = [REL_REGIONS_CUSTOMERS, REL_ORDERS_REGIONS];
+    const expressionFields = [exprField('expr-region-order-amount', 'regions', 'orders', 'amount')];
+    let widget: BatchWidgetDescriptor;
+    let warnings = '';
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      widget = await captureWidget(
+        descriptor({
+          select: ['id'],
+          filter: { type: 'leaf', field: 'expr-region-order-amount', op: 'equals', value: 5 },
+        }),
+        { dataSources: SOURCES, relationships, expressionFields },
+      );
+    } finally {
+      warnings = warn.mock.calls.flat().join('\n');
+      warn.mockRestore();
+    }
+
+    // Sanity: 9 is the representative order's amount, and memory keeps the row for it.
+    expect(
+      memoryRows(
+        'customers',
+        [pageFilter({ field: 'expr-region-order-amount', value: 9 })],
+        relationships,
+        expressionFields,
+      ),
+    ).toHaveLength(1);
+
+    expect(wireRows(widget!, FANOUT_TABLES)).toHaveLength(1);
+    expect(
+      memoryRows(
+        'customers',
+        [pageFilter({ field: 'expr-region-order-amount', value: 5 })],
+        relationships,
+        expressionFields,
+      ),
+    ).toHaveLength(0);
+    expect(warnings).toContain('expr-region-order-amount');
+    expect(warnings).toContain('at least one matching related row');
   });
 });
 
@@ -816,7 +1074,9 @@ describe('seam — per-widget row limit', () => {
 
   it('warns rather than silently truncating when a result comes back at the limit', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const db = createMockDb({ trunc: Array.from({ length: 40 }, (_, i) => ({ id: i, amount: i })) });
+    const db = createMockDb({
+      trunc: Array.from({ length: 40 }, (_, i) => ({ id: i, amount: i })),
+    });
     await captureWireBodies(
       [
         descriptor({

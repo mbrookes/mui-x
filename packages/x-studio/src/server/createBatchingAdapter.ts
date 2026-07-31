@@ -914,6 +914,54 @@ function innermostSemiJoin(descriptor: SemiJoinDescriptorInternal): SemiJoinDesc
 }
 
 /**
+ * The warning text for the ONE semi-join shape whose ANSWER differs from the in-memory path's:
+ * a filter on a JOIN-EXPRESSION field (`join(orders.region)`) whose join crosses a relationship
+ * that is one-to-many from the evaluating source's side.
+ *
+ * WHAT DIVERGES. `dataSourceGraph.resolveRows` compares such a predicate against the value
+ * `expressionEvaluator` MATERIALISED for the row, and that value is ONE representative related
+ * row (`precomputed.index.get(fkKey)` returns a single row per key). Its `exprFieldIndex` only
+ * diverts expression fields owned by ANOTHER source to the cross-filter arm, and even those are
+ * then filtered against that source's own enriched — i.e. single-representative — rows. The wire
+ * form is `EXISTS`. Proven with two rows and one relationship:
+ *
+ *     customers [{id:1}];  orders --many-to-one--> customers
+ *     orders    [{customer_id:1, region:'east'}, {customer_id:1, region:'west'}]
+ *     filter    join(orders.region) == 'west'
+ *     in memory -> 0 rows (the representative order is 'east');  on the wire -> 1 row.
+ *
+ * WHY THE WIRE KEEPS `EXISTS` RATHER THAN MATCHING MEMORY. It cannot match it: "the first
+ * matching related row" is a property of the order rows happen to arrive in, which SQL does not
+ * have and this protocol cannot express. The only other wire option is to drop the predicate
+ * entirely, which returns MORE rows than either semantics and is strictly further from the
+ * in-memory answer. `EXISTS` is also the answer Studio itself already gives for the same
+ * underlying question asked WITHOUT an expression field — a cross-filter on `orders.region` from
+ * a `customers` widget takes `resolveRows`' cross-filter arm, which is a semi-join in memory too.
+ *
+ * WHY IN-MEMORY IS NOT MOVED TO `EXISTS` INSTEAD. It can be done for the one-hop shape (rewrite
+ * the leaf into a cross-filter on the join target) but not for the two-hop one: there the widget
+ * reaches the filtered source THROUGH the expression's owner, and `findJoinPath` models a
+ * two-hop path only across a many-to-many junction, so there is no path to semi-join along.
+ * Fixing only the reachable half would leave the IN-MEMORY path answering the same question two
+ * ways depending on how many hops away the expression's owner sits — worse than one honest,
+ * announced mode difference. Aligning both shapes needs `resolveRows` to filter a foreign source
+ * RECURSIVELY; that is a change to the in-memory engine, not to this adapter.
+ *
+ * Until then this is a KNOWN MODE DIFFERENCE, and it warns — the contract every other divergence
+ * in this file follows, and the one thing missing when these two branches were introduced.
+ */
+function semiJoinExistsDivergenceWarning(fieldId: string, sourceId: string): string {
+  return (
+    `The filter on the calculated field "${fieldId}" for source "${sourceId}" reads a related ` +
+    `source that has MANY rows per row of this source. The data adapter's query protocol ` +
+    `expresses it as "has at least one matching related row", while in-memory sources compare ` +
+    `against a single representative related row, so the two can return different rows for the ` +
+    `same dashboard. Filter on the related source's field directly (a cross-source filter) for ` +
+    `an answer that matches in both modes.`
+  );
+}
+
+/**
  * Result of resolving a field ID to its SQL representation.
  *
  * - `column`: the logical ID to use in the `columns` array (unchanged for most fields).
@@ -948,8 +996,12 @@ interface ResolvedField {
    */
   fanOut?: boolean;
   /**
-   * Set together with `fanOut` — the semi-join that expresses a FILTER on this field faithfully.
-   * Only the filter path reads it; every other caller sees `unresolved` and degrades visibly.
+   * Set together with `fanOut` — the semi-join that expresses a FILTER on this field without
+   * multiplying the widget's rows. Only the filter path reads it; every other caller sees
+   * `unresolved` and degrades visibly.
+   *
+   * "Without multiplying the rows" is NOT the same claim as "the same answer as in memory":
+   * see `divergesFromInMemory` and `semiJoinExistsDivergenceWarning`.
    */
   semiJoin?: {
     /**
@@ -968,6 +1020,19 @@ interface ResolvedField {
     descriptor: SemiJoinDescriptorInternal;
     /** The physical column, on the innermost table, that this predicate targets. */
     filterColumn: string;
+    /**
+     * Set when this semi-join answers a DIFFERENT question than the in-memory path answers for
+     * the same document — see `semiJoinExistsDivergenceWarning` for the proof and for why the
+     * wire keeps `EXISTS` anyway. The filter path turns it into a `warnAdapterDivergence` call,
+     * so this mode difference is announced like every other one in this file instead of silently
+     * changing a number.
+     *
+     * Left unset for the two shapes where the semi-join IS equivalent: a plain physical field on
+     * a fan-out related source (section 3) and a many-to-many field (section 4). A cross-filter
+     * on either takes `dataSourceGraph.resolveRows`' cross-filter arm in memory, which is itself
+     * a semi-join, so those two paths agree by construction.
+     */
+    divergesFromInMemory?: boolean;
   };
   /**
    * When skip=true because the join target lives on a different adapter endpoint,
@@ -1100,9 +1165,16 @@ function resolveField(
               // `LEFT JOIN orders ON customers.id = orders.customer_id` multiplies each widget row
               // by its match count: correcting only the ON orientation would turn a loud
               // server-side rejection into a silently inflated `SUM` (a customer with three orders
-              // reads 3×). A FILTER on the expression field is still expressible faithfully — as a
-              // semi-join, exactly as for a plain cross-source field — while every other use
-              // (display column, groupBy, aggregation source) degrades visibly via `unresolved`.
+              // reads 3×). A FILTER on the expression field is still expressible WITHOUT
+              // multiplying rows — as a semi-join — while every other use (display column,
+              // groupBy, aggregation source) degrades visibly via `unresolved`.
+              //
+              // That semi-join is NOT equivalent to the in-memory answer, unlike the one section 3
+              // emits for a plain cross-source field: in memory this predicate is compared against
+              // the single representative related row `expressionEvaluator` materialised, not
+              // against `EXISTS`. `divergesFromInMemory` makes the filter path announce that —
+              // see `semiJoinExistsDivergenceWarning` for the proof and for why `EXISTS` is still
+              // the right thing to put on the wire.
               if (rel.type === 'many-to-one') {
                 return {
                   column: fieldId,
@@ -1119,6 +1191,7 @@ function resolveField(
                     // The expression resolves to the joined table's PHYSICAL column, so that —
                     // not the logical expression-field id — is what the subquery filters on.
                     filterColumn: `${joinTable}.${joinFieldId}`,
+                    divergesFromInMemory: true,
                   },
                 };
               }
@@ -1236,11 +1309,15 @@ function resolveField(
                 }
                 // ORIENTATION GUARD for the two-hop chain. A fan-out at EITHER hop multiplies the
                 // widget's rows just as badly as one at a single hop, so the join form is
-                // abandoned for both. The faithful filter form is the same nested semi-join the
-                // two-hop many-to-many case emits (`MAX_SEMI_JOIN_DEPTH` is exactly 2), with the
-                // link columns read in the same orientation the LEFT JOINs above use: the outer
-                // `column` names the enclosing table, the `foreignColumn` the subquery's own —
-                // which is precisely what the middleware's `validateSemiJoins` requires.
+                // abandoned for both. The row-preserving filter form is the same nested semi-join
+                // the two-hop many-to-many case emits (`MAX_SEMI_JOIN_DEPTH` is exactly 2), with
+                // the link columns read in the same orientation the LEFT JOINs above use: the
+                // outer `column` names the enclosing table, the `foreignColumn` the subquery's
+                // own — which is precisely what the middleware's `validateSemiJoins` requires.
+                //
+                // Row-preserving, but NOT the in-memory answer — hence `divergesFromInMemory`,
+                // for the same reason as the one-hop expression branch in section 1. See
+                // `semiJoinExistsDivergenceWarning`.
                 if (hop1FansOut || hop2FansOut) {
                   return {
                     column: fieldId,
@@ -1265,6 +1342,7 @@ function resolveField(
                         ],
                       },
                       filterColumn: `${joinTable}.${joinFieldId}`,
+                      divergesFromInMemory: true,
                     },
                   };
                 }
@@ -1346,9 +1424,16 @@ function resolveField(
         // The faithful SQL for the FILTER case is a semi-join
         // (`WHERE customers.id IN (SELECT orders.customer_id FROM orders WHERE …)`), which the wire
         // protocol now expresses as a `SemiJoinDescriptor` — the same shape, and the same answer,
-        // as the in-memory semi-join. `semiJoin` below carries everything the filter path needs to
-        // emit it; the middleware applies the caller's row-level-security predicate INSIDE the
-        // subquery, so it is scoped exactly as a joined table would be.
+        // as the in-memory semi-join. That equivalence is specific to THIS section: a cross-filter
+        // on a plain physical field of a fan-out related source takes `resolveRows`' cross-filter
+        // arm, which is a semi-join in memory as well. It does NOT extend to a JOIN-EXPRESSION
+        // field over the same relationship — that one is compared against a single representative
+        // related row in memory, which is why those branches set `divergesFromInMemory` and this
+        // one does not (`semiJoinExistsDivergenceWarning`).
+        //
+        // `semiJoin` below carries everything the filter path needs to emit it; the middleware
+        // applies the caller's row-level-security predicate INSIDE the subquery, so it is scoped
+        // exactly as a joined table would be.
         //
         // Every OTHER use of the reference stays unresolved-with-a-warning. A semi-join filters
         // rows; it does not produce a VALUE, so a display column / groupBy / aggregation source on
@@ -1861,10 +1946,18 @@ function buildBatchWidgetDescriptor(
     if (r.semiJoin) {
       // The predicate's field is reachable only across a relationship that is one-to-many from
       // this widget's side. A LEFT JOIN there would multiply the widget's rows by the match count
-      // and inflate every aggregate; a SEMI-join filters them without multiplying, which is
-      // exactly what `dataSourceGraph.resolveRows` does in memory. Accumulate into the group for
-      // this foreign source rather than emitting one subquery per predicate — see
-      // `semiJoinGroups`.
+      // and inflate every aggregate; a SEMI-join filters them without multiplying. Accumulate
+      // into the group for this foreign source rather than emitting one subquery per predicate —
+      // see `semiJoinGroups`.
+      //
+      // For a plain cross-source field and for a many-to-many one this is ALSO the answer
+      // `dataSourceGraph.resolveRows` computes in memory. For a JOIN-EXPRESSION field it is not:
+      // `divergesFromInMemory` marks that case and it warns, rather than silently returning a
+      // different row set than the same dashboard shows on an in-memory source. Every other arm
+      // of this `flatMap` warns; this one was the only divergence in the file that did not.
+      if (r.semiJoin.divergesFromInMemory) {
+        warnAdapterDivergence(warnDedupe, semiJoinExistsDivergenceWarning(pred.column, d.sourceId));
+      }
       let group = semiJoinGroups.get(r.semiJoin.sourceId);
       if (!group) {
         group = r.semiJoin.descriptor;

@@ -894,6 +894,11 @@ describe('deserializeState', () => {
     const restored = deserializeState(serialized, {});
     expect(restored.doc.ai!.threads).toHaveLength(1);
     expect(restored.doc.ai!.activeThreadId).toBeUndefined();
+    // `screenAIState` is the exemplar site for the package's delete-the-key-never-
+    // `undefined` convention, and `toBeUndefined()` above passes either way. Only an `in`
+    // check distinguishes a deleted key from one that survived as an explicit `undefined`
+    // — which `serializeDoc` would then write back into the persisted doc.
+    expect('activeThreadId' in restored.doc.ai!).toBe(false);
   });
 
   // Same finding, the "thread was dropped out from under it" flavor: `activeThreadId`

@@ -564,6 +564,7 @@ export function compileSpec(spec: VegaLiteSpec, options: CompileOptions = {}): C
       gaps,
       palette,
       signals,
+      selections: paramsRes.selections,
       categoryIndex,
       categoryKey,
       sharedColorDomainRows,

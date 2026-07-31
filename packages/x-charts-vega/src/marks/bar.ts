@@ -482,7 +482,7 @@ export function compileBarMark(ctx: UnitContext): CompiledUnit {
     });
   }
 
-  const color = resolveColor(encoding, rows, gaps, unit.path);
+  const color = resolveColor(encoding, rows, gaps, unit.path, { selections: ctx.selections });
   const staticColor = color.staticColor ?? mark.color ?? mark.fill;
 
   const orientation = resolveOrientation(ctx);

@@ -6,6 +6,7 @@ import type {} from '@mui/x-charts-premium';
 import type { DatasetRow, VegaChannelDef, VegaEncoding, VegaFieldType } from '../types';
 import type { GapCollector, TranslationGap } from '../gaps';
 import type { NormalizedUnit } from '../normalize';
+import type { SelectionStates } from './params';
 
 /** A series object accepted by `ChartsContainer`'s `series` prop (incl. Premium types via augmentation). */
 export type CompiledSeries = NonNullable<ChartsContainerProps['series']>[number];
@@ -560,6 +561,8 @@ export interface UnitContext {
   palette: readonly string[];
   /** Resolved param/signal values (bound variable params), keyed by name. */
   signals?: Readonly<Record<string, unknown>>;
+  /** Initial state of each selection param, for `{param}` conditions. */
+  selections?: SelectionStates;
   /**
    * Returns the index of a row's x (or y) value within the axis categories,
    * or -1 when the axis is not categorical or the value is absent.

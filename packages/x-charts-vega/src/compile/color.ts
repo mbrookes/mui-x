@@ -11,6 +11,7 @@ import { isFieldDef, isValueDef } from '../types';
 import type { GapCollector } from '../gaps';
 import { VEGA_CATEGORICAL_SCHEMES } from './vegaDefaults';
 import { compileExpression, UnsupportedExpressionError } from '../transforms/calculate';
+import type { SelectionStates } from './params';
 
 /*
  * Color-channel resolution.
@@ -538,6 +539,7 @@ function resolveContinuousColorMap(
  */
 function compileColorCondition(
   condition: unknown,
+  selections?: SelectionStates,
 ): ((row: DatasetRow) => string | undefined) | undefined {
   const entries = Array.isArray(condition) ? condition : [condition];
   const compiled: Array<{ test: (row: DatasetRow) => unknown; value: string }> = [];
@@ -546,6 +548,13 @@ function compileColorCondition(
       return undefined;
     }
     const record = entry as Record<string, unknown>;
+    // A `{param}` entry that is constant at first render resolves to its colour
+    // for every row; anything row-dependent still falls through as unsupported.
+    const constant = constantParamConditionColor(record, selections);
+    if (constant !== undefined) {
+      compiled.push({ test: () => true, value: constant });
+      continue;
+    }
     if (typeof record.test !== 'string' || typeof record.value !== 'string') {
       return undefined;
     }
@@ -596,6 +605,41 @@ export interface ResolveColorOptions {
    * gap for those keys — they are translated, not dropped.
    */
   legendFormatHonored?: boolean;
+  /**
+   * Initial selection states, so a `{param}` colour condition can be resolved.
+   * Only an EMPTY point selection is row-independent — see
+   * `constantParamConditionColor`.
+   */
+  selections?: SelectionStates;
+}
+
+/**
+ * The colour a `{param}` condition resolves to when the selection makes it a
+ * CONSTANT, or `undefined` when it does not.
+ *
+ * Vega-Lite's default is that an empty selection matches every row (`empty` is
+ * true unless the spec says otherwise), so before any interaction the condition
+ * holds everywhere and its colour is simply the mark's colour. That is the
+ * frame a static wrapper renders, and getting it wrong is very visible:
+ * `interactive_concat_layer`'s genre bars are steelblue in Vega and were grey
+ * here, because the unsupported condition fell through to the `value: "grey"`
+ * base that Vega only shows once something IS selected.
+ *
+ * A seeded selection (`value: [...]`) picks some rows and not others, which a
+ * single-colour x-charts series cannot express, so it stays unsupported.
+ */
+function constantParamConditionColor(
+  entry: Record<string, unknown>,
+  selections: SelectionStates | undefined,
+): string | undefined {
+  if (typeof entry.param !== 'string' || typeof entry.value !== 'string') {
+    return undefined;
+  }
+  const selection = selections?.[entry.param];
+  if (!selection?.point || selection.initial || entry.empty === false) {
+    return undefined;
+  }
+  return entry.value;
 }
 
 export function resolveColor(
@@ -650,7 +694,7 @@ export function resolveColor(
     // fallback behavior for that combination.
     conditionResolver = isFieldDef(def)
       ? undefined
-      : compileColorCondition((def as { condition: unknown }).condition);
+      : compileColorCondition((def as { condition: unknown }).condition, options?.selections);
     if (!conditionResolver) {
       gaps.add({
         code: 'encoding:color-condition-unsupported',

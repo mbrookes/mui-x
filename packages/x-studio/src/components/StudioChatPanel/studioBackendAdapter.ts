@@ -295,6 +295,68 @@ function sanitizeEffectEntities(value: unknown): Array<{ id: string; title: stri
 export const MAX_TURN_APPROVAL_SIZE = 4 * MAX_STRING_LENGTH;
 
 /**
+ * Longest `toolCallId`, `toolName` or `approvalId` accepted on a `tool-approval-request`.
+ *
+ * {@link MAX_TURN_APPROVAL_SIZE} bounds `effects` and `reason`. It does NOT bound the three
+ * fields next to them, and `processStream` writes all of them onto the same `toolInvocation`
+ * — the same message PART, persisted by the same `handleMessagesChange` write. Measured with
+ * that budget in place: a 1 000 000-character `toolName` and a 1 000 000-character
+ * `approvalId` were forwarded verbatim onto the persisted part. Bounding one field of a
+ * record bounds nothing.
+ *
+ * 256 characters is far past any id a real server mints (`toolu_01…`, a UUID, a tool name),
+ * and an over-cap value DROPS THE WHOLE EVENT rather than truncating it: all three are
+ * correlation keys. `tool-activity` does not truncate its `toolCallId`, so a truncated
+ * approval id would no longer match the call it gates — the mid-stream re-assert of the
+ * model's own arguments would never fire — and the id POSTed back to `/approval` would be one
+ * the server cannot resolve. A card nobody can answer is worse than no card.
+ *
+ * Exported for the tests only — see {@link MAX_METADATA_KEY_LENGTH}.
+ */
+export const MAX_APPROVAL_ID_LENGTH = 256;
+
+/**
+ * How many approval PARTS one assistant turn may add to the persisted message.
+ *
+ * The count term, without which the per-field caps above are not a bound. `processStream`
+ * routes a `tool-approval-request` through `withToolInvocation(chunk.toolCallId, …)`: a new
+ * `toolCallId` creates a NEW part, so the number of parts a turn persists is the number of
+ * distinct gated tool call ids the server names — which nothing else limits. Measured with
+ * the id caps absent: 50 approval events x 20 000-character ids = 2 003 790 bytes on ONE
+ * assistant message, against a claimed "~40 KB per assistant message, independent of the
+ * event count". Charged per DISTINCT `toolCallId`, because re-prompting the same call
+ * overwrites its part instead of adding one.
+ *
+ * 64 is comfortably above `x-studio-ai-middleware`'s own
+ * `DEFAULT_MAX_TOOL_CALLS_PER_REQUEST` (50) — every one of which would have to be gated to
+ * reach it — while keeping the worst case a number rather than a function of the stream
+ * length. It also bounds `approvalGatedToolCalls` (entries are only ever added here), and so
+ * bounds the stream-end flush that walks it.
+ *
+ * WORST CASE PER ASSISTANT TURN, from this door:
+ *
+ *     ids/names   <=  3 * MAX_APPROVAL_ID_LENGTH * MAX_TURN_APPROVAL_PARTS
+ *                 =   3 * 256 * 64                  = 49 152 chars
+ *   + effects
+ *     and reason  <=  MAX_TURN_APPROVAL_SIZE         = 40 000 chars  (turn-wide, not per part)
+ *   ------------------------------------------------------------------------------
+ *   total         ~                                    89 KB per assistant message
+ *
+ * INDEPENDENT of the number of `tool-approval-request` events, which is the term the
+ * previous round's arithmetic omitted.
+ *
+ * NOT included, and deliberately so: the chunk's `input`. Both copies of it — the
+ * display-enriched one forwarded here and the model's own arguments held in
+ * `modelToolInputs` — are uncapped by an explicit earlier decision (`367deaa`: a doctored
+ * `input` teaches the model a shape its own schema rejects). See the `input` comment on the
+ * enqueue below. This budget is a bound on the fields this door OWNS, not a claim that the
+ * persisted message is bounded overall.
+ *
+ * Exported for the tests only — see {@link MAX_METADATA_KEY_LENGTH}.
+ */
+export const MAX_TURN_APPROVAL_PARTS = 64;
+
+/**
  * Whether an approval `effects` payload's lists are within the shared wire limits, checked
  * BEFORE narrowing so the answer covers the raw wire shape.
  *
@@ -530,6 +592,25 @@ export function createBackendChatAdapter(
       // unbounded number of events — so the budget spans the turn, not the event.
       // See `MAX_TURN_APPROVAL_SIZE`.
       let turnApprovalSize = 0;
+
+      // …and the term a size budget alone cannot express: the distinct `toolCallId`s this
+      // turn has already opened an approval PART for. `processStream` creates one part per
+      // new id, so this is the count of parts the door has added to the persisted message.
+      // See `MAX_TURN_APPROVAL_PARTS`.
+      const turnApprovalPartIds = new Set<string>();
+
+      // A payload the boundary withheld is a difference the human cannot see on the card, so
+      // it is announced — once per turn per reason, since the events that trigger it are
+      // unbounded in number and a per-event warning would be its own flood. The key set is
+      // bounded by the fixed number of call sites below.
+      const warnedApprovalKeys = new Set<string>();
+      const warnApprovalOnce = (key: string, message: string) => {
+        if (warnedApprovalKeys.has(key)) {
+          return;
+        }
+        warnedApprovalKeys.add(key);
+        console.warn(`MUI X Studio: ${message}`);
+      };
 
       // Helper: close the synthetic "Thinking…" reasoning part once real content arrives.
       const endReasoning = (
@@ -954,13 +1035,57 @@ Check the endpoint URL, its authentication headers, and the server logs for this
                   ? rawApproval.approvalId
                   : undefined;
               const approvalToolCallId = String(rawApproval.toolCallId ?? '');
+              const approvalToolName = String(rawApproval.toolName ?? '');
+              // The three fields `effects`/`reason`'s budget does not cover, and the count of
+              // parts neither of them covers. All of them ride the SAME persisted sink — one
+              // `toolInvocation`, written into `doc.ai.threads[].messages` — so capping only
+              // the two payload fields left the door open by 2 MB per turn (measured: 50
+              // events x 20 000-character ids). See `MAX_APPROVAL_ID_LENGTH` and
+              // `MAX_TURN_APPROVAL_PARTS` for the shape of the bound and the arithmetic.
+              //
+              // Both checks reject the WHOLE event rather than repairing it, and both run
+              // BEFORE `approvalGatedToolCalls.set` — an event that never reaches the
+              // consumer never overwrote `toolInvocation.input`, so it must not enter the
+              // re-assert bookkeeping either, or the stream-end flush would emit a
+              // `tool-input-available` for a call no card was ever shown for.
+              if (
+                approvalToolCallId.length > MAX_APPROVAL_ID_LENGTH ||
+                approvalToolName.length > MAX_APPROVAL_ID_LENGTH ||
+                (approvalId?.length ?? 0) > MAX_APPROVAL_ID_LENGTH
+              ) {
+                warnApprovalOnce(
+                  'approval-id-length',
+                  `The AI server sent a tool approval request whose toolCallId, toolName or ` +
+                    `approvalId is longer than ${MAX_APPROVAL_ID_LENGTH} characters. These ids ` +
+                    `are stored in the saved dashboard and are sent back to the server to answer ` +
+                    `the request, so the request was dropped instead of shortened — a shortened ` +
+                    `id would identify nothing. The tool call will not show an approval card. ` +
+                    `Check what the AI endpoint is sending for these fields.`,
+                );
+                return undefined;
+              }
+              if (
+                !turnApprovalPartIds.has(approvalToolCallId) &&
+                turnApprovalPartIds.size >= MAX_TURN_APPROVAL_PARTS
+              ) {
+                warnApprovalOnce(
+                  'approval-part-budget',
+                  `The AI server asked for approval of more than ${MAX_TURN_APPROVAL_PARTS} ` +
+                    `different tool calls in one response. Each one is stored in the saved ` +
+                    `dashboard, so the extra requests were dropped and those tool calls will not ` +
+                    `show an approval card. Check whether the endpoint's tool-call limit is set ` +
+                    `higher than this client's.`,
+                );
+                return undefined;
+              }
+              turnApprovalPartIds.add(approvalToolCallId);
               // This chunk's `input` is the display-enriched one, and x-chat writes it
               // over `toolInvocation.input`. Remember that it happened — with the tool
               // name, which the stream-end flush has no other source for — so the
               // model's own arguments can be re-asserted once the call settles, or when
               // the stream ends without it ever settling (see `modelToolInputs` and
               // `flushApprovalGatedInputs`).
-              approvalGatedToolCalls.set(approvalToolCallId, String(rawApproval.toolName ?? ''));
+              approvalGatedToolCalls.set(approvalToolCallId, approvalToolName);
               // `effects` (what the call will remove/orphan, with real titles) and
               // `reason` (the policy's own justification for flagging the call) exist so
               // a human can approve with the real impact in view instead of an opaque
@@ -1015,7 +1140,7 @@ Check the endpoint URL, its authentication headers, and the server logs for this
                 type: 'tool-approval-request',
                 ...(approvalId ? { approvalId } : {}),
                 toolCallId: approvalToolCallId,
-                toolName: String(rawApproval.toolName ?? ''),
+                toolName: approvalToolName,
                 // `input` is deliberately NOT capped here, and that is not an oversight.
                 //
                 // It never survives into the persisted message: this chunk's `input` is the

@@ -5,7 +5,9 @@ import type { ChatMessage, ChatMessageChunk, ChatStreamEnvelope } from '@mui/x-c
 import { MAX_ARRAY_LENGTH, MAX_STRING_LENGTH, UNSAFE_KEYS } from '@mui/x-studio-schema';
 import {
   createBackendChatAdapter,
+  MAX_APPROVAL_ID_LENGTH,
   MAX_METADATA_KEY_LENGTH,
+  MAX_TURN_APPROVAL_PARTS,
   MAX_TURN_APPROVAL_SIZE,
   MAX_TURN_METADATA_SIZE,
 } from './studioBackendAdapter';
@@ -625,6 +627,165 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
       input: unknown;
     };
     expect(lastInputAvailable.input).toEqual({ widgetRemovals: ['w1'] });
+  });
+
+  // ── id/name caps and the PART COUNT ────────────────────────────────────────
+  //
+  // `effects` and `reason` were capped one round ago and the commit claimed "~40 KB per
+  // assistant message, independent of the event count". Both halves were false: the same
+  // `toolInvocation` also carries `toolCallId`, `toolName` and `approvalId` (measured:
+  // 1 000 000 characters each, forwarded verbatim), and `processStream` makes a NEW part per
+  // distinct `toolCallId`, so the part count multiplied whatever the per-part fields cost
+  // (measured: 50 events x 20 000-character ids = 2 003 790 bytes on one message).
+  //
+  // Every test below therefore emits MANY events. A budget pinned by a single-event test is
+  // a budget with no count term, which is what the previous two rounds each shipped.
+
+  /** Every chunk of one turn, not just the approval ones. */
+  async function collectTurnChunks(events: Record<string, unknown>[]) {
+    mockFetch(makeSseBody([...events, { type: 'finish', finishReason: 'stop' }]));
+    const adapter = createBackendChatAdapter(
+      { endpoint: 'https://fake.test/api/ai' },
+      makeController(),
+    );
+    const stream = await adapter.sendMessage(makeSendInput([]));
+    const chunks = (await collectChunks(stream)).filter(isChatMessageChunk);
+    vi.unstubAllGlobals();
+    return chunks;
+  }
+
+  it('DROPS an approval whose ids are over the id cap — over many events, and audibly', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const huge = 'x'.repeat(MAX_APPROVAL_ID_LENGTH + 1);
+    const chunks = await collectTurnChunks(
+      Array.from({ length: 50 }, (_unused, i) => ({
+        type: 'tool-approval-request',
+        approvalId: `${huge}-${i}`,
+        toolCallId: `${huge}-${i}`,
+        toolName: huge,
+        input: {},
+      })),
+    );
+
+    // Not truncated — dropped. All three are correlation keys: a shortened `toolCallId` no
+    // longer matches the `tool-activity` that gates it, and a shortened `approvalId` names
+    // nothing the server can resolve when the human answers.
+    expect(chunks.filter((c) => c.type === 'tool-approval-request')).toHaveLength(0);
+    // …and the dropped events left no bookkeeping behind: `approvalGatedToolCalls` was never
+    // written, so the stream-end flush has nothing to re-assert for a card nobody ever saw.
+    expect(chunks.filter((c) => c.type === 'tool-input-available')).toHaveLength(0);
+    // Withheld, not silently withheld.
+    expect(warnSpy).toHaveBeenCalledTimes(1); // once per turn, not once per event
+    expect(String(warnSpy.mock.calls[0][0])).toContain('approvalId');
+    warnSpy.mockRestore();
+  });
+
+  it('accepts ids exactly AT the cap (the cap is a boundary, not a ban)', async () => {
+    const atCap = 'c'.repeat(MAX_APPROVAL_ID_LENGTH);
+    const chunks = (await collectTurnChunks([
+      {
+        type: 'tool-approval-request',
+        approvalId: atCap,
+        toolCallId: atCap,
+        toolName: atCap,
+        input: {},
+      },
+    ])) as ApprovalChunk[];
+
+    const approval = chunks.find((c) => c.type === 'tool-approval-request') as ApprovalChunk;
+    expect(approval).not.toBe(undefined);
+    expect(approval.toolCallId).toBe(atCap);
+    expect(approval.toolName).toBe(atCap);
+    expect(approval.approvalId).toBe(atCap);
+  });
+
+  it('bounds the NUMBER of approval parts one turn adds to the message', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // Every event individually legal — short ids, no `effects`, no `reason`. Only the COUNT
+    // is hostile, which is exactly the term a size-only budget cannot see.
+    const chunks = await collectTurnChunks(
+      Array.from({ length: MAX_TURN_APPROVAL_PARTS * 4 }, (_unused, i) =>
+        approvalEvent(i, { toolName: 'apply_bulk_update' }),
+      ),
+    );
+
+    expect(chunks.filter((c) => c.type === 'tool-approval-request')).toHaveLength(
+      MAX_TURN_APPROVAL_PARTS,
+    );
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    warnSpy.mockRestore();
+  });
+
+  it('charges the part budget per DISTINCT toolCallId, so a re-prompt still gets through', async () => {
+    // `processStream` routes the chunk through `withToolInvocation(chunk.toolCallId, …)`: a
+    // repeat id overwrites the part it already made rather than adding one, so it costs the
+    // persisted message nothing and must not cost the budget either.
+    const chunks = await collectTurnChunks(
+      Array.from({ length: MAX_TURN_APPROVAL_PARTS * 3 }, () => approvalEvent(1, {})),
+    );
+
+    expect(chunks.filter((c) => c.type === 'tool-approval-request')).toHaveLength(
+      MAX_TURN_APPROVAL_PARTS * 3,
+    );
+  });
+
+  it('holds the WHOLE per-turn arithmetic: per-field x per-part x part-count', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const atCap = 'c'.repeat(MAX_APPROVAL_ID_LENGTH);
+    // 500 events. Every EVEN one sits exactly at every per-field cap it can reach (at-cap ids,
+    // at-cap `reason`, a sizeable well-typed `effects`); every ODD one carries the
+    // 20 000-character ids that were measured going through verbatim. All three terms of the
+    // bound are therefore load-bearing here: drop the id cap and the odd events multiply
+    // `idBytes` by ~78x, drop the count cap and the even events multiply it by ~4x, drop the
+    // size budget and `payloadBytes` grows with the event count.
+    const chunks = (await collectTurnChunks(
+      Array.from({ length: 500 }, (_unused, i) =>
+        i % 2 === 0
+          ? {
+              type: 'tool-approval-request',
+              approvalId: `${atCap}${i}`.slice(0, MAX_APPROVAL_ID_LENGTH),
+              toolCallId: `call-${i}`
+                .padEnd(MAX_APPROVAL_ID_LENGTH, 'p')
+                .slice(0, MAX_APPROVAL_ID_LENGTH),
+              toolName: atCap,
+              input: {},
+              effects: { willRemoveWidgets: entities(400, 12) },
+              reason: 'r'.repeat(MAX_STRING_LENGTH),
+            }
+          : {
+              type: 'tool-approval-request',
+              approvalId: 'a'.repeat(20_000),
+              toolCallId: `over-${i}`.padEnd(20_000, 'p'),
+              toolName: 'n'.repeat(20_000),
+              input: {},
+            },
+      ),
+    )) as ApprovalChunk[];
+
+    const approvals = chunks.filter((c) => c.type === 'tool-approval-request') as ApprovalChunk[];
+    const idBytes = approvals.reduce(
+      (total, c) => total + c.toolCallId.length + c.toolName.length + (c.approvalId?.length ?? 0),
+      0,
+    );
+    const payloadBytes = approvals.reduce(
+      (total, c) =>
+        total + (c.effects ? JSON.stringify(c.effects)!.length : 0) + (c.reason?.length ?? 0),
+      0,
+    );
+
+    // ids/names: 3 fields x MAX_APPROVAL_ID_LENGTH x MAX_TURN_APPROVAL_PARTS.
+    expect(idBytes).toBeLessThanOrEqual(3 * MAX_APPROVAL_ID_LENGTH * MAX_TURN_APPROVAL_PARTS);
+    // effects + reason: one turn-wide budget, unchanged by the part count.
+    expect(payloadBytes).toBeLessThanOrEqual(MAX_TURN_APPROVAL_SIZE);
+    // …and the whole door, stated as one number the commit message can quote.
+    expect(idBytes + payloadBytes).toBeLessThanOrEqual(
+      3 * MAX_APPROVAL_ID_LENGTH * MAX_TURN_APPROVAL_PARTS + MAX_TURN_APPROVAL_SIZE,
+    );
+    // Each term is really binding here, so the total is not passing by accident.
+    expect(approvals).toHaveLength(MAX_TURN_APPROVAL_PARTS);
+    expect(approvals.at(-1)!.effects).toBe(undefined);
+    expect(approvals.at(-1)!.reason).toBe(undefined);
+    warnSpy.mockRestore();
   });
 });
 

@@ -345,16 +345,64 @@ export const MAX_APPROVAL_ID_LENGTH = 256;
  * INDEPENDENT of the number of `tool-approval-request` events, which is the term the
  * previous round's arithmetic omitted.
  *
- * NOT included, and deliberately so: the chunk's `input`. Both copies of it — the
- * display-enriched one forwarded here and the model's own arguments held in
- * `modelToolInputs` — are uncapped by an explicit earlier decision (`367deaa`: a doctored
- * `input` teaches the model a shape its own schema rejects). See the `input` comment on the
- * enqueue below. This budget is a bound on the fields this door OWNS, not a claim that the
+ * The chunk's `input` is bounded separately — see {@link MAX_APPROVAL_INPUT_SIZE}. What
+ * remains uncapped, by an explicit earlier decision (`367deaa`), is `modelToolInputs`' copy:
+ * the model's OWN tool arguments, captured from `tool-activity` and replayed verbatim by
+ * `toOpenAIMessages`, where a doctored value teaches the model a shape its own schema
+ * rejects. This budget is a bound on the fields this door owns, not a claim that the
  * persisted message is bounded overall.
  *
  * Exported for the tests only — see {@link MAX_METADATA_KEY_LENGTH}.
  */
 export const MAX_TURN_APPROVAL_PARTS = 64;
+
+/**
+ * Largest display-enriched `input` one approval card may carry, and the turn-wide total.
+ *
+ * This cap exists because the justification for NOT having one does not survive the error
+ * path. The reasoning was: the enriched `input` never outlives the card, since the model's
+ * own arguments are re-asserted over it at every settle point — by `tool-activity`
+ * `complete` mid-stream, and by `flushApprovalGatedInputs` from `closeStream` and
+ * `errorStream` otherwise. Three of those are sound (measured: `finish`, a stream that ends
+ * without `finish`, and an abort all deliver). `errorStream` is not:
+ * `ReadableStreamDefaultController.error()` RESETS the queue, so a re-assert the consumer has
+ * not already read is discarded. Measured with one pending approval carrying a 2 MB enriched
+ * `input`, the consumer awaiting a macrotask between reads (exactly what `processStream` does
+ * — it awaits `updateMessage`/`onToolCall`) and the server sending an `error` event: zero
+ * re-asserts delivered, and the 2 000 011-byte enriched copy is the last write to
+ * `toolInvocation.input`. With the reader parked in a pending `read()` instead, both arrived.
+ * Racy, not absent — which is the same thing as unbounded when the writer is untrusted.
+ *
+ * It is not repairable at the transport: nothing a producer can do makes a consumer drain a
+ * queue `error()` is about to reset. And the enriched copy is ALREADY persisted long before
+ * any exit path runs — `handleMessagesChange` writes as the stream streams, and an approval is
+ * answered on a separate POST while the SSE stream stays open, so the enriched copy sits in
+ * `doc.ai.threads` for the whole human-deliberation window regardless. The re-assert is a
+ * repair, not a prevention; a bound has to come from the write itself.
+ *
+ * Over-cap input degrades the card to `{}` rather than to `modelToolInputs`' copy, and that
+ * choice is the whole point of the enrichment: the server resolves ids against real state so
+ * a prompt-injected model cannot label a removal with a title of its own choosing
+ * (`remove_widget`'s `widgetTitle` is overwritten from state). Falling back to the model's own
+ * arguments would put exactly those model-chosen labels next to an approve button — a
+ * deceptive card is worse than an uninformative one, and an uninformative one is easy to deny.
+ *
+ * `4 * MAX_STRING_LENGTH` = 40 000 characters per card is far past a real enriched payload (an
+ * `apply_bulk_update` removing 200 widgets as `{id, title}` pairs is ~10 000 characters), and
+ * {@link MAX_TURN_APPROVAL_INPUT_SIZE} = 160 000 characters spans the turn, because — as
+ * everywhere else on this boundary — a per-event limit times an unbounded event count is not a
+ * limit.
+ *
+ * Exported for the tests only — see {@link MAX_METADATA_KEY_LENGTH}.
+ */
+export const MAX_APPROVAL_INPUT_SIZE = 4 * MAX_STRING_LENGTH;
+
+/**
+ * Turn-wide total for the display-enriched `input`s of every approval card in one assistant
+ * turn — the count term for {@link MAX_APPROVAL_INPUT_SIZE}, which alone would bound one card
+ * and leave the message bounded only by the part count.
+ */
+export const MAX_TURN_APPROVAL_INPUT_SIZE = 16 * MAX_STRING_LENGTH;
 
 /**
  * Whether an approval `effects` payload's lists are within the shared wire limits, checked
@@ -599,6 +647,12 @@ export function createBackendChatAdapter(
       // See `MAX_TURN_APPROVAL_PARTS`.
       const turnApprovalPartIds = new Set<string>();
 
+      // The display-enriched `input`s of this turn's approval cards. A separate budget from
+      // `turnApprovalSize` because it buys something different — the card's readability, not
+      // its impact summary — and because it is the one field whose "it never persists"
+      // justification the error path breaks. See `MAX_APPROVAL_INPUT_SIZE`.
+      let turnApprovalInputSize = 0;
+
       // A payload the boundary withheld is a difference the human cannot see on the card, so
       // it is announced — once per turn per reason, since the events that trigger it are
       // unbounded in number and a per-event warning would be its own flood. The key set is
@@ -717,7 +771,9 @@ export function createBackendChatAdapter(
           // shape that silently no-ops.
           //
           // Called from the two settle points below, so it also covers a server that
-          // closes the connection mid-approval and an errored stream. Only gated calls
+          // closes the connection mid-approval. On the ERRORED path it is best effort and
+          // not more than that — `controller.error()` resets the queue (see `errorStream`) —
+          // which is why the payload it repairs is capped at the write. Only gated calls
           // are flushed: an ungated call's `input` was never overwritten, so re-emitting
           // it would be pure noise (the same condition the `complete` branch applies).
           const flushApprovalGatedInputs = () => {
@@ -746,9 +802,14 @@ export function createBackendChatAdapter(
             if (streamSettled) {
               return;
             }
-            // Best effort on this path — `controller.error()` resets the queue, so an
-            // unread re-assert is dropped. Enqueuing it costs nothing and is delivered
-            // whenever the consumer has already drained past it.
+            // Best effort on this path, and measured to be: `controller.error()` resets the
+            // queue, so a re-assert the consumer has not already read is DISCARDED. With the
+            // consumer awaiting a macrotask between reads — what `processStream` actually
+            // does — zero of two pending re-asserts were delivered; with the reader parked in
+            // a pending `read()`, both were. Nothing a producer can do fixes that, which is
+            // why the enriched `input` this would have repaired is size-capped at the write
+            // instead (`MAX_APPROVAL_INPUT_SIZE`) rather than trusted to this call. Enqueuing
+            // it still costs nothing and still lands whenever the consumer has drained past.
             flushApprovalGatedInputs();
             streamSettled = true;
             streamController.error(err);
@@ -1136,29 +1197,50 @@ Check the endpoint URL, its authentication headers, and the server logs for this
                 turnApprovalSize += rawApproval.reason.length;
                 policyReason = rawApproval.reason;
               }
+              // The display-enriched `input`, capped per card AND per turn.
+              //
+              // This one used to be forwarded verbatim, on the grounds that it never outlives
+              // the confirmation card — the model's own arguments are re-asserted over it at
+              // every settle point. That holds for three exit paths and fails on the fourth:
+              // `errorStream` calls `ReadableStreamDefaultController.error()`, which RESETS
+              // the queue, so a re-assert the consumer has not already read is discarded
+              // (measured: zero delivered, a 2 MB enriched copy left as the last write to
+              // `toolInvocation.input`). It is also persisted the moment the card renders and
+              // stays there for the whole human-deliberation window, since the approval is
+              // answered on a separate POST while this stream stays open. The re-assert is a
+              // repair, not a prevention. See `MAX_APPROVAL_INPUT_SIZE` for the full
+              // measurement and for why the fallback is `{}` rather than the model's own
+              // arguments.
+              //
+              // Still uncapped, deliberately: `modelToolInputs`' copy — the model's OWN
+              // arguments, which `toOpenAIMessages` replays verbatim, and which `367deaa`
+              // un-capped precisely because a doctored value teaches the model a shape its
+              // own schema rejects.
+              const rawApprovalInput = rawApproval.input ?? {};
+              const approvalInputSize = wireValueSize(rawApprovalInput);
+              let approvalInput: unknown = {};
+              if (
+                approvalInputSize <= MAX_APPROVAL_INPUT_SIZE &&
+                turnApprovalInputSize + approvalInputSize <= MAX_TURN_APPROVAL_INPUT_SIZE
+              ) {
+                turnApprovalInputSize += approvalInputSize;
+                approvalInput = rawApprovalInput;
+              } else {
+                warnApprovalOnce(
+                  'approval-input-size',
+                  `The AI server sent a tool approval request whose details are larger than this ` +
+                    `client stores per response (${MAX_APPROVAL_INPUT_SIZE} characters per ` +
+                    `request, ${MAX_TURN_APPROVAL_INPUT_SIZE} per response). The approval card ` +
+                    `is showing no details for it, so deny the request unless you know what it ` +
+                    `does. Check what the AI endpoint is sending as the request's input.`,
+                );
+              }
               streamController.enqueue({
                 type: 'tool-approval-request',
                 ...(approvalId ? { approvalId } : {}),
                 toolCallId: approvalToolCallId,
                 toolName: approvalToolName,
-                // `input` is deliberately NOT capped here, and that is not an oversight.
-                //
-                // It never survives into the persisted message: this chunk's `input` is the
-                // DISPLAY-enriched one, and the model's own arguments are re-asserted over it
-                // at every settle point — by the `tool-activity` `complete` branch mid-stream,
-                // and by `flushApprovalGatedInputs` from BOTH `closeStream` and `errorStream`
-                // otherwise. So a cap here would bound nothing that outlives the confirmation
-                // card, while costing the card exactly the enrichment it exists for (real
-                // titles instead of opaque ids) and, when it fired, asking a human to approve
-                // a destructive call rendered as `{}`.
-                //
-                // The `input` that IS persisted is `modelToolInputs`' copy, captured from
-                // `tool-activity` — the model's own tool arguments, which `toOpenAIMessages`
-                // replays verbatim on the next request. Capping THAT is what `367deaa`
-                // deliberately undid (a doctored `input` teaches the model a shape its own
-                // schema rejects), so it stays a known, uncapped channel rather than a
-                // silently corrupted one.
-                input: rawApproval.input ?? {},
+                input: approvalInput,
                 ...(effects ? { effects } : {}),
                 ...(policyReason ? { reason: policyReason } : {}),
               });

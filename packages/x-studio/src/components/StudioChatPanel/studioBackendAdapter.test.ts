@@ -6,7 +6,9 @@ import { MAX_ARRAY_LENGTH, MAX_STRING_LENGTH, UNSAFE_KEYS } from '@mui/x-studio-
 import {
   createBackendChatAdapter,
   MAX_APPROVAL_ID_LENGTH,
+  MAX_APPROVAL_INPUT_SIZE,
   MAX_METADATA_KEY_LENGTH,
+  MAX_TURN_APPROVAL_INPUT_SIZE,
   MAX_TURN_APPROVAL_PARTS,
   MAX_TURN_APPROVAL_SIZE,
   MAX_TURN_METADATA_SIZE,
@@ -587,11 +589,12 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
     );
   });
 
-  // `input` is the one field on this chunk that is NOT capped, and that is a decision, not an
-  // oversight: it never survives into the persisted message. The model's own arguments are
-  // re-asserted over this display-enriched copy at every settle point — here, by
-  // `flushApprovalGatedInputs` on the ordinary `finish` path.
-  it('forwards `input` verbatim, and the settle re-asserts the model arguments over it', async () => {
+  // A sizeable but legal enriched `input` is forwarded untouched — the cap below is a
+  // boundary, not a ban — and the model's own arguments are re-asserted over it at the settle
+  // point, here by `flushApprovalGatedInputs` on the ordinary `finish` path. That re-assert is
+  // a repair and NOT the bound: see the `MAX_APPROVAL_INPUT_SIZE` tests below for the exit
+  // path where it never arrives.
+  it('forwards a legal `input` verbatim, and the settle re-asserts the model arguments over it', async () => {
     const bigInput = { note: 'n'.repeat(MAX_STRING_LENGTH + 1) };
     mockFetch(
       makeSseBody([
@@ -627,6 +630,82 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
       input: unknown;
     };
     expect(lastInputAvailable.input).toEqual({ widgetRemovals: ['w1'] });
+  });
+
+  // ── the enriched `input` cap ───────────────────────────────────────────────
+  //
+  // "It never survives into the persisted message" holds for three exit paths and fails on the
+  // fourth. `errorStream` calls `ReadableStreamDefaultController.error()`, which RESETS the
+  // queue: measured with one pending approval carrying a 2 MB enriched `input` and a consumer
+  // awaiting a macrotask between reads (what `processStream` does), zero re-asserts were
+  // delivered and the 2 000 011-byte copy was the last write to `toolInvocation.input`. It is
+  // also already persisted while the human deliberates, since the approval is answered on a
+  // separate POST while this stream stays open. So the bound is at the WRITE, not at the
+  // repair — which means these tests do not have to reproduce that race to be meaningful.
+
+  it('degrades an over-cap `input` to `{}` rather than to the model-supplied one', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const chunks = (await collectTurnChunks([
+      {
+        type: 'tool-activity',
+        phase: 'start',
+        toolCallId: 'call-1',
+        toolName: 'remove_widget',
+        // The model's own arguments carry the model's own labels; the enrichment exists to
+        // overwrite exactly this from real state.
+        input: { widgetId: 'w1', widgetTitle: 'Harmless-looking chart' },
+      },
+      {
+        type: 'tool-approval-request',
+        toolCallId: 'call-1',
+        toolName: 'remove_widget',
+        input: { note: 'n'.repeat(MAX_APPROVAL_INPUT_SIZE) },
+      },
+    ])) as ApprovalChunk[];
+
+    const approval = chunks.find((c) => c.type === 'tool-approval-request') as ApprovalChunk;
+    // `{}` — an uninformative card, which a human can deny. NOT the model's arguments: that
+    // would put a model-chosen title next to an approve button, which is the one thing the
+    // server-side enrichment exists to prevent.
+    expect(approval.input).toEqual({});
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(String(warnSpy.mock.calls[0][0])).toContain('deny');
+    warnSpy.mockRestore();
+  });
+
+  it('accepts an `input` exactly AT the per-card cap', async () => {
+    // `{"note":"n…"}` serializes to exactly MAX_APPROVAL_INPUT_SIZE characters.
+    const note = 'n'.repeat(MAX_APPROVAL_INPUT_SIZE - '{"note":""}'.length);
+    const chunks = (await collectTurnChunks([
+      { type: 'tool-approval-request', toolCallId: 'call-1', toolName: 't', input: { note } },
+    ])) as ApprovalChunk[];
+
+    const approval = chunks.find((c) => c.type === 'tool-approval-request') as ApprovalChunk;
+    expect(JSON.stringify(approval.input)).toHaveLength(MAX_APPROVAL_INPUT_SIZE);
+  });
+
+  it('spends ONE enriched-input budget across every approval event of the turn', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // 40 events, each individually legal at half the per-card cap. A per-EVENT limit accepts
+    // all 40 and puts ~800 KB of enriched inputs on one message; the turn budget does not.
+    const chunks = (await collectTurnChunks(
+      Array.from({ length: 40 }, (_unused, i) =>
+        approvalEvent(i, { input: { note: 'n'.repeat(MAX_APPROVAL_INPUT_SIZE / 2) } }),
+      ),
+    )) as ApprovalChunk[];
+
+    const approvals = chunks.filter((c) => c.type === 'tool-approval-request') as ApprovalChunk[];
+    const inputBytes = approvals.reduce(
+      (total, c) => total + (JSON.stringify(c.input)?.length ?? 0),
+      0,
+    );
+    expect(inputBytes).toBeLessThanOrEqual(MAX_TURN_APPROVAL_INPUT_SIZE);
+    // Every approval still gets a card — only the details are withheld once the budget is out.
+    expect(approvals).toHaveLength(40);
+    expect(approvals[0].input).not.toEqual({});
+    expect(approvals.at(-1)!.input).toEqual({});
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    warnSpy.mockRestore();
   });
 
   // ── id/name caps and the PART COUNT ────────────────────────────────────────
@@ -732,12 +811,12 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
   it('holds the WHOLE per-turn arithmetic: per-field x per-part x part-count', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const atCap = 'c'.repeat(MAX_APPROVAL_ID_LENGTH);
-    // 500 events. Every EVEN one sits exactly at every per-field cap it can reach (at-cap ids,
-    // at-cap `reason`, a sizeable well-typed `effects`); every ODD one carries the
-    // 20 000-character ids that were measured going through verbatim. All three terms of the
-    // bound are therefore load-bearing here: drop the id cap and the odd events multiply
-    // `idBytes` by ~78x, drop the count cap and the even events multiply it by ~4x, drop the
-    // size budget and `payloadBytes` grows with the event count.
+    // 500 events. Every EVEN one sits at every per-field cap it can reach (at-cap ids, at-cap
+    // `reason`, a sizeable well-typed `effects`, a half-cap enriched `input`); every ODD one
+    // carries the 20 000-character ids that were measured going through verbatim. Every term
+    // of the bound is load-bearing here: drop the id cap and the odd events multiply
+    // `idBytes` by ~78x, drop the count cap and the even events multiply it by ~4x, drop
+    // either size budget and `payloadBytes`/`inputBytes` grow with the event count.
     const chunks = (await collectTurnChunks(
       Array.from({ length: 500 }, (_unused, i) =>
         i % 2 === 0
@@ -748,7 +827,7 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
                 .padEnd(MAX_APPROVAL_ID_LENGTH, 'p')
                 .slice(0, MAX_APPROVAL_ID_LENGTH),
               toolName: atCap,
-              input: {},
+              input: { note: 'n'.repeat(MAX_APPROVAL_INPUT_SIZE / 2) },
               effects: { willRemoveWidgets: entities(400, 12) },
               reason: 'r'.repeat(MAX_STRING_LENGTH),
             }
@@ -773,18 +852,28 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
       0,
     );
 
+    const inputBytes = approvals.reduce(
+      (total, c) => total + (JSON.stringify(c.input)?.length ?? 0),
+      0,
+    );
+
     // ids/names: 3 fields x MAX_APPROVAL_ID_LENGTH x MAX_TURN_APPROVAL_PARTS.
     expect(idBytes).toBeLessThanOrEqual(3 * MAX_APPROVAL_ID_LENGTH * MAX_TURN_APPROVAL_PARTS);
     // effects + reason: one turn-wide budget, unchanged by the part count.
     expect(payloadBytes).toBeLessThanOrEqual(MAX_TURN_APPROVAL_SIZE);
+    // the display-enriched inputs: their own turn-wide budget.
+    expect(inputBytes).toBeLessThanOrEqual(MAX_TURN_APPROVAL_INPUT_SIZE);
     // …and the whole door, stated as one number the commit message can quote.
-    expect(idBytes + payloadBytes).toBeLessThanOrEqual(
-      3 * MAX_APPROVAL_ID_LENGTH * MAX_TURN_APPROVAL_PARTS + MAX_TURN_APPROVAL_SIZE,
+    expect(idBytes + payloadBytes + inputBytes).toBeLessThanOrEqual(
+      3 * MAX_APPROVAL_ID_LENGTH * MAX_TURN_APPROVAL_PARTS +
+        MAX_TURN_APPROVAL_SIZE +
+        MAX_TURN_APPROVAL_INPUT_SIZE,
     );
     // Each term is really binding here, so the total is not passing by accident.
     expect(approvals).toHaveLength(MAX_TURN_APPROVAL_PARTS);
     expect(approvals.at(-1)!.effects).toBe(undefined);
     expect(approvals.at(-1)!.reason).toBe(undefined);
+    expect(approvals.at(-1)!.input).toEqual({});
     warnSpy.mockRestore();
   });
 });

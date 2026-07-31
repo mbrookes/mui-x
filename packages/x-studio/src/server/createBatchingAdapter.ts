@@ -65,6 +65,7 @@ interface AggregationSpec {
   alias: string;
 }
 
+
 /**
  * A minimal DataLoader-style batch scheduler.
  * Collects keys over one microtask tick (or a custom schedule function)
@@ -942,8 +943,44 @@ function resolveField(
               leftCol = `${primaryTableName}.${rel.sourceField}`;
               rightCol = `${joinTable}.${rel.targetField}`;
             } else if (rel.targetId === primarySourceId && rel.sourceId === joinSourceId) {
-              leftCol = `${joinTable}.${rel.sourceField}`;
-              rightCol = `${primaryTableName}.${rel.targetField}`;
+              // The widget sits on the relationship's TARGET side, so the relationship's own
+              // fields read "backwards" relative to the join being emitted. The ON pair is NOT
+              // written in relationship order, though: the wire protocol requires LEFT to name a
+              // table already in scope and RIGHT to name the table THIS join introduces (see
+              // `validateJoinOnPairs` in x-studio-data-middleware). Reading `rel.sourceField` onto
+              // the LEFT here emitted `[joinTable.fk, primaryTable.pk]` for `table: joinTable` —
+              // a right-hand column qualified with the WRONG table, which the server rejects
+              // outright, failing the whole widget with `StudioWidgetErrorOverlay`.
+              leftCol = `${primaryTableName}.${rel.targetField}`;
+              rightCol = `${joinTable}.${rel.sourceField}`;
+              // ORIENTATION GUARD — the same one section 3 applies to plain cross-source fields,
+              // and it MUST accompany the qualification fix above rather than follow it. Across a
+              // `many-to-one` traversed backwards the widget is on the ONE side, so
+              // `LEFT JOIN orders ON customers.id = orders.customer_id` multiplies each widget row
+              // by its match count: correcting only the ON orientation would turn a loud
+              // server-side rejection into a silently inflated `SUM` (a customer with three orders
+              // reads 3×). A FILTER on the expression field is still expressible faithfully — as a
+              // semi-join, exactly as for a plain cross-source field — while every other use
+              // (display column, groupBy, aggregation source) degrades visibly via `unresolved`.
+              if (rel.type === 'many-to-one') {
+                return {
+                  column: fieldId,
+                  unresolved: true,
+                  fanOut: true,
+                  semiJoin: {
+                    sourceId: joinSourceId,
+                    descriptor: {
+                      table: joinTable,
+                      column: `${primaryTableName}.${rel.targetField}`,
+                      foreignColumn: `${joinTable}.${rel.sourceField}`,
+                      filters: [],
+                    },
+                    // The expression resolves to the joined table's PHYSICAL column, so that —
+                    // not the logical expression-field id — is what the subquery filters on.
+                    filterColumn: `${joinTable}.${joinFieldId}`,
+                  },
+                };
+              }
             }
             if (leftCol) {
               return {
@@ -986,12 +1023,23 @@ function resolveField(
           }
           let hop1Left = '';
           let hop1Right = '';
+          /**
+           * True when hop 1 is a `many-to-one` traversed BACKWARDS — the widget is on the "one"
+           * side, so joining across it multiplies the widget's rows. See the orientation guard
+           * below, and the identical one in section 3.
+           */
+          let hop1FansOut = false;
           if (hop1Rel.sourceId === primarySourceId && hop1Rel.targetId === exprSourceId) {
             hop1Left = `${primaryTableName}.${hop1Rel.sourceField}`;
             hop1Right = `${exprTable}.${hop1Rel.targetField}`;
           } else if (hop1Rel.targetId === primarySourceId && hop1Rel.sourceId === exprSourceId) {
-            hop1Left = `${exprTable}.${hop1Rel.sourceField}`;
-            hop1Right = `${primaryTableName}.${hop1Rel.targetField}`;
+            // LEFT = a table already in scope, RIGHT = the table this join introduces — not the
+            // relationship's own field order. Emitting `[exprTable.fk, primaryTable.pk]` for
+            // `table: exprTable` is a right-hand column qualified with the wrong table, which
+            // `validateJoinOnPairs` rejects, failing the whole widget.
+            hop1Left = `${primaryTableName}.${hop1Rel.targetField}`;
+            hop1Right = `${exprTable}.${hop1Rel.sourceField}`;
+            hop1FansOut = hop1Rel.type === 'many-to-one';
           }
           if (!hop1Left) {
             continue;
@@ -1029,15 +1077,55 @@ function resolveField(
                 }
                 let hop2Left = '';
                 let hop2Right = '';
+                /** Same backwards-`many-to-one` test as `hop1FansOut`, for the second hop. */
+                let hop2FansOut = false;
                 if (hop2Rel.sourceId === exprSourceId && hop2Rel.targetId === joinSourceId) {
                   hop2Left = `${exprTable}.${hop2Rel.sourceField}`;
                   hop2Right = `${joinTable}.${hop2Rel.targetField}`;
                 } else if (hop2Rel.targetId === exprSourceId && hop2Rel.sourceId === joinSourceId) {
-                  hop2Left = `${joinTable}.${hop2Rel.sourceField}`;
-                  hop2Right = `${exprTable}.${hop2Rel.targetField}`;
+                  // LEFT must name a table already in scope — `exprTable`, joined by hop 1 —
+                  // and RIGHT the table hop 2 introduces. The reverse order was rejected by
+                  // `validateJoinOnPairs`' right-hand rule.
+                  hop2Left = `${exprTable}.${hop2Rel.targetField}`;
+                  hop2Right = `${joinTable}.${hop2Rel.sourceField}`;
+                  hop2FansOut = hop2Rel.type === 'many-to-one';
                 }
                 if (!hop2Left) {
                   continue;
+                }
+                // ORIENTATION GUARD for the two-hop chain. A fan-out at EITHER hop multiplies the
+                // widget's rows just as badly as one at a single hop, so the join form is
+                // abandoned for both. The faithful filter form is the same nested semi-join the
+                // two-hop many-to-many case emits (`MAX_SEMI_JOIN_DEPTH` is exactly 2), with the
+                // link columns read in the same orientation the LEFT JOINs above use: the outer
+                // `column` names the enclosing table, the `foreignColumn` the subquery's own —
+                // which is precisely what the middleware's `validateSemiJoins` requires.
+                if (hop1FansOut || hop2FansOut) {
+                  return {
+                    column: fieldId,
+                    unresolved: true,
+                    fanOut: true,
+                    semiJoin: {
+                      sourceId: joinSourceId,
+                      descriptor: {
+                        table: exprTable,
+                        column: hop1Left,
+                        foreignColumn: hop1Right,
+                        // The intermediate level only links the widget to the filtered source; the
+                        // predicate belongs to the nested level (see `innermostSemiJoin`).
+                        filters: [],
+                        semiJoins: [
+                          {
+                            table: joinTable,
+                            column: hop2Left,
+                            foreignColumn: hop2Right,
+                            filters: [],
+                          },
+                        ],
+                      },
+                      filterColumn: `${joinTable}.${joinFieldId}`,
+                    },
+                  };
                 }
                 return {
                   column: fieldId, // keep logical ID; server aliases physical → logical
@@ -1091,8 +1179,14 @@ function resolveField(
       }
       relatedSourceId = rel.sourceId;
       const relatedTable = relatedSource.tableName ?? rel.sourceId;
-      leftCol = `${relatedTable}.${rel.sourceField}`;
-      rightCol = `${primaryTableName}.${rel.targetField}`;
+      // LEFT = the table already in scope (the widget's own), RIGHT = the table this join
+      // introduces — NOT the relationship's own field order. Written the other way round, the
+      // pair reads `[relatedTable.fk, primaryTable.pk]` for `table: relatedTable`, whose
+      // right-hand column names the wrong table and which `validateJoinOnPairs` rejects, failing
+      // the whole widget. (The `many-to-one`-traversed-backwards arity is diverted to a semi-join
+      // by the orientation guard below, so this branch only ever emits a `one-to-one` join.)
+      leftCol = `${primaryTableName}.${rel.targetField}`;
+      rightCol = `${relatedTable}.${rel.sourceField}`;
     }
 
     if (relatedSourceId !== null) {
@@ -1131,9 +1225,9 @@ function resolveField(
               sourceId: relatedSourceId,
               descriptor: {
                 table: relatedTable,
-                // The relationship's own fields, read in the SAME orientation the
-                // (unused here) LEFT JOIN branch below would: `rel.sourceField` is the FK on the
-                // related "many" table, `rel.targetField` the key on the widget's "one" table.
+                // The SAME column pair the (unused here) LEFT JOIN branch below would emit —
+                // outer key first, subquery projection second: `rel.targetField` is the key on the
+                // widget's "one" table, `rel.sourceField` the FK on the related "many" table.
                 column: `${primaryTableName}.${rel.targetField}`,
                 foreignColumn: `${relatedTable}.${rel.sourceField}`,
                 filters: [],

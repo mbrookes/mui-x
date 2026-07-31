@@ -2814,6 +2814,94 @@ describe('createBatchingAdapter — cross-source filter fan-out', () => {
     ]);
   });
 
+  // ── JOIN `on` orientation ──────────────────────────────────────────────────
+  //
+  // The wire protocol does NOT accept an `on` pair written in relationship-field order.
+  // `x-studio-data-middleware`'s `validateJoinOnPairs` requires the RIGHT side of every
+  // pair to name `join.table` (the table THIS join introduces) and the LEFT side a table
+  // already in scope, because a right-hand column naming an unrelated table is either a
+  // wrongly-ordered join or a tautology some engines execute as a cartesian product.
+  //
+  // Every branch that resolves a field across a relationship the widget sits at the TARGET
+  // of has to invert the relationship's own field order to satisfy that. Only the branches
+  // where the widget is the relationship's SOURCE were ever asserted here, so the three
+  // TARGET-side branches shipped swapped and hard-failed the whole widget server-side.
+  // `x-studio-data-middleware/src/__tests__/clientWireSeam.test.ts` runs the same shapes
+  // through the real validator; these keep the client package self-checking.
+  describe('join `on` orientation (widget on the relationship TARGET side)', () => {
+    /** `profiles --one-to-one--> customers`, so a customers widget is the TARGET. */
+    function makeTargetSideHarness(fetchFn: ReturnType<typeof makeOkFetch>) {
+      const endpoint = uid();
+      const dataSources: Record<string, StudioDataSource> = {
+        'source-customers': {
+          id: 'source-customers',
+          label: 'Customers',
+          tableName: 'customers',
+          fields: [field('id', 'number'), field('lifetime_value', 'number')],
+        },
+        'source-profiles': {
+          id: 'source-profiles',
+          label: 'Profiles',
+          tableName: 'profiles',
+          fields: [field('profileId'), field('customerId', 'number'), field('tier')],
+        },
+      };
+      const relationships: StudioRelationship[] = [
+        {
+          id: 'rel-profiles-customers',
+          type: 'one-to-one',
+          sourceId: 'source-profiles',
+          sourceField: 'customerId',
+          targetId: 'source-customers',
+          targetField: 'id',
+        },
+      ];
+      return createBatchingAdapter(endpoint, {
+        fetchFn: fetchFn as unknown as typeof fetch,
+        batchDelayMs: 0,
+        dataSources,
+        relationships,
+        expressionFields: [
+          {
+            id: 'expr-tier',
+            sourceId: 'source-customers',
+            label: 'Tier',
+            type: 'string',
+            expression: { joinSourceId: 'source-profiles', fieldId: 'tier' },
+          } as unknown as StudioExpressionField,
+        ],
+      });
+    }
+
+    async function joinsFor(select: string[]) {
+      const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+      await makeTargetSideHarness(fetchFn).getRows(
+        makeDescriptor({
+          sourceId: 'source-customers',
+          tableName: 'customers',
+          widgetId: 'w1',
+          select,
+        }),
+      );
+      const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+        widgets: Array<{ joins?: Array<{ table: string; on: [string, string][] }> }>;
+      };
+      return body.widgets[0].joins;
+    }
+
+    it('inverts the pair for a plain cross-source field', async () => {
+      expect(await joinsFor(['id', 'tier'])).toEqual([
+        { table: 'profiles', type: 'left', on: [['customers.id', 'profiles.customerId']] },
+      ]);
+    });
+
+    it('inverts the pair for an expression join field', async () => {
+      expect(await joinsFor(['id', 'expr-tier'])).toEqual([
+        { table: 'profiles', type: 'left', on: [['customers.id', 'profiles.customerId']] },
+      ]);
+    });
+  });
+
   // ── Many-to-many ───────────────────────────────────────────────────────────
   //
   // An M:N relationship is one-to-many from BOTH sides, so it has no JOIN form that preserves the

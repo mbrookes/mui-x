@@ -982,6 +982,8 @@ export const frLocaleText: Partial<StudioLocaleText> = {
     'Résumé de l’impact indisponible : il était trop volumineux pour être affiché. Refusez cette demande si vous ne savez pas ce qu’elle fait.',
   chatApprovalReasonWithheld:
     'La raison pour laquelle cette demande requiert une approbation était trop volumineuse pour être affichée. Refusez cette demande si vous ne savez pas ce qu’elle fait.',
+  chatApprovalInputWithheld:
+    'Les détails de cette demande étaient trop volumineux pour être affichés ; aucun argument n’est donc listé. Refusez cette demande si vous ne savez pas ce qu’elle fait.',
 
   // Chart unsupported messages
   chartUnsupportedFieldNotFound:

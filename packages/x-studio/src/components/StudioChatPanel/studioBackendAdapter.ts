@@ -443,11 +443,11 @@ export const MAX_TOOL_ID_LENGTH = 256;
  *     inputs      <=  MAX_TURN_APPROVAL_INPUT_SIZE    = 160 000 JSON chars (turn-wide, not
  *                                                                          per part)
  *   + the per-part constants a degraded card carries — the withheld markers
- *     (`{"effectsWithheld":true,"reasonWithheld":true}`, 46) plus the `{}` an over-cap input
- *     degrades to (2):
- *                 <=  48 * MAX_TURN_TOOL_PARTS    =   3 072 JSON chars
+ *     (`{"effectsWithheld":true,"reasonWithheld":true,"inputWithheld":true}`, 67) plus the
+ *     `{}` an over-cap input degrades to (2):
+ *                 <=  69 * MAX_TURN_TOOL_PARTS    =   4 416 JSON chars
  *   --------------------------------------------------------------------------------
- *   total         <=                                    252 224 JSON chars (~246 KB) per
+ *   total         <=                                    253 568 JSON chars (~248 KB) per
  *                                                       assistant message
  *
  * INDEPENDENT of the number of `tool-approval-request` events, which is the term the
@@ -557,11 +557,11 @@ export const TOOL_OUTPUT_TRUNCATED_SUFFIX =
  *   + enriched inputs  <=  MAX_TURN_APPROVAL_INPUT_SIZE       = 160 000
  *   + model inputs     <=  MAX_TURN_TOOL_INPUT_SIZE           = 160 000
  *   + tool outputs     <=  MAX_TURN_TOOL_OUTPUT_SIZE          = 600 000
- *   + per-part constants (withheld markers 46, degraded `{}` 2,
+ *   + per-part constants (withheld markers 67, degraded `{}` 2,
  *     truncation suffix ~170)
- *                      <=  218 * MAX_TURN_TOOL_PARTS          =  13 952
+ *                      <=  239 * MAX_TURN_TOOL_PARTS          =  15 296
  *     ------------------------------------------------------------------
- *     total                                                     1 023 104 JSON chars (~999 KB)
+ *     total                                                     1 024 448 JSON chars (~1 000 KB)
  *
  * Conservative twice over: `toolInvocation.input` is ONE field that both input budgets write
  * to (last write wins, so they cannot both be present), and a turn spending the whole output
@@ -1668,6 +1668,13 @@ Check the endpoint URL, its authentication headers, and the server logs for this
                 turnApprovalInputSize += approvalInputSize;
                 approvalInput = rawApprovalInput;
               } else {
+                // …and the degradation is MARKED, on `22964a2`'s own standard. `ToolPart`'s
+                // `showInput` is `input !== undefined` and `{}` is defined, so without this
+                // the card renders an "Input" section reading `{}` — byte-identical to a
+                // genuine no-argument call. "This call takes no arguments" and "this client
+                // refused to store the arguments" are very different things to be approving,
+                // and the console warning below reaches nobody holding the deny button.
+                withheldMarkers.inputWithheld = true;
                 warnApprovalOnce(
                   'approval-input-size',
                   `The AI server sent a tool approval request whose details are larger than this ` +

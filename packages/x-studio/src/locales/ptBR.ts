@@ -972,6 +972,8 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
     'Resumo de impacto indisponível: era grande demais para ser exibido. Recuse esta solicitação a menos que saiba o que ela faz.',
   chatApprovalReasonWithheld:
     'O motivo pelo qual esta solicitação precisa de aprovação era grande demais para ser exibido. Recuse esta solicitação a menos que saiba o que ela faz.',
+  chatApprovalInputWithheld:
+    'Os detalhes desta solicitação eram grandes demais para serem exibidos, portanto nenhum argumento é listado. Recuse esta solicitação a menos que saiba o que ela faz.',
 
   // Chart unsupported messages
   chartUnsupportedFieldNotFound:

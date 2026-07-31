@@ -197,6 +197,24 @@ describe('StudioApprovalEffects', () => {
     }
   });
 
+  // `ToolPart` renders its "Input" section whenever `input !== undefined`, and the `{}` an
+  // over-cap input degrades to IS defined — so without this the card is byte-identical to one
+  // for a genuine no-argument call.
+  it('says so when the adapter withheld the request details', () => {
+    renderEffects({ inputWithheld: true });
+
+    const text = screen.getByTestId('effects').textContent ?? '';
+    expect(text).to.contain(DEFAULT_STUDIO_LOCALE_TEXT.chatApprovalInputWithheld);
+  });
+
+  it('does not claim details were withheld when the payload simply had none', () => {
+    for (const payload of [{}, { inputWithheld: false }]) {
+      const { unmount } = renderEffects(payload);
+      expect(screen.queryByTestId('effects')).to.equal(null);
+      unmount();
+    }
+  });
+
   // `effects` is charged before `reason`, so a card can keep its whole impact list and lose
   // only its reason. Both must show.
   it('renders a real impact list and a withheld-reason marker together', () => {

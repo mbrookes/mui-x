@@ -174,7 +174,8 @@ function narrowIds(value: unknown): string[] {
  * server actually sent an `effects` payload. Returns `null` when nothing survived
  * narrowing, so a malformed payload degrades to the pre-existing prompt rather than an
  * empty box — EXCEPT when the adapter marked something as withheld (`effectsWithheld`,
- * `reasonWithheld`), which is the one case where "nothing here" is itself the message.
+ * `reasonWithheld`, `inputWithheld`), which is the one case where "nothing here" is itself
+ * the message.
  *
  * Exported for testing: the narrowing above is invisible from the types alone (the
  * field is `unknown`), so only rendering this component can tell a real guard from a
@@ -228,8 +229,18 @@ export function StudioApprovalEffects({
   // copies from the wire — so a server cannot forge either one onto a card it did not earn.
   const withheld = effects.effectsWithheld === true;
   const reasonWithheld = effects.reasonWithheld === true;
+  // `ToolPart` renders its "Input" section whenever `input !== undefined`, and `{}` is
+  // defined — so a card degraded by the input cap draws an empty argument list that is
+  // byte-identical to a genuine no-argument call. This is the line that tells them apart.
+  const inputWithheld = effects.inputWithheld === true;
 
-  if (groups.length === 0 && updatedCount === undefined && !withheld && !reasonWithheld) {
+  if (
+    groups.length === 0 &&
+    updatedCount === undefined &&
+    !withheld &&
+    !reasonWithheld &&
+    !inputWithheld
+  ) {
     return null;
   }
 
@@ -237,6 +248,7 @@ export function StudioApprovalEffects({
     <div {...props}>
       {withheld ? <div>{localeText.chatApprovalEffectsWithheld}</div> : null}
       {reasonWithheld ? <div>{localeText.chatApprovalReasonWithheld}</div> : null}
+      {inputWithheld ? <div>{localeText.chatApprovalInputWithheld}</div> : null}
       {groups.map((group) => (
         <div key={group.key}>
           <strong>{group.label}</strong>

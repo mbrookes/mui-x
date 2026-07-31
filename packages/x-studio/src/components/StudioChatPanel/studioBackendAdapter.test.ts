@@ -950,6 +950,61 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
     warnSpy.mockRestore();
   });
 
+  // `ToolPart`'s `showInput` is `input !== undefined`, and `{}` is DEFINED — so the degraded
+  // card above renders an "Input" section reading `{}`, byte-identical to a genuine
+  // no-argument call. `22964a2` set the standard that a withheld payload must be visible on
+  // the card and not only on the console; the degradation `3ada7a4` introduced was the one
+  // place it was not applied.
+  it('MARKS the degraded card, so `{}` is not read as "this call takes no arguments"', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const chunks = (await collectTurnChunks([
+      {
+        type: 'tool-approval-request',
+        toolCallId: 'call-1',
+        toolName: 'remove_widget',
+        input: { note: 'n'.repeat(MAX_APPROVAL_INPUT_SIZE) },
+      },
+    ])) as ApprovalChunk[];
+
+    const approval = chunks.find((c) => c.type === 'tool-approval-request') as ApprovalChunk;
+    expect(approval.input).toEqual({});
+    // The difference between "no arguments" and "the arguments were refused", on the card.
+    expect(approval.effects).toEqual({ inputWithheld: true });
+    warnSpy.mockRestore();
+  });
+
+  it('does NOT mark a genuine no-argument approval as degraded', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const chunk = await collectApprovalChunk(approvalEvent(1, { input: {} }));
+
+    // `{}` from the server is a real no-argument call, and must stay indistinguishable from
+    // nothing — marking it would cry wolf on every parameterless approval.
+    expect(chunk!.input).toEqual({});
+    expect(chunk!.effects).toBe(undefined);
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('keeps a real effects summary alongside a withheld-input marker', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const chunks = (await collectTurnChunks([
+      {
+        type: 'tool-approval-request',
+        toolCallId: 'call-1',
+        toolName: 'remove_page',
+        input: { note: 'n'.repeat(MAX_APPROVAL_INPUT_SIZE) },
+        effects: { willRemovePages: [{ id: 'p1', title: 'Finance' }] },
+      },
+    ])) as ApprovalChunk[];
+
+    const approval = chunks.find((c) => c.type === 'tool-approval-request') as ApprovalChunk;
+    expect(approval.effects).toEqual({
+      willRemovePages: [{ id: 'p1', title: 'Finance' }],
+      inputWithheld: true,
+    });
+    warnSpy.mockRestore();
+  });
+
   it('accepts an `input` exactly AT the per-card cap', async () => {
     // `{"note":"n…"}` serializes to exactly MAX_APPROVAL_INPUT_SIZE characters.
     const note = 'n'.repeat(MAX_APPROVAL_INPUT_SIZE - '{"note":""}'.length);
@@ -1190,7 +1245,8 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
     // The withheld MARKER and the `{}` an over-cap input degrades to are CONSTANTS per part
     // rather than payloads, so they are counted against the part count below, not against the
     // effects/reason and input budgets.
-    const withheldMarkerBytes = '{"effectsWithheld":true,"reasonWithheld":true}'.length;
+    const withheldMarkerBytes =
+      '{"effectsWithheld":true,"reasonWithheld":true,"inputWithheld":true}'.length;
     const degradedInputBytes = '{}'.length;
     const payloadBytes = approvals.reduce(
       (total, c) =>
@@ -1201,7 +1257,10 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
     );
     const markerBytes = approvals.reduce(
       (total, c) =>
-        total + (c.effects?.effectsWithheld || c.effects?.reasonWithheld ? withheldMarkerBytes : 0),
+        total +
+        (c.effects?.effectsWithheld || c.effects?.reasonWithheld || c.effects?.inputWithheld
+          ? withheldMarkerBytes
+          : 0),
       0,
     );
 
@@ -1231,10 +1290,11 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
     );
     // Each term is really binding here, so the total is not passing by accident.
     expect(approvals).toHaveLength(MAX_TURN_TOOL_PARTS);
-    // The last card lost BOTH payloads to the shared budget, and says so about both.
+    // The last card lost ALL THREE payloads to the budgets, and says so about each.
     expect(approvals.at(-1)!.effects).toEqual({
       effectsWithheld: true,
       reasonWithheld: true,
+      inputWithheld: true,
     });
     expect(approvals.at(-1)!.reason).toBe(undefined);
     expect(approvals.at(-1)!.input).toEqual({});

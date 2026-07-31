@@ -1236,6 +1236,14 @@ export interface StudioLocaleText {
    * "the policy gave no reason" and "the reason did not fit" are opposite signals.
    */
   chatApprovalReasonWithheld: string;
+  /**
+   * Shown on an approval card whose request DETAILS (the display-enriched `input`) were
+   * withheld by the client's size limits.
+   *
+   * Without it the degraded card renders an "Input" section reading `{}` — byte-identical to
+   * a genuine no-argument call, which is a very different thing to be approving.
+   */
+  chatApprovalInputWithheld: string;
 
   // ── Chart cross-source error messages ────────────────────────────────────
   chartUnsupportedFieldNotFound: string;
@@ -2479,6 +2487,8 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
     'Impact summary unavailable: it was too large to show. Deny this request unless you know what it does.',
   chatApprovalReasonWithheld:
     'The reason this request needs approval was too large to show. Deny this request unless you know what it does.',
+  chatApprovalInputWithheld:
+    'The details of this request were too large to show, so no arguments are listed. Deny this request unless you know what it does.',
 
   // Chart cross-source error messages
   chartUnsupportedFieldNotFound:

@@ -49,12 +49,15 @@ export type RankFilterWidgetPageIndex = ReadonlyMap<string, string>;
  * A missing key yields `undefined` from `Map.get`, which is exactly the UNRESOLVABLE
  * sentinel the scan returns for an unplaced widget — so the indexed and un-indexed paths
  * agree on all three states with no extra mapping.
+ *
+ * The value stored is the page's RECORD KEY, not its `page.id` field — see
+ * {@link resolveRankFilterPageId} for why (R6 F2).
  */
 export function buildRankFilterWidgetPageIndex(
   pages: StudioDoc['pages'],
 ): RankFilterWidgetPageIndex {
   const index = new Map<string, string>();
-  for (const page of Object.values(pages)) {
+  for (const [pageKey, page] of Object.entries(pages)) {
     // Every IN-PACKAGE caller is already immune — `screenPagesShape` (factory) and
     // `normalizePersistedPages` (load) both drop a null page value before this runs. The
     // guard is for the caller they do not cover: this function is exported from the package
@@ -69,7 +72,7 @@ export function buildRankFilterWidgetPageIndex(
     for (const row of page.widgetRows ?? []) {
       for (const widgetId of row) {
         if (!index.has(widgetId)) {
-          index.set(widgetId, page.id);
+          index.set(widgetId, pageKey);
         }
       }
     }
@@ -99,10 +102,24 @@ export function buildRankFilterWidgetPageIndex(
  * what `applyMutation.ts`'s `dropConflictingRankFilters` exists to catch in the layout
  * handlers.
  *
- * Duplicated (not imported) by `@mui/x-studio`'s `internals/rankFilterScope.ts`, which
- * re-exports this copy: the dependency arrow runs `x-studio` → `x-studio-schema`, never the
- * reverse, so this dependency-free package owns the implementation and the client reads it.
- * The reducer is the mutation-semantics source of truth and must not depend on every caller
+ * The resolved page is the page's RECORD KEY, not its `page.id` field (R6 F2). The two are
+ * the same for any well-formed doc, but a host `initialState` can install a page whose `id`
+ * disagrees with its key, and the key is the source of truth for every OTHER page reference
+ * in the system — `state.pages[pageId]`, `dashboard.activePageId`, a filter's
+ * `scope.pageId`, and `@mui/x-studio`'s `internals/widgetPageResolution.ts` (which the
+ * cross-filter/interactive stamping and the widget-move paths use) all key off it, and
+ * `normalizePersistedPages` repairs a desync by re-stamping `page.id` FROM the key. Keying
+ * off `page.id` here made this guard and those paths disagree about which page a widget is
+ * on: with `pages: { p1: { id: 'zzz', widgetRows: [['w1']] } }`, a `widget`-scoped rank
+ * filter on `w1` resolved to `'zzz'` while a `page`-scoped rank filter stamped with the
+ * active page resolved to `'p1'`, so the uniqueness guard saw no conflict and BOTH installed
+ * — then the next load repaired `page.id` to `'p1'`, `dedupeRankFilters` finally saw the
+ * conflict, and one of the user's filters silently disappeared.
+ *
+ * `@mui/x-studio`'s `internals/rankFilterScope.ts` is a pure re-export of this module: the
+ * dependency arrow runs `x-studio` → `x-studio-schema`, never the reverse, so this
+ * dependency-free package owns the implementation and the client reads it. The reducer is
+ * the mutation-semantics source of truth and must not depend on every caller
  * (`StudioController`'s five call sites) enforcing the invariant first.
  */
 export function resolveRankFilterPageId(
@@ -120,9 +137,12 @@ export function resolveRankFilterPageId(
       // same answer the scan below gives for a widget that sits on no page's `widgetRows`.
       return widgetPageIndex.get(scope.widgetId);
     }
-    for (const page of Object.values(pages)) {
-      if ((page.widgetRows ?? []).some((row) => row.includes(scope.widgetId))) {
-        return page.id;
+    for (const [pageKey, page] of Object.entries(pages)) {
+      // The RECORD KEY, matching `buildRankFilterWidgetPageIndex` (which must agree with
+      // this scan) and every other page reference in the system — see this function's doc
+      // comment (R6 F2).
+      if ((page?.widgetRows ?? []).some((row) => row.includes(scope.widgetId))) {
+        return pageKey;
       }
     }
     // UNRESOLVABLE, not "everywhere": an unplaced widget's rank filter has no page

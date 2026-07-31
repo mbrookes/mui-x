@@ -35,7 +35,7 @@ import {
 } from './widgetTypeGuards';
 // The optional-scalar screen is shared with the persistence load boundary — see
 // `docScreening.ts`, which owns every per-entry screen a `StudioDoc` must pass.
-import { screenOptionalWidgetScalars } from './docScreening';
+import { hasResolvableFilterAnchors, screenOptionalWidgetScalars } from './docScreening';
 // Rank-filter page-scope resolution and the per-page uniqueness sweep. These lived HERE until
 // the factory (the fourth trust boundary) needed them too and could not import this module —
 // `applyMutation.ts` imports `factories.ts`, so the arrow cannot run both ways. They now live
@@ -2134,46 +2134,16 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       if (!isValidFilterScope(scope)) {
         return state;
       }
-      // Stage 2 — EXISTENCE. What the wire boundary structurally cannot check: it validates
-      // a payload in isolation and has no doc to look ids up in. Kept here (and ONLY here)
-      // because the reducer's sole cleanup path for a scoped filter
-      // (`dropWidgetScopedFilters`, `removePage`'s page-anchor drop) fires when the anchor is
-      // REMOVED — a filter anchored to something that never existed is never removed, so it
-      // filters its page forever with no clearing affordance.
-      //
-      // WIDGET-anchor orphan check: `widget`/`cross-filter`/`interactive` scopes name a
-      // widget that must already exist. "Exists" is the reducer's own notion —
-      // `Object.hasOwn(state.widgets, id)`, matching every other id-keyed guard here — so an
-      // untrusted id can't match a prototype member.
-      let orphanAnchorId: string | undefined;
-      if (scope.kind === 'cross-filter' || scope.kind === 'interactive') {
-        orphanAnchorId = scope.sourceWidgetId;
-      } else if (scope.kind === 'widget') {
-        orphanAnchorId = scope.widgetId;
-      }
-      if (orphanAnchorId !== undefined && !Object.hasOwn(state.widgets, orphanAnchorId)) {
-        return state;
-      }
-      // PAGE-anchor orphan check, the mirror of the widget-anchor one just above: a filter
-      // naming a `pageId` the doc doesn't contain would filter a page that doesn't exist
-      // forever. `removePage`'s cleanup only fires for a page that WAS present and got
-      // removed, so it never reaches one that named a nonexistent page from the start.
-      //
-      // All four `pageId`-bearing scope kinds are covered. `page` scope's `pageId` is
-      // optional, so the legacy "applies on every page" shape (no `pageId`) is left alone by
-      // the `!== undefined` gate. For `page`/`dashboard-date-range` the load boundary would
-      // drop the orphan on the next load anyway, so accepting it here would only be dead
-      // weight until reload; for `cross-filter`/`interactive` there is no such safety net at
-      // all — `serializeDoc` strips them at the persistence boundary, so a reload can never
-      // repair one, and it would be permanent, invisible, unclearable dead weight.
-      if (
-        (scope.kind === 'page' ||
-          scope.kind === 'dashboard-date-range' ||
-          scope.kind === 'cross-filter' ||
-          scope.kind === 'interactive') &&
-        scope.pageId !== undefined &&
-        !Object.hasOwn(state.pages, scope.pageId)
-      ) {
+      // Stage 2 — EXISTENCE, delegated to the shared `hasResolvableFilterAnchors`. What the
+      // wire boundary structurally cannot check: it validates a payload in isolation and has
+      // no doc to look ids up in. It lives in `docScreening.ts` rather than inline here so the
+      // OTHER writer that installs a scope — `@mui/x-studio`'s `StudioController.updateFilter`,
+      // which re-points an existing filter's scope through `commitDocPatch` and never reaches
+      // this reducer — enforces the identical rule instead of accepting an orphan live and
+      // losing the whole filter on the next load (R6 F2). See that function for the full
+      // rationale (widget anchor, page anchor, why an unresolvable one is unclearable dead
+      // weight, and why `page` scope's optional `pageId` is exempt).
+      if (!hasResolvableFilterAnchors(scope, state)) {
         return state;
       }
       // Reject a SECOND rank-mode filter on the same page context. `StudioController`

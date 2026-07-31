@@ -26,6 +26,11 @@ import {
   validateChartConfigKeysForType,
   resolveChartType,
   isStudioChartType,
+  // The screens `updateFilter` / `updateActivePage` reuse so the writers that DON'T route
+  // through the reducer are held to the same standard as the ones that do (R6 F2).
+  isStudioFilterOperator,
+  isValidFilterScope,
+  hasResolvableFilterAnchors,
 } from '@mui/x-studio-schema';
 
 import {
@@ -2460,9 +2465,10 @@ export class StudioController {
    * @returns {@link StudioMutationResult} — `not-found` when no filter carries `filterId`,
    *   `rank-conflict` when the change would put a second rank (Top-N) filter in a page context
    *   that already has one (M12 — previously a silent `void` return with a dev-only
-   *   `console.warn`, so the drawer's Top-N control snapped back with no explanation), and
-   *   `{ ok: true, committed: false }` when every changed key already holds its incoming value
-   *   (a deliberate no-op re-save, which a caller should treat as success).
+   *   `console.warn`, so the drawer's Top-N control snapped back with no explanation),
+   *   `invalid` when a written key would not survive the load boundary (see the screen inside
+   *   — R6 F2), and `{ ok: true, committed: false }` when every changed key already holds its
+   *   incoming value (a deliberate no-op re-save, which a caller should treat as success).
    */
   updateFilter = (
     filterId: string,
@@ -2481,6 +2487,50 @@ export class StudioController {
     // reported as the REJECTION it is.
     if (!target) {
       return MUTATION_NOT_FOUND;
+    }
+    // Payload screen (R6 F2). Unlike its sibling `addFilter`, this writer commits through
+    // `commitDocPatch` and so never reaches the shared reducer — it therefore applied NONE of
+    // the validation `applyMutation`'s `addFilter` applies, and every value it accepted that
+    // the reducer would have refused was silently dropped or rewritten by `deserializeState`'s
+    // filter screen on the next load. Concretely, before this: `updateFilter('f1', { scope: {
+    // kind: 'widget', widgetId: 'nope' } })` returned `{ ok: true }` while `addFilter` with the
+    // byte-identical scope returned `{ ok: false, reason: 'invalid' }`; a `scope.pageId` naming
+    // a nonexistent page and an `operator: 'nonsense'` were both accepted live and gone on
+    // reload. Deferred, silent data loss — the exact class the "all boundaries must agree on
+    // the same payload" rule exists to prevent.
+    //
+    // The screen is keyed on the WRITTEN keys, not on the merged result: holding the merged
+    // filter to the full standard would make this method refuse a legitimate repair of a doc
+    // that is ALREADY corrupt in some other field (e.g. `PageFilterRow`'s render-time
+    // "rewrite a stored operator invalid for this field type" effect, which patches only
+    // `operator` and must still land on a filter whose `scope` a host authored badly). Every
+    // check below is the same predicate the reducer and the load boundary run, imported from
+    // `@mui/x-studio-schema` rather than hand-rolled — hand-rolling is precisely how the three
+    // boundaries drifted apart in the first place.
+    if ('id' in changes && typeof changes.id !== 'string') {
+      return MUTATION_INVALID;
+    }
+    if ('field' in changes && typeof changes.field !== 'string') {
+      return MUTATION_INVALID;
+    }
+    if ('operator' in changes && !isStudioFilterOperator(changes.operator)) {
+      return MUTATION_INVALID;
+    }
+    if (
+      changes.operator2 !== undefined &&
+      'operator2' in changes &&
+      !isStudioFilterOperator(changes.operator2)
+    ) {
+      return MUTATION_INVALID;
+    }
+    if ('scope' in changes) {
+      // Stage 1 WELLFORMEDNESS then stage 2 EXISTENCE, in the reducer's own order.
+      if (
+        !isValidFilterScope(changes.scope) ||
+        !hasResolvableFilterAnchors(changes.scope, state.doc)
+      ) {
+        return MUTATION_INVALID;
+      }
     }
     const switchingToRank = changes.filterMode === 'rank' && target.filterMode !== 'rank';
     // The guard must also re-run when an ALREADY-rank filter is re-pointed to a
@@ -2990,49 +3040,70 @@ export class StudioController {
   /**
    * Updates non-layout fields on the active page (title, theme, stack breakpoint).
    *
-   * `widgetRows`/`widgetColSpans` are EXCLUDED from `changes` (class sweep for the same
+   * `id`/`widgetRows`/`widgetColSpans` are EXCLUDED from `changes` (class sweep for the same
    * defect `setAdjacentWidgetColSpans` had): this method writes the page object straight to
    * the doc via `commitDocPatch`, so a layout written through it would skip
    * `enforceLayoutColSpans` entirely — phantom row ids, duplicate placements and rows summing
-   * past `GRID_COLS` would all land in the doc unchecked. The type excludes them and the
-   * runtime strip below is the backstop for an untyped/host JS caller. Use
-   * {@link setWidgetLayout} for rows and {@link setAdjacentWidgetColSpans} for spans; both
-   * route through the reducer.
+   * past `GRID_COLS` would all land in the doc unchecked — and an `id` written through it
+   * would desync the page's `id` from its `pages` RECORD KEY, the corruption
+   * `normalizePersistedPages` exists to repair (it rewrites `page.id` back to the key on
+   * load, so the write is silently reverted; before then, everything that resolves a widget's
+   * page by `page.id` and everything that resolves it by record key disagree). The type
+   * excludes all three and the runtime strip below is the backstop for an untyped/host JS
+   * caller. Use {@link setWidgetLayout} for rows, {@link setAdjacentWidgetColSpans} for spans
+   * and {@link renamePage} to re-key a page; all route through the reducer.
+   *
+   * @returns {@link StudioMutationResult} — `invalid` when a written value would not survive
+   *   the load boundary (R6 F2: a non-string `title` loads back as `'Untitled Page'`, so
+   *   accepting it here just defers the loss to the next reload — its reducer-routed sibling
+   *   `renamePage` refuses the same value). Excluded keys are STRIPPED with a dev warning
+   *   rather than sinking the call, matching how the layout keys have always been handled.
    */
   updateActivePage = (
     changes: Partial<Omit<StudioPage, 'id' | 'widgetRows' | 'widgetColSpans'>>,
-  ) => {
+  ): StudioMutationResult => {
     const state = this.store.state;
     const pageId = state.doc.dashboard.activePageId;
     const page = this.getActivePage();
     if (!page) {
-      return;
+      return MUTATION_NOT_FOUND;
     }
     // Runtime backstop for the type exclusion above — a JS host (or a `as any` call site)
-    // can still hand over layout keys.
+    // can still hand over the excluded keys. `id` joined the list in R6 F2: it was type-
+    // excluded but neither stripped nor warned about, so `updateActivePage({ id: 'zzz' })`
+    // committed `pages.p1.id === 'zzz'` against record key `p1`.
     if (process.env.NODE_ENV !== 'production') {
-      const layoutKeys = ['widgetRows', 'widgetColSpans'].filter((key) =>
+      const excludedKeys = ['id', 'widgetRows', 'widgetColSpans'].filter((key) =>
         Object.hasOwn(changes, key),
       );
-      if (layoutKeys.length > 0) {
+      if (excludedKeys.length > 0) {
         console.warn(
-          `MUI X Studio: updateActivePage ignored layout key(s): ${layoutKeys.join(', ')}. ` +
-            "Writing them here would bypass the reducer's layout invariants (row " +
-            'membership, duplicate ids, and the per-row column budget). Use setWidgetLayout ' +
-            'for rows and setAdjacentWidgetColSpans for column spans instead.',
+          `MUI X Studio: updateActivePage ignored key(s): ${excludedKeys.join(', ')}. ` +
+            "Writing them here would bypass the reducer's invariants (row membership, " +
+            'duplicate ids, the per-row column budget, and the page id ↔ record key ' +
+            'correspondence). Use setWidgetLayout for rows, setAdjacentWidgetColSpans for ' +
+            'column spans, and renamePage to rename a page.',
         );
       }
     }
-    const { widgetRows, widgetColSpans, ...safeChanges } = changes as Partial<StudioPage>;
+    const { id, widgetRows, widgetColSpans, ...safeChanges } = changes as Partial<StudioPage>;
+    // Value screen for the keys that DO get written (R6 F2). `title` is `string` in
+    // `StudioPage` and consumers render it with no fallback, so the load boundary coerces a
+    // non-string to `'Untitled Page'` — the same reason the reducer's `renamePage` refuses
+    // one. Accepting it here would show the caller's value until the next reload silently
+    // replaced it.
+    if ('title' in safeChanges && typeof safeChanges.title !== 'string') {
+      return MUTATION_INVALID;
+    }
     // Value-equality no-op guard (2.10): `{ ...page, ...changes }` always allocates a fresh
     // page object, so `commitDocPatch`'s reference-equality guard can never fire even for a
     // value-identical write — re-confirming the theme the page already has would clear a pending
     // redo stack and insert a no-op undo entry. Bail when every patched key already holds its
     // incoming value, mirroring `commitDocPatch`/`updateState`'s key-wise no-op detection.
-    // Keyed on the STRIPPED payload, so a call carrying only layout keys is a clean no-op.
+    // Keyed on the STRIPPED payload, so a call carrying only excluded keys is a clean no-op.
     const changeKeys = Object.keys(safeChanges) as (keyof typeof safeChanges)[];
     if (changeKeys.every((key) => safeChanges[key] === page[key])) {
-      return;
+      return MUTATION_NOOP;
     }
     this.commitDocPatch({
       pages: {
@@ -3040,6 +3111,7 @@ export class StudioController {
         [pageId]: { ...page, ...safeChanges },
       },
     });
+    return MUTATION_COMMITTED;
   };
 
   setActivePage = (pageId: string) => {

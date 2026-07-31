@@ -34,7 +34,7 @@
  */
 import type { StudioAIState } from './aiTypes';
 import type { StudioExpressionField } from './expressionTypes';
-import type { StudioDoc, StudioFilterState } from './stateTypes';
+import type { StudioDoc, StudioFilterScope, StudioFilterState } from './stateTypes';
 import type { StudioWidget, StudioWidgetConfig } from './widgetTypes';
 import { isSafeKey } from './unsafeKeys';
 import { hasUnsafeOwnKeys, isValidFilterScope } from './parseStateMutation';
@@ -596,6 +596,64 @@ export function screenWidgets(value: unknown): StudioDoc['widgets'] {
         return [id, base];
       }),
   ) as StudioDoc['widgets'];
+}
+
+/**
+ * EXISTENCE screen for a filter's scope anchors: does every id the scope names actually
+ * resolve against `doc`?
+ *
+ * This is the "Stage 2" half of filter screening — the half a payload-in-isolation validator
+ * (the wire boundary's `validateFilterScope`) structurally cannot do, because it has no doc
+ * to look ids up in. It is published as ONE predicate so every writer that installs a scope
+ * enforces the identical rule: the reducer's `addFilter` (which calls it), and
+ * `@mui/x-studio`'s `StudioController.updateFilter`, which re-points an EXISTING filter's
+ * scope through `commitDocPatch` and therefore never reaches the reducer at all. Before this
+ * was shared, `updateFilter` applied none of it — `updateFilter('f1', { scope: { kind:
+ * 'widget', widgetId: 'nope' } })` was accepted live while the sibling `addFilter` with the
+ * byte-identical scope was refused, and the load boundary then dropped the whole filter on
+ * the next reload (deferred, silent data loss).
+ *
+ * Why an unresolvable anchor must not install: the reducer's only cleanup paths for a scoped
+ * filter (`dropWidgetScopedFilters`, `removePage`'s page-anchor drop) fire when the anchor is
+ * REMOVED. A filter anchored to something that never existed is never removed, so it filters
+ * its page forever with no clearing affordance.
+ *
+ * "Exists" is the reducer's own notion — `Object.hasOwn` — so an untrusted id cannot match a
+ * prototype member.
+ *
+ * Assumes `scope` already passed WELLFORMEDNESS (`isValidFilterScope`); callers run that
+ * first. A `page` scope with no `pageId` (the legacy "applies on every page" shape) has no
+ * anchor to resolve and passes.
+ */
+export function hasResolvableFilterAnchors(
+  scope: StudioFilterScope,
+  doc: Pick<StudioDoc, 'widgets' | 'pages'>,
+): boolean {
+  // WIDGET anchor: `widget`/`cross-filter`/`interactive` scopes name a widget that must
+  // already exist.
+  let widgetAnchorId: string | undefined;
+  if (scope.kind === 'cross-filter' || scope.kind === 'interactive') {
+    widgetAnchorId = scope.sourceWidgetId;
+  } else if (scope.kind === 'widget') {
+    widgetAnchorId = scope.widgetId;
+  }
+  if (widgetAnchorId !== undefined && !Object.hasOwn(doc.widgets, widgetAnchorId)) {
+    return false;
+  }
+  // PAGE anchor, the mirror of the widget one. All four `pageId`-bearing scope kinds are
+  // covered; `page` scope's `pageId` is optional, so the `!== undefined` gate leaves the
+  // legacy shape alone.
+  if (
+    (scope.kind === 'page' ||
+      scope.kind === 'dashboard-date-range' ||
+      scope.kind === 'cross-filter' ||
+      scope.kind === 'interactive') &&
+    scope.pageId !== undefined &&
+    !Object.hasOwn(doc.pages, scope.pageId)
+  ) {
+    return false;
+  }
+  return true;
 }
 
 /**

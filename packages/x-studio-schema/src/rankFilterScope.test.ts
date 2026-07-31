@@ -262,3 +262,58 @@ describe('hasConflictingRankFilter — sentinel and exclusion semantics', () => 
     ).toBe(true);
   });
 });
+
+// ─── R6 F2 (secondary): the resolver keys off the page RECORD KEY, not `page.id` ──
+
+describe('resolveRankFilterPageId — page id ↔ record key desync', () => {
+  const desyncedPages = {
+    p1: { id: 'zzz', title: 'P1', widgetRows: [['w1']] },
+  } as unknown as StudioDoc['pages'];
+
+  const widgetRank = {
+    id: 'fw',
+    field: 'v',
+    operator: 'equals',
+    value: 1,
+    filterMode: 'rank',
+    rankDirection: 'top',
+    scope: { kind: 'widget', widgetId: 'w1' },
+  } as unknown as StudioFilterState;
+
+  const pageRank = {
+    id: 'fp',
+    field: 'v',
+    operator: 'equals',
+    value: 1,
+    filterMode: 'rank',
+    rankDirection: 'top',
+    scope: { kind: 'page', pageId: 'p1' },
+  } as unknown as StudioFilterState;
+
+  // A host `initialState` can install a page whose `id` disagrees with its record key
+  // (`normalizePersistedPages` repairs it only at the LOAD boundary, re-stamping `id` FROM
+  // the key). Everything else that resolves a widget's page — `scope.pageId`,
+  // `dashboard.activePageId`, `@mui/x-studio`'s `internals/widgetPageResolution.ts` — uses
+  // the key, so this must too.
+  it('resolves the record key, both indexed and unindexed', () => {
+    expect(resolveRankFilterPageId(widgetRank, desyncedPages)).toBe('p1');
+    expect(
+      resolveRankFilterPageId(
+        widgetRank,
+        desyncedPages,
+        buildRankFilterWidgetPageIndex(desyncedPages),
+      ),
+    ).toBe('p1');
+  });
+
+  // The consequence of keying off `page.id`: the guard saw `'zzz'` vs `'p1'`, reported no
+  // conflict, and BOTH rank filters installed — until the next load repaired `page.id` and
+  // `dedupeRankFilters` finally dropped one, silently losing a user's filter.
+  it('sees the conflict the desync used to hide', () => {
+    expect(hasConflictingRankFilter('fw', widgetRank, [pageRank], desyncedPages)).toBe(true);
+    expect(dedupeRankFilters([pageRank, widgetRank], desyncedPages)).toEqual({
+      filters: [pageRank],
+      changed: true,
+    });
+  });
+});

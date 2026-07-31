@@ -6284,3 +6284,127 @@ describe('StudioController — dangling selection normalization at the commit ch
     expect(controller.getState().session.shell.selectedWidgetId).toBe('w1');
   });
 });
+
+// ─── R6 F2: the non-reducer-routed writers screen their payloads too ──────────
+
+describe('StudioController.updateFilter — payload screen (R6 F2)', () => {
+  function makeControllerWithFilter() {
+    return new StudioController({
+      doc: {
+        widgets: { w1: makeWidget('w1') },
+        filters: [makeFilter({ id: 'f1', scope: { kind: 'page', pageId: 'page-1' } })],
+      },
+    });
+  }
+
+  it('refuses a widget scope whose widget does not exist, exactly as addFilter does', () => {
+    const controller = makeControllerWithFilter();
+    const scope = { kind: 'widget' as const, widgetId: 'nope' };
+
+    // The sibling, reducer-routed writer's answer for the byte-identical scope.
+    expect(controller.addFilter(makeFilter({ id: 'f-new', scope }))).toEqual({
+      ok: false,
+      reason: 'invalid',
+    });
+    expect(controller.updateFilter('f1', { scope })).toEqual({ ok: false, reason: 'invalid' });
+    expect(controller.getState().doc.filters[0].scope).toEqual({
+      kind: 'page',
+      pageId: 'page-1',
+    });
+  });
+
+  it('refuses a page scope naming a nonexistent page', () => {
+    const controller = makeControllerWithFilter();
+    expect(controller.updateFilter('f1', { scope: { kind: 'page', pageId: 'ghost' } })).toEqual({
+      ok: false,
+      reason: 'invalid',
+    });
+    expect(controller.getState().doc.filters[0].scope).toEqual({
+      kind: 'page',
+      pageId: 'page-1',
+    });
+  });
+
+  it('refuses a malformed scope kind', () => {
+    const controller = makeControllerWithFilter();
+    expect(controller.updateFilter('f1', { scope: { kind: 'pages' } as never })).toEqual({
+      ok: false,
+      reason: 'invalid',
+    });
+  });
+
+  it('refuses a non-StudioFilterOperator operator / operator2', () => {
+    const controller = makeControllerWithFilter();
+    expect(controller.updateFilter('f1', { operator: 'nonsense' as never })).toEqual({
+      ok: false,
+      reason: 'invalid',
+    });
+    expect(controller.updateFilter('f1', { operator2: 'nonsense' as never })).toEqual({
+      ok: false,
+      reason: 'invalid',
+    });
+    expect(controller.getState().doc.filters[0].operator).toBe('equals');
+  });
+
+  it('refuses a non-string field / id', () => {
+    const controller = makeControllerWithFilter();
+    expect(controller.updateFilter('f1', { field: 42 as never })).toEqual({
+      ok: false,
+      reason: 'invalid',
+    });
+    expect(controller.updateFilter('f1', { id: 42 as never })).toEqual({
+      ok: false,
+      reason: 'invalid',
+    });
+  });
+
+  it('still accepts a well-formed scope re-point and an untouched-key patch', () => {
+    const controller = makeControllerWithFilter();
+    expect(controller.updateFilter('f1', { scope: { kind: 'widget', widgetId: 'w1' } })).toEqual({
+      ok: true,
+      committed: true,
+    });
+    // A value-only patch never trips the screen, even though the stored `scope` is what it is.
+    expect(controller.updateFilter('f1', { value: 'x' })).toEqual({ ok: true, committed: true });
+  });
+});
+
+describe('StudioController.updateActivePage — payload screen (R6 F2)', () => {
+  it('refuses a non-string title, exactly as renamePage does', () => {
+    const controller = new StudioController();
+    const pageId = controller.getState().doc.dashboard.activePageId;
+    const before = controller.getState().doc.pages[pageId].title;
+
+    controller.renamePage(pageId, 42 as never); // reducer-routed sibling: a no-op
+    expect(controller.getState().doc.pages[pageId].title).toBe(before);
+
+    expect(controller.updateActivePage({ title: 42 as never })).toEqual({
+      ok: false,
+      reason: 'invalid',
+    });
+    expect(controller.getState().doc.pages[pageId].title).toBe(before);
+  });
+
+  it('strips an id write (which would desync page.id from its record key) with a warning', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const controller = new StudioController();
+    const pageId = controller.getState().doc.dashboard.activePageId;
+
+    controller.updateActivePage({ id: 'zzz' } as never);
+
+    expect(warnSpy).toHaveBeenCalledOnce();
+    expect(warnSpy.mock.calls[0][0]).toContain('id');
+    warnSpy.mockRestore();
+    expect(controller.getState().doc.pages[pageId].id).toBe(pageId);
+  });
+
+  it('still commits a legitimate title change', () => {
+    const controller = new StudioController();
+    const pageId = controller.getState().doc.dashboard.activePageId;
+    expect(controller.updateActivePage({ title: 'Renamed' })).toEqual({
+      ok: true,
+      committed: true,
+    });
+    expect(controller.getState().doc.pages[pageId].title).toBe('Renamed');
+  });
+});

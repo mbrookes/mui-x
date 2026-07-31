@@ -130,6 +130,12 @@ interface SeamOptions {
    * anything.
    */
   resolveWith?: 'approvalId' | 'toolCallId';
+  /**
+   * Abort the request the moment the approval card appears, instead of answering it —
+   * the user clicking Stop while a confirmation is on screen. Aborts the send signal
+   * and calls `adapter.stop()`, exactly as `ChatBox` does.
+   */
+  abortOnApprovalRequest?: boolean;
 }
 
 interface SeamResult {
@@ -169,6 +175,7 @@ async function runSeam(options: SeamOptions): Promise<SeamResult> {
     messages = [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'Do it' }] }],
     onApprovalRequest,
     resolveWith = 'approvalId',
+    abortOnApprovalRequest = false,
   } = options;
 
   const controller = new StudioController(state);
@@ -250,10 +257,11 @@ async function runSeam(options: SeamOptions): Promise<SeamResult> {
   vi.stubGlobal('fetch', fetchStub);
 
   const adapter = createBackendChatAdapter({ endpoint: AI_ENDPOINT, ...config }, controller);
+  const sendAbort = new AbortController();
   const chunkStream = await adapter.sendMessage({
     message: messages[messages.length - 1],
     messages,
-    signal: new AbortController().signal,
+    signal: sendAbort.signal,
   } as never);
 
   // Tap the chunk stream on its way into x-chat-headless so a test can assert on
@@ -263,6 +271,13 @@ async function runSeam(options: SeamOptions): Promise<SeamResult> {
     new TransformStream<ChatMessageChunk, ChatMessageChunk>({
       transform(chunk, ctrl) {
         clientChunks.push(chunk);
+        // The user hits Stop while the confirmation card is on screen. `ChatBox`
+        // aborts the send signal first and then calls `stop()`, which cancels the
+        // response-body reader; the server is left paused on its own approval.
+        if (chunk.type === 'tool-approval-request' && abortOnApprovalRequest) {
+          sendAbort.abort();
+          adapter.stop!();
+        }
         // An approval request pauses the server until the client answers, so the
         // decision has to be dispatched from inside the stream, not after it.
         if (chunk.type === 'tool-approval-request' && onApprovalRequest) {
@@ -600,6 +615,66 @@ describe('x-studio ⇄ x-studio-ai-middleware seam: replay fidelity (F3, F4)', (
     expect(replayed?.content).toBe(sentByServer?.content);
     // Not `"{\"success\":true,…}"` — a JSON string re-stringified into a JSON string.
     expect(replayed?.content.startsWith('{')).toBe(true);
+  });
+});
+
+// ── Round-6 F3 residual: abort DURING an open approval ────────────────────────
+//
+// F3's fix re-asserts the model's real arguments over the approval card's
+// display-enriched ones with a `tool-input-available` chunk when the gated call
+// COMPLETES — approved, denied or timed out, all of which arrive as `tool-activity`
+// `complete`. Aborting while the approval is still open never reaches that event: the
+// reader is cancelled and the stream closes with the enriched payload still sitting in
+// `toolInvocation.input`, which `toOpenAIMessages` then replays to the model as its own
+// arguments on the next request. That is precisely the defect F3 fixed, on the abort
+// path — and for `apply_bulk_update` it is not cosmetic: the tool's schema declares
+// `widgetRemovals` as `items: { type: 'string' }`, so the object form the enrichment
+// produces makes the executor treat the removal list as EMPTY. The replayed history
+// teaches the model a shape that silently no-ops.
+
+describe('x-studio ⇄ x-studio-ai-middleware seam: abort during an open approval', () => {
+  it("replays the model's own arguments after an abort mid-approval", async () => {
+    const result = await runSeam({
+      turns: [
+        toolCallTurn('tc-1', 'apply_bulk_update', { widgetRemovals: ['w1'] }),
+        textTurn('unreached'),
+      ],
+      state: STATE_WITH_THREAD,
+      abortOnApprovalRequest: true,
+    });
+
+    // The approval card was shown with the state-derived enrichment (that half must
+    // keep working — it is what lets a human approve against real titles).
+    const approvalChunk = result.clientChunks.find(
+      (c) => c.type === 'tool-approval-request',
+    ) as unknown as { input: { widgetRemovals: unknown } };
+    expect(approvalChunk.input.widgetRemovals).toEqual([{ id: 'w1', title: 'W1' }]);
+
+    // …and the call never completed, so nothing re-asserted the real arguments by the
+    // ordinary `tool-activity` `complete` route.
+    expect(
+      result.clientChunks.some(
+        (c) => c.type === 'tool-output-available' || c.type === 'finish',
+      ),
+    ).toBe(false);
+
+    // The defect: the enriched object was replayed as the model's own tool arguments.
+    const replayed = assistantToolCallTurn(toOpenAIMessages('SYSTEM', [result.message]));
+    expect(replayed?.tool_calls?.[0].function.arguments).toBe('{"widgetRemovals":["w1"]}');
+  });
+
+  it("leaves an ungated aborted call's arguments untouched", async () => {
+    // The complement: nothing was ever overwritten for a call that was not approval
+    // gated, so the flush must not invent a chunk for it. `add_page` is not gated.
+    const result = await runSeam({
+      turns: [toolCallTurn('tc-1', 'add_page', { title: 'New page' }), textTurn('Added')],
+    });
+
+    const reasserts = result.clientChunks.filter((c) => c.type === 'tool-input-available');
+    // Exactly one — the `tool-activity` `start` chunk that populates the tool card.
+    expect(reasserts).toHaveLength(1);
+    const replayed = assistantToolCallTurn(toOpenAIMessages('SYSTEM', [result.message]));
+    expect(replayed?.tool_calls?.[0].function.arguments).toBe('{"title":"New page"}');
   });
 });
 

@@ -350,8 +350,13 @@ export function createBackendChatAdapter(
       // approved, denied or timed out, all of which arrive as `tool-activity`
       // `complete`. Until `ChatToolApprovalRequestChunk` grows a field for the display
       // payload, this is where the two are reconciled.
+      //
+      // `approvalGatedToolCalls` maps a gated `toolCallId` to its `toolName`, because
+      // the re-assert does not always have a `tool-activity` event in hand to read the
+      // name off: the STREAM-END flush below has only what was recorded here (see
+      // `flushApprovalGatedInputs`).
       const modelToolInputs = new Map<string, unknown>();
-      const approvalGatedToolCallIds = new Set<string>();
+      const approvalGatedToolCalls = new Map<string, string>();
 
       // Helper: close the synthetic "Thinking…" reasoning part once real content arrives.
       const endReasoning = (
@@ -441,10 +446,45 @@ export function createBackendChatAdapter(
           // which settles the stream if a `finish`/`error` event never arrives (e.g. the
           // server closes the connection mid-response) so the chat panel never gets
           // stuck in a permanently-streaming state.
+          // Re-assert the model's own arguments for every approval-gated call that is
+          // STILL OPEN when the stream ends.
+          //
+          // The `tool-activity` `complete` branch below does this the moment a gated
+          // call settles — approved, denied or timed out. Aborting WHILE a confirmation
+          // card is on screen never reaches it: `stop()` cancels the response-body
+          // reader, the SSE stream ends, and no `complete` ever arrives. Without this
+          // flush the approval card's display-enriched `input` (which x-chat wrote over
+          // `toolInvocation.input`) stays in the message and `toOpenAIMessages` replays
+          // it to the model as its own arguments on the NEXT request — the exact defect
+          // the `complete`-path re-assert was added to fix, on the abort path. For
+          // `apply_bulk_update` that is not cosmetic: the tool's schema declares
+          // `widgetRemovals` as `items: { type: 'string' }`, so the replayed object form
+          // makes the executor treat the removal list as empty and teaches the model a
+          // shape that silently no-ops.
+          //
+          // Called from the two settle points below, so it also covers a server that
+          // closes the connection mid-approval and an errored stream. Only gated calls
+          // are flushed: an ungated call's `input` was never overwritten, so re-emitting
+          // it would be pure noise (the same condition the `complete` branch applies).
+          const flushApprovalGatedInputs = () => {
+            for (const [toolCallId, toolName] of approvalGatedToolCalls) {
+              streamController.enqueue({
+                type: 'tool-input-available',
+                toolCallId,
+                toolName,
+                input: modelToolInputs.get(toolCallId) ?? {},
+              });
+            }
+            approvalGatedToolCalls.clear();
+          };
+
           const closeStream = () => {
             if (streamSettled) {
               return;
             }
+            // Before `close()`, never after: chunks enqueued after it throw, and the
+            // queue is still delivered to the reader on a clean close.
+            flushApprovalGatedInputs();
             streamSettled = true;
             streamController.close();
           };
@@ -452,6 +492,10 @@ export function createBackendChatAdapter(
             if (streamSettled) {
               return;
             }
+            // Best effort on this path — `controller.error()` resets the queue, so an
+            // unread re-assert is dropped. Enqueuing it costs nothing and is delivered
+            // whenever the consumer has already drained past it.
+            flushApprovalGatedInputs();
             streamSettled = true;
             streamController.error(err);
           };
@@ -597,8 +641,8 @@ Check the endpoint URL, its authentication headers, and the server logs for this
                 // display shape the tool's own schema rejects (see `modelToolInputs`).
                 // Only for calls that were actually gated: an ungated call's `input` was
                 // never overwritten, and re-emitting it would be pure noise.
-                if (approvalGatedToolCallIds.has(toolCallId)) {
-                  approvalGatedToolCallIds.delete(toolCallId);
+                if (approvalGatedToolCalls.has(toolCallId)) {
+                  approvalGatedToolCalls.delete(toolCallId);
                   streamController.enqueue({
                     type: 'tool-input-available',
                     toolCallId,
@@ -695,10 +739,12 @@ Check the endpoint URL, its authentication headers, and the server logs for this
                   : undefined;
               const approvalToolCallId = String(rawApproval.toolCallId ?? '');
               // This chunk's `input` is the display-enriched one, and x-chat writes it
-              // over `toolInvocation.input`. Remember that it happened so the model's
-              // own arguments can be re-asserted once the call settles (see
-              // `modelToolInputs`).
-              approvalGatedToolCallIds.add(approvalToolCallId);
+              // over `toolInvocation.input`. Remember that it happened — with the tool
+              // name, which the stream-end flush has no other source for — so the
+              // model's own arguments can be re-asserted once the call settles, or when
+              // the stream ends without it ever settling (see `modelToolInputs` and
+              // `flushApprovalGatedInputs`).
+              approvalGatedToolCalls.set(approvalToolCallId, String(rawApproval.toolName ?? ''));
               // `effects` (what the call will remove/orphan, with real titles) and
               // `reason` (the policy's own justification for flagging the call) exist so
               // a human can approve with the real impact in view instead of an opaque

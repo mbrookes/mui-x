@@ -950,9 +950,30 @@ Check the endpoint URL, its authentication headers, and the server logs for this
       // `{"denied":true,"reason":"approval timed out"}` — the worst of both worlds,
       // since the user had already clicked Approve.
       //
-      // Read at send time (not captured when the adapter was built): the panel can
-      // switch threads while an approval card is pending, and the binding that matters
-      // is the one the server recorded for the request that is still paused.
+      // This reads the CURRENTLY active thread, which is NOT the same thing as the one
+      // the server recorded: the server captured `initialState.doc.ai.activeThreadId`
+      // from the request that raised the approval, and the panel can switch threads
+      // afterwards. The two agree because of an invariant that lives in
+      // `useChatThreads`, not here — `handleSelectThread` and `handleNewThread` both
+      // call `abortInFlightStream()` BEFORE mutating `activeThreadId`, so a request that
+      // is still paused cannot outlive the id it was recorded under. (Pinned by "aborts
+      // the in-flight stream before the active thread id changes" in
+      // `useChatThreads.test.ts`, so the ordering cannot be quietly reversed.)
+      //
+      // Reading here rather than capturing it in `sendMessage` is deliberate, not an
+      // oversight. `addToolApprovalResponse` is dispatched on whichever adapter instance
+      // is current when the user clicks, and this adapter is rebuilt whenever
+      // `aiConfig`/`customWidgets`/`focusedWidgetId` change identity — for an unmemoized
+      // host prop, every render, i.e. every streamed token (which is exactly why
+      // `activeReaders` is caller-INJECTED). A value closed over by the `sendMessage`
+      // that issued the request would therefore be MISSING on the adapter that receives
+      // the click, and `isApprovalThreadIdAuthorized` denies a missing thread id just as
+      // it denies a mismatched one — re-creating the 403-then-timeout failure described
+      // above. Making the genuinely-recorded id readable here needs a caller-owned
+      // registry that outlives the adapter (the `activeReaders`/`mutationLedger` shape),
+      // keyed by BOTH `approvalId` and `toolCallId`, since `ToolPart` answers with
+      // `approvalId ?? toolCallId`.
+      //
       // Omitted entirely when there is no thread — an approval raised with no
       // `entry.threadId` is unbound, and sending `undefined` would be indistinguishable
       // from that anyway.

@@ -207,6 +207,59 @@ describe('useChatThreads: thread create/switch/persistence', () => {
     expect(mockState.doc.ai?.threads).toHaveLength(2);
   });
 
+  // The ORDER of the abort, not just the fact of it. `studioBackendAdapter`'s
+  // `addToolApprovalResponse` sends `doc.ai.activeThreadId` read at click time, while the
+  // server bound the pending approval to the id captured when the REQUEST was made. Those
+  // are the same id only while no thread switch can leave a still-paused request behind —
+  // which is precisely this ordering, and it lives here, not in the adapter. Reverse it
+  // (abort after the `setState`) and an approval card still on screen answers with the NEW
+  // thread's id, which `isApprovalThreadIdAuthorized` rejects: a 403 followed by the full
+  // approval timeout, after the user already clicked Approve.
+  it('aborts the in-flight stream before the active thread id changes', () => {
+    const controller = makeController();
+    const { result, rerender } = renderHook(() => useChatThreads(controller));
+
+    act(() => {
+      result.current.handleMessagesChange([makeMessage('in thread A')]);
+    });
+    rerender();
+    const threadAId = mockState.doc.ai!.activeThreadId!;
+
+    // What `activeThreadId` was at the instant the stream was told to stop. If the abort
+    // runs first this is still A; if it runs after the commit it is already the new thread.
+    let idAtAbort: string | undefined;
+    act(() => {
+      result.current.streamThreadPinProps.isStreamingRef.current = true;
+      result.current.streamThreadPinProps.stopStreamRef.current = () => {
+        idAtAbort = controller.getState().doc.ai?.activeThreadId;
+      };
+    });
+
+    // Path 1 — "New conversation" on a non-empty thread (so it really creates one).
+    act(() => {
+      result.current.handleNewThread();
+    });
+    rerender();
+    expect(idAtAbort).to.equal(threadAId);
+    expect(mockState.doc.ai?.activeThreadId).not.to.equal(threadAId);
+
+    // Path 2 — explicitly selecting another thread.
+    idAtAbort = undefined;
+    const threadBId = mockState.doc.ai!.activeThreadId!;
+    act(() => {
+      result.current.streamThreadPinProps.isStreamingRef.current = true;
+      result.current.streamThreadPinProps.stopStreamRef.current = () => {
+        idAtAbort = controller.getState().doc.ai?.activeThreadId;
+      };
+    });
+    act(() => {
+      result.current.handleSelectThread(threadAId);
+    });
+    rerender();
+    expect(idAtAbort).to.equal(threadBId);
+    expect(mockState.doc.ai?.activeThreadId).to.equal(threadAId);
+  });
+
   it('does not drop the final write-back flushed by aborting the stream', () => {
     // Stopping the stream flushes one last `onMessagesChange` into `doc.ai`, so the
     // pre-abort state snapshot is stale by the time the new thread is committed.

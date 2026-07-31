@@ -15,13 +15,20 @@ import type { StudioController } from '../../store/StudioController';
  * mutations are already committed to `doc`; nothing downstream can tell the replay
  * "you already did half of this".
  *
- * Why revert-before-replay (rather than idempotent replay): making the replay
- * idempotent needs a stable per-mutation envelope id threaded from the server
- * through the SSE protocol into the reducer — a protocol change across three
- * packages, and it still can't dedup a mutation the model re-derives with a
- * different payload. Reverting is entirely client-side, needs no protocol change,
- * and matches what the user asked for: "throw that answer away and try again"
- * should also throw away that answer's edits.
+ * Why revert-before-replay (rather than idempotent replay): an idempotent replay
+ * would have to dedup by identity, and identity alone cannot dedup a mutation the
+ * model RE-DERIVES with a different payload — the common case here, since a replayed
+ * turn mints fresh widget/page ids server-side, so the second "add a revenue chart"
+ * is a genuinely different mutation that a human would still call a duplicate.
+ * Reverting is entirely client-side and matches what the user asked for: "throw that
+ * answer away and try again" should also throw away that answer's edits.
+ *
+ * (The identity half is no longer the blocker it once was: `state-mutation` events
+ * ship as a `MutationEnvelope` — `{ type, id, at, mutation }`, e.g.
+ * `id: "mut-1785476342235-1-42zq"` — so a stable per-mutation id already crosses the
+ * wire. `studioBackendAdapter.ts` reads only `.mutation` and drops `id`/`at`, which
+ * is fine for this design; picking them up would be a prerequisite for a
+ * dedup-on-replay design, not for this one.)
  *
  * Safety: the revert only fires when the document is still **reference-identical**
  * to what the turn left behind. Every controller commit produces a new `doc`

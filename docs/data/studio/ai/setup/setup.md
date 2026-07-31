@@ -322,10 +322,16 @@ interface StudioAIConfig {
   skills?: StudioAISkill[];
   /**
    * When true, the full dashboard state (widgets, data sources, field names) is
-   * omitted from the system prompt. Use this when the dashboard contains
+   * omitted from the system prompt, and every state-reading tool is withdrawn so
+   * nothing can round-trip it back. Use this when the dashboard contains
    * confidential structural information that should not be sent to the LLM.
    * The AI can still answer general questions but loses awareness of the current
    * dashboard layout.
+   *
+   * This is a guarantee about the LLM provider: the state is still POSTed to your
+   * own middleware endpoint (which needs it to run any state-editing tool), and it
+   * is that server which withholds it from the prompt. The sampled row values and
+   * field statistics are the part the browser never sends at all.
    * @default false
    */
   privateMode?: boolean;

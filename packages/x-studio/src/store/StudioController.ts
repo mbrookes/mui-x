@@ -310,16 +310,41 @@ export class StudioController {
       }
     }
 
-    this.store.setState(nextState);
+    // Dangling-selection normalization, applied HERE (the single choke point every
+    // doc-changing commit funnels through) rather than at each entry point (R6 F1).
+    // `setState` — reachable from the chat panel's Retry (`chatTurnMutations`' `revert`
+    // restores `turn.docBefore` wholesale) — used to swap the doc without it, so a widget
+    // an AI turn had created and the user had then SELECTED stayed in
+    // `session.shell.selectedWidgetId` after the revert removed it from `doc.widgets`.
+    // (The ledger's `state.doc !== turn.docAfter` staleness guard does not catch this:
+    // selecting a widget is a session-only commit, so `doc` stays reference-identical.)
+    // `StudioComposeDrawer` renders `<WidgetConfigView key={selectedWidgetId}>` for any
+    // truthy id and that view `return null`s when the widget is missing, so the user got a
+    // blank drawer instead of `AddWidgetView` — and a dangling selection is also the
+    // enabling condition for the `updateWidget` crash (1.3). Running it here means no
+    // future doc-writing entry point can miss it; the explicit calls that remain
+    // (`undo`/`redo`/`loadState`, which write `this.store.setState` directly, and the
+    // `commitMutation` transforms that must see the normalized session while building
+    // their own) are idempotent against this one.
+    const normalizedSession =
+      nextState.doc !== current.doc
+        ? this.normalizeSessionAfterDocSwap(nextState.session, nextState.doc)
+        : nextState.session;
+    this.store.setState(
+      normalizedSession === nextState.session
+        ? nextState
+        : { ...nextState, session: normalizedSession },
+    );
   };
 
   /**
-   * After an undo/redo swaps in a different `doc`, reconcile the session's dangling
-   * widget selection: if `selectedWidgetId` references a widget the swapped-in doc no
-   * longer contains (e.g. undo reverted the `addWidget` that created it), it is nulled
-   * out. This is the ONE deliberate cross-partition normalization, and it lives only
-   * here in the controller — never in the pure reducer or the persistence layer —
-   * because it is a UI-selection concern, not a document or serialization one.
+   * After a doc swap (undo/redo, `loadState`, or any commit that changes the `doc`
+   * reference — see `commitState`), reconcile the session's dangling widget selection: if
+   * `selectedWidgetId` references a widget the swapped-in doc no longer contains (e.g. undo
+   * reverted the `addWidget` that created it), it is nulled out. This is the ONE deliberate
+   * cross-partition normalization, and it lives only here in the controller — never in the
+   * pure reducer or the persistence layer — because it is a UI-selection concern, not a
+   * document or serialization one.
    *
    * `selectedSourceId`/`selectedFieldId` reference host `runtime.dataSources`, which
    * an undo never touches, so they cannot dangle from a doc swap and are left alone.

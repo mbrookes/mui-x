@@ -13,6 +13,7 @@ import type {
 } from '../models';
 import { resolveDateRangePreset } from '../internals/filterUtils';
 import { GRID_COLS, MIN_SPAN } from '../components/StudioCanvas/canvasGridConstants';
+import { createChatTurnMutationLedger } from '../components/StudioChatPanel/chatTurnMutations';
 
 function makeFilter(
   overrides: Partial<StudioFilterState> & { scope?: StudioFilterState['scope'] },
@@ -6225,5 +6226,61 @@ describe('StudioController.applyFilterPreset — identity bail (M12)', () => {
     // Nothing committed: same state reference, and the pending redo survives.
     expect(controller.getState()).toBe(before);
     expect(controller.canRedo()).toBe(true);
+  });
+});
+
+// ─── R6 F1: every doc swap normalizes a dangling widget selection ────────────
+
+describe('StudioController — dangling selection normalization at the commit choke point', () => {
+  it('setState nulls a selection the swapped-in doc no longer contains', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    const docBefore = controller.getState().doc;
+
+    controller.addWidget(makeWidget('ai1'));
+    expect(controller.getState().session.shell.selectedWidgetId).toBe('ai1');
+
+    // The whole-state swap `chatTurnMutations`' `revert` performs.
+    controller.setState({ ...controller.getState(), doc: docBefore }, { undoable: true });
+
+    expect(controller.getState().doc.widgets).not.toHaveProperty('ai1');
+    expect(controller.getState().session.shell.selectedWidgetId).toBe(null);
+  });
+
+  it('chat Retry (ledger revert) does not leave the reverted widget selected', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    const ledger = createChatTurnMutationLedger(controller);
+
+    const docBefore = controller.getState().doc;
+    const pageId = controller.getState().doc.dashboard.activePageId;
+    controller.applyExternalMutation({
+      type: 'addWidget',
+      args: { widget: makeWidget('ai1'), pageId },
+    });
+    const docAfter = controller.getState().doc;
+    ledger.record('msg-1', docBefore, docAfter);
+
+    // Selecting the AI-created widget is a SESSION-only commit, so `doc` stays
+    // reference-identical and the ledger's staleness guard still passes.
+    controller.setSelectedWidget('ai1');
+    expect(controller.getState().doc).toBe(docAfter);
+
+    expect(ledger.revert('msg-1')).toBe(true);
+
+    expect(Object.keys(controller.getState().doc.widgets)).toEqual(['w1']);
+    // Without the normalization the compose drawer renders a blank `WidgetConfigView`
+    // keyed on the vanished id instead of `AddWidgetView`.
+    expect(controller.getState().session.shell.selectedWidgetId).toBe(null);
+  });
+
+  it('leaves a still-present selection and the state reference alone', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    controller.setSelectedWidget('w1');
+
+    controller.setDashboardTitle('renamed');
+
+    expect(controller.getState().session.shell.selectedWidgetId).toBe('w1');
   });
 });

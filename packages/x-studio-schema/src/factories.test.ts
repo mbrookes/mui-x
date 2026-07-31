@@ -752,3 +752,46 @@ describe('createDefaultStudioState screens its pages override shape (R3-F2)', ()
     expect(state.doc.pages).toBe(pages);
   });
 });
+
+// The `pages` container-shape trio above has no counterpart for its SIBLINGS, even though
+// each screen opens with the same "coerce a wrong-shaped container" expression. The
+// architecture rule they all serve — a bad value at a boundary never throws, it no-ops,
+// drops or coerces — is only observable if the wrong SHAPE (not merely a wrong entry) is
+// put in front of each one.
+describe('createDefaultStudioState screens its doc override container shapes', () => {
+  it('coerces a non-array `filters` to [] instead of throwing on .map', () => {
+    // `screenFilters` opens with a `dependsOn` repair pass (`source.map(...)`), so a
+    // container that is not an array reaches `.map` on a string/number/record unless it is
+    // coerced first — the boundary would throw rather than drop.
+    let state!: ReturnType<typeof createDefaultStudioState>;
+    expect(() => {
+      state = createDefaultStudioState({
+        doc: { filters: 'junk' as unknown as StudioDoc['filters'] },
+      });
+    }).not.toThrow();
+    expect(state.doc.filters).toEqual([]);
+  });
+
+  it('coerces an array `widgets` to {} instead of installing index keys', () => {
+    // `widgets` is a Record keyed by widget id. An ARRAY passes a bare nullish check and
+    // then `Object.entries` it into `{"0": widget}` — a widget permanently unreachable by
+    // its own id, since every lookup goes through `doc.widgets[widget.id]`.
+    const state = createDefaultStudioState({
+      doc: {
+        widgets: [
+          { id: 'w1', kind: 'chart', title: 'T', config: { chartType: 'bar' } },
+        ] as unknown as StudioDoc['widgets'],
+      },
+    });
+    expect(state.doc.widgets).toEqual({});
+    expect(Object.keys(state.doc.widgets)).not.toContain('0');
+  });
+
+  it('coerces a non-record `doc` to {} instead of spreading it character-by-character', () => {
+    // `screenDoc` spreads its input (`{ ...doc }`), so a STRING doc would install one own
+    // key per character (`{"0":"j","1":"u",…}`) onto the merged doc.
+    const state = createDefaultStudioState({ doc: 'junk' as unknown as Partial<StudioDoc> });
+    expect(Object.keys(state.doc).some((key) => /^\d+$/.test(key))).toBe(false);
+    expect(Object.keys(state.doc.pages).length).toBeGreaterThan(0);
+  });
+});

@@ -2968,6 +2968,30 @@ describe('applyMutation', () => {
       expect(Object.hasOwn(result['page-1'], 'widgetColSpans')).toBe(false);
     });
 
+    it('drops a prototype-hazard widgetColSpans key from a persisted page', () => {
+      // The span rebuild writes each surviving key with a BARE bracket assignment
+      // (`rebuilt[key] = clampSpan(...)`) into a fresh `{}`, so the denylist is the only
+      // thing standing between an untrusted persisted key and that write. `JSON.parse`
+      // is what makes this reachable: it materializes `"constructor"` as a real OWN data
+      // property, which an object literal in a test file cannot do.
+      //
+      // `"constructor"` rather than `"__proto__"` because only the former is OBSERVABLE
+      // here: assigning to `__proto__` on a plain object invokes the inherited setter and
+      // (for a number) is silently ignored, leaving no own key either way.
+      const pages = JSON.parse(
+        '{"page-1":{"id":"page-1","title":"P1","widgetRows":[["constructor","w1"]],' +
+          '"widgetColSpans":{"constructor":6,"w1":6}}}',
+      ) as StudioDoc['pages'];
+      // The widget map must carry the hazardous id too, or the row filter would drop the
+      // id before the span rebuild ever sees the key and the denylist would be untested.
+      const widgets = JSON.parse(
+        '{"constructor":{"id":"constructor","kind":"chart","title":"C","config":{}},' +
+          '"w1":{"id":"w1","kind":"chart","title":"W","config":{}}}',
+      ) as StudioDoc['widgets'];
+      const result = normalizePersistedPages(pages, widgets);
+      expect(Object.keys(result['page-1'].widgetColSpans ?? {})).toEqual(['w1']);
+    });
+
     it('treats an exotic applyBulkUpdate.args.widgetColSpans as absent instead of crashing on it (isPlainRecord bypass)', () => {
       // Same shape as the normalizePersistedPages case above, exercised through the
       // reducer's own `spansProvided` check instead of the load boundary's.
@@ -3187,6 +3211,32 @@ describe('applyMutation', () => {
       });
       // 10 + 8 = 18 <= 24, so the spans are preserved.
       expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 10, w2: 8 });
+    });
+
+    // The exact `sum > GRID_COLS` boundary. The cases above sit at 18 (kept) and 32
+    // (dropped), which a check widened by one column would still satisfy; only the
+    // adjacent pair 24/25 distinguishes "sums past the grid" from "sums past the grid
+    // plus one", and 25 is the narrowest overflow a real drag-resize can produce.
+    it.each([
+      [12, 12, { w1: 12, w2: 12 }],
+      [12, 13, undefined],
+    ])('merges a row summing %i + %i and keeps spans = %j', (w1, w2, expected) => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': {
+            id: 'page-1',
+            title: 'P1',
+            widgetRows: [['w1'], ['w2']],
+            widgetColSpans: { w1, w2 },
+          },
+        },
+      });
+      const next = applyDocMutation(state, {
+        type: 'setWidgetLayout',
+        args: { rows: [['w1', 'w2']] },
+      });
+      expect(next.pages['page-1'].widgetColSpans).toEqual(expected);
     });
 
     it('preserves an intentional pre-existing single-widget span (no false collapse)', () => {

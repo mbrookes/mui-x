@@ -542,6 +542,24 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
     expect(chunk!.effects).toBe(undefined);
   });
 
+  // `willRemoveFilters` is a list of PLAIN STRINGS, not of `{ id, title }` records, so it is
+  // the one list `isWithinApprovalListLimits` screens through its `typeof entry === 'string'`
+  // branch — and that branch was untested: deleting it left all 59 tests of this file green
+  // while a 10 001-character filter id sailed through onto the persisted part.
+  it('drops the whole effects payload when a plain-string list entry is over the string cap', async () => {
+    const chunk = await collectApprovalChunk(
+      approvalEvent(1, {
+        effects: {
+          willRemoveFilters: ['f1', 'f'.repeat(MAX_STRING_LENGTH + 1)],
+          updatedWidgetCount: 2,
+        },
+      }),
+    );
+
+    // All-or-nothing, like every other over-limit list: `updatedWidgetCount` goes with it.
+    expect(chunk!.effects).toBe(undefined);
+  });
+
   it('drops a `reason` over the shared string cap, keeping the rest of the chunk', async () => {
     const chunk = await collectApprovalChunk(
       approvalEvent(1, {

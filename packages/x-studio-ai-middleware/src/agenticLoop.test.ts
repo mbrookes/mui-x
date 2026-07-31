@@ -1090,6 +1090,70 @@ describe('runAgenticLoop — provider-omitted tool-call ids (T3-5)', () => {
       true,
     );
   });
+
+  // The counterpart of the test above, and the half that was missing: the CONSUMERS of
+  // `PendingApproval.threadId` are well covered (`registerApproval` stores it,
+  // `isApprovalThreadIdAuthorized` denies a mismatch or an omission), but nothing
+  // asserted that the LOOP actually SUPPLIES it. With `ctx.threadId` left `undefined`,
+  // every entry the whole package ever registers is unbound — and an unbound entry makes
+  // `isApprovalThreadIdAuthorized` return `true` unconditionally, i.e. the thread-binding
+  // check that `handleAIChat`'s docs call "the only thing between a guessed id and a
+  // resolved approval" is a no-op, with every one of its own unit tests still green.
+  it('binds the pending approval to the request state`s doc.ai.activeThreadId', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('remove_widget', { widgetId: 'w1' }))
+      .mockResolvedValueOnce(textResponse('done', 10, 5));
+
+    const state = createDefaultStudioState();
+    const activePageId = state.doc.dashboard.activePageId;
+    const seeded = {
+      ...state,
+      doc: {
+        ...state.doc,
+        widgets: {
+          w1: { id: 'w1', kind: 'chart' as const, title: 'W1', sourceId: 's', config: {} },
+        },
+        pages: {
+          ...state.doc.pages,
+          [activePageId]: { ...state.doc.pages[activePageId], widgetRows: [['w1']] },
+        },
+        ai: { threads: [], activeThreadId: 'thread-A' },
+      },
+    };
+
+    const approvalPending = new Map<string, PendingApproval>();
+    let entryThreadId: string | undefined | symbol = Symbol('unset');
+
+    for await (const ev of runAgenticLoop(
+      [userMsg('Remove it')],
+      seeded,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { ...BASE_OPTIONS, approvalPending, approvalTimeoutMs: 60_000 },
+    )) {
+      if ((ev as { type: string }).type === 'tool-approval-request') {
+        // Read while the loop is PAUSED — the entry must already carry the binding at
+        // the exact moment the id becomes observable to a resolver.
+        entryThreadId = approvalPending.get('tc_1')?.threadId;
+        approvalPending.get('tc_1')!.resolve(true);
+      }
+    }
+
+    expect(entryThreadId).toBe('thread-A');
+    // Bound, so a resolver from a different thread — or one asserting no thread at all —
+    // is now refused, which is the whole point of supplying the id.
+    expect(isApprovalThreadIdAuthorized({ threadId: entryThreadId as string }, 'thread-A')).toBe(
+      true,
+    );
+    expect(isApprovalThreadIdAuthorized({ threadId: entryThreadId as string }, 'thread-B')).toBe(
+      false,
+    );
+    expect(isApprovalThreadIdAuthorized({ threadId: entryThreadId as string }, undefined)).toBe(
+      false,
+    );
+  });
 });
 
 describe('runAgenticLoop — built-in tool gating', () => {

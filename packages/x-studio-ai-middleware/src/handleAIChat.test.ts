@@ -926,6 +926,59 @@ describe('handleAIChat', () => {
     }
   });
 
+  // ARCHITECTURE.md's "error text that crossed the host boundary is never relayed to
+  // the model or the browser" had no executable check at the one place it can be
+  // violated wholesale: `start()`'s OUTERMOST catch, which by construction only ever
+  // sees errors from outside this package (a host `toolPolicy`, `contextEnricher` or
+  // skill) and enqueues straight to an untrusted browser. Swapping the redaction for
+  // `err.message` there survived the whole suite.
+  it('redacts a host error that escapes into the outer catch instead of relaying it to the browser', async () => {
+    const onToolError = vi.fn();
+    // `options.skillHandlers` is read during `allowedSkills` resolution, which runs
+    // inside `start()` but OUTSIDE `runAgenticLoop` — so a host object throwing from it
+    // lands in exactly the catch under test. The message carries the two things host
+    // error text routinely carries: a credential and an internal hostname.
+    const hostileHandlers = {
+      find() {
+        throw new Error('connection failed: PGPASSWORD=hunter2 at 10.0.3.11:5432');
+      },
+    } as unknown as StudioAISkill[];
+
+    const events = parseEvents(
+      await readAll(
+        handleAIChat(
+          makeBody({
+            skills: [{ name: 'narrator', mode: 'instruction-only', promptFragment: 'x' }],
+          }),
+          {
+            ...OPTIONS,
+            allowedSkills: ['narrator'],
+            skillHandlers: hostileHandlers,
+            onToolError,
+          },
+        ),
+      ),
+    );
+
+    const errorEvent = events.find(
+      (event): event is { type: 'error'; message: string } => event.type === 'error',
+    );
+    expect(errorEvent).toBeDefined();
+    expect(errorEvent!.message).not.toContain('hunter2');
+    expect(errorEvent!.message).not.toContain('10.0.3.11');
+    expect(errorEvent!.message).not.toContain('connection failed');
+    // The generic sentence plus the correlation reference an operator can look up.
+    expect(errorEvent!.message).toContain('the AI chat request failed');
+    expect(errorEvent!.message).toMatch(/reference "[^"]+"/);
+
+    // ...and the full detail still reaches the host's own server-side channel, so the
+    // redaction hides nothing from the operator.
+    expect(onToolError).toHaveBeenCalledWith(
+      'handleAIChat',
+      expect.objectContaining({ message: expect.stringContaining('PGPASSWORD=hunter2') }),
+    );
+  });
+
   it('propagates consumer stream cancellation to the loop via an abort signal', async () => {
     let capturedSignal: AbortSignal | undefined;
     // Return a stream that emits one frame then stays open, so the loop is mid-flight
@@ -1286,6 +1339,40 @@ describe('handleAIChat — server-side allowedSkills enforcement (T1-1)', () => 
 
     expect(prompt).toContain('HOST-VETTED allowed skill content.');
     expect(prompt).not.toContain('ATTACKER content');
+  });
+
+  // The `.filter((s) => allowedSkills.includes(s.name))` half of the resolution had no
+  // executable check of its own: every existing "not allowlisted" case ALSO had no
+  // matching `skillHandlers` entry, so the later `.filter(Boolean)` dropped it and the
+  // allow-list could be deleted outright with the suite still green. This is the case
+  // where the two halves disagree — a name the host DID register but did NOT allow.
+  it('drops a body skill whose name is registered in skillHandlers but absent from allowedSkills', async () => {
+    const allowed: StudioAISkill = {
+      name: 'allowed-skill',
+      mode: 'instruction-only',
+      promptFragment: 'ALLOWED-FRAGMENT: this skill is on the allow-list.',
+    };
+    // Registered with the host — e.g. an internal skill wired for a different tenant or
+    // a different route — but deliberately left off THIS request's allow-list.
+    const other: StudioAISkill = {
+      name: 'other-skill',
+      mode: 'instruction-only',
+      promptFragment: 'OTHER-FRAGMENT: registered but not allowed on this request.',
+    };
+    const body = makeBody({
+      skills: [
+        { name: 'allowed-skill', mode: 'instruction-only', promptFragment: 'ignored' },
+        { name: 'other-skill', mode: 'instruction-only', promptFragment: 'ignored' },
+      ],
+    });
+
+    const prompt = await systemPromptText(body, {
+      allowedSkills: ['allowed-skill'],
+      skillHandlers: [allowed, other],
+    });
+
+    expect(prompt).toContain('ALLOWED-FRAGMENT: this skill is on the allow-list.');
+    expect(prompt).not.toContain('OTHER-FRAGMENT: registered but not allowed on this request.');
   });
 
   it('preserves current behavior (body skills trusted as-is) when allowedSkills is omitted', async () => {

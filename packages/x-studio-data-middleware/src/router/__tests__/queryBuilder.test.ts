@@ -1436,6 +1436,55 @@ describe('buildSecureQuery', () => {
     // AGENTS.md requires every error thrown from a public package to say what
     // happened, WHY IT IS A PROBLEM, and how to fix it. This one named the bad
     // operator and listed the allowed set but never stated the consequence (F6).
+    it.each(['nope', 'toString', 'constructor', 'valueOf', '__proto__'])(
+      'rejects an unsupported aggregation function "%s" referenced by a HAVING',
+      (func) => {
+        // F8 — `applyHaving`'s OWN own-property gate on `AGGREGATE_SQL_FUNCTIONS`.
+        // `execute.ts` has the identical gate and IS covered, but `buildSecureQuery`
+        // runs FIRST: for a descriptor carrying both an unsupported `func` and a
+        // `having`, this is the gate that fires, and removing it survived the whole
+        // suite. Ungated, `AGGREGATE_SQL_FUNCTIONS[agg.func]` is `undefined` (or an
+        // inherited native function) and the emitted fragment becomes
+        // `undefined(??) > ?` — malformed SQL assembled from client input.
+        const { db, calls } = createRecordingDb();
+        expect(() =>
+          buildSecureQuery(
+            db,
+            BASE_CLAIMS,
+            descriptor({
+              aggregations: [{ column: 'amount', func: func as any, alias: 'total' }],
+              having: [{ alias: 'total', operator: 'gt', value: 1 }],
+            }),
+            { tenancy: SINGLE_TENANT },
+          ),
+        ).toThrow(/MUI X Studio Server: Aggregation function ".*" is not supported in HAVING/);
+        expect(calls.some((c) => c.method === 'havingRaw')).toBe(false);
+      },
+    );
+
+    it('rejects a HAVING whose alias matches no declared aggregation', () => {
+      // F13 — fail-closed for DIRECT callers. On the request path
+      // `validateHavingAliases` rejects this first, so the guard here is
+      // unreachable through `handleBatchQuery` and nothing covered it — but
+      // `buildSecureQuery` is exported, and without the guard `agg` is
+      // `undefined` and the very next line dereferences it.
+      const { db, calls } = createRecordingDb();
+      expect(() =>
+        buildSecureQuery(
+          db,
+          BASE_CLAIMS,
+          descriptor({
+            aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+            having: [{ alias: 'not_declared', operator: 'gt', value: 1 }],
+          }),
+          { tenancy: SINGLE_TENANT },
+        ),
+      ).toThrow(
+        /MUI X Studio Server: HAVING alias "not_declared" does not match any aggregation alias/,
+      );
+      expect(calls.some((c) => c.method === 'havingRaw')).toBe(false);
+    });
+
     it('explains the consequence of an unsupported HAVING operator, not just the allowed set', () => {
       const { db } = createRecordingDb();
       let message = '';

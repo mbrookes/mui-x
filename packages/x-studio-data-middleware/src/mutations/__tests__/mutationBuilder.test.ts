@@ -1103,6 +1103,46 @@ describe('INSERT region/department scope validation', () => {
       }),
     ).toThrow(/outside the caller's department/);
   });
+
+  // The DEPARTMENT mirror of the two region regressions above, which had no
+  // equivalent (F9). `claims.department` is typed `string`, but a deployment
+  // whose department column is NUMBER-typed sends a numeric
+  // `values[cols.department]`. Under a strict `!==` the comparison never matches
+  // `5` against `"5"`, so EVERY legitimate in-department write from such a
+  // deployment is rejected with a confusing "outside the caller's department"
+  // error. Both sides go through `String(...)`, exactly as the region dimension
+  // does — and the fail-closed direction is unaffected.
+  const NUMERIC_DEPT_CLAIMS = { ...DEPT_CLAIMS, department: '5' };
+
+  it('allows an insert whose numeric department matches a string caller department', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'ok', department: 5 },
+    };
+    expect(() =>
+      validateMutation(descriptor, NUMERIC_DEPT_CLAIMS, {
+        policy: MT_POLICY,
+        writableColumns: { orders: ['status', 'department'] },
+      }),
+    ).not.toThrow();
+  });
+
+  it('still rejects an insert whose numeric department is outside the caller department', () => {
+    const descriptor: MutationDescriptor = {
+      id: 'm1',
+      operation: 'insert',
+      table: 'orders',
+      values: { status: 'ok', department: 6 },
+    };
+    expect(() =>
+      validateMutation(descriptor, NUMERIC_DEPT_CLAIMS, {
+        policy: MT_POLICY,
+        writableColumns: { orders: ['status', 'department'] },
+      }),
+    ).toThrow(/outside the caller's department/);
+  });
 });
 
 // ── INSERT fail-closed region/department scope on OMISSION (finding 2.2) ───────

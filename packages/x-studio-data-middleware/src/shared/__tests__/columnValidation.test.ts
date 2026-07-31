@@ -26,7 +26,7 @@ import {
   validateProjectionKeyCollisions,
   validateWildcardProjection,
 } from '../columnValidation';
-import { assertQualifiedColumnsAllowed } from '../assertTablesAllowed';
+import { assertQualifiedColumnsAllowed, assertTablesAllowed } from '../assertTablesAllowed';
 import type { BatchWidgetDescriptor } from '../../security/types';
 
 const PROTO_KEYS = ['constructor', 'toString', 'valueOf', 'hasOwnProperty', '__proto__'];
@@ -424,3 +424,56 @@ function captureMessage(fn: () => void): string {
   }
   return '<did not throw>';
 }
+
+/**
+ * The mis-shaped-allowlist re-asserts on the two EXPORTED functions that check
+ * membership with `Array.prototype.includes` (F10).
+ *
+ * `compileSecurityPolicy` validates the host's allowlists once, up front, on the
+ * request path — and that call site is covered. But both functions below are
+ * exported and reachable WITHOUT compiling a policy, which is the stated reason
+ * the re-asserts exist, and deleting either one survived the whole suite.
+ *
+ * Handed a STRING instead of an array (the shape a host gets from
+ * `schemaAllowlist: process.env.STUDIO_TABLES`), `.includes` becomes
+ * `String.prototype.includes` — SUBSTRING matching. `'orders_public'.includes('orders')`
+ * is `true`, so the allowlist fails OPEN and admits a table that was never listed.
+ */
+describe('exported allowlist checks fail closed on a mis-shaped allowlist (F10)', () => {
+  it('assertTablesAllowed rejects a string schemaAllowlist instead of substring-matching it', () => {
+    // Without the re-assert this call SUCCEEDS: `'orders_public'.includes('orders')`.
+    expect(() => assertTablesAllowed(['orders'], 'orders_public' as never)).toThrow(
+      /schemaAllowlist must be an array of strings/,
+    );
+    // A well-formed allowlist still rejects the same table on membership.
+    expect(() => assertTablesAllowed(['orders'], ['orders_public'])).toThrow(
+      /not in schema allowlist/,
+    );
+    expect(() => assertTablesAllowed(['orders'], ['orders'])).not.toThrow();
+  });
+
+  it('assertTablesAllowed rejects a non-string entry in the allowlist array', () => {
+    expect(() => assertTablesAllowed(['orders'], ['orders', 42] as never)).toThrow(
+      /every entry must be a string/,
+    );
+  });
+
+  it('checkColumnAgainstAllowlist rejects a string columnAllowlist entry', () => {
+    // Without the re-assert, `'id,status'.includes('id')` admits the column —
+    // and `'orders.'` yields `column === ''`, which every string contains, so
+    // the empty column name is admitted too.
+    expect(() =>
+      checkColumnAgainstAllowlist('id', 'orders', { orders: 'id,status' } as never, 'columns'),
+    ).toThrow(/column allowlist entry for table "orders" must be an array of strings/);
+    expect(() =>
+      checkColumnAgainstAllowlist('orders.', 'orders', { orders: 'id,status' } as never, 'columns'),
+    ).toThrow(/must be an array of strings/);
+    // Correctly shaped: membership is what decides.
+    expect(() =>
+      checkColumnAgainstAllowlist('id', 'orders', { orders: ['id', 'status'] }, 'columns'),
+    ).not.toThrow();
+    expect(() =>
+      checkColumnAgainstAllowlist('secret', 'orders', { orders: ['id', 'status'] }, 'columns'),
+    ).toThrow(/not in the column allowlist/);
+  });
+});

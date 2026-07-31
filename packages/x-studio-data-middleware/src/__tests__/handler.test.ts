@@ -161,6 +161,30 @@ function installRecordingJoins(qb: any, calls: RecordedOnCall[]): void {
 }
 
 /**
+ * Wrap a `CacheProvider` so every `set()` KEY is recorded, while the underlying
+ * provider still behaves normally.
+ *
+ * Asserting "this result was not cached" by recomputing the key with
+ * `generateCacheKey` and expecting `get()` to miss is unreliable: the handler
+ * folds a compiled POLICY DIGEST into the key, so a recomputed key that omits it
+ * misses whether or not the handler wrote anything. Watching the write itself
+ * cannot be fooled by a key mismatch.
+ */
+function watchCacheWrites(inner: LRUCacheProvider) {
+  const setKeys: string[] = [];
+  const provider = {
+    get: (key: string) => inner.get(key),
+    set: (key: string, ...rest: unknown[]) => {
+      setKeys.push(key);
+      return (inner.set as any)(key, ...rest);
+    },
+    invalidatePrefix: (prefix: string) => inner.invalidatePrefix(prefix),
+    deleteByTag: (tag: string) => inner.deleteByTag(tag),
+  } as never as LRUCacheProvider;
+  return { provider, setKeys, inner };
+}
+
+/**
  * Assert that a batch produced a per-widget `{ error }` result at `index` (rows
  * empty, error matching `pattern`) rather than rejecting the whole batch.
  *
@@ -3097,7 +3121,13 @@ describe('handleBatchQuery — non-aggregation db-tier caching (finding 3.2)', (
   });
 
   it('still does NOT cache an aggregation result even though it is also forced to the db tier', async () => {
-    const cache = new LRUCacheProvider({ ttlMs: 5000 });
+    // ASSERTED ON THE PROVIDER, NOT ON A RECOMPUTED KEY. This test used to look
+    // up `generateCacheKey(ACME_CLAIMS, widget)` — WITHOUT the policy digest the
+    // handler folds in — so it queried a key the handler never writes, and would
+    // have reported "not cached" no matter what the handler did. Removing the
+    // `tier !== 'db' || !hasAggregations` gate entirely therefore survived.
+    // Watching `set()` cannot miss the write, whatever key it lands under.
+    const { provider, setKeys } = watchCacheWrites(new LRUCacheProvider({ ttlMs: 5000 }));
     const body: BatchQueryRequest = {
       pageId: 'p1',
       widgets: [
@@ -3114,12 +3144,102 @@ describe('handleBatchQuery — non-aggregation db-tier caching (finding 3.2)', (
       db: makeDb(),
       schemaAllowlist: ['sales'],
       tenancy: SINGLE_TENANT,
-      cacheProvider: cache,
+      cacheProvider: provider,
     });
 
     expect(result.results[0].tier).toBe('db');
-    const cacheKey = generateCacheKey(ACME_CLAIMS, body.widgets[0]);
-    expect(await cache.get(cacheKey)).toBeUndefined();
+    expect(result.results[0].rows.length).toBeGreaterThan(0);
+    expect(setKeys).toEqual([]);
+  });
+
+  it('DOES cache the same descriptor once its aggregations are removed (the gate has two sides)', async () => {
+    // Guards against "caches nothing, ever" satisfying the assertion above.
+    const { provider, setKeys } = watchCacheWrites(new LRUCacheProvider({ ttlMs: 5000 }));
+    await handleBatchQuery(
+      { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', columns: ['region'] }] },
+      ACME_CLAIMS,
+      {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
+        cacheProvider: provider,
+        tierCacheProvider: new MapTierCacheProvider(),
+      },
+    );
+    expect(setKeys).toHaveLength(1);
+  });
+});
+
+// ─── handleBatchQuery — an overtaken read must not populate the cache ─────────
+
+describe('handleBatchQuery — a failing invalidation-epoch check falls back to NOT caching (F6)', () => {
+  /**
+   * `tagsInvalidatedSinceRead` answers `true` — "assume it WAS invalidated" —
+   * when `CacheProvider.wereTagsInvalidatedSince` throws, because freshness could
+   * not be established and the fail-closed direction is "don't cache".
+   *
+   * Flipping that catch to `false` is invisible in every ordinary run: the hook
+   * does not throw, so the result is cached exactly as before. It only shows up
+   * when the cache backend is degraded — and then a read that raced a commit
+   * re-caches PRE-mutation rows for a full TTL, which is exactly the staleness
+   * `readWriteCacheRace.test.ts` exists to prevent, reachable through a backend
+   * hiccup instead of a timing window.
+   */
+  function throwingEpochProvider() {
+    const { provider, setKeys } = watchCacheWrites(new LRUCacheProvider({ ttlMs: 5000 }));
+    return {
+      setKeys,
+      provider: {
+        ...provider,
+        wereTagsInvalidatedSince: async () => {
+          throw new Error('cache backend unavailable');
+        },
+      } as never,
+    };
+  }
+
+  it('returns the rows but does NOT write them to the cache', async () => {
+    const { provider, setKeys } = throwingEpochProvider();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const result = await handleBatchQuery(
+        { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales' }] },
+        ACME_CLAIMS,
+        {
+          db: makeDb(),
+          schemaAllowlist: ['sales'],
+          tenancy: SINGLE_TENANT,
+          cacheProvider: provider,
+          tierCacheProvider: new MapTierCacheProvider(),
+        },
+      );
+      // The caller is served — a cache-plane failure never fails the widget.
+      expect(result.results[0].error).toBeUndefined();
+      expect(result.results[0].rows.length).toBeGreaterThan(0);
+      // …but nothing is written, so a just-committed write cannot be hidden
+      // behind an entry this read left behind.
+      expect(setKeys).toEqual([]);
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('DOES write when the same provider answers the epoch check normally', async () => {
+    // The other side of the gate: "never caches" must not be what makes the
+    // assertion above pass.
+    const { provider, setKeys } = watchCacheWrites(new LRUCacheProvider({ ttlMs: 5000 }));
+    await handleBatchQuery({ pageId: 'p1', widgets: [{ id: 'w1', table: 'sales' }] }, ACME_CLAIMS, {
+      db: makeDb(),
+      schemaAllowlist: ['sales'],
+      tenancy: SINGLE_TENANT,
+      cacheProvider: {
+        ...provider,
+        wereTagsInvalidatedSince: async () => false,
+      } as never,
+      tierCacheProvider: new MapTierCacheProvider(),
+    });
+    expect(setKeys).toHaveLength(1);
   });
 });
 

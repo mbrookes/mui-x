@@ -349,6 +349,86 @@ describe('StudioGridWidget — interactive header-click sorting commits back int
     expect(gridConfig().gridSortField).toBeUndefined();
     expect(controller.canUndo()).toBe(false);
   });
+
+  // The continuation guard is a conjunction, and only its doc-identity half is covered by
+  // the test above. The COLUMN half is what stops a click on a *different* header from
+  // folding into the previous column's gesture: both clicks share the same doc identity (the
+  // second click's pre-commit doc is exactly what the first click committed), so with the
+  // field check gone the second click folds back to the FIRST column's baseline and one
+  // Ctrl+Z wipes both sorts.
+  it('does not fold a click on a DIFFERENT column into the previous column gesture', async () => {
+    const { controller, widget } = await setup();
+
+    const gridConfig = () =>
+      controller.getState().doc.widgets[widget.id].config as StudioWidgetConfig;
+
+    const amountHeader = screen.getByRole('columnheader', { name: /amount/i });
+    fireEvent.click(amountHeader);
+    await waitFor(() => {
+      expect(gridConfig().gridSortField).toBe('amount');
+    });
+
+    // A different column, clicked immediately — nothing has changed the doc in between, so
+    // the doc-identity half of the guard is satisfied and only the column check can stop it.
+    const idHeader = screen.getByRole('columnheader', { name: /^id/i });
+    fireEvent.click(idHeader);
+    await waitFor(() => {
+      expect(gridConfig().gridSortField).toBe('id');
+    });
+
+    // One Ctrl+Z reverts ONLY the second column's sort, landing back on the first.
+    act(() => {
+      controller.undo();
+    });
+    expect(gridConfig().gridSortField).toBe('amount');
+    expect(gridConfig().gridSortDirection).toBe('asc');
+
+    // The first sort is still its own step underneath.
+    act(() => {
+      controller.undo();
+    });
+    expect(gridConfig().gridSortField).toBeUndefined();
+  });
+
+  // A mode toggle is a gesture boundary: the effect that resets the viewer-local sort also
+  // clears `sortGestureRef`. Without that, an edit-mode sort, a round trip through view mode
+  // (which never touches `doc`, so the gesture's doc-identity guard still passes on return),
+  // and a second click on the same column collapse into ONE undo entry — the pre-toggle sort
+  // becomes unreachable as its own step.
+  it('a view/edit round trip closes the open sort gesture', async () => {
+    const { controller, widget } = await setup();
+
+    const gridConfig = () =>
+      controller.getState().doc.widgets[widget.id].config as StudioWidgetConfig;
+
+    const amountHeader = screen.getByRole('columnheader', { name: /amount/i });
+    fireEvent.click(amountHeader);
+    await waitFor(() => {
+      expect(gridConfig().gridSortDirection).toBe('asc');
+    });
+
+    // Round-trip through view mode. Neither transition writes `doc`, so on return the
+    // gesture's doc-identity check would still pass — only the explicit reset closes it.
+    act(() => {
+      controller.setMode('view');
+    });
+    act(() => {
+      controller.setMode('edit');
+    });
+
+    fireEvent.click(amountHeader);
+    await waitFor(() => {
+      expect(gridConfig().gridSortDirection).toBe('desc');
+    });
+
+    // The post-toggle click is its own undo step: the first Ctrl+Z returns to the sort the
+    // author had before switching modes, rather than clearing it outright.
+    act(() => {
+      controller.undo();
+    });
+    expect(gridConfig().gridSortField).toBe('amount');
+    expect(gridConfig().gridSortDirection).toBe('asc');
+  });
 });
 
 // ─── View mode must not write the authored document (finding 1) ──────────────

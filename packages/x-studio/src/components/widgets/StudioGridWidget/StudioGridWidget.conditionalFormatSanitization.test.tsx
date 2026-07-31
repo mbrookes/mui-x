@@ -26,7 +26,12 @@ function makeSource(): StudioDataSource {
   };
 }
 
-function setup(widgetId: string, style: Record<string, unknown>) {
+function setup(
+  widgetId: string,
+  style: Record<string, unknown>,
+  configOverrides: Record<string, unknown> = {},
+  ruleOverrides: Record<string, unknown> = {},
+) {
   const source = makeSource();
   const widget: StudioWidgetOf<'grid'> = {
     id: widgetId,
@@ -40,8 +45,10 @@ function setup(widgetId: string, style: Record<string, unknown>) {
           operator: 'greater_than',
           value: 50,
           style,
+          ...ruleOverrides,
         },
       ],
+      ...configOverrides,
     } as StudioWidgetOf<'grid'>['config'],
   };
   const initialState: CreateDefaultStudioStateOverrides = {
@@ -77,6 +84,11 @@ function getCells(container: HTMLElement) {
     matchingCell: container.querySelector('[data-id="r1"] [data-field="amount"]'),
     nonMatchingCell: container.querySelector('[data-id="r2"] [data-field="amount"]'),
   };
+}
+
+/** The `amount` cell of the bottom-pinned footer summary row, if one is rendered. */
+function getSummaryCell(container: HTMLElement) {
+  return container.querySelector('[data-id="__summary__"] [data-field="amount"]');
 }
 
 // Finding 4: `rule.style.fontWeight` from `gridConditionalFormats` used to go into `sx`
@@ -129,5 +141,35 @@ describe('StudioGridWidget conditional-format widget.id selector-key sanitizatio
       .join('\n');
     expect(styleText).not.toContain('html{display:none}');
     expect(styleText).not.toContain(hostileId);
+  });
+});
+
+// ─── Conditional formats never colour the footer summary row ─────────────────
+//
+// `getCellClassName` short-circuits on `params.id === GRID_SUMMARY_ROW_ID`, and nothing
+// asserted it. The pinned footer cell does not hold a raw aggregate — it holds the
+// PRE-FORMATTED summary string ("Sum: 101"), so numeric rules can't reach it — but every
+// non-numeric operator can. An `is_not_empty` rule (the "flag every populated cell" rule an
+// author writes to spot gaps) matches that string and paints the footer as if it were data.
+describe('StudioGridWidget conditional formats skip the footer summary row', () => {
+  it('does not apply a matching rule to the pinned summary aggregate', () => {
+    const { container } = setup(
+      'grid-cf-summary',
+      { backgroundColor: '#ff0000' },
+      { gridSummaryFields: { amount: 'sum' } },
+      { operator: 'is_not_empty', value: undefined },
+    );
+
+    // The rule genuinely applies to the DATA rows, so the summary assertion below cannot be
+    // satisfied by conditional formatting being inert.
+    const { matchingCell } = getCells(container);
+    expect(matchingCell).not.toBe(null);
+    expect(matchingCell!.className).toContain('StudioGrid-cf-');
+    expect(getComputedStyle(matchingCell as Element).backgroundColor).toBe('rgb(255, 0, 0)');
+
+    const summary = getSummaryCell(container);
+    expect(summary).not.toBe(null);
+    expect(summary!.className).not.toContain('StudioGrid-cf-');
+    expect(getComputedStyle(summary as Element).backgroundColor).not.toBe('rgb(255, 0, 0)');
   });
 });

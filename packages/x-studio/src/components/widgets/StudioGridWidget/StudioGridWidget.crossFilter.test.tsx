@@ -39,19 +39,21 @@ function makeSource(): StudioDataSource {
   };
 }
 
-function makeWidget(): StudioWidgetOf<'grid'> {
+function makeWidget(
+  configOverrides: Partial<StudioWidgetOf<'grid'>['config']> = {},
+): StudioWidgetOf<'grid'> {
   return {
     id: 'grid-1',
     kind: 'grid',
     title: 'Grid',
     sourceId: 'src',
-    config: { crossFilterField: 'label' },
+    config: { crossFilterField: 'label', ...configOverrides },
   };
 }
 
-function setup() {
+function setup(configOverrides: Partial<StudioWidgetOf<'grid'>['config']> = {}) {
   const source = makeSource();
-  const widget = makeWidget();
+  const widget = makeWidget(configOverrides);
   const initialState: CreateDefaultStudioStateOverrides = {
     doc: {
       widgets: { [widget.id]: widget },
@@ -131,6 +133,34 @@ describe('StudioGridWidget — cross-filter click toggle', () => {
     fireEvent.click(undefinedCell!);
     expect(controller.getState().doc.filters.some((f) => f.scope.kind === 'cross-filter')).toBe(
       false,
+    );
+  });
+
+  // The bottom-pinned footer summary row is not data: its cells hold aggregates
+  // (`Total: 100`), not field values, so emitting a cross-filter from one would filter the
+  // whole dashboard to a value no row actually has — blanking every same-source widget.
+  //
+  // `handleCellClick` guards this twice: an explicit `params.id === GRID_SUMMARY_ROW_ID`
+  // check, and the `params.rowNode.type !== 'leaf'` check right after it (a pinned row's node
+  // type is `'pinnedRow'`). Either alone is sufficient — deleting just the id check leaves
+  // this test green — so this pins the BEHAVIOUR, which nothing covered before, rather than
+  // the first guard specifically.
+  it('clicking a footer summary cell emits no cross-filter', () => {
+    const { controller, container } = setup({ gridSummaryFields: { amount: 'sum' } });
+
+    const summaryCell = container.querySelector('[data-id="__summary__"] [data-field="label"]');
+    expect(summaryCell).not.toBe(null);
+    fireEvent.click(summaryCell!);
+    expect(controller.getState().doc.filters.some((f) => f.scope.kind === 'cross-filter')).toBe(
+      false,
+    );
+
+    // …while a normal data cell in the same grid still does cross-filter, so the assertion
+    // above cannot be satisfied by cross-filtering being broken outright.
+    const dataCell = container.querySelector('[data-id="r3"] [data-field="label"]');
+    fireEvent.click(dataCell!);
+    expect(controller.getState().doc.filters.some((f) => f.scope.kind === 'cross-filter')).toBe(
+      true,
     );
   });
 });

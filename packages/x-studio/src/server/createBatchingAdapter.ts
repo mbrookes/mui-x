@@ -88,6 +88,25 @@ interface AggregationSpec {
 const SAFE_WIRE_ALIAS = /^[A-Za-z0-9_-]+$/;
 
 /**
+ * Maximum widget descriptors this adapter puts in ONE POST body.
+ *
+ * Must not exceed `MAX_WIDGETS_PER_BATCH` in `@mui/x-studio-data-middleware`'s `handler.ts`
+ * (50, sourced from that package's `shared/limits.ts` `MAX_ITEMS_PER_BATCH`). The value is
+ * DUPLICATED rather than imported because x-studio is deliberately free of a dependency on the
+ * server package — the same reason `ClientMutationDescriptor` and `OPERATOR_MAP` are mirrors
+ * rather than re-exports. `handler.ts` exports the constant, but the middleware's `index.ts`
+ * does not re-export it, so there is no published symbol to import even if the dependency were
+ * acceptable. `x-studio-data-middleware/src/__tests__/clientWireSeam.test.ts` asserts the two
+ * copies are equal; that assertion is the only thing keeping them from drifting.
+ *
+ * Over-cap batches are not a hypothetical: nothing in Studio caps widgets per page, and the
+ * server rejects an over-cap request by THROWING before its per-widget loop — so the failure
+ * arrives as one un-attributed transport error for every widget on the page, not as a per-widget
+ * result.
+ */
+export const MAX_BATCH_WIDGETS_PER_REQUEST = 50;
+
+/**
  * A minimal DataLoader-style batch scheduler.
  * Collects keys over one microtask tick (or a custom schedule function)
  * then fires a single batch load.
@@ -625,9 +644,28 @@ export function createBatchingAdapter(
         }
       }
 
+      // Split each group into CHUNKS no larger than the server's per-request widget cap
+      // (`MAX_BATCH_WIDGETS_PER_REQUEST`). The middleware's `assertValidBatchQueryRequest`
+      // THROWS on an over-cap batch — before the per-widget loop, so no widget gets its own
+      // `{ error }` — and a host that maps a thrown error to a bare 500 discards the server's
+      // actionable text entirely. On the client side `!response.ok` fails EVERY descriptor in
+      // the group, so one widget past the cap takes down the whole page with
+      // `Studio batch request failed: 500 Internal Server Error`. Chunking keeps a large page
+      // (Studio does not cap widgets per page) inside the shape the server accepts, and gives
+      // each chunk its own shared row budget besides.
+      const chunks: { groupFetch: typeof fetch; indices: number[] }[] = [];
+      for (const [groupFetch, indices] of groups) {
+        for (let i = 0; i < indices.length; i += MAX_BATCH_WIDGETS_PER_REQUEST) {
+          chunks.push({
+            groupFetch,
+            indices: indices.slice(i, i + MAX_BATCH_WIDGETS_PER_REQUEST),
+          });
+        }
+      }
+
       const results: (StudioQueryResult | Error)[] = new Array(requests.length);
       await Promise.all(
-        Array.from(groups, async ([groupFetch, indices]) => {
+        chunks.map(async ({ groupFetch, indices }) => {
           let groupResults: (StudioQueryResult | Error)[];
           try {
             groupResults = await runBatchGroup(
@@ -636,8 +674,8 @@ export function createBatchingAdapter(
               currentExpressionFields,
             );
           } catch (err) {
-            // One group's transport failure must not reject the whole dispatch and fail the
-            // OTHER groups' unrelated requests — `createLoader`'s rejection path would reject
+            // One chunk's transport failure must not reject the whole dispatch and fail the
+            // OTHER chunks' unrelated requests — `createLoader`'s rejection path would reject
             // every caller in the batch, including those served by a different, healthy fetch.
             const error = err instanceof Error ? err : new Error(String(err));
             groupResults = indices.map(() => error);

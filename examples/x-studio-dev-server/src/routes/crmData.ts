@@ -37,6 +37,13 @@ export function makeCrmDataRouter(crmDb: Knex, config: Config): Router {
         res.status(403).json({ error: message });
         return;
       }
+      // Relay the middleware's own request-shape errors rather than flattening them to a
+      // bare 500 — see the same branch in `salesData.ts` for why.
+      if (message.startsWith('MUI X')) {
+        error('[crm-data] Invalid batch request:', err);
+        res.status(400).json({ error: message });
+        return;
+      }
       error('[crm-data] Query error:', err);
       res.status(500).json({ error: 'Internal server error' });
     }

@@ -25,7 +25,10 @@ import { describe, it, expect, vi } from 'vitest';
  * source import keeps the coupling confined to this one test file.
  */
 /* eslint-disable import/no-relative-packages */
-import { createBatchingAdapter } from '../../../x-studio/src/server/createBatchingAdapter';
+import {
+  createBatchingAdapter,
+  MAX_BATCH_WIDGETS_PER_REQUEST,
+} from '../../../x-studio/src/server/createBatchingAdapter';
 import type {
   StudioDataSource,
   StudioQueryDescriptor,
@@ -34,7 +37,9 @@ import type {
 import type { StudioExpressionField } from '../../../x-studio-schema/src/expressionTypes';
 /* eslint-enable import/no-relative-packages */
 import { validateQueryPlan } from '../security/validateQueryPlan';
+import { handleBatchQuery, MAX_WIDGETS_PER_BATCH } from '../handler';
 import type { BatchWidgetDescriptor } from '../security/types';
+import { createMockDb } from './mockDb';
 
 process.env.JWT_SECRET ??= 'client-wire-seam-hmac-secret';
 
@@ -605,5 +610,79 @@ describe('seam — alias charset', () => {
 
     expect(widget.aggregations).toEqual([{ column: 'amount', func: 'sum', alias: 'amount' }]);
     expectServerAccepts(widget);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// F4 — batch size
+// ─────────────────────────────────────────────────────────────────────────────
+
+const BIG_TABLE_ROWS = Array.from({ length: 20 }, (_, i) => ({ id: i, amount: i }));
+
+const DEV_CLAIMS = { tenantId: 't', userId: 'u', roleIds: [] as string[] };
+
+describe('seam — batch size', () => {
+  it("the client's cap is the server's cap", () => {
+    // The two constants are separate copies (x-studio must not depend on the server
+    // package, and `handler.ts`'s export is not re-exported from its index). This is
+    // the only place they meet — without it they drift and chunking silently stops
+    // matching what the server accepts.
+    expect(MAX_BATCH_WIDGETS_PER_REQUEST).toBe(MAX_WIDGETS_PER_BATCH);
+  });
+
+  it('chunks an over-cap page instead of POSTing one rejected body', async () => {
+    const count = MAX_WIDGETS_PER_BATCH + 1;
+    const bodies = await captureWireBodies(
+      Array.from({ length: count }, (_, i) =>
+        descriptor({ sourceId: 'big', tableName: 'big', widgetId: `w${i}`, cacheKey: `ck${i}` }),
+      ),
+    );
+
+    expect(bodies.length).toBeGreaterThan(1);
+    for (const body of bodies) {
+      expect(body.widgets.length).toBeLessThanOrEqual(MAX_WIDGETS_PER_BATCH);
+    }
+    // Every widget is still sent exactly once — chunking must not drop or duplicate.
+    const sent = bodies.flatMap((b) => b.widgets.map((w) => w.id));
+    expect(sent).toHaveLength(count);
+    expect(new Set(sent).size).toBe(count);
+  });
+
+  it('every chunk is accepted by the real handler, and every widget gets rows', async () => {
+    const count = MAX_WIDGETS_PER_BATCH + 5;
+    const db = createMockDb({ big: BIG_TABLE_ROWS });
+    const seen: string[] = [];
+
+    await captureWireBodies(
+      Array.from({ length: count }, (_, i) =>
+        descriptor({
+          sourceId: 'big',
+          tableName: 'big',
+          widgetId: `w${i}`,
+          cacheKey: `ck${i}`,
+          select: ['id', 'amount'],
+        }),
+      ),
+      {
+        // Route the client's real body straight into the real handler. An over-cap body
+        // makes `assertValidBatchQueryRequest` THROW — before the per-widget loop — which
+        // the reference host maps to a bare 500, so the client fails every widget with
+        // `Studio batch request failed: 500 Internal Server Error`.
+        respond: async (body) => {
+          const response = (await handleBatchQuery(
+            { pageId: body.pageId, widgets: body.widgets },
+            DEV_CLAIMS,
+            { db: db as never, schemaAllowlist: ['big'], tenancy: { mode: 'single-tenant' } },
+          )) as { results: { id: string; rows: unknown[]; error?: string }[] };
+          for (const result of response.results) {
+            expect(result.error).toBeUndefined();
+            seen.push(result.id);
+          }
+          return { ok: true, json: async () => response };
+        },
+      },
+    );
+
+    expect(new Set(seen).size).toBe(count);
   });
 });

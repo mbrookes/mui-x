@@ -46,6 +46,20 @@ export function makeSalesDataRouter(salesDb: Knex, config: Config): Router {
         res.status(403).json({ error: message });
         return;
       }
+      // Relay the middleware's OWN request-shape errors instead of flattening them to a
+      // bare 500. `handleBatchQuery` isolates per-widget failures as `{ error }` results,
+      // so anything that THROWS is a whole-request problem (too many widgets, an
+      // over-long identifier, an oversized `in`-list) whose message names the exact limit
+      // and how to stay under it. The package deems its own `MUI X`-prefixed messages
+      // safe to disclose — `sanitizeBoundaryError` already returns them verbatim to any
+      // authenticated caller — and discarding them here leaves the operator with only
+      // `Studio batch request failed: 500 Internal Server Error` on every widget of the
+      // page. 400, because the request itself is what has to change.
+      if (message.startsWith('MUI X')) {
+        error('[sales-data] Invalid batch request:', err);
+        res.status(400).json({ error: message });
+        return;
+      }
       error('[sales-data] Query error:', err);
       res.status(500).json({ error: 'Internal server error' });
     }

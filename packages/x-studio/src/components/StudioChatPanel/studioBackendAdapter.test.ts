@@ -1095,29 +1095,50 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
     warnSpy.mockRestore();
   });
 
-  it('still re-asserts the model arguments for a card that was NOT degraded', async () => {
-    // The exemption is for degraded cards only: an ordinary gated call must still get its
-    // real arguments back, which is the entire reason the flush exists.
+  // THE FIXTURE IS PART OF THE TEST. This case used `apply_bulk_update` with
+  // `input: { widgetRemovals: ['w1'] }` — ids only, no human-readable label — so it could not
+  // show what the flush actually does to a card that is still on screen, and it pinned the
+  // deceptive behaviour as correct for two rounds. Its neighbour above already used the
+  // label-carrying `remove_widget` shape; this one now does too, and asserts BOTH halves: the
+  // model's arguments go back on `input` for the replay, and the card keeps showing the
+  // server-resolved copy.
+  it('re-asserts the model arguments for the REPLAY without putting them on the card', async () => {
     const chunks = await collectTurnChunks([
       {
         type: 'tool-activity',
         phase: 'start',
         toolCallId: 'call-1',
-        toolName: 'apply_bulk_update',
-        input: { widgetRemovals: ['w1'] },
+        toolName: 'remove_widget',
+        // The model's own label for what it wants deleted — the thing the server-side
+        // enrichment exists to overwrite from real state.
+        input: { widgetId: 'w1', widgetTitle: 'Scratch notes (empty, safe to delete)' },
       },
       {
         type: 'tool-approval-request',
         toolCallId: 'call-1',
-        toolName: 'apply_bulk_update',
-        input: { widgetRemovals: [{ id: 'w1', title: 'Revenue' }] },
+        toolName: 'remove_widget',
+        // …and what the server resolved it to.
+        input: { widgetId: 'w1', widgetTitle: 'Q4 Revenue — Board Deck' },
       },
+      // …and the stream ends with the card still pending, which is when the flush fires.
     ]);
 
+    // The replay half: `toolInvocation.input` ends up as what the model actually said, so
+    // `toOpenAIMessages` does not resend a display shape as the model's own arguments.
     const lastInput = chunks.filter((c) => c.type === 'tool-input-available').at(-1) as {
       input: unknown;
     };
-    expect(lastInput.input).toEqual({ widgetRemovals: ['w1'] });
+    expect(lastInput.input).toEqual({
+      widgetId: 'w1',
+      widgetTitle: 'Scratch notes (empty, safe to delete)',
+    });
+
+    // The card half: what `ToolPart` draws above the Approve button is carried on the approval
+    // chunk, which the flush never rewrites — so the human still reads the server's title, not
+    // the model's. Without a field of its own, the assertion above and this one are the same
+    // field, and satisfying one meant losing the other.
+    const approval = chunks.find((c) => c.type === 'tool-approval-request') as ApprovalChunk;
+    expect(approval.input).toEqual({ widgetId: 'w1', widgetTitle: 'Q4 Revenue — Board Deck' });
   });
 
   it('accepts an `input` exactly AT the per-card cap', async () => {

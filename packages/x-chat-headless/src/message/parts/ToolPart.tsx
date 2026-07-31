@@ -383,6 +383,18 @@ export const ToolPartInner = React.forwardRef(function ToolPartRenderer(
     [addToolApprovalResponse, toolInvocation.approvalId, toolInvocation.toolCallId],
   );
 
+  // While the human is being ASKED, the card shows what the backend resolved, not what the
+  // model sent. The two are the same value until a producer re-asserts the model's own
+  // arguments over `input` for replay fidelity — which, with one field for both, quietly
+  // swapped model-chosen labels into the section directly above the Approve button. See
+  // `ChatToolApprovalRequestDetails.displayInput`. Falls back to `input` when the backend
+  // sent no separate display copy, so nothing changes for a producer that does not use it.
+  const inputValue =
+    toolInvocation.state === 'approval-requested' &&
+    toolInvocation.approvalRequest?.displayInput !== undefined
+      ? toolInvocation.approvalRequest.displayInput
+      : toolInvocation.input;
+
   const showInput =
     (toolInvocation.state === 'input-streaming' ||
       toolInvocation.state === 'input-available' ||
@@ -390,7 +402,7 @@ export const ToolPartInner = React.forwardRef(function ToolPartRenderer(
       toolInvocation.state === 'approval-responded' ||
       toolInvocation.state === 'output-available' ||
       toolInvocation.state === 'output-error') &&
-    toolInvocation.input !== undefined;
+    inputValue !== undefined;
 
   const showOutput =
     toolInvocation.state === 'output-available' && toolInvocation.output !== undefined;
@@ -410,7 +422,7 @@ export const ToolPartInner = React.forwardRef(function ToolPartRenderer(
             section="input"
             slotProps={resolvedSlotProps}
             slots={resolvedSlots}
-            value={toolInvocation.input}
+            value={inputValue}
           />
         ) : null}
         {showOutput ? (

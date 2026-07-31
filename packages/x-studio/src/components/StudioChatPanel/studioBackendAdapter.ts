@@ -816,6 +816,12 @@ export const MAX_TURN_APPROVAL_INPUT_SIZE = 16 * MAX_STRING_LENGTH;
  *     ids/names          <=  3 * MAX_TOOL_ID_LENGTH * MAX_TURN_TOOL_PARTS  =    49 152
  *   + effects/reason     <=  MAX_TURN_APPROVAL_SIZE                        =    40 000
  *   + enriched inputs    <=  MAX_TURN_APPROVAL_INPUT_SIZE                  =   160 000
+ *   + the card's own copy of those enriched inputs, which persists BESIDE them on
+ *     `approvalRequest.displayInput` so a stream-end re-assert of the model's own
+ *     arguments onto `input` cannot swap model-chosen labels under a live Approve
+ *     button (see `ChatToolApprovalRequestDetails.displayInput`) — the same value
+ *     twice, and therefore the same budget twice
+ *                        <=  MAX_TURN_APPROVAL_INPUT_SIZE                  =   160 000
  *   + model inputs       <=  MAX_TURN_TOOL_INPUT_SIZE                      =   160 000
  *   + tool outputs       <=  MAX_TURN_TOOL_OUTPUT_SIZE                     =   600 000
  *   + tool per-part constants (withheld markers, degraded `{}`, marker)
@@ -828,8 +834,8 @@ export const MAX_TURN_APPROVAL_INPUT_SIZE = 16 * MAX_STRING_LENGTH;
  *     the enclosing commas), a constant per part no server can grow
  *                        <=  64 * MAX_TURN_MESSAGE_PARTS                   =    12 288
  *     ------------------------------------------------------------------------------
- *     total                                                                = 2 066 805
- *                                                                            (~2 018 KB)
+ *     total                                                                = 2 226 805
+ *                                                                            (~2 175 KB)
  *
  * Every term is per-field x per-item x item-count, and every item-count is a constant here
  * rather than a function of the stream length — which is the property the previous rounds'
@@ -846,7 +852,8 @@ export const MAX_TURN_APPROVAL_INPUT_SIZE = 16 * MAX_STRING_LENGTH;
 export const MAX_TURN_PERSISTED_MESSAGE_SIZE =
   3 * MAX_TOOL_ID_LENGTH * MAX_TURN_TOOL_PARTS +
   MAX_TURN_APPROVAL_SIZE +
-  MAX_TURN_APPROVAL_INPUT_SIZE +
+  // twice: once on `toolInvocation.input`, once on `approvalRequest.displayInput`
+  2 * MAX_TURN_APPROVAL_INPUT_SIZE +
   MAX_TURN_TOOL_INPUT_SIZE +
   MAX_TURN_TOOL_OUTPUT_SIZE +
   239 * MAX_TURN_TOOL_PARTS +

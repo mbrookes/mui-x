@@ -228,6 +228,27 @@ describe('ToolPart approval request details', () => {
     );
   }
 
+  // The card renders what the BACKEND resolved while the human is being asked, not what the
+  // model sent. `toolInvocation.input` is the field a producer overwrites with the model's own
+  // arguments so a replay resends what the model said — and with one field for both, that
+  // re-assert put the model's OWN chosen labels in the section directly above the Approve
+  // button, with the backend-resolved summary beside them and no cue which was which.
+  it('shows the backend display copy, not the model arguments, above the approve button', () => {
+    renderApproval({
+      displayInput: { widgetTitle: 'Q4 Revenue — Board Deck' },
+    });
+
+    expect(screen.getByText(/Q4 Revenue/)).not.to.equal(null);
+    // `input` is still the model's own, for the replay — it is just not what is drawn here.
+    expect(screen.queryByText(/hello/)).to.equal(null);
+  });
+
+  it('falls back to the model arguments when the backend sent no display copy', () => {
+    // A producer that does not use `displayInput` sees exactly the previous behaviour.
+    renderApproval({ reason: 'why' });
+    expect(screen.getByText(/hello/)).not.to.equal(null);
+  });
+
   it('renders the request reason above the approve/deny buttons', () => {
     renderApproval({ reason: 'this exceeds the daily mutation budget' });
     expect(screen.getByText('this exceeds the daily mutation budget')).not.to.equal(null);

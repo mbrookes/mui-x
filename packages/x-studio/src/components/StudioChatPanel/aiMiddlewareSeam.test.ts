@@ -697,6 +697,15 @@ describe('x-studio ⇄ x-studio-ai-middleware seam: abort during an open approva
     expect(toolPart.toolInvocation.input).toEqual({ widgetRemovals: ['w1'] });
     // …and the card is still a card.
     expect(toolPart.toolInvocation.state).toBe('approval-requested');
+    // …and it still SAYS what the server resolved. The repair rewrites the field a replay
+    // reads; `ToolPart` draws the card from `approvalRequest.displayInput`, which it does not
+    // touch. With one field for both — which is what shipped until now — landing the repair
+    // meant a live Approve button sitting above the MODEL's own labels, with the
+    // server-resolved `effects` beside them and no cue which was which.
+    expect(
+      (toolPart.toolInvocation.approvalRequest as { displayInput?: unknown } | undefined)
+        ?.displayInput,
+    ).toEqual({ widgetRemovals: [{ id: 'w1', title: 'W1' }] });
   });
 
   it("leaves an ungated aborted call's arguments untouched", async () => {
@@ -797,8 +806,11 @@ describe('x-studio ⇄ x-studio-ai-middleware seam: approval effects/reason (F5)
     expect(chunk).not.toHaveProperty('reason');
 
     const toolPart = result.message.parts.find((p) => p.type === 'dynamic-tool') as
-      | { toolInvocation: { approvalRequest?: unknown } }
+      | { toolInvocation: { approvalRequest?: { reason?: unknown; effects?: unknown } } }
       | undefined;
-    expect(toolPart?.toolInvocation.approvalRequest).toBeUndefined();
+    // `approvalRequest` still exists — it carries the card's own copy of the arguments, which
+    // is not optional — but neither of the two payload keys is invented.
+    expect(toolPart?.toolInvocation.approvalRequest?.reason).toBeUndefined();
+    expect(toolPart?.toolInvocation.approvalRequest?.effects).toBeUndefined();
   });
 });

@@ -761,10 +761,51 @@ describe('processStream', () => {
     expect(toolPart.toolInvocation.approvalRequest).toEqual({
       reason: 'this exceeds the daily budget',
       effects: { willRemoveWidgets: [{ id: 'w1', title: 'W1' }] },
+      // The card's OWN copy of the arguments, kept apart from `toolInvocation.input` so a
+      // producer re-asserting the model's real arguments over `input` for replay fidelity
+      // cannot swap model-chosen labels into the section above the Approve button.
+      displayInput: { query: 'weather' },
     });
   });
 
-  it('omits approvalRequest when the chunk carries neither field', async () => {
+  // The display copy survives the re-assert that `input` exists to receive: after a
+  // `tool-input-available` writes the model's own arguments over `input` — what `x-studio`'s
+  // stream-end flush does for every card still pending — the card must still be showing what
+  // the backend resolved, and the replay must still be getting what the model said.
+  it('keeps the approval card showing the backend copy after `input` is re-asserted', async () => {
+    const store = new ChatStore();
+
+    await processStream(
+      store,
+      createStream([
+        { type: 'start', messageId: 'a1' },
+        {
+          type: 'tool-approval-request',
+          toolCallId: 'tool-1',
+          toolName: 'search',
+          // The backend-resolved arguments: a real title, read from real state.
+          input: { query: 'Q4 Revenue — Board Deck' },
+        },
+        {
+          type: 'tool-input-available',
+          toolCallId: 'tool-1',
+          toolName: 'search',
+          // …and the model's own, which a replay must resend verbatim.
+          input: { query: 'scratch notes, safe to delete' },
+        },
+        { type: 'finish', messageId: 'a1' },
+      ]),
+    );
+
+    const toolPart = store.state.messagesById.a1.parts[0] as ChatToolMessagePart<'search'>;
+    expect(toolPart.toolInvocation.state).toBe('approval-requested');
+    expect(toolPart.toolInvocation.input).toEqual({ query: 'scratch notes, safe to delete' });
+    expect(toolPart.toolInvocation.approvalRequest?.displayInput).toEqual({
+      query: 'Q4 Revenue — Board Deck',
+    });
+  });
+
+  it('states no reason and no effects when the chunk carries neither', async () => {
     const store = new ChatStore();
 
     await processStream(
@@ -782,7 +823,8 @@ describe('processStream', () => {
     );
 
     const toolPart = store.state.messagesById.a1.parts[0] as ChatToolMessagePart<'search'>;
-    expect(toolPart.toolInvocation.approvalRequest).toBeUndefined();
+    expect(toolPart.toolInvocation.approvalRequest?.reason).toBeUndefined();
+    expect(toolPart.toolInvocation.approvalRequest?.effects).toBeUndefined();
   });
 
   // Re-prompting for the same call must not leave the previous prompt's impact summary
@@ -812,7 +854,8 @@ describe('processStream', () => {
     );
 
     const toolPart = store.state.messagesById.a1.parts[0] as ChatToolMessagePart<'search'>;
-    expect(toolPart.toolInvocation.approvalRequest).toBeUndefined();
+    expect(toolPart.toolInvocation.approvalRequest?.reason).toBeUndefined();
+    expect(toolPart.toolInvocation.approvalRequest?.effects).toBeUndefined();
   });
 
   it('updates tool invocation standalone from a tool-input-error chunk', async () => {

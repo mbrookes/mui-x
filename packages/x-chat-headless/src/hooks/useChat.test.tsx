@@ -1135,6 +1135,13 @@ describe('useChat', () => {
                 toolCallId: 'tool-1',
                 toolName: 'search',
                 input: { query: 'weather' },
+                // The card's own copy of the arguments — see
+                // `ChatToolApprovalRequestDetails.displayInput`.
+                approvalRequest: {
+                  reason: undefined,
+                  effects: undefined,
+                  displayInput: { query: 'weather' },
+                },
                 state: 'approval-requested',
               },
             },
@@ -1167,6 +1174,11 @@ describe('useChat', () => {
               toolCallId: 'tool-1',
               toolName: 'search',
               input: { query: 'weather' },
+              approvalRequest: {
+                reason: undefined,
+                effects: undefined,
+                displayInput: { query: 'weather' },
+              },
               state: 'approval-responded',
               approval: {
                 approved: true,
@@ -1211,6 +1223,12 @@ describe('useChat', () => {
             toolInvocation: {
               toolCallId: 'tool-1',
               toolName: 'search',
+              approvalId: undefined,
+              approvalRequest: {
+                reason: undefined,
+                effects: undefined,
+                displayInput: { query: 'weather' },
+              },
               input: { query: 'weather' },
               output: { results: ['sunny'] },
               preliminary: undefined,
@@ -1273,6 +1291,13 @@ describe('useChat', () => {
                 toolCallId: 'tool-1',
                 toolName: 'search',
                 input: { query: 'weather' },
+                // The card's own copy of the arguments — see
+                // `ChatToolApprovalRequestDetails.displayInput`.
+                approvalRequest: {
+                  reason: undefined,
+                  effects: undefined,
+                  displayInput: { query: 'weather' },
+                },
                 state: 'approval-requested',
               },
             },
@@ -1304,6 +1329,12 @@ describe('useChat', () => {
             toolInvocation: {
               toolCallId: 'tool-1',
               toolName: 'search',
+              approvalId: undefined,
+              approvalRequest: {
+                reason: undefined,
+                effects: undefined,
+                displayInput: { query: 'weather' },
+              },
               input: { query: 'weather' },
               state: 'approval-responded',
               approval: {
@@ -1349,6 +1380,12 @@ describe('useChat', () => {
             toolInvocation: {
               toolCallId: 'tool-1',
               toolName: 'search',
+              approvalId: undefined,
+              approvalRequest: {
+                reason: undefined,
+                effects: undefined,
+                displayInput: { query: 'weather' },
+              },
               input: { query: 'weather' },
               state: 'output-denied',
               approval: {

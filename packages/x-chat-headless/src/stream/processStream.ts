@@ -503,9 +503,17 @@ export async function processStream<Cursor = string>(
         // emitted them, this function stopped them. Collapsed into one
         // `approvalRequest` object so the field carrying the backend's request is
         // visibly distinct from `approval`, which carries the human's answer.
+        //
+        // `displayInput` carries the chunk's own `input` a SECOND time, alongside the copy
+        // written to `toolInvocation.input`. They are the same value here and stop being the
+        // same value later: a producer re-asserts the model's real arguments over `input` at
+        // stream end so a replay resends what the model said, and without a separate field
+        // that re-assert silently replaced the card's backend-resolved arguments — the ones a
+        // human is reading — with the model's own, under a live Approve button. See
+        // `ChatToolApprovalRequestDetails.displayInput`.
         const approvalRequest =
-          chunk.reason !== undefined || chunk.effects !== undefined
-            ? { reason: chunk.reason, effects: chunk.effects }
+          chunk.reason !== undefined || chunk.effects !== undefined || chunk.input !== undefined
+            ? { reason: chunk.reason, effects: chunk.effects, displayInput: chunk.input }
             : undefined;
         await withToolInvocation(
           chunk.toolCallId,

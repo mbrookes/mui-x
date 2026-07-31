@@ -98,12 +98,17 @@ const MAX_MUTATION_LOG = 20;
  *    already has one, violating the one-rank-filter-per-page invariant `addFilter`,
  *    `updateFilter`, `duplicateWidget`, the move paths, the shared reducer and the filters
  *    drawer all assume (M12). The stored filter is left untouched.
- *  - `invalid` — the shared `applyMutation` reducer refused the payload. It returns the same
- *    state reference for every refusal without saying which, so this one reason covers the
- *    whole set it screens for: an unknown widget anchor (`widget`/`cross-filter`/`interactive`
- *    scope naming a widget that does not exist), a `scope.pageId` naming a nonexistent page, a
- *    non-`StudioFilterOperator` `operator`/`operator2`, a malformed/non-record `scope`, and a
- *    non-string `id`. The caller's values were discarded.
+ *  - `invalid` — the payload failed the screen every filter/page writer applies. For a
+ *    reducer-routed writer (`addFilter`) that screen IS the shared `applyMutation` reducer,
+ *    which returns the same state reference for every refusal without saying which, so this
+ *    one reason covers the whole set it checks: an unknown widget anchor
+ *    (`widget`/`cross-filter`/`interactive` scope naming a widget that does not exist), a
+ *    `scope.pageId` naming a nonexistent page, a non-`StudioFilterOperator`
+ *    `operator`/`operator2`, a malformed/non-record `scope`, a non-string `id`, and a
+ *    non-string `field` (R6 F8 — the last was screened all along but missing from this list
+ *    and from `addFilter`'s own JSDoc). The writers that do NOT route through the reducer
+ *    (`updateFilter`, `updateActivePage`) run the same shared screens against the keys they
+ *    write and report the same reason — see R6 F2. The caller's values were discarded.
  */
 export type StudioMutationRejectionReason =
   | 'duplicate-id'
@@ -2324,7 +2329,8 @@ export class StudioController {
    *   already in the doc (the stored one wins; an add never overwrites), `rank-conflict` when
    *   the page context already holds a rank (Top-N) filter, and `invalid` when the shared
    *   reducer refuses the payload (unknown widget anchor, `scope.pageId` naming a nonexistent
-   *   page, bad operator, malformed scope). Every one of those used to be a silent `void`
+   *   page, bad `operator`/`operator2`, malformed scope, non-string `id`, non-string `field` —
+   *   the last was screened all along but omitted here, R6 F8). Every one of those used to be a silent `void`
    *   return with at most a dev-only `console.warn` (M12), so a user switching a second filter
    *   to Top-N saw the control snap back with no explanation and nothing at all in production.
    *   Callers that surface the outcome to a user must branch on this rather than assuming the
@@ -3671,14 +3677,22 @@ export class StudioController {
     // across undo/redo history — the per-snapshot `mode` field is retained only for
     // on-disk backward compatibility.
     const { mode } = this.store.state.session;
-    // Known limitation (3.x): `serializeDoc` strips cross-filter entries at the persistence
-    // boundary (they are runtime-scoped selection, not authored content). Cross-filters are
-    // undoable by design, so two adjacent history snapshots that differ ONLY by a cross-filter
-    // serialize to identical docs. After `restoreSession`, a redo (or undo) that time-travels
-    // across such a step consumes a history entry yet produces no visible change. A clean fix
-    // would drop now-identical adjacent snapshots here, but doing so safely across the
-    // past/present/future ordering is out of proportion to the impact, so it is left as a
-    // documented limitation rather than risk mis-indexing the restored undo/redo stacks.
+    // Known limitation (3.x): `serializeDoc` strips BOTH session-scoped filter kinds at the
+    // persistence boundary — `cross-filter` AND `interactive` (both are runtime-scoped
+    // selection, not authored content). Cross-filters are undoable by design, so two adjacent
+    // history snapshots that differ ONLY by a cross-filter serialize to identical docs. After
+    // `restoreSession`, a redo (or undo) that time-travels across such a step consumes a
+    // history entry yet produces no visible change. A clean fix would drop now-identical
+    // adjacent snapshots here, but doing so safely across the past/present/future ordering is
+    // out of proportion to the impact, so it is left as a documented limitation rather than
+    // risk mis-indexing the restored undo/redo stacks.
+    //
+    // The `interactive` strip (R6 F8 — this comment used to name only cross-filters) matters
+    // MORE for a restored session, not less: `carryTransientDocState` deliberately carries
+    // interactive selections ACROSS every undo/redo swap so they survive time travel, and
+    // this is the one boundary that discards them. A restored session therefore comes back
+    // with every widget's interactive selection cleared, in the present snapshot as well as
+    // in every history entry.
     const toSnapshot = (doc: StudioDoc): SerializedStudioSnapshot => ({
       mode,
       state: serializeDoc(doc),

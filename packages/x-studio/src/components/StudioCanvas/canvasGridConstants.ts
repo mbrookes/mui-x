@@ -19,10 +19,18 @@ export { GRID_COLS, MIN_SPAN };
  * every arrow key and pointer drag on that handle becomes a permanent no-op, with an
  * invalid `aria-valuemin > aria-valuemax` to match.
  *
- * This is THE definition. `internals/widgetLayoutMove.ts` (keyboard move) and
- * `StudioController.duplicateWidget` each used to re-derive their own copy of the same
- * expression, and the mouse drop path — the one users actually reach it by — enforced
- * nothing at all.
+ * This is THE definition for the canvas — the mouse drop path, which users actually reach it
+ * by, previously enforced nothing at all.
+ *
+ * It is NOT the only site (R6 F8 — this comment used to say `internals/widgetLayoutMove.ts`
+ * (keyboard move) and `StudioController.duplicateWidget` "each USED TO re-derive their own
+ * copy"; both still do, as `Math.floor(GRID_COLS / MIN_SPAN)` and
+ * `Math.floor(GRID_COLS / MIN_SPAN_COLS)` respectively). There is no functional drift and
+ * there cannot be: all three derive from the same `GRID_COLS`/`MIN_SPAN` exported by
+ * `@mui/x-studio-schema`, never from a literal. The two non-canvas sites re-derive rather
+ * than import this module because it pulls in React and the drag-session types they have no
+ * reason to depend on. Keep every site derived; a fourth must derive from the schema
+ * constants too.
  */
 export const MAX_PER_ROW = Math.floor(GRID_COLS / MIN_SPAN);
 

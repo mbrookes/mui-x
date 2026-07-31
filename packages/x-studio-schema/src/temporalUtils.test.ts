@@ -174,6 +174,56 @@ describe('truncateToPeriod', () => {
       expect(key).toMatch(/^0005-W\d{2}$/);
     });
   });
+
+  // The fast path's three ADMISSION conditions — the 10-char/`-`-position shape test, the
+  // end-anchored offset test, and the coarse component range check — decide whether a value
+  // is read by SLICING the written characters or handed to `new Date`. The `±HH` offset arm
+  // is covered above; the length test and the range check were not tested in either
+  // direction, so the fast path could have claimed values it must not.
+  describe('fast-path admission (shape, anchor, coarse range)', () => {
+    // Out of coarse range → falls through to `new Date`, which rejects all four → `null`.
+    // Without the range check these would be sliced verbatim into nonsense keys like
+    // `'2024-13-01'` and `'2024-06-00'`.
+    it.each(['2024-13-01', '2024-00-01', '2024-06-00', '2024-06-32'])(
+      'rejects the out-of-range %s instead of slicing it',
+      (value) => {
+        expect(truncateToPeriod(value, 'day')).toBeNull();
+      },
+    );
+
+    // The documented asymmetry: this is a BOUNDS check, not a calendar-validity check. A
+    // day that is in range but invalid for its month is kept AS WRITTEN rather than
+    // overflowed the way `new Date('2024-06-31')` would (→ 2024-07-01). Pinning this is
+    // what makes the four rejections above a boundary rather than "invalid dates are
+    // rejected".
+    it('keeps an in-range but calendar-invalid day as written, without reconciling it', () => {
+      expect(truncateToPeriod('2024-06-31', 'day')).toBe('2024-06-31');
+      expect(truncateToPeriod('2024-02-30', 'day')).toBe('2024-02-30');
+    });
+
+    // The offset test is anchored to the END of the tail. An RFC 9557 bracketed time-zone
+    // annotation puts an offset-SHAPED substring mid-tail; `new Date` cannot parse that
+    // string at all, so treating the substring as an offset would turn a perfectly
+    // readable date into `null`.
+    it('fast-paths an RFC 9557 value whose offset-shaped substring is not at the end', () => {
+      expect(truncateToPeriod('2024-06-01T12:00:00-05:00[America/New_York]', 'day')).toBe(
+        '2024-06-01',
+      );
+      // Not merely "any bracketed tail works": a real trailing offset still converts.
+      expect(truncateToPeriod('2024-06-01T12:00:00-05:00', 'day')).toBe('2024-06-01');
+      expect(truncateToPeriod('2024-06-01T20:00:00-05:00', 'day')).toBe('2024-06-02');
+    });
+
+    // Nine characters is not the canonical `YYYY-MM-DD` form, so the slice-based read must
+    // not claim it — `value.slice(8, 10)` would silently read a ONE-digit day. The engine's
+    // legacy parser reads `'0005-06-1'` as a completely different date, which is the point:
+    // the two readings disagree, so admitting a short string changes the answer.
+    it('does not fast-path a string shorter than the canonical YYYY-MM-DD', () => {
+      const key = truncateToPeriod('0005-06-1', 'day');
+      expect(key).not.toBe('0005-06-01');
+      expect(key?.startsWith('0005')).toBe(false);
+    });
+  });
 });
 
 // R4 finding: `String(-5).padStart(4, '0')` yields `'00-5'`, so a negative (BCE) year

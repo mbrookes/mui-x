@@ -1598,6 +1598,55 @@ describe('createBackendChatAdapter: privateMode', () => {
 
     vi.unstubAllGlobals();
   });
+
+  // Completing the enumeration the `privateMode` doc makes. "The client withholds the
+  // data" is true of `pageSnapshot` and `richContext`, and NOT true of `doc.filters`:
+  // `serializeDashboardState` empties `doc.ai.threads` and strips
+  // `runtime.dataSources[].rows`, but leaves filters untouched — and a `cross-filter`
+  // or `interactive` filter's value is a real row value, whatever the user clicked.
+  // The provider-facing guarantee still holds (the middleware withholds the whole
+  // `<dashboard_state>` block from the prompt), so this pins the boundary where it
+  // actually is rather than asserting a leak: if a future change starts scrubbing
+  // filter values, or stops sending `doc.filters`, the doc must move with it.
+  it('still sends a cross-filter value — a real clicked row value — inside dashboardState', async () => {
+    const { fetchMock } = captureRequestBody();
+
+    const withCrossFilter: CreateDefaultStudioStateOverrides = {
+      ...stateWithDataWidget,
+      doc: {
+        ...stateWithDataWidget.doc!,
+        filters: [
+          {
+            id: 'f-cross',
+            field: 'region',
+            operator: 'equals',
+            // Not a field name and not a widget title: the category the user clicked.
+            value: 'Zephyr-Northwind',
+            scope: { kind: 'cross-filter', sourceWidgetId: 'grid-1', pageId: 'page-1' },
+          },
+        ],
+      },
+    };
+
+    const config: StudioAIConfig = { endpoint: 'https://fake.test/api/ai', privateMode: true };
+    const adapter = createBackendChatAdapter(config, makeController(withCrossFilter));
+    const stream = await adapter.sendMessage(makeSendInput([makeUserMessage('summarise')]));
+    await collectChunks(stream);
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const rawBody = String(init.body);
+
+    // Sampled rows and field stats: withheld, as documented.
+    expect(rawBody).not.toContain('12345');
+    // The clicked category: sent, also as documented (now).
+    expect(rawBody).toContain('Zephyr-Northwind');
+    const body = JSON.parse(rawBody) as {
+      dashboardState?: { doc?: { filters?: Array<{ value?: unknown }> } };
+    };
+    expect(body.dashboardState?.doc?.filters?.[0]?.value).toBe('Zephyr-Northwind');
+
+    vi.unstubAllGlobals();
+  });
 });
 
 // ── multi-step text parts (finding 2.23) ──────────────────────────────────────

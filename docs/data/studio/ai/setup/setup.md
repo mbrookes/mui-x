@@ -331,7 +331,10 @@ interface StudioAIConfig {
    * This is a guarantee about the LLM provider: the state is still POSTed to your
    * own middleware endpoint (which needs it to run any state-editing tool), and it
    * is that server which withholds it from the prompt. The sampled row values and
-   * field statistics are the part the browser never sends at all.
+   * field statistics are the part the browser never sends at all — filter values
+   * are not: they travel with the state, and a cross-filter's value is a real row
+   * value (the category the user clicked). The server withholds those from the
+   * prompt too; they simply aren't among the things the browser withholds.
    * @default false
    */
   privateMode?: boolean;

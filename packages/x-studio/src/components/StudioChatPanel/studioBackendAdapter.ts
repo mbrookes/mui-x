@@ -91,9 +91,24 @@ export interface StudioAIConfig {
    * set so nothing can round-trip that state back to the provider, and the write
    * tools that stay advertised phrase their rejections without disclosing state.
    *
-   * What the client withholds outright is the data itself: `pageSnapshot` (sampled
+   * What the client withholds outright is the bulk data: `pageSnapshot` (sampled
    * row values) and `richContext` (per-field statistics) are never built and never
    * sent anywhere in private mode.
+   *
+   * That is not the whole enumeration, though, and the difference matters to a host
+   * reasoning about what its OWN endpoint receives. `serializeDashboardState` empties
+   * `doc.ai.threads` and strips `runtime.dataSources[].rows`; it does not touch
+   * `doc.filters`, so every filter's `value` is sent with the rest of the document —
+   * and for the `cross-filter` and `interactive` scopes that value IS a real row
+   * value, since it is whatever the user clicked (a chart category, a legend label, a
+   * selected grid cell). A field name in a page-scoped filter is structure; the
+   * category in a cross-filter is data.
+   *
+   * The stated guarantee is unaffected: it is provider-facing, and the middleware
+   * withholds the entire `<dashboard_state>` block — filters included — from the
+   * prompt in private mode, with every state-reading tool withdrawn, so none of it
+   * reaches the LLM. But "no row values leave the browser" would be wrong, and this
+   * doc is the only place a host learns otherwise.
    * @default false
    */
   privateMode?: boolean;

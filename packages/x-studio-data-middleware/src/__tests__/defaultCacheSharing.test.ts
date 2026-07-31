@@ -19,6 +19,7 @@ import { describe, it, expect } from 'vitest';
 import { handleBatchQuery } from '../handler';
 import { handleMutation } from '../mutations/handleMutation';
 import type { BatchQueryRequest, BatchMutationRequest, JwtSecurityClaims } from '../security/types';
+import { assertTimeoutArgs, rowKeyOf, sqlValueEquals, wherePredicate } from './mockDb';
 
 process.env.JWT_SECRET ??= 'default-cache-sharing-test-secret';
 
@@ -42,18 +43,16 @@ function createSharedMutableDb(initialRows: Record<string, unknown>[]) {
     let countAlias: string | null = null;
 
     const qb: any = {
+      // `wherePredicate` models the OPERATOR (and fails closed on one it does
+      // not implement). This double used to DISCARD it, so `!=`, `<`, `>` and
+      // `like` all silently became equality.
       where(column: string, opOrValue: unknown, value?: unknown) {
-        const key = column.includes('.') ? column.split('.').pop()! : column;
-        if (value !== undefined) {
-          predicates.push((row) => row[key] === value);
-        } else {
-          predicates.push((row) => row[key] === opOrValue);
-        }
+        predicates.push(wherePredicate(column, opOrValue, value));
         return qb;
       },
       whereIn(column: string, values: unknown[]) {
-        const key = column.includes('.') ? column.split('.').pop()! : column;
-        predicates.push((row) => values.includes(row[key]));
+        const key = rowKeyOf(column);
+        predicates.push((row) => values.some((v) => sqlValueEquals(row[key], v)));
         return qb;
       },
       insert(values: Record<string, unknown>) {
@@ -72,9 +71,14 @@ function createSharedMutableDb(initialRows: Record<string, unknown>[]) {
       limit() {
         return qb;
       },
-      // Knex's per-query statement timeout (F2) — accepted and ignored; this mock
-      // resolves synchronously, so there is nothing to time out.
-      timeout() {
+      // Knex exposes its dialect client on the builder; `applyQueryTimeout` reads
+      // `client.canCancelQuery` to gate query cancellation.
+      client: { canCancelQuery: false },
+      // Knex's per-query statement timeout (F2) — this mock resolves
+      // synchronously, so there is nothing to time out, but its ARGUMENTS are
+      // checked so a dropped timeout cannot pass as an applied one.
+      timeout(ms: number, opts?: { cancel?: boolean }) {
+        assertTimeoutArgs('createSharedMutableDb', ms, opts);
         return qb;
       },
       async first() {

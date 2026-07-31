@@ -36,6 +36,17 @@ import type {
   BatchWidgetDescriptor,
   JwtSecurityClaims,
 } from '../security/types';
+import {
+  assertTimeoutArgs,
+  compareByOrderBy,
+  failClosedBuilder,
+  isRawExpr,
+  mockRaw,
+  rowKeyOf,
+  sqlValueEquals,
+  wherePredicate,
+  type RawExpr,
+} from './mockDb';
 
 process.env.JWT_SECRET ??= 'request-row-budget-test-secret';
 
@@ -45,13 +56,28 @@ const SINGLE_TENANT = { mode: 'single-tenant' } as const;
 /**
  * A Knex stand-in whose table holds `totalRows` identical-shaped rows.
  *
- * Filters/joins/ordering are no-ops — these tests are about how many rows come
- * back and who is charged for them, not about the SQL shape (that is pinned in
- * `router/__tests__/execute.test.ts`). `source` marks which database produced a
- * row, so a cross-data-source cache hit is directly observable.
+ * These tests are about how many rows come back and who is charged for them, not
+ * about the SQL shape (that is pinned in `router/__tests__/execute.test.ts`).
+ * `source` marks which database produced a row, so a cross-data-source cache hit
+ * is directly observable.
+ *
+ * FAILS CLOSED — every builder method it does not model throws (see
+ * `failClosedBuilder`). It previously installed sixteen no-op stubs
+ * (`where`/`whereIn`/`select`/`orderBy`/`join`/…) whose combined effect was that
+ * NO predicate had any effect on the rows returned: deleting
+ * `applySecurityPredicates` from `buildSecureQuery` outright produced
+ * byte-identical results here, and `join`/`leftJoin`/`rightJoin` discarded the
+ * ON-clause callback, so `applySecurityPredicatesToJoinOn` never ran — the exact
+ * defect `installRecordingJoins` (`handler.test.ts`) was written to fix. `where`
+ * and `whereIn` are now modelled for real, through the same shared
+ * `wherePredicate` helper the other doubles use; joins, aggregation and HAVING
+ * are not modelled at all and say so loudly.
  */
 function createRowSourceDb(totalRows: number, source = 'A') {
-  const rows = Array.from({ length: totalRows }, (_, i) => ({ id: i, source }));
+  const rows: Record<string, unknown>[] = Array.from({ length: totalRows }, (_, i) => ({
+    id: i,
+    source,
+  }));
   /** The LIMIT each executed DATA query received (preflight COUNT(*) applies none). */
   const appliedLimits: number[] = [];
   /**
@@ -63,9 +89,40 @@ function createRowSourceDb(totalRows: number, source = 'A') {
   const preflights = { count: 0 };
 
   const db: any = () => {
+    const predicates: Array<(row: Record<string, unknown>) => boolean> = [];
+    const orderByClauses: { column: string; dir: string }[] = [];
+    let selectedColumns: (string | RawExpr)[] | null = null;
     let limitValue: number | undefined;
     let countAlias: string | undefined;
-    const qb: any = {
+    let qb: any;
+
+    const matching = () => rows.filter((row) => predicates.every((p) => p(row)));
+
+    const base: any = {
+      // Knex exposes its dialect client on the builder, and `applyQueryTimeout`
+      // READS `client.canCancelQuery` to decide whether to request query
+      // cancellation (unconditional cancellation throws at builder time on
+      // SQLite). Modelled explicitly — the no-op double had no `client` at all,
+      // so that dialect gate silently took its `false` branch and no test could
+      // tell the difference between "gated correctly" and "never consulted".
+      client: { canCancelQuery: false },
+      where(column: string, opOrValue: unknown, value?: unknown) {
+        predicates.push(wherePredicate(column, opOrValue, value));
+        return qb;
+      },
+      whereIn(column: string, values: unknown[]) {
+        const key = rowKeyOf(column);
+        predicates.push((row) => values.some((v) => sqlValueEquals(row[key], v)));
+        return qb;
+      },
+      select(columns: string | (string | RawExpr)[]) {
+        selectedColumns = Array.isArray(columns) ? columns : [columns];
+        return qb;
+      },
+      orderBy(column: string, dir = 'asc') {
+        orderByClauses.push({ column: rowKeyOf(column), dir });
+        return qb;
+      },
       count(expr: string) {
         countAlias = String(expr).split(' as ')[1]?.trim() ?? 'count';
         return qb;
@@ -74,43 +131,50 @@ function createRowSourceDb(totalRows: number, source = 'A') {
         limitValue = n;
         return qb;
       },
-      // Knex's statement timeout (F2) — accepted and ignored; this mock resolves
-      // synchronously.
-      timeout() {
+      // Knex's statement timeout (F2) — this mock resolves synchronously, so
+      // there is nothing to time out, but the ARGUMENTS are checked so a dropped
+      // timeout cannot pass as an applied one.
+      timeout(ms: number, opts?: { cancel?: boolean }) {
+        assertTimeoutArgs('createRowSourceDb', ms, opts);
         return qb;
       },
       async first() {
         preflights.count += 1;
-        return { [countAlias ?? 'count']: totalRows };
+        return { [countAlias ?? 'count']: matching().length };
       },
-      then(resolve: (value: unknown) => void) {
-        appliedLimits.push(limitValue ?? -1);
-        resolve(rows.slice(0, limitValue ?? totalRows));
+      then(resolve: (value: unknown) => void, reject?: (err: Error) => void) {
+        try {
+          appliedLimits.push(limitValue ?? -1);
+          let out = matching();
+          if (orderByClauses.length > 0) {
+            out = [...out].sort((a, b) => compareByOrderBy(a, b, orderByClauses));
+          }
+          out = out.slice(0, limitValue ?? totalRows);
+          if (selectedColumns) {
+            out = out.map((row) => {
+              const projected: Record<string, unknown> = {};
+              for (const col of selectedColumns!) {
+                if (isRawExpr(col)) {
+                  projected[col.alias] = row[rowKeyOf(col.physicalColumn)];
+                } else if (col === '*' || col.endsWith('.*')) {
+                  Object.assign(projected, row);
+                } else {
+                  projected[rowKeyOf(col)] = row[rowKeyOf(col)];
+                }
+              }
+              return projected;
+            }) as typeof out;
+          }
+          resolve(out);
+        } catch (err) {
+          reject?.(err as Error);
+        }
       },
     };
-    for (const method of [
-      'where',
-      'whereIn',
-      'whereNot',
-      'whereLike',
-      'whereBetween',
-      'select',
-      'orderBy',
-      'groupBy',
-      'havingRaw',
-      'sum',
-      'avg',
-      'min',
-      'max',
-      'join',
-      'leftJoin',
-      'rightJoin',
-    ]) {
-      qb[method] = () => qb;
-    }
+    qb = failClosedBuilder(base, 'createRowSourceDb');
     return qb;
   };
-  db.raw = () => ({});
+  db.raw = mockRaw;
   return { db, appliedLimits, preflights };
 }
 
@@ -142,12 +206,21 @@ function createRecordingCache() {
   return { provider, entries };
 }
 
-/** Widgets differing only in a filter VALUE: distinct cache keys, identical rows. */
+/**
+ * Widgets differing only in a filter VALUE: distinct cache keys, identical rows.
+ *
+ * The filter has to be one the (now honestly-modelled) mock evaluates to TRUE for
+ * every row, since these tests need each widget to want the whole table. `id` is
+ * a real column holding `0 … totalRows-1`, so `id >= -1-i` matches everything
+ * while still hashing to a different cache key per widget. The previous
+ * `bucket = "b<i>"` shape only worked because the double discarded predicates
+ * entirely — the rows have no `bucket` column at all.
+ */
 function distinctWidgets(count: number): BatchWidgetDescriptor[] {
   return Array.from({ length: count }, (_, i) => ({
     id: `w${i}`,
     table: 'sales',
-    filters: [{ column: 'bucket', operator: 'eq' as const, value: `b${i}` }],
+    filters: [{ column: 'id', operator: 'gte' as const, value: -1 - i }],
   }));
 }
 
@@ -170,6 +243,61 @@ function baseOptions(db: any, cacheProvider: CacheProvider) {
 
 const totalRows = (results: { rows: unknown[] }[]) =>
   results.reduce((sum, r) => sum + r.rows.length, 0);
+
+// ─── The double under these tests really filters ──────────────────────────────
+describe('createRowSourceDb models predicates instead of ignoring them', () => {
+  it('applies a filter, so the row counts below are the result of a real query', async () => {
+    // Every assertion in this file is a ROW COUNT, and a double whose `where()`
+    // is a no-op makes every one of them independent of what the query actually
+    // asked for. Pinned here so the double cannot regress to no-op stubs.
+    const { db } = createRowSourceDb(50);
+    const { provider } = createRecordingCache();
+    const result = await handleBatchQuery(
+      {
+        pageId: 'p1',
+        widgets: [
+          { id: 'all', table: 'sales' },
+          { id: 'lt5', table: 'sales', filters: [{ column: 'id', operator: 'lt', value: 5 }] },
+          { id: 'neq0', table: 'sales', filters: [{ column: 'id', operator: 'neq', value: 0 }] },
+        ],
+      },
+      CLAIMS,
+      baseOptions(db, provider),
+    );
+    const byId = Object.fromEntries(result.results.map((r) => [r.id, r]));
+    expect(byId.all.rows).toHaveLength(50);
+    expect(byId.lt5.rows).toHaveLength(5);
+    // `neq` must not collapse to equality — the operator-discarding shape the
+    // sibling doubles had.
+    expect(byId.neq0.rows).toHaveLength(49);
+  });
+
+  it('refuses a JOIN rather than silently discarding the ON-clause callback', async () => {
+    // The previous stubs made `join(table, cb)` drop `cb`, so
+    // `applySecurityPredicatesToJoinOn` never ran — the exact defect
+    // `installRecordingJoins` (`handler.test.ts`) exists to fix, still live
+    // here. This double does not model joins at all, and now says so.
+    const { db } = createRowSourceDb(5);
+    const { provider } = createRecordingCache();
+    const result = await handleBatchQuery(
+      {
+        pageId: 'p1',
+        widgets: [
+          {
+            id: 'joined',
+            table: 'sales',
+            joins: [
+              { table: 'regions', type: 'left' as const, on: [['sales.id', 'regions.id'] as [string, string]] },
+            ],
+          },
+        ],
+      },
+      CLAIMS,
+      { ...baseOptions(db, provider), schemaAllowlist: ['sales', 'regions'] },
+    );
+    expect(result.results[0].error).toBeDefined();
+  });
+});
 
 // ─── Finding 1 — a degraded result is an error, and is never cached ───────────
 describe('handleBatchQuery — budget-degraded results are never cached (finding 1)', () => {

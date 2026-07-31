@@ -33,6 +33,7 @@ import { handleMutation } from '../mutations/handleMutation';
 import { LRUCacheProvider } from '../cache/LRUCacheProvider';
 import type { CacheEntry, CacheProvider, CacheSetOpts } from '../cache/types';
 import type { BatchQueryRequest, BatchMutationRequest, JwtSecurityClaims } from '../security/types';
+import { assertTimeoutArgs, rowKeyOf, sqlValueEquals, wherePredicate } from './mockDb';
 
 process.env.JWT_SECRET ??= 'read-write-cache-race-test-secret';
 
@@ -76,14 +77,18 @@ function createGatedDb(initialRows: Record<string, unknown>[]) {
     let countAlias: string | null = null;
 
     const qb: any = {
+      // `wherePredicate` models the OPERATOR. This double used to collapse the
+      // 3-arg form to `row[key] === value`, so `!=`, `<`, `>` and `like` all
+      // became equality — the same class of silent-dialect/operator defect as
+      // F1's `whereLike` `COLLATE utf8_bin` bug — and it failed OPEN on any
+      // operator it did not recognize.
       where(column: string, opOrValue: unknown, value?: unknown) {
-        const key = column.includes('.') ? column.split('.').pop()! : column;
-        predicates.push((row) => row[key] === (value !== undefined ? value : opOrValue));
+        predicates.push(wherePredicate(column, opOrValue, value));
         return qb;
       },
       whereIn(column: string, values: unknown[]) {
-        const key = column.includes('.') ? column.split('.').pop()! : column;
-        predicates.push((row) => values.includes(row[key]));
+        const key = rowKeyOf(column);
+        predicates.push((row) => values.some((v) => sqlValueEquals(row[key], v)));
         return qb;
       },
       insert(values: Record<string, unknown>) {
@@ -97,9 +102,15 @@ function createGatedDb(initialRows: Record<string, unknown>[]) {
       limit() {
         return qb;
       },
-      // Knex's per-query statement timeout (F2) — accepted and ignored; this mock
-      // resolves synchronously, so there is nothing to time out.
-      timeout() {
+      // Knex exposes its dialect client on the builder; `applyQueryTimeout` reads
+      // `client.canCancelQuery` to gate query cancellation. Modelled explicitly
+      // so that gate is visible rather than silently defaulting.
+      client: { canCancelQuery: false },
+      // Knex's per-query statement timeout (F2) — this mock resolves
+      // synchronously, so there is nothing to time out, but its ARGUMENTS are
+      // checked so a dropped timeout cannot pass as an applied one.
+      timeout(ms: number, opts?: { cancel?: boolean }) {
+        assertTimeoutArgs('createGatedDb', ms, opts);
         return qb;
       },
       async first() {

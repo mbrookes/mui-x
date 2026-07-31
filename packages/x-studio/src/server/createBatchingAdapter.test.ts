@@ -2674,7 +2674,15 @@ describe('createBatchingAdapter — cross-source filter fan-out', () => {
         id: 'source-orders',
         label: 'Orders',
         tableName: 'orders',
-        fields: [field('id', 'number'), field('customerId', 'number'), field('status')],
+        fields: [
+          field('id', 'number'),
+          field('customerId', 'number'),
+          field('status'),
+          // A date field, so a leaf that `toPredicatesFor` expands into TWO predicates (a
+          // day-granular `eq` becomes `gte day AND lt nextDay`) is reachable from this
+          // harness — see "keeps the per-predicate attribution INDEX-ALIGNED" below.
+          field('created', 'date'),
+        ],
         adapter: sharedAdapter,
       },
       'source-customers': {
@@ -2845,6 +2853,88 @@ describe('createBatchingAdapter — cross-source filter fan-out', () => {
     } as NonNullable<StudioQueryDescriptor['filter']>);
 
     expect(warnings).toContain('no source attribution');
+  });
+
+  /**
+   * `predicateSourceIds` is INDEX-ALIGNED with `predicates`, and that alignment is what makes
+   * the per-leaf attribution check ask about the right leaf. It is load-bearing and was
+   * entirely uncovered: replacing `partitionFilterNode`'s
+   *
+   *     for (let i = 0; i < emitted.length; i += 1) { result.predicateSourceIds.push(…); }
+   *
+   * with a single push per LEAF left all 86 tests of this file green and all 31 of
+   * `x-studio-data-middleware`'s `clientWireSeam.test.ts` green too — because no fixture in
+   * either suite combined a MULTI-predicate leaf with the attribution check. Every attribution
+   * fixture above emits exactly one predicate per leaf, which is precisely the case where the
+   * two spellings coincide.
+   *
+   * The desync is not benign. With one entry per leaf, the attribution array is SHORTER than
+   * the predicate array from the first multi-predicate leaf onward, so every later predicate
+   * reads its neighbour's attribution: the unattributed leaf reads an attributed one and goes
+   * out silently — `wire=1 memory=0`, the exact failure this check exists to remove — while an
+   * attributed leaf reads past the end and warns about a filter that is perfectly correct.
+   *
+   * Both expansions the docblock names are covered: a day-granular date `eq`, and an `op2`
+   * second condition.
+   */
+  it('keeps the per-predicate attribution INDEX-ALIGNED across a leaf that emits TWO predicates', async () => {
+    const warnings = await warningsForCustomersFilter({
+      type: 'group',
+      logic: 'and',
+      children: [
+        // A: attributed, and `toPredicatesFor` expands a day-granular date `eq` into
+        // `gte 2024-01-01 AND lt 2024-01-02` — TWO predicates from ONE leaf.
+        {
+          type: 'leaf',
+          field: 'created',
+          op: 'equals',
+          value: '2024-01-01',
+          fieldType: 'date',
+          filterSourceId: 'source-orders',
+        },
+        // B: UNATTRIBUTED — the leaf that actually diverges, and the one that must be named.
+        statusLeaf(),
+        // C: attributed, one predicate. Reads past the end of a short attribution array.
+        {
+          type: 'leaf',
+          field: 'created',
+          op: 'equals',
+          value: '2024-02-02',
+          fieldType: 'date',
+          filterSourceId: 'source-orders',
+        },
+      ],
+    } as NonNullable<StudioQueryDescriptor['filter']>);
+
+    // The unattributed leaf is named…
+    expect(warnings).toContain('The filter on "status"');
+    // …and the attributed ones are NOT: a warning about `created` here would mean the check
+    // consulted the wrong leaf, which is the same defect wearing the opposite sign.
+    expect(warnings).not.toContain('The filter on "created"');
+  });
+
+  it('keeps the alignment across an `op2` second condition too', async () => {
+    const warnings = await warningsForCustomersFilter({
+      type: 'group',
+      logic: 'and',
+      children: [
+        // Attributed, TWO predicates: `customerId > 10 AND customerId < 100`.
+        {
+          type: 'leaf',
+          field: 'customerId',
+          op: 'greater_than',
+          value: 10,
+          op2: 'less_than',
+          value2: 100,
+          fieldType: 'number',
+          filterSourceId: 'source-orders',
+        },
+        statusLeaf(),
+      ],
+    } as NonNullable<StudioQueryDescriptor['filter']>);
+
+    expect(warnings).toContain('The filter on "status"');
+    expect(warnings).not.toContain('The filter on "customerId"');
   });
 
   it('groups every predicate on one foreign source into ONE subquery (EXISTS(A AND B))', async () => {

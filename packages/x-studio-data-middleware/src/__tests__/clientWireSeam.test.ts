@@ -745,6 +745,67 @@ describe('seam — semi-join answer vs the in-memory answer', () => {
     expect(warnings).toContain('"orders"');
   });
 
+  /**
+   * The per-leaf attribution is INDEX-ALIGNED with the predicates the leaf emits, and one leaf
+   * can emit two (an `op2` second condition, a day-granular date `eq`). Nothing in either
+   * suite combined a multi-predicate leaf with the attribution check: replacing
+   * `partitionFilterNode`'s per-predicate push loop with a single push per LEAF left all 86
+   * tests of `createBatchingAdapter.test.ts` AND all 31 here green, while inverting the
+   * warning — silent on the leaf that really diverges, loud about one that does not.
+   *
+   * Pinned on this side too because this is where the consequence is real: the wire keeps the
+   * customer and memory drops it, and the desync is exactly what silences the announcement.
+   */
+  it('keeps the per-predicate attribution aligned when one leaf emits TWO predicates', async () => {
+    const relationships = [REL_ORDERS_CUSTOMERS];
+    const filter = {
+      type: 'group',
+      logic: 'and',
+      children: [
+        // Attributed, and TWO predicates: `amount > 1 AND amount < 100`.
+        {
+          type: 'leaf',
+          field: 'amount',
+          op: 'greater_than',
+          value: 1,
+          op2: 'less_than',
+          value2: 100,
+          fieldType: 'number',
+          filterSourceId: 'orders',
+        },
+        // UNATTRIBUTED — the leaf that actually diverges, and the one that must be named.
+        { type: 'leaf', field: 'region', op: 'equals', value: 'west' },
+      ],
+    } as const;
+
+    let widget: BatchWidgetDescriptor;
+    let warnings = '';
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      widget = await captureWidget(descriptor({ select: ['id'], filter: filter as never }), {
+        dataSources: SOURCES,
+        relationships,
+      });
+    } finally {
+      warnings = warn.mock.calls.flat().join('\n');
+      warn.mockRestore();
+    }
+
+    expectServerAccepts(widget!);
+    // The divergence is real on this fixture: the wire's EXISTS keeps the customer, memory's
+    // `nativeFilters` compares `region` against a `customers` row that has no such column.
+    expect(wireRows(widget!, FANOUT_TABLES)).toHaveLength(1);
+    expect(
+      memoryRows('customers', [pageFilter({ field: 'region', value: 'west' })], relationships, []),
+    ).toHaveLength(0);
+    // …so it is announced, and about "region" — NOT about "amount", which is attributed
+    // correctly. A warning naming "amount" means the check consulted the wrong leaf, which is
+    // the same defect wearing the opposite sign.
+    expect(warnings).toContain('no source attribution');
+    expect(warnings).toContain('"region"');
+    expect(warnings).not.toContain('The filter on "amount"');
+  });
+
   it("announces the same divergence when the attribution names the widget's own source", async () => {
     // `f.filterSourceId !== widgetSourceId` is the other half of `resolveRows`' cross-filter
     // test, so an attribution pointing back at the widget's own source lands in `nativeFilters`

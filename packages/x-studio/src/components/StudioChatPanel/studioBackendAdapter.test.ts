@@ -1383,6 +1383,33 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
     );
   });
 
+  // …and pinned in the ONE case where "per distinct id" is observable at all: AFTER the
+  // budget is full. The test above sends 192 repeats of ONE id, so `turnToolPartIds.size` is 1
+  // throughout and the budget is never approached — charging per EVENT instead of per distinct
+  // id passes it unchanged (verified: that mutant SURVIVED the whole file). A re-prompt
+  // arriving after 64 distinct ids is the only shape that tells the two apart, and it is
+  // exactly the shape the distinction exists for: a server re-asking about a call the human
+  // did not answer must not be silenced by a budget it already paid.
+  it('lets a re-prompt through even after the part budget is FULL', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const chunks = await collectTurnChunks([
+      // Fill the shared budget with distinct ids…
+      ...Array.from({ length: MAX_TURN_TOOL_PARTS }, (_unused, i) => approvalEvent(i, {})),
+      // …then a NEW id, which must be refused…
+      approvalEvent(9_999, {}),
+      // …and a re-prompt of one already-open card, which must not be.
+      approvalEvent(0, { reason: 'still waiting on you' }),
+    ]);
+
+    const approvals = chunks.filter((c) => c.type === 'tool-approval-request') as ApprovalChunk[];
+    // 64 openings + the re-prompt; the 65th distinct id is not among them.
+    expect(approvals).toHaveLength(MAX_TURN_TOOL_PARTS + 1);
+    expect(approvals.some((c) => c.toolCallId === 'call-9999')).toBe(false);
+    expect(approvals.at(-1)!.toolCallId).toBe('call-0');
+    expect(approvals.at(-1)!.reason).toBe('still waiting on you');
+    warnSpy.mockRestore();
+  });
+
   // EVERY quantity below is measured in JSON CHARACTERS — `jsonChars` for the strings,
   // `JSON.stringify(...).length` for the objects — because that is the unit the budgets are
   // denominated in and the unit the saved document is measured in. The previous version of
@@ -1666,6 +1693,40 @@ describe('createBackendChatAdapter: tool-activity size limits', () => {
     expect(chunks.filter((c) => c.type === 'tool-output-available')).toHaveLength(
       MAX_TURN_TOOL_PARTS,
     );
+  });
+
+  // The same distinction, pinned where it is observable: AFTER the budget is full. Charging
+  // per EVENT rather than per distinct id passes every test that never fills the budget —
+  // and here it would strand 64 already-open cards on a spinner, because their `complete`
+  // events would be dropped by a budget their `start` events already paid.
+  it('lets a repeat of an already-open call through even after the part budget is FULL', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const chunks = await collectAllTurnChunks([
+      // Fill the shared budget with distinct ids…
+      ...Array.from({ length: MAX_TURN_TOOL_PARTS }, (_unused, i) => startEvent(i)),
+      // …then a NEW id, which must be refused…
+      startEvent(9_999),
+      // …a REPEAT of an already-open id, which must not be: `withToolInvocation` updates that
+      // part in place, so it adds nothing to the message and must cost the budget nothing.
+      // This is the event the per-EVENT charge drops and the per-DISTINCT-id charge does not.
+      startEvent(0, { input: { table: 'orders', retry: true } }),
+      // …and every already-open call settling, which must not be either.
+      ...Array.from({ length: MAX_TURN_TOOL_PARTS }, (_unused, i) => completeEvent(i)),
+    ]);
+
+    const starts = chunks.filter((c) => c.type === 'tool-input-start') as {
+      toolCallId: string;
+    }[];
+    // 64 openings + the repeat of `call-0`; the 65th distinct id is not among them.
+    expect(starts).toHaveLength(MAX_TURN_TOOL_PARTS + 1);
+    expect(starts.some((c) => c.toolCallId === 'call-9999')).toBe(false);
+    expect(starts.at(-1)!.toolCallId).toBe('call-0');
+    // Every card that was opened also resolves — none is stranded on a spinner by a budget
+    // its own `start` already paid.
+    expect(chunks.filter((c) => c.type === 'tool-output-available')).toHaveLength(
+      MAX_TURN_TOOL_PARTS,
+    );
+    warnSpy.mockRestore();
   });
 
   // The part budget is ONE budget across BOTH doors, because both add parts to the same

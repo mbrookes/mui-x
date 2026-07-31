@@ -168,6 +168,28 @@ export interface StudioQueryDescriptor {
    */
   hasRankFilters?: boolean;
   /**
+   * Maximum number of rows this widget may fetch, forwarded to a server-side adapter as the
+   * query's `limit`.
+   *
+   * WHY THIS EXISTS. A batch request has a SHARED row budget on the server side
+   * (`MAX_ROWS_PER_REQUEST` in `@mui/x-studio-data-middleware`): every widget's rows are
+   * charged against one per-request allowance, and a widget whose rows no longer fit is
+   * failed outright rather than truncated. Widgets that cannot push their aggregation down —
+   * KPI, gauge, scatter, gantt, a grid with no `groupBy`, filter widgets — fetch RAW rows, so
+   * a single one over a large table can consume the whole allowance and starve every sibling
+   * on the page. The middleware's own budget-exhaustion error prescribes exactly this remedy
+   * ("set a smaller `limit` on each widget"); before this field there was no way to express it.
+   *
+   * DELIBERATELY OPTIONAL, WITH NO DEFAULT. A limit TRUNCATES: the client cannot tell a
+   * limited result from a complete one, so a widget that aggregates client-side over the
+   * returned rows would silently report a number computed from a prefix of its data. That is
+   * the same silent data loss the server refuses to commit on the caller's behalf, so it is
+   * never applied unless a host asks for it. `createBatchingAdapter`'s `maxRowsPerWidget`
+   * option supplies a page-wide default for hosts that do; either way the adapter warns when
+   * a response comes back at exactly the limit, so a truncation is never silent.
+   */
+  limit?: number;
+  /**
    * Stable hash of all other fields. Use as a cache key.
    * The package computes this; the developer need not hash the descriptor.
    */

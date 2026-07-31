@@ -38,7 +38,10 @@ import type { StudioExpressionField } from '../../../x-studio-schema/src/express
 /* eslint-enable import/no-relative-packages */
 import { validateQueryPlan } from '../security/validateQueryPlan';
 import { handleBatchQuery, MAX_WIDGETS_PER_BATCH } from '../handler';
+import { MAX_ROWS_PER_REQUEST } from '../router/execute';
 import type { BatchWidgetDescriptor } from '../security/types';
+import { LRUCacheProvider } from '../cache/LRUCacheProvider';
+import { MapTierCacheProvider } from '../cache/MapTierCacheProvider';
 import { createMockDb } from './mockDb';
 
 process.env.JWT_SECRET ??= 'client-wire-seam-hmac-secret';
@@ -57,6 +60,7 @@ interface CapturedBody {
 }
 
 interface CaptureOptions {
+  maxRowsPerWidget?: number;
   dataSources?: Record<string, StudioDataSource>;
   relationships?: StudioRelationship[];
   expressionFields?: StudioExpressionField[];
@@ -621,6 +625,37 @@ const BIG_TABLE_ROWS = Array.from({ length: 20 }, (_, i) => ({ id: i, amount: i 
 
 const DEV_CLAIMS = { tenantId: 't', userId: 'u', roleIds: [] as string[] };
 
+interface HandlerResponse {
+  results: { id: string; rows: unknown[]; error?: string }[];
+}
+
+/**
+ * Run the client's captured body through the REAL handler, with FRESH cache providers.
+ *
+ * The handler falls back to module-level default caches, which are shared across every
+ * call in the file — so two tests that happen to send an equivalent descriptor would
+ * silently serve each other's rows (and each other's row counts), quietly defeating the
+ * budget and truncation assertions below.
+ */
+/** Wrap a handler response in the minimal `Response` shape the adapter consumes. */
+function ok(response: HandlerResponse) {
+  return { ok: true, json: async () => response };
+}
+
+async function runHandler(
+  db: ReturnType<typeof createMockDb>,
+  body: CapturedBody,
+  table: string,
+): Promise<HandlerResponse> {
+  return (await handleBatchQuery({ pageId: body.pageId, widgets: body.widgets }, DEV_CLAIMS, {
+    db: db as never,
+    schemaAllowlist: [table],
+    tenancy: { mode: 'single-tenant' },
+    cacheProvider: new LRUCacheProvider(),
+    tierCacheProvider: new MapTierCacheProvider(),
+  })) as HandlerResponse;
+}
+
 describe('seam — batch size', () => {
   it("the client's cap is the server's cap", () => {
     // The two constants are separate copies (x-studio must not depend on the server
@@ -669,11 +704,7 @@ describe('seam — batch size', () => {
         // the reference host maps to a bare 500, so the client fails every widget with
         // `Studio batch request failed: 500 Internal Server Error`.
         respond: async (body) => {
-          const response = (await handleBatchQuery(
-            { pageId: body.pageId, widgets: body.widgets },
-            DEV_CLAIMS,
-            { db: db as never, schemaAllowlist: ['big'], tenancy: { mode: 'single-tenant' } },
-          )) as { results: { id: string; rows: unknown[]; error?: string }[] };
+          const response = await runHandler(db, body, 'big');
           for (const result of response.results) {
             expect(result.error).toBeUndefined();
             seen.push(result.id);
@@ -684,5 +715,130 @@ describe('seam — batch size', () => {
     );
 
     expect(new Set(seen).size).toBe(count);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// F2 — per-widget row limit
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * `MAX_ROWS_PER_REQUEST` is the allowance ONE batch may contribute in total, and a
+ * widget whose rows do not fit is failed rather than truncated. Two raw-row widgets
+ * over a table two-thirds that size therefore cannot both be served unless the client
+ * bounds them.
+ */
+const STARVING_ROWS = Array.from({ length: Math.ceil(MAX_ROWS_PER_REQUEST * 0.6) }, (_, i) => ({
+  id: i,
+  amount: i,
+}));
+
+function pairOver(table: string): StudioQueryDescriptor[] {
+  return ['w1', 'w2'].map((widgetId) =>
+    descriptor({
+      sourceId: table,
+      tableName: table,
+      widgetId,
+      cacheKey: `ck-${widgetId}`,
+      select: ['id', 'amount'],
+    }),
+  );
+}
+
+describe('seam — per-widget row limit', () => {
+  it('emits no limit by default, and the shared budget then starves the second widget', async () => {
+    // Documents the cost of the (deliberate) no-default: a limit TRUNCATES, and a
+    // truncated result is indistinguishable from a complete one to a client-side
+    // aggregation, so the adapter never imposes one uninvited.
+    const db = createMockDb({ starve_a: STARVING_ROWS });
+    let response: HandlerResponse | undefined;
+    const [body] = await captureWireBodies(pairOver('starve_a'), {
+      respond: async (captured) => {
+        response = await runHandler(db, captured, 'starve_a');
+        return { ok: true, json: async () => response };
+      },
+    });
+
+    expect(body.widgets.every((w) => w.limit === undefined)).toBe(true);
+    const starved = response!.results.filter((r) => r.error !== undefined);
+    expect(starved).toHaveLength(1);
+    // The remedy the server prescribes is now a field the client can actually set.
+    expect(starved[0].error).toMatch(/row budget is exhausted/);
+    expect(starved[0].error).toMatch(/"limit"/);
+  });
+
+  it('forwards a per-widget limit so the shared budget serves the whole page', async () => {
+    const quarter = Math.floor(MAX_ROWS_PER_REQUEST / 4);
+    const db = createMockDb({ starve_b: STARVING_ROWS });
+    let response: HandlerResponse | undefined;
+    const [body] = await captureWireBodies(pairOver('starve_b'), {
+      maxRowsPerWidget: quarter,
+      respond: async (captured) => {
+        response = await runHandler(db, captured, 'starve_b');
+        return { ok: true, json: async () => response };
+      },
+    });
+
+    for (const widget of body.widgets) {
+      expect(widget.limit).toBe(quarter);
+      expectServerAccepts(widget);
+    }
+    for (const result of response!.results) {
+      expect(result.error).toBeUndefined();
+      expect(result.rows).toHaveLength(quarter);
+    }
+  });
+
+  it("lets a descriptor's own limit win over the adapter default", async () => {
+    const [body] = await captureWireBodies(
+      [
+        descriptor({ sourceId: 'big', tableName: 'big', widgetId: 'w1', cacheKey: 'a', limit: 7 }),
+        descriptor({ sourceId: 'big', tableName: 'big', widgetId: 'w2', cacheKey: 'b' }),
+      ],
+      { maxRowsPerWidget: 100 },
+    );
+
+    expect(body.widgets.map((w) => w.limit)).toEqual([7, 100]);
+    body.widgets.forEach(expectServerAccepts);
+  });
+
+  it('warns rather than silently truncating when a result comes back at the limit', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const db = createMockDb({ trunc: Array.from({ length: 40 }, (_, i) => ({ id: i, amount: i })) });
+    await captureWireBodies(
+      [
+        descriptor({
+          sourceId: 'trunc',
+          tableName: 'trunc',
+          widgetId: 'w1',
+          cacheKey: 'trunc-a',
+          select: ['id', 'amount'],
+        }),
+      ],
+      { maxRowsPerWidget: 10, respond: (body) => runHandler(db, body, 'trunc').then(ok) },
+    );
+
+    expect(warn.mock.calls.flat().join('\n')).toMatch(/TRUNCATED/);
+    warn.mockRestore();
+  });
+
+  it('does not warn when the result fits comfortably inside the limit', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const db = createMockDb({ fits: Array.from({ length: 3 }, (_, i) => ({ id: i, amount: i })) });
+    await captureWireBodies(
+      [
+        descriptor({
+          sourceId: 'fits',
+          tableName: 'fits',
+          widgetId: 'w1',
+          cacheKey: 'fits-a',
+          select: ['id', 'amount'],
+        }),
+      ],
+      { maxRowsPerWidget: 10, respond: (body) => runHandler(db, body, 'fits').then(ok) },
+    );
+
+    expect(warn.mock.calls.flat().join('\n')).not.toMatch(/TRUNCATED/);
+    warn.mockRestore();
   });
 });

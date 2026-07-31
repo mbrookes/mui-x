@@ -422,6 +422,41 @@ export interface BatchingAdapterOptions {
    * JOIN generation; `many-to-many` relationships are skipped.
    */
   relationships?: StudioRelationship[];
+  /**
+   * Default per-widget row `limit` for every descriptor that does not carry its own
+   * (`StudioQueryDescriptor.limit`).
+   *
+   * A batch request has a SHARED row budget on the server side (`MAX_ROWS_PER_REQUEST` in
+   * `@mui/x-studio-data-middleware`): one allowance covers every widget in the request, and a
+   * widget whose rows no longer fit is failed with an error rather than truncated. Any widget
+   * that cannot push its aggregation down — KPI, gauge, scatter, gantt, a grid with no
+   * `groupBy`, filter widgets — fetches RAW rows, so a single one over a large table can
+   * exhaust the allowance and starve every sibling on the page. Setting this is precisely what
+   * the middleware's own budget-exhaustion error asks the operator to do.
+   *
+   * UNSET BY DEFAULT, deliberately: a limit TRUNCATES, and a truncated result is
+   * indistinguishable from a complete one to any widget that aggregates the returned rows
+   * itself — the same silent data loss the server refuses to commit on the caller's behalf.
+   * Trading completeness for a bounded request is the host's call, not the adapter's. Whenever
+   * a response comes back at exactly the limit the adapter warns, so a truncation that does
+   * happen is never silent.
+   */
+  maxRowsPerWidget?: number;
+}
+
+/**
+ * Coerce a row limit to a positive integer, or `undefined` when it is unusable.
+ *
+ * The middleware rejects a non-integer / negative `limit` outright (`validateLimit`), and a
+ * `0` limit would ask for an empty result — neither is what a host meant to configure, and
+ * neither should fail the widget, so both are treated as "no limit".
+ */
+function normalizeRowLimit(limit: number | undefined): number | undefined {
+  if (typeof limit !== 'number' || !Number.isFinite(limit)) {
+    return undefined;
+  }
+  const floored = Math.floor(limit);
+  return floored > 0 ? floored : undefined;
 }
 
 /**
@@ -442,7 +477,9 @@ export function createBatchingAdapter(
     relationships,
     expressionFields,
     mutationEndpoint,
+    maxRowsPerWidget,
   } = options;
+  const defaultRowLimit = normalizeRowLimit(maxRowsPerWidget);
 
   /**
    * Resolve (and cache across batches) the join-dimension index for one cross-endpoint
@@ -544,8 +581,17 @@ export function createBatchingAdapter(
       const builtDescriptors = descriptors.map((d) =>
         buildBatchWidgetDescriptor(d, dataSources, relationships, currentExpressionFields),
       );
+      /** Per-REQUEST dedupe for warnings raised while reading the response (one per widget). */
+      const batchWarnDedupe = new Set<string>();
 
       const body = {
+        // NOT a page id. `StudioQueryDescriptor` carries no page identifier, so what goes
+        // under the protocol's `pageId` key is the FIRST widget's SOURCE id. It is inert —
+        // the middleware only echoes it back on `BatchQueryResponse.pageId`, and never routes,
+        // scopes, or caches on it — but a host reading it as a page id would be wrong twice
+        // over: one POST can span several sources (distinct sources sharing an endpoint are
+        // coalesced), and one page can produce several POSTs (see the chunking below). Treat
+        // it as a coarse correlation hint, nothing more.
         pageId: descriptors[0]?.sourceId ?? 'unknown',
         widgets: builtDescriptors.map((b) => b.requestBody),
       };
@@ -582,7 +628,24 @@ export function createBatchingAdapter(
             return /* minify-error-disabled */ new Error(result.error);
           }
 
-          const { crossEndpointEnrichments, clientFilter } = builtDescriptors[i];
+          const { crossEndpointEnrichments, clientFilter, rowLimit } = builtDescriptors[i];
+
+          // A result that came back AT the limit was (almost certainly) cut short. The wire
+          // carries no "there was more" flag, so this is the only signal there is — and without
+          // it a limit is silent data loss: every widget aggregates the returned rows itself,
+          // so a KPI would report a SUM over a prefix of its data and look completely normal.
+          // Warn rather than fail: the host asked for the bound, and a bounded answer is what
+          // keeps the rest of the page servable within the batch's shared row budget.
+          if (rowLimit !== undefined && result.rows.length >= rowLimit) {
+            warnAdapterDivergence(
+              batchWarnDedupe,
+              `Widget "${d.widgetId}" (source "${d.sourceId}") received ${result.rows.length} ` +
+                `rows, its configured row limit, so its data is probably TRUNCATED and any ` +
+                `total, average or count it shows is computed from only those rows. Raise ` +
+                `"maxRowsPerWidget" (or the descriptor's own "limit"), or give the widget a ` +
+                `filter or a server-side aggregation so it needs fewer rows.`,
+            );
+          }
 
           // Apply cross-endpoint enrichments: fetch each join source once, then enrich rows.
           let rows = result.rows;
@@ -738,10 +801,20 @@ export function createBatchingAdapter(
 
   const adapter: StudioDataSourceAdapter = {
     getRows(descriptor: StudioQueryDescriptor): Promise<StudioQueryResult> {
+      // Stamp this ADAPTER's default row limit onto its own descriptors, before they enter the
+      // (possibly shared, simple-mode) loader. Doing it here rather than inside the batch fn
+      // keeps each source's limit its own: a sibling adapter constructed later at the same
+      // endpoint can neither impose its limit on this source's widgets nor clear one, the same
+      // isolation `fetchFn` gets for the same reason. A descriptor that carries its own `limit`
+      // always wins.
+      const withLimit =
+        defaultRowLimit !== undefined && normalizeRowLimit(descriptor.limit) === undefined
+          ? { ...descriptor, limit: defaultRowLimit }
+          : descriptor;
       // The adapter's OWN `fetchFn` travels with the request — never read from the shared
       // per-endpoint config — so a same-endpoint sibling adapter constructed later cannot take
       // over this source's credentials (see `BatchRequest`).
-      return loader.load({ descriptor, fetchFn });
+      return loader.load({ descriptor: withLimit, fetchFn });
     },
   };
 
@@ -1460,6 +1533,14 @@ interface BuiltBatchDescriptor {
    * instead, since it cannot be re-applied to pre-aggregated rows.
    */
   clientFilter?: StudioFilterState[];
+  /**
+   * The `limit` this descriptor put on the wire, if any. Read back after the response so a
+   * result that came back AT the limit can be reported as truncated: the wire carries no
+   * "there was more" flag, so a limited result is otherwise indistinguishable from a complete
+   * one — and every widget that aggregates the returned rows client-side would silently report
+   * a number computed from a prefix of its data.
+   */
+  rowLimit?: number;
 }
 
 /**
@@ -1486,6 +1567,16 @@ function buildBatchWidgetDescriptor(
   const tableName = d.tableName ?? d.sourceId;
   // Per-build set so each divergence warning fires at most once per fetch, never per row.
   const warnDedupe = new Set<string>();
+  /**
+   * The per-widget row cap to put on the wire. A batch shares ONE row budget server-side
+   * (`MAX_ROWS_PER_REQUEST`), and a widget whose rows no longer fit is failed rather than
+   * truncated — so an unlimited raw-row widget over a large table starves every sibling on the
+   * page, and the middleware's own budget-exhaustion error asks the operator to "set a smaller
+   * limit on each widget". Before this the descriptor had no `limit` at all and that remedy was
+   * unexpressible. Stays `undefined` unless the host asked for one (see
+   * `BatchingAdapterOptions.maxRowsPerWidget`), because a limit truncates.
+   */
+  const rowLimit = normalizeRowLimit(d.limit);
 
   // ── Simple mode (no relationship info) ────────────────────────────────────
   if (!dataSources || !relationships) {
@@ -1582,9 +1673,11 @@ function buildBatchWidgetDescriptor(
           d.groupBy && !groupByIsExpressionField
             ? [{ column: d.groupBy, direction: 'asc' as const }]
             : undefined,
+        limit: rowLimit,
       },
       crossEndpointEnrichments: [],
       clientFilter,
+      rowLimit,
     };
   }
 
@@ -1861,9 +1954,11 @@ function buildBatchWidgetDescriptor(
               },
             ]
           : undefined,
+      limit: rowLimit,
     },
     crossEndpointEnrichments: enrichments,
     clientFilter,
+    rowLimit,
   };
 }
 

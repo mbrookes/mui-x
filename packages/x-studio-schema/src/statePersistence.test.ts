@@ -529,6 +529,23 @@ describe('serializeState', () => {
     expect(serializeState(state).expressionFields).toBeUndefined();
   });
 
+  // The fourth member of the empty→`undefined` family. Its three siblings
+  // (`relationships`, `expressionFields`, `ai`) each have this pair; `filterPresets`
+  // had neither half, so the collapse could be dropped and an empty array would start
+  // being written into every persisted doc unnoticed.
+  it('omits filterPresets when the array is empty', () => {
+    const state = createDefaultStudioState({ doc: { filterPresets: [] } });
+    expect(serializeState(state).filterPresets).toBeUndefined();
+    expect(serializeDoc(state.doc).filterPresets).toBeUndefined();
+  });
+
+  it('includes filterPresets when non-empty', () => {
+    const state = createDefaultStudioState({
+      doc: { filterPresets: [{ id: 'p1', name: 'P', filters: [] }] },
+    });
+    expect(serializeState(state).filterPresets).toHaveLength(1);
+  });
+
   it('includes expressionFields when non-empty', () => {
     const state = createDefaultStudioState({
       doc: {
@@ -2945,16 +2962,16 @@ describe('serializeState / deserializeState roundtrip', () => {
     );
   });
 
-  it('migrateState returns failure for invalid JSON', () => {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse('not valid json {{');
-    } catch {
-      parsed = null;
-    }
-    const migrationResult = migrateState(parsed);
+  // Named for what it actually checks. The old name was "returns failure for invalid
+  // JSON", but no invalid JSON ever reached `migrateState`: the test's own try/catch
+  // absorbed the `SyntaxError` and handed over `null`, and the assertion then matched the
+  // word "Invalid" inside an unrelated message. `migrateState` takes a PARSED value, so
+  // `null` — what a caller's own failed parse hands it — is the real boundary input.
+  it('migrateState returns failure for a null (unparseable) input', () => {
+    const migrationResult = migrateState(null);
     expect(migrationResult.success).toBe(false);
-    expect(migrationResult.errors[0]).toMatch(/parse|invalid|null/i);
+    expect(migrationResult.state).toBeNull();
+    expect(migrationResult.errors).not.toHaveLength(0);
   });
 
   it('migrateState returns failure for a future schemaVersion', () => {

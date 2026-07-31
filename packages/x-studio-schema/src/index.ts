@@ -51,6 +51,13 @@ export {
   // paths — which commit through `commitDocPatch` and never reach the reducer — enforce the
   // same invariant every reducer drop path does (R6 F3).
   pruneDependsOnAgainstSelf,
+  // The full page-LAYOUT sweep. `factories.ts` documents that it cannot run this on a
+  // `doc.pages` override (it lives in `applyMutation.ts`, which imports `factories.ts`, so the
+  // arrow cannot run both ways) and leaves the override's `widgetRows`/`widgetColSpans`/
+  // `title`/`id` unswept — a documented gap. `@mui/x-studio` has no such cycle, so
+  // `StudioController`'s constructor uses this to WARN in dev when a host `initialState`
+  // installs a page layout that one save/reload would silently rewrite (R6 F6).
+  normalizePersistedPages,
 } from './applyMutation';
 // The rank-filter scope helpers moved out of `applyMutation.ts` into their own
 // dependency-free module so `factories.ts` (the factory-overrides trust boundary) can reach

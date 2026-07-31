@@ -1172,6 +1172,147 @@ describe('filterFingerprint — relative date detection (finding 5)', () => {
 
     expect(fingerprintDay1).toBe(fingerprintDay2);
   });
+
+  // `f.value2` gets its OWN `resolvedRelativeBound(...)` call, and until now every relative
+  // date in this block sat in `f.value` (either at the top level or nested inside a `between`
+  // range) — so the `value2` call could be deleted with the suite green. A compound filter is
+  // the shape that isolates it: an ABSOLUTE lower bound in `value` (whose resolved bound is
+  // `null` on every day) and a RELATIVE upper bound in `operator2`/`value2`.
+  it('changes across a day boundary when ONLY the second condition (`value2`) is relative', () => {
+    const filter: StudioFilterState = {
+      id: 'f1',
+      field: 'orderDate',
+      fieldType: 'date',
+      operator: 'greater_than_or_equal',
+      value: '2024-01-01',
+      conjunction: 'and',
+      operator2: 'less_than_or_equal',
+      value2: { relative: true, amount: 7, unit: 'day', direction: 'past' },
+      scope: { kind: 'page' as const },
+    } as StudioFilterState;
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-06-15T12:00:00Z'));
+    const fingerprintDay1 = filterFingerprint(filter);
+
+    vi.setSystemTime(new Date('2024-06-16T12:00:00Z'));
+    const fingerprintDay2 = filterFingerprint(filter);
+
+    // `f.value2` is a stable object, so without its own resolved-bound fold these are
+    // byte-identical and the widget serves yesterday's window for the rest of the session.
+    expect(fingerprintDay1).not.toBe(fingerprintDay2);
+  });
+});
+
+// ─── filterFingerprint — every behavioural field is folded in ─────────────────
+//
+// The fingerprint IS the L3 cache key: two filters that share one fingerprint share one
+// entry in `resolveRowsCached`. So any behavioural field left out of it does not merely
+// cost a cache miss — it makes two filters that select DIFFERENT rows collide onto a
+// single slot, and whichever ran first wins for both (stale rows, indefinitely, since the
+// entry is only evicted by LRU pressure or a data/relationship change).
+//
+// The relative-date bounds, the rank ORDER segment and the used-field-set segment are
+// pinned elsewhere in this file. These three fields were not pinned anywhere: each could
+// be deleted from `filterFingerprint` with the whole suite still green.
+describe('filterFingerprint — behavioural fields that were unpinned', () => {
+  it('distinguishes two filters that differ only in `conjunction`', () => {
+    const and = makeFilter({
+      field: 'amount',
+      operator: 'greater_than',
+      value: 100,
+      operator2: 'less_than',
+      value2: 300,
+      conjunction: 'and',
+    });
+    const or = makeFilter({ ...and, conjunction: 'or' } as Partial<StudioFilterState>);
+
+    expect(filterFingerprint(and)).not.toBe(filterFingerprint(or));
+  });
+
+  // …and the consequence, end-to-end: same rows array, same filter id, only the
+  // conjunction flipped. Sharing one entry serves the AND result for the OR filter.
+  it('does not serve an AND result for the OR variant of the same compound filter', () => {
+    const ownRows = [...rows];
+    const dataSources = makeDataSources(ownRows);
+    const base = {
+      field: 'amount',
+      operator: 'greater_than' as const,
+      value: 100,
+      operator2: 'less_than' as const,
+      value2: 300,
+    };
+
+    const andResult = resolveRowsCached(
+      ownRows,
+      'orders',
+      [makeFilter({ ...base, conjunction: 'and' })],
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+    // 100 < amount < 300 → only the 200 row.
+    expect(andResult.map((r) => r.id)).toEqual(['2']);
+
+    const orResult = resolveRowsCached(
+      ownRows,
+      'orders',
+      [makeFilter({ ...base, conjunction: 'or' })],
+      dataSources,
+      relationships,
+      expressionFields,
+    );
+    // amount > 100 OR amount < 300 → every row. Without `conjunction` in the key this
+    // returned the cached AND result (`['2']`).
+    expect(orResult.map((r) => r.id)).toEqual(['1', '2', '3']);
+  });
+
+  it('distinguishes two rank filters that differ only in `rankMultiSeriesBy`', () => {
+    const bySum = makeFilter({
+      field: 'region',
+      filterMode: 'rank',
+      operator: 'equals',
+      value: 3,
+      rankDirection: 'top',
+      rankByField: 'amount',
+      rankMultiSeriesBy: '__sum',
+    });
+    const byMax = makeFilter({
+      ...bySum,
+      rankMultiSeriesBy: '__max',
+    } as Partial<StudioFilterState>);
+    const bySeries = makeFilter({
+      ...bySum,
+      rankMultiSeriesBy: 'revenue2024',
+    } as Partial<StudioFilterState>);
+
+    // `rankMultiSeriesBy` decides how a multi-series label is SCORED (sum vs max vs one
+    // named series), so "top 3 by summed series" and "top 3 by max series" generally
+    // select different labels.
+    expect(filterFingerprint(bySum)).not.toBe(filterFingerprint(byMax));
+    expect(filterFingerprint(bySum)).not.toBe(filterFingerprint(bySeries));
+    expect(filterFingerprint(byMax)).not.toBe(filterFingerprint(bySeries));
+    // An unset value must not collide with an explicitly-set one either.
+    expect(filterFingerprint(makeFilter({ ...bySum, rankMultiSeriesBy: undefined }))).not.toBe(
+      filterFingerprint(bySum),
+    );
+  });
+
+  it('distinguishes two filters that differ only in `filterSourceId`', () => {
+    const own = makeFilter({ field: 'region', operator: 'equals', value: 'EU' });
+    const fromCustomers = makeFilter({ ...own, filterSourceId: 'customers' } as Partial<
+      Omit<StudioFilterState, 'filterSourceId'>
+    >);
+    const fromSuppliers = makeFilter({ ...own, filterSourceId: 'suppliers' } as Partial<
+      Omit<StudioFilterState, 'filterSourceId'>
+    >);
+
+    // `filterSourceId` selects which source the field is resolved against (and therefore
+    // which join path is walked), so a `region` filter against `customers` and one against
+    // `suppliers` select entirely different order rows despite identical field/operator/value.
+    expect(filterFingerprint(own)).not.toBe(filterFingerprint(fromCustomers));
+    expect(filterFingerprint(fromCustomers)).not.toBe(filterFingerprint(fromSuppliers));
+  });
 });
 
 // ─── filterFingerprint — sub-day relative units (H3) ──────────────────────────

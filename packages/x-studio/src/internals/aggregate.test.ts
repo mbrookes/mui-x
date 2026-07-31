@@ -65,6 +65,23 @@ describe('aggregateNumbers', () => {
     expect(aggregateNumbers([1, 1, 2], 'count_distinct')).toBe(2);
   });
 
+  // `count_non_null` shares the `count` branch on purpose: `values` reaching this reducer is
+  // already the coerced, null-skipped list, so "count of elements" and "count of non-null
+  // elements" are the same number here (the true `COUNT(*)` including null rows is computed
+  // upstream from the RAW cells by `aggregateCellValues`/`computeAggregate`). Every other
+  // caller of this exported function reaches it directly, so without this the fn would fall
+  // through to the `default:` sum branch and return the TOTAL of the values instead of how
+  // many there are — a silently wrong KPI/aggregation number rather than a crash.
+  it('treats count_non_null exactly like count over an already-null-skipped list', () => {
+    expect(aggregateNumbers([1, 1, 2], 'count_non_null')).toBe(3);
+    // Not the sum (4) and not the distinct count (2).
+    expect(aggregateNumbers([1, 1, 2], 'count_non_null')).toBe(
+      aggregateNumbers([1, 1, 2], 'count'),
+    );
+    // …and an empty set counts 0, not `null` (the empty-set policy for avg/min/max).
+    expect(aggregateNumbers([], 'count_non_null')).toBe(0);
+  });
+
   // Regression (H4). `avg`/`min`/`max` used to return 0 for an empty set, which invents a
   // data point ("Oslo, 0 °C") and disagreed with both siblings that reduce the same input:
   // `finalizeAccumulator` below and `gridGrouping.ts`'s `aggregateValues` (see its
@@ -415,5 +432,51 @@ describe('resolveMeasureAggregate', () => {
       expression: { id: 'revenue', aggregation: 'sum' },
     };
     expect(resolveMeasureAggregate([{ revenue: 0 }], 'zero', [zeroSum])).toBe(0);
+  });
+
+  // The documented "or a non-finite result" clause. `evaluateMeasure` only nulls out an
+  // EXACT divide/modulo-by-zero, so a denominator that is merely tiny (or an overflowing
+  // product) escapes it as ±Infinity. Letting that through is not a cosmetic difference:
+  // `Infinity` is a number, so it survives every downstream `typeof v === 'number'` /
+  // null-check, wins any Top-N and any descending value sort against every real datum, and
+  // renders as a bar/point of unbounded extent that collapses the axis scale for the whole
+  // chart. `null` ("not measured") is the only honest answer.
+  it('returns null for a non-finite measure result (overflow / denormal denominator)', () => {
+    const ratio: StudioExpressionField = {
+      id: 'ratio',
+      label: 'a / b',
+      sourceId: 'src',
+      isMeasure: true,
+      expression: {
+        operator: 'divide',
+        inputs: [
+          { id: 'a', aggregation: 'sum' },
+          { id: 'b', aggregation: 'sum' },
+        ],
+      },
+    };
+    // `sum(b)` is denormal, not exactly 0 — so `evaluateMeasure`'s divide-by-zero guard
+    // does NOT fire and the raw quotient is `Infinity`.
+    const denormalRows = [{ a: 1, b: Number.MIN_VALUE }];
+    expect(resolveMeasureAggregate(denormalRows, 'ratio', [ratio])).toBe(null);
+
+    const product: StudioExpressionField = {
+      id: 'product',
+      label: 'a * a',
+      sourceId: 'src',
+      isMeasure: true,
+      expression: {
+        operator: 'multiply',
+        inputs: [
+          { id: 'a', aggregation: 'sum' },
+          { id: 'a', aggregation: 'sum' },
+        ],
+      },
+    };
+    // 1e200 * 1e200 overflows the double range → `Infinity`.
+    expect(resolveMeasureAggregate([{ a: 1e200 }], 'product', [product])).toBe(null);
+
+    // Negative overflow is nulled too, so a `-Infinity` can never lead a bottom-N.
+    expect(resolveMeasureAggregate([{ a: 1, b: -Number.MIN_VALUE }], 'ratio', [ratio])).toBe(null);
   });
 });

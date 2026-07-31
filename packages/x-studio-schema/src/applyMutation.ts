@@ -999,8 +999,14 @@ export function normalizePersistedPages(
     if (page.widgetColSpans && spansWereRecord) {
       const rebuilt: Record<string, number> = {};
       for (const key of Object.keys(page.widgetColSpans)) {
-        // Drop prototype-polluting keys and spans orphaned by the row filter/dedupe
-        // above; clamp survivors into range (guards a hand-corrupted `3` or `40`).
+        // Drop prototype-polluting keys — load-bearing, since `rebuilt[key] = …` is a bare
+        // bracket assignment on an untrusted persisted key — and clamp survivors into range
+        // (guards a hand-corrupted `3` or `40`).
+        //
+        // The `present.has(key)` half is REDUNDANT: `enforceLayoutColSpans` on the next line
+        // drops every span whose id is absent from the rows, so an orphan filtered here would
+        // have been dropped there anyway. It is kept so this loop never allocates an entry it
+        // is about to discard, and so the invariant reads at the site that builds the record.
         if (isSafePatchKey(key) && present.has(key)) {
           rebuilt[key] = clampSpan(page.widgetColSpans[key]);
         }
@@ -2180,6 +2186,9 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // on e.g. a `dashboard-date-range` scope is wire-valid (the wire boundary never
       // restricts `filterMode` to a scope kind) but is not a rank window over a page, so it
       // is neither gated here nor counted as a conflict by `hasConflictingRankFilter`.
+      // The scope clause is therefore REDUNDANT with that callee (which returns false for an
+      // unresolvable target) rather than load-bearing — it is kept, like the mirroring clause
+      // in `dedupeRankFilters`, as a local statement of the eligibility rule.
       //
       // This gate resolves the incoming filter's page context ONCE, at add time. A
       // `widget`-scoped filter whose widget is unplaced has no page context yet and is

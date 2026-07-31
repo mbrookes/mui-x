@@ -55,9 +55,14 @@ export function buildRankFilterWidgetPageIndex(
 ): RankFilterWidgetPageIndex {
   const index = new Map<string, string>();
   for (const page of Object.values(pages)) {
-    // A null/undefined page value is dropped by `screenPagesShape` / `normalizePersistedPages`
-    // before any caller gets here; skipping rather than dereferencing keeps this builder from
-    // becoming the one place a malformed override could still throw.
+    // Every IN-PACKAGE caller is already immune — `screenPagesShape` (factory) and
+    // `normalizePersistedPages` (load) both drop a null page value before this runs. The
+    // guard is for the caller they do not cover: this function is exported from the package
+    // index and `@mui/x-studio`'s `StudioFiltersDrawer` calls it directly with `pages` read
+    // straight off the store, which a host's `initialState` populates. So a null page
+    // reaching here is a live path, not dead defense, and skipping rather than dereferencing
+    // keeps this builder from being the one place a malformed override still throws. Pinned
+    // by `rankFilterScope.test.ts`.
     if (!page) {
       continue;
     }
@@ -210,10 +215,16 @@ export function dedupeRankFilters(
   const widgetPageIndex = buildRankFilterWidgetPageIndex(pages);
   for (const filter of filters) {
     // Only `page`/`widget` scopes are rank-eligible; every other scope kind is left alone
-    // (matching `addFilter`'s gate and `hasConflictingRankFilter`'s own exclusion). A
-    // `filterMode: 'rank'` filter on a `dashboard-date-range` scope resolves to the
-    // UNRESOLVABLE sentinel, so without this gate whether it survived would depend on array
-    // order relative to a legitimate rank filter instead of it being consistently left alone.
+    // (matching `addFilter`'s gate and `hasConflictingRankFilter`'s own exclusion).
+    //
+    // This clause is REDUNDANT, not load-bearing: a `filterMode: 'rank'` filter on e.g. a
+    // `dashboard-date-range` scope resolves to the UNRESOLVABLE sentinel, and
+    // `hasConflictingRankFilter` returns false for an unresolvable target, so such a filter
+    // is consistently kept with or without it — including when it is reordered relative to a
+    // legitimate rank filter. (An earlier version of this comment claimed the outcome would
+    // otherwise depend on array order; it does not.) It is kept as a cheap, local statement
+    // of the eligibility rule at the site that depends on it, so a future change to the
+    // sentinel's meaning cannot silently start sweeping non-rank-eligible scopes.
     if (
       filter.filterMode === 'rank' &&
       (filter.scope.kind === 'page' || filter.scope.kind === 'widget') &&

@@ -92,6 +92,23 @@ describe('buildRankFilterWidgetPageIndex', () => {
     );
   });
 
+  // The `if (!page) continue` guard is unreachable from every IN-package caller (the
+  // factory's `screenPagesShape` and the load boundary's `normalizePersistedPages` both
+  // drop null pages first), but this function is exported from the package index and
+  // `@mui/x-studio`'s `StudioFiltersDrawer` calls it with `pages` read straight off the
+  // store — which a host's `initialState` populates. That is the path the guard is for.
+  it('skips a null page value instead of dereferencing it', () => {
+    const pages = {
+      'page-1': null,
+      'page-2': { id: 'page-2', title: 'B', widgetRows: [['w1']] },
+    } as unknown as StudioDoc['pages'];
+    let index!: ReturnType<typeof buildRankFilterWidgetPageIndex>;
+    expect(() => {
+      index = buildRankFilterWidgetPageIndex(pages);
+    }).not.toThrow();
+    expect(index.get('w1')).toBe('page-2');
+  });
+
   it('tolerates a page with no widgetRows', () => {
     const pages = {
       'page-1': { id: 'page-1', title: 'A' },

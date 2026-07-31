@@ -46,8 +46,14 @@ import { MAX_ARRAY_LENGTH, MAX_STRING_LENGTH } from './wireLimits';
  * which callers may legitimately use to avoid prototype pollution entirely) is a strict
  * tightening: every object literal and every `JSON.parse` output (the wire/persistence
  * boundaries' actual input shape) already has `Object.prototype` as its prototype, so
- * this changes no behavior for the values this predicate was ever meant to accept —
- * arrays were already excluded above via `!Array.isArray`.
+ * this changes no behavior for the values this predicate was ever meant to accept.
+ *
+ * `!Array.isArray(value)` is REDUNDANT for every value that can reach a trust boundary:
+ * an array's prototype is `Array.prototype`, so the prototype clause below already rejects
+ * it, and removing the array clause fails no test in this package. It is kept as a cheap,
+ * self-documenting early-out for the commonest non-record input, and because it still
+ * covers the one case the prototype clause does not — an array whose prototype has been
+ * re-pointed at `Object.prototype`.
  */
 export function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return (

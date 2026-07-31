@@ -3198,3 +3198,145 @@ describe('createBatchingAdapter — cross-source filter fan-out', () => {
     });
   });
 });
+
+// ── prototype-chain-safe `columnAliases` reads ───────────────────────────────
+
+describe('createBatchingAdapter — field ids that name Object.prototype members', () => {
+  /**
+   * `columnAliases` is a plain `{}`, so `columnAliases[fieldId]` walks the prototype chain: a
+   * doc-authored field id of `constructor`, `toString`, `valueOf` or `hasOwnProperty` resolves
+   * an inherited FUNCTION, which is truthy — so neither `?.` nor `?? fallback` catches it and
+   * the function flows into the emitted descriptor. `JSON.stringify` then drops it silently
+   * (functions are not JSON), which is what makes this invisible rather than loud.
+   *
+   * Field ids are strings the user types into the data-source config (and that the AI's
+   * `add_expression_field` tool writes), so these are ordinary values, not attacks; the reads
+   * go through `utils/safeLookup`'s `lookup` for exactly that reason.
+   */
+  function makeProtoFieldHarness(fetchFn: ReturnType<typeof makeOkFetch>) {
+    const endpoint = uid();
+    const sharedAdapter = createBatchingAdapter(endpoint, {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+    const dataSources: Record<string, StudioDataSource> = {
+      'source-orders': {
+        id: 'source-orders',
+        label: 'Orders',
+        tableName: 'orders',
+        fields: [
+          field('id', 'number'),
+          field('customerId', 'number'),
+          // Every id here names an `Object.prototype` member.
+          field('constructor'),
+          field('toString'),
+        ],
+        adapter: sharedAdapter,
+      },
+      'source-customers': {
+        id: 'source-customers',
+        label: 'Customers',
+        tableName: 'customers',
+        fields: [field('id', 'number')],
+        adapter: sharedAdapter,
+      },
+    };
+    // Relationship-aware mode: `columnAliases` only exists on this path.
+    const relationships: StudioRelationship[] = [
+      {
+        id: 'rel-orders-customers',
+        type: 'many-to-one',
+        sourceId: 'source-orders',
+        sourceField: 'customerId',
+        targetId: 'source-customers',
+        targetField: 'id',
+      },
+    ];
+    return createBatchingAdapter(endpoint, {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+      dataSources,
+      relationships,
+    });
+  }
+
+  it('emits a WHERE predicate that still has a column for a field id of "constructor"', async () => {
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = makeProtoFieldHarness(fetchFn);
+
+    await adapter.getRows(
+      makeDescriptor({
+        sourceId: 'source-orders',
+        tableName: 'orders',
+        widgetId: 'w1',
+        select: ['id'],
+        filter: {
+          type: 'leaf',
+          field: 'constructor',
+          op: 'equals',
+          value: 'shipped',
+          fieldType: 'string',
+        },
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ filters?: Array<Record<string, unknown>> }>;
+    };
+    // With a bare `columnAliases[r.column] ?? r.column`, `physicalColumn` is the inherited
+    // `Object` constructor and `JSON.stringify` omits the key outright — the server receives
+    // `{"operator":"eq","value":"shipped"}`, a predicate with NO column, and the widget's
+    // filter is either rejected or silently ignored.
+    expect(body.widgets[0].filters).toEqual([
+      { column: 'constructor', operator: 'eq', value: 'shipped' },
+    ]);
+  });
+
+  it('keeps the ORDER BY column for a groupBy field id of "toString"', async () => {
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = makeProtoFieldHarness(fetchFn);
+
+    await adapter.getRows(
+      makeDescriptor({
+        sourceId: 'source-orders',
+        tableName: 'orders',
+        widgetId: 'w1',
+        select: ['toString', 'id'],
+        groupBy: 'toString',
+        aggregations: [{ field: 'id', fn: 'sum', alias: 'id' }],
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ orderBy?: Array<Record<string, unknown>> }>;
+    };
+    // Same read, same failure mode: an `ORDER BY` entry that serializes to `{"direction":"asc"}`.
+    expect(body.widgets[0].orderBy).toEqual([{ column: 'toString', direction: 'asc' }]);
+  });
+
+  it('does not treat an unaliased field id as an alias needing a charset check', async () => {
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = makeProtoFieldHarness(fetchFn);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await adapter.getRows(
+      makeDescriptor({
+        sourceId: 'source-orders',
+        tableName: 'orders',
+        widgetId: 'w1',
+        select: ['constructor', 'id'],
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ columns?: string[]; columnAliases?: unknown }>;
+    };
+    // `constructor` has no alias entry at all, so the output-alias charset guard must not
+    // consider it one. (Inert with the bare read too — every `Object.prototype` member happens
+    // to pass `SAFE_WIRE_ALIAS` — which is exactly why this read needed converting BEFORE some
+    // future id, or a tighter charset, made it not inert.)
+    expect(body.widgets[0].columns).toEqual(['constructor', 'id']);
+    expect(body.widgets[0].columnAliases).toBeUndefined();
+    warnSpy.mockRestore();
+  });
+});

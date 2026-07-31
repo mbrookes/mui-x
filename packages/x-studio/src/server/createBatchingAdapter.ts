@@ -44,6 +44,7 @@ import {
   resolveRelativeDate,
 } from '../internals/filterUtils';
 import { normalizeJoinKey } from '../internals/joinKeys';
+import { lookup } from '../utils/safeLookup';
 import {
   aggregationPushdownWarning,
   decideAggregationPushdown,
@@ -1777,7 +1778,15 @@ function buildBatchWidgetDescriptor(
 
   // ── Relationship-aware mode ────────────────────────────────────────────────
   const joinsMap = new Map<string, JoinDescriptorInternal>();
-  // Maps logical field ID → physical SQL column (for expression fields)
+  // Maps logical field ID → physical SQL column (for expression fields).
+  //
+  // Read ONLY through `lookup` (`utils/safeLookup`), never `columnAliases[id]`. The keys are
+  // doc-authored field ids, and this is a plain object literal, so a bare bracket read on an
+  // id that names an `Object.prototype` member — `constructor`, `toString`, `valueOf`,
+  // `hasOwnProperty` — resolves an inherited FUNCTION. Neither `?.` nor `?? fallback` fires
+  // for it, so the function flows on: `{ ...pred, column: <the Object constructor> }` is a
+  // predicate whose `column` `JSON.stringify` then OMITS entirely (functions are not JSON),
+  // shipping a filter with no column at all to the server.
   const columnAliases: Record<string, string> = {};
   // Cross-endpoint enrichments collected while resolving fields
   const enrichments: CrossEndpointEnrichment[] = [];
@@ -1853,7 +1862,7 @@ function buildBatchWidgetDescriptor(
     // just this column. Drop the column instead, so the rest of the widget still renders.
     // A filter on the same field is unaffected: it references the PHYSICAL column, and the
     // `columnAliases` entry that resolves it is never itself checked.
-    if (columnAliases[r.column] !== undefined && !SAFE_WIRE_ALIAS.test(r.column)) {
+    if (lookup(columnAliases, r.column) !== undefined && !SAFE_WIRE_ALIAS.test(r.column)) {
       warnAdapterDivergence(
         warnDedupe,
         `The calculated field "${r.column}" for source "${d.sourceId}" has an id containing ` +
@@ -2002,7 +2011,7 @@ function buildBatchWidgetDescriptor(
     }
     // columnAliases maps logical ID → physical column (e.g. 'expr-order-country' → 'customers.country').
     // WHERE clauses must reference the physical column; the alias is only used in SELECT.
-    const physicalColumn = columnAliases[r.column] ?? r.column;
+    const physicalColumn = lookup(columnAliases, r.column) ?? r.column;
     return [{ ...pred, column: physicalColumn }];
   });
 
@@ -2051,7 +2060,7 @@ function buildBatchWidgetDescriptor(
         orderByColumn && !orderByColumn.skip && !orderByColumn.unresolved
           ? [
               {
-                column: columnAliases[orderByColumn.column] ?? orderByColumn.column,
+                column: lookup(columnAliases, orderByColumn.column) ?? orderByColumn.column,
                 direction: 'asc' as const,
               },
             ]

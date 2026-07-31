@@ -580,6 +580,13 @@ export function applyFilterPreset(doc: StudioDoc, presetId: string): StudioDoc {
  * is left as `undefined` (never manufactured into an empty array), and an unknown
  * `presetId` is a no-op. Only a real removal produces a new doc. This keeps a
  * logical no-op reference-equal so `commitDocPatch` skips it (no phantom undo entry).
+ *
+ * The "never manufactured into an empty array" clause describes a FACTORY-built doc (R6 F7).
+ * A doc that came through `deserializeState` already carries `filterPresets: []` — the load
+ * boundary's `screenFilterPresets` normalizes an absent value to the empty array — so for a
+ * loaded doc the clause is vacuous rather than false: the `!presets` bail simply never fires,
+ * and the unknown-`presetId` path returns the original `doc` reference anyway. No behaviour
+ * differs; see `screenFilterPresets` for why the asymmetry is documented rather than aligned.
  */
 export function deleteFilterPreset(doc: StudioDoc, presetId: string): StudioDoc {
   const presets = doc.filterPresets;
@@ -596,6 +603,9 @@ export function deleteFilterPreset(doc: StudioDoc, presetId: string): StudioDoc 
  * (never manufactured into an empty array), and an unknown `presetId` is a no-op via
  * `mapPreservingIdentity`. Only a real rename produces a new doc — so a logical no-op
  * stays reference-equal and `commitDocPatch` skips it (no phantom undo entry).
+ *
+ * As in `deleteFilterPreset`, the "never manufactured into an empty array" clause describes a
+ * FACTORY-built doc; a loaded one already carries `[]` (R6 F7). No behaviour differs.
  */
 export function renameFilterPreset(doc: StudioDoc, presetId: string, name: string): StudioDoc {
   const presets = doc.filterPresets;

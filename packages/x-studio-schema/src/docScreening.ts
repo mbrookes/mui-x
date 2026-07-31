@@ -401,6 +401,19 @@ const safePresetName = (name: unknown): string =>
  * (`docTransforms`' `renameFilterPreset` does `{ ...p, name }`) — but an own `"__proto__"`
  * DATA key round-trips through every autosave forever and poisons the first `Object.assign`
  * of a preset anyone writes. Drop the whole preset, matching the sibling entry screens.
+ *
+ * ABSENT NORMALIZES TO `[]`, NOT `undefined` — deliberately, and asymmetrically with the
+ * factory and the reducer, which both leave `filterPresets` absent until a preset is saved
+ * (R6 F7). `deserializeState` calls this unconditionally (`filterPresets:
+ * screenFilterPresets(raw.filterPresets)`), and `serializeDoc` omits the field again when
+ * empty, so the asymmetry is confined to an IN-MEMORY loaded doc and never reaches disk. The
+ * observable consequence is only that `@mui/x-studio`'s `docTransforms.deleteFilterPreset` /
+ * `renameFilterPreset` say a doc with no presets "is left as `undefined` (never manufactured
+ * into an empty array)" — true for a factory doc, and vacuous for a loaded one, which already
+ * carries `[]` before either function runs. Both still return the original `doc` reference in
+ * that case, so no behaviour differs; documented here rather than aligned because
+ * `statePersistence.test.ts` pins the `[]` normalization as the intended loaded shape and
+ * changing it would be a persisted-shape change for no gain.
  */
 export const screenFilterPresets = (value: unknown): StudioDoc['filterPresets'] => {
   if (!Array.isArray(value)) {

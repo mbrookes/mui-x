@@ -109,6 +109,20 @@ export { createDefaultWidget } from './widgetFactory';
 // Re-exported for consumers who want to build custom loops
 export { runAgenticLoop } from './agenticLoop';
 export type { AgenticLoopOptions } from './agenticLoop';
+// The conversation serialiser: `ChatMessage[]` (what the client POSTs — and what
+// `x-chat-headless` built from the PREVIOUS stream) → the OpenAI chat-completions
+// messages a turn replays. A custom loop has to rebuild this exact turn structure or
+// its replayed history diverges from the bytes the earlier turns were actually sent
+// as, and it is the one function that can answer "given the message the client
+// streamed, what will the next request say?". Exported for the same reason as
+// `validateStudioAIRequestBody` and `consultToolPolicyArgsOnly`: the documented
+// custom-loop path otherwise needs a forbidden deep import.
+export { toOpenAIMessages } from './agenticLoop/openaiWire';
+export type {
+  OpenAIMessage,
+  OpenAIAssistantMessage,
+  OpenAIToolResultMessage,
+} from './agenticLoop/openaiWire';
 // The `approvalPending` map's value type — a resolver bound to the AI chat thread
 // (when known) it was raised under. See `StudioAIHandlerOptions.approvalPending`.
 export type { PendingApproval } from './agenticLoop/toolDispatch';

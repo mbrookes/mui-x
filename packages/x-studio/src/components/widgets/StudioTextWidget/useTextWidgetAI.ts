@@ -173,13 +173,17 @@ export function useTextWidgetAI(
   const { aiConfig } = useStudioUIConfig();
   const localeText = useStudioLocaleText();
   const controller = useStudioController();
-  // Private mode: this headless widget must genuinely NOT send real row values or
-  // dashboard structure to the LLM provider — mirroring `studioBackendAdapter.ts`'s
-  // schema-only stance (which gates `pageSnapshot`/`dashboardState`/`richContext`
-  // behind the same flag) rather than relying on the server honouring `privateMode`.
-  // When on, `buildPageSnapshot` (sampled sibling-widget row values) is never built
-  // and the full serialized `dashboardState` is never sent; only the prompt goes out,
-  // with `privateMode` forwarded so the server can additionally refuse to comply.
+  // Private mode: this headless widget must genuinely NOT send real row values to the
+  // LLM provider — mirroring `studioBackendAdapter.ts`, which gates the same payloads
+  // behind the same flag. When on, `buildPageSnapshot` (sampled sibling-widget row
+  // values) is never built, and `privateMode` is forwarded so the server withholds the
+  // `<dashboard_state>` block from the prompt and withdraws every state-reading tool.
+  //
+  // `dashboardState` is NOT gated (it was, and that made every private-mode request
+  // fail): this hits the SAME `/chat` endpoint as the chat panel, whose
+  // `validateStudioAIRequestBody` hard-requires `dashboardState.doc`. See the
+  // `privateMode` doc on `StudioAIConfig` for where the provider-facing boundary
+  // actually sits.
   const privateMode = aiConfig?.privateMode === true;
   // M15: the generation effect below must depend on the VALUES it uses, never on the
   // `aiConfig` object. `aiConfig` comes straight from the public `<Studio aiConfig={…}>`
@@ -307,9 +311,10 @@ export function useTextWidgetAI(
     (async () => {
       try {
         const state = controller.getState();
-        // Gated behind `!privateMode` so no widget configs, field names, layout, or
-        // serialized dashboard structure leave the client in private mode.
-        const serializableState = privateMode ? undefined : serializeDashboardState(state);
+        // Always sent (see the `privateMode` note above): the server requires
+        // `dashboardState.doc` to resolve the active page, and withholds it from the
+        // prompt itself when `privateMode` is set.
+        const serializableState = serializeDashboardState(state);
 
         const response = await fetch(chatUrl, {
           method: 'POST',

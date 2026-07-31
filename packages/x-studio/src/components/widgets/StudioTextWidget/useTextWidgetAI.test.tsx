@@ -837,13 +837,16 @@ describe('useTextWidgetAI', () => {
     });
   });
 
-  // ─── privateMode: no row values / dashboard state leak (regression: 1.1) ────
+  // ─── privateMode: no row values leak (regression: 1.1) ─────────────────────
   //
-  // With `aiConfig.privateMode` on, this headless widget must not POST the full
-  // serialized `dashboardState` (widget configs, field names, layout) nor the
-  // `pageSnapshot` (sampled sibling-widget row values) to `/chat`, and must
-  // forward `privateMode` so the server can also refuse to comply — mirroring
-  // `studioBackendAdapter.ts`'s schema-only stance.
+  // With `aiConfig.privateMode` on, this headless widget must not POST the
+  // `pageSnapshot` (sampled sibling-widget row values) to `/chat`, and must forward
+  // `privateMode` so the server withholds the state from the prompt and withdraws
+  // every state-reading tool — mirroring `studioBackendAdapter.ts`.
+  //
+  // `dashboardState` IS still sent: this hits the same `/chat` endpoint as the chat
+  // panel, whose `validateStudioAIRequestBody` hard-requires `dashboardState.doc`, so
+  // omitting it made every private-mode generation fail before the first LLM call.
   describe('privateMode', () => {
     function setupWithAiConfig(
       initialState: CreateDefaultStudioStateOverrides,
@@ -917,7 +920,7 @@ describe('useTextWidgetAI', () => {
       expect(String(fetchMock.mock.calls[0][1].body)).toContain('12345');
     });
 
-    it('omits dashboardState and pageSnapshot and forwards privateMode when on', async () => {
+    it('omits pageSnapshot, still sends dashboardState, and forwards privateMode when on', async () => {
       const fetchMock = vi
         .fn()
         .mockResolvedValue(
@@ -941,11 +944,10 @@ describe('useTextWidgetAI', () => {
         pageSnapshot?: string;
       };
       expect(body.privateMode).toBe(true);
-      expect(body.dashboardState).toBeUndefined();
+      expect(body.dashboardState).toBeDefined();
       expect(body.pageSnapshot).toBeUndefined();
-      // No sibling row value nor field name leaks into the payload.
+      // No sibling row value leaks into the payload.
       expect(rawBody).not.toContain('12345');
-      expect(rawBody).not.toContain('Sales grid');
     });
   });
 });

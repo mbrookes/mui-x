@@ -1078,7 +1078,10 @@ export function validateStudioAIRequestBody(body: unknown): string | undefined {
       'MUI X Studio: The request body is missing `dashboardState.doc` (`StudioAIRequest.dashboardState`). ' +
       'This prevents the agentic loop from resolving the active page and building the system ' +
       "prompt's dashboard-state context. Ensure the client sends the full `StudioState` snapshot " +
-      '(as returned by `serializeState`/`createDefaultStudioState`) under `dashboardState`.'
+      '(as returned by `serializeState`/`createDefaultStudioState`) under `dashboardState` — ' +
+      '`privateMode` does NOT exempt it: private mode changes what this handler does with the ' +
+      'state (never placed in the prompt, never readable back through a tool), not whether the ' +
+      'client sends it.'
     );
   }
   const { doc } = dashboardState;

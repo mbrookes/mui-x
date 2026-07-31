@@ -976,7 +976,10 @@ describe('createBackendChatAdapter: mutation ledger', () => {
     // the ledger deliberately ignores no-op mutations.
     let doc: object = { dashboard: { title: 'Before' } };
     const controller = {
-      getState: () => ({ doc }) as any,
+      // `runtime`/`session` are present because the adapter always serializes state
+      // for the request body now (see the `privateMode` note above) — the ledger
+      // assertions below are about `doc` alone.
+      getState: () => ({ doc, session: {}, runtime: { dataSources: {} } }) as any,
       applyExternalMutation: vi.fn(() => {
         doc = { dashboard: { title: 'Updated' } };
       }),
@@ -1025,7 +1028,10 @@ describe('createBackendChatAdapter: mutation ledger', () => {
 
     const doc = { dashboard: { title: 'Same' } };
     const controller = {
-      getState: () => ({ doc }) as any,
+      // `runtime`/`session` are present because the adapter always serializes state
+      // for the request body now (see the `privateMode` note above) — the ledger
+      // assertions below are about `doc` alone.
+      getState: () => ({ doc, session: {}, runtime: { dataSources: {} } }) as any,
       applyExternalMutation: vi.fn(), // reducer no-op: same doc reference back
       getRecentMutations: () => [],
       setState: vi.fn(),
@@ -1371,7 +1377,15 @@ describe('createBackendChatAdapter: privateMode', () => {
     vi.unstubAllGlobals();
   });
 
-  it('omits pageSnapshot, dashboardState, and richContext and forwards privateMode:true when on', async () => {
+  // `dashboardState` is deliberately NOT omitted here. The endpoint's own validator
+  // (`validateStudioAIRequestBody`) hard-requires `dashboardState.doc`, so omitting it
+  // made EVERY private-mode request fail before the first LLM call — a defect invisible
+  // to this file, which only ever inspects the request body (see
+  // `aiMiddlewareSeam.test.ts`, which drives both sides of that wire). What private mode
+  // withholds client-side is the DATA: `pageSnapshot`'s sampled row values and
+  // `richContext`'s per-field statistics. The dashboard structure is withheld from the
+  // PROMPT by the server instead, which is where the provider-facing promise lives.
+  it('omits pageSnapshot and richContext, still sends dashboardState, and forwards privateMode:true when on', async () => {
     const { fetchMock } = captureRequestBody();
 
     const config: StudioAIConfig = { endpoint: 'https://fake.test/api/ai', privateMode: true };
@@ -1390,11 +1404,10 @@ describe('createBackendChatAdapter: privateMode', () => {
 
     expect(body.privateMode).toBe(true);
     expect(body.pageSnapshot).toBeUndefined();
-    expect(body.dashboardState).toBeUndefined();
+    expect(body.dashboardState).toBeDefined();
     expect(body.richContext).toBeUndefined();
-    // Neither the real row value nor a widget/field name leaks into the payload.
+    // The real sibling-widget row value never leaves the client in private mode.
     expect(rawBody).not.toContain('12345');
-    expect(rawBody).not.toContain('Sales grid');
 
     vi.unstubAllGlobals();
   });

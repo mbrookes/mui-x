@@ -73,6 +73,22 @@ export interface StudioAIConfig {
    *
    * Use this when your dashboard displays sensitive business data and you want
    * to prevent it from being included in LLM API calls.
+   *
+   * **What is and isn't sent, and to whom.** This is a guarantee about the LLM
+   * PROVIDER, not about your own backend. The `endpoint` below is an
+   * `x-studio-ai-middleware` server that you deploy — it holds the API key, builds
+   * the prompt and executes tool calls — and it already receives the entire
+   * conversation. It therefore still receives `dashboardState`, which it needs to
+   * execute any state-editing tool at all, and enforces private mode where it
+   * actually matters: the `<dashboard_state>` block is withheld from the system
+   * prompt, every state-reading tool (`get_dashboard_state`, `list_pages`,
+   * `summarise_page`, `query_data_source`) is withdrawn from the advertised tool
+   * set so nothing can round-trip that state back to the provider, and the write
+   * tools that stay advertised phrase their rejections without disclosing state.
+   *
+   * What the client withholds outright is the data itself: `pageSnapshot` (sampled
+   * row values) and `richContext` (per-field statistics) are never built and never
+   * sent anywhere in private mode.
    * @default false
    */
   privateMode?: boolean;
@@ -280,15 +296,28 @@ export function createBackendChatAdapter(
 
       const state = controller.getState();
 
-      // Private mode: the client must genuinely NOT send real row values, widget
-      // configurations, field names, or layout data (as the `privateMode` doc above
-      // promises) — not merely rely on the server-side middleware honouring the flag.
-      // So `pageSnapshot` (sampled row values), `dashboardState` (full serialized
-      // state), and `richContext` (field stats) are ALL gated behind the same check.
-      // In private mode the server builds a schema-only prompt and never reads these.
+      // Private mode: the client withholds the two payloads that carry actual DATA —
+      // `pageSnapshot` (sampled row values) and `richContext` (per-field statistics) —
+      // so they are never built and never leave the browser at all.
+      //
+      // `dashboardState` is deliberately NOT gated here. Gating it made private mode
+      // 100% inoperative: `validateStudioAIRequestBody` hard-requires
+      // `dashboardState.doc` (it is what resolves the active page and seeds the state
+      // the tools mutate), so every private-mode request died in validation with zero
+      // LLM calls — a defect neither package's unit suite could see, since they sit on
+      // opposite sides of the wire (see `aiMiddlewareSeam.test.ts`). Withholding it is
+      // also not what `privateMode` promises: the promise is provider-facing, and the
+      // endpoint is the host's OWN middleware, which already receives the full
+      // conversation and enforces private mode where it counts (state withheld from
+      // the prompt, every state-reading tool withdrawn). See the `privateMode` doc on
+      // `StudioAIConfig` for the full boundary.
       let pageSnapshot: string | undefined;
-      let serializableState: ReturnType<typeof serializeDashboardState> | undefined;
       let richContext: ReturnType<typeof buildRichContext> | undefined;
+
+      // Strip raw data rows and adapter instances before sending state to the server.
+      // The pageSnapshot (built below from live client-side pipeline rows) is the server's
+      // source of truth for data analysis via the summarise_page tool.
+      const serializableState = serializeDashboardState(state);
 
       if (!privateMode) {
         // Build a per-widget data snapshot from the active page so the server-side
@@ -310,11 +339,6 @@ export function createBackendChatAdapter(
           return [`### ${w.title} (${w.kind})\n${dataSummary}`];
         });
         pageSnapshot = pageSnapshotParts.length > 0 ? pageSnapshotParts.join('\n\n') : undefined;
-
-        // Strip raw data rows and adapter instances before sending state to the server.
-        // The pageSnapshot (built above from live client-side pipeline rows) is the server's
-        // source of truth for data analysis via the summarise_page tool.
-        serializableState = serializeDashboardState(state);
 
         // Richer, purely-additive context (field stats, layout + cross-filter graph,
         // recent mutations) to give the model more signal.

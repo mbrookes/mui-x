@@ -17,7 +17,15 @@ export type { StateMutation, MutationEnvelope, SerializableSkill } from './aiTyp
 export interface StudioAIRequest {
   /** Full conversation history, including previous assistant and tool messages. */
   messages: import('@mui/x-chat-headless').ChatMessage[];
-  /** Current dashboard state snapshot. */
+  /**
+   * Current dashboard state snapshot.
+   *
+   * Required, INCLUDING under {@link StudioAIRequest.privateMode}: it is what resolves
+   * the active page, seeds the state the tools mutate, and binds a pending approval to
+   * its chat thread. Private mode changes what the server DOES with it (never
+   * interpolated into the prompt, never readable back through a tool — see
+   * `privateMode` below), not whether the client sends it.
+   */
   dashboardState: StudioState;
   /** Custom widget definitions (for prompt context and tool defaults). */
   customWidgets?: StudioCustomWidgetDef[];
@@ -32,6 +40,16 @@ export interface StudioAIRequest {
    * The model receives schema information only — no widget configurations, field names,
    * or layout. Use this when the dashboard contains sensitive business data you don't
    * want sent to the LLM provider.
+   *
+   * The guarantee is PROVIDER-facing and enforced here, on the server: the state block
+   * is withheld from the prompt, every state-reading tool (`get_dashboard_state`,
+   * `list_pages`, `summarise_page`, `query_data_source`) is withdrawn so nothing can
+   * round-trip the state back to the provider, and the write tools that stay advertised
+   * phrase their rejections without disclosing state. It is NOT a request to omit
+   * {@link StudioAIRequest.dashboardState} from the request body — that field stays
+   * required, and a body without it is rejected in validation whatever `privateMode`
+   * says. What the client withholds instead is the DATA: `pageSnapshot` and
+   * `richContext` are absent in private mode.
    * @default false
    */
   privateMode?: boolean;

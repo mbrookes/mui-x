@@ -11,6 +11,7 @@ import type { ToolPolicy, ToolEffectSummary } from '../toolPolicy';
 import { safeIdentifier } from '../mcp/helpers';
 import {
   waitForApproval,
+  registerApproval,
   dispatchToolCall,
   buildApprovalDisplayInput,
   buildApprovalEffectsSummary,
@@ -1277,6 +1278,180 @@ describe('dispatchToolCall', () => {
       expect(execute).not.toHaveBeenCalled();
       expect(done.value).toEqual({ kind: 'aborted' });
     });
+
+    // The registration ORDER half of finding F6 is covered (the entry exists the instant
+    // the event is observable); its `finally { approval.release() }` half was not. The
+    // consumer this exists for is one that never resumes the generator — the SSE client
+    // disconnected, or the driver threw — leaving `approvalPending` (a HOST-SHARED,
+    // module-level map) holding a resolver nobody will ever call. Nothing else clears
+    // it: `settled.finally(release)` only fires if the promise settles, and it never
+    // does. That entry then poisons the duplicate-id guard for that id permanently.
+    it('releases the pending entry when the consumer abandons the generator between the yield and the await', async () => {
+      const execute = vi.fn(async () => ({ output: 'ran', nextState: INITIAL_STATE }));
+      const approvalPending = new Map<string, PendingApproval>();
+      const ctx = makeCtx({
+        advertisedToolNames: new Set(['approve_skill']),
+        skillHandlers: [makeApprovalSkill(execute)],
+        toolPolicy: approvalPolicy,
+        approvalPending,
+      });
+
+      const gen = dispatchToolCall(tc('approve_skill'), {}, false, INITIAL_STATE, ctx);
+      const first = await gen.next();
+      expect((first.value as { type: string }).type).toBe('tool-approval-request');
+      // Registered before the yield, per finding F6.
+      expect(approvalPending.has('call_1')).toBe(true);
+
+      // The consumer walks away without ever resuming.
+      await gen.return(undefined as never);
+
+      expect(approvalPending.size).toBe(0);
+      expect(execute).not.toHaveBeenCalled();
+
+      // ...and the observable consequence: a LATER request reusing the same provider id
+      // is registered normally instead of being refused by the duplicate-id guard.
+      const second = registerApproval('call_1', approvalPending, undefined, 1000, undefined);
+      const settled = second.wait();
+      approvalPending.get('call_1')!.resolve(true);
+      await expect(settled).resolves.toMatchObject({ kind: 'resolved', approved: true });
+      second.release();
+    });
+
+    // The mutation BUDGET counts committed mutations, and every existing case that
+    // exercises the counter goes down the plain `allow` path. The approved branch has
+    // its own `committedMutations += 1`, so dropping it stops the budget counting
+    // anything a human approved — precisely the calls most worth counting.
+    it('counts a human-approved mutation against the mutation budget', async () => {
+      const stateWithWidget = createDefaultStudioState({
+        doc: {
+          dashboard: { id: 'd', title: 'D', activePageId: 'p1' },
+          pages: { p1: { id: 'p1', title: 'P1', widgetRows: [['w1']] } },
+          widgets: {
+            w1: { id: 'w1', kind: 'chart', title: 'My Widget', config: { chartType: 'bar' } },
+          },
+        },
+      });
+      const approvalPending = new Map<string, PendingApproval>();
+      const usage = { committedMutations: 0, toolCalls: 0 };
+      const ctx = makeCtx({
+        advertisedToolNames: new Set(['remove_widget']),
+        toolPolicy: approvalPolicy,
+        approvalPending,
+        usage,
+      });
+
+      const gen = dispatchToolCall(
+        tc('remove_widget', JSON.stringify({ widgetId: 'w1' })),
+        { widgetId: 'w1' },
+        false,
+        stateWithWidget,
+        ctx,
+      );
+      await gen.next();
+      const pendingStep = gen.next();
+      await Promise.resolve();
+      approvalPending.get('call_1')!.resolve(true);
+
+      let step = await pendingStep;
+      const events: unknown[] = [];
+      while (!step.done) {
+        events.push(step.value);
+        // eslint-disable-next-line no-await-in-loop -- draining an async generator.
+        step = await gen.next();
+      }
+
+      expect(events).toContainEqual(expect.objectContaining({ type: 'state-mutation' }));
+      expect(usage.committedMutations).toBe(1);
+    });
+  });
+});
+
+// ── The built-in policy consult must be tied to the request's abort signal ──────
+//
+// `TOOL_POLICY_TIMEOUT_MS` is 15s and fails CLOSED, so an abandoned request whose host
+// policy is slow (a per-tenant rules-table query against a database that has gone away)
+// burns the whole 15s per remaining tool call before denying — with nobody left to read
+// the answer. The abort signal is what turns that into an immediate deny; nothing
+// asserted it was wired on the built-in path.
+describe('dispatchToolCall — the built-in policy consult honours ctx.signal', () => {
+  it('denies without ever invoking the host policy when the request is already aborted', async () => {
+    const stateWithWidget = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd', title: 'D', activePageId: 'p1' },
+        pages: { p1: { id: 'p1', title: 'P1', widgetRows: [['w1']] } },
+        widgets: {
+          w1: { id: 'w1', kind: 'chart', title: 'My Widget', config: { chartType: 'bar' } },
+        },
+      },
+    });
+    const controller = new AbortController();
+    controller.abort();
+    // Would ALLOW if it were ever consulted — so an outcome of "removed" proves the
+    // signal was ignored, and the 15s deadline was the only remaining stop.
+    const policy = vi.fn<ToolPolicy>(async () => ({ action: 'allow' }));
+    const usage = { committedMutations: 0, toolCalls: 0 };
+    const ctx = makeCtx({
+      advertisedToolNames: new Set(['remove_widget']),
+      toolPolicy: policy,
+      signal: controller.signal,
+      usage,
+    });
+
+    const { events, outcome } = await runDispatch(
+      dispatchToolCall(
+        tc('remove_widget', JSON.stringify({ widgetId: 'w1' })),
+        { widgetId: 'w1' },
+        false,
+        stateWithWidget,
+        ctx,
+      ),
+    );
+
+    expect(policy).not.toHaveBeenCalled();
+    const parsed = JSON.parse((outcome as { output: string }).output) as { error: string };
+    expect(parsed.error).toMatch(/aborted/);
+    // Fail closed: no mutation is emitted and none is counted.
+    expect(events).toEqual([]);
+    expect(usage.committedMutations).toBe(0);
+  });
+});
+
+// ── A skill's `nextState` is host code, so it can be missing ────────────────────
+//
+// `reconcileSkillNextState` takes `doc` from the reducer and carries `session`/`runtime`
+// over from the skill's own `nextState`. The type says `nextState` is required, but it
+// arrives from host code that this package never sees, so `undefined` is reachable —
+// and spreading `undefined` yields a `StudioState` with NO `session` and NO `runtime`
+// partitions, which every later tool on the request then reads through.
+describe('dispatchToolCall — a skill that returns no nextState', () => {
+  it('falls back to the threaded state rather than producing a partition-less StudioState', async () => {
+    const skill: StudioAISkill = {
+      name: 'sloppy_skill',
+      mode: 'server-tool',
+      promptFragment: '',
+      tool: {
+        name: 'sloppy_skill',
+        description: 'd',
+        parameters: {},
+        // Host code that forgets `nextState` entirely.
+        execute: async () => ({ output: 'ran' }) as never,
+      },
+    };
+    const ctx = makeCtx({
+      advertisedToolNames: new Set(['sloppy_skill']),
+      skillHandlers: [skill],
+    });
+
+    const { outcome } = await runDispatch(
+      dispatchToolCall(tc('sloppy_skill'), {}, false, INITIAL_STATE, ctx),
+    );
+
+    const next = (outcome as { nextState: StudioState }).nextState;
+    expect(next.doc).toBeDefined();
+    expect(next.session).toBeDefined();
+    expect(next.runtime).toBeDefined();
+    expect(next.session).toEqual(INITIAL_STATE.session);
+    expect(next.runtime).toEqual(INITIAL_STATE.runtime);
   });
 });
 

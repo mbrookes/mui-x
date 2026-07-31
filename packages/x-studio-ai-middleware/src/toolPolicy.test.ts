@@ -173,6 +173,34 @@ describe('computeToolEffects', () => {
     expect(effects.addedWidgetIds[0]).toMatch(/^widget-/);
   });
 
+  // `orphanedWidgetIds` means "THIS mutation orphaned it": still present in
+  // `next.widgets`, referenced by no page in `next`, but referenced by some page in
+  // `prev`. Dropping the `prevReferenced.has(id)` half makes every ALREADY-unreferenced
+  // widget report as freshly orphaned on every mutation — which, through
+  // `createEffectsAwareToolPolicy`, turns a single stale widget into a permanent
+  // approval prompt on every single call for the rest of the dashboard's life.
+  it('does not report an ALREADY-unreferenced widget as newly orphaned', () => {
+    // `w3` exists in `widgets` but appears in no page's rows — the state a previous
+    // `set_widget_layout` leaves behind, or a host-seeded doc.
+    const state = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd1', title: 'Dashboard', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['w1']] } },
+        widgets: {
+          w1: { id: 'w1', kind: 'chart', title: 'W1', sourceId: 'src1', config: {} },
+          w3: { id: 'w3', kind: 'chart', title: 'Stale', sourceId: 'src1', config: {} },
+        },
+      },
+    });
+
+    // A mutation that touches nothing structural at all.
+    const result = executeToolOnState('update_widget', { widgetId: 'w1', title: 'X' }, state);
+    const effects = computeToolEffects(state, result.mutation!, result.nextState);
+
+    expect(effects.orphanedWidgetIds).toEqual([]);
+    expect(effects.updatedWidgetIds).toEqual(['w1']);
+  });
+
   it('reports addedPageIds for add_page', () => {
     const state = makeTwoWidgetState();
     const result = executeToolOnState('add_page', { title: 'Extra' }, state);
@@ -339,6 +367,115 @@ describe('createEffectsAwareToolPolicy', () => {
       usage: EMPTY_USAGE(),
     });
     expect(decision.action).toBe('require-approval');
+  });
+
+  // The four clauses of the removal check were only ever exercised TOGETHER: every
+  // existing case removed a widget or orphaned one at the same time, so the
+  // `removedPageIds` and `removedFilterIds` clauses could each be deleted with the
+  // suite green. These are the two shapes that isolate them — a tool NOT in
+  // `DESTRUCTIVE_TOOLS` whose only structural effect is deleting a page, or a filter.
+  it('requires approval when the only structural effect is a removed page', async () => {
+    const policy = createEffectsAwareToolPolicy();
+    // `page-2` holds no widgets and no filters, so its removal touches nothing else:
+    // `removedWidgetIds`, `removedFilterIds` and `orphanedWidgetIds` all stay empty.
+    const state = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd1', title: 'Dashboard', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['w1']] },
+          'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [] },
+        },
+        widgets: {
+          w1: { id: 'w1', kind: 'chart', title: 'W1', sourceId: 'src1', config: {} },
+        },
+      },
+    });
+    const removal = executeToolOnState('remove_page', { pageId: 'page-2' }, state);
+    const effects = computeToolEffects(state, removal.mutation!, removal.nextState);
+
+    expect(effects.removedPageIds).toEqual(['page-2']);
+    expect(effects.removedWidgetIds).toEqual([]);
+    expect(effects.removedFilterIds).toEqual([]);
+    expect(effects.orphanedWidgetIds).toEqual([]);
+
+    const decision = await policy({
+      transport: 'chat',
+      toolName: 'remove_page',
+      input: { pageId: 'page-2' },
+      state,
+      proposed: { mutation: removal.mutation!, nextState: removal.nextState, effects },
+      phase: 'final',
+      usage: EMPTY_USAGE(),
+    });
+    expect(decision.action).toBe('require-approval');
+  });
+
+  it('requires approval when the only structural effect is a removed filter', async () => {
+    const policy = createEffectsAwareToolPolicy();
+    const state = makeMultiPageState();
+    const removal = executeToolOnState('remove_page_filter', { filterId: 'f-page1' }, state);
+    const effects = computeToolEffects(state, removal.mutation!, removal.nextState);
+
+    expect(effects.removedFilterIds).toEqual(['f-page1']);
+    expect(effects.removedWidgetIds).toEqual([]);
+    expect(effects.removedPageIds).toEqual([]);
+    expect(effects.orphanedWidgetIds).toEqual([]);
+
+    const decision = await policy({
+      transport: 'chat',
+      toolName: 'remove_page_filter',
+      input: { filterId: 'f-page1' },
+      state,
+      proposed: { mutation: removal.mutation!, nextState: removal.nextState, effects },
+      phase: 'final',
+      usage: EMPTY_USAGE(),
+    });
+    expect(decision.action).toBe('require-approval');
+  });
+
+  // `updatedWidgetThreshold` is documented as "more than that many widgets", and the
+  // only existing case used a threshold of 0 — which `>` and `>=` agree on for any
+  // non-empty update set. Exactly-N is the boundary that tells them apart.
+  it('allows exactly updatedWidgetThreshold updates, and requires approval one past it', async () => {
+    const policy = createEffectsAwareToolPolicy({ updatedWidgetThreshold: 1 });
+    const state = makeTwoWidgetState();
+
+    const one = executeToolOnState('update_widget', { widgetId: 'w1', title: 'X' }, state);
+    const oneEffects = computeToolEffects(state, one.mutation!, one.nextState);
+    expect(oneEffects.updatedWidgetIds).toEqual(['w1']);
+    const atThreshold = await policy({
+      transport: 'chat',
+      toolName: 'update_widget',
+      input: { widgetId: 'w1', title: 'X' },
+      state,
+      proposed: { mutation: one.mutation!, nextState: one.nextState, effects: oneEffects },
+      phase: 'final',
+      usage: EMPTY_USAGE(),
+    });
+    expect(atThreshold.action).toBe('allow');
+
+    const two = executeToolOnState(
+      'apply_bulk_update',
+      {
+        widgetUpdates: [
+          { widgetId: 'w1', title: 'X' },
+          { widgetId: 'w2', title: 'Y' },
+        ],
+      },
+      state,
+    );
+    const twoEffects = computeToolEffects(state, two.mutation!, two.nextState);
+    expect(twoEffects.updatedWidgetIds).toEqual(['w1', 'w2']);
+    const pastThreshold = await policy({
+      transport: 'chat',
+      toolName: 'apply_bulk_update',
+      input: {},
+      state,
+      proposed: { mutation: two.mutation!, nextState: two.nextState, effects: twoEffects },
+      phase: 'final',
+      usage: EMPTY_USAGE(),
+    });
+    expect(pastThreshold.action).toBe('require-approval');
   });
 });
 

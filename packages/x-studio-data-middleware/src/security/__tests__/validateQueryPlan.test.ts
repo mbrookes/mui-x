@@ -836,6 +836,21 @@ describe('validateQueryPlan — JOIN type allowlist (finding 2.3)', () => {
     }
   });
 
+  it('anchors the pattern: a valid type EMBEDDED in a longer string is still rejected', () => {
+    // THE ANCHORS ARE THE WHOLE GUARD. Relaxing `/^(inner|left|right)$/i` to
+    // `/(inner|left|right)/i` accepts `'xleftx'`, which then flows on: `buildPlan`
+    // lowercases it, and `buildSecureQuery`'s exact `=== 'left'` / `=== 'right'`
+    // checks ALL MISS — so the join is emitted as a plain INNER join AND the
+    // joined table's security predicate lands in the WHERE clause instead of the
+    // ON clause. That is precisely the silent outer-join degradation this
+    // validator's docblock says it exists to prevent, reached through a value the
+    // unanchored pattern calls valid.
+    const embedded = ['xleftx', 'leftouter', 'crossleft', ' left', 'left ', 'inner join', 'sinner'];
+    for (const bad of embedded) {
+      expect(() => validateQueryPlan(joinDescriptor(bad))).toThrow(/JOIN type/);
+    }
+  });
+
   it('throws for a non-string join type (type is not a runtime guarantee)', () => {
     expect(() => validateQueryPlan(joinDescriptor(1))).toThrow(/JOIN type/);
     expect(() => validateQueryPlan(joinDescriptor({}))).toThrow(/JOIN type/);

@@ -16,6 +16,7 @@ import {
   applyPredicates,
   applySecurityPredicates,
   applySecurityPredicatesToJoinOn,
+  applySecurityPredicatesOrNull,
 } from '../predicates';
 import type { SecurityColumnsConfig, FilterPredicate } from '../../security/types';
 
@@ -597,5 +598,62 @@ describe('emitSecurityPredicates — qualification goes through qualifyAgainst (
     expect(query.toString()).toBe(
       'select * from "orders" where "customers"."tenant_id" = \'acme\'',
     );
+  });
+});
+
+/**
+ * `applySecurityPredicatesOrNull` must emit NOTHING when the table/claims
+ * combination produces no security predicate.
+ *
+ * Rendered through real Knex, because the defect is a SQL-shape defect: the
+ * function's whole job is to wrap a predicate group in
+ * `(<predicates>) OR <indicator> IS NULL`. With no predicates to wrap, dropping
+ * the `willEmitSecurityPredicates` pre-check does not produce "no clause" — it
+ * produces the ORPHANED escape hatch, a bare `WHERE (<indicator> IS NULL)`, which
+ * discards every row whose join key is non-null. That is the entire table for the
+ * ordinary case, on a query that was supposed to be unrestricted.
+ */
+describe('applySecurityPredicatesOrNull — emits nothing when there is nothing to relax (F5)', () => {
+  const NO_REGION_CLAIMS = { tenantId: 'acme', userId: 'u1', roleIds: [] } as any;
+
+  it('leaves the query untouched when the configured dimension has no claim', () => {
+    // `region` is configured but `claims.regionIds` is undefined, so
+    // `emitSecurityPredicates` has nothing to emit for this table.
+    const realDb = Knex({ client: 'pg' });
+    const query = realDb('orders');
+    applySecurityPredicatesOrNull(
+      query,
+      'orders',
+      NO_REGION_CLAIMS,
+      { region: 'region_id' },
+      'orders.id',
+    );
+    expect(query.toString()).toBe('select * from "orders"');
+    // Explicitly NOT the orphaned escape hatch.
+    expect(query.toString()).not.toMatch(/is null/i);
+  });
+
+  it('leaves the query untouched when no securityColumns are configured at all', () => {
+    const realDb = Knex({ client: 'pg' });
+    const query = realDb('orders');
+    applySecurityPredicatesOrNull(query, 'orders', NO_REGION_CLAIMS, undefined, 'orders.id');
+    expect(query.toString()).toBe('select * from "orders"');
+  });
+
+  it('DOES emit the grouped predicate + escape hatch once there is a predicate to relax', () => {
+    // The other side of the gate, so "emits nothing" cannot be satisfied by a
+    // function that emits nothing ever.
+    const realDb = Knex({ client: 'pg' });
+    const query = realDb('orders');
+    applySecurityPredicatesOrNull(
+      query,
+      'orders',
+      { ...NO_REGION_CLAIMS, regionIds: [5] },
+      { region: 'region_id' },
+      'orders.id',
+    );
+    const sql = query.toString();
+    expect(sql).toMatch(/"orders"\."region_id" in \('5'\)/);
+    expect(sql).toMatch(/or "orders"\."id" is null/);
   });
 });

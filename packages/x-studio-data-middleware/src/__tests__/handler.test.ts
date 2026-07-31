@@ -1286,6 +1286,92 @@ describe('handleBatchQuery — schema allowlist enforcement', () => {
     );
   });
 
+  it('rejects a JOINED table that is not in the allowlist, before touching the db', async () => {
+    // A join's `table` is a real FROM-clause participant: it is read, and its
+    // columns can be projected, filtered and ordered on. Nothing else in the
+    // pipeline allowlist-checks it — `assertQualifiedColumnsAllowed` only sees
+    // table-QUALIFIED column references, and this descriptor has none — so
+    // deleting the `descriptor.joins` term from `assertTablesAllowed`'s argument
+    // list left a non-allowlisted table fully readable through a join with the
+    // whole suite still green.
+    const dbSpy = vi.fn((table: string) => makeDb()(table));
+    await expectWidgetError(
+      handleBatchQuery(
+        {
+          pageId: 'p1',
+          widgets: [
+            {
+              id: 'w1',
+              table: 'sales',
+              joins: [{ table: 'payroll', on: [['sales.id', 'payroll.sale_id']] }],
+            },
+          ],
+        } as unknown as BatchQueryRequest,
+        ACME_CLAIMS,
+        { db: dbSpy, schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
+      ),
+      /Requested table\(s\) not in schema allowlist: payroll/,
+    );
+    expect(dbSpy).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-allowlisted joined table whose `on` pairs are UNQUALIFIED', async () => {
+    // THE SHAPE WITH NO SECOND LINE OF DEFENCE. When the `on` pairs name their
+    // tables (`payroll.sale_id`), `assertQualifiedColumnsAllowed` would also
+    // reject the widget — so that variant only proves the two guards disagree
+    // about the message. Unqualified `on` columns carry NO table reference for
+    // that check to inspect, which leaves `assertTablesAllowed`'s `joins` term as
+    // the only thing that ever looks at the joined table's name: without it the
+    // widget is accepted, the query is built, and `payroll` is read.
+    const dbSpy = vi.fn((table: string) => makeDb()(table));
+    await expectWidgetError(
+      handleBatchQuery(
+        {
+          pageId: 'p1',
+          widgets: [
+            {
+              id: 'w1',
+              table: 'sales',
+              joins: [{ table: 'payroll', on: [['id', 'sale_id']] }],
+            },
+          ],
+        } as unknown as BatchQueryRequest,
+        ACME_CLAIMS,
+        { db: dbSpy, schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
+      ),
+      /Requested table\(s\) not in schema allowlist: payroll/,
+    );
+    expect(dbSpy).not.toHaveBeenCalled();
+  });
+
+  it('names only the offending joined table, and checks outer joins too', async () => {
+    // The `type` is irrelevant to the check — a LEFT join reads the joined table
+    // exactly as an INNER one does.
+    const result = await handleBatchQuery(
+      {
+        pageId: 'p1',
+        widgets: [
+          {
+            id: 'w1',
+            table: 'sales',
+            joins: [
+              { table: 'regions', type: 'left', on: [['sales.region', 'regions.name']] },
+              { table: 'payroll', type: 'left', on: [['sales.id', 'payroll.sale_id']] },
+            ],
+          },
+        ],
+      } as unknown as BatchQueryRequest,
+      ACME_CLAIMS,
+      { db: makeDb(), schemaAllowlist: ['sales', 'regions'], tenancy: SINGLE_TENANT },
+    );
+    expect(result.results[0].rows).toEqual([]);
+    expect(result.results[0].error).toMatch(
+      /Requested table\(s\) not in schema allowlist: payroll/,
+    );
+    // The allowlisted joined table is not implicated.
+    expect(result.results[0].error).not.toMatch(/regions/);
+  });
+
   it('isolates a bad-table widget from a well-formed sibling (validation-stage isolation, finding 2.1)', async () => {
     // The core contract: one widget failing table/plan validation must NOT take
     // down its well-formed siblings. The bad widget gets `{ error }`; the good
@@ -4718,6 +4804,50 @@ describe('handleBatchQuery — semi-joins', () => {
     // Runs UNCONDITIONALLY — no `columnAllowlist` is configured here, so this is the
     // Zero-Knowledge Rule reaching a reference that names a table only through a subquery
     // predicate.
+    expect(result.results[0].error).toMatch(/names table "payroll", which is not in the/);
+  });
+
+  it('rejects a qualified subquery filter column naming a non-allowlisted table at ANY nesting depth', async () => {
+    // The recursion, not the top-level call. `checkSemiJoinColumns` walks
+    // `semiJoin.semiJoins` at the end of each entry; dropping that one line left
+    // every reference BELOW the first level unchecked. Both semi-join TABLES here
+    // are allowlisted, so `assertTablesAllowed` (which is the recursive check the
+    // level-1 test above also passes through) has nothing to say — the only thing
+    // standing between the caller and `payroll` is this recursive column walk.
+    //
+    // The leak it prevents is not a projection: it is a one-bit-per-row oracle.
+    // `WHERE payroll.salary > 1` inside a nested subquery decides which of the
+    // caller's OWN customers come back, so a caller can binary-search a column of
+    // a table it was never granted, one request at a time.
+    const result = await handleBatchQuery(
+      {
+        pageId: 'p1',
+        widgets: [
+          {
+            id: 'w1',
+            table: 'customers',
+            semiJoins: [
+              {
+                table: 'orders',
+                column: 'id',
+                foreignColumn: 'customer_id',
+                semiJoins: [
+                  {
+                    table: 'orders',
+                    column: 'id',
+                    foreignColumn: 'id',
+                    filters: [{ column: 'payroll.salary', operator: 'gt', value: 1 }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      } as unknown as BatchQueryRequest,
+      ACME_CLAIMS,
+      { db: makeCustomersDb(), schemaAllowlist: ['customers', 'orders'], tenancy: MULTI_TENANT },
+    );
+    expect(result.results[0].rows).toEqual([]);
     expect(result.results[0].error).toMatch(/names table "payroll", which is not in the/);
   });
 

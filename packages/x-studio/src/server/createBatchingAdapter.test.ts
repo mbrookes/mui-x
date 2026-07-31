@@ -2761,6 +2761,69 @@ describe('createBatchingAdapter — cross-source filter fan-out', () => {
     warnSpy.mockRestore();
   });
 
+  /**
+   * Every `console.warn` one `customers` widget's build emits for `filter`, joined.
+   *
+   * The tests below pin the POSITIVE direction of `semiJoinUnattributedDivergenceWarning` — that
+   * an unattributed cross-source leaf DOES warn — in x-studio's own suite. The five fixtures in
+   * this describe now carry the attribution the Filters Drawer stamps, so between them they pin
+   * only the absence of a SPURIOUS warning; deleting the whole `else if` branch left all 82 tests
+   * of this file green and failed only in `x-studio-data-middleware`'s `clientWireSeam.test.ts`.
+   * That is exactly the cross-project blind spot the batch-cap note at the top of this file
+   * describes: a change made HERE and validated with `--project "x-studio"` never runs that suite.
+   */
+  async function warningsForCustomersFilter(
+    filter: StudioQueryDescriptor['filter'],
+  ): Promise<string> {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = makeOneSideHarness(fetchFn);
+
+    await adapter.getRows(
+      makeDescriptor({
+        sourceId: 'source-customers',
+        tableName: 'customers',
+        widgetId: 'w1',
+        select: ['lifetime_value'],
+        filter,
+      }),
+    );
+
+    const warnings = warnSpy.mock.calls.map((call) => String(call[0])).join('\n');
+    warnSpy.mockRestore();
+    return warnings;
+  }
+
+  /** `status` lives ONLY on `source-orders`, the "many" side. */
+  const statusLeaf = (filterSourceId?: string) =>
+    ({
+      type: 'leaf',
+      field: 'status',
+      op: 'equals',
+      value: 'shipped',
+      fieldType: 'string',
+      ...(filterSourceId === undefined ? {} : { filterSourceId }),
+    }) as NonNullable<StudioQueryDescriptor['filter']>;
+
+  it('WARNS for an unattributed leaf even when a SIBLING leaf on the SAME field is attributed', async () => {
+    // The divergence is decided per LEAF, so it must be detected per leaf. Collecting the
+    // attributions into a per-FIELD set and asking whether the semi-join's source appears
+    // anywhere in it lets the attributed leaf whitelist the unattributed one, and the pair goes
+    // out silently — `wire=1 memory=0`, the exact thing this warning exists to announce.
+    //
+    // Not hypothetical: `add_page_filter` stores `''` on a page filter while `WidgetFilterRow`
+    // stamps the real source id on a widget filter for the same field, and
+    // `selectFiltersForWidget` → `filtersToFilterNode` puts page and widget filters in ONE AND
+    // group.
+    const warnings = await warningsForCustomersFilter({
+      type: 'group',
+      logic: 'and',
+      children: [statusLeaf('source-orders'), statusLeaf()],
+    } as NonNullable<StudioQueryDescriptor['filter']>);
+
+    expect(warnings).toContain('no source attribution');
+  });
+
   it('groups every predicate on one foreign source into ONE subquery (EXISTS(A AND B))', async () => {
     const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
     const adapter = makeOneSideHarness(fetchFn);

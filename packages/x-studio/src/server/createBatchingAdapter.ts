@@ -1925,39 +1925,9 @@ function buildBatchWidgetDescriptor(
   // client residual" is one of that decision's inputs and a residual cannot be evaluated against a
   // pre-aggregated response. The two used to run in the opposite order, so an aggregating widget
   // with an unpushable filter dropped that filter with only a warning and aggregated every row.
-  /**
-   * For each pushed-down leaf's field, the `filterSourceId`s the document attributed it to.
-   *
-   * Section 3's "same answer as in memory" equivalence holds for exactly ONE of the two
-   * document representations the schema permits. `resolveRows` routes a NON-expression filter
-   * to `crossFilters` (a semi-join, matching the wire) only when `f.filterSourceId` is set AND
-   * differs from the widget's own source; with no `filterSourceId` — or with one naming the
-   * widget's own source — the same leaf lands in `nativeFilters` and is evaluated against the
-   * widget's OWN rows, where a foreign column is `undefined` and every row drops. The adapter
-   * resolves the FIELD across relationships and never read the attribution at all, so both
-   * representations produced the identical `EXISTS` plan: `wire=1 memory=0`, silently, on the
-   * branch certified as equivalent.
-   *
-   * `''` is deliberately not special-cased: `resolveRows`' own test is truthiness
-   * (`f.filterSourceId &&`), so an empty string is already indistinguishable from absent
-   * downstream, and it matches no real source id here either. It is reachable —
-   * `x-studio-ai-middleware`'s `add_page_filter` stores `asString(args.sourceId ?? '')` when
-   * the model omits the argument, with no check that `field` exists on `sourceId`.
-   *
-   * Expression fields need no entry: `resolveRows` routes a foreign-owned expression field to
-   * `crossFilters` regardless of attribution, and those branches carry `divergesFromInMemory`
-   * for a different reason anyway.
-   */
-  const filterLeafSourceIds = new Map<string, Set<string>>();
-  const partition = partitionFilterNode(d.filter, (leaf) => {
-    let attributed = filterLeafSourceIds.get(leaf.field);
-    if (!attributed) {
-      attributed = new Set<string>();
-      filterLeafSourceIds.set(leaf.field, attributed);
-    }
-    attributed.add(leaf.filterSourceId ?? '');
-    warnServerLeafDivergence(leaf, d.sourceId, warnDedupe);
-  });
+  const partition = partitionFilterNode(d.filter, (leaf) =>
+    warnServerLeafDivergence(leaf, d.sourceId, warnDedupe),
+  );
 
   /**
    * Whether a residual leaf's field can be re-projected under its LOGICAL id in the returned raw
@@ -1991,7 +1961,7 @@ function buildBatchWidgetDescriptor(
         },
       );
 
-  const filters = partition.predicates.flatMap((pred) => {
+  const filters = partition.predicates.flatMap((pred, predIndex) => {
     const r = resolve(pred.column);
     if (r.skip) {
       // A `skip` predicate targets a computed (arithmetic `FunctionExpression`) field with no
@@ -2022,7 +1992,7 @@ function buildBatchWidgetDescriptor(
       // of this `flatMap` warns; this one was the only divergence in the file that did not.
       if (r.semiJoin.divergesFromInMemory) {
         warnAdapterDivergence(warnDedupe, semiJoinExistsDivergenceWarning(pred.column, d.sourceId));
-      } else if (!filterLeafSourceIds.get(pred.column)?.has(r.semiJoin.sourceId)) {
+      } else if (partition.predicateSourceIds[predIndex] !== r.semiJoin.sourceId) {
         // …and "for a plain cross-source field this is ALSO the in-memory answer" is true of
         // ONE of the two document representations the schema permits. `resolveRows` reaches
         // its cross-filter (semi-join) arm only for a leaf whose `filterSourceId` names the
@@ -2030,7 +2000,15 @@ function buildBatchWidgetDescriptor(
         // is compared against the widget's own rows, where the foreign column is `undefined`,
         // so it matches nothing. The adapter cannot pick a winner — it does not know which
         // the author meant, and both are valid documents — so it announces, exactly as the
-        // expression branches above do. See `filterLeafSourceIds`.
+        // expression branches above do.
+        //
+        // The question is asked of THIS predicate's own leaf (`predicateSourceIds` is
+        // index-aligned with `predicates`), never of a set unioned over every leaf on the
+        // same field: `resolveRows` routes each leaf independently, so two leaves on one
+        // field with different attributions diverge independently too. Keying the answer by
+        // FIELD let a correctly attributed leaf whitelist an unattributed sibling — the exact
+        // page-filter-plus-widget-filter shape `selectFiltersForWidget` builds, where
+        // `add_page_filter`'s `''` and `WidgetFilterRow`'s stamped id meet in ONE AND group.
         warnAdapterDivergence(
           warnDedupe,
           semiJoinUnattributedDivergenceWarning(pred.column, d.sourceId, r.semiJoin.sourceId),
@@ -2578,6 +2556,36 @@ function leafToPredicates(leaf: StudioFilterLeaf): FilterPredicate[] {
 interface PartitionedFilter {
   /** Predicates safe to send to the server (it AND-combines them). */
   predicates: FilterPredicate[];
+  /**
+   * The `filterSourceId` the document attributed each pushed-down predicate's LEAF to (`''` when
+   * the leaf carries none), INDEX-ALIGNED with `predicates` — a leaf that emits two predicates
+   * (a day-granular date translation, an `op2` second condition) contributes its attribution
+   * twice.
+   *
+   * Per PREDICATE, deliberately: Section 3's "same answer as in memory" equivalence holds for
+   * exactly ONE of the two document representations the schema permits. `resolveRows` routes a
+   * NON-expression filter to `crossFilters` (a semi-join, matching the wire) only when
+   * `f.filterSourceId` is set AND differs from the widget's own source; with no `filterSourceId`
+   * — or with one naming the widget's own source — the same leaf lands in `nativeFilters` and is
+   * evaluated against the widget's OWN rows, where a foreign column is `undefined` and every row
+   * drops. That routing is decided per leaf, so the divergence must be detected per leaf too:
+   * collecting the attributions into a per-FIELD set and asking whether the semi-join's source
+   * appears anywhere in it lets one correctly attributed leaf whitelist an unattributed sibling
+   * on the same field — and page filter (`add_page_filter` stores `''`) plus widget filter
+   * (`WidgetFilterRow` stamps the real id) on the same field land in ONE AND group via
+   * `selectFiltersForWidget` → `filtersToFilterNode`.
+   *
+   * `''` is deliberately not special-cased: `resolveRows`' own test is truthiness
+   * (`f.filterSourceId &&`), so an empty string is already indistinguishable from absent
+   * downstream, and it matches no real source id here either. It is reachable —
+   * `x-studio-ai-middleware`'s `add_page_filter` stores `asString(args.sourceId ?? '')` when
+   * the model omits the argument, with no check that `field` exists on `sourceId`.
+   *
+   * Expression fields need no entry: `resolveRows` routes a foreign-owned expression field to
+   * `crossFilters` regardless of attribution, and those branches carry `divergesFromInMemory`
+   * for a different reason anyway.
+   */
+  predicateSourceIds: string[];
   /** Leaves that must be evaluated client-side to preserve in-memory semantics. */
   clientLeaves: StudioFilterLeaf[];
   /**
@@ -2608,7 +2616,12 @@ function partitionFilterNode(
   node: StudioFilterNode | undefined,
   onServerLeaf?: (leaf: StudioFilterLeaf) => void,
 ): PartitionedFilter {
-  const result: PartitionedFilter = { predicates: [], clientLeaves: [], droppedOrGroup: false };
+  const result: PartitionedFilter = {
+    predicates: [],
+    predicateSourceIds: [],
+    clientLeaves: [],
+    droppedOrGroup: false,
+  };
   if (!node) {
     return result;
   }
@@ -2626,7 +2639,13 @@ function partitionFilterNode(
       // emitting the predicate. Date-granularity drift is no longer warned about — it is
       // translated away by `toPredicatesFor` or routed to the residual (finding T1.3b).
       onServerLeaf?.(n);
-      result.predicates.push(...leafToPredicates(n));
+      const emitted = leafToPredicates(n);
+      result.predicates.push(...emitted);
+      // One attribution entry PER EMITTED PREDICATE, so `predicateSourceIds[i]` always describes
+      // the leaf `predicates[i]` came from even when `leafToPredicates` expands one leaf into two.
+      for (let i = 0; i < emitted.length; i += 1) {
+        result.predicateSourceIds.push(n.filterSourceId ?? '');
+      }
     } else {
       result.clientLeaves.push(n);
     }

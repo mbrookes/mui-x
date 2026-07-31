@@ -65,6 +65,27 @@ interface AggregationSpec {
   alias: string;
 }
 
+/**
+ * The identifier charset every ALIAS position on the wire must match.
+ *
+ * Byte-identical to `SAFE_ALIAS_PATTERN` in `@mui/x-studio-data-middleware`'s
+ * `shared/columnValidation.ts`, which that package enforces FAIL-CLOSED (independently of
+ * any `columnAllowlist`) on both alias positions a Studio adapter can produce:
+ * `aggregations[].alias` (`validateAggregationAliases`) and a `columns` entry that is also a
+ * `columnAliases` key (`validateOutputAliases`). Both are interpolated as SQL identifiers via
+ * `?? as ??`, so the host rejects the whole widget rather than escape-and-hope.
+ *
+ * A `StudioDataField.id` carries no such constraint — ids come from CSV headers, SQL view
+ * columns and translated labels, so `"Order Amount"`, `"orders.amount"` and `"montant€"` are
+ * all ordinary ids that work perfectly in memory. Checking here, at the one place ids become
+ * wire aliases, keeps the mismatch from reaching the host as an opaque whole-widget failure —
+ * the same reason `x-studio-ai-middleware`'s `buildFieldStatAggregations` validates its own
+ * aliases against this charset before emitting them.
+ *
+ * NOT applied to the ids themselves elsewhere: an unaliased physical column may legitimately
+ * contain spaces (the host quotes it), and the in-memory path has no such restriction at all.
+ */
+const SAFE_WIRE_ALIAS = /^[A-Za-z0-9_-]+$/;
 
 /**
  * A minimal DataLoader-style batch scheduler.
@@ -1598,7 +1619,27 @@ function buildBatchWidgetDescriptor(
   // filters out aggregate fields from the GROUP BY using aggregations[*].column.
   const columns = d.select.flatMap((fieldId) => {
     const r = resolve(fieldId);
-    return r.skip || r.unresolved ? [] : [r.column];
+    if (r.skip || r.unresolved) {
+      return [];
+    }
+    // A projected column that is ALSO a `columnAliases` key becomes an interpolated
+    // `?? as ??` output alias server-side, which the host charset-checks fail-closed
+    // (`validateOutputAliases`) — an id like `"montant€"` would fail the whole widget, not
+    // just this column. Drop the column instead, so the rest of the widget still renders.
+    // A filter on the same field is unaffected: it references the PHYSICAL column, and the
+    // `columnAliases` entry that resolves it is never itself checked.
+    if (columnAliases[r.column] !== undefined && !SAFE_WIRE_ALIAS.test(r.column)) {
+      warnAdapterDivergence(
+        warnDedupe,
+        `The calculated field "${r.column}" for source "${d.sourceId}" has an id containing ` +
+          `characters outside the identifier charset the data adapter's query protocol allows ` +
+          `(letters, digits, underscores and hyphens), so it could not be projected and was ` +
+          `dropped from the query. Rename the field id to a plain identifier; the field works ` +
+          `correctly on in-memory sources.`,
+      );
+      return [];
+    }
+    return [r.column];
   });
 
   // For cross-endpoint enrichments, add the FK column to the SELECT so the client
@@ -2420,5 +2461,23 @@ function decideWireAggregations(
     const column = resolveColumn(a.field);
     return column === null ? [] : [{ column, func: toWireAggFunc(a.fn), alias: a.alias }];
   });
+  // An alias outside the host's identifier charset makes the host reject the ENTIRE widget
+  // (`validateAggregationAliases` is fail-closed), so the widget renders an error overlay
+  // instead of data. Give up the push-down instead: raw rows come back and the client
+  // aggregates them itself, which is slower but produces the same numbers — the same
+  // degradation every other unpushable case in this ladder takes. All-or-nothing, mirroring
+  // `decideAggregationPushdown`: a half-aggregated response has no shape the client can read.
+  const unsafeAlias = specs.find((spec) => !SAFE_WIRE_ALIAS.test(spec.alias));
+  if (unsafeAlias) {
+    warnAdapterDivergence(
+      dedupe,
+      `The aggregation alias "${unsafeAlias.alias}" for source "${d.sourceId}" contains ` +
+        `characters outside the identifier charset the data adapter's query protocol allows ` +
+        `(letters, digits, underscores and hyphens), so the aggregation could not be pushed ` +
+        `down and raw rows were fetched instead. The widget shows the same values; rename the ` +
+        `field id to a plain identifier to restore server-side aggregation.`,
+    );
+    return undefined;
+  }
   return specs.length > 0 ? specs : undefined;
 }

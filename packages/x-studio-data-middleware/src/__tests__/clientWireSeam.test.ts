@@ -502,3 +502,108 @@ describe('seam — fan-out orientation guard', () => {
     expect(widget.columns).toContain('expr-tier');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// F3 — alias charset
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Field ids that are perfectly ordinary in memory but sit outside the middleware's
+ * `SAFE_ALIAS_PATTERN`. All four are shapes a real host produces: a CSV header, a
+ * qualified view column, a translated label, a unit-annotated measure.
+ */
+const HOSTILE_IDS = ['Order Amount', 'orders.amount', 'montant€', 'amount(€)'];
+
+describe('seam — alias charset', () => {
+  it.each(HOSTILE_IDS)('does not emit "%s" as an aggregation alias', async (id) => {
+    const sources: Record<string, StudioDataSource> = {
+      sales: {
+        id: 'sales',
+        label: 'Sales',
+        tableName: 'sales',
+        fields: [field('region'), field(id, 'number')],
+      },
+    };
+    const widget = await captureWidget(
+      descriptor({
+        sourceId: 'sales',
+        tableName: 'sales',
+        select: ['region', id],
+        groupBy: 'region',
+        aggregations: [{ field: id, fn: 'sum', alias: id }],
+      }),
+      { dataSources: sources, relationships: [] },
+    );
+
+    expectServerAccepts(widget);
+    // Push-down is abandoned rather than emitted with an alias the host rejects: raw
+    // rows come back and the client aggregates them to the same numbers.
+    expect(widget.aggregations).toBeUndefined();
+  });
+
+  it.each(HOSTILE_IDS)('does not project "%s" as an output alias', async (id) => {
+    const sources: Record<string, StudioDataSource> = {
+      orders: {
+        id: 'orders',
+        label: 'Orders',
+        tableName: 'orders',
+        fields: [field('order_id'), field('customer_id')],
+      },
+      customers: {
+        id: 'customers',
+        label: 'Customers',
+        tableName: 'customers',
+        fields: [field('id'), field('name')],
+      },
+    };
+    const widget = await captureWidget(
+      descriptor({
+        sourceId: 'orders',
+        tableName: 'orders',
+        select: ['order_id', id],
+      }),
+      {
+        dataSources: sources,
+        relationships: [
+          {
+            id: 'rel',
+            sourceId: 'orders',
+            sourceField: 'customer_id',
+            targetId: 'customers',
+            targetField: 'id',
+            type: 'many-to-one',
+          },
+        ],
+        expressionFields: [exprField(id, 'orders', 'customers', 'name')],
+      },
+    );
+
+    expectServerAccepts(widget);
+    expect(widget.columns).not.toContain(id);
+  });
+
+  it('still pushes an aggregation down for a plain identifier alias', async () => {
+    // Fence: the charset guard must not disable push-down for ordinary ids.
+    const sources: Record<string, StudioDataSource> = {
+      sales: {
+        id: 'sales',
+        label: 'Sales',
+        tableName: 'sales',
+        fields: [field('region'), field('amount', 'number')],
+      },
+    };
+    const widget = await captureWidget(
+      descriptor({
+        sourceId: 'sales',
+        tableName: 'sales',
+        select: ['region', 'amount'],
+        groupBy: 'region',
+        aggregations: [{ field: 'amount', fn: 'sum', alias: 'amount' }],
+      }),
+      { dataSources: sources, relationships: [] },
+    );
+
+    expect(widget.aggregations).toEqual([{ column: 'amount', func: 'sum', alias: 'amount' }]);
+    expectServerAccepts(widget);
+  });
+});

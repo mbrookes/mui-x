@@ -614,6 +614,7 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
   });
 
   it('drops a `reason` over the shared string cap, keeping the rest of the chunk', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const chunk = await collectApprovalChunk(
       approvalEvent(1, {
         effects: { updatedWidgetCount: 1 },
@@ -622,9 +623,11 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
     );
 
     expect(chunk!.reason).toBe(undefined);
-    // Dropped individually — the approval card itself, and its effects, still render.
-    expect(chunk!.effects).toEqual({ updatedWidgetCount: 1 });
+    // Dropped individually — the approval card itself, and its effects, still render —
+    // and the drop is MARKED, so the card cannot be read as "the policy gave no reason".
+    expect(chunk!.effects).toEqual({ updatedWidgetCount: 1, reasonWithheld: true });
     expect(chunk!.toolCallId).toBe('call-1');
+    warnSpy.mockRestore();
   });
 
   it('spends ONE effects/reason budget across every approval event of the turn', async () => {
@@ -705,6 +708,7 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
   });
 
   it('spends the same turn budget on `reason`, not a separate one', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const reason = 'r'.repeat(MAX_STRING_LENGTH);
     const events = Array.from({ length: 6 }, (_unused, i) => approvalEvent(i, { reason }));
     const chunks = await collectApprovalChunks(events);
@@ -720,6 +724,7 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
     expect(chunks.filter((chunk) => chunk.reason !== undefined)).toHaveLength(
       MAX_TURN_APPROVAL_SIZE / MAX_STRING_LENGTH,
     );
+    warnSpy.mockRestore();
   });
 
   // ── the UNIT the budgets are denominated in ────────────────────────────────
@@ -739,6 +744,7 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
     // Exactly `MAX_STRING_LENGTH` JSON characters — at the per-field cap — but only ~1 670
     // UTF-16 units. Charged raw, 23 of these fit the 40 000-character budget and put 230 000
     // JSON characters on one message; charged in the budget's own unit, four do.
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const reason = escapingString(MAX_STRING_LENGTH);
     expect(jsonChars(reason)).toBe(MAX_STRING_LENGTH);
     expect(reason.length).toBeLessThan(MAX_STRING_LENGTH / 5);
@@ -755,11 +761,13 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
     expect(chunks.filter((chunk) => chunk.reason !== undefined)).toHaveLength(
       MAX_TURN_APPROVAL_SIZE / MAX_STRING_LENGTH,
     );
+    warnSpy.mockRestore();
   });
 
   // The per-FIELD cap is in the same unit for the same reason: `MAX_STRING_LENGTH` is a claim
   // about what gets STORED, and 10 000 control characters store 60 000.
   it('rejects a `reason` that is over the per-field cap only once escaped', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const chunk = await collectApprovalChunk(
       approvalEvent(1, {
         effects: { updatedWidgetCount: 1 },
@@ -768,8 +776,94 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
     );
 
     expect(chunk!.reason).toBe(undefined);
-    // Dropped individually, exactly as an over-cap plain-string reason is.
-    expect(chunk!.effects).toEqual({ updatedWidgetCount: 1 });
+    // Dropped individually and marked, exactly as an over-cap plain-string reason is.
+    expect(chunk!.effects).toEqual({ updatedWidgetCount: 1, reasonWithheld: true });
+    warnSpy.mockRestore();
+  });
+
+  // The asymmetry `22964a2` left behind. Its own premise — '"this call removes nothing" is a
+  // reason to approve, "the list did not fit" is a reason to deny, and until now they rendered
+  // identically' — was exactly as true of the field NEXT to `effects`, on the same shared
+  // budget, and `reason` had no marker and no warning at all.
+  //
+  // Measured before this fix, on the fixture below: four earlier cards spend the 40 000-
+  // character budget, the fifth (`remove_page`, "This deletes the whole Finance page.")
+  // arrives with `reason: undefined`, no marker of any kind, and `console.warn` called ZERO
+  // times for the whole turn.
+  it('marks a `reason` withheld by the turn budget, on the card and on the console', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const chunks = await collectApprovalChunks([
+      ...Array.from({ length: 4 }, (_unused, i) =>
+        approvalEvent(i, { reason: 'r'.repeat(MAX_STRING_LENGTH) }),
+      ),
+      approvalEvent(4, {
+        toolName: 'remove_page',
+        reason: 'This deletes the whole Finance page.',
+      }),
+    ]);
+
+    // Every approval still gets a card…
+    expect(chunks).toHaveLength(5);
+    expect(chunks[0].reason).toBe('r'.repeat(MAX_STRING_LENGTH));
+    // …and the destructive one — which in an agentic turn is the one that usually arrives
+    // LAST, after the budget is spent — says its reason is missing instead of looking like a
+    // call the policy flagged for no stated reason.
+    expect(chunks.at(-1)!.reason).toBe(undefined);
+    expect(chunks.at(-1)!.effects).toEqual({ reasonWithheld: true });
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(String(warnSpy.mock.calls[0][0])).toContain('reason was withheld');
+    warnSpy.mockRestore();
+  });
+
+  it('marks a `reason` withheld by the per-field cap, with its own message', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const chunk = await collectApprovalChunk(
+      approvalEvent(1, { reason: 'r'.repeat(MAX_STRING_LENGTH + 1) }),
+    );
+
+    expect(chunk!.reason).toBe(undefined);
+    expect(chunk!.effects).toEqual({ reasonWithheld: true });
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    // A different cause from the budget one, so a different message.
+    expect(String(warnSpy.mock.calls[0][0])).toContain('longer than');
+    warnSpy.mockRestore();
+  });
+
+  it('does NOT claim a reason was withheld when the server sent none', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // No `reason` at all, and an empty one, are both "the policy stated nothing" — marking
+    // them withheld would cry wolf on every approval that has no justification to give.
+    for (const reason of [undefined, '']) {
+      // Sequential on purpose: each turn is its own adapter and its own budget.
+      // eslint-disable-next-line no-await-in-loop
+      const chunk = await collectApprovalChunk(
+        approvalEvent(1, reason === undefined ? {} : { reason }),
+      );
+      expect(chunk!.effects).toBe(undefined);
+      expect(chunk!.reason).toBe(undefined);
+    }
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  // The two markers are independent and must not overwrite each other or the real summary:
+  // `effects` is charged FIRST, so a card can keep its whole impact list and lose only its
+  // reason — and a reader who sees the list has every reason to assume nothing else was
+  // suppressed.
+  it('keeps a real effects summary alongside a withheld-reason marker', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const chunk = await collectApprovalChunk(
+      approvalEvent(1, {
+        effects: { willRemovePages: [{ id: 'p1', title: 'Finance' }] },
+        reason: 'r'.repeat(MAX_STRING_LENGTH + 1),
+      }),
+    );
+
+    expect(chunk!.effects).toEqual({
+      willRemovePages: [{ id: 'p1', title: 'Finance' }],
+      reasonWithheld: true,
+    });
+    warnSpy.mockRestore();
   });
 
   // A sizeable but legal enriched `input` is forwarded untouched — the cap below is a
@@ -1096,7 +1190,7 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
     // The withheld MARKER and the `{}` an over-cap input degrades to are CONSTANTS per part
     // rather than payloads, so they are counted against the part count below, not against the
     // effects/reason and input budgets.
-    const withheldMarkerBytes = '{"effectsWithheld":true}'.length;
+    const withheldMarkerBytes = '{"effectsWithheld":true,"reasonWithheld":true}'.length;
     const degradedInputBytes = '{}'.length;
     const payloadBytes = approvals.reduce(
       (total, c) =>
@@ -1106,7 +1200,8 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
       0,
     );
     const markerBytes = approvals.reduce(
-      (total, c) => total + (c.effects?.effectsWithheld ? withheldMarkerBytes : 0),
+      (total, c) =>
+        total + (c.effects?.effectsWithheld || c.effects?.reasonWithheld ? withheldMarkerBytes : 0),
       0,
     );
 
@@ -1136,7 +1231,11 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
     );
     // Each term is really binding here, so the total is not passing by accident.
     expect(approvals).toHaveLength(MAX_TURN_TOOL_PARTS);
-    expect(approvals.at(-1)!.effects).toEqual({ effectsWithheld: true });
+    // The last card lost BOTH payloads to the shared budget, and says so about both.
+    expect(approvals.at(-1)!.effects).toEqual({
+      effectsWithheld: true,
+      reasonWithheld: true,
+    });
     expect(approvals.at(-1)!.reason).toBe(undefined);
     expect(approvals.at(-1)!.input).toEqual({});
     warnSpy.mockRestore();

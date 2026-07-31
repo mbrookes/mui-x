@@ -1227,6 +1227,15 @@ export interface StudioLocaleText {
    * render identically — the second is a reason to deny, the first is not.
    */
   chatApprovalEffectsWithheld: string;
+  /**
+   * Shown on an approval card whose policy REASON was withheld by the client's size limits.
+   *
+   * The same asymmetry `chatApprovalEffectsWithheld` closes, on the field beside it: `reason`
+   * and `effects` share one per-turn budget, spent in ARRIVAL order, so an earlier verbose
+   * approval is exactly what strips the justification off the card that most needs one — and
+   * "the policy gave no reason" and "the reason did not fit" are opposite signals.
+   */
+  chatApprovalReasonWithheld: string;
 
   // ── Chart cross-source error messages ────────────────────────────────────
   chartUnsupportedFieldNotFound: string;
@@ -2468,6 +2477,8 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chatApprovalUpdatedWidgetCount: 'Widgets updated',
   chatApprovalEffectsWithheld:
     'Impact summary unavailable: it was too large to show. Deny this request unless you know what it does.',
+  chatApprovalReasonWithheld:
+    'The reason this request needs approval was too large to show. Deny this request unless you know what it does.',
 
   // Chart cross-source error messages
   chartUnsupportedFieldNotFound:

@@ -977,6 +977,8 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   chatApprovalUpdatedWidgetCount: 'Aktualisierte Widgets',
   chatApprovalEffectsWithheld:
     'Auswirkungsübersicht nicht verfügbar: sie war zu groß für die Anzeige. Lehnen Sie diese Anfrage ab, sofern Sie ihre Wirkung nicht kennen.',
+  chatApprovalReasonWithheld:
+    'Der Grund für diese Genehmigungsanfrage war zu umfangreich für die Anzeige. Lehnen Sie diese Anfrage ab, sofern Sie ihre Wirkung nicht kennen.',
 
   // Chart unsupported messages
   chartUnsupportedFieldNotFound:

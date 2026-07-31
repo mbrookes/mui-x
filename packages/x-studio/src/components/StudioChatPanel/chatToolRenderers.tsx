@@ -173,8 +173,8 @@ function narrowIds(value: unknown): string[] {
  * approve/deny buttons only while `state === 'approval-requested'` and only when the
  * server actually sent an `effects` payload. Returns `null` when nothing survived
  * narrowing, so a malformed payload degrades to the pre-existing prompt rather than an
- * empty box — EXCEPT when the adapter marked the summary as withheld
- * (`effectsWithheld`), which is the one case where "no list" is itself the message.
+ * empty box — EXCEPT when the adapter marked something as withheld (`effectsWithheld`,
+ * `reasonWithheld`), which is the one case where "nothing here" is itself the message.
  *
  * Exported for testing: the narrowing above is invisible from the types alone (the
  * field is `unknown`), so only rendering this component can tell a real guard from a
@@ -218,19 +218,25 @@ export function StudioApprovalEffects({
       ? effects.updatedWidgetCount
       : undefined;
 
-  // The adapter withheld a summary the server DID send (over this client's size limits, or
-  // past the turn's budget for them). Without this line the card is byte-identical to one for
-  // a call with no impact at all — and those two deserve opposite answers, so an empty box is
-  // exactly what must NOT be rendered here.
+  // The adapter withheld something the server DID send (over this client's size limits, or
+  // past the turn's budget for them). Without these lines the card is byte-identical to one
+  // for a call with no impact and no stated reason at all — and those deserve opposite
+  // answers, so an empty box is exactly what must NOT be rendered here.
+  //
+  // Both flags live in `effects` because it is the only payload `ToolPart`'s
+  // `approvalDetails` slot receives, and `sanitizeApprovalEffects` whitelists the keys it
+  // copies from the wire — so a server cannot forge either one onto a card it did not earn.
   const withheld = effects.effectsWithheld === true;
+  const reasonWithheld = effects.reasonWithheld === true;
 
-  if (groups.length === 0 && updatedCount === undefined && !withheld) {
+  if (groups.length === 0 && updatedCount === undefined && !withheld && !reasonWithheld) {
     return null;
   }
 
   return (
     <div {...props}>
       {withheld ? <div>{localeText.chatApprovalEffectsWithheld}</div> : null}
+      {reasonWithheld ? <div>{localeText.chatApprovalReasonWithheld}</div> : null}
       {groups.map((group) => (
         <div key={group.key}>
           <strong>{group.label}</strong>

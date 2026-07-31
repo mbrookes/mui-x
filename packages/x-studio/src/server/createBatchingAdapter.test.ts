@@ -99,7 +99,7 @@ function makeErrorFetch(status = 500, statusText = 'Internal Server Error') {
   return vi.fn().mockResolvedValue({ ok: false, status, statusText });
 }
 
-function field(id: string, type: 'string' | 'number' = 'string') {
+function field(id: string, type: 'string' | 'number' | 'date' = 'string') {
   return { id, label: id, type } as const;
 }
 

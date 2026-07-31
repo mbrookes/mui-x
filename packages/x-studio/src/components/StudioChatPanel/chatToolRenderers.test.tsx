@@ -179,6 +179,37 @@ describe('StudioApprovalEffects', () => {
     }
   });
 
+  // The same argument, on the field beside `effects` and on the same shared budget: "the
+  // policy gave no reason" and "the reason did not fit" are opposite signals, and `reason`
+  // had no marker at all until now.
+  it('says so when the adapter withheld the policy reason', () => {
+    renderEffects({ reasonWithheld: true });
+
+    const text = screen.getByTestId('effects').textContent ?? '';
+    expect(text).to.contain(DEFAULT_STUDIO_LOCALE_TEXT.chatApprovalReasonWithheld);
+  });
+
+  it('does not claim a reason was withheld when the payload simply had none', () => {
+    for (const payload of [{}, { reasonWithheld: false }]) {
+      const { unmount } = renderEffects(payload);
+      expect(screen.queryByTestId('effects')).to.equal(null);
+      unmount();
+    }
+  });
+
+  // `effects` is charged before `reason`, so a card can keep its whole impact list and lose
+  // only its reason. Both must show.
+  it('renders a real impact list and a withheld-reason marker together', () => {
+    renderEffects({
+      willRemovePages: [{ id: 'p1', title: 'Finance' }],
+      reasonWithheld: true,
+    });
+
+    const text = screen.getByTestId('effects').textContent ?? '';
+    expect(text).to.contain('Finance');
+    expect(text).to.contain(DEFAULT_STUDIO_LOCALE_TEXT.chatApprovalReasonWithheld);
+  });
+
   // The narrowing that matters: a non-string `title` (a number, an object, a function)
   // put straight into a React child position is a crash in a non-production build, and
   // this payload came off the wire. Entries that fail the guard are dropped, not coerced.

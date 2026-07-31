@@ -977,6 +977,8 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   chatApprovalUpdatedWidgetCount: 'Widgets actualizados',
   chatApprovalEffectsWithheld:
     'Resumen de impacto no disponible: era demasiado grande para mostrarse. Rechaza esta solicitud a menos que sepas lo que hace.',
+  chatApprovalReasonWithheld:
+    'El motivo por el que esta solicitud necesita aprobación era demasiado grande para mostrarse. Rechaza esta solicitud a menos que sepas lo que hace.',
 
   // Chart unsupported messages
   chartUnsupportedFieldNotFound:

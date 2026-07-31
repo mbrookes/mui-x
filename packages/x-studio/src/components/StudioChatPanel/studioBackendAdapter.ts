@@ -442,11 +442,12 @@ export const MAX_TOOL_ID_LENGTH = 256;
  *   + enriched
  *     inputs      <=  MAX_TURN_APPROVAL_INPUT_SIZE    = 160 000 JSON chars (turn-wide, not
  *                                                                          per part)
- *   + the per-part constants a degraded card carries — a withheld marker
- *     (`{"effectsWithheld":true}`, 24) plus the `{}` an over-cap input degrades to (2):
- *                 <=  26 * MAX_TURN_TOOL_PARTS    =   1 664 JSON chars
+ *   + the per-part constants a degraded card carries — the withheld markers
+ *     (`{"effectsWithheld":true,"reasonWithheld":true}`, 46) plus the `{}` an over-cap input
+ *     degrades to (2):
+ *                 <=  48 * MAX_TURN_TOOL_PARTS    =   3 072 JSON chars
  *   --------------------------------------------------------------------------------
- *   total         <=                                    250 816 JSON chars (~245 KB) per
+ *   total         <=                                    252 224 JSON chars (~246 KB) per
  *                                                       assistant message
  *
  * INDEPENDENT of the number of `tool-approval-request` events, which is the term the
@@ -556,11 +557,11 @@ export const TOOL_OUTPUT_TRUNCATED_SUFFIX =
  *   + enriched inputs  <=  MAX_TURN_APPROVAL_INPUT_SIZE       = 160 000
  *   + model inputs     <=  MAX_TURN_TOOL_INPUT_SIZE           = 160 000
  *   + tool outputs     <=  MAX_TURN_TOOL_OUTPUT_SIZE          = 600 000
- *   + per-part constants (withheld marker 24, degraded `{}` 2,
+ *   + per-part constants (withheld markers 46, degraded `{}` 2,
  *     truncation suffix ~170)
- *                      <=  196 * MAX_TURN_TOOL_PARTS          =  12 544
+ *                      <=  218 * MAX_TURN_TOOL_PARTS          =  13 952
  *     ------------------------------------------------------------------
- *     total                                                     1 021 696 JSON chars (~998 KB)
+ *     total                                                     1 023 104 JSON chars (~999 KB)
  *
  * Conservative twice over: `toolInvocation.input` is ONE field that both input budgets write
  * to (last write wins, so they cannot both be present), and a turn spending the whole output
@@ -1564,6 +1565,11 @@ Check the endpoint URL, its authentication headers, and the server logs for this
               // `effectsWithheld` is charged nothing: it is a constant ~24 characters and its
               // count is already bounded by `MAX_TURN_TOOL_PARTS`.
               let effects: Record<string, unknown> | undefined;
+              // The markers that make a WITHHELD payload distinguishable from an ABSENT one.
+              // Collected rather than assigned straight onto `effects`, because more than one
+              // can apply to the same card and they must not overwrite each other or the real
+              // summary: a card can lose its impact list AND its reason to the same budget.
+              const withheldMarkers: Record<string, true> = {};
               const candidateEffects = sanitizeApprovalEffects(rawApproval.effects);
               if (candidateEffects) {
                 const effectsSize = wireValueSize(candidateEffects);
@@ -1571,7 +1577,7 @@ Check the endpoint URL, its authentication headers, and the server logs for this
                   turnApprovalSize += effectsSize;
                   effects = candidateEffects;
                 } else {
-                  effects = { effectsWithheld: true };
+                  withheldMarkers.effectsWithheld = true;
                   warnApprovalOnce(
                     'approval-effects-budget',
                     `A tool approval request's impact summary was withheld: this response has ` +
@@ -1584,7 +1590,7 @@ Check the endpoint URL, its authentication headers, and the server logs for this
                 // The server sent a summary and the sanitizer rejected all of it — an
                 // over-limit list, or nothing well-typed enough to render. Same user-visible
                 // outcome, different cause, so the console message is different.
-                effects = { effectsWithheld: true };
+                withheldMarkers.effectsWithheld = true;
                 warnApprovalOnce(
                   'approval-effects-shape',
                   `A tool approval request's impact summary was withheld: it exceeded this ` +
@@ -1597,17 +1603,41 @@ Check the endpoint URL, its authentication headers, and the server logs for this
               // itself: JSON characters. Charging `String.prototype.length` here — which is
               // what shipped — spent a 40 000-JSON-character budget in raw UTF-16 units, so
               // four at-cap control-character reasons charged 40 000 and persisted 240 008.
+              //
+              // …and a withheld `reason` is ANNOUNCED, on exactly the argument that made
+              // `effectsWithheld` necessary: "the policy gave no reason" and "the reason did
+              // not fit" are opposite signals and used to render identically. They share ONE
+              // budget, spent in arrival order, so the case is the same one and is if anything
+              // more likely — `effects` is charged first, so a card can lose only its reason
+              // while keeping its impact list, and a reader who sees the list has every
+              // reason to assume nothing else was suppressed.
               let policyReason: string | undefined;
               const reasonSize =
                 typeof rawApproval.reason === 'string' ? wireStringSize(rawApproval.reason) : 0;
-              if (
-                typeof rawApproval.reason === 'string' &&
-                rawApproval.reason !== '' &&
-                reasonSize <= MAX_STRING_LENGTH &&
-                turnApprovalSize + reasonSize <= MAX_TURN_APPROVAL_SIZE
-              ) {
-                turnApprovalSize += reasonSize;
-                policyReason = rawApproval.reason;
+              if (typeof rawApproval.reason === 'string' && rawApproval.reason !== '') {
+                if (reasonSize > MAX_STRING_LENGTH) {
+                  withheldMarkers.reasonWithheld = true;
+                  warnApprovalOnce(
+                    'approval-reason-size',
+                    `A tool approval request's reason was withheld: it is longer than the ` +
+                      `${MAX_STRING_LENGTH} characters this client stores for one. The card says ` +
+                      `so and states no reason, so deny the request unless you know what it ` +
+                      `does. Check what the AI endpoint is sending as \`reason\`.`,
+                  );
+                } else if (turnApprovalSize + reasonSize > MAX_TURN_APPROVAL_SIZE) {
+                  withheldMarkers.reasonWithheld = true;
+                  warnApprovalOnce(
+                    'approval-reason-budget',
+                    `A tool approval request's reason was withheld: this response has already ` +
+                      `used its ${MAX_TURN_APPROVAL_SIZE}-character budget for approval ` +
+                      `summaries and reasons, which are stored in the saved dashboard. The card ` +
+                      `says so and states no reason, so deny the request unless you know what it ` +
+                      `does.`,
+                  );
+                } else {
+                  turnApprovalSize += reasonSize;
+                  policyReason = rawApproval.reason;
+                }
               }
               // The display-enriched `input`, capped per card AND per turn.
               //
@@ -1647,13 +1677,21 @@ Check the endpoint URL, its authentication headers, and the server logs for this
                     `does. Check what the AI endpoint is sending as the request's input.`,
                 );
               }
+              // The real summary and the withheld markers ride the same field, because
+              // `effects` is the only payload `ToolPart`'s `approvalDetails` slot receives.
+              // Merged, not either/or: a card whose impact list fit but whose reason did not
+              // must show both.
+              const cardEffects =
+                effects || Object.keys(withheldMarkers).length > 0
+                  ? { ...effects, ...withheldMarkers }
+                  : undefined;
               streamController.enqueue({
                 type: 'tool-approval-request',
                 ...(approvalId ? { approvalId } : {}),
                 toolCallId: approvalToolCallId,
                 toolName: approvalToolName,
                 input: approvalInput,
-                ...(effects ? { effects } : {}),
+                ...(cardEffects ? { effects: cardEffects } : {}),
                 ...(policyReason ? { reason: policyReason } : {}),
               });
             } else if (type === 'state-mutation') {

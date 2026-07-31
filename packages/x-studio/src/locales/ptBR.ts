@@ -970,6 +970,8 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   chatApprovalUpdatedWidgetCount: 'Widgets atualizados',
   chatApprovalEffectsWithheld:
     'Resumo de impacto indisponível: era grande demais para ser exibido. Recuse esta solicitação a menos que saiba o que ela faz.',
+  chatApprovalReasonWithheld:
+    'O motivo pelo qual esta solicitação precisa de aprovação era grande demais para ser exibido. Recuse esta solicitação a menos que saiba o que ela faz.',
 
   // Chart unsupported messages
   chartUnsupportedFieldNotFound:

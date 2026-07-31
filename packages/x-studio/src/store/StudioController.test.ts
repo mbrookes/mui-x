@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { MockInstance } from 'vitest';
-import { applyMutation } from '@mui/x-studio-schema';
+import {
+  applyMutation,
+  deserializeState,
+  pruneDependsOnAgainstSelf,
+  serializeState,
+} from '@mui/x-studio-schema';
 import type { SerializedStudioSession, SerializedStudioSnapshot } from '@mui/x-studio-schema';
 import { StudioController } from './StudioController';
 import { studioRequestCache } from '../internals/StudioRequestCache';
@@ -6571,5 +6576,70 @@ describe('StudioController constructor — unswept initialState layout warning (
     new StudioController({ doc: { widgets: { w1: makeWidget('w1') } } });
     expect(warnSpy).not.toHaveBeenCalled();
     warnSpy.mockRestore();
+  });
+});
+
+// ─── R6 seam: a scripted edit session's LIVE doc satisfies the load boundary ──
+
+describe('StudioController — live doc satisfies the load boundary', () => {
+  /**
+   * Nothing in either package's suite drove a controller through the real reducer and then
+   * asserted the cross-package invariants on the result: the schema suite exercises the pure
+   * functions with hand-built docs, and the controller suite asserts one method at a time.
+   * This is the seam test — a scripted (deterministic, not fuzzed) session over the PUBLIC
+   * controller API, after which the live doc must survive `serializeState` →
+   * `deserializeState` with the load boundary changing nothing except the two documented
+   * session-scope strips. Every defect this round found was of that shape: a writer accepted
+   * something live that the load boundary then silently dropped or rewrote.
+   */
+  it('round-trips with the load boundary changing nothing but the session-scope strip', () => {
+    const controller = new StudioController();
+    const firstPageId = controller.getState().doc.dashboard.activePageId;
+
+    controller.addWidget(makeWidget('w1'));
+    controller.addWidget(makeWidget('w2'));
+    const secondPageId = controller.addPage('Second');
+    controller.setActivePage(secondPageId);
+    controller.addWidget(makeWidget('w3'));
+    controller.setActivePage(firstPageId);
+
+    controller.addFilter(makeFilter({ id: 'f1' }));
+    controller.addFilter(makeFilter({ id: 'f2', dependsOn: ['f1'] }));
+    controller.addFilter(makeFilter({ id: 'f3', scope: { kind: 'widget', widgetId: 'w1' } }));
+    controller.updateFilter('f3', { value: 'narrowed' });
+
+    // Session-scoped entries, plus a filter that DEPENDS on a page filter about to be cleared.
+    controller.applyCrossFilter('w1', 'category', 'Books');
+    controller.applyInteractiveFilter('w2', 'region', 'equals', 'EU');
+    controller.updateFilter('f3', { dependsOn: ['f2'] });
+    controller.clearPageFilters();
+
+    controller.setAdjacentWidgetColSpans('w1', 8, 'w2', 16, MIN_SPAN, MIN_SPAN);
+    controller.duplicateWidget('w1');
+    controller.updateActivePage({ title: 'Renamed' });
+
+    const live = controller.getState().doc;
+
+    // 1. No dangling `dependsOn` in the LIVE doc — the invariant `pruneDependsOn` claims and
+    //    the only class a controller fuzz found (R6 F3).
+    const liveIds = new Set(live.filters.map((f: StudioFilterState) => f.id));
+    for (const filter of live.filters) {
+      for (const dependencyId of filter.dependsOn ?? []) {
+        expect(liveIds.has(dependencyId)).toBe(true);
+      }
+    }
+
+    // 2. The load boundary changes nothing except stripping the two session-scoped kinds
+    //    (which `serializeDoc` documents) and cascading that strip into `dependsOn`.
+    const loaded = deserializeState(serializeState(controller.getState()), {}).doc;
+    const expectedFilters = pruneDependsOnAgainstSelf(
+      live.filters.filter(
+        (f: StudioFilterState) => f.scope.kind !== 'cross-filter' && f.scope.kind !== 'interactive',
+      ),
+    );
+    expect(loaded.filters).toEqual(expectedFilters);
+    expect(loaded.pages).toEqual(live.pages);
+    expect(loaded.widgets).toEqual(live.widgets);
+    expect(loaded.dashboard).toEqual(live.dashboard);
   });
 });

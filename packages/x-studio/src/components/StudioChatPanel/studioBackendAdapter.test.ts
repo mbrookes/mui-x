@@ -6,6 +6,7 @@ import { MAX_ARRAY_LENGTH, MAX_STRING_LENGTH, UNSAFE_KEYS } from '@mui/x-studio-
 import {
   createBackendChatAdapter,
   MAX_METADATA_KEY_LENGTH,
+  MAX_TURN_APPROVAL_SIZE,
   MAX_TURN_METADATA_SIZE,
 } from './studioBackendAdapter';
 import { createDefaultStudioState } from '../../models/stateTypes';
@@ -389,6 +390,15 @@ describe('createBackendChatAdapter: tool-activity', () => {
 // `@mui/x-studio-ai-middleware` does not emit `approvalId` yet, so this half is inert until
 // it does — forward-compatible by design.
 
+type ApprovalChunk = ChatMessageChunk & {
+  approvalId?: string;
+  toolCallId: string;
+  toolName: string;
+  input: unknown;
+  effects?: Record<string, unknown>;
+  reason?: string;
+};
+
 describe('createBackendChatAdapter: tool-approval-request', () => {
   async function collectApprovalChunk(event: Record<string, unknown>) {
     mockFetch(makeSseBody([event, { type: 'finish', finishReason: 'stop' }]));
@@ -397,14 +407,36 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
     const stream = await adapter.sendMessage(makeSendInput([]));
     const chunks = (await collectChunks(stream)).filter(isChatMessageChunk);
     vi.unstubAllGlobals();
-    return chunks.find((c) => c.type === 'tool-approval-request') as
-      | (ChatMessageChunk & {
-          approvalId?: string;
-          toolCallId: string;
-          toolName: string;
-          input: unknown;
-        })
-      | undefined;
+    return chunks.find((c) => c.type === 'tool-approval-request') as ApprovalChunk | undefined;
+  }
+
+  /** Every approval chunk of one turn, for the budget tests below (which need more than one). */
+  async function collectApprovalChunks(events: Record<string, unknown>[]) {
+    mockFetch(makeSseBody([...events, { type: 'finish', finishReason: 'stop' }]));
+    const config: StudioAIConfig = { endpoint: 'https://fake.test/api/ai' };
+    const adapter = createBackendChatAdapter(config, makeController());
+    const stream = await adapter.sendMessage(makeSendInput([]));
+    const chunks = (await collectChunks(stream)).filter(isChatMessageChunk);
+    vi.unstubAllGlobals();
+    return chunks.filter((c) => c.type === 'tool-approval-request') as ApprovalChunk[];
+  }
+
+  function approvalEvent(index: number, extra: Record<string, unknown>) {
+    return {
+      type: 'tool-approval-request',
+      toolCallId: `call-${index}`,
+      toolName: 'apply_bulk_update',
+      input: {},
+      ...extra,
+    };
+  }
+
+  /** A well-typed `{ id, title }` list of `count` entries, each title `titleLength` long. */
+  function entities(count: number, titleLength: number) {
+    return Array.from({ length: count }, (_unused, i) => ({
+      id: `w${i}`,
+      title: 'T'.repeat(titleLength),
+    }));
   }
 
   it('forwards approvalId when the event carries one', async () => {
@@ -455,6 +487,144 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
     expect(chunk!.approvalId).toBe(undefined);
     expect(chunk!.toolCallId).toBe('call-1');
     expect(chunk!.toolName).toBe('add_widget');
+  });
+
+  // ── effects/reason size limits ──────────────────────────────────────────────
+  //
+  // `effects` and `reason` land on `toolInvocation.approvalRequest` — a message PART, which
+  // `useChatThreads.handleMessagesChange` writes into `doc.ai.threads[].messages` exactly
+  // like `metadata`, with no load-boundary screen on the way back in. Narrowing the key set
+  // and the value TYPES (which is all `sanitizeApprovalEffects` used to do) bounds neither
+  // list length nor string length: measured from ONE event,
+  // `effectsBytes=10167825 reasonChars=1000000`.
+
+  it('keeps a well-formed effects payload that is inside every limit', async () => {
+    const effects = {
+      willRemoveWidgets: entities(3, 20),
+      willRemoveFilters: ['f1', 'f2'],
+      updatedWidgetCount: 4,
+    };
+    const chunk = await collectApprovalChunk(
+      approvalEvent(1, { effects, reason: 'policy says no' }),
+    );
+
+    // The cap is a boundary, not a ban: nothing about a real approval changes.
+    expect(chunk!.effects).toEqual(effects);
+    expect(chunk!.reason).toBe('policy says no');
+  });
+
+  it('drops the whole effects payload when a list is longer than the shared array cap', async () => {
+    const chunk = await collectApprovalChunk(
+      approvalEvent(1, {
+        effects: {
+          willRemoveWidgets: entities(MAX_ARRAY_LENGTH + 1, 8),
+          updatedWidgetCount: 2,
+        },
+      }),
+    );
+
+    // All-or-nothing, deliberately: a SHORTENED "will remove" list understates the impact a
+    // human is approving — worse than showing none, which is the card's pre-`effects` shape.
+    expect(chunk!.effects).toBe(undefined);
+  });
+
+  it('drops the whole effects payload when an entity title is over the shared string cap', async () => {
+    const chunk = await collectApprovalChunk(
+      approvalEvent(1, {
+        effects: { willRemoveWidgets: entities(1, MAX_STRING_LENGTH + 1) },
+      }),
+    );
+
+    expect(chunk!.effects).toBe(undefined);
+  });
+
+  it('drops a `reason` over the shared string cap, keeping the rest of the chunk', async () => {
+    const chunk = await collectApprovalChunk(
+      approvalEvent(1, {
+        effects: { updatedWidgetCount: 1 },
+        reason: 'r'.repeat(MAX_STRING_LENGTH + 1),
+      }),
+    );
+
+    expect(chunk!.reason).toBe(undefined);
+    // Dropped individually — the approval card itself, and its effects, still render.
+    expect(chunk!.effects).toEqual({ updatedWidgetCount: 1 });
+    expect(chunk!.toolCallId).toBe('call-1');
+  });
+
+  it('spends ONE effects/reason budget across every approval event of the turn', async () => {
+    // Each event is individually legal: 400 entities well under `MAX_ARRAY_LENGTH`, titles
+    // well under `MAX_STRING_LENGTH`. ~10 KB of serialized effects apiece, so a per-EVENT
+    // limit accepts all six and puts ~60 KB on one message.
+    const events = Array.from({ length: 6 }, (_unused, i) =>
+      approvalEvent(i, { effects: { willRemoveWidgets: entities(400, 12) } }),
+    );
+    const chunks = await collectApprovalChunks(events);
+
+    // Every approval still gets a card — only the oversized payload is withheld.
+    expect(chunks).toHaveLength(6);
+    const charged = chunks.reduce(
+      (total, chunk) => total + (chunk.effects ? JSON.stringify(chunk.effects)!.length : 0),
+      0,
+    );
+    expect(charged).toBeLessThanOrEqual(MAX_TURN_APPROVAL_SIZE);
+    // The later approvals degrade to the pre-`effects` card rather than growing the doc.
+    expect(chunks.at(-1)!.effects).toBe(undefined);
+    expect(chunks[0].effects).not.toBe(undefined);
+  });
+
+  it('spends the same turn budget on `reason`, not a separate one', async () => {
+    const reason = 'r'.repeat(MAX_STRING_LENGTH);
+    const events = Array.from({ length: 6 }, (_unused, i) => approvalEvent(i, { reason }));
+    const chunks = await collectApprovalChunks(events);
+
+    const charged = chunks.reduce((total, chunk) => total + (chunk.reason?.length ?? 0), 0);
+    expect(charged).toBeLessThanOrEqual(MAX_TURN_APPROVAL_SIZE);
+    expect(chunks.filter((chunk) => chunk.reason !== undefined)).toHaveLength(
+      MAX_TURN_APPROVAL_SIZE / MAX_STRING_LENGTH,
+    );
+  });
+
+  // `input` is the one field on this chunk that is NOT capped, and that is a decision, not an
+  // oversight: it never survives into the persisted message. The model's own arguments are
+  // re-asserted over this display-enriched copy at every settle point — here, by
+  // `flushApprovalGatedInputs` on the ordinary `finish` path.
+  it('forwards `input` verbatim, and the settle re-asserts the model arguments over it', async () => {
+    const bigInput = { note: 'n'.repeat(MAX_STRING_LENGTH + 1) };
+    mockFetch(
+      makeSseBody([
+        {
+          type: 'tool-activity',
+          phase: 'start',
+          toolCallId: 'call-1',
+          toolName: 'apply_bulk_update',
+          input: { widgetRemovals: ['w1'] },
+        },
+        {
+          type: 'tool-approval-request',
+          toolCallId: 'call-1',
+          toolName: 'apply_bulk_update',
+          input: bigInput,
+        },
+        { type: 'finish', finishReason: 'stop' },
+      ]),
+    );
+    const adapter = createBackendChatAdapter(
+      { endpoint: 'https://fake.test/api/ai' },
+      makeController(),
+    );
+    const stream = await adapter.sendMessage(makeSendInput([]));
+    const chunks = (await collectChunks(stream)).filter(isChatMessageChunk);
+    vi.unstubAllGlobals();
+
+    const approval = chunks.find((c) => c.type === 'tool-approval-request') as ApprovalChunk;
+    expect(approval.input).toEqual(bigInput);
+    // …and the LAST write to `toolInvocation.input` — the one that persists — is the model's
+    // own arguments, so capping the approval copy would bound nothing that outlives the card.
+    const lastInputAvailable = chunks.filter((c) => c.type === 'tool-input-available').at(-1) as {
+      input: unknown;
+    };
+    expect(lastInputAvailable.input).toEqual({ widgetRemovals: ['w1'] });
   });
 });
 

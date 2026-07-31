@@ -274,18 +274,93 @@ function sanitizeEffectEntities(value: unknown): Array<{ id: string; title: stri
 }
 
 /**
+ * Total serialized size, in JSON characters, that ONE assistant turn may contribute to the
+ * persisted approval payloads (`effects` plus `reason`), summed across every
+ * `tool-approval-request` event in that turn's stream.
+ *
+ * Same sink and same reasoning as {@link MAX_TURN_METADATA_SIZE}: `processStream` writes
+ * both onto `toolInvocation.approvalRequest`, i.e. onto a message PART, which
+ * `useChatThreads.handleMessagesChange` persists into `doc.ai.threads[].messages` exactly
+ * like `metadata`, with no load-boundary screen on the way back in. Measured before this
+ * cap, from ONE `tool-approval-request` event:
+ * `effectsBytes=10167825 reasonChars=1000000` — 11 MB, and unbounded in the event count.
+ *
+ * `4 * MAX_STRING_LENGTH` = 40 000 characters, twice `MAX_TURN_METADATA_SIZE`'s multiple
+ * because a turn legitimately carries one approval per gated tool call (whereas metadata is
+ * typically one usage summary), and the client cannot rely on the server's own iteration
+ * budget — the server is the untrusted party here.
+ *
+ * Exported for the tests only — see {@link MAX_METADATA_KEY_LENGTH}.
+ */
+export const MAX_TURN_APPROVAL_SIZE = 4 * MAX_STRING_LENGTH;
+
+/**
+ * Whether an approval `effects` payload's lists are within the shared wire limits, checked
+ * BEFORE narrowing so the answer covers the raw wire shape.
+ *
+ * Deliberately all-or-nothing (the caller drops the whole `effects` object on `false`)
+ * rather than truncating a list or dropping over-long entries: this payload is the impact
+ * summary a human reads before approving a destructive call, and a silently SHORTENED
+ * "will remove" list understates that impact — strictly worse than showing none, which
+ * degrades the card to the shape it had before `effects` existed at all.
+ */
+function isWithinApprovalListLimits(value: Record<string, unknown>): boolean {
+  for (const key of [
+    'willRemoveWidgets',
+    'willRemovePages',
+    'willOrphanWidgets',
+    'willRemoveFilters',
+  ] as const) {
+    const list = value[key];
+    if (!Array.isArray(list)) {
+      continue;
+    }
+    if (list.length > MAX_ARRAY_LENGTH) {
+      return false;
+    }
+    for (const entry of list) {
+      if (typeof entry === 'string') {
+        if (entry.length > MAX_STRING_LENGTH) {
+          return false;
+        }
+      } else if (isPlainRecord(entry)) {
+        if (
+          (typeof entry.id === 'string' && entry.id.length > MAX_STRING_LENGTH) ||
+          (typeof entry.title === 'string' && entry.title.length > MAX_STRING_LENGTH)
+        ) {
+          return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
+/**
  * The `effects` summary attached to a `tool-approval-request` event: which
  * widgets/pages/filters the proposed call will remove, which widgets it will orphan,
  * and how many it will update — each entity carrying its CURRENT title, read
  * server-side from the pre-mutation state.
  *
- * Sanitized on the same principle as `message-metadata` (below): these strings exist to
- * be RENDERED next to an approve/deny button, so a non-string title from a malformed
- * event must never reach JSX. Returns `undefined` when nothing survived, so the key is
- * omitted rather than forwarded empty.
+ * Sanitized on the same principle as `message-metadata` (below) — and that sentence is only
+ * true because of the size limits here. Narrowing the key set and the value TYPES bounds
+ * neither the list lengths nor the string lengths, so before these checks one event could
+ * (measured) put 10 MB of well-typed `{ id, title }` entries into the persisted doc through
+ * `toolInvocation.approvalRequest`, which is the same sink `metadata` writes to. Bounding
+ * one of two adjacent doors bounds nothing.
+ *
+ * Two limits, both shared with the rest of the boundary rather than re-spelled here:
+ * per-list length and per-string length (`isWithinApprovalListLimits`, all-or-nothing), plus
+ * a per-turn total the CALLER charges against {@link MAX_TURN_APPROVAL_SIZE}, because — as
+ * with `message-metadata` — a per-event limit multiplied by an unbounded event count is not
+ * a limit.
+ *
+ * These strings also exist to be RENDERED next to an approve/deny button, so a non-string
+ * title from a malformed event must never reach JSX. Returns `undefined` when nothing
+ * survived, so the key is omitted rather than forwarded empty.
  */
 function sanitizeApprovalEffects(value: unknown): Record<string, unknown> | undefined {
-  if (!isPlainRecord(value)) {
+  if (!isPlainRecord(value) || !isWithinApprovalListLimits(value)) {
     return undefined;
   }
   const effects: Record<string, unknown> = {};
@@ -448,6 +523,13 @@ export function createBackendChatAdapter(
       // See `MAX_TURN_METADATA_SIZE` for the arithmetic.
       let turnMetadataKeys = 0;
       let turnMetadataSize = 0;
+
+      // The same discipline for the adjacent door: `effects`/`reason` land on
+      // `toolInvocation.approvalRequest`, a message PART, persisted by the same
+      // `handleMessagesChange` write as `metadata`. One approval per gated tool call, an
+      // unbounded number of events — so the budget spans the turn, not the event.
+      // See `MAX_TURN_APPROVAL_SIZE`.
+      let turnApprovalSize = 0;
 
       // Helper: close the synthetic "Thinking…" reasoning part once real content arrives.
       const endReasoning = (
@@ -900,16 +982,57 @@ Check the endpoint URL, its authentication headers, and the server logs for this
               // renderer narrows again on its side (the field is `unknown` there) —
               // both, deliberately, because either one alone is one edit away from
               // being the only guard.
-              const effects = sanitizeApprovalEffects(rawApproval.effects);
-              const policyReason =
-                typeof rawApproval.reason === 'string' && rawApproval.reason !== ''
-                  ? rawApproval.reason
-                  : undefined;
+              //
+              // …and it is SIZE-capped, not only type-narrowed, because this is the same
+              // persisted sink `message-metadata` writes to: `processStream` puts both
+              // fields on `toolInvocation.approvalRequest`, a message part, which
+              // `useChatThreads.handleMessagesChange` writes into `doc.ai.threads[].messages`
+              // with no load-boundary screen on the way back. Both are charged, all-or-
+              // nothing, against a budget spanning the whole TURN (`turnApprovalSize`) — a
+              // per-event limit times an unbounded event count is not a limit. Once the
+              // budget is spent the card degrades to the shape it had before `effects` and
+              // `reason` existed, which is honest; a truncated impact list would not be.
+              let effects: Record<string, unknown> | undefined;
+              const candidateEffects = sanitizeApprovalEffects(rawApproval.effects);
+              if (candidateEffects) {
+                const effectsSize = wireValueSize(candidateEffects);
+                if (turnApprovalSize + effectsSize <= MAX_TURN_APPROVAL_SIZE) {
+                  turnApprovalSize += effectsSize;
+                  effects = candidateEffects;
+                }
+              }
+              let policyReason: string | undefined;
+              if (
+                typeof rawApproval.reason === 'string' &&
+                rawApproval.reason !== '' &&
+                rawApproval.reason.length <= MAX_STRING_LENGTH &&
+                turnApprovalSize + rawApproval.reason.length <= MAX_TURN_APPROVAL_SIZE
+              ) {
+                turnApprovalSize += rawApproval.reason.length;
+                policyReason = rawApproval.reason;
+              }
               streamController.enqueue({
                 type: 'tool-approval-request',
                 ...(approvalId ? { approvalId } : {}),
                 toolCallId: approvalToolCallId,
                 toolName: String(rawApproval.toolName ?? ''),
+                // `input` is deliberately NOT capped here, and that is not an oversight.
+                //
+                // It never survives into the persisted message: this chunk's `input` is the
+                // DISPLAY-enriched one, and the model's own arguments are re-asserted over it
+                // at every settle point — by the `tool-activity` `complete` branch mid-stream,
+                // and by `flushApprovalGatedInputs` from BOTH `closeStream` and `errorStream`
+                // otherwise. So a cap here would bound nothing that outlives the confirmation
+                // card, while costing the card exactly the enrichment it exists for (real
+                // titles instead of opaque ids) and, when it fired, asking a human to approve
+                // a destructive call rendered as `{}`.
+                //
+                // The `input` that IS persisted is `modelToolInputs`' copy, captured from
+                // `tool-activity` — the model's own tool arguments, which `toOpenAIMessages`
+                // replays verbatim on the next request. Capping THAT is what `367deaa`
+                // deliberately undid (a doctored `input` teaches the model a shape its own
+                // schema rejects), so it stays a known, uncapped channel rather than a
+                // silently corrupted one.
                 input: rawApproval.input ?? {},
                 ...(effects ? { effects } : {}),
                 ...(policyReason ? { reason: policyReason } : {}),

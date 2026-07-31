@@ -224,3 +224,71 @@ describe('extractSecurityClaims — payload-shape edge cases', () => {
     });
   });
 });
+
+/**
+ * The `department` claim's runtime shape guard (F16).
+ *
+ * `tenantId` and `regionIds` both have their non-string / non-array guards
+ * covered above; `department` — typed `string | undefined` on
+ * `JwtSecurityClaims` — did not. Without the guard a non-string value flows
+ * straight through TYPED as a string into the department security predicate and
+ * into `validateMutation`'s department-scope comparison, i.e. into row-level
+ * access decisions, having never been one.
+ */
+describe('extractSecurityClaims — department claim shape (F16)', () => {
+  it('accepts a string department, and an omitted one', () => {
+    expect(
+      extractSecurityClaims(
+        `Bearer ${makeJwt({ sub: 'u1', tenantId: 'acme', department: 'Sales' }, SECRET)}`,
+        SECRET,
+      ).department,
+    ).toBe('Sales');
+    expect(
+      extractSecurityClaims(`Bearer ${makeJwt({ sub: 'u1', tenantId: 'acme' }, SECRET)}`, SECRET)
+        .department,
+    ).toBeUndefined();
+  });
+
+  it.each([
+    ['number', 42],
+    ['boolean', true],
+    ['array', ['Sales']],
+    ['object', { name: 'Sales' }],
+    ['null', null],
+  ])('rejects a %s department claim', (_label, department) => {
+    const token = makeJwt({ sub: 'u1', tenantId: 'acme', department }, SECRET);
+    expect(() => extractSecurityClaims(`Bearer ${token}`, SECRET)).toThrow(
+      /JWT "department" claim must be a string/,
+    );
+  });
+});
+
+/**
+ * The JWT part-count guard (F18).
+ *
+ * A token that is not `header.payload.signature` cannot be verified at all. The
+ * guard exists and works, but its MESSAGE was never asserted, so it was
+ * indistinguishable from the generic signature failure below it — and a
+ * two-part token would otherwise reach `Buffer.from(undefined, 'base64url')`.
+ */
+describe('extractSecurityClaims — malformed JWT part count (F18)', () => {
+  it.each([
+    ['one part', 'notajwt'],
+    ['two parts', 'header.payload'],
+    ['four parts', 'a.b.c.d'],
+    ['five parts', 'a.b.c.d.e'],
+  ])('rejects a token with %s, naming the part count as the reason', (_label, token) => {
+    expect(() => extractSecurityClaims(`Bearer ${token}`, SECRET)).toThrow(
+      /Malformed JWT — expected 3 parts/,
+    );
+  });
+
+  it('does NOT use the part-count message for a well-formed token with a bad signature', () => {
+    // The distinction the message exists to draw: three parts is a SIGNATURE
+    // failure, not a shape failure.
+    const [header, payload] = makeJwt({ sub: 'u1', tenantId: 'acme' }, SECRET).split('.');
+    expect(() => extractSecurityClaims(`Bearer ${header}.${payload}.tampered`, SECRET)).toThrow(
+      /signature verification failed/,
+    );
+  });
+});

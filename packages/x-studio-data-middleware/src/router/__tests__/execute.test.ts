@@ -9,7 +9,12 @@
  */
 import { describe, it, expect } from 'vitest';
 import Knex from 'knex';
-import { createRowBudget, executeForTier, MAX_RESULT_ROWS } from '../execute';
+import {
+  chargeRowBudgetOrThrow,
+  createRowBudget,
+  executeForTier,
+  MAX_RESULT_ROWS,
+} from '../execute';
 import { validateQueryPlan } from '../../security/validateQueryPlan';
 import type { JwtSecurityClaims, BatchWidgetDescriptor } from '../../security/types';
 
@@ -331,6 +336,29 @@ describe('executeForTier — aggregate result normalization (F2)', () => {
       { tenancy: SINGLE_TENANT },
     );
     expect(rows).toEqual([{ total: 'not-a-number' }]);
+  });
+
+  it('leaves a BLANK aggregate string alone instead of turning it into a real 0 (F11)', async () => {
+    // `Number('')` and `Number('   ')` are both a finite `0`, so without the
+    // explicit blank-string test the "is it finite?" guard turns "no value" into
+    // a genuine zero total — the same mistake the NULL passthrough above avoids,
+    // arriving through a different door. Dropping `value.trim() === ''` from the
+    // guard survived the whole suite.
+    const db = createRowsDb([{ category: 'books', total: '', n: '   ' }]);
+    const rows = await executeForTier(
+      db,
+      BASE_CLAIMS,
+      descriptor({
+        columns: ['category'],
+        aggregations: [
+          { column: 'amount', func: 'sum', alias: 'total' },
+          { column: 'amount', func: 'count', alias: 'n' },
+        ],
+      }),
+      'db',
+      { tenancy: SINGLE_TENANT },
+    );
+    expect(rows).toEqual([{ category: 'books', total: '', n: '   ' }]);
   });
 
   it('does NOT coerce min/max output, whose type is the source column type', async () => {
@@ -679,6 +707,39 @@ describe('executeForTier — per-request row budget (finding H2)', () => {
     await executeForTier(db, BASE_CLAIMS, descriptor(), 'server', OPTIONS, undefined, budget);
     expect(limits).toEqual([10, 6]);
     expect(budget.remaining).toBe(2);
+  });
+
+  it('serves a widget that fits the remaining budget EXACTLY, and rejects one row more (F17)', async () => {
+    // The boundary itself: `rowCount > budget.remaining` throws, `===` does not.
+    // Every other budget test sits well clear of it, so `>` vs `>=` — a widget
+    // that fits exactly being wrongly starved — was indistinguishable.
+    const exact = createResolvingDb(5);
+    const budgetExact = createRowBudget(5);
+    await expect(
+      executeForTier(
+        exact.db,
+        BASE_CLAIMS,
+        descriptor({ limit: 5 }),
+        'server',
+        OPTIONS,
+        undefined,
+        budgetExact,
+      ),
+    ).resolves.toHaveLength(5);
+    expect(budgetExact.remaining).toBe(0);
+
+    // One row over the allowance fails rather than being silently shortened.
+    const over = createResolvingDb(6);
+    const budgetOver = createRowBudget(5);
+    // The LIMIT is clamped to the remaining budget, so drive the overshoot
+    // through the charge directly — the exact path a cache hit / dedup takes.
+    expect(() => chargeRowBudgetOrThrow(budgetOver, 6)).toThrow(/shared row budget is exhausted/);
+    // A rejected charge leaves the allowance UNTOUCHED, so a smaller sibling can
+    // still be served.
+    expect(budgetOver.remaining).toBe(5);
+    expect(() => chargeRowBudgetOrThrow(budgetOver, 5)).not.toThrow();
+    expect(budgetOver.remaining).toBe(0);
+    expect(over.queriesRun()).toBe(0);
   });
 
   it('FAILS without querying once the budget is exhausted, instead of returning []', async () => {

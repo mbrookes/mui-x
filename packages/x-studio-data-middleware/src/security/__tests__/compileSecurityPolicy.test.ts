@@ -561,3 +561,55 @@ describe('compileSecurityPolicy — columnAllowlist digest folding', () => {
     expect(empty.digest).not.toBe(omitted.digest);
   });
 });
+
+/**
+ * The policy digest's WIDTH (F20).
+ *
+ * The digest is what separates two differently-scoped deployments' cache
+ * entries: `generateCacheKey` folds it in, so two policies that hash to the same
+ * digest share cache entries. Truncating a SHA-256 to 16 hex characters leaves 64
+ * bits, which is a negligible collision probability; truncating it to 2 leaves 8
+ * bits, and two differently-scoped policies then collide roughly one time in 256
+ * — silently serving one deployment's rows to another.
+ *
+ * Nothing asserted the width, so shortening the slice survived: every existing
+ * digest test compares digests to EACH OTHER, and a shorter digest still differs
+ * for the handful of policies any one test compares.
+ */
+describe('compileSecurityPolicy — the digest is wide enough to be collision-free (F20)', () => {
+  it('is a 16-character lowercase hex string', () => {
+    const digest = compileSecurityPolicy({ tenancy: SINGLE_TENANT }).digest;
+    expect(digest).toMatch(/^[a-f0-9]{16}$/);
+  });
+
+  it('keeps hundreds of distinct policies distinct', () => {
+    // At `.slice(0, 2)` (8 bits) this set collides with overwhelming probability;
+    // at 16 characters (64 bits) it cannot. Directly exercises the property the
+    // truncation width buys, rather than the digest's exact value.
+    const digests = new Set<string>();
+    for (let i = 0; i < 500; i += 1) {
+      digests.add(
+        compileSecurityPolicy({
+          tenancy: MULTI_TENANT,
+          schemaAllowlist: [`table_${i}`],
+        }).digest,
+      );
+    }
+    expect(digests.size).toBe(500);
+  });
+
+  it('gives those policies distinct CACHE KEYS, which is what the width protects', () => {
+    const SECRET = 'policy-digest-width-secret';
+    const descriptor: BatchWidgetDescriptor = { id: 'w1', table: 'orders' };
+    const claims: JwtSecurityClaims = { tenantId: 'acme', userId: 'u1', roleIds: [] };
+    const keys = new Set<string>();
+    for (let i = 0; i < 500; i += 1) {
+      const { digest } = compileSecurityPolicy({
+        tenancy: MULTI_TENANT,
+        schemaAllowlist: [`table_${i}`],
+      });
+      keys.add(generateCacheKey(claims, descriptor, SECRET, digest));
+    }
+    expect(keys.size).toBe(500);
+  });
+});

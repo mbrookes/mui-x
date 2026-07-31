@@ -287,7 +287,11 @@ describe('createRowSourceDb models predicates instead of ignoring them', () => {
             id: 'joined',
             table: 'sales',
             joins: [
-              { table: 'regions', type: 'left' as const, on: [['sales.id', 'regions.id'] as [string, string]] },
+              {
+                table: 'regions',
+                type: 'left' as const,
+                on: [['sales.id', 'regions.id'] as [string, string]],
+              },
             ],
           },
         ],

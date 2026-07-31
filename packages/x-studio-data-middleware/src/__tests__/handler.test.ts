@@ -1086,6 +1086,89 @@ describe('handleBatchQuery — per-array size caps (finding Tier3 resource exhau
     expect(result.results[0].error).toBeUndefined();
   });
 
+  // Aggregate cap on the TOTAL semi-join filter predicates summed across EVERY
+  // nesting level (F15). The per-array cap bounds each semi-join's own "filters"
+  // independently; the tree-wide sum was uncovered, so removing it survived.
+  it('rejects semi-join "filters" arrays that are each under the per-array cap but sum over MAX_ARRAY_ITEMS_PER_DESCRIPTOR', async () => {
+    const perSemiJoinFilters = Array.from({ length: 80 }, () => ({
+      column: 'status',
+      operator: 'eq',
+      value: 'shipped',
+    }));
+    // Three nesting levels x 80 = 240 predicates in total; each level's own 80 is
+    // comfortably under MAX_ARRAY_ITEMS_PER_DESCRIPTOR (200) on its own.
+    const semiJoins = [
+      {
+        table: 'orders',
+        column: 'id',
+        foreignColumn: 'customer_id',
+        filters: perSemiJoinFilters,
+        semiJoins: [
+          {
+            table: 'orders',
+            column: 'id',
+            foreignColumn: 'id',
+            filters: perSemiJoinFilters,
+            semiJoins: [
+              {
+                table: 'orders',
+                column: 'id',
+                foreignColumn: 'id',
+                filters: perSemiJoinFilters,
+              },
+            ],
+          },
+        ],
+      },
+    ];
+    await expect(
+      handleBatchQuery(
+        { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', semiJoins }] } as any,
+        ACME_CLAIMS,
+        { db: makeDb(), schemaAllowlist: ['sales', 'orders'], tenancy: SINGLE_TENANT },
+      ),
+    ).rejects.toThrow(
+      new RegExp(
+        `^MUI X Studio Server: Malformed widget descriptor at widgets\\[0\\] — "semiJoins\\[\\]\\.filters" contains 240 entries in total across every nesting level, which exceeds the maximum of ${MAX_ARRAY_ITEMS_PER_DESCRIPTOR}`,
+      ),
+    );
+  });
+
+  it('still accepts semi-join "filters" summing to exactly MAX_ARRAY_ITEMS_PER_DESCRIPTOR', async () => {
+    const half = Array.from({ length: MAX_ARRAY_ITEMS_PER_DESCRIPTOR / 2 }, () => ({
+      column: 'status',
+      operator: 'eq' as const,
+      value: 'shipped',
+    }));
+    const result = await handleBatchQuery(
+      {
+        pageId: 'p1',
+        widgets: [
+          {
+            id: 'w1',
+            table: 'sales',
+            semiJoins: [
+              {
+                table: 'orders',
+                column: 'id',
+                foreignColumn: 'customer_id',
+                filters: half,
+                semiJoins: [{ table: 'orders', column: 'id', foreignColumn: 'id', filters: half }],
+              },
+            ],
+          },
+        ],
+      } as any,
+      ACME_CLAIMS,
+      { db: makeDb(), schemaAllowlist: ['sales', 'orders'], tenancy: SINGLE_TENANT },
+    );
+    // Accepted by the shape guards — it fails later (or not) on its own merits,
+    // but never with the aggregate-cap message.
+    expect(result.results[0].error ?? '').not.toMatch(
+      /entries in total across every nesting level/,
+    );
+  });
+
   // Aggregate cap on the TOTAL "on"-pairs summed across every join in a widget
   // (Tier2 finding — the per-join cap above bounds each join independently, but
   // not their PRODUCT). A widget with several joins whose OWN "on" arrays each
@@ -4969,6 +5052,49 @@ describe('handleBatchQuery — semi-joins', () => {
     );
     expect(result.results[0].rows).toEqual([]);
     expect(result.results[0].error).toMatch(/names table "payroll", which is not in the/);
+  });
+
+  it('de-duplicates a repeated semi-joined table in the cache tags (F19)', async () => {
+    // `collectSemiJoinTables` skips a table it has already collected. Without
+    // that check the same table is tagged once per occurrence, so every
+    // `deleteByTag`-driven invalidation walks duplicate tags, and the tag list a
+    // host inspects misrepresents the query's actual table set. A two-hop
+    // self-referencing shape (`orders` → `orders`) is the ordinary way this
+    // arises.
+    const tagged: string[][] = [];
+    const recordingCache = {
+      get: async () => undefined,
+      set: async (_key: string, _entry: unknown, opts?: { tags?: string[] }) => {
+        tagged.push(opts?.tags ?? []);
+      },
+      invalidatePrefix: async () => {},
+      deleteByTag: async () => {},
+    };
+    await handleBatchQuery(
+      {
+        pageId: 'p1',
+        widgets: [
+          {
+            id: 'grid',
+            table: 'customers',
+            columns: ['id'],
+            semiJoins: [
+              {
+                table: 'orders',
+                column: 'id',
+                foreignColumn: 'customer_id',
+                semiJoins: [{ table: 'orders', column: 'id', foreignColumn: 'id' }],
+              },
+              { table: 'orders', column: 'id', foreignColumn: 'customer_id' },
+            ],
+          },
+        ],
+      } as unknown as BatchQueryRequest,
+      ACME_CLAIMS,
+      { db: makeCustomersDb(), ...OPTIONS, cacheProvider: recordingCache as never },
+    );
+    // Three references to `orders`, one tag.
+    expect(tagged[0]).toEqual(['customers', 'orders']);
   });
 
   it('tags the cached result with every semi-joined table, so a mutation to it invalidates', async () => {

@@ -27,6 +27,7 @@ import {
   validateWildcardProjection,
 } from '../columnValidation';
 import { assertQualifiedColumnsAllowed, assertTablesAllowed } from '../assertTablesAllowed';
+import { MAX_STRING_LENGTH } from '../limits';
 import type { BatchWidgetDescriptor } from '../../security/types';
 
 const PROTO_KEYS = ['constructor', 'toString', 'valueOf', 'hasOwnProperty', '__proto__'];
@@ -142,6 +143,24 @@ describe('validateAggregationAliases — alias charset (finding 1.1)', () => {
     expect(() => validateAggregationAliases(descriptor('bad alias'))).toThrow(
       /contains characters outside the allowed set/,
     );
+  });
+
+  it('rejects an alias longer than MAX_STRING_LENGTH, built entirely from allowed characters (F12)', () => {
+    // The CHARSET cap and the LENGTH cap are separate guards, and only the
+    // charset one was covered — a client can send an arbitrarily long string of
+    // letters/digits/underscores that `SAFE_ALIAS_PATTERN` happily accepts. The
+    // alias is folded into the query cache key and re-validated across a batch,
+    // so an unbounded one is unbounded work driven by client input.
+    const tooLong = 'a'.repeat(MAX_STRING_LENGTH + 1);
+    expect(() => validateAggregationAliases(descriptor(tooLong))).toThrow(
+      new RegExp(`is ${MAX_STRING_LENGTH + 1} characters long, which exceeds the maximum`),
+    );
+    // The message must not echo the whole alias back.
+    expect(() => validateAggregationAliases(descriptor(tooLong))).not.toThrow(new RegExp(tooLong));
+    // Exactly at the cap is still accepted — the boundary is `>`, not `>=`.
+    expect(() =>
+      validateAggregationAliases(descriptor('a'.repeat(MAX_STRING_LENGTH))),
+    ).not.toThrow();
   });
 });
 

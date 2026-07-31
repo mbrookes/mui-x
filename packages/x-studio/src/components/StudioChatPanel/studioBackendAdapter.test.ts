@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ChatMessage, ChatMessageChunk, ChatStreamEnvelope } from '@mui/x-chat/headless';
+// The real store and the real stream processor, so the budget tests can measure the quantity
+// that is actually persisted — `JSON.stringify` of the assistant messages
+// `useChatThreads.handleMessagesChange` writes into `doc.ai.threads[].messages` — rather than
+// a proxy for it. Four rounds of budgets measured adapter CHUNKS and each bounded a subset.
+import { ChatStore } from '@mui/x-chat-headless/store';
+import { processStream } from '@mui/x-chat-headless/stream';
 // Imported, never re-spelled as literals: a test that hard-codes `10_000` would keep passing
 // if the shared cap moved and the adapter stopped agreeing with the rest of the boundary.
 import { MAX_ARRAY_LENGTH, MAX_STRING_LENGTH, UNSAFE_KEYS } from '@mui/x-studio-schema';
@@ -18,7 +24,15 @@ import {
   MAX_TURN_METADATA_SIZE,
   MAX_TURN_TOOL_INPUT_SIZE,
   MAX_TURN_TOOL_OUTPUT_SIZE,
+  MAX_TURN_MESSAGE_PARTS,
+  MAX_TURN_STEP_PARTS,
+  MAX_TURN_TEXT_PARTS,
+  MAX_TURN_REASONING_PARTS,
+  MAX_TURN_TEXT_SIZE,
+  MAX_TURN_REASONING_SIZE,
+  MAX_TURN_PERSISTED_MESSAGE_SIZE,
   TOOL_OUTPUT_TRUNCATED_SUFFIX,
+  STREAM_TEXT_TRUNCATED_SUFFIX,
 } from './studioBackendAdapter';
 import { createDefaultStudioState } from '../../models/stateTypes';
 import type { CreateDefaultStudioStateOverrides } from '../../models';
@@ -187,6 +201,39 @@ async function collectAllTurnChunks(events: Record<string, unknown>[]) {
   const chunks = (await collectChunks(stream)).filter(isChatMessageChunk);
   vi.unstubAllGlobals();
   return chunks;
+}
+
+/**
+ * One assistant turn, driven all the way to the sink: adapter -> `processStream` -> a real
+ * `ChatStore`. Returns the persisted assistant messages and their size in exactly the unit the
+ * saved document is measured in.
+ *
+ * This is the harness the per-door tests above cannot be: they assert on the chunks the
+ * adapter emits, which is one layer short of the message, and a budget verified one layer
+ * short of its sink is how five rounds each bounded a subset of the same message.
+ */
+async function persistOneTurn(events: Record<string, unknown>[]) {
+  mockFetch(makeSseBody([...events, { type: 'finish', finishReason: 'stop' }]));
+  const adapter = createBackendChatAdapter(
+    { endpoint: 'https://fake.test/api/ai' },
+    makeController(),
+  );
+  const stream = await adapter.sendMessage(makeSendInput([]));
+  const store = new ChatStore();
+  await processStream(store, stream as never, {
+    conversationId: 'c1',
+    flushInterval: 0,
+  }).catch(() => undefined);
+  vi.unstubAllGlobals();
+
+  const assistantMessages = store.state.messageIds
+    .map((id) => store.state.messagesById[id])
+    .filter((message) => message?.role === 'assistant');
+  return {
+    assistantMessages,
+    parts: assistantMessages.flatMap((message) => message.parts),
+    persistedJSONChars: JSON.stringify(assistantMessages).length,
+  };
 }
 
 // ── text-delta handling ───────────────────────────────────────────────────────
@@ -3816,5 +3863,279 @@ describe('createBackendChatAdapter: HTTP failure messages', () => {
     ).rejects.toThrow(/^MUI X Studio: .*410.*Approval expired/s);
 
     vi.unstubAllGlobals();
+  });
+});
+
+// ── the stream-text doors, and the bound on the whole message ─────────────────
+//
+// The FIFTH and SIXTH doors, found in the same if/else chain the four rounds before them were
+// editing. `text-delta` and `reasoning-delta` append to a persisted part's `text` with nothing
+// on the path measuring anything, and `reasoning-*`/`step-start` allocate a brand-new part per
+// unseen id / per event. Measured on ONE assistant message, no tool call and no approval:
+//
+//     100 x text-delta of 20 000 control characters      -> 12 000 201 JSON chars
+//      50 x reasoning-delta of 20 000, distinct ids      ->  6 002 460 JSON chars
+//     200 x (reasoning-start + 10 000-char delta + end)  ->  2 009 360 JSON chars, 201 parts
+//  20 000 x step-start                                   ->    440 160 JSON chars, 20 000 parts
+//   5 000 x (text-delta + step-start)                    ->    365 160 JSON chars, 5 000 parts
+//
+// So the tests below do not add a sixth per-door budget test: they pin the accounting every
+// part-creating branch now goes through, and then measure the MESSAGE.
+
+describe('createBackendChatAdapter: stream-text budgets', () => {
+  const HUGE_DELTA = CONTROL_CHAR.repeat(20_000); // 20 000 UTF-16 units, 120 000 JSON chars
+
+  it('bounds the TEXT one turn adds, and MARKS the truncation rather than trimming silently', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const chunks = await collectAllTurnChunks(
+      Array.from({ length: 100 }, () => ({ type: 'text-delta', delta: HUGE_DELTA })),
+    );
+
+    const deltas = chunks.filter((c) => c.type === 'text-delta') as { delta: string }[];
+    const total = deltas.reduce((sum, c) => sum + jsonChars(c.delta), 0);
+    // 12 000 000 JSON characters of answer, bounded to the turn's ceiling plus one marker.
+    expect(total).toBeLessThanOrEqual(
+      MAX_TURN_TEXT_SIZE + jsonChars(STREAM_TEXT_TRUNCATED_SUFFIX),
+    );
+    // …and the cut says so. A truncated answer that reads as a finished one is the one
+    // failure mode a text budget must not have: the tail is where the conclusion lives.
+    expect(deltas.at(-1)!.delta).toContain('truncated');
+    expect(deltas.at(-1)!.delta).toContain('INCOMPLETE');
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    warnSpy.mockRestore();
+  });
+
+  it('charges the text budget in JSON characters, not in raw UTF-16 units', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // Half the budget when counted raw, three times it once stored.
+    const chunks = await collectAllTurnChunks(
+      Array.from({ length: 24 }, () => ({ type: 'text-delta', delta: HUGE_DELTA })),
+    );
+    const deltas = chunks.filter((c) => c.type === 'text-delta') as { delta: string }[];
+
+    expect(deltas.reduce((sum, c) => sum + c.delta.length, 0)).toBeLessThan(MAX_TURN_TEXT_SIZE);
+    expect(deltas.reduce((sum, c) => sum + jsonChars(c.delta), 0)).toBeLessThanOrEqual(
+      MAX_TURN_TEXT_SIZE + jsonChars(STREAM_TEXT_TRUNCATED_SUFFIX),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('bounds the REASONING one turn adds, on its own budget', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const chunks = await collectAllTurnChunks(
+      Array.from({ length: 100 }, () => ({
+        type: 'reasoning-delta',
+        id: 'r-1',
+        delta: HUGE_DELTA,
+      })),
+    );
+
+    const deltas = chunks.filter((c) => c.type === 'reasoning-delta') as { delta: string }[];
+    expect(deltas.reduce((sum, c) => sum + jsonChars(c.delta), 0)).toBeLessThanOrEqual(
+      MAX_TURN_REASONING_SIZE + jsonChars(STREAM_TEXT_TRUNCATED_SUFFIX),
+    );
+    warnSpy.mockRestore();
+  });
+
+  // The `MAX_TURN_APPROVAL_PARTS` argument, on the door beside it: a budget spent in ARRIVAL
+  // order lets whatever arrives first consume all of it, and reasoning always arrives before
+  // the answer. One shared stream-text budget would therefore let a verbose thinking block
+  // truncate the reply it was thinking about — so the two halves are split.
+  it('does not let a turn-long thinking block truncate the answer that follows it', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const answer = 'a'.repeat(MAX_TURN_TEXT_SIZE);
+    const chunks = await collectAllTurnChunks([
+      // Ten times the reasoning budget, arriving first…
+      ...Array.from({ length: 50 }, () => ({
+        type: 'reasoning-delta',
+        id: 'r-1',
+        delta: HUGE_DELTA,
+      })),
+      // …and then the model's actual answer, at the whole of its own budget.
+      { type: 'text-delta', delta: answer },
+    ]);
+
+    const deltas = chunks.filter((c) => c.type === 'text-delta') as { delta: string }[];
+    expect(deltas).toHaveLength(1);
+    expect(deltas[0].delta).toBe(answer);
+    expect(deltas[0].delta).not.toContain('truncated');
+    warnSpy.mockRestore();
+  });
+
+  it('bounds the NUMBER of reasoning parts, per DISTINCT stream id', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const chunks = await collectAllTurnChunks(
+      Array.from({ length: MAX_TURN_REASONING_PARTS * 6 }, (_unused, i) => ({
+        type: 'reasoning-start',
+        id: `r-server-${i}`,
+      })),
+    );
+
+    // `resolveTextLikePartIndex` allocates a fresh persisted part per unseen id, exactly as
+    // `withToolInvocation` does per unseen `toolCallId`. The count INCLUDES the synthetic
+    // "Thinking…" part this adapter emits itself — a budget that exempts the parts it knows
+    // about is the same mistake as one that exempts the fields it knows about.
+    expect(chunks.filter((c) => c.type === 'reasoning-start')).toHaveLength(
+      MAX_TURN_REASONING_PARTS,
+    );
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    warnSpy.mockRestore();
+  });
+
+  it('bounds reasoning parts opened by a bare `reasoning-delta` too', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // `createIfMissing: true` on the delta path: no `reasoning-start` is needed to allocate a
+    // part, so a cap that only guarded `reasoning-start` would guard nothing.
+    const chunks = await collectAllTurnChunks(
+      Array.from({ length: MAX_TURN_REASONING_PARTS * 6 }, (_unused, i) => ({
+        type: 'reasoning-delta',
+        id: `r-server-${i}`,
+        delta: 'thinking',
+      })),
+    );
+
+    const ids = new Set(
+      (chunks.filter((c) => c.type === 'reasoning-delta') as { id: string }[]).map((c) => c.id),
+    );
+    expect(ids.size).toBeLessThanOrEqual(MAX_TURN_REASONING_PARTS);
+    warnSpy.mockRestore();
+  });
+
+  it('bounds the NUMBER of step-start parts one turn adds', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const chunks = await collectAllTurnChunks(
+      Array.from({ length: MAX_TURN_STEP_PARTS * 6 }, () => ({ type: 'step-start' })),
+    );
+
+    expect(chunks.filter((c) => c.type === 'start-step')).toHaveLength(MAX_TURN_STEP_PARTS);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    warnSpy.mockRestore();
+  });
+
+  // `step-start` re-armed the text door: `endTextPart` mints a fresh `text-${n}` id on every
+  // one, and a fresh id is a fresh PART — so the SERVER decided how many text parts a turn
+  // created. Bounding the count here must not cost a single character of the answer, which is
+  // why the cap works by refusing to CLOSE the open run rather than refusing to store text.
+  it('bounds the NUMBER of text parts without dropping a character of the answer', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const sent = Array.from({ length: 200 }, (_unused, i) => `segment-${i} `);
+    const chunks = await collectAllTurnChunks(
+      sent.flatMap((delta) => [{ type: 'text-delta', delta }, { type: 'step-start' }]),
+    );
+
+    const deltas = chunks.filter((c) => c.type === 'text-delta') as {
+      id: string;
+      delta: string;
+    }[];
+    // The count is bounded…
+    expect(new Set(deltas.map((c) => c.id)).size).toBeLessThanOrEqual(MAX_TURN_TEXT_PARTS);
+    // …and nothing the model said was lost to bounding it.
+    expect(deltas.map((c) => c.delta).join('')).toBe(sent.join(''));
+    warnSpy.mockRestore();
+  });
+});
+
+// ── the bound on the MESSAGE ─────────────────────────────────────────────────
+
+describe('createBackendChatAdapter: the whole persisted assistant message', () => {
+  it('bounds every door AT ONCE, measured on what a real ChatStore holds', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const atCapId = (prefix: string) => prefix + escapingString(MAX_TOOL_ID_LENGTH - prefix.length);
+
+    const events: Record<string, unknown>[] = [
+      // (a)+(b) the text door: 6 000 000 JSON characters of answer.
+      ...Array.from({ length: 50 }, () => ({
+        type: 'text-delta',
+        delta: CONTROL_CHAR.repeat(20_000),
+      })),
+      // (a)+(b) the reasoning door: 6 000 000 more, across distinct stream ids.
+      ...Array.from({ length: 50 }, (_unused, i) => ({
+        type: 'reasoning-delta',
+        id: `r-${i}`,
+        delta: CONTROL_CHAR.repeat(20_000),
+      })),
+      // (a) the step door: a part apiece, no dedup.
+      ...Array.from({ length: 300 }, () => ({ type: 'step-start' })),
+      // (a)+(b) the tool-activity door: at-cap ids, at-cap inputs, over-cap outputs.
+      ...Array.from({ length: 80 }, (_unused, i) => [
+        {
+          type: 'tool-activity',
+          phase: 'start',
+          toolCallId: atCapId(`call-${i}-`),
+          toolName: escapingString(MAX_TOOL_ID_LENGTH),
+          input: { note: escapingString(MAX_TOOL_INPUT_SIZE / 2) },
+        },
+        {
+          type: 'tool-activity',
+          phase: 'complete',
+          toolCallId: atCapId(`call-${i}-`),
+          toolName: escapingString(MAX_TOOL_ID_LENGTH),
+          output: 'o'.repeat(MAX_TOOL_OUTPUT_SIZE),
+        },
+      ]).flat(),
+      // (a)+(b) the approval door: at-cap enriched inputs, effects and reasons.
+      ...Array.from({ length: 30 }, (_unused, i) => ({
+        type: 'tool-approval-request',
+        toolCallId: atCapId(`approval-${i}-`),
+        toolName: escapingString(MAX_TOOL_ID_LENGTH),
+        approvalId: atCapId(`ap-${i}-`),
+        input: { note: escapingString(MAX_APPROVAL_INPUT_SIZE / 2) },
+        effects: { willRemovePages: [{ id: 'p1', title: escapingString(MAX_STRING_LENGTH) }] },
+        reason: escapingString(MAX_STRING_LENGTH),
+      })),
+      // (b) the metadata door: at-cap names and values, merged into one message.
+      ...Array.from({ length: 10 }, () => ({
+        type: 'message-metadata',
+        metadata: {
+          model: escapingString(MAX_STRING_LENGTH),
+          ...Object.fromEntries(
+            Array.from({ length: 50 }, (_unused, k) => [
+              `k${k}-${escapingString(MAX_METADATA_KEY_LENGTH - 6)}`,
+              escapingString(MAX_STRING_LENGTH - 2),
+            ]),
+          ),
+        },
+      })),
+    ];
+
+    const { parts, persistedJSONChars } = await persistOneTurn(events);
+
+    // The number this round exists to make true: ONE number for the whole message, not one
+    // per door. Uncapped, the text and reasoning halves of this same turn alone measured
+    // 18 MB. The bound is `per-field x per-item x item-count` summed across every branch of
+    // the chain — see `MAX_TURN_PERSISTED_MESSAGE_SIZE`.
+    expect(persistedJSONChars).toBeLessThanOrEqual(MAX_TURN_PERSISTED_MESSAGE_SIZE);
+    // …and the count term, which no size budget can express. `+ 1` is the single notice part
+    // an unshowable approval is allowed to mint.
+    expect(parts.length).toBeLessThanOrEqual(MAX_TURN_MESSAGE_PARTS + 1);
+
+    // Every door really is exercised, so the total is not passing because a door was silent.
+    const kinds = new Set(parts.map((part) => part.type));
+    expect(kinds.has('text')).toBe(true);
+    expect(kinds.has('reasoning')).toBe(true);
+    expect(kinds.has('step-start')).toBe(true);
+    expect(kinds.has('dynamic-tool')).toBe(true);
+    warnSpy.mockRestore();
+  });
+
+  it('resets every budget for the next sendMessage — the lifetime is the TURN', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const events = [
+      ...Array.from({ length: 20 }, () => ({
+        type: 'text-delta',
+        delta: CONTROL_CHAR.repeat(20_000),
+      })),
+      ...Array.from({ length: 100 }, () => ({ type: 'step-start' })),
+    ];
+
+    const first = await persistOneTurn(events);
+    const second = await persistOneTurn(events);
+
+    // A budget that leaked across turns would make the second answer shorter than the first,
+    // which is the failure mode a per-adapter (rather than per-`sendMessage`) counter has.
+    expect(second.parts.length).toBe(first.parts.length);
+    expect(second.persistedJSONChars).toBe(first.persistedJSONChars);
+    expect(first.persistedJSONChars).toBeLessThanOrEqual(MAX_TURN_PERSISTED_MESSAGE_SIZE);
+    warnSpy.mockRestore();
   });
 });

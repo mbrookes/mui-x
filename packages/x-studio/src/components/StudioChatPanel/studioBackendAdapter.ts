@@ -407,6 +407,90 @@ export const MAX_TURN_APPROVAL_SIZE = 4 * MAX_STRING_LENGTH;
 export const MAX_TOOL_ID_LENGTH = 256;
 
 /**
+ * How many PARTS one assistant turn may add to the persisted message, across EVERY branch of
+ * the stream loop that can create one. The per-kind numbers below are slices of this, not
+ * independent budgets.
+ *
+ * FIVE ROUNDS PRODUCED THE SAME DEFECT: a cap that is not a cap, because it covers a subset of
+ * what reaches `doc.ai.threads[].messages`. `message-metadata` was bounded, then
+ * `effects`/`reason`, then the approval ids and their part count, then `tool-activity`'s input
+ * and output — and each time the branch beside the one that had just been capped was found
+ * uncapped. `reasoning-*` and `text-delta` were the fifth and sixth, in the same if/else
+ * chain the previous four rounds were editing, and they measured 6 MB and 12 MB of persisted
+ * JSON from a single assistant turn.
+ *
+ * The pattern is structural, not accidental: a per-door budget bounds a door, and the message
+ * is the sum of the doors. So this is a budget on the MESSAGE. Every branch that can create a
+ * part goes through the ONE `chargeMessagePart` accounting below, whose sub-limits are derived
+ * here rather than declared separately — the enumeration of the whole chain lives in the
+ * comment above `processEvent`, and the sum is stated by
+ * {@link MAX_TURN_PERSISTED_MESSAGE_SIZE}.
+ *
+ *     tool parts   (both tool doors)   MAX_TURN_MESSAGE_PARTS / 3 = 64
+ *   + step parts   (`step-start`)      MAX_TURN_MESSAGE_PARTS / 3 = 64
+ *   + text parts   (`text-delta`)      MAX_TURN_MESSAGE_PARTS / 6 = 32
+ *   + reasoning    (`reasoning-*`)     MAX_TURN_MESSAGE_PARTS / 6 = 32
+ *   ---------------------------------------------------------------
+ *   total                                                        = 192
+ *
+ * 192 keeps `MAX_TURN_TOOL_PARTS` at the 64 its own docblock argues for, and every other
+ * slice is generous next to what a real agentic turn produces: a five-step run with a dozen
+ * tool calls is ~20 parts.
+ *
+ * Exported for the tests only — see {@link MAX_METADATA_KEY_LENGTH}.
+ */
+export const MAX_TURN_MESSAGE_PARTS = 192;
+
+/**
+ * How many `step-start` parts one turn may add. `processStream`'s `start-step` case appends
+ * `{ type: 'step-start' }` to `message.parts` unconditionally — no dedup, no budget — so this
+ * branch was a part factory with an unbounded multiplier: measured, 20 000 `step-start` events
+ * put 20 000 parts and 440 160 JSON characters on one assistant message.
+ *
+ * It is also what re-armed the text door. `endTextPart` mints a fresh `text-${n}` id on every
+ * `step-start`, and `resolveTextLikePartIndex` allocates a brand-new part per unseen stream id
+ * — so the SERVER, not the adapter, controlled how many text parts a turn created (measured:
+ * 5 000 `text-delta`+`step-start` pairs, 5 000 text parts). Bounding the step count bounds
+ * that multiplier as well; bounding the text BYTES turn-wide (below) makes it stop mattering.
+ *
+ * Exported for the tests only — see {@link MAX_METADATA_KEY_LENGTH}.
+ */
+export const MAX_TURN_STEP_PARTS = MAX_TURN_MESSAGE_PARTS / 3;
+
+/**
+ * How many `text` parts one turn may add — see {@link MAX_TURN_STEP_PARTS} for why the count
+ * is not the adapter's to decide by itself.
+ *
+ * Reaching it does NOT truncate anything. `endTextPart` simply stops closing the open run, so
+ * later text keeps appending to the part already streaming instead of opening another: the
+ * segmentation degrades, the answer does not. That is the only lossless way to bound a count
+ * whose multiplier is server-controlled, and it is why this cap can be a small number.
+ *
+ * Exported for the tests only — see {@link MAX_METADATA_KEY_LENGTH}.
+ */
+export const MAX_TURN_TEXT_PARTS = MAX_TURN_MESSAGE_PARTS / 6;
+
+/**
+ * How many `reasoning` parts one turn may add — one per DISTINCT stream id, exactly as the
+ * tool doors charge one per distinct `toolCallId`, because `resolveTextLikePartIndex`
+ * allocates a fresh persisted part per unseen id in precisely the way `withToolInvocation`
+ * does. Measured before this cap: 200 `reasoning-start`/`-delta`/`-end` triples with distinct
+ * ids put 201 parts and 2 009 360 JSON characters on one assistant message.
+ *
+ * The stream id ITSELF needs no length cap, unlike a `toolCallId`: it is a key into
+ * `partIndexesByStreamId` and is never written onto the part (`streamTextDeltaBuffer.ts`
+ * builds `{ type, text, state }`), so it does not persist. The count is the whole bound here,
+ * with {@link MAX_TURN_REASONING_SIZE} bounding what the deltas carry.
+ *
+ * One slot is spent before the stream is read, on the synthetic "Thinking…" part this adapter
+ * emits itself — counted, because a budget that exempts the parts it knows about is the same
+ * mistake as a budget that exempts the fields it knows about.
+ *
+ * Exported for the tests only — see {@link MAX_METADATA_KEY_LENGTH}.
+ */
+export const MAX_TURN_REASONING_PARTS = MAX_TURN_MESSAGE_PARTS / 6;
+
+/**
  * How many tool PARTS one assistant turn may add to the persisted message — across BOTH
  * doors, `tool-activity` and `tool-approval-request` together.
  *
@@ -471,7 +555,7 @@ export const MAX_TOOL_ID_LENGTH = 256;
  *
  * Exported for the tests only — see {@link MAX_METADATA_KEY_LENGTH}.
  */
-export const MAX_TURN_TOOL_PARTS = 64;
+export const MAX_TURN_TOOL_PARTS = MAX_TURN_MESSAGE_PARTS / 3;
 
 /**
  * The slice of {@link MAX_TURN_TOOL_PARTS} that ONLY `tool-approval-request` may spend, and
@@ -583,6 +667,64 @@ export const TOOL_OUTPUT_TRUNCATED_SUFFIX =
   'size this client stores per response. It is INCOMPLETE — do not treat it as a full answer.]';
 
 /**
+ * Total serialized size, in JSON characters, of everything the STREAM-TEXT doors —
+ * `text-delta` and `reasoning-delta` — may add to one assistant message, split into
+ * {@link MAX_TURN_TEXT_SIZE} and {@link MAX_TURN_REASONING_SIZE}.
+ *
+ * These two were the fifth and sixth uncapped doors, and they are the largest: `processStream`
+ * appends every `delta` to a persisted part's `text` with nothing on the path measuring
+ * anything. Measured on one assistant message, no tool call and no approval involved:
+ *
+ *     100 x `text-delta` of 20 000 control characters  -> 12 000 201 JSON chars
+ *      50 x `reasoning-delta` of 20 000, distinct ids  ->  6 002 460 JSON chars
+ *
+ * against a neighbouring docblock stating a ceiling of ~1 000 KB for the assistant message.
+ * Both are linear in the event count, which nothing bounds.
+ *
+ * SPLIT, not shared first-come, for the reason `MAX_TURN_APPROVAL_PARTS` exists: reasoning
+ * arrives BEFORE the answer, so one budget spent in arrival order would let a verbose thinking
+ * block truncate the reply it was thinking about. Both halves are derived from this total, so
+ * the message-level sum is one number rather than two that have to be remembered together.
+ *
+ * `100 * MAX_STRING_LENGTH` = 1 000 000 JSON characters, i.e. 500 000 each. A provider's
+ * largest single-response output today is ~64 000 tokens — call it 256 000 characters — so the
+ * text half is roughly twice any answer a model can physically produce in one turn, and the
+ * reasoning half the same for a full extended-thinking budget. The point of the number is to
+ * be unreachable by a legitimate turn while still being a NUMBER: truncating the model's real
+ * answer is a genuine cost, which is why this ceiling is generous where
+ * {@link MAX_TOOL_OUTPUT_SIZE} is tight, and why over-budget text is truncated and MARKED
+ * rather than dropped.
+ *
+ * Exported for the tests only — see {@link MAX_METADATA_KEY_LENGTH}.
+ */
+export const MAX_TURN_STREAM_TEXT_SIZE = 100 * MAX_STRING_LENGTH;
+
+/** The `text-delta` half of {@link MAX_TURN_STREAM_TEXT_SIZE}. */
+export const MAX_TURN_TEXT_SIZE = MAX_TURN_STREAM_TEXT_SIZE / 2;
+
+/** The `reasoning-delta` half of {@link MAX_TURN_STREAM_TEXT_SIZE}. */
+export const MAX_TURN_REASONING_SIZE = MAX_TURN_STREAM_TEXT_SIZE / 2;
+
+/**
+ * Appended once, in place of the answer this client refused to store, when a turn's text or
+ * reasoning runs past {@link MAX_TURN_STREAM_TEXT_SIZE}.
+ *
+ * SILENT truncation is the one thing that must not happen here: the tail of an assistant
+ * answer is where its conclusion lives, and a reader with no marker has no way to tell a
+ * response that stopped from a response that was cut. Same rule and same precedent as
+ * {@link TOOL_OUTPUT_TRUNCATED_SUFFIX}, which exists because a model reasoning over silently
+ * truncated data reports a wrong answer with full confidence — a human does too.
+ *
+ * Charged to the budget it terminates, like the tool-output marker, so a turn cannot exceed
+ * its ceiling by the marker's own length. The single exception is a delta that arrives with
+ * less room left than the marker costs, where the marker is emitted anyway: an overshoot of at
+ * most one marker per kind per turn, which the worst case below accounts for.
+ */
+export const STREAM_TEXT_TRUNCATED_SUFFIX =
+  '\n…[MUI X Studio: this response was truncated by the browser because it exceeded the size ' +
+  'this client stores per answer. It is INCOMPLETE.]';
+
+/**
  * WORST CASE PER ASSISTANT TURN across BOTH tool doors, in JSON characters. The two share the
  * part count and the id fields, so the terms are summed once, not once per door:
  *
@@ -659,6 +801,60 @@ export const MAX_APPROVAL_INPUT_SIZE = 4 * MAX_STRING_LENGTH;
  * and leave the message bounded only by the part count.
  */
 export const MAX_TURN_APPROVAL_INPUT_SIZE = 16 * MAX_STRING_LENGTH;
+
+/**
+ * WORST CASE FOR THE WHOLE ASSISTANT MESSAGE, in JSON characters — every door of the stream
+ * loop summed, not one door at a time.
+ *
+ * The four rounds before this one each stated a worst case for the door they had just capped,
+ * and each of those statements was true about a SUBSET of `doc.ai.threads[].messages`. The
+ * subset is the defect. So this constant is spelled as the sum of every term, DERIVED from the
+ * constants that enforce them rather than written out as a literal, and it is asserted by a
+ * test that drives every door at once and measures `JSON.stringify` of the messages a real
+ * `ChatStore` holds — the same quantity `useChatThreads.handleMessagesChange` persists.
+ *
+ *     ids/names          <=  3 * MAX_TOOL_ID_LENGTH * MAX_TURN_TOOL_PARTS  =    49 152
+ *   + effects/reason     <=  MAX_TURN_APPROVAL_SIZE                        =    40 000
+ *   + enriched inputs    <=  MAX_TURN_APPROVAL_INPUT_SIZE                  =   160 000
+ *   + model inputs       <=  MAX_TURN_TOOL_INPUT_SIZE                      =   160 000
+ *   + tool outputs       <=  MAX_TURN_TOOL_OUTPUT_SIZE                     =   600 000
+ *   + tool per-part constants (withheld markers, degraded `{}`, marker)
+ *                        <=  239 * MAX_TURN_TOOL_PARTS                     =    15 296
+ *   + metadata `model`   <=  MAX_STRING_LENGTH                             =    10 000
+ *   + metadata numbers   <=  3 * 23 (a double's longest JSON form)         =        69
+ *   + metadata passthru  <=  MAX_TURN_METADATA_SIZE                        =    20 000
+ *   + text + reasoning   <=  MAX_TURN_STREAM_TEXT_SIZE                     = 1 000 000
+ *   + per-part JSON framing (`{"type":"…","text":"","state":"done"}` and
+ *     the enclosing commas), a constant per part no server can grow
+ *                        <=  64 * MAX_TURN_MESSAGE_PARTS                   =    12 288
+ *     ------------------------------------------------------------------------------
+ *     total                                                                = 2 066 805
+ *                                                                            (~2 018 KB)
+ *
+ * Every term is per-field x per-item x item-count, and every item-count is a constant here
+ * rather than a function of the stream length — which is the property the previous rounds'
+ * arithmetic asserted and did not have. Deliberately conservative: `toolInvocation.input` is
+ * ONE field both input budgets write to (last write wins), a turn that spends the whole output
+ * budget has no room left for much else, and the stream-text half assumes an answer twice as
+ * long as any provider can emit. An upper bound that over-counts is still a bound.
+ *
+ * The growth vector that remains is more assistant MESSAGES, and each of those costs the
+ * server a user-initiated turn — which is what "bounded" has to mean at this boundary.
+ *
+ * Exported for the tests only — see {@link MAX_METADATA_KEY_LENGTH}.
+ */
+export const MAX_TURN_PERSISTED_MESSAGE_SIZE =
+  3 * MAX_TOOL_ID_LENGTH * MAX_TURN_TOOL_PARTS +
+  MAX_TURN_APPROVAL_SIZE +
+  MAX_TURN_APPROVAL_INPUT_SIZE +
+  MAX_TURN_TOOL_INPUT_SIZE +
+  MAX_TURN_TOOL_OUTPUT_SIZE +
+  239 * MAX_TURN_TOOL_PARTS +
+  MAX_STRING_LENGTH +
+  69 +
+  MAX_TURN_METADATA_SIZE +
+  MAX_TURN_STREAM_TEXT_SIZE +
+  64 * MAX_TURN_MESSAGE_PARTS;
 
 /**
  * Whether an approval `effects` payload's lists are within the shared wire limits, checked
@@ -933,11 +1129,74 @@ export function createBackendChatAdapter(
       // See `MAX_TURN_APPROVAL_SIZE`.
       let turnApprovalSize = 0;
 
-      // …and the term a size budget alone cannot express: the distinct `toolCallId`s this
-      // turn has already opened a PART for, through EITHER door. `processStream` creates one
-      // part per new id, so this is the count of parts the two doors have added to the
-      // persisted message between them. See `MAX_TURN_TOOL_PARTS`.
+      // ── ONE part budget for the whole message ───────────────────────────────────────
+      //
+      // The term a size budget alone cannot express, and — after four rounds of per-door
+      // budgets each leaving the branch beside them open — the term is now counted ONCE for
+      // the message rather than once per door. Every branch of `processEvent` that can create
+      // a persisted part goes through `chargeMessagePart`; the enumeration of which branches
+      // those are (and which merely GROW an existing part, and which touch the message at all)
+      // is the comment above `processEvent`. The per-kind sub-limits are slices of
+      // `MAX_TURN_MESSAGE_PARTS`, derived there, not independent numbers declared here.
+      //
+      // Two counters, not one: the sub-limit stops one door eating the message, and the total
+      // is what a future door has to pass through even if whoever adds it forgets to give it a
+      // sub-limit of its own. That is the only part of this design aimed at round twelve.
+      type MessagePartKind = 'tool' | 'text' | 'reasoning' | 'step';
+      const turnPartCounts: Record<MessagePartKind, number> = {
+        tool: 0,
+        text: 0,
+        reasoning: 0,
+        step: 0,
+      };
+      let turnMessageParts = 0;
+      const messagePartLimits: Record<MessagePartKind, number> = {
+        tool: MAX_TURN_TOOL_PARTS,
+        text: MAX_TURN_TEXT_PARTS,
+        reasoning: MAX_TURN_REASONING_PARTS,
+        step: MAX_TURN_STEP_PARTS,
+      };
+      const canAffordMessagePart = (
+        kind: MessagePartKind,
+        subLimit: number = messagePartLimits[kind],
+      ) => turnPartCounts[kind] < subLimit && turnMessageParts < MAX_TURN_MESSAGE_PARTS;
+      const chargeMessagePart = (
+        kind: MessagePartKind,
+        subLimit: number = messagePartLimits[kind],
+      ) => {
+        if (!canAffordMessagePart(kind, subLimit)) {
+          return false;
+        }
+        turnPartCounts[kind] += 1;
+        turnMessageParts += 1;
+        return true;
+      };
+
+      // The distinct `toolCallId`s this turn has already opened a PART for, through EITHER
+      // tool door — `processStream` creates one part per new id, so a repeat costs nothing.
+      // The COUNT of them is charged through `chargeMessagePart('tool', …)` above.
       const turnToolPartIds = new Set<string>();
+
+      // …and the same, for the door `resolveTextLikePartIndex` opens: one persisted part per
+      // unseen reasoning stream id, structurally identical to `withToolInvocation`'s one part
+      // per unseen `toolCallId`. See `MAX_TURN_REASONING_PARTS`.
+      const turnReasoningIds = new Set<string>();
+
+      // ── ONE size budget per stream-text kind ────────────────────────────────────────
+      //
+      // `text-delta` and `reasoning-delta` append to a persisted part's `text` with nothing
+      // else on the path measuring anything — 12 MB and 6 MB from one turn, measured. Split
+      // rather than shared because reasoning arrives first and would otherwise truncate the
+      // answer it was reasoning about. See `MAX_TURN_STREAM_TEXT_SIZE`.
+      const turnStreamTextSize: Record<'text' | 'reasoning', number> = { text: 0, reasoning: 0 };
+      const streamTextTruncated: Record<'text' | 'reasoning', boolean> = {
+        text: false,
+        reasoning: false,
+      };
+      const streamTextLimits: Record<'text' | 'reasoning', number> = {
+        text: MAX_TURN_TEXT_SIZE,
+        reasoning: MAX_TURN_REASONING_SIZE,
+      };
 
       // The same discipline once more, for the door that needed no approval to reach the same
       // sink: the model's own tool arguments and the tools' outputs, both written onto
@@ -963,6 +1222,72 @@ export function createBackendChatAdapter(
         }
         warnedApprovalKeys.add(key);
         console.warn(`MUI X Studio: ${message}`);
+      };
+
+      /**
+       * The one place a `text-delta`/`reasoning-delta` payload is charged to the message.
+       *
+       * Returns what may be stored: the delta unchanged while the turn is inside its budget,
+       * a truncated-and-MARKED tail for the delta that crosses it, and `undefined` for every
+       * delta after that (the marker has already been written; repeating it per event would
+       * be its own flood). Marked rather than silently trimmed for the reason
+       * `STREAM_TEXT_TRUNCATED_SUFFIX` states — a cut answer and a finished answer look
+       * identical, and this is the field a human reads as the model's conclusion.
+       *
+       * `wireStringSize`, not `.length`, on every term: the budget is denominated in the
+       * JSON characters the document actually stores, and the last four rounds each shipped a
+       * budget spent in a different unit from the one it was stated in.
+       */
+      const chargeStreamText = (kind: 'text' | 'reasoning', raw: string): string | undefined => {
+        const limit = streamTextLimits[kind];
+        const spent = turnStreamTextSize[kind];
+        const size = wireStringSize(raw);
+        if (spent + size <= limit) {
+          turnStreamTextSize[kind] += size;
+          return raw;
+        }
+        if (streamTextTruncated[kind]) {
+          return undefined;
+        }
+        streamTextTruncated[kind] = true;
+        const kept =
+          truncateToWireSize(raw, limit - spent - wireStringSize(STREAM_TEXT_TRUNCATED_SUFFIX)) +
+          STREAM_TEXT_TRUNCATED_SUFFIX;
+        turnStreamTextSize[kind] += wireStringSize(kept);
+        warnApprovalOnce(
+          `stream-text-size-${kind}`,
+          `The AI server sent more ${kind} in one response than this client stores ` +
+            `(${limit} characters), which is saved in the dashboard. It was truncated and ` +
+            `marked as incomplete rather than dropped, so what did arrive is still readable — ` +
+            `but neither you nor the model is seeing the whole of it.`,
+        );
+        return kept;
+      };
+
+      /**
+       * Opens (or re-uses) the persisted `reasoning` part a server-emitted stream id names.
+       *
+       * `resolveTextLikePartIndex(…, { createIfMissing: true })` allocates a brand-new part
+       * for every unseen id — the same multiplier `MAX_TURN_TOOL_PARTS` exists for, on the
+       * branch nobody had counted. Measured: 200 distinct ids, 201 parts, 2 009 360 JSON
+       * characters. Charged per DISTINCT id, so an ordinary
+       * `reasoning-start`/`-delta`/`-end` run costs one part however many deltas it carries.
+       */
+      const openReasoningPart = (id: string): boolean => {
+        if (turnReasoningIds.has(id)) {
+          return true;
+        }
+        if (!chargeMessagePart('reasoning')) {
+          warnApprovalOnce(
+            'reasoning-part-budget',
+            `The AI server opened more than ${MAX_TURN_REASONING_PARTS} separate thinking ` +
+              `blocks in one response. Each one is stored in the saved dashboard, so the extra ` +
+              `ones were dropped and will not appear in the conversation.`,
+          );
+          return false;
+        }
+        turnReasoningIds.add(id);
+        return true;
       };
 
       // …and a dropped event that leaves a card ALREADY ON SCREEN is announced there too,
@@ -1017,7 +1342,11 @@ export function createBackendChatAdapter(
           failVisiblyIfCardIsOnScreen(streamController, toolCallId, errorText);
           return;
         }
-        if (approvalNoticeEmitted) {
+        // Charged like any other part, against a sub-limit one past the tool door's own —
+        // this is the single part on the whole boundary deliberately allowed past a budget,
+        // because it exists to say that the budget refused something, and `approvalNoticeEmitted`
+        // holds it to one per turn.
+        if (approvalNoticeEmitted || !chargeMessagePart('tool', MAX_TURN_TOOL_PARTS + 1)) {
           return;
         }
         approvalNoticeEmitted = true;
@@ -1048,8 +1377,20 @@ export function createBackendChatAdapter(
       // the next text run, so a text run interrupted by a tool call or a new step is
       // finalized before the tool card renders and any later text starts its own part
       // in correct arrival order (finding 2.23).
+      //
+      // …but only while the message can still AFFORD the part the next run would open. Every
+      // fresh id here becomes a brand-new persisted part (`resolveTextLikePartIndex` allocates
+      // one per unseen stream id), and this function is called from `step-start` and
+      // `tool-activity` — both server-driven and both otherwise unbounded, which is how the
+      // SERVER ended up choosing how many text parts a turn creates (measured: 5 000).
+      //
+      // Refusing to CLOSE, rather than refusing to store the text, is what makes the cap
+      // lossless: the run already open stays open and the later text appends to it. The
+      // segmentation degrades — a post-tool answer renders in the preamble's part instead of
+      // its own — and nothing the model said is dropped. That trade is only available on this
+      // door, which is why this door's cap can be small while `MAX_TURN_TEXT_SIZE` is large.
       const endTextPart = (streamController: ReadableStreamDefaultController<ChatMessageChunk>) => {
-        if (textStarted) {
+        if (textStarted && canAffordMessagePart('text')) {
           streamController.enqueue({ type: 'text-end', id: textPartId });
           textStarted = false;
           textPartCounter += 1;
@@ -1113,7 +1454,11 @@ export function createBackendChatAdapter(
           streamController.enqueue({ type: 'start', messageId: msgId });
 
           // Emit a synthetic reasoning part immediately so the user sees "Thinking…"
-          // while the server processes the request. It will be closed when real content arrives.
+          // while the server processes the request. It will be closed when real content
+          // arrives. CHARGED to the part budget like any other: a budget that exempts the
+          // parts it knows about is the same mistake as one that exempts the fields it knows
+          // about, and this one is a real persisted part.
+          openReasoningPart(reasoningId);
           streamController.enqueue({ type: 'reasoning-start', id: reasoningId });
 
           // Close/error the stream exactly once. Guarding both here means every call
@@ -1245,39 +1590,105 @@ Check the endpoint URL, its authentication headers, and the server logs for this
           // so that any event arriving after the stream has already been settled (e.g. a
           // stray event batched in the same chunk) is never processed and never attempts
           // to `enqueue` on an already-closed/errored controller, which would throw.
+          // EVERY BRANCH OF THIS CHAIN, AND WHAT EACH ONE CAN DO TO THE PERSISTED MESSAGE.
+          //
+          // The list exists because its absence is what produced the same defect five rounds
+          // running: a budget was added for the door that had just been measured, the door
+          // beside it in this very chain stayed open, and the next round found it. A bound on
+          // the MESSAGE cannot be claimed without knowing which branches contribute to the
+          // message, so the enumeration is written down and kept next to the chain it
+          // describes. (a) creates a persisted part, (b) grows one that exists, (c) neither.
+          //
+          //   `text-delta`             (a)+(b)  opens a `text` part on the first delta and
+          //                                     appends to it thereafter; `endTextPart` mints
+          //                                     a fresh id — hence a fresh PART — whenever a
+          //                                     `step-start` or `tool-activity` interrupts.
+          //                                     Charged: `chargeMessagePart('text')` and
+          //                                     `chargeStreamText('text', …)`.
+          //   `reasoning-start`        (a)      one part per DISTINCT stream id.
+          //   `reasoning-delta`        (a)+(b)  same, and appends. `resolveTextLikePartIndex`
+          //                                     creates on an unseen id here too.
+          //                                     Charged: `openReasoningPart` +
+          //                                     `chargeStreamText('reasoning', …)`.
+          //   `reasoning-end`          (c)      `createIfMissing: false` — a no-op for an
+          //                                     unknown id, and it only marks a part `done`.
+          //   `tool-activity` start    (a)+(b)  one part per distinct `toolCallId`, carrying
+          //                                     ids and the model's own `input`.
+          //   `tool-activity` complete (b)      writes `output` onto an EXISTING part only;
+          //                                     an unknown id is a no-op and is skipped above.
+          //   `step-start`             (a)      appends `{ type: 'step-start' }` every time,
+          //                                     no dedup. Charged: `chargeMessagePart('step')`.
+          //   `message-metadata`       (b)      merges into `message.metadata` — one message,
+          //                                     any number of events.
+          //   `tool-approval-request`  (a)+(b)  one part per distinct `toolCallId`, carrying
+          //                                     `effects`/`reason`/enriched `input`.
+          //   `state-mutation`         (c)      writes to `doc.dashboard`/`pages`/`widgets`
+          //                                     through the reducer; touches no message.
+          //   `usage`                  (c)      calls the host's `onUsage` callback only.
+          //   `finish`                 (c)      `finishReason` reaches `ProcessStreamResult`
+          //                                     and is NOT persisted — measured: a 500 000
+          //                                     character one leaves the message at 202 chars.
+          //   `error`                  (c)      settles the stream.
+          //   anything else            (c)      falls off the end of the chain.
+          //
+          // Both size and count for every (a)/(b) branch are charged in JSON characters and
+          // through the shared accounting above; the sum is `MAX_TURN_PERSISTED_MESSAGE_SIZE`.
           const processEvent = (event: Record<string, unknown>): void | false => {
             const { type } = event;
 
             if (type === 'text-delta') {
               endReasoning(streamController);
+              // The part first, so a delta is never charged to a part that cannot be opened…
+              if (!textStarted && !canAffordMessagePart('text')) {
+                warnApprovalOnce(
+                  'text-part-budget',
+                  `The AI server started more than ${MAX_TURN_TEXT_PARTS} separate answer ` +
+                    `segments in one response, which are stored in the saved dashboard, so the ` +
+                    `later ones were dropped.`,
+                );
+                return undefined;
+              }
+              // …then the bytes, truncated and MARKED at the turn's ceiling rather than
+              // silently trimmed: this is the model's actual answer, and a cut one must never
+              // read as a finished one. See `MAX_TURN_TEXT_SIZE`.
+              const delta = chargeStreamText('text', String(event.delta ?? ''));
+              if (delta === undefined) {
+                return undefined;
+              }
               if (!textStarted) {
+                chargeMessagePart('text');
                 streamController.enqueue({ type: 'text-start', id: textPartId });
                 textStarted = true;
               }
-              streamController.enqueue({
-                type: 'text-delta',
-                id: textPartId,
-                delta: String(event.delta ?? ''),
-              });
+              streamController.enqueue({ type: 'text-delta', id: textPartId, delta });
             } else if (type === 'reasoning-start') {
               // Forward server-emitted reasoning chunks (e.g. from Claude extended thinking).
               // Close our synthetic "Thinking…" block first so blocks don't overlap.
               endReasoning(streamController);
-              streamController.enqueue({
-                type: 'reasoning-start',
-                id: String(event.id ?? 'r-server'),
-              });
+              const reasoningPartId = String(event.id ?? 'r-server');
+              if (!openReasoningPart(reasoningPartId)) {
+                return undefined;
+              }
+              streamController.enqueue({ type: 'reasoning-start', id: reasoningPartId });
             } else if (type === 'reasoning-delta') {
-              streamController.enqueue({
-                type: 'reasoning-delta',
-                id: String(event.id ?? 'r-server'),
-                delta: String(event.delta ?? ''),
-              });
+              const reasoningPartId = String(event.id ?? 'r-server');
+              if (!openReasoningPart(reasoningPartId)) {
+                return undefined;
+              }
+              const delta = chargeStreamText('reasoning', String(event.delta ?? ''));
+              if (delta === undefined) {
+                return undefined;
+              }
+              streamController.enqueue({ type: 'reasoning-delta', id: reasoningPartId, delta });
             } else if (type === 'reasoning-end') {
-              streamController.enqueue({
-                type: 'reasoning-end',
-                id: String(event.id ?? 'r-server'),
-              });
+              // Never creates a part (`createIfMissing: false`), so forwarding an id no part
+              // was opened for is a no-op — dropped here so the chain's own accounting and
+              // `processStream`'s agree about which ids this turn has parts for.
+              const reasoningPartId = String(event.id ?? 'r-server');
+              if (!turnReasoningIds.has(reasoningPartId)) {
+                return undefined;
+              }
+              streamController.enqueue({ type: 'reasoning-end', id: reasoningPartId });
             } else if (type === 'tool-activity') {
               endReasoning(streamController);
               // Close any preamble text run before the tool card so the tool card
@@ -1352,7 +1763,7 @@ Check the endpoint URL, its authentication headers, and the server logs for this
               if (
                 phase === 'start' &&
                 !turnToolPartIds.has(toolCallId) &&
-                turnToolPartIds.size >= MAX_TURN_TOOL_ACTIVITY_PARTS
+                !canAffordMessagePart('tool', MAX_TURN_TOOL_ACTIVITY_PARTS)
               ) {
                 warnApprovalOnce(
                   'tool-part-budget',
@@ -1387,7 +1798,10 @@ Check the endpoint URL, its authentication headers, and the server logs for this
                 return undefined;
               }
               if (phase === 'start') {
-                turnToolPartIds.add(toolCallId);
+                if (!turnToolPartIds.has(toolCallId)) {
+                  turnToolPartIds.add(toolCallId);
+                  chargeMessagePart('tool', MAX_TURN_TOOL_ACTIVITY_PARTS);
+                }
                 turnToolInputSize += toolInputSize;
                 // The model's own arguments, kept so an approval's display-enriched
                 // `input` can be un-done once the call settles (see `modelToolInputs`).
@@ -1500,6 +1914,21 @@ Check the endpoint URL, its authentication headers, and the server logs for this
               // its own part so the next step's text renders as a separate segment in
               // arrival order rather than merging into the previous step's text (2.23).
               endTextPart(streamController);
+              // …and it is a PART FACTORY: `processStream`'s `start-step` case appends
+              // `{ type: 'step-start' }` to `message.parts` every time, with no dedup and,
+              // until this budget, nothing bounding how many times. Measured: 20 000 events,
+              // 20 000 parts, 440 160 JSON characters on one assistant message. Charged
+              // through the same accounting as every other part-creating branch.
+              if (!chargeMessagePart('step')) {
+                warnApprovalOnce(
+                  'step-part-budget',
+                  `The AI server reported more than ${MAX_TURN_STEP_PARTS} steps in one ` +
+                    `response. Each one is stored in the saved dashboard, so the extra step ` +
+                    `separators were dropped. Check whether the endpoint's iteration limit is ` +
+                    `set higher than this client's.`,
+                );
+                return undefined;
+              }
               // Emit an x-chat start-step chunk to visually separate agentic iterations.
               streamController.enqueue({ type: 'start-step' });
             } else if (type === 'message-metadata') {
@@ -1670,10 +2099,7 @@ Check the endpoint URL, its authentication headers, and the server logs for this
                 );
                 return undefined;
               }
-              if (
-                !turnToolPartIds.has(approvalToolCallId) &&
-                turnToolPartIds.size >= MAX_TURN_TOOL_PARTS
-              ) {
+              if (!turnToolPartIds.has(approvalToolCallId) && !canAffordMessagePart('tool')) {
                 warnApprovalOnce(
                   'approval-part-budget',
                   `The AI server asked for approval of more than ${MAX_TURN_TOOL_PARTS} ` +
@@ -1696,7 +2122,10 @@ Check the endpoint URL, its authentication headers, and the server logs for this
                 );
                 return undefined;
               }
-              turnToolPartIds.add(approvalToolCallId);
+              if (!turnToolPartIds.has(approvalToolCallId)) {
+                turnToolPartIds.add(approvalToolCallId);
+                chargeMessagePart('tool');
+              }
               // This chunk's `input` is the display-enriched one, and x-chat writes it
               // over `toolInvocation.input`. Remember that it happened — with the tool
               // name, which the stream-end flush has no other source for — so the

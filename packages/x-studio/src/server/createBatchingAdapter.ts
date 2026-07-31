@@ -90,14 +90,23 @@ const SAFE_WIRE_ALIAS = /^[A-Za-z0-9_-]+$/;
 /**
  * Maximum widget descriptors this adapter puts in ONE POST body.
  *
- * Must not exceed `MAX_WIDGETS_PER_BATCH` in `@mui/x-studio-data-middleware`'s `handler.ts`
- * (50, sourced from that package's `shared/limits.ts` `MAX_ITEMS_PER_BATCH`). The value is
- * DUPLICATED rather than imported because x-studio is deliberately free of a dependency on the
- * server package — the same reason `ClientMutationDescriptor` and `OPERATOR_MAP` are mirrors
- * rather than re-exports. `handler.ts` exports the constant, but the middleware's `index.ts`
- * does not re-export it, so there is no published symbol to import even if the dependency were
- * acceptable. `x-studio-data-middleware/src/__tests__/clientWireSeam.test.ts` asserts the two
- * copies are equal; that assertion is the only thing keeping them from drifting.
+ * MIRRORED CONSTANT — changing this value alone is a silent protocol break.
+ *
+ * It must equal `MAX_WIDGETS_PER_BATCH` in `@mui/x-studio-data-middleware` (50, sourced
+ * there from `shared/limits.ts`'s `MAX_ITEMS_PER_BATCH`). The value is DUPLICATED rather
+ * than imported because x-studio must stay free of a dependency on the server package —
+ * that package is Node-only and peer-depends on Knex, while this one ships to the
+ * browser — the same reason `ClientMutationDescriptor` and `OPERATOR_MAP` are mirrors
+ * rather than re-exports. The server package's `index.ts` now DOES publish the symbol,
+ * so a HOST assembling its own batches can import it; that changes nothing here, because
+ * the missing export was never the binding constraint — the dependency direction is.
+ *
+ * Two tests, one on each side of the wire, are the only things keeping the copies in
+ * sync — deliberately one per suite, so drift is caught whichever package's tests the
+ * change was made against:
+ *
+ * - `x-studio/src/server/createBatchingAdapter.test.ts` — "mirrors the server's batch cap"
+ * - `x-studio-data-middleware/src/__tests__/clientWireSeam.test.ts` — "seam — batch size"
  *
  * Over-cap batches are not a hypothetical: nothing in Studio caps widgets per page, and the
  * server rejects an over-cap request by THROWING before its per-widget loop — so the failure

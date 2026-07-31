@@ -658,11 +658,23 @@ async function runHandler(
 
 describe('seam — batch size', () => {
   it("the client's cap is the server's cap", () => {
-    // The two constants are separate copies (x-studio must not depend on the server
-    // package, and `handler.ts`'s export is not re-exported from its index). This is
-    // the only place they meet — without it they drift and chunking silently stops
-    // matching what the server accepts.
-    expect(MAX_BATCH_WIDGETS_PER_REQUEST).toBe(MAX_WIDGETS_PER_BATCH);
+    // The two constants are separate copies: x-studio must not depend on this
+    // Node-only, Knex-peered package, so the value is mirrored by hand. (It IS
+    // re-exported from this package's `index.ts` now, for hosts that batch
+    // themselves — but that does not let x-studio import it, and the dependency
+    // direction, not the missing export, was always the binding constraint.)
+    //
+    // Nothing in the type system or the build connects the two. This assertion and
+    // its twin in `x-studio/src/server/createBatchingAdapter.test.ts` are the entire
+    // mechanism — one per suite on purpose, so drift is caught whichever package's
+    // tests the change was validated against.
+    expect(
+      MAX_BATCH_WIDGETS_PER_REQUEST,
+      'MAX_BATCH_WIDGETS_PER_REQUEST (x-studio/src/server/createBatchingAdapter.ts) must equal ' +
+        'MAX_WIDGETS_PER_BATCH (x-studio-data-middleware/src/handler.ts, from shared/limits.ts ' +
+        'MAX_ITEMS_PER_BATCH). They are hand-kept copies — update BOTH, or the client chunks ' +
+        'batches the server rejects outright.',
+    ).toBe(MAX_WIDGETS_PER_BATCH);
   });
 
   it('chunks an over-cap page instead of POSTing one rejected body', async () => {

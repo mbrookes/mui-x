@@ -63,3 +63,17 @@ export { handleMutation } from './mutations/handleMutation';
  * hard-coding the number.
  */
 export { DEFAULT_QUERY_TIMEOUT_MS } from './shared/queryTimeout';
+/**
+ * Batch-size ceilings, exported so a host that assembles batches itself can chunk
+ * against the real bound instead of hard-coding 50 and discovering the mismatch as a
+ * whole-batch rejection: `handleBatchQuery`/`handleMutation` reject an over-cap request
+ * outright — before their per-item loops — so it surfaces as one un-attributed error
+ * for every item in the batch, not as per-item results.
+ *
+ * These are the CANONICAL values. `@mui/x-studio`'s own `MAX_BATCH_WIDGETS_PER_REQUEST`
+ * is a deliberate copy rather than an import of this symbol, because that package must
+ * stay free of a dependency on this Node-only, Knex-peered server package; the two are
+ * pinned equal by the seam tests named on `MAX_WIDGETS_PER_BATCH`.
+ */
+export { MAX_WIDGETS_PER_BATCH } from './handler';
+export { MAX_MUTATIONS_PER_BATCH } from './mutations/handleMutation';

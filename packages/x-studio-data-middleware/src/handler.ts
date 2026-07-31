@@ -113,6 +113,15 @@ const DEFAULT_TIER_CACHE_TTL_MS = 30_000; // 30 seconds — aligned with data ca
  * This bounds the COUNT of widgets only. How many of them run at once is bounded
  * separately by `MAX_CONCURRENT_WIDGET_QUERIES`, and how many rows they may
  * collectively materialize by the request's `RowBudget` (both finding H2).
+ *
+ * Re-exported from this package's `index.ts` so a host that batches on the client
+ * side can chunk against the real bound instead of hard-coding 50. `@mui/x-studio`'s
+ * `MAX_BATCH_WIDGETS_PER_REQUEST` cannot import it even so — that package must stay
+ * free of a dependency on this Node-only, Knex-peered server package — and is
+ * therefore a deliberate copy, pinned equal to this one by
+ * `src/__tests__/clientWireSeam.test.ts` and by `x-studio`'s own
+ * `src/server/createBatchingAdapter.test.ts`. Changing this value means changing
+ * that one too.
  */
 export const MAX_WIDGETS_PER_BATCH = MAX_ITEMS_PER_BATCH;
 

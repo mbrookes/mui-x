@@ -770,3 +770,119 @@ describe('docTransforms preset family', () => {
     expect(next.filterPresets).toBe(doc.filterPresets);
   });
 });
+
+// ─── R6 F3: every filter-drop path cascades into the survivors' `dependsOn` ───
+
+describe('docTransforms — dependsOn cascade on filter drops (R6 F3)', () => {
+  const dateRangeArgs = {
+    fieldId: 'created_at',
+    sourceId: 'orders',
+    fieldType: 'date' as const,
+  };
+
+  it('applyFilterPreset prunes a retained filter depending on a dropped page filter', () => {
+    const preset: StudioFilterPreset = {
+      id: 'preset-1',
+      name: 'View',
+      filters: [pageFilter('p-a', 'page-1')],
+    } as StudioFilterPreset;
+    const doc = makeDoc({
+      dashboard: { activePageId: 'page-1' } as never,
+      widgets: { w1: { id: 'w1', kind: 'kpi', title: 'W', config: {} } } as never,
+      filters: [
+        pageFilter('fp', 'page-1'),
+        {
+          id: 'fw',
+          field: 'value',
+          operator: 'equals',
+          value: 'x',
+          scope: { kind: 'widget', widgetId: 'w1' },
+          dependsOn: ['fp'],
+        } as StudioFilterState,
+      ],
+      filterPresets: [preset],
+    });
+
+    const next = docTransforms.applyFilterPreset(doc, 'preset-1');
+
+    expect(next.filters.find((f) => f.id === 'fp')).toBeUndefined();
+    expect(next.filters.find((f) => f.id === 'fw')).not.toHaveProperty('dependsOn');
+  });
+
+  it('setDashboardDateRange prunes a dependency on the date-range filter it clears', () => {
+    let doc = makeDoc({ dashboard: { activePageId: 'page-1' } as never });
+    doc = docTransforms.setDashboardDateRange(
+      doc,
+      'page-1',
+      dateRangeArgs.fieldId,
+      dateRangeArgs.sourceId,
+      dateRangeArgs.fieldType,
+      'this_month',
+    );
+    const dateFilterId = doc.filters.find((f) => f.scope.kind === 'dashboard-date-range')!.id;
+    doc = {
+      ...doc,
+      filters: [...doc.filters, { ...pageFilter('fp', 'page-1'), dependsOn: [dateFilterId] }],
+    };
+
+    // Clearing the date range (null preset) drops it.
+    const next = docTransforms.setDashboardDateRange(doc, 'page-1', null, null, null, null);
+
+    expect(next.filters.some((f) => f.scope.kind === 'dashboard-date-range')).toBe(false);
+    expect(next.filters.find((f) => f.id === 'fp')).not.toHaveProperty('dependsOn');
+  });
+
+  it('setWidgetDateRange prunes a dependency on the widget date-range filter it clears', () => {
+    let doc = makeDoc({
+      widgets: { w1: { id: 'w1', kind: 'kpi', title: 'W', config: {} } } as never,
+    });
+    doc = docTransforms.setWidgetDateRange(
+      doc,
+      'w1',
+      dateRangeArgs.fieldId,
+      dateRangeArgs.sourceId,
+      dateRangeArgs.fieldType,
+      'this_month',
+    );
+    doc = {
+      ...doc,
+      filters: [
+        ...doc.filters,
+        { ...pageFilter('fp', 'page-1'), dependsOn: ['widget-date-range-w1'] },
+      ],
+    };
+
+    const next = docTransforms.setWidgetDateRange(doc, 'w1', null, null, null, null);
+
+    expect(next.filters.some((f) => f.id === 'widget-date-range-w1')).toBe(false);
+    expect(next.filters.find((f) => f.id === 'fp')).not.toHaveProperty('dependsOn');
+  });
+
+  // `setDashboardDateRangeAll` keeps one filter per SOURCE: a second existing
+  // dashboard-date-range filter sharing a source is dropped by the coverage sweep.
+  it('setDashboardDateRangeAll prunes a dependency on the duplicate-source filter it drops', () => {
+    const ddr = (id: string) =>
+      docTransforms.buildDateRangeFilter({
+        id,
+        field: 'created_at',
+        fieldType: 'date',
+        sourceId: 'orders',
+        preset: 'this_month',
+        scope: { kind: 'dashboard-date-range', sourceId: 'orders', pageId: 'page-1' },
+      })!;
+    const doc = makeDoc({
+      dashboard: { activePageId: 'page-1' } as never,
+      filters: [ddr('d1'), ddr('d2'), { ...pageFilter('fp', 'page-1'), dependsOn: ['d2'] }],
+    });
+
+    const next = docTransforms.setDashboardDateRangeAll(
+      doc,
+      'page-1',
+      [{ fieldId: 'created_at', sourceId: 'orders', fieldType: 'date' }],
+      'last_3_months',
+    );
+
+    expect(next.filters.some((f) => f.id === 'd2')).toBe(false);
+    expect(next.filters.find((f) => f.id === 'fp')).not.toHaveProperty('dependsOn');
+  });
+});

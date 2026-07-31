@@ -1,4 +1,4 @@
-import { createFilterId } from '@mui/x-studio-schema';
+import { createFilterId, pruneDependsOnAgainstSelf } from '@mui/x-studio-schema';
 import type {
   StudioDoc,
   StudioDataField,
@@ -18,6 +18,15 @@ import { hasConflictingRankFilter } from '../internals/rankFilterScope';
  * leaving every other field reference-equal), or the SAME `doc` reference for a
  * logical no-op — so `commitDocPatch`'s reference-equality no-op guard behaves exactly
  * as it did when these bodies lived inline in the controller.
+ *
+ * Every transform here that DROPS a filter cascades the drop into the survivors'
+ * `dependsOn` via the shared `pruneDependsOnAgainstSelf`, exactly as the reducer's own
+ * drop paths do (R6 F3). These transforms commit through `commitDocPatch` and never reach
+ * `applyMutation`, so before that the LIVE doc kept dangling `dependsOn` ids that only
+ * `serializeDoc` pruned — the in-memory cascade and the saved one disagreed until the next
+ * reload, which is precisely the asymmetry `serializeDoc`'s own prune exists to prevent.
+ * `pruneDependsOnAgainstSelf` returns the SAME array when nothing dangled, so every
+ * identity-preservation bail below is unaffected.
  */
 
 /**
@@ -244,13 +253,15 @@ export function setDashboardDateRange(
   // clearing when there was nothing to clear, or rebuilding a filter content-identical to the
   // one already stored — so `commitDocPatch` skips a phantom redo-clearing commit.
   if (!newFilter) {
-    return existingForPage.length === 0 ? doc : { ...doc, filters: withoutExisting };
+    return existingForPage.length === 0
+      ? doc
+      : { ...doc, filters: pruneDependsOnAgainstSelf(withoutExisting) };
   }
   if (existingForPage.length === 1 && isSameManagedFilterContent(existingForPage[0], newFilter)) {
     return doc;
   }
 
-  return { ...doc, filters: [...withoutExisting, newFilter] };
+  return { ...doc, filters: pruneDependsOnAgainstSelf([...withoutExisting, newFilter]) };
 }
 
 /** The source id of a `dashboard-date-range`-scoped filter. */
@@ -347,7 +358,7 @@ export function setDashboardDateRangeAll(
     return doc;
   }
 
-  return { ...doc, filters: [...withoutExisting, ...newFilters] };
+  return { ...doc, filters: pruneDependsOnAgainstSelf([...withoutExisting, ...newFilters]) };
 }
 
 /**
@@ -390,13 +401,15 @@ export function setWidgetDateRange(
   // clearing when there was nothing to clear, or rebuilding a filter content-identical to the
   // one already stored — so `commitDocPatch` skips a phantom redo-clearing commit.
   if (!newFilter) {
-    return existing.length === 0 ? doc : { ...doc, filters: withoutExisting };
+    return existing.length === 0
+      ? doc
+      : { ...doc, filters: pruneDependsOnAgainstSelf(withoutExisting) };
   }
   if (existing.length === 1 && isSameManagedFilterContent(existing[0], newFilter)) {
     return doc;
   }
 
-  return { ...doc, filters: [...withoutExisting, newFilter] };
+  return { ...doc, filters: pruneDependsOnAgainstSelf([...withoutExisting, newFilter]) };
 }
 
 /**
@@ -550,7 +563,11 @@ export function applyFilterPreset(doc: StudioDoc, presetId: string): StudioDoc {
   // on. The compensation used to live in the UI (`StudioFiltersDrawer` gating the click on its
   // own `filtersEquivalent` comparator); putting the bail here makes it hold for every caller,
   // including hosts calling `controller.applyFilterPreset` directly.
-  const nextFilters = [...retained, ...applied];
+  // Pruned against the FINAL array: the apply drops the active page's page-scoped filters,
+  // and a RETAINED filter's `dependsOn` may name one of them (R6 F3). The preset's own
+  // filters are already remapped through `idMap` above, so this only ever touches the
+  // retained set.
+  const nextFilters = pruneDependsOnAgainstSelf([...retained, ...applied]);
   if (isSamePresetApplication(doc.filters, nextFilters)) {
     return doc;
   }

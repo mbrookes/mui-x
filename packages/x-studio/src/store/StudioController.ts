@@ -31,6 +31,12 @@ import {
   isStudioFilterOperator,
   isValidFilterScope,
   hasResolvableFilterAnchors,
+  // The `dependsOn` referential-integrity cascade the reducer runs on every one of ITS
+  // filter-drop paths. The four clear methods below drop filters through `commitDocPatch`
+  // and so never reach the reducer; without this they left dangling `dependsOn` ids in the
+  // LIVE doc that only `serializeDoc` pruned, so the in-memory cascade and the saved one
+  // disagreed until the next reload (R6 F3).
+  pruneDependsOnAgainstSelf,
 } from '@mui/x-studio-schema';
 
 import {
@@ -2834,7 +2840,12 @@ export class StudioController {
         !(f.scope.kind === 'interactive' && f.scope.sourceWidgetId === sourceWidgetId),
     );
     this.commitDocPatch(
-      { filters: next.length === state.doc.filters.length ? state.doc.filters : next },
+      {
+        filters:
+          next.length === state.doc.filters.length
+            ? state.doc.filters
+            : pruneDependsOnAgainstSelf(next),
+      },
       { undoable: false },
     );
   };
@@ -2947,7 +2958,12 @@ export class StudioController {
         !(f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId === sourceWidgetId),
     );
     this.commitDocPatch(
-      { filters: next.length === state.doc.filters.length ? state.doc.filters : next },
+      {
+        filters:
+          next.length === state.doc.filters.length
+            ? state.doc.filters
+            : pruneDependsOnAgainstSelf(next),
+      },
       { label: `clearCrossFilter:${sourceWidgetId}` },
     );
   };
@@ -2989,7 +3005,10 @@ export class StudioController {
     );
     this.commitDocPatch(
       {
-        filters: next.length === state.doc.filters.length ? state.doc.filters : next,
+        filters:
+          next.length === state.doc.filters.length
+            ? state.doc.filters
+            : pruneDependsOnAgainstSelf(next),
       },
       // Labeled like every other filter writer (`updateFilter:*`, `clearCrossFilter:*`) so a
       // "Clear all" shows up in `getRecentMutations()` — the log the AI assistant reads back
@@ -3030,7 +3049,10 @@ export class StudioController {
       (f: StudioFilterState) => f.scope.kind !== 'cross-filter',
     );
     this.commitDocPatch({
-      filters: next.length === state.doc.filters.length ? state.doc.filters : next,
+      filters:
+        next.length === state.doc.filters.length
+          ? state.doc.filters
+          : pruneDependsOnAgainstSelf(next),
     });
   };
 

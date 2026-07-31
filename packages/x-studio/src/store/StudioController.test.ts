@@ -6442,3 +6442,77 @@ describe('setAdjacentWidgetColSpans — canvas min-span vocabulary matches the d
     expect(controller.getState().doc.pages['page-1'].widgetColSpans?.k1).toBe(offeredMin);
   });
 });
+
+// ─── R6 F3: the controller's non-reducer filter drops cascade too ────────────
+
+describe('StudioController — dependsOn cascade on filter drops (R6 F3)', () => {
+  function makeControllerWithCascade(extra: StudioFilterState[] = []) {
+    return new StudioController({
+      doc: {
+        dashboard: { activePageId: 'page-1' } as never,
+        widgets: { w1: makeWidget('w1') },
+        pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['w1']] } },
+        filters: [
+          makeFilter({ id: 'fp', scope: { kind: 'page', pageId: 'page-1' } }),
+          makeFilter({
+            id: 'fw',
+            scope: { kind: 'widget', widgetId: 'w1' },
+            dependsOn: ['fp'],
+          }),
+          ...extra,
+        ],
+      },
+    });
+  }
+
+  const dependsOnOf = (controller: StudioController, id: string) =>
+    controller.getState().doc.filters.find((f: StudioFilterState) => f.id === id)?.dependsOn;
+
+  it('clearPageFilters cascades into a survivor that depended on a cleared filter', () => {
+    const controller = makeControllerWithCascade();
+    controller.clearPageFilters();
+    expect(controller.getState().doc.filters.map((f: StudioFilterState) => f.id)).toEqual(['fw']);
+    // Before R6 F3 this stayed `['fp']` in the LIVE doc and was pruned only by
+    // `serializeDoc` at save time — the in-memory cascade and the saved one disagreed.
+    expect(dependsOnOf(controller, 'fw')).toBeUndefined();
+  });
+
+  it('clearCrossFilter cascades', () => {
+    const controller = makeControllerWithCascade();
+    controller.applyCrossFilter('w1', 'category', 'Books');
+    const crossId = controller
+      .getState()
+      .doc.filters.find((f: StudioFilterState) => f.scope.kind === 'cross-filter')!.id;
+    controller.updateFilter('fw', { dependsOn: [crossId] });
+
+    controller.clearCrossFilter('w1');
+
+    expect(dependsOnOf(controller, 'fw')).toBeUndefined();
+  });
+
+  it('clearAllCrossFilters cascades', () => {
+    const controller = makeControllerWithCascade();
+    controller.applyCrossFilter('w1', 'category', 'Books');
+    const crossId = controller
+      .getState()
+      .doc.filters.find((f: StudioFilterState) => f.scope.kind === 'cross-filter')!.id;
+    controller.updateFilter('fw', { dependsOn: [crossId] });
+
+    controller.clearAllCrossFilters();
+
+    expect(dependsOnOf(controller, 'fw')).toBeUndefined();
+  });
+
+  it('clearInteractiveFilter cascades', () => {
+    const controller = makeControllerWithCascade();
+    controller.applyInteractiveFilter('w1', 'category', 'equals', 'Books');
+    const interactiveId = controller
+      .getState()
+      .doc.filters.find((f: StudioFilterState) => f.scope.kind === 'interactive')!.id;
+    controller.updateFilter('fw', { dependsOn: [interactiveId] });
+
+    controller.clearInteractiveFilter('w1');
+
+    expect(dependsOnOf(controller, 'fw')).toBeUndefined();
+  });
+});

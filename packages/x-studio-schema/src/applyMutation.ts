@@ -566,10 +566,18 @@ const REQUIRED_WIDGET_FIELD_SET: ReadonlySet<string> = new Set<string>(
  * silently gates option-narrowing on a filter that no longer exists.
  *
  * The ONE implementation of that referential-integrity invariant, so every path that drops
- * a filter enforces it: `removeFilter`, `dropWidgetScopedFilters` via
- * `removeWidget`/`applyBulkUpdate`, `removePage`'s page-anchor drop, the layout handlers'
- * rank sweep, and — via `statePersistence.ts`'s import — the load boundary's filter screen
- * and rank dedup.
+ * a filter enforces it — in BOTH packages. In this one: `removeFilter`,
+ * `dropWidgetScopedFilters` via `removeWidget`/`applyBulkUpdate`, `removePage`'s page-anchor
+ * drop, the layout handlers' rank sweep, and — via `statePersistence.ts`'s import — the load
+ * boundary's filter screen and rank dedup plus `serializeDoc`'s session-scope strip. In
+ * `@mui/x-studio`, whose filter drops bypass this reducer entirely and commit through
+ * `commitDocPatch`: `StudioController`'s `clearPageFilters`/`clearCrossFilter`/
+ * `clearAllCrossFilters`/`clearInteractiveFilter` and `docTransforms`'
+ * `applyFilterPreset`/`setDashboardDateRange`/`setDashboardDateRangeAll`/
+ * `setWidgetDateRange`, which reach it through {@link pruneDependsOnAgainstSelf} on the
+ * package index (R6 F3 — before that, those eight left the LIVE doc carrying dangling ids
+ * that only `serializeDoc` pruned, so the in-memory cascade and the saved one disagreed
+ * until the next reload).
  *
  * Drops the whole `dependsOn` array (rather than leaving `dependsOn: []`) when the prune
  * empties it, mirroring `docTransforms.ts`'s own `remappedDependsOn.length > 0 ? … :
@@ -610,10 +618,15 @@ export function pruneDependsOn(
 /**
  * {@link pruneDependsOn} against the ids `filters` itself still carries — the shape every
  * "some filters were just dropped from this array" call site wants. Kept as a separate
- * tiny wrapper so the exported primitive keeps its explicit surviving-id-set signature
- * (which the load boundary needs, since it prunes against a set it computes itself).
+ * tiny wrapper so the primitive keeps its explicit surviving-id-set signature (which the
+ * load boundary needs, since it prunes against a set it computes itself).
+ *
+ * Exported (and re-exported from the package index) because `@mui/x-studio`'s eight
+ * non-reducer filter-drop paths need exactly this shape — see {@link pruneDependsOn}.
+ * Reference-stable: returns the SAME array when nothing dangled, so a caller's
+ * identity-preservation guard is unaffected.
  */
-function pruneDependsOnAgainstSelf(filters: StudioFilterState[]): StudioFilterState[] {
+export function pruneDependsOnAgainstSelf(filters: StudioFilterState[]): StudioFilterState[] {
   return pruneDependsOn(filters, new Set(filters.map((f) => f.id)));
 }
 

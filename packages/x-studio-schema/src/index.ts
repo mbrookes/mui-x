@@ -47,6 +47,10 @@ export {
   GRID_COLS,
   MIN_SPAN,
   MUTATION_TYPES,
+  // The `dependsOn` referential-integrity cascade, published so `@mui/x-studio`'s filter-drop
+  // paths — which commit through `commitDocPatch` and never reach the reducer — enforce the
+  // same invariant every reducer drop path does (R6 F3).
+  pruneDependsOnAgainstSelf,
 } from './applyMutation';
 // The rank-filter scope helpers moved out of `applyMutation.ts` into their own
 // dependency-free module so `factories.ts` (the factory-overrides trust boundary) can reach

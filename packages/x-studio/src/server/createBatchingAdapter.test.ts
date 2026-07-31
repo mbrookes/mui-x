@@ -2805,6 +2805,29 @@ describe('createBatchingAdapter — cross-source filter fan-out', () => {
       ...(filterSourceId === undefined ? {} : { filterSourceId }),
     }) as NonNullable<StudioQueryDescriptor['filter']>;
 
+  it('WARNS when a cross-source leaf carries no source attribution', async () => {
+    // `resolveRows` sends this leaf to `nativeFilters`, comparing `status` against the widget's
+    // own `customers` rows where it is `undefined` — memory keeps nothing, the wire's `EXISTS`
+    // keeps the matching customers. Same document, two answers.
+    expect(await warningsForCustomersFilter(statusLeaf())).toContain('no source attribution');
+  });
+
+  it("WARNS for the `filterSourceId: ''` shape `add_page_filter` writes", async () => {
+    // `x-studio-ai-middleware`'s `add_page_filter` stores `asString(args.sourceId ?? '')` when the
+    // model omits the argument. `''` is falsy, so `resolveRows`' `f.filterSourceId &&` test treats
+    // it exactly like absent — and it names no real source here either.
+    expect(await warningsForCustomersFilter(statusLeaf(''))).toContain('no source attribution');
+  });
+
+  it("WARNS when the attribution names the widget's OWN source", async () => {
+    // The other half of `resolveRows`' `f.filterSourceId && f.filterSourceId !== widgetSourceId`
+    // test: a set-but-self attribution takes `nativeFilters` too, which a bare absence check
+    // would miss.
+    expect(await warningsForCustomersFilter(statusLeaf('source-customers'))).toContain(
+      'no source attribution',
+    );
+  });
+
   it('WARNS for an unattributed leaf even when a SIBLING leaf on the SAME field is attributed', async () => {
     // The divergence is decided per LEAF, so it must be detected per leaf. Collecting the
     // attributions into a per-FIELD set and asking whether the semi-join's source appears

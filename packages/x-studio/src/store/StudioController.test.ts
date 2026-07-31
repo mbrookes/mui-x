@@ -6522,63 +6522,6 @@ describe('StudioController — dependsOn cascade on filter drops (R6 F3)', () =>
   });
 });
 
-// ─── R6 F6: the factory's pages-override gap is surfaced at construction ─────
-
-describe('StudioController constructor — unswept initialState layout warning (R6 F6)', () => {
-  const badPages = {
-    p1: {
-      id: 'p1',
-      title: 'P1',
-      // Phantom id, duplicate placement, spans summing to 40 > GRID_COLS, an orphan span and
-      // a sub-MIN_SPAN one. The factory installs all of it verbatim.
-      widgetRows: [['w1', 'ghost', 'w1', 'w2']],
-      widgetColSpans: { w1: 20, w2: 20, gone: 12, tiny: 2 },
-    },
-  };
-
-  it('warns, names the page, and still installs the override verbatim', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const controller = new StudioController({
-      doc: {
-        widgets: { w1: makeWidget('w1'), w2: makeWidget('w2') },
-        pages: badPages as never,
-        dashboard: { activePageId: 'p1' } as never,
-      },
-    });
-
-    expect(warnSpy).toHaveBeenCalledOnce();
-    expect(warnSpy.mock.calls[0][0]).toContain('p1');
-    warnSpy.mockRestore();
-
-    // The warning does NOT repair — the factory's contract is "the override IS the page map".
-    expect(controller.getState().doc.pages.p1.widgetRows).toEqual([['w1', 'ghost', 'w1', 'w2']]);
-  });
-
-  it('stays silent for a well-formed initialState layout', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    // eslint-disable-next-line no-new
-    new StudioController({
-      doc: {
-        widgets: { w1: makeWidget('w1'), w2: makeWidget('w2') },
-        pages: {
-          p1: { id: 'p1', title: 'P1', widgetRows: [['w1', 'w2']] },
-        } as never,
-        dashboard: { activePageId: 'p1' } as never,
-      },
-    });
-    expect(warnSpy).not.toHaveBeenCalled();
-    warnSpy.mockRestore();
-  });
-
-  it('stays silent for widgets supplied without a pages override', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    // eslint-disable-next-line no-new
-    new StudioController({ doc: { widgets: { w1: makeWidget('w1') } } });
-    expect(warnSpy).not.toHaveBeenCalled();
-    warnSpy.mockRestore();
-  });
-});
-
 // ─── R6 seam: a scripted edit session's LIVE doc satisfies the load boundary ──
 
 describe('StudioController — live doc satisfies the load boundary', () => {

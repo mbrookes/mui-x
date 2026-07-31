@@ -31,9 +31,6 @@ import {
   isStudioFilterOperator,
   isValidFilterScope,
   hasResolvableFilterAnchors,
-  // The shared page-layout sweep, used dev-only by the constructor to warn about a host
-  // `initialState` layout the first save/reload would rewrite (R6 F6).
-  normalizePersistedPages,
   // The `dependsOn` referential-integrity cascade the reducer runs on every one of ITS
   // filter-drop paths. The four clear methods below drop filters through `commitDocPatch`
   // and so never reach the reducer; without this they left dangling `dependsOn` ids in the
@@ -209,59 +206,7 @@ export class StudioController {
   constructor(initialState?: CreateDefaultStudioStateOverrides) {
     const state = createDefaultStudioState(initialState);
     this.store = Store.create(state);
-    // Dev-mode diagnostic for the factory's documented `pages`-override gap (R6 F6). A
-    // `doc.pages` override replaces the default page map WHOLESALE and reaches
-    // `createDefaultStudioState` with only a SHAPE screen (`screenPagesShape`) — the full
-    // layout sweep lives in `applyMutation.ts`, which imports `factories.ts`, so the factory
-    // structurally cannot run it. A host `initialState` therefore installs
-    // `widgetRows`/`widgetColSpans` verbatim: a phantom widget id, a widget placed twice, a
-    // row summing past `GRID_COLS`, an orphan or sub-`MIN_SPAN` span all land in the doc, and
-    // the FIRST save/reload silently rewrites them, with nothing having told the host.
-    //
-    // `@mui/x-studio` has no such import cycle, so the sweep runs here — dev-only, once per
-    // controller, and purely as a WARNING. It deliberately does NOT repair: the factory's
-    // merge contract is "the override IS the page map", and rewriting a host's layout at
-    // construction would make this a second, undocumented normalization boundary. It also
-    // stays out of every commit path — this is construction, not a hot path.
-    this.warnOnUnsweptInitialLayout();
-    // `warnOnOrphanedWidgets` is deliberately NOT called here, unlike from
-    // `insertWidgetAt`/`duplicateWidget`/`commitWidgetMove`. Those commit a caller-computed
-    // layout, where a widget missing from every row IS a geometry bug. At construction it is
-    // not: `{ doc: { widgets: … } }` with no `pages` override is a documented, supported shape
-    // (the factory keeps the default page map, so the supplied widgets are simply unplaced
-    // until the host or the user places them), and warning on it would fire for the single
-    // most common way an `initialState` is written.
   }
-
-  /**
-   * See the constructor (R6 F6). Compares the initial page map against what the shared layout
-   * sweep would produce and warns when they differ — i.e. when the first save/reload would
-   * rewrite the host's `initialState`. Dev-only; never mutates.
-   */
-  private warnOnUnsweptInitialLayout = () => {
-    if (process.env.NODE_ENV === 'production') {
-      return;
-    }
-    const { doc } = this.store.state;
-    const swept = normalizePersistedPages(doc.pages, doc.widgets);
-    // `normalizePersistedPages` is reference-stable, so an unchanged reference means every
-    // page already satisfies the invariants and there is nothing to report.
-    if (swept === doc.pages) {
-      return;
-    }
-    const rewritten = Object.keys(doc.pages).filter(
-      (pageId) => swept[pageId] !== doc.pages[pageId],
-    );
-    console.warn(
-      `MUI X Studio: the initial layout of page(s) ${rewritten.join(', ')} does not satisfy ` +
-        "the document's layout invariants (a page's id matches its record key, every row id " +
-        "names a real widget, no widget is placed twice, and each row's column spans sit " +
-        'within MIN_SPAN…GRID_COLS and sum to at most GRID_COLS). It is installed as ' +
-        'supplied, but the first save/reload will silently rewrite it. Build initialState ' +
-        'layouts through the controller (setWidgetLayout / setAdjacentWidgetColSpans) or ' +
-        'from a doc produced by serializeState.',
-    );
-  };
 
   private applyInferredTitles(
     widget: StudioWidget,

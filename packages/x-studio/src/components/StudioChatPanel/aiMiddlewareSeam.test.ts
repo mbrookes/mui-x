@@ -671,6 +671,34 @@ describe('x-studio ⇄ x-studio-ai-middleware seam: abort during an open approva
     expect(replayed?.tool_calls?.[0].function.arguments).toBe('{"widgetRemovals":["w1"]}');
   });
 
+  // …and the card the human was looking at when they hit Stop must still BE a card. The
+  // flush's repair travels as `tool-input-available`, whose `processStream` case used to set
+  // `state: 'input-available'` unconditionally — and `ToolPart` renders the approve/deny
+  // buttons, the `reason` and the `approvalDetails` slot ONLY for `approval-requested`. So
+  // the repair silently deleted the answer affordance while the server was still waiting on
+  // its own approval timeout; the approval is answered on a SEPARATE POST, so a stream
+  // ending does not end the question. Measured end to end here, which is the only place both
+  // halves are in the same process.
+  it('keeps the pending card answerable through the stream-end flush', async () => {
+    const result = await runSeam({
+      turns: [
+        toolCallTurn('tc-1', 'apply_bulk_update', { widgetRemovals: ['w1'] }),
+        textTurn('unreached'),
+      ],
+      state: STATE_WITH_THREAD,
+      abortOnApprovalRequest: true,
+    });
+
+    const toolPart = result.message.parts.find(
+      (part) => part.type === 'tool' || part.type === 'dynamic-tool',
+    ) as { toolInvocation: { state: string; input: unknown; approvalRequest?: unknown } };
+
+    // The repair landed — the persisted arguments are the model's own…
+    expect(toolPart.toolInvocation.input).toEqual({ widgetRemovals: ['w1'] });
+    // …and the card is still a card.
+    expect(toolPart.toolInvocation.state).toBe('approval-requested');
+  });
+
   it("leaves an ungated aborted call's arguments untouched", async () => {
     // The complement: nothing was ever overwritten for a call that was not approval
     // gated, so the flush must not invent a chunk for it. `add_page` is not gated.

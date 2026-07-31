@@ -1005,6 +1005,72 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
     warnSpy.mockRestore();
   });
 
+  // ── the stream-end flush ───────────────────────────────────────────────────
+  //
+  // `flushApprovalGatedInputs` runs from `closeStream`/`errorStream` to re-assert the model's
+  // own arguments over an approval card's display-enriched copy, so `toOpenAIMessages` does
+  // not replay a display shape as the model's own on the NEXT request. It fires on paths
+  // where the human has NOT answered: an abort mid-card, a server that closes the connection
+  // mid-approval, a proxy timeout. Two things it must not do on the way.
+  it('re-asserts `{}` for a DEGRADED card, not the model-supplied arguments', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const chunks = await collectTurnChunks([
+      {
+        type: 'tool-activity',
+        phase: 'start',
+        toolCallId: 'call-1',
+        toolName: 'remove_widget',
+        // The model's own labels — what the server-side enrichment exists to overwrite from
+        // real state, and what `MAX_APPROVAL_INPUT_SIZE` refuses to fall back to.
+        input: { widgetId: 'w1', widgetTitle: 'Harmless-looking chart' },
+      },
+      {
+        type: 'tool-approval-request',
+        toolCallId: 'call-1',
+        toolName: 'remove_widget',
+        input: { note: 'n'.repeat(MAX_APPROVAL_INPUT_SIZE) },
+      },
+      // …and the stream ends with the card still pending: no `tool-activity` `complete`.
+    ]);
+
+    const approval = chunks.find((c) => c.type === 'tool-approval-request') as ApprovalChunk;
+    expect(approval.input).toEqual({});
+    // The LAST write to `toolInvocation.input` — the one that persists and that
+    // `toOpenAIMessages` replays — is still `{}`. Restoring the model's arguments here would
+    // deliver the deceptive fallback the write-time cap refuses, by another route, and onto
+    // a card the human can still answer.
+    const lastInput = chunks.filter((c) => c.type === 'tool-input-available').at(-1) as {
+      input: unknown;
+    };
+    expect(lastInput.input).toEqual({});
+    warnSpy.mockRestore();
+  });
+
+  it('still re-asserts the model arguments for a card that was NOT degraded', async () => {
+    // The exemption is for degraded cards only: an ordinary gated call must still get its
+    // real arguments back, which is the entire reason the flush exists.
+    const chunks = await collectTurnChunks([
+      {
+        type: 'tool-activity',
+        phase: 'start',
+        toolCallId: 'call-1',
+        toolName: 'apply_bulk_update',
+        input: { widgetRemovals: ['w1'] },
+      },
+      {
+        type: 'tool-approval-request',
+        toolCallId: 'call-1',
+        toolName: 'apply_bulk_update',
+        input: { widgetRemovals: [{ id: 'w1', title: 'Revenue' }] },
+      },
+    ]);
+
+    const lastInput = chunks.filter((c) => c.type === 'tool-input-available').at(-1) as {
+      input: unknown;
+    };
+    expect(lastInput.input).toEqual({ widgetRemovals: ['w1'] });
+  });
+
   it('accepts an `input` exactly AT the per-card cap', async () => {
     // `{"note":"n…"}` serializes to exactly MAX_APPROVAL_INPUT_SIZE characters.
     const note = 'n'.repeat(MAX_APPROVAL_INPUT_SIZE - '{"note":""}'.length);

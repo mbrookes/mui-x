@@ -851,11 +851,20 @@ export function createBackendChatAdapter(
       //
       // Both values are needed, at different times: enriched WHILE the card is
       // pending, real once the call is settled. The chunk can only carry one, so the
-      // adapter keeps the real one here and re-asserts it (via `tool-input-available`,
-      // whose update path only rewrites `input`) the moment the call completes —
-      // approved, denied or timed out, all of which arrive as `tool-activity`
-      // `complete`. Until `ChatToolApprovalRequestChunk` grows a field for the display
-      // payload, this is where the two are reconciled.
+      // adapter keeps the real one here and re-asserts it (via `tool-input-available`)
+      // the moment the call completes — approved, denied or timed out, all of which
+      // arrive as `tool-activity` `complete`. Until `ChatToolApprovalRequestChunk` grows
+      // a field for the display payload, this is where the two are reconciled.
+      //
+      // That re-assert "only rewrites `input`" — which this comment asserted while
+      // `processStream`'s `tool-input-available` case unconditionally set
+      // `state: 'input-available'`. It really only rewrites `input` now: that case leaves an
+      // `approval-requested` part in `approval-requested`, because `ToolPart` renders the
+      // approve/deny buttons, the `reason` and the `approvalDetails` slot ONLY for that
+      // state, and the stream-end flush below fires on paths where the human has NOT
+      // answered yet. Measured before the fix: a still-pending card became
+      // `input-available` at stream end and lost its buttons for the whole of the server's
+      // 120-second approval timeout, after which the call was denied by timeout.
       //
       // `approvalGatedToolCalls` maps a gated `toolCallId` to its `toolName`, because
       // the re-assert does not always have a `tool-activity` event in hand to read the
@@ -863,6 +872,14 @@ export function createBackendChatAdapter(
       // `flushApprovalGatedInputs`).
       const modelToolInputs = new Map<string, unknown>();
       const approvalGatedToolCalls = new Map<string, string>();
+
+      // The gated calls whose enriched `input` this client REFUSED (over
+      // `MAX_APPROVAL_INPUT_SIZE`, or past the turn total). Their cards render `{}` plus an
+      // `inputWithheld` marker, and the stream-end flush below must not undo that by writing
+      // the model's own arguments onto them — see `flushApprovalGatedInputs`. Bounded by
+      // `MAX_TURN_TOOL_PARTS`, like `approvalGatedToolCalls`, since entries are only added
+      // behind the same part budget.
+      const degradedApprovalInputs = new Set<string>();
 
       // Pass-through `message-metadata` budget for THIS turn — declared here, at
       // `sendMessage` scope, and NOT inside the `message-metadata` branch, because the sink
@@ -1029,10 +1046,21 @@ export function createBackendChatAdapter(
                 type: 'tool-input-available',
                 toolCallId,
                 toolName,
-                input: modelToolInputs.get(toolCallId) ?? {},
+                // `{}` for a card this client already degraded, NOT the model's own
+                // arguments. The write-time cap degrades to `{}` precisely so a
+                // prompt-injected model's own labels never sit next to an approve button
+                // (`MAX_APPROVAL_INPUT_SIZE`); re-asserting them here would deliver exactly
+                // that fallback by another route, and — now that the flush no longer strips
+                // the card's `approval-requested` state — onto a card the human can still
+                // answer. A card that says its details were withheld is easy to deny; one
+                // showing model-chosen labels as if they were server-resolved is not.
+                input: degradedApprovalInputs.has(toolCallId)
+                  ? {}
+                  : (modelToolInputs.get(toolCallId) ?? {}),
               });
             }
             approvalGatedToolCalls.clear();
+            degradedApprovalInputs.clear();
           };
 
           const closeStream = () => {
@@ -1675,6 +1703,7 @@ Check the endpoint URL, its authentication headers, and the server logs for this
                 // refused to store the arguments" are very different things to be approving,
                 // and the console warning below reaches nobody holding the deny button.
                 withheldMarkers.inputWithheld = true;
+                degradedApprovalInputs.add(approvalToolCallId);
                 warnApprovalOnce(
                   'approval-input-size',
                   `The AI server sent a tool approval request whose details are larger than this ` +

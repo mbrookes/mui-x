@@ -637,6 +637,76 @@ describe('processStream', () => {
     expect(toolPart.toolInvocation.state).toBe('approval-requested');
   });
 
+  // `ToolPart` renders the approve/deny buttons, the `reason` and the `approvalDetails` slot
+  // ONLY for `approval-requested`. A producer's end-of-stream repair pass — `x-studio`'s
+  // `flushApprovalGatedInputs`, which re-asserts the model's own arguments over an approval
+  // card's display-enriched copy — sends `tool-input-available` for a call that is still
+  // pending, on the documented understanding that this case "only rewrites `input`". It did
+  // not: it set `state: 'input-available'` unconditionally, deleting the human's answer
+  // affordance while the server was still waiting on its 120-second approval timeout, after
+  // which the call was denied by timeout. The approval is answered on a SEPARATE POST, so a
+  // stream ending does not end the question.
+  it('rewrites a pending approval\'s input WITHOUT taking away its approve/deny state', async () => {
+    const store = new ChatStore();
+
+    await processStream(
+      store,
+      createStream([
+        { type: 'start', messageId: 'a1' },
+        {
+          type: 'tool-approval-request',
+          toolCallId: 'tool-1',
+          toolName: 'search',
+          input: { query: 'enriched' },
+          approvalId: 'approval-1',
+          reason: 'policy',
+        },
+        {
+          type: 'tool-input-available',
+          toolCallId: 'tool-1',
+          toolName: 'search',
+          input: { query: 'model-supplied' },
+        },
+        { type: 'finish', messageId: 'a1' },
+      ]),
+    );
+
+    const toolPart = store.state.messagesById.a1.parts[0] as ChatToolMessagePart<'search'>;
+    // The rewrite lands — that is what the repair pass is for…
+    expect(toolPart.toolInvocation.input).toEqual({ query: 'model-supplied' });
+    // …and everything the card is made of survives it.
+    expect(toolPart.toolInvocation.state).toBe('approval-requested');
+    expect(toolPart.toolInvocation.approvalId).toBe('approval-1');
+    expect(
+      (toolPart.toolInvocation as { approvalRequest?: { reason?: string } }).approvalRequest
+        ?.reason,
+    ).toBe('policy');
+  });
+
+  it('still advances an ordinary tool call to input-available', async () => {
+    // The exemption is for `approval-requested` ONLY — a part that never asked for approval
+    // must still reach `input-available`, or every ordinary tool card stops rendering.
+    const store = new ChatStore();
+
+    await processStream(
+      store,
+      createStream([
+        { type: 'start', messageId: 'a1' },
+        { type: 'tool-input-start', toolCallId: 'tool-1', toolName: 'search' },
+        {
+          type: 'tool-input-available',
+          toolCallId: 'tool-1',
+          toolName: 'search',
+          input: { query: 'weather' },
+        },
+        { type: 'finish', messageId: 'a1' },
+      ]),
+    );
+
+    const toolPart = store.state.messagesById.a1.parts[0] as ChatToolMessagePart<'search'>;
+    expect(toolPart.toolInvocation.state).toBe('input-available');
+  });
+
   it('creates a dynamic tool part from a dynamic tool-approval-request chunk', async () => {
     const store = new ChatStore();
 

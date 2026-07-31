@@ -440,6 +440,21 @@ export async function processStream<Cursor = string>(
       }
 
       case 'tool-input-available':
+        // The update path rewrites `input` (and `toolName`) and advances the state — EXCEPT
+        // out of `approval-requested`, which it must never leave. A pending approval is the
+        // one state whose meaning lives in the UI: `ToolPart` renders the approve/deny
+        // buttons, the `reason` and the `approvalDetails` slot ONLY for it, so downgrading a
+        // pending part to `input-available` silently deletes the human's answer affordance
+        // while the server is still waiting for it — and the approval is answered on a
+        // separate POST, so a stream that ends (a proxy timeout, an SSE disconnect, a
+        // producer's end-of-stream repair pass) does not end the question.
+        //
+        // `x-studio`'s `flushApprovalGatedInputs` is exactly such a repair pass: it re-asserts
+        // the model's own arguments over an approval card's display-enriched copy at stream
+        // end, on the documented understanding that this path "only rewrites `input`". It did
+        // not, and a still-pending card lost its buttons for the whole of the server's
+        // approval timeout. Only a real settle (`tool-output-available`/`-error`/`-denied`, or
+        // the consumer's own `addToolApprovalResponse`) moves a part out of this state.
         await withToolInvocation(
           chunk.toolCallId,
           () =>
@@ -466,7 +481,8 @@ export async function processStream<Cursor = string>(
             ...invocation,
             toolName: chunk.toolName,
             input: chunk.input as ChatToolInvocation['input'],
-            state: 'input-available',
+            state:
+              invocation.state === 'approval-requested' ? invocation.state : 'input-available',
           }),
         );
         return;

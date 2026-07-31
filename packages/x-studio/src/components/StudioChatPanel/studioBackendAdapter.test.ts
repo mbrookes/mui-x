@@ -1378,6 +1378,52 @@ describe('createBackendChatAdapter: message-metadata', () => {
     vi.unstubAllGlobals();
   });
 
+  // …and the budget is spent on the key NAMES too, not only on the values. Above, the names
+  // are 5 characters against a 5 002-character value, so nothing there can tell whether the
+  // `key.length +` term in `entrySize` is doing anything: deleting it leaves every other test
+  // in this file green. Invert the ratio and the names become the whole quantity. Without the
+  // charge the real worst case is MAX_TURN_METADATA_SIZE + MAX_ARRAY_LENGTH *
+  // MAX_METADATA_KEY_LENGTH = 20 000 + 500 * 128 = 84 000 characters, ~2.8x what the budget
+  // claims — and a name is exactly as persistent as the value it names.
+  it('charges the key NAMES to the turn budget, not just the values', async () => {
+    const atCapKey = 'k'.repeat(MAX_METADATA_KEY_LENGTH);
+    const events: object[] = [];
+    for (let event = 0; event < 5; event += 1) {
+      const metadata: Record<string, unknown> = {};
+      for (let i = 0; i < 200; i += 1) {
+        // A one-character value: everything this payload costs the persisted message is name.
+        metadata[`${event}-${i}-${atCapKey}`.slice(0, MAX_METADATA_KEY_LENGTH)] = 1;
+      }
+      events.push({ type: 'message-metadata', metadata });
+    }
+    events.push({ type: 'finish', finishReason: 'stop' });
+    mockFetch(makeSseBody(events));
+
+    const adapter = createBackendChatAdapter(
+      { endpoint: 'https://fake.test/api/ai' },
+      makeController(),
+    );
+    const stream = await adapter.sendMessage(makeSendInput([]));
+    const chatChunks = (await collectChunks(stream)).filter(isChatMessageChunk);
+
+    const merged = mergeMetadataChunks(chatChunks);
+    const nameBytes = Object.keys(merged).reduce((total, key) => total + key.length, 0);
+    const chargedSize = Object.entries(merged).reduce(
+      (total, [key, value]) => total + key.length + JSON.stringify(value)!.length,
+      0,
+    );
+
+    // The names alone stay inside the whole turn budget…
+    expect(nameBytes).toBeLessThanOrEqual(MAX_TURN_METADATA_SIZE);
+    // …and so does everything persisted, which is what the budget's arithmetic claims.
+    expect(chargedSize).toBeLessThanOrEqual(MAX_TURN_METADATA_SIZE);
+    // The key COUNT cap is not what stopped it here — the size budget ran out first, which is
+    // the term this test exists to pin.
+    expect(Object.keys(merged).length).toBeLessThan(MAX_ARRAY_LENGTH);
+
+    vi.unstubAllGlobals();
+  });
+
   // Same merge, the key-COUNT half of the budget.
   it('spends ONE key-count budget across every metadata event of the turn', async () => {
     const events: object[] = [];

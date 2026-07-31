@@ -1671,9 +1671,7 @@ describe('createBackendChatAdapter: tool-activity size limits', () => {
       Array.from({ length: MAX_TURN_TOOL_PARTS * 4 }, (_unused, i) => startEvent(i)),
     );
 
-    expect(chunks.filter((c) => c.type === 'tool-input-start')).toHaveLength(
-      MAX_TURN_TOOL_PARTS,
-    );
+    expect(chunks.filter((c) => c.type === 'tool-input-start')).toHaveLength(MAX_TURN_TOOL_PARTS);
     expect(warnSpy).toHaveBeenCalledTimes(1);
     warnSpy.mockRestore();
   });
@@ -1687,9 +1685,7 @@ describe('createBackendChatAdapter: tool-activity size limits', () => {
     ]).flat();
     const chunks = await collectAllTurnChunks(events);
 
-    expect(chunks.filter((c) => c.type === 'tool-input-start')).toHaveLength(
-      MAX_TURN_TOOL_PARTS,
-    );
+    expect(chunks.filter((c) => c.type === 'tool-input-start')).toHaveLength(MAX_TURN_TOOL_PARTS);
     expect(chunks.filter((c) => c.type === 'tool-output-available')).toHaveLength(
       MAX_TURN_TOOL_PARTS,
     );
@@ -1745,9 +1741,7 @@ describe('createBackendChatAdapter: tool-activity size limits', () => {
     ]);
 
     // The tool-activity events spent the whole shared budget…
-    expect(chunks.filter((c) => c.type === 'tool-input-start')).toHaveLength(
-      MAX_TURN_TOOL_PARTS,
-    );
+    expect(chunks.filter((c) => c.type === 'tool-input-start')).toHaveLength(MAX_TURN_TOOL_PARTS);
     // …so the approval events, which name NEW ids, get no parts of their own.
     expect(chunks.filter((c) => c.type === 'tool-approval-request')).toHaveLength(0);
     warnSpy.mockRestore();
@@ -1827,6 +1821,56 @@ describe('createBackendChatAdapter: tool-activity size limits', () => {
     warnSpy.mockRestore();
   });
 
+  // THE UNIT, on the one field the previous round added last — and the one field of the whole
+  // boundary whose unit nothing pinned. Restoring `wireStringSize(rawOutput)` to
+  // `rawOutput.length` left all 112 tests green while a 200 000-unit control-character output
+  // persisted 1 200 000 JSON characters against a stated 200 000: `.length` is a different
+  // quantity from the one `MAX_TOOL_OUTPUT_SIZE` is denominated in, and the gap is the escape
+  // ratio. This test is the one that can tell them apart, so it is spelled in escaping
+  // characters and asserts on `jsonChars`, never on `.length`.
+  it('caps the tool output in JSON characters, not in raw UTF-16 units', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // UNDER the cap when measured raw (50 000 <= 200 000), 1.5x OVER it once stored
+    // (300 000 JSON characters). A raw-unit comparison stores the whole thing untouched.
+    const output = CONTROL_CHAR.repeat(50_000);
+    expect(output.length).toBeLessThan(MAX_TOOL_OUTPUT_SIZE);
+    expect(jsonChars(output)).toBeGreaterThan(MAX_TOOL_OUTPUT_SIZE);
+
+    const chunks = await collectAllTurnChunks([startEvent(1), completeEvent(1, { output })]);
+    const stored = (chunks.find((c) => c.type === 'tool-output-available') as { output: string })
+      .output;
+
+    expect(jsonChars(stored)).toBeLessThanOrEqual(MAX_TOOL_OUTPUT_SIZE);
+    // …and truncated, not dropped: the card still resolves and says it is incomplete.
+    expect(stored).toContain('truncated');
+    warnSpy.mockRestore();
+  });
+
+  // The marker's own size is charged to the allowance it is appended under — stated by
+  // `MAX_TOOL_OUTPUT_SIZE`'s docblock ("is itself charged to the budget") and, until this
+  // test, asserted nowhere. Dropping the subtraction leaves the stored output one whole
+  // marker over its own per-call cap, which is exactly the kind of "off by a constant" that
+  // a `toBeLessThan(2_000_000)` assertion cannot see.
+  it('charges the truncation marker to the per-call output cap it is appended under', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const chunks = await collectAllTurnChunks([
+      startEvent(1),
+      completeEvent(1, { output: 'o'.repeat(MAX_TOOL_OUTPUT_SIZE + 100) }),
+    ]);
+    const stored = (chunks.find((c) => c.type === 'tool-output-available') as { output: string })
+      .output;
+
+    // The kept prefix AND the marker together, not the prefix alone.
+    expect(stored.endsWith(TOOL_OUTPUT_TRUNCATED_SUFFIX)).toBe(true);
+    expect(jsonChars(stored)).toBeLessThanOrEqual(MAX_TOOL_OUTPUT_SIZE);
+    // Binding: without the subtraction this is MAX_TOOL_OUTPUT_SIZE exactly and the assertion
+    // above fails by the marker's length, so the cap is reached rather than merely approached.
+    expect(jsonChars(stored)).toBeGreaterThan(
+      MAX_TOOL_OUTPUT_SIZE - 2 * jsonChars(TOOL_OUTPUT_TRUNCATED_SUFFIX),
+    );
+    warnSpy.mockRestore();
+  });
+
   it('spends ONE tool-output budget across every tool-activity event of the turn', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     // 40 completions, each individually legal at half the per-call cap: a per-EVENT limit
@@ -1876,8 +1920,7 @@ describe('createBackendChatAdapter: tool-activity size limits', () => {
             phase: 'start',
             toolCallId: id,
             toolName: escapingString(MAX_TOOL_ID_LENGTH),
-            input:
-              i < 10 ? { note: escapingString(MAX_TOOL_INPUT_SIZE / 2) } : { table: 'orders' },
+            input: i < 10 ? { note: escapingString(MAX_TOOL_INPUT_SIZE / 2) } : { table: 'orders' },
           },
           {
             type: 'tool-activity',
@@ -1910,10 +1953,7 @@ describe('createBackendChatAdapter: tool-activity size limits', () => {
       (total, c) => total + jsonChars(c.toolCallId) + jsonChars(c.toolName),
       0,
     );
-    const inputBytes = inputs.reduce(
-      (total, c) => total + JSON.stringify(c.input)!.length,
-      0,
-    );
+    const inputBytes = inputs.reduce((total, c) => total + JSON.stringify(c.input)!.length, 0);
     const outputBytes = outputs.reduce((total, c) => total + jsonChars(c.output), 0);
 
     // ids/names: 2 fields x MAX_TOOL_ID_LENGTH x MAX_TURN_TOOL_PARTS = 32 768.

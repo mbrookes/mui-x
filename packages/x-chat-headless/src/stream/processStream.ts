@@ -479,7 +479,18 @@ export async function processStream<Cursor = string>(
         }));
         return;
 
-      case 'tool-approval-request':
+      case 'tool-approval-request': {
+        // `reason` and `effects` are what makes the prompt say more than "the model
+        // wants to call `apply_bulk_update`". Both are optional and this branch builds
+        // the invocation from NAMED fields, so anything not read here is dropped —
+        // which is exactly why they were inert end to end for two rounds: producers
+        // emitted them, this function stopped them. Collapsed into one
+        // `approvalRequest` object so the field carrying the backend's request is
+        // visibly distinct from `approval`, which carries the human's answer.
+        const approvalRequest =
+          chunk.reason !== undefined || chunk.effects !== undefined
+            ? { reason: chunk.reason, effects: chunk.effects }
+            : undefined;
         await withToolInvocation(
           chunk.toolCallId,
           () =>
@@ -491,6 +502,7 @@ export async function processStream<Cursor = string>(
                     toolName: chunk.toolName,
                     input: chunk.input,
                     approvalId: chunk.approvalId,
+                    approvalRequest,
                     state: 'approval-requested',
                   },
                 }
@@ -501,6 +513,7 @@ export async function processStream<Cursor = string>(
                     toolName: chunk.toolName,
                     input: chunk.input,
                     approvalId: chunk.approvalId,
+                    approvalRequest,
                     state: 'approval-requested',
                   },
                 },
@@ -509,10 +522,14 @@ export async function processStream<Cursor = string>(
             toolName: chunk.toolName,
             input: chunk.input as ChatToolInvocation['input'],
             approvalId: chunk.approvalId,
+            // Re-prompting for the same call must not silently keep the previous
+            // prompt's details, so this is an assignment, not a merge.
+            approvalRequest,
             state: 'approval-requested',
           }),
         );
         return;
+      }
 
       case 'tool-output-available':
         await withToolInvocation(chunk.toolCallId, null, (invocation) => ({

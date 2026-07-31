@@ -1215,6 +1215,13 @@ export interface StudioLocaleText {
   chatToolLabelRenameThread: string;
   chatToolLabelQueryDataSource: string;
 
+  // ── Tool-approval impact summary (`effects`) ──────────────────────────────
+  chatApprovalWillRemoveWidgets: string;
+  chatApprovalWillRemovePages: string;
+  chatApprovalWillRemoveFilters: string;
+  chatApprovalWillOrphanWidgets: string;
+  chatApprovalUpdatedWidgetCount: string;
+
   // ── Chart cross-source error messages ────────────────────────────────────
   chartUnsupportedFieldNotFound: string;
   chartUnsupportedMixedCrossSource: string;
@@ -2447,6 +2454,12 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chatToolLabelApplyBulkUpdate: 'Apply bulk update',
   chatToolLabelRenameThread: 'Rename thread',
   chatToolLabelQueryDataSource: 'Query data source',
+
+  chatApprovalWillRemoveWidgets: 'Will delete these widgets',
+  chatApprovalWillRemovePages: 'Will delete these pages',
+  chatApprovalWillRemoveFilters: 'Will delete these filters',
+  chatApprovalWillOrphanWidgets: 'Will leave these widgets on no page',
+  chatApprovalUpdatedWidgetCount: 'Widgets updated',
 
   // Chart cross-source error messages
   chartUnsupportedFieldNotFound:

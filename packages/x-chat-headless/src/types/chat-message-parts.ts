@@ -89,6 +89,33 @@ export interface ChatToolApproval {
   reason?: string;
 }
 
+/**
+ * What the backend said when it ASKED for approval, as opposed to `ChatToolApproval`,
+ * which is what the human answered.
+ *
+ * Both halves exist because an approve/deny prompt that shows only the tool name and
+ * its raw arguments asks a human to authorize an operation whose impact they cannot
+ * see — an id matrix for a layout change, an opaque id list for a bulk delete.
+ *
+ * `effects` is deliberately `unknown`: the useful summary is domain-specific (which
+ * dashboard widgets get deleted, which records get written), and this package has no
+ * vocabulary for it. It is carried verbatim from the `tool-approval-request` chunk to
+ * the invocation, exposed on `ToolPartOwnerState`, and rendered ONLY by a host-supplied
+ * `approvalDetails` slot that knows the shape. Treat it as untrusted: it arrives over
+ * the wire, so a renderer must narrow every value it puts in JSX rather than trusting
+ * the declared type of whatever it casts this to.
+ */
+export interface ChatToolApprovalRequestDetails {
+  /**
+   * Why approval is required, in the backend's own words (a policy's stated reason —
+   * "this exceeds today's mutation budget"). A plain string, so `ToolPart` renders it
+   * itself, above the approve/deny buttons.
+   */
+  reason?: string;
+  /** Structured, domain-specific summary of what running the tool will do. Opaque here. */
+  effects?: unknown;
+}
+
 export interface ChatToolInvocation<TToolName extends ChatKnownToolName = ChatKnownToolName> {
   toolCallId: string;
   toolName: TToolName;
@@ -98,6 +125,8 @@ export interface ChatToolInvocation<TToolName extends ChatKnownToolName = ChatKn
   errorText?: string;
   approval?: ChatToolApproval;
   approvalId?: string;
+  /** What the backend said when it asked for approval — see {@link ChatToolApprovalRequestDetails}. */
+  approvalRequest?: ChatToolApprovalRequestDetails;
   providerExecuted?: boolean;
   title?: string;
   callProviderMetadata?: Record<string, unknown>;
@@ -118,6 +147,8 @@ export interface ChatDynamicToolInvocation<TToolName extends string = string> {
   errorText?: string;
   approval?: ChatToolApproval;
   approvalId?: string;
+  /** What the backend said when it asked for approval — see {@link ChatToolApprovalRequestDetails}. */
+  approvalRequest?: ChatToolApprovalRequestDetails;
   providerExecuted?: boolean;
   title?: string;
   callProviderMetadata?: Record<string, unknown>;

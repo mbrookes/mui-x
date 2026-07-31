@@ -685,13 +685,12 @@ describe('x-studio ⇄ x-studio-ai-middleware seam: abort during an open approva
 // `tool-approval-request` precisely "so a human can approve with the real impact in
 // view". The adapter dropped both, so the feature was inert end to end.
 //
-// The adapter now forwards them. The REST of that path is owed and cannot be built
-// from this package: `ChatToolApprovalRequestChunk`/`ChatToolInvocation` in
-// `@mui/x-chat-headless` have no field for either (`processStream` builds the
-// invocation from named fields, so unknown keys stop there), and `chatToolRenderers`
-// renders neither. These tests therefore assert at the CHUNK boundary — the last
-// point this package controls — exactly as the `approvalId` forward was pinned before
-// x-chat gained that field.
+// The whole path now exists: the adapter forwards both,
+// `ChatToolApprovalRequestChunk` declares them, `processStream` carries them onto
+// `toolInvocation.approvalRequest`, `ToolPart` renders `reason` and mounts the
+// `approvalDetails` slot, and `chatToolRenderers`' `StudioApprovalEffects` fills it.
+// These tests assert at the chunk boundary AND on the invocation the message ends up
+// with — the last point this package can see.
 
 describe('x-studio ⇄ x-studio-ai-middleware seam: approval effects/reason (F5)', () => {
   it('forwards the effects summary the server computed for the approval', async () => {
@@ -710,6 +709,13 @@ describe('x-studio ⇄ x-studio-ai-middleware seam: approval effects/reason (F5)
       | { effects?: unknown }
       | undefined;
     expect(chunk?.effects).toEqual(serverEvent?.effects);
+
+    // …and it survives `processStream`, which builds the invocation from named fields
+    // and used to drop both keys here. This is what `StudioApprovalEffects` renders.
+    const toolPart = result.message.parts.find((p) => p.type === 'dynamic-tool') as
+      | { toolInvocation: { approvalRequest?: { effects?: unknown } } }
+      | undefined;
+    expect(toolPart?.toolInvocation.approvalRequest?.effects).toEqual(serverEvent?.effects);
   });
 
   it("forwards the policy's stated reason for requiring approval", async () => {
@@ -731,6 +737,14 @@ describe('x-studio ⇄ x-studio-ai-middleware seam: approval effects/reason (F5)
       | { reason?: string }
       | undefined;
     expect(chunk?.reason).toBe('this exceeds the daily mutation budget');
+
+    // …through to the invocation `ToolPart` renders it from.
+    const toolPart = result.message.parts.find((p) => p.type === 'dynamic-tool') as
+      | { toolInvocation: { approvalRequest?: { reason?: string } } }
+      | undefined;
+    expect(toolPart?.toolInvocation.approvalRequest?.reason).toBe(
+      'this exceeds the daily mutation budget',
+    );
   });
 
   it('omits both keys when the event carries neither', async () => {
@@ -745,5 +759,10 @@ describe('x-studio ⇄ x-studio-ai-middleware seam: approval effects/reason (F5)
     expect(chunk).toBeDefined();
     expect(chunk).not.toHaveProperty('effects');
     expect(chunk).not.toHaveProperty('reason');
+
+    const toolPart = result.message.parts.find((p) => p.type === 'dynamic-tool') as
+      | { toolInvocation: { approvalRequest?: unknown } }
+      | undefined;
+    expect(toolPart?.toolInvocation.approvalRequest).toBeUndefined();
   });
 });

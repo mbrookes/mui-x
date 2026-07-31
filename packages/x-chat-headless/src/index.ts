@@ -141,6 +141,7 @@ export type {
   ChatStepStartMessagePart,
   ChatTextMessagePart,
   ChatToolApproval,
+  ChatToolApprovalRequestDetails,
   ChatToolInvocation,
   ChatToolInvocationState,
   ChatToolMessagePart,

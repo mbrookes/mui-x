@@ -664,6 +664,87 @@ describe('processStream', () => {
     expect(toolPart.toolInvocation.state).toBe('approval-requested');
   });
 
+  // `reason` and `effects` are what let an approve/deny prompt say more than "the
+  // model wants to call `apply_bulk_update`". This branch builds the invocation from
+  // NAMED fields, so anything it does not read is dropped here — which is exactly what
+  // kept both fields inert end to end while every producer already emitted them.
+  it("carries a tool-approval-request chunk's reason and effects onto the invocation", async () => {
+    const store = new ChatStore();
+
+    await processStream(
+      store,
+      createStream([
+        { type: 'start', messageId: 'a1' },
+        {
+          type: 'tool-approval-request',
+          toolCallId: 'tool-1',
+          toolName: 'search',
+          input: { query: 'weather' },
+          reason: 'this exceeds the daily budget',
+          effects: { willRemoveWidgets: [{ id: 'w1', title: 'W1' }] },
+        },
+        { type: 'finish', messageId: 'a1' },
+      ]),
+    );
+
+    const toolPart = store.state.messagesById.a1.parts[0] as ChatToolMessagePart<'search'>;
+    expect(toolPart.toolInvocation.approvalRequest).toEqual({
+      reason: 'this exceeds the daily budget',
+      effects: { willRemoveWidgets: [{ id: 'w1', title: 'W1' }] },
+    });
+  });
+
+  it('omits approvalRequest when the chunk carries neither field', async () => {
+    const store = new ChatStore();
+
+    await processStream(
+      store,
+      createStream([
+        { type: 'start', messageId: 'a1' },
+        {
+          type: 'tool-approval-request',
+          toolCallId: 'tool-1',
+          toolName: 'search',
+          input: { query: 'weather' },
+        },
+        { type: 'finish', messageId: 'a1' },
+      ]),
+    );
+
+    const toolPart = store.state.messagesById.a1.parts[0] as ChatToolMessagePart<'search'>;
+    expect(toolPart.toolInvocation.approvalRequest).toBeUndefined();
+  });
+
+  // Re-prompting for the same call must not leave the previous prompt's impact summary
+  // on screen next to the new one's buttons.
+  it('replaces approvalRequest when the same call is re-prompted without it', async () => {
+    const store = new ChatStore();
+
+    await processStream(
+      store,
+      createStream([
+        { type: 'start', messageId: 'a1' },
+        {
+          type: 'tool-approval-request',
+          toolCallId: 'tool-1',
+          toolName: 'search',
+          input: { query: 'weather' },
+          reason: 'first prompt',
+        },
+        {
+          type: 'tool-approval-request',
+          toolCallId: 'tool-1',
+          toolName: 'search',
+          input: { query: 'weather' },
+        },
+        { type: 'finish', messageId: 'a1' },
+      ]),
+    );
+
+    const toolPart = store.state.messagesById.a1.parts[0] as ChatToolMessagePart<'search'>;
+    expect(toolPart.toolInvocation.approvalRequest).toBeUndefined();
+  });
+
   it('updates tool invocation standalone from a tool-input-error chunk', async () => {
     const store = new ChatStore();
 

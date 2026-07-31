@@ -121,8 +121,130 @@ export function StudioToolTitle({
   return <div {...props}>{label}</div>;
 }
 
+// ── Approval impact summary ───────────────────────────────────────────────────
+//
+// The server attaches an `effects` summary to a `tool-approval-request` — which
+// widgets/pages/filters the call will delete, which widgets it will orphan, how many
+// it will update, each entity resolved to its CURRENT title from the pre-mutation
+// state — precisely so a human can approve with the real impact in view instead of an
+// opaque id matrix. `x-chat-headless` carries it to `toolInvocation.approvalRequest`
+// but cannot render it: the shape is Studio's, not the chat package's. This is the
+// `approvalDetails` slot that closes that path.
+//
+// EVERY value here is narrowed again before it reaches JSX, even though
+// `studioBackendAdapter`'s `sanitizeApprovalEffects` already dropped non-strings on
+// the way in. `ownerState.approvalRequest.effects` is typed `unknown` for exactly this
+// reason — it came off the network — and this component is the only place in the
+// package that renders it. React escapes string children, so a title can never inject
+// markup; the narrowing is what keeps a non-string (an object, a function) from
+// reaching a React child position at all, which is a crash rather than an injection.
+
+/** Studio's `ApprovalEffectsSummary` entity entries, as they arrive over the wire. */
+interface ApprovalEntity {
+  id: string;
+  title: string;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** `[{ id, title }]` entries whose `id` AND `title` are both really strings, or `[]`. */
+function narrowEntities(value: unknown): ApprovalEntity[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((entry) =>
+    isPlainRecord(entry) && typeof entry.id === 'string' && typeof entry.title === 'string'
+      ? [{ id: entry.id, title: entry.title }]
+      : [],
+  );
+}
+
+/** Bare string ids (filters have no user-facing title), or `[]`. */
+function narrowIds(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [];
+}
+
+/**
+ * Renders the structural impact of the tool call awaiting approval.
+ *
+ * Mounted by `ToolPart`'s optional `approvalDetails` slot, so it appears above the
+ * approve/deny buttons only while `state === 'approval-requested'` and only when the
+ * server actually sent an `effects` payload. Returns `null` when nothing survived
+ * narrowing, so a malformed payload degrades to the pre-existing prompt rather than an
+ * empty box.
+ *
+ * Exported for testing: the narrowing above is invisible from the types alone (the
+ * field is `unknown`), so only rendering this component can tell a real guard from a
+ * cast.
+ */
+export function StudioApprovalEffects({
+  ownerState,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement> & { ownerState?: ToolPartOwnerState }) {
+  const localeText = useStudioLocaleText();
+  const effects = ownerState?.approvalRequest?.effects;
+  if (!isPlainRecord(effects)) {
+    return null;
+  }
+
+  const groups: Array<{ key: string; label: string; items: string[] }> = [
+    {
+      key: 'willRemoveWidgets',
+      label: localeText.chatApprovalWillRemoveWidgets,
+      items: narrowEntities(effects.willRemoveWidgets).map((entity) => entity.title),
+    },
+    {
+      key: 'willRemovePages',
+      label: localeText.chatApprovalWillRemovePages,
+      items: narrowEntities(effects.willRemovePages).map((entity) => entity.title),
+    },
+    {
+      key: 'willOrphanWidgets',
+      label: localeText.chatApprovalWillOrphanWidgets,
+      items: narrowEntities(effects.willOrphanWidgets).map((entity) => entity.title),
+    },
+    {
+      key: 'willRemoveFilters',
+      label: localeText.chatApprovalWillRemoveFilters,
+      items: narrowIds(effects.willRemoveFilters),
+    },
+  ].filter((group) => group.items.length > 0);
+
+  const updatedCount =
+    typeof effects.updatedWidgetCount === 'number' && Number.isFinite(effects.updatedWidgetCount)
+      ? effects.updatedWidgetCount
+      : undefined;
+
+  if (groups.length === 0 && updatedCount === undefined) {
+    return null;
+  }
+
+  return (
+    <div {...props}>
+      {groups.map((group) => (
+        <div key={group.key}>
+          <strong>{group.label}</strong>
+          <ul>
+            {group.items.map((item, index) => (
+              // Entity ids are unique per group, but `willRemoveFilters` carries bare
+              // ids and a malformed payload could repeat one — index-suffixed so a
+              // duplicate cannot collapse two list rows into one.
+              <li key={`${group.key}-${index}`}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      ))}
+      {updatedCount !== undefined ? (
+        <div>{`${localeText.chatApprovalUpdatedWidgetCount}: ${updatedCount}`}</div>
+      ) : null}
+    </div>
+  );
+}
+
 export const studioDynamicToolRenderer = createToolPartRenderer({
-  slots: { title: StudioToolTitle },
+  slots: { title: StudioToolTitle, approvalDetails: StudioApprovalEffects },
   toolSlots: Object.fromEntries(
     Object.entries(STUDIO_TOOL_ICONS).map(([name, icon]) => [name, { icon }]),
   ),

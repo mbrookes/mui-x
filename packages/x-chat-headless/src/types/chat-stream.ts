@@ -139,12 +139,25 @@ export interface ChatToolInputErrorChunk {
   errorText: string;
 }
 
+/*
+ * `tool-approval-request` — the backend is pausing on this tool call until a human
+ * approves or denies it.
+ *
+ * `reason` and `effects` are the two OPTIONAL fields that let the prompt say more than
+ * "the model wants to call `apply_bulk_update`": `reason` is the backend's own stated
+ * justification for gating the call, and `effects` is a structured, domain-specific
+ * summary of what running it will do. `processStream` carries both onto the invocation
+ * as `approvalRequest`; see `ChatToolApprovalRequestDetails` for why `effects` is
+ * `unknown` and what a renderer owes it.
+ */
 interface ChatFallbackToolApprovalRequestChunk<TToolName extends string = string> {
   type: 'tool-approval-request';
   approvalId?: string;
   toolCallId: string;
   toolName: TToolName;
   input: ChatToolInput<TToolName>;
+  reason?: string;
+  effects?: unknown;
 }
 
 interface ChatRegisteredToolApprovalRequestChunk<
@@ -155,6 +168,8 @@ interface ChatRegisteredToolApprovalRequestChunk<
   toolCallId: string;
   toolName: TToolName;
   input: ChatToolInput<TToolName>;
+  reason?: string;
+  effects?: unknown;
 }
 
 interface ChatDynamicToolApprovalRequestChunk<TToolName extends string = string> {
@@ -164,6 +179,8 @@ interface ChatDynamicToolApprovalRequestChunk<TToolName extends string = string>
   toolName: TToolName;
   input: unknown;
   dynamic: true;
+  reason?: string;
+  effects?: unknown;
 }
 
 type ChatAnyRegisteredToolApprovalRequestChunk = {

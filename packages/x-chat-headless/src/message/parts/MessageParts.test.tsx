@@ -186,6 +186,91 @@ describe('ToolPart sectionSummary slot', () => {
   });
 });
 
+// ── Approval request details (`reason` / `effects`) ──────────────────────────
+//
+// An approve/deny prompt that shows only the tool name and its arguments asks a human
+// to authorize an operation whose impact they cannot see. `reason` (the backend's
+// stated justification) is a plain string, so `ToolPart` renders it itself; `effects`
+// is domain-specific and opaque to this package, so it reaches the screen only through
+// the optional `approvalDetails` slot a host supplies.
+
+describe('ToolPart approval request details', () => {
+  function renderApproval(
+    approvalRequest: Record<string, unknown> | undefined,
+    slots?: Record<string, React.ElementType>,
+  ) {
+    return render(
+      <ChatRoot
+        adapter={createAdapter()}
+        initialMessages={[
+          {
+            id: 'm1',
+            role: 'assistant',
+            parts: [
+              {
+                type: 'tool',
+                toolInvocation: {
+                  toolCallId: 'tc1',
+                  toolName: 'search',
+                  state: 'approval-requested',
+                  input: { query: 'hello' },
+                  approvalRequest,
+                } as any,
+              },
+            ],
+          },
+        ]}
+      >
+        <MessageRoot messageId="m1">
+          <MessageContent partProps={{ tool: { slots } }} />
+        </MessageRoot>
+      </ChatRoot>,
+    );
+  }
+
+  it('renders the request reason above the approve/deny buttons', () => {
+    renderApproval({ reason: 'this exceeds the daily mutation budget' });
+    expect(screen.getByText('this exceeds the daily mutation budget')).not.to.equal(null);
+  });
+
+  it('does not mount the reason slot for an empty or missing reason', () => {
+    function Reason(props: React.HTMLAttributes<HTMLDivElement>) {
+      return <div data-testid="approval-reason" {...props} />;
+    }
+    renderApproval({ reason: '' }, { approvalReason: Reason });
+    expect(screen.queryByTestId('approval-reason')).to.equal(null);
+
+    renderApproval(undefined, { approvalReason: Reason });
+    expect(screen.queryByTestId('approval-reason')).to.equal(null);
+  });
+
+  it('mounts the approvalDetails slot with effects on ownerState', () => {
+    let received: any = null;
+    function Details(props: React.HTMLAttributes<HTMLDivElement> & { ownerState?: any }) {
+      const { ownerState, ...other } = props;
+      received = ownerState;
+      return <div data-testid="approval-details" {...other} />;
+    }
+
+    renderApproval({ effects: { willRemoveWidgets: [{ id: 'w1', title: 'W1' }] } }, {
+      approvalDetails: Details,
+    });
+
+    expect(screen.getByTestId('approval-details')).not.to.equal(null);
+    expect(received.approvalRequest.effects).to.deep.equal({
+      willRemoveWidgets: [{ id: 'w1', title: 'W1' }],
+    });
+  });
+
+  it('does not mount approvalDetails when there are no effects', () => {
+    function Details(props: React.HTMLAttributes<HTMLDivElement>) {
+      return <div data-testid="approval-details" {...props} />;
+    }
+    renderApproval({ reason: 'why' }, { approvalDetails: Details });
+    expect(screen.queryByTestId('approval-details')).to.equal(null);
+  });
+});
+
 describe('FilePart', () => {
   it('renders <img> inside link for image mediaType', () => {
     renderWithMessage({

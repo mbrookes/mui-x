@@ -973,6 +973,11 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   chatToolLabelApplyBulkUpdate: 'Appliquer une mise à jour groupée',
   chatToolLabelRenameThread: 'Renommer la conversation',
   chatToolLabelQueryDataSource: 'Interroger la source de données',
+  chatApprovalWillRemoveWidgets: 'Supprimera ces widgets',
+  chatApprovalWillRemovePages: 'Supprimera ces pages',
+  chatApprovalWillRemoveFilters: 'Supprimera ces filtres',
+  chatApprovalWillOrphanWidgets: 'Laissera ces widgets sur aucune page',
+  chatApprovalUpdatedWidgetCount: 'Widgets mis à jour',
 
   // Chart unsupported messages
   chartUnsupportedFieldNotFound:

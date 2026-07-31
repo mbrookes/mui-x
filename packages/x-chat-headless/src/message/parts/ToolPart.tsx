@@ -4,6 +4,7 @@ import useSlotProps from '@mui/utils/useSlotProps';
 import type { SlotComponentProps } from '@mui/utils/types';
 import type {
   ChatDynamicToolMessagePart,
+  ChatToolApprovalRequestDetails,
   ChatToolInvocationState,
   ChatToolMessagePart,
 } from '../../types/chat-message-parts';
@@ -29,6 +30,16 @@ export interface ToolPartOwnerState {
    * whole message streams. For approval-specific behavior read `state` instead.
    */
   isMessageStreaming: boolean;
+  /**
+   * What the backend said when it asked for approval — its stated `reason`, and an
+   * opaque, domain-specific `effects` summary of what running the tool will do.
+   * Present only while (and after) an approval was requested.
+   *
+   * `reason` is rendered by this component. `effects` is `unknown` here by design and
+   * is rendered only by the optional `approvalDetails` slot, which the host supplies
+   * because only the host knows the shape. See `ChatToolApprovalRequestDetails`.
+   */
+  approvalRequest?: ChatToolApprovalRequestDetails;
 }
 
 export interface ToolPartSectionOwnerState extends ToolPartOwnerState {
@@ -49,6 +60,23 @@ export interface ToolPartSlots {
   sectionSummary: React.ElementType;
   sectionContent: React.ElementType;
   error: React.ElementType;
+  /**
+   * Renders the backend's stated `reason` for requiring approval, above the
+   * approve/deny buttons. Only mounted when the request actually carried one.
+   */
+  approvalReason: React.ElementType;
+  /**
+   * OPTIONAL host-supplied renderer for `ownerState.approvalRequest.effects` — the
+   * structured summary of what running the tool will do — mounted above the
+   * approve/deny buttons while approval is pending.
+   *
+   * Not rendered at all unless provided, exactly like `icon`: `effects` is opaque to
+   * this package (see `ChatToolApprovalRequestDetails`), so there is no sensible
+   * default rendering, and guessing one would put wire data on screen unnarrowed.
+   * A host component MUST narrow every value it reads out of `effects` before putting
+   * it in JSX — it arrived over the network.
+   */
+  approvalDetails?: React.ElementType;
   actions: React.ElementType;
   approveButton: React.ElementType;
   denyButton: React.ElementType;
@@ -64,6 +92,8 @@ export interface ToolPartSlotProps {
   sectionSummary?: SlotComponentProps<'strong', {}, ToolPartSectionOwnerState>;
   sectionContent?: SlotComponentProps<'pre', {}, ToolPartSectionOwnerState>;
   error?: SlotComponentProps<'div', {}, ToolPartOwnerState>;
+  approvalReason?: SlotComponentProps<'div', {}, ToolPartOwnerState>;
+  approvalDetails?: SlotComponentProps<'div', {}, ToolPartOwnerState>;
   actions?: SlotComponentProps<'div', {}, ToolPartOwnerState>;
   approveButton?: SlotComponentProps<'button', {}, ToolPartOwnerState>;
   denyButton?: SlotComponentProps<'button', {}, ToolPartOwnerState>;
@@ -223,12 +253,14 @@ export const ToolPartInner = React.forwardRef(function ToolPartRenderer(
       state: part.toolInvocation.state,
       toolName: part.toolInvocation.toolName,
       isMessageStreaming,
+      approvalRequest: part.toolInvocation.approvalRequest,
     }),
     [
       message.id,
       message.role,
       part.toolInvocation.state,
       part.toolInvocation.toolName,
+      part.toolInvocation.approvalRequest,
       pendingApproval,
       isMessageStreaming,
     ],
@@ -250,6 +282,8 @@ export const ToolPartInner = React.forwardRef(function ToolPartRenderer(
   const State = resolvedSlots?.state ?? 'span';
   const Icon = resolvedSlots?.icon;
   const Error = resolvedSlots?.error ?? 'div';
+  const ApprovalReason = resolvedSlots?.approvalReason ?? 'div';
+  const ApprovalDetails = resolvedSlots?.approvalDetails;
   const Actions = resolvedSlots?.actions ?? 'div';
   const ApproveButton = resolvedSlots?.approveButton ?? 'button';
   const DenyButton = resolvedSlots?.denyButton ?? 'button';
@@ -294,6 +328,17 @@ export const ToolPartInner = React.forwardRef(function ToolPartRenderer(
   const errorProps = useSlotProps({
     elementType: Error,
     externalSlotProps: resolvedSlotProps?.error,
+    ownerState,
+  });
+  const approvalReasonProps = useSlotProps({
+    elementType: ApprovalReason,
+    externalSlotProps: resolvedSlotProps?.approvalReason,
+    ownerState,
+  });
+  // Called unconditionally (hooks rule); only rendered when the slot is provided.
+  const approvalDetailsProps = useSlotProps({
+    elementType: ApprovalDetails ?? 'div',
+    externalSlotProps: resolvedSlotProps?.approvalDetails,
     ownerState,
   });
   const actionsProps = useSlotProps({
@@ -385,6 +430,20 @@ export const ToolPartInner = React.forwardRef(function ToolPartRenderer(
           <Error {...errorProps}>
             {toolInvocation.approval?.reason ?? localeText.toolStateLabel('output-denied')}
           </Error>
+        ) : null}
+        {toolInvocation.state === 'approval-requested' &&
+        typeof toolInvocation.approvalRequest?.reason === 'string' &&
+        toolInvocation.approvalRequest.reason !== '' ? (
+          // A plain string child: React escapes it, so a backend-supplied reason
+          // cannot inject markup here however it was produced.
+          <ApprovalReason {...approvalReasonProps}>
+            {toolInvocation.approvalRequest.reason}
+          </ApprovalReason>
+        ) : null}
+        {toolInvocation.state === 'approval-requested' &&
+        ApprovalDetails != null &&
+        toolInvocation.approvalRequest?.effects !== undefined ? (
+          <ApprovalDetails {...approvalDetailsProps} />
         ) : null}
         {toolInvocation.state === 'approval-requested' ? (
           <Actions {...actionsProps}>

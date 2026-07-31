@@ -970,6 +970,11 @@ export const esLocaleText: Partial<StudioLocaleText> = {
   chatToolLabelApplyBulkUpdate: 'Aplicar actualización masiva',
   chatToolLabelRenameThread: 'Renombrar conversación',
   chatToolLabelQueryDataSource: 'Consultar fuente de datos',
+  chatApprovalWillRemoveWidgets: 'Eliminará estos widgets',
+  chatApprovalWillRemovePages: 'Eliminará estas páginas',
+  chatApprovalWillRemoveFilters: 'Eliminará estos filtros',
+  chatApprovalWillOrphanWidgets: 'Dejará estos widgets sin página',
+  chatApprovalUpdatedWidgetCount: 'Widgets actualizados',
 
   // Chart unsupported messages
   chartUnsupportedFieldNotFound:

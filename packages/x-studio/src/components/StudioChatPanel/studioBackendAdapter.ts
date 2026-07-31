@@ -753,15 +753,19 @@ Check the endpoint URL, its authentication headers, and the server logs for this
               // added specifically because it was "previously computed but silently
               // dropped".
               //
-              // Forwarded on the chunk in the same shape they arrive, so the moment
-              // `ChatToolApprovalRequestChunk` carries them they flow through with no
-              // further change here. OWED, and NOT deliverable from this package: an
-              // `effects`/`reason` field on `ChatToolApprovalRequestChunk` and on
-              // `ChatToolInvocation` in `@mui/x-chat-headless` (`processStream`'s
-              // approval branch builds the invocation from named fields, so anything it
-              // doesn't know is dropped there), plus rendering in
-              // `chatToolRenderers.tsx`. Until then this half is inert but correct —
-              // the same way `approvalId` was handled before x-chat gained the field.
+              // The rest of that path has since landed:
+              // `ChatToolApprovalRequestChunk` declares both fields,
+              // `processStream` carries them to `toolInvocation.approvalRequest`, and
+              // `ToolPart` renders `reason` itself while mounting `chatToolRenderers`'
+              // `StudioApprovalEffects` in its `approvalDetails` slot for `effects` —
+              // so no cast is needed here any more and the forward is no longer inert.
+              //
+              // `sanitizeApprovalEffects` still runs, and still matters: the payload is
+              // destined for JSX beside an approve/deny button, so a non-string title
+              // from a malformed event must never reach a React child position. The
+              // renderer narrows again on its side (the field is `unknown` there) —
+              // both, deliberately, because either one alone is one edit away from
+              // being the only guard.
               const effects = sanitizeApprovalEffects(rawApproval.effects);
               const policyReason =
                 typeof rawApproval.reason === 'string' && rawApproval.reason !== ''
@@ -775,9 +779,7 @@ Check the endpoint URL, its authentication headers, and the server logs for this
                 input: rawApproval.input ?? {},
                 ...(effects ? { effects } : {}),
                 ...(policyReason ? { reason: policyReason } : {}),
-                // The cast covers only the two fields above: they are additive keys the
-                // chunk union does not declare yet (see the OWED note).
-              } as ChatMessageChunk);
+              });
             } else if (type === 'state-mutation') {
               try {
                 // Untyped forward: `event.mutation` is untrusted wire data, so it is

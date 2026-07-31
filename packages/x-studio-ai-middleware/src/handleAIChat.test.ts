@@ -16,6 +16,7 @@ import {
   capIncomingRichContext,
   capIncomingSkills,
   capIncomingPageSnapshot,
+  MAX_REQUEST_MESSAGES,
   type StudioAIHandlerOptions,
 } from './handleAIChat';
 import { createDefaultStudioState } from './models/studioTypes';
@@ -2111,5 +2112,294 @@ describe('handleAIChat — onUsage', () => {
     await vi.waitFor(() => expect(onUsage).toHaveBeenCalled());
 
     expect(onUsage.mock.calls[0][0]).toMatchObject({ inputTokens: 200, outputTokens: 50 });
+  });
+});
+
+// ── The element COUNT caps, the half `capIncomingRichContext` was missing ─────
+//
+// The per-field STRING caps above are covered exhaustively, and `fieldStats`'
+// entry-count cap has an end-to-end case of its own — which is exactly what made this
+// half easy to miss. Five sibling COUNT caps in the same function, plus
+// `customWidgets`' `defaultConfig` key count, had no case at all: multiplying any of
+// them by 100 changed nothing observable, leaving the token bomb they exist to stop
+// (an unbounded client array re-serialized into the system prompt on every turn)
+// unguarded.
+//
+// The expected counts are spelled out as literals rather than imported from the module.
+// Importing the production constants would make every case below agree with whatever
+// those constants happen to say — which is the failure mode being closed, not a test.
+describe('capIncomingRichContext / capIncomingCustomWidgets: element COUNT caps', () => {
+  const cell = (i: number) => ({
+    widgetId: `w${i}`,
+    kind: 'chart',
+    title: `W${i}`,
+    chartType: 'bar',
+    colSpan: 6,
+  });
+
+  it('caps pageLayout.rows at 200', () => {
+    const capped = capIncomingRichContext({
+      pageLayout: {
+        pageId: 'p1',
+        rows: Array.from({ length: 700 }, (_, i) => [cell(i)]),
+        crossFilters: [],
+      },
+    })!;
+    expect(capped.pageLayout!.rows).toHaveLength(200);
+    expect(capped.pageLayout!.rows[199][0].widgetId).toBe('w199');
+  });
+
+  it('caps the cells within a single pageLayout row at 50', () => {
+    const capped = capIncomingRichContext({
+      pageLayout: {
+        pageId: 'p1',
+        rows: [Array.from({ length: 700 }, (_, i) => cell(i))],
+        crossFilters: [],
+      },
+    })!;
+    expect(capped.pageLayout!.rows[0]).toHaveLength(50);
+    expect(capped.pageLayout!.rows[0][49].widgetId).toBe('w49');
+  });
+
+  it('caps pageLayout.crossFilters at 200', () => {
+    const capped = capIncomingRichContext({
+      pageLayout: {
+        pageId: 'p1',
+        rows: [],
+        crossFilters: Array.from({ length: 700 }, (_, i) => ({
+          sourceWidgetId: `w${i}`,
+          field: 'revenue',
+          scope: 'cross-filter' as const,
+        })),
+      },
+    })!;
+    expect(capped.pageLayout!.crossFilters).toHaveLength(200);
+  });
+
+  it('caps recentMutations at 200', () => {
+    const capped = capIncomingRichContext({
+      recentMutations: Array.from({ length: 700 }, (_, i) => ({
+        label: `mutation ${i}`,
+        at: '2024-01-01T00:00:00.000Z',
+      })),
+    })!;
+    expect(capped.recentMutations).toHaveLength(200);
+    expect(capped.recentMutations![199].label).toBe('mutation 199');
+  });
+
+  it('caps omitted at 50', () => {
+    const capped = capIncomingRichContext({
+      omitted: Array.from({ length: 700 }, (_, i) => `omitted-${i}`),
+    })!;
+    expect(capped.omitted).toHaveLength(50);
+    expect(capped.omitted![49]).toBe('omitted-49');
+  });
+
+  it('caps a customWidget defaultConfig key count at 200', () => {
+    const defaultConfig: Record<string, unknown> = {};
+    for (let i = 0; i < 700; i += 1) {
+      defaultConfig[`key${i}`] = i;
+    }
+    const capped = capIncomingCustomWidgets([
+      { kind: 'gauge', label: 'Gauge', defaultConfig } as unknown as StudioCustomWidgetDef,
+    ])!;
+    expect(Object.keys(capped[0].defaultConfig!)).toHaveLength(200);
+  });
+});
+
+// ── `focusedWidgetId` is a widget MAP KEY, and must be capped like one ─────────
+//
+// The observed failure is inverted, which is why it was easy to miss: uncapped, the id
+// is not too LONG in the prompt — it simply stops matching the (capped) widget-map key,
+// the lookup misses, and the whole `## Per-widget focus` block silently disappears. A
+// request that asks about a specific widget gets a prompt that never mentions it.
+describe('handleAIChat — focusedWidgetId is capped like the widget map key it indexes', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('still resolves the focused widget when the id is longer than the request string cap', async () => {
+    const longId = `w${'x'.repeat(400)}`;
+    const state = createDefaultStudioState();
+    const activePageId = state.doc.dashboard.activePageId;
+    const body = makeBody({
+      focusedWidgetId: longId,
+      dashboardState: {
+        ...state,
+        doc: {
+          ...state.doc,
+          widgets: {
+            [longId]: {
+              id: longId,
+              kind: 'chart' as const,
+              title: 'Focused Widget',
+              sourceId: 's',
+              config: {},
+            },
+          },
+          pages: {
+            ...state.doc.pages,
+            [activePageId]: { ...state.doc.pages[activePageId], widgetRows: [[longId]] },
+          },
+        },
+      },
+    });
+
+    vi.mocked(fetch).mockResolvedValueOnce(textResponse('ok'));
+    await readAll(handleAIChat(body, OPTIONS));
+    const sentBody = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string) as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    const prompt = sentBody.messages.find((m) => m.role === 'system')?.content ?? '';
+
+    // Both sides went through the same 200-char cap, so the lookup still hits.
+    expect(prompt).toContain('## Per-widget focus');
+    expect(prompt).toContain('Focused Widget');
+    expect(prompt).toContain(`id: ${longId.slice(0, 200)}`);
+  });
+});
+
+// ── SSE backpressure (finding L2) ─────────────────────────────────────────────
+//
+// `waitForDrain` is what makes the producer run at the CONSUMER's pace. Both halves of
+// it — the `desiredSize <= 0` condition and the `SSE_QUEUE_HIGH_WATER_MARK` that
+// decides when `desiredSize` reaches 0 — had no case: nothing in the suite ever stopped
+// reading, so a client that does (a backgrounded tab, a dead TCP peer that has not
+// reset yet) could still accumulate an entire response in the stream's internal queue.
+describe('handleAIChat — the producer stops when the consumer stops reading', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('stops pulling from the provider once the SSE queue is full', async () => {
+    const TOTAL_PROVIDER_CHUNKS = 400;
+    const encoder = new TextEncoder();
+    let pulls = 0;
+    const providerBody = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls += 1;
+        if (pulls > TOTAL_PROVIDER_CHUNKS) {
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+          controller.close();
+          return;
+        }
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({
+              choices: [{ delta: { content: `chunk-${pulls}` }, finish_reason: null }],
+            })}\n\n`,
+          ),
+        );
+      },
+    });
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(providerBody, { status: 200 }));
+
+    // Deliberately never read a single chunk.
+    const stream = handleAIChat(makeBody(), OPTIONS);
+
+    // Plenty of real time for an unblocked producer to drain all 400 chunks.
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 250);
+    });
+
+    // The queue holds ~`SSE_QUEUE_HIGH_WATER_MARK` (64) frames and then the producer
+    // parks, so only a small prefix of the provider stream is ever consumed.
+    expect(pulls).toBeGreaterThan(10);
+    expect(pulls).toBeLessThan(150);
+
+    await stream.cancel();
+  });
+});
+
+// ── Two request-validation gaps ───────────────────────────────────────────────
+describe('handleAIChat — request validation boundaries', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // `pageSnapshot`'s presence ADVERTISES `summarise_page`, whose output is the snapshot
+  // VERBATIM — so a non-string value lands as non-string `content` in the next turn's
+  // message and the provider rejects the whole request with an opaque 400. The
+  // validator turns that into an actionable SSE frame; nothing exercised it.
+  it.each([
+    ['a number', 42],
+    ['an object', { rows: [] }],
+    ['an array', [1, 2, 3]],
+    ['null', null],
+  ])('rejects a non-string `pageSnapshot` (%s) before any provider call', async (_d, value) => {
+    const body = makeBody({ pageSnapshot: value as unknown as string });
+
+    const events = parseEvents(await readAll(handleAIChat(body, OPTIONS)));
+    const errorEvent = events.find(
+      (event): event is { type: 'error'; message: string } => event.type === 'error',
+    );
+    expect(errorEvent?.message).toMatch(/^MUI X Studio:/);
+    expect(errorEvent?.message).toMatch(/`pageSnapshot` must be a string/);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('accepts a string `pageSnapshot`', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(textResponse('ok'));
+    const events = parseEvents(
+      await readAll(handleAIChat(makeBody({ pageSnapshot: 'rows...' }), OPTIONS)),
+    );
+    expect(events.map((event) => event.type)).not.toContain('error');
+  });
+
+  // The `messages` count limit is a `>`, so exactly `MAX_REQUEST_MESSAGES` must pass.
+  // Only the over-limit side was covered, which `>` and `>=` agree on.
+  it('accepts exactly MAX_REQUEST_MESSAGES messages and rejects one more', async () => {
+    const message = (i: number) => ({
+      id: `m${i}`,
+      role: 'user' as const,
+      parts: [{ type: 'text' as const, text: 'hi' }],
+    });
+
+    vi.mocked(fetch).mockResolvedValueOnce(textResponse('ok'));
+    const atLimit = parseEvents(
+      await readAll(
+        handleAIChat(
+          makeBody({
+            messages: Array.from({ length: MAX_REQUEST_MESSAGES }, (_, i) =>
+              message(i),
+            ) as unknown as StudioAIRequest['messages'],
+          }),
+          OPTIONS,
+        ),
+      ),
+    );
+    expect(atLimit.map((event) => event.type)).not.toContain('error');
+    expect(fetch).toHaveBeenCalledOnce();
+
+    const overLimit = parseEvents(
+      await readAll(
+        handleAIChat(
+          makeBody({
+            messages: Array.from({ length: MAX_REQUEST_MESSAGES + 1 }, (_, i) =>
+              message(i),
+            ) as unknown as StudioAIRequest['messages'],
+          }),
+          OPTIONS,
+        ),
+      ),
+    );
+    const errorEvent = overLimit.find(
+      (event): event is { type: 'error'; message: string } => event.type === 'error',
+    );
+    expect(errorEvent?.message).toMatch(/exceeds the limit of/);
+    // Still exactly one provider call in total — the over-limit request made none.
+    expect(fetch).toHaveBeenCalledOnce();
   });
 });

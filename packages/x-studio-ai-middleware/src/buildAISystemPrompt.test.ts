@@ -2081,3 +2081,19 @@ describe('buildAISystemPrompt: skill header attributes are single-line sanitized
     expect(prompt).not.toContain('\n## Forged Rules');
   });
 });
+
+// The `availableDataTools` list is bounded in COUNT (49 rendered of 201) but the
+// per-entry LENGTH cap beside it had no case: an entry is one line of a bullet list
+// echoed into the system prompt on every turn, so an unbounded one is the same
+// token-bomb class the count cap already guards against.
+describe('buildAISystemPrompt: availableDataTools per-entry length cap', () => {
+  it('caps a single oversized data-tool name', () => {
+    const prompt = buildAISystemPrompt(makeState(), undefined, undefined, undefined, {
+      availableDataTools: [`q${'x'.repeat(5000)}`],
+    });
+    const line = (prompt.match(/^- `q x*`$/gm) ?? prompt.match(/^- `qx+`$/gm) ?? [])[0];
+    expect(line).toBeDefined();
+    // The backticks and the leading `- ` are the only extra characters on the line.
+    expect(line!.length).toBe('- ``'.length + 100);
+  });
+});

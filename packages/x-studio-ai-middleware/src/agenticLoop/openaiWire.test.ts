@@ -818,3 +818,53 @@ describe('dedupeToolCallEntriesById', () => {
     expect(dedupeToolCallEntriesById(entries)).toEqual(entries);
   });
 });
+
+// ── `isNonEmptyString`'s length half ──────────────────────────────────────────
+//
+// Every existing case for this predicate uses a non-STRING (`null`, a number, an
+// object), which the `typeof` half alone already rejects. The `.length > 0` half —
+// the one that keeps an EMPTY-string `id` off the id-keyed slot path — had none.
+describe('accumulateToolCallDeltas: an empty-string id is not an id', () => {
+  it('keeps two deltas with `id: ""` in distinct positional slots instead of merging them', () => {
+    const acc = createToolCallAccumulator();
+    accumulateToolCallDeltas(
+      [
+        { id: '', function: { name: 'list_pages', arguments: '{}' } },
+        { id: '', function: { name: 'get_dashboard_state', arguments: '{}' } },
+      ] as unknown as ToolCallDelta[],
+      acc,
+    );
+
+    // Treated as "no id at all", so each falls back to its ARRAY POSITION — two calls.
+    const entries = Object.entries(acc.reqToolCalls);
+    expect(entries).toHaveLength(2);
+    expect(entries.map(([, tc]) => tc.name).sort()).toEqual(['get_dashboard_state', 'list_pages']);
+    expect(
+      Object.keys(acc.reqToolCalls)
+        .map(Number)
+        .sort((a, b) => a - b),
+    ).toEqual([POSITIONAL_INDEX_BASE, POSITIONAL_INDEX_BASE + 1]);
+    // An empty id must never become a key in the id→slot map.
+    expect(Object.hasOwn(acc.idToIdx, '')).toBe(false);
+  });
+});
+
+// ── The user-text join separator ──────────────────────────────────────────────
+//
+// A user message's text parts are re-joined into ONE `content` string. Every existing
+// case sends a single text part, where any separator produces the same output.
+describe('toOpenAIMessages: multi-part user text', () => {
+  it('concatenates a user message`s text parts with no separator', () => {
+    const msg = {
+      id: 'm1',
+      role: 'user',
+      parts: [
+        { type: 'text', text: 'sub' },
+        { type: 'text', text: 'total' },
+      ],
+    } as unknown as ChatMessage;
+
+    const result = toOpenAIMessages('SYS', [msg]);
+    expect(result[1]).toEqual({ role: 'user', content: 'subtotal' });
+  });
+});

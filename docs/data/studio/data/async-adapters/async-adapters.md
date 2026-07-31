@@ -594,10 +594,30 @@ const adapter = createBatchingAdapter('/api/studio-data', {
 });
 ```
 
-| Option         | Type           | Default            | Description                                                                |
-| :------------- | :------------- | :----------------- | :------------------------------------------------------------------------- |
-| `batchDelayMs` | `number`       | `50`               | Window in milliseconds to collect widget requests before dispatching.      |
-| `fetchFn`      | `typeof fetch` | `globalThis.fetch` | Custom fetch implementation. Useful for adding auth headers or test mocks. |
+| Option             | Type           | Default            | Description                                                                |
+| :----------------- | :------------- | :----------------- | :------------------------------------------------------------------------- |
+| `batchDelayMs`     | `number`       | `50`               | Window in milliseconds to collect widget requests before dispatching.      |
+| `fetchFn`          | `typeof fetch` | `globalThis.fetch` | Custom fetch implementation. Useful for adding auth headers or test mocks. |
+| `maxRowsPerWidget` | `number`       | unset              | Row `limit` sent for each widget that doesn't set its own.                 |
+
+Widget requests are dispatched in batches of at most 50, matching the middleware's own per-request widget cap, so a page with more widgets than that is split across several requests rather than rejected.
+
+### Bounding rows per widget
+
+Every widget in one batch request shares a single row budget on the server.
+A widget that can't push its aggregation down — a KPI, a gauge, a scatter or Gantt chart, a grid without grouping, a filter widget — fetches raw rows, so one such widget over a large table can use up the budget and leave its neighbors with an error instead of data.
+
+Set `maxRowsPerWidget` to bound every widget, or set `limit` on an individual query descriptor to bound just that one:
+
+```ts
+const adapter = createBatchingAdapter('/api/studio-data', {
+  maxRowsPerWidget: 20000,
+});
+```
+
+There is no default, because a limit truncates: a widget that aggregates the rows it receives cannot tell a limited result from a complete one, so it would report a total computed from part of the data.
+Whenever a response comes back at exactly the limit, the adapter warns in the console.
+Raise the limit, filter the widget, or let it aggregate on the server.
 
 ### Adding auth headers
 

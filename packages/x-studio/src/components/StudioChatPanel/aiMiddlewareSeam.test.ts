@@ -77,6 +77,32 @@ function textTurn(text: string): Response {
   ]);
 }
 
+/** A completion that calls one tool with `args`. */
+function toolCallTurn(toolCallId: string, toolName: string, args: object): Response {
+  return sseResponse([
+    {
+      choices: [
+        {
+          delta: {
+            tool_calls: [{ index: 0, id: toolCallId, function: { name: toolName, arguments: '' } }],
+          },
+          finish_reason: null,
+        },
+      ],
+    },
+    {
+      choices: [
+        {
+          delta: { tool_calls: [{ index: 0, function: { arguments: JSON.stringify(args) } }] },
+          finish_reason: null,
+        },
+      ],
+    },
+    { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+    { choices: [], usage: { prompt_tokens: 20, completion_tokens: 5 } },
+  ]);
+}
+
 // ── The seam harness ──────────────────────────────────────────────────────────
 
 interface SeamOptions {
@@ -162,7 +188,10 @@ async function runSeam(options: SeamOptions): Promise<SeamResult> {
         model: 'gpt-4o',
         apiKey: 'k',
         approvalPending: pendingApprovals,
-        approvalTimeoutMs: 5000,
+        // Short on purpose: an approval that fails closed must surface as a fast
+        // `{"denied":true,"reason":"approval timed out"}` rather than stalling the
+        // suite for the production 120s.
+        approvalTimeoutMs: 300,
         ...handlerOptions,
       });
       // Tee the server's own frames so a test can assert on the wire itself, then
@@ -334,5 +363,78 @@ describe('x-studio ⇄ x-studio-ai-middleware seam: privateMode (F1)', () => {
     expect(advertised).not.toContain('get_dashboard_state');
     expect(advertised).not.toContain('summarise_page');
     expect(advertised).not.toContain('query_data_source');
+  });
+});
+
+// ── F2: tool-approval thread binding ──────────────────────────────────────────
+//
+// The loop binds every pending approval to `doc.ai.activeThreadId`, which
+// `serializeDashboardState` preserves and `useChatThreads` sets as soon as a thread
+// exists — so `entry.threadId` is set in normal operation. `isApprovalThreadIdAuthorized`
+// (documented mandatory, and used verbatim by the reference `/approval` route) denies a
+// MISSING threadId as well as a mismatched one. The adapter never sent one, so every
+// approval in a real conversation 403'd and the tool call then failed closed after the
+// full approval timeout with `{"denied":true,"reason":"approval timed out"}`.
+
+const STATE_WITH_THREAD: CreateDefaultStudioStateOverrides = {
+  doc: {
+    ...DEFAULT_STATE.doc,
+    // The thread itself has to exist: `screenAIState` drops an `activeThreadId` that
+    // names no thread, exactly as a real conversation would never have one.
+    ai: {
+      activeThreadId: 'thread-42',
+      threads: [{ id: 'thread-42', name: 'Chat', createdAt: '2026-01-01T00:00:00Z', messages: [] }],
+    },
+  },
+};
+
+/** The `output` string of the first dynamic-tool part of a streamed message. */
+function firstToolOutput(message: ChatMessage): string {
+  const part = message.parts.find((p) => p.type === 'dynamic-tool') as
+    | { toolInvocation: { output?: unknown; input?: unknown; toolName?: string } }
+    | undefined;
+  return String(part?.toolInvocation.output ?? '');
+}
+
+describe('x-studio ⇄ x-studio-ai-middleware seam: tool approval (F2)', () => {
+  it('sends the active thread id with the approval so the host route authorizes it', async () => {
+    const result = await runSeam({
+      turns: [toolCallTurn('tc-1', 'remove_widget', { widgetId: 'w1' }), textTurn('Removed it')],
+      state: STATE_WITH_THREAD,
+      onApprovalRequest: () => ({ approved: true }),
+    });
+
+    expect(result.approvalPosts).toHaveLength(1);
+    // The defect: no `threadId` in the POST body → 403 from the reference route.
+    expect(result.approvalPosts[0].body.threadId).toBe('thread-42');
+    expect(result.approvalPosts[0].status).toBe(200);
+
+    // …and the approved tool actually ran instead of timing out.
+    expect(firstToolOutput(result.message)).not.toContain('approval timed out');
+    expect(firstToolOutput(result.message)).toContain('success');
+  });
+
+  it('still resolves an approval when the dashboard has no chat thread yet', async () => {
+    const result = await runSeam({
+      turns: [toolCallTurn('tc-1', 'remove_widget', { widgetId: 'w1' }), textTurn('Removed it')],
+      onApprovalRequest: () => ({ approved: true }),
+    });
+
+    // No thread → nothing to bind to; the field is omitted rather than sent as
+    // `undefined`/`''`, which `isApprovalThreadIdAuthorized` treats as unbound.
+    expect(result.approvalPosts[0].body.threadId).toBeUndefined();
+    expect(result.approvalPosts[0].status).toBe(200);
+    expect(firstToolOutput(result.message)).toContain('success');
+  });
+
+  it('carries a denial back to the model as the tool result', async () => {
+    const result = await runSeam({
+      turns: [toolCallTurn('tc-1', 'remove_widget', { widgetId: 'w1' }), textTurn('Left it')],
+      state: STATE_WITH_THREAD,
+      onApprovalRequest: () => ({ approved: false, reason: 'Not today' }),
+    });
+
+    expect(result.approvalPosts[0].status).toBe(200);
+    expect(firstToolOutput(result.message)).toContain('Not today');
   });
 });

@@ -699,10 +699,28 @@ Check the endpoint URL, its authentication headers, and the server logs for this
       approved: boolean;
       reason?: string;
     }) {
+      // The AI chat thread this decision is being made under. The server binds every
+      // pending approval to `doc.ai.activeThreadId` (captured from the request that
+      // raised it) and `isApprovalThreadIdAuthorized` — the check the reference
+      // `/approval` route and the package's own resolver both run — denies a MISSING
+      // thread id just as it denies a mismatched one, deliberately: a check that only
+      // fires when the resolver happens to supply one is bypassable by omitting the
+      // field. So not sending it made every approval in a real conversation 403, and
+      // the tool call then failed closed after the FULL approval timeout with
+      // `{"denied":true,"reason":"approval timed out"}` — the worst of both worlds,
+      // since the user had already clicked Approve.
+      //
+      // Read at send time (not captured when the adapter was built): the panel can
+      // switch threads while an approval card is pending, and the binding that matters
+      // is the one the server recorded for the request that is still paused.
+      // Omitted entirely when there is no thread — an approval raised with no
+      // `entry.threadId` is unbound, and sending `undefined` would be indistinguishable
+      // from that anyway.
+      const threadId = controller.getState().doc.ai?.activeThreadId;
       const response = await fetch(approvalUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...extraHeaders },
-        body: JSON.stringify({ id, approved, reason }),
+        body: JSON.stringify({ id, approved, reason, ...(threadId ? { threadId } : {}) }),
       });
       // A 4xx/5xx here (e.g. an expired approval id) must not resolve as if the
       // approval was delivered — the server-side agentic loop never actually resumes,

@@ -159,6 +159,26 @@ describe('StudioApprovalEffects', () => {
     }
   });
 
+  // A card whose impact summary the ADAPTER withheld (over its size limits, or past the
+  // per-turn budget for them) used to render byte-identically to a card for a call with no
+  // impact at all. Those two deserve opposite answers from the human holding the deny button,
+  // so the withheld case is the one payload that renders even though it lists nothing.
+  it('says so when the adapter withheld the impact summary', () => {
+    renderEffects({ effectsWithheld: true });
+
+    const text = screen.getByTestId('effects').textContent ?? '';
+    expect(text).to.contain(DEFAULT_STUDIO_LOCALE_TEXT.chatApprovalEffectsWithheld);
+  });
+
+  it('does not claim a summary was withheld when the payload simply had none', () => {
+    // `{}` and an empty list are "this call removes nothing", not "the list did not fit".
+    for (const payload of [{}, { willRemoveWidgets: [] }, { effectsWithheld: false }]) {
+      const { unmount } = renderEffects(payload);
+      expect(screen.queryByTestId('effects')).to.equal(null);
+      unmount();
+    }
+  });
+
   // The narrowing that matters: a non-string `title` (a number, an object, a function)
   // put straight into a React child position is a crash in a non-production build, and
   // this payload came off the wire. Entries that fail the guard are dropped, not coerced.

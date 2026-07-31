@@ -978,6 +978,8 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   chatApprovalWillRemoveFilters: 'Supprimera ces filtres',
   chatApprovalWillOrphanWidgets: 'Laissera ces widgets sur aucune page',
   chatApprovalUpdatedWidgetCount: 'Widgets mis à jour',
+  chatApprovalEffectsWithheld:
+    'Résumé de l’impact indisponible : il était trop volumineux pour être affiché. Refusez cette demande si vous ne savez pas ce qu’elle fait.',
 
   // Chart unsupported messages
   chartUnsupportedFieldNotFound:

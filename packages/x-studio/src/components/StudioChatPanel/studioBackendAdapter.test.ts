@@ -518,6 +518,7 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
   });
 
   it('drops the whole effects payload when a list is longer than the shared array cap', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const chunk = await collectApprovalChunk(
       approvalEvent(1, {
         effects: {
@@ -528,18 +529,22 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
     );
 
     // All-or-nothing, deliberately: a SHORTENED "will remove" list understates the impact a
-    // human is approving — worse than showing none, which is the card's pre-`effects` shape.
-    expect(chunk!.effects).toBe(undefined);
+    // human is approving — worse than showing none. What survives is the marker that says a
+    // summary existed and was withheld, so the card cannot be mistaken for a harmless call.
+    expect(chunk!.effects).toEqual({ effectsWithheld: true });
+    warnSpy.mockRestore();
   });
 
   it('drops the whole effects payload when an entity title is over the shared string cap', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const chunk = await collectApprovalChunk(
       approvalEvent(1, {
         effects: { willRemoveWidgets: entities(1, MAX_STRING_LENGTH + 1) },
       }),
     );
 
-    expect(chunk!.effects).toBe(undefined);
+    expect(chunk!.effects).toEqual({ effectsWithheld: true });
+    warnSpy.mockRestore();
   });
 
   // `willRemoveFilters` is a list of PLAIN STRINGS, not of `{ id, title }` records, so it is
@@ -547,6 +552,7 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
   // branch — and that branch was untested: deleting it left all 59 tests of this file green
   // while a 10 001-character filter id sailed through onto the persisted part.
   it('drops the whole effects payload when a plain-string list entry is over the string cap', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const chunk = await collectApprovalChunk(
       approvalEvent(1, {
         effects: {
@@ -556,8 +562,10 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
       }),
     );
 
-    // All-or-nothing, like every other over-limit list: `updatedWidgetCount` goes with it.
-    expect(chunk!.effects).toBe(undefined);
+    // All-or-nothing, like every other over-limit list: `updatedWidgetCount` goes with it,
+    // leaving only the withheld marker.
+    expect(chunk!.effects).toEqual({ effectsWithheld: true });
+    warnSpy.mockRestore();
   });
 
   it('drops a `reason` over the shared string cap, keeping the rest of the chunk', async () => {
@@ -575,6 +583,7 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
   });
 
   it('spends ONE effects/reason budget across every approval event of the turn', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     // Each event is individually legal: 400 entities well under `MAX_ARRAY_LENGTH`, titles
     // well under `MAX_STRING_LENGTH`. ~10 KB of serialized effects apiece, so a per-EVENT
     // limit accepts all six and puts ~60 KB on one message.
@@ -586,13 +595,68 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
     // Every approval still gets a card — only the oversized payload is withheld.
     expect(chunks).toHaveLength(6);
     const charged = chunks.reduce(
-      (total, chunk) => total + (chunk.effects ? JSON.stringify(chunk.effects)!.length : 0),
+      (total, chunk) =>
+        total +
+        (chunk.effects && !chunk.effects.effectsWithheld
+          ? JSON.stringify(chunk.effects)!.length
+          : 0),
       0,
     );
     expect(charged).toBeLessThanOrEqual(MAX_TURN_APPROVAL_SIZE);
-    // The later approvals degrade to the pre-`effects` card rather than growing the doc.
-    expect(chunks.at(-1)!.effects).toBe(undefined);
+    // The later approvals degrade to a card that SAYS its summary is missing, rather than to
+    // one indistinguishable from a call with no impact.
+    expect(chunks.at(-1)!.effects).toEqual({ effectsWithheld: true });
     expect(chunks[0].effects).not.toBe(undefined);
+    warnSpy.mockRestore();
+  });
+
+  // A withheld summary and an absent one used to be indistinguishable on the card, and the
+  // budget is spent in ARRIVAL order — so an earlier verbose approval (or merely a large
+  // dashboard: 40 000 characters is ~700 `{id, title}` entities) silently strips the impact
+  // list off the destructive call, which in an agentic turn usually arrives LAST.
+  it('marks a summary withheld by the turn budget, on the card and on the console', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const events = Array.from({ length: 6 }, (_unused, i) =>
+      approvalEvent(i, { effects: { willRemoveWidgets: entities(400, 12) } }),
+    );
+    const chunks = await collectApprovalChunks(events);
+
+    // The early cards carry their real summary…
+    expect(chunks[0].effects).not.toEqual({ effectsWithheld: true });
+    // …and the late one says the summary is missing rather than looking like a call with no
+    // impact at all. Same pixels for both is the defect; `effectsWithheld` is the difference.
+    expect(chunks.at(-1)!.effects).toEqual({ effectsWithheld: true });
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(String(warnSpy.mock.calls[0][0])).toContain('withheld');
+    warnSpy.mockRestore();
+  });
+
+  it('marks a summary withheld by the LIST limits, with its own message', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const chunk = await collectApprovalChunk(
+      approvalEvent(1, {
+        effects: { willRemoveWidgets: entities(MAX_ARRAY_LENGTH + 1, 8) },
+      }),
+    );
+
+    expect(chunk!.effects).toEqual({ effectsWithheld: true });
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(String(warnSpy.mock.calls[0][0])).toContain('per-list');
+    warnSpy.mockRestore();
+  });
+
+  it('does NOT claim a summary was withheld when the server sent none', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // No `effects` at all, an empty record, and an empty list are all "this call removes
+    // nothing" — marking them withheld would cry wolf on every harmless approval.
+    for (const effects of [undefined, {}, { willRemoveWidgets: [] }]) {
+      // Sequential on purpose: each turn is its own adapter and its own budget.
+      // eslint-disable-next-line no-await-in-loop
+      const chunk = await collectApprovalChunk(approvalEvent(1, effects ? { effects } : {}));
+      expect(chunk!.effects).toBe(undefined);
+    }
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 
   it('spends the same turn budget on `reason`, not a separate one', async () => {
@@ -864,9 +928,18 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
       (total, c) => total + c.toolCallId.length + c.toolName.length + (c.approvalId?.length ?? 0),
       0,
     );
+    // The withheld MARKER is a constant per part rather than a payload, so it is counted
+    // against the part count below, not against the effects/reason budget.
+    const withheldMarkerBytes = '{"effectsWithheld":true}'.length;
     const payloadBytes = approvals.reduce(
       (total, c) =>
-        total + (c.effects ? JSON.stringify(c.effects)!.length : 0) + (c.reason?.length ?? 0),
+        total +
+        (c.effects && !c.effects.effectsWithheld ? JSON.stringify(c.effects)!.length : 0) +
+        (c.reason?.length ?? 0),
+      0,
+    );
+    const markerBytes = approvals.reduce(
+      (total, c) => total + (c.effects?.effectsWithheld ? withheldMarkerBytes : 0),
       0,
     );
 
@@ -881,15 +954,18 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
     expect(payloadBytes).toBeLessThanOrEqual(MAX_TURN_APPROVAL_SIZE);
     // the display-enriched inputs: their own turn-wide budget.
     expect(inputBytes).toBeLessThanOrEqual(MAX_TURN_APPROVAL_INPUT_SIZE);
+    // the withheld markers: a constant, x the part count.
+    expect(markerBytes).toBeLessThanOrEqual(withheldMarkerBytes * MAX_TURN_APPROVAL_PARTS);
     // …and the whole door, stated as one number the commit message can quote.
-    expect(idBytes + payloadBytes + inputBytes).toBeLessThanOrEqual(
+    expect(idBytes + payloadBytes + inputBytes + markerBytes).toBeLessThanOrEqual(
       3 * MAX_APPROVAL_ID_LENGTH * MAX_TURN_APPROVAL_PARTS +
         MAX_TURN_APPROVAL_SIZE +
-        MAX_TURN_APPROVAL_INPUT_SIZE,
+        MAX_TURN_APPROVAL_INPUT_SIZE +
+        withheldMarkerBytes * MAX_TURN_APPROVAL_PARTS,
     );
     // Each term is really binding here, so the total is not passing by accident.
     expect(approvals).toHaveLength(MAX_TURN_APPROVAL_PARTS);
-    expect(approvals.at(-1)!.effects).toBe(undefined);
+    expect(approvals.at(-1)!.effects).toEqual({ effectsWithheld: true });
     expect(approvals.at(-1)!.reason).toBe(undefined);
     expect(approvals.at(-1)!.input).toEqual({});
     warnSpy.mockRestore();

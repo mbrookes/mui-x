@@ -173,7 +173,8 @@ function narrowIds(value: unknown): string[] {
  * approve/deny buttons only while `state === 'approval-requested'` and only when the
  * server actually sent an `effects` payload. Returns `null` when nothing survived
  * narrowing, so a malformed payload degrades to the pre-existing prompt rather than an
- * empty box.
+ * empty box — EXCEPT when the adapter marked the summary as withheld
+ * (`effectsWithheld`), which is the one case where "no list" is itself the message.
  *
  * Exported for testing: the narrowing above is invisible from the types alone (the
  * field is `unknown`), so only rendering this component can tell a real guard from a
@@ -217,12 +218,19 @@ export function StudioApprovalEffects({
       ? effects.updatedWidgetCount
       : undefined;
 
-  if (groups.length === 0 && updatedCount === undefined) {
+  // The adapter withheld a summary the server DID send (over this client's size limits, or
+  // past the turn's budget for them). Without this line the card is byte-identical to one for
+  // a call with no impact at all — and those two deserve opposite answers, so an empty box is
+  // exactly what must NOT be rendered here.
+  const withheld = effects.effectsWithheld === true;
+
+  if (groups.length === 0 && updatedCount === undefined && !withheld) {
     return null;
   }
 
   return (
     <div {...props}>
+      {withheld ? <div>{localeText.chatApprovalEffectsWithheld}</div> : null}
       {groups.map((group) => (
         <div key={group.key}>
           <strong>{group.label}</strong>

@@ -975,6 +975,8 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   chatApprovalWillRemoveFilters: 'Löscht diese Filter',
   chatApprovalWillOrphanWidgets: 'Lässt diese Widgets auf keiner Seite zurück',
   chatApprovalUpdatedWidgetCount: 'Aktualisierte Widgets',
+  chatApprovalEffectsWithheld:
+    'Auswirkungsübersicht nicht verfügbar: sie war zu groß für die Anzeige. Lehnen Sie diese Anfrage ab, sofern Sie ihre Wirkung nicht kennen.',
 
   // Chart unsupported messages
   chartUnsupportedFieldNotFound:

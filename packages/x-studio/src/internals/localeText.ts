@@ -1221,6 +1221,12 @@ export interface StudioLocaleText {
   chatApprovalWillRemoveFilters: string;
   chatApprovalWillOrphanWidgets: string;
   chatApprovalUpdatedWidgetCount: string;
+  /**
+   * Shown on an approval card whose impact summary was WITHHELD by the client's size limits,
+   * so that "this request has no listed impact" and "the impact list did not fit" do not
+   * render identically — the second is a reason to deny, the first is not.
+   */
+  chatApprovalEffectsWithheld: string;
 
   // ── Chart cross-source error messages ────────────────────────────────────
   chartUnsupportedFieldNotFound: string;
@@ -2460,6 +2466,8 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
   chatApprovalWillRemoveFilters: 'Will delete these filters',
   chatApprovalWillOrphanWidgets: 'Will leave these widgets on no page',
   chatApprovalUpdatedWidgetCount: 'Widgets updated',
+  chatApprovalEffectsWithheld:
+    'Impact summary unavailable: it was too large to show. Deny this request unless you know what it does.',
 
   // Chart cross-source error messages
   chartUnsupportedFieldNotFound:

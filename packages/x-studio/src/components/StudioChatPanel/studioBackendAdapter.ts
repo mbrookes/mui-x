@@ -336,11 +336,15 @@ export const MAX_APPROVAL_ID_LENGTH = 256;
  * WORST CASE PER ASSISTANT TURN, from this door:
  *
  *     ids/names   <=  3 * MAX_APPROVAL_ID_LENGTH * MAX_TURN_APPROVAL_PARTS
- *                 =   3 * 256 * 64                  = 49 152 chars
+ *                 =   3 * 256 * 64                    =  49 152 chars
  *   + effects
- *     and reason  <=  MAX_TURN_APPROVAL_SIZE         = 40 000 chars  (turn-wide, not per part)
- *   ------------------------------------------------------------------------------
- *   total         ~                                    89 KB per assistant message
+ *     and reason  <=  MAX_TURN_APPROVAL_SIZE          =  40 000 chars (turn-wide, not per part)
+ *   + enriched
+ *     inputs      <=  MAX_TURN_APPROVAL_INPUT_SIZE    = 160 000 chars (turn-wide, not per part)
+ *   + withheld
+ *     markers     <=  24 * MAX_TURN_APPROVAL_PARTS    =   1 536 chars
+ *   --------------------------------------------------------------------------------
+ *   total         ~                                     245 KB per assistant message
  *
  * INDEPENDENT of the number of `tool-approval-request` events, which is the term the
  * previous round's arithmetic omitted.
@@ -469,6 +473,25 @@ function isWithinApprovalListLimits(value: Record<string, unknown>): boolean {
  * title from a malformed event must never reach JSX. Returns `undefined` when nothing
  * survived, so the key is omitted rather than forwarded empty.
  */
+/**
+ * Whether the RAW `effects` payload claimed any impact at all — used to tell "the server sent
+ * nothing to show" (say nothing) apart from "the server sent something and this client
+ * withheld it" (say so, on the card). Deliberately shape-blind about the entries: a list of
+ * over-long ids and a list of well-formed ones both count as content, because both mean the
+ * server believes the call has an impact the human should see.
+ */
+function approvalEffectsHadContent(value: unknown): boolean {
+  if (!isPlainRecord(value)) {
+    return false;
+  }
+  if (value.updatedWidgetCount !== undefined) {
+    return true;
+  }
+  return (
+    ['willRemoveWidgets', 'willRemovePages', 'willOrphanWidgets', 'willRemoveFilters'] as const
+  ).some((key) => Array.isArray(value[key]) && (value[key] as unknown[]).length > 0);
+}
+
 function sanitizeApprovalEffects(value: unknown): Record<string, unknown> | undefined {
   if (!isPlainRecord(value) || !isWithinApprovalListLimits(value)) {
     return undefined;
@@ -1178,6 +1201,20 @@ Check the endpoint URL, its authentication headers, and the server logs for this
               // per-event limit times an unbounded event count is not a limit. Once the
               // budget is spent the card degrades to the shape it had before `effects` and
               // `reason` existed, which is honest; a truncated impact list would not be.
+              //
+              // A WITHHELD summary is announced, on the card and on the console, because the
+              // two ways a card can arrive with no impact list are not the same thing: "this
+              // call removes nothing" is a reason to approve, "the list did not fit" is a
+              // reason to deny, and until now they rendered identically. It matters most in
+              // the case it is most likely to hit — the budget is spent in ARRIVAL order and
+              // the destructive call usually arrives last in an agentic turn, so an earlier
+              // verbose approval (or merely a large dashboard: 40 000 characters is ~700
+              // `{id, title}` entities) is exactly what strips the summary off the card that
+              // most needs one. The adapter cannot reserve budget for a card it has not seen
+              // yet, so it says so instead.
+              //
+              // `effectsWithheld` is charged nothing: it is a constant ~24 characters and its
+              // count is already bounded by `MAX_TURN_APPROVAL_PARTS`.
               let effects: Record<string, unknown> | undefined;
               const candidateEffects = sanitizeApprovalEffects(rawApproval.effects);
               if (candidateEffects) {
@@ -1185,7 +1222,28 @@ Check the endpoint URL, its authentication headers, and the server logs for this
                 if (turnApprovalSize + effectsSize <= MAX_TURN_APPROVAL_SIZE) {
                   turnApprovalSize += effectsSize;
                   effects = candidateEffects;
+                } else {
+                  effects = { effectsWithheld: true };
+                  warnApprovalOnce(
+                    'approval-effects-budget',
+                    `A tool approval request's impact summary was withheld: this response has ` +
+                      `already used its ${MAX_TURN_APPROVAL_SIZE}-character budget for approval ` +
+                      `summaries, which are stored in the saved dashboard. The card says so and ` +
+                      `lists nothing, so deny the request unless you know what it does.`,
+                  );
                 }
+              } else if (approvalEffectsHadContent(rawApproval.effects)) {
+                // The server sent a summary and the sanitizer rejected all of it — an
+                // over-limit list, or nothing well-typed enough to render. Same user-visible
+                // outcome, different cause, so the console message is different.
+                effects = { effectsWithheld: true };
+                warnApprovalOnce(
+                  'approval-effects-shape',
+                  `A tool approval request's impact summary was withheld: it exceeded this ` +
+                    `client's per-list or per-string limits, or carried nothing it could ` +
+                    `render. The card says so and lists nothing, so deny the request unless you ` +
+                    `know what it does. Check what the AI endpoint is sending as \`effects\`.`,
+                );
               }
               let policyReason: string | undefined;
               if (

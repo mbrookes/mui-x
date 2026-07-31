@@ -1267,6 +1267,111 @@ describe('parseStateMutation — wire trust-boundary size caps (Tier2)', () => {
     });
     expect(parsed.ok).toBe(true);
   });
+
+  // ── The shared string/number/leaf PRIMITIVES, checked directly ────────────
+  //
+  // The cases above all exercise DERIVED predicates (`isStringArray`,
+  // `isStringMatrix`, `isFiniteNumberRecord`, `isBoundedValue` via a whole widget
+  // record), each of which re-states its own cap. The primitives every plain string
+  // field routes through — `isString`, `isOptionalString`, `isFiniteNumber` — and
+  // `isBoundedValue`'s own array-length/depth arms carry the cap for fields that have
+  // no other backstop: a variant's `args` bag is NOT itself run through
+  // `isBoundedValue`, so `addPage.args.title`, `setWidgetLayout.args.pageId` and
+  // `renameAIThread.args.threadId` are bounded by these predicates or by nothing.
+
+  it('rejects an addPage title over the string-length cap', () => {
+    const parsed = parseStateMutation({
+      type: 'addPage',
+      args: { id: 'page-9', title: 'x'.repeat(20_000) },
+    });
+    expect(parsed).toMatchObject({ ok: false, error: 'addPage.args.title must be a string' });
+  });
+
+  it('accepts an addPage title right at the string-length cap', () => {
+    const parsed = parseStateMutation({
+      type: 'addPage',
+      args: { id: 'page-9', title: 'x'.repeat(10_000) },
+    });
+    expect(parsed.ok).toBe(true);
+  });
+
+  it.each([
+    [
+      'setWidgetLayout.args.pageId',
+      (pageId: string) => ({ type: 'setWidgetLayout', args: { rows: [['w1']], pageId } }),
+      'setWidgetLayout.args.pageId must be a string when present',
+    ],
+    [
+      'renameAIThread.args.threadId',
+      (threadId: string) => ({
+        type: 'renameAIThread',
+        args: { name: 'N', updatedAt: '2024-01-01T00:00:00.000Z', threadId },
+      }),
+      'renameAIThread.args.threadId must be a string when present',
+    ],
+  ])('caps the optional string %s at the string-length cap', (_label, build, error) => {
+    expect(parseStateMutation(build('p'.repeat(20_000)))).toMatchObject({ ok: false, error });
+    // At the cap it is still accepted, so this is a cap and not a blanket reject.
+    expect(parseStateMutation(build('p'.repeat(10_000))).ok).toBe(true);
+  });
+
+  it.each([
+    ['NaN', Number.NaN],
+    ['Infinity', Number.POSITIVE_INFINITY],
+    ['-Infinity', Number.NEGATIVE_INFINITY],
+  ])('rejects a setWidgetColSpan columns of %s', (_label, columns) => {
+    const parsed = parseStateMutation({
+      type: 'setWidgetColSpan',
+      args: { widgetId: 'w1', columns, rowWidgetIds: ['w1'] },
+    });
+    expect(parsed).toMatchObject({
+      ok: false,
+      error: 'setWidgetColSpan.args.columns must be a finite number or null',
+    });
+  });
+
+  it('accepts a setWidgetColSpan columns that is an ordinary finite number', () => {
+    const parsed = parseStateMutation({
+      type: 'setWidgetColSpan',
+      args: { widgetId: 'w1', columns: 6, rowWidgetIds: ['w1'] },
+    });
+    expect(parsed.ok).toBe(true);
+  });
+
+  it('rejects an updateWidget config holding an array over the array-length cap', () => {
+    const parsed = parseStateMutation({
+      type: 'updateWidget',
+      args: { widgetId: 'w1', config: { customConfig: Array.from({ length: 5_000 }, () => 1) } },
+    });
+    expect(parseError(parsed)).toMatch(/^updateWidget\.args\.config is not a bounded/);
+  });
+
+  it('accepts an updateWidget config holding an array right at the array-length cap', () => {
+    const parsed = parseStateMutation({
+      type: 'updateWidget',
+      args: { widgetId: 'w1', config: { customConfig: Array.from({ length: 500 }, () => 1) } },
+    });
+    expect(parsed.ok).toBe(true);
+  });
+
+  // The exact `MAX_DEPTH` boundary. `config` itself is depth 0 and `customConfig` is
+  // depth 1, so N nested arrays put their innermost leaf at depth N + 1: 31 is the
+  // deepest accepted nesting and 32 the shallowest rejected one. Pinning BOTH sides is
+  // what makes this a boundary rather than "something very deep gets rejected".
+  it.each([
+    [31, true],
+    [32, false],
+  ])('nests %i levels under updateWidget.args.config: accepted = %s', (levels, accepted) => {
+    let value: unknown = 1;
+    for (let i = 0; i < levels; i += 1) {
+      value = [value];
+    }
+    const parsed = parseStateMutation({
+      type: 'updateWidget',
+      args: { widgetId: 'w1', config: { customConfig: value } },
+    });
+    expect(parsed.ok).toBe(accepted);
+  });
 });
 
 // T2-4 (parser half): `applyBulkUpdate.args.widgetRows`/`widgetColSpans` used to be

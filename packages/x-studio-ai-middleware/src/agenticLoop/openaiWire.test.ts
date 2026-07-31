@@ -128,6 +128,35 @@ describe('toOpenAIMessages', () => {
     expect(toolResult.content).toBe(JSON.stringify({ status: 'unknown' }));
   });
 
+  // Every tool result this package emits is ALREADY a JSON string — `dispatchToolCall`
+  // returns `JSON.stringify(...)`, and that same string is what the in-flight
+  // `{ role: 'tool', content }` message and the `tool-activity` `complete` event carry.
+  // A client that streamed the result back therefore holds a string, and re-encoding it
+  // produced a doubly-escaped blob on replay: the turn structure was right but the bytes
+  // no longer matched what the provider was originally sent (prefix cache lost, model
+  // reading `"{\"success\":true}"` instead of an object). Only an end-to-end comparison
+  // shows it — see `aiMiddlewareSeam.test.ts` in `packages/x-studio`.
+  it('replays an already-stringified tool result verbatim rather than re-encoding it', () => {
+    const output = JSON.stringify({ success: true, pageId: 'page-1' });
+    const result = toOpenAIMessages('SYS', [
+      assistantToolMsg('', [{ toolCallId: 'c', toolName: 'add_page', input: {}, output }]),
+    ]);
+    const toolResult = result[2] as { role: string; content: string };
+    expect(toolResult.content).toBe('{"success":true,"pageId":"page-1"}');
+  });
+
+  // The other convention stays supported: `ChatToolInvocation['output']` is `unknown`,
+  // and an x-chat adapter that stores a PARSED object must still serialise to JSON.
+  it('still encodes a non-string tool result as JSON', () => {
+    const result = toOpenAIMessages('SYS', [
+      assistantToolMsg('', [
+        { toolCallId: 'c', toolName: 't', input: {}, output: { success: true } },
+      ]),
+    ]);
+    const toolResult = result[2] as { role: string; content: string };
+    expect(toolResult.content).toBe('{"success":true}');
+  });
+
   it('defaults missing tool input to an empty object in the arguments', () => {
     const result = toOpenAIMessages('SYS', [
       assistantToolMsg('', [{ toolCallId: 'c', toolName: 't', input: undefined, output: 'x' }]),
@@ -256,7 +285,9 @@ describe('toOpenAIMessages', () => {
           content: null,
           tool_calls: [{ id: 'x1', type: 'function', function: { name: 't', arguments: '{}' } }],
         },
-        { role: 'tool', tool_call_id: 'x1', content: JSON.stringify('r') },
+        // Verbatim, not `JSON.stringify('r')`: a string output is already the encoded
+        // tool result (see the double-encoding tests above).
+        { role: 'tool', tool_call_id: 'x1', content: 'r' },
         { role: 'assistant', content: 'All set.' },
       ]);
     });

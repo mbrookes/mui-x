@@ -58,6 +58,33 @@ interface DynamicToolPart {
 }
 
 /**
+ * The `content` of a replayed tool-result message.
+ *
+ * An ALREADY-STRING output is passed through verbatim rather than re-encoded. This
+ * package emits every tool result as a JSON STRING — `dispatchToolCall` returns
+ * `JSON.stringify(...)`, the loop puts that exact string in the in-flight
+ * `{ role: 'tool', content }` message AND in the `tool-activity` `complete` event's
+ * `output` field — so a client that streamed the result back holds a string too
+ * (`x-studio`'s adapter stores `String(event.output)`). Calling `JSON.stringify` on
+ * it produced a doubly-encoded result on replay:
+ *
+ * ```
+ * in-flight : "content": "{\"success\":true,\"pageId\":\"page-1\"}"
+ * replayed  : "content": "\"{\\\"success\\\":true,\\\"pageId\\\":\\\"page-1\\\"}\""
+ * ```
+ *
+ * which defeats the whole point of rebuilding the turn structure faithfully (the
+ * provider's prefix cache keys on bytes, and the model reads an escaped blob instead
+ * of an object), and gets worse with every round trip. Fixed here, on the serialiser,
+ * rather than on the client: this function must accept BOTH conventions, since
+ * `ChatToolInvocation['output']` is `unknown` and other x-chat adapters legitimately
+ * store a parsed object.
+ */
+function toolResultContent(output: unknown): string {
+  return typeof output === 'string' ? output : JSON.stringify(output);
+}
+
+/**
  * Serialises the client's `ChatMessage[]` history back into the OpenAI
  * chat-completions shape the next request replays.
  *
@@ -128,7 +155,7 @@ export function toOpenAIMessages(systemPrompt: string, messages: ChatMessage[]):
             tool_call_id: p.toolInvocation.toolCallId,
             content:
               p.toolInvocation.output !== undefined
-                ? JSON.stringify(p.toolInvocation.output)
+                ? toolResultContent(p.toolInvocation.output)
                 : JSON.stringify({ status: 'unknown' }),
           });
         }

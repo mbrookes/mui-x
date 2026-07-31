@@ -930,6 +930,36 @@ export function createBackendChatAdapter(
         console.warn(`MUI X Studio: ${message}`);
       };
 
+      // …and a dropped event that leaves a card ALREADY ON SCREEN is announced there too,
+      // not only on the console.
+      //
+      // Dropping an over-cap-id event is the right trade (a truncated correlation key names
+      // nothing), but the drop is not free when a `tool-activity` `start` has already created
+      // the part: `processStream` leaves it at `input-available`, which
+      // `resolveToolStatusIcon` draws as a SPINNER. No button ever appears, nothing says why,
+      // and the user waits out the server's 120-second approval timeout before the call fails
+      // closed. `tool-output-error` is the one chunk that resolves such a part without
+      // inventing a result for it, and it is a no-op when no part exists — `processStream`
+      // passes a null initial part for it, so an id nothing was ever created for cannot make
+      // one here.
+      //
+      // Guarded on the id being storable and already known: emitting this for an id that has
+      // no part would be noise, and for an over-cap `toolCallId` it would be the very string
+      // this boundary refuses to keep.
+      const failVisiblyIfCardIsOnScreen = (
+        streamController: ReadableStreamDefaultController<ChatMessageChunk>,
+        toolCallId: string,
+        errorText: string,
+      ) => {
+        if (
+          wireStringSize(toolCallId) > MAX_TOOL_ID_LENGTH ||
+          !turnToolPartIds.has(toolCallId)
+        ) {
+          return;
+        }
+        streamController.enqueue({ type: 'tool-output-error', toolCallId, errorText });
+      };
+
       // Helper: close the synthetic "Thinking…" reasoning part once real content arrives.
       const endReasoning = (
         streamController: ReadableStreamDefaultController<ChatMessageChunk>,
@@ -1222,6 +1252,13 @@ Check the endpoint URL, its authentication headers, and the server logs for this
                     `the event was dropped instead of shortened — a shortened id would identify ` +
                     `nothing. That tool call will not appear in the conversation. Check what the ` +
                     `AI endpoint is sending for these fields.`,
+                );
+                failVisiblyIfCardIsOnScreen(
+                  streamController,
+                  toolCallId,
+                  'MUI X Studio: The AI server reported this tool call finishing, but the ' +
+                    'identifiers it sent are too long to store, so the result was dropped. ' +
+                    'The call may or may not have run — check the server logs.',
                 );
                 return undefined;
               }
@@ -1522,6 +1559,14 @@ Check the endpoint URL, its authentication headers, and the server logs for this
                     `the request, so the request was dropped instead of shortened — a shortened ` +
                     `id would identify nothing. The tool call will not show an approval card. ` +
                     `Check what the AI endpoint is sending for these fields.`,
+                );
+                failVisiblyIfCardIsOnScreen(
+                  streamController,
+                  approvalToolCallId,
+                  'MUI X Studio: This tool call asked for your approval, but the request could ' +
+                    'not be shown because the identifiers the AI server sent for it are too ' +
+                    'long to store. Nothing was approved and nothing ran. Ask again, or check ' +
+                    'the server logs for what it sent.',
                 );
                 return undefined;
               }

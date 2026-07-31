@@ -1157,6 +1157,65 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
     warnSpy.mockRestore();
   });
 
+  // Dropping the event is the right trade — a truncated correlation key names nothing — but
+  // it is not free once a `tool-activity` `start` has already put the card on screen.
+  // `processStream` leaves that part at `input-available`, which `resolveToolStatusIcon`
+  // renders as an infinite SPINNER: no button ever appears, nothing says why, and the user
+  // waits out the server's 120-second approval timeout before the call fails closed. Only one
+  // `console.warn` marked the whole episode, and the console is not where the person holding
+  // the deny button is looking.
+  it('resolves the card a dropped approval would otherwise leave spinning', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const chunks = await collectTurnChunks([
+      // A perfectly ordinary call — short `toolCallId`, so the card renders…
+      {
+        type: 'tool-activity',
+        phase: 'start',
+        toolCallId: 'call-1',
+        toolName: 'remove_widget',
+        input: { widgetId: 'w1' },
+      },
+      // …and its approval is dropped for an over-cap `approvalId` ALONE.
+      {
+        type: 'tool-approval-request',
+        toolCallId: 'call-1',
+        toolName: 'remove_widget',
+        approvalId: 'a'.repeat(MAX_TOOL_ID_LENGTH + 1),
+        input: {},
+      },
+    ]);
+
+    expect(chunks.filter((c) => c.type === 'tool-approval-request')).toHaveLength(0);
+    // The card resolves — with an explanation, on the card, in the state
+    // `resolveToolStatusIcon` draws as an error rather than as "still running".
+    const failure = chunks.find((c) => c.type === 'tool-output-error') as {
+      toolCallId: string;
+      errorText: string;
+    };
+    expect(failure).not.toBe(undefined);
+    expect(failure.toolCallId).toBe('call-1');
+    expect(failure.errorText).toContain('Nothing was approved and nothing ran');
+    warnSpy.mockRestore();
+  });
+
+  it('does not invent a failure card for a dropped approval nobody ever saw', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // No `tool-activity` first, and the `toolCallId` itself is over-cap: there is no part to
+    // resolve, so there must be no chunk either — and certainly not one carrying the id this
+    // boundary just refused to store.
+    const chunks = await collectTurnChunks(
+      Array.from({ length: 20 }, (_unused, i) => ({
+        type: 'tool-approval-request',
+        toolCallId: `${'x'.repeat(MAX_TOOL_ID_LENGTH + 1)}-${i}`,
+        toolName: 'remove_widget',
+        input: {},
+      })),
+    );
+
+    expect(chunks.filter((c) => c.type === 'tool-output-error')).toHaveLength(0);
+    warnSpy.mockRestore();
+  });
+
   it('accepts ids exactly AT the cap (the cap is a boundary, not a ban)', async () => {
     const atCap = 'c'.repeat(MAX_TOOL_ID_LENGTH);
     const chunks = (await collectTurnChunks([
@@ -1477,6 +1536,26 @@ describe('createBackendChatAdapter: tool-activity size limits', () => {
     );
 
     expect(chunks.filter((c) => c.type === 'tool-input-start')).toHaveLength(0);
+    warnSpy.mockRestore();
+  });
+
+  // The same spinner, through the other door: a `complete` dropped for an over-cap `toolName`
+  // leaves the part its own `start` created stuck at `input-available` forever.
+  it('resolves the card when a `complete` is dropped for an over-cap toolName', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const chunks = await collectAllTurnChunks([
+      startEvent(1),
+      completeEvent(1, { toolName: 'n'.repeat(MAX_TOOL_ID_LENGTH + 1) }),
+    ]);
+
+    expect(chunks.filter((c) => c.type === 'tool-output-available')).toHaveLength(0);
+    const failure = chunks.find((c) => c.type === 'tool-output-error') as {
+      toolCallId: string;
+      errorText: string;
+    };
+    expect(failure).not.toBe(undefined);
+    expect(failure.toolCallId).toBe('call-1');
+    expect(failure.errorText).toContain('too long to store');
     warnSpy.mockRestore();
   });
 

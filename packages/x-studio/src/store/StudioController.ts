@@ -1679,9 +1679,17 @@ export class StudioController {
    * `enforceLayoutColSpans` — the single authority for the col-span invariants, shared with
    * the AI `set_widget_width`/`apply_bulk_update` paths and with `setWidgetLayout` — run on a
    * drag-resize too. Before, a resize was the ONE writer that skipped them, so a row whose
-   * spans summed past `GRID_COLS` could be committed and survive serialize/reload
-   * (`normalizePersistedPages` only clamps each span INDIVIDUALLY at load), and the canvas
-   * had to approximate the missing sweep on its side (`rowColSpans.ts`).
+   * spans summed past `GRID_COLS` could be committed live, and the canvas had to approximate
+   * the missing sweep on its side (`rowColSpans.ts`).
+   *
+   * (R6 F5 corrects the reason this comment used to give — "`normalizePersistedPages` only
+   * clamps each span INDIVIDUALLY at load", i.e. an overflowing row survived serialize/reload.
+   * It does not: that function runs the very same `enforceLayoutColSpans` this routing does
+   * (`nextSpans = enforceLayoutColSpans([], sanitizedRows, rebuilt)`), and an overflowing row's
+   * spans are DROPPED wholesale — one row with `{ w1: 20, w2: 20 }` loads back as
+   * `widgetColSpans: undefined`, not clamped-but-kept. So the damage was a live doc the
+   * reducer never sanctioned PLUS the silent loss of both authored widths on the next reload,
+   * rather than a persisted overflow. The routing decision is unchanged and still correct.)
    *
    * `applyBulkUpdate` is the right entry point rather than two folded `setWidgetColSpan`
    * mutations: a resize moves ONE budget between TWO widgets, so both must be ANCHORS of a

@@ -123,6 +123,13 @@ interface SeamOptions {
    * x-studio-dev-server/src/routes/ai.ts`) would answer.
    */
   onApprovalRequest?: (event: Record<string, unknown>) => { approved: boolean; reason?: string };
+  /**
+   * Which id the approval decision is POSTed under. `'approvalId'` (the default) is
+   * what `ToolPart` does — `approvalId ?? toolCallId`. `'toolCallId'` forces the
+   * pre-F5 shape so a test can show that the provider-authored id no longer resolves
+   * anything.
+   */
+  resolveWith?: 'approvalId' | 'toolCallId';
 }
 
 interface SeamResult {
@@ -161,6 +168,7 @@ async function runSeam(options: SeamOptions): Promise<SeamResult> {
     state = DEFAULT_STATE,
     messages = [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'Do it' }] }],
     onApprovalRequest,
+    resolveWith = 'approvalId',
   } = options;
 
   const controller = new StudioController(state);
@@ -260,10 +268,16 @@ async function runSeam(options: SeamOptions): Promise<SeamResult> {
         if (chunk.type === 'tool-approval-request' && onApprovalRequest) {
           const decision = onApprovalRequest(chunk as unknown as Record<string, unknown>);
           const approvalChunk = chunk as unknown as { approvalId?: string; toolCallId: string };
-          adapter.addToolApprovalResponse!({
-            id: approvalChunk.approvalId ?? approvalChunk.toolCallId,
-            ...decision,
-          } as never);
+          // `ToolPart`'s own rule: the approval's id when it has one, the tool call's
+          // otherwise. `resolveWith: 'toolCallId'` forces the pre-F5 shape.
+          const id =
+            resolveWith === 'toolCallId'
+              ? approvalChunk.toolCallId
+              : (approvalChunk.approvalId ?? approvalChunk.toolCallId);
+          // A 4xx from the reference route rejects out of `addToolApprovalResponse`;
+          // the real consumer (`useChatController`) handles it, this tap must not let
+          // it surface as an unhandled rejection and fail the run.
+          adapter.addToolApprovalResponse!({ id, ...decision } as never)?.catch?.(() => {});
         }
         ctrl.enqueue(chunk);
       },
@@ -437,6 +451,78 @@ describe('x-studio ⇄ x-studio-ai-middleware seam: tool approval (F2)', () => {
 
     expect(result.approvalPosts[0].status).toBe(200);
     expect(firstToolOutput(result.message)).toContain('Not today');
+  });
+});
+
+// ── Round-4 F5: the approval is resolved by `approvalId`, not `toolCallId` ────
+//
+// The `approvalPending` map is host-shared and cross-request, and its key used to be
+// the provider's `tool_calls[].id`. A gateway numbering those sequentially made every
+// in-flight approval in the process enumerable, leaving the OPTIONAL `threadId`
+// binding as the only thing between a guessed id and a resolved destructive call.
+//
+// The server now mints an `approvalId` with `randomUUID()` and publishes it on the
+// event; `studioBackendAdapter` forwards it on the chunk when non-empty (never
+// defaulting it to `toolCallId`), `processStream` puts it on the invocation, and
+// `ToolPart` responds with `approvalId ?? toolCallId`. Only an end-to-end run can show
+// that those five layers agree — each half was green on its own for two rounds while
+// the feature was inert.
+
+describe('x-studio ⇄ x-studio-ai-middleware seam: approval id (F5)', () => {
+  it('resolves the approval by the server-minted approvalId, never the tool-call id', async () => {
+    const result = await runSeam({
+      turns: [toolCallTurn('tc-1', 'remove_widget', { widgetId: 'w1' }), textTurn('Removed it')],
+      state: STATE_WITH_THREAD,
+      onApprovalRequest: () => ({ approved: true }),
+    });
+
+    const serverEvent = result.serverEvents.find(
+      (event) => event.type === 'tool-approval-request',
+    ) as { approvalId?: string; toolCallId?: string } | undefined;
+    expect(serverEvent?.toolCallId).toBe('tc-1');
+    // Minted server-side, independent of the (here fully predictable) wire id.
+    expect(serverEvent?.approvalId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
+
+    // Forwarded verbatim on the chunk…
+    const chunk = result.clientChunks.find((c) => c.type === 'tool-approval-request') as unknown as
+      | { approvalId?: string; toolCallId?: string }
+      | undefined;
+    expect(chunk?.approvalId).toBe(serverEvent?.approvalId);
+    expect(chunk?.toolCallId).toBe('tc-1');
+
+    // …and carried onto the invocation, which is what `ToolPart` reads to build its
+    // `addToolApprovalResponse({ id: approvalId ?? toolCallId })` call.
+    const toolPart = result.message.parts.find((p) => p.type === 'dynamic-tool') as
+      | { toolInvocation: { approvalId?: string; toolCallId: string } }
+      | undefined;
+    expect(toolPart?.toolInvocation.approvalId).toBe(serverEvent?.approvalId);
+
+    // The POST resolves by the approval id, and the reference `/approval` route finds
+    // the entry under it — the tool ran rather than sitting out the timeout.
+    expect(result.approvalPosts).toHaveLength(1);
+    expect(result.approvalPosts[0].body.id).toBe(serverEvent?.approvalId);
+    expect(result.approvalPosts[0].body.id).not.toBe('tc-1');
+    expect(result.approvalPosts[0].status).toBe(200);
+    expect(firstToolOutput(result.message)).not.toContain('approval timed out');
+    expect(firstToolOutput(result.message)).toContain('success');
+  });
+
+  it('rejects a resolution presented for the tool-call id instead of the approval id', async () => {
+    // The complement: the provider-authored id is no longer a key into the map at all,
+    // so a caller who only knows it (or guessed it) resolves nothing.
+    const result = await runSeam({
+      turns: [toolCallTurn('tc-1', 'remove_widget', { widgetId: 'w1' }), textTurn('Left it')],
+      state: STATE_WITH_THREAD,
+      onApprovalRequest: () => ({ approved: true }),
+      resolveWith: 'toolCallId',
+    });
+
+    expect(result.approvalPosts[0].body.id).toBe('tc-1');
+    expect(result.approvalPosts[0].status).toBe(404);
+    // Nothing resolved, so the call failed closed on the (short) timeout.
+    expect(firstToolOutput(result.message)).toContain('approval timed out');
   });
 });
 

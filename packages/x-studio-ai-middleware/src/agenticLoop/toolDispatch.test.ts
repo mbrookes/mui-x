@@ -64,6 +64,23 @@ async function runDispatch(
   return { events, outcome: step.value };
 }
 
+/**
+ * The single key `approvalPending` currently holds.
+ *
+ * Since round-4 finding F5 the map key is an `approvalId` minted inside
+ * `runApprovalFlow` with `randomUUID()` — deliberately NOT the tool call's `call_1`,
+ * so a provider that numbers its tool-call ids sequentially can no longer make a
+ * host-shared, cross-request map enumerable. A test therefore cannot address the
+ * entry by the id it supplied; every test below raises exactly one approval at a
+ * time, and the id a real host resolves with is the `approvalId` on the yielded
+ * `tool-approval-request` event (pinned separately, below).
+ */
+function soleApprovalKey(approvalPending: Map<string, PendingApproval>): string {
+  const keys = [...approvalPending.keys()];
+  expect(keys).toHaveLength(1);
+  return keys[0];
+}
+
 // ── waitForApproval ─────────────────────────────────────────────────────────────
 
 describe('waitForApproval', () => {
@@ -102,7 +119,7 @@ describe('waitForApproval', () => {
     expect(pending.has('id1')).toBe(false);
   });
 
-  it('refuses a duplicate toolCallId without touching the existing entry', async () => {
+  it('refuses a duplicate approvalId without touching the existing entry', async () => {
     const pending = new Map<string, PendingApproval>();
     const existing: PendingApproval = { resolve: vi.fn() };
     pending.set('id1', existing);
@@ -113,7 +130,7 @@ describe('waitForApproval', () => {
     };
     expect(outcome.kind).toBe('resolved');
     expect(outcome.approved).toBe(false);
-    expect(outcome.reason).toMatch(/duplicate toolCallId/);
+    expect(outcome.reason).toMatch(/duplicate approvalId/);
     // The pre-existing entry must be left intact (not overwritten or deleted).
     expect(pending.get('id1')).toBe(existing);
   });
@@ -945,7 +962,7 @@ describe('dispatchToolCall', () => {
       const pendingStep = gen.next();
       // Let the generator register its resolver before we approve.
       await Promise.resolve();
-      approvalPending.get('call_1')!.resolve(true);
+      approvalPending.get(soleApprovalKey(approvalPending))!.resolve(true);
       const done = await pendingStep;
       expect(done.done).toBe(true);
       expect(done.value).toEqual({
@@ -977,8 +994,8 @@ describe('dispatchToolCall', () => {
       // The entry is registered once the generator resumes past the yield and calls
       // `waitForApproval` — let that microtask run before inspecting the map.
       await Promise.resolve();
-      expect(approvalPending.get('call_1')?.threadId).toBe('thread-abc');
-      approvalPending.get('call_1')!.resolve(true);
+      expect(approvalPending.get(soleApprovalKey(approvalPending))?.threadId).toBe('thread-abc');
+      approvalPending.get(soleApprovalKey(approvalPending))!.resolve(true);
       await pendingStep;
     });
 
@@ -996,9 +1013,9 @@ describe('dispatchToolCall', () => {
       await gen.next();
       const pendingStep = gen.next();
       await Promise.resolve();
-      expect(approvalPending.has('call_1')).toBe(true);
-      expect(approvalPending.get('call_1')?.threadId).toBeUndefined();
-      approvalPending.get('call_1')!.resolve(true);
+      expect(approvalPending.size).toBe(1);
+      expect(approvalPending.get(soleApprovalKey(approvalPending))?.threadId).toBeUndefined();
+      approvalPending.get(soleApprovalKey(approvalPending))!.resolve(true);
       await pendingStep;
     });
 
@@ -1016,7 +1033,7 @@ describe('dispatchToolCall', () => {
       await gen.next();
       const pendingStep = gen.next();
       await Promise.resolve();
-      approvalPending.get('call_1')!.resolve(false, 'user said no');
+      approvalPending.get(soleApprovalKey(approvalPending))!.resolve(false, 'user said no');
       const done = await pendingStep;
       expect(execute).not.toHaveBeenCalled();
       const parsed = JSON.parse((done.value as { output: string }).output) as {
@@ -1101,7 +1118,7 @@ describe('dispatchToolCall', () => {
       // Drain: approve so the generator completes cleanly.
       const pendingStep = gen.next();
       await Promise.resolve();
-      approvalPending.get('call_1')!.resolve(true);
+      approvalPending.get(soleApprovalKey(approvalPending))!.resolve(true);
       await pendingStep;
     });
 
@@ -1150,7 +1167,7 @@ describe('dispatchToolCall', () => {
 
         const pendingStep = gen.next();
         await Promise.resolve();
-        approvalPending.get('call_1')!.resolve(true);
+        approvalPending.get(soleApprovalKey(approvalPending))!.resolve(true);
         let step = await pendingStep;
         while (!step.done) {
           // eslint-disable-next-line no-await-in-loop -- draining an async generator.
@@ -1201,7 +1218,7 @@ describe('dispatchToolCall', () => {
 
       const pendingStep = gen.next();
       await Promise.resolve();
-      approvalPending.get('call_1')!.resolve(true);
+      approvalPending.get(soleApprovalKey(approvalPending))!.resolve(true);
       await pendingStep;
     });
 
@@ -1227,7 +1244,7 @@ describe('dispatchToolCall', () => {
 
       const pendingStep = gen.next();
       await Promise.resolve();
-      approvalPending.get('call_1')!.resolve(true);
+      approvalPending.get(soleApprovalKey(approvalPending))!.resolve(true);
       await pendingStep;
     });
 
@@ -1300,7 +1317,7 @@ describe('dispatchToolCall', () => {
       const first = await gen.next();
       expect((first.value as { type: string }).type).toBe('tool-approval-request');
       // Registered before the yield, per finding F6.
-      expect(approvalPending.has('call_1')).toBe(true);
+      expect(approvalPending.size).toBe(1);
 
       // The consumer walks away without ever resuming.
       await gen.return(undefined as never);
@@ -1308,13 +1325,101 @@ describe('dispatchToolCall', () => {
       expect(approvalPending.size).toBe(0);
       expect(execute).not.toHaveBeenCalled();
 
-      // ...and the observable consequence: a LATER request reusing the same provider id
-      // is registered normally instead of being refused by the duplicate-id guard.
-      const second = registerApproval('call_1', approvalPending, undefined, 1000, undefined);
+      // ...and the observable consequence: a LATER registration under an id that was
+      // once held is accepted normally instead of being refused by the duplicate guard.
+      const second = registerApproval('approval-1', approvalPending, undefined, 1000, undefined);
       const settled = second.wait();
-      approvalPending.get('call_1')!.resolve(true);
+      approvalPending.get(soleApprovalKey(approvalPending))!.resolve(true);
       await expect(settled).resolves.toMatchObject({ kind: 'resolved', approved: true });
       second.release();
+    });
+
+    // ── Round-4 finding F5: the approval map key is NOT the provider's id ──────
+    //
+    // `approvalPending` is a HOST-SHARED, cross-request map, and its key used to be
+    // `tc.id` — the provider's `tool_calls[].id`. A gateway that numbers those
+    // sequentially (`call_1`, `call_2`, …) therefore made every in-flight approval in
+    // the whole process enumerable: a caller could guess another user's pending
+    // approval id outright, leaving the OPTIONAL `threadId` binding as the only thing
+    // between the guess and a resolved destructive tool call.
+    it('keys the pending approval by a minted approvalId, never by the provider tool-call id', async () => {
+      const execute = vi.fn(async () => ({ output: 'ran', nextState: INITIAL_STATE }));
+      const approvalPending = new Map<string, PendingApproval>();
+      const ctx = makeCtx({
+        advertisedToolNames: new Set(['approve_skill']),
+        skillHandlers: [makeApprovalSkill(execute)],
+        toolPolicy: approvalPolicy,
+        approvalPending,
+      });
+
+      // A gateway that numbers its tool-call ids: the whole point of the finding.
+      const gen = dispatchToolCall(
+        tc('approve_skill', '{}', 'call_1'),
+        {},
+        false,
+        INITIAL_STATE,
+        ctx,
+      );
+      const first = await gen.next();
+      const event = first.value as { type: string; approvalId: string; toolCallId: string };
+
+      expect(event.type).toBe('tool-approval-request');
+      // The defect: `approvalPending.has('call_1')` was true.
+      expect(approvalPending.has('call_1')).toBe(false);
+      expect(event.approvalId).not.toBe('call_1');
+      expect(event.approvalId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+      );
+      // …and the event still carries the tool-call id, which is what addresses the
+      // tool CARD client-side and stays the OpenAI wire id.
+      expect(event.toolCallId).toBe('call_1');
+
+      // The emitted `approvalId` is exactly the key a host resolves with.
+      expect(approvalPending.has(event.approvalId)).toBe(true);
+      const pendingStep = gen.next();
+      await Promise.resolve();
+      approvalPending.get(event.approvalId)!.resolve(true);
+      const done = await pendingStep;
+      expect(done.value).toMatchObject({ kind: 'result', output: 'ran' });
+    });
+
+    // Two approvals raised back to back must not collide even when the provider hands
+    // both the SAME tool-call id — which is what a gateway restarting its counter per
+    // request does, and what used to make the second registration hit the duplicate
+    // guard and fail closed with "duplicate ... approval refused".
+    it('mints a distinct approvalId per approval even for a repeated tool-call id', async () => {
+      const execute = vi.fn(async () => ({ output: 'ran', nextState: INITIAL_STATE }));
+      const approvalPending = new Map<string, PendingApproval>();
+      const makeGen = () =>
+        dispatchToolCall(
+          tc('approve_skill', '{}', 'call_1'),
+          {},
+          false,
+          INITIAL_STATE,
+          makeCtx({
+            advertisedToolNames: new Set(['approve_skill']),
+            skillHandlers: [makeApprovalSkill(execute)],
+            toolPolicy: approvalPolicy,
+            approvalPending,
+          }),
+        );
+
+      const genA = makeGen();
+      const genB = makeGen();
+      const eventA = (await genA.next()).value as { approvalId: string };
+      const eventB = (await genB.next()).value as { approvalId: string };
+
+      expect(eventA.approvalId).not.toBe(eventB.approvalId);
+      expect(approvalPending.size).toBe(2);
+
+      const stepA = genA.next();
+      const stepB = genB.next();
+      await Promise.resolve();
+      approvalPending.get(eventA.approvalId)!.resolve(true);
+      approvalPending.get(eventB.approvalId)!.resolve(true);
+      // Neither was refused as a duplicate.
+      expect((await stepA).value).toMatchObject({ kind: 'result', output: 'ran' });
+      expect((await stepB).value).toMatchObject({ kind: 'result', output: 'ran' });
     });
 
     // The mutation BUDGET counts committed mutations, and every existing case that
@@ -1350,7 +1455,7 @@ describe('dispatchToolCall', () => {
       await gen.next();
       const pendingStep = gen.next();
       await Promise.resolve();
-      approvalPending.get('call_1')!.resolve(true);
+      approvalPending.get(soleApprovalKey(approvalPending))!.resolve(true);
 
       let step = await pendingStep;
       const events: unknown[] = [];

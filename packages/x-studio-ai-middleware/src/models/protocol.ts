@@ -168,9 +168,24 @@ export type StudioAISSEEvent =
    * reason }`. Previously computed but silently dropped before reaching this event —
    * a human approving/denying the call had no way to see WHY it was flagged. Additive
    * and optional, like `effects`.
+   *
+   * `approvalId` (round-4 finding F5) is the id a client resolves this approval WITH —
+   * the key of the host-shared `approvalPending` map — and it is minted server-side by
+   * `randomUUID()`, independently of `toolCallId`. The two were previously the same
+   * value, which made the map key PROVIDER-authored: a gateway that numbers
+   * `tool_calls[].id` sequentially (`call_1`, `call_2`, …) made a host-level,
+   * cross-request map enumerable, so a caller could guess another user's pending
+   * approval id. Thread binding (`isApprovalThreadIdAuthorized`) is then the only
+   * thing standing between a guessed id and a resolved approval — which is why
+   * ARCHITECTURE.md calls it load-bearing rather than defence-in-depth. Keeping
+   * `toolCallId` on the event as well is deliberate: it is what addresses the tool
+   * CARD in the UI, and it stays the OpenAI-wire id. Resolve with `approvalId`,
+   * render against `toolCallId`.
    */
   | {
       type: 'tool-approval-request';
+      /** Unguessable, server-minted key into `approvalPending` — resolve WITH this. */
+      approvalId: string;
       toolCallId: string;
       toolName: string;
       input: unknown;

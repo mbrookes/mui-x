@@ -247,25 +247,26 @@ export interface StudioAIHandlerOptions {
    * When set, destructive tools (`remove_page`, `remove_widget`, `apply_bulk_update`)
    * pause before execution and emit a `tool-approval-request` SSE event. The stream
    * holds open while awaiting approval. Your approval endpoint resolves the pending
-   * entry using the `toolCallId` as the key.
+   * entry using the event's **`approvalId`** as the key — NOT its `toolCallId`.
    *
    * Each entry is a {@link PendingApproval} — `{ resolve, threadId? }`, not a bare
    * callback. `threadId` (the AI chat thread the approval was raised under, when
    * known) lets your approval endpoint refuse a resolution presented for the wrong
-   * conversation instead of trusting the id alone — important because an id can be
-   * observed or guessed by another caller.
+   * conversation instead of trusting the id alone.
    *
-   * SECURITY: **the key's entropy is the PROVIDER's, not this package's** (finding F5).
-   * `crypto.randomUUID()` mints a `toolCallId` only for a tool call the provider left
-   * un-id'd, which no mainstream gateway does — so in the normal case the key is the
-   * gateway's own `tool_calls[].id`, and a gateway numbering them `call_1`, `call_2`, …
-   * makes this shared map enumerable. Treat the `threadId` binding below as
-   * LOAD-BEARING rather than defense in depth: it is the only thing between a guessed
-   * id and a resolved approval. It also only binds when there is something to bind to —
-   * a request whose `dashboardState.doc.ai.activeThreadId` is absent produces an
-   * UNBOUND entry (`threadId: undefined`), for which `isApprovalThreadIdAuthorized`
-   * returns `true` unconditionally. So: authenticate your approval route exactly as you
-   * authenticate your chat route, and thread a real `activeThreadId` through.
+   * SECURITY: the key's entropy is now **this package's** (round-4 finding F5, closed).
+   * `runApprovalFlow` mints `approvalId` with `crypto.randomUUID()` for every approval,
+   * independently of the provider's `tool_calls[].id`. Previously the key WAS that
+   * provider-authored id, so a gateway numbering them `call_1`, `call_2`, … made this
+   * host-shared, cross-request map enumerable and the `threadId` binding below was the
+   * only thing between a guessed id and a resolved approval. That binding is now
+   * genuine defence in depth — still worth wiring, no longer load-bearing on its own.
+   *
+   * It also only binds when there is something to bind to — a request whose
+   * `dashboardState.doc.ai.activeThreadId` is absent produces an UNBOUND entry
+   * (`threadId: undefined`), for which `isApprovalThreadIdAuthorized` returns `true`
+   * unconditionally. So: authenticate your approval route exactly as you authenticate
+   * your chat route, and thread a real `activeThreadId` through.
    *
    * IMPORTANT: when `entry.threadId` is set, your route MUST
    * require the resolution request to present a MATCHING `threadId` — reject the

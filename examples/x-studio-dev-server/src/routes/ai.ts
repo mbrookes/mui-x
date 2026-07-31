@@ -79,7 +79,8 @@ function createContextEnricher(salesDb: Knex, crmDb: Knex): StudioAIContextEnric
  *
  * POST /api/ai/approval
  *
- * Resolves a pending tool-approval-request. The client sends `{ id, approved, reason? }`.
+ * Resolves a pending tool-approval-request. The client sends `{ id, approved, reason? }`,
+ * where `id` is the event's `approvalId` (NOT its `toolCallId`).
  * The agentic loop for the associated chat stream is unblocked immediately.
  *
  * POST /api/ai/insight
@@ -102,8 +103,10 @@ export function makeAIRouter(salesDb: Knex, crmDb: Knex, config: Config): Router
   const contextEnricher = createContextEnricher(salesDb, crmDb);
 
   /**
-   * Approval resolvers keyed by toolCallId (now a `crypto.randomUUID()` — see
-   * `agenticLoop.ts` — rather than a predictable `call-${turn}-${idx}` scheme).
+   * Approval resolvers keyed by the `approvalId` the middleware mints with
+   * `crypto.randomUUID()` for each approval — deliberately NOT the provider-authored
+   * `toolCallId`, which would make this host-level, cross-request map enumerable for
+   * any gateway that numbers its tool-call ids sequentially (round-4 finding F5).
    * Each entry is a `PendingApproval` (resolver + the AI chat thread id the approval
    * was raised under, when known), created by the agentic loop just before it yields
    * `tool-approval-request` and resolved by POST /approval.
@@ -217,9 +220,9 @@ export function makeAIRouter(salesDb: Knex, crmDb: Knex, config: Config): Router
 
   router.post('/approval', (req: Request, res: Response): void => {
     // Same auth check as POST /chat: resolving a pending approval must not be
-    // reachable by an unauthenticated caller. Without this, a random id (previously
-    // a guessable `call-${turn}-${idx}`, and reachable by anyone regardless of
-    // auth) was enough to resolve or deny another user's pending tool approval.
+    // reachable by an unauthenticated caller. The `id` is now an unguessable
+    // server-minted `approvalId`, but an id alone must still not be a capability —
+    // authenticate exactly as the chat route does.
     try {
       resolveClaims(req, config);
     } catch (err) {

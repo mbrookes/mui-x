@@ -5,6 +5,7 @@
  * (parse-failure → gating → server-tool skill → query_data_source → unregistered
  * skill → approval + built-in). Extracted from `agenticLoop.ts` verbatim.
  */
+import { randomUUID } from 'node:crypto';
 import { applyMutation, createMutationEnvelope, type StateMutation } from '@mui/x-studio-schema';
 import type { StudioState, StudioCustomWidgetDef } from '../models/studioTypes';
 import type { SerializableSkill, StudioAISkill, StudioAIDataConfig } from '../models/aiTypes';
@@ -60,15 +61,23 @@ type ApprovalOutcome =
  * identity `rename_thread` in `executeToolOnState.ts` already stamps onto
  * mutations, not a newly invented concept) this approval was raised under.
  *
- * Storing this alongside the resolver — rather than a bare callback — is what
+ * The map KEY is an `approvalId` minted by `runApprovalFlow` with `randomUUID()`,
+ * NOT the provider's `tool_calls[].id` (round-4 finding F5). Those were once the
+ * same value, which made the key of a host-shared, cross-request map
+ * provider-authored: a gateway numbering tool-call ids sequentially (`call_1`,
+ * `call_2`, …) made the map enumerable, so a caller could guess another user's
+ * pending approval id outright. `tc.id` is kept for the OpenAI wire and for
+ * addressing the tool CARD in the UI; it never keys this map.
+ *
+ * Storing the thread alongside the resolver — rather than a bare callback — is what
  * lets a host bind a resolution request to the conversation that raised it: a
- * predictable/leaked `toolCallId` alone is no longer sufficient to resolve
- * someone else's pending approval, because the host can additionally require
- * the resolving request's thread id to match `threadId` before ever calling
- * `resolve` (see `examples/x-studio-dev-server/src/routes/ai.ts`'s `/approval`
- * route). `threadId` is optional and a host that has not wired thread-id
- * passthrough into its approval UI can still resolve by id alone — this is a
- * defense-in-depth addition, not a hard requirement.
+ * leaked `approvalId` alone is not sufficient to resolve someone else's pending
+ * approval, because the host can additionally require the resolving request's
+ * thread id to match `threadId` before ever calling `resolve` (see
+ * `examples/x-studio-dev-server/src/routes/ai.ts`'s `/approval` route).
+ * `threadId` is optional and a host that has not wired thread-id passthrough into
+ * its approval UI can still resolve by id alone — with an unguessable key that is
+ * genuinely defence in depth rather than the single load-bearing check it used to be.
  *
  * IMPORTANT for hosts that DO wire this check: use `isApprovalThreadIdAuthorized`
  * (below) rather than hand-rolling it. When `entry.threadId` is set, the
@@ -174,24 +183,31 @@ export interface ApprovalRegistration {
  * why that half necessarily belongs to the host route.
  */
 export function registerApproval(
-  toolCallId: string,
+  approvalId: string,
   approvalPending: Map<string, PendingApproval>,
   signal: AbortSignal | undefined,
   timeoutMs: number,
   threadId: string | undefined,
 ): ApprovalRegistration {
   // Cross-request collision guard: `approvalPending` is a host-shared, module-level
-  // map keyed by bare `toolCallId`. If another in-flight request already registered
-  // a resolver under this id, registering ours would overwrite theirs — their request
-  // would then hang until timeout and the human's decision could misroute to the wrong
-  // call. Refuse the duplicate instead: resolve immediately as not-approved WITHOUT
-  // touching (or, via the early return, deleting) the existing entry.
-  if (approvalPending.has(toolCallId)) {
+  // map. If another in-flight request already registered a resolver under this id,
+  // registering ours would overwrite theirs — their request would then hang until
+  // timeout and the human's decision could misroute to the wrong call. Refuse the
+  // duplicate instead: resolve immediately as not-approved WITHOUT touching (or, via
+  // the early return, deleting) the existing entry.
+  //
+  // Since round-4 F5 the key is a `randomUUID()` minted by `runApprovalFlow` rather
+  // than the provider's `tool_calls[].id`, so a collision is no longer reachable from
+  // a gateway that reuses ids across requests. The guard stays because this function
+  // is exported and takes the key as a parameter: a custom loop is free to pass an
+  // id of its own choosing, and this is the check that keeps such a caller from
+  // silently stealing another request's resolver.
+  if (approvalPending.has(approvalId)) {
     const refused: ApprovalOutcome = {
       kind: 'resolved',
       approved: false,
       reason:
-        'duplicate toolCallId across concurrent requests — approval refused to prevent misrouting',
+        'duplicate approvalId across concurrent requests — approval refused to prevent misrouting',
     };
     return { wait: () => Promise.resolve(refused), release: () => {} };
   }
@@ -206,10 +222,10 @@ export function registerApproval(
       signal.removeEventListener('abort', onAbort);
       onAbort = undefined;
     }
-    approvalPending.delete(toolCallId);
+    approvalPending.delete(approvalId);
   };
   const settled = new Promise<ApprovalOutcome>((resolve) => {
-    approvalPending.set(toolCallId, {
+    approvalPending.set(approvalId, {
       resolve: (a, r, resolvingThreadId) => {
         // Finding F8 — enforce the binding here, not merely record it. Only when the
         // resolver ASSERTS a thread id: `isApprovalThreadIdAuthorized` also denies a
@@ -256,13 +272,13 @@ export function registerApproval(
  * `tool-approval-request` event and await after (finding F6).
  */
 export function waitForApproval(
-  toolCallId: string,
+  approvalId: string,
   approvalPending: Map<string, PendingApproval>,
   signal: AbortSignal | undefined,
   timeoutMs: number,
   threadId: string | undefined,
 ): Promise<ApprovalOutcome> {
-  return registerApproval(toolCallId, approvalPending, signal, timeoutMs, threadId).wait();
+  return registerApproval(approvalId, approvalPending, signal, timeoutMs, threadId).wait();
 }
 
 // ── Tool dispatch ─────────────────────────────────────────────────────────────
@@ -616,6 +632,15 @@ type ApprovalFlowResult =
  * be surfaced to a human approver NOR relayed back to the LLM on the no-channel
  * auto-deny fallback below. Threaded into the `tool-approval-request` event for the
  * former, and appended to the fallback denial message for the latter.
+ *
+ * The `approvalPending` key is minted HERE with `randomUUID()` (round-4 finding F5),
+ * independently of `toolCallId`. Keying the map by the provider's `tool_calls[].id`
+ * put a host-shared, cross-request map under an id an upstream gateway authored: a
+ * gateway numbering them sequentially made every in-flight approval enumerable, and
+ * only the OPTIONAL thread binding stood between a guessed id and a resolved
+ * destructive tool call. `toolCallId` is still carried on the event — it addresses the
+ * tool card client-side and stays the OpenAI wire id — but it no longer names the
+ * approval.
  */
 async function* runApprovalFlow(
   toolCallId: string,
@@ -653,8 +678,12 @@ async function* runApprovalFlow(
   // call sat out the full `approvalTimeoutMs` before failing closed as "approval timed
   // out". `release()` in the `finally` covers the consumer that abandons the generator
   // between the yield and the await, so an unobserved approval can't outlive the flow.
+  //
+  // The key is minted here, not taken from `toolCallId` (finding F5) — see this
+  // function's doc comment.
+  const approvalId = randomUUID();
   const approval = registerApproval(
-    toolCallId,
+    approvalId,
     ctx.approvalPending,
     ctx.signal,
     ctx.approvalTimeoutMs,
@@ -664,6 +693,7 @@ async function* runApprovalFlow(
   try {
     yield {
       type: 'tool-approval-request',
+      approvalId,
       toolCallId,
       toolName,
       input: displayInput,

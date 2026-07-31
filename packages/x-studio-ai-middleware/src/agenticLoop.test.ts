@@ -982,11 +982,13 @@ describe('runAgenticLoop — provider-omitted tool-call ids (T3-5)', () => {
     expect(new Set(startIds).size).toBe(2);
   });
 
-  // Finding T2/T3 (approval-hijack): the minted id is also the lookup key into the
-  // shared `approvalPending` map, so it must be unguessable, not merely unique. A
-  // deterministic `call-${turn}-${idx}` scheme let an attacker predict another
-  // in-flight request's pending-approval id. Assert the minted id is a UUID
-  // (`crypto.randomUUID()`'s format), not the old predictable shape.
+  // Finding T2/T3 (approval-hijack): the minted id addresses the tool CARD client-side
+  // and is echoed as `toolCallId` on every browser-facing frame, so it must be
+  // unguessable, not merely unique — a deterministic `call-${turn}-${idx}` scheme let
+  // one request name another's. (It is no longer the `approvalPending` key: since
+  // round-4 F5 that key is a separate `randomUUID()` minted in `runApprovalFlow`.)
+  // Assert the minted id is a UUID (`crypto.randomUUID()`'s format), not the old
+  // predictable shape.
   it('mints a cryptographically random (UUID-shaped) id, not a predictable call-N-M scheme', async () => {
     const oneIdlessCall = makeSseResponse([
       {
@@ -1030,14 +1032,14 @@ describe('runAgenticLoop — provider-omitted tool-call ids (T3-5)', () => {
     expect(startId).not.toMatch(/^call-/);
   });
 
-  // Round 4 finding F5 — the id minting above fires ONLY for a call the provider left
-  // un-id'd, which no mainstream gateway does. In the normal case the `approvalPending`
-  // key is the gateway's own `tool_calls[].id`, so its entropy is the PROVIDER's, not
-  // this package's. The docs claimed the opposite ("`toolCallId`s are also now generated
-  // with `crypto.randomUUID()` … an id alone is no longer practically guessable") and
-  // therefore described the `threadId` binding as defense in depth on top of a property
-  // that does not hold. This pins the real behavior so the claim cannot drift back.
-  it('keys approvalPending by the PROVIDER-supplied id when the gateway sent one', async () => {
+  // Round 4 finding F5, CLOSED — the id minting above fires ONLY for a call the provider
+  // left un-id'd, which no mainstream gateway does, so the `approvalPending` key used to
+  // be the gateway's own `tool_calls[].id` in every real request: the entropy of a
+  // host-shared, cross-request map was the PROVIDER's, and a gateway numbering its ids
+  // sequentially made every in-flight approval enumerable. `runApprovalFlow` now mints
+  // the key itself with `randomUUID()`, and publishes it on the event as `approvalId`.
+  // This pins that the provider's id NEVER lands in the map again.
+  it('keys approvalPending by a minted approvalId, not by the PROVIDER-supplied id', async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(toolCallResponse('remove_widget', { widgetId: 'w1' }))
       .mockResolvedValueOnce(textResponse('done', 10, 5));
@@ -1061,6 +1063,7 @@ describe('runAgenticLoop — provider-omitted tool-call ids (T3-5)', () => {
     const approvalPending = new Map<string, PendingApproval>();
     let keysWhilePaused: string[] = [];
     let entryThreadId: string | undefined | symbol = Symbol('unset');
+    let approvalEvent: { approvalId?: unknown; toolCallId?: unknown } = {};
 
     for await (const ev of runAgenticLoop(
       [userMsg('Remove it')],
@@ -1072,19 +1075,26 @@ describe('runAgenticLoop — provider-omitted tool-call ids (T3-5)', () => {
       { ...BASE_OPTIONS, approvalPending, approvalTimeoutMs: 60_000 },
     )) {
       if ((ev as { type: string }).type === 'tool-approval-request') {
+        approvalEvent = ev as { approvalId?: unknown; toolCallId?: unknown };
         keysWhilePaused = [...approvalPending.keys()];
         entryThreadId = approvalPending.get(keysWhilePaused[0])?.threadId;
         approvalPending.get(keysWhilePaused[0])!.resolve(true);
       }
     }
 
-    // The gateway's `tc_1` is the map key verbatim — NOT a package-minted UUID.
-    expect(keysWhilePaused).toEqual(['tc_1']);
-    expect(keysWhilePaused[0]).not.toMatch(
+    // The defect: the gateway's `tc_1` was the map key verbatim.
+    expect(keysWhilePaused).not.toContain('tc_1');
+    expect(keysWhilePaused).toHaveLength(1);
+    expect(keysWhilePaused[0]).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
     );
+    // …and the event tells a host which key to resolve with, while still carrying the
+    // provider's id as the `toolCallId` that addresses the tool card.
+    expect(approvalEvent.approvalId).toBe(keysWhilePaused[0]);
+    expect(approvalEvent.toolCallId).toBe('tc_1');
     // And with no `doc.ai.activeThreadId` in the request state, the entry is UNBOUND,
-    // so `isApprovalThreadIdAuthorized` authorises any resolver unconditionally.
+    // so `isApprovalThreadIdAuthorized` authorises any resolver unconditionally — which
+    // is now defence in depth on top of an unguessable key, rather than the only check.
     expect(entryThreadId).toBeUndefined();
     expect(isApprovalThreadIdAuthorized({ threadId: entryThreadId as undefined }, undefined)).toBe(
       true,
@@ -1135,9 +1145,11 @@ describe('runAgenticLoop — provider-omitted tool-call ids (T3-5)', () => {
     )) {
       if ((ev as { type: string }).type === 'tool-approval-request') {
         // Read while the loop is PAUSED — the entry must already carry the binding at
-        // the exact moment the id becomes observable to a resolver.
-        entryThreadId = approvalPending.get('tc_1')?.threadId;
-        approvalPending.get('tc_1')!.resolve(true);
+        // the exact moment the id becomes observable to a resolver. Addressed by the
+        // event's `approvalId`, which since round-4 F5 is the map key (never `tc_1`).
+        const { approvalId } = ev as unknown as { approvalId: string };
+        entryThreadId = approvalPending.get(approvalId)?.threadId;
+        approvalPending.get(approvalId)!.resolve(true);
       }
     }
 
@@ -1375,7 +1387,7 @@ describe('runAgenticLoop — tool approval', () => {
     for await (const ev of gen) {
       events.push(ev);
       if ((ev as { type: string }).type === 'tool-approval-request') {
-        const id = (ev as { toolCallId: string }).toolCallId;
+        const id = (ev as unknown as { approvalId: string }).approvalId;
         // The loop registers its resolver only once it resumes past this yield, so
         // grant approval on the next tick when the map entry exists.
         setTimeout(() => approvalPending.get(id)?.resolve(true), 0);
@@ -1436,7 +1448,7 @@ describe('runAgenticLoop — tool approval', () => {
     )) {
       events.push(ev);
       if ((ev as { type: string }).type === 'tool-approval-request') {
-        const id = (ev as { toolCallId: string }).toolCallId;
+        const id = (ev as unknown as { approvalId: string }).approvalId;
         setTimeout(() => approvalPending.get(id)?.resolve(true), 0);
       }
     }
@@ -1497,7 +1509,7 @@ describe('runAgenticLoop — tool approval', () => {
     )) {
       events.push(ev);
       if ((ev as { type: string }).type === 'tool-approval-request') {
-        const id = (ev as { toolCallId: string }).toolCallId;
+        const id = (ev as unknown as { approvalId: string }).approvalId;
         observed.push({ id, registered: approvalPending.has(id) });
         // Resolve SYNCHRONOUSLY, with no tick of slack — this is what an in-process
         // auto-approver does, and it must not throw.
@@ -1578,9 +1590,16 @@ describe('runAgenticLoop — tool approval', () => {
     expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
   });
 
-  it('1.7 — a duplicate toolCallId across concurrent requests is refused, not misrouted', async () => {
-    // Both loops call remove_widget; the SSE helper hard-codes toolCallId "tc_1", so
-    // they collide on the shared approvalPending map.
+  // Was: "a duplicate toolCallId across concurrent requests is refused, not misrouted".
+  // That refusal existed because the shared `approvalPending` map was keyed by the
+  // PROVIDER's `tool_calls[].id`, so two concurrent requests whose gateway numbered
+  // ids per-request collided on `tc_1` and the second was failed closed — correct,
+  // but a real availability cost paid for a key the package did not own. Round-4 F5
+  // removed the cause: each approval mints its own `randomUUID()` key, so the two
+  // requests no longer collide at all. The duplicate guard itself is still pinned, on
+  // `registerApproval` directly, in `toolDispatch.test.ts`.
+  it('1.7 — concurrent requests sharing one provider toolCallId each get their own approval', async () => {
+    // Both loops call remove_widget; the SSE helper hard-codes toolCallId "tc_1".
     vi.mocked(fetch).mockImplementation(async (_url, init) => {
       const body = JSON.parse((init as RequestInit).body as string) as {
         messages: Array<{ role: string }>;
@@ -1594,47 +1613,56 @@ describe('runAgenticLoop — tool approval', () => {
     const approvalPending = new Map<string, PendingApproval>();
     const seeded = seedWidgetState('Confidential');
 
-    // Start request A in the background; it pauses on approval, registering tc_1.
-    const eventsA: unknown[] = [];
-    const runA = (async () => {
-      for await (const ev of runAgenticLoop(
-        [userMsg('Remove')],
-        seeded,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        { ...BASE_OPTIONS, approvalPending, approvalTimeoutMs: 60_000 },
-      )) {
-        eventsA.push(ev);
-      }
-    })();
+    const runRequest = () => {
+      const events: unknown[] = [];
+      const approvalIds: string[] = [];
+      const done = (async () => {
+        for await (const ev of runAgenticLoop(
+          [userMsg('Remove')],
+          seeded,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          { ...BASE_OPTIONS, approvalPending, approvalTimeoutMs: 60_000 },
+        )) {
+          events.push(ev);
+          if ((ev as { type: string }).type === 'tool-approval-request') {
+            approvalIds.push((ev as unknown as { approvalId: string }).approvalId);
+          }
+        }
+      })();
+      return { events, approvalIds, done };
+    };
 
-    // Wait until A has registered its resolver under tc_1.
-    await vi.waitFor(() => expect(approvalPending.has('tc_1')).toBe(true));
+    // Both requests pause on their own approval.
+    const a = runRequest();
+    const b = runRequest();
+    await vi.waitFor(() => expect(approvalPending.size).toBe(2));
 
-    // Now run B to completion — it collides on tc_1 and is refused.
-    const eventsB = await collectEvents(
-      runAgenticLoop([userMsg('Remove')], seeded, undefined, undefined, undefined, undefined, {
-        ...BASE_OPTIONS,
-        approvalPending,
-        approvalTimeoutMs: 60_000,
-      }),
+    // The defect this replaces: B's registration collided with A's `tc_1` and was
+    // refused. Two distinct, unguessable keys now — neither request blocks the other.
+    expect(a.approvalIds).toHaveLength(1);
+    expect(b.approvalIds).toHaveLength(1);
+    expect(a.approvalIds[0]).not.toBe(b.approvalIds[0]);
+    expect([...approvalPending.keys()].sort()).toEqual(
+      [a.approvalIds[0], b.approvalIds[0]].sort(),
     );
 
-    const completeB = eventsB.find(
-      (ev) =>
-        (ev as { type: string }).type === 'tool-activity' &&
-        (ev as { phase?: string }).phase === 'complete',
-    ) as { output?: string } | undefined;
-    expect(String(completeB?.output)).toMatch(/duplicate toolCallId/i);
-    expect(eventsB.some((ev) => (ev as { type: string }).type === 'state-mutation')).toBe(false);
+    approvalPending.get(a.approvalIds[0])!.resolve(true);
+    approvalPending.get(b.approvalIds[0])!.resolve(true);
+    await Promise.all([a.done, b.done]);
 
-    // A's entry survived the collision — approve it and A commits its mutation.
-    expect(approvalPending.has('tc_1')).toBe(true);
-    approvalPending.get('tc_1')!.resolve(true);
-    await runA;
-    expect(eventsA.some((ev) => (ev as { type: string }).type === 'state-mutation')).toBe(true);
+    for (const events of [a.events, b.events]) {
+      expect(events.some((ev) => (ev as { type: string }).type === 'state-mutation')).toBe(true);
+      expect(
+        events.some(
+          (ev) =>
+            (ev as { type: string }).type === 'tool-activity' &&
+            /duplicate/i.test(String((ev as { output?: string }).output ?? '')),
+        ),
+      ).toBe(false);
+    }
   });
 
   it('1.8 — apply_bulk_update approval prompt shows the real widget title for each removal', async () => {
@@ -1656,7 +1684,7 @@ describe('runAgenticLoop — tool approval', () => {
     )) {
       events.push(ev);
       if ((ev as { type: string }).type === 'tool-approval-request') {
-        const id = (ev as { toolCallId: string }).toolCallId;
+        const id = (ev as unknown as { approvalId: string }).approvalId;
         setTimeout(() => approvalPending.get(id)?.resolve(true), 0);
       }
     }
@@ -2128,7 +2156,7 @@ describe('runAgenticLoop — host skillHandlers name collides with a built-in de
     )) {
       events.push(ev);
       if ((ev as { type: string }).type === 'tool-approval-request') {
-        const id = (ev as { toolCallId: string }).toolCallId;
+        const id = (ev as unknown as { approvalId: string }).approvalId;
         setTimeout(() => approvalPending.get(id)?.resolve(true), 0);
       }
     }
@@ -2566,7 +2594,7 @@ describe('runAgenticLoop — tool policy chokepoint', () => {
     )) {
       events.push(ev);
       if ((ev as { type: string }).type === 'tool-approval-request') {
-        const id = (ev as { toolCallId: string }).toolCallId;
+        const id = (ev as unknown as { approvalId: string }).approvalId;
         setTimeout(() => approvalPending.get(id)?.resolve(true), 0);
       }
     }

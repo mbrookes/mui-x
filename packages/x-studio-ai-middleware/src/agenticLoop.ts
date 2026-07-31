@@ -1005,14 +1005,17 @@ async function* runAgenticLoopTurns(
     // The accumulator seeds `id: ''` when a delta carries no `id`; two such calls in one
     // turn would both address as `toolCallId: ''`, so the second is wrongly rejected by the
     // approval-dispatch duplicate guard with a misleading "duplicate across concurrent
-    // requests" message. This id also becomes the key into the shared `approvalPending`
-    // map for destructive tools (see `toolDispatch.ts`), so it must be unguessable, not
-    // merely unique — a deterministic `call-${turn}-${idx}` scheme let anyone who can
-    // observe (or simply enumerate) a few requests predict another in-flight request's
-    // pending-approval id and resolve/deny it themselves. `randomUUID()` is unique per
-    // call AND cryptographically unpredictable, closing that hole while keeping the
-    // OpenAI-wire-protocol `tool_calls[].id` field (which this same value fills) a plain
-    // opaque string, exactly as the wire format requires.
+    // requests" message. `randomUUID()` is unique per call AND cryptographically
+    // unpredictable, while keeping the OpenAI-wire-protocol `tool_calls[].id` field
+    // (which this same value fills) a plain opaque string, exactly as the wire format
+    // requires.
+    //
+    // This id no longer keys the shared `approvalPending` map: since round-4 finding F5
+    // `runApprovalFlow` mints a separate `approvalId` with its own `randomUUID()`, so
+    // the map key is never provider-authored even for the calls the provider DID id.
+    // Minting unguessably here still matters — a `call-${turn}-${idx}` scheme would let
+    // one request address another's tool CARD — but it is no longer the only thing
+    // standing between an enumerable id and someone else's pending approval.
     for (const [, tc] of rawToolCallEntries) {
       if (!tc.id) {
         tc.id = randomUUID();

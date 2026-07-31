@@ -538,11 +538,29 @@ Check the endpoint URL, its authentication headers, and the server logs for this
             } else if (type === 'tool-approval-request') {
               // Forward the approval request as an x-chat chunk so the UI can
               // render an inline confirmation card (via ChatConfirmation / ToolPart).
+              const rawApproval = event as {
+                approvalId?: unknown;
+                toolCallId?: unknown;
+                toolName?: unknown;
+                input?: unknown;
+              };
+              // `approvalId` identifies the APPROVAL, which need not be 1:1 with the tool
+              // call (a server can batch several calls behind one prompt, or re-prompt for
+              // the same call). `ToolPart` responds with `approvalId ?? toolCallId`, so
+              // dropping it here silently degrades every such case to per-tool-call
+              // responses. Forwarded only when the event actually carries one — defaulting
+              // it to `toolCallId` would be indistinguishable from "absent" and defeat the
+              // fallback the consumer already implements.
+              const approvalId =
+                typeof rawApproval.approvalId === 'string' && rawApproval.approvalId !== ''
+                  ? rawApproval.approvalId
+                  : undefined;
               streamController.enqueue({
                 type: 'tool-approval-request',
-                toolCallId: String((event as { toolCallId?: string }).toolCallId ?? ''),
-                toolName: String((event as { toolName?: string }).toolName ?? ''),
-                input: (event as { input?: unknown }).input ?? {},
+                ...(approvalId ? { approvalId } : {}),
+                toolCallId: String(rawApproval.toolCallId ?? ''),
+                toolName: String(rawApproval.toolName ?? ''),
+                input: rawApproval.input ?? {},
               });
             } else if (type === 'state-mutation') {
               try {

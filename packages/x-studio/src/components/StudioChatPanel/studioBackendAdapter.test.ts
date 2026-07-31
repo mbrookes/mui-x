@@ -355,6 +355,87 @@ describe('createBackendChatAdapter: tool-activity', () => {
   });
 });
 
+// ── tool-approval-request handling ────────────────────────────────────────────
+//
+// `approvalId` identifies the APPROVAL, not the tool call, and the two need not be 1:1 (a
+// server can gate several calls behind one prompt, or re-prompt for the same call).
+// `x-chat-headless` already carries it on the chunk and `ToolPart` already responds with
+// `approvalId ?? toolCallId`, so the only missing link was this re-emit dropping the field.
+// It is forwarded only when the event actually carries one: defaulting it to `toolCallId`
+// would be indistinguishable from "absent" and would defeat the consumer's own fallback.
+//
+// `@mui/x-studio-ai-middleware` does not emit `approvalId` yet, so this half is inert until
+// it does — forward-compatible by design.
+
+describe('createBackendChatAdapter: tool-approval-request', () => {
+  async function collectApprovalChunk(event: Record<string, unknown>) {
+    mockFetch(makeSseBody([event, { type: 'finish', finishReason: 'stop' }]));
+    const config: StudioAIConfig = { endpoint: 'https://fake.test/api/ai' };
+    const adapter = createBackendChatAdapter(config, makeController());
+    const stream = await adapter.sendMessage(makeSendInput([]));
+    const chunks = (await collectChunks(stream)).filter(isChatMessageChunk);
+    vi.unstubAllGlobals();
+    return chunks.find((c) => c.type === 'tool-approval-request') as
+      | (ChatMessageChunk & {
+          approvalId?: string;
+          toolCallId: string;
+          toolName: string;
+          input: unknown;
+        })
+      | undefined;
+  }
+
+  it('forwards approvalId when the event carries one', async () => {
+    const chunk = await collectApprovalChunk({
+      type: 'tool-approval-request',
+      approvalId: 'approval-1',
+      toolCallId: 'call-1',
+      toolName: 'add_widget',
+      input: { kind: 'kpi' },
+    });
+
+    expect(chunk).not.toBe(undefined);
+    expect(chunk!.approvalId).toBe('approval-1');
+    // The other three fields are unchanged.
+    expect(chunk!.toolCallId).toBe('call-1');
+    expect(chunk!.toolName).toBe('add_widget');
+    expect(chunk!.input).toEqual({ kind: 'kpi' });
+  });
+
+  it('omits approvalId (rather than defaulting it to toolCallId) when the event has none', async () => {
+    const chunk = await collectApprovalChunk({
+      type: 'tool-approval-request',
+      toolCallId: 'call-1',
+      toolName: 'add_widget',
+      input: { kind: 'kpi' },
+    });
+
+    expect(chunk).not.toBe(undefined);
+    // Absent — NOT `'call-1'`. `ToolPart` falls back to `toolCallId` itself; stamping it
+    // here would make "no separate approval id" indistinguishable from "the approval id
+    // happens to equal the tool call id".
+    expect(chunk!.approvalId).toBe(undefined);
+    expect(chunk!.toolCallId).toBe('call-1');
+    expect(chunk!.toolName).toBe('add_widget');
+    expect(chunk!.input).toEqual({ kind: 'kpi' });
+  });
+
+  it('ignores a non-string / empty approvalId, keeping the chunk valid', async () => {
+    const chunk = await collectApprovalChunk({
+      type: 'tool-approval-request',
+      approvalId: 42,
+      toolCallId: 'call-1',
+      toolName: 'add_widget',
+      input: {},
+    });
+
+    expect(chunk).not.toBe(undefined);
+    expect(chunk!.approvalId).toBe(undefined);
+    expect(chunk!.toolCallId).toBe('call-1');
+    expect(chunk!.toolName).toBe('add_widget');
+  });
+});
+
 // ── usage handling ────────────────────────────────────────────────────────────
 
 describe('createBackendChatAdapter: usage', () => {

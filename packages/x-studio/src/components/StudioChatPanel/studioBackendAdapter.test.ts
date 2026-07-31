@@ -1157,6 +1157,71 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
     warnSpy.mockRestore();
   });
 
+  // Each clause of the guard pinned ALONE. Both tests above set all three fields over the cap
+  // at once, which cannot tell a three-clause guard from a one-clause one: any single clause
+  // is masked by its siblings, so the measurement `360af86`'s own message quotes — "a
+  // 1 000 000-character `toolName` and a 1 000 000-character `approvalId` were forwarded
+  // verbatim" — was restorable by deleting one clause with the whole suite green. (Verified:
+  // deleting the `toolName` clause, and separately the `approvalId` clause, each SURVIVED the
+  // full file.)
+  it('DROPS an approval for an over-cap toolCallId ALONE', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const chunks = await collectTurnChunks(
+      Array.from({ length: 20 }, (_unused, i) => ({
+        type: 'tool-approval-request',
+        toolCallId: `${'x'.repeat(MAX_TOOL_ID_LENGTH + 1)}-${i}`,
+        toolName: 'remove_widget',
+        approvalId: 'approval-1',
+        input: {},
+      })),
+    );
+
+    expect(chunks.filter((c) => c.type === 'tool-approval-request')).toHaveLength(0);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    warnSpy.mockRestore();
+  });
+
+  it('DROPS an approval for an over-cap toolName ALONE', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const chunks = await collectTurnChunks(
+      Array.from({ length: 20 }, (_unused, i) =>
+        approvalEvent(i, {
+          toolName: 'n'.repeat(MAX_TOOL_ID_LENGTH + 1),
+          approvalId: `approval-${i}`,
+        }),
+      ),
+    );
+
+    expect(chunks.filter((c) => c.type === 'tool-approval-request')).toHaveLength(0);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    warnSpy.mockRestore();
+  });
+
+  it('DROPS an approval for an over-cap approvalId ALONE', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const chunks = await collectTurnChunks(
+      Array.from({ length: 20 }, (_unused, i) =>
+        approvalEvent(i, { approvalId: `${'a'.repeat(MAX_TOOL_ID_LENGTH + 1)}-${i}` }),
+      ),
+    );
+
+    expect(chunks.filter((c) => c.type === 'tool-approval-request')).toHaveLength(0);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    warnSpy.mockRestore();
+  });
+
+  // …and an ABSENT `approvalId` is not an over-cap one. `(approvalId?.length ?? 0) > CAP` said
+  // so by accident of the `?? 0`; `approvalId !== undefined && …` says so on purpose, and this
+  // is what stops a rewrite of that clause from dropping every approval that has no separate
+  // approval id — which is most of them.
+  it('does not treat an ABSENT approvalId as over-cap', async () => {
+    const chunks = await collectTurnChunks([approvalEvent(1, {})]);
+
+    const approval = chunks.find((c) => c.type === 'tool-approval-request') as ApprovalChunk;
+    expect(approval).not.toBe(undefined);
+    expect(approval.approvalId).toBe(undefined);
+  });
+
   // Dropping the event is the right trade — a truncated correlation key names nothing — but
   // it is not free once a `tool-activity` `start` has already put the card on screen.
   // `processStream` leaves that part at `input-available`, which `resolveToolStatusIcon`

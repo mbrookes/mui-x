@@ -788,6 +788,76 @@ describe('deserializeState', () => {
     expect(restored.doc.ai!.threads[0]).toBe(thread);
   });
 
+  // `repairThreadLeafShapes`' TIMESTAMP arms. Every sibling repair in that helper
+  // (`messages`, `name`) is pinned above; the two timestamp arms were not, even though
+  // they guard a documented crash: `useChatThreads` sorts threads with
+  // `bTime.localeCompare(aTime)`, so a non-string `createdAt`/`updatedAt` reaching the
+  // comparator throws a `TypeError` inside the sort `useMemo` and takes the whole chat
+  // panel down on mount.
+  it.each([
+    ['a non-string createdAt', { createdAt: 42 }],
+    ['a missing createdAt', {}],
+  ])('coerces %s to the epoch default on load', (_label, createdAtField) => {
+    const serialized = {
+      ...minimalSerialized,
+      ai: {
+        threads: [{ id: 'thread-1', name: 'T', messages: [], ...createdAtField }],
+        activeThreadId: 'thread-1',
+      },
+    } as unknown as typeof minimalSerialized;
+    const restored = deserializeState(serialized, {});
+    expect(restored.doc.ai!.threads[0].createdAt).toBe('1970-01-01T00:00:00.000Z');
+  });
+
+  // `updatedAt` is optional, so a junk one is DELETED rather than coerced — the sort then
+  // falls back to `createdAt`, which the arm above guarantees is a string. Asserting on
+  // `in` (not on `=== undefined`) is what distinguishes a deleted key from one that
+  // survived as an explicit `undefined`.
+  it('deletes a non-string updatedAt on load rather than passing it through', () => {
+    const serialized = {
+      ...minimalSerialized,
+      ai: {
+        threads: [
+          {
+            id: 'thread-1',
+            name: 'T',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: 42,
+            messages: [],
+          },
+        ],
+        activeThreadId: 'thread-1',
+      },
+    } as unknown as typeof minimalSerialized;
+    const restored = deserializeState(serialized, {});
+    const thread = restored.doc.ai!.threads[0];
+    expect('updatedAt' in thread).toBe(false);
+    expect(thread.createdAt).toBe('2026-01-01T00:00:00.000Z');
+  });
+
+  // The crash this repair exists for, reproduced end-to-end: the comparator only runs
+  // with 2+ threads, so a single-thread fixture would pass even with the repair removed.
+  it('leaves every loaded thread sortable by the chat panel comparator (2+ threads)', () => {
+    const serialized = {
+      ...minimalSerialized,
+      ai: {
+        threads: [
+          { id: 'thread-1', name: 'A', createdAt: 42, messages: [] },
+          { id: 'thread-2', name: 'B', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: 7 },
+        ],
+        activeThreadId: 'thread-1',
+      },
+    } as unknown as typeof minimalSerialized;
+    const restored = deserializeState(serialized, {});
+    const threads = restored.doc.ai!.threads;
+    expect(threads).toHaveLength(2);
+    // `useChatThreads`' comparator, verbatim: it reads `updatedAt ?? createdAt` and calls
+    // `localeCompare`, which throws on a non-string receiver or argument.
+    const sortKey = (t: (typeof threads)[number]) => t.updatedAt ?? t.createdAt;
+    expect(threads.map(sortKey).every((key) => typeof key === 'string')).toBe(true);
+    expect(() => [...threads].sort((a, b) => sortKey(b).localeCompare(sortKey(a)))).not.toThrow();
+  });
+
   // Tier2 finding: unlike `dashboard.activePageId` (reconciled against `normalizedPages`
   // just above in the file) and `filters[].id` (deduped just below), a dangling
   // `ai.activeThreadId` was never validated against the final surviving `threads` array —

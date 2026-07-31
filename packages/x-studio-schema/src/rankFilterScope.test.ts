@@ -49,6 +49,20 @@ function rankFilter(id: string, widgetId: string): StudioFilterState {
   } as unknown as StudioFilterState;
 }
 
+/** A `page`-scoped rank filter. Omitting `pageId` builds the legacy pageId-less scope,
+ *  which resolves to the `null` "applies everywhere" wildcard — NOT the UNRESOLVABLE
+ *  `undefined` sentinel. */
+function pageRankFilter(id: string, pageId?: string): StudioFilterState {
+  return {
+    id,
+    field: 'category',
+    operator: 'equals',
+    value: null,
+    filterMode: 'rank',
+    scope: pageId === undefined ? { kind: 'page' } : { kind: 'page', pageId },
+  } as unknown as StudioFilterState;
+}
+
 describe('buildRankFilterWidgetPageIndex', () => {
   it('maps every placed widget to its page', () => {
     const pages = {
@@ -141,5 +155,77 @@ describe('rank-filter sweep complexity', () => {
     const unplaced = rankFilter('f4', 'nowhere');
     expect(hasConflictingRankFilter('f4', unplaced, existing, pages)).toBe(false);
     expect(hasConflictingRankFilter('f4', unplaced, existing, pages, index)).toBe(false);
+  });
+});
+
+// The two `hasConflictingRankFilter` arms nothing above reaches: SELF-exclusion, and an
+// unresolvable OTHER filter (the mirror of the unresolvable TARGET arm, which the case
+// above does cover).
+describe('hasConflictingRankFilter — sentinel and exclusion semantics', () => {
+  const pages = {
+    'page-1': { id: 'page-1', title: 'A', widgetRows: [['w1', 'w2']] },
+    'page-2': { id: 'page-2', title: 'B', widgetRows: [['w3']] },
+  } as unknown as StudioDoc['pages'];
+
+  // Every call in this package passes the target ABSENT from `filters` (the reducer checks
+  // a not-yet-added filter, the sweeps check against `kept`), so the `filter.id === filterId`
+  // exclusion is never exercised here. It is load-bearing for the OTHER caller shape:
+  // `@mui/x-studio`'s `PageFilterRow`/`WidgetFilterRow` ask "would this filter conflict if I
+  // turned rank mode on?" while it is already IN `doc.filters`, so without self-exclusion
+  // every such filter would report a conflict with itself and the affordance would be dead.
+  it.each([
+    ['widget-scoped', () => rankFilter('f1', 'w1')],
+    ['page-scoped', () => pageRankFilter('f1', 'page-1')],
+  ])('excludes the target itself when it is already in filters (%s)', (_label, build) => {
+    const target = build();
+    expect(hasConflictingRankFilter('f1', target, [target], pages)).toBe(false);
+    expect(
+      hasConflictingRankFilter(
+        'f1',
+        target,
+        [target],
+        pages,
+        buildRankFilterWidgetPageIndex(pages),
+      ),
+    ).toBe(false);
+  });
+
+  // The asymmetry the module doc calls out: UNRESOLVABLE (`undefined`) must stay distinct
+  // from the `null` wildcard. An unplaced widget's rank filter is never removed
+  // (`dropWidgetScopedFilters` only fires on widget REMOVAL), so if it were treated as a
+  // wildcard, ONE of them would reject every rank `addFilter` on every page forever.
+  it('does not let an unresolvable OTHER filter block a null-wildcard target', () => {
+    const wildcardTarget = pageRankFilter('new-f'); // no pageId → resolves to `null`
+    const unplaced = [rankFilter('f-unplaced', 'nowhere')];
+    expect(hasConflictingRankFilter('new-f', wildcardTarget, unplaced, pages)).toBe(false);
+    expect(
+      hasConflictingRankFilter(
+        'new-f',
+        wildcardTarget,
+        unplaced,
+        pages,
+        buildRankFilterWidgetPageIndex(pages),
+      ),
+    ).toBe(false);
+  });
+
+  // The mirror: an unresolvable TARGET is likewise not blocked by the wildcard.
+  it('does not let a null-wildcard OTHER filter block an unresolvable target', () => {
+    const unplacedTarget = rankFilter('new-f', 'nowhere');
+    const wildcard = [pageRankFilter('f-wild')];
+    expect(hasConflictingRankFilter('new-f', unplacedTarget, wildcard, pages)).toBe(false);
+  });
+
+  // …but a RESOLVED target IS blocked by the wildcard, so the two cases above are pinning
+  // the sentinel and not a blanket "never conflicts".
+  it('still lets a null-wildcard OTHER filter block a resolved target', () => {
+    expect(
+      hasConflictingRankFilter(
+        'new-f',
+        rankFilter('new-f', 'w1'),
+        [pageRankFilter('f-wild')],
+        pages,
+      ),
+    ).toBe(true);
   });
 });

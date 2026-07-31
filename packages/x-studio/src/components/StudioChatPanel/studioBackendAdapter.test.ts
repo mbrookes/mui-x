@@ -5,13 +5,18 @@ import type { ChatMessage, ChatMessageChunk, ChatStreamEnvelope } from '@mui/x-c
 import { MAX_ARRAY_LENGTH, MAX_STRING_LENGTH, UNSAFE_KEYS } from '@mui/x-studio-schema';
 import {
   createBackendChatAdapter,
-  MAX_APPROVAL_ID_LENGTH,
+  MAX_TOOL_ID_LENGTH,
+  MAX_TOOL_INPUT_SIZE,
+  MAX_TOOL_OUTPUT_SIZE,
   MAX_APPROVAL_INPUT_SIZE,
   MAX_METADATA_KEY_LENGTH,
   MAX_TURN_APPROVAL_INPUT_SIZE,
-  MAX_TURN_APPROVAL_PARTS,
+  MAX_TURN_TOOL_PARTS,
   MAX_TURN_APPROVAL_SIZE,
   MAX_TURN_METADATA_SIZE,
+  MAX_TURN_TOOL_INPUT_SIZE,
+  MAX_TURN_TOOL_OUTPUT_SIZE,
+  TOOL_OUTPUT_TRUNCATED_SUFFIX,
 } from './studioBackendAdapter';
 import { createDefaultStudioState } from '../../models/stateTypes';
 import type { CreateDefaultStudioStateOverrides } from '../../models';
@@ -164,6 +169,22 @@ function mockFetch(ssePayload: Uint8Array) {
       }),
     }),
   );
+}
+
+/**
+ * Every chunk one turn produces, for the budget tests — which need MANY events, because a
+ * budget pinned by a single-event test is a budget with no count term.
+ */
+async function collectAllTurnChunks(events: Record<string, unknown>[]) {
+  mockFetch(makeSseBody([...events, { type: 'finish', finishReason: 'stop' }]));
+  const adapter = createBackendChatAdapter(
+    { endpoint: 'https://fake.test/api/ai' },
+    makeController(),
+  );
+  const stream = await adapter.sendMessage(makeSendInput([]));
+  const chunks = (await collectChunks(stream)).filter(isChatMessageChunk);
+  vi.unstubAllGlobals();
+  return chunks;
 }
 
 // ── text-delta handling ───────────────────────────────────────────────────────
@@ -897,7 +918,7 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
 
   it('DROPS an approval whose ids are over the id cap — over many events, and audibly', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const huge = 'x'.repeat(MAX_APPROVAL_ID_LENGTH + 1);
+    const huge = 'x'.repeat(MAX_TOOL_ID_LENGTH + 1);
     const chunks = await collectTurnChunks(
       Array.from({ length: 50 }, (_unused, i) => ({
         type: 'tool-approval-request',
@@ -922,7 +943,7 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
   });
 
   it('accepts ids exactly AT the cap (the cap is a boundary, not a ban)', async () => {
-    const atCap = 'c'.repeat(MAX_APPROVAL_ID_LENGTH);
+    const atCap = 'c'.repeat(MAX_TOOL_ID_LENGTH);
     const chunks = (await collectTurnChunks([
       {
         type: 'tool-approval-request',
@@ -947,16 +968,16 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
   // the docblock's arithmetic claims.
   it('caps the ids in JSON characters, not in raw UTF-16 units', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const atRawCap = CONTROL_CHAR.repeat(MAX_APPROVAL_ID_LENGTH);
-    expect(atRawCap.length).toBe(MAX_APPROVAL_ID_LENGTH);
-    expect(jsonChars(atRawCap)).toBe(MAX_APPROVAL_ID_LENGTH * 6);
+    const atRawCap = CONTROL_CHAR.repeat(MAX_TOOL_ID_LENGTH);
+    expect(atRawCap.length).toBe(MAX_TOOL_ID_LENGTH);
+    expect(jsonChars(atRawCap)).toBe(MAX_TOOL_ID_LENGTH * 6);
 
     const chunks = await collectTurnChunks(
       Array.from({ length: 50 }, (_unused, i) => {
         // Distinct per event and still INSIDE the raw cap, so only the JSON measurement can
         // reject it: charged with `String.prototype.length` all 50 of these sailed through.
-        const distinct = `${CONTROL_CHAR.repeat(MAX_APPROVAL_ID_LENGTH - 6)}c${i}`;
-        expect(distinct.length).toBeLessThanOrEqual(MAX_APPROVAL_ID_LENGTH);
+        const distinct = `${CONTROL_CHAR.repeat(MAX_TOOL_ID_LENGTH - 6)}c${i}`;
+        expect(distinct.length).toBeLessThanOrEqual(MAX_TOOL_ID_LENGTH);
         return {
           type: 'tool-approval-request',
           approvalId: atRawCap,
@@ -975,8 +996,8 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
   it('accepts an escaping id whose JSON size is exactly AT the cap', async () => {
     // A unit fix, not a tightening: what the cap admits is 256 characters OF STORAGE, however
     // they are spelled.
-    const atJsonCap = escapingString(MAX_APPROVAL_ID_LENGTH);
-    expect(jsonChars(atJsonCap)).toBe(MAX_APPROVAL_ID_LENGTH);
+    const atJsonCap = escapingString(MAX_TOOL_ID_LENGTH);
+    expect(jsonChars(atJsonCap)).toBe(MAX_TOOL_ID_LENGTH);
 
     const chunks = (await collectTurnChunks([
       {
@@ -998,13 +1019,13 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
     // Every event individually legal — short ids, no `effects`, no `reason`. Only the COUNT
     // is hostile, which is exactly the term a size-only budget cannot see.
     const chunks = await collectTurnChunks(
-      Array.from({ length: MAX_TURN_APPROVAL_PARTS * 4 }, (_unused, i) =>
+      Array.from({ length: MAX_TURN_TOOL_PARTS * 4 }, (_unused, i) =>
         approvalEvent(i, { toolName: 'apply_bulk_update' }),
       ),
     );
 
     expect(chunks.filter((c) => c.type === 'tool-approval-request')).toHaveLength(
-      MAX_TURN_APPROVAL_PARTS,
+      MAX_TURN_TOOL_PARTS,
     );
     expect(warnSpy).toHaveBeenCalledTimes(1);
     warnSpy.mockRestore();
@@ -1015,11 +1036,11 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
     // repeat id overwrites the part it already made rather than adding one, so it costs the
     // persisted message nothing and must not cost the budget either.
     const chunks = await collectTurnChunks(
-      Array.from({ length: MAX_TURN_APPROVAL_PARTS * 3 }, () => approvalEvent(1, {})),
+      Array.from({ length: MAX_TURN_TOOL_PARTS * 3 }, () => approvalEvent(1, {})),
     );
 
     expect(chunks.filter((c) => c.type === 'tool-approval-request')).toHaveLength(
-      MAX_TURN_APPROVAL_PARTS * 3,
+      MAX_TURN_TOOL_PARTS * 3,
     );
   });
 
@@ -1046,9 +1067,9 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
         return i % 2 === 0
           ? {
               type: 'tool-approval-request',
-              approvalId: escapingString(MAX_APPROVAL_ID_LENGTH),
-              toolCallId: idPrefix + escapingString(MAX_APPROVAL_ID_LENGTH - idPrefix.length),
-              toolName: escapingString(MAX_APPROVAL_ID_LENGTH),
+              approvalId: escapingString(MAX_TOOL_ID_LENGTH),
+              toolCallId: idPrefix + escapingString(MAX_TOOL_ID_LENGTH - idPrefix.length),
+              toolName: escapingString(MAX_TOOL_ID_LENGTH),
               input: { note: escapingString(MAX_APPROVAL_INPUT_SIZE / 2) },
               effects: { willRemoveWidgets: entities(400, 12) },
               reason: escapingString(MAX_STRING_LENGTH),
@@ -1094,27 +1115,27 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
       0,
     );
 
-    // ids/names: 3 fields x MAX_APPROVAL_ID_LENGTH x MAX_TURN_APPROVAL_PARTS = 49 152.
-    expect(idBytes).toBeLessThanOrEqual(3 * MAX_APPROVAL_ID_LENGTH * MAX_TURN_APPROVAL_PARTS);
+    // ids/names: 3 fields x MAX_TOOL_ID_LENGTH x MAX_TURN_TOOL_PARTS = 49 152.
+    expect(idBytes).toBeLessThanOrEqual(3 * MAX_TOOL_ID_LENGTH * MAX_TURN_TOOL_PARTS);
     // effects + reason: one turn-wide budget, unchanged by the part count.
     expect(payloadBytes).toBeLessThanOrEqual(MAX_TURN_APPROVAL_SIZE);
     // the display-enriched inputs: their own turn-wide budget, plus the `{}` each degraded
     // card carries.
     expect(inputBytes).toBeLessThanOrEqual(
-      MAX_TURN_APPROVAL_INPUT_SIZE + degradedInputBytes * MAX_TURN_APPROVAL_PARTS,
+      MAX_TURN_APPROVAL_INPUT_SIZE + degradedInputBytes * MAX_TURN_TOOL_PARTS,
     );
     // the withheld markers: a constant, x the part count.
-    expect(markerBytes).toBeLessThanOrEqual(withheldMarkerBytes * MAX_TURN_APPROVAL_PARTS);
+    expect(markerBytes).toBeLessThanOrEqual(withheldMarkerBytes * MAX_TURN_TOOL_PARTS);
     // …and the whole door, stated as one number the commit message can quote: 250 816 JSON
     // characters per assistant turn.
     expect(idBytes + payloadBytes + inputBytes + markerBytes).toBeLessThanOrEqual(
-      3 * MAX_APPROVAL_ID_LENGTH * MAX_TURN_APPROVAL_PARTS +
+      3 * MAX_TOOL_ID_LENGTH * MAX_TURN_TOOL_PARTS +
         MAX_TURN_APPROVAL_SIZE +
         MAX_TURN_APPROVAL_INPUT_SIZE +
-        (withheldMarkerBytes + degradedInputBytes) * MAX_TURN_APPROVAL_PARTS,
+        (withheldMarkerBytes + degradedInputBytes) * MAX_TURN_TOOL_PARTS,
     );
     // Each term is really binding here, so the total is not passing by accident.
-    expect(approvals).toHaveLength(MAX_TURN_APPROVAL_PARTS);
+    expect(approvals).toHaveLength(MAX_TURN_TOOL_PARTS);
     expect(approvals.at(-1)!.effects).toEqual({ effectsWithheld: true });
     expect(approvals.at(-1)!.reason).toBe(undefined);
     expect(approvals.at(-1)!.input).toEqual({});
@@ -1123,6 +1144,369 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
 });
 
 // ── usage handling ────────────────────────────────────────────────────────────
+
+// ── the tool-activity door ────────────────────────────────────────────────────
+//
+// The FOURTH recurrence of one class, and the door beside the one the last round bounded.
+// `tool-activity` writes `toolInvocation.toolCallId`/`toolName`/`input`/`output` onto
+// `doc.ai.threads[].messages` through exactly the same `handleMessagesChange` write the
+// approval door does — and it needs no approval gating at all, so it is the CHEAPER of the
+// two to abuse. It had no id cap, no input cap, no output cap and no part-count cap.
+//
+// Measured on ONE assistant message before these budgets: 50 `start` events with
+// 20 000-character ids and 200 000-character inputs plus their 50 `complete` events with
+// 2 000 000-character outputs persisted 112 000 790 JSON characters — 112 MB, against the
+// approval door's freshly-argued 245 KB, and 56x the 2 003 790 bytes that motivated capping
+// the approval door in the first place.
+//
+// Every test here therefore emits MANY events.
+
+describe('createBackendChatAdapter: tool-activity size limits', () => {
+  function startEvent(index: number, extra: Record<string, unknown> = {}) {
+    return {
+      type: 'tool-activity',
+      phase: 'start',
+      toolCallId: `call-${index}`,
+      toolName: 'query_data_source',
+      input: { table: 'orders' },
+      ...extra,
+    };
+  }
+
+  function completeEvent(index: number, extra: Record<string, unknown> = {}) {
+    return {
+      type: 'tool-activity',
+      phase: 'complete',
+      toolCallId: `call-${index}`,
+      toolName: 'query_data_source',
+      output: 'ok',
+      ...extra,
+    };
+  }
+
+  it('DROPS a tool activity whose ids are over the id cap — over many events, and audibly', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const huge = 'x'.repeat(MAX_TOOL_ID_LENGTH + 1);
+    const chunks = await collectAllTurnChunks(
+      Array.from({ length: 50 }, (_unused, i) => ({
+        type: 'tool-activity',
+        phase: 'start',
+        toolCallId: `${huge}-${i}`,
+        toolName: huge,
+        input: {},
+      })),
+    );
+
+    // Not truncated — dropped. `toolCallId` is the key `withToolInvocation` matches parts by
+    // and the key an approval correlates against; a shortened one names nothing.
+    expect(chunks.filter((c) => c.type === 'tool-input-start')).toHaveLength(0);
+    expect(chunks.filter((c) => c.type === 'tool-input-available')).toHaveLength(0);
+    expect(warnSpy).toHaveBeenCalledTimes(1); // once per turn, not once per event
+    expect(String(warnSpy.mock.calls[0][0])).toContain('toolCallId');
+    warnSpy.mockRestore();
+  });
+
+  it('caps the tool-activity ids in JSON characters, not in raw UTF-16 units', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // At the RAW cap, six times over it once stored — the same unit defect the approval door
+    // carried, on the door that had no cap at all.
+    const atRawCap = CONTROL_CHAR.repeat(MAX_TOOL_ID_LENGTH);
+    expect(atRawCap.length).toBe(MAX_TOOL_ID_LENGTH);
+
+    const chunks = await collectAllTurnChunks(
+      Array.from({ length: 50 }, (_unused, i) => ({
+        type: 'tool-activity',
+        phase: 'start',
+        toolCallId: `${CONTROL_CHAR.repeat(MAX_TOOL_ID_LENGTH - 6)}c${i}`,
+        toolName: atRawCap,
+        input: {},
+      })),
+    );
+
+    expect(chunks.filter((c) => c.type === 'tool-input-start')).toHaveLength(0);
+    warnSpy.mockRestore();
+  });
+
+  // Each clause of the id guard pinned ALONE. A test that sets every field over the cap at
+  // once cannot tell a two-clause guard from a three-clause one: any single clause is masked
+  // by its siblings, and the defect it guards is restorable one clause at a time with the
+  // suite green.
+  it('drops a tool activity for an over-cap toolCallId ALONE', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const chunks = await collectAllTurnChunks(
+      Array.from({ length: 20 }, (_unused, i) =>
+        startEvent(i, { toolCallId: `${'x'.repeat(MAX_TOOL_ID_LENGTH + 1)}-${i}` }),
+      ),
+    );
+
+    expect(chunks.filter((c) => c.type === 'tool-input-start')).toHaveLength(0);
+    warnSpy.mockRestore();
+  });
+
+  it('drops a tool activity for an over-cap toolName ALONE', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const chunks = await collectAllTurnChunks(
+      Array.from({ length: 20 }, (_unused, i) =>
+        startEvent(i, { toolName: 'n'.repeat(MAX_TOOL_ID_LENGTH + 1) }),
+      ),
+    );
+
+    expect(chunks.filter((c) => c.type === 'tool-input-start')).toHaveLength(0);
+    warnSpy.mockRestore();
+  });
+
+  it('accepts tool-activity ids exactly AT the cap (a boundary, not a ban)', async () => {
+    const atCap = 'c'.repeat(MAX_TOOL_ID_LENGTH);
+    const chunks = await collectAllTurnChunks([
+      { type: 'tool-activity', phase: 'start', toolCallId: atCap, toolName: atCap, input: {} },
+    ]);
+
+    const start = chunks.find((c) => c.type === 'tool-input-start') as { toolCallId: string };
+    expect(start).not.toBe(undefined);
+    expect(start.toolCallId).toBe(atCap);
+  });
+
+  it('bounds the NUMBER of tool parts one turn adds to the message', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // Every event individually legal — short ids, tiny input. Only the COUNT is hostile,
+    // which is exactly the term a size-only budget cannot see, and the term this door did
+    // not have at all.
+    const chunks = await collectAllTurnChunks(
+      Array.from({ length: MAX_TURN_TOOL_PARTS * 4 }, (_unused, i) => startEvent(i)),
+    );
+
+    expect(chunks.filter((c) => c.type === 'tool-input-start')).toHaveLength(
+      MAX_TURN_TOOL_PARTS,
+    );
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    warnSpy.mockRestore();
+  });
+
+  it('charges the part budget per DISTINCT toolCallId, so start+complete of one call costs one', async () => {
+    // The ordinary agentic shape: `start` then `complete` for the same id is ONE part, and
+    // `withToolInvocation` updates it in place — so it must cost the shared budget once.
+    const events = Array.from({ length: MAX_TURN_TOOL_PARTS }, (_unused, i) => [
+      startEvent(i),
+      completeEvent(i),
+    ]).flat();
+    const chunks = await collectAllTurnChunks(events);
+
+    expect(chunks.filter((c) => c.type === 'tool-input-start')).toHaveLength(
+      MAX_TURN_TOOL_PARTS,
+    );
+    expect(chunks.filter((c) => c.type === 'tool-output-available')).toHaveLength(
+      MAX_TURN_TOOL_PARTS,
+    );
+  });
+
+  // The part budget is ONE budget across BOTH doors, because both add parts to the same
+  // message and a part either door creates is indistinguishable from one the other created.
+  // Two budgets of 64 would bound each door at 64 and the message at 128.
+  it('shares ONE part budget with the approval door', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const chunks = await collectAllTurnChunks([
+      ...Array.from({ length: MAX_TURN_TOOL_PARTS }, (_unused, i) => startEvent(i)),
+      ...Array.from({ length: 20 }, (_unused, i) => ({
+        type: 'tool-approval-request',
+        toolCallId: `approval-only-${i}`,
+        toolName: 'remove_widget',
+        input: {},
+      })),
+    ]);
+
+    // The tool-activity events spent the whole shared budget…
+    expect(chunks.filter((c) => c.type === 'tool-input-start')).toHaveLength(
+      MAX_TURN_TOOL_PARTS,
+    );
+    // …so the approval events, which name NEW ids, get no parts of their own.
+    expect(chunks.filter((c) => c.type === 'tool-approval-request')).toHaveLength(0);
+    warnSpy.mockRestore();
+  });
+
+  // `367deaa` un-capped this field because DOCTORING it teaches the model a shape its own
+  // schema rejects. That rationale forbids truncating or substituting the value — it does not
+  // require storing an unbounded one, and dropping the event stores nothing at all.
+  it('DROPS an over-cap tool input rather than doctoring it, over many events', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const chunks = await collectAllTurnChunks(
+      Array.from({ length: 50 }, (_unused, i) =>
+        startEvent(i, { input: { note: 'n'.repeat(MAX_TOOL_INPUT_SIZE) } }),
+      ),
+    );
+
+    expect(chunks.filter((c) => c.type === 'tool-input-start')).toHaveLength(0);
+    // Nothing entered `modelToolInputs` either, so no `tool-input-available` carries a
+    // shortened or substituted copy of the arguments.
+    expect(chunks.filter((c) => c.type === 'tool-input-available')).toHaveLength(0);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(String(warnSpy.mock.calls[0][0])).toContain('shortened');
+    warnSpy.mockRestore();
+  });
+
+  it('accepts a tool input exactly AT the per-call cap', async () => {
+    const note = 'n'.repeat(MAX_TOOL_INPUT_SIZE - '{"note":""}'.length);
+    const chunks = await collectAllTurnChunks([startEvent(1, { input: { note } })]);
+
+    const available = chunks.find((c) => c.type === 'tool-input-available') as { input: unknown };
+    expect(JSON.stringify(available.input)).toHaveLength(MAX_TOOL_INPUT_SIZE);
+  });
+
+  it('spends ONE tool-input budget across every tool-activity event of the turn', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // 40 events, each individually legal at half the per-call cap. A per-EVENT limit accepts
+    // all 40 and puts ~800 KB of model arguments on one message; the turn budget does not.
+    const chunks = await collectAllTurnChunks(
+      Array.from({ length: 40 }, (_unused, i) =>
+        startEvent(i, { input: { note: 'n'.repeat(MAX_TOOL_INPUT_SIZE / 2) } }),
+      ),
+    );
+
+    const inputBytes = chunks
+      .filter((c) => c.type === 'tool-input-available')
+      .reduce((total, c) => total + JSON.stringify((c as { input: unknown }).input)!.length, 0);
+    expect(inputBytes).toBeLessThanOrEqual(MAX_TURN_TOOL_INPUT_SIZE);
+    expect(chunks.filter((c) => c.type === 'tool-input-available').length).toBeLessThan(40);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    warnSpy.mockRestore();
+  });
+
+  // The one over-cap payload on this boundary that is TRUNCATED rather than dropped, and the
+  // reason is the failure the id drop causes elsewhere: `processStream` advances a part to
+  // `output-available` only on `tool-output-available`, so dropping the chunk would leave the
+  // card at `input-available` — an infinite spinner with nothing to explain it.
+  it('TRUNCATES and MARKS an over-cap tool output instead of dropping it, over many events', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const chunks = await collectAllTurnChunks(
+      Array.from({ length: 50 }, (_unused, i) => [
+        startEvent(i),
+        completeEvent(i, { output: 'o'.repeat(2_000_000) }),
+      ]).flat(),
+    );
+
+    const outputs = chunks.filter((c) => c.type === 'tool-output-available') as {
+      output: string;
+    }[];
+    // Every call still resolves — the card never sits on a spinner nothing will clear.
+    expect(outputs).toHaveLength(50);
+    // …and the truncation is stated, so neither the human nor the model (which replays this
+    // through `toOpenAIMessages`) mistakes a partial result for a whole one.
+    expect(outputs[0].output).toContain('truncated');
+    expect(outputs[0].output.length).toBeLessThan(2_000_000);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(String(warnSpy.mock.calls[0][0])).toContain('truncated');
+    warnSpy.mockRestore();
+  });
+
+  it('spends ONE tool-output budget across every tool-activity event of the turn', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // 40 completions, each individually legal at half the per-call cap: a per-EVENT limit
+    // accepts all 40 and puts ~4 MB of tool results on one message.
+    const chunks = await collectAllTurnChunks(
+      Array.from({ length: 40 }, (_unused, i) => [
+        startEvent(i),
+        completeEvent(i, { output: 'o'.repeat(MAX_TOOL_OUTPUT_SIZE / 2) }),
+      ]).flat(),
+    );
+
+    const outputBytes = chunks
+      .filter((c) => c.type === 'tool-output-available')
+      .reduce((total, c) => total + jsonChars((c as { output: string }).output), 0);
+    // The turn total, plus the marker each truncated result carries.
+    expect(outputBytes).toBeLessThanOrEqual(
+      MAX_TURN_TOOL_OUTPUT_SIZE + jsonChars(TOOL_OUTPUT_TRUNCATED_SUFFIX) * MAX_TURN_TOOL_PARTS,
+    );
+    // Still 40 resolved cards — the budget trims, it does not strand.
+    expect(chunks.filter((c) => c.type === 'tool-output-available')).toHaveLength(40);
+    warnSpy.mockRestore();
+  });
+
+  it('leaves a within-budget output byte-identical', async () => {
+    const output = JSON.stringify({ rows: [{ id: 1, name: 'Ada' }] });
+    const chunks = await collectAllTurnChunks([startEvent(1), completeEvent(1, { output })]);
+
+    const available = chunks.find((c) => c.type === 'tool-output-available') as { output: string };
+    expect(available.output).toBe(output);
+  });
+
+  it('holds the WHOLE tool-activity arithmetic: per-field x per-part x part-count', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // The measured 112 MB shape: 200 distinct calls, every id at its cap and spelled in
+    // control characters, over-cap outputs throughout, and the first ten carrying half-cap
+    // model arguments so the input budget binds too. Every term of the bound is load-bearing
+    // — drop the id cap and `idBytes` grows with the id length, drop the count cap and every
+    // term grows with the event count, drop either size budget and `inputBytes`/`outputBytes`
+    // do.
+    const chunks = await collectAllTurnChunks(
+      Array.from({ length: 200 }, (_unused, i) => {
+        const prefix = `call-${i}-`;
+        const id = prefix + escapingString(MAX_TOOL_ID_LENGTH - prefix.length);
+        return [
+          {
+            type: 'tool-activity',
+            phase: 'start',
+            toolCallId: id,
+            toolName: escapingString(MAX_TOOL_ID_LENGTH),
+            input:
+              i < 10 ? { note: escapingString(MAX_TOOL_INPUT_SIZE / 2) } : { table: 'orders' },
+          },
+          {
+            type: 'tool-activity',
+            phase: 'complete',
+            toolCallId: id,
+            toolName: escapingString(MAX_TOOL_ID_LENGTH),
+            output: 'o'.repeat(MAX_TOOL_OUTPUT_SIZE * 2),
+          },
+        ];
+      }).flat(),
+    );
+
+    const starts = chunks.filter((c) => c.type === 'tool-input-start') as {
+      toolCallId: string;
+      toolName: string;
+    }[];
+    const inputs = chunks.filter((c) => c.type === 'tool-input-available') as { input: unknown }[];
+    // Only the outputs that can reach the DOCUMENT. `tool-output-available` passes a null
+    // initial part to `withToolInvocation`, so one naming an id no part was ever created for
+    // is a no-op on the persisted message — the part count is what bounds the marker term.
+    const partIds = new Set(starts.map((c) => c.toolCallId));
+    const outputs = (
+      chunks.filter((c) => c.type === 'tool-output-available') as {
+        toolCallId: string;
+        output: string;
+      }[]
+    ).filter((c) => partIds.has(c.toolCallId));
+
+    const idBytes = starts.reduce(
+      (total, c) => total + jsonChars(c.toolCallId) + jsonChars(c.toolName),
+      0,
+    );
+    const inputBytes = inputs.reduce(
+      (total, c) => total + JSON.stringify(c.input)!.length,
+      0,
+    );
+    const outputBytes = outputs.reduce((total, c) => total + jsonChars(c.output), 0);
+
+    // ids/names: 2 fields x MAX_TOOL_ID_LENGTH x MAX_TURN_TOOL_PARTS = 32 768.
+    expect(idBytes).toBeLessThanOrEqual(2 * MAX_TOOL_ID_LENGTH * MAX_TURN_TOOL_PARTS);
+    // the model's arguments: one turn-wide budget, unchanged by the event count.
+    expect(inputBytes).toBeLessThanOrEqual(MAX_TURN_TOOL_INPUT_SIZE);
+    // the tools' results: their own turn-wide budget, plus one marker per truncated result.
+    expect(outputBytes).toBeLessThanOrEqual(
+      MAX_TURN_TOOL_OUTPUT_SIZE + jsonChars(TOOL_OUTPUT_TRUNCATED_SUFFIX) * MAX_TURN_TOOL_PARTS,
+    );
+    // …and the whole door, stated as one number the commit message can quote.
+    expect(idBytes + inputBytes + outputBytes).toBeLessThanOrEqual(
+      2 * MAX_TOOL_ID_LENGTH * MAX_TURN_TOOL_PARTS +
+        MAX_TURN_TOOL_INPUT_SIZE +
+        MAX_TURN_TOOL_OUTPUT_SIZE +
+        jsonChars(TOOL_OUTPUT_TRUNCATED_SUFFIX) * MAX_TURN_TOOL_PARTS,
+    );
+    // Each term is really binding, so the total is not passing by accident.
+    expect(starts).toHaveLength(MAX_TURN_TOOL_PARTS);
+    expect(outputs.at(-1)!.output).toContain('truncated');
+    warnSpy.mockRestore();
+  });
+});
 
 describe('createBackendChatAdapter: usage', () => {
   it('forwards well-formed numeric usage fields to onUsage', async () => {

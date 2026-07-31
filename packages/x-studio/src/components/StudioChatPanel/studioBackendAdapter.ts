@@ -234,6 +234,36 @@ function wireStringSize(value: string): number {
 }
 
 /**
+ * The longest prefix of `value` whose {@link wireStringSize} is at most `max`.
+ *
+ * Binary search on the MEASURED size rather than `slice(0, max)`, because the two are
+ * different lengths: one escaped character can cost six, so a character slice can leave a
+ * string that is still over a JSON-character budget. Searching on the measured size also
+ * makes a split surrogate pair harmless — a lone surrogate escapes to `\uXXXX` and the search
+ * accounts for it — so this cannot return a prefix that is over `max`, however the input is
+ * spelled.
+ */
+function truncateToWireSize(value: string, max: number): string {
+  if (max <= 0) {
+    return '';
+  }
+  if (wireStringSize(value) <= max) {
+    return value;
+  }
+  let low = 0;
+  let high = value.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (wireStringSize(value.slice(0, mid)) <= max) {
+      low = mid;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return value.slice(0, low);
+}
+
+/**
  * Longest key NAME accepted into the `message-metadata` pass-through.
  *
  * `wireValueSize` measures the VALUE only, so without this a payload of `MAX_ARRAY_LENGTH`
@@ -341,7 +371,8 @@ function sanitizeEffectEntities(value: unknown): Array<{ id: string; title: stri
 export const MAX_TURN_APPROVAL_SIZE = 4 * MAX_STRING_LENGTH;
 
 /**
- * Longest `toolCallId`, `toolName` or `approvalId` accepted on a `tool-approval-request`.
+ * Longest `toolCallId`, `toolName` or `approvalId` accepted on ANY tool event —
+ * `tool-approval-request` AND `tool-activity`.
  *
  * {@link MAX_TURN_APPROVAL_SIZE} bounds `effects` and `reason`. It does NOT bound the three
  * fields next to them, and `processStream` writes all of them onto the same `toolInvocation`
@@ -350,45 +381,60 @@ export const MAX_TURN_APPROVAL_SIZE = 4 * MAX_STRING_LENGTH;
  * `approvalId` were forwarded verbatim onto the persisted part. Bounding one field of a
  * record bounds nothing.
  *
+ * ONE constant for both doors, not two spellings of 256, because they are the SAME FIELDS on
+ * the SAME PART: `withToolInvocation` keys parts by `toolCallId`, so a `tool-activity` and a
+ * `tool-approval-request` naming one id write one `toolInvocation.toolCallId` and one
+ * `toolInvocation.toolName`. It also has to be one constant for the drop-don't-truncate rule
+ * below to hold: a `toolCallId` that one door truncates and the other does not is a
+ * correlation key that no longer correlates.
+ *
  * 256 JSON characters — measured with {@link wireStringSize}, not `String.prototype.length`,
- * because these three carry no turn budget of their own: this cap times
- * {@link MAX_TURN_APPROVAL_PARTS} IS their bound, so a bound spent in the wrong unit is the
+ * because these fields carry no turn budget of their own: this cap times
+ * {@link MAX_TURN_TOOL_PARTS} IS their bound, so a bound spent in the wrong unit is the
  * whole bound. Measured while they were charged raw: 256 control characters passed the cap and
  * persisted 1 536 JSON characters apiece.
  *
  * 256 characters is far past any id a real server mints (`toolu_01…`, a UUID, a tool name),
  * and an over-cap value DROPS THE WHOLE EVENT rather than truncating it: all three are
- * correlation keys. `tool-activity` does not truncate its `toolCallId`, so a truncated
- * approval id would no longer match the call it gates — the mid-stream re-assert of the
- * model's own arguments would never fire — and the id POSTed back to `/approval` would be one
- * the server cannot resolve. A card nobody can answer is worse than no card.
+ * correlation keys. A truncated id would no longer match the call it gates — the mid-stream
+ * re-assert of the model's own arguments would never fire — and the id POSTed back to
+ * `/approval` would be one the server cannot resolve. A card nobody can answer is worse than
+ * no card. See `warnApprovalOnce('approval-id-length', …)` for what the user is told, which
+ * is the other half of "dropped" not meaning "silently dropped".
  *
  * Exported for the tests only — see {@link MAX_METADATA_KEY_LENGTH}.
  */
-export const MAX_APPROVAL_ID_LENGTH = 256;
+export const MAX_TOOL_ID_LENGTH = 256;
 
 /**
- * How many approval PARTS one assistant turn may add to the persisted message.
+ * How many tool PARTS one assistant turn may add to the persisted message — across BOTH
+ * doors, `tool-activity` and `tool-approval-request` together.
  *
  * The count term, without which the per-field caps above are not a bound. `processStream`
- * routes a `tool-approval-request` through `withToolInvocation(chunk.toolCallId, …)`: a new
+ * routes both event kinds through `withToolInvocation(chunk.toolCallId, …)`: a new
  * `toolCallId` creates a NEW part, so the number of parts a turn persists is the number of
- * distinct gated tool call ids the server names — which nothing else limits. Measured with
+ * distinct tool call ids the server names — which nothing else limits. Measured with
  * the id caps absent: 50 approval events x 20 000-character ids = 2 003 790 bytes on ONE
  * assistant message, against a claimed "~40 KB per assistant message, independent of the
  * event count". Charged per DISTINCT `toolCallId`, because re-prompting the same call
  * overwrites its part instead of adding one.
  *
+ * ONE budget shared by both doors, spent from one `Set` of ids, because they add parts to the
+ * SAME message and a part either door creates is indistinguishable from one the other
+ * created. Two budgets of 64 would bound each door at 64 and the message at 128 — and the
+ * ordinary flow (`tool-activity` `start` -> `tool-approval-request` -> `tool-activity`
+ * `complete`, all naming one id) spends the shared budget exactly once, so sharing costs a
+ * legitimate turn nothing.
+ *
  * 64 is comfortably above `x-studio-ai-middleware`'s own
- * `DEFAULT_MAX_TOOL_CALLS_PER_REQUEST` (50) — every one of which would have to be gated to
- * reach it — while keeping the worst case a number rather than a function of the stream
- * length. It also bounds `approvalGatedToolCalls` (entries are only ever added here), and so
- * bounds the stream-end flush that walks it.
+ * `DEFAULT_MAX_TOOL_CALLS_PER_REQUEST` (50) — while keeping the worst case a number rather
+ * than a function of the stream length. It also bounds `approvalGatedToolCalls` (entries are
+ * only ever added behind this check), and so bounds the stream-end flush that walks it.
  *
  * WORST CASE PER ASSISTANT TURN, from this door — every term in JSON CHARACTERS, the unit
  * the budgets are denominated in and the unit the saved document is measured in:
  *
- *     ids/names   <=  3 * MAX_APPROVAL_ID_LENGTH * MAX_TURN_APPROVAL_PARTS
+ *     ids/names   <=  3 * MAX_TOOL_ID_LENGTH * MAX_TURN_TOOL_PARTS
  *                 =   3 * 256 * 64                    =  49 152 JSON chars
  *   + effects
  *     and reason  <=  MAX_TURN_APPROVAL_SIZE          =  40 000 JSON chars (turn-wide, not
@@ -398,7 +444,7 @@ export const MAX_APPROVAL_ID_LENGTH = 256;
  *                                                                          per part)
  *   + the per-part constants a degraded card carries — a withheld marker
  *     (`{"effectsWithheld":true}`, 24) plus the `{}` an over-cap input degrades to (2):
- *                 <=  26 * MAX_TURN_APPROVAL_PARTS    =   1 664 JSON chars
+ *                 <=  26 * MAX_TURN_TOOL_PARTS    =   1 664 JSON chars
  *   --------------------------------------------------------------------------------
  *   total         <=                                    250 816 JSON chars (~245 KB) per
  *                                                       assistant message
@@ -418,16 +464,117 @@ export const MAX_APPROVAL_ID_LENGTH = 256;
  * assistant message — the ~10 KB difference being the fixed JSON framing of 64 parts, which is
  * a constant per part and not something a server can grow.
  *
- * The chunk's `input` is bounded separately — see {@link MAX_APPROVAL_INPUT_SIZE}. What
- * remains uncapped, by an explicit earlier decision (`367deaa`), is `modelToolInputs`' copy:
- * the model's OWN tool arguments, captured from `tool-activity` and replayed verbatim by
- * `toOpenAIMessages`, where a doctored value teaches the model a shape its own schema
- * rejects. This budget is a bound on the fields this door owns, not a claim that the
- * persisted message is bounded overall.
+ * The approval chunk's `input` is bounded separately — see {@link MAX_APPROVAL_INPUT_SIZE} —
+ * and the model's own arguments and the tool's output, which arrive through the OTHER door
+ * onto these same parts, by {@link MAX_TOOL_INPUT_SIZE} and {@link MAX_TOOL_OUTPUT_SIZE}.
  *
  * Exported for the tests only — see {@link MAX_METADATA_KEY_LENGTH}.
  */
-export const MAX_TURN_APPROVAL_PARTS = 64;
+export const MAX_TURN_TOOL_PARTS = 64;
+
+/**
+ * Largest `input` one `tool-activity` `start` may carry — the model's OWN tool arguments —
+ * and {@link MAX_TURN_TOOL_INPUT_SIZE} the turn-wide total.
+ *
+ * THE FOURTH RECURRENCE OF ONE CLASS. `message-metadata`, then `effects`/`reason`, then the
+ * approval ids and part count were each bounded in turn while the door beside them stayed
+ * open. `tool-activity` is that door: it writes `toolInvocation.input`/`output`/`toolCallId`/
+ * `toolName` onto `doc.ai.threads[].messages` through exactly the same
+ * `handleMessagesChange` write, it needs NO approval gating to do it, and it had no id cap,
+ * no input cap, no output cap and no part-count cap. Measured on one assistant message: 50
+ * `tool-activity` `start` events with 20 000-character ids and 200 000-character inputs, plus
+ * their 50 `complete` events with 2 000 000-character outputs, persisted 112 000 790 JSON
+ * characters — 112 MB, against the approval door's freshly-argued 245 KB, and 56x the
+ * 2 003 790 bytes that motivated capping the approval door in the first place.
+ *
+ * `367deaa`'s "don't doctor the model's own args" decision is respected and is the reason an
+ * over-cap `input` DROPS THE WHOLE EVENT rather than truncating or replacing it. That
+ * decision is about never handing the model a shape its own schema rejects; refusing to
+ * record a call at all does not do that, whereas a truncated argument object does. Nothing
+ * enters `modelToolInputs` from a dropped event either, so the stream-end flush cannot
+ * re-assert what this door refused.
+ *
+ * `4 * MAX_STRING_LENGTH` = 40 000 JSON characters, the same figure as
+ * {@link MAX_APPROVAL_INPUT_SIZE} — and that is the generous end of the comparison, since the
+ * approval card's DISPLAY-ENRICHED input is strictly larger than the raw arguments it
+ * enriches (`widgetRemovals: ['w1']` becomes `[{id, title}]`). The reference server's own
+ * `MAX_TOOL_CALL_ARGS_BUFFER_CHARS` is 1 000 000 and its comment calls that "far past any
+ * legitimate tool call's arguments"; this client stores what it accepts, so it does not have
+ * to be as generous as the buffer that merely parses it.
+ *
+ * Exported for the tests only — see {@link MAX_METADATA_KEY_LENGTH}.
+ */
+export const MAX_TOOL_INPUT_SIZE = 4 * MAX_STRING_LENGTH;
+
+/** Turn-wide total for every `tool-activity` `input` — the count term for the cap above. */
+export const MAX_TURN_TOOL_INPUT_SIZE = 16 * MAX_STRING_LENGTH;
+
+/**
+ * Largest `output` one `tool-activity` `complete` may carry, and
+ * {@link MAX_TURN_TOOL_OUTPUT_SIZE} the turn-wide total.
+ *
+ * `20 * MAX_STRING_LENGTH` = 200 000 JSON characters, deliberately EQUAL to the reference
+ * server's own per-call `MAX_TOOL_OUTPUT_CHARS`, so a legitimate result that the server has
+ * already capped and marked passes this boundary untouched. The turn total is
+ * `60 * MAX_STRING_LENGTH` = 600 000, i.e. three at-server-cap results per assistant turn
+ * before anything is trimmed — generous for a real agentic turn (whose results are kilobytes,
+ * not hundreds of them) while keeping a number where the stream length used to be.
+ *
+ * Unlike every other over-cap payload on this boundary, an over-cap `output` is TRUNCATED and
+ * MARKED rather than dropped. Dropping it would drop the `tool-output-available` chunk, and
+ * `processStream` advances a part to `output-available` only on that chunk — so the card
+ * would sit at `input-available`, which `resolveToolStatusIcon` renders as a spinner that
+ * never resolves. A visibly-partial result is worth having; an invisible permanent "still
+ * running" is not. The marker is appended (it is what `capToolOutput` does server-side, for
+ * the same reason: a model reasoning over silently-truncated data reports a wrong answer with
+ * full confidence) and is itself charged to the budget.
+ *
+ * Exported for the tests only — see {@link MAX_METADATA_KEY_LENGTH}.
+ */
+export const MAX_TOOL_OUTPUT_SIZE = 20 * MAX_STRING_LENGTH;
+
+/** Turn-wide total for every `tool-activity` `output` — the count term for the cap above. */
+export const MAX_TURN_TOOL_OUTPUT_SIZE = 60 * MAX_STRING_LENGTH;
+
+/**
+ * Appended in place of the tail this client refused to store, so a truncated tool result is
+ * never mistaken — by the human reading the card or by the model replaying it through
+ * `toOpenAIMessages` — for a complete one. Mirrors `capToolOutput`'s
+ * `TOOL_OUTPUT_TRUNCATED_SUFFIX` on the server side of the same wire.
+ */
+export const TOOL_OUTPUT_TRUNCATED_SUFFIX =
+  '\n…[MUI X Studio: this tool result was truncated by the browser because it exceeded the ' +
+  'size this client stores per response. It is INCOMPLETE — do not treat it as a full answer.]';
+
+/**
+ * WORST CASE PER ASSISTANT TURN across BOTH tool doors, in JSON characters. The two share the
+ * part count and the id fields, so the terms are summed once, not once per door:
+ *
+ *     ids/names        <=  3 * MAX_TOOL_ID_LENGTH * MAX_TURN_TOOL_PARTS
+ *                      =   3 * 256 * 64                      =  49 152
+ *   + effects/reason   <=  MAX_TURN_APPROVAL_SIZE             =  40 000
+ *   + enriched inputs  <=  MAX_TURN_APPROVAL_INPUT_SIZE       = 160 000
+ *   + model inputs     <=  MAX_TURN_TOOL_INPUT_SIZE           = 160 000
+ *   + tool outputs     <=  MAX_TURN_TOOL_OUTPUT_SIZE          = 600 000
+ *   + per-part constants (withheld marker 24, degraded `{}` 2,
+ *     truncation suffix ~170)
+ *                      <=  196 * MAX_TURN_TOOL_PARTS          =  12 544
+ *     ------------------------------------------------------------------
+ *     total                                                     1 021 696 JSON chars (~998 KB)
+ *
+ * Conservative twice over: `toolInvocation.input` is ONE field that both input budgets write
+ * to (last write wins, so they cannot both be present), and a turn spending the whole output
+ * budget has no room left for much else. It is stated as a sum anyway — an upper bound that
+ * over-counts is still a bound, and one that under-counts is what the last three rounds each
+ * shipped.
+ *
+ * MEASURED, on the persisted assistant message, with every field of both doors filled to its
+ * cap in JSON characters across 200 tool calls and 10 at-cap `message-metadata` events:
+ * 899 547 JSON characters (~878 KB), 64 parts — inside the 1 021 696 above plus the metadata
+ * door's 30 069. The `tool-activity` door alone, on the shape that measured 112 000 790 JSON
+ * characters before this bound existed, now measures 762 891 — a 147x reduction, and a number
+ * rather than a function of the stream length.
+ */
 
 /**
  * Largest display-enriched `input` one approval card may carry, and the turn-wide total.
@@ -734,10 +881,17 @@ export function createBackendChatAdapter(
       let turnApprovalSize = 0;
 
       // …and the term a size budget alone cannot express: the distinct `toolCallId`s this
-      // turn has already opened an approval PART for. `processStream` creates one part per
-      // new id, so this is the count of parts the door has added to the persisted message.
-      // See `MAX_TURN_APPROVAL_PARTS`.
-      const turnApprovalPartIds = new Set<string>();
+      // turn has already opened a PART for, through EITHER door. `processStream` creates one
+      // part per new id, so this is the count of parts the two doors have added to the
+      // persisted message between them. See `MAX_TURN_TOOL_PARTS`.
+      const turnToolPartIds = new Set<string>();
+
+      // The same discipline once more, for the door that needed no approval to reach the same
+      // sink: the model's own tool arguments and the tools' outputs, both written onto
+      // `toolInvocation` by `tool-activity`. Measured before these budgets: 112 000 790 JSON
+      // characters on one assistant message. See `MAX_TOOL_INPUT_SIZE`/`MAX_TOOL_OUTPUT_SIZE`.
+      let turnToolInputSize = 0;
+      let turnToolOutputSize = 0;
 
       // The display-enriched `input`s of this turn's approval cards. A separate budget from
       // `turnApprovalSize` because it buys something different — the card's readability, not
@@ -1012,7 +1166,84 @@ Check the endpoint URL, its authentication headers, and the server logs for this
               const toolCallId = String(rawToolActivity.toolCallId ?? '');
               const toolName = String(rawToolActivity.toolName ?? '');
               const toolInput = rawToolActivity.input;
+
+              // THE SAME DISCIPLINE AS THE APPROVAL DOOR, on the door beside it. Everything
+              // below lands on `toolInvocation` — the same message PART, written into
+              // `doc.ai.threads[].messages` by the same `handleMessagesChange` — and this
+              // door needs no approval gating to get there, so it is the CHEAPER of the two
+              // to abuse. Measured with the approval door fully capped and this one not: 50
+              // `start` events with 20 000-character ids and 200 000-character inputs, plus
+              // their `complete` events with 2 000 000-character outputs, put 112 000 790
+              // JSON characters on ONE assistant message. See `MAX_TOOL_INPUT_SIZE`.
+              //
+              // Ids first, and they DROP the event rather than truncating it, for the same
+              // reason the approval door does: `toolCallId` is the key `withToolInvocation`
+              // matches parts by and the key an approval correlates against, so a shortened
+              // one names nothing. It is the same cap constant on purpose — see
+              // `MAX_TOOL_ID_LENGTH`.
+              if (
+                wireStringSize(toolCallId) > MAX_TOOL_ID_LENGTH ||
+                wireStringSize(toolName) > MAX_TOOL_ID_LENGTH
+              ) {
+                warnApprovalOnce(
+                  'tool-activity-id-length',
+                  `The AI server sent a tool activity event whose toolCallId or toolName is ` +
+                    `longer than ${MAX_TOOL_ID_LENGTH} characters once stored. These ids are ` +
+                    `saved in the dashboard and are what match a tool call to its approval, so ` +
+                    `the event was dropped instead of shortened — a shortened id would identify ` +
+                    `nothing. That tool call will not appear in the conversation. Check what the ` +
+                    `AI endpoint is sending for these fields.`,
+                );
+                return undefined;
+              }
+              // …then the PART COUNT, shared with the approval door because both add parts to
+              // the same message and one id costs one part however many doors name it.
+              // Charged on `start` ONLY, which is the phase that creates a part
+              // (`tool-input-start`). A `complete` cannot: `tool-output-available` passes a
+              // null initial part to `withToolInvocation`, so an unknown id is a no-op, and
+              // the re-assert beside it only fires for a gated id the approval door has
+              // already counted. Charging it there too would spend the budget on parts that
+              // do not exist.
+              if (
+                phase === 'start' &&
+                !turnToolPartIds.has(toolCallId) &&
+                turnToolPartIds.size >= MAX_TURN_TOOL_PARTS
+              ) {
+                warnApprovalOnce(
+                  'tool-part-budget',
+                  `The AI server reported more than ${MAX_TURN_TOOL_PARTS} different tool calls ` +
+                    `in one response. Each one is stored in the saved dashboard, so the extra ` +
+                    `ones were dropped and will not appear in the conversation. Check whether ` +
+                    `the endpoint's tool-call limit is set higher than this client's.`,
+                );
+                return undefined;
+              }
+              // …then the model's own arguments, which only `start` carries. Over-cap DROPS
+              // THE WHOLE EVENT rather than truncating or substituting: `367deaa` un-capped
+              // this field because a DOCTORED value teaches the model a shape its own schema
+              // rejects, and refusing to record a call at all does not do that. Nothing
+              // enters `modelToolInputs` from a dropped event either, so the stream-end flush
+              // cannot re-assert what was refused here.
+              const toolInputSize = phase === 'start' ? wireValueSize(toolInput ?? {}) : 0;
+              if (
+                phase === 'start' &&
+                (toolInputSize > MAX_TOOL_INPUT_SIZE ||
+                  turnToolInputSize + toolInputSize > MAX_TURN_TOOL_INPUT_SIZE)
+              ) {
+                warnApprovalOnce(
+                  'tool-input-size',
+                  `The AI server sent tool call arguments larger than this client stores per ` +
+                    `response (${MAX_TOOL_INPUT_SIZE} characters per call, ` +
+                    `${MAX_TURN_TOOL_INPUT_SIZE} per response). The call was dropped rather ` +
+                    `than shortened, because shortened arguments would be replayed to the model ` +
+                    `as if it had sent them. That tool call will not appear in the ` +
+                    `conversation. Check what the AI endpoint is sending as the call's input.`,
+                );
+                return undefined;
+              }
               if (phase === 'start') {
+                turnToolPartIds.add(toolCallId);
+                turnToolInputSize += toolInputSize;
                 // The model's own arguments, kept so an approval's display-enriched
                 // `input` can be un-done once the call settles (see `modelToolInputs`).
                 modelToolInputs.set(toolCallId, toolInput ?? {});
@@ -1058,10 +1289,44 @@ Check the endpoint URL, its authentication headers, and the server logs for this
                   });
                 }
                 modelToolInputs.delete(toolCallId);
+                // The tool's OUTPUT — server-generated, persisted onto the same part, and
+                // replayed to the model by `toOpenAIMessages` on the next request. Measured
+                // uncapped at 2 000 000 characters from one event, x 50 events.
+                //
+                // TRUNCATED AND MARKED, not dropped, and it is the only over-cap payload on
+                // this boundary that is. Dropping it would drop this `tool-output-available`
+                // chunk, and `processStream` advances a part to `output-available` only on
+                // that chunk — so the card would sit at `input-available`, which
+                // `resolveToolStatusIcon` draws as a spinner that never resolves. The marker
+                // is what keeps the truncation from being a silent lie to the model, exactly
+                // as `capToolOutput` does on the server side of this wire.
+                const rawOutput = String(rawToolActivity.output ?? '');
+                const outputAllowance = Math.min(
+                  MAX_TOOL_OUTPUT_SIZE,
+                  MAX_TURN_TOOL_OUTPUT_SIZE - turnToolOutputSize,
+                );
+                let toolOutput = rawOutput;
+                if (wireStringSize(rawOutput) > outputAllowance) {
+                  toolOutput =
+                    truncateToWireSize(
+                      rawOutput,
+                      outputAllowance - wireStringSize(TOOL_OUTPUT_TRUNCATED_SUFFIX),
+                    ) + TOOL_OUTPUT_TRUNCATED_SUFFIX;
+                  warnApprovalOnce(
+                    'tool-output-size',
+                    `The AI server sent a tool result larger than this client stores per ` +
+                      `response (${MAX_TOOL_OUTPUT_SIZE} characters per call, ` +
+                      `${MAX_TURN_TOOL_OUTPUT_SIZE} per response). It was truncated and marked ` +
+                      `as incomplete rather than dropped, so the tool card still resolves — but ` +
+                      `neither you nor the model is seeing the whole result. Check what the AI ` +
+                      `endpoint is sending as the call's output.`,
+                  );
+                }
+                turnToolOutputSize += wireStringSize(toolOutput);
                 streamController.enqueue({
                   type: 'tool-output-available',
                   toolCallId,
-                  output: String(rawToolActivity.output ?? ''),
+                  output: toolOutput,
                 });
               }
             } else if (type === 'step-start') {
@@ -1201,8 +1466,8 @@ Check the endpoint URL, its authentication headers, and the server logs for this
               // parts neither of them covers. All of them ride the SAME persisted sink — one
               // `toolInvocation`, written into `doc.ai.threads[].messages` — so capping only
               // the two payload fields left the door open by 2 MB per turn (measured: 50
-              // events x 20 000-character ids). See `MAX_APPROVAL_ID_LENGTH` and
-              // `MAX_TURN_APPROVAL_PARTS` for the shape of the bound and the arithmetic.
+              // events x 20 000-character ids). See `MAX_TOOL_ID_LENGTH` and
+              // `MAX_TURN_TOOL_PARTS` for the shape of the bound and the arithmetic.
               //
               // Both checks reject the WHOLE event rather than repairing it, and both run
               // BEFORE `approvalGatedToolCalls.set` — an event that never reaches the
@@ -1212,18 +1477,18 @@ Check the endpoint URL, its authentication headers, and the server logs for this
               //
               // All three are measured with `wireStringSize` — JSON characters, the unit the
               // budgets around them are denominated in. These three carry no turn budget at
-              // all: this cap times `MAX_TURN_APPROVAL_PARTS` IS their bound, so measuring
+              // all: this cap times `MAX_TURN_TOOL_PARTS` IS their bound, so measuring
               // them in raw UTF-16 units let 256 control characters persist 1 536 JSON
               // characters apiece and multiplied the door's stated worst case by ~6x.
               if (
-                wireStringSize(approvalToolCallId) > MAX_APPROVAL_ID_LENGTH ||
-                wireStringSize(approvalToolName) > MAX_APPROVAL_ID_LENGTH ||
-                (approvalId !== undefined && wireStringSize(approvalId) > MAX_APPROVAL_ID_LENGTH)
+                wireStringSize(approvalToolCallId) > MAX_TOOL_ID_LENGTH ||
+                wireStringSize(approvalToolName) > MAX_TOOL_ID_LENGTH ||
+                (approvalId !== undefined && wireStringSize(approvalId) > MAX_TOOL_ID_LENGTH)
               ) {
                 warnApprovalOnce(
                   'approval-id-length',
                   `The AI server sent a tool approval request whose toolCallId, toolName or ` +
-                    `approvalId is longer than ${MAX_APPROVAL_ID_LENGTH} characters. These ids ` +
+                    `approvalId is longer than ${MAX_TOOL_ID_LENGTH} characters. These ids ` +
                     `are stored in the saved dashboard and are sent back to the server to answer ` +
                     `the request, so the request was dropped instead of shortened — a shortened ` +
                     `id would identify nothing. The tool call will not show an approval card. ` +
@@ -1232,12 +1497,12 @@ Check the endpoint URL, its authentication headers, and the server logs for this
                 return undefined;
               }
               if (
-                !turnApprovalPartIds.has(approvalToolCallId) &&
-                turnApprovalPartIds.size >= MAX_TURN_APPROVAL_PARTS
+                !turnToolPartIds.has(approvalToolCallId) &&
+                turnToolPartIds.size >= MAX_TURN_TOOL_PARTS
               ) {
                 warnApprovalOnce(
                   'approval-part-budget',
-                  `The AI server asked for approval of more than ${MAX_TURN_APPROVAL_PARTS} ` +
+                  `The AI server asked for approval of more than ${MAX_TURN_TOOL_PARTS} ` +
                     `different tool calls in one response. Each one is stored in the saved ` +
                     `dashboard, so the extra requests were dropped and those tool calls will not ` +
                     `show an approval card. Check whether the endpoint's tool-call limit is set ` +
@@ -1245,7 +1510,7 @@ Check the endpoint URL, its authentication headers, and the server logs for this
                 );
                 return undefined;
               }
-              turnApprovalPartIds.add(approvalToolCallId);
+              turnToolPartIds.add(approvalToolCallId);
               // This chunk's `input` is the display-enriched one, and x-chat writes it
               // over `toolInvocation.input`. Remember that it happened — with the tool
               // name, which the stream-end flush has no other source for — so the
@@ -1297,7 +1562,7 @@ Check the endpoint URL, its authentication headers, and the server logs for this
               // yet, so it says so instead.
               //
               // `effectsWithheld` is charged nothing: it is a constant ~24 characters and its
-              // count is already bounded by `MAX_TURN_APPROVAL_PARTS`.
+              // count is already bounded by `MAX_TURN_TOOL_PARTS`.
               let effects: Record<string, unknown> | undefined;
               const candidateEffects = sanitizeApprovalEffects(rawApproval.effects);
               if (candidateEffects) {

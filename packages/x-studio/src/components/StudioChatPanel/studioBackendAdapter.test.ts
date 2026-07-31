@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ChatMessage, ChatMessageChunk, ChatStreamEnvelope } from '@mui/x-chat/headless';
+// Imported, never re-spelled as literals: a test that hard-codes `10_000` would keep passing
+// if the shared cap moved and the adapter stopped agreeing with the rest of the boundary.
+import { MAX_ARRAY_LENGTH, MAX_STRING_LENGTH, UNSAFE_KEYS } from '@mui/x-studio-schema';
 import { createBackendChatAdapter } from './studioBackendAdapter';
 import { createDefaultStudioState } from '../../models/stateTypes';
 import type { CreateDefaultStudioStateOverrides } from '../../models';
@@ -773,6 +776,124 @@ describe('createBackendChatAdapter: message-metadata', () => {
       | undefined;
     expect(metaChunk?.metadata).toEqual({ outputTokens: 12, traceId: 'trace-abc' });
     expect(Object.hasOwn(metaChunk!.metadata, '__proto__')).toBe(false);
+
+    vi.unstubAllGlobals();
+  });
+
+  // The pass-through above is a write into the PERSISTED partition, not a display-only
+  // forward: `ChatMessage.metadata` → `useChatThreads.handleMessagesChange` →
+  // `doc.ai.threads[].messages`, and `doc` is what gets serialized, undone and reloaded.
+  // The load boundary does not screen it back down (`repairThreadLeafShapes` deliberately
+  // does not own-key-screen a surviving message), so an unbounded pass-through lets a
+  // server grow the saved document without limit, one assistant message at a time.
+  it('drops a pass-through value larger than the shared wire size cap', async () => {
+    const metadata = {
+      model: 'gpt-4o',
+      traceId: 'trace-abc',
+      // One character over `MAX_STRING_LENGTH` — the same cap `parseStateMutation` and
+      // `repairFilterDependsOn` enforce, so a payload bounded on one path cannot be
+      // unbounded on this one.
+      bulk: 'x'.repeat(MAX_STRING_LENGTH + 1),
+      // Size is measured on the SERIALIZED value, not just on strings: a nested record is
+      // exactly as persistent as a flat one.
+      bulkNested: { blob: ['y'.repeat(MAX_STRING_LENGTH)] },
+      // At the cap, not over it — kept, proving the cap is a boundary and not a ban on
+      // anything sizeable.
+      atCap: 'z'.repeat(MAX_STRING_LENGTH - 2),
+    };
+    const sse = makeSseBody([
+      { type: 'message-metadata', metadata },
+      { type: 'finish', finishReason: 'stop' },
+    ]);
+    mockFetch(sse);
+
+    const adapter = createBackendChatAdapter(
+      { endpoint: 'https://fake.test/api/ai' },
+      makeController(),
+    );
+    const stream = await adapter.sendMessage(makeSendInput([]));
+    const chatChunks = (await collectChunks(stream)).filter(isChatMessageChunk);
+
+    const metaChunk = chatChunks.find((c) => c.type === 'message-metadata') as
+      | { metadata: Record<string, unknown> }
+      | undefined;
+    expect(metaChunk?.metadata).toEqual({
+      model: 'gpt-4o',
+      traceId: 'trace-abc',
+      atCap: 'z'.repeat(MAX_STRING_LENGTH - 2),
+    });
+
+    vi.unstubAllGlobals();
+  });
+
+  it('caps the number of pass-through keys, without spending the budget on the known four', async () => {
+    const metadata: Record<string, unknown> = {
+      model: 'gpt-4o',
+      inputTokens: 1,
+      outputTokens: 2,
+      iterations: 3,
+    };
+    for (let i = 0; i < MAX_ARRAY_LENGTH + 25; i += 1) {
+      metadata[`k${i}`] = i;
+    }
+    const sse = makeSseBody([
+      { type: 'message-metadata', metadata },
+      { type: 'finish', finishReason: 'stop' },
+    ]);
+    mockFetch(sse);
+
+    const adapter = createBackendChatAdapter(
+      { endpoint: 'https://fake.test/api/ai' },
+      makeController(),
+    );
+    const stream = await adapter.sendMessage(makeSendInput([]));
+    const chatChunks = (await collectChunks(stream)).filter(isChatMessageChunk);
+
+    const metaChunk = chatChunks.find((c) => c.type === 'message-metadata') as
+      | { metadata: Record<string, unknown> }
+      | undefined;
+    const forwarded = metaChunk!.metadata;
+    // The four known fields do not consume the pass-through budget…
+    expect(forwarded.model).toBe('gpt-4o');
+    expect(forwarded.iterations).toBe(3);
+    // …and the open extension is bounded: the first `MAX_ARRAY_LENGTH` unknown keys survive,
+    // the overflow is dropped rather than persisted.
+    expect(Object.keys(forwarded)).toHaveLength(4 + MAX_ARRAY_LENGTH);
+    expect(forwarded.k0).toBe(0);
+    expect(Object.hasOwn(forwarded, `k${MAX_ARRAY_LENGTH - 1}`)).toBe(true);
+    expect(Object.hasOwn(forwarded, `k${MAX_ARRAY_LENGTH}`)).toBe(false);
+
+    vi.unstubAllGlobals();
+  });
+
+  // The hazard keys are dropped by `@mui/x-studio-schema`'s shared `isSafeKey`, not by a
+  // literal re-spelled here. `constructor` and `prototype` are the siblings the existing
+  // `__proto__` assertion above never covered — a hand-rolled triple that lost one of them
+  // would still pass that test.
+  it('drops every shared UNSAFE_KEYS member, not just __proto__', async () => {
+    const metadata = JSON.parse(
+      '{"traceId":"t","__proto__":{"a":1},"constructor":{"b":2},"prototype":{"c":3}}',
+    ) as Record<string, unknown>;
+    const sse = makeSseBody([
+      { type: 'message-metadata', metadata },
+      { type: 'finish', finishReason: 'stop' },
+    ]);
+    mockFetch(sse);
+
+    const adapter = createBackendChatAdapter(
+      { endpoint: 'https://fake.test/api/ai' },
+      makeController(),
+    );
+    const stream = await adapter.sendMessage(makeSendInput([]));
+    const chatChunks = (await collectChunks(stream)).filter(isChatMessageChunk);
+
+    const metaChunk = chatChunks.find((c) => c.type === 'message-metadata') as
+      | { metadata: Record<string, unknown> }
+      | undefined;
+    expect(Object.keys(metaChunk!.metadata)).toEqual(['traceId']);
+    for (const key of UNSAFE_KEYS) {
+      expect(Object.hasOwn(metaChunk!.metadata, key)).toBe(false);
+    }
 
     vi.unstubAllGlobals();
   });

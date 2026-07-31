@@ -9,6 +9,11 @@
  * 5. Applies `state-mutation` events to the local `StudioController`
  */
 import type { ChatAdapter, ChatMessageChunk } from '@mui/x-chat/headless';
+// The prototype-key denylist and the wire size caps, from the package that owns them.
+// Hand-rolling either here — a literal `key === '__proto__' || …`, a local `10_000` — is how
+// two boundaries that must agree start disagreeing, which is the whole reason these live in
+// exactly one place.
+import { isSafeKey, MAX_ARRAY_LENGTH, MAX_STRING_LENGTH } from '@mui/x-studio-schema';
 import type { StudioController } from '../../store/StudioController';
 import type { StudioCustomWidgetDef, SerializableSkill } from '../../models';
 import { applyStateMutation } from './applyStateMutation';
@@ -174,6 +179,20 @@ function toFiniteNumber(value: unknown): number {
 /** A plain (non-array, non-null) record — the shape every sanitizer below expects. */
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Serialized size of an untrusted wire value, in JSON characters, for size-capping a value
+ * whose shape is not otherwise constrained. `Infinity` when the value cannot be serialized at
+ * all (`undefined`, a `BigInt`, a cycle) so a caller comparing against a cap rejects it —
+ * none of those can come out of `JSON.parse`, but a cap must never be the thing that throws.
+ */
+function wireValueSize(value: unknown): number {
+  try {
+    return JSON.stringify(value)?.length ?? Number.POSITIVE_INFINITY;
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
 }
 
 /**
@@ -678,20 +697,43 @@ Check the endpoint URL, its authentication headers, and the server logs for this
               // renderer's `!= null` checks); the whole object is dropped if it isn't a
               // plain record.
               //
-              // Every OTHER key is carried through as-is. `message-metadata` is documented
-              // as the channel for "trace IDs, or any other structured metadata", and a
-              // fixed whitelist silently truncated exactly the extension the protocol
+              // Every OTHER key is carried through — BOUNDED. `message-metadata` is
+              // documented as the channel for "trace IDs, or any other structured metadata",
+              // and a fixed whitelist silently truncated exactly the extension the protocol
               // promises — a host whose middleware attaches a `traceId` (or a custom
               // `contextEnricher`'s own bookkeeping) would find it gone with no error. The
               // crash-safety rationale above does not extend to them: nothing renders an
               // unknown key, and the value is JSON already (it came out of `JSON.parse`).
-              // Prototype-hazard keys are still dropped, so no forwarded record can carry
-              // one into a downstream merge.
+              //
+              // But this is a write into the PERSISTED partition, not a display-only
+              // forward. The chunk's metadata becomes `ChatMessage.metadata`, which
+              // `useChatThreads.handleMessagesChange` writes verbatim into
+              // `doc.ai.threads[].messages` — and `doc` is the partition that is serialized,
+              // undone/redone, and reloaded. The load boundary does not screen it back down
+              // either: `repairThreadLeafShapes` deliberately does NOT own-key-screen a
+              // surviving message, a decision taken when a message carried only role and
+              // content rather than a server-controlled open record. So the same open
+              // extension that makes `traceId` work would, unbounded, let a server grow the
+              // saved document without limit, one assistant message at a time.
+              //
+              // Hence the same caps every other untrusted-payload check in the schema
+              // package enforces (`wireLimits.ts`, imported — not re-declared): at most
+              // `MAX_ARRAY_LENGTH` pass-through keys, each at most `MAX_STRING_LENGTH`
+              // serialized characters. Deliberately generous — far past any real trace id or
+              // bookkeeping record — because the job is to make the persisted size BOUNDED,
+              // not to guess a legitimate maximum. Over-cap keys are dropped individually so
+              // one oversized value cannot cost the message its other metadata.
+              //
+              // The four known fields are exempt from the key COUNT (they are the fixed,
+              // renderer-read part of the payload, not the open extension) and keep their
+              // individual type validation. Prototype-hazard keys are dropped via the shared
+              // `isSafeKey`, so no forwarded record can carry one into a downstream merge.
               const rawMetadata = (event as { metadata?: unknown }).metadata;
               if (isPlainRecord(rawMetadata)) {
                 const cleanMetadata: Record<string, unknown> = {};
+                let passthroughKeys = 0;
                 for (const [key, value] of Object.entries(rawMetadata)) {
-                  if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+                  if (!isSafeKey(key)) {
                     continue;
                   }
                   if (key === 'model') {
@@ -706,7 +748,11 @@ Check the endpoint URL, its authentication headers, and the server logs for this
                     if (typeof value === 'number' && Number.isFinite(value)) {
                       cleanMetadata[key] = value;
                     }
-                  } else {
+                  } else if (
+                    passthroughKeys < MAX_ARRAY_LENGTH &&
+                    wireValueSize(value) <= MAX_STRING_LENGTH
+                  ) {
+                    passthroughKeys += 1;
                     cleanMetadata[key] = value;
                   }
                 }

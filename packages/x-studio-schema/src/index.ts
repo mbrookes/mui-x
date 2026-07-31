@@ -121,3 +121,14 @@ export type {
   SerializedStudioSession,
   MigrationResult,
 } from './statePersistence';
+// The prototype-key denylist and the wire size caps, published because they are NOT
+// implementation details of this package's own boundaries — every consumer that writes an
+// untrusted string key into a record, or forwards an untrusted value into the persisted
+// `doc`, needs the SAME answer. `@mui/x-studio`'s SSE adapter had hand-rolled a
+// byte-equivalent `key === '__proto__' || key === 'constructor' || key === 'prototype'`
+// literal precisely because these were unreachable, which is how a denylist that exists to be
+// defined exactly once starts drifting. `unsafeKeys.ts`/`wireLimits.ts` stay zero-dependency,
+// so exporting them adds nothing to a consumer's import graph. (The rest of
+// `internalGuards.ts` remains unexported — those really are boundary internals.)
+export { UNSAFE_KEYS, isSafeKey } from './unsafeKeys';
+export { MAX_ARRAY_LENGTH, MAX_STRING_LENGTH } from './wireLimits';

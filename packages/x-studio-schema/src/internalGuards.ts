@@ -10,8 +10,11 @@
  * tolerance, or a bugfix, the others don't get).
  *
  * NOT exported from the package's public `index.ts` — these are implementation details of
- * the reducer/wire/load boundaries, not part of the package's public API. Mirrors how
- * `unsafeKeys.ts` is already kept internal-only.
+ * the reducer/wire/load boundaries, not part of the package's public API. (`unsafeKeys.ts`
+ * and `wireLimits.ts` ARE public: a denylist and a set of size caps whose whole purpose is
+ * to be identical everywhere are not implementation details of any one boundary, and keeping
+ * them unreachable is what made `@mui/x-studio` hand-roll a byte-equivalent copy — see the
+ * note on their export in `index.ts`.)
  *
  * This module intentionally does NOT import from `parseStateMutation.ts` (which needs
  * {@link isPlainRecord} from here for its own `isRecord` alias) — that would form an

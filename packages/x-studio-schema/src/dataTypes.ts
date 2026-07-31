@@ -140,7 +140,99 @@ export interface StudioQueryDescriptor {
     fn: 'sum' | 'avg' | 'count' | 'count_non_null' | 'min' | 'max' | 'count_distinct';
     alias: string;
   }[];
-  /** Time-series bucketing granularity */
+  /**
+   * Time-series bucketing granularity.
+   *
+   * CLIENT-ONLY — it has NO wire representation, and that is the single largest driver of
+   * row-budget pressure on the batching path. Scoped, not built; read this before adding one.
+   *
+   * ### What it costs today
+   *
+   * A "monthly revenue" line chart ships `columns: ['created_at', 'amount']`. The middleware
+   * derives its GROUP BY from the projection, so it groups by the RAW timestamp and returns one
+   * row per distinct instant — up to `MAX_RESULT_ROWS` (100 000) for a 12-point chart — which the
+   * client then re-buckets. The numbers are right (`sum`/`min`/`max` re-reduce correctly from
+   * partial groups); the row count is not, and a single such widget can consume the whole
+   * `MAX_ROWS_PER_REQUEST` batch allowance and starve every sibling on the page. That is the
+   * pressure `limit` exists to relieve, by truncating — a remedy the client cannot distinguish
+   * from a complete result.
+   *
+   * `avg` is worse: `aggregationPushdown.ts`'s rung 5 strips the push-down ENTIRELY for
+   * `avg` + `xGroupBy` ("cannot transmit time bucketing"), so those widgets fetch raw rows with no
+   * aggregation at all. They would be the most improved. `count`/`count_distinct` are stripped for
+   * unrelated reasons and bucketing would not help them.
+   *
+   * ### What the wire would carry
+   *
+   * One optional derived-dimension list, shaped like the existing `columnAliases` indirection:
+   * `{ column, granularity, alias }[]`, with `alias` replacing the raw column in `columns`. The
+   * server SELECTs the truncation expression AS the alias, GROUP BYs it, and returns it under the
+   * alias as the row key.
+   *
+   * **It must emit the client's period-key STRING** (`'2024-01-15' | '2024-W03' | '2024-01' |
+   * '2024-Q1' | '2024'`), not a truncated timestamp. Then the client's own re-bucket is a verified
+   * no-op — `truncateToPeriod` returns the key unchanged for day/month/year and `null` for
+   * week/quarter, which `applyXGroupBy`'s `?? value` passes through — so `formatPeriodLabel`,
+   * sorting, and every downstream chart path work with no client change beyond the descriptor
+   * build. A truncated timestamp instead would vary by driver and, for `week`, arrive as a Monday
+   * DATE rather than an ISO week key, breaking both labels and sort order.
+   *
+   * Caveat that follows from the same mechanism: because week/quarter keys are unparseable to
+   * `truncateToPeriod`, the client passes them through WITHOUT validating them. A server that
+   * emitted a wrong week key would not be caught client-side.
+   *
+   * ### Which side owns timezone
+   *
+   * The client already does, and its answer is UTC, unconditionally: `truncateToPeriod` reads
+   * `getUTCFullYear/Month/Date`, and its fast path reads the written `YYYY-MM-DD` prefix while
+   * honouring a real `±HH[:MM]` offset. A first cut must therefore reproduce UTC exactly and NOT
+   * introduce a timezone parameter — otherwise the same dashboard silently changes buckets
+   * depending on whether push-down happened to apply to a given widget. A per-dashboard display
+   * timezone is a separate, later feature, and it has to move BOTH sides at once for the same
+   * reason. Dropping it from v1 is most of why this is smaller than it looks.
+   *
+   * ### What the server must validate
+   *
+   * 1. `granularity` against a 5-member OWN-PROPERTY allowlist, fail-closed, exactly like
+   *    `AGGREGATE_SQL_FUNCTIONS` and `applyHaving`'s `opMap`. The token must never reach SQL.
+   * 2. `column` through the existing `assertTablesAllowed` / `columnValidation` chokepoints and
+   *    `qualifyAgainst` — a truncated column is a column reference like any other.
+   * 3. `alias` through the existing identifier charset/length checks, and rejected when it
+   *    collides with an aggregation alias or a projected column.
+   * 4. The list length against `MAX_ARRAY_ITEMS_PER_DESCRIPTOR`.
+   * 5. A HAVING or ORDER BY on the alias must re-emit the EXPRESSION, not the alias — the same
+   *    constraint `applyHaving` documents (Postgres rejects a SELECT alias in HAVING).
+   * 6. Cache separation is free (`computeQueryHash` spreads the whole descriptor) but needs an
+   *    explicit test: two descriptors differing only in granularity must not share an entry.
+   *
+   * ### The real cost: dialect branching
+   *
+   * This would be the FIRST client-derived SQL expression the middleware emits in a SELECT/GROUP BY
+   * position, and the first query-building code in that package to branch on
+   * `db.client.config.client` — it has no dialect branching anywhere today. The expression must come
+   * from a server-owned template table keyed by (dialect, granularity), with the column bound via
+   * `??`, never concatenated. `week` is the genuinely awkward grain: Postgres needs `IYYY`, not
+   * `YYYY` (they differ for up to three days each January — a silent, once-a-year bug), MySQL needs
+   * `%x-W%v`, and SQLite has no ISO-week token at all and needs a hand-written expression. None of
+   * it is verifiable by the current mock-DB suite, which records method names and cannot see a
+   * dialect bug (see `predicates.ts`'s LIKE note).
+   *
+   * ### Estimate
+   *
+   * 2–4 days. The protocol half (this type, the descriptor build, rung 5 of the push-down ladder,
+   * the plan validation, the cache-key test) is small and contained. The SQL half — the dialect
+   * template table, ISO-week correctness, and real Postgres/MySQL/SQLite tests — is the majority
+   * and all of the risk.
+   *
+   * ### Cheaper move to sequence first
+   *
+   * A HOST-declared bucket column (a generated column or view column the host already models,
+   * surfaced as an ordinary field on `StudioDataSource` and referenced through the existing
+   * `columnAliases` indirection) needs no new SQL emission and no dialect branching at all. It
+   * covers the deployments that hurt most — a large table someone already owns — for a fraction of
+   * the work. It does NOT cover ad-hoc regrain (a user flipping month → week in the UI), so it is a
+   * complement rather than a replacement, but it is the cheaper first move.
+   */
   xGroupBy?: 'day' | 'week' | 'month' | 'quarter' | 'year';
   /**
    * True when this widget currently has an incoming chart-click cross-filter or interactive

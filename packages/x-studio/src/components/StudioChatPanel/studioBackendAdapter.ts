@@ -271,6 +271,33 @@ export function createBackendChatAdapter(
       // permanently-streaming state.
       let streamSettled = false;
 
+      // The arguments the MODEL actually sent for each tool call, captured from the
+      // `tool-activity` `start` event, plus the ids that were later gated behind a
+      // human approval.
+      //
+      // A `tool-approval-request` carries a DISPLAY-enriched `input`: the server
+      // resolves ids against the real state so the human approves against real titles
+      // (`apply_bulk_update`'s `widgetRemovals: ['w1']` becomes `[{id, title}]`) and so
+      // a prompt-injected model cannot label a removal with a title of its own choosing
+      // (`remove_widget`'s `widgetTitle` is overwritten from state). x-chat's stream
+      // processor writes that chunk's `input` straight over `toolInvocation.input`, so
+      // the enriched object became the message's permanent record of the call and
+      // `toOpenAIMessages` replayed it as the model's own arguments on the NEXT
+      // request. For `apply_bulk_update` that is not merely noisy: the tool's schema
+      // declares `widgetRemovals` as `items: { type: 'string' }`, so the executor
+      // rejects the object form and treats the list as empty — the replayed history
+      // teaches the model a shape that silently no-ops.
+      //
+      // Both values are needed, at different times: enriched WHILE the card is
+      // pending, real once the call is settled. The chunk can only carry one, so the
+      // adapter keeps the real one here and re-asserts it (via `tool-input-available`,
+      // whose update path only rewrites `input`) the moment the call completes —
+      // approved, denied or timed out, all of which arrive as `tool-activity`
+      // `complete`. Until `ChatToolApprovalRequestChunk` grows a field for the display
+      // payload, this is where the two are reconciled.
+      const modelToolInputs = new Map<string, unknown>();
+      const approvalGatedToolCallIds = new Set<string>();
+
       // Helper: close the synthetic "Thinking…" reasoning part once real content arrives.
       const endReasoning = (
         streamController: ReadableStreamDefaultController<ChatMessageChunk>,
@@ -480,6 +507,9 @@ Check the endpoint URL, its authentication headers, and the server logs for this
               const toolName = String(rawToolActivity.toolName ?? '');
               const toolInput = rawToolActivity.input;
               if (phase === 'start') {
+                // The model's own arguments, kept so an approval's display-enriched
+                // `input` can be un-done once the call settles (see `modelToolInputs`).
+                modelToolInputs.set(toolCallId, toolInput ?? {});
                 streamController.enqueue({
                   type: 'tool-input-start',
                   toolCallId,
@@ -506,6 +536,22 @@ Check the endpoint URL, its authentication headers, and the server logs for this
                   input: toolInput ?? {},
                 });
               } else if (phase === 'complete') {
+                // Restore the model's own arguments over the approval card's
+                // display-enriched ones before the call is recorded as finished, so the
+                // next request replays what the model actually said rather than a
+                // display shape the tool's own schema rejects (see `modelToolInputs`).
+                // Only for calls that were actually gated: an ungated call's `input` was
+                // never overwritten, and re-emitting it would be pure noise.
+                if (approvalGatedToolCallIds.has(toolCallId)) {
+                  approvalGatedToolCallIds.delete(toolCallId);
+                  streamController.enqueue({
+                    type: 'tool-input-available',
+                    toolCallId,
+                    toolName,
+                    input: modelToolInputs.get(toolCallId) ?? {},
+                  });
+                }
+                modelToolInputs.delete(toolCallId);
                 streamController.enqueue({
                   type: 'tool-output-available',
                   toolCallId,
@@ -579,10 +625,16 @@ Check the endpoint URL, its authentication headers, and the server logs for this
                 typeof rawApproval.approvalId === 'string' && rawApproval.approvalId !== ''
                   ? rawApproval.approvalId
                   : undefined;
+              const approvalToolCallId = String(rawApproval.toolCallId ?? '');
+              // This chunk's `input` is the display-enriched one, and x-chat writes it
+              // over `toolInvocation.input`. Remember that it happened so the model's
+              // own arguments can be re-asserted once the call settles (see
+              // `modelToolInputs`).
+              approvalGatedToolCallIds.add(approvalToolCallId);
               streamController.enqueue({
                 type: 'tool-approval-request',
                 ...(approvalId ? { approvalId } : {}),
-                toolCallId: String(rawApproval.toolCallId ?? ''),
+                toolCallId: approvalToolCallId,
                 toolName: String(rawApproval.toolName ?? ''),
                 input: rawApproval.input ?? {},
               });

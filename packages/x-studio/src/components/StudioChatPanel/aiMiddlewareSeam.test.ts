@@ -36,6 +36,7 @@ import { processStream } from '@mui/x-chat-headless/stream';
 import {
   handleAIChat,
   isApprovalThreadIdAuthorized,
+  toOpenAIMessages,
   type OpenAIMessage,
   type StudioAIHandlerOptions,
   type PendingApproval,
@@ -436,5 +437,82 @@ describe('x-studio ⇄ x-studio-ai-middleware seam: tool approval (F2)', () => {
 
     expect(result.approvalPosts[0].status).toBe(200);
     expect(firstToolOutput(result.message)).toContain('Not today');
+  });
+});
+
+// ── F3 / F4: what the next request replays ────────────────────────────────────
+//
+// The point of round-5's per-turn replay work was that a follow-up request repeats
+// the bytes the earlier turns were actually sent as (turn structure AND payload), so
+// the provider's prefix cache survives and the model is never taught a call it did
+// not make. Two things broke that, and only an end-to-end comparison can see either:
+//
+// F3 — the `tool-approval-request` event carries a DISPLAY-enriched `input`
+// (`apply_bulk_update`'s `widgetRemovals: ['w1']` becomes `[{id, title}]`, so a human
+// approves against real titles instead of opaque ids), and `processStream`'s approval
+// branch writes it straight over `toolInvocation.input`. The enriched object was then
+// replayed as the model's own arguments — and since the tool's schema declares
+// `items: { type: 'string' }`, the executor rejects the object form and treats the
+// removal list as EMPTY. The replayed history taught the model a shape that silently
+// no-ops.
+//
+// F4 — `output` is already a JSON STRING client-side, and the replay serialiser
+// called `JSON.stringify` on it again, so every tool result came back double-encoded.
+
+/** The assistant turn carrying tool calls, from a set of OpenAI messages. */
+function assistantToolCallTurn(messages: OpenAIMessage[]) {
+  return messages.find(
+    (m): m is Extract<OpenAIMessage, { role: 'assistant' }> =>
+      m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length > 0,
+  );
+}
+
+/** The tool-result message for `toolCallId`, from a set of OpenAI messages. */
+function toolResultMessage(messages: OpenAIMessage[], toolCallId: string) {
+  return messages.find(
+    (m): m is Extract<OpenAIMessage, { role: 'tool' }> =>
+      m.role === 'tool' && m.tool_call_id === toolCallId,
+  );
+}
+
+describe('x-studio ⇄ x-studio-ai-middleware seam: replay fidelity (F3, F4)', () => {
+  it('replays an approved tool call with the arguments the model actually sent', async () => {
+    const result = await runSeam({
+      turns: [
+        toolCallTurn('tc-1', 'apply_bulk_update', { widgetRemovals: ['w1'] }),
+        textTurn('Removed'),
+      ],
+      state: STATE_WITH_THREAD,
+      onApprovalRequest: () => ({ approved: true }),
+    });
+
+    // The approval card still shows the state-derived enrichment, which is what makes
+    // a human able to approve against real titles rather than opaque ids (and what
+    // stops a prompt-injected model from labelling the removal with a title of its
+    // own choosing).
+    const approvalChunk = result.clientChunks.find(
+      (c) => c.type === 'tool-approval-request',
+    ) as unknown as { input: { widgetRemovals: Array<{ id: string; title: string }> } };
+    expect(approvalChunk.input.widgetRemovals).toEqual([{ id: 'w1', title: 'W1' }]);
+
+    // …and the replayed history still says what the model said.
+    const sentByServer = assistantToolCallTurn(result.llmRequests[1].messages);
+    const replayed = assistantToolCallTurn(toOpenAIMessages('SYSTEM', [result.message]));
+    expect(replayed?.tool_calls?.[0].function.arguments).toBe('{"widgetRemovals":["w1"]}');
+    expect(replayed?.tool_calls?.[0].function.arguments).toBe(
+      sentByServer?.tool_calls?.[0].function.arguments,
+    );
+  });
+
+  it('replays a tool result byte-for-byte as the server sent it', async () => {
+    const result = await runSeam({
+      turns: [toolCallTurn('tc-1', 'add_page', { title: 'New page' }), textTurn('Added')],
+    });
+
+    const sentByServer = toolResultMessage(result.llmRequests[1].messages, 'tc-1');
+    const replayed = toolResultMessage(toOpenAIMessages('SYSTEM', [result.message]), 'tc-1');
+    expect(replayed?.content).toBe(sentByServer?.content);
+    // Not `"{\"success\":true,…}"` — a JSON string re-stringified into a JSON string.
+    expect(replayed?.content.startsWith('{')).toBe(true);
   });
 });

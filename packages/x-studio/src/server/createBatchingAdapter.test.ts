@@ -2721,6 +2721,13 @@ describe('createBatchingAdapter — cross-source filter fan-out', () => {
           op: 'equals',
           value: 'shipped',
           fieldType: 'string',
+          // The attribution the Filters Drawer stamps on a cross-source leaf
+          // (`WidgetFilterRow`'s `isNowCrossSource ? option.sourceId : undefined`). It is what
+          // makes this the representation `resolveRows` also answers with a semi-join — hence
+          // the "no divergence warning" assertion below. Without it the same wire plan answers
+          // a different question than memory does, which the adapter now announces (see
+          // `clientWireSeam.test.ts`).
+          filterSourceId: 'source-orders',
         },
       }),
     );
@@ -2768,7 +2775,14 @@ describe('createBatchingAdapter — cross-source filter fan-out', () => {
           type: 'group',
           logic: 'and',
           children: [
-            { type: 'leaf', field: 'status', op: 'equals', value: 'shipped', fieldType: 'string' },
+            {
+              type: 'leaf',
+              field: 'status',
+              op: 'equals',
+              value: 'shipped',
+              fieldType: 'string',
+              filterSourceId: 'source-orders',
+            },
             // `customerId` exists ONLY on `orders` — a field name shared with the widget's own
             // source (like `id`) would resolve to the primary table instead.
             {
@@ -2777,6 +2791,7 @@ describe('createBatchingAdapter — cross-source filter fan-out', () => {
               op: 'greater_than',
               value: 10,
               fieldType: 'number',
+              filterSourceId: 'source-orders',
             },
           ],
         },
@@ -3015,7 +3030,14 @@ describe('createBatchingAdapter — cross-source filter fan-out', () => {
           tableName: 'customers',
           widgetId: 'w1',
           select: ['lifetime_value'],
-          filter: { type: 'leaf', field: 'name', op: 'equals', value: 'vip', fieldType: 'string' },
+          filter: {
+            type: 'leaf',
+            field: 'name',
+            op: 'equals',
+            value: 'vip',
+            fieldType: 'string',
+            filterSourceId: 'source-tags',
+          },
         }),
       );
 
@@ -3061,6 +3083,7 @@ describe('createBatchingAdapter — cross-source filter fan-out', () => {
             op: 'equals',
             value: 'admin',
             fieldType: 'string',
+            filterSourceId: 'source-customer-tags',
           },
         }),
       );
@@ -3094,13 +3117,21 @@ describe('createBatchingAdapter — cross-source filter fan-out', () => {
             type: 'group',
             logic: 'and',
             children: [
-              { type: 'leaf', field: 'name', op: 'equals', value: 'vip', fieldType: 'string' },
+              {
+                type: 'leaf',
+                field: 'name',
+                op: 'equals',
+                value: 'vip',
+                fieldType: 'string',
+                filterSourceId: 'source-tags',
+              },
               {
                 type: 'leaf',
                 field: 'tagId',
                 op: 'greater_than',
                 value: 5,
                 fieldType: 'number',
+                filterSourceId: 'source-tags',
               },
             ],
           },

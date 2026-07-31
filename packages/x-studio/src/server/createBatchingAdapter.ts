@@ -963,6 +963,32 @@ function semiJoinExistsDivergenceWarning(fieldId: string, sourceId: string): str
 }
 
 /**
+ * The sibling divergence on the branch that is otherwise equivalent: a plain cross-source
+ * filter leaf carrying NO source attribution.
+ *
+ * The adapter resolves the FIELD across relationships, so it emits the same `EXISTS` plan
+ * whether or not the leaf names the foreign source. `resolveRows` does not: without a
+ * `filterSourceId` naming that source, a non-expression leaf takes the `nativeFilters` arm and
+ * is evaluated against the widget's OWN rows, where the foreign column is `undefined` — so the
+ * wire keeps the row and memory drops it.
+ */
+function semiJoinUnattributedDivergenceWarning(
+  fieldId: string,
+  sourceId: string,
+  relatedSourceId: string,
+): string {
+  return (
+    `The filter on "${fieldId}" for source "${sourceId}" carries no source attribution ` +
+    `(filterSourceId), but "${fieldId}" lives in the related source "${relatedSourceId}". The ` +
+    `data adapter resolves it across the relationship and expresses it as "has at least one ` +
+    `matching related row", while in-memory sources evaluate an unattributed filter against ` +
+    `the widget's own rows — where that column does not exist, so every row is filtered out. ` +
+    `The two return different rows for the same dashboard. Set the filter's filterSourceId to ` +
+    `"${relatedSourceId}" for an answer that matches in both modes.`
+  );
+}
+
+/**
  * Result of resolving a field ID to its SQL representation.
  *
  * - `column`: the logical ID to use in the `columns` array (unchanged for most fields).
@@ -1899,9 +1925,39 @@ function buildBatchWidgetDescriptor(
   // client residual" is one of that decision's inputs and a residual cannot be evaluated against a
   // pre-aggregated response. The two used to run in the opposite order, so an aggregating widget
   // with an unpushable filter dropped that filter with only a warning and aggregated every row.
-  const partition = partitionFilterNode(d.filter, (leaf) =>
-    warnServerLeafDivergence(leaf, d.sourceId, warnDedupe),
-  );
+  /**
+   * For each pushed-down leaf's field, the `filterSourceId`s the document attributed it to.
+   *
+   * Section 3's "same answer as in memory" equivalence holds for exactly ONE of the two
+   * document representations the schema permits. `resolveRows` routes a NON-expression filter
+   * to `crossFilters` (a semi-join, matching the wire) only when `f.filterSourceId` is set AND
+   * differs from the widget's own source; with no `filterSourceId` — or with one naming the
+   * widget's own source — the same leaf lands in `nativeFilters` and is evaluated against the
+   * widget's OWN rows, where a foreign column is `undefined` and every row drops. The adapter
+   * resolves the FIELD across relationships and never read the attribution at all, so both
+   * representations produced the identical `EXISTS` plan: `wire=1 memory=0`, silently, on the
+   * branch certified as equivalent.
+   *
+   * `''` is deliberately not special-cased: `resolveRows`' own test is truthiness
+   * (`f.filterSourceId &&`), so an empty string is already indistinguishable from absent
+   * downstream, and it matches no real source id here either. It is reachable —
+   * `x-studio-ai-middleware`'s `add_page_filter` stores `asString(args.sourceId ?? '')` when
+   * the model omits the argument, with no check that `field` exists on `sourceId`.
+   *
+   * Expression fields need no entry: `resolveRows` routes a foreign-owned expression field to
+   * `crossFilters` regardless of attribution, and those branches carry `divergesFromInMemory`
+   * for a different reason anyway.
+   */
+  const filterLeafSourceIds = new Map<string, Set<string>>();
+  const partition = partitionFilterNode(d.filter, (leaf) => {
+    let attributed = filterLeafSourceIds.get(leaf.field);
+    if (!attributed) {
+      attributed = new Set<string>();
+      filterLeafSourceIds.set(leaf.field, attributed);
+    }
+    attributed.add(leaf.filterSourceId ?? '');
+    warnServerLeafDivergence(leaf, d.sourceId, warnDedupe);
+  });
 
   /**
    * Whether a residual leaf's field can be re-projected under its LOGICAL id in the returned raw
@@ -1966,6 +2022,19 @@ function buildBatchWidgetDescriptor(
       // of this `flatMap` warns; this one was the only divergence in the file that did not.
       if (r.semiJoin.divergesFromInMemory) {
         warnAdapterDivergence(warnDedupe, semiJoinExistsDivergenceWarning(pred.column, d.sourceId));
+      } else if (!filterLeafSourceIds.get(pred.column)?.has(r.semiJoin.sourceId)) {
+        // …and "for a plain cross-source field this is ALSO the in-memory answer" is true of
+        // ONE of the two document representations the schema permits. `resolveRows` reaches
+        // its cross-filter (semi-join) arm only for a leaf whose `filterSourceId` names the
+        // foreign source; the SAME leaf without that attribution goes to `nativeFilters` and
+        // is compared against the widget's own rows, where the foreign column is `undefined`,
+        // so it matches nothing. The adapter cannot pick a winner — it does not know which
+        // the author meant, and both are valid documents — so it announces, exactly as the
+        // expression branches above do. See `filterLeafSourceIds`.
+        warnAdapterDivergence(
+          warnDedupe,
+          semiJoinUnattributedDivergenceWarning(pred.column, d.sourceId, r.semiJoin.sourceId),
+        );
       }
       let group = semiJoinGroups.get(r.semiJoin.sourceId);
       if (!group) {

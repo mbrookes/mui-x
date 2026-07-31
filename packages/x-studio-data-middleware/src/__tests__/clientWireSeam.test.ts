@@ -658,17 +658,34 @@ describe('seam — semi-join answer vs the in-memory answer', () => {
     // `EXISTS` and the customer survives even though its FIRST order is `east`. This is the
     // control: it is what makes the two failures below attributable to the EXPRESSION branches
     // rather than to the fixture.
+    //
+    // BOTH sides get the SAME leaf, `filterSourceId` included. They did not use to: the wire
+    // side was handed a leaf with no attribution and the memory side one attributed to
+    // `orders`, i.e. two DIFFERENT documents, which is the one thing a seam test must never
+    // do — the divergence the next test pins was hiding in exactly that gap.
     const relationships = [REL_ORDERS_CUSTOMERS];
-    const widget = await captureWidget(
-      descriptor({
-        select: ['id'],
-        filter: { type: 'leaf', field: 'region', op: 'equals', value: 'west' },
-      }),
-      { dataSources: SOURCES, relationships },
-    );
+    const leaf = {
+      type: 'leaf',
+      field: 'region',
+      op: 'equals',
+      value: 'west',
+      filterSourceId: 'orders',
+    } as const;
+    let widget: BatchWidgetDescriptor;
+    let warnings = '';
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      widget = await captureWidget(descriptor({ select: ['id'], filter: leaf as never }), {
+        dataSources: SOURCES,
+        relationships,
+      });
+    } finally {
+      warnings = warn.mock.calls.flat().join('\n');
+      warn.mockRestore();
+    }
 
-    expectServerAccepts(widget);
-    expect(wireRows(widget, FANOUT_TABLES)).toHaveLength(1);
+    expectServerAccepts(widget!);
+    expect(wireRows(widget!, FANOUT_TABLES)).toHaveLength(1);
     expect(
       memoryRows(
         'customers',
@@ -677,6 +694,90 @@ describe('seam — semi-join answer vs the in-memory answer', () => {
         [],
       ),
     ).toHaveLength(1);
+    // The NEGATIVE half of the warning assertion, and the reason it is here rather than in a
+    // test of its own: the shapes below assert that a diverging plan warns, but nothing
+    // asserted that an EQUIVALENT plan stays quiet — so flagging section 3 as diverging
+    // (mutant M13) left all 29 seam tests green. A spurious warning is not wrong data, but a
+    // divergence channel nobody can trust to be silent is a channel nobody reads.
+    expect(warnings).toBe('');
+  });
+
+  it('announces the divergence when the SAME cross-source filter carries no source attribution', async () => {
+    // The other document representation the schema permits, fed to both sides this time. The
+    // adapter resolves the FIELD across the relationship and emits the same `EXISTS` plan
+    // either way — it never read `filterSourceId` at all — but `resolveRows` routes a
+    // NON-expression leaf with no attribution to `nativeFilters`, evaluating it against the
+    // widget's own `customers` rows, where `region` is `undefined`. Wire keeps the row, memory
+    // drops it: `wire=1 memory=0`, and it used to happen in silence on the very branch the
+    // control above certifies as equivalent.
+    //
+    // Reachable, not hypothetical: `x-studio-ai-middleware`'s `add_page_filter` stores
+    // `asString(args.sourceId ?? '')` — `''`, falsy and therefore indistinguishable from
+    // absent everywhere downstream — when the model omits the argument, with no check that
+    // `field` exists on `sourceId`.
+    const relationships = [REL_ORDERS_CUSTOMERS];
+    const leaf = { type: 'leaf', field: 'region', op: 'equals', value: 'west' } as const;
+    let widget: BatchWidgetDescriptor;
+    let warnings = '';
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      widget = await captureWidget(descriptor({ select: ['id'], filter: leaf as never }), {
+        dataSources: SOURCES,
+        relationships,
+      });
+    } finally {
+      warnings = warn.mock.calls.flat().join('\n');
+      warn.mockRestore();
+    }
+
+    expectServerAccepts(widget!);
+    // Same leaf on both sides — the SAME document, unlike the version of the control this
+    // replaced.
+    expect(wireRows(widget!, FANOUT_TABLES)).toHaveLength(1);
+    expect(
+      memoryRows('customers', [pageFilter({ field: 'region', value: 'west' })], relationships, []),
+    ).toHaveLength(0);
+    // Not resolved — announced. The adapter cannot pick a winner: both documents are valid and
+    // it does not know which the author meant. What it must not do is answer a question nobody
+    // asked without saying so.
+    expect(warnings).toContain('no source attribution');
+    expect(warnings).toContain('"region"');
+    expect(warnings).toContain('"orders"');
+  });
+
+  it("announces the same divergence when the attribution names the widget's own source", async () => {
+    // `f.filterSourceId !== widgetSourceId` is the other half of `resolveRows`' cross-filter
+    // test, so an attribution pointing back at the widget's own source lands in `nativeFilters`
+    // exactly like an absent one. A check that only tested for absence would miss it.
+    const relationships = [REL_ORDERS_CUSTOMERS];
+    const leaf = {
+      type: 'leaf',
+      field: 'region',
+      op: 'equals',
+      value: 'west',
+      filterSourceId: 'customers',
+    } as const;
+    let warnings = '';
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await captureWidget(descriptor({ select: ['id'], filter: leaf as never }), {
+        dataSources: SOURCES,
+        relationships,
+      });
+    } finally {
+      warnings = warn.mock.calls.flat().join('\n');
+      warn.mockRestore();
+    }
+
+    expect(
+      memoryRows(
+        'customers',
+        [pageFilter({ field: 'region', value: 'west', filterSourceId: 'customers' })],
+        relationships,
+        [],
+      ),
+    ).toHaveLength(0);
+    expect(warnings).toContain('no source attribution');
   });
 
   it('announces that a one-hop join-expression filter answers a different question', async () => {

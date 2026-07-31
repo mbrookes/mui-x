@@ -3,7 +3,11 @@ import type { ChatMessage, ChatMessageChunk, ChatStreamEnvelope } from '@mui/x-c
 // Imported, never re-spelled as literals: a test that hard-codes `10_000` would keep passing
 // if the shared cap moved and the adapter stopped agreeing with the rest of the boundary.
 import { MAX_ARRAY_LENGTH, MAX_STRING_LENGTH, UNSAFE_KEYS } from '@mui/x-studio-schema';
-import { createBackendChatAdapter } from './studioBackendAdapter';
+import {
+  createBackendChatAdapter,
+  MAX_METADATA_KEY_LENGTH,
+  MAX_TURN_METADATA_SIZE,
+} from './studioBackendAdapter';
 import { createDefaultStudioState } from '../../models/stateTypes';
 import type { CreateDefaultStudioStateOverrides } from '../../models';
 import type { StudioController } from '../../store/StudioController';
@@ -101,6 +105,21 @@ function isChatMessageChunk(
   chunk: ChatMessageChunk | ChatStreamEnvelope,
 ): chunk is ChatMessageChunk {
   return 'type' in chunk;
+}
+
+/**
+ * What `x-chat-headless`' `processStream` actually persists for `message-metadata`:
+ * `metadata: { ...message.metadata, ...chunk.metadata }` — every chunk of the turn folded
+ * into ONE assistant message. Asserting on a single chunk measures the wrong quantity.
+ */
+function mergeMetadataChunks(chunks: ChatMessageChunk[]): Record<string, unknown> {
+  const merged: Record<string, unknown> = {};
+  for (const chunk of chunks) {
+    if (chunk.type === 'message-metadata') {
+      Object.assign(merged, (chunk as { metadata: Record<string, unknown> }).metadata);
+    }
+  }
+  return merged;
 }
 
 function mockFetch(ssePayload: Uint8Array) {
@@ -894,6 +913,164 @@ describe('createBackendChatAdapter: message-metadata', () => {
     for (const key of UNSAFE_KEYS) {
       expect(Object.hasOwn(metaChunk!.metadata, key)).toBe(false);
     }
+
+    vi.unstubAllGlobals();
+  });
+
+  // The cap is on the MESSAGE, not on the event. `processStream`'s `message-metadata` case
+  // does `metadata: { ...message.metadata, ...chunk.metadata }` — every event of the turn
+  // MERGES into the single assistant message `useChatThreads.handleMessagesChange` persists —
+  // and nothing bounds how many events a stream carries (`parseSSEStream`'s `MAX_BUFFER_SIZE`
+  // caps the un-newlined residue of ONE LINE, not the stream). A budget reset per event is
+  // therefore not a budget: measured at 5 events x `MAX_ARRAY_LENGTH` at-cap keys it admitted
+  // 2500 keys / 25 MB onto one message, linear in the event count.
+  it('spends ONE size budget across every metadata event of the turn, not one per event', async () => {
+    // Six events, each carrying one value at half the per-value cap: individually every one
+    // of them is well inside every per-event check, so a per-event budget accepts all six.
+    const half = 'x'.repeat(MAX_STRING_LENGTH / 2);
+    const events: object[] = [];
+    for (let i = 0; i < 6; i += 1) {
+      events.push({ type: 'message-metadata', metadata: { [`blob${i}`]: half } });
+    }
+    events.push({ type: 'finish', finishReason: 'stop' });
+    mockFetch(makeSseBody(events));
+
+    const adapter = createBackendChatAdapter(
+      { endpoint: 'https://fake.test/api/ai' },
+      makeController(),
+    );
+    const stream = await adapter.sendMessage(makeSendInput([]));
+    const chatChunks = (await collectChunks(stream)).filter(isChatMessageChunk);
+
+    // Reproduce the sink: what reaches the persisted message is the MERGE of every forwarded
+    // chunk, which is the quantity that has to be bounded.
+    const merged = mergeMetadataChunks(chatChunks);
+    const chargedSize = Object.entries(merged).reduce(
+      (total, [key, value]) => total + key.length + JSON.stringify(value)!.length,
+      0,
+    );
+    expect(chargedSize).toBeLessThanOrEqual(MAX_TURN_METADATA_SIZE);
+    // `blob0` (5) + the serialized value (5002) = 5007 per entry, so three fit and the fourth
+    // would overshoot 20 000. The point is not the exact three: it is that the overflow is
+    // dropped instead of merged, which a per-event budget never does.
+    expect(Object.keys(merged)).toEqual(['blob0', 'blob1', 'blob2']);
+
+    vi.unstubAllGlobals();
+  });
+
+  // Same merge, the key-COUNT half of the budget.
+  it('spends ONE key-count budget across every metadata event of the turn', async () => {
+    const events: object[] = [];
+    for (let event = 0; event < 3; event += 1) {
+      const metadata: Record<string, unknown> = {};
+      for (let i = 0; i < MAX_ARRAY_LENGTH; i += 1) {
+        metadata[`e${event}k${i}`] = i;
+      }
+      events.push({ type: 'message-metadata', metadata });
+    }
+    events.push({ type: 'finish', finishReason: 'stop' });
+    mockFetch(makeSseBody(events));
+
+    const adapter = createBackendChatAdapter(
+      { endpoint: 'https://fake.test/api/ai' },
+      makeController(),
+    );
+    const stream = await adapter.sendMessage(makeSendInput([]));
+    const chatChunks = (await collectChunks(stream)).filter(isChatMessageChunk);
+
+    // 1500 distinct keys offered across three events; the persisted message keeps
+    // `MAX_ARRAY_LENGTH` of them in TOTAL, not `MAX_ARRAY_LENGTH` per event.
+    const merged = mergeMetadataChunks(chatChunks);
+    expect(Object.keys(merged)).toHaveLength(MAX_ARRAY_LENGTH);
+    expect(Object.hasOwn(merged, 'e1k0')).toBe(false);
+
+    vi.unstubAllGlobals();
+  });
+
+  // `wireValueSize` measures the VALUE. A key NAME is exactly as persistent as the value it
+  // names, so without its own cap `MAX_ARRAY_LENGTH` megabyte-long names pass every
+  // value-side check.
+  it('drops a pass-through key whose NAME is over the key-length cap', async () => {
+    const overLongKey = `k${'n'.repeat(MAX_METADATA_KEY_LENGTH)}`;
+    const atCapKey = 'k'.repeat(MAX_METADATA_KEY_LENGTH);
+    const sse = makeSseBody([
+      { type: 'message-metadata', metadata: { [overLongKey]: 1, [atCapKey]: 2, traceId: 't' } },
+      { type: 'finish', finishReason: 'stop' },
+    ]);
+    mockFetch(sse);
+
+    const adapter = createBackendChatAdapter(
+      { endpoint: 'https://fake.test/api/ai' },
+      makeController(),
+    );
+    const stream = await adapter.sendMessage(makeSendInput([]));
+    const chatChunks = (await collectChunks(stream)).filter(isChatMessageChunk);
+
+    const metaChunk = chatChunks.find((c) => c.type === 'message-metadata') as
+      | { metadata: Record<string, unknown> }
+      | undefined;
+    expect(Object.hasOwn(metaChunk!.metadata, overLongKey)).toBe(false);
+    // At the cap, kept — a boundary, not a ban on descriptive keys.
+    expect(metaChunk!.metadata[atCapKey]).toBe(2);
+    expect(metaChunk!.metadata.traceId).toBe('t');
+
+    vi.unstubAllGlobals();
+  });
+
+  // `model` is exempt from the pass-through budget because it is the fixed, renderer-read
+  // part of the payload — but it is still a server-controlled string, so the one field the
+  // budget does not cover must not be the one that defeats it.
+  it('drops a `model` string over the shared wire size cap', async () => {
+    const sse = makeSseBody([
+      {
+        type: 'message-metadata',
+        metadata: { model: 'm'.repeat(MAX_STRING_LENGTH + 1), traceId: 't' },
+      },
+      { type: 'finish', finishReason: 'stop' },
+    ]);
+    mockFetch(sse);
+
+    const adapter = createBackendChatAdapter(
+      { endpoint: 'https://fake.test/api/ai' },
+      makeController(),
+    );
+    const stream = await adapter.sendMessage(makeSendInput([]));
+    const chatChunks = (await collectChunks(stream)).filter(isChatMessageChunk);
+
+    const metaChunk = chatChunks.find((c) => c.type === 'message-metadata') as
+      | { metadata: Record<string, unknown> }
+      | undefined;
+    expect(Object.hasOwn(metaChunk!.metadata, 'model')).toBe(false);
+    expect(metaChunk!.metadata.traceId).toBe('t');
+
+    vi.unstubAllGlobals();
+  });
+
+  // The budget is per `sendMessage`, so a turn that exhausted it must not starve the NEXT
+  // turn — otherwise "bounded" would silently mean "the panel stops recording trace ids
+  // after one large response", and the same adapter instance serves every turn of a session.
+  it('resets the turn budget for the next sendMessage', async () => {
+    const half = 'x'.repeat(MAX_STRING_LENGTH / 2);
+    const events: object[] = [];
+    for (let i = 0; i < 6; i += 1) {
+      events.push({ type: 'message-metadata', metadata: { [`blob${i}`]: half } });
+    }
+    events.push({ type: 'finish', finishReason: 'stop' });
+
+    const adapter = createBackendChatAdapter(
+      { endpoint: 'https://fake.test/api/ai' },
+      makeController(),
+    );
+
+    const keysOfNextTurn = async () => {
+      mockFetch(makeSseBody(events));
+      const stream = await adapter.sendMessage(makeSendInput([]));
+      const chatChunks = (await collectChunks(stream)).filter(isChatMessageChunk);
+      return Object.keys(mergeMetadataChunks(chatChunks));
+    };
+
+    expect(await keysOfNextTurn()).toEqual(['blob0', 'blob1', 'blob2']);
+    expect(await keysOfNextTurn()).toEqual(['blob0', 'blob1', 'blob2']);
 
     vi.unstubAllGlobals();
   });

@@ -211,6 +211,53 @@ function wireValueSize(value: unknown): number {
 }
 
 /**
+ * Longest key NAME accepted into the `message-metadata` pass-through.
+ *
+ * `wireValueSize` measures the VALUE only, so without this a payload of `MAX_ARRAY_LENGTH`
+ * keys whose names are megabytes long passes every value-side check and lands in the
+ * persisted doc — a name is exactly as persistent as the thing it names. 128 characters is
+ * far past any real metadata key (`traceId`, `x-request-id`,
+ * `contextEnricher.cacheGeneration`) while keeping the name side of the budget's worst case
+ * a rounding error next to the value side.
+ *
+ * Exported for the tests only — deliberately NOT re-exported from `x-studio`'s `index.ts`
+ * (which names `createBackendChatAdapter`/`StudioAIConfig` explicitly), so this stays a
+ * module detail rather than a semver-locked number, unlike the shared `wireLimits` caps.
+ */
+export const MAX_METADATA_KEY_LENGTH = 128;
+
+/**
+ * Total serialized size, in JSON characters, that ONE assistant turn may contribute to the
+ * open `message-metadata` extension — key names and values together, summed across every
+ * `message-metadata` event in that turn's stream.
+ *
+ * Per-event caps alone bound nothing. `processStream`'s `message-metadata` case does
+ * `metadata: { ...message.metadata, ...chunk.metadata }`: N events MERGE into ONE assistant
+ * message, so a per-event budget multiplies by the event count, which nothing bounds
+ * (`parseSSEStream`'s 8 MB `MAX_BUFFER_SIZE` caps the un-newlined residue of a single LINE,
+ * not the stream and not the number of events). Measured on the previous per-event counter:
+ * 5 events x `MAX_ARRAY_LENGTH` at-cap keys = 2500 keys / 25 MB on one message, linear in
+ * the event count.
+ *
+ * `2 * MAX_STRING_LENGTH` = 20 000 characters, so a single at-cap value plus its name still
+ * fits — the budget is a ceiling on the turn, not a ban on one sizeable value — and the
+ * worst case a hostile server can write per assistant turn becomes:
+ *
+ *     model          <=  MAX_STRING_LENGTH       = 10 000 chars
+ *   + 3 numbers      ~                              25 chars
+ *   + pass-through   <=  MAX_TURN_METADATA_SIZE  = 20 000 chars  (and <= 500 keys)
+ *   ---------------------------------------------------------------------------
+ *   total            ~                              30 KB per assistant message,
+ *
+ * INDEPENDENT of how many `message-metadata` events the stream carries. The growth vector
+ * that remains — more assistant messages — costs the server a user-initiated turn each,
+ * which is what "bounded" has to mean at this boundary.
+ *
+ * Exported for the tests only — see {@link MAX_METADATA_KEY_LENGTH}.
+ */
+export const MAX_TURN_METADATA_SIZE = 2 * MAX_STRING_LENGTH;
+
+/**
  * Sanitized `{ id, title }` entries of an `ApprovalEffectsSummary` list, or `undefined`
  * when the wire value isn't a list of them.
  */
@@ -391,6 +438,16 @@ export function createBackendChatAdapter(
       // `flushApprovalGatedInputs`).
       const modelToolInputs = new Map<string, unknown>();
       const approvalGatedToolCalls = new Map<string, string>();
+
+      // Pass-through `message-metadata` budget for THIS turn — declared here, at
+      // `sendMessage` scope, and NOT inside the `message-metadata` branch, because the sink
+      // is per-MESSAGE, not per-event: `processStream` merges every event's metadata into the
+      // one assistant message (`{ ...message.metadata, ...chunk.metadata }`) that
+      // `useChatThreads.handleMessagesChange` persists. A counter reset on each event bounds
+      // one event and leaves the message bounded only by the (unbounded) event count.
+      // See `MAX_TURN_METADATA_SIZE` for the arithmetic.
+      let turnMetadataKeys = 0;
+      let turnMetadataSize = 0;
 
       // Helper: close the synthetic "Thinking…" reasoning part once real content arrives.
       const endReasoning = (
@@ -739,20 +796,31 @@ Check the endpoint URL, its authentication headers, and the server logs for this
               // not to guess a legitimate maximum. Over-cap keys are dropped individually so
               // one oversized value cannot cost the message its other metadata.
               //
-              // The four known fields are exempt from the key COUNT (they are the fixed,
-              // renderer-read part of the payload, not the open extension) and keep their
-              // individual type validation. Prototype-hazard keys are dropped via the shared
-              // `isSafeKey`, so no forwarded record can carry one into a downstream merge.
+              // Those caps are spent from a budget that spans the whole TURN
+              // (`turnMetadataKeys`/`turnMetadataSize`, declared at `sendMessage` scope), not
+              // one budget reset per event. The sink is a MERGE — `processStream` folds every
+              // event's metadata into the ONE assistant message that gets persisted — so a
+              // per-event budget bounds an event and leaves the message bounded only by the
+              // event count, which nothing bounds. Key NAMES are charged to that budget and
+              // separately capped at `MAX_METADATA_KEY_LENGTH`: `wireValueSize` measures the
+              // value, and a name is exactly as persistent as the value it names.
+              //
+              // The four known fields are exempt from the key COUNT and from the size budget
+              // (they are the fixed, renderer-read part of the payload, not the open
+              // extension) and keep their individual type validation — but `model` is a
+              // server-controlled STRING, so it carries the shared length cap of its own;
+              // otherwise the one field exempted from the budget is the one that defeats it.
+              // Prototype-hazard keys are dropped via the shared `isSafeKey`, so no forwarded
+              // record can carry one into a downstream merge.
               const rawMetadata = (event as { metadata?: unknown }).metadata;
               if (isPlainRecord(rawMetadata)) {
                 const cleanMetadata: Record<string, unknown> = {};
-                let passthroughKeys = 0;
                 for (const [key, value] of Object.entries(rawMetadata)) {
                   if (!isSafeKey(key)) {
                     continue;
                   }
                   if (key === 'model') {
-                    if (typeof value === 'string') {
+                    if (typeof value === 'string' && value.length <= MAX_STRING_LENGTH) {
                       cleanMetadata.model = value;
                     }
                   } else if (
@@ -763,12 +831,17 @@ Check the endpoint URL, its authentication headers, and the server logs for this
                     if (typeof value === 'number' && Number.isFinite(value)) {
                       cleanMetadata[key] = value;
                     }
-                  } else if (
-                    passthroughKeys < MAX_ARRAY_LENGTH &&
-                    wireValueSize(value) <= MAX_STRING_LENGTH
-                  ) {
-                    passthroughKeys += 1;
-                    cleanMetadata[key] = value;
+                  } else if (key.length <= MAX_METADATA_KEY_LENGTH) {
+                    const entrySize = key.length + wireValueSize(value);
+                    if (
+                      turnMetadataKeys < MAX_ARRAY_LENGTH &&
+                      wireValueSize(value) <= MAX_STRING_LENGTH &&
+                      turnMetadataSize + entrySize <= MAX_TURN_METADATA_SIZE
+                    ) {
+                      turnMetadataKeys += 1;
+                      turnMetadataSize += entrySize;
+                      cleanMetadata[key] = value;
+                    }
                   }
                 }
                 streamController.enqueue({

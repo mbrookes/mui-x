@@ -4,7 +4,7 @@
  * Mocks `fetch` to return pre-built SSE streams so no real LLM calls are made.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { runAgenticLoop, MAX_TURN_TEXT_BUFFER_CHARS } from './agenticLoop';
+import { runAgenticLoop, MAX_TURN_TEXT_BUFFER_CHARS, MAX_CONVERSATION_CHARS } from './agenticLoop';
 import { MAX_TOOL_OUTPUT_CHARS } from './internal/capToolOutput';
 import { isApprovalThreadIdAuthorized, type PendingApproval } from './agenticLoop/toolDispatch';
 import { createEffectsAwareToolPolicy, type ToolPolicy } from './toolPolicy';
@@ -3764,5 +3764,340 @@ describe('runAgenticLoop — aggregate conversation bound (finding F2)', () => {
 
     expect(events.some((ev) => (ev as { type: string }).type === 'error')).toBe(false);
     expect(events.some((ev) => (ev as { type: string }).type === 'finish')).toBe(true);
+  });
+});
+
+// ── Turn-loop wiring ──────────────────────────────────────────────────────────
+//
+// Everything below covers a line in the TURN LOOP that hands a value to something
+// already well tested on its own. That split is exactly why these survived: the helper
+// (`dedupeToolCallEntriesById`, `summarise_page`'s `snapshotPageId` guard,
+// `MAX_CONVERSATION_CHARS`) has its own passing unit tests, and the loop's single line
+// wiring it up has none — so deleting the wiring left every one of those tests green.
+
+/** Two tool calls in ONE assistant turn, at distinct `index` slots. */
+function twoToolCallResponse(
+  a: { id: string; name: string; args: object },
+  b: { id: string; name: string; args: object },
+): Response {
+  return makeSseResponse([
+    {
+      choices: [
+        {
+          delta: {
+            tool_calls: [
+              { index: 0, id: a.id, function: { name: a.name, arguments: JSON.stringify(a.args) } },
+              { index: 1, id: b.id, function: { name: b.name, arguments: JSON.stringify(b.args) } },
+            ],
+          },
+          finish_reason: null,
+        },
+      ],
+    },
+    { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+    { choices: [], usage: { prompt_tokens: 10, completion_tokens: 5 } },
+  ]);
+}
+
+interface ToolActivityEvent {
+  type: string;
+  phase?: string;
+  toolCallId?: string;
+  toolName?: string;
+  output?: string;
+}
+
+function completedToolOutputs(events: unknown[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const ev of events as ToolActivityEvent[]) {
+    if (ev.type === 'tool-activity' && ev.phase === 'complete') {
+      out[ev.toolName!] = ev.output ?? '';
+    }
+  }
+  return out;
+}
+
+describe('runAgenticLoop — turn-loop wiring', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // The loop threads each tool's `nextState` into the NEXT tool of the SAME turn. Every
+  // existing multi-tool case used two READ tools, so nothing observed a write followed
+  // by a read — and dropping the assignment left the second tool reading the request's
+  // ORIGINAL state, silently discarding the first tool's effect for the rest of the turn.
+  it('threads a tool`s nextState into the next tool of the SAME turn', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        twoToolCallResponse(
+          { id: 'tc_a', name: 'set_dashboard_title', args: { title: 'PROBE_TITLE' } },
+          { id: 'tc_b', name: 'get_dashboard_state', args: {} },
+        ),
+      )
+      .mockResolvedValueOnce(textResponse('done', 10, 5));
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Rename then read')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          ...BASE_OPTIONS,
+        },
+      ),
+    );
+
+    const outputs = completedToolOutputs(events);
+    expect(outputs.set_dashboard_title).toBeDefined();
+    // The read ran AFTER the write, on the same turn, against the written state.
+    expect(outputs.get_dashboard_state).toContain('PROBE_TITLE');
+  });
+
+  // `dedupeToolCallEntriesById` is unit-tested; nothing asserted the LOOP applies it.
+  // A duplicated `tool_call_id` makes the next turn's request body malformed (one
+  // `role: 'tool'` reply per `tool_calls[]` entry is required — a provider 400 ends the
+  // chat) and double-fires the browser frames for that call.
+  it('collapses two accumulator slots that ended up sharing one tool_call_id', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        // A gateway that split ONE call across two `index` slots while repeating its id.
+        twoToolCallResponse(
+          { id: 'dup', name: 'list_pages', args: {} },
+          { id: 'dup', name: 'list_pages', args: {} },
+        ),
+      )
+      .mockResolvedValueOnce(textResponse('done', 10, 5));
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('List them')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          ...BASE_OPTIONS,
+        },
+      ),
+    );
+
+    const starts = (events as ToolActivityEvent[]).filter(
+      (ev) => ev.type === 'tool-activity' && ev.phase === 'start',
+    );
+    expect(starts).toHaveLength(1);
+
+    // And the follow-up request body carries exactly one `tool_calls` entry and one
+    // matching `role: 'tool'` reply — the invariant the wire format requires.
+    const secondBody = JSON.parse(vi.mocked(fetch).mock.calls[1][1]!.body as string) as {
+      messages: Array<{ role: string; tool_calls?: unknown[]; tool_call_id?: string }>;
+    };
+    const assistantMsg = secondBody.messages.find((m) => m.tool_calls);
+    expect(assistantMsg!.tool_calls).toHaveLength(1);
+    expect(secondBody.messages.filter((m) => m.role === 'tool')).toHaveLength(1);
+  });
+
+  // Aborting while the loop is PAUSED on an approval must end the stream where it
+  // stands. Without the `aborted` outcome guard the loop falls through and runs another
+  // whole turn against a request nobody is reading — the existing "ends silently" case
+  // could not see it, because with only ONE mocked response the extra turn failed and
+  // was swallowed by the abort-aware catch, producing the same silent ending.
+  it('stops the turn loop when a tool dispatch ends in an abort, without running another turn', async () => {
+    const approvalPending = new Map<string, PendingApproval>();
+    const ac = new AbortController();
+    // Persistent, so an extra turn WOULD succeed rather than failing into the
+    // abort-aware catch that hides it.
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('remove_widget', { widgetId: 'w1' }))
+      .mockResolvedValue(textResponse('done', 10, 5));
+
+    const events: unknown[] = [];
+    for await (const ev of runAgenticLoop(
+      [userMsg('Remove the widget')],
+      INITIAL_STATE,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { ...BASE_OPTIONS, approvalPending, approvalTimeoutMs: 60_000, signal: ac.signal },
+    )) {
+      events.push(ev);
+      if ((ev as { type: string }).type === 'tool-approval-request') {
+        ac.abort();
+      }
+    }
+
+    const types = (events as ToolActivityEvent[]).map((ev) => ev.type);
+    expect(types).toContain('tool-approval-request');
+    expect(types).not.toContain('finish');
+    // No completion frame for the abandoned call, and no second turn.
+    expect(
+      (events as ToolActivityEvent[]).some(
+        (ev) => ev.type === 'tool-activity' && ev.phase === 'complete',
+      ),
+    ).toBe(false);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+  });
+
+  // The mid-stream guard. A real socket does not un-send bytes already in flight, so an
+  // abort that lands while a turn is streaming leaves more chunks to read; without the
+  // guard the loop keeps consuming them, keeps emitting `text-delta` to a consumer that
+  // has gone away, and finishes the turn.
+  it('stops consuming the provider stream as soon as the request is aborted mid-stream', async () => {
+    const ac = new AbortController();
+    const encoder = new TextEncoder();
+    let bodyController!: ReadableStreamDefaultController<Uint8Array>;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        bodyController = controller;
+        controller.enqueue(
+          encoder.encode(
+            sseChunk({ choices: [{ delta: { content: 'FIRST' }, finish_reason: null }] }),
+          ),
+        );
+      },
+    });
+    vi.mocked(fetch).mockResolvedValue(new Response(body, { status: 200 }));
+
+    const events: unknown[] = [];
+    for await (const ev of runAgenticLoop(
+      [userMsg('Hi')],
+      INITIAL_STATE,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { ...BASE_OPTIONS, signal: ac.signal },
+    )) {
+      events.push(ev);
+      if ((ev as { type: string }).type === 'text-delta') {
+        ac.abort();
+        // The rest of the turn was already on the wire when the abort happened.
+        bodyController.enqueue(
+          encoder.encode(
+            [
+              sseChunk({ choices: [{ delta: { content: 'SECOND' }, finish_reason: null }] }),
+              sseChunk({ choices: [{ delta: {}, finish_reason: 'stop' }] }),
+              sseChunk({ choices: [], usage: { prompt_tokens: 10, completion_tokens: 5 } }),
+              'data: [DONE]\n\n',
+            ].join(''),
+          ),
+        );
+        bodyController.close();
+      }
+    }
+
+    const deltas = (events as Array<{ type: string; delta?: string }>)
+      .filter((ev) => ev.type === 'text-delta')
+      .map((ev) => ev.delta);
+    expect(deltas).toEqual(['FIRST']);
+    expect((events as ToolActivityEvent[]).map((ev) => ev.type)).not.toContain('finish');
+  });
+
+  // `snapshotPageId` is captured ONCE from the request's initial state precisely so a
+  // same-turn `set_active_page` can't move the target out from under the snapshot. The
+  // executor's guard is well tested in isolation; the loop's single line supplying the
+  // id was not — and without it the guard compares the threaded active page against
+  // itself, always matches, and narrates page A's rows as page B.
+  it('pins summarise_page to the page the request`s snapshot covers, not a same-turn set_active_page', async () => {
+    const twoPageState = createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-a' },
+        pages: {
+          'page-a': { id: 'page-a', title: 'Page A', widgetRows: [] },
+          'page-b': { id: 'page-b', title: 'Page B', widgetRows: [] },
+        },
+      },
+    });
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        twoToolCallResponse(
+          { id: 'tc_a', name: 'set_active_page', args: { pageId: 'page-b' } },
+          { id: 'tc_b', name: 'summarise_page', args: {} },
+        ),
+      )
+      .mockResolvedValueOnce(textResponse('done', 10, 5));
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Switch and summarise')],
+        twoPageState,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          ...BASE_OPTIONS,
+          pageSnapshot: 'PAGE-A-ROWS: revenue 100',
+        },
+      ),
+    );
+
+    const outputs = completedToolOutputs(events);
+    // The snapshot covers page-a; the model asked (implicitly) for the now-active
+    // page-b. That must be refused, not answered with page-a's rows.
+    expect(outputs.summarise_page).toContain('page-a');
+    expect(outputs.summarise_page).toContain('can only summarise page');
+    expect(outputs.summarise_page).not.toContain('PAGE-A-ROWS');
+  });
+
+  // `runAgenticLoop` is a public export a consumer may drive directly, so the running
+  // conversation size must be SEEDED from the incoming messages — its own comment says
+  // it must not assume `handleAIChat`'s `MAX_REQUEST_MESSAGES_TOTAL_CHARS` check ran.
+  // Seeded at 0 instead, a multi-megabyte client `messages` array is re-POSTed on every
+  // turn and the cap never trips.
+  it('seeds the conversation-size budget from the incoming messages, not from zero', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('list_pages', {}))
+      .mockResolvedValue(textResponse('done', 10, 5));
+
+    // Just over the cap once the turn's tool result is appended.
+    const huge = 'x'.repeat(MAX_CONVERSATION_CHARS);
+    const events = await collectEvents(
+      runAgenticLoop([userMsg(huge)], INITIAL_STATE, undefined, undefined, undefined, undefined, {
+        ...BASE_OPTIONS,
+      }),
+    );
+
+    const errorEvent = (events as Array<{ type: string; message?: string }>).find(
+      (ev) => ev.type === 'error',
+    );
+    expect(errorEvent?.message).toContain('the conversation grew past the maximum size');
+    expect((events as ToolActivityEvent[]).map((ev) => ev.type)).not.toContain('finish');
+  });
+
+  // Every token figure this package reports — the budget check, the `usage` SSE frame,
+  // `onUsage`, and therefore any host's per-tenant billing — comes from the usage chunk
+  // that `stream_options: { include_usage: true }` is what ASKS for. The tests feed a
+  // usage chunk regardless of what was requested, so dropping the option changed nothing
+  // observable in the suite while silently zeroing every figure against a real provider.
+  it('asks the provider for usage on every turn', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(toolCallResponse('list_pages', {}))
+      .mockResolvedValueOnce(textResponse('done', 10, 5));
+
+    await collectEvents(
+      runAgenticLoop([userMsg('Go')], INITIAL_STATE, undefined, undefined, undefined, undefined, {
+        ...BASE_OPTIONS,
+      }),
+    );
+
+    expect(vi.mocked(fetch).mock.calls.length).toBeGreaterThanOrEqual(2);
+    for (const call of vi.mocked(fetch).mock.calls) {
+      const sent = JSON.parse(call[1]!.body as string) as {
+        stream?: boolean;
+        stream_options?: { include_usage?: boolean };
+      };
+      expect(sent.stream).toBe(true);
+      expect(sent.stream_options).toEqual({ include_usage: true });
+    }
   });
 });

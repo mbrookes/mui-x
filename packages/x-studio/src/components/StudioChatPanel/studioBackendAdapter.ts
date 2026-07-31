@@ -211,6 +211,29 @@ function wireValueSize(value: unknown): number {
 }
 
 /**
+ * Serialized size of a STRING, in the SAME JSON characters every budget on this boundary is
+ * denominated in — `JSON.stringify`'s length minus the two framing quotes, so it measures the
+ * string's own escaped characters and composes additively with {@link wireValueSize}.
+ *
+ * `String.prototype.length` is NOT that unit and must not be used to charge or cap anything
+ * that lands in the persisted doc. `JSON.stringify` escapes a control character to a
+ * six-character `\uXXXX`, a quote/backslash to two, and an astral character stays two UTF-16
+ * units — so a raw-length charge under-charges by up to 6x, and every budget denominated in
+ * JSON characters but spent in raw ones is off by that factor. Measured on the previous
+ * mixed-unit code, against docblocks claiming 245 KB and 30 KB per assistant message: a turn
+ * of control-character `reason`s and ids persisted 539 422 JSON characters through the
+ * approval door, and a single 10 000-unit control-character `model` persisted 60 002 through
+ * the metadata door.
+ *
+ * The fixed JSON framing each field costs on top of this — its two quotes, its key name, the
+ * enclosing braces — is a constant per part, not a term a hostile server can grow, so the
+ * budgets below bound the field CONTENTS and the framing rides along as that constant.
+ */
+function wireStringSize(value: string): number {
+  return JSON.stringify(value).length - 2;
+}
+
+/**
  * Longest key NAME accepted into the `message-metadata` pass-through.
  *
  * `wireValueSize` measures the VALUE only, so without this a payload of `MAX_ARRAY_LENGTH`
@@ -219,6 +242,11 @@ function wireValueSize(value: unknown): number {
  * far past any real metadata key (`traceId`, `x-request-id`,
  * `contextEnricher.cacheGeneration`) while keeping the name side of the budget's worst case
  * a rounding error next to the value side.
+ *
+ * Measured — and charged — in JSON characters ({@link wireStringSize}), like every other term
+ * of {@link MAX_TURN_METADATA_SIZE}. A name of 128 control characters is 128 UTF-16 units and
+ * 768 JSON characters; charged raw, 500 of them cost the budget 64 000 and the document
+ * 384 000.
  *
  * Exported for the tests only — deliberately NOT re-exported from `x-studio`'s `index.ts`
  * (which names `createBackendChatAdapter`/`StudioAIConfig` explicitly), so this stays a
@@ -243,15 +271,28 @@ export const MAX_METADATA_KEY_LENGTH = 128;
  * fits — the budget is a ceiling on the turn, not a ban on one sizeable value — and the
  * worst case a hostile server can write per assistant turn becomes:
  *
- *     model          <=  MAX_STRING_LENGTH       = 10 000 chars
- *   + 3 numbers      ~                              25 chars
- *   + pass-through   <=  MAX_TURN_METADATA_SIZE  = 20 000 chars  (and <= 500 keys)
+ *     model          <=  MAX_STRING_LENGTH       = 10 000 JSON chars
+ *   + 3 numbers      <=  3 x 23 (a double's longest JSON form)
+ *                                               =      69 JSON chars
+ *   + pass-through   <=  MAX_TURN_METADATA_SIZE  = 20 000 JSON chars (names AND values,
+ *                                                                    and <= 500 keys)
  *   ---------------------------------------------------------------------------
- *   total            ~                              30 KB per assistant message,
+ *   total            <=                            30 069 JSON chars (~30 KB) per
+ *                                                  assistant message,
  *
  * INDEPENDENT of how many `message-metadata` events the stream carries. The growth vector
  * that remains — more assistant messages — costs the server a user-initiated turn each,
  * which is what "bounded" has to mean at this boundary.
+ *
+ * EVERY term above is JSON characters, measured with `wireValueSize`/{@link wireStringSize},
+ * because that is the unit the budget is denominated in and the unit the doc actually
+ * persists. The previous round charged `model` and the key NAMES with
+ * `String.prototype.length` instead, and a JSON-character budget spent in raw UTF-16 units is
+ * off by the escape ratio: measured against this same "~30 KB" claim, a turn of
+ * control-character names and one control-character `model` persisted 178 052 JSON characters,
+ * of which `model` alone was 60 002. Re-measured with every term in one unit, the same hostile
+ * turn (10 events x 500 at-cap names, at-cap values, an at-cap `model`) persists 29 404 JSON
+ * characters of `metadata`, 29 279 of which are the fields above.
  *
  * Exported for the tests only — see {@link MAX_METADATA_KEY_LENGTH}.
  */
@@ -290,6 +331,11 @@ function sanitizeEffectEntities(value: unknown): Array<{ id: string; title: stri
  * typically one usage summary), and the client cannot rely on the server's own iteration
  * budget — the server is the untrusted party here.
  *
+ * BOTH fields are charged in JSON characters — `effects` through `wireValueSize`, `reason`
+ * through {@link wireStringSize}. `reason` was charged with `String.prototype.length` until
+ * this round, which is a different unit from the one this constant names: four at-cap
+ * control-character reasons charged 40 000 and persisted 240 008.
+ *
  * Exported for the tests only — see {@link MAX_METADATA_KEY_LENGTH}.
  */
 export const MAX_TURN_APPROVAL_SIZE = 4 * MAX_STRING_LENGTH;
@@ -303,6 +349,12 @@ export const MAX_TURN_APPROVAL_SIZE = 4 * MAX_STRING_LENGTH;
  * that budget in place: a 1 000 000-character `toolName` and a 1 000 000-character
  * `approvalId` were forwarded verbatim onto the persisted part. Bounding one field of a
  * record bounds nothing.
+ *
+ * 256 JSON characters — measured with {@link wireStringSize}, not `String.prototype.length`,
+ * because these three carry no turn budget of their own: this cap times
+ * {@link MAX_TURN_APPROVAL_PARTS} IS their bound, so a bound spent in the wrong unit is the
+ * whole bound. Measured while they were charged raw: 256 control characters passed the cap and
+ * persisted 1 536 JSON characters apiece.
  *
  * 256 characters is far past any id a real server mints (`toolu_01…`, a UUID, a tool name),
  * and an over-cap value DROPS THE WHOLE EVENT rather than truncating it: all three are
@@ -333,21 +385,38 @@ export const MAX_APPROVAL_ID_LENGTH = 256;
  * length. It also bounds `approvalGatedToolCalls` (entries are only ever added here), and so
  * bounds the stream-end flush that walks it.
  *
- * WORST CASE PER ASSISTANT TURN, from this door:
+ * WORST CASE PER ASSISTANT TURN, from this door — every term in JSON CHARACTERS, the unit
+ * the budgets are denominated in and the unit the saved document is measured in:
  *
  *     ids/names   <=  3 * MAX_APPROVAL_ID_LENGTH * MAX_TURN_APPROVAL_PARTS
- *                 =   3 * 256 * 64                    =  49 152 chars
+ *                 =   3 * 256 * 64                    =  49 152 JSON chars
  *   + effects
- *     and reason  <=  MAX_TURN_APPROVAL_SIZE          =  40 000 chars (turn-wide, not per part)
+ *     and reason  <=  MAX_TURN_APPROVAL_SIZE          =  40 000 JSON chars (turn-wide, not
+ *                                                                          per part)
  *   + enriched
- *     inputs      <=  MAX_TURN_APPROVAL_INPUT_SIZE    = 160 000 chars (turn-wide, not per part)
- *   + withheld
- *     markers     <=  24 * MAX_TURN_APPROVAL_PARTS    =   1 536 chars
+ *     inputs      <=  MAX_TURN_APPROVAL_INPUT_SIZE    = 160 000 JSON chars (turn-wide, not
+ *                                                                          per part)
+ *   + the per-part constants a degraded card carries — a withheld marker
+ *     (`{"effectsWithheld":true}`, 24) plus the `{}` an over-cap input degrades to (2):
+ *                 <=  26 * MAX_TURN_APPROVAL_PARTS    =   1 664 JSON chars
  *   --------------------------------------------------------------------------------
- *   total         ~                                     245 KB per assistant message
+ *   total         <=                                    250 816 JSON chars (~245 KB) per
+ *                                                       assistant message
  *
  * INDEPENDENT of the number of `tool-approval-request` events, which is the term the
  * previous round's arithmetic omitted.
+ *
+ * THE UNIT IS LOAD-BEARING and was wrong until this round. `effects` and the enriched `input`
+ * were charged with `wireValueSize` (real JSON length) while `reason` and all three ids were
+ * charged with `String.prototype.length`. `JSON.stringify` escapes a control character to six
+ * characters, so every raw-length-charged term under-charged by up to 6x and the sum above was
+ * a claim about a quantity nothing measured: measured against this docblock's own "~245 KB",
+ * one turn of control-character reasons and ids persisted 539 422 JSON characters. Re-measured
+ * with every term charged through {@link wireStringSize}, the same hostile turn (500 events,
+ * every capped field filled with control characters to exactly its cap in JSON characters)
+ * yields 248 850 JSON characters across the fields above and 258 654 for the whole persisted
+ * assistant message — the ~10 KB difference being the fixed JSON framing of 64 parts, which is
+ * a constant per part and not something a server can grow.
  *
  * The chunk's `input` is bounded separately — see {@link MAX_APPROVAL_INPUT_SIZE}. What
  * remains uncapped, by an explicit earlier decision (`367deaa`), is `modelToolInputs`' copy:
@@ -1067,7 +1136,12 @@ Check the endpoint URL, its authentication headers, and the server logs for this
                     continue;
                   }
                   if (key === 'model') {
-                    if (typeof value === 'string' && value.length <= MAX_STRING_LENGTH) {
+                    // `wireStringSize`, not `.length`: `model` is the one string this door
+                    // exempts from the turn budget, so this cap IS its bound — and a bound
+                    // spent in raw UTF-16 units against a JSON-character claim is off by up
+                    // to 6x (measured: a 10 000-unit control-character `model` persisted
+                    // 60 002 JSON characters against a stated 10 000).
+                    if (typeof value === 'string' && wireStringSize(value) <= MAX_STRING_LENGTH) {
                       cleanMetadata.model = value;
                     }
                   } else if (
@@ -1078,8 +1152,11 @@ Check the endpoint URL, its authentication headers, and the server logs for this
                     if (typeof value === 'number' && Number.isFinite(value)) {
                       cleanMetadata[key] = value;
                     }
-                  } else if (key.length <= MAX_METADATA_KEY_LENGTH) {
-                    const entrySize = key.length + wireValueSize(value);
+                  } else if (wireStringSize(key) <= MAX_METADATA_KEY_LENGTH) {
+                    // Both terms in JSON characters, the unit `MAX_TURN_METADATA_SIZE` is
+                    // denominated in. A name is exactly as persistent as the value it names,
+                    // and it escapes exactly as expansively.
+                    const entrySize = wireStringSize(key) + wireValueSize(value);
                     if (
                       turnMetadataKeys < MAX_ARRAY_LENGTH &&
                       wireValueSize(value) <= MAX_STRING_LENGTH &&
@@ -1132,10 +1209,16 @@ Check the endpoint URL, its authentication headers, and the server logs for this
               // consumer never overwrote `toolInvocation.input`, so it must not enter the
               // re-assert bookkeeping either, or the stream-end flush would emit a
               // `tool-input-available` for a call no card was ever shown for.
+              //
+              // All three are measured with `wireStringSize` — JSON characters, the unit the
+              // budgets around them are denominated in. These three carry no turn budget at
+              // all: this cap times `MAX_TURN_APPROVAL_PARTS` IS their bound, so measuring
+              // them in raw UTF-16 units let 256 control characters persist 1 536 JSON
+              // characters apiece and multiplied the door's stated worst case by ~6x.
               if (
-                approvalToolCallId.length > MAX_APPROVAL_ID_LENGTH ||
-                approvalToolName.length > MAX_APPROVAL_ID_LENGTH ||
-                (approvalId?.length ?? 0) > MAX_APPROVAL_ID_LENGTH
+                wireStringSize(approvalToolCallId) > MAX_APPROVAL_ID_LENGTH ||
+                wireStringSize(approvalToolName) > MAX_APPROVAL_ID_LENGTH ||
+                (approvalId !== undefined && wireStringSize(approvalId) > MAX_APPROVAL_ID_LENGTH)
               ) {
                 warnApprovalOnce(
                   'approval-id-length',
@@ -1245,14 +1328,20 @@ Check the endpoint URL, its authentication headers, and the server logs for this
                     `know what it does. Check what the AI endpoint is sending as \`effects\`.`,
                 );
               }
+              // `reason` is charged in the SAME unit as `effects` above and as the budget
+              // itself: JSON characters. Charging `String.prototype.length` here — which is
+              // what shipped — spent a 40 000-JSON-character budget in raw UTF-16 units, so
+              // four at-cap control-character reasons charged 40 000 and persisted 240 008.
               let policyReason: string | undefined;
+              const reasonSize =
+                typeof rawApproval.reason === 'string' ? wireStringSize(rawApproval.reason) : 0;
               if (
                 typeof rawApproval.reason === 'string' &&
                 rawApproval.reason !== '' &&
-                rawApproval.reason.length <= MAX_STRING_LENGTH &&
-                turnApprovalSize + rawApproval.reason.length <= MAX_TURN_APPROVAL_SIZE
+                reasonSize <= MAX_STRING_LENGTH &&
+                turnApprovalSize + reasonSize <= MAX_TURN_APPROVAL_SIZE
               ) {
-                turnApprovalSize += rawApproval.reason.length;
+                turnApprovalSize += reasonSize;
                 policyReason = rawApproval.reason;
               }
               // The display-enriched `input`, capped per card AND per turn.

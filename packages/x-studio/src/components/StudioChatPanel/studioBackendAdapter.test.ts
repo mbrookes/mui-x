@@ -106,6 +106,30 @@ async function collectChunks(
   return chunks;
 }
 
+/**
+ * The size of a string in the unit every budget on this boundary is denominated in: JSON
+ * characters, i.e. what actually lands in the persisted document.
+ *
+ * Every assertion below measures with this rather than `String.prototype.length`, which is a
+ * DIFFERENT unit — `JSON.stringify` escapes a control character to a six-character `\uXXXX`.
+ * Measuring the charge in the same wrong unit the code charged it in is why the previous
+ * round's budget tests could not see that the doors were ~6x wider than their docblocks said.
+ */
+function jsonChars(value: string): number {
+  return JSON.stringify(value).length - 2;
+}
+
+/**
+ * U+0001: ONE UTF-16 unit, SIX JSON characters (`\u0001`). The 6:1 escape that separates the
+ * unit the budgets are denominated in from the unit they used to be spent in.
+ */
+const CONTROL_CHAR = String.fromCharCode(1);
+
+/** A string whose JSON-escaped size is exactly `size`, built mostly of {@link CONTROL_CHAR}. */
+function escapingString(size: number): string {
+  return CONTROL_CHAR.repeat(Math.floor(size / 6)) + 'a'.repeat(size % 6);
+}
+
 function isChatMessageChunk(
   chunk: ChatMessageChunk | ChatStreamEnvelope,
 ): chunk is ChatMessageChunk {
@@ -664,11 +688,67 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
     const events = Array.from({ length: 6 }, (_unused, i) => approvalEvent(i, { reason }));
     const chunks = await collectApprovalChunks(events);
 
-    const charged = chunks.reduce((total, chunk) => total + (chunk.reason?.length ?? 0), 0);
+    // In JSON characters — `MAX_TURN_APPROVAL_SIZE`'s own unit. Measuring `reason.length`
+    // here (what this test used to do) measures the same wrong unit the code charged in, so
+    // it agreed with the defect instead of catching it.
+    const charged = chunks.reduce(
+      (total, chunk) => total + (chunk.reason ? jsonChars(chunk.reason) : 0),
+      0,
+    );
     expect(charged).toBeLessThanOrEqual(MAX_TURN_APPROVAL_SIZE);
     expect(chunks.filter((chunk) => chunk.reason !== undefined)).toHaveLength(
       MAX_TURN_APPROVAL_SIZE / MAX_STRING_LENGTH,
     );
+  });
+
+  // ── the UNIT the budgets are denominated in ────────────────────────────────
+  //
+  // `MAX_TURN_APPROVAL_SIZE`'s docblock says "JSON characters". `effects` and the enriched
+  // `input` were charged with `JSON.stringify(...).length`; `reason` and all three ids were
+  // charged with `String.prototype.length`. Those are DIFFERENT units — `JSON.stringify`
+  // escapes a control character to a six-character `\uXXXX` — so every raw-charged term
+  // under-charged by up to 6x. Measured against the docblocks' own claims, before this fix:
+  // the approval door persisted 539 422 JSON characters against a stated ~245 KB, and the
+  // metadata door 178 052 against a stated ~30 KB (`model` alone: 60 002).
+  //
+  // The previous round's pinning tests could not see any of it: they measured
+  // `(c.reason?.length ?? 0)`, the same wrong unit the code charged in.
+
+  it('charges `reason` in JSON characters, not in raw UTF-16 units', async () => {
+    // Exactly `MAX_STRING_LENGTH` JSON characters — at the per-field cap — but only ~1 670
+    // UTF-16 units. Charged raw, 23 of these fit the 40 000-character budget and put 230 000
+    // JSON characters on one message; charged in the budget's own unit, four do.
+    const reason = escapingString(MAX_STRING_LENGTH);
+    expect(jsonChars(reason)).toBe(MAX_STRING_LENGTH);
+    expect(reason.length).toBeLessThan(MAX_STRING_LENGTH / 5);
+
+    const chunks = await collectApprovalChunks(
+      Array.from({ length: 30 }, (_unused, i) => approvalEvent(i, { reason })),
+    );
+
+    const charged = chunks.reduce(
+      (total, chunk) => total + (chunk.reason ? jsonChars(chunk.reason) : 0),
+      0,
+    );
+    expect(charged).toBeLessThanOrEqual(MAX_TURN_APPROVAL_SIZE);
+    expect(chunks.filter((chunk) => chunk.reason !== undefined)).toHaveLength(
+      MAX_TURN_APPROVAL_SIZE / MAX_STRING_LENGTH,
+    );
+  });
+
+  // The per-FIELD cap is in the same unit for the same reason: `MAX_STRING_LENGTH` is a claim
+  // about what gets STORED, and 10 000 control characters store 60 000.
+  it('rejects a `reason` that is over the per-field cap only once escaped', async () => {
+    const chunk = await collectApprovalChunk(
+      approvalEvent(1, {
+        effects: { updatedWidgetCount: 1 },
+        reason: CONTROL_CHAR.repeat(MAX_STRING_LENGTH),
+      }),
+    );
+
+    expect(chunk!.reason).toBe(undefined);
+    // Dropped individually, exactly as an over-cap plain-string reason is.
+    expect(chunk!.effects).toEqual({ updatedWidgetCount: 1 });
   });
 
   // A sizeable but legal enriched `input` is forwarded untouched — the cap below is a
@@ -860,6 +940,59 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
     expect(approval.approvalId).toBe(atCap);
   });
 
+  // The three ids carry NO turn budget: this cap times the part count IS their bound, so the
+  // unit it is measured in is the whole bound. Measured while they were capped by
+  // `String.prototype.length`: ids of 256 control characters passed the cap and persisted
+  // 1 536 JSON characters apiece — 64 parts x 3 fields x 1 536 = 294 912, against the 49 152
+  // the docblock's arithmetic claims.
+  it('caps the ids in JSON characters, not in raw UTF-16 units', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const atRawCap = CONTROL_CHAR.repeat(MAX_APPROVAL_ID_LENGTH);
+    expect(atRawCap.length).toBe(MAX_APPROVAL_ID_LENGTH);
+    expect(jsonChars(atRawCap)).toBe(MAX_APPROVAL_ID_LENGTH * 6);
+
+    const chunks = await collectTurnChunks(
+      Array.from({ length: 50 }, (_unused, i) => {
+        // Distinct per event and still INSIDE the raw cap, so only the JSON measurement can
+        // reject it: charged with `String.prototype.length` all 50 of these sailed through.
+        const distinct = `${CONTROL_CHAR.repeat(MAX_APPROVAL_ID_LENGTH - 6)}c${i}`;
+        expect(distinct.length).toBeLessThanOrEqual(MAX_APPROVAL_ID_LENGTH);
+        return {
+          type: 'tool-approval-request',
+          approvalId: atRawCap,
+          toolCallId: distinct,
+          toolName: atRawCap,
+          input: {},
+        };
+      }),
+    );
+
+    expect(chunks.filter((c) => c.type === 'tool-approval-request')).toHaveLength(0);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    warnSpy.mockRestore();
+  });
+
+  it('accepts an escaping id whose JSON size is exactly AT the cap', async () => {
+    // A unit fix, not a tightening: what the cap admits is 256 characters OF STORAGE, however
+    // they are spelled.
+    const atJsonCap = escapingString(MAX_APPROVAL_ID_LENGTH);
+    expect(jsonChars(atJsonCap)).toBe(MAX_APPROVAL_ID_LENGTH);
+
+    const chunks = (await collectTurnChunks([
+      {
+        type: 'tool-approval-request',
+        approvalId: atJsonCap,
+        toolCallId: atJsonCap,
+        toolName: atJsonCap,
+        input: {},
+      },
+    ])) as ApprovalChunk[];
+
+    const approval = chunks.find((c) => c.type === 'tool-approval-request') as ApprovalChunk;
+    expect(approval).not.toBe(undefined);
+    expect(approval.approvalId).toBe(atJsonCap);
+  });
+
   it('bounds the NUMBER of approval parts one turn adds to the message', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     // Every event individually legal — short ids, no `effects`, no `reason`. Only the COUNT
@@ -890,28 +1023,35 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
     );
   });
 
-  it('holds the WHOLE per-turn arithmetic: per-field x per-part x part-count', async () => {
+  // EVERY quantity below is measured in JSON CHARACTERS — `jsonChars` for the strings,
+  // `JSON.stringify(...).length` for the objects — because that is the unit the budgets are
+  // denominated in and the unit the saved document is measured in. The previous version of
+  // this test measured `c.toolCallId.length` and `c.reason?.length`: the same raw UTF-16 unit
+  // the code charged in, so it could not see that the two disagreed with the budget.
+  //
+  // And every capped string here ESCAPES. Plain ASCII makes the two units coincide, which is
+  // precisely how a 6x under-charge stayed green through two rounds of budget tests.
+  it('holds the WHOLE per-turn arithmetic: per-field x per-part x part-count, in JSON characters', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const atCap = 'c'.repeat(MAX_APPROVAL_ID_LENGTH);
-    // 500 events. Every EVEN one sits at every per-field cap it can reach (at-cap ids, at-cap
-    // `reason`, a sizeable well-typed `effects`, a half-cap enriched `input`); every ODD one
-    // carries the 20 000-character ids that were measured going through verbatim. Every term
-    // of the bound is load-bearing here: drop the id cap and the odd events multiply
-    // `idBytes` by ~78x, drop the count cap and the even events multiply it by ~4x, drop
-    // either size budget and `payloadBytes`/`inputBytes` grow with the event count.
+    // 500 events. Every EVEN one sits at every per-field cap it can reach, spelled in
+    // control characters (at-cap ids, an at-cap `reason`, a sizeable well-typed `effects`, a
+    // half-cap enriched `input`); every ODD one carries the 20 000-character ids that were
+    // measured going through verbatim. Every term of the bound is load-bearing here: drop the
+    // id cap and the odd events multiply `idBytes` by ~78x, drop the count cap and the even
+    // events multiply it by ~4x, drop either size budget and `payloadBytes`/`inputBytes` grow
+    // with the event count, and charge any of them raw and the JSON totals grow ~6x.
     const chunks = (await collectTurnChunks(
-      Array.from({ length: 500 }, (_unused, i) =>
-        i % 2 === 0
+      Array.from({ length: 500 }, (_unused, i) => {
+        const idPrefix = `call-${i}-`;
+        return i % 2 === 0
           ? {
               type: 'tool-approval-request',
-              approvalId: `${atCap}${i}`.slice(0, MAX_APPROVAL_ID_LENGTH),
-              toolCallId: `call-${i}`
-                .padEnd(MAX_APPROVAL_ID_LENGTH, 'p')
-                .slice(0, MAX_APPROVAL_ID_LENGTH),
-              toolName: atCap,
-              input: { note: 'n'.repeat(MAX_APPROVAL_INPUT_SIZE / 2) },
+              approvalId: escapingString(MAX_APPROVAL_ID_LENGTH),
+              toolCallId: idPrefix + escapingString(MAX_APPROVAL_ID_LENGTH - idPrefix.length),
+              toolName: escapingString(MAX_APPROVAL_ID_LENGTH),
+              input: { note: escapingString(MAX_APPROVAL_INPUT_SIZE / 2) },
               effects: { willRemoveWidgets: entities(400, 12) },
-              reason: 'r'.repeat(MAX_STRING_LENGTH),
+              reason: escapingString(MAX_STRING_LENGTH),
             }
           : {
               type: 'tool-approval-request',
@@ -919,23 +1059,29 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
               toolCallId: `over-${i}`.padEnd(20_000, 'p'),
               toolName: 'n'.repeat(20_000),
               input: {},
-            },
-      ),
+            };
+      }),
     )) as ApprovalChunk[];
 
     const approvals = chunks.filter((c) => c.type === 'tool-approval-request') as ApprovalChunk[];
     const idBytes = approvals.reduce(
-      (total, c) => total + c.toolCallId.length + c.toolName.length + (c.approvalId?.length ?? 0),
+      (total, c) =>
+        total +
+        jsonChars(c.toolCallId) +
+        jsonChars(c.toolName) +
+        (c.approvalId ? jsonChars(c.approvalId) : 0),
       0,
     );
-    // The withheld MARKER is a constant per part rather than a payload, so it is counted
-    // against the part count below, not against the effects/reason budget.
+    // The withheld MARKER and the `{}` an over-cap input degrades to are CONSTANTS per part
+    // rather than payloads, so they are counted against the part count below, not against the
+    // effects/reason and input budgets.
     const withheldMarkerBytes = '{"effectsWithheld":true}'.length;
+    const degradedInputBytes = '{}'.length;
     const payloadBytes = approvals.reduce(
       (total, c) =>
         total +
         (c.effects && !c.effects.effectsWithheld ? JSON.stringify(c.effects)!.length : 0) +
-        (c.reason?.length ?? 0),
+        (c.reason ? jsonChars(c.reason) : 0),
       0,
     );
     const markerBytes = approvals.reduce(
@@ -948,20 +1094,24 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
       0,
     );
 
-    // ids/names: 3 fields x MAX_APPROVAL_ID_LENGTH x MAX_TURN_APPROVAL_PARTS.
+    // ids/names: 3 fields x MAX_APPROVAL_ID_LENGTH x MAX_TURN_APPROVAL_PARTS = 49 152.
     expect(idBytes).toBeLessThanOrEqual(3 * MAX_APPROVAL_ID_LENGTH * MAX_TURN_APPROVAL_PARTS);
     // effects + reason: one turn-wide budget, unchanged by the part count.
     expect(payloadBytes).toBeLessThanOrEqual(MAX_TURN_APPROVAL_SIZE);
-    // the display-enriched inputs: their own turn-wide budget.
-    expect(inputBytes).toBeLessThanOrEqual(MAX_TURN_APPROVAL_INPUT_SIZE);
+    // the display-enriched inputs: their own turn-wide budget, plus the `{}` each degraded
+    // card carries.
+    expect(inputBytes).toBeLessThanOrEqual(
+      MAX_TURN_APPROVAL_INPUT_SIZE + degradedInputBytes * MAX_TURN_APPROVAL_PARTS,
+    );
     // the withheld markers: a constant, x the part count.
     expect(markerBytes).toBeLessThanOrEqual(withheldMarkerBytes * MAX_TURN_APPROVAL_PARTS);
-    // …and the whole door, stated as one number the commit message can quote.
+    // …and the whole door, stated as one number the commit message can quote: 250 816 JSON
+    // characters per assistant turn.
     expect(idBytes + payloadBytes + inputBytes + markerBytes).toBeLessThanOrEqual(
       3 * MAX_APPROVAL_ID_LENGTH * MAX_TURN_APPROVAL_PARTS +
         MAX_TURN_APPROVAL_SIZE +
         MAX_TURN_APPROVAL_INPUT_SIZE +
-        withheldMarkerBytes * MAX_TURN_APPROVAL_PARTS,
+        (withheldMarkerBytes + degradedInputBytes) * MAX_TURN_APPROVAL_PARTS,
     );
     // Each term is really binding here, so the total is not passing by accident.
     expect(approvals).toHaveLength(MAX_TURN_APPROVAL_PARTS);
@@ -1602,6 +1752,113 @@ describe('createBackendChatAdapter: message-metadata', () => {
       | undefined;
     expect(Object.hasOwn(metaChunk!.metadata, 'model')).toBe(false);
     expect(metaChunk!.metadata.traceId).toBe('t');
+
+    vi.unstubAllGlobals();
+  });
+
+  // -- the UNIT, on this door ------------------------------------------------
+  //
+  // `MAX_TURN_METADATA_SIZE` says "JSON characters" and the VALUES were charged in them, but
+  // `model` and the key NAMES were capped and charged with `String.prototype.length`. Those
+  // are different units: `JSON.stringify` escapes a control character to six characters.
+  // Measured against this door's own "~30 KB per assistant message": 178 052 JSON characters
+  // persisted, of which the single `model` string was 60 002.
+  it('caps `model` in JSON characters, not in raw UTF-16 units', async () => {
+    // `model` is exempt from the turn budget, so its per-field cap IS its bound: 10 000
+    // control characters are 10 000 UTF-16 units and 60 000 JSON characters.
+    const escapingModel = CONTROL_CHAR.repeat(MAX_STRING_LENGTH);
+    expect(escapingModel.length).toBe(MAX_STRING_LENGTH);
+    expect(jsonChars(escapingModel)).toBe(MAX_STRING_LENGTH * 6);
+
+    mockFetch(
+      makeSseBody([
+        { type: 'message-metadata', metadata: { model: escapingModel, traceId: 't' } },
+        { type: 'finish', finishReason: 'stop' },
+      ]),
+    );
+    const adapter = createBackendChatAdapter(
+      { endpoint: 'https://fake.test/api/ai' },
+      makeController(),
+    );
+    const stream = await adapter.sendMessage(makeSendInput([]));
+    const chatChunks = (await collectChunks(stream)).filter(isChatMessageChunk);
+    const merged = mergeMetadataChunks(chatChunks);
+
+    expect(Object.hasOwn(merged, 'model')).toBe(false);
+    // Dropped individually, like any other over-cap field: the rest of the metadata survives.
+    expect(merged.traceId).toBe('t');
+
+    vi.unstubAllGlobals();
+  });
+
+  it('charges the key NAMES in JSON characters, so escaping names cannot outrun the budget', async () => {
+    // A one-character value per key, so everything this payload costs the document is NAME —
+    // and every name is spelled in control characters, at exactly `MAX_METADATA_KEY_LENGTH`
+    // JSON characters and a sixth of that in UTF-16 units. Charged in the budget's own unit,
+    // ~155 of them fit; charged raw, the key COUNT cap runs out first at 500 and the persisted
+    // metadata is ~64 500 JSON characters against a claimed 20 000.
+    const events: object[] = [];
+    for (let event = 0; event < 10; event += 1) {
+      const metadata: Record<string, unknown> = {};
+      for (let i = 0; i < 100; i += 1) {
+        const prefix = `${event}-${i}-`;
+        metadata[prefix + escapingString(MAX_METADATA_KEY_LENGTH - prefix.length)] = 1;
+      }
+      events.push({ type: 'message-metadata', metadata });
+    }
+    events.push({ type: 'finish', finishReason: 'stop' });
+    mockFetch(makeSseBody(events));
+
+    const adapter = createBackendChatAdapter(
+      { endpoint: 'https://fake.test/api/ai' },
+      makeController(),
+    );
+    const stream = await adapter.sendMessage(makeSendInput([]));
+    const chatChunks = (await collectChunks(stream)).filter(isChatMessageChunk);
+    const merged = mergeMetadataChunks(chatChunks);
+
+    const chargedSize = Object.entries(merged).reduce(
+      (total, [key, value]) => total + jsonChars(key) + JSON.stringify(value)!.length,
+      0,
+    );
+    expect(chargedSize).toBeLessThanOrEqual(MAX_TURN_METADATA_SIZE);
+    // …and what actually lands on the message — the quantity the docblock's "~30 KB" is a
+    // claim about — stays inside the door's whole stated worst case.
+    expect(JSON.stringify(merged)!.length).toBeLessThanOrEqual(
+      MAX_STRING_LENGTH + 69 + MAX_TURN_METADATA_SIZE,
+    );
+    // The names really are what bound it here: the key COUNT cap never came near binding.
+    expect(Object.keys(merged).length).toBeLessThan(MAX_ARRAY_LENGTH);
+
+    vi.unstubAllGlobals();
+  });
+
+  // A key name whose RAW length is at the cap but whose stored form is 6x that is over the
+  // cap, and dropped — the cap is a claim about the document, not about UTF-16.
+  it('caps a metadata key NAME in JSON characters too', async () => {
+    const escapingKey = CONTROL_CHAR.repeat(MAX_METADATA_KEY_LENGTH);
+    const atJsonCapKey = escapingString(MAX_METADATA_KEY_LENGTH);
+    mockFetch(
+      makeSseBody([
+        {
+          type: 'message-metadata',
+          metadata: { [escapingKey]: 1, [atJsonCapKey]: 2, traceId: 't' },
+        },
+        { type: 'finish', finishReason: 'stop' },
+      ]),
+    );
+    const adapter = createBackendChatAdapter(
+      { endpoint: 'https://fake.test/api/ai' },
+      makeController(),
+    );
+    const stream = await adapter.sendMessage(makeSendInput([]));
+    const chatChunks = (await collectChunks(stream)).filter(isChatMessageChunk);
+    const merged = mergeMetadataChunks(chatChunks);
+
+    expect(Object.hasOwn(merged, escapingKey)).toBe(false);
+    // …and one whose STORED size is exactly at the cap is kept: a unit fix, not a tightening.
+    expect(merged[atJsonCapKey]).toBe(2);
+    expect(merged.traceId).toBe('t');
 
     vi.unstubAllGlobals();
   });

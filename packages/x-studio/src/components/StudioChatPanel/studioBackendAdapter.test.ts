@@ -710,6 +710,72 @@ describe('createBackendChatAdapter: message-metadata', () => {
 
     vi.unstubAllGlobals();
   });
+
+  // `message-metadata` is documented as the channel for "trace IDs, or any other
+  // structured metadata". A fixed `model`/`inputTokens`/`outputTokens`/`iterations`
+  // whitelist silently truncated exactly the extension the protocol promises: a host
+  // whose middleware attaches a `traceId` found it gone, with no error anywhere.
+  it('carries unknown metadata keys through instead of truncating them', async () => {
+    const metadata = {
+      model: 'gpt-4o',
+      inputTokens: 100,
+      traceId: 'trace-abc',
+      cacheHit: true,
+      provider: { name: 'acme', region: 'eu' },
+    };
+    const sse = makeSseBody([
+      { type: 'message-metadata', metadata },
+      { type: 'finish', finishReason: 'stop' },
+    ]);
+    mockFetch(sse);
+
+    const adapter = createBackendChatAdapter(
+      { endpoint: 'https://fake.test/api/ai' },
+      makeController(),
+    );
+    const stream = await adapter.sendMessage(makeSendInput([]));
+    const chatChunks = (await collectChunks(stream)).filter(isChatMessageChunk);
+
+    const metaChunk = chatChunks.find((c) => c.type === 'message-metadata') as
+      | { metadata: Record<string, unknown> }
+      | undefined;
+    expect(metaChunk?.metadata).toEqual(metadata);
+
+    vi.unstubAllGlobals();
+  });
+
+  // …while the four fields the renderer actually draws stay validated: a non-string
+  // `model` reaches JSX as a React child, and a non-numeric count breaks the `!= null`
+  // reads in `StudioMessageRoot`.
+  it('still drops a wrong-typed model or token count, and prototype keys', async () => {
+    // Parsed from raw JSON, not written as a literal: `{ __proto__: … }` in an object
+    // literal SETS the prototype (and vanishes from `JSON.stringify`), whereas
+    // `JSON.parse` — which is what the SSE reader runs on the wire text — creates a
+    // real own property with that name.
+    const metadata = JSON.parse(
+      '{"model":{"evil":true},"inputTokens":"lots","outputTokens":12,"traceId":"trace-abc","__proto__":{"polluted":true}}',
+    ) as Record<string, unknown>;
+    const sse = makeSseBody([
+      { type: 'message-metadata', metadata },
+      { type: 'finish', finishReason: 'stop' },
+    ]);
+    mockFetch(sse);
+
+    const adapter = createBackendChatAdapter(
+      { endpoint: 'https://fake.test/api/ai' },
+      makeController(),
+    );
+    const stream = await adapter.sendMessage(makeSendInput([]));
+    const chatChunks = (await collectChunks(stream)).filter(isChatMessageChunk);
+
+    const metaChunk = chatChunks.find((c) => c.type === 'message-metadata') as
+      | { metadata: Record<string, unknown> }
+      | undefined;
+    expect(metaChunk?.metadata).toEqual({ outputTokens: 12, traceId: 'trace-abc' });
+    expect(Object.hasOwn(metaChunk!.metadata, '__proto__')).toBe(false);
+
+    vi.unstubAllGlobals();
+  });
 });
 
 // ── stop() / abort ────────────────────────────────────────────────────────────

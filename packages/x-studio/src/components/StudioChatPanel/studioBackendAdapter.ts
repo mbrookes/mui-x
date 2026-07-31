@@ -621,39 +621,50 @@ Check the endpoint URL, its authentication headers, and the server logs for this
               // Emit an x-chat start-step chunk to visually separate agentic iterations.
               streamController.enqueue({ type: 'start-step' });
             } else if (type === 'message-metadata') {
-              // Forward model name + token counts into the assistant message metadata.
-              // Defensive coercion (matching the `tool-activity`/`usage` branches, which never
-              // pass untrusted wire data straight through): the renderer (`StudioMessageRoot`)
-              // draws `{metadata.model}` directly as a React child and reads numeric token /
-              // iteration counts, so a non-string `model` or a non-numeric count from a
-              // malformed event would crash the message renderer in non-production builds. Emit
-              // only a sanitized record — validate `model` as a string, keep each numeric field
-              // solely when it is a finite number (preserving the renderer's `!= null` checks),
-              // and drop the whole `metadata` object if it isn't a plain record.
+              // Forward the assistant message's metadata (model name, token counts, and
+              // whatever else the server attached).
+              //
+              // Defensive coercion for the fields the RENDERER reads (matching the
+              // `tool-activity`/`usage` branches, which never pass untrusted wire data
+              // straight through): `StudioMessageRoot` draws `{metadata.model}` directly as
+              // a React child and reads the numeric token/iteration counts, so a non-string
+              // `model` or a non-numeric count from a malformed event would crash the
+              // message renderer in non-production builds. Those four are validated
+              // individually and dropped when they are the wrong type (preserving the
+              // renderer's `!= null` checks); the whole object is dropped if it isn't a
+              // plain record.
+              //
+              // Every OTHER key is carried through as-is. `message-metadata` is documented
+              // as the channel for "trace IDs, or any other structured metadata", and a
+              // fixed whitelist silently truncated exactly the extension the protocol
+              // promises — a host whose middleware attaches a `traceId` (or a custom
+              // `contextEnricher`'s own bookkeeping) would find it gone with no error. The
+              // crash-safety rationale above does not extend to them: nothing renders an
+              // unknown key, and the value is JSON already (it came out of `JSON.parse`).
+              // Prototype-hazard keys are still dropped, so no forwarded record can carry
+              // one into a downstream merge.
               const rawMetadata = (event as { metadata?: unknown }).metadata;
-              if (
-                rawMetadata != null &&
-                typeof rawMetadata === 'object' &&
-                !Array.isArray(rawMetadata)
-              ) {
-                const md = rawMetadata as Record<string, unknown>;
-                const cleanMetadata: {
-                  model?: string;
-                  inputTokens?: number;
-                  outputTokens?: number;
-                  iterations?: number;
-                } = {};
-                if (typeof md.model === 'string') {
-                  cleanMetadata.model = md.model;
-                }
-                if (typeof md.inputTokens === 'number' && Number.isFinite(md.inputTokens)) {
-                  cleanMetadata.inputTokens = md.inputTokens;
-                }
-                if (typeof md.outputTokens === 'number' && Number.isFinite(md.outputTokens)) {
-                  cleanMetadata.outputTokens = md.outputTokens;
-                }
-                if (typeof md.iterations === 'number' && Number.isFinite(md.iterations)) {
-                  cleanMetadata.iterations = md.iterations;
+              if (isPlainRecord(rawMetadata)) {
+                const cleanMetadata: Record<string, unknown> = {};
+                for (const [key, value] of Object.entries(rawMetadata)) {
+                  if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+                    continue;
+                  }
+                  if (key === 'model') {
+                    if (typeof value === 'string') {
+                      cleanMetadata.model = value;
+                    }
+                  } else if (
+                    key === 'inputTokens' ||
+                    key === 'outputTokens' ||
+                    key === 'iterations'
+                  ) {
+                    if (typeof value === 'number' && Number.isFinite(value)) {
+                      cleanMetadata[key] = value;
+                    }
+                  } else {
+                    cleanMetadata[key] = value;
+                  }
                 }
                 streamController.enqueue({
                   type: 'message-metadata',

@@ -516,3 +516,73 @@ describe('x-studio ⇄ x-studio-ai-middleware seam: replay fidelity (F3, F4)', (
     expect(replayed?.content.startsWith('{')).toBe(true);
   });
 });
+
+// ── F5: approval `effects` / `reason` ─────────────────────────────────────────
+//
+// The server attaches `effects` (what the call will remove/orphan, each entity with
+// its real current title) and `reason` (the policy's own justification) to a
+// `tool-approval-request` precisely "so a human can approve with the real impact in
+// view". The adapter dropped both, so the feature was inert end to end.
+//
+// The adapter now forwards them. The REST of that path is owed and cannot be built
+// from this package: `ChatToolApprovalRequestChunk`/`ChatToolInvocation` in
+// `@mui/x-chat-headless` have no field for either (`processStream` builds the
+// invocation from named fields, so unknown keys stop there), and `chatToolRenderers`
+// renders neither. These tests therefore assert at the CHUNK boundary — the last
+// point this package controls — exactly as the `approvalId` forward was pinned before
+// x-chat gained that field.
+
+describe('x-studio ⇄ x-studio-ai-middleware seam: approval effects/reason (F5)', () => {
+  it('forwards the effects summary the server computed for the approval', async () => {
+    const result = await runSeam({
+      turns: [
+        toolCallTurn('tc-1', 'apply_bulk_update', { widgetRemovals: ['w1'] }),
+        textTurn('Removed'),
+      ],
+      onApprovalRequest: () => ({ approved: true }),
+    });
+
+    const serverEvent = result.serverEvents.find((event) => event.type === 'tool-approval-request');
+    expect(serverEvent?.effects).toEqual({ willRemoveWidgets: [{ id: 'w1', title: 'W1' }] });
+
+    const chunk = result.clientChunks.find((c) => c.type === 'tool-approval-request') as unknown as
+      | { effects?: unknown }
+      | undefined;
+    expect(chunk?.effects).toEqual(serverEvent?.effects);
+  });
+
+  it("forwards the policy's stated reason for requiring approval", async () => {
+    const result = await runSeam({
+      turns: [toolCallTurn('tc-1', 'remove_widget', { widgetId: 'w1' }), textTurn('Removed')],
+      handlerOptions: {
+        toolPolicy: async () => ({
+          action: 'require-approval',
+          reason: 'this exceeds the daily mutation budget',
+        }),
+      },
+      onApprovalRequest: () => ({ approved: true }),
+    });
+
+    const serverEvent = result.serverEvents.find((event) => event.type === 'tool-approval-request');
+    expect(serverEvent?.reason).toBe('this exceeds the daily mutation budget');
+
+    const chunk = result.clientChunks.find((c) => c.type === 'tool-approval-request') as unknown as
+      | { reason?: string }
+      | undefined;
+    expect(chunk?.reason).toBe('this exceeds the daily mutation budget');
+  });
+
+  it('omits both keys when the event carries neither', async () => {
+    const result = await runSeam({
+      turns: [toolCallTurn('tc-1', 'remove_page', { pageId: 'nope' }), textTurn('Done')],
+      onApprovalRequest: () => ({ approved: true }),
+    });
+
+    const chunk = result.clientChunks.find((c) => c.type === 'tool-approval-request') as unknown as
+      | Record<string, unknown>
+      | undefined;
+    expect(chunk).toBeDefined();
+    expect(chunk).not.toHaveProperty('effects');
+    expect(chunk).not.toHaveProperty('reason');
+  });
+});

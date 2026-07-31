@@ -171,6 +171,61 @@ function toFiniteNumber(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
+/** A plain (non-array, non-null) record — the shape every sanitizer below expects. */
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Sanitized `{ id, title }` entries of an `ApprovalEffectsSummary` list, or `undefined`
+ * when the wire value isn't a list of them.
+ */
+function sanitizeEffectEntities(value: unknown): Array<{ id: string; title: string }> | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const entries = value.flatMap((entry) =>
+    isPlainRecord(entry) && typeof entry.id === 'string' && typeof entry.title === 'string'
+      ? [{ id: entry.id, title: entry.title }]
+      : [],
+  );
+  return entries.length > 0 ? entries : undefined;
+}
+
+/**
+ * The `effects` summary attached to a `tool-approval-request` event: which
+ * widgets/pages/filters the proposed call will remove, which widgets it will orphan,
+ * and how many it will update — each entity carrying its CURRENT title, read
+ * server-side from the pre-mutation state.
+ *
+ * Sanitized on the same principle as `message-metadata` (below): these strings exist to
+ * be RENDERED next to an approve/deny button, so a non-string title from a malformed
+ * event must never reach JSX. Returns `undefined` when nothing survived, so the key is
+ * omitted rather than forwarded empty.
+ */
+function sanitizeApprovalEffects(value: unknown): Record<string, unknown> | undefined {
+  if (!isPlainRecord(value)) {
+    return undefined;
+  }
+  const effects: Record<string, unknown> = {};
+  for (const key of ['willRemoveWidgets', 'willRemovePages', 'willOrphanWidgets'] as const) {
+    const entities = sanitizeEffectEntities(value[key]);
+    if (entities) {
+      effects[key] = entities;
+    }
+  }
+  if (Array.isArray(value.willRemoveFilters)) {
+    const filterIds = value.willRemoveFilters.filter((id): id is string => typeof id === 'string');
+    if (filterIds.length > 0) {
+      effects.willRemoveFilters = filterIds;
+    }
+  }
+  if (typeof value.updatedWidgetCount === 'number' && Number.isFinite(value.updatedWidgetCount)) {
+    effects.updatedWidgetCount = value.updatedWidgetCount;
+  }
+  return Object.keys(effects).length > 0 ? effects : undefined;
+}
+
 /**
  * Creates a `ChatAdapter` that delegates the full AI pipeline to an
  * `x-studio-ai-middleware` server endpoint.
@@ -613,6 +668,8 @@ Check the endpoint URL, its authentication headers, and the server logs for this
                 toolCallId?: unknown;
                 toolName?: unknown;
                 input?: unknown;
+                effects?: unknown;
+                reason?: unknown;
               };
               // `approvalId` identifies the APPROVAL, which need not be 1:1 with the tool
               // call (a server can batch several calls behind one prompt, or re-prompt for
@@ -631,13 +688,39 @@ Check the endpoint URL, its authentication headers, and the server logs for this
               // own arguments can be re-asserted once the call settles (see
               // `modelToolInputs`).
               approvalGatedToolCallIds.add(approvalToolCallId);
+              // `effects` (what the call will remove/orphan, with real titles) and
+              // `reason` (the policy's own justification for flagging the call) exist so
+              // a human can approve with the real impact in view instead of an opaque
+              // id matrix. Both were computed server-side and then dropped here, which
+              // left the whole feature inert — `reason` for the second time, having been
+              // added specifically because it was "previously computed but silently
+              // dropped".
+              //
+              // Forwarded on the chunk in the same shape they arrive, so the moment
+              // `ChatToolApprovalRequestChunk` carries them they flow through with no
+              // further change here. OWED, and NOT deliverable from this package: an
+              // `effects`/`reason` field on `ChatToolApprovalRequestChunk` and on
+              // `ChatToolInvocation` in `@mui/x-chat-headless` (`processStream`'s
+              // approval branch builds the invocation from named fields, so anything it
+              // doesn't know is dropped there), plus rendering in
+              // `chatToolRenderers.tsx`. Until then this half is inert but correct —
+              // the same way `approvalId` was handled before x-chat gained the field.
+              const effects = sanitizeApprovalEffects(rawApproval.effects);
+              const policyReason =
+                typeof rawApproval.reason === 'string' && rawApproval.reason !== ''
+                  ? rawApproval.reason
+                  : undefined;
               streamController.enqueue({
                 type: 'tool-approval-request',
                 ...(approvalId ? { approvalId } : {}),
                 toolCallId: approvalToolCallId,
                 toolName: String(rawApproval.toolName ?? ''),
                 input: rawApproval.input ?? {},
-              });
+                ...(effects ? { effects } : {}),
+                ...(policyReason ? { reason: policyReason } : {}),
+                // The cast covers only the two fields above: they are additive keys the
+                // chunk union does not declare yet (see the OWED note).
+              } as ChatMessageChunk);
             } else if (type === 'state-mutation') {
               try {
                 // Untyped forward: `event.mutation` is untrusted wire data, so it is

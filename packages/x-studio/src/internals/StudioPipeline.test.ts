@@ -698,6 +698,82 @@ describe('createStudioPipeline', () => {
       expect(result.map((r) => r.id)).toEqual(['1', '3']);
     });
 
+    // Precedence, not just "each one works on its own": `globalCrossFilterMode ??
+    // options?.widgetCrossFilterMode ?? 'cross-highlight'`. Every existing case here sets
+    // exactly ONE of the two, so the operands could be swapped with the suite green — and a
+    // swapped order inverts the meaning of the dashboard-wide setting: a dashboard switched
+    // to `'none'` would be overruled by any widget that carries its own `crossFilterMode`,
+    // which is the one thing a DASHBOARD-WIDE override exists to prevent.
+    it("a dashboard-wide 'none' overrules a widget's own cross-filter mode", () => {
+      const rows = [...ROWS];
+      const fullState = makeFullState(rows, {
+        globalCrossFilterMode: 'none',
+        filters: [
+          makeFilter({
+            id: 'cf1',
+            scope: { kind: 'cross-filter', sourceWidgetId: 'w-other', pageId: 'p1' },
+            field: 'amount',
+            operator: 'greater_than',
+            value: 150,
+          }),
+        ],
+      });
+      const pipeline = createStudioPipeline(fullState);
+
+      // The widget asks for cross-filtering; the dashboard says no. The dashboard wins, so
+      // the cross-filter is dropped and every row survives.
+      const result = pipeline.resolveWidgetRows('w-grid', 'orders', rows, 'p1', {
+        widgetCrossFilterMode: 'cross-filter',
+      });
+      expect(result.map((r) => r.id)).toEqual(['1', '2', '3']);
+    });
+
+    it("a dashboard-wide 'cross-filter' overrules a widget's own 'none'", () => {
+      const rows = [...ROWS];
+      const fullState = makeFullState(rows, {
+        globalCrossFilterMode: 'cross-filter',
+        filters: [
+          makeFilter({
+            id: 'cf1',
+            scope: { kind: 'cross-filter', sourceWidgetId: 'w-other', pageId: 'p1' },
+            field: 'amount',
+            operator: 'greater_than',
+            value: 150,
+          }),
+        ],
+      });
+      const pipeline = createStudioPipeline(fullState);
+
+      // The mirror image, so the pair cannot be satisfied by "the dashboard setting is simply
+      // ignored": here the dashboard turns cross-filtering ON over a widget's 'none', and the
+      // cross-filter DOES apply.
+      const result = pipeline.resolveWidgetRows('w-grid', 'orders', rows, 'p1', {
+        widgetCrossFilterMode: 'none',
+      });
+      expect(result.map((r) => r.id)).toEqual(['2', '3']);
+    });
+
+    it("a widget's own mode still wins when the dashboard has no global override", () => {
+      const rows = [...ROWS];
+      const fullState = makeFullState(rows, {
+        // No `globalCrossFilterMode` → the widget's own config is the next operand.
+        filters: [
+          makeFilter({
+            id: 'cf1',
+            scope: { kind: 'cross-filter', sourceWidgetId: 'w-other', pageId: 'p1' },
+            field: 'amount',
+            operator: 'greater_than',
+            value: 150,
+          }),
+        ],
+      });
+      const pipeline = createStudioPipeline(fullState);
+      const result = pipeline.resolveWidgetRows('w-grid', 'orders', rows, 'p1', {
+        widgetCrossFilterMode: 'none',
+      });
+      expect(result.map((r) => r.id)).toEqual(['1', '2', '3']);
+    });
+
     it('passing options changes nothing about how the dashboard settings are read', () => {
       const rows = [...ROWS];
       const fullState = makeFullState(rows, {

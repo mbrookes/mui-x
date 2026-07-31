@@ -136,6 +136,22 @@ describe('rank-filter sweep complexity', () => {
     expect(result.filters.map((f) => f.id)).toEqual(['f1', 'f3', 'f4']);
   });
 
+  // ARCHITECTURE.md's reference-stability contract, which names this function
+  // explicitly: every handler and helper returns its INPUT reference unchanged when
+  // nothing changed. It is load-bearing rather than cosmetic — `commitDocPatch` pushes an
+  // undo entry only when the doc reference changes, so a sweep that always rebuilt would
+  // manufacture a no-op undo step on every layout mutation and load.
+  it('returns the SAME filters array when nothing conflicts', () => {
+    const pages = {
+      'page-1': { id: 'page-1', title: 'A', widgetRows: [['w1']] },
+      'page-2': { id: 'page-2', title: 'B', widgetRows: [['w3']] },
+    } as unknown as StudioDoc['pages'];
+    const filters = [rankFilter('f1', 'w1'), rankFilter('f3', 'w3')];
+    const result = dedupeRankFilters(filters, pages);
+    expect(result.changed).toBe(false);
+    expect(result.filters).toBe(filters);
+  });
+
   it('hasConflictingRankFilter agrees with and without an index', () => {
     const pages = {
       'page-1': { id: 'page-1', title: 'A', widgetRows: [['w1', 'w2']] },

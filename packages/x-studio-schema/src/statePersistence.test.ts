@@ -9,6 +9,7 @@ import {
   serializeState,
 } from './statePersistence';
 import { createDefaultStudioState } from './factories';
+import { screenAIState } from './docScreening';
 import { applyDocMutation } from './applyMutation';
 import type { StudioWidget } from './widgetTypes';
 import type { StudioDoc } from './stateTypes';
@@ -803,6 +804,20 @@ describe('deserializeState', () => {
     } as unknown as typeof minimalSerialized;
     const restored = deserializeState(serialized, {});
     expect(restored.doc.ai!.threads[0]).toBe(thread);
+  });
+
+  // …and the CONTAINER's own reference too. The test above pins only the thread entry, so
+  // `screenAIState` could rebuild `{ ...ai, threads }` on every load and still pass. Load
+  // -bearing: `commitDocPatch` pushes an undo entry only on a doc-reference change, so an
+  // always-rebuilding screen manufactures a no-op undo step for every clean load.
+  it('keeps a well-formed ai container reference-stable (screenAIState)', () => {
+    const ai = {
+      activeThreadId: 'thread-1',
+      threads: [
+        { id: 'thread-1', name: 'Kept', createdAt: '2026-01-01T00:00:00.000Z', messages: [] },
+      ],
+    };
+    expect(screenAIState(ai)).toBe(ai);
   });
 
   // `repairThreadLeafShapes`' TIMESTAMP arms. Every sibling repair in that helper

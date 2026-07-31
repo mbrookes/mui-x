@@ -2968,6 +2968,26 @@ describe('applyMutation', () => {
       expect(Object.hasOwn(result['page-1'], 'widgetColSpans')).toBe(false);
     });
 
+    // ARCHITECTURE.md's reference-stability contract, which names this sweep explicitly.
+    // Load-bearing rather than cosmetic: `commitDocPatch` pushes an undo entry only when
+    // the doc reference changes, so a sweep that always rebuilt would manufacture a no-op
+    // undo step for every already-clean load.
+    it('returns the SAME pages record when every page is already clean', () => {
+      const pages = {
+        'page-1': {
+          id: 'page-1',
+          title: 'P1',
+          widgetRows: [['w1', 'w2']],
+          widgetColSpans: { w1: 10, w2: 8 },
+        },
+      } as unknown as StudioDoc['pages'];
+      const widgets = {
+        w1: { id: 'w1', kind: 'chart', title: 'W1', config: {} },
+        w2: { id: 'w2', kind: 'chart', title: 'W2', config: {} },
+      } as unknown as StudioDoc['widgets'];
+      expect(normalizePersistedPages(pages, widgets)).toBe(pages);
+    });
+
     it('drops a prototype-hazard widgetColSpans key from a persisted page', () => {
       // The span rebuild writes each surviving key with a BARE bracket assignment
       // (`rebuilt[key] = clampSpan(...)`) into a fresh `{}`, so the denylist is the only

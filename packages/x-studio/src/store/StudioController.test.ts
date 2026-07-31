@@ -2894,6 +2894,33 @@ describe('StudioController.applyExternalMutation — transient-only wire mutatio
     expect(controller.getState().doc.dashboard.title).toBe('Edited');
   });
 
+  // The mirror image of the three cases above, and the one that actually bounds
+  // `isTransientOnlyDocDiff`: a wire-driven WIDGET edit changes only `doc.widgets`, so every
+  // other term of the classifier stays reference-equal. Drop the `widgets` term and a real
+  // `updateWidget` classifies as transient-only — it then pushes NO undo entry (the edit
+  // becomes unrevertable) AND leaves a pending redo standing, so the next `redo()` replays an
+  // older doc straight over the AI's change.
+  it('applyExternalMutation updateWidget is a REAL edit: undoable, and it clears the pending redo', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1', { config: { kpiAggregation: 'sum' } }));
+    controller.setDashboardTitle('Edited');
+    controller.undo(); // leaves a pending redo holding the 'Edited' title
+    expect(controller.canRedo()).toBe(true);
+
+    controller.applyExternalMutation({
+      type: 'updateWidget',
+      args: { widgetId: 'w1', config: { kpiAggregation: 'avg' } },
+    });
+    expect(controller.getState().doc.widgets.w1.config).toMatchObject({ kpiAggregation: 'avg' });
+
+    // A widget edit invalidates the pending redo…
+    expect(controller.canRedo()).toBe(false);
+    // …and is itself revertable.
+    expect(controller.canUndo()).toBe(true);
+    controller.undo();
+    expect(controller.getState().doc.widgets.w1.config).toMatchObject({ kpiAggregation: 'sum' });
+  });
+
   // A GENUINE addPage (a new id) is a real authored edit and must remain undoable.
   it('applyExternalMutation addPage for a NEW id still pushes an undoable entry', () => {
     const controller = new StudioController({
@@ -3310,6 +3337,138 @@ describe('StudioController.removeWidget — cross-filter and col-span cleanup', 
 
     // w2 is now alone in its row — its span is cleared so it renders full-width.
     expect(controller.getState().doc.pages[activePageId].widgetColSpans).toBeUndefined();
+  });
+});
+
+// ─── StudioController.foldUndoHistorySince ───────────────────────────────────
+//
+// This method had no direct test at all — its callers (`DataSourceFieldSelect`,
+// `GridSetupPanel`, `StudioGridWidget`) either mock the controller or assert only the
+// happy path, so every branch here was unpinned. That matters most for the
+// missing-baseline guard: `baseIndex === -1` combined with the truncation two lines
+// below (`this.undoStack.length = baseIndex + 1`) evaluates to `length = 0` — dropping
+// that half of the condition silently WIPES the user's entire undo history whenever a
+// gesture's baseline is not on the stack (the gesture committed nothing undoable, or its
+// entries were already evicted by `MAX_UNDO_HISTORY`).
+describe('StudioController.foldUndoHistorySince', () => {
+  it('collapses every entry pushed since the baseline into a single undo step', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1')); // a pre-gesture edit, must survive untouched
+    const baselineDoc = controller.getState().doc;
+
+    // Three commits, one user gesture.
+    controller.setDashboardTitle('Step 1');
+    controller.setDashboardTitle('Step 2');
+    controller.setDashboardTitle('Step 3');
+
+    controller.foldUndoHistorySince(baselineDoc);
+
+    // One Ctrl+Z reverts the WHOLE gesture, landing on the pre-gesture doc — never on an
+    // intermediate state ("Step 1"/"Step 2") the user never saw.
+    controller.undo();
+    expect(controller.getState().doc).toBe(baselineDoc);
+    expect(controller.getState().doc.widgets.w1).toBeDefined();
+
+    // …and the pre-gesture edit is still separately undoable.
+    expect(controller.canUndo()).toBe(true);
+    controller.undo();
+    expect(controller.getState().doc.widgets.w1).toBeUndefined();
+  });
+
+  it('no-ops when the baseline is not on the undo stack — it must not wipe the history', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    controller.setDashboardTitle('Anchor');
+    // A doc reference that was never committed by THIS controller, standing in for a
+    // gesture that committed nothing undoable (or whose entries were evicted).
+    const foreignDoc = new StudioController().getState().doc;
+
+    controller.foldUndoHistorySince(foreignDoc);
+
+    // Both undo steps must still be there, individually.
+    expect(controller.canUndo()).toBe(true);
+    controller.undo();
+    expect(controller.getState().doc.dashboard.title).not.toBe('Anchor');
+    expect(controller.getState().doc.widgets.w1).toBeDefined();
+    expect(controller.canUndo()).toBe(true);
+    controller.undo();
+    expect(controller.getState().doc.widgets.w1).toBeUndefined();
+  });
+
+  it('no-ops when the baseline is already the newest entry (nothing to fold)', () => {
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1'));
+    const baselineDoc = controller.getState().doc;
+    controller.setDashboardTitle('Only step');
+
+    controller.foldUndoHistorySince(baselineDoc);
+
+    controller.undo();
+    expect(controller.getState().doc).toBe(baselineDoc);
+    expect(controller.canUndo()).toBe(true);
+  });
+
+  // "The surviving entry inherits the LAST log line among those folded, so a subsequent
+  // `undo()` retracts the line describing the gesture's NET effect." Taking the FIRST
+  // folded line instead retracts a line describing an intra-gesture step the user never
+  // saw, and leaves the line describing the gesture's actual outcome in the log the AI
+  // reads back — so `get_recent_changes` would report an edit that has been undone.
+  it('the surviving entry inherits the LAST folded log line, not the first', () => {
+    const controller = new StudioController();
+    controller.addFilter(makeFilter({ id: 'a', field: 'revenue' })); // pre-gesture
+    const baselineDoc = controller.getState().doc;
+    controller.addFilter(makeFilter({ id: 'b', field: 'region' })); // gesture step 1
+    controller.addFilter(makeFilter({ id: 'c', field: 'country' })); // gesture step 2
+    controller.addFilter(makeFilter({ id: 'd', field: 'city' })); // gesture step 3 (net effect)
+
+    controller.foldUndoHistorySince(baselineDoc);
+
+    // Folding does not rewrite the log: every step really did happen.
+    expect(controller.getRecentMutations().map((m) => m.label)).toEqual([
+      'addFilter:revenue',
+      'addFilter:region',
+      'addFilter:country',
+      'addFilter:city',
+    ]);
+
+    controller.undo();
+
+    // The LAST folded line (`addFilter:city`) is the one retracted.
+    expect(controller.getRecentMutations().map((m) => m.label)).toEqual([
+      'addFilter:revenue',
+      'addFilter:region',
+      'addFilter:country',
+    ]);
+  });
+
+  // The baseline is looked up with `lastIndexOf`, not `indexOf`: a doc reference can sit on
+  // the undo stack more than once (a host "revert to a captured snapshot" action commits a
+  // previously-seen `doc` object through the public `setState`), and the gesture's own entry
+  // is always the MOST RECENT occurrence. Matching the first occurrence truncates the stack
+  // back to it, swallowing every unrelated edit in between.
+  it('folds to the MOST RECENT occurrence of a doc reference that appears twice on the stack', () => {
+    const controller = new StudioController();
+    controller.setDashboardTitle('A');
+    const docA = controller.getState().doc;
+    controller.setDashboardTitle('B'); // pushes docA onto the stack (occurrence #1)
+
+    // A host restores the earlier snapshot as a fresh undoable edit.
+    controller.setState({ ...controller.getState(), doc: docA });
+    expect(controller.getState().doc).toBe(docA);
+
+    // The gesture starts here, with `docA` as its baseline.
+    controller.setDashboardTitle('C'); // pushes docA onto the stack (occurrence #2)
+    controller.setDashboardTitle('D');
+
+    controller.foldUndoHistorySince(docA);
+
+    // One Ctrl+Z reverts the whole gesture back to the restore point…
+    controller.undo();
+    expect(controller.getState().doc).toBe(docA);
+    // …and the edits made BEFORE the restore are untouched: the next undo lands on 'B',
+    // not on the initial title (which is where matching occurrence #1 would have left it).
+    controller.undo();
+    expect(controller.getState().doc.dashboard.title).toBe('B');
   });
 });
 
@@ -4081,6 +4240,79 @@ describe('StudioController.updateState — spread + no-op guard (2.4)', () => {
     );
   });
   /* eslint-enable no-underscore-dangle */
+
+  // The history bookkeeping in `commitState` is gated on `nextState.doc !== current.doc`,
+  // NOT on "did anything change". `updateState` forwards no options, so `undoable` defaults
+  // to `true` — widening that gate to `nextState !== current` would make every session- or
+  // runtime-only update push a doc snapshot onto the undo stack and clear the redo stack.
+  // The existing coverage in this area routes through `commitShellPatch`/`upsertDataSource`,
+  // which pass `{ undoable: false }` explicitly and so cannot observe the gate at all.
+  it('a session-only update is not an authored edit: no undo entry, and a pending redo survives', () => {
+    const controller = new StudioController();
+    controller.setDashboardTitle('Edited');
+    controller.undo();
+    expect(controller.canUndo()).toBe(false);
+    expect(controller.canRedo()).toBe(true);
+
+    controller.updateState({ session: { mode: 'view' } });
+
+    expect(controller.getState().session.mode).toBe('view');
+    expect(controller.canUndo()).toBe(false);
+    expect(controller.canRedo()).toBe(true);
+    controller.redo();
+    expect(controller.getState().doc.dashboard.title).toBe('Edited');
+  });
+
+  it('a runtime-only update is not an authored edit either', () => {
+    const controller = new StudioController();
+    controller.setDashboardTitle('Edited');
+    controller.undo();
+    expect(controller.canRedo()).toBe(true);
+
+    controller.updateState({
+      runtime: {
+        dataSources: {
+          orders: { id: 'orders', label: 'Orders', fields: [], rows: [{ amount: 1 }] },
+        },
+      },
+    });
+
+    expect(controller.getState().runtime.dataSources.orders).toBeDefined();
+    // Host data injection must never enter the authored-edit timeline, nor destroy a
+    // pending redo — an undo must not be able to revert live rows to stale ones.
+    expect(controller.canUndo()).toBe(false);
+    expect(controller.canRedo()).toBe(true);
+  });
+});
+
+// ─── StudioController — commitState's identical-state early return ────────────
+//
+// `commitState` bails when `nextState === current`. Every write path above it already
+// guards key-wise, so with the bail neutered the SUITE stays green — but `Store.setState`
+// notifies unconditionally, so a genuine no-op commit would wake every `useStudioSelector`
+// subscriber and re-render every mounted widget for a state that did not change. The
+// no-op re-commit is not hypothetical: `useChatThreads` re-sends `controller.getState()`
+// on write-backs, and hosts re-apply a controlled `mode`/state prop from an effect.
+describe('StudioController — commitState bails on an identical state object', () => {
+  it('does not notify subscribers when the committed state is the current one', () => {
+    const controller = new StudioController();
+    const listener = vi.fn();
+    controller.subscribe(listener);
+
+    controller.setState(controller.getState());
+
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('still notifies for a genuine change (the guard is not just "never notify")', () => {
+    const controller = new StudioController();
+    const listener = vi.fn();
+    controller.subscribe(listener);
+
+    controller.setDashboardTitle('Changed');
+
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('StudioController.setDashboardDateRangeAll — undoable option (1.7)', () => {
@@ -4833,6 +5065,68 @@ describe('StudioController — transient doc state across undo/redo (1.1)', () =
     expect(controller.getState().doc.filters.some((f) => f.scope.kind === 'cross-filter')).toBe(
       false,
     );
+  });
+
+  // `doc.ai` is the third transient-carried field (alongside the cross-filter toggles and
+  // `activePageId`), and the only one whose loss is UNRECOVERABLE: `useChatThreads` writes
+  // chat history NON-undoably, so the undo snapshot taken before an unrelated authored edit
+  // predates the whole conversation. Without the carry, one Ctrl+Z swaps that snapshot in and
+  // the thread is gone — and the very next edit clears the redo stack, so it can never come
+  // back. Both `ARCHITECTURE.md` ("Undo/redo cross-partition fix-ups") and the block comment
+  // at the carry state this contract; until now nothing asserted it.
+  function writeChatThreadNonUndoably(controller: StudioController, threadId: string) {
+    // Mirrors `useChatThreads`' `onMessagesChange` write-back exactly: a whole-state
+    // `setState` with `{ undoable: false }`, because it fires on every streamed token delta.
+    const state = controller.getState();
+    controller.setState(
+      {
+        ...state,
+        doc: {
+          ...state.doc,
+          ai: {
+            threads: [
+              {
+                id: threadId,
+                name: 'Conversation',
+                createdAt: '2024-01-01T00:00:00.000Z',
+                messages: [],
+              },
+            ],
+            activeThreadId: threadId,
+          },
+        },
+      },
+      { undoable: false },
+    );
+  }
+
+  it('carries doc.ai (chat history) across undo — Ctrl+Z on an unrelated edit does not destroy the conversation', () => {
+    const controller = new StudioController();
+    controller.setDashboardTitle('Anchor'); // the only undoable step; its snapshot has no `ai`
+    writeChatThreadNonUndoably(controller, 't1');
+    expect(controller.getState().doc.ai?.threads).toHaveLength(1);
+
+    controller.undo(); // reverts the title only
+
+    expect(controller.getState().doc.dashboard.title).not.toBe('Anchor');
+    expect(controller.getState().doc.ai?.threads).toHaveLength(1);
+    expect(controller.getState().doc.ai?.threads[0].id).toBe('t1');
+    expect(controller.getState().doc.ai?.activeThreadId).toBe('t1');
+    // The chat write was not an undo step of its own: nothing left to undo.
+    expect(controller.canUndo()).toBe(false);
+  });
+
+  it('carries doc.ai (chat history) across redo too', () => {
+    const controller = new StudioController();
+    controller.setDashboardTitle('Anchor'); // undoable
+    controller.undo(); // redo now holds the doc WITH the title but WITHOUT any `ai`
+    writeChatThreadNonUndoably(controller, 't1'); // conversation starts after the undo
+
+    controller.redo(); // reapplies the title
+
+    expect(controller.getState().doc.dashboard.title).toBe('Anchor');
+    expect(controller.getState().doc.ai?.threads).toHaveLength(1);
+    expect(controller.getState().doc.ai?.threads[0].id).toBe('t1');
   });
 });
 

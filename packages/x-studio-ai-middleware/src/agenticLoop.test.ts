@@ -3501,6 +3501,50 @@ describe('runAgenticLoop — hostile provider usage counts', () => {
     expect(deltas).toEqual([' real text']);
   });
 
+  // …and an ARRAY, which is the case the test above cannot reach. `isUsableDeltaText` is
+  // `typeof value === 'string' && value.length > 0`, and a plain object has no `.length` —
+  // so `{ evil: true }` is rejected by the LENGTH clause alone and proves nothing about the
+  // `typeof` one, which could be deleted with all 1649 tests green.
+  //
+  // An array of content blocks is not an exotic probe: it is the shape several providers use
+  // for structured content, and it has a `length`. Relayed, it goes out in a `text-delta` SSE
+  // frame whose `StudioAISSEEvent` type promises a string, and is appended to
+  // `turnTextBuffer` with `+=` — yielding "abc,def" replayed to the provider on the next turn
+  // as if the model had said it.
+  it('ignores an ARRAY delta.content, which has a length but is not a string', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      makeSseResponse([
+        {
+          choices: [{ delta: { content: ['abc', 'def'] }, finish_reason: null }],
+        },
+        {
+          choices: [{ delta: { content: ' real text' }, finish_reason: null }],
+        },
+        { choices: [{ delta: {}, finish_reason: 'stop' }] },
+        { choices: [], usage: { prompt_tokens: 1, completion_tokens: 1 } },
+      ]),
+    );
+
+    const events = await collectEvents(
+      runAgenticLoop(
+        [userMsg('Hi')],
+        INITIAL_STATE,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        BASE_OPTIONS,
+      ),
+    );
+
+    const deltas = events
+      .filter((ev) => (ev as { type: string }).type === 'text-delta')
+      .map((ev) => (ev as { delta: unknown }).delta);
+    expect(deltas).toEqual([' real text']);
+    // Stated as the property, not just as the value: nothing non-string reaches the browser.
+    expect(deltas.every((delta) => typeof delta === 'string')).toBe(true);
+  });
+
   it('ignores a non-string finish_reason', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       makeSseResponse([

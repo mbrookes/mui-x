@@ -270,6 +270,70 @@ describe('validateHavingAliases — numeric value-shape guard (finding 2.1)', ()
       /HAVING value for alias "total" must be a finite number/,
     );
   });
+
+  // The ELEMENT-SHAPE clause — the one clause of this four-clause validator with no test,
+  // and the one whose removal converts a returned validation error into a thrown
+  // `TypeError`. Deleting it left all 1181 tests of this package green, while its three
+  // siblings ("HAVING requires an aggregation", alias membership, and the finite-value check
+  // above) each failed one immediately.
+  //
+  // The guard's own comment says the request path rejects this earlier, in
+  // `assertQualifiedColumnsAllowed` — so it is knowingly defense-in-depth for DIRECT callers
+  // of a validator that is exported and runs unconditionally. That is exactly why it needs
+  // its own test: the request-path coverage cannot fail when this clause is deleted.
+  it.each([
+    ['null', null],
+    ['a number', 5],
+    ['a string', 'total'],
+    ['an object with no alias', {}],
+    ['an object with a non-string alias', { alias: 7, operator: 'gt', value: 1 }],
+  ])(
+    'rejects a malformed HAVING element (%s) as a validation error, not a TypeError',
+    (_label, having) => {
+      const malformed = {
+        id: 'w1',
+        table: 'sales',
+        aggregations: [{ column: 'amount', func: 'sum', alias: 'total' }],
+        having: [having],
+      } as unknown as BatchWidgetDescriptor;
+
+      // `h.alias` on `null` is a raw `TypeError`, which `sanitizeBoundaryError` degrades to
+      // the generic "could not be completed" — telling the caller nothing about what was
+      // malformed. Asserting the MESSAGE is what makes a TypeError fail this test.
+      expect(() => validateHavingAliases(malformed)).toThrow(/Malformed HAVING predicate/);
+    },
+  );
+
+  it('still accepts a well-formed HAVING element (the other direction)', () => {
+    expect(() => validateHavingAliases(descriptor(10))).not.toThrow();
+  });
+});
+
+/**
+ * `assertTablesAllowed`'s table-name length cap, at its CALL SITE.
+ *
+ * `assertIdentifierLength` itself is pinned, but the call to it from `assertTablesAllowed`
+ * was not: deleting the call left all 1181 tests green, because an over-long name still
+ * fails the allowlist MEMBERSHIP test right below it. The difference is which path it fails
+ * on — the membership rejection interpolates the unbounded name into both a `console.warn`
+ * and the client-returned message (`invalidTables.join(', ')`), so the very string this cap
+ * exists to bound gets echoed rather than dropped.
+ *
+ * Putting the over-long name IN the allowlist is what isolates the clause: membership then
+ * cannot answer, and only the length cap can.
+ */
+describe('assertTablesAllowed — the table-name length cap at its call site', () => {
+  it('rejects an allowlisted table name one character over the cap, naming the LENGTH', () => {
+    const overCap = 't'.repeat(MAX_STRING_LENGTH + 1);
+    expect(() => assertTablesAllowed([overCap], [overCap])).toThrow(
+      /characters long, which exceeds the maximum/,
+    );
+  });
+
+  it('accepts an allowlisted table name exactly at the cap', () => {
+    const atCap = 't'.repeat(MAX_STRING_LENGTH);
+    expect(() => assertTablesAllowed([atCap], [atCap])).not.toThrow();
+  });
 });
 
 // ─── Implicit `" as "` alias references are rejected (finding L2) ─────────────

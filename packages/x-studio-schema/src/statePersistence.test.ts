@@ -344,6 +344,35 @@ describe('migrateState', () => {
     expect(result.errors.join(' ')).toMatch(/expressionFields\[0\]/);
   });
 
+  // The ENTRY itself, not its `filters`. This is the one guard on this screen whose removal
+  // turns a returned error into a THROWN one: the very next clause reads `preset.filters`,
+  // so a non-record entry getting past `isRecord` crashes out of `migrateState` with
+  // `Cannot read properties of null (reading 'filters')`. Measured both ways — with the
+  // guard, the named error below; without it, the throw — and `migrateState` is PUBLIC API
+  // whose documented contract is that a corrupt doc is rejected here by NAME rather than
+  // crashing, so that the function "stays total". The reference hosts call it directly on
+  // persisted JSON, so a hand-edited or shared dashboard takes down the whole load path.
+  //
+  // Its three siblings on this screen (`relationships[i]`, `expressionFields[i]`) and the
+  // level below it (`filterPresets[i].filters[j]`) each already had a test. This one did
+  // not, and it is the only one of the four whose failure mode is a throw.
+  //
+  // Not the same case as a non-array CONTAINER (`filterPresets: 5`), which is covered
+  // through `deserializeState`: a different function, a different level, and one that
+  // coerces rather than throwing.
+  it('fails a doc with a null filterPresets ENTRY by NAME rather than throwing (Finding 1)', () => {
+    const call = () =>
+      migrateState(
+        completeSerialized({ schemaVersion: CURRENT_SCHEMA_VERSION, filterPresets: [null] }),
+      );
+
+    expect(call).not.toThrow();
+    const result = call();
+    expect(result.success).toBe(false);
+    expect(result.state).toBeNull();
+    expect(result.errors.join(' ')).toMatch(/filterPresets\[0\]/);
+  });
+
   it('fails a doc whose filterPreset has a non-array filters, naming the field (Finding 1)', () => {
     const result = migrateState(
       completeSerialized({

@@ -108,4 +108,27 @@ describe('repairFilterDependsOn', () => {
     const entry = { id: 'f1', dependsOn };
     expect(repairFilterDependsOn(entry)).toBe(entry);
   });
+
+  // The `typeof item === 'string'` clause specifically, which none of the rows above
+  // reaches. The non-string case they use is `42`, and `(42).length` is `undefined` — so
+  // the LENGTH clause rejects it on its own, and the `typeof` clause could be deleted with
+  // the whole package green.
+  //
+  // `null` is the entry that tells the two apart, and its consequence is not a wrong
+  // verdict but a THROWN `TypeError` out of a function whose entire contract is
+  // repair-not-throw. Both callers hand it untrusted input — `applyMutation`'s `addFilter`
+  // for a server-built mutation that skips the wire parser, and `docScreening`'s
+  // `screenFilters` for a persisted or shared doc — so the throw lands on the load path,
+  // the same shape as `migrateState`'s `filterPresets[0]`.
+  it.each([
+    ['null', null],
+    ['undefined', undefined],
+  ])('repairs rather than THROWS for a dependsOn entry of %s', (_label, item) => {
+    const call = () => repairFilterDependsOn({ id: 'f1', dependsOn: [item] });
+
+    expect(call).not.toThrow();
+    const result = call() as Record<string, unknown>;
+    expect('dependsOn' in result).toBe(false);
+    expect(result.id).toBe('f1');
+  });
 });

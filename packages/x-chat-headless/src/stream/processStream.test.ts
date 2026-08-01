@@ -646,7 +646,7 @@ describe('processStream', () => {
   // affordance while the server was still waiting on its 120-second approval timeout, after
   // which the call was denied by timeout. The approval is answered on a SEPARATE POST, so a
   // stream ending does not end the question.
-  it('rewrites a pending approval\'s input WITHOUT taking away its approve/deny state', async () => {
+  it("rewrites a pending approval's input WITHOUT taking away its approve/deny state", async () => {
     const store = new ChatStore();
 
     await processStream(

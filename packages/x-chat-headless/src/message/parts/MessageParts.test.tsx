@@ -260,7 +260,11 @@ describe('ToolPart approval request details', () => {
   it.each(['approval-responded', 'output-available', 'output-error'])(
     'keeps showing the backend display copy after the call settles (%s)',
     (state) => {
-      renderApproval({ displayInput: { widgetTitle: 'Q4 Revenue — Board Deck' } }, undefined, state);
+      renderApproval(
+        { displayInput: { widgetTitle: 'Q4 Revenue — Board Deck' } },
+        undefined,
+        state,
+      );
 
       expect(screen.getByText(/Q4 Revenue/)).not.to.equal(null);
       expect(screen.queryByText(/hello/)).to.equal(null);
@@ -297,9 +301,12 @@ describe('ToolPart approval request details', () => {
       return <div data-testid="approval-details" {...other} />;
     }
 
-    renderApproval({ effects: { willRemoveWidgets: [{ id: 'w1', title: 'W1' }] } }, {
-      approvalDetails: Details,
-    });
+    renderApproval(
+      { effects: { willRemoveWidgets: [{ id: 'w1', title: 'W1' }] } },
+      {
+        approvalDetails: Details,
+      },
+    );
 
     expect(screen.getByTestId('approval-details')).not.to.equal(null);
     expect(received.approvalRequest.effects).to.deep.equal({

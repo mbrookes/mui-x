@@ -399,6 +399,40 @@ describe('accumulateToolCallDeltas', () => {
     });
   });
 
+  // The two-part defence around `idToIdx` is stated in two comments, and only the RE-VERIFY
+  // half ("prefer an existing slot ONLY while it still carries this id" — the test above)
+  // had a test. The WRITE-ONCE half — "Only ever WRITTEN when absent: a gateway that reuses
+  // one id across two different indices must not be able to re-point an already-established
+  // mapping and thereby redirect a later continuation fragment into a different call's slot"
+  // — could be dropped with all 1649 tests green.
+  //
+  // Dropping it does not merely mis-record a mapping. It appends one call's argument tail to
+  // ANOTHER call's arguments: `remove_page` is then dispatched with unparseable JSON while
+  // `add_widget` receives arguments it never streamed.
+  it('never re-points an id already mapped to a slot, so a continuation lands in its OWN call', () => {
+    const acc = createToolCallAccumulator();
+    // The gateway opens two DIFFERENT calls reusing one id across two indices.
+    accumulateToolCallDeltas(
+      [{ index: 0, id: 'dup', function: { name: 'remove_page', arguments: '{"a":1' } }],
+      acc,
+    );
+    accumulateToolCallDeltas(
+      [{ index: 1, id: 'dup', function: { name: 'add_widget', arguments: '{"b":2' } }],
+      acc,
+    );
+    // The mapping still points at the call that established it — the FIRST one.
+    expect(acc.idToIdx.dup).toBe(0);
+
+    // …so an id-only continuation fragment closes the arguments of THAT call.
+    accumulateToolCallDeltas([{ id: 'dup', function: { arguments: '}' } }], acc);
+    expect(acc.reqToolCalls[0].argsBuffer).toBe('{"a":1}');
+    // …and the other call's arguments are left exactly as it streamed them, rather than
+    // silently receiving a brace it never sent.
+    expect(acc.reqToolCalls[1].argsBuffer).toBe('{"b":2');
+    // No third slot was minted for the reused id either.
+    expect(Object.keys(acc.reqToolCalls)).toHaveLength(2);
+  });
+
   // A provider that reuses one `index` for two DIFFERENT ids leaves the first id's
   // `idToIdx` entry pointing at a slot that no longer carries it. A later id-only
   // fragment for that first id must not be folded into the second call.

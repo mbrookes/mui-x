@@ -247,6 +247,45 @@ describe('negative (BCE) year handling', () => {
     expect(key).not.toBeNull();
     expect(key).toMatch(/^-\d{4}-\d{2}-\d{2}$/);
   });
+
+  /**
+   * `toUtcYMD`'s two fast-path ADMISSION clauses, which were each pinned only by the other.
+   *
+   * The four RANGE clauses (`m >= 0`, `m <= 11`, `day >= 1`, `day <= 31`) all had tests. The
+   * shape check (`value[4] === '-' && value[7] === '-'`) and the year's `!Number.isNaN(y)`
+   * did not, because they mask each other: the dash check keeps `value.slice(0, 4)` numeric,
+   * so no existing fixture makes `y` NaN, and the NaN check catches most of what the dash
+   * check would otherwise admit. Removing EITHER left all 1053 tests of this package green.
+   *
+   * What escapes is a literal `'0NaN-06-15'` bucket key — `padYear(NaN)` — landing on a
+   * chart axis and in an AI period summary. So: both directions of both clauses, on values
+   * whose ONLY defect is the one under test.
+   */
+  describe('fast-path admission — the two clauses that masked each other', () => {
+    it.each([
+      // A four-character year slice that is not a number. `new Date` cannot parse these
+      // either, so the fallback rejects them too and the whole value is null.
+      ['a non-numeric year in a datetime', 'xxxx-06-15T00:00:00'],
+      ['a partially numeric year', '20x4-06-15'],
+    ])('returns null rather than a NaN year key for %s', (_label, value) => {
+      // Without `!Number.isNaN(y)` this is `'0NaN-06-15'`.
+      expect(truncateToPeriod(value, 'day')).toBeNull();
+    });
+
+    it('returns null for a date whose separators are not dashes', () => {
+      // Without the `value[4] === '-' && value[7] === '-'` shape check the slices happen to
+      // be numeric, so this fast-paths to `'2024-06-15'` — inventing a canonical key from a
+      // value neither the fast path nor `new Date` should accept.
+      expect(truncateToPeriod('2024_06_15', 'day')).toBeNull();
+    });
+
+    it('still fast-paths the canonical shapes (the other direction)', () => {
+      // Neither clause may reject a legitimate value: "return null for everything" would
+      // otherwise pass all three assertions above.
+      expect(truncateToPeriod('2024-06-15', 'day')).toBe('2024-06-15');
+      expect(truncateToPeriod('2024-06-15T14:32:00.000Z', 'day')).toBe('2024-06-15');
+    });
+  });
 });
 
 describe('isoWeek', () => {

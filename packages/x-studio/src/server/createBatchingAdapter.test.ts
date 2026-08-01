@@ -245,6 +245,126 @@ describe('createBatchingAdapter — shared endpoint config isolation', () => {
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
   });
+
+  // The COLLISION half of the merge rule, which the test above cannot reach: source B there
+  // registers no `expressionFields` at all, so `mergeExpressionFields` returns on its
+  // `incoming.length === 0` early-out and the two-map merge below it never runs. Swap the
+  // merge order — make the EXISTING definition win a collision — and that test stays green.
+  //
+  // The docblock states the requirement the other way round: "On an id collision the incoming
+  // (newer) definition wins, so edits to an existing calculated field still refresh correctly
+  // (finding 3.6)." A regression pins a shared endpoint to the FIRST-registered definition of
+  // a calculated column, so editing it never takes effect until a reload.
+  //
+  // `sourceId` is the observable part of a definition here: simple mode never puts an
+  // expression on the wire, it only uses the list to RECOGNISE an id as an own-source
+  // calculated column (`ef.id === fieldId && ef.sourceId === d.sourceId`). So a definition
+  // re-registered against a different source is the edit this path can actually see.
+  it('lets the INCOMING definition win an expression-field id collision', async () => {
+    const endpoint = uid();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const margin = (sourceId: string) => ({
+      id: 'expr-margin',
+      label: 'Margin',
+      sourceId,
+      isMeasure: false,
+      expression: { operator: 'subtract' as const, inputs: [{ id: 'price' }, { id: 'cost' }] },
+    });
+
+    // The stale definition registers first…
+    createBatchingAdapter(endpoint, {
+      fetchFn: makeOkFetch([{ id: 'w1', rows: [] }]) as unknown as typeof fetch,
+      batchDelayMs: 0,
+      expressionFields: [margin('source-stale')],
+    });
+    // …and is then EDITED: same id, re-registered against the source it now belongs to.
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const edited = createBatchingAdapter(endpoint, {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+      expressionFields: [margin('source-orders')],
+    });
+
+    await edited.getRows(
+      makeDescriptor({
+        sourceId: 'source-orders',
+        widgetId: 'w1',
+        select: ['id', 'price', 'cost'],
+        filter: {
+          type: 'leaf',
+          field: 'expr-margin',
+          op: 'greater_than',
+          value: 100,
+          fieldType: 'number',
+        },
+      }),
+    );
+
+    // The edit took effect: `expr-margin` is recognised as source-orders' own calculated
+    // column, so the predicate is dropped rather than sent as a real `WHERE expr-margin > 100`
+    // that the server has no column for. If the existing definition had won, its `sourceId`
+    // would still be `source-stale`, the id would go unrecognised, and the predicate would
+    // land on the wire.
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ filters?: unknown }>;
+    };
+    expect(body.widgets[0].filters).toBeUndefined();
+    warnSpy.mockRestore();
+  });
+
+  // Simple mode states ONE rule about own-source calculated columns in two guards: such a
+  // field "must not [be sent] in a WHERE (server predicate) or a SELECT (client-residual
+  // projection): either fails the batch entry with 'no such column'". The predicate half is
+  // pinned by the two tests above. The PROJECTION half — `tryProjectField` refusing to push
+  // the id into `columns` — is not reached by either, because a `greater_than` leaf is
+  // server-translatable and never becomes a client residual at all.
+  //
+  // `contains` is not in `OPERATOR_MAP`, so the leaf routes to the client residual and
+  // `tryProjectField` is actually called. Without the guard the calculated id lands in the
+  // SELECT list and the whole batch entry fails server-side.
+  it('keeps an own-source calculated column out of the SELECT list when its filter falls to the client residual', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+      expressionFields: [
+        {
+          id: 'expr-margin',
+          label: 'Margin',
+          sourceId: 'source-orders',
+          isMeasure: false,
+          expression: { operator: 'subtract', inputs: [{ id: 'price' }, { id: 'cost' }] },
+        },
+      ],
+    });
+
+    await adapter.getRows(
+      makeDescriptor({
+        sourceId: 'source-orders',
+        widgetId: 'w1',
+        select: ['id', 'price', 'cost'],
+        filter: {
+          type: 'leaf',
+          field: 'expr-margin',
+          op: 'contains',
+          value: 'x',
+          fieldType: 'string',
+        },
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ columns: string[] }>;
+    };
+    // The whole point: the server has no such column, so asking for it fails the entry.
+    expect(body.widgets[0].columns).not.toContain('expr-margin');
+    // …and the real columns are still requested, so this is a guard and not a wipe.
+    expect(body.widgets[0].columns).toEqual(expect.arrayContaining(['id', 'price', 'cost']));
+    // Dropped LOUDLY — "never silently (finding 2.6)" is the other half of the sentence.
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
 });
 
 // ── Per-source credentials on a shared endpoint (finding H7) ─────────────────

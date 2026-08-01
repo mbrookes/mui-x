@@ -471,11 +471,19 @@ export const MAX_TURN_STEP_PARTS = MAX_TURN_MESSAGE_PARTS / 3;
 export const MAX_TURN_TEXT_PARTS = MAX_TURN_MESSAGE_PARTS / 6;
 
 /**
- * How many `reasoning` parts one turn may add — one per DISTINCT stream id, exactly as the
- * tool doors charge one per distinct `toolCallId`, because `resolveTextLikePartIndex`
- * allocates a fresh persisted part per unseen id in precisely the way `withToolInvocation`
- * does. Measured before this cap: 200 `reasoning-start`/`-delta`/`-end` triples with distinct
- * ids put 201 parts and 2 009 360 JSON characters on one assistant message.
+ * How many `reasoning` parts one turn may add — one per reasoning RUN this adapter opens on
+ * the wire, which is one per `reasoning-start`…`reasoning-end` cycle rather than one per
+ * distinct stream id. Measured before any cap: 200 triples with distinct ids put 201 parts and
+ * 2 009 360 JSON characters on one assistant message.
+ *
+ * "Per distinct id" is what this said for five rounds, and it was a PREDICTION about how the
+ * consumer allocates parts rather than a property of what this adapter emits.
+ * `resolveTextLikePartIndex` reuses a part for an id only while that part is not `done`, and
+ * `reasoning-end` marks it `done` — so a repeated start/delta/end cycle on one id minted a
+ * fresh persisted part per cycle and was charged nothing after the first (measured: 60 000
+ * cycles, 60 001 parts, 3 260 181 JSON characters, 1.46x
+ * {@link MAX_TURN_PERSISTED_MESSAGE_SIZE}). The charge is now keyed on what this adapter puts
+ * on the wire instead of on what the server sent — see `openReasoningPart`.
  *
  * The stream id ITSELF needs no length cap, unlike a `toolCallId`: it is a key into
  * `partIndexesByStreamId` and is never written onto the part (`streamTextDeltaBuffer.ts`
@@ -1058,9 +1066,13 @@ export function createBackendChatAdapter(
       // time a text run is closed by an intervening `step-start` or `tool-activity`.
       let textPartCounter = 0;
       let textPartId = `text-${textPartCounter}`;
-      const reasoningId = `r-thinking`;
+      // The adapter's OWN reasoning run — the synthetic "Thinking…" block. This is a
+      // correlation key for `openReasoningPart`/`endReasoning`, NOT a wire id: like every
+      // other reasoning run its wire id is minted below. A server that sends this string as
+      // its own `reasoning-start` id therefore reaches the same run this adapter opened, which
+      // is deliberate (it is the id the server can see us using) and costs the same one part.
+      const syntheticReasoningKey = `r-thinking`;
       let textStarted = false;
-      let reasoningEnded = false;
       // Tracks whether the returned ReadableStream's controller has already been
       // closed or errored, so it's only ever settled once — calling `close()`/`error()`
       // a second time (e.g. once from a `finish` event and again from the cleanup
@@ -1184,10 +1196,14 @@ export function createBackendChatAdapter(
       // The COUNT of them is charged through `chargeMessagePart('tool', …)` above.
       const turnToolPartIds = new Set<string>();
 
-      // …and the same, for the door `resolveTextLikePartIndex` opens: one persisted part per
-      // unseen reasoning stream id, structurally identical to `withToolInvocation`'s one part
-      // per unseen `toolCallId`. See `MAX_TURN_REASONING_PARTS`.
-      const turnReasoningIds = new Set<string>();
+      // …and the same, for the door `resolveTextLikePartIndex` opens — but keyed on what this
+      // adapter EMITS, not on what the server sent. `liveReasoningWireIds` maps a server-chosen
+      // correlation key to the wire id of the run currently open for it, and holds an entry
+      // only while that run is open: `closeReasoningPart` removes it, so re-opening the same
+      // server id is a new run, a new charge and a new wire id. `reasoningPartCounter` never
+      // repeats a wire id within a turn. See `MAX_TURN_REASONING_PARTS` and `openReasoningPart`.
+      const liveReasoningWireIds = new Map<string, string>();
+      let reasoningPartCounter = 0;
 
       // ── ONE size budget per stream-text kind ────────────────────────────────────────
       //
@@ -1272,17 +1288,47 @@ export function createBackendChatAdapter(
       };
 
       /**
-       * Opens (or re-uses) the persisted `reasoning` part a server-emitted stream id names.
+       * Opens (or re-uses) the persisted `reasoning` part for a server-emitted stream id, and
+       * returns the id to put ON THE WIRE for it — not the server's.
        *
-       * `resolveTextLikePartIndex(…, { createIfMissing: true })` allocates a brand-new part
-       * for every unseen id — the same multiplier `MAX_TURN_TOOL_PARTS` exists for, on the
-       * branch nobody had counted. Measured: 200 distinct ids, 201 parts, 2 009 360 JSON
-       * characters. Charged per DISTINCT id, so an ordinary
-       * `reasoning-start`/`-delta`/`-end` run costs one part however many deltas it carries.
+       * WHY THE INDIRECTION. `resolveTextLikePartIndex(…, { createIfMissing: true })` allocates
+       * a brand-new part for every unseen id. The obvious charge — one per distinct server id,
+       * which is what this did for five rounds — is a DUPLICATE MODEL of the consumer's
+       * allocation rule, and it was wrong: the consumer reuses a part for an id only while that
+       * part is not `done`, and `reasoning-end` marks it `done`. Repeating start/delta/end on
+       * one id therefore minted a fresh persisted part per cycle and was charged nothing after
+       * the first (measured: 60 000 cycles, 60 001 parts, 3 260 181 JSON characters). A charge
+       * keyed differently from the allocation it predicts is not a charge.
+       *
+       * So the charge is no longer keyed on anything the server chose. Server ids are demoted
+       * to correlation keys and every run this adapter opens gets a freshly minted wire id it
+       * will never emit again — exactly the shape the text door has always had (`text-${n}`,
+       * closed by `endTextPart`, never re-opened), which is why the text door never had this
+       * hole. One charge, one wire id, one part: whatever the server repeats, it cannot make
+       * this adapter re-use a wire id, and a wire id that is emitted once can be allocated at
+       * most once by ANY per-id reuse rule the consumer might have. The prediction is gone
+       * rather than corrected.
+       *
+       * The two designs rejected, and why:
+       *  - Adding the consumer's `done`/epoch rule to the dedup key. Cheapest, and it is the
+       *    same class of defect: still a duplicate of `resolveTextLikePartIndex`, still correct
+       *    only until that function changes, and still silently under-charging when it does.
+       *    Under-charging here is unbounded persisted growth, so the failure mode is not one to
+       *    keep re-earning.
+       *  - Counting the parts on the store and enforcing there. Strongest, and it does not fit:
+       *    `sendMessage` returns a `ReadableStream<ChatMessageChunk>` and never sees the
+       *    `ChatStore` the host's `processStream` writes into — this adapter has no handle to
+       *    the sink it is bounding. It would have to move into `x-chat-headless` and change the
+       *    part semantics of every consumer of that package, for a budget only this boundary
+       *    needs.
+       *
+       * Returns `undefined` when the turn cannot afford another reasoning part; the caller must
+       * then emit nothing, since a wire id that was never charged has no part to append to.
        */
-      const openReasoningPart = (id: string): boolean => {
-        if (turnReasoningIds.has(id)) {
-          return true;
+      const openReasoningPart = (correlationKey: string): string | undefined => {
+        const live = liveReasoningWireIds.get(correlationKey);
+        if (live !== undefined) {
+          return live;
         }
         if (!chargeMessagePart('reasoning')) {
           warnApprovalOnce(
@@ -1291,10 +1337,31 @@ export function createBackendChatAdapter(
               `blocks in one response. Each one is stored in the saved dashboard, so the extra ` +
               `ones were dropped and will not appear in the conversation.`,
           );
-          return false;
+          return undefined;
         }
-        turnReasoningIds.add(id);
-        return true;
+        reasoningPartCounter += 1;
+        const wireId = `studio-reasoning-${reasoningPartCounter}`;
+        liveReasoningWireIds.set(correlationKey, wireId);
+        return wireId;
+      };
+
+      /**
+       * Ends the run a correlation key names, returning the wire id to close it with, or
+       * `undefined` when no run is open for that key (an unmatched `reasoning-end`, which
+       * `processStream` would treat as a no-op anyway — `createIfMissing: false`).
+       *
+       * Dropping the key here is what makes a re-opened id cost a fresh CHARGE rather than a
+       * free part: after this, the next `reasoning-start` on the same key takes the
+       * `chargeMessagePart` path above, which is the allocation the consumer will actually
+       * perform.
+       */
+      const closeReasoningPart = (correlationKey: string): string | undefined => {
+        const wireId = liveReasoningWireIds.get(correlationKey);
+        if (wireId === undefined) {
+          return undefined;
+        }
+        liveReasoningWireIds.delete(correlationKey);
+        return wireId;
       };
 
       // …and a dropped event that leaves a card ALREADY ON SCREEN is announced there too,
@@ -1371,12 +1438,14 @@ export function createBackendChatAdapter(
       };
 
       // Helper: close the synthetic "Thinking…" reasoning part once real content arrives.
+      // Idempotent through `closeReasoningPart`, which returns `undefined` once the run is
+      // already closed — the flag this used to keep was a second copy of that same fact.
       const endReasoning = (
         streamController: ReadableStreamDefaultController<ChatMessageChunk>,
       ) => {
-        if (!reasoningEnded) {
-          reasoningEnded = true;
-          streamController.enqueue({ type: 'reasoning-end', id: reasoningId });
+        const wireId = closeReasoningPart(syntheticReasoningKey);
+        if (wireId !== undefined) {
+          streamController.enqueue({ type: 'reasoning-end', id: wireId });
         }
       };
 
@@ -1465,8 +1534,10 @@ export function createBackendChatAdapter(
           // arrives. CHARGED to the part budget like any other: a budget that exempts the
           // parts it knows about is the same mistake as one that exempts the fields it knows
           // about, and this one is a real persisted part.
-          openReasoningPart(reasoningId);
-          streamController.enqueue({ type: 'reasoning-start', id: reasoningId });
+          const syntheticReasoningWireId = openReasoningPart(syntheticReasoningKey);
+          if (syntheticReasoningWireId !== undefined) {
+            streamController.enqueue({ type: 'reasoning-start', id: syntheticReasoningWireId });
+          }
 
           // Close/error the stream exactly once. Guarding both here means every call
           // site can settle the stream unconditionally instead of separately tracking
@@ -1612,13 +1683,19 @@ Check the endpoint URL, its authentication headers, and the server logs for this
           //                                     `step-start` or `tool-activity` interrupts.
           //                                     Charged: `chargeMessagePart('text')` and
           //                                     `chargeStreamText('text', …)`.
-          //   `reasoning-start`        (a)      one part per DISTINCT stream id.
+          //   `reasoning-start`        (a)      one part per reasoning RUN — see below.
           //   `reasoning-delta`        (a)+(b)  same, and appends. `resolveTextLikePartIndex`
           //                                     creates on an unseen id here too.
           //                                     Charged: `openReasoningPart` +
           //                                     `chargeStreamText('reasoning', …)`.
           //   `reasoning-end`          (c)      `createIfMissing: false` — a no-op for an
           //                                     unknown id, and it only marks a part `done`.
+          //                                     But it also ENDS the run, and the next
+          //                                     `-start` on that id is a fresh part: hence
+          //                                     "per run", not "per id". See
+          //                                     `openReasoningPart` for why the cardinality of
+          //                                     an enumerated branch, not the list of
+          //                                     branches, is where round twelve's door was.
           //   `tool-activity` start    (a)+(b)  one part per distinct `toolCallId`, carrying
           //                                     ids and the model's own `input`.
           //   `tool-activity` complete (b)      writes `output` onto an EXISTING part only;
@@ -1672,30 +1749,32 @@ Check the endpoint URL, its authentication headers, and the server logs for this
               // Forward server-emitted reasoning chunks (e.g. from Claude extended thinking).
               // Close our synthetic "Thinking…" block first so blocks don't overlap.
               endReasoning(streamController);
-              const reasoningPartId = String(event.id ?? 'r-server');
-              if (!openReasoningPart(reasoningPartId)) {
+              const wireId = openReasoningPart(String(event.id ?? 'r-server'));
+              if (wireId === undefined) {
                 return undefined;
               }
-              streamController.enqueue({ type: 'reasoning-start', id: reasoningPartId });
+              streamController.enqueue({ type: 'reasoning-start', id: wireId });
             } else if (type === 'reasoning-delta') {
-              const reasoningPartId = String(event.id ?? 'r-server');
-              if (!openReasoningPart(reasoningPartId)) {
+              const wireId = openReasoningPart(String(event.id ?? 'r-server'));
+              if (wireId === undefined) {
                 return undefined;
               }
               const delta = chargeStreamText('reasoning', String(event.delta ?? ''));
               if (delta === undefined) {
                 return undefined;
               }
-              streamController.enqueue({ type: 'reasoning-delta', id: reasoningPartId, delta });
+              streamController.enqueue({ type: 'reasoning-delta', id: wireId, delta });
             } else if (type === 'reasoning-end') {
-              // Never creates a part (`createIfMissing: false`), so forwarding an id no part
-              // was opened for is a no-op — dropped here so the chain's own accounting and
-              // `processStream`'s agree about which ids this turn has parts for.
-              const reasoningPartId = String(event.id ?? 'r-server');
-              if (!turnReasoningIds.has(reasoningPartId)) {
+              // Never creates a part (`createIfMissing: false`), so forwarding an id no run is
+              // open for is a no-op — dropped here so the chain's own accounting and
+              // `processStream`'s agree about which runs this turn has parts for. Closing the
+              // run is also what re-arms the charge: the NEXT `reasoning-start` on this key is
+              // a new part in the store, so it must be a new part in the accounting.
+              const wireId = closeReasoningPart(String(event.id ?? 'r-server'));
+              if (wireId === undefined) {
                 return undefined;
               }
-              streamController.enqueue({ type: 'reasoning-end', id: reasoningPartId });
+              streamController.enqueue({ type: 'reasoning-end', id: wireId });
             } else if (type === 'tool-activity') {
               endReasoning(streamController);
               // Close any preamble text run before the tool card so the tool card

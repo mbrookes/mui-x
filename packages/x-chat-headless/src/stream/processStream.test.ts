@@ -1062,4 +1062,89 @@ describe('processStream', () => {
       isError: false,
     });
   });
+
+  // ── the part-allocation contract producers budget against ────────────────────
+  //
+  // These are not tests of a feature. They pin the rule `resolveTextLikePartIndex` allocates
+  // by, because at least one producer (x-studio's `studioBackendAdapter`) has to bound how many
+  // persisted parts a turn can create BEFORE the parts exist, and the only honest way to do
+  // that is to emit each text-like stream id once and rely on "one fresh id, at most one part".
+  //
+  // That producer previously budgeted against "one part per DISTINCT stream id", which is NOT
+  // what this function does — it reuses a part for an id only while the part is not `done`.
+  // The mismatch was invisible for five audit rounds and cost 60 001 persisted parts on one
+  // message. If either rule below changes, that budget is wrong again, so both are asserted
+  // here rather than left as folklore: whoever changes the allocation breaks these, loudly.
+  describe('text-like part allocation (a contract producers budget against)', () => {
+    const partsOf = (store: ChatStore) => {
+      const id = store.state.messageIds[store.state.messageIds.length - 1];
+      return store.state.messagesById[id].parts;
+    };
+
+    it('allocates exactly ONE part for a stream id that is never re-started, however many chunks it carries', async () => {
+      const store = new ChatStore();
+
+      await processStream(
+        store,
+        createStream([
+          { type: 'start', messageId: 'a1' },
+          { type: 'reasoning-start', id: 'r-1' },
+          ...Array.from({ length: 200 }, (_unused, i) => ({
+            type: 'reasoning-delta' as const,
+            id: 'r-1',
+            delta: `d${i}`,
+          })),
+          { type: 'reasoning-end', id: 'r-1' },
+          { type: 'finish', messageId: 'a1', finishReason: 'stop' },
+        ]),
+        { conversationId: 'c1', flushInterval: 0 },
+      );
+
+      expect(partsOf(store).filter((part) => part.type === 'reasoning')).toHaveLength(1);
+    });
+
+    it('allocates a NEW part when a stream id is re-started after it was ended', async () => {
+      const store = new ChatStore();
+
+      await processStream(
+        store,
+        createStream([
+          { type: 'start', messageId: 'a1' },
+          ...Array.from({ length: 5 }, () => [
+            { type: 'reasoning-start' as const, id: 'r-1' },
+            { type: 'reasoning-delta' as const, id: 'r-1', delta: 'x' },
+            { type: 'reasoning-end' as const, id: 'r-1' },
+          ]).flat(),
+          { type: 'finish', messageId: 'a1', finishReason: 'stop' },
+        ]),
+        { conversationId: 'c1', flushInterval: 0 },
+      );
+
+      // FIVE, not one. A `done` part is never revived, so the id is not the unit of
+      // allocation — the run is. A producer that charges per distinct id under-charges here by
+      // a factor the server chooses.
+      expect(partsOf(store).filter((part) => part.type === 'reasoning')).toHaveLength(5);
+    });
+
+    it('holds both rules for `text` parts as well', async () => {
+      const store = new ChatStore();
+
+      await processStream(
+        store,
+        createStream([
+          { type: 'start', messageId: 'a1' },
+          ...Array.from({ length: 4 }, () => [
+            { type: 'text-start' as const, id: 't-1' },
+            { type: 'text-delta' as const, id: 't-1', delta: 'a' },
+            { type: 'text-delta' as const, id: 't-1', delta: 'b' },
+            { type: 'text-end' as const, id: 't-1' },
+          ]).flat(),
+          { type: 'finish', messageId: 'a1', finishReason: 'stop' },
+        ]),
+        { conversationId: 'c1', flushInterval: 0 },
+      );
+
+      expect(partsOf(store).filter((part) => part.type === 'text')).toHaveLength(4);
+    });
+  });
 });

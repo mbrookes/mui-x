@@ -3915,9 +3915,7 @@ describe('createBackendChatAdapter: stream-text budgets', () => {
     const deltas = chunks.filter((c) => c.type === 'text-delta') as { delta: string }[];
     const total = deltas.reduce((sum, c) => sum + jsonChars(c.delta), 0);
     // 12 000 000 JSON characters of answer, bounded to the turn's ceiling plus one marker.
-    expect(total).toBeLessThanOrEqual(
-      MAX_TURN_TEXT_SIZE + jsonChars(STREAM_TEXT_TRUNCATED_SUFFIX),
-    );
+    expect(total).toBeLessThanOrEqual(MAX_TURN_TEXT_SIZE + jsonChars(STREAM_TEXT_TRUNCATED_SUFFIX));
     // …and the cut says so. A truncated answer that reads as a finished one is the one
     // failure mode a text budget must not have: the tail is where the conclusion lives.
     expect(deltas.at(-1)!.delta).toContain('truncated');
@@ -4136,6 +4134,116 @@ describe('createBackendChatAdapter: the whole persisted assistant message', () =
     expect(kinds.has('reasoning')).toBe(true);
     expect(kinds.has('step-start')).toBe(true);
     expect(kinds.has('dynamic-tool')).toBe(true);
+    warnSpy.mockRestore();
+  });
+
+  // ── the allocation, not a prediction of it ─────────────────────────────────
+  //
+  // Every test above sends each reasoning stream id ONCE. That is the shape the charge was
+  // written against, and it is why "one part per DISTINCT id" read as true for five rounds:
+  // `resolveTextLikePartIndex` reuses a part for an id only while that part is not `done`, and
+  // `reasoning-end` marks it `done` — so a REPEATED start/delta/end cycle on one id allocated a
+  // brand-new persisted part per cycle and was charged nothing after the first. Measured at
+  // 60 000 cycles before the fix: 60 001 parts and 3 260 181 JSON characters against a stated
+  // whole-message ceiling of 2 226 805.
+  //
+  // These four pin the property the adapter now relies on, in BOTH directions, at the sink.
+  it('bounds a reasoning id the server re-opens after ending it', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const cycles = MAX_TURN_REASONING_PARTS * 60;
+    const { parts, persistedJSONChars } = await persistOneTurn(
+      Array.from({ length: cycles }, () => [
+        { type: 'reasoning-start', id: 'r' },
+        { type: 'reasoning-delta', id: 'r', delta: 'thinking' },
+        { type: 'reasoning-end', id: 'r' },
+      ]).flat(),
+    );
+
+    expect(parts.filter((part) => part.type === 'reasoning')).toHaveLength(
+      MAX_TURN_REASONING_PARTS,
+    );
+    expect(parts.length).toBeLessThanOrEqual(MAX_TURN_MESSAGE_PARTS + 1);
+    expect(persistedJSONChars).toBeLessThanOrEqual(MAX_TURN_PERSISTED_MESSAGE_SIZE);
+    warnSpy.mockRestore();
+  });
+
+  // …including the id the ADAPTER itself opened, which `endReasoning` finalizes on the first
+  // real content — so a server needs no id of its own to reach the same door.
+  it('bounds the same re-open cycle run on the ADAPTER-owned thinking id', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const cycles = MAX_TURN_REASONING_PARTS * 60;
+    const { parts, persistedJSONChars } = await persistOneTurn(
+      Array.from({ length: cycles }, () => [
+        { type: 'reasoning-start', id: 'r-thinking' },
+        { type: 'reasoning-delta', id: 'r-thinking', delta: 'thinking' },
+        { type: 'reasoning-end', id: 'r-thinking' },
+      ]).flat(),
+    );
+
+    expect(parts.filter((part) => part.type === 'reasoning').length).toBeLessThanOrEqual(
+      MAX_TURN_REASONING_PARTS,
+    );
+    expect(parts.length).toBeLessThanOrEqual(MAX_TURN_MESSAGE_PARTS + 1);
+    expect(persistedJSONChars).toBeLessThanOrEqual(MAX_TURN_PERSISTED_MESSAGE_SIZE);
+    warnSpy.mockRestore();
+  });
+
+  // The other direction, which is what makes the cap above safe to state: an ORDINARY thinking
+  // run — one id, one `-end`, however many deltas — must still cost exactly ONE part, or the
+  // cap would start dropping the deltas of a perfectly well-behaved server. Without this the
+  // whole per-run dedup could be deleted and every test above would stay green.
+  it('costs ONE part for one ordinary thinking run, however many deltas it carries', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const deltas = MAX_TURN_REASONING_PARTS * 8;
+    const { parts } = await persistOneTurn([
+      { type: 'reasoning-start', id: 'r' },
+      ...Array.from({ length: deltas }, (_unused, i) => ({
+        type: 'reasoning-delta',
+        id: 'r',
+        delta: `d${i} `,
+      })),
+      { type: 'reasoning-end', id: 'r' },
+    ]);
+
+    const reasoningParts = parts.filter((part) => part.type === 'reasoning') as {
+      text: string;
+    }[];
+    // Two: the adapter's synthetic "Thinking…" part, closed by the server's own run, and the
+    // server's run itself. Not one per delta, and not one per event.
+    expect(reasoningParts).toHaveLength(2);
+    // …and nothing the server said was lost to bounding the count.
+    expect(reasoningParts[1].text).toBe(
+      Array.from({ length: deltas }, (_unused, i) => `d${i} `).join(''),
+    );
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  // The text door has always had the shape the reasoning door has only just been given — its
+  // stream ids are minted HERE (`text-${n}`) and never re-opened after `text-end`, so no server
+  // id can drive its part count. Pinned at the sink so that stops being an accident.
+  it('bounds the text door against the same re-open cycle, at the sink', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const runs = MAX_TURN_TEXT_PARTS * 60;
+    const { parts, persistedJSONChars } = await persistOneTurn(
+      Array.from({ length: runs }, (_unused, i) => [
+        { type: 'text-delta', delta: `answer-${i} ` },
+        // `step-start` is what closes a text run and mints the next id.
+        { type: 'step-start' },
+      ]).flat(),
+    );
+
+    expect(parts.filter((part) => part.type === 'text').length).toBeLessThanOrEqual(
+      MAX_TURN_TEXT_PARTS,
+    );
+    expect(parts.length).toBeLessThanOrEqual(MAX_TURN_MESSAGE_PARTS + 1);
+    expect(persistedJSONChars).toBeLessThanOrEqual(MAX_TURN_PERSISTED_MESSAGE_SIZE);
+    // Lossless: bounding the SEGMENTATION must never cost a character of the answer.
+    expect(
+      (parts.filter((part) => part.type === 'text') as { text: string }[])
+        .map((part) => part.text)
+        .join(''),
+    ).toBe(Array.from({ length: runs }, (_unused, i) => `answer-${i} `).join(''));
     warnSpy.mockRestore();
   });
 

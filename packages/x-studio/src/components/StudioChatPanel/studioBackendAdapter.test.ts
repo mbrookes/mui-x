@@ -4137,6 +4137,93 @@ describe('createBackendChatAdapter: the whole persisted assistant message', () =
     warnSpy.mockRestore();
   });
 
+  // ── the TOTAL, not just the slices ─────────────────────────────────────────
+  //
+  // Every other part-count test above drives ONE door and is stopped by that door's sub-limit,
+  // so the total clause of `canAffordMessagePart` was never the binding one and could be
+  // deleted with the whole suite still green. Its one live use is the deliberate over-slice
+  // charge: `reportApprovalCannotBeShown` mints a notice part against `MAX_TURN_TOOL_PARTS + 1`
+  // so a refused approval is visible, and the TOTAL is the only thing that stops that `+ 1`
+  // from being a 193rd part on a message already holding 192.
+  it('refuses even the over-slice approval notice once the MESSAGE total is spent', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const events: Record<string, unknown>[] = [
+      // text -> 32 parts, and step -> 32 along the way: each `step-start` closes the open text
+      // run and mints the next id, which is what makes a text part cost a charge.
+      ...Array.from({ length: MAX_TURN_TEXT_PARTS }, (_unused, i) => [
+        { type: 'text-delta', delta: `t${i} ` },
+        { type: 'step-start' },
+      ]).flat(),
+      // step -> 64.
+      ...Array.from({ length: MAX_TURN_STEP_PARTS - MAX_TURN_TEXT_PARTS }, () => ({
+        type: 'step-start',
+      })),
+      // reasoning -> 32, one of which the adapter's own synthetic "Thinking…" part already
+      // spent before the stream was read.
+      ...Array.from({ length: MAX_TURN_REASONING_PARTS - 1 }, (_unused, i) => ({
+        type: 'reasoning-start',
+        id: `r-${i}`,
+      })),
+      // tool -> 48 from the activity door…
+      ...Array.from({ length: MAX_TURN_TOOL_ACTIVITY_PARTS }, (_unused, i) => ({
+        type: 'tool-activity',
+        phase: 'start',
+        toolCallId: `call-${i}`,
+        toolName: 'do_thing',
+        input: {},
+      })),
+      // …and 16 more from the approval door, which is exactly the reservation held for it.
+      ...Array.from({ length: MAX_TURN_APPROVAL_PARTS }, (_unused, i) => ({
+        type: 'tool-approval-request',
+        toolCallId: `approval-${i}`,
+        toolName: 'do_thing',
+        approvalId: `ap-${i}`,
+        input: {},
+      })),
+      // The message now holds MAX_TURN_MESSAGE_PARTS parts. This approval cannot be shown, so
+      // the boundary would like to say so — and the ONE thing standing between that notice and
+      // a 193rd part is the total.
+      {
+        type: 'tool-approval-request',
+        toolCallId: 'approval-over',
+        toolName: 'do_thing',
+        approvalId: 'ap-over',
+        input: {},
+      },
+    ];
+
+    const { parts } = await persistOneTurn(events);
+
+    const byKind = parts.reduce<Record<string, number>>((acc, part) => {
+      acc[part.type] = (acc[part.type] ?? 0) + 1;
+      return acc;
+    }, {});
+    // Every slice is at its ceiling and they sum to exactly the root — which is the same fact
+    // that leaves the total no slack to act in for these four kinds, and why the notice part is
+    // the only place it can be observed.
+    expect(byKind).toEqual({
+      text: MAX_TURN_TEXT_PARTS,
+      reasoning: MAX_TURN_REASONING_PARTS,
+      'step-start': MAX_TURN_STEP_PARTS,
+      // The two tool doors land as different part types in the store — `dynamic-tool` for the
+      // activity door, `tool` for the approval door — but they share ONE sub-limit here.
+      'dynamic-tool': MAX_TURN_TOOL_ACTIVITY_PARTS,
+      tool: MAX_TURN_APPROVAL_PARTS,
+    });
+    expect(parts).toHaveLength(MAX_TURN_MESSAGE_PARTS);
+    // Not `<= MAX_TURN_MESSAGE_PARTS + 1`: the `+ 1` is affordable only while the total is not
+    // spent, and here it is. Without the total clause — or without the total being incremented
+    // — the notice lands and the message holds 193.
+    expect(
+      parts.some(
+        (part) =>
+          'toolCallId' in part &&
+          (part as { toolCallId: string }).toolCallId.includes('unshowable'),
+      ),
+    ).toBe(false);
+    warnSpy.mockRestore();
+  });
+
   // ── the allocation, not a prediction of it ─────────────────────────────────
   //
   // Every test above sends each reasoning stream id ONCE. That is the shape the charge was

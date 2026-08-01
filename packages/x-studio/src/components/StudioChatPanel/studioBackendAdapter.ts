@@ -1159,8 +1159,25 @@ export function createBackendChatAdapter(
       // `MAX_TURN_MESSAGE_PARTS`, derived there, not independent numbers declared here.
       //
       // Two counters, not one: the sub-limit stops one door eating the message, and the total
-      // is what a future door has to pass through even if whoever adds it forgets to give it a
-      // sub-limit of its own. That is the only part of this design aimed at round twelve.
+      // is what a charge has to pass through even when its own sub-limit would let it through.
+      //
+      // Be precise about what that is worth, because the previous version of this comment
+      // called the total "the only part of this design aimed at round twelve" while no test in
+      // the suite exercised it and both counters could be disabled with the suite still green.
+      // The four slices sum to EXACTLY `MAX_TURN_MESSAGE_PARTS` (64 + 64 + 32 + 32), so for
+      // these four kinds the sub-limit is always the binding clause and the total has no slack
+      // to act in. It binds in exactly two places: the one deliberate over-slice charge on this
+      // boundary (`reportApprovalCannotBeShown`'s notice part, charged against
+      // `MAX_TURN_TOOL_PARTS + 1` — pinned by "refuses even the over-slice approval notice once
+      // the MESSAGE total is spent"), and any FUTURE kind added without a slice of its own,
+      // which the total caps at the root rather than at infinity.
+      //
+      // What it is NOT is a net under a door that never calls `chargeMessagePart` at all. Round
+      // twelve's door created parts through `resolveTextLikePartIndex` with no charge anywhere
+      // on the path, and neither counter saw it; a total only sees the charges it is told
+      // about. That gap is closed by keying the charge on what this adapter EMITS rather than
+      // on a prediction of what the consumer will allocate — see `openReasoningPart` — which is
+      // the mechanism actually aimed at that failure, not this counter.
       type MessagePartKind = 'tool' | 'text' | 'reasoning' | 'step';
       const turnPartCounts: Record<MessagePartKind, number> = {
         tool: 0,

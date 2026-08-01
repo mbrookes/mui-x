@@ -405,6 +405,85 @@ describe('createBatchingAdapter — per-source fetchFn on a shared endpoint', ()
   });
 });
 
+// ── The chunking the batch cap exists for ────────────────────────────────────
+//
+// `MAX_BATCH_WIDGETS_PER_REQUEST`'s VALUE is pinned by two tests, one in each package. The
+// chunking loop the constant exists for was executed by neither, nor by anything else: no
+// test in this file issued more than a handful of descriptors, so a group never exceeded
+// the cap and the loop never split anything. A constant with a test and no exercise —
+// delete the loop, keep the number, and both mirror tests stay green while every over-cap
+// page breaks.
+//
+// The mirror test's own failure message names the behaviour: "update BOTH, or the client
+// chunks batches the server rejects outright". This is that behaviour.
+
+describe('createBatchingAdapter — over-cap chunking', () => {
+  /** A fetch that answers whatever widget ids the body actually asked for. */
+  function makeEchoFetch() {
+    return vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string) as { widgets: { id: string }[] };
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            results: body.widgets.map((widget) => ({ id: widget.id, rows: [{ id: widget.id }] })),
+          }),
+      });
+    });
+  }
+
+  it('splits a group past the cap into several POSTs, none over the cap', async () => {
+    const fetchFn = makeEchoFetch();
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    // One past the cap: the smallest page the server would reject outright.
+    const overCap = MAX_BATCH_WIDGETS_PER_REQUEST + 1;
+    const rows = await Promise.all(
+      Array.from({ length: overCap }, (_unused, i) =>
+        adapter.getRows(makeDescriptor({ widgetId: `w${i}`, cacheKey: `k${i}` })),
+      ),
+    );
+
+    const widgetsPerPost = fetchFn.mock.calls.map(
+      ([, init]) =>
+        (JSON.parse((init as RequestInit).body as string) as { widgets: unknown[] }).widgets.length,
+    );
+    // Two POSTs, not one — and the split is AT the cap, not somewhere near it.
+    expect(widgetsPerPost).toEqual([MAX_BATCH_WIDGETS_PER_REQUEST, 1]);
+    // The property that actually matters, stated independently of the arithmetic above:
+    // no request the server would throw on.
+    expect(Math.max(...widgetsPerPost)).toBeLessThanOrEqual(MAX_BATCH_WIDGETS_PER_REQUEST);
+
+    // Chunking must be invisible to the caller: every descriptor still gets ITS rows,
+    // across the split. Without this a mis-routing chunker would pass the counts above.
+    expect(rows).toHaveLength(overCap);
+    expect(rows.map((result) => (result.rows[0] as { id: string }).id)).toEqual(
+      Array.from({ length: overCap }, (_unused, i) => expect.stringContaining(`w${i}::`)),
+    );
+  });
+
+  it('leaves a group at exactly the cap as ONE POST', async () => {
+    const fetchFn = makeEchoFetch();
+    const adapter = createBatchingAdapter(uid(), {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    await Promise.all(
+      Array.from({ length: MAX_BATCH_WIDGETS_PER_REQUEST }, (_unused, i) =>
+        adapter.getRows(makeDescriptor({ widgetId: `w${i}`, cacheKey: `k${i}` })),
+      ),
+    );
+
+    // The other direction, without which "chunk everything into ones" would pass the test
+    // above: the cap is a ceiling, not a page size.
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+});
+
 // ── Fetch failure ─────────────────────────────────────────────────────────────
 
 describe('createBatchingAdapter — fetch failure', () => {

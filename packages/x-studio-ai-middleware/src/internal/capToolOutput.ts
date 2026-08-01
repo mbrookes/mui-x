@@ -49,8 +49,22 @@ export const MAX_TOOL_OUTPUT_OBJECT_KEYS = 200;
 /** Per-array entry ("row") cap applied while structurally trimming an oversized result. */
 export const MAX_TOOL_OUTPUT_ARRAY_ITEMS = 1_000;
 
-/** Max nesting depth walked while trimming; deeper values are replaced with an empty container. */
-const MAX_TOOL_OUTPUT_DEPTH = 12;
+/**
+ * Max nesting depth walked while trimming; deeper values are replaced with an empty
+ * container.
+ *
+ * Unlike its four siblings above this cap is not primarily about SIZE — it is what
+ * keeps `trimValue`'s recursion bounded. The value it walks is producer-supplied
+ * (a host `server-tool` skill's return, an MCP resource, a data-source row set) and
+ * arrives via `JSON.parse`, which handles nesting far deeper than a recursive walk
+ * can: a 40,000-deep `{"a":{"a":…}}` parses fine and then overflows the stack on the
+ * way down. `trimValue` is called OUTSIDE the two `try`/`catch`es in
+ * {@link capToolOutput} (which cover `JSON.parse` and `JSON.stringify`), so that
+ * `RangeError` would escape a function that runs on EVERY `ToolDispatchOutcome.output`.
+ * Exported so the tests can pin both arms against the constant rather than a
+ * transcribed copy of it.
+ */
+export const MAX_TOOL_OUTPUT_DEPTH = 12;
 
 /**
  * Floors for the progressive re-trim (see {@link capToolOutput}). The structural caps

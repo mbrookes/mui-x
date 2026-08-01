@@ -1746,26 +1746,47 @@ Check the endpoint URL, its authentication headers, and the server logs for this
               if (delta === undefined) {
                 return undefined;
               }
-              // ONE statement of the text-part rule, and it is `endTextPart`, not a guard here.
+              // Two rules, on two different counters, and only one of them is `endTextPart`'s.
               //
-              // There used to be a second one on this line — `!textStarted &&
-              // !canAffordMessagePart('text')`, dropping the delta — and it was unreachable in
-              // both halves. `endTextPart` refuses to CLOSE the open run once the text slice is
-              // spent, so `textStarted` can never return to `false` while `turnPartCounts.text`
-              // sits at its sub-limit; and the total can never be the binding clause for text
-              // either (the other three slices sum to 160, plus the one over-slice approval
-              // notice = 161 < 192). So the charge below cannot fail, the guard never fired,
-              // and the user-facing warning it carried could never reach a user. Unreachable
-              // code that reads as protection is worse than no protection: it is a second,
-              // divergent statement of a rule, and the next reader budgets against it.
+              // The SUB-limit (`MAX_TURN_TEXT_PARTS`) is bounded losslessly and elsewhere:
+              // `endTextPart` refuses to CLOSE the open run once the text slice is spent, so
+              // later text appends to the part already streaming and nothing is dropped. That
+              // rule is stated once, there, and this branch does not restate it.
               //
-              // It also stated the WRONG rule. Bounding the segmentation must not cost a
-              // character of the answer — dropping text is precisely the trade `endTextPart`
-              // exists to avoid — and the guard dropped it. Pinned by "bounds the text door
-              // against the same re-open cycle, at the sink", which asserts both halves: the
-              // part count is capped AND every character the server sent is still there.
+              // The TOTAL (`MAX_TURN_MESSAGE_PARTS`) is a different bound and it CAN be the
+              // binding clause here, which is why the charge's result is respected rather than
+              // discarded. A previous round deleted this guard as unreachable on the argument
+              // that "the other three slices sum to 160, plus the one over-slice approval
+              // notice = 161 < 192". That omits the text parts already charged:
+              // `canAffordMessagePart('text')` is `turnPartCounts.text < 32 &&
+              // turnMessageParts < 192`, so with text at 31 and the other doors at
+              // 64 + 32 + 48 + 16 + 1 = 161 the total is exactly 192 while the slice still has
+              // room. Nor does `endTextPart` save it: it closed the previous run at a moment
+              // when the total was still affordable, and another door may spend the last slot
+              // before the next `text-delta` arrives. Measured at the sink with the result
+              // discarded: 193 parts against a ceiling of 192.
+              //
+              // Dropping the delta is the only move left — there is no open run to append it
+              // to, which is exactly what distinguishes this from the slice rule — so it is
+              // announced rather than silent. Pinned in both directions: "refuses a NEW text
+              // part once the MESSAGE total is spent, though the text slice has room" drives
+              // the total to 192 with text at 31 and asserts the part is refused, and "bounds
+              // the text door against the same re-open cycle, at the sink" asserts the ordinary
+              // case still costs nothing and loses not one character.
+              //
+              // Charged where the part is OPENED, not before the bytes: a charge taken earlier
+              // would also be taken on the deltas `chargeStreamText` rejects, spending part
+              // budget on parts that are never created.
               if (!textStarted) {
-                chargeMessagePart('text');
+                if (!chargeMessagePart('text')) {
+                  warnApprovalOnce(
+                    'text-part-budget',
+                    `The AI server filled all ${MAX_TURN_MESSAGE_PARTS} parts of one response ` +
+                      `before finishing its answer, so the last answer segment was dropped ` +
+                      `from the saved dashboard.`,
+                  );
+                  return undefined;
+                }
                 streamController.enqueue({ type: 'text-start', id: textPartId });
                 textStarted = true;
               }

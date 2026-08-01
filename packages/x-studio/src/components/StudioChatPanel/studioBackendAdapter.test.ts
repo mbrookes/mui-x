@@ -4267,6 +4267,95 @@ describe('createBackendChatAdapter: the whole persisted assistant message', () =
     warnSpy.mockRestore();
   });
 
+  // ── the total IS the binding clause for text, and this is the measurement ──────
+  //
+  // The test that had to exist before the `text-delta` branch's part guard could be called
+  // unreachable — and did not, so the guard was deleted on a prose argument instead. The
+  // argument was that "the other three slices sum to 160, plus the one over-slice approval
+  // notice = 161 < 192, so the charge cannot fail". It omits the text parts ALREADY charged:
+  // `canAffordMessagePart('text')` is `turnPartCounts.text < 32 && turnMessageParts < 192`, so
+  // with text at 31 and the other doors at 64 + 32 + 48 + 16 + 1 = 161 the total is exactly
+  // 192 while the SUB-limit still has room. The total is the binding clause, and the charge
+  // fails.
+  //
+  // Nor does the other half of the argument save it. `endTextPart` refuses to close once
+  // `canAffordMessagePart('text')` is false — but it closed HERE at a moment when it was still
+  // true, and the doors below then spent the last slot before this `text-delta` arrived. So
+  // `textStarted` is `false`, a new part is wanted, and there is no slot for it.
+  //
+  // Driven to exactly that state and measured at the sink: with the charge's result ignored
+  // the message holds 193 parts against a stated ceiling of 192, and the 32nd text part is one
+  // no counter ever saw.
+  it('refuses a NEW text part once the MESSAGE total is spent, though the text slice has room', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const events: Record<string, unknown>[] = [
+      // text -> 31, ONE short of its slice, and step -> 31 along the way. The last `step-start`
+      // closes the open run while the total is still affordable, so `textStarted` is `false`
+      // and the next `text-delta` will want a brand-new part.
+      ...Array.from({ length: MAX_TURN_TEXT_PARTS - 1 }, (_unused, i) => [
+        { type: 'text-delta', delta: `t${i} ` },
+        { type: 'step-start' },
+      ]).flat(),
+      // step -> 64.
+      ...Array.from({ length: MAX_TURN_STEP_PARTS - (MAX_TURN_TEXT_PARTS - 1) }, () => ({
+        type: 'step-start',
+      })),
+      // reasoning -> 32, one of which the synthetic "Thinking…" part already spent.
+      ...Array.from({ length: MAX_TURN_REASONING_PARTS - 1 }, (_unused, i) => ({
+        type: 'reasoning-start',
+        id: `r-${i}`,
+      })),
+      // tool -> 48 from the activity door and 16 from the approval door = the whole slice.
+      ...Array.from({ length: MAX_TURN_TOOL_ACTIVITY_PARTS }, (_unused, i) => ({
+        type: 'tool-activity',
+        phase: 'start',
+        toolCallId: `call-${i}`,
+        toolName: 'do_thing',
+        input: {},
+      })),
+      ...Array.from({ length: MAX_TURN_APPROVAL_PARTS }, (_unused, i) => ({
+        type: 'tool-approval-request',
+        toolCallId: `approval-${i}`,
+        toolName: 'do_thing',
+        approvalId: `ap-${i}`,
+        input: {},
+      })),
+      // …and the one deliberate over-slice charge takes the TOTAL to exactly 192 while the
+      // text slice still shows 31 < 32. This is the state the deleted guard was declared
+      // unable to reach.
+      {
+        type: 'tool-approval-request',
+        toolCallId: 'approval-over',
+        toolName: 'do_thing',
+        approvalId: 'ap-over',
+        input: {},
+      },
+      // The 193rd part, if the charge's result is ignored.
+      { type: 'text-delta', delta: 'THE-UNCHARGED-PART' },
+    ];
+
+    const { parts, persistedJSONChars } = await persistOneTurn(events);
+
+    const byKind = parts.reduce<Record<string, number>>((acc, part) => {
+      acc[part.type] = (acc[part.type] ?? 0) + 1;
+      return acc;
+    }, {});
+    expect(byKind).toEqual({
+      // 31, not 32: the slice had room and the TOTAL refused it anyway.
+      text: MAX_TURN_TEXT_PARTS - 1,
+      reasoning: MAX_TURN_REASONING_PARTS,
+      'step-start': MAX_TURN_STEP_PARTS,
+      'dynamic-tool': MAX_TURN_TOOL_ACTIVITY_PARTS + 1,
+      tool: MAX_TURN_APPROVAL_PARTS,
+    });
+    expect(parts).toHaveLength(MAX_TURN_MESSAGE_PARTS);
+    // The delta of the part that could not be opened is not smuggled into a neighbouring one
+    // either: no part on this message carries it.
+    expect(JSON.stringify(parts)).not.toContain('THE-UNCHARGED-PART');
+    expect(persistedJSONChars).toBeLessThanOrEqual(MAX_TURN_PERSISTED_MESSAGE_SIZE);
+    warnSpy.mockRestore();
+  });
+
   // ── the allocation, not a prediction of it ─────────────────────────────────
   //
   // Every test above sends each reasoning stream id ONCE. That is the shape the charge was

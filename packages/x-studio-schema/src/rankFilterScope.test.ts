@@ -63,6 +63,17 @@ function pageRankFilter(id: string, pageId?: string): StudioFilterState {
   } as unknown as StudioFilterState;
 }
 
+/** An ORDINARY page-scoped filter — no `filterMode`, so none of the rank rules apply to it. */
+function plainPageFilter(id: string, pageId: string): StudioFilterState {
+  return {
+    id,
+    field: 'category',
+    operator: 'equals',
+    value: 'x',
+    scope: { kind: 'page', pageId },
+  } as unknown as StudioFilterState;
+}
+
 describe('buildRankFilterWidgetPageIndex', () => {
   it('maps every placed widget to its page', () => {
     const pages = {
@@ -260,6 +271,91 @@ describe('hasConflictingRankFilter — sentinel and exclusion semantics', () => 
         pages,
       ),
     ).toBe(true);
+  });
+
+  // The `filter.filterMode !== 'rank'` exclusion inside the `some`. Its three siblings in the
+  // same `if` (self-exclusion, scope kind, and the resolve below it) each had a test; this one
+  // did not, and it is the one that decides whether an ORDINARY filter counts as an occupant
+  // of a page's rank slot. Without it, adding a rank filter to a page that already carries any
+  // page/widget-scoped filter reports a conflict and the affordance goes dead.
+  it('does not let an ORDINARY (non-rank) filter occupy a page rank slot', () => {
+    const target = pageRankFilter('new-f', 'page-1');
+    const others = [plainPageFilter('plain-1', 'page-1')];
+    expect(hasConflictingRankFilter('new-f', target, others, pages)).toBe(false);
+    expect(
+      hasConflictingRankFilter(
+        'new-f',
+        target,
+        others,
+        pages,
+        buildRankFilterWidgetPageIndex(pages),
+      ),
+    ).toBe(false);
+  });
+});
+
+/**
+ * `dedupeRankFilters`' `filter.filterMode === 'rank'` gate.
+ *
+ * The nine-line comment above that `if` says the clause it describes is "REDUNDANT, not
+ * load-bearing". It is right about the SCOPE-KIND conjunct and wrong about the `filterMode`
+ * one beside it, and nothing tested the difference. `hasConflictingRankFilter` is documented
+ * as "true when another rank filter already occupies `target`'s page context" and never
+ * checks the TARGET's own mode — every caller has to gate, the other eight in-repo callers
+ * do, and this one's gate was the untested one.
+ *
+ * Measured with only the `filterMode` conjunct dropped, all 1053 tests of this package green:
+ *
+ *     dedupeRankFilters([rank, plain])  kept ["rank-1"]              changed=true
+ *     dedupeRankFilters([plain, rank])  kept ["plain-1", "rank-1"]   changed=false
+ *
+ * An ordinary page filter deleted, and the outcome dependent on array order — the exact
+ * property the comment says does not happen. `dedupeRankFilters` runs at
+ * `statePersistence`'s LOAD boundary, so a saved dashboard whose page lists a rank filter
+ * ahead of an ordinary one would lose the ordinary one on load and be re-persisted without it.
+ */
+describe('dedupeRankFilters — the non-rank filters it must not touch', () => {
+  const pages = {
+    'page-1': { id: 'page-1', title: 'A', widgetRows: [['w1']] },
+  } as unknown as StudioDoc['pages'];
+
+  it.each([
+    [
+      'a rank filter first',
+      () => [pageRankFilter('rank-1', 'page-1'), plainPageFilter('plain-1', 'page-1')],
+    ],
+    [
+      'an ordinary filter first',
+      () => [plainPageFilter('plain-1', 'page-1'), pageRankFilter('rank-1', 'page-1')],
+    ],
+  ])('keeps both, and returns the same array, with %s', (_label, build) => {
+    const filters = build();
+    const result = dedupeRankFilters(filters, pages);
+
+    expect(result.filters.map((filter) => filter.id)).toEqual(filters.map((filter) => filter.id));
+    expect(result.changed).toBe(false);
+    // Same reference: a well-formed doc must not churn at the load boundary.
+    expect(result.filters).toBe(filters);
+  });
+
+  it('shows why the gate is load-bearing: the callee alone would report the conflict', () => {
+    // Not an assertion about desired behaviour — an assertion about the SPLIT of
+    // responsibility the comment gets wrong. `hasConflictingRankFilter` answers "is this page
+    // context occupied", full stop; only the caller knows whether the target is a rank filter
+    // at all. Delete the caller's gate and this `true` becomes a deletion.
+    const plain = plainPageFilter('plain-1', 'page-1');
+    expect(
+      hasConflictingRankFilter(plain.id, plain, [pageRankFilter('rank-1', 'page-1')], pages),
+    ).toBe(true);
+  });
+
+  it('still drops a genuine second rank filter on the same page', () => {
+    // The other direction, so "keeps everything" cannot pass the tests above.
+    const filters = [pageRankFilter('rank-1', 'page-1'), pageRankFilter('rank-2', 'page-1')];
+    const result = dedupeRankFilters(filters, pages);
+
+    expect(result.filters.map((filter) => filter.id)).toEqual(['rank-1']);
+    expect(result.changed).toBe(true);
   });
 });
 

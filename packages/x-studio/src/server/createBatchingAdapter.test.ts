@@ -20,10 +20,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  */
 /* eslint-disable-next-line import/no-relative-packages */
 import { MAX_ITEMS_PER_BATCH } from '../../../x-studio-data-middleware/src/shared/limits';
-import {
-  createBatchingAdapter,
-  MAX_BATCH_WIDGETS_PER_REQUEST,
-} from './createBatchingAdapter';
+import { createBatchingAdapter, MAX_BATCH_WIDGETS_PER_REQUEST } from './createBatchingAdapter';
 import { applyFilters } from '../internals/filterUtils';
 import type {
   StudioDataSource,
@@ -366,6 +363,45 @@ describe('createBatchingAdapter — per-source fetchFn on a shared endpoint', ()
 
     expect(results[0].status).toBe('rejected');
     expect(results[1].status).toBe('fulfilled');
+  });
+
+  // The test above exercises `!response.ok`, which `runBatchGroup` handles by RETURNING a
+  // per-descriptor `Error` — it never reaches the `catch` in the dispatch. That `catch` is
+  // only entered when `groupFetch` ITSELF rejects (DNS failure, socket hang up, an aborted
+  // request), and no test in this file had a rejecting fetch anywhere: `makeErrorFetch`
+  // resolves to a 503 *response*. So the isolation the `catch` exists for was stated in a
+  // comment, demonstrated by a test that takes a different path, and checked by nothing.
+  //
+  // Without the `catch`, the rejection escapes `Promise.all(chunks.map(…))` and rejects the
+  // whole dispatch — `createLoader`'s reject-every-caller path — so one tenant's network
+  // error fails a DIFFERENT tenant's widgets on the same endpoint.
+  it("one group's REJECTING fetch does not fail another group's requests", async () => {
+    const endpoint = uid();
+    const rejectingFetch = vi.fn().mockRejectedValue(new Error('socket hang up'));
+    const okFetch = makeOkFetch([{ id: 'wOk', rows: [{ id: 1 }] }]);
+
+    const rejectingAdapter = createBatchingAdapter(endpoint, {
+      fetchFn: rejectingFetch as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+    const okAdapter = createBatchingAdapter(endpoint, {
+      fetchFn: okFetch as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+
+    const results = await Promise.allSettled([
+      rejectingAdapter.getRows(makeDescriptor({ widgetId: 'wFail', cacheKey: 'kF' })),
+      okAdapter.getRows(makeDescriptor({ widgetId: 'wOk', cacheKey: 'kO' })),
+    ]);
+
+    // The failing chunk still fails, and with the transport's own message rather than
+    // something generic — the `catch` converts a rejection to per-descriptor errors, it
+    // does not swallow one.
+    expect(results[0].status).toBe('rejected');
+    expect(String((results[0] as PromiseRejectedResult).reason)).toContain('socket hang up');
+    // …and the healthy fetch's caller is untouched.
+    expect(results[1].status).toBe('fulfilled');
+    expect((results[1] as PromiseFulfilledResult<{ rows: unknown[] }>).value.rows).toHaveLength(1);
   });
 });
 

@@ -383,14 +383,26 @@ export const ToolPartInner = React.forwardRef(function ToolPartRenderer(
     [addToolApprovalResponse, toolInvocation.approvalId, toolInvocation.toolCallId],
   );
 
-  // While the human is being ASKED, the card shows what the backend resolved, not what the
-  // model sent. The two are the same value until a producer re-asserts the model's own
-  // arguments over `input` for replay fidelity — which, with one field for both, quietly
-  // swapped model-chosen labels into the section directly above the Approve button. See
-  // `ChatToolApprovalRequestDetails.displayInput`. Falls back to `input` when the backend
-  // sent no separate display copy, so nothing changes for a producer that does not use it.
+  // When the backend asked for approval, the card shows what the backend resolved — not what
+  // the model sent. The two are the same value until a producer re-asserts the model's own
+  // arguments over `input` for replay fidelity, which with one field for both quietly swapped
+  // model-chosen labels into the section directly above the Approve button. See
+  // `ChatToolApprovalRequestDetails.displayInput`. Falls back to `input` when the backend sent
+  // no separate display copy, so nothing changes for a producer that does not use it.
+  //
+  // In EVERY state, not only `approval-requested`. `approvalRequest` survives the transition to
+  // `approval-responded`/`output-available`/`output-error`, and the producer's re-assert fires
+  // exactly when the gated call settles — approved, denied or timed out all arrive that way.
+  // Gating the display copy on the pending state therefore held the verified labels only until
+  // the human answered and then reverted the card to the model's own, with no cue and the
+  // verified copy still sitting unrendered on the same part.
+  //
+  // That reversion is the wrong way round: the card is the RECORD of the decision, not merely
+  // the prompt for it, and the record has to be of what the human was actually shown. `input`
+  // stays the model's own arguments throughout — that is what the field is for, and a replay
+  // serialiser still reads it — it is simply never what this section draws when a backend copy
+  // exists.
   const inputValue =
-    toolInvocation.state === 'approval-requested' &&
     toolInvocation.approvalRequest?.displayInput !== undefined
       ? toolInvocation.approvalRequest.displayInput
       : toolInvocation.input;

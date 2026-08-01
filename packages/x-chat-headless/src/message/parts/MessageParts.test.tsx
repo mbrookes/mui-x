@@ -198,6 +198,9 @@ describe('ToolPart approval request details', () => {
   function renderApproval(
     approvalRequest: Record<string, unknown> | undefined,
     slots?: Record<string, React.ElementType>,
+    // The state defaults to the pending one, which is the only state the fixtures used to be
+    // able to express — and so the only state the display copy was ever checked in.
+    state: string = 'approval-requested',
   ) {
     return render(
       <ChatRoot
@@ -212,7 +215,7 @@ describe('ToolPart approval request details', () => {
                 toolInvocation: {
                   toolCallId: 'tc1',
                   toolName: 'search',
-                  state: 'approval-requested',
+                  state,
                   input: { query: 'hello' },
                   approvalRequest,
                 } as any,
@@ -242,6 +245,27 @@ describe('ToolPart approval request details', () => {
     // `input` is still the model's own, for the replay — it is just not what is drawn here.
     expect(screen.queryByText(/hello/)).to.equal(null);
   });
+
+  // …and it keeps showing it AFTER the decision. `approvalRequest` survives every transition
+  // out of `approval-requested`, and a producer re-asserts the model's own arguments over
+  // `input` the moment the gated call settles — approved, denied or timed out all arrive the
+  // same way. Gating the display copy on the pending state therefore made the card silently
+  // revert to the model's chosen labels once the human had answered, with the backend-verified
+  // copy sitting unrendered on the same part.
+  //
+  // The card is the RECORD of what the human approved or denied, not just the prompt for the
+  // decision, so it renders the verified copy in every state the input section is shown in.
+  // `input` remains the model's own arguments for replay fidelity — that is what the field is
+  // for; it is simply never the field this section draws when a backend copy exists.
+  it.each(['approval-responded', 'output-available', 'output-error'])(
+    'keeps showing the backend display copy after the call settles (%s)',
+    (state) => {
+      renderApproval({ displayInput: { widgetTitle: 'Q4 Revenue — Board Deck' } }, undefined, state);
+
+      expect(screen.getByText(/Q4 Revenue/)).not.to.equal(null);
+      expect(screen.queryByText(/hello/)).to.equal(null);
+    },
+  );
 
   it('falls back to the model arguments when the backend sent no display copy', () => {
     // A producer that does not use `displayInput` sees exactly the previous behaviour.

@@ -131,9 +131,14 @@ export interface ChatToolApprovalRequestDetails {
    * labels directly above a live Approve button, with the backend-resolved summary beside
    * them and no cue which was which.
    *
-   * So `ToolPart` renders THIS while `state === 'approval-requested'`, falling back to `input`
-   * when it is absent: the field a producer may overwrite for replay fidelity stays
-   * overwritable, and the human keeps seeing what the backend verified.
+   * So `ToolPart` renders THIS whenever it is present, falling back to `input` when it is not:
+   * the field a producer may overwrite for replay fidelity stays overwritable, and the human
+   * keeps seeing what the backend verified.
+   *
+   * In every state, not only while the card is pending. The producer's re-assert fires exactly
+   * when the gated call SETTLES, so a pending-only rule handed the card back to the model's own
+   * labels the moment the human answered — the card is the record of the decision, and the
+   * record has to be of what the human was shown.
    */
   displayInput?: unknown;
 }

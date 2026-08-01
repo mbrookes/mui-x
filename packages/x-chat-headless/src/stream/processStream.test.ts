@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { expectClauseIsolated } from 'test/utils/clauseIsolation';
 import { ChatStore } from '../store/ChatStore';
 import { processStream } from './processStream';
 import type { ChatMessageChunk, ChatStreamEnvelope } from '../types/chat-stream';
@@ -38,6 +39,9 @@ function createStream(
     },
   });
 }
+
+/** A chunk the replay-clause fixtures can carry; the clauses never look at it. */
+const FINISH: ChatMessageChunk = { type: 'finish', messageId: 'a1' };
 
 describe('processStream', () => {
   it('creates an assistant shell and merges text chunks into one message', async () => {
@@ -553,6 +557,179 @@ describe('processStream', () => {
     expect(store.state.messagesById.a1.parts).toEqual([
       { type: 'text', text: ' world!', state: 'done' },
     ]);
+  });
+
+  /**
+   * The eventId dedup, actually reached.
+   *
+   * The test above is named for the dedup and does send `evt-2` twice — with `sequence: 2`
+   * both times, by which point `expectedSequence` is already 3. The stale-sequence guard a
+   * few lines below the dedup drops the duplicate, so that assertion passes with
+   * `if (seenEventIds.has(value.eventId)) return;` deleted. Measured: every test in this
+   * package stayed green with the dedup removed, while `"Hello"` replayed as `"HelloHello"`.
+   *
+   * `seenEventIds` is this package's resume contract — `processStream` accepts
+   * `options.seenEventIds` and returns `result.seenEventIds` precisely so a reconnecting
+   * caller can hand back what it already applied and have the replay skipped. The cases
+   * below take the two routes a replay actually arrives by, and on both the dedup is the
+   * ONLY guard that can drop it.
+   */
+  describe('eventId dedup, on the routes the sequence guard cannot mask', () => {
+    /** The two guards a replayed envelope meets, in source order. */
+    const REPLAY_CLAUSES = {
+      'value.sequence < expectedSequence': ({
+        envelope,
+        expectedSequence,
+      }: {
+        envelope: ChatStreamEnvelope;
+        expectedSequence: number | undefined;
+      }) =>
+        typeof envelope.sequence === 'number' &&
+        expectedSequence !== undefined &&
+        envelope.sequence < expectedSequence,
+      'seenEventIds.has(value.eventId)': ({
+        envelope,
+        seen,
+      }: {
+        envelope: ChatStreamEnvelope;
+        seen: string[];
+      }) => envelope.eventId !== undefined && seen.includes(envelope.eventId),
+    };
+
+    it('skips a replayed eventId on an UNSEQUENCED envelope', async () => {
+      const store = new ChatStore();
+      const replayed: ChatStreamEnvelope = {
+        eventId: 'evt-text',
+        chunk: { type: 'text-delta', id: 'text-1', delta: 'Hello' },
+      };
+
+      await processStream(
+        store,
+        createStream([
+          { eventId: 'evt-start', chunk: { type: 'start', messageId: 'a1' } },
+          replayed,
+          replayed,
+          { eventId: 'evt-finish', chunk: { type: 'finish', messageId: 'a1' } },
+        ]),
+        { messageId: 'a1' },
+      );
+
+      // `HelloHello` without the dedup: no envelope here carries a `sequence`, so
+      // `value.sequence == null` sends every one of them straight to `processChunk`.
+      expect(store.state.messagesById.a1.parts).toEqual([
+        { type: 'text', text: 'Hello', state: 'done' },
+      ]);
+    });
+
+    it('skips a replayed eventId whose sequence is FRESH (a server that restarts its counter)', async () => {
+      const store = new ChatStore();
+
+      await processStream(
+        store,
+        createStream([
+          { eventId: 'evt-1', sequence: 1, chunk: { type: 'start', messageId: 'a1' } },
+          {
+            eventId: 'evt-2',
+            sequence: 2,
+            chunk: { type: 'text-delta', id: 'text-1', delta: 'AB' },
+          },
+          // The same event at a HIGHER sequence, so `value.sequence < expectedSequence` is
+          // false and only the eventId check stands between the replay and a second append.
+          {
+            eventId: 'evt-2',
+            sequence: 3,
+            chunk: { type: 'text-delta', id: 'text-1', delta: 'A' },
+          },
+          { eventId: 'evt-4', sequence: 4, chunk: { type: 'finish', messageId: 'a1' } },
+        ]),
+        { messageId: 'a1' },
+      );
+
+      // `ABA` without the dedup.
+      expect(store.state.messagesById.a1.parts).toEqual([
+        { type: 'text', text: 'AB', state: 'done' },
+      ]);
+    });
+
+    it('honours `seenEventIds` handed back from a previous attempt', async () => {
+      const store = new ChatStore();
+
+      const first = await processStream(
+        store,
+        createStream([
+          { eventId: 'evt-1', chunk: { type: 'start', messageId: 'a1' } },
+          { eventId: 'evt-2', chunk: { type: 'text-delta', id: 'text-1', delta: 'Hello' } },
+        ]),
+        { messageId: 'a1' },
+      );
+
+      expect(first.seenEventIds).toEqual(['evt-1', 'evt-2']);
+
+      // The resume: the server replays from the top, the caller hands back what it applied.
+      await processStream(
+        store,
+        createStream([
+          { eventId: 'evt-2', chunk: { type: 'text-delta', id: 'text-1', delta: 'Hello' } },
+          { eventId: 'evt-3', chunk: { type: 'text-delta', id: 'text-1', delta: ' world' } },
+          { eventId: 'evt-4', chunk: { type: 'finish', messageId: 'a1' } },
+        ]),
+        { messageId: 'a1', seenEventIds: first.seenEventIds },
+      );
+
+      // Two parts, not one: the first attempt ended, so the resumed `text-1` is a new part
+      // by the package's own "never reuse an ended stream id" rule. What matters here is the
+      // TEXT — `evt-2` contributed once across both attempts. Without the dedup the resumed
+      // part reads `Hello world`, i.e. the replayed `Hello` applied a second time.
+      expect(
+        store.state.messagesById.a1.parts.map((part) => (part as { text: string }).text),
+      ).toEqual(['Hello', ' world']);
+    });
+
+    it('shows the older fixture reaching the ordering guard rather than the dedup', () => {
+      expect(() =>
+        expectClauseIsolated({
+          guard: 'processStream.ts:processIncoming',
+          clauses: REPLAY_CLAUSES,
+          target: 'seenEventIds.has(value.eventId)',
+          control: {
+            envelope: { eventId: 'evt-9', sequence: 3, chunk: FINISH },
+            expectedSequence: 3,
+            seen: [],
+          },
+          observed: {
+            envelope: { eventId: 'evt-2', sequence: 2, chunk: FINISH },
+            expectedSequence: 3,
+            seen: ['evt-2'],
+          },
+        }),
+      ).toThrow(/value\.sequence < expectedSequence/);
+    });
+
+    it.each([
+      ['unsequenced', undefined, undefined],
+      ['freshly sequenced', 3, 2],
+    ])(
+      'the %s replay above reaches the dedup and nothing else',
+      (_label, sequence, expectedSequence) => {
+        expect(() =>
+          expectClauseIsolated({
+            guard: 'processStream.ts:processIncoming',
+            clauses: REPLAY_CLAUSES,
+            target: 'seenEventIds.has(value.eventId)',
+            control: {
+              envelope: { eventId: 'evt-9', sequence, chunk: FINISH },
+              expectedSequence,
+              seen: [],
+            },
+            observed: {
+              envelope: { eventId: 'evt-2', sequence, chunk: FINISH },
+              expectedSequence,
+              seen: ['evt-2'],
+            },
+          }),
+        ).not.toThrow();
+      },
+    );
   });
 
   it('reports disconnects when the stream closes without a terminal chunk', async () => {

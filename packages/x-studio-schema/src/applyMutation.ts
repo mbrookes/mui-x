@@ -815,6 +815,30 @@ type CanWriteSpan = (id: string) => boolean;
  * A span is only ever WRITTEN for an id `canWriteSpan` accepts, so a row-mate that is not a
  * real widget (or carries a prototype-hazard key) can never receive a persisted span.
  *
+ * That sentence is true at both write sites, but only ONE of them can currently observe it,
+ * and saying which is the point of this paragraph — an audit read the sentence as a claim
+ * about two live guards and filed the quiet one as missing protection.
+ *
+ *  - The ABSORBER write is load-bearing and pinned ("does not rebalance a span onto a
+ *    phantom row-mate sharing the row"): `absorberIds` is every row member the mutation did
+ *    NOT name, so it can hold an id no filter upstream has vetted.
+ *  - The ANCHOR-overflow write cannot currently reject anything, at either caller.
+ *    `setWidgetColSpan` passes a single anchor whose span is `clampSpan`ed to at most
+ *    `GRID_COLS`, so `anchorTotal > GRID_COLS` is never even entered. `applyBulkUpdate`
+ *    passes `anchorIds = keys(clampedSpans)` (already filtered by `isSafePatchKey`) against
+ *    rows already filtered by `validRowIds` — which are exactly the two conjuncts of the
+ *    `canWriteSpan` it supplies, so every anchor it can reach is accepted by construction.
+ *    Measured, not argued: instrumented to throw on a rejected anchor, the whole
+ *    `x-studio-schema` and `x-studio` suites (5 871 tests) plus a targeted fuzz over
+ *    prototype-hazard and phantom row ids reached it zero times.
+ *
+ * It stays anyway, and deliberately. It is a precondition of the `canWriteSpan` CONTRACT,
+ * not of today's two callers: a third caller deriving `anchorIds` from anything other than
+ * the same two filters reaches it immediately. Deleting a correct guard because the current
+ * callers happen to pre-filter is how a live budget guard was lost one round earlier — the
+ * reachability argument was wrong, and nothing failed when it was removed. Unreachable here
+ * is a fact about the callers, so it is recorded here rather than acted on.
+ *
  * Shared by the two write paths that set a widget's width — `setWidgetColSpan` and
  * `applyBulkUpdate`'s col-spans merge — so an AI `set_widget_width` and an
  * `apply_bulk_update` carrying the same width resolve a row overflow identically. Without

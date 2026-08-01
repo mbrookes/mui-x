@@ -232,8 +232,9 @@ function makeScatterSeries(options: {
   label?: string;
   color?: string;
   markerSize?: number;
+  sizeAxisId?: string;
 }): CompiledSeries {
-  const { id, data, label, color, markerSize } = options;
+  const { id, data, label, color, markerSize, sizeAxisId } = options;
   return {
     type: 'scatter',
     id,
@@ -241,6 +242,7 @@ function makeScatterSeries(options: {
     ...(label !== undefined ? { label } : {}),
     ...(color !== undefined ? { color } : {}),
     ...(markerSize !== undefined ? { markerSize } : {}),
+    ...(sizeAxisId !== undefined ? { sizeAxisId } : {}),
   };
 }
 
@@ -330,11 +332,28 @@ function buildTickItems(
 }
 
 /**
- * Default marker radius for a geo point with no static/field size, matching
- * `compilePointMark`'s own default (`sqrt(30/π)`, Vega-Lite's implicit
- * `size: 30` for `point`/`circle`).
+ * Vega's `size` is the area of a symbol's bounding *square*, not the area of
+ * the circle it draws: `vega-scenegraph`'s circle symbol uses a radius of
+ * `sqrt(size) / 2`, so a `size` of 361 renders a 19px-wide dot (19 being
+ * `0.95 * 20`, the default view step — which is where that default comes
+ * from). Converting as a true circle area (`sqrt(size / π)`) instead
+ * oversizes every marker by `2 / sqrt(π)` ≈ 1.13, so use the law Vega
+ * actually renders by. Verified against `item.size` vs `getBBox()` on
+ * vega-embed's own output.
  */
-const DEFAULT_GEO_POINT_RADIUS = Math.sqrt(30 / Math.PI);
+function vegaSizeToRadius(size: number): number {
+  return Math.sqrt(size) / 2;
+}
+
+/** Vega-Lite's default continuous `size` range for point/circle marks, as radii. */
+const VEGA_DEFAULT_SIZE_RADIUS_MAX = vegaSizeToRadius(361);
+
+/**
+ * Default marker radius for a geo point with no static/field size, matching
+ * `compilePointMark`'s own default (Vega-Lite's implicit `size: 30` for
+ * `point`/`circle`).
+ */
+const DEFAULT_GEO_POINT_RADIUS = vegaSizeToRadius(30);
 
 /**
  * Per-row color for a geo point, mirroring `buildTickItems`'s domain-indexed
@@ -441,16 +460,14 @@ function compileGeoPointMark(ctx: UnitContext): CompiledUnit {
 
   let staticRadius = DEFAULT_GEO_POINT_RADIUS;
   if (typeof unit.mark.size === 'number') {
-    // Vega-Lite's `size` is a symbol AREA; x-charts-style radius = sqrt(area/π),
-    // matching `compilePointMark`'s own static-size conversion.
-    staticRadius = Math.sqrt(unit.mark.size / Math.PI);
+    staticRadius = vegaSizeToRadius(unit.mark.size);
   }
   // `encoding.size: {value: N}` (a constant set via the size *channel*, e.g.
   // `geo_layer`'s `{value: 10}`) overrides `mark.size` the same way Vega-Lite's
   // own encoding-over-mark precedence works.
   const sizeValueDef = isValueDef(encoding.size) ? encoding.size.value : undefined;
   if (typeof sizeValueDef === 'number') {
-    staticRadius = Math.sqrt(sizeValueDef / Math.PI);
+    staticRadius = vegaSizeToRadius(sizeValueDef);
   }
   const sizeField = isFieldDef(encoding.size) ? encoding.size.field : undefined;
   if (sizeField) {
@@ -476,7 +493,7 @@ function compileGeoPointMark(ctx: UnitContext): CompiledUnit {
     if (sizeField) {
       const sizeValue = toNumber(row[sizeField]);
       if (sizeValue != null && sizeValue > 0) {
-        radius = Math.sqrt(sizeValue / Math.PI);
+        radius = vegaSizeToRadius(sizeValue);
       }
     }
     const color = colorRes.splitField ? colorForRow(row[colorRes.splitField]) : colorForRow(null);
@@ -689,16 +706,15 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
 
   let markerSize: number | undefined;
   if (typeof unit.mark.size === 'number') {
-    // Vega-Lite's `size` is a symbol AREA (px²); x-charts' `markerSize` is the
-    // marker's circle radius. Convert area→radius (r = sqrt(area/π)) so the
-    // point renders at the reference's diameter. x-charts only draws circular
-    // markers, so this is exact for `point`/`circle` and a close approximation
-    // for other Vega symbol shapes.
-    markerSize = Math.sqrt(unit.mark.size / Math.PI);
+    // Vega-Lite's `size` is a symbol area while x-charts' `markerSize` is the
+    // marker's circle radius. x-charts only draws circular markers, so this is
+    // exact for `point`/`circle` and a close approximation for other Vega
+    // symbol shapes.
+    markerSize = vegaSizeToRadius(unit.mark.size);
     gaps.add({
       code: 'mark:point-size-approximation',
       message:
-        'Vega-Lite mark.size is a symbol area while x-charts markerSize is a circle radius; converted via r = sqrt(size/π), exact for circular markers and approximate for other symbol shapes.',
+        'Vega-Lite mark.size is a symbol area while x-charts markerSize is a circle radius; converted via r = sqrt(size)/2, exact for circular markers and approximate for other symbol shapes.',
       severity: 'partial',
       path: `${path}.mark.size`,
     });
@@ -727,7 +743,7 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
   // x-charts' larger default markerSize (4). Ticks and bubbles are unaffected
   // (ticks use segment styling; bubbles size per-point via the zAxis sizeMap).
   if (markerSize === undefined && sizeField === undefined && !isTick) {
-    markerSize = Math.sqrt(30 / Math.PI);
+    markerSize = vegaSizeToRadius(30);
   }
 
   const colorField = colorRes.splitField;
@@ -742,6 +758,13 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
 
   let zAxis: CompiledZAxis[] | undefined;
   let sizeLegend: SizeLegend | undefined;
+  // x-charts picks a scatter series' size axis by `series.sizeAxisId`, falling
+  // back to `zAxisIds[0]`. A layered spec whose other layer also pushes a
+  // `zAxis` entry (a heatmap's `colorMap`, say) can therefore win index 0 and
+  // leave the bubbles sized by an axis with no `sizeMap` at all — silently
+  // rendering every marker at the default radius. Naming this axis and
+  // pointing the series at it by id makes the pairing independent of order.
+  const sizeAxisId = `vega-point:${path}:size`;
   if (sizeField !== undefined) {
     const sizeValues: number[] = [];
     candidates.forEach((candidate) => {
@@ -815,19 +838,26 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
         : undefined;
 
       if (discretizing) {
-        zAxis = [{ min: domainMin, max: domainMax, sizeMap: discretizing }];
+        zAxis = [{ id: sizeAxisId, min: domainMin, max: domainMax, sizeMap: discretizing }];
         sizeLegend = buildDiscretizingSizeLegend(discretizing, domainMax, encoding.size);
       } else {
         // `scale.range` is a `[minArea, maxArea]` symbol-area pair (Vega-Lite's
         // `size` semantics) — converted to `sizeMap`'s marker-*radius* range the
-        // same way a static `mark.size` is (r = sqrt(area/π)) — replacing the
-        // `[0, 11]` (Vega-Lite's own default range, area [0, 361]) default.
+        // same way a static `mark.size` is — replacing the default, which is
+        // Vega-Lite's own (a symbol area of 361, i.e. a 19px-wide dot).
+        //
+        // Vega's default range floor is a symbol area of 4 rather than 0, so
+        // its smallest dot is 1px rather than a point. Keeping 0 here matches
+        // it more closely than carrying the floor across would: x-charts
+        // interpolates the *radius* over sqrt(value) whereas Vega interpolates
+        // the *area* linearly, and starting both at 0 makes the two agree to
+        // within 2% everywhere except the very smallest marker.
         // Anything else (a signal-expression endpoint — `interactive_geo_
         // earthquakes`'s param-bound max, a wrong-length array, or a
         // discretizing scale `buildDiscretizingSizeMap` couldn't build — its
         // own gap already explains why) is reported and falls back to that
         // default rather than being misread as two plain numbers.
-        let sizeRange: [number, number] = [0, 11];
+        let sizeRange: [number, number] = [0, VEGA_DEFAULT_SIZE_RADIUS_MAX];
         if (!discretizingType && sizeScale?.range !== undefined) {
           if (
             Array.isArray(sizeScale.range) &&
@@ -835,7 +865,7 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
             sizeScale.range.every((value) => typeof value === 'number')
           ) {
             const [rangeMinArea, rangeMaxArea] = sizeScale.range as [number, number];
-            sizeRange = [Math.sqrt(rangeMinArea / Math.PI), Math.sqrt(rangeMaxArea / Math.PI)];
+            sizeRange = [vegaSizeToRadius(rangeMinArea), vegaSizeToRadius(rangeMaxArea)];
           } else {
             gaps.add({
               code: 'encoding:size-scale-range-unsupported',
@@ -846,15 +876,9 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
             });
           }
         }
-        // NOTE: heatmap cells (marks/rect.ts) also push a `zAxis` entry (for
-        // `colorMap`) without an explicit `id`, so both fall back to the same
-        // compiler-assigned `defaultized-z-axis-<index>` id scheme. A spec
-        // mixing a heatmap layer with a per-point-sized bubble scatter layer
-        // in one chart is not a realistic combination and isn't specially
-        // handled here — whichever layer's `zAxis` entry lands at index 0
-        // (`zAxisIds[0]`) wins as the scatter series' default size axis.
         zAxis = [
           {
+            id: sizeAxisId,
             min: domainMin,
             max: domainMax,
             // `size` is the marker *radius* and the `sqrt` interpolator makes area
@@ -865,7 +889,7 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
             sizeMap: { type: 'continuous', size: sizeRange, interpolator: 'sqrt' },
           },
         ];
-        sizeLegend = buildSizeLegend(domainMin, domainMax, encoding.size);
+        sizeLegend = buildSizeLegend(domainMin, domainMax, encoding.size, sizeRange);
       }
     }
   }
@@ -912,6 +936,7 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
           label: colorRes.hasLegend ? String(value) : undefined,
           color,
           markerSize,
+          sizeAxisId: zAxis ? sizeAxisId : undefined,
         }),
       );
     };
@@ -957,6 +982,7 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
           data: points,
           color: colorRes.staticColor,
           markerSize,
+          sizeAxisId: zAxis ? sizeAxisId : undefined,
         }),
       );
     }
@@ -1027,7 +1053,7 @@ function niceSizeTicks(max: number): number[] {
 }
 
 /**
- * A bubble-size legend mirroring the `zAxis` `sizeMap` (radius up to 11px via a
+ * A bubble-size legend mirroring the `zAxis` `sizeMap` (radius up to `sqrt(361)/2` px via a
  * `sqrt` interpolator over `[min, max]`), so its swatches match the plotted
  * markers. The title follows Vega-Lite's `size` channel ("Count of Records" for
  * an unfielded count aggregate, else the field name with its aggregate prefix).
@@ -1060,7 +1086,7 @@ function sizeLegendTitle(sizeDef: VegaEncoding['size']): string | undefined {
 }
 
 /**
- * A bubble-size legend mirroring the `zAxis` `sizeMap` (radius up to 11px via a
+ * A bubble-size legend mirroring the `zAxis` `sizeMap` (radius up to `sqrt(361)/2` px via a
  * `sqrt` interpolator over `[min, max]`), so its swatches match the plotted
  * markers. The title follows Vega-Lite's `size` channel ("Count of Records" for
  * an unfielded count aggregate, else the field name with its aggregate prefix).
@@ -1069,13 +1095,17 @@ function buildSizeLegend(
   min: number,
   max: number,
   sizeDef: VegaEncoding['size'],
+  sizeRange: readonly [number, number] = [0, VEGA_DEFAULT_SIZE_RADIUS_MAX],
 ): SizeLegend | undefined {
   if (!(max > min)) {
     return undefined;
   }
+  // Mirror the `sizeMap` the markers themselves use — including an explicit
+  // `scale.range` — so the legend symbols and the plotted dots stay in step.
+  const [radiusMin, radiusMax] = sizeRange;
   const entries = niceSizeTicks(max).map((value) => {
     const t = Math.min(1, Math.max(0, (value - min) / (max - min)));
-    return { value, radius: 11 * Math.sqrt(t) };
+    return { value, radius: radiusMin + (radiusMax - radiusMin) * Math.sqrt(t) };
   });
   return { title: sizeLegendTitle(sizeDef), entries };
 }
@@ -1131,10 +1161,9 @@ function buildDiscretizingSizeMap(
     });
     return undefined;
   }
-  // Vega-Lite's `size` range values are symbol AREAS, converted to
-  // `sizeMap`'s marker-*radius* sizes the same way the continuous range is
-  // (r = sqrt(area/π)).
-  const sizes = (rangeRaw as number[]).map((area) => Math.sqrt(area / Math.PI));
+  // Vega-Lite's `size` range values are symbol areas, converted to `sizeMap`'s
+  // marker-*radius* sizes the same way the continuous range is.
+  const sizes = (rangeRaw as number[]).map(vegaSizeToRadius);
   const bandCount = sizes.length;
 
   if (scaleType === 'threshold') {

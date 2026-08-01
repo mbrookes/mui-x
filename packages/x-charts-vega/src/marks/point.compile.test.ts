@@ -143,8 +143,8 @@ describe('compilePointMark', () => {
     };
     const compiled = compileSpec(spec);
     const series = compiled.series[0] as unknown as { markerSize?: number };
-    // Vega-Lite `size` is an area; x-charts `markerSize` is a radius: r = sqrt(area/π).
-    expect(series.markerSize).to.equal(Math.sqrt(100 / Math.PI));
+    // Vega sizes a symbol by its bounding-square area, drawing radius sqrt(size)/2.
+    expect(series.markerSize).to.equal(Math.sqrt(100) / 2);
     const gap = compiled.gaps.find((entry) => entry.code === 'mark:point-size-approximation');
     expect(gap?.severity).to.equal('partial');
   });
@@ -183,9 +183,9 @@ describe('compilePointMark', () => {
     expect(zAxis.min).to.equal(0);
     expect(zAxis.max).to.equal(15);
     expect(zAxis.sizeMap?.type).to.equal('continuous');
-    // Radius range matching Vega-Lite's default point size (area up to 361 →
-    // radius ≈ 10.7), with a `sqrt` interpolator so area ∝ value.
-    expect(zAxis.sizeMap?.size).to.deep.equal([0, 11]);
+    // Radius range matching Vega-Lite's default point size: a symbol area of
+    // 361 is a 19px-wide dot, so radius 9.5, with a `sqrt` interpolator.
+    expect(zAxis.sizeMap?.size).to.deep.equal([0, 9.5]);
   });
 
   it('honors an explicit size scale.domain/.range instead of the data extent + default [0, 11] radius range', () => {
@@ -222,7 +222,7 @@ describe('compilePointMark', () => {
     };
     expect(zAxis.min).to.equal(0);
     expect(zAxis.max).to.equal(1000);
-    expect(zAxis.sizeMap?.size).to.deep.equal([0, Math.sqrt(200 / Math.PI)]);
+    expect(zAxis.sizeMap?.size).to.deep.equal([0, Math.sqrt(200) / 2]);
   });
 
   it('builds a piecewise sizeMap for a "threshold" size scale (explicit domain breakpoints)', () => {
@@ -251,9 +251,7 @@ describe('compilePointMark', () => {
     };
     expect(zAxis.sizeMap?.type).to.equal('piecewise');
     expect(zAxis.sizeMap?.thresholds).to.deep.equal([30, 70]);
-    expect(zAxis.sizeMap?.sizes).to.deep.equal(
-      [80, 200, 320].map((area) => Math.sqrt(area / Math.PI)),
-    );
+    expect(zAxis.sizeMap?.sizes).to.deep.equal([80, 200, 320].map((area) => Math.sqrt(area) / 2));
   });
 
   it('builds a piecewise sizeMap for a "quantize" size scale (equal-width domain bands)', () => {
@@ -342,7 +340,7 @@ describe('compilePointMark', () => {
     );
     expect(gap?.severity).to.equal('partial');
     const zAxis = compiled.zAxis![0] as unknown as { sizeMap?: { size: [number, number] } };
-    expect(zAxis.sizeMap?.size).to.deep.equal([0, 11]);
+    expect(zAxis.sizeMap?.size).to.deep.equal([0, 9.5]);
   });
 
   it('falls back to the continuous default and reports a partial gap for a discretizing scale with a malformed range', () => {
@@ -370,7 +368,7 @@ describe('compilePointMark', () => {
     );
     expect(gap?.severity).to.equal('partial');
     const zAxis = compiled.zAxis![0] as unknown as { sizeMap?: { size: [number, number] } };
-    expect(zAxis.sizeMap?.size).to.deep.equal([0, 11]);
+    expect(zAxis.sizeMap?.size).to.deep.equal([0, 9.5]);
   });
 
   it('reports a partial gap for a size scale.range with a non-numeric endpoint (e.g. a signal expression)', () => {
@@ -398,7 +396,7 @@ describe('compilePointMark', () => {
     );
     expect(gap?.severity).to.equal('partial');
     const zAxis = compiled.zAxis![0] as unknown as { sizeMap?: { size: [number, number] } };
-    expect(zAxis.sizeMap?.size).to.deep.equal([0, 11]);
+    expect(zAxis.sizeMap?.size).to.deep.equal([0, 9.5]);
   });
 
   it('reports a partial gap for a non-quantitative size field (no x-charts size-scale equivalent)', () => {
@@ -897,7 +895,7 @@ describe('compilePointMark', () => {
       const compiled = compileSpec(spec);
       const overlay = compiled.overlays.find((entry) => entry.kind === 'geoPoints') as
         Extract<(typeof compiled.overlays)[number], { kind: 'geoPoints' }> | undefined;
-      expect(overlay?.items[0].radius).to.be.closeTo(Math.sqrt(10 / Math.PI), 1e-9);
+      expect(overlay?.items[0].radius).to.be.closeTo(Math.sqrt(10) / 2, 1e-9);
     });
 
     it("defers to a sibling geoshape layer's projection/geoData instead of setting its own (geo_layer-shaped)", () => {

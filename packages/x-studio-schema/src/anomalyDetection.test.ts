@@ -170,4 +170,47 @@ describe('detectAnomaliesIQR', () => {
     const values = [1, NaN, 2, NaN, 3, NaN, NaN, NaN, NaN];
     expect(detectAnomaliesIQR(values).size).toBe(0);
   });
+
+  /**
+   * The three clauses of the quartile math that no series in this file could tell apart.
+   *
+   * The finite filter, the degenerate branch and `epsilon`'s RELATIVE term are each pinned.
+   * The remaining three — `median`'s even-length branch, the upper half's `Math.ceil` slice,
+   * and `epsilon`'s ABSOLUTE floor — each survive every one of the seventeen tests above,
+   * and each produces a measurably wrong anomaly SET rather than a crash. This function
+   * feeds the assistant's `summarise_page` insights, so a wrong set is a wrong sentence in
+   * front of a user.
+   *
+   * `detectAnomaliesIQR` requires four finite values, so an even-length half is the COMMON
+   * case, not an exotic one: any 4-element series takes it.
+   */
+  describe('quartile math — the three clauses no other series distinguishes', () => {
+    it('averages the two middle values of an EVEN-length half', () => {
+      // `median` on an even-length array must be `(s[mid - 1] + s[mid]) / 2`. Taking `s[mid]`
+      // alone shifts Q1 up and Q3 up, widening the upper fence past the spike:
+      // measured `[]` instead of the 5 at index 7. A FALSE NEGATIVE — the series looks clean.
+      expect([...detectAnomaliesIQR([1, 1, 1, 1, 2, 2, 3, 5])]).toEqual([7]);
+    });
+
+    it('starts the upper half at `Math.ceil(n / 2)` for an ODD-length series', () => {
+      // With `Math.floor` the middle value is counted in BOTH halves, pulling Q3 down and
+      // narrowing the upper fence: measured `[3]`, flagging the perfectly ordinary 4 in
+      // `[1, 2, 3, 4, 100]`. A FALSE POSITIVE, on the value NEXT TO the real outlier.
+      expect([...detectAnomaliesIQR([1, 2, 3, 4, 100])]).toEqual([]);
+    });
+
+    it('keeps an absolute epsilon floor when q1 is at or near zero', () => {
+      // `epsilon` is `Math.max(Math.abs(q1) * 1e-9, 1e-9)`. Drop the `1e-9` floor and a
+      // zero-centred series gets `epsilon === 0`: `iqr <= 0` still routes to the degenerate
+      // branch, but `Math.abs(value - q1) > 0` then flags floating-point dust as an anomaly.
+      // Measured `[5]` for the 1e-15 below — the series is constant for every practical
+      // purpose. The docblock states this case verbatim; nothing tested it.
+      expect([...detectAnomaliesIQR([0, 0, 0, 0, 0, 1e-15])]).toEqual([]);
+    });
+
+    it('still flags a real spike on an otherwise-constant series (the other direction)', () => {
+      // So "never flag anything" cannot pass the three assertions above.
+      expect([...detectAnomaliesIQR([5, 5, 5, 5, 5, 5, 5, 1000])]).toEqual([7]);
+    });
+  });
 });

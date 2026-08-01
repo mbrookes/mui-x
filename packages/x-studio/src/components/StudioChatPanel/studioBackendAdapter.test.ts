@@ -9,6 +9,12 @@ import { processStream } from '@mui/x-chat-headless/stream';
 // Imported, never re-spelled as literals: a test that hard-codes `10_000` would keep passing
 // if the shared cap moved and the adapter stopped agreeing with the rest of the boundary.
 import { MAX_ARRAY_LENGTH, MAX_STRING_LENGTH, UNSAFE_KEYS } from '@mui/x-studio-schema';
+// The shared clause-isolation helper and the shared size-cap inventory. The inventory is
+// what makes a cap in THIS package visible to a completeness check at all: the scan it
+// drives walks a list of boundary roots across packages, where its predecessor read one
+// non-recursive directory in `x-studio-schema` and could not see this file.
+import { expectClauseIsolated } from 'test/utils/clauseIsolation';
+import { sitesProbedIn } from 'test/utils/sizeCapInventory';
 import {
   createBackendChatAdapter,
   MAX_TOOL_ID_LENGTH,
@@ -677,6 +683,138 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
     expect(chunk!.effects).toEqual({ updatedWidgetCount: 1, reasonWithheld: true });
     expect(chunk!.toolCallId).toBe('call-1');
     warnSpy.mockRestore();
+  });
+
+  /**
+   * `isWithinApprovalListLimits`, one clause at a time.
+   *
+   * The guard is one sentence about four things — a list length and three string lengths —
+   * and only three of the four were pinned. The unpinned one was `entry.id`: relaxing that
+   * clause and nothing else left every test in this package green while one approval card's
+   * persisted `effects` went from 399 to 20 429 JSON characters, on the exact field the
+   * guard exists to bound. Its `||`-sibling one line down, `entry.title`, WAS pinned; the
+   * two sit on the same `if` and are reached by the same fixture shape.
+   *
+   * The tests below are also the reciprocal half of `SIZE_CAP_INVENTORY`. The inventory (in
+   * `test/utils/sizeCapInventory.ts`) enumerates every size cap at the studio wire
+   * boundaries from the SOURCE and names, per site, the file carrying its probe — including
+   * this one, which is in a different package from the constant it enforces and which no
+   * package-scoped scan could ever see. The last test here checks that claim in the other
+   * direction, so a probe cannot be deleted while the inventory still credits it.
+   */
+  describe('isWithinApprovalListLimits — every clause, both directions', () => {
+    const INVENTORY_FILE = 'x-studio/src/components/StudioChatPanel/studioBackendAdapter.test.ts';
+    const SITE = 'x-studio/chat/studioBackendAdapter.ts:isWithinApprovalListLimits';
+
+    /** `{ id, title }` as the guard receives it — after the SSE JSON round trip, not as typed. */
+    function entryAsDelivered(entry: Record<string, unknown>) {
+      const event = approvalEvent(1, { effects: { willRemoveWidgets: [entry] } });
+      const decoded = JSON.parse(JSON.stringify(event)) as {
+        effects: { willRemoveWidgets: Record<string, unknown>[] };
+      };
+      return decoded.effects.willRemoveWidgets[0];
+    }
+
+    /** The two `||` halves of the record-entry clause, transcribed from the source. */
+    const ENTRY_CLAUSES = {
+      'entry.id.length > MAX_STRING_LENGTH': (entry: Record<string, unknown>) =>
+        typeof entry.id === 'string' && entry.id.length > MAX_STRING_LENGTH,
+      'entry.title.length > MAX_STRING_LENGTH': (entry: Record<string, unknown>) =>
+        typeof entry.title === 'string' && entry.title.length > MAX_STRING_LENGTH,
+    };
+
+    async function effectsFor(effects: Record<string, unknown>) {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const chunk = await collectApprovalChunk(approvalEvent(1, { effects }));
+      warnSpy.mockRestore();
+      return chunk!.effects;
+    }
+
+    // Each row: the payload exactly AT the cap, and the same payload one unit over. Neither
+    // direction alone is a pin — "accepts everything" passes the first, "rejects everything"
+    // passes the second, and only the clause under test can tell the two apart.
+    const CLAUSES = [
+      {
+        site: `${SITE}#0`,
+        what: 'the per-list length cap',
+        atCap: () => ({ willRemoveWidgets: entities(MAX_ARRAY_LENGTH, 8) }),
+        overCap: () => ({ willRemoveWidgets: entities(MAX_ARRAY_LENGTH + 1, 8) }),
+      },
+      {
+        site: `${SITE}#1`,
+        what: 'the plain-STRING list entry cap, through `willRemoveFilters`',
+        atCap: () => ({ willRemoveFilters: ['f'.repeat(MAX_STRING_LENGTH)] }),
+        overCap: () => ({ willRemoveFilters: ['f'.repeat(MAX_STRING_LENGTH + 1)] }),
+      },
+      {
+        site: `${SITE}#2`,
+        what: "a record entry's `id`, with a short `title` so the sibling clause cannot answer",
+        atCap: () => ({
+          willRemoveWidgets: [{ id: 'i'.repeat(MAX_STRING_LENGTH), title: 'Q4 Revenue' }],
+        }),
+        overCap: () => ({
+          willRemoveWidgets: [{ id: 'i'.repeat(MAX_STRING_LENGTH + 1), title: 'Q4 Revenue' }],
+        }),
+      },
+      {
+        site: `${SITE}#3`,
+        what: "a record entry's `title`, with a short `id` so the sibling clause cannot answer",
+        atCap: () => ({
+          willRemoveWidgets: [{ id: 'w1', title: 'T'.repeat(MAX_STRING_LENGTH) }],
+        }),
+        overCap: () => ({
+          willRemoveWidgets: [{ id: 'w1', title: 'T'.repeat(MAX_STRING_LENGTH + 1) }],
+        }),
+      },
+    ];
+
+    describe.each(CLAUSES)('$site', ({ what, atCap, overCap }) => {
+      it(`keeps the summary for a payload exactly at the cap (${what})`, async () => {
+        // A cap is a boundary, not a ban: the payload at the limit still reaches the card.
+        expect(await effectsFor(atCap())).not.toEqual({ effectsWithheld: true });
+      });
+
+      it('withholds the whole summary one unit over the cap', async () => {
+        // All-or-nothing on purpose: a SHORTENED "will remove" list understates the impact a
+        // human is approving, which is worse than showing none.
+        expect(await effectsFor(overCap())).toEqual({ effectsWithheld: true });
+      });
+    });
+
+    it('reaches the `id` clause, and not its `title` sibling', () => {
+      // The pin above is only worth what its route is worth. `#2` and `#3` are two halves of
+      // ONE `||`, so a fixture with both fields over the cap would pass either test with
+      // either clause deleted. This checks the entry as it ARRIVES — after the SSE JSON
+      // round trip — rather than as it was written a few lines up.
+      expect(() =>
+        expectClauseIsolated({
+          guard: 'studioBackendAdapter.ts:isWithinApprovalListLimits',
+          clauses: ENTRY_CLAUSES,
+          target: 'entry.id.length > MAX_STRING_LENGTH',
+          control: entryAsDelivered({ id: 'i'.repeat(MAX_STRING_LENGTH), title: 'Q4 Revenue' }),
+          observed: entryAsDelivered({
+            id: 'i'.repeat(MAX_STRING_LENGTH + 1),
+            title: 'Q4 Revenue',
+          }),
+        }),
+      ).not.toThrow();
+    });
+
+    it('reaches the `title` clause, and not its `id` sibling', () => {
+      expect(() =>
+        expectClauseIsolated({
+          guard: 'studioBackendAdapter.ts:isWithinApprovalListLimits',
+          clauses: ENTRY_CLAUSES,
+          target: 'entry.title.length > MAX_STRING_LENGTH',
+          control: entryAsDelivered({ id: 'w1', title: 'T'.repeat(MAX_STRING_LENGTH) }),
+          observed: entryAsDelivered({ id: 'w1', title: 'T'.repeat(MAX_STRING_LENGTH + 1) }),
+        }),
+      ).not.toThrow();
+    });
+
+    it('probes exactly the sites the shared inventory says live in this file', () => {
+      expect(CLAUSES.map(({ site }) => site).sort()).toEqual(sitesProbedIn(INVENTORY_FILE).sort());
+    });
   });
 
   it('spends ONE effects/reason budget across every approval event of the turn', async () => {
@@ -4022,6 +4160,43 @@ describe('createBackendChatAdapter: stream-text budgets', () => {
       (chunks.filter((c) => c.type === 'reasoning-delta') as { id: string }[]).map((c) => c.id),
     );
     expect(ids.size).toBeLessThanOrEqual(MAX_TURN_REASONING_PARTS);
+    warnSpy.mockRestore();
+  });
+
+  // The placement rule the `text-delta` branch states in prose — "charged where the part is
+  // OPENED, not before the bytes: a charge taken earlier would also be taken on the deltas
+  // `chargeStreamText` rejects, spending part budget on parts that are never created" — was
+  // true of `text-delta` and FALSE of `reasoning-delta`, which charged the part first.
+  // Nothing in the 135 adapter tests before this one distinguished the two orderings.
+  it('does not spend a reasoning part on a delta whose bytes were already refused', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const chunks = await collectAllTurnChunks([
+      // Spend the whole reasoning SIZE budget on one run, which writes the truncation marker.
+      { type: 'reasoning-delta', id: 'r-big', delta: 'x'.repeat(MAX_TURN_REASONING_SIZE + 10) },
+      // Every one of these carries a NEW correlation key and arrives after that point, so
+      // `chargeStreamText` refuses its bytes and NOTHING is enqueued for it. Charging the
+      // part first spent the whole `MAX_TURN_REASONING_PARTS` slice on parts never created.
+      ...Array.from({ length: MAX_TURN_REASONING_PARTS }, (_unused, i) => ({
+        type: 'reasoning-delta',
+        id: `phantom-${i}`,
+        delta: 'thinking',
+      })),
+      // …and then five ordinary runs, which are what the budget is FOR.
+      ...Array.from({ length: 5 }, (_unused, i) => [
+        { type: 'reasoning-start', id: `real-${i}` },
+        { type: 'reasoning-end', id: `real-${i}` },
+      ]).flat(),
+    ]);
+
+    // One synthetic "Thinking…" run plus the five real ones. Measured with the charge taken
+    // first: ONE — only the synthetic — because the phantoms had eaten the slice.
+    expect(chunks.filter((c) => c.type === 'reasoning-start')).toHaveLength(6);
+    // The phantoms still carry nothing, which is the half that has not changed.
+    expect(
+      chunks.filter(
+        (c) => c.type === 'reasoning-delta' && (c as { delta: string }).delta === 'thinking',
+      ),
+    ).toEqual([]);
     warnSpy.mockRestore();
   });
 

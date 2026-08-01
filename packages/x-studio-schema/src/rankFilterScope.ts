@@ -234,17 +234,28 @@ export function dedupeRankFilters(
   // the O(R²) resolves this loop performs. See `buildRankFilterWidgetPageIndex`.
   const widgetPageIndex = buildRankFilterWidgetPageIndex(pages);
   for (const filter of filters) {
-    // Only `page`/`widget` scopes are rank-eligible; every other scope kind is left alone
-    // (matching `addFilter`'s gate and `hasConflictingRankFilter`'s own exclusion).
+    // Two independent gates, and only ONE of them is redundant. An earlier version of this
+    // comment said "this clause is REDUNDANT, not load-bearing" without saying which clause;
+    // that is true of one conjunct and false of the other.
     //
-    // This clause is REDUNDANT, not load-bearing: a `filterMode: 'rank'` filter on e.g. a
-    // `dashboard-date-range` scope resolves to the UNRESOLVABLE sentinel, and
-    // `hasConflictingRankFilter` returns false for an unresolvable target, so such a filter
-    // is consistently kept with or without it — including when it is reordered relative to a
-    // legitimate rank filter. (An earlier version of this comment claimed the outcome would
-    // otherwise depend on array order; it does not.) It is kept as a cheap, local statement
-    // of the eligibility rule at the site that depends on it, so a future change to the
-    // sentinel's meaning cannot silently start sweeping non-rank-eligible scopes.
+    //  - The SCOPE-KIND conjunct IS redundant. A `filterMode: 'rank'` filter on e.g. a
+    //    `dashboard-date-range` scope resolves to the UNRESOLVABLE sentinel, and
+    //    `hasConflictingRankFilter` returns false for an unresolvable target, so such a
+    //    filter is consistently kept with or without it — including when it is reordered
+    //    relative to a legitimate rank filter. It is kept as a cheap, local statement of the
+    //    eligibility rule at the site that depends on it, so a future change to the
+    //    sentinel's meaning cannot silently start sweeping non-rank-eligible scopes.
+    //
+    //  - The `filterMode === 'rank'` conjunct is LOAD-BEARING, and it is the only reason an
+    //    ordinary page filter survives this sweep. `hasConflictingRankFilter` answers "is
+    //    another rank filter already occupying this page context?" and deliberately never
+    //    inspects the TARGET's own mode, so every caller must gate — which is why
+    //    `applyMutation`'s `addFilter` mirrors this. Measured with only this conjunct
+    //    removed: `dedupeRankFilters([rank, plain])` keeps `["rank-1"]` and reports
+    //    `changed`, while `dedupeRankFilters([plain, rank])` keeps both. That is an ordinary
+    //    filter silently deleted at the LOAD boundary, with an outcome that depends on array
+    //    order — the property this comment used to claim could not happen.
+    //    `rankFilterScope.test.ts`'s "the non-rank filters it must not touch" pins it.
     if (
       filter.filterMode === 'rank' &&
       (filter.scope.kind === 'page' || filter.scope.kind === 'widget') &&

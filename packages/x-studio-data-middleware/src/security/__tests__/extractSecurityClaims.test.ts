@@ -342,6 +342,73 @@ describe('extractSecurityClaims — payload-shape edge cases', () => {
       expect(() => extractSecurityClaims(`Bearer ${token}`, SECRET)).toThrow(/must be a number/i);
     });
   });
+
+  /**
+   * `normalizeRoleIds` — the one claim normalizer with NO test, in either of its clauses.
+   *
+   * `normalizeTenantId`, `normalizeSub`, `normalizeDepartment` and all four clauses of
+   * `normalizeRegionIds` are each pinned; `roleIds` was mentioned exactly once in this file,
+   * inside a comment. Deleting either of its clauses left all 1181 tests green, and each
+   * produces a distinct regression (measured):
+   *
+   *   roleIds: "admin"             -> TypeError: roleIds.map is not a function
+   *   roleIds: [{"role":"admin"}]  -> ACCEPTED, delivered to the host as `string[]`
+   *
+   * The first is a raw TypeError escaping this package's auth boundary unsanitized — the
+   * exact thing the sibling normalizers' docblocks say they exist to prevent. The second
+   * hands the host non-strings in a field typed `string[]` and documented as "Role IDs the
+   * user holds", which is what the host's own role checks then compare against.
+   */
+  describe('roleIds shape validation (finding 3.3)', () => {
+    it('passes an omitted roleIds through as an empty array', () => {
+      const token = makeJwt({ sub: 'u1', tenantId: 'acme' }, SECRET);
+      expect(extractSecurityClaims(`Bearer ${token}`, SECRET).roleIds).toEqual([]);
+    });
+
+    it('passes a well-formed string[] roleIds through unchanged', () => {
+      const token = makeJwt({ sub: 'u1', tenantId: 'acme', roleIds: ['admin', 'viewer'] }, SECRET);
+      expect(extractSecurityClaims(`Bearer ${token}`, SECRET).roleIds).toEqual(['admin', 'viewer']);
+    });
+
+    it.each([
+      ['a string', 'admin'],
+      ['a number', 5],
+      ['an object', { a: 1 }],
+      ['a boolean', true],
+    ])(
+      'rejects a non-array roleIds claim (%s) with a MUI X error, not a TypeError',
+      (_label, roleIds) => {
+        const token = makeJwt({ sub: 'u1', tenantId: 'acme', roleIds }, SECRET);
+        // Asserting the MESSAGE, not merely that it throws: without the `Array.isArray` clause
+        // the very next line is `roleIds.map(...)`, which throws too — as a raw TypeError.
+        expect(() => extractSecurityClaims(`Bearer ${token}`, SECRET)).toThrow(
+          /JWT "roleIds" claim must be an array of strings/,
+        );
+      },
+    );
+
+    it.each([
+      ['an object entry', [{ role: 'admin' }]],
+      ['a null entry', [null]],
+      ['a numeric entry', [7]],
+      ['a nested array entry', [['admin']]],
+    ])('rejects a roleIds array containing %s, naming the index', (_label, roleIds) => {
+      const token = makeJwt({ sub: 'u1', tenantId: 'acme', roleIds }, SECRET);
+      expect(() => extractSecurityClaims(`Bearer ${token}`, SECRET)).toThrow(
+        /JWT "roleIds\[0\]" must be a string/,
+      );
+    });
+
+    it('names the offending INDEX, not just the field', () => {
+      const token = makeJwt(
+        { sub: 'u1', tenantId: 'acme', roleIds: ['admin', 'viewer', 9] },
+        SECRET,
+      );
+      expect(() => extractSecurityClaims(`Bearer ${token}`, SECRET)).toThrow(
+        /JWT "roleIds\[2\]" must be a string/,
+      );
+    });
+  });
 });
 
 /**

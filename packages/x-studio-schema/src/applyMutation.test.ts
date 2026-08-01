@@ -2522,6 +2522,44 @@ describe('applyMutation', () => {
       expect(next.pages['page-1'].widgetColSpans).toBeUndefined();
     });
 
+    // ── The prototype-member span reads ──────────────────────────────────────
+    //
+    // `rebalanceRowSpans` reads every row member's span through `Object.hasOwn(spans, id)
+    // ? spans[id] : 0`, and its comment names the alternative as the bug: "not
+    // `spans[id] ?? 0`, so an untrusted row id reads 0, never an `Object` prototype member
+    // (which would poison the sums below)". Nothing tested it — the mutant is literally the
+    // code the comment says is wrong, and it survived the whole package.
+    //
+    // The probe is `'toString'`, not `'constructor'`. The denylist this package screens
+    // against is exactly `__proto__`/`constructor`/`prototype`, so `'toString'` is a
+    // completely LEGITIMATE widget id: it passes `isSafeId` at the wire boundary,
+    // `isSafePatchKey` in the reducer, and every load screen. No corrupted doc and no
+    // hand-editing are needed — one widget whose id happens to name an `Object.prototype`
+    // member is enough, and `{}['toString']` is a function.
+    it('reads a row-mate with no span as 0, even when its id names an Object.prototype member', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': {
+            id: 'page-1',
+            title: 'P1',
+            widgetRows: [['w1', 'w2', 'toString']],
+            // `toString` has no span entry of its own — which is the whole point.
+            widgetColSpans: { w1: 6, w2: 6 },
+          },
+        },
+      });
+      const next = applyDocMutation(state, {
+        type: 'setWidgetColSpan',
+        args: { widgetId: 'w1', columns: 6, rowWidgetIds: ['w1', 'w2', 'toString'] },
+      });
+      // 6 + 6 + 0 = 12, well inside GRID_COLS, so nothing is rebalanced and w2 keeps its
+      // width. Read as `spans['toString'] ?? 0` the sum is poisoned by a function, the
+      // "it fits" test goes false, and the two-absorber branch clears every absorber span
+      // — a widget silently losing its width because a SIBLING is called `toString`.
+      expect(next.pages['page-1'].widgetColSpans).toEqual({ w1: 6, w2: 6 });
+    });
+
     it('overflow with exactly one other widget: reduces its span to the remainder when >= MIN_SPAN', () => {
       const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
@@ -3103,6 +3141,36 @@ describe('applyMutation', () => {
   });
 
   describe('setWidgetLayout', () => {
+    // The SAME read, in the sibling function, with the same absence of a test:
+    // `enforceLayoutColSpans`' row-overflow sum uses `Object.hasOwn(next, id) ? next[id] : 0`
+    // for exactly the reason `rebalanceRowSpans`' `readSpan` does. Both survived.
+    //
+    // Here the poisoned sum disables the overflow rule rather than firing it spuriously:
+    // `"…function toString…" > GRID_COLS` is false, so a row that genuinely overflows keeps
+    // every one of its spans and renders past the grid.
+    it('sums a row-mate with no span as 0, so an overflowing row is still caught when a member is named toString', () => {
+      const state = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': {
+            id: 'page-1',
+            title: 'P1',
+            widgetRows: [['w1', 'w2', 'toString']],
+            widgetColSpans: { w1: 18, w2: 18 },
+          },
+        },
+      });
+      const next = applyDocMutation(state, {
+        type: 'setWidgetLayout',
+        // Re-ordered, so this is a real layout change rather than a reference no-op.
+        args: { rows: [['w2', 'w1', 'toString']] },
+      });
+      // 18 + 18 + 0 = 36 > GRID_COLS, so the row's spans are dropped and it falls back to
+      // equal flex — the documented resolution. Read as `next[id] ?? 0` the sum is a string,
+      // the `> GRID_COLS` comparison is false, and both 18s survive on a 24-column row.
+      expect(next.pages['page-1'].widgetColSpans).toBeUndefined();
+    });
+
     it('replaces the active page rows only', () => {
       const state = makeDoc({
         dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },

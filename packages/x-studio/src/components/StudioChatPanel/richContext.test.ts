@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildRichContext } from './richContext';
+import { buildRichContext, MAX_STATS_ROWS } from './richContext';
 import { createDefaultStudioState } from '../../models/stateTypes';
 import type { StudioController } from '../../store/StudioController';
 import type { StudioAIRecentMutation } from '../../models';
@@ -200,5 +200,67 @@ describe('buildRichContext', () => {
     expect(result?.recentMutations).toBeUndefined();
     expect(result?.omitted).toContain('pageLayout');
     expect(result?.omitted).toContain('recentMutations');
+  });
+});
+
+/**
+ * `MAX_STATS_ROWS`, the one member of its own named cap family with no test.
+ *
+ * `pivotUtils.ts` names four caps written for one reason —`MAX_FILLED_TEMPORAL_LABELS`,
+ * `MAX_FORECAST_PERIODS`, `ARIA_LABEL_MAX_LINKS`, `MAX_STATS_ROWS` — and the first three are
+ * each killed by their own test. Raising this one a thousandfold left all 4822 tests of this
+ * package green, and the cap is what keeps the per-request statistics pass O(2000 x fields)
+ * instead of O(rows x fields), synchronously on the main thread, once per AI request.
+ *
+ * Both directions, and the sample is asserted to be a real STRIDE rather than merely a
+ * shorter array: the extreme value below sits at an index the stride skips, so a pass that
+ * read every row would report a different `max`.
+ */
+describe('buildRichContext — the row sample per source', () => {
+  function stateWithRows(rowCount: number, extremeAt?: number) {
+    return createDefaultStudioState({
+      doc: {
+        dashboard: { id: 'd1', title: 'Dashboard', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] } },
+        widgets: {},
+      },
+      runtime: {
+        dataSources: {
+          src1: {
+            id: 'src1',
+            label: 'Sales',
+            fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+            rows: Array.from({ length: rowCount }, (_unused, i) => ({
+              amount: i === extremeAt ? 999_999 : 1,
+            })),
+          },
+        },
+      },
+    });
+  }
+
+  it('samples at most MAX_STATS_ROWS rows from a larger source', () => {
+    const stat = buildRichContext(stateWithRows(MAX_STATS_ROWS * 5), fakeController())
+      ?.fieldStats?.['src1.amount'];
+    expect(stat?.sampledRows).toBeLessThanOrEqual(MAX_STATS_ROWS);
+    expect(stat?.sampledRows).toBeGreaterThan(0);
+  });
+
+  it('reads a STRIDE, so a value at a skipped index is not in the statistics', () => {
+    // Stride is `ceil(5 * MAX_STATS_ROWS / MAX_STATS_ROWS) === 5`, so indices 1..4 are never
+    // read. Without the cap every row is read and `max` is 999 999.
+    const stat = buildRichContext(stateWithRows(MAX_STATS_ROWS * 5, 1), fakeController())
+      ?.fieldStats?.['src1.amount'];
+    expect(stat?.max).toBe(1);
+  });
+
+  it('reads every row of a source at or below the cap (the other direction)', () => {
+    // A cap is a boundary, not a ban: nothing about an ordinary dashboard changes, and the
+    // extreme value IS reported when it is inside the sample.
+    const stat = buildRichContext(stateWithRows(MAX_STATS_ROWS, 1), fakeController())?.fieldStats?.[
+      'src1.amount'
+    ];
+    expect(stat?.sampledRows).toBe(MAX_STATS_ROWS);
+    expect(stat?.max).toBe(999_999);
   });
 });

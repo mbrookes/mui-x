@@ -29,8 +29,20 @@ import { numericStats } from './generateInsight';
 /** Default per-request budget (in estimated tokens) for the rich context block. */
 export const DEFAULT_CONTEXT_TOKEN_BUDGET = 4000;
 
-/** Hard cap on rows sampled per source when computing field statistics. */
-const MAX_STATS_ROWS = 2000;
+/**
+ * Hard cap on rows sampled per source when computing field statistics.
+ *
+ * `buildFieldStats` runs a full `pipeline.resolveWidgetRows` per non-hidden source and then
+ * `computeFieldStat` per non-hidden field, synchronously on the main thread, once per AI
+ * request. Without this cap that pass is O(rows x fields), driven entirely by how much data
+ * the host happened to load, rather than O(2000 x fields).
+ *
+ * Exported for the tests only. It is the one member of the render/compute cap family
+ * `pivotUtils.ts` names in one breath (`MAX_FILLED_TEMPORAL_LABELS`, `MAX_FORECAST_PERIODS`,
+ * `ARIA_LABEL_MAX_LINKS`, `MAX_STATS_ROWS`) whose four siblings are each pinned by their own
+ * test and which had none: raising it a thousandfold changed no test in the package.
+ */
+export const MAX_STATS_ROWS = 2000;
 
 /**
  * Synthetic widget id used to resolve page-scoped rows for a source without

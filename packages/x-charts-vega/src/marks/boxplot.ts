@@ -1,3 +1,4 @@
+import { toAxisCategory } from '../compile/context';
 import type {
   AxisResolution,
   CompiledUnit,
@@ -301,7 +302,7 @@ export function compileBoxplotMark(ctx: UnitContext): CompiledUnit {
         if (values.length === 0) {
           return;
         }
-        const item = computeBox(category, values, extent, groupColor, gi);
+        const item = computeBox(toAxisCategory(category), values, extent, groupColor, gi);
         if (item) {
           items.push(item);
         }
@@ -332,7 +333,7 @@ export function compileBoxplotMark(ctx: UnitContext): CompiledUnit {
       if (color.hasLegend) {
         overlayLegend.push({ label: formatLegendLabel(category), color: swatch ?? '' });
       }
-      const item = computeBox(category, values, extent, swatch);
+      const item = computeBox(toAxisCategory(category), values, extent, swatch);
       if (item) {
         items.push(item);
       }
@@ -345,7 +346,7 @@ export function compileBoxplotMark(ctx: UnitContext): CompiledUnit {
       if (values.length === 0) {
         return;
       }
-      const item = computeBox(category, values, extent, staticColor);
+      const item = computeBox(toAxisCategory(category), values, extent, staticColor);
       if (item) {
         items.push(item);
       }

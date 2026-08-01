@@ -1,3 +1,4 @@
+import { toAxisCategory } from '../compile/context';
 import type {
   AxisResolution,
   CompiledOverlay,
@@ -344,7 +345,7 @@ export function compileErrorBarMark(ctx: UnitContext): CompiledUnit {
           }
           rendered = true;
           items.push({
-            category,
+            category: toAxisCategory(category),
             center: interval.mean,
             lower: interval.lower,
             upper: interval.upper,
@@ -367,7 +368,7 @@ export function compileErrorBarMark(ctx: UnitContext): CompiledUnit {
           return;
         }
         items.push({
-          category,
+          category: toAxisCategory(category),
           center: interval.mean,
           lower: interval.lower,
           upper: interval.upper,
@@ -429,7 +430,7 @@ export function compileErrorBarMark(ctx: UnitContext): CompiledUnit {
       if (!interval) {
         return;
       }
-      points.push({ x: category, lower: interval.lower, upper: interval.upper });
+      points.push({ x: toAxisCategory(category), lower: interval.lower, upper: interval.upper });
     });
     return points;
   };

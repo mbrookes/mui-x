@@ -291,7 +291,10 @@ describe('compileRectMark', () => {
     };
     const compiled = compileSpec(spec);
     const series = compiled.series[0] as unknown as { data: readonly unknown[] };
-    expect(series.data).to.have.length(1);
+    // The unparseable `v` drops its row. The `x: null` row does not: on a
+    // nominal scale a missing value is a category of its own, so it keeps a
+    // cell on the null band the same way Vega gives it one.
+    expect(series.data).to.have.length(2);
   });
 
   it('draws a full-height background band when x2 is present with no y channel at all', () => {

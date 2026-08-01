@@ -1,3 +1,4 @@
+import { toAxisCategory } from '../compile/context';
 import type { ScatterValueType } from '@mui/x-charts/models';
 import type {
   CompiledReferenceLine,
@@ -302,7 +303,7 @@ function resolvePerpendicularAnchor(
           return own as number | string | Date;
         }
       }
-      return categories[index % categories.length];
+      return toAxisCategory(categories[index % categories.length]);
     };
   }
 

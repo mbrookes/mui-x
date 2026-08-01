@@ -11,7 +11,7 @@ import { isFieldDef } from '../types';
 import type { GapCollector } from '../gaps';
 import type { NormalizedSpec, NormalizedUnit } from '../normalize';
 import type { AxisResolution } from './context';
-import { categoryKey } from './context';
+import { categoryKey, toAxisCategory } from './context';
 import { resolveFieldPath, resolveFieldType, toDate, toNumber } from './fieldTypes';
 import { createValueFormatter } from '../format';
 import { compileExpression, UnsupportedExpressionError } from '../transforms/calculate';
@@ -408,6 +408,11 @@ function timeUnitAxisFormatter(unit: string): (value: unknown) => string {
 
 /** Numeric-, date-, then lexicographic-aware comparison for sort orders. */
 function compareValues(a: unknown, b: unknown): number {
+  // Vega leads a nominal domain with its null band rather than sorting "null"
+  // in among the labels alphabetically.
+  if (a === null || b === null) {
+    return a === b ? 0 : (a === null && -1) || 1;
+  }
   if (typeof a === 'number' && typeof b === 'number') {
     return a - b;
   }
@@ -418,7 +423,8 @@ function compareValues(a: unknown, b: unknown): number {
 }
 
 interface CategoryPair {
-  value: string | number | Date;
+  /** `null` is a legitimate nominal/ordinal category — see `nullIsCategory`. */
+  value: string | number | Date | null;
   key: string;
 }
 
@@ -766,6 +772,24 @@ function resolveChannelAxis(
     // band-vs-point decision further down depend on them.
     const forcedDiscreteMark = channelHasDiscreteTemporalMark(occurrences, channel);
     const explicitDiscrete = explicitDiscreteScaleType(occurrences);
+    // On a nominal/ordinal scale a missing value is a category in its own
+    // right, not a row to drop: Vega gives it a band of its own, labelled
+    // "null" (`movies.json`'s 30 films with no `Major Genre`, say). That only
+    // holds for a genuinely discrete field — for a temporal or quantitative
+    // channel `null` means the value failed to parse or isn't there, and those
+    // rows still drop out rather than collapsing into a spurious band.
+    //
+    // A `bin`/`timeUnit` synthetic column is excluded even though it resolves
+    // to an ordinal band: there `null` means the row had nothing to bin, and
+    // Vega drops it rather than banding it. Banding it would also resurrect
+    // the phantom null-bin group that the rect color extent deliberately
+    // ignores (see `marks/rect.ts`).
+    const nullIsCategory =
+      (fieldType === 'nominal' || fieldType === 'ordinal') &&
+      !(
+        typeof field === 'string' &&
+        (field.startsWith('__bin_') || field.startsWith('__timeUnit_'))
+      );
     const pairs: CategoryPair[] = [];
     const seen = new Set<string>();
     // Rows keyed by their category, for a `sort` that ranks categories by
@@ -781,13 +805,13 @@ function resolveChannelAxis(
       for (const row of occurrence.rows) {
         const raw = resolveFieldPath(row, occurrenceField);
         const value = isTemporal ? toDate(raw) : (raw as string | number | Date);
-        if (value == null) {
+        if (value == null && !nullIsCategory) {
           continue;
         }
-        const key = categoryKey(value);
+        const key = categoryKey(value ?? null);
         if (!seen.has(key)) {
           seen.add(key);
-          pairs.push({ value, key });
+          pairs.push({ value: value ?? null, key });
         }
         const group = rowsByCategoryKey.get(key);
         if (group) {
@@ -1033,7 +1057,7 @@ function resolveChannelAxis(
       ...commonConfig,
       scaleType,
       reverse,
-      data: categories,
+      data: categories.map(toAxisCategory),
       tickLabelInterval: SHOW_ALL_DISCRETE_LABELS,
       ...(categoryGapRatio !== undefined ? { categoryGapRatio } : {}),
       ...(isTemporal ? { tickInterval: temporalTickInterval } : {}),

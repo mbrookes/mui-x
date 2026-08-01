@@ -533,7 +533,8 @@ export interface AxisResolution<Config extends XAxis | YAxis = XAxis | YAxis> {
    */
   hasExplicitDomain?: boolean;
   /** Present for band/point scales — the ordered domain values. */
-  categories?: Array<string | number | Date>;
+  /** `null` is a legitimate nominal/ordinal category (Vega bands it and labels it "null"). */
+  categories?: Array<string | number | Date | null>;
   /** Serialized category keys, index-aligned with `categories`. */
   categoryKeys?: string[];
   /** The channel def the axis was derived from (from the first layer defining it). */
@@ -603,6 +604,16 @@ export interface UnitContext {
    * `composition:multiple-geo-layers` gap for what is really the same map).
    */
   hasGeoshapeLayer?: boolean;
+}
+
+/**
+ * The value handed to x-charts for a category slot. A nominal/ordinal `null`
+ * is a real Vega category, and Vega renders its band labelled "null" — while
+ * `categoryKey`/`categoryIndex` keep keying it off the actual `null` so marks
+ * resolve their rows without every call site having to normalise first.
+ */
+export function toAxisCategory(value: string | number | Date | null): string | number | Date {
+  return value === null ? 'null' : value;
 }
 
 export function categoryKey(value: unknown): string {

@@ -1801,12 +1801,28 @@ Check the endpoint URL, its authentication headers, and the server logs for this
               }
               streamController.enqueue({ type: 'reasoning-start', id: wireId });
             } else if (type === 'reasoning-delta') {
-              const wireId = openReasoningPart(String(event.id ?? 'r-server'));
-              if (wireId === undefined) {
-                return undefined;
-              }
+              // Charged in the SAME order as `text-delta` above, and for the reason stated
+              // there: "charged where the part is OPENED, not before the bytes — a charge
+              // taken earlier would also be taken on the deltas `chargeStreamText` rejects,
+              // spending part budget on parts that are never created."
+              //
+              // This branch used to do the opposite, and the failure that rule names is real
+              // here: `chargeStreamText` returns `undefined` for every delta once the turn's
+              // reasoning SIZE budget is spent and the truncation marker written, so a
+              // `reasoning-delta` carrying a NEW correlation key after that point spent one
+              // `MAX_TURN_REASONING_PARTS` slot and one `MAX_TURN_MESSAGE_PARTS` slot, minted
+              // a wire id, and enqueued nothing. Measured: 37 such deltas left 2 reasoning
+              // parts on the message where 7 belong, refusing five legitimate runs because 32
+              // charges had already been spent on parts that do not exist.
+              //
+              // `reasoning-start` keeps the other order, correctly: opening the part IS what
+              // that event does, and it carries no bytes to charge.
               const delta = chargeStreamText('reasoning', String(event.delta ?? ''));
               if (delta === undefined) {
+                return undefined;
+              }
+              const wireId = openReasoningPart(String(event.id ?? 'r-server'));
+              if (wireId === undefined) {
                 return undefined;
               }
               streamController.enqueue({ type: 'reasoning-delta', id: wireId, delta });

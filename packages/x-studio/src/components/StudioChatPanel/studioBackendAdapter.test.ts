@@ -4163,6 +4163,43 @@ describe('createBackendChatAdapter: stream-text budgets', () => {
     warnSpy.mockRestore();
   });
 
+  // The placement rule the `text-delta` branch states in prose — "charged where the part is
+  // OPENED, not before the bytes: a charge taken earlier would also be taken on the deltas
+  // `chargeStreamText` rejects, spending part budget on parts that are never created" — was
+  // true of `text-delta` and FALSE of `reasoning-delta`, which charged the part first.
+  // Nothing in the 135 adapter tests before this one distinguished the two orderings.
+  it('does not spend a reasoning part on a delta whose bytes were already refused', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const chunks = await collectAllTurnChunks([
+      // Spend the whole reasoning SIZE budget on one run, which writes the truncation marker.
+      { type: 'reasoning-delta', id: 'r-big', delta: 'x'.repeat(MAX_TURN_REASONING_SIZE + 10) },
+      // Every one of these carries a NEW correlation key and arrives after that point, so
+      // `chargeStreamText` refuses its bytes and NOTHING is enqueued for it. Charging the
+      // part first spent the whole `MAX_TURN_REASONING_PARTS` slice on parts never created.
+      ...Array.from({ length: MAX_TURN_REASONING_PARTS }, (_unused, i) => ({
+        type: 'reasoning-delta',
+        id: `phantom-${i}`,
+        delta: 'thinking',
+      })),
+      // …and then five ordinary runs, which are what the budget is FOR.
+      ...Array.from({ length: 5 }, (_unused, i) => [
+        { type: 'reasoning-start', id: `real-${i}` },
+        { type: 'reasoning-end', id: `real-${i}` },
+      ]).flat(),
+    ]);
+
+    // One synthetic "Thinking…" run plus the five real ones. Measured with the charge taken
+    // first: ONE — only the synthetic — because the phantoms had eaten the slice.
+    expect(chunks.filter((c) => c.type === 'reasoning-start')).toHaveLength(6);
+    // The phantoms still carry nothing, which is the half that has not changed.
+    expect(
+      chunks.filter(
+        (c) => c.type === 'reasoning-delta' && (c as { delta: string }).delta === 'thinking',
+      ),
+    ).toEqual([]);
+    warnSpy.mockRestore();
+  });
+
   it('bounds the NUMBER of step-start parts one turn adds', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const chunks = await collectAllTurnChunks(

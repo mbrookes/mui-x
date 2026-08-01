@@ -3261,6 +3261,71 @@ describe('deserializeState required-leaf screens (M1)', () => {
     expect(deserializeState(serialized, {}).doc.relationships.map((r) => r.id)).toEqual(['r1']);
   });
 
+  // `isRelationshipSafe` states ONE property about SIX fields, and the test above drives two
+  // of them. The docblock's sentence is explicitly about four — "All four endpoint ids/fields
+  // are read as strings by the join-path resolver with no optional chaining" — and three of
+  // those four (`sourceId`, `targetId`, `sourceField`) could be deleted with the whole 1019
+  // test package green, because one fixture exercises one clause while the sentence covers
+  // four.
+  //
+  // Enumerated one row per clause, each violating only its own, so deleting any single clause
+  // reddens exactly one row. The consequence of a regression is not a crash but a silently
+  // wrong join: `dataSourceGraph`/`createBatchingAdapter` compare `rel.sourceId ===
+  // primarySourceId` (strict, never coercing) and key caches off
+  // `${joinSourceId}|${joinPkField}`, so a relationship with `sourceId: 42` loads, never
+  // matches anything, and its join field resolves to nothing with no error anywhere.
+  it.each([
+    ['id', { id: 42 }],
+    ['sourceId', { sourceId: 42 }],
+    ['targetId', { targetId: 42 }],
+    ['sourceField', { sourceField: 42 }],
+    ['targetField', { targetField: 42 }],
+    ['type', { type: 'many-to-many-ish' }],
+  ])('drops a relationship whose %s clause is violated, and only that clause', (_label, patch) => {
+    const serialized = {
+      ...minimal,
+      // The good one is kept alongside, so this is a per-entry drop and not a wholesale one.
+      relationships: [goodRel, { ...goodRel, id: 'r-bad', ...patch }],
+    } as unknown as typeof minimal;
+    expect(deserializeState(serialized, {}).doc.relationships.map((r) => r.id)).toEqual(['r1']);
+  });
+
+  // The same shape on the expression tree. `isValidExpressionNode` is well pinned on its
+  // recursive arms (depth bound and increment, operator membership, `inputs` array-ness and
+  // recursion, the value-type union, the unresolvable-node fallback) and unpinned on its two
+  // LEAF arms — both could be replaced with `true` with the package green.
+  //
+  // The join-field arm's own comment says why it exists: "StudioJoinFieldExpression — both
+  // ids are destructured and used as record keys unguarded". They are —
+  // `createBatchingAdapter` does `const { joinSourceId, fieldId } = exprField.expression` and
+  // then `dataSources[joinSourceId]` and `` `_xjoin_${joinSourceId}` `` — so a non-string id
+  // becomes a record key, the same silently-wrong-join class as above.
+  it.each([
+    ['joinSourceId', { joinSourceId: 42, fieldId: 'amount' }],
+    ['fieldId', { joinSourceId: 'orders', fieldId: 42 }],
+    ['field-reference id', { id: 42 }],
+  ])('drops an expressionFields entry whose leaf %s is not a string', (_label, expression) => {
+    const serialized = {
+      ...minimal,
+      expressionFields: [goodEf, { ...goodEf, id: 'ef-bad', expression }],
+    } as unknown as typeof minimal;
+    expect(deserializeState(serialized, {}).doc.expressionFields.map((ef) => ef.id)).toEqual([
+      'ef1',
+    ]);
+  });
+
+  // …and the other direction, without which "reject every leaf" would pass the rows above.
+  it.each([
+    ['a join-field leaf', { joinSourceId: 'orders', fieldId: 'amount' }],
+    ['a field-reference leaf', { id: 'revenue' }],
+  ])('keeps an expressionFields entry whose expression is %s', (_label, expression) => {
+    const serialized = {
+      ...minimal,
+      expressionFields: [{ ...goodEf, expression }],
+    } as unknown as typeof minimal;
+    expect(deserializeState(serialized, {}).doc.expressionFields).toHaveLength(1);
+  });
+
   it.each(['many-to-one', 'one-to-one', 'many-to-many'])(
     'keeps a relationship whose type is the known member "%s"',
     (type) => {

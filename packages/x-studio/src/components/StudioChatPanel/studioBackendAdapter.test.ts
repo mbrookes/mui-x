@@ -3914,8 +3914,13 @@ describe('createBackendChatAdapter: stream-text budgets', () => {
 
     const deltas = chunks.filter((c) => c.type === 'text-delta') as { delta: string }[];
     const total = deltas.reduce((sum, c) => sum + jsonChars(c.delta), 0);
-    // 12 000 000 JSON characters of answer, bounded to the turn's ceiling plus one marker.
-    expect(total).toBeLessThanOrEqual(MAX_TURN_TEXT_SIZE + jsonChars(STREAM_TEXT_TRUNCATED_SUFFIX));
+    // 12 000 000 JSON characters of answer, bounded to the turn's ceiling — INCLUDING the
+    // marker, not plus it. `STREAM_TEXT_TRUNCATED_SUFFIX`'s own docblock says it is "charged to
+    // the budget it terminates, like the tool-output marker, so a turn cannot exceed its
+    // ceiling by the marker's own length", and this is the assertion that holds it to that: an
+    // allowance of `+ marker` here is a ceiling nobody is standing on, and it left the
+    // subtraction in `chargeStreamText` deletable with the suite still green.
+    expect(total).toBeLessThanOrEqual(MAX_TURN_TEXT_SIZE);
     // …and the cut says so. A truncated answer that reads as a finished one is the one
     // failure mode a text budget must not have: the tail is where the conclusion lives.
     expect(deltas.at(-1)!.delta).toContain('truncated');
@@ -3934,7 +3939,7 @@ describe('createBackendChatAdapter: stream-text budgets', () => {
 
     expect(deltas.reduce((sum, c) => sum + c.delta.length, 0)).toBeLessThan(MAX_TURN_TEXT_SIZE);
     expect(deltas.reduce((sum, c) => sum + jsonChars(c.delta), 0)).toBeLessThanOrEqual(
-      MAX_TURN_TEXT_SIZE + jsonChars(STREAM_TEXT_TRUNCATED_SUFFIX),
+      MAX_TURN_TEXT_SIZE,
     );
     warnSpy.mockRestore();
   });
@@ -3951,7 +3956,7 @@ describe('createBackendChatAdapter: stream-text budgets', () => {
 
     const deltas = chunks.filter((c) => c.type === 'reasoning-delta') as { delta: string }[];
     expect(deltas.reduce((sum, c) => sum + jsonChars(c.delta), 0)).toBeLessThanOrEqual(
-      MAX_TURN_REASONING_SIZE + jsonChars(STREAM_TEXT_TRUNCATED_SUFFIX),
+      MAX_TURN_REASONING_SIZE,
     );
     warnSpy.mockRestore();
   });
@@ -4134,6 +4139,44 @@ describe('createBackendChatAdapter: the whole persisted assistant message', () =
     expect(kinds.has('reasoning')).toBe(true);
     expect(kinds.has('step-start')).toBe(true);
     expect(kinds.has('dynamic-tool')).toBe(true);
+    warnSpy.mockRestore();
+  });
+
+  // The truncation marker's own charge, measured where it matters: on the characters the store
+  // actually holds, for BOTH stream-text kinds at once, each against its own half of the
+  // budget. The marker is part of what persists, so it is part of what the budget has to cover
+  // — the previous round reported exactly this defect on `TOOL_OUTPUT_TRUNCATED_SUFFIX` and
+  // then re-created it, unpinned, on the stream-text path in the same commit.
+  it('charges the truncation marker to the budget it terminates, at the sink', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { parts } = await persistOneTurn([
+      ...Array.from({ length: 60 }, () => ({
+        type: 'reasoning-delta',
+        id: 'r-1',
+        delta: CONTROL_CHAR.repeat(20_000),
+      })),
+      ...Array.from({ length: 60 }, () => ({
+        type: 'text-delta',
+        delta: CONTROL_CHAR.repeat(20_000),
+      })),
+    ]);
+
+    const sizeOf = (type: string) =>
+      (parts.filter((part) => part.type === type) as { text: string }[]).reduce(
+        (sum, part) => sum + jsonChars(part.text),
+        0,
+      );
+
+    // Both doors were pushed past their ceiling and both stopped AT it, marker included.
+    expect(sizeOf('reasoning')).toBeLessThanOrEqual(MAX_TURN_REASONING_SIZE);
+    expect(sizeOf('text')).toBeLessThanOrEqual(MAX_TURN_TEXT_SIZE);
+    // …and each really did truncate, so the ceilings above are not being met by silence.
+    expect(sizeOf('reasoning')).toBeGreaterThan(
+      MAX_TURN_REASONING_SIZE - jsonChars(STREAM_TEXT_TRUNCATED_SUFFIX) * 2,
+    );
+    expect(sizeOf('text')).toBeGreaterThan(
+      MAX_TURN_TEXT_SIZE - jsonChars(STREAM_TEXT_TRUNCATED_SUFFIX) * 2,
+    );
     warnSpy.mockRestore();
   });
 

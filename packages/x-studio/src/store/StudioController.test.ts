@@ -3073,6 +3073,55 @@ describe('StudioController.getRecentMutations', () => {
     expect(log[19].label).toBe('addFilter:field-24');
   });
 
+  // The cap has TWO enforcement sites and the test above drives one. `getRecentMutations`'
+  // docblock states the cap unconditionally, but `commitState`'s trim only sees commits;
+  // `redo()` carries its own, second trim for the entry it RE-INSERTS, and 25 `addFilter`
+  // calls never reach it. Delete that trim and everything stays green while the log the
+  // model reads through `get_recent_changes` grows past its stated bound.
+  //
+  // Reaching it needs the log full at the moment a redo restores an entry, which needs a
+  // labeled commit that does NOT clear the redo stack. `applyExternalMutation`'s
+  // `setActivePage` is exactly that — non-undoable (it touches only transient-carried doc
+  // fields) yet authored-visible, so it logs a line and leaves the redo stack alone.
+  it("caps the log at 20 on redo's re-insertion too, not just on commit", () => {
+    const controller = new StudioController({
+      doc: {
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] },
+          'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [] },
+        },
+      },
+    });
+    // Fill the log exactly to the cap.
+    for (let i = 0; i < 20; i += 1) {
+      controller.addFilter(makeFilter({ id: `f-${i}`, field: `field-${i}` }));
+    }
+    expect(controller.getRecentMutations()).toHaveLength(20);
+
+    // Undo pulls the newest entry back out (19 left) and parks it for redo…
+    expect(controller.undo()).toBe(true);
+    expect(controller.getRecentMutations()).toHaveLength(19);
+
+    // …a labeled, non-undoable wire commit refills the log to the cap without clearing the
+    // redo stack…
+    controller.applyExternalMutation({ type: 'setActivePage', args: { pageId: 'page-2' } });
+    expect(controller.getRecentMutations()).toHaveLength(20);
+    expect(controller.canRedo()).toBe(true);
+
+    // …and the redo now re-inserts a 21st entry into a full log.
+    expect(controller.redo()).toBe(true);
+
+    const log = controller.getRecentMutations();
+    expect(log).toHaveLength(20);
+    // The OLDEST went, not the one just restored and not the newest: the restored entry is
+    // re-inserted in sequence order (before the later `setActivePage`), and the trim evicts
+    // from the front.
+    expect(log[0].label).toBe('addFilter:field-1');
+    expect(log[18].label).toBe('addFilter:field-19');
+    expect(log[19].label).toContain('setActivePage');
+  });
+
   it('returns a defensive copy', () => {
     const controller = new StudioController();
     controller.addFilter(makeFilter({ id: 'a', field: 'revenue' }));
@@ -3288,6 +3337,42 @@ describe('StudioController.serializeSession / restoreSession', () => {
     }
     expect(restored.getState().doc.dashboard.title).toBe('t-50');
     expect(restored.undo()).toBe(false);
+  });
+
+  // The OTHER stack. `restoreSession`'s comment says it caps "BOTH stacks at
+  // MAX_UNDO_HISTORY (finding 5)", and the test above — written for that comment — passes
+  // `future: []`. One slice was driven and the other was handed the empty array, so the
+  // `future` slice could be deleted with the whole project green.
+  //
+  // A restored session is attacker-supplied (persisted or shared JSON), and unlike the past
+  // stack the redo stack is not consumed by ordinary editing — it is retained for the whole
+  // session, at whatever size the payload chose.
+  it('truncates a restored FUTURE stack to MAX_UNDO_HISTORY, keeping the most recent entries', () => {
+    const source = new StudioController();
+    const snapshots: SerializedStudioSnapshot[] = [];
+    for (let i = 0; i < 150; i += 1) {
+      source.setDashboardTitle(`t-${i}`);
+      snapshots.push(source.serializeSession().present);
+    }
+    const fakeSession: SerializedStudioSession = {
+      schemaVersion: source.serializeSession().schemaVersion,
+      present: snapshots[149],
+      past: [],
+      future: snapshots, // 150 raw entries — well over MAX_UNDO_HISTORY
+    };
+
+    const restored = new StudioController();
+    expect(restored.restoreSession(fakeSession).success).toBe(true);
+    expect(restored.serializeSession().future).toHaveLength(100);
+
+    // Same eviction rule as the past stack: oldest-first with the entry closest to
+    // `present` at the END, so truncating from the front keeps the newest. 100 redos land
+    // on t-50 and the 101st has nothing left.
+    for (let i = 0; i < 100; i += 1) {
+      expect(restored.redo()).toBe(true);
+    }
+    expect(restored.getState().doc.dashboard.title).toBe('t-50');
+    expect(restored.redo()).toBe(false);
   });
 
   // Finding 5: `present.mode` should be validated against the two allowed literals rather

@@ -1645,9 +1645,7 @@ describe('runAgenticLoop — tool approval', () => {
     expect(a.approvalIds).toHaveLength(1);
     expect(b.approvalIds).toHaveLength(1);
     expect(a.approvalIds[0]).not.toBe(b.approvalIds[0]);
-    expect([...approvalPending.keys()].sort()).toEqual(
-      [a.approvalIds[0], b.approvalIds[0]].sort(),
-    );
+    expect([...approvalPending.keys()].sort()).toEqual([a.approvalIds[0], b.approvalIds[0]].sort());
 
     approvalPending.get(a.approvalIds[0])!.resolve(true);
     approvalPending.get(b.approvalIds[0])!.resolve(true);
@@ -3294,10 +3292,107 @@ describe('runAgenticLoop — hostile provider usage counts', () => {
     expect(typeof metadata.metadata.inputTokens).toBe('number');
   });
 
-  it('ignores NaN / Infinity token counts', async () => {
-    // Neither is JSON-representable, so a gateway smuggles them through a JS-side
-    // serializer; either way they must not reach the accumulator, where `NaN >= limit`
-    // is always false and the budget silently disappears.
+  /**
+   * A response whose SSE frames are RAW TEXT rather than `JSON.stringify` of a JS value.
+   *
+   * Every other builder in this file goes through `sseChunk`, which stringifies — and
+   * `JSON.stringify(Infinity)` is `"null"`. So a test that hands `Infinity` to one of them
+   * puts `null` on the wire, never `Infinity`, and cannot reach the clause that rejects it:
+   * `null` fails the `typeof value === 'number'` test long before `Number.isFinite` is
+   * consulted. That is why the `Number.isFinite` clause could be deleted with all 1649
+   * tests green while a test named "ignores NaN / Infinity token counts" sat right here.
+   *
+   * `1e999` is the way a gateway actually sends it. It is a valid JSON number literal, no
+   * smuggling and no JS-side serializer required, and `JSON.parse` yields `Infinity` for
+   * it — two characters on the wire.
+   */
+  function makeRawSseResponse(dataFrames: string[]): Response {
+    const body = `${dataFrames.map((frame) => `data: ${frame}\n\n`).join('')}data: [DONE]\n\n`;
+    return new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(body));
+          controller.close();
+        },
+      }),
+      { status: 200 },
+    );
+  }
+
+  // The whole point of rejecting `Infinity`, end to end: not that the number looks wrong,
+  // but that ONE of them turns `maxTokensPerRequest` off for the rest of the request.
+  //
+  // `Infinity` is accepted by every clause except `Number.isFinite` — `typeof Infinity` is
+  // `'number'` and `Infinity >= 0` is true — so that clause is the only thing stopping it.
+  // The damage is not the `Infinity` itself but the NaN one chunk later: the fold is
+  // `usage.inputTokens += nextInput - turnInputTokens`, so an honest count arriving after
+  // an infinite one computes `Infinity + (1000 - Infinity)` = `NaN`, and
+  // `usage.inputTokens + usage.outputTokens >= maxTokensPerRequest` is false forever after.
+  // The spend budget is gone, and the `usage`/`message-metadata` frames the browser reads
+  // carry `null` where the protocol type declares a number.
+  it('rejects a 1e999 prompt_tokens, so an honest count one chunk later still trips the budget', async () => {
+    const onLimitReached = vi.fn();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        makeRawSseResponse([
+          JSON.stringify({
+            choices: [
+              {
+                delta: {
+                  tool_calls: [
+                    {
+                      index: 0,
+                      id: 'tc_1',
+                      function: { name: 'get_dashboard_state', arguments: '{}' },
+                    },
+                  ],
+                },
+                finish_reason: null,
+              },
+            ],
+          }),
+          JSON.stringify({ choices: [{ delta: {}, finish_reason: 'tool_calls' }] }),
+          // Hand-written, because no JS value survives `JSON.stringify` as this.
+          '{"choices":[],"usage":{"prompt_tokens":1e999,"completion_tokens":0}}',
+          // …and then the truth, which must be what the accumulator ends up holding.
+          '{"choices":[],"usage":{"prompt_tokens":1000,"completion_tokens":0}}',
+        ]),
+      )
+      // Only reached if the budget FAILS to trip — i.e. only by the regression.
+      .mockResolvedValueOnce(textResponse('second turn', 1, 1));
+
+    const events = await collectEvents(
+      runAgenticLoop([userMsg('Hi')], INITIAL_STATE, undefined, undefined, undefined, undefined, {
+        ...BASE_OPTIONS,
+        rateLimit: { maxTokensPerRequest: 100, onLimitReached },
+      }),
+    );
+
+    const usage = usageEvent(events);
+    // Not merely "finite": the exact honest count, so the infinite one contributed nothing.
+    expect(usage.inputTokens).toBe(1000);
+    expect(Number.isNaN(usage.inputTokens as number)).toBe(false);
+    // The budget is still armed, and it trips at the turn boundary.
+    expect(onLimitReached).toHaveBeenCalledWith('tokens', expect.anything());
+    expect(
+      events.some(
+        (ev) =>
+          (ev as { type: string }).type === 'error' &&
+          /token budget exceeded/.test((ev as { message: string }).message),
+      ),
+    ).toBe(true);
+    // …so the tool is never dispatched and no second turn is started.
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  // Named for what it actually delivers. It was called "ignores NaN / Infinity token
+  // counts", and it does not: `textResponseWithUsage` goes through `JSON.stringify`, and
+  // `JSON.stringify(NaN)` and `JSON.stringify(Infinity)` are both `"null"`. So the wire
+  // carries `null` twice, which is rejected by the `typeof value === 'number'` clause
+  // without `Number.isFinite` ever being consulted — which is how that clause came to be
+  // deletable with the whole package green underneath a test that named it. The real
+  // Infinity case is the `1e999` test above, which puts it on the wire as JSON.
+  it('ignores a null token count (what NaN / Infinity become through JSON)', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       textResponseWithUsage('a', {
         prompt_tokens: Number.NaN,

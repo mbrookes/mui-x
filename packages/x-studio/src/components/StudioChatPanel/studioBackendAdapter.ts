@@ -1739,23 +1739,31 @@ Check the endpoint URL, its authentication headers, and the server logs for this
 
             if (type === 'text-delta') {
               endReasoning(streamController);
-              // The part first, so a delta is never charged to a part that cannot be opened…
-              if (!textStarted && !canAffordMessagePart('text')) {
-                warnApprovalOnce(
-                  'text-part-budget',
-                  `The AI server started more than ${MAX_TURN_TEXT_PARTS} separate answer ` +
-                    `segments in one response, which are stored in the saved dashboard, so the ` +
-                    `later ones were dropped.`,
-                );
-                return undefined;
-              }
-              // …then the bytes, truncated and MARKED at the turn's ceiling rather than
-              // silently trimmed: this is the model's actual answer, and a cut one must never
-              // read as a finished one. See `MAX_TURN_TEXT_SIZE`.
+              // The bytes, truncated and MARKED at the turn's ceiling rather than silently
+              // trimmed: this is the model's actual answer, and a cut one must never read as a
+              // finished one. See `MAX_TURN_TEXT_SIZE`.
               const delta = chargeStreamText('text', String(event.delta ?? ''));
               if (delta === undefined) {
                 return undefined;
               }
+              // ONE statement of the text-part rule, and it is `endTextPart`, not a guard here.
+              //
+              // There used to be a second one on this line — `!textStarted &&
+              // !canAffordMessagePart('text')`, dropping the delta — and it was unreachable in
+              // both halves. `endTextPart` refuses to CLOSE the open run once the text slice is
+              // spent, so `textStarted` can never return to `false` while `turnPartCounts.text`
+              // sits at its sub-limit; and the total can never be the binding clause for text
+              // either (the other three slices sum to 160, plus the one over-slice approval
+              // notice = 161 < 192). So the charge below cannot fail, the guard never fired,
+              // and the user-facing warning it carried could never reach a user. Unreachable
+              // code that reads as protection is worse than no protection: it is a second,
+              // divergent statement of a rule, and the next reader budgets against it.
+              //
+              // It also stated the WRONG rule. Bounding the segmentation must not cost a
+              // character of the answer — dropping text is precisely the trade `endTextPart`
+              // exists to avoid — and the guard dropped it. Pinned by "bounds the text door
+              // against the same re-open cycle, at the sink", which asserts both halves: the
+              // part count is capped AND every character the server sent is still there.
               if (!textStarted) {
                 chargeMessagePart('text');
                 streamController.enqueue({ type: 'text-start', id: textPartId });

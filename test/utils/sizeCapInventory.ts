@@ -62,75 +62,81 @@ const APPROVAL_LIST_LIMITS = 'x-studio/src/components/StudioChatPanel/studioBack
 export const SIZE_CAP_INVENTORY: SizeCapEntry[] = [
   // ── x-studio-schema: the wire parser and the reducer/load-boundary repair ──
   {
-    site: 'x-studio-schema/internalGuards.ts:repairFilterDependsOn#0',
+    site: 'x-studio-schema/internalGuards.ts:repairFilterDependsOn[dependsOn.length <= MAX_ARRAY_LENGTH]#0',
     probedIn: null,
     why: 'array cap; pinned by internalGuards.test.ts (an over-long dependsOn array is stripped).',
   },
   {
-    site: 'x-studio-schema/internalGuards.ts:repairFilterDependsOn#1',
+    site: 'x-studio-schema/internalGuards.ts:repairFilterDependsOn[item.length <= MAX_STRING_LENGTH]#0',
     probedIn: BOUNDED_STRING_GUARDS,
   },
   {
-    site: 'x-studio-schema/parseStateMutation.ts:isBoundedValue#0',
+    site: 'x-studio-schema/parseStateMutation.ts:isBoundedValue[value.length <= MAX_STRING_LENGTH]#0',
     probedIn: BOUNDED_STRING_GUARDS,
   },
   {
-    site: 'x-studio-schema/parseStateMutation.ts:isBoundedValue#1',
+    site: 'x-studio-schema/parseStateMutation.ts:isBoundedValue[value.length <= MAX_ARRAY_LENGTH]#0',
     probedIn: null,
     why: 'array cap on a nested value; pinned by parseStateMutation.test.ts.',
   },
   {
-    site: 'x-studio-schema/parseStateMutation.ts:isBoundedValue#2',
+    site: 'x-studio-schema/parseStateMutation.ts:isBoundedValue[keys.length <= MAX_RECORD_KEYS]#0',
     probedIn: null,
     why: 'record KEY-COUNT cap (MAX_RECORD_KEYS), not a string length; pinned by parseStateMutation.test.ts.',
   },
   {
-    site: 'x-studio-schema/parseStateMutation.ts:isBoundedValue#3',
+    site: 'x-studio-schema/parseStateMutation.ts:isBoundedValue[key.length <= MAX_STRING_LENGTH]#0',
     probedIn: BOUNDED_STRING_GUARDS,
   },
-  { site: 'x-studio-schema/parseStateMutation.ts:isString#0', probedIn: BOUNDED_STRING_GUARDS },
   {
-    site: 'x-studio-schema/parseStateMutation.ts:isOptionalString#0',
+    site: 'x-studio-schema/parseStateMutation.ts:isString[value.length <= MAX_STRING_LENGTH]#0',
     probedIn: BOUNDED_STRING_GUARDS,
   },
-  { site: 'x-studio-schema/parseStateMutation.ts:isSafeId#0', probedIn: BOUNDED_STRING_GUARDS },
   {
-    site: 'x-studio-schema/parseStateMutation.ts:isStringArray#0',
+    site: 'x-studio-schema/parseStateMutation.ts:isOptionalString[value.length <= MAX_STRING_LENGTH]#0',
+    probedIn: BOUNDED_STRING_GUARDS,
+  },
+  {
+    site: 'x-studio-schema/parseStateMutation.ts:isSafeId[value.length <= MAX_STRING_LENGTH]#0',
+    probedIn: BOUNDED_STRING_GUARDS,
+  },
+  {
+    site: 'x-studio-schema/parseStateMutation.ts:isStringArray[value.length <= MAX_ARRAY_LENGTH]#0',
     probedIn: null,
     why: 'array cap; pinned by parseStateMutation.test.ts.',
   },
   {
-    site: 'x-studio-schema/parseStateMutation.ts:isStringArray#1',
+    site: 'x-studio-schema/parseStateMutation.ts:isStringArray[item.length <= MAX_STRING_LENGTH]#0',
     probedIn: BOUNDED_STRING_GUARDS,
   },
   {
-    site: 'x-studio-schema/parseStateMutation.ts:isStringMatrix#0',
+    site: 'x-studio-schema/parseStateMutation.ts:isStringMatrix[value.length <= MAX_ARRAY_LENGTH]#0',
     probedIn: null,
     why: 'array cap on the outer matrix; pinned by parseStateMutation.test.ts.',
   },
   {
-    site: 'x-studio-schema/parseStateMutation.ts:isFiniteNumberRecord#0',
+    site: 'x-studio-schema/parseStateMutation.ts:isFiniteNumberRecord[keys.length <= MAX_ARRAY_LENGTH]#0',
     probedIn: null,
     why: 'key-COUNT cap; pinned by parseStateMutation.test.ts.',
   },
   {
-    site: 'x-studio-schema/parseStateMutation.ts:isFiniteNumberRecord#1',
+    site: 'x-studio-schema/parseStateMutation.ts:isFiniteNumberRecord[key.length <= MAX_STRING_LENGTH]#0',
     probedIn: BOUNDED_STRING_GUARDS,
   },
   {
-    site: 'x-studio-schema/parseStateMutation.ts:applyBulkUpdate#0',
+    site: 'x-studio-schema/parseStateMutation.ts:applyBulkUpdate[args.addedWidgets.length > MAX_ARRAY_LENGTH]#0',
     probedIn: null,
     why: 'array cap on addedWidgets; pinned by parseStateMutation.test.ts.',
   },
   {
-    site: 'x-studio-schema/parseStateMutation.ts:applyBulkUpdate#1',
+    site: 'x-studio-schema/parseStateMutation.ts:applyBulkUpdate[args.updatedWidgets.length > MAX_ARRAY_LENGTH]#0',
     probedIn: null,
     why: 'array cap on updatedWidgets; pinned by parseStateMutation.test.ts.',
   },
 
   // ── x-studio/chat: the same shared limits, enforced across the package boundary ──
   {
-    site: 'x-studio/chat/autoSubmit.tsx:attempt#0',
+    site: 'x-studio/chat/autoSubmit.tsx:attempt[store.state.messageIds.length > messageCountBefore]#0',
     probedIn: null,
     why:
       'NOT A CAP. `store.state.messageIds.length > messageCountBefore` asks whether the ' +
@@ -140,7 +146,7 @@ export const SIZE_CAP_INVENTORY: SizeCapEntry[] = [
       'a handful of rows like this one.',
   },
   {
-    site: 'x-studio/chat/chatTurnMutations.ts:record#0',
+    site: 'x-studio/chat/chatTurnMutations.ts:record[turns.size > MAX_TRACKED_TURNS]#0',
     probedIn: null,
     why:
       'turn-ledger retention cap on a Map `.size`; pinned by chatTurnMutations.test.ts ' +
@@ -149,7 +155,7 @@ export const SIZE_CAP_INVENTORY: SizeCapEntry[] = [
       'everything accounted for while this sat unpinned inside a walked directory.',
   },
   {
-    site: 'x-studio/chat/generateInsight.ts:buildChartWidgetSummary#0',
+    site: 'x-studio/chat/generateInsight.ts:buildChartWidgetSummary[result.xLabels.length > maxRows]#0',
     probedIn: null,
     why:
       'prompt-context TRUNCATION of a heatmap axis, not an admission check: the over-cap ' +
@@ -158,7 +164,7 @@ export const SIZE_CAP_INVENTORY: SizeCapEntry[] = [
       'which is why the previous name-matching scan could not see it.',
   },
   {
-    site: 'x-studio/chat/richContext.ts:strideSample#0',
+    site: 'x-studio/chat/richContext.ts:strideSample[rows.length <= max]#0',
     probedIn: null,
     why:
       'MAX_STATS_ROWS, passed in as `max`; pinned by richContext.test.ts. Round 14 reported ' +
@@ -166,12 +172,12 @@ export const SIZE_CAP_INVENTORY: SizeCapEntry[] = [
       'scan still could not see it, because the bound is an argument rather than a name.',
   },
   {
-    site: 'x-studio/chat/sseUtils.ts:parseSSEStream#0',
+    site: 'x-studio/chat/sseUtils.ts:parseSSEStream[buffer.length > MAX_BUFFER_SIZE]#0',
     probedIn: null,
     why: 'SSE read-buffer cap; pinned by sseUtils.test.ts (an un-delimited stream aborts).',
   },
   {
-    site: 'x-studio/chat/studioBackendAdapter.ts:truncateToWireSize#0',
+    site: 'x-studio/chat/studioBackendAdapter.ts:truncateToWireSize[wireStringSize(value) <= max]#0',
     probedIn: null,
     why:
       'the fast path of a TRUNCATION helper (return the value whole when it already fits), ' +
@@ -180,30 +186,30 @@ export const SIZE_CAP_INVENTORY: SizeCapEntry[] = [
       'separately. Exercised throughout studioBackendAdapter.test.ts.',
   },
   {
-    site: 'x-studio/chat/studioBackendAdapter.ts:truncateToWireSize#1',
+    site: 'x-studio/chat/studioBackendAdapter.ts:truncateToWireSize[wireStringSize(value.slice(0, mid)) <= max]#0',
     probedIn: null,
     why:
       'the binary-search step of the same truncation helper: it is the LOOP INVARIANT, not a ' +
       'bound on a payload. Relaxing it does not admit more data, it returns a wrong prefix.',
   },
   {
-    site: 'x-studio/chat/studioBackendAdapter.ts:isWithinApprovalListLimits#0',
+    site: 'x-studio/chat/studioBackendAdapter.ts:isWithinApprovalListLimits[list.length > MAX_ARRAY_LENGTH]#0',
     probedIn: APPROVAL_LIST_LIMITS,
   },
   {
-    site: 'x-studio/chat/studioBackendAdapter.ts:isWithinApprovalListLimits#1',
+    site: 'x-studio/chat/studioBackendAdapter.ts:isWithinApprovalListLimits[entry.length > MAX_STRING_LENGTH]#0',
     probedIn: APPROVAL_LIST_LIMITS,
   },
   {
-    site: 'x-studio/chat/studioBackendAdapter.ts:isWithinApprovalListLimits#2',
+    site: 'x-studio/chat/studioBackendAdapter.ts:isWithinApprovalListLimits[entry.id.length > MAX_STRING_LENGTH]#0',
     probedIn: APPROVAL_LIST_LIMITS,
   },
   {
-    site: 'x-studio/chat/studioBackendAdapter.ts:isWithinApprovalListLimits#3',
+    site: 'x-studio/chat/studioBackendAdapter.ts:isWithinApprovalListLimits[entry.title.length > MAX_STRING_LENGTH]#0',
     probedIn: APPROVAL_LIST_LIMITS,
   },
   {
-    site: 'x-studio/chat/studioBackendAdapter.ts:failVisiblyIfCardIsOnScreen#0',
+    site: 'x-studio/chat/studioBackendAdapter.ts:failVisiblyIfCardIsOnScreen[wireStringSize(toolCallId) > MAX_TOOL_ID_LENGTH]#0',
     probedIn: null,
     why:
       "`failVisiblyIfCardIsOnScreen`'s cap is defense-in-depth on an input that cannot occur: " +
@@ -214,17 +220,17 @@ export const SIZE_CAP_INVENTORY: SizeCapEntry[] = [
       'seen rather than the enclosing one.',
   },
   {
-    site: 'x-studio/chat/studioBackendAdapter.ts:processEvent#0',
+    site: 'x-studio/chat/studioBackendAdapter.ts:processEvent[wireStringSize(toolCallId) > MAX_TOOL_ID_LENGTH]#0',
     probedIn: null,
     why: 'tool-call id cap; pinned by studioBackendAdapter.test.ts (killed by 5 tests).',
   },
   {
-    site: 'x-studio/chat/studioBackendAdapter.ts:processEvent#1',
+    site: 'x-studio/chat/studioBackendAdapter.ts:processEvent[wireStringSize(toolName) > MAX_TOOL_ID_LENGTH]#0',
     probedIn: null,
     why: 'tool NAME cap; pinned by studioBackendAdapter.test.ts.',
   },
   {
-    site: 'x-studio/chat/studioBackendAdapter.ts:processEvent#2',
+    site: 'x-studio/chat/studioBackendAdapter.ts:processEvent[wireStringSize(rawOutput) > outputAllowance]#0',
     probedIn: null,
     why:
       'the per-call / per-turn tool-OUTPUT size cap (`outputAllowance`), pinned by ' +
@@ -233,37 +239,37 @@ export const SIZE_CAP_INVENTORY: SizeCapEntry[] = [
       'because the budget arrives as a variable rather than a named constant.',
   },
   {
-    site: 'x-studio/chat/studioBackendAdapter.ts:processEvent#3',
+    site: 'x-studio/chat/studioBackendAdapter.ts:processEvent[wireStringSize(value) <= MAX_STRING_LENGTH]#0',
     probedIn: null,
     why: 'metadata string-VALUE cap; pinned by studioBackendAdapter.test.ts.',
   },
   {
-    site: 'x-studio/chat/studioBackendAdapter.ts:processEvent#4',
+    site: 'x-studio/chat/studioBackendAdapter.ts:processEvent[wireStringSize(key) <= MAX_METADATA_KEY_LENGTH]#0',
     probedIn: null,
     why: 'metadata KEY cap; pinned by studioBackendAdapter.test.ts.',
   },
   {
-    site: 'x-studio/chat/studioBackendAdapter.ts:processEvent#5',
+    site: 'x-studio/chat/studioBackendAdapter.ts:processEvent[wireValueSize(value) <= MAX_STRING_LENGTH]#0',
     probedIn: null,
     why: 'metadata non-string VALUE cap; pinned by studioBackendAdapter.test.ts.',
   },
   {
-    site: 'x-studio/chat/studioBackendAdapter.ts:processEvent#6',
+    site: 'x-studio/chat/studioBackendAdapter.ts:processEvent[wireStringSize(approvalToolCallId) > MAX_TOOL_ID_LENGTH]#0',
     probedIn: null,
     why: 'approval tool-call id cap; pinned by studioBackendAdapter.test.ts.',
   },
   {
-    site: 'x-studio/chat/studioBackendAdapter.ts:processEvent#7',
+    site: 'x-studio/chat/studioBackendAdapter.ts:processEvent[wireStringSize(approvalToolName) > MAX_TOOL_ID_LENGTH]#0',
     probedIn: null,
     why: 'approval tool NAME cap; pinned by studioBackendAdapter.test.ts.',
   },
   {
-    site: 'x-studio/chat/studioBackendAdapter.ts:processEvent#8',
+    site: 'x-studio/chat/studioBackendAdapter.ts:processEvent[wireStringSize(approvalId) > MAX_TOOL_ID_LENGTH]#0',
     probedIn: null,
     why: 'approval id cap; pinned by studioBackendAdapter.test.ts.',
   },
   {
-    site: 'x-studio/chat/useChatThreads.ts:deriveThreadName#0',
+    site: 'x-studio/chat/useChatThreads.ts:deriveThreadName[text.length > MAX_DERIVED_THREAD_NAME_LENGTH]#0',
     probedIn: null,
     why:
       'display truncation of a DERIVED thread name, not an admission check on a payload — the ' +
@@ -273,7 +279,7 @@ export const SIZE_CAP_INVENTORY: SizeCapEntry[] = [
 
   // ── x-studio-data-middleware: the request boundary and its own shared limits ──
   {
-    site: 'x-studio-data-middleware/handler.ts:mapWithConcurrency#0',
+    site: 'x-studio-data-middleware/handler.ts:mapWithConcurrency[index >= items.length]#0',
     probedIn: null,
     why:
       'NOT A CAP. `index >= items.length` is the exhaustion test of a work-queue worker — the ' +
@@ -283,37 +289,37 @@ export const SIZE_CAP_INVENTORY: SizeCapEntry[] = [
       'written against a variable from being silently dropped.',
   },
   {
-    site: 'x-studio-data-middleware/handler.ts:checkSemiJoinBounds#0',
+    site: 'x-studio-data-middleware/handler.ts:checkSemiJoinBounds[filters.length > MAX_ARRAY_ITEMS_PER_DESCRIPTOR]#0',
     probedIn: null,
     why: 'semi-join filter-count cap; pinned by the handler tests.',
   },
   {
-    site: 'x-studio-data-middleware/handler.ts:assertValidBatchQueryRequest#0',
+    site: 'x-studio-data-middleware/handler.ts:assertValidBatchQueryRequest[body.widgets.length > MAX_WIDGETS_PER_BATCH]#0',
     probedIn: null,
     why: 'widgets-per-batch cap; pinned by the handler tests.',
   },
   {
-    site: 'x-studio-data-middleware/handler.ts:assertValidBatchQueryRequest#1',
+    site: 'x-studio-data-middleware/handler.ts:assertValidBatchQueryRequest[value.length > MAX_ARRAY_ITEMS_PER_DESCRIPTOR]#0',
     probedIn: null,
     why: 'array-items-per-descriptor cap; pinned by the handler tests.',
   },
   {
-    site: 'x-studio-data-middleware/handler.ts:assertValidBatchQueryRequest#2',
+    site: 'x-studio-data-middleware/handler.ts:assertValidBatchQueryRequest[on.length > MAX_ARRAY_ITEMS_PER_DESCRIPTOR]#0',
     probedIn: null,
     why: 'join `on`-clause count cap; pinned by the handler tests.',
   },
   {
-    site: 'x-studio-data-middleware/mutations/handleMutation.ts:assertValidBatchMutationRequest#0',
+    site: 'x-studio-data-middleware/mutations/handleMutation.ts:assertValidBatchMutationRequest[body.mutations.length > MAX_MUTATIONS_PER_BATCH]#0',
     probedIn: null,
     why: 'mutations-per-batch cap; pinned by the mutation handler tests.',
   },
   {
-    site: 'x-studio-data-middleware/mutations/handleMutation.ts:assertValidBatchMutationRequest#1',
+    site: 'x-studio-data-middleware/mutations/handleMutation.ts:assertValidBatchMutationRequest[where.length > MAX_ARRAY_ITEMS_PER_DESCRIPTOR]#0',
     probedIn: null,
     why: 'where-clause count cap; pinned by the mutation handler tests.',
   },
   {
-    site: 'x-studio-data-middleware/security/cacheKey.ts:computeSecurityHash#0',
+    site: 'x-studio-data-middleware/security/cacheKey.ts:computeSecurityHash[securityHashMemo.size >= SECURITY_HASH_MEMO_MAX_SIZE]#0',
     probedIn: null,
     why:
       'security-hash memo eviction cap on a Map `.size`; pinned (measured: relaxing it is ' +
@@ -321,22 +327,22 @@ export const SIZE_CAP_INVENTORY: SizeCapEntry[] = [
       '`.byteLength` but not `.size`.',
   },
   {
-    site: 'x-studio-data-middleware/shared/columnValidation.ts:assertIdentifierLength#0',
+    site: 'x-studio-data-middleware/shared/columnValidation.ts:assertIdentifierLength[value.length > MAX_STRING_LENGTH]#0',
     probedIn: null,
     why: 'identifier length cap; pinned by columnValidation tests (killed by 2 tests).',
   },
   {
-    site: 'x-studio-data-middleware/shared/columnValidation.ts:validateAggregationAliases#0',
+    site: 'x-studio-data-middleware/shared/columnValidation.ts:validateAggregationAliases[agg.alias.length > MAX_STRING_LENGTH]#0',
     probedIn: null,
     why: 'aggregation-alias length cap; pinned by columnValidation tests.',
   },
   {
-    site: 'x-studio-data-middleware/shared/requestShapeGuards.ts:checkPredicateValueBounds#0',
+    site: 'x-studio-data-middleware/shared/requestShapeGuards.ts:checkPredicateValueBounds[predicateValue.length > MAX_ARRAY_ITEMS_PER_DESCRIPTOR]#0',
     probedIn: null,
     why: 'predicate-value array cap; pinned by requestShapeGuards tests.',
   },
   {
-    site: 'x-studio-data-middleware/shared/requestShapeGuards.ts:checkPredicateValueBounds#1',
+    site: 'x-studio-data-middleware/shared/requestShapeGuards.ts:checkPredicateValueBounds[v.length > maxStringValueLength]#0',
     probedIn: null,
     why:
       'the predicate-value STRING-LENGTH cap, whose in-function sibling (#0, the array cap) ' +
@@ -345,22 +351,22 @@ export const SIZE_CAP_INVENTORY: SizeCapEntry[] = [
       '(measured: relaxing it is killed by 3 tests). The bound arrives as a parameter.',
   },
   {
-    site: 'x-studio-data-middleware/shared/requestShapeGuards.ts:assertIdAndTableLength#0',
+    site: 'x-studio-data-middleware/shared/requestShapeGuards.ts:assertIdAndTableLength[value.length > MAX_STRING_LENGTH]#0',
     probedIn: null,
     why: 'id/table-name length cap; pinned by requestShapeGuards tests.',
   },
   {
-    site: 'x-studio-data-middleware/shared/requestShapeGuards.ts:assertBoundedObjectField#0',
+    site: 'x-studio-data-middleware/shared/requestShapeGuards.ts:assertBoundedObjectField[entries.length > MAX_ARRAY_ITEMS_PER_DESCRIPTOR]#0',
     probedIn: null,
     why: 'object entry-count cap; pinned by requestShapeGuards tests.',
   },
   {
-    site: 'x-studio-data-middleware/shared/requestShapeGuards.ts:assertBoundedObjectField#1',
+    site: 'x-studio-data-middleware/shared/requestShapeGuards.ts:assertBoundedObjectField[key.length > MAX_STRING_LENGTH]#0',
     probedIn: null,
     why: 'object KEY length cap; pinned by requestShapeGuards tests.',
   },
   {
-    site: 'x-studio-data-middleware/shared/requestShapeGuards.ts:assertBoundedObjectField#2',
+    site: 'x-studio-data-middleware/shared/requestShapeGuards.ts:assertBoundedObjectField[entryValue.length > valueLengthLimit]#0',
     probedIn: null,
     why:
       'object VALUE length cap — the THIRD of three caps on consecutive `if`s in this ' +

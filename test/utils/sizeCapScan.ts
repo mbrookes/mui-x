@@ -113,7 +113,11 @@ export interface SizeCapRoot {
 }
 
 export interface SizeCapSite {
-  /** `<label>/<path>:<enclosing declaration>#<n>` — the identity a pin row names. */
+  /**
+   * `<label>/<path>:<enclosing declaration>[<clause>]#<n>` — the identity a pin row names.
+   *
+   * The clause TEXT is part of the id on purpose; see {@link findSizeCapSites}.
+   */
   site: string;
   /** The source text of the clause, so a failure report shows it and not just an id. */
   clause: string;
@@ -195,11 +199,31 @@ function enclosingDeclaration(node: ts.Node): string {
 }
 
 /**
- * Every size-cap clause under `roots`, as `<label>/<file>:<enclosing declaration>#<n>`.
+ * Every size-cap clause under `roots`, as
+ * `<label>/<file>:<enclosing declaration>[<clause>]#<n>`.
  *
- * `#n` counts caps within one declaration, so adding a second cap to a function that already
- * has a pin row is a NEW, unregistered site rather than a silent passenger on the existing
- * one.
+ * ── Why the CLAUSE TEXT is in the id, and not just an ordinal ──
+ *
+ * The id used to be `<file>:<declaration>#<n>` with `#n` counting caps in AST order within
+ * the declaration, and both tests that check ids compare SETS of id strings. That makes a row
+ * POSITIONAL: inserting a cap ABOVE an existing one in an already-inventoried function shifts
+ * every following ordinal by one, so the completeness test fails with exactly ONE extra site,
+ * the obvious fix is to APPEND one inventory row, and after that edit every test is green
+ * again while each existing row's `why` and `probedIn` now describe the clause that used to
+ * be there. Measured on a four-cap fixture guard: inserting one cap first re-pointed all four
+ * rows, including the one the isolation fixture in another package names by string.
+ *
+ * Keying on the clause's own text makes the id insertion-invariant. A row can now only stop
+ * describing its clause if the clause itself is edited — and then the id changes, the
+ * completeness test fails, and the failure names the old text and the new one rather than
+ * silently re-filing a claim. The text is whitespace-normalised, so prettier reflowing a long
+ * comparison across two lines does not move a site (v2's silent-drop failure, in the other
+ * direction).
+ *
+ * `#n` remains, but it now counts only clauses whose text is IDENTICAL within the same
+ * declaration — the one case where the text alone cannot tell two sites apart. It is normally
+ * `#0`, and it is emitted unconditionally so that a second identical clause appearing later
+ * cannot change the id of the first.
  */
 export function findSizeCapSites(roots: SizeCapRoot[]): SizeCapSite[] {
   const sites: SizeCapSite[] = [];
@@ -240,13 +264,11 @@ export function findSizeCapSites(roots: SizeCapRoot[]): SizeCapSite[] {
           if (leftIsSize !== rightIsSize && !isForCondition) {
             const bound = leftIsSize ? node.right : node.left;
             if (!isSmallNumericLiteral(bound)) {
-              const key = `${root.label}/${rel}:${enclosingDeclaration(node)}`;
+              const clause = node.getText(source).replace(/\s+/g, ' ');
+              const key = `${root.label}/${rel}:${enclosingDeclaration(node)}[${clause}]`;
               const nth = seen.get(key) ?? 0;
               seen.set(key, nth + 1);
-              sites.push({
-                site: `${key}#${nth}`,
-                clause: node.getText(source).replace(/\s+/g, ' '),
-              });
+              sites.push({ site: `${key}#${nth}`, clause });
             }
           }
         }

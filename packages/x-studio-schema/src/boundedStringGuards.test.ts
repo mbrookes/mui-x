@@ -97,10 +97,11 @@ const OVER_CAP = 'x'.repeat(MAX_STRING_LENGTH + 1);
 
 type CapSite = {
   /**
-   * `<file>:<enclosing function>#<n>` — the identity the source scan below derives, so a
-   * row and a clause cannot drift apart silently. `#n` distinguishes several caps in one
-   * function (`isBoundedValue` bounds a string VALUE and a record KEY separately), so
-   * adding a second cap to a function that already has a row is a new, unregistered site.
+   * `<file>:<enclosing function>[<clause>]#<n>` — the identity the source scan below
+   * derives, so a row and a clause cannot drift apart silently. The clause TEXT is part of
+   * the id because an ordinal alone is POSITIONAL: inserting a cap above an existing one
+   * used to renumber every following row, re-pointing its `why` and `probedIn` at a
+   * different clause while one appended row restored green. See `sizeCapScan.ts`.
    */
   site: string;
   /** What the clause bounds, and the route the probe takes to reach it unmasked. */
@@ -120,33 +121,33 @@ type CapSite = {
 
 const CAP_SITES: CapSite[] = [
   {
-    site: 'x-studio-schema/parseStateMutation.ts:isBoundedValue#0',
+    site: 'x-studio-schema/parseStateMutation.ts:isBoundedValue[value.length <= MAX_STRING_LENGTH]#0',
     what:
       "the string VALUE arm, through `addFilter`'s uninterpreted `filter.value` — the one " +
       'field with no shape check of its own, so nothing but this clause can reject it',
     accepts: (probe) => parseStateMutation(addFilterWithValue(probe)).ok,
   },
   {
-    site: 'x-studio-schema/parseStateMutation.ts:isBoundedValue#3',
+    site: 'x-studio-schema/parseStateMutation.ts:isBoundedValue[key.length <= MAX_STRING_LENGTH]#0',
     what:
       'the record KEY arm, through the same uninterpreted `filter.value` carrying a record ' +
       'with one over-long own key and a small value',
     accepts: (probe) => parseStateMutation(addFilterWithValue({ [probe]: 1 })).ok,
   },
   {
-    site: 'x-studio-schema/parseStateMutation.ts:isString#0',
+    site: 'x-studio-schema/parseStateMutation.ts:isString[value.length <= MAX_STRING_LENGTH]#0',
     what: '`addPage.args.title` — a required string in an `args` bag, which `isBoundedValue` never sees',
     accepts: (probe) =>
       parseStateMutation({ type: 'addPage', args: { id: 'p9', title: probe } }).ok,
   },
   {
-    site: 'x-studio-schema/parseStateMutation.ts:isOptionalString#0',
+    site: 'x-studio-schema/parseStateMutation.ts:isOptionalString[value.length <= MAX_STRING_LENGTH]#0',
     what: '`setWidgetLayout.args.pageId` — present-but-over-cap, so the `undefined` arm is not the one answering',
     accepts: (probe) =>
       parseStateMutation({ type: 'setWidgetLayout', args: { rows: [['w1']], pageId: probe } }).ok,
   },
   {
-    site: 'x-studio-schema/parseStateMutation.ts:isSafeId#0',
+    site: 'x-studio-schema/parseStateMutation.ts:isSafeId[value.length <= MAX_STRING_LENGTH]#0',
     what:
       '`removeWidget.args.widgetId` — an id checked by `isSafeId` alone. NOT through ' +
       "`removedWidgetIds`/`widget.id`, where `isStringArray`'s item cap or the whole-record " +
@@ -154,7 +155,7 @@ const CAP_SITES: CapSite[] = [
     accepts: (probe) => parseStateMutation({ type: 'removeWidget', args: { widgetId: probe } }).ok,
   },
   {
-    site: 'x-studio-schema/parseStateMutation.ts:isStringArray#1',
+    site: 'x-studio-schema/parseStateMutation.ts:isStringArray[item.length <= MAX_STRING_LENGTH]#0',
     what:
       'the ITEM cap, through `updateWidget.args.unsetFields` — a key-name list, so its entries ' +
       'are deliberately NOT run through `isSafeId`, and the `args` bag is not run through ' +
@@ -166,7 +167,7 @@ const CAP_SITES: CapSite[] = [
       }).ok,
   },
   {
-    site: 'x-studio-schema/parseStateMutation.ts:isFiniteNumberRecord#1',
+    site: 'x-studio-schema/parseStateMutation.ts:isFiniteNumberRecord[key.length <= MAX_STRING_LENGTH]#0',
     what:
       'the KEY cap, through `applyBulkUpdate.args.widgetColSpans` — its only caller. The ' +
       '`hasUnsafeOwnKeys` screen beside it inspects key NAMES, never their length',
@@ -177,7 +178,7 @@ const CAP_SITES: CapSite[] = [
       }).ok,
   },
   {
-    site: 'x-studio-schema/internalGuards.ts:repairFilterDependsOn#1',
+    site: 'x-studio-schema/internalGuards.ts:repairFilterDependsOn[item.length <= MAX_STRING_LENGTH]#0',
     what:
       "the defense-in-depth twin of `isStringArray`'s item cap, on the paths that never reach " +
       'the wire parser. It REPAIRS rather than rejects, so "accepted" here means the field ' +
@@ -260,12 +261,16 @@ describe('bounded-string guards', () => {
     it('finds the caps it is scanning for', () => {
       const inSource = findSizeCapSites(SIZE_CAP_ROOTS).map(({ site }) => site);
       expect(inSource.length).toBeGreaterThanOrEqual(CAP_SITES.length);
-      expect(inSource).toContain('x-studio-schema/parseStateMutation.ts:isBoundedValue#0');
-      expect(inSource).toContain('x-studio-schema/internalGuards.ts:repairFilterDependsOn#1');
+      expect(inSource).toContain(
+        'x-studio-schema/parseStateMutation.ts:isBoundedValue[value.length <= MAX_STRING_LENGTH]#0',
+      );
+      expect(inSource).toContain(
+        'x-studio-schema/internalGuards.ts:repairFilterDependsOn[item.length <= MAX_STRING_LENGTH]#0',
+      );
       // Across the package boundary — the region the predecessor scan could not reach, and
       // where a real cap did ship unpinned.
       expect(inSource).toContain(
-        'x-studio/chat/studioBackendAdapter.ts:isWithinApprovalListLimits#2',
+        'x-studio/chat/studioBackendAdapter.ts:isWithinApprovalListLimits[entry.id.length > MAX_STRING_LENGTH]#0',
       );
     });
 
@@ -275,6 +280,94 @@ describe('bounded-string guards', () => {
       expect(() =>
         findSizeCapSites([{ label: 'gone', dir: join(tmpdir(), 'no-such-boundary-root') }]),
       ).toThrow(/does not exist/);
+    });
+  });
+
+  /**
+   * Site ids must survive an INSERTION, or every `why` and `probedIn` below is positional.
+   *
+   * Measured on this exact fixture with the previous `#n`-ordinal id: inserting one cap at
+   * the TOP of an already-inventoried guard shifted all four following ordinals by one, so
+   * the completeness test failed with exactly ONE extra site, the obvious fix was to append
+   * ONE inventory row — and after that edit every test was green again while four rows,
+   * including the flagship one the isolation fixture in `studioBackendAdapter.test.ts` names
+   * by string, each described the clause that used to be there.
+   *
+   * The failure this must have instead is the noisy one: the inserted clause is a new,
+   * unaccounted-for id, and every existing id still names the same clause it always did.
+   */
+  describe('source scan — site ids survive a cap inserted above them', () => {
+    let root: string;
+
+    /** The same guard, with `note` present or absent as its FIRST clause. */
+    function writeGuard(withInsertedFirstCap: boolean) {
+      writeFileSync(
+        join(root, 'ordered.ts'),
+        [
+          "import { MAX_ARRAY_LENGTH, MAX_STRING_LENGTH } from './wireLimits';",
+          'export function isWithinLimits(v: any): boolean {',
+          ...(withInsertedFirstCap
+            ? ['  if (v.note.length > MAX_STRING_LENGTH) { return false; }']
+            : []),
+          '  if (v.list.length > MAX_ARRAY_LENGTH) { return false; }',
+          '  if (v.entry.length > MAX_STRING_LENGTH) { return false; }',
+          '  if (v.id.length > MAX_STRING_LENGTH) { return false; }',
+          '  return v.title.length <= MAX_STRING_LENGTH;',
+          '}',
+        ].join('\n'),
+      );
+      return findSizeCapSites([{ label: 'fixture', dir: root }]);
+    }
+
+    beforeAll(() => {
+      root = mkdtempSync(join(tmpdir(), 'size-cap-scan-order-'));
+    });
+
+    afterAll(() => {
+      rmSync(root, { recursive: true, force: true });
+    });
+
+    it('re-points no existing row when a cap is inserted first', () => {
+      const before = writeGuard(false);
+      const after = writeGuard(true);
+
+      // Every id that existed still exists, and still carries the SAME clause text — which is
+      // what "the row still describes its clause" means. An ordinal id fails both halves.
+      for (const site of before) {
+        const still = after.find((hit) => hit.site === site.site);
+        expect(still, `${site.site} lost its identity when a cap was inserted above it`).not.toBe(
+          undefined,
+        );
+        expect(still!.clause).toBe(site.clause);
+      }
+
+      // …and the insertion is not free: it shows up as exactly one NEW site, so the
+      // completeness test fails until somebody writes a row for it.
+      const added = after.filter((hit) => !before.some((old) => old.site === hit.site));
+      expect(added.map((hit) => hit.clause)).toEqual(['v.note.length > MAX_STRING_LENGTH']);
+    });
+
+    it('still tells two IDENTICAL clauses in one declaration apart', () => {
+      // The one thing the clause text alone cannot do. `#n` survives for exactly this case.
+      writeFileSync(
+        join(root, 'twice.ts'),
+        [
+          "import { MAX_STRING_LENGTH } from './wireLimits';",
+          'export function checkTwice(a: string, b: string): boolean {',
+          '  if (a.length > MAX_STRING_LENGTH) { return false; }',
+          '  if (a.length > MAX_STRING_LENGTH) { return false; }',
+          '  return b.length <= MAX_STRING_LENGTH;',
+          '}',
+        ].join('\n'),
+      );
+      const sites = findSizeCapSites([{ label: 'fixture', dir: root }])
+        .map((hit) => hit.site)
+        .filter((site) => site.startsWith('fixture/twice.ts'));
+      expect(sites).toEqual([
+        'fixture/twice.ts:checkTwice[a.length > MAX_STRING_LENGTH]#0',
+        'fixture/twice.ts:checkTwice[a.length > MAX_STRING_LENGTH]#1',
+        'fixture/twice.ts:checkTwice[b.length <= MAX_STRING_LENGTH]#0',
+      ]);
     });
   });
 
@@ -356,9 +449,12 @@ describe('bounded-string guards', () => {
     });
 
     it.each([
-      ['an aliased import', 'fixture/aliased.ts:isBoundedNote#0'],
-      ['a numeric literal', 'fixture/literal.ts:isBoundedLabel#0'],
-      ['a file in a subdirectory', 'fixture/guards/nested.ts:isBoundedNested#0'],
+      ['an aliased import', 'fixture/aliased.ts:isBoundedNote[value.length <= MAX_LEN]#0'],
+      ['a numeric literal', 'fixture/literal.ts:isBoundedLabel[value.length <= 10_000]#0'],
+      [
+        'a file in a subdirectory',
+        'fixture/guards/nested.ts:isBoundedNested[value.length <= MAX_STRING_LENGTH]#0',
+      ],
     ])('sees a cap written with %s', (_label, site) => {
       const sites = findSizeCapSites([{ label: 'fixture', dir: root }]).map((hit) => hit.site);
       expect(sites).toContain(site);
@@ -467,12 +563,21 @@ describe('bounded-string guards', () => {
     it.each([
       [
         "prettier's own reflow of a long comparison",
-        'fixture/reflowed-comparison.ts:isBoundedEntry#0',
+        'fixture/reflowed-comparison.ts:isBoundedEntry[entry.veryLongPropertyNameIndeed.length <= MAX_STRING_LENGTH]#0',
       ],
-      ['the operands reversed', 'fixture/reversed.ts:isBoundedReversed#0'],
-      ['the cap passed in as a parameter', 'fixture/parameterised.ts:isBoundedByArgument#0'],
-      ['a Map/Set `.size`', 'fixture/mapsize.ts:isBoundedMemo#0'],
-      ['a namespace import', 'fixture/namespaced.ts:isBoundedNamespaced#0'],
+      [
+        'the operands reversed',
+        'fixture/reversed.ts:isBoundedReversed[MAX_STRING_LENGTH >= value.length]#0',
+      ],
+      [
+        'the cap passed in as a parameter',
+        'fixture/parameterised.ts:isBoundedByArgument[value.length <= maxLength]#0',
+      ],
+      ['a Map/Set `.size`', 'fixture/mapsize.ts:isBoundedMemo[seen.size <= MAX_TRACKED]#0'],
+      [
+        'a namespace import',
+        'fixture/namespaced.ts:isBoundedNamespaced[value.length <= limits.MAX_STRING_LENGTH]#0',
+      ],
     ])('sees a cap written with %s', (_label, site) => {
       const sites = findSizeCapSites([{ label: 'fixture', dir: root }]).map((hit) => hit.site);
       expect(sites).toContain(site);

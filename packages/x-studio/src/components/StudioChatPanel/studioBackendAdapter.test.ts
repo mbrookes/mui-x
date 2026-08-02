@@ -735,19 +735,19 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
     // passes the second, and only the clause under test can tell the two apart.
     const CLAUSES = [
       {
-        site: `${SITE}#0`,
+        site: `${SITE}[list.length > MAX_ARRAY_LENGTH]#0`,
         what: 'the per-list length cap',
         atCap: () => ({ willRemoveWidgets: entities(MAX_ARRAY_LENGTH, 8) }),
         overCap: () => ({ willRemoveWidgets: entities(MAX_ARRAY_LENGTH + 1, 8) }),
       },
       {
-        site: `${SITE}#1`,
+        site: `${SITE}[entry.length > MAX_STRING_LENGTH]#0`,
         what: 'the plain-STRING list entry cap, through `willRemoveFilters`',
         atCap: () => ({ willRemoveFilters: ['f'.repeat(MAX_STRING_LENGTH)] }),
         overCap: () => ({ willRemoveFilters: ['f'.repeat(MAX_STRING_LENGTH + 1)] }),
       },
       {
-        site: `${SITE}#2`,
+        site: `${SITE}[entry.id.length > MAX_STRING_LENGTH]#0`,
         what: "a record entry's `id`, with a short `title` so the sibling clause cannot answer",
         atCap: () => ({
           willRemoveWidgets: [{ id: 'i'.repeat(MAX_STRING_LENGTH), title: 'Q4 Revenue' }],
@@ -757,7 +757,7 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
         }),
       },
       {
-        site: `${SITE}#3`,
+        site: `${SITE}[entry.title.length > MAX_STRING_LENGTH]#0`,
         what: "a record entry's `title`, with a short `id` so the sibling clause cannot answer",
         atCap: () => ({
           willRemoveWidgets: [{ id: 'w1', title: 'T'.repeat(MAX_STRING_LENGTH) }],

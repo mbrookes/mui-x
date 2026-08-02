@@ -564,6 +564,49 @@ describe('chart-family renderers consult allChartData before bailing to EmptyCha
     });
   });
 
+  // `funnelGap` is the numeric sibling of the `funnelCurve`/`funnelVariant` enum allow-lists
+  // above: doc-authored, not type-enforced at the load/AI-tool boundary, and a non-finite value
+  // produces NaN geometry in the underlying FunnelChart. The enums were pinned; the number was
+  // not — `sanitizeFiniteNumber` could be dropped here with the whole chart suite green.
+  describe('renderFunnel funnelGap sanitization', () => {
+    const funnelGapConfig: StudioWidgetConfig = {
+      chartType: 'funnel',
+      xField: 'category',
+      yField: 'amount',
+    } as StudioWidgetConfig;
+    const funnelGapRows = [{ category: 'a', amount: 1 }];
+
+    beforeEach(() => {
+      buildFunnelStagesSpy.mockReturnValue({ stages: [{ label: 'a', value: 1 }], sort: 'none' });
+    });
+
+    it.each([
+      ['NaN', NaN],
+      ['Infinity', Infinity],
+      ['a negative value', -10],
+      ['a non-numeric string', 'not-a-number'],
+    ])('sanitizes %s funnelGap to undefined (chart default)', (_name, value) => {
+      const view = CHART_TYPE_DEFS.funnel.render(
+        makeCtx(
+          { ...funnelGapConfig, funnelGap: value } as unknown as StudioWidgetConfig,
+          funnelGapRows,
+        ),
+      );
+
+      expect(view.type).toBe(StudioFunnelChart);
+      expect((view.props as { gap?: number }).gap).toBeUndefined();
+    });
+
+    it('passes through a valid funnelGap', () => {
+      const view = CHART_TYPE_DEFS.funnel.render(
+        makeCtx({ ...funnelGapConfig, funnelGap: 8 } as StudioWidgetConfig, funnelGapRows),
+      );
+
+      expect(view.type).toBe(StudioFunnelChart);
+      expect((view.props as { gap?: number }).gap).toBe(8);
+    });
+  });
+
   // The funnel and gantt renderers used to hand an empty result straight to their chart
   // components, which bail out with `return null` — a silently blank widget body. Sankey
   // already showed `StudioNoDataOverlay` for the same situation.

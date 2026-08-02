@@ -943,6 +943,45 @@ describe('StudioBarChart', () => {
       warnSpy.mockRestore();
     });
 
+    it('ignores a below-minimum barMinBandSize and WARNS', () => {
+      // The discriminating case for `sanitizeFiniteNumber(barMinBandSize, 1)`'s MINIMUM.
+      // NaN/negative/1e9 are all caught by the `<= MAX_BAR_MIN_BAND_SIZE` clause beside it,
+      // so they stay valid-looking even with the sanitizer removed; `0` passes that clause
+      // and is rejected only by the minimum, which is what makes it the case that observes
+      // the sanitizer call at all.
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const labels = Array.from({ length: 10 }, (_, i) => `L${i}`);
+      const { container } = renderChart(
+        baseProps({
+          barLayout: 'horizontal',
+          barMinBandSize: 0,
+          height: 100,
+          chartData: { labels, values: labels.map(() => 1) },
+        }),
+      );
+      // Not applied — the container keeps its base height rather than a 0-derived layout.
+      expect(heightDivStyle(container).height).toBe('100px');
+      expect(warnSpy.mock.calls.map((c) => String(c[0])).join('\n')).toContain('barMinBandSize');
+      warnSpy.mockRestore();
+    });
+
+    it('does NOT warn for a valid in-range barMinBandSize', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const labels = Array.from({ length: 10 }, (_, i) => `L${i}`);
+      renderChart(
+        baseProps({
+          barLayout: 'horizontal',
+          barMinBandSize: 50,
+          height: 100,
+          chartData: { labels, values: labels.map(() => 1) },
+        }),
+      );
+      expect(warnSpy.mock.calls.map((c) => String(c[0])).join('\n')).not.toContain(
+        'barMinBandSize',
+      );
+      warnSpy.mockRestore();
+    });
+
     it('still applies a valid, in-range barMinBandSize', () => {
       const labels = Array.from({ length: 10 }, (_, i) => `L${i}`);
       const values = labels.map(() => 1);

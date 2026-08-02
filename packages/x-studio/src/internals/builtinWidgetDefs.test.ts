@@ -87,3 +87,38 @@ describe('useWidgetDefMap', () => {
     expect(result.current).toBe(firstMap);
   });
 });
+
+// The grid widget's `skeletonHeight` reads the SAME doc-authored `config.gridHeight` the grid
+// itself renders with, and sanitizes it the same way. The grid's own call site is pinned; this
+// one survived the full project. It is not a CSS-injection boundary (the value lands in a
+// numeric `height` prop, not an `sx` string), but an unsanitized non-finite value produces a
+// `NaN`/`Infinity` skeleton height on the pre-paint path, which is a layout break rather than a
+// blank frame — and it is the second call site of a guard whose first is tested.
+describe('BUILTIN_WIDGET_DEFS grid skeletonHeight sanitization', () => {
+  function gridWidget(gridHeight: unknown) {
+    return {
+      id: 'w1',
+      kind: 'grid' as const,
+      title: 'Grid',
+      sourceId: 'src',
+      config: { gridHeight },
+    } as never;
+  }
+
+  const skeletonHeight = BUILTIN_WIDGET_DEFS.grid.capabilities!.skeletonHeight!;
+
+  it.each([
+    ['NaN', NaN],
+    ['Infinity', Infinity],
+    ['zero', 0],
+    ['negative', -100],
+    ['a non-numeric string', 'tall'],
+    ['undefined', undefined],
+  ])('falls back to the default height for %s', (_name, value) => {
+    expect(skeletonHeight(gridWidget(value))).toBe(400);
+  });
+
+  it('uses a valid finite gridHeight', () => {
+    expect(skeletonHeight(gridWidget(640))).toBe(640);
+  });
+});

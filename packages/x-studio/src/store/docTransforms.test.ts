@@ -886,3 +886,88 @@ describe('docTransforms — dependsOn cascade on filter drops (R6 F3)', () => {
     expect(next.filters.find((f) => f.id === 'fp')).not.toHaveProperty('dependsOn');
   });
 });
+
+// ── `isSameManagedFilterContent` — every conjunct, both directions ────────────
+//
+// This is the shared identity bail for `setDashboardDateRange`,
+// `setDashboardDateRangeAll`, `setWidgetDateRange` and (with `ignoreId`) `applyCrossFilter`.
+// A false "same" makes the setter return the ORIGINAL doc: the write is dropped with no
+// commit, no undo entry and nothing in the UI. Five of its nine comparisons were unobserved,
+// and removing `scope` and `filterSourceId` TOGETHER was still green — so it was not a
+// masking pair, the source-change case simply had no test. Each case below differs in
+// EXACTLY ONE field, so it fails if and only if that conjunct is gone.
+describe('docTransforms.isSameManagedFilterContent', () => {
+  const base: StudioFilterState = {
+    id: 'f1',
+    field: 'created',
+    fieldType: 'date',
+    filterSourceId: 'source-a',
+    dateRangePreset: 'last_7_days',
+    filterMode: 'value',
+    operator: 'between',
+    value: { from: '2024-01-01', to: '2024-01-07' },
+    scope: { kind: 'page', pageId: 'page-1' },
+  } as unknown as StudioFilterState;
+
+  it('reports identical content as the same', () => {
+    // The positive direction. Without it every case below is satisfiable by a function that
+    // always returns false, which would break every caller's no-op guard in the other
+    // direction (a dead undo entry on every re-save).
+    expect(docTransforms.isSameManagedFilterContent(base, { ...base })).toBe(true);
+  });
+
+  const cases: Array<[string, Partial<StudioFilterState>]> = [
+    ['id', { id: 'f2' }],
+    ['field', { field: 'updated' }],
+    ['fieldType', { fieldType: 'string' }],
+    ['filterSourceId', { filterSourceId: 'source-b' }],
+    ['dateRangePreset', { dateRangePreset: 'last_30_days' }],
+    ['filterMode', { filterMode: 'rank' }],
+    ['operator', { operator: 'equals' }],
+    ['value', { value: { from: '2024-02-01', to: '2024-02-07' } }],
+    ['scope', { scope: { kind: 'page', pageId: 'page-2' } }],
+  ] as Array<[string, Partial<StudioFilterState>]>;
+
+  it.each(cases)('reports a differing %s as NOT the same', (_name, patch) => {
+    expect(
+      docTransforms.isSameManagedFilterContent(base, { ...base, ...patch } as StudioFilterState),
+    ).toBe(false);
+  });
+
+  it('reports a differing scope AND filterSourceId as not the same', () => {
+    // The two are near-duplicates in the date-range setters, so each surviving alone could be
+    // explained by the other masking it. Removing both is the measurement that shows the
+    // source-change case is genuinely covered rather than covered by its twin.
+    expect(
+      docTransforms.isSameManagedFilterContent(base, {
+        ...base,
+        filterSourceId: 'source-b',
+        scope: { kind: 'page', pageId: 'page-2' },
+      } as StudioFilterState),
+    ).toBe(false);
+  });
+
+  it('ignores the id when `ignoreId` is set, but still compares everything else', () => {
+    // `applyCrossFilter` mints a fresh id per emission, so comparing ids there would make
+    // every re-apply look like a change — the bug the guard exists to prevent.
+    expect(
+      docTransforms.isSameManagedFilterContent(base, { ...base, id: 'f2' }, { ignoreId: true }),
+    ).toBe(true);
+    expect(
+      docTransforms.isSameManagedFilterContent(
+        base,
+        { ...base, id: 'f2', field: 'updated' },
+        { ignoreId: true },
+      ),
+    ).toBe(false);
+  });
+
+  it('compares `value` structurally rather than by reference', () => {
+    expect(
+      docTransforms.isSameManagedFilterContent(base, {
+        ...base,
+        value: { from: '2024-01-01', to: '2024-01-07' },
+      } as StudioFilterState),
+    ).toBe(true);
+  });
+});

@@ -1309,6 +1309,63 @@ describe('StudioController.updateWidget', () => {
     expect(w.title).toBe('Stale title');
   });
 
+  // `isAutoSubtitle`'s unset fallback — the exact twin of `isAutoTitle`'s, which IS pinned.
+  // A LEGACY widget predating the auto/explicit split carries neither `subtitleMode` nor
+  // `subtitle`; without the `(!widget.subtitleMode && !widget.subtitle)` disjunct it gets
+  // auto-TITLED but never auto-SUBTITLED.
+  it('auto-subtitles a legacy widget that carries no subtitleMode and no subtitle', () => {
+    const controller = new StudioController({
+      doc: {
+        widgets: {
+          chart1: {
+            id: 'chart1',
+            kind: 'chart',
+            sourceId: 'orders',
+            // `titleMode` is set explicitly so this test turns ONLY on the subtitle branch.
+            title: 'Explicit title',
+            titleMode: 'manual',
+            // No `subtitleMode`, no `subtitle` — the legacy shape.
+            config: { chartType: 'bar', xField: 'month', yField: 'revenue' },
+          },
+        },
+      },
+      runtime: { dataSources: ordersSource },
+    });
+
+    controller.updateWidget('chart1', { sourceId: 'orders' });
+
+    const w = controller.getState().doc.widgets.chart1;
+    // The title branch is untouched (manual), proving the assertion below is about the
+    // subtitle disjunct alone.
+    expect(w.title).toBe('Explicit title');
+    expect(w.subtitleMode).toBe('auto');
+    expect(w.subtitle).toBeTruthy();
+  });
+
+  it('does not auto-subtitle a widget that carries an explicit subtitle and no mode', () => {
+    // The other side of the same disjunct: `!widget.subtitle` must still gate it.
+    const controller = new StudioController({
+      doc: {
+        widgets: {
+          chart1: {
+            id: 'chart1',
+            kind: 'chart',
+            sourceId: 'orders',
+            title: 'Explicit title',
+            titleMode: 'manual',
+            subtitle: 'My own subtitle',
+            config: { chartType: 'bar', xField: 'month', yField: 'revenue' },
+          },
+        },
+      },
+      runtime: { dataSources: ordersSource },
+    });
+
+    controller.updateWidget('chart1', { sourceId: 'orders' });
+
+    expect(controller.getState().doc.widgets.chart1.subtitle).toBe('My own subtitle');
+  });
+
   it('re-infers titles in auto mode when no title/subtitle is provided', () => {
     const controller = new StudioController({
       doc: {
@@ -2661,6 +2718,40 @@ describe('StudioController expression fields', () => {
     expect(controller.getExpressionFieldReferenceCount('ef2')).toBe(0);
     // An unknown id reports 0.
     expect(controller.getExpressionFieldReferenceCount('nope')).toBe(0);
+  });
+
+  // Same-SOURCE scoping of the expression-to-expression reference scan. Expression field ids
+  // are only unique within a source, so an identically-named reference from ANOTHER source's
+  // formula is a different field entirely — counting it would inflate the "used by N places"
+  // deletion warning with references that do not exist. The `rankByField` /
+  // `rankMultiSeriesBy` terms of the same loop family are pinned; this term was not.
+  it('getExpressionFieldReferenceCount ignores a same-id reference owned by another source', () => {
+    const controller = new StudioController({
+      doc: {
+        expressionFields: [
+          // The target, on `orders`.
+          { ...ef, id: 'ef1', sourceId: 'orders' },
+          // Same formula shape, but owned by a DIFFERENT source: not a reference to the
+          // target above.
+          {
+            ...ef,
+            id: 'ef-other-source',
+            sourceId: 'customers',
+            expression: { operator: 'add' as const, inputs: [{ id: 'ef1' }, { id: 'cost' }] },
+          },
+          // A genuine same-source referrer, so the assertion is "one, not two" rather than
+          // "zero" — a scan that counted nothing at all would also satisfy a 0 assertion.
+          {
+            ...ef,
+            id: 'ef-same-source',
+            sourceId: 'orders',
+            expression: { operator: 'add' as const, inputs: [{ id: 'ef1' }, { id: 'cost' }] },
+          },
+        ],
+      },
+    });
+
+    expect(controller.getExpressionFieldReferenceCount('ef1')).toBe(1);
   });
 
   // Tier-3 finding: a rank filter references an expression field not only via `field`

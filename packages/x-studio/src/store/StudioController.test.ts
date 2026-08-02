@@ -2027,6 +2027,114 @@ describe('StudioController.moveWidget', () => {
 });
 
 // ─── 2.2: cross-page widget move must not land TWO rank filters on one page ────
+// `getPage`'s own-key guard. `doc.pages` is a plain-object Record and every id indexing it is
+// caller- or doc-authored, so a bare `pages['constructor']` read returns the `Object` FUNCTION
+// — truthy, so the ubiquitous `if (!page) return;` existence check passes and the caller
+// proceeds against a page that does not exist. Both `Object.hasOwn` sites in `reorderPages`
+// (added for the same reason) were pinned; this accessor, which exists precisely so call sites
+// do not have to remember, was not.
+describe('StudioController — prototype-safe page lookup (getPage)', () => {
+  function controllerWithPages() {
+    return new StudioController({
+      doc: {
+        dashboard: { id: 'd', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] },
+          'page-2': { id: 'page-2', title: 'P2', widgetRows: [] },
+        },
+        widgets: { w1: makeWidget('w1') },
+      },
+    });
+  }
+
+  it.each(['constructor', 'toString', 'valueOf', 'hasOwnProperty'])(
+    'setActivePage does not navigate to the inherited page id %s',
+    (protoId) => {
+      const controller = controllerWithPages();
+
+      controller.setActivePage(protoId);
+
+      expect(controller.getState().doc.dashboard.activePageId).toBe('page-1');
+    },
+  );
+
+  it('setActivePage still navigates to a real page', () => {
+    const controller = controllerWithPages();
+    controller.setActivePage('page-2');
+    expect(controller.getState().doc.dashboard.activePageId).toBe('page-2');
+  });
+
+  it('setWidgetLayout ignores an inherited page id instead of validating against it', () => {
+    const controller = controllerWithPages();
+
+    // With a bare `pages[pageId]` read the lookup yields the `Object` function, whose
+    // `widgetRows` is undefined — so every incoming id reads as "unknown" and the method
+    // throws, turning a nonexistent page into a render-path exception.
+    expect(() => controller.setWidgetLayout([['w1']], 'constructor')).not.toThrow();
+    expect(controller.getState().doc.pages['page-1'].widgetRows).toEqual([['w1']]);
+  });
+});
+
+// `moveWidgetToPage` with the target page equal to the widget's own page.
+//
+// The early return in `moveWidgetToPage` is a pure early-out, NOT the thing that maintains the
+// no-duplicate-ids layout invariant. Deleting it leaves every observable channel identical —
+// rows, undo depth, doc reference identity and the mutation log — because the same-page call
+// would compute `[...widgetRows, [widgetId]]` and hand it to the reducer, whose
+// `setWidgetLayout` handler runs `dedupeLayoutRows` (repeated id dropped, first occurrence
+// wins) and then returns the SAME state via its `rowsEqual` reference-equality no-op. The
+// invariant is enforced in the reducer, which is where `applyMutation.ts` documents it.
+//
+// These tests therefore pin the end-to-end BEHAVIOUR (a same-page move is a no-op that commits
+// nothing) rather than the early return itself, and the third pins the negative direction so
+// the no-op cannot swallow a real cross-page move.
+describe('StudioController.moveWidgetToPage — same-page move is a no-op', () => {
+  function oneWidgetController() {
+    return new StudioController({
+      doc: {
+        dashboard: { id: 'd', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] },
+          'page-2': { id: 'page-2', title: 'P2', widgetRows: [] },
+        },
+        widgets: { w1: makeWidget('w1') },
+      },
+    });
+  }
+
+  it('leaves the layout untouched when the target page is the widget own page', () => {
+    const controller = oneWidgetController();
+
+    controller.moveWidgetToPage('w1', 'page-1');
+
+    const rows = controller.getState().doc.pages['page-1'].widgetRows;
+    // The load-bearing assertion: `w1` appears exactly ONCE across the page's rows.
+    expect(rows.flat().filter((id) => id === 'w1')).toHaveLength(1);
+    expect(rows).toEqual([['w1']]);
+  });
+
+  it('pushes no undo entry for a same-page move', () => {
+    const controller = oneWidgetController();
+    expect(controller.canUndo()).toBe(false);
+
+    controller.moveWidgetToPage('w1', 'page-1');
+
+    // A no-op that commits would also clear the redo stack and show up as a user action.
+    expect(controller.canUndo()).toBe(false);
+  });
+
+  it('still moves the widget when the target page is a DIFFERENT page', () => {
+    // The negative direction: the early return must not swallow a real move.
+    const controller = oneWidgetController();
+
+    controller.moveWidgetToPage('w1', 'page-2');
+
+    const state = controller.getState();
+    expect(state.doc.pages['page-1'].widgetRows.flat()).not.toContain('w1');
+    expect(state.doc.pages['page-2'].widgetRows.flat()).toEqual(['w1']);
+  });
+});
+
 // The `duplicateWidget` half of the one-rank-filter-per-page invariant (2.7). Seven other
 // enforcement points of `hasConflictingRankFilter` had tests; this one — the only one that
 // PERSISTS the violated invariant into the saved doc, because the reducer's `addFilter`

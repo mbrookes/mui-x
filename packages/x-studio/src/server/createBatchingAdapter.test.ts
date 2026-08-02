@@ -4095,7 +4095,11 @@ describe('createBatchingAdapter — two-hop expression chain', () => {
           id: 'source-orders',
           label: 'Orders',
           tableName: 'orders',
-          fields: [field('id', 'number'), field('customerId', 'number'), field('shipperId', 'number')],
+          fields: [
+            field('id', 'number'),
+            field('customerId', 'number'),
+            field('shipperId', 'number'),
+          ],
           adapter: sharedAdapter,
         },
         'source-shippers': {
@@ -4203,6 +4207,91 @@ describe('createBatchingAdapter — two-hop expression chain', () => {
       },
     ]);
     expect(warnSpy.mock.calls.map((c) => String(c[0])).join('\n')).toContain(
+      'MANY rows per row of this source',
+    );
+    warnSpy.mockRestore();
+  });
+
+  // ── The NEGATIVE direction of both fan-out flags ────────────────────────────
+  //
+  // `hop1FansOut`/`hop2FansOut` are only ASSIGNED on each hop's backwards branch, so the
+  // `type === 'many-to-one'` test in each assignment is observable only when that branch is
+  // taken with a relationship of some OTHER type. Every test above takes a backwards branch
+  // with `many-to-one` (the positive case), so widening either test to `true` changed nothing
+  // anywhere in the project. The consequence of a wrong `true` is over-rejection rather than a
+  // wrong number — the semi-join form plus a spurious divergence warning where a plain two-hop
+  // LEFT JOIN is correct and exact — but that is a real, silent degradation of both the query
+  // and the console, and the two tests below cost one relationship fixture each.
+
+  /**
+   * `orders --one-to-many--> order_items`. Reached FROM `order_items` this takes hop 1's
+   * backwards branch, but each line item still has exactly ONE order, so it must not fan out.
+   */
+  const ordersToItems: StudioRelationship = {
+    id: 'rel-orders-items',
+    type: 'one-to-many',
+    sourceId: 'source-orders',
+    sourceField: 'id',
+    targetId: 'source-order-items',
+    targetField: 'orderId',
+  };
+  /**
+   * `customers --one-to-many--> orders`. Reached FROM `orders` this takes hop 2's backwards
+   * branch, and again each order has exactly ONE customer, so it must not fan out either.
+   */
+  const customersToOrders: StudioRelationship = {
+    id: 'rel-customers-orders',
+    type: 'one-to-many',
+    sourceId: 'source-customers',
+    sourceField: 'id',
+    targetId: 'source-orders',
+    targetField: 'customerId',
+  };
+
+  it('keeps the join form when HOP 1 is backwards but NOT many-to-one', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = makeChainHarness(fetchFn, {
+      relationships: [ordersToItems, ordersToCustomers],
+      expressionFields: [
+        exprField('expr-order-country', 'source-orders', 'source-customers', 'country'),
+      ],
+    });
+
+    const body = await bodyFor(adapter, fetchFn, { select: ['lineId', 'expr-order-country'] });
+
+    // Identical output to the both-hops-forward baseline: the backwards traversal is only a
+    // fan-out when the relationship is `many-to-one`.
+    expect(body.widgets[0].joins).toEqual([
+      { table: 'orders', type: 'left', on: [['order_items.orderId', 'orders.id']] },
+      { table: 'customers', type: 'left', on: [['orders.customerId', 'customers.id']] },
+    ]);
+    expect(body.widgets[0].semiJoins).toBeUndefined();
+    // ...and no divergence is announced, because there is none to announce.
+    expect(warnSpy.mock.calls.map((c) => String(c[0])).join('\n')).not.toContain(
+      'MANY rows per row of this source',
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('keeps the join form when HOP 2 is backwards but NOT many-to-one', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = makeChainHarness(fetchFn, {
+      relationships: [itemsToOrders, customersToOrders],
+      expressionFields: [
+        exprField('expr-order-country', 'source-orders', 'source-customers', 'country'),
+      ],
+    });
+
+    const body = await bodyFor(adapter, fetchFn, { select: ['lineId', 'expr-order-country'] });
+
+    expect(body.widgets[0].joins).toEqual([
+      { table: 'orders', type: 'left', on: [['order_items.orderId', 'orders.id']] },
+      { table: 'customers', type: 'left', on: [['orders.customerId', 'customers.id']] },
+    ]);
+    expect(body.widgets[0].semiJoins).toBeUndefined();
+    expect(warnSpy.mock.calls.map((c) => String(c[0])).join('\n')).not.toContain(
       'MANY rows per row of this source',
     );
     warnSpy.mockRestore();
@@ -4475,7 +4564,13 @@ describe('createBatchingAdapter — cross-endpoint FK scan orientation', () => {
 
   it('inverts fkField/joinPkField when the widget sits on the relationship TARGET side', async () => {
     const primaryFetch = makeOkFetch([
-      { id: 'w1', rows: [{ id: 101, total: 500 }, { id: 102, total: 300 }] },
+      {
+        id: 'w1',
+        rows: [
+          { id: 101, total: 500 },
+          { id: 102, total: 300 },
+        ],
+      },
     ]);
     const remoteFetch = makeOkFetch([
       {

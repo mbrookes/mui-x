@@ -6,7 +6,7 @@ import ts from 'typescript';
  * Enumerate the size-cap clauses at a stated set of trust boundaries, from the TypeScript
  * AST, with an identity function that INCLUDES by default.
  *
- * ── Three rounds of getting this wrong, and what actually changed ──
+ * ── Four rounds of getting this wrong, and what actually changed ──
  *
  * v1 counted occurrences of the identifier `MAX_STRING_LENGTH` in a non-recursive
  * `readdirSync` of ONE directory. A sweep shipped three real caps it could not see
@@ -39,20 +39,67 @@ import ts from 'typescript';
  * CRYING WOLF on a reflowed import; v2 drops a site SILENTLY when the same formatter reflows
  * a long comparison. The failure direction got worse.
  *
- * ── The change that is not a fourth guess at the pattern ──
+ * v3 — the version this extends — inverted the OPERAND side: a size comparison is a site
+ * unless what it is compared against is provably not a bound, so no name, spelling or import
+ * style is consulted. That was right as far as it went, and it is kept below as the
+ * MEASUREMENT-SIDE recogniser. What broke it is stated next, because it is the whole reason this
+ * file now has two recognisers instead of one.
  *
- * Every version so far asked "does this LOOK like a cap?" and answered NO for shapes it did
- * not know. That under-approximates, so each version was broken by the next round finding a
- * shape it could not see, and each break was silent. The identity function is now inverted on
- * the operand side: a size comparison is a site UNLESS the thing it is compared against is
- * provably not a cap. Nothing about the operand's name, spelling, or import style is
- * consulted. That costs inventory rows — measured, 54 sites where v2 found 43, of which two
- * are genuinely not caps and carry a `why` saying so — and it buys a failure direction that
- * is noisy rather than silent.
+ * ── Why ONE recogniser can never be enough: a cap is not always one expression ──
  *
- * A site is an ORDERING comparison (`<`, `<=`, `>`, `>=`) where exactly one side measures a
- * size ({@link SIZE_PROPERTIES} or {@link SIZE_CALLS}), minus exclusions that are structural
- * rather than lexical:
+ * v1 needed the constant's NAME in the file; v2 needed it on the same LINE; v3 needs the
+ * measurement inside the same COMPARISON, because `isSizeExpression` is applied to
+ * `node.left`/`node.right` directly. Each version was broken by the next round, and the
+ * escapes converge on one sentence: **a source scan can only recognise a cap it can see
+ * WHOLE, in one expression.** Hoist the measurement one statement up —
+ *
+ *     const size = wireValueSize(value);
+ *     if (size > MAX_APPROVAL_INPUT_SIZE) { … }
+ *
+ * — and the comparison is two identifiers, so v3 sees nothing, even though `wireValueSize` is
+ * in {@link SIZE_CALLS} by its own definition. That is not an exotic shape. It is how every
+ * AGGREGATE BUDGET has to be written:
+ *
+ *     entryCount.total += semiJoins.length;
+ *     if (entryCount.total > MAX_ARRAY_ITEMS_PER_DESCRIPTOR) { … }
+ *
+ * The measurement and the comparison are two statements apart, which is dataflow, not syntax,
+ * and a syntactic scan cannot close that. Worse, the aggregate budget is the STRONGER member
+ * of each cap pair — it is precisely the clause you add when the per-item cap turns out to be
+ * insufficient, and `handler.ts` says so in its own comment beside the line above. So v3
+ * enumerated the clause that is admittedly not enough and could not see the clause added to
+ * close it. Measured: 25 real limit comparisons inside these three roots, in NONE of v3's 54
+ * sites, including every aggregate bound at the data-middleware request boundary and every
+ * per-turn persistence budget on the chat wire — plus two whole named limits
+ * (`MAX_PREDICATE_VALUES_PER_DESCRIPTOR`, and the tool-input/approval-input budgets) with no
+ * inventory row anywhere, while the completeness test reported 54 of 54.
+ *
+ * ── The change: split the problem by cap class, do not guess a fifth pattern ──
+ *
+ * A fifth attempt at "one identity function that sees every cap" would be broken by the next
+ * cap whose parts are spread differently. Instead there are now TWO independent recognisers,
+ * unioned, whose blind spots are structurally different — because what the first needs to see
+ * whole is exactly what the second does not look at:
+ *
+ *  1. MEASUREMENT SIDE — v3, unchanged. One operand MEASURES a size
+ *     ({@link SIZE_PROPERTIES} / {@link SIZE_CALLS}); the other can be anything, including a
+ *     parameter or a literal. Needs the measurement to be adjacent; indifferent to the limit.
+ *  2. LIMIT SIDE — new. One operand REFERENCES a limit constant this scan found
+ *     DECLARED under the same roots, and the other does not. Indifferent to how the measured
+ *     quantity was computed — a running total, a hoisted `const`, a counter, a field, a call
+ *     the scan has never heard of — because it never looks at that side.
+ *
+ * (2) is name-driven in one narrow sense and it is worth being exact about which, since
+ * "match the operand's name" is v2's documented sin. v2 tested whether the operand LOOKED
+ * like a limit (SCREAMING_SNAKE). (2) tests whether the operand RESOLVES to a `const`
+ * declaration, initialised to a number, that this scan itself found in the source. A
+ * declaration is a single node in a single place — it is never spread across statements — so
+ * unlike an enforcement site it is always visible whole. The set of limits is collected in a
+ * first pass over the same files, folding numeric expressions (`4 * MAX_STRING_LENGTH`) to a
+ * fixpoint, and it is pooled across roots BY NAME so that a limit declared in
+ * `x-studio-schema` is recognised where `x-studio/chat` enforces it.
+ *
+ * Both recognisers share the structural exclusions, which are positional rather than lexical:
  *
  *  - EQUALITY operators (`===`, `!==`). A cap is an ordering; `a.length === 3` is a shape
  *    check. A bound that rejects only the exact threshold rejects nothing.
@@ -60,30 +107,54 @@ import ts from 'typescript';
  *    the one place a size legitimately appears as the LIMIT rather than the measured
  *    quantity. That is a syntactic position, not a naming convention.
  *  - both sides measuring a size — `a.length !== b.length`, `safe.length === value.length`:
- *    two measured quantities compared to each other, neither a limit.
- *  - a numeric literal below {@link MIN_CAP_LITERAL} on the other side. `> 0` is emptiness,
- *    `>= 2` is arity. This is the one remaining VALUE test, and it is a floor rather than a
- *    pattern: it can only exclude a comparison against a small constant, so the way to hide a
- *    cap behind it is to write a cap of 63 — which is not a payload bound.
+ *    two measured quantities compared to each other, neither a limit. Likewise both sides
+ *    referencing a declared constant.
+ *  - for (1) only, a numeric literal below {@link MIN_CAP_LITERAL} on the other side. `> 0` is
+ *    emptiness, `>= 2` is arity. This is the one remaining VALUE test, and it is a floor
+ *    rather than a pattern: it can only exclude a comparison against a small constant, so the
+ *    way to hide a cap behind it is to write a cap of 63 — which is not a payload bound.
  *
- * ── What this still cannot see, stated because it is tested ──
+ * Over-approximation is deliberate on both sides. `fromVersion > CURRENT_SCHEMA_VERSION` and
+ * `anchorTotal > GRID_COLS` are not payload caps; they become visible inventory rows carrying
+ * a `why` that says so, which is the cheap, reviewable failure direction. Measured cost: 79
+ * sites where v3 found 54, of which 5 are declared non-caps.
+ *
+ * ── What the UNION still cannot see, stated because it is tested ──
  *
  * "Is this expression a size?" and "is this operand a bound?" are semantic questions, and no
- * syntactic or type-level test decides them. The operand side is now over-approximated, so
- * that half no longer under-approximates. The MEASUREMENT side is still a list —
- * {@link SIZE_PROPERTIES} and {@link SIZE_CALLS} — so a size measured by a helper not on it
- * is invisible, as is any bound enforced WITHOUT a comparison (`slice(0, CAP)`,
- * `Math.min(len, CAP)`). Those are not hypotheticals left for a later round to discover: each
- * is a fixture in `boundedStringGuards.test.ts`'s `blind spots` block, asserted MISSED, so
- * the limitation is machine-checked and a reader is told exactly where it ends.
+ * syntactic test decides them. What survives both recognisers is the INTERSECTION of their
+ * blind spots — a cap whose measurement is not adjacent AND whose limit is not a declared
+ * constant:
  *
- * The honest claim is therefore: **a size cap written as a comparison against a measurement
- * this scan knows how to spell cannot be added at these boundaries without becoming a new,
- * unaccounted-for site.** It is NOT "no cap can ship unpinned".
+ *  - `const n = value.length; if (n > maxLength)` — hoisted measurement, limit is a parameter.
+ *    (1) sees two identifiers; (2) finds no declared constant. This is real: it is how a
+ *    shared guard parameterised over several limits would accumulate.
+ *  - a size measured by a helper not in {@link SIZE_CALLS} and compared against a literal or
+ *    a parameter.
+ *  - a bound enforced WITHOUT a comparison at all (`slice(0, CAP)`, `Math.min(len, CAP)`).
+ *  - a limit declared OUTSIDE the walked roots and imported in.
+ *
+ * Each is a fixture in `boundedStringGuards.test.ts`'s `blind spots` block, asserted MISSED,
+ * so the limitation is machine-checked and a reader is told exactly where it ends rather than
+ * being left to discover it as the next round's headline.
+ *
+ * **The honest claim, and it is deliberately two claims rather than one:** a cap written as an
+ * ordering comparison cannot be added at these boundaries without becoming a new,
+ * unaccounted-for site IF EITHER its measurement is one this scan knows how to spell and sits
+ * inside the comparison, OR its limit is a constant declared under these roots. It is NOT "no
+ * cap can ship unpinned", and it is not "every cap here is enumerated" — it is two stated
+ * sufficient conditions with a stated, tested gap between them.
  */
 
 /** Right-hand numeric literals below this are arity/emptiness checks, not caps. */
 export const MIN_CAP_LITERAL = 64;
+
+/**
+ * How many times the limit-collection pass re-reads the files to fold constants defined in
+ * terms of constants. Chains are two or three deep in practice (`MAX_TURN_APPROVAL_INPUT_SIZE
+ * = 16 * MAX_STRING_LENGTH`); this is a termination guard, not a tuning knob.
+ */
+const MAX_FOLD_PASSES = 8;
 
 /**
  * Property accesses that measure a size. `size` is here because a `Map`/`Set` cap
@@ -141,6 +212,113 @@ function walk(dir: string): string[] {
     out.push(path);
   }
   return out.sort();
+}
+
+/**
+ * The names of every module-scope `const` under `roots` that is initialised to a number.
+ *
+ * This is recogniser (2)'s whole input, and the reason it can see a cap recogniser (1)
+ * cannot: it keys on the limit's DECLARATION, which is one node in one place, rather than on
+ * the enforcement site, whose parts may be spread across statements.
+ *
+ * Initialisers are folded, so `4 * MAX_STRING_LENGTH` counts. Folding needs the constants it
+ * refers to, which may be declared in a file walked later, so this iterates to a fixpoint
+ * rather than making one pass and losing whatever it saw out of order.
+ *
+ * Names are pooled across roots deliberately: a limit declared in `x-studio-schema` and
+ * enforced in `x-studio/chat` has to be recognised at the enforcement site, and no import
+ * graph is resolved here. The cost is that an unrelated local `const` sharing a limit's name
+ * would be treated as one — an over-approximation, which is the direction this scan chooses
+ * everywhere.
+ */
+function collectDeclaredLimits(files: string[], sources: Map<string, ts.SourceFile>): Set<string> {
+  const values = new Map<string, number>();
+
+  const fold = (node: ts.Expression): number | undefined => {
+    if (ts.isNumericLiteral(node)) {
+      return Number(node.text.replace(/_/g, ''));
+    }
+    if (ts.isParenthesizedExpression(node)) {
+      return fold(node.expression);
+    }
+    if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.MinusToken) {
+      const operand = fold(node.operand);
+      return operand === undefined ? undefined : -operand;
+    }
+    if (ts.isIdentifier(node)) {
+      return values.get(node.text);
+    }
+    if (ts.isPropertyAccessExpression(node)) {
+      // `limits.MAX_STRING_LENGTH` under a namespace import.
+      return values.get(node.name.text);
+    }
+    if (ts.isBinaryExpression(node)) {
+      const left = fold(node.left);
+      const right = fold(node.right);
+      if (left === undefined || right === undefined) {
+        return undefined;
+      }
+      switch (node.operatorToken.kind) {
+        case ts.SyntaxKind.AsteriskToken:
+          return left * right;
+        case ts.SyntaxKind.PlusToken:
+          return left + right;
+        case ts.SyntaxKind.MinusToken:
+          return left - right;
+        case ts.SyntaxKind.SlashToken:
+          return left / right;
+        default:
+          return undefined;
+      }
+    }
+    return undefined;
+  };
+
+  for (let pass = 0; pass < MAX_FOLD_PASSES; pass += 1) {
+    let grew = false;
+    for (const file of files) {
+      const source = sources.get(file)!;
+      const visit = (node: ts.Node): void => {
+        if (
+          ts.isVariableStatement(node) &&
+          node.parent &&
+          ts.isSourceFile(node.parent) &&
+          // `let` is a counter, not a limit: `let messageIdCounter = 0` is reassigned, and a
+          // comparison against it bounds nothing.
+          (node.declarationList.flags & ts.NodeFlags.Const) !== 0
+        ) {
+          for (const declaration of node.declarationList.declarations) {
+            if (
+              ts.isIdentifier(declaration.name) &&
+              declaration.initializer &&
+              !values.has(declaration.name.text)
+            ) {
+              const value = fold(declaration.initializer);
+              if (value !== undefined) {
+                values.set(declaration.name.text, value);
+                grew = true;
+              }
+            }
+          }
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(source);
+    }
+    if (!grew) {
+      break;
+    }
+  }
+
+  return new Set(values.keys());
+}
+
+/** Whether `node` REFERENCES one of the declared limits — an identifier or its dotted form. */
+function isDeclaredLimitReference(node: ts.Expression, limits: Set<string>): boolean {
+  if (ts.isIdentifier(node)) {
+    return limits.has(node.text);
+  }
+  return ts.isPropertyAccessExpression(node) && limits.has(node.name.text);
 }
 
 /** Whether `node` measures a size. */
@@ -226,7 +404,7 @@ function enclosingDeclaration(node: ts.Node): string {
  * cannot change the id of the first.
  */
 export function findSizeCapSites(roots: SizeCapRoot[]): SizeCapSite[] {
-  const sites: SizeCapSite[] = [];
+  const parsed: { root: SizeCapRoot; file: string }[] = [];
 
   for (const root of roots) {
     // A root that no longer exists would otherwise contribute zero sites and pass — the
@@ -238,44 +416,72 @@ export function findSizeCapSites(roots: SizeCapRoot[]): SizeCapSite[] {
           'pass while covering nothing. Update ROOTS to the directory that moved.',
       );
     }
-
     for (const file of walk(root.dir)) {
-      const rel = relative(root.dir, file).split(sep).join('/');
-      const source = ts.createSourceFile(
+      parsed.push({ root, file });
+    }
+  }
+
+  const sources = new Map<string, ts.SourceFile>(
+    parsed.map(({ file }) => [
+      file,
+      ts.createSourceFile(
         file,
         readFileSync(file, 'utf8'),
         ts.ScriptTarget.Latest,
         /* setParentNodes */ true,
         /\.tsx$/.test(file) ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
-      );
-      const seen = new Map<string, number>();
+      ),
+    ]),
+  );
 
-      const visit = (node: ts.Node): void => {
-        if (ts.isBinaryExpression(node) && ORDERING_OPERATORS.has(node.operatorToken.kind)) {
-          const leftIsSize = isSizeExpression(node.left);
-          const rightIsSize = isSizeExpression(node.right);
-          const isForCondition = Boolean(
-            node.parent && ts.isForStatement(node.parent) && node.parent.condition === node,
-          );
+  // Pass 1 — every limit CONSTANT declared under the roots, pooled by name across all of
+  // them. This is what lets recogniser (2) see a cap whose measured quantity is a running
+  // total two statements away: it never looks at that side.
+  const limits = collectDeclaredLimits(
+    parsed.map(({ file }) => file),
+    sources,
+  );
 
-          // Exactly one side measures a size (so `a.length !== b.length` is out), it is not a
-          // `for` bound, and the other side is not a small constant. Everything else counts,
-          // whatever the operand happens to be called.
-          if (leftIsSize !== rightIsSize && !isForCondition) {
-            const bound = leftIsSize ? node.right : node.left;
-            if (!isSmallNumericLiteral(bound)) {
-              const clause = node.getText(source).replace(/\s+/g, ' ');
-              const key = `${root.label}/${rel}:${enclosingDeclaration(node)}[${clause}]`;
-              const nth = seen.get(key) ?? 0;
-              seen.set(key, nth + 1);
-              sites.push({ site: `${key}#${nth}`, clause });
-            }
-          }
+  // Pass 2 — the comparisons.
+  const sites: SizeCapSite[] = [];
+  for (const { root, file } of parsed) {
+    const source = sources.get(file)!;
+    const rel = relative(root.dir, file).split(sep).join('/');
+    const seen = new Map<string, number>();
+
+    const visit = (node: ts.Node): void => {
+      if (ts.isBinaryExpression(node) && ORDERING_OPERATORS.has(node.operatorToken.kind)) {
+        const isForCondition = Boolean(
+          node.parent && ts.isForStatement(node.parent) && node.parent.condition === node,
+        );
+
+        const leftIsSize = isSizeExpression(node.left);
+        const rightIsSize = isSizeExpression(node.right);
+        // (1) MEASUREMENT SIDE: exactly one side measures a size (so `a.length !== b.length`
+        // is out) and the other is not a small constant. Nothing about the other operand's
+        // name is consulted, so a cap bounded by a parameter is seen.
+        const measurementSide =
+          leftIsSize !== rightIsSize && !isSmallNumericLiteral(leftIsSize ? node.right : node.left);
+
+        // (2) LIMIT SIDE: exactly one side references a constant declared under these roots.
+        // The other side is not inspected AT ALL — that is the point. `total += x` two
+        // statements up, a hoisted `const`, a counter, a field, a helper this scan has never
+        // heard of: all invisible to (1), all seen here.
+        const limitSide =
+          isDeclaredLimitReference(node.left, limits) !==
+          isDeclaredLimitReference(node.right, limits);
+
+        if (!isForCondition && (measurementSide || limitSide)) {
+          const clause = node.getText(source).replace(/\s+/g, ' ');
+          const key = `${root.label}/${rel}:${enclosingDeclaration(node)}[${clause}]`;
+          const nth = seen.get(key) ?? 0;
+          seen.set(key, nth + 1);
+          sites.push({ site: `${key}#${nth}`, clause });
         }
-        ts.forEachChild(node, visit);
-      };
-      visit(source);
-    }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
   }
 
   return sites;

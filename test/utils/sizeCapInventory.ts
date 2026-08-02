@@ -58,6 +58,24 @@ const APPROVAL_LIST_LIMITS = 'x-studio/src/components/StudioChatPanel/studioBack
  * The `why` lines record the state measured by a mutation sweep over these three packages:
  * each clause was relaxed one at a time (token-preserving, e.g. `<= MAX` -> `<= MAX * 1000`)
  * and the suite re-run, so "killed by N tests" below is an observation, not an expectation.
+ *
+ * ── The 25 rows the LIMIT-SIDE recogniser added, and why they matter more than a count ──
+ *
+ * Until the scan grew its second recogniser (see `sizeCapScan.ts`) this list had 54 rows and
+ * a green completeness test, and 25 real limit comparisons inside these same three roots were
+ * in none of them — every one a cap whose measured quantity is a RUNNING TOTAL or a HOISTED
+ * `const`, so the measurement was not lexically inside the comparison. Two whole named limits
+ * (`MAX_PREDICATE_VALUES_PER_DESCRIPTOR`, and the tool-input/approval-input budgets) had no
+ * row anywhere.
+ *
+ * That is worse than an off-by-25, because the invisible ones were systematically the
+ * AGGREGATE caps, and an aggregate cap is the STRONGER member of its pair: it exists because
+ * the per-item cap beside it is not enough, and `handler.ts` says exactly that in the comment
+ * above `entryCount.total`. The enumeration was listing the clause that is admittedly
+ * insufficient and could not see the clause added to close it. Every one of the 25 was
+ * measured KILLED by its own tests, so this was an enumeration defect rather than 25 live
+ * holes — but the enumeration's whole value proposition is "the next cap added here cannot be
+ * silent", and the class that was silent is the class each of these files reaches for second.
  */
 export const SIZE_CAP_INVENTORY: SizeCapEntry[] = [
   // ── x-studio-schema: the wire parser and the reducer/load-boundary repair ──
@@ -132,6 +150,61 @@ export const SIZE_CAP_INVENTORY: SizeCapEntry[] = [
     site: 'x-studio-schema/parseStateMutation.ts:applyBulkUpdate[args.updatedWidgets.length > MAX_ARRAY_LENGTH]#0',
     probedIn: null,
     why: 'array cap on updatedWidgets; pinned by parseStateMutation.test.ts.',
+  },
+
+  // ── x-studio-schema, limit-side: the caps whose measurement is a counter or a total ──
+  {
+    site: 'x-studio-schema/parseStateMutation.ts:isBoundedValue[depth > MAX_DEPTH]#0',
+    probedIn: null,
+    why:
+      'the recursion-DEPTH bound of the wire parser, and the sibling of five inventoried ' +
+      'length caps in the same function. The measured quantity is a counter threaded through ' +
+      'the recursion, never a `.length`, so no measurement-side scan could ever see it. ' +
+      'Pinned (measured: relaxing it is killed by 12 tests).',
+  },
+  {
+    site: 'x-studio-schema/docScreening.ts:isValidExpressionNode[depth > MAX_EXPRESSION_DEPTH]#0',
+    probedIn: null,
+    why:
+      'the load-boundary AST-depth screen on an expression field, twice as strict as the ' +
+      'evaluator guard beneath it. Pinned (measured: relaxing it is killed by 2 tests).',
+  },
+  {
+    site: 'x-studio-schema/applyMutation.ts:rebalanceRowSpans[anchorTotal > GRID_COLS]#0',
+    probedIn: null,
+    why:
+      'layout invariant rather than a payload bound: a row whose spans already exceed the ' +
+      'grid is left alone instead of rebalanced. Pinned (measured: killed by 3 tests).',
+  },
+  {
+    site: 'x-studio-schema/applyMutation.ts:rebalanceRowSpans[anchorTotal + absorberTotal <= GRID_COLS]#0',
+    probedIn: null,
+    why:
+      'the same layout invariant on a SUM of two running totals — the exact shape the ' +
+      'measurement-side recogniser cannot see. Pinned (measured: killed by 8 tests).',
+  },
+  {
+    site: 'x-studio-schema/applyMutation.ts:enforceLayoutColSpans[sum > GRID_COLS]#0',
+    probedIn: null,
+    why:
+      "running total of a row's column spans, accumulated in the statement above the " +
+      'comparison. Pinned (measured: killed by 8 tests).',
+  },
+  {
+    site: 'x-studio-schema/statePersistence.ts:migrateState[fromVersion > CURRENT_SCHEMA_VERSION]#0',
+    probedIn: null,
+    why:
+      'NOT A SIZE CAP. A schema-version ordering check (refuse to migrate FROM the future), ' +
+      'listed because the limit-side recogniser deliberately over-approximates: it asks only ' +
+      'whether one operand references a declared numeric constant, and a version number is ' +
+      'one. Real guard all the same, and pinned (measured: killed by 4 tests).',
+  },
+  {
+    site: 'x-studio-schema/statePersistence.ts:deserializeState[claimedVersion > CURRENT_SCHEMA_VERSION]#0',
+    probedIn: null,
+    why:
+      'NOT A SIZE CAP, same reason as the row above: a persisted doc claiming a future schema ' +
+      'version is rejected at load. Pinned (measured: killed by 3 tests).',
   },
 
   // ── x-studio/chat: the same shared limits, enforced across the package boundary ──
@@ -277,6 +350,87 @@ export const SIZE_CAP_INVENTORY: SizeCapEntry[] = [
       'useChatThreads.test.ts.',
   },
 
+  // ── x-studio/chat, limit-side: the PER-TURN budgets. Every row below bounds total
+  //    persisted bytes or parts across a whole response, and NONE of them was enumerated
+  //    while the per-string caps they back up sat two rows up as flagship inventory entries.
+  {
+    site: 'x-studio/chat/autoSubmit.tsx:attempt[attempts < MAX_AUTO_SUBMIT_ATTEMPTS]#0',
+    probedIn: null,
+    why:
+      'retry cap on the auto-submit loop — a counter, so invisible to the measurement side. ' +
+      'Pinned (measured: relaxing it is killed by 1 test, `--project x-studio autoSubmit`, ' +
+      '7 tests).',
+  },
+  {
+    site: 'x-studio/chat/studioBackendAdapter.ts:canAffordMessagePart[turnMessageParts < MAX_TURN_MESSAGE_PARTS]#0',
+    probedIn: null,
+    why:
+      'the per-TURN cap on total message parts, backing up the per-KIND `subLimit` on the same ' +
+      'line. Both operands are running counters. Pinned (measured: killed by 2 tests).',
+  },
+  {
+    site: 'x-studio/chat/studioBackendAdapter.ts:processEvent[toolInputSize > MAX_TOOL_INPUT_SIZE]#0',
+    probedIn: null,
+    why:
+      'per-CALL tool-argument size. The measurement (`wireValueSize`) is hoisted into a `const` ' +
+      'one statement up, which is the whole reason this and the seven rows below were ' +
+      'invisible: `wireValueSize` is in `SIZE_CALLS`, it just was not inside the comparison. ' +
+      'Pinned (measured: killed).',
+  },
+  {
+    site: 'x-studio/chat/studioBackendAdapter.ts:processEvent[turnToolInputSize + toolInputSize > MAX_TURN_TOOL_INPUT_SIZE]#0',
+    probedIn: null,
+    why:
+      'the per-TURN tool-argument budget backing up the row above: individually-legal calls ' +
+      'still sum. Pinned (measured: killed).',
+  },
+  {
+    site: 'x-studio/chat/studioBackendAdapter.ts:processEvent[turnMetadataKeys < MAX_ARRAY_LENGTH]#0',
+    probedIn: null,
+    why: 'per-TURN metadata KEY-COUNT budget, on a counter. Pinned (measured: killed by 2 tests).',
+  },
+  {
+    site: 'x-studio/chat/studioBackendAdapter.ts:processEvent[turnMetadataSize + entrySize <= MAX_TURN_METADATA_SIZE]#0',
+    probedIn: null,
+    why:
+      'per-TURN metadata BYTE budget, charged in JSON characters. Its `||`-siblings on the ' +
+      'same `if` — the per-key and per-value caps — are inventoried rows; this one was not. ' +
+      'Pinned (measured: killed).',
+  },
+  {
+    site: 'x-studio/chat/studioBackendAdapter.ts:processEvent[turnApprovalSize + effectsSize <= MAX_TURN_APPROVAL_SIZE]#0',
+    probedIn: null,
+    why:
+      'the per-TURN approval-summary budget — the exact bound that masked ' +
+      "`isWithinApprovalListLimits`'s `entry.id` clause for months, and the reason " +
+      "`expectClauseIsolated`'s minimality check exists. It was not itself enumerated. " +
+      'Pinned (measured: killed).',
+  },
+  {
+    site: 'x-studio/chat/studioBackendAdapter.ts:processEvent[reasonSize > MAX_STRING_LENGTH]#0',
+    probedIn: null,
+    why: 'per-approval `reason` length, on a hoisted measurement. Pinned (measured: killed).',
+  },
+  {
+    site: 'x-studio/chat/studioBackendAdapter.ts:processEvent[turnApprovalSize + reasonSize > MAX_TURN_APPROVAL_SIZE]#0',
+    probedIn: null,
+    why:
+      'the per-TURN half of the same budget: `reason` and `effects` share one allowance. ' +
+      'Pinned (measured: killed).',
+  },
+  {
+    site: 'x-studio/chat/studioBackendAdapter.ts:processEvent[approvalInputSize <= MAX_APPROVAL_INPUT_SIZE]#0',
+    probedIn: null,
+    why:
+      'per-approval tool-INPUT size. One of the two named limits that had no inventory row at ' +
+      'all under the measurement-side scan. Pinned (measured: killed).',
+  },
+  {
+    site: 'x-studio/chat/studioBackendAdapter.ts:processEvent[turnApprovalInputSize + approvalInputSize <= MAX_TURN_APPROVAL_INPUT_SIZE]#0',
+    probedIn: null,
+    why: 'the per-TURN half of the approval-input budget. Pinned (measured: killed).',
+  },
+
   // ── x-studio-data-middleware: the request boundary and its own shared limits ──
   {
     site: 'x-studio-data-middleware/handler.ts:mapWithConcurrency[index >= items.length]#0',
@@ -292,6 +446,44 @@ export const SIZE_CAP_INVENTORY: SizeCapEntry[] = [
     site: 'x-studio-data-middleware/handler.ts:checkSemiJoinBounds[filters.length > MAX_ARRAY_ITEMS_PER_DESCRIPTOR]#0',
     probedIn: null,
     why: 'semi-join filter-count cap; pinned by the handler tests.',
+  },
+
+  // ── x-studio-data-middleware, limit-side: the AGGREGATE bounds. Each of the four below
+  //    exists BECAUSE the per-array cap it backs up is not enough, and each says so in its
+  //    own error message ("may individually stay under its per-array cap yet still sum to an
+  //    unbounded number…"). The per-array caps were inventoried rows; these were not.
+  {
+    site: 'x-studio-data-middleware/handler.ts:checkSemiJoinBounds[entryCount.total > MAX_ARRAY_ITEMS_PER_DESCRIPTOR]#0',
+    probedIn: null,
+    why:
+      'aggregate cap on TOTAL semiJoins entries across every nesting level, backing up ' +
+      '`semiJoins.length` at each level. `entryCount.total += semiJoins.length` sits one ' +
+      'statement above the comparison, which is why no measurement-side scan could see it. ' +
+      'Pinned (measured: relaxing it is killed).',
+  },
+  {
+    site: 'x-studio-data-middleware/handler.ts:checkSemiJoinBounds[filterCount.total > MAX_ARRAY_ITEMS_PER_DESCRIPTOR]#0',
+    probedIn: null,
+    why:
+      'aggregate cap on TOTAL semi-join predicate objects, backing up the ' +
+      '`filters.length` row above it. Pinned (measured: killed).',
+  },
+  {
+    site: 'x-studio-data-middleware/handler.ts:assertValidBatchQueryRequest[predicateValueCount.total > MAX_PREDICATE_VALUES_PER_DESCRIPTOR]#0',
+    probedIn: null,
+    why:
+      'aggregate cap on TOTAL filter comparison values per widget. ' +
+      '`MAX_PREDICATE_VALUES_PER_DESCRIPTOR` is one of the two named limits that had no ' +
+      'inventory row anywhere under the measurement-side scan — it is only ever enforced ' +
+      'against a running total, here and in `handleMutation.ts`. Pinned (measured: killed by ' +
+      '2 tests).',
+  },
+  {
+    site: 'x-studio-data-middleware/handler.ts:assertValidBatchQueryRequest[totalOnPairs > MAX_ARRAY_ITEMS_PER_DESCRIPTOR]#0',
+    probedIn: null,
+    why:
+      'aggregate cap on TOTAL join `on` pairs across all joins, backing up the per-join ' +
+      '`on.length` row above. Pinned (measured: killed).',
   },
   {
     site: 'x-studio-data-middleware/handler.ts:assertValidBatchQueryRequest[body.widgets.length > MAX_WIDGETS_PER_BATCH]#0',
@@ -317,6 +509,28 @@ export const SIZE_CAP_INVENTORY: SizeCapEntry[] = [
     site: 'x-studio-data-middleware/mutations/handleMutation.ts:assertValidBatchMutationRequest[where.length > MAX_ARRAY_ITEMS_PER_DESCRIPTOR]#0',
     probedIn: null,
     why: 'where-clause count cap; pinned by the mutation handler tests.',
+  },
+  {
+    site: 'x-studio-data-middleware/mutations/handleMutation.ts:assertValidBatchMutationRequest[totalPredicateValues.total > MAX_PREDICATE_VALUES_PER_DESCRIPTOR]#0',
+    probedIn: null,
+    why:
+      'the mutation-side half of the aggregate predicate-value cap; the only other enforcement ' +
+      'of `MAX_PREDICATE_VALUES_PER_DESCRIPTOR`, also against a running total. Pinned ' +
+      '(measured: killed).',
+  },
+  {
+    site: 'x-studio-data-middleware/security/canonicalize.ts:sortedStringify[depth > MAX_SORTED_STRINGIFY_DEPTH]#0',
+    probedIn: null,
+    why:
+      'recursion-depth bound of the cache-key/policy-digest serializer, on a counter parameter. ' +
+      'Pinned (measured: killed by 2 tests).',
+  },
+  {
+    site: 'x-studio-data-middleware/security/validateQueryPlan.ts:validateSemiJoins[depth > MAX_SEMI_JOIN_DEPTH]#0',
+    probedIn: null,
+    why:
+      'semi-join NESTING depth bound — each level is another subquery to allowlist-check. On a ' +
+      'counter parameter. Pinned (measured: killed).',
   },
   {
     site: 'x-studio-data-middleware/security/cacheKey.ts:computeSecurityHash[securityHashMemo.size >= SECURITY_HASH_MEMO_MAX_SIZE]#0',
